@@ -18,7 +18,14 @@ inline constexpr std::size_t kSm87TargetAotGdnLayers = 48U;
 inline constexpr std::size_t kSm87TargetAotGdnValueHeads = 48U;
 inline constexpr std::size_t kSm87TargetAotGdnQkGroups = 16U;
 inline constexpr std::size_t kSm87TargetAotGdnValueHeadsPerQkGroup = 3U;
-inline constexpr std::size_t kSm87TargetAotGdnStateDimension = 128U;
+inline constexpr std::size_t kSm87TargetAotGdnStateValueDimension = 128U;
+inline constexpr std::size_t kSm87TargetAotGdnStateKeyDimension = 128U;
+inline constexpr std::size_t kSm87TargetAotGdnStateKeyStrideElements = 1U;
+inline constexpr std::size_t kSm87TargetAotGdnStateValueStrideElements =
+    kSm87TargetAotGdnStateKeyDimension;
+inline constexpr std::size_t kSm87TargetAotGdnStateHeadStrideElements =
+    kSm87TargetAotGdnStateValueDimension *
+    kSm87TargetAotGdnStateValueStrideElements;
 inline constexpr std::size_t kSm87TargetAotGdnOwnerCtas = 16U;
 inline constexpr std::size_t kSm87TargetAotGdnThreadsPerCta = 256U;
 inline constexpr std::size_t kSm87TargetAotGdnWarpsPerCta = 8U;
@@ -31,11 +38,11 @@ inline constexpr std::size_t kSm87TargetAotGdnPackedWordBytes = 4U;
 inline constexpr std::size_t kSm87TargetAotGdnConvWidth = 4U;
 inline constexpr std::size_t kSm87TargetAotGdnConvHistory = 3U;
 inline constexpr std::size_t kSm87TargetAotGdnQConvChannels =
-    kSm87TargetAotGdnQkGroups * kSm87TargetAotGdnStateDimension;
+    kSm87TargetAotGdnQkGroups * kSm87TargetAotGdnStateKeyDimension;
 inline constexpr std::size_t kSm87TargetAotGdnKConvChannels =
     kSm87TargetAotGdnQConvChannels;
 inline constexpr std::size_t kSm87TargetAotGdnVConvChannels =
-    kSm87TargetAotGdnValueHeads * kSm87TargetAotGdnStateDimension;
+    kSm87TargetAotGdnValueHeads * kSm87TargetAotGdnStateValueDimension;
 inline constexpr std::size_t kSm87TargetAotGdnQConvChannelOffset = 0U;
 inline constexpr std::size_t kSm87TargetAotGdnKConvChannelOffset =
     kSm87TargetAotGdnQConvChannels;
@@ -46,7 +53,8 @@ inline constexpr std::size_t kSm87TargetAotGdnTotalConvChannels =
     kSm87TargetAotGdnQConvChannels + kSm87TargetAotGdnKConvChannels +
     kSm87TargetAotGdnVConvChannels;
 inline constexpr std::size_t kSm87TargetAotGdnStateValuesPerHead =
-    kSm87TargetAotGdnStateDimension * kSm87TargetAotGdnStateDimension;
+    kSm87TargetAotGdnStateValueDimension *
+    kSm87TargetAotGdnStateKeyDimension;
 inline constexpr std::size_t kSm87TargetAotGdnStateBytesPerHead =
     kSm87TargetAotGdnStateValuesPerHead * kSm87TargetAotGdnBf16Bytes;
 inline constexpr std::size_t kSm87TargetAotGdnStateBytesPerOwner =
@@ -69,13 +77,13 @@ inline constexpr std::size_t kSm87TargetAotGdnTotalConvHistoryBytes =
 
 inline constexpr std::size_t kSm87TargetAotGdnQBytesPerPayloadSlot =
     kSm87TargetAotGdnExactRecurrenceTokens *
-    kSm87TargetAotGdnStateDimension * kSm87TargetAotGdnBf16Bytes;
+    kSm87TargetAotGdnStateKeyDimension * kSm87TargetAotGdnBf16Bytes;
 inline constexpr std::size_t kSm87TargetAotGdnKBytesPerPayloadSlot =
     kSm87TargetAotGdnQBytesPerPayloadSlot;
 inline constexpr std::size_t kSm87TargetAotGdnVBytesPerPayloadSlot =
     kSm87TargetAotGdnExactRecurrenceTokens *
     kSm87TargetAotGdnValueHeadsPerQkGroup *
-    kSm87TargetAotGdnStateDimension * kSm87TargetAotGdnBf16Bytes;
+    kSm87TargetAotGdnStateValueDimension * kSm87TargetAotGdnBf16Bytes;
 inline constexpr std::size_t kSm87TargetAotGdnZBytesPerPayloadSlot =
     kSm87TargetAotGdnVBytesPerPayloadSlot;
 inline constexpr std::size_t kSm87TargetAotGdnABytesPerPayloadSlot =
@@ -103,7 +111,7 @@ inline constexpr std::size_t kSm87TargetAotGdnScalarHeadElements =
 inline constexpr std::size_t kSm87TargetAotGdnRecurrentStateElements =
     kSm87TargetAotGdnValueHeads * kSm87TargetAotGdnStateValuesPerHead;
 inline constexpr std::size_t kSm87TargetAotGdnNormWeightElements =
-    kSm87TargetAotGdnStateDimension;
+    kSm87TargetAotGdnStateValueDimension;
 inline constexpr std::size_t kSm87TargetAotGdnRawQkvZChannels = 16'384U;
 inline constexpr std::size_t kSm87TargetAotGdnRawQChannels = 2'048U;
 inline constexpr std::size_t kSm87TargetAotGdnRawKChannels = 2'048U;
@@ -119,12 +127,12 @@ inline constexpr std::size_t kSm87TargetAotGdnRawZOffset =
 inline constexpr std::size_t kSm87TargetAotGdnAbChannels =
     2U * kSm87TargetAotGdnValueHeads;
 inline constexpr std::size_t kSm87TargetAotGdnOutputChannels =
-    kSm87TargetAotGdnValueHeads * kSm87TargetAotGdnStateDimension;
+    kSm87TargetAotGdnValueHeads * kSm87TargetAotGdnStateValueDimension;
 inline constexpr std::uint32_t kSm87TargetAotGdnEpsilonFp32Bits =
     0x3586'37bdU;
 inline constexpr std::size_t kSm87TargetAotGdnInputBindingCount = 6U;
 inline constexpr std::size_t kSm87TargetAotGdnBindingIdentityCount =
-    30U + kSm87TargetAotGdnInputBindingCount * 4U +
+    31U + kSm87TargetAotGdnInputBindingCount * 4U +
     kSm87TargetAotGdnOwnerCtas;
 
 enum class Sm87TargetAotGdnTopology : std::uint8_t {
@@ -162,6 +170,61 @@ enum class Sm87TargetAotGdnScalarType : std::uint8_t {
   kFp32,
 };
 
+enum class Sm87TargetAotGdnStateAxisOrder : std::uint8_t {
+  kInvalid = 0U,
+  // The recurrent update is v_t k_t^T. Key is the contiguous inner axis:
+  // linear(head, value, key) = head * (V * K) + value * K + key.
+  kHeadValueKey,
+  // Audit-only negative sentinel. Equal V/K extents make a transposition
+  // size-compatible, so v1 names and rejects it explicitly.
+  kHeadKeyValueTransposedForbidden,
+};
+
+struct Sm87TargetAotGdnStateLayout {
+  Sm87TargetAotGdnStateAxisOrder axis_order =
+      Sm87TargetAotGdnStateAxisOrder::kInvalid;
+  std::size_t head_count = 0U;
+  std::size_t value_dimension = 0U;
+  std::size_t key_dimension = 0U;
+  std::size_t head_stride_elements = 0U;
+  std::size_t value_stride_elements = 0U;
+  std::size_t key_stride_elements = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return axis_order == Sm87TargetAotGdnStateAxisOrder::kHeadValueKey &&
+           head_count == kSm87TargetAotGdnValueHeads &&
+           value_dimension == kSm87TargetAotGdnStateValueDimension &&
+           key_dimension == kSm87TargetAotGdnStateKeyDimension &&
+           head_stride_elements ==
+               kSm87TargetAotGdnStateHeadStrideElements &&
+           value_stride_elements ==
+               kSm87TargetAotGdnStateValueStrideElements &&
+           key_stride_elements == kSm87TargetAotGdnStateKeyStrideElements;
+  }
+};
+
+inline constexpr Sm87TargetAotGdnStateLayout
+    kSm87TargetAotGdnRecurrentStateLayout{
+        Sm87TargetAotGdnStateAxisOrder::kHeadValueKey,
+        kSm87TargetAotGdnValueHeads,
+        kSm87TargetAotGdnStateValueDimension,
+        kSm87TargetAotGdnStateKeyDimension,
+        kSm87TargetAotGdnStateHeadStrideElements,
+        kSm87TargetAotGdnStateValueStrideElements,
+        kSm87TargetAotGdnStateKeyStrideElements};
+
+[[nodiscard]] constexpr bool sm87_target_aot_same_gdn_state_layout(
+    const Sm87TargetAotGdnStateLayout& left,
+    const Sm87TargetAotGdnStateLayout& right) noexcept {
+  return left.axis_order == right.axis_order &&
+         left.head_count == right.head_count &&
+         left.value_dimension == right.value_dimension &&
+         left.key_dimension == right.key_dimension &&
+         left.head_stride_elements == right.head_stride_elements &&
+         left.value_stride_elements == right.value_stride_elements &&
+         left.key_stride_elements == right.key_stride_elements;
+}
+
 enum class Sm87TargetAotGdnTensorLayout : std::uint8_t {
   kInvalid = 0U,
   kPromptMajorRawQkvZ_T16384,
@@ -172,7 +235,7 @@ enum class Sm87TargetAotGdnTensorLayout : std::uint8_t {
   kNormWeight_D128,
   kScalar,
   kConvHistory_C10240H3,
-  kRecurrentState_H48D128D128,
+  kRecurrentState_H48V128K128,
 };
 
 // This names the intended incumbent operation order. It is not an accuracy
@@ -180,7 +243,9 @@ enum class Sm87TargetAotGdnTensorLayout : std::uint8_t {
 // compared bitwise against the production oracle on real model state.
 enum class Sm87TargetAotGdnNumericalContract : std::uint8_t {
   kInvalid = 0U,
-  kQwen36ColdReferenceFp32FmaPerTokenBf16,
+  // Candidate instruction graph inherited from the exact C16 CUDA path. It
+  // does not borrow qualification from the deployed Chunk64/WY path.
+  kExactC16CudaCandidatePerTokenBf16,
 };
 
 enum class Sm87TargetAotGdnConvNumericalContract : std::uint8_t {
@@ -190,6 +255,116 @@ enum class Sm87TargetAotGdnConvNumericalContract : std::uint8_t {
   // convolution result with BF16 RNE before any Q/K/V recurrence use.
   kFp32FmaOldestToCurrentThenSiluThenBf16Rne,
 };
+
+enum class Sm87TargetAotGdnOracleFamily : std::uint8_t {
+  kInvalid = 0U,
+  kExactC16CudaCandidate,
+  kDeployedChunk64WyWmma,
+};
+
+enum class Sm87TargetAotGdnQkNormalizationContract : std::uint8_t {
+  kInvalid = 0U,
+  // Four BF16-decoded values per lane: square in FP32, form (0+64) and
+  // (32+96), add those pairs, then shuffle-add at 16,8,4,2,1. Q multiplies
+  // rsqrtf(sum+eps) by rsqrtf(128); K uses rsqrtf(sum+eps). Normalized values
+  // remain private FP32 operands for the recurrence.
+  kFp32Pair0_64Pair32_96Shuffle16To1RsqrtfQInvSqrt128,
+};
+
+enum class Sm87TargetAotGdnGateScalarContract : std::uint8_t {
+  kInvalid = 0U,
+  // gate=a+dt_bias in FP32; softplus is x>20 ? x : log1pf(expf(x));
+  // alpha=expf(-expf(A_log)*softplus); beta uses the stable sign branch and
+  // remains FP32 without an intervening BF16 publication.
+  kCudaExpfLog1pfThreshold20StableSigmoidFp32,
+};
+
+enum class Sm87TargetAotGdnRecurrenceExecutionContract : std::uint8_t {
+  kInvalid = 0U,
+  // Scale BF16 state by alpha in FP32, prediction key 0..127 with fmaf,
+  // delta=(BF16(V)-prediction)*beta, update with fmaf, publish state BF16 RNE
+  // for the next token, but compute this token's output from the pre-round
+  // update with a second key-ascending fmaf chain.
+  kAlphaScalePredictionUpdateOutputKeyAscendingFmafPerTokenBf16,
+};
+
+enum class Sm87TargetAotGdnNormGateContract : std::uint8_t {
+  kInvalid = 0U,
+  // Consume raw BF16 recurrence output, square with fmaf(x,x,0), form the
+  // same (0+64)/(32+96) pairs and shuffle 16..1, apply
+  // rsqrtf(sum/128+eps), plain BF16 norm weight, then
+  // z/(1+expf(-z)), and finally BF16 RNE.
+  kRawBf16PairShuffleRmsRsqrtfPlainWeightSiluBf16Rne,
+};
+
+struct Sm87TargetAotGdnFinitePrecisionContract {
+  Sm87TargetAotGdnOracleFamily oracle_family =
+      Sm87TargetAotGdnOracleFamily::kInvalid;
+  Sm87TargetAotGdnQkNormalizationContract qk_normalization =
+      Sm87TargetAotGdnQkNormalizationContract::kInvalid;
+  Sm87TargetAotGdnGateScalarContract gate_scalars =
+      Sm87TargetAotGdnGateScalarContract::kInvalid;
+  Sm87TargetAotGdnRecurrenceExecutionContract recurrence =
+      Sm87TargetAotGdnRecurrenceExecutionContract::kInvalid;
+  Sm87TargetAotGdnNormGateContract norm_gate =
+      Sm87TargetAotGdnNormGateContract::kInvalid;
+  std::uint32_t softplus_threshold_fp32_bits = 0U;
+  std::array<std::size_t, 4U> qk_lane_dimension_offsets{};
+  std::array<std::size_t, 5U> qk_shuffle_down_strides{};
+  std::array<std::size_t, 2U> rms_pair_offsets{};
+  bool conv_silu_uses_x_over_one_plus_expf_negative_x = false;
+  bool normalized_qk_remain_fp32_private = false;
+  bool beta_remains_fp32 = false;
+  bool per_token_state_bf16_rne = false;
+  bool same_token_output_uses_pre_round_state = false;
+  bool raw_output_bf16_rne_before_norm_gate = false;
+  bool no_fast_math_reassociation = false;
+};
+
+[[nodiscard]] constexpr bool sm87_target_aot_same_gdn_finite_precision(
+    const Sm87TargetAotGdnFinitePrecisionContract& left,
+    const Sm87TargetAotGdnFinitePrecisionContract& right) noexcept {
+  if (left.oracle_family != right.oracle_family ||
+      left.qk_normalization != right.qk_normalization ||
+      left.gate_scalars != right.gate_scalars ||
+      left.recurrence != right.recurrence ||
+      left.norm_gate != right.norm_gate ||
+      left.softplus_threshold_fp32_bits !=
+          right.softplus_threshold_fp32_bits ||
+      left.conv_silu_uses_x_over_one_plus_expf_negative_x !=
+          right.conv_silu_uses_x_over_one_plus_expf_negative_x ||
+      left.normalized_qk_remain_fp32_private !=
+          right.normalized_qk_remain_fp32_private ||
+      left.beta_remains_fp32 != right.beta_remains_fp32 ||
+      left.per_token_state_bf16_rne != right.per_token_state_bf16_rne ||
+      left.same_token_output_uses_pre_round_state !=
+          right.same_token_output_uses_pre_round_state ||
+      left.raw_output_bf16_rne_before_norm_gate !=
+          right.raw_output_bf16_rne_before_norm_gate ||
+      left.no_fast_math_reassociation != right.no_fast_math_reassociation) {
+    return false;
+  }
+  for (std::size_t index = 0U;
+       index < left.qk_lane_dimension_offsets.size(); ++index) {
+    if (left.qk_lane_dimension_offsets[index] !=
+        right.qk_lane_dimension_offsets[index]) {
+      return false;
+    }
+  }
+  for (std::size_t index = 0U;
+       index < left.qk_shuffle_down_strides.size(); ++index) {
+    if (left.qk_shuffle_down_strides[index] !=
+        right.qk_shuffle_down_strides[index]) {
+      return false;
+    }
+  }
+  for (std::size_t index = 0U; index < left.rms_pair_offsets.size(); ++index) {
+    if (left.rms_pair_offsets[index] != right.rms_pair_offsets[index]) {
+      return false;
+    }
+  }
+  return true;
+}
 
 enum class Sm87TargetAotGdnRawPartitionRole : std::uint8_t {
   kInvalid = 0U,
@@ -374,8 +549,10 @@ struct Sm87TargetAotGdnPlan {
       Sm87TargetAotGdnNumericalContract::kInvalid;
   Sm87TargetAotGdnConvNumericalContract conv_numerical_contract =
       Sm87TargetAotGdnConvNumericalContract::kInvalid;
+  Sm87TargetAotGdnFinitePrecisionContract finite_precision{};
   Sm87TargetAotGdnCompletionContract completion_contract =
       Sm87TargetAotGdnCompletionContract::kInvalid;
+  Sm87TargetAotGdnStateLayout recurrent_state_layout{};
   std::array<Sm87TargetAotGdnRawPartition, 4U> raw_partitions{};
   std::size_t first_position = 0U;
   std::size_t token_count = 0U;
@@ -383,7 +560,8 @@ struct Sm87TargetAotGdnPlan {
   std::size_t value_head_state_chains = 0U;
   std::size_t qk_groups = 0U;
   std::size_t value_heads_per_owner = 0U;
-  std::size_t state_dimension = 0U;
+  std::size_t state_value_dimension = 0U;
+  std::size_t state_key_dimension = 0U;
   std::size_t state_bytes_per_owner = 0U;
   std::size_t total_state_bytes = 0U;
   std::size_t packed_state_words_per_owner = 0U;
@@ -458,11 +636,8 @@ struct Sm87TargetAotGdnPlan {
   bool conv_output_bf16_rne_before_qkv_use = false;
   bool z_bit_exact_bypasses_conv = false;
   bool conv_history_stores_raw_current_bf16 = false;
-  bool qk_l2_fp32_index_order_fma = false;
-  bool q_only_scaled_by_inverse_sqrt_128 = false;
-  bool alpha_softplus_and_beta_sigmoid_fp32 = false;
-  bool prediction_update_output_fp32_index_order_fma = false;
   bool resource_qualified = false;
+  bool numerical_contract_qualified = false;
   bool production_dispatch_eligible = false;
 
   [[nodiscard]] constexpr bool valid() const noexcept;
@@ -769,6 +944,7 @@ struct Sm87TargetAotGdnBinding {
       Sm87TargetAotGdnConvNumericalContract::kInvalid;
   Sm87TargetAotGdnCompletionContract completion_contract =
       Sm87TargetAotGdnCompletionContract::kInvalid;
+  Sm87TargetAotGdnStateLayout recurrent_state_layout{};
   std::size_t gdn_layer_ordinal = kSm87TargetAotGdnLayers;
   std::size_t first_position = 1U;
   Sm87TargetAotGdnProducerBinding raw_qkvz_producer{};
@@ -792,6 +968,7 @@ struct Sm87TargetAotGdnBinding {
   std::uint64_t request_transaction_identity = 0U;
   std::uint64_t canonical_cold_zero_identity = 0U;
   std::uint64_t cold_state_reset_epoch_identity = 0U;
+  std::uint64_t recurrent_state_layout_identity = 0U;
   Sm87TargetAotGdnTensorSpanBinding output{};
   Sm87TargetAotGdnTensorSpanBinding final_conv_history{};
   Sm87TargetAotGdnTensorSpanBinding final_recurrent_state{};
@@ -832,6 +1009,7 @@ struct Sm87TargetAotGdnBinding {
     identities[index++] = request_transaction_identity;
     identities[index++] = canonical_cold_zero_identity;
     identities[index++] = cold_state_reset_epoch_identity;
+    identities[index++] = recurrent_state_layout_identity;
     identities[index++] = output.physical_span_identity;
     identities[index++] = output.lifetime_identity;
     identities[index++] = final_conv_history.physical_span_identity;
@@ -868,6 +1046,9 @@ struct Sm87TargetAotGdnBinding {
         numerical_contract != plan.numerical_contract ||
         conv_numerical_contract != plan.conv_numerical_contract ||
         completion_contract != plan.completion_contract ||
+        !sm87_target_aot_same_gdn_state_layout(recurrent_state_layout,
+                                               plan.recurrent_state_layout) ||
+        !recurrent_state_layout.valid() ||
         gdn_layer_ordinal >= kSm87TargetAotGdnLayers ||
         first_position != plan.first_position ||
         !raw_qkvz_producer.valid(
@@ -891,7 +1072,7 @@ struct Sm87TargetAotGdnBinding {
                 kRequestTransactionUnpublishedUntilCommit) ||
         !final_recurrent_state.valid(
             {Sm87TargetAotGdnScalarType::kBf16,
-             Sm87TargetAotGdnTensorLayout::kRecurrentState_H48D128D128,
+             Sm87TargetAotGdnTensorLayout::kRecurrentState_H48V128K128,
              kSm87TargetAotGdnRecurrentStateElements,
              kSm87TargetAotGdnTotalStateBytes},
             Sm87TargetAotGdnSpanLifetime::
@@ -923,6 +1104,7 @@ struct Sm87TargetAotGdnReceipt {
       Sm87TargetAotGdnConvNumericalContract::kInvalid;
   Sm87TargetAotGdnCompletionContract completion_contract =
       Sm87TargetAotGdnCompletionContract::kInvalid;
+  Sm87TargetAotGdnStateLayout recurrent_state_layout{};
   std::size_t gdn_layer_ordinal = kSm87TargetAotGdnLayers;
   std::size_t first_position = 1U;
   std::size_t token_count = 0U;
@@ -957,6 +1139,7 @@ struct Sm87TargetAotGdnReceipt {
   std::uint64_t request_transaction_identity = 0U;
   std::uint64_t canonical_cold_zero_identity = 0U;
   std::uint64_t cold_state_reset_epoch_identity = 0U;
+  std::uint64_t recurrent_state_layout_identity = 0U;
   Sm87TargetAotGdnTensorSpanBinding output{};
   Sm87TargetAotGdnTensorSpanBinding final_conv_history{};
   Sm87TargetAotGdnTensorSpanBinding final_recurrent_state{};
@@ -1006,6 +1189,9 @@ struct Sm87TargetAotGdnReceipt {
         numerical_contract != binding.numerical_contract ||
         conv_numerical_contract != binding.conv_numerical_contract ||
         completion_contract != binding.completion_contract ||
+        !sm87_target_aot_same_gdn_state_layout(recurrent_state_layout,
+                                               binding.recurrent_state_layout) ||
+        !recurrent_state_layout.valid() ||
         gdn_layer_ordinal != binding.gdn_layer_ordinal ||
         first_position != binding.first_position ||
         token_count != plan.token_count ||
@@ -1050,6 +1236,8 @@ struct Sm87TargetAotGdnReceipt {
             binding.canonical_cold_zero_identity ||
         cold_state_reset_epoch_identity !=
             binding.cold_state_reset_epoch_identity ||
+        recurrent_state_layout_identity !=
+            binding.recurrent_state_layout_identity ||
         !sm87_target_aot_same_gdn_tensor_span_binding(output,
                                                       binding.output) ||
         !sm87_target_aot_same_gdn_tensor_span_binding(
@@ -1138,11 +1326,36 @@ struct Sm87TargetAotGdnReceipt {
   plan.conv_history_layout = Sm87TargetAotGdnConvHistoryLayout::
       kCanonicalQ2048K2048V6144History3;
   plan.numerical_contract = Sm87TargetAotGdnNumericalContract::
-      kQwen36ColdReferenceFp32FmaPerTokenBf16;
+      kExactC16CudaCandidatePerTokenBf16;
   plan.conv_numerical_contract = Sm87TargetAotGdnConvNumericalContract::
       kFp32FmaOldestToCurrentThenSiluThenBf16Rne;
+  plan.finite_precision.oracle_family =
+      Sm87TargetAotGdnOracleFamily::kExactC16CudaCandidate;
+  plan.finite_precision.qk_normalization =
+      Sm87TargetAotGdnQkNormalizationContract::
+          kFp32Pair0_64Pair32_96Shuffle16To1RsqrtfQInvSqrt128;
+  plan.finite_precision.gate_scalars = Sm87TargetAotGdnGateScalarContract::
+      kCudaExpfLog1pfThreshold20StableSigmoidFp32;
+  plan.finite_precision.recurrence =
+      Sm87TargetAotGdnRecurrenceExecutionContract::
+          kAlphaScalePredictionUpdateOutputKeyAscendingFmafPerTokenBf16;
+  plan.finite_precision.norm_gate = Sm87TargetAotGdnNormGateContract::
+      kRawBf16PairShuffleRmsRsqrtfPlainWeightSiluBf16Rne;
+  plan.finite_precision.softplus_threshold_fp32_bits = 0x41a0'0000U;
+  plan.finite_precision.qk_lane_dimension_offsets = {{0U, 32U, 64U, 96U}};
+  plan.finite_precision.qk_shuffle_down_strides = {{16U, 8U, 4U, 2U, 1U}};
+  plan.finite_precision.rms_pair_offsets = {{64U, 32U}};
+  plan.finite_precision.conv_silu_uses_x_over_one_plus_expf_negative_x =
+      true;
+  plan.finite_precision.normalized_qk_remain_fp32_private = true;
+  plan.finite_precision.beta_remains_fp32 = true;
+  plan.finite_precision.per_token_state_bf16_rne = true;
+  plan.finite_precision.same_token_output_uses_pre_round_state = true;
+  plan.finite_precision.raw_output_bf16_rne_before_norm_gate = true;
+  plan.finite_precision.no_fast_math_reassociation = true;
   plan.completion_contract = Sm87TargetAotGdnCompletionContract::
       kIndependentOwnersKernelEventThenRequestTransactionAppend;
+  plan.recurrent_state_layout = kSm87TargetAotGdnRecurrentStateLayout;
   plan.raw_partitions = kSm87TargetAotGdnRawPartitions;
   plan.first_position = 0U;
   plan.token_count = token_count;
@@ -1150,7 +1363,8 @@ struct Sm87TargetAotGdnReceipt {
   plan.value_head_state_chains = kSm87TargetAotGdnValueHeads;
   plan.qk_groups = kSm87TargetAotGdnQkGroups;
   plan.value_heads_per_owner = kSm87TargetAotGdnValueHeadsPerQkGroup;
-  plan.state_dimension = kSm87TargetAotGdnStateDimension;
+  plan.state_value_dimension = kSm87TargetAotGdnStateValueDimension;
+  plan.state_key_dimension = kSm87TargetAotGdnStateKeyDimension;
   plan.state_bytes_per_owner = kSm87TargetAotGdnStateBytesPerOwner;
   plan.total_state_bytes = kSm87TargetAotGdnTotalStateBytes;
   plan.packed_state_words_per_owner =
@@ -1238,11 +1452,8 @@ struct Sm87TargetAotGdnReceipt {
   plan.conv_output_bf16_rne_before_qkv_use = true;
   plan.z_bit_exact_bypasses_conv = true;
   plan.conv_history_stores_raw_current_bf16 = true;
-  plan.qk_l2_fp32_index_order_fma = true;
-  plan.q_only_scaled_by_inverse_sqrt_128 = true;
-  plan.alpha_softplus_and_beta_sigmoid_fp32 = true;
-  plan.prediction_update_output_fp32_index_order_fma = true;
   plan.resource_qualified = false;
+  plan.numerical_contract_qualified = false;
   plan.production_dispatch_eligible = false;
   return plan;
 }
@@ -1276,7 +1487,11 @@ struct Sm87TargetAotGdnReceipt {
          left.conv_history_layout == right.conv_history_layout &&
          left.numerical_contract == right.numerical_contract &&
          left.conv_numerical_contract == right.conv_numerical_contract &&
+         sm87_target_aot_same_gdn_finite_precision(
+             left.finite_precision, right.finite_precision) &&
          left.completion_contract == right.completion_contract &&
+         sm87_target_aot_same_gdn_state_layout(
+             left.recurrent_state_layout, right.recurrent_state_layout) &&
          sm87_target_aot_same_gdn_raw_partitions(left.raw_partitions,
                                                  right.raw_partitions) &&
          left.first_position == right.first_position &&
@@ -1285,7 +1500,8 @@ struct Sm87TargetAotGdnReceipt {
          left.value_head_state_chains == right.value_head_state_chains &&
          left.qk_groups == right.qk_groups &&
          left.value_heads_per_owner == right.value_heads_per_owner &&
-         left.state_dimension == right.state_dimension &&
+         left.state_value_dimension == right.state_value_dimension &&
+         left.state_key_dimension == right.state_key_dimension &&
          left.state_bytes_per_owner == right.state_bytes_per_owner &&
          left.total_state_bytes == right.total_state_bytes &&
          left.packed_state_words_per_owner ==
@@ -1401,15 +1617,9 @@ struct Sm87TargetAotGdnReceipt {
              right.z_bit_exact_bypasses_conv &&
          left.conv_history_stores_raw_current_bf16 ==
              right.conv_history_stores_raw_current_bf16 &&
-         left.qk_l2_fp32_index_order_fma ==
-             right.qk_l2_fp32_index_order_fma &&
-         left.q_only_scaled_by_inverse_sqrt_128 ==
-             right.q_only_scaled_by_inverse_sqrt_128 &&
-         left.alpha_softplus_and_beta_sigmoid_fp32 ==
-             right.alpha_softplus_and_beta_sigmoid_fp32 &&
-         left.prediction_update_output_fp32_index_order_fma ==
-             right.prediction_update_output_fp32_index_order_fma &&
          left.resource_qualified == right.resource_qualified &&
+         left.numerical_contract_qualified ==
+             right.numerical_contract_qualified &&
          left.production_dispatch_eligible ==
              right.production_dispatch_eligible;
 }
@@ -1425,7 +1635,7 @@ constexpr bool Sm87TargetAotGdnPlan::valid() const noexcept {
       conv_history_layout != Sm87TargetAotGdnConvHistoryLayout::
                                  kCanonicalQ2048K2048V6144History3 ||
       numerical_contract != Sm87TargetAotGdnNumericalContract::
-                                kQwen36ColdReferenceFp32FmaPerTokenBf16 ||
+                                kExactC16CudaCandidatePerTokenBf16 ||
       completion_contract != Sm87TargetAotGdnCompletionContract::
           kIndependentOwnersKernelEventThenRequestTransactionAppend ||
       first_position != 0U ||
@@ -1450,30 +1660,32 @@ sm87_target_aot_gdn_owner_task(const Sm87TargetAotGdnPlan& plan,
           plan.state_bytes_per_owner,
           plan.packed_state_words_per_owner,
           {kSm87TargetAotGdnQConvChannelOffset +
-               owner_cta * kSm87TargetAotGdnStateDimension,
-           kSm87TargetAotGdnStateDimension,
+               owner_cta * kSm87TargetAotGdnStateKeyDimension,
+           kSm87TargetAotGdnStateKeyDimension,
            (kSm87TargetAotGdnQConvChannelOffset +
-            owner_cta * kSm87TargetAotGdnStateDimension) *
+            owner_cta * kSm87TargetAotGdnStateKeyDimension) *
                plan.conv_history * kSm87TargetAotGdnBf16Bytes,
-           kSm87TargetAotGdnStateDimension * plan.conv_history *
+           kSm87TargetAotGdnStateKeyDimension * plan.conv_history *
                kSm87TargetAotGdnBf16Bytes},
           {kSm87TargetAotGdnKConvChannelOffset +
-               owner_cta * kSm87TargetAotGdnStateDimension,
-           kSm87TargetAotGdnStateDimension,
+               owner_cta * kSm87TargetAotGdnStateKeyDimension,
+           kSm87TargetAotGdnStateKeyDimension,
            (kSm87TargetAotGdnKConvChannelOffset +
-            owner_cta * kSm87TargetAotGdnStateDimension) *
+            owner_cta * kSm87TargetAotGdnStateKeyDimension) *
                plan.conv_history * kSm87TargetAotGdnBf16Bytes,
-           kSm87TargetAotGdnStateDimension * plan.conv_history *
+           kSm87TargetAotGdnStateKeyDimension * plan.conv_history *
                kSm87TargetAotGdnBf16Bytes},
           {kSm87TargetAotGdnVConvChannelOffset +
                owner_cta * plan.value_heads_per_owner *
-                   kSm87TargetAotGdnStateDimension,
-           plan.value_heads_per_owner * kSm87TargetAotGdnStateDimension,
+                   kSm87TargetAotGdnStateValueDimension,
+           plan.value_heads_per_owner *
+               kSm87TargetAotGdnStateValueDimension,
            (kSm87TargetAotGdnVConvChannelOffset +
             owner_cta * plan.value_heads_per_owner *
-                kSm87TargetAotGdnStateDimension) *
+                kSm87TargetAotGdnStateValueDimension) *
                plan.conv_history * kSm87TargetAotGdnBf16Bytes,
-           plan.value_heads_per_owner * kSm87TargetAotGdnStateDimension *
+           plan.value_heads_per_owner *
+               kSm87TargetAotGdnStateValueDimension *
                plan.conv_history * kSm87TargetAotGdnBf16Bytes},
           plan.conv_channels_per_owner,
           plan.conv_history_bytes_per_owner,
@@ -1547,6 +1759,10 @@ static_assert(kSm87TargetAotGdnThreadsPerCta ==
 static_assert(kSm87TargetAotGdnPreparationTokens ==
               kSm87TargetAotGdnExactRecurrenceTokens *
                   kSm87TargetAotGdnC16PerPreparation);
+static_assert(kSm87TargetAotGdnStateKeyStrideElements == 1U);
+static_assert(kSm87TargetAotGdnStateValueStrideElements == 128U);
+static_assert(kSm87TargetAotGdnStateHeadStrideElements == 16'384U);
+static_assert(kSm87TargetAotGdnRecurrentStateLayout.valid());
 static_assert(kSm87TargetAotGdnStateBytesPerHead == 32'768U);
 static_assert(kSm87TargetAotGdnStateBytesPerOwner == 98'304U);
 static_assert(kSm87TargetAotGdnTotalStateBytes == 1'572'864U);

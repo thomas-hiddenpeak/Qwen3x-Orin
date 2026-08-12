@@ -369,13 +369,37 @@ contains no CUDA implementation, launcher, selector, device handle, API
 wiring, resource qualification, numerical qualification, or production
 dispatch authority. The next implementation step must bind new packed assets
 and native CUDA bodies directly to the real P40 API route; passing the host
-schema cannot promote the current production path. Before that CUDA feed is
-admissible, the implementation contract must additionally freeze the complete
-finite-precision operation/reduction order, encode GDN recurrent-state axes as
-head/value/key rather than two anonymous dimensions, authenticate the source-
-to-packed-payload transformation including forbidden FP8 scale encodings, and
-fix the same-CTA Gate/Up BF16 temporary lifetime and reclamation point. This
-milestone freezes topology, not numerical or payload qualification.
+schema cannot promote the current production path.
+
+The pre-CUDA implementation contract is now frozen as a second host-only
+milestone:
+
+- NVFP4 and admitted FP8-Marlin projection paths have distinct decode, scale,
+  MMA, full-K accumulation, exceptional-encoding, and BF16 publication
+  identities. Gate and Up retain independent weights, scales, reduction trees,
+  and BF16-RNE values inside one CTA; their private lifetime ends only after
+  `SiLU(Gate) * Up`, with no global intermediate or cross-CTA handoff;
+- full Attention freezes both preprocess and core instruction order: the
+  production D256 Q/K RMS reduction tree, centered BF16 norm-weight `+1`,
+  `rsqrtf`, BF16 publication before NeoX RoPE, RoPE FMA order and passthrough
+  tail, QK/PV MMA traversal, online-softmax exponent and denominator tree,
+  probability BF16 boundary, reciprocal, stable sigmoid, and final BF16
+  publication;
+- GDN names recurrent state as `[head,value,key]` with key contiguous and
+  freezes the exact-C16 CUDA candidate's Q/K reduction tree, scalar transcendental
+  operations, key-ascending recurrence, per-token BF16 state, pre-round output,
+  and norm/gate epilogue. It explicitly does not borrow qualification from the
+  deployed Chunk64 WY/WMMA family; and
+- the packed transformation receipt binds actual source-weight/source-scale
+  byte digests, exact permutation counts, payload byte digest, and a complete
+  NVFP4 E4M3FN block-scale forbidden-code scan. FP8 weight bytes instead keep
+  the admitted Marlin raw-code semantics. A metadata-derived pseudo-digest is
+  not an authenticated payload.
+
+These declarations are implementation constraints, not numerical or payload
+qualification. The loader still has to hash and scan the actual real-checkpoint
+bytes, and CUDA still has to reproduce the declared traces against the named
+real-model oracle before either qualification bit can change.
 
 ## 9. One bounded reference-geometry witness
 

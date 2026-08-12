@@ -117,6 +117,67 @@ class TestContext {
   return inventory;
 }
 
+[[nodiscard]] kernels::Sm87TargetAotProjectionPackedTransformReceipt
+make_transform_receipt(
+    const Sm87TargetAotProjectionPackedLayout& layout,
+    const Sm87TargetAotProjectionPackedSourceInventory& inventory,
+    const kernels::Sm87TargetAotProjectionPackedManifest& manifest) noexcept {
+  kernels::Sm87TargetAotProjectionPackedTransformReceipt receipt;
+  receipt.artifact_identity = manifest.artifact_identity;
+  receipt.source_inventory_identity = inventory.identity;
+  receipt.role = layout.role;
+  receipt.plan_identity = layout.plan_identity;
+  receipt.layout_identity = layout.layout_identity;
+  receipt.encoding = layout.encoding;
+  receipt.transform_identity = kernels::
+      Sm87TargetAotProjectionPackedTransformIdentity::
+          kCanonicalNkToConsumerN64K16LaneComponentV1;
+  receipt.partition_count = layout.partition_count;
+  receipt.payload = {manifest.artifact_identity,
+                     manifest.payload_offset,
+                     manifest.payload_bytes,
+                     manifest.payload_digest,
+                     true};
+  receipt.deterministic_transform = true;
+  receipt.no_arithmetic_conversion = true;
+  receipt.no_request_time_repacking = true;
+  for (std::size_t index = 0U; index < layout.partition_count; ++index) {
+    const auto& partition = layout.partitions[index];
+    const auto& source = inventory.sources[index];
+    auto& observed = receipt.partitions[index];
+    const std::uint64_t values =
+        static_cast<std::uint64_t>(partition.output_features) *
+        partition.input_features;
+    const std::uint64_t weight_bytes =
+        values * partition.weight_bits / 8U;
+    const std::uint64_t block_scale_values =
+        partition.block_scale_group_k == 0U
+            ? 0U
+            : values / partition.block_scale_group_k;
+    observed.logical_role = partition.logical_role;
+    observed.partition_index = static_cast<std::uint32_t>(index);
+    observed.tensor_identity = source.tensor_identity;
+    observed.observed_source_weight_digest = source.weight_digest;
+    observed.observed_source_scale_digest = source.scale_digest;
+    observed.source_weight_bytes_hashed = weight_bytes;
+    observed.source_scale_bytes_hashed =
+        block_scale_values + sizeof(std::uint32_t);
+    observed.repacked_weight_values = values;
+    observed.repacked_block_scale_values = block_scale_values;
+    observed.source_block_scale_e4m3fn_bytes_scanned = block_scale_values;
+    observed.payload_block_scale_e4m3fn_bytes_scanned = block_scale_values;
+    observed.payload_offset = partition.payload_offset;
+    observed.payload_bytes = partition.payload_bytes;
+    observed.source_digests_computed_from_tensor_bytes = true;
+    observed.canonical_address_bijection_applied = true;
+    observed.bit_exact_weight_permutation = true;
+    observed.bit_exact_block_scale_permutation =
+        block_scale_values != 0U;
+    observed.tensor_scale_kept_external = true;
+  }
+  return receipt;
+}
+
 [[nodiscard]] bool same_logical_weight(
     const kernels::Sm87TargetAotProjectionPackedWeightAddress& left,
     const kernels::Sm87TargetAotProjectionPackedWeightAddress& right) {
@@ -615,6 +676,47 @@ void test_typed_manifests(TestContext& test) {
         kernels::sm87_target_aot_projection_validate_payload_receipt(
             manifest, receipt),
         "loader receipt must bind a digest computed from actual payload bytes");
+    const auto transform =
+        make_transform_receipt(layout, inventory, manifest);
+    test.expect(
+        kernels::sm87_target_aot_projection_validate_transform_receipt(
+            manifest, inventory, transform),
+        "source bytes, exact permutation, E4M3FN scan, and payload digest "
+        "close one authenticated transform receipt");
+    auto forbidden_source = transform;
+    forbidden_source.partitions[0U]
+        .source_forbidden_block_scale_codes = 1U;
+    test.expect(
+        !kernels::sm87_target_aot_projection_validate_transform_receipt(
+            manifest, inventory, forbidden_source),
+        "forbidden source E4M3FN terminal code fails closed");
+    auto forbidden_payload = transform;
+    forbidden_payload.partitions[0U]
+        .payload_forbidden_block_scale_codes = 1U;
+    test.expect(
+        !kernels::sm87_target_aot_projection_validate_transform_receipt(
+            manifest, inventory, forbidden_payload),
+        "forbidden packed E4M3FN terminal code fails closed");
+    auto converted = transform;
+    converted.no_arithmetic_conversion = false;
+    test.expect(
+        !kernels::sm87_target_aot_projection_validate_transform_receipt(
+            manifest, inventory, converted),
+        "arithmetic conversion cannot impersonate a bit-exact permutation");
+    auto unobserved_source = transform;
+    unobserved_source.partitions[0U]
+        .source_digests_computed_from_tensor_bytes = false;
+    test.expect(
+        !kernels::sm87_target_aot_projection_validate_transform_receipt(
+            manifest, inventory, unobserved_source),
+        "metadata-derived source digests cannot authenticate tensor bytes");
+    auto incomplete_scan = transform;
+    --incomplete_scan.partitions[0U]
+          .payload_block_scale_e4m3fn_bytes_scanned;
+    test.expect(
+        !kernels::sm87_target_aot_projection_validate_transform_receipt(
+            manifest, inventory, incomplete_scan),
+        "partial E4M3FN payload scan fails closed");
     auto corrupted_payload_receipt = receipt;
     corrupted_payload_receipt.observed_payload_digest.bytes[7U] ^= 1U;
     test.expect(
@@ -715,6 +817,23 @@ void test_typed_manifests(TestContext& test) {
       "Gate/Up semantic partition swap fails structural validation");
   test.expect(!kernels::sm87_target_aot_projection_seal_packed_manifest(nullptr),
               "null manifest seal fails closed");
+  test.expect(
+      kernels::sm87_target_aot_projection_block_scale_e4m3fn_code_is_forbidden(
+          0x7fU) &&
+          kernels::
+              sm87_target_aot_projection_block_scale_e4m3fn_code_is_forbidden(
+              0xffU) &&
+          kernels::
+              sm87_target_aot_projection_block_scale_e4m3fn_code_is_forbidden(
+                  0x81U) &&
+          !kernels::
+              sm87_target_aot_projection_block_scale_e4m3fn_code_is_forbidden(
+                  0x80U) &&
+          !kernels::
+              sm87_target_aot_projection_block_scale_e4m3fn_code_is_forbidden(
+              0x7eU),
+      "NVFP4 block scales reject NaN and negative nonzero but accept signed "
+      "zero");
 }
 
 }  // namespace

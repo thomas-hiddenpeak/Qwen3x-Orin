@@ -27,11 +27,22 @@ static_assert(kP40.capacity_bucket ==
 static_assert(kP40.owner_ctas == 16U &&
               kP40.value_head_state_chains == 48U &&
               kP40.qk_groups == 16U && kP40.value_heads_per_owner == 3U &&
-              kP40.state_dimension == 128U &&
+              kP40.state_value_dimension == 128U &&
+              kP40.state_key_dimension == 128U &&
               kP40.state_bytes_per_owner == 98'304U &&
               kP40.total_state_bytes == 1'572'864U &&
               kP40.packed_state_words_per_owner == 24'576U &&
               kP40.packed_state_words_per_thread == 96U);
+static_assert(
+    kP40.recurrent_state_layout.valid() &&
+    kP40.recurrent_state_layout.axis_order ==
+        kernels::Sm87TargetAotGdnStateAxisOrder::kHeadValueKey &&
+    kP40.recurrent_state_layout.head_count == 48U &&
+    kP40.recurrent_state_layout.value_dimension == 128U &&
+    kP40.recurrent_state_layout.key_dimension == 128U &&
+    kP40.recurrent_state_layout.head_stride_elements == 16'384U &&
+    kP40.recurrent_state_layout.value_stride_elements == 128U &&
+    kP40.recurrent_state_layout.key_stride_elements == 1U);
 static_assert(kP40.kernel_launches_per_layer == 1U &&
               kP40.persistent_ctas == 16U &&
               kP40.threads_per_cta == 256U &&
@@ -70,7 +81,7 @@ static_assert(kP40.first_position == 0U && kP40.cold_start_only &&
 static_assert(
     kP40.numerical_contract ==
         kernels::Sm87TargetAotGdnNumericalContract::
-            kQwen36ColdReferenceFp32FmaPerTokenBf16 &&
+            kExactC16CudaCandidatePerTokenBf16 &&
     kP40.conv_numerical_contract ==
         kernels::Sm87TargetAotGdnConvNumericalContract::
             kFp32FmaOldestToCurrentThenSiluThenBf16Rne &&
@@ -79,13 +90,44 @@ static_assert(
     kP40.conv_output_bf16_rne_before_qkv_use &&
     kP40.z_bit_exact_bypasses_conv &&
     kP40.conv_history_stores_raw_current_bf16 &&
-    kP40.qk_l2_fp32_index_order_fma &&
-    kP40.q_only_scaled_by_inverse_sqrt_128 &&
-    kP40.alpha_softplus_and_beta_sigmoid_fp32 &&
-    kP40.prediction_update_output_fp32_index_order_fma &&
     kP40.per_token_bf16_state_rounding &&
     kP40.output_uses_pre_round_fp32_update &&
-    kP40.raw_bf16_before_rmsnorm_silu_z);
+    kP40.raw_bf16_before_rmsnorm_silu_z &&
+    !kP40.numerical_contract_qualified);
+static_assert(
+    kP40.finite_precision.oracle_family ==
+        kernels::Sm87TargetAotGdnOracleFamily::kExactC16CudaCandidate &&
+    kP40.finite_precision.qk_normalization ==
+        kernels::Sm87TargetAotGdnQkNormalizationContract::
+            kFp32Pair0_64Pair32_96Shuffle16To1RsqrtfQInvSqrt128 &&
+    kP40.finite_precision.gate_scalars ==
+        kernels::Sm87TargetAotGdnGateScalarContract::
+            kCudaExpfLog1pfThreshold20StableSigmoidFp32 &&
+    kP40.finite_precision.recurrence ==
+        kernels::Sm87TargetAotGdnRecurrenceExecutionContract::
+            kAlphaScalePredictionUpdateOutputKeyAscendingFmafPerTokenBf16 &&
+    kP40.finite_precision.norm_gate ==
+        kernels::Sm87TargetAotGdnNormGateContract::
+            kRawBf16PairShuffleRmsRsqrtfPlainWeightSiluBf16Rne &&
+    kP40.finite_precision.softplus_threshold_fp32_bits == 0x41a0'0000U &&
+    kP40.finite_precision.qk_lane_dimension_offsets[0U] == 0U &&
+    kP40.finite_precision.qk_lane_dimension_offsets[1U] == 32U &&
+    kP40.finite_precision.qk_lane_dimension_offsets[2U] == 64U &&
+    kP40.finite_precision.qk_lane_dimension_offsets[3U] == 96U &&
+    kP40.finite_precision.qk_shuffle_down_strides[0U] == 16U &&
+    kP40.finite_precision.qk_shuffle_down_strides[1U] == 8U &&
+    kP40.finite_precision.qk_shuffle_down_strides[2U] == 4U &&
+    kP40.finite_precision.qk_shuffle_down_strides[3U] == 2U &&
+    kP40.finite_precision.qk_shuffle_down_strides[4U] == 1U &&
+    kP40.finite_precision.rms_pair_offsets[0U] == 64U &&
+    kP40.finite_precision.rms_pair_offsets[1U] == 32U &&
+    kP40.finite_precision.conv_silu_uses_x_over_one_plus_expf_negative_x &&
+    kP40.finite_precision.normalized_qk_remain_fp32_private &&
+    kP40.finite_precision.beta_remains_fp32 &&
+    kP40.finite_precision.per_token_state_bf16_rne &&
+    kP40.finite_precision.same_token_output_uses_pre_round_state &&
+    kP40.finite_precision.raw_output_bf16_rne_before_norm_gate &&
+    kP40.finite_precision.no_fast_math_reassociation);
 static_assert(kP40.conv_width == 4U && kP40.conv_history == 3U &&
               kP40.conv_channels_per_owner == 640U &&
               kP40.total_conv_channels == 10'240U &&
@@ -174,7 +216,7 @@ static_assert(kP40Owner15.valid && kP40Owner15.qk_group == 15U &&
               kP40Owner15.v_conv.channel_begin == 9'856U);
 static_assert(!kernels::sm87_target_aot_gdn_plan(39'999U).valid());
 static_assert(!kernels::sm87_target_aot_gdn_plan(40'016U).valid());
-static_assert(kernels::kSm87TargetAotGdnBindingIdentityCount == 70U);
+static_assert(kernels::kSm87TargetAotGdnBindingIdentityCount == 71U);
 static_assert(kernels::kSm87TargetAotGdnEpsilonFp32Bits == 0x3586'37bdU);
 static_assert(kernels::sm87_target_aot_gdn_input_spec(
                   kernels::Sm87TargetAotGdnInputRole::kConvWeight)
@@ -363,6 +405,7 @@ void test_ordered_c16_schedule(TestContext& test,
   binding.numerical_contract = plan.numerical_contract;
   binding.conv_numerical_contract = plan.conv_numerical_contract;
   binding.completion_contract = plan.completion_contract;
+  binding.recurrent_state_layout = plan.recurrent_state_layout;
   binding.gdn_layer_ordinal = kernels::kSm87TargetAotGdnLayers - 1U;
   binding.first_position = 0U;
   binding.raw_qkvz_producer = make_producer(
@@ -392,6 +435,7 @@ void test_ordered_c16_schedule(TestContext& test,
   binding.request_transaction_identity = 0x2'00dU;
   binding.canonical_cold_zero_identity = 0x2'00eU;
   binding.cold_state_reset_epoch_identity = 0x2'00fU;
+  binding.recurrent_state_layout_identity = 0x2'017U;
   binding.output = make_span(
       {kernels::Sm87TargetAotGdnScalarType::kBf16,
        kernels::Sm87TargetAotGdnTensorLayout::kPromptMajorOutput_T6144,
@@ -411,7 +455,7 @@ void test_ordered_c16_schedule(TestContext& test,
       0x2'012U, 0x2'013U);
   binding.final_recurrent_state = make_span(
       {kernels::Sm87TargetAotGdnScalarType::kBf16,
-       kernels::Sm87TargetAotGdnTensorLayout::kRecurrentState_H48D128D128,
+       kernels::Sm87TargetAotGdnTensorLayout::kRecurrentState_H48V128K128,
        kernels::kSm87TargetAotGdnRecurrentStateElements,
        kernels::kSm87TargetAotGdnTotalStateBytes},
       kernels::Sm87TargetAotGdnSpanLifetime::
@@ -436,6 +480,7 @@ void test_ordered_c16_schedule(TestContext& test,
   receipt.numerical_contract = binding.numerical_contract;
   receipt.conv_numerical_contract = binding.conv_numerical_contract;
   receipt.completion_contract = binding.completion_contract;
+  receipt.recurrent_state_layout = binding.recurrent_state_layout;
   receipt.gdn_layer_ordinal = binding.gdn_layer_ordinal;
   receipt.first_position = binding.first_position;
   receipt.token_count = plan.token_count;
@@ -488,6 +533,8 @@ void test_ordered_c16_schedule(TestContext& test,
   receipt.canonical_cold_zero_identity = binding.canonical_cold_zero_identity;
   receipt.cold_state_reset_epoch_identity =
       binding.cold_state_reset_epoch_identity;
+  receipt.recurrent_state_layout_identity =
+      binding.recurrent_state_layout_identity;
   receipt.output = binding.output;
   receipt.final_conv_history = binding.final_conv_history;
   receipt.final_recurrent_state = binding.final_recurrent_state;
@@ -529,7 +576,7 @@ void test_ordered_c16_schedule(TestContext& test,
 void test_typed_binding_and_identity_namespace(TestContext& test) {
   const auto binding = make_complete_binding(kP40);
   test.expect(binding.identity_namespace_valid() && binding.valid(kP40),
-              "all 70 typed identities are nonzero and pairwise unique");
+              "all 71 typed identities are nonzero and pairwise unique");
 
   auto changed = binding;
   changed.first_position = 1U;
@@ -558,6 +605,17 @@ void test_typed_binding_and_identity_namespace(TestContext& test) {
       kernels::Sm87TargetAotGdnTensorLayout::kConvHistory_C10240H3;
   test.expect(!changed.valid(kP40),
               "final recurrent-state layout cannot alias conv history");
+  changed = binding;
+  changed.recurrent_state_layout.axis_order =
+      kernels::Sm87TargetAotGdnStateAxisOrder::
+          kHeadKeyValueTransposedForbidden;
+  test.expect(!changed.valid(kP40),
+              "binding rejects a size-compatible key/value transpose");
+  changed = binding;
+  changed.recurrent_state_layout.value_stride_elements = 1U;
+  changed.recurrent_state_layout.key_stride_elements = 128U;
+  test.expect(!changed.valid(kP40),
+              "binding freezes key-contiguous [head,value,key] strides");
 
   const std::size_t l2 = kernels::sm87_target_aot_gdn_input_index(
       kernels::Sm87TargetAotGdnInputRole::kL2Epsilon);
@@ -573,7 +631,7 @@ void test_typed_binding_and_identity_namespace(TestContext& test) {
 
   using IdentityMember =
       std::uint64_t kernels::Sm87TargetAotGdnBinding::*;
-  constexpr std::array<IdentityMember, 16U> kScalarIdentities{{
+  constexpr std::array<IdentityMember, 17U> kScalarIdentities{{
       &kernels::Sm87TargetAotGdnBinding::plan_identity,
       &kernels::Sm87TargetAotGdnBinding::tactic_identity,
       &kernels::Sm87TargetAotGdnBinding::recurrence_identity,
@@ -591,6 +649,7 @@ void test_typed_binding_and_identity_namespace(TestContext& test) {
       &kernels::Sm87TargetAotGdnBinding::request_transaction_identity,
       &kernels::Sm87TargetAotGdnBinding::canonical_cold_zero_identity,
       &kernels::Sm87TargetAotGdnBinding::cold_state_reset_epoch_identity,
+      &kernels::Sm87TargetAotGdnBinding::recurrent_state_layout_identity,
   }};
   for (const IdentityMember identity : kScalarIdentities) {
     changed = binding;
@@ -710,6 +769,21 @@ void test_transaction_receipt_fails_closed(TestContext& test) {
   test.expect(!changed.complete(kP40, binding),
               "receipt echoes exact transaction output span");
   changed = receipt;
+  changed.recurrent_state_layout.axis_order =
+      kernels::Sm87TargetAotGdnStateAxisOrder::
+          kHeadKeyValueTransposedForbidden;
+  test.expect(!changed.complete(kP40, binding),
+              "receipt rejects a key/value-transposed state claim");
+  changed = receipt;
+  changed.recurrent_state_layout.value_stride_elements = 1U;
+  changed.recurrent_state_layout.key_stride_elements = 128U;
+  test.expect(!changed.complete(kP40, binding),
+              "receipt must echo exact [head,value,key] strides");
+  changed = receipt;
+  changed.recurrent_state_layout_identity += 1U;
+  test.expect(!changed.complete(kP40, binding),
+              "receipt recurrent-state layout identity is exact");
+  changed = receipt;
   changed.numerical_contract_applied = false;
   test.expect(!changed.complete(kP40, binding),
               "receipt cannot omit intended recurrence operation order");
@@ -773,8 +847,33 @@ void test_plan_mutations_fail_closed(TestContext& test) {
   changed.continuation_supported = true;
   test.expect(!changed.valid(), "continuation requires a separately named plan");
   changed = kP40;
-  changed.qk_l2_fp32_index_order_fma = false;
-  test.expect(!changed.valid(), "numerical operation order is frozen");
+  changed.finite_precision.oracle_family =
+      kernels::Sm87TargetAotGdnOracleFamily::kDeployedChunk64WyWmma;
+  test.expect(!changed.valid(), "oracle families cannot borrow qualification");
+  changed = kP40;
+  changed.finite_precision.qk_lane_dimension_offsets[1U] = 64U;
+  test.expect(!changed.valid(), "Q/K lane-to-dimension order is frozen");
+  changed = kP40;
+  changed.finite_precision.qk_shuffle_down_strides[0U] = 8U;
+  test.expect(!changed.valid(), "Q/K reduction tree is frozen");
+  changed = kP40;
+  changed.finite_precision.softplus_threshold_fp32_bits = 0x4198'0000U;
+  test.expect(!changed.valid(), "softplus branch threshold is frozen");
+  changed = kP40;
+  changed.finite_precision.beta_remains_fp32 = false;
+  test.expect(!changed.valid(), "beta cannot acquire an extra BF16 rounding");
+  changed = kP40;
+  changed.finite_precision.per_token_state_bf16_rne = false;
+  test.expect(!changed.valid(), "state rounds after every token");
+  changed = kP40;
+  changed.finite_precision.same_token_output_uses_pre_round_state = false;
+  test.expect(!changed.valid(), "same-token output consumes pre-round state");
+  changed = kP40;
+  changed.finite_precision.no_fast_math_reassociation = false;
+  test.expect(!changed.valid(), "finite-precision reassociation is forbidden");
+  changed = kP40;
+  changed.numerical_contract_qualified = true;
+  test.expect(!changed.valid(), "host plan cannot self-attest numerical proof");
   changed = kP40;
   changed.conv_silu_fp32_before_publication = false;
   test.expect(!changed.valid(), "convolution SiLU cannot be elided");
@@ -790,6 +889,23 @@ void test_plan_mutations_fail_closed(TestContext& test) {
   changed = kP40;
   changed.per_token_bf16_state_rounding = false;
   test.expect(!changed.valid(), "delayed state rounding fails closed");
+  changed = kP40;
+  changed.recurrent_state_layout.axis_order =
+      kernels::Sm87TargetAotGdnStateAxisOrder::
+          kHeadKeyValueTransposedForbidden;
+  test.expect(!changed.valid(),
+              "plan rejects the size-compatible [head,key,value] layout");
+  changed = kP40;
+  changed.recurrent_state_layout.value_stride_elements = 1U;
+  changed.recurrent_state_layout.key_stride_elements = 128U;
+  test.expect(!changed.valid(),
+              "plan freezes key-contiguous [head,value,key] strides");
+  changed = kP40;
+  changed.state_value_dimension = 127U;
+  test.expect(!changed.valid(), "plan freezes the recurrent value extent");
+  changed = kP40;
+  changed.state_key_dimension = 127U;
+  test.expect(!changed.valid(), "plan freezes the recurrent key extent");
   changed = kP40;
   changed.chunk_fp32_state_authoritative = true;
   test.expect(!changed.valid(), "FP32 chunk state is forbidden");

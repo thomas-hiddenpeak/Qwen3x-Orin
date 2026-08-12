@@ -98,6 +98,69 @@ enum class Sm87TargetAotConsumer : std::uint8_t {
   kFullAttentionCore,
 };
 
+// Gate and Up retain independent arithmetic identities even though their
+// physical work is paired in one CTA.  "Publication" below names the BF16
+// numerical boundary consumed by SiLU(Gate) * Up; it does not authorize a
+// global-memory publication or a cross-CTA handoff.
+enum class Sm87TargetAotGateUpBf16Scope : std::uint8_t {
+  kInvalid = 0U,
+  kSameCtaPrivate,
+};
+
+enum class Sm87TargetAotGateUpBf16ReclaimPoint : std::uint8_t {
+  kInvalid = 0U,
+  kAfterSiluTimesUpConsumption,
+};
+
+// The packed target layout retains checkpoint E2M1/E4M3FN bytes. For an
+// authenticated finite, non-negative NVFP4 block scale, E2M1 * E4M3FN has at
+// most six significant binary digits: the BF16-RNE product below is exact and
+// is the normalized operand represented by Marlin's exponent-shifted decode,
+// BF16 HMUL2, and compensating final scale. FP8 cannot be described by the
+// real-number expression E4M3FN * tensor_scale alone: production Marlin feeds
+// the exponent-shifted E4M3FN bits to BF16 MMA and compensates with a
+// twice-BF16-rounded 2^120-expanded tensor scale after accumulation.
+enum class Sm87TargetAotProjectionBOperandPath : std::uint8_t {
+  kInvalid = 0U,
+  kNvFp4E2M1TimesE4M3FnBf16Rne,
+  kFp8MarlinE4M3FnBiasShiftBf16,
+};
+
+enum class Sm87TargetAotProjectionTensorScalePath : std::uint8_t {
+  kInvalid = 0U,
+  kNvFp4IndependentFp32AfterFullK,
+  kFp8F32ToBf16RneTimes2Pow120ToBf16RneAfterFullK,
+};
+
+enum class Sm87TargetAotProjectionExceptionalEncoding : std::uint8_t {
+  kInvalid = 0U,
+  // Marlin admission rejects both E4M3FN NaN codes and every negative block
+  // scale. Positive and negative zero remain admissible.
+  kNvFp4RejectNanAndNegativeBlockScaleSignedZeroAllowed,
+  // The admitted FP8 Marlin loader does not canonicalize E4M3FN 0x7f/0xff.
+  // Its raw bias-shift path represents them as +480/-480 before the tensor
+  // scale compensation, rather than as canonical NaNs.
+  kFp8MarlinTerminalNanCodesBecomeSigned480,
+};
+
+enum class Sm87TargetAotProjectionMmaInstruction : std::uint8_t {
+  kInvalid = 0U,
+  kM16N8K16RowColF32Bf16Bf16F32,
+};
+
+enum class Sm87TargetAotProjectionKTraversal : std::uint8_t {
+  kInvalid = 0U,
+  // Each warp owns one M64xN64 accumulator set for the complete K span.
+  // K64 cells and their four K16 MMA updates are both visited in ascending K
+  // order. No other warp or CTA contributes to that accumulator set.
+  kWarpM64N64FullKAscendingK64ThenK16,
+};
+
+enum class Sm87TargetAotProjectionPublication : std::uint8_t {
+  kInvalid = 0U,
+  kFp32TensorScaleMultiplyRnThenBf16Rne,
+};
+
 enum Sm87TargetAotProjectionPolicy : std::uint32_t {
   kSm87TargetAotAheadOfTimeTactic = 1U << 0U,
   kSm87TargetAotNoRequestJit = 1U << 1U,
@@ -114,7 +177,10 @@ enum Sm87TargetAotProjectionPolicy : std::uint32_t {
   kSm87TargetAotPrefetchBeforeStageDrain = 1U << 12U,
   kSm87TargetAotNoReductionWorkspace = 1U << 13U,
   kSm87TargetAotGateUpSameCtaPartitionPair = 1U << 14U,
-  kSm87TargetAotGateBf16ReadyBeforeUpConsumer = 1U << 15U,
+  kSm87TargetAotGateAndUpBf16ReadyBeforeSiluTimesUp = 1U << 15U,
+  kSm87TargetAotGateUpSameCtaBf16Lifetime = 1U << 16U,
+  kSm87TargetAotGateUpNoGlobalBf16Intermediate = 1U << 17U,
+  kSm87TargetAotGateUpReclaimAfterSiluTimesUp = 1U << 18U,
 };
 
 inline constexpr std::uint32_t kSm87TargetAotProjectionRequiredPolicy =
@@ -133,8 +199,50 @@ struct Sm87TargetAotProjectionPartition {
   Sm87TargetAotLogicalRole role = Sm87TargetAotLogicalRole::kInvalid;
   std::size_t output_offset = 0U;
   std::size_t output_features = 0U;
+  bool independent_weight_payload = false;
   bool independent_tensor_scale = false;
+  bool independent_reduction_tree = false;
   bool bf16_rounding_boundary = false;
+  bool bf16_round_to_nearest_even = false;
+};
+
+struct Sm87TargetAotGateUpBf16Lifetime {
+  Sm87TargetAotGateUpBf16Scope gate_temporary_scope =
+      Sm87TargetAotGateUpBf16Scope::kInvalid;
+  Sm87TargetAotGateUpBf16Scope up_publication_scope =
+      Sm87TargetAotGateUpBf16Scope::kInvalid;
+  Sm87TargetAotGateUpBf16ReclaimPoint reclaim_point =
+      Sm87TargetAotGateUpBf16ReclaimPoint::kInvalid;
+  bool silu_times_up_consumes_gate_and_up_bf16 = false;
+  bool global_intermediate_materialization_forbidden = false;
+  bool cross_cta_handoff_forbidden = false;
+};
+
+struct Sm87TargetAotProjectionNumericalContract {
+  Sm87TargetAotProjectionBOperandPath b_operand_path =
+      Sm87TargetAotProjectionBOperandPath::kInvalid;
+  Sm87TargetAotProjectionTensorScalePath tensor_scale_path =
+      Sm87TargetAotProjectionTensorScalePath::kInvalid;
+  Sm87TargetAotProjectionExceptionalEncoding exceptional_encoding =
+      Sm87TargetAotProjectionExceptionalEncoding::kInvalid;
+  Sm87TargetAotProjectionMmaInstruction mma_instruction =
+      Sm87TargetAotProjectionMmaInstruction::kInvalid;
+  Sm87TargetAotProjectionKTraversal k_traversal =
+      Sm87TargetAotProjectionKTraversal::kInvalid;
+  Sm87TargetAotProjectionPublication publication =
+      Sm87TargetAotProjectionPublication::kInvalid;
+  std::uint32_t block_scale_group_k = 0U;
+  std::int32_t fp8_bias_recovery_exponent = 0;
+  bool activation_operand_preserves_source_bf16_bits = false;
+  bool weight_operand_is_bf16_before_mma = false;
+  bool accumulator_is_fp32 = false;
+  bool partition_accumulator_identity_is_independent = false;
+  bool tensor_scale_is_partition_local = false;
+  bool tensor_scale_applied_after_full_k = false;
+  bool tensor_scale_multiply_is_fp32_rn = false;
+  bool cross_warp_reduction_forbidden = false;
+  bool cross_cta_reduction_forbidden = false;
+  bool final_publication_is_bf16_rne = false;
 };
 
 struct Sm87TargetAotProjectionPlan {
@@ -174,7 +282,9 @@ struct Sm87TargetAotProjectionPlan {
   bool register_double_buffer = false;
   bool prefetch_before_stage_drain = false;
   bool same_cta_partition_pair = false;
-  bool gate_bf16_ready_before_up_consumer = false;
+  bool gate_and_up_bf16_ready_before_silu_times_up = false;
+  Sm87TargetAotGateUpBf16Lifetime gate_up_bf16_lifetime{};
+  Sm87TargetAotProjectionNumericalContract numerical_contract{};
   bool stream_k = false;
   bool cuda_implementation_present = false;
   bool static_resources_qualified = false;
@@ -196,7 +306,55 @@ struct Sm87TargetAotProjectionTask {
 sm87_target_aot_partition(const Sm87TargetAotLogicalRole role,
                           const std::size_t output_offset,
                           const std::size_t output_features) noexcept {
-  return {role, output_offset, output_features, true, true};
+  return {role, output_offset, output_features, true, true, true, true, true};
+}
+
+[[nodiscard]] constexpr Sm87TargetAotProjectionNumericalContract
+sm87_target_aot_projection_numerical_contract(
+    const Sm87TargetAotProjectionEncoding encoding) noexcept {
+  Sm87TargetAotProjectionNumericalContract contract;
+  contract.mma_instruction = Sm87TargetAotProjectionMmaInstruction::
+      kM16N8K16RowColF32Bf16Bf16F32;
+  contract.k_traversal = Sm87TargetAotProjectionKTraversal::
+      kWarpM64N64FullKAscendingK64ThenK16;
+  contract.publication = Sm87TargetAotProjectionPublication::
+      kFp32TensorScaleMultiplyRnThenBf16Rne;
+  contract.activation_operand_preserves_source_bf16_bits = true;
+  contract.weight_operand_is_bf16_before_mma = true;
+  contract.accumulator_is_fp32 = true;
+  contract.partition_accumulator_identity_is_independent = true;
+  contract.tensor_scale_is_partition_local = true;
+  contract.tensor_scale_applied_after_full_k = true;
+  contract.tensor_scale_multiply_is_fp32_rn = true;
+  contract.cross_warp_reduction_forbidden = true;
+  contract.cross_cta_reduction_forbidden = true;
+  contract.final_publication_is_bf16_rne = true;
+
+  if (encoding == Sm87TargetAotProjectionEncoding::
+                      kNvFp4E2M1Block16E4M3FnScale) {
+    contract.b_operand_path = Sm87TargetAotProjectionBOperandPath::
+        kNvFp4E2M1TimesE4M3FnBf16Rne;
+    contract.tensor_scale_path = Sm87TargetAotProjectionTensorScalePath::
+        kNvFp4IndependentFp32AfterFullK;
+    contract.exceptional_encoding =
+        Sm87TargetAotProjectionExceptionalEncoding::
+            kNvFp4RejectNanAndNegativeBlockScaleSignedZeroAllowed;
+    contract.block_scale_group_k = 16U;
+    return contract;
+  }
+  if (encoding ==
+      Sm87TargetAotProjectionEncoding::kFp8E4M3FnTensorScale) {
+    contract.b_operand_path = Sm87TargetAotProjectionBOperandPath::
+        kFp8MarlinE4M3FnBiasShiftBf16;
+    contract.tensor_scale_path = Sm87TargetAotProjectionTensorScalePath::
+        kFp8F32ToBf16RneTimes2Pow120ToBf16RneAfterFullK;
+    contract.exceptional_encoding =
+        Sm87TargetAotProjectionExceptionalEncoding::
+            kFp8MarlinTerminalNanCodesBecomeSigned480;
+    contract.fp8_bias_recovery_exponent = 120;
+    return contract;
+  }
+  return {};
 }
 
 [[nodiscard]] constexpr Sm87TargetAotProjectionPlan
@@ -254,9 +412,20 @@ sm87_target_aot_projection_plan(
     plan.cp_async_scale = true;
     plan.mma_partitions_per_task = 2U;
     plan.same_cta_partition_pair = true;
-    plan.gate_bf16_ready_before_up_consumer = true;
+    plan.gate_and_up_bf16_ready_before_silu_times_up = true;
+    plan.gate_up_bf16_lifetime = {
+        Sm87TargetAotGateUpBf16Scope::kSameCtaPrivate,
+        Sm87TargetAotGateUpBf16Scope::kSameCtaPrivate,
+        Sm87TargetAotGateUpBf16ReclaimPoint::kAfterSiluTimesUpConsumption,
+        true,
+        true,
+        true,
+    };
     plan.policy |= kSm87TargetAotGateUpSameCtaPartitionPair |
-                   kSm87TargetAotGateBf16ReadyBeforeUpConsumer;
+                   kSm87TargetAotGateAndUpBf16ReadyBeforeSiluTimesUp |
+                   kSm87TargetAotGateUpSameCtaBf16Lifetime |
+                   kSm87TargetAotGateUpNoGlobalBf16Intermediate |
+                   kSm87TargetAotGateUpReclaimAfterSiluTimesUp;
   } else if (role == Sm87TargetAotProjectionRole::kNvFp4Down) {
     plan.tactic =
         Sm87TargetAotProjectionTactic::kNvFp4DownM128N256K64MGroup1;
@@ -324,6 +493,9 @@ sm87_target_aot_projection_plan(
     return {};
   }
 
+  plan.numerical_contract =
+      sm87_target_aot_projection_numerical_contract(plan.encoding);
+
   plan.grid_n =
       (role == Sm87TargetAotProjectionRole::kNvFp4GateUp
            ? plan.published_output_features
@@ -342,8 +514,61 @@ sm87_target_aot_projection_plan(
   return left.role == right.role &&
          left.output_offset == right.output_offset &&
          left.output_features == right.output_features &&
+         left.independent_weight_payload ==
+             right.independent_weight_payload &&
          left.independent_tensor_scale == right.independent_tensor_scale &&
-         left.bf16_rounding_boundary == right.bf16_rounding_boundary;
+         left.independent_reduction_tree ==
+             right.independent_reduction_tree &&
+         left.bf16_rounding_boundary == right.bf16_rounding_boundary &&
+         left.bf16_round_to_nearest_even ==
+             right.bf16_round_to_nearest_even;
+}
+
+[[nodiscard]] constexpr bool sm87_target_aot_same_gate_up_bf16_lifetime(
+    const Sm87TargetAotGateUpBf16Lifetime& left,
+    const Sm87TargetAotGateUpBf16Lifetime& right) noexcept {
+  return left.gate_temporary_scope == right.gate_temporary_scope &&
+         left.up_publication_scope == right.up_publication_scope &&
+         left.reclaim_point == right.reclaim_point &&
+         left.silu_times_up_consumes_gate_and_up_bf16 ==
+             right.silu_times_up_consumes_gate_and_up_bf16 &&
+         left.global_intermediate_materialization_forbidden ==
+             right.global_intermediate_materialization_forbidden &&
+         left.cross_cta_handoff_forbidden ==
+             right.cross_cta_handoff_forbidden;
+}
+
+[[nodiscard]] constexpr bool sm87_target_aot_same_numerical_contract(
+    const Sm87TargetAotProjectionNumericalContract& left,
+    const Sm87TargetAotProjectionNumericalContract& right) noexcept {
+  return left.b_operand_path == right.b_operand_path &&
+         left.tensor_scale_path == right.tensor_scale_path &&
+         left.exceptional_encoding == right.exceptional_encoding &&
+         left.mma_instruction == right.mma_instruction &&
+         left.k_traversal == right.k_traversal &&
+         left.publication == right.publication &&
+         left.block_scale_group_k == right.block_scale_group_k &&
+         left.fp8_bias_recovery_exponent ==
+             right.fp8_bias_recovery_exponent &&
+         left.activation_operand_preserves_source_bf16_bits ==
+             right.activation_operand_preserves_source_bf16_bits &&
+         left.weight_operand_is_bf16_before_mma ==
+             right.weight_operand_is_bf16_before_mma &&
+         left.accumulator_is_fp32 == right.accumulator_is_fp32 &&
+         left.partition_accumulator_identity_is_independent ==
+             right.partition_accumulator_identity_is_independent &&
+         left.tensor_scale_is_partition_local ==
+             right.tensor_scale_is_partition_local &&
+         left.tensor_scale_applied_after_full_k ==
+             right.tensor_scale_applied_after_full_k &&
+         left.tensor_scale_multiply_is_fp32_rn ==
+             right.tensor_scale_multiply_is_fp32_rn &&
+         left.cross_warp_reduction_forbidden ==
+             right.cross_warp_reduction_forbidden &&
+         left.cross_cta_reduction_forbidden ==
+             right.cross_cta_reduction_forbidden &&
+         left.final_publication_is_bf16_rne ==
+             right.final_publication_is_bf16_rne;
 }
 
 [[nodiscard]] constexpr bool sm87_target_aot_same_plan(
@@ -376,8 +601,12 @@ sm87_target_aot_projection_plan(
       left.prefetch_before_stage_drain !=
           right.prefetch_before_stage_drain ||
       left.same_cta_partition_pair != right.same_cta_partition_pair ||
-      left.gate_bf16_ready_before_up_consumer !=
-          right.gate_bf16_ready_before_up_consumer ||
+      left.gate_and_up_bf16_ready_before_silu_times_up !=
+          right.gate_and_up_bf16_ready_before_silu_times_up ||
+      !sm87_target_aot_same_gate_up_bf16_lifetime(
+          left.gate_up_bf16_lifetime, right.gate_up_bf16_lifetime) ||
+      !sm87_target_aot_same_numerical_contract(
+          left.numerical_contract, right.numerical_contract) ||
       left.stream_k != right.stream_k ||
       left.cuda_implementation_present !=
           right.cuda_implementation_present ||

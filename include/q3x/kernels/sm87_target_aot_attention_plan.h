@@ -38,6 +38,8 @@ inline constexpr std::uint32_t kSm87TargetAotAttentionRmsEpsilonFp32Bits =
     0x3586'37bdU;  // 1.0e-6F
 inline constexpr std::uint32_t kSm87TargetAotAttentionScaleFp32Bits =
     0x3d80'0000U;  // 1/sqrt(256) = 1/16 exactly
+inline constexpr std::uint32_t kSm87TargetAotAttentionLog2EFp32Bits =
+    0x3fb8'aa3bU;  // float(1.4426950408889634)
 inline constexpr std::uint64_t kSm87TargetAotAttentionRopeTheta =
     10'000'000ULL;
 
@@ -203,6 +205,250 @@ enum class Sm87TargetAotAttentionTaskRole : std::uint8_t {
   kCausalQ128AgainstOrderedNhdKv,
 };
 
+// These contracts transcribe the finite-precision instruction order of the
+// production SM87 full-Attention path.  They are deliberately more specific
+// than real-number online-softmax equivalence: changing an exp backend, a
+// BF16 publication point, or an MMA/reduction traversal creates a different
+// numerical candidate.
+enum class Sm87TargetAotAttentionExpContract : std::uint8_t {
+  kInvalid = 0U,
+  kEx2ApproxF32AfterFp32Log2eMultiply,
+};
+
+enum class Sm87TargetAotAttentionQkTraversalContract : std::uint8_t {
+  kInvalid = 0U,
+  kMmaSyncM16N16K16DimensionAscendingScoreSubtilesAscending,
+};
+
+enum class Sm87TargetAotAttentionProbabilityContract : std::uint8_t {
+  kInvalid = 0U,
+  kExpF32ToBf16RneBeforeDenominatorAndPv,
+};
+
+enum class Sm87TargetAotAttentionDenominatorContract : std::uint8_t {
+  kInvalid = 0U,
+  kRescalePriorThenRegister0145ThenXor1Xor2,
+};
+
+enum class Sm87TargetAotAttentionPvTraversalContract : std::uint8_t {
+  kInvalid = 0U,
+  kMmaSyncBf16ProbabilityBf16VToFp32OutputDimensionAscending,
+};
+
+enum class Sm87TargetAotAttentionOutputContract : std::uint8_t {
+  kInvalid = 0U,
+  kFp32ReciprocalThenNumeratorMultiplyThenBf16Rne,
+};
+
+enum class Sm87TargetAotAttentionSigmoidContract : std::uint8_t {
+  kInvalid = 0U,
+  kStableSignBranchEx2ApproxF32TimesBf16AttentionThenBf16Rne,
+};
+
+enum class Sm87TargetAotAttentionRmsReductionContract : std::uint8_t {
+  kInvalid = 0U,
+  kPromptWide128FmafDAndD128ThenShared64Pair32Pair96Shuffle16To1,
+};
+
+enum class Sm87TargetAotAttentionRsqrtContract : std::uint8_t {
+  kInvalid = 0U,
+  kRsqrtfFp32SumDiv256PlusFp32Epsilon,
+};
+
+enum class Sm87TargetAotAttentionNormPublicationContract : std::uint8_t {
+  kInvalid = 0U,
+  kBf16WeightPlusOneValueTimesInverseThenGammaBf16Rne,
+};
+
+enum class Sm87TargetAotAttentionRopeFmaContract : std::uint8_t {
+  kInvalid = 0U,
+  kNeoxSeparateSinProductThenCosFmaBf16Rne,
+};
+
+enum class Sm87TargetAotAttentionRopeMappingContract : std::uint8_t {
+  kInvalid = 0U,
+  kRotateD0To31WithDPlus32Tail64To255Passthrough,
+};
+
+struct Sm87TargetAotAttentionNumericalContract {
+  Sm87TargetAotAttentionExpContract exp_contract =
+      Sm87TargetAotAttentionExpContract::kInvalid;
+  Sm87TargetAotAttentionQkTraversalContract qk_traversal =
+      Sm87TargetAotAttentionQkTraversalContract::kInvalid;
+  Sm87TargetAotAttentionProbabilityContract probability_publication =
+      Sm87TargetAotAttentionProbabilityContract::kInvalid;
+  Sm87TargetAotAttentionDenominatorContract denominator_update =
+      Sm87TargetAotAttentionDenominatorContract::kInvalid;
+  Sm87TargetAotAttentionPvTraversalContract pv_traversal =
+      Sm87TargetAotAttentionPvTraversalContract::kInvalid;
+  Sm87TargetAotAttentionOutputContract output_publication =
+      Sm87TargetAotAttentionOutputContract::kInvalid;
+  Sm87TargetAotAttentionSigmoidContract sigmoid_publication =
+      Sm87TargetAotAttentionSigmoidContract::kInvalid;
+  std::uint32_t log2e_fp32_bits = 0U;
+  std::size_t mma_m = 0U;
+  std::size_t mma_n = 0U;
+  std::size_t mma_k = 0U;
+  std::size_t qk_head_dimension_tiles = 0U;
+  std::size_t kv_stage_score_subtiles = 0U;
+  std::size_t pv_output_dimension_tiles = 0U;
+  std::array<std::size_t, 4U> denominator_register_offsets{};
+  std::array<std::size_t, 2U> denominator_shuffle_xor_masks{};
+  bool attention_scale_after_qk_accumulation = false;
+  bool prior_denominator_rescaled_before_probability_add = false;
+  bool prior_output_rescaled_before_pv_mma = false;
+  bool probability_bf16_reused_by_denominator = false;
+  bool probability_bf16_reused_by_pv_mma = false;
+  bool bf16_attention_reused_by_sigmoid_epilogue = false;
+};
+
+struct Sm87TargetAotAttentionPreprocessNumericalContract {
+  Sm87TargetAotAttentionRmsReductionContract rms_reduction =
+      Sm87TargetAotAttentionRmsReductionContract::kInvalid;
+  Sm87TargetAotAttentionRsqrtContract inverse_rms =
+      Sm87TargetAotAttentionRsqrtContract::kInvalid;
+  Sm87TargetAotAttentionNormPublicationContract norm_publication =
+      Sm87TargetAotAttentionNormPublicationContract::kInvalid;
+  Sm87TargetAotAttentionRopeFmaContract rope_fma =
+      Sm87TargetAotAttentionRopeFmaContract::kInvalid;
+  Sm87TargetAotAttentionRopeMappingContract rope_mapping =
+      Sm87TargetAotAttentionRopeMappingContract::kInvalid;
+  std::size_t threads = 0U;
+  std::size_t head_dimension = 0U;
+  std::array<std::size_t, 2U> thread_dimension_offsets{};
+  std::array<std::size_t, 4U> shared_tree_offsets{};
+  std::array<std::size_t, 5U> shuffle_down_strides{};
+  std::array<std::size_t, 2U> rope_pair_offsets{};
+  std::size_t rope_pair_count = 0U;
+  std::size_t rope_tail_begin = 0U;
+  std::size_t rope_tail_end = 0U;
+  bool square_uses_fmaf_with_positive_zero = false;
+  bool pair_add_low_square_before_high_square = false;
+  bool epsilon_added_after_divide_by_head_dimension = false;
+  bool norm_weight_decoded_from_bf16_then_fp32_plus_one = false;
+  bool norm_multiplies_value_by_inverse_before_gamma = false;
+  bool normalized_qk_published_bf16_rne_before_rope = false;
+  bool rope_consumes_published_bf16_qk = false;
+  bool rope_sine_product_rounded_before_fma = false;
+  bool rope_output_published_bf16_rne = false;
+  bool rope_tail_is_bit_exact_normalized_bf16 = false;
+};
+
+[[nodiscard]] constexpr bool
+sm87_target_aot_same_attention_numerical_contract(
+    const Sm87TargetAotAttentionNumericalContract& left,
+    const Sm87TargetAotAttentionNumericalContract& right) noexcept {
+  if (left.exp_contract != right.exp_contract ||
+      left.qk_traversal != right.qk_traversal ||
+      left.probability_publication != right.probability_publication ||
+      left.denominator_update != right.denominator_update ||
+      left.pv_traversal != right.pv_traversal ||
+      left.output_publication != right.output_publication ||
+      left.sigmoid_publication != right.sigmoid_publication ||
+      left.log2e_fp32_bits != right.log2e_fp32_bits ||
+      left.mma_m != right.mma_m || left.mma_n != right.mma_n ||
+      left.mma_k != right.mma_k ||
+      left.qk_head_dimension_tiles != right.qk_head_dimension_tiles ||
+      left.kv_stage_score_subtiles != right.kv_stage_score_subtiles ||
+      left.pv_output_dimension_tiles != right.pv_output_dimension_tiles ||
+      left.attention_scale_after_qk_accumulation !=
+          right.attention_scale_after_qk_accumulation ||
+      left.prior_denominator_rescaled_before_probability_add !=
+          right.prior_denominator_rescaled_before_probability_add ||
+      left.prior_output_rescaled_before_pv_mma !=
+          right.prior_output_rescaled_before_pv_mma ||
+      left.probability_bf16_reused_by_denominator !=
+          right.probability_bf16_reused_by_denominator ||
+      left.probability_bf16_reused_by_pv_mma !=
+          right.probability_bf16_reused_by_pv_mma ||
+      left.bf16_attention_reused_by_sigmoid_epilogue !=
+          right.bf16_attention_reused_by_sigmoid_epilogue) {
+    return false;
+  }
+  for (std::size_t index = 0U;
+       index < left.denominator_register_offsets.size(); ++index) {
+    if (left.denominator_register_offsets[index] !=
+        right.denominator_register_offsets[index]) {
+      return false;
+    }
+  }
+  for (std::size_t index = 0U;
+       index < left.denominator_shuffle_xor_masks.size(); ++index) {
+    if (left.denominator_shuffle_xor_masks[index] !=
+        right.denominator_shuffle_xor_masks[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] constexpr bool
+sm87_target_aot_same_attention_preprocess_numerical_contract(
+    const Sm87TargetAotAttentionPreprocessNumericalContract& left,
+    const Sm87TargetAotAttentionPreprocessNumericalContract& right) noexcept {
+  if (left.rms_reduction != right.rms_reduction ||
+      left.inverse_rms != right.inverse_rms ||
+      left.norm_publication != right.norm_publication ||
+      left.rope_fma != right.rope_fma ||
+      left.rope_mapping != right.rope_mapping ||
+      left.threads != right.threads ||
+      left.head_dimension != right.head_dimension ||
+      left.rope_pair_count != right.rope_pair_count ||
+      left.rope_tail_begin != right.rope_tail_begin ||
+      left.rope_tail_end != right.rope_tail_end ||
+      left.square_uses_fmaf_with_positive_zero !=
+          right.square_uses_fmaf_with_positive_zero ||
+      left.pair_add_low_square_before_high_square !=
+          right.pair_add_low_square_before_high_square ||
+      left.epsilon_added_after_divide_by_head_dimension !=
+          right.epsilon_added_after_divide_by_head_dimension ||
+      left.norm_weight_decoded_from_bf16_then_fp32_plus_one !=
+          right.norm_weight_decoded_from_bf16_then_fp32_plus_one ||
+      left.norm_multiplies_value_by_inverse_before_gamma !=
+          right.norm_multiplies_value_by_inverse_before_gamma ||
+      left.normalized_qk_published_bf16_rne_before_rope !=
+          right.normalized_qk_published_bf16_rne_before_rope ||
+      left.rope_consumes_published_bf16_qk !=
+          right.rope_consumes_published_bf16_qk ||
+      left.rope_sine_product_rounded_before_fma !=
+          right.rope_sine_product_rounded_before_fma ||
+      left.rope_output_published_bf16_rne !=
+          right.rope_output_published_bf16_rne ||
+      left.rope_tail_is_bit_exact_normalized_bf16 !=
+          right.rope_tail_is_bit_exact_normalized_bf16) {
+    return false;
+  }
+  for (std::size_t index = 0U;
+       index < left.thread_dimension_offsets.size(); ++index) {
+    if (left.thread_dimension_offsets[index] !=
+        right.thread_dimension_offsets[index]) {
+      return false;
+    }
+  }
+  for (std::size_t index = 0U;
+       index < left.shared_tree_offsets.size(); ++index) {
+    if (left.shared_tree_offsets[index] !=
+        right.shared_tree_offsets[index]) {
+      return false;
+    }
+  }
+  for (std::size_t index = 0U;
+       index < left.shuffle_down_strides.size(); ++index) {
+    if (left.shuffle_down_strides[index] !=
+        right.shuffle_down_strides[index]) {
+      return false;
+    }
+  }
+  for (std::size_t index = 0U;
+       index < left.rope_pair_offsets.size(); ++index) {
+    if (left.rope_pair_offsets[index] !=
+        right.rope_pair_offsets[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 enum Sm87TargetAotAttentionPolicy : std::uint32_t {
   kSm87TargetAotAttentionCausal = 1U << 0U,
   kSm87TargetAotAttentionOnlineSoftmaxFp32 = 1U << 1U,
@@ -234,6 +480,8 @@ enum Sm87TargetAotAttentionPolicy : std::uint32_t {
   kSm87TargetAotAttentionColdFirstPositionZero = 1U << 27U,
   kSm87TargetAotAttentionTypedCoreOutputSpans = 1U << 28U,
   kSm87TargetAotAttentionGatedOutputFeedsOProjection = 1U << 29U,
+  kSm87TargetAotAttentionFinitePrecisionExecutionFrozen = 1U << 30U,
+  kSm87TargetAotAttentionStableSigmoidEx2Bf16Rne = 1U << 31U,
 };
 
 inline constexpr std::uint32_t kSm87TargetAotAttentionRequiredPolicy =
@@ -266,7 +514,9 @@ inline constexpr std::uint32_t kSm87TargetAotAttentionRequiredPolicy =
     kSm87TargetAotAttentionNoCuBlasLt |
     kSm87TargetAotAttentionColdFirstPositionZero |
     kSm87TargetAotAttentionTypedCoreOutputSpans |
-    kSm87TargetAotAttentionGatedOutputFeedsOProjection;
+    kSm87TargetAotAttentionGatedOutputFeedsOProjection |
+    kSm87TargetAotAttentionFinitePrecisionExecutionFrozen |
+    kSm87TargetAotAttentionStableSigmoidEx2Bf16Rne;
 
 struct Sm87TargetAotAttentionBufferContract {
   Sm87TargetAotAttentionBufferRole role =
@@ -430,6 +680,8 @@ struct Sm87TargetAotAttentionPlan {
       Sm87TargetAotAttentionKvCacheLayout::kInvalid;
   Sm87TargetAotAttentionKvResetContract kv_reset_contract =
       Sm87TargetAotAttentionKvResetContract::kInvalid;
+  Sm87TargetAotAttentionNumericalContract numerical_execution{};
+  Sm87TargetAotAttentionPreprocessNumericalContract preprocess_numerical{};
   std::size_t token_count = 0U;
   std::size_t flattened_query_rows = 0U;
   std::size_t query_tiles_per_kv_head = 0U;
@@ -795,6 +1047,87 @@ sm87_target_aot_attention_plan(const std::size_t token_count) noexcept {
       Sm87TargetAotAttentionKvCacheLayout::kNhdTokenHeadDimension;
   plan.kv_reset_contract = Sm87TargetAotAttentionKvResetContract::
       kColdEpochZeroLengthCurrentLayer;
+  plan.numerical_execution.exp_contract = Sm87TargetAotAttentionExpContract::
+      kEx2ApproxF32AfterFp32Log2eMultiply;
+  plan.numerical_execution.qk_traversal =
+      Sm87TargetAotAttentionQkTraversalContract::
+          kMmaSyncM16N16K16DimensionAscendingScoreSubtilesAscending;
+  plan.numerical_execution.probability_publication =
+      Sm87TargetAotAttentionProbabilityContract::
+          kExpF32ToBf16RneBeforeDenominatorAndPv;
+  plan.numerical_execution.denominator_update =
+      Sm87TargetAotAttentionDenominatorContract::
+          kRescalePriorThenRegister0145ThenXor1Xor2;
+  plan.numerical_execution.pv_traversal =
+      Sm87TargetAotAttentionPvTraversalContract::
+          kMmaSyncBf16ProbabilityBf16VToFp32OutputDimensionAscending;
+  plan.numerical_execution.output_publication =
+      Sm87TargetAotAttentionOutputContract::
+          kFp32ReciprocalThenNumeratorMultiplyThenBf16Rne;
+  plan.numerical_execution.sigmoid_publication =
+      Sm87TargetAotAttentionSigmoidContract::
+          kStableSignBranchEx2ApproxF32TimesBf16AttentionThenBf16Rne;
+  plan.numerical_execution.log2e_fp32_bits =
+      kSm87TargetAotAttentionLog2EFp32Bits;
+  plan.numerical_execution.mma_m = 16U;
+  plan.numerical_execution.mma_n = 16U;
+  plan.numerical_execution.mma_k = 16U;
+  plan.numerical_execution.qk_head_dimension_tiles = 16U;
+  plan.numerical_execution.kv_stage_score_subtiles = 2U;
+  plan.numerical_execution.pv_output_dimension_tiles = 16U;
+  plan.numerical_execution.denominator_register_offsets = {{0U, 1U, 4U,
+                                                              5U}};
+  plan.numerical_execution.denominator_shuffle_xor_masks = {{1U, 2U}};
+  plan.numerical_execution.attention_scale_after_qk_accumulation = true;
+  plan.numerical_execution
+      .prior_denominator_rescaled_before_probability_add = true;
+  plan.numerical_execution.prior_output_rescaled_before_pv_mma = true;
+  plan.numerical_execution.probability_bf16_reused_by_denominator = true;
+  plan.numerical_execution.probability_bf16_reused_by_pv_mma = true;
+  plan.numerical_execution.bf16_attention_reused_by_sigmoid_epilogue = true;
+  plan.preprocess_numerical.rms_reduction =
+      Sm87TargetAotAttentionRmsReductionContract::
+          kPromptWide128FmafDAndD128ThenShared64Pair32Pair96Shuffle16To1;
+  plan.preprocess_numerical.inverse_rms =
+      Sm87TargetAotAttentionRsqrtContract::
+          kRsqrtfFp32SumDiv256PlusFp32Epsilon;
+  plan.preprocess_numerical.norm_publication =
+      Sm87TargetAotAttentionNormPublicationContract::
+          kBf16WeightPlusOneValueTimesInverseThenGammaBf16Rne;
+  plan.preprocess_numerical.rope_fma =
+      Sm87TargetAotAttentionRopeFmaContract::
+          kNeoxSeparateSinProductThenCosFmaBf16Rne;
+  plan.preprocess_numerical.rope_mapping =
+      Sm87TargetAotAttentionRopeMappingContract::
+          kRotateD0To31WithDPlus32Tail64To255Passthrough;
+  plan.preprocess_numerical.threads = 128U;
+  plan.preprocess_numerical.head_dimension =
+      kSm87TargetAotAttentionHeadDimension;
+  plan.preprocess_numerical.thread_dimension_offsets = {{0U, 128U}};
+  plan.preprocess_numerical.shared_tree_offsets = {{0U, 64U, 32U, 96U}};
+  plan.preprocess_numerical.shuffle_down_strides = {{16U, 8U, 4U, 2U,
+                                                     1U}};
+  plan.preprocess_numerical.rope_pair_offsets = {{0U, 32U}};
+  plan.preprocess_numerical.rope_pair_count =
+      kSm87TargetAotAttentionRotaryPairs;
+  plan.preprocess_numerical.rope_tail_begin =
+      kSm87TargetAotAttentionRotaryElements;
+  plan.preprocess_numerical.rope_tail_end =
+      kSm87TargetAotAttentionHeadDimension;
+  plan.preprocess_numerical.square_uses_fmaf_with_positive_zero = true;
+  plan.preprocess_numerical.pair_add_low_square_before_high_square = true;
+  plan.preprocess_numerical
+      .epsilon_added_after_divide_by_head_dimension = true;
+  plan.preprocess_numerical
+      .norm_weight_decoded_from_bf16_then_fp32_plus_one = true;
+  plan.preprocess_numerical
+      .norm_multiplies_value_by_inverse_before_gamma = true;
+  plan.preprocess_numerical
+      .normalized_qk_published_bf16_rne_before_rope = true;
+  plan.preprocess_numerical.rope_consumes_published_bf16_qk = true;
+  plan.preprocess_numerical.rope_sine_product_rounded_before_fma = true;
+  plan.preprocess_numerical.rope_output_published_bf16_rne = true;
+  plan.preprocess_numerical.rope_tail_is_bit_exact_normalized_bf16 = true;
   plan.token_count = token_count;
   plan.flattened_query_rows =
       token_count * kSm87TargetAotAttentionQueriesPerKv;
@@ -882,6 +1215,10 @@ sm87_target_aot_attention_plan(const std::size_t token_count) noexcept {
       left.value_contract != right.value_contract ||
       left.kv_cache_layout != right.kv_cache_layout ||
       left.kv_reset_contract != right.kv_reset_contract ||
+      !sm87_target_aot_same_attention_numerical_contract(
+          left.numerical_execution, right.numerical_execution) ||
+      !sm87_target_aot_same_attention_preprocess_numerical_contract(
+          left.preprocess_numerical, right.preprocess_numerical) ||
       left.token_count != right.token_count ||
       left.flattened_query_rows != right.flattened_query_rows ||
       left.query_tiles_per_kv_head != right.query_tiles_per_kv_head ||

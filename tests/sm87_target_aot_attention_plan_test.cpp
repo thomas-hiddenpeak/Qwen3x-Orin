@@ -82,6 +82,105 @@ static_assert(kP40.rotary_elements == 64U && kP40.rotary_pairs == 32U &&
 static_assert(kP40.attention_scale_fp32_bits == 0x3d80'0000U &&
               kP40.attention_scale_numerator == 1U &&
               kP40.attention_scale_denominator == 16U);
+static_assert(
+    kP40.numerical_execution.exp_contract ==
+        kernels::Sm87TargetAotAttentionExpContract::
+            kEx2ApproxF32AfterFp32Log2eMultiply &&
+    kP40.numerical_execution.qk_traversal ==
+        kernels::Sm87TargetAotAttentionQkTraversalContract::
+            kMmaSyncM16N16K16DimensionAscendingScoreSubtilesAscending &&
+    kP40.numerical_execution.probability_publication ==
+        kernels::Sm87TargetAotAttentionProbabilityContract::
+            kExpF32ToBf16RneBeforeDenominatorAndPv &&
+    kP40.numerical_execution.denominator_update ==
+        kernels::Sm87TargetAotAttentionDenominatorContract::
+            kRescalePriorThenRegister0145ThenXor1Xor2 &&
+    kP40.numerical_execution.pv_traversal ==
+        kernels::Sm87TargetAotAttentionPvTraversalContract::
+            kMmaSyncBf16ProbabilityBf16VToFp32OutputDimensionAscending &&
+    kP40.numerical_execution.output_publication ==
+        kernels::Sm87TargetAotAttentionOutputContract::
+            kFp32ReciprocalThenNumeratorMultiplyThenBf16Rne &&
+    kP40.numerical_execution.sigmoid_publication ==
+        kernels::Sm87TargetAotAttentionSigmoidContract::
+            kStableSignBranchEx2ApproxF32TimesBf16AttentionThenBf16Rne);
+static_assert(
+    kP40.numerical_execution.log2e_fp32_bits == 0x3fb8'aa3bU &&
+    kP40.numerical_execution.mma_m == 16U &&
+    kP40.numerical_execution.mma_n == 16U &&
+    kP40.numerical_execution.mma_k == 16U &&
+    kP40.numerical_execution.qk_head_dimension_tiles == 16U &&
+    kP40.numerical_execution.kv_stage_score_subtiles == 2U &&
+    kP40.numerical_execution.pv_output_dimension_tiles == 16U &&
+    kP40.numerical_execution.denominator_register_offsets[0U] == 0U &&
+    kP40.numerical_execution.denominator_register_offsets[1U] == 1U &&
+    kP40.numerical_execution.denominator_register_offsets[2U] == 4U &&
+    kP40.numerical_execution.denominator_register_offsets[3U] == 5U &&
+    kP40.numerical_execution.denominator_shuffle_xor_masks[0U] == 1U &&
+    kP40.numerical_execution.denominator_shuffle_xor_masks[1U] == 2U);
+static_assert(
+    kP40.numerical_execution.attention_scale_after_qk_accumulation &&
+    kP40.numerical_execution
+        .prior_denominator_rescaled_before_probability_add &&
+    kP40.numerical_execution.prior_output_rescaled_before_pv_mma &&
+    kP40.numerical_execution.probability_bf16_reused_by_denominator &&
+    kP40.numerical_execution.probability_bf16_reused_by_pv_mma &&
+    kP40.numerical_execution.bf16_attention_reused_by_sigmoid_epilogue);
+static_assert(
+    (kP40.policy &
+     kernels::kSm87TargetAotAttentionFinitePrecisionExecutionFrozen) != 0U &&
+    (kP40.policy &
+     kernels::kSm87TargetAotAttentionStableSigmoidEx2Bf16Rne) != 0U);
+static_assert(
+    kP40.preprocess_numerical.rms_reduction ==
+        kernels::Sm87TargetAotAttentionRmsReductionContract::
+            kPromptWide128FmafDAndD128ThenShared64Pair32Pair96Shuffle16To1 &&
+    kP40.preprocess_numerical.inverse_rms ==
+        kernels::Sm87TargetAotAttentionRsqrtContract::
+            kRsqrtfFp32SumDiv256PlusFp32Epsilon &&
+    kP40.preprocess_numerical.norm_publication ==
+        kernels::Sm87TargetAotAttentionNormPublicationContract::
+            kBf16WeightPlusOneValueTimesInverseThenGammaBf16Rne &&
+    kP40.preprocess_numerical.rope_fma ==
+        kernels::Sm87TargetAotAttentionRopeFmaContract::
+            kNeoxSeparateSinProductThenCosFmaBf16Rne &&
+    kP40.preprocess_numerical.rope_mapping ==
+        kernels::Sm87TargetAotAttentionRopeMappingContract::
+            kRotateD0To31WithDPlus32Tail64To255Passthrough);
+static_assert(
+    kP40.preprocess_numerical.threads == 128U &&
+    kP40.preprocess_numerical.head_dimension == 256U &&
+    kP40.preprocess_numerical.thread_dimension_offsets[0U] == 0U &&
+    kP40.preprocess_numerical.thread_dimension_offsets[1U] == 128U &&
+    kP40.preprocess_numerical.shared_tree_offsets[0U] == 0U &&
+    kP40.preprocess_numerical.shared_tree_offsets[1U] == 64U &&
+    kP40.preprocess_numerical.shared_tree_offsets[2U] == 32U &&
+    kP40.preprocess_numerical.shared_tree_offsets[3U] == 96U &&
+    kP40.preprocess_numerical.shuffle_down_strides[0U] == 16U &&
+    kP40.preprocess_numerical.shuffle_down_strides[1U] == 8U &&
+    kP40.preprocess_numerical.shuffle_down_strides[2U] == 4U &&
+    kP40.preprocess_numerical.shuffle_down_strides[3U] == 2U &&
+    kP40.preprocess_numerical.shuffle_down_strides[4U] == 1U);
+static_assert(
+    kP40.preprocess_numerical.rope_pair_offsets[0U] == 0U &&
+    kP40.preprocess_numerical.rope_pair_offsets[1U] == 32U &&
+    kP40.preprocess_numerical.rope_pair_count == 32U &&
+    kP40.preprocess_numerical.rope_tail_begin == 64U &&
+    kP40.preprocess_numerical.rope_tail_end == 256U &&
+    kP40.preprocess_numerical.square_uses_fmaf_with_positive_zero &&
+    kP40.preprocess_numerical.pair_add_low_square_before_high_square &&
+    kP40.preprocess_numerical
+        .epsilon_added_after_divide_by_head_dimension &&
+    kP40.preprocess_numerical
+        .norm_weight_decoded_from_bf16_then_fp32_plus_one &&
+    kP40.preprocess_numerical
+        .norm_multiplies_value_by_inverse_before_gamma &&
+    kP40.preprocess_numerical
+        .normalized_qk_published_bf16_rne_before_rope &&
+    kP40.preprocess_numerical.rope_consumes_published_bf16_qk &&
+    kP40.preprocess_numerical.rope_sine_product_rounded_before_fma &&
+    kP40.preprocess_numerical.rope_output_published_bf16_rne &&
+    kP40.preprocess_numerical.rope_tail_is_bit_exact_normalized_bf16);
 static_assert(kP40.gate_bit_exact_split_copy &&
               kP40.gate_bypasses_qk_norm && kP40.gate_bypasses_rope &&
               kP40.v_bit_exact_passthrough &&
@@ -488,6 +587,102 @@ void test_plan_mutations_fail_closed(TestContext& test) {
   changed.kv_cache_layout =
       kernels::Sm87TargetAotAttentionKvCacheLayout::kInvalid;
   test.expect(!changed.valid(), "KV cache must retain the NHD contract");
+  changed = kP40;
+  changed.numerical_execution.exp_contract =
+      kernels::Sm87TargetAotAttentionExpContract::kInvalid;
+  test.expect(!changed.valid(), "online-softmax exp backend is bit-bound");
+  changed = kP40;
+  changed.numerical_execution.qk_traversal =
+      kernels::Sm87TargetAotAttentionQkTraversalContract::kInvalid;
+  test.expect(!changed.valid(), "QK mma.sync traversal is frozen");
+  changed = kP40;
+  changed.numerical_execution.probability_publication =
+      kernels::Sm87TargetAotAttentionProbabilityContract::kInvalid;
+  test.expect(!changed.valid(),
+              "probability must publish BF16 RNE before both consumers");
+  changed = kP40;
+  changed.numerical_execution.denominator_register_offsets[1U] = 4U;
+  changed.numerical_execution.denominator_register_offsets[2U] = 1U;
+  test.expect(!changed.valid(),
+              "denominator register accumulation order is frozen");
+  changed = kP40;
+  changed.numerical_execution.denominator_shuffle_xor_masks[0U] = 2U;
+  changed.numerical_execution.denominator_shuffle_xor_masks[1U] = 1U;
+  test.expect(!changed.valid(),
+              "denominator lane-reduction order is frozen");
+  changed = kP40;
+  changed.numerical_execution.probability_bf16_reused_by_denominator = false;
+  test.expect(!changed.valid(),
+              "denominator cannot consume unrounded FP32 probability");
+  changed = kP40;
+  changed.numerical_execution.probability_bf16_reused_by_pv_mma = false;
+  test.expect(!changed.valid(),
+              "PV mma.sync must consume the published BF16 probability");
+  changed = kP40;
+  changed.numerical_execution.pv_traversal =
+      kernels::Sm87TargetAotAttentionPvTraversalContract::kInvalid;
+  test.expect(!changed.valid(), "PV mma.sync traversal is frozen");
+  changed = kP40;
+  changed.numerical_execution.output_publication =
+      kernels::Sm87TargetAotAttentionOutputContract::kInvalid;
+  test.expect(!changed.valid(),
+              "normalized Attention output must publish BF16 RNE");
+  changed = kP40;
+  changed.numerical_execution.sigmoid_publication =
+      kernels::Sm87TargetAotAttentionSigmoidContract::kInvalid;
+  test.expect(!changed.valid(),
+              "stable sigmoid backend and final BF16 RNE are frozen");
+  changed = kP40;
+  changed.numerical_execution.bf16_attention_reused_by_sigmoid_epilogue =
+      false;
+  test.expect(!changed.valid(),
+              "sigmoid epilogue cannot consume the FP32 numerator directly");
+  changed = kP40;
+  changed.preprocess_numerical.rms_reduction =
+      kernels::Sm87TargetAotAttentionRmsReductionContract::kInvalid;
+  test.expect(!changed.valid(), "D256 centered-RMS reduction tree is frozen");
+  changed = kP40;
+  changed.preprocess_numerical.shared_tree_offsets[1U] = 32U;
+  changed.preprocess_numerical.shared_tree_offsets[2U] = 64U;
+  test.expect(!changed.valid(),
+              "centered-RMS shared reduction reassociation fails closed");
+  changed = kP40;
+  changed.preprocess_numerical.shuffle_down_strides[0U] = 8U;
+  changed.preprocess_numerical.shuffle_down_strides[1U] = 16U;
+  test.expect(!changed.valid(),
+              "centered-RMS warp reduction reassociation fails closed");
+  changed = kP40;
+  changed.preprocess_numerical.inverse_rms =
+      kernels::Sm87TargetAotAttentionRsqrtContract::kInvalid;
+  test.expect(!changed.valid(), "rsqrtf placement/backend is frozen");
+  changed = kP40;
+  changed.preprocess_numerical
+      .norm_weight_decoded_from_bf16_then_fp32_plus_one = false;
+  test.expect(!changed.valid(),
+              "centered BF16 norm weight must receive FP32 plus one");
+  changed = kP40;
+  changed.preprocess_numerical
+      .normalized_qk_published_bf16_rne_before_rope = false;
+  test.expect(!changed.valid(),
+              "Q/K norm must publish BF16 RNE before RoPE consumption");
+  changed = kP40;
+  changed.preprocess_numerical.rope_fma =
+      kernels::Sm87TargetAotAttentionRopeFmaContract::kInvalid;
+  test.expect(!changed.valid(), "RoPE FMA operand order is frozen");
+  changed = kP40;
+  changed.preprocess_numerical.rope_pair_offsets[1U] = 64U;
+  test.expect(!changed.valid(), "NeoX D/D+32 pair mapping is frozen");
+  changed = kP40;
+  changed.preprocess_numerical.rope_sine_product_rounded_before_fma = false;
+  test.expect(!changed.valid(),
+              "RoPE sine product must round before the cosine FMA");
+  changed = kP40;
+  changed.preprocess_numerical.rope_tail_begin = 128U;
+  test.expect(!changed.valid(), "RoPE passthrough tail begins at D64");
+  changed = kP40;
+  changed.preprocess_numerical.rope_tail_is_bit_exact_normalized_bf16 = false;
+  test.expect(!changed.valid(),
+              "RoPE D64..D255 tail must remain the normalized BF16 bits");
 }
 
 }  // namespace

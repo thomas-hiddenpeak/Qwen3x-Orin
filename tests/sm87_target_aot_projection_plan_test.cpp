@@ -11,9 +11,17 @@ namespace {
 namespace kernels = q3x::kernels;
 
 using kernels::Sm87TargetAotLogicalRole;
+using kernels::Sm87TargetAotGateUpBf16ReclaimPoint;
+using kernels::Sm87TargetAotGateUpBf16Scope;
+using kernels::Sm87TargetAotProjectionBOperandPath;
 using kernels::Sm87TargetAotProjectionEncoding;
+using kernels::Sm87TargetAotProjectionExceptionalEncoding;
+using kernels::Sm87TargetAotProjectionKTraversal;
+using kernels::Sm87TargetAotProjectionMmaInstruction;
 using kernels::Sm87TargetAotProjectionPlan;
+using kernels::Sm87TargetAotProjectionPublication;
 using kernels::Sm87TargetAotProjectionRole;
+using kernels::Sm87TargetAotProjectionTensorScalePath;
 
 constexpr auto kGateP40 = kernels::sm87_target_aot_projection_plan(
     Sm87TargetAotProjectionRole::kNvFp4GateUp, 40'000U);
@@ -42,7 +50,20 @@ static_assert(kGateP40.encoding ==
               kGateP40.mma_partitions_per_task == 2U &&
               kGateP40.kernel_launches == 1U &&
               kGateP40.same_cta_partition_pair &&
-              kGateP40.gate_bf16_ready_before_up_consumer &&
+              kGateP40.gate_and_up_bf16_ready_before_silu_times_up &&
+              kGateP40.gate_up_bf16_lifetime.gate_temporary_scope ==
+                  Sm87TargetAotGateUpBf16Scope::kSameCtaPrivate &&
+              kGateP40.gate_up_bf16_lifetime.up_publication_scope ==
+                  Sm87TargetAotGateUpBf16Scope::kSameCtaPrivate &&
+              kGateP40.gate_up_bf16_lifetime.reclaim_point ==
+                  Sm87TargetAotGateUpBf16ReclaimPoint::
+                      kAfterSiluTimesUpConsumption &&
+              kGateP40.gate_up_bf16_lifetime
+                  .silu_times_up_consumes_gate_and_up_bf16 &&
+              kGateP40.gate_up_bf16_lifetime
+                  .global_intermediate_materialization_forbidden &&
+              kGateP40.gate_up_bf16_lifetime
+                  .cross_cta_handoff_forbidden &&
               kGateP40.raster_group_m == 2U && !kGateP40.stream_k &&
               kGateP40.physical_ctas == 16U &&
               kGateP40.ctas_per_sm == 1U &&
@@ -66,11 +87,67 @@ static_assert(kFullP40.projected_output_features == 14'336U &&
 static_assert(kOutputP40.input_features == 6'144U &&
               kOutputP40.grid_n == 20U && kOutputP40.k_tiles == 96U &&
               kOutputP40.raster_group_m == 1U);
+static_assert(
+    kGateP40.numerical_contract.b_operand_path ==
+        Sm87TargetAotProjectionBOperandPath::
+            kNvFp4E2M1TimesE4M3FnBf16Rne &&
+    kGateP40.numerical_contract.tensor_scale_path ==
+        Sm87TargetAotProjectionTensorScalePath::
+            kNvFp4IndependentFp32AfterFullK &&
+    kGateP40.numerical_contract.exceptional_encoding ==
+        Sm87TargetAotProjectionExceptionalEncoding::
+            kNvFp4RejectNanAndNegativeBlockScaleSignedZeroAllowed &&
+    kGateP40.numerical_contract.block_scale_group_k == 16U &&
+    kGateP40.numerical_contract.fp8_bias_recovery_exponent == 0);
+static_assert(
+    kGdnP40.numerical_contract.b_operand_path ==
+        Sm87TargetAotProjectionBOperandPath::
+            kFp8MarlinE4M3FnBiasShiftBf16 &&
+    kGdnP40.numerical_contract.tensor_scale_path ==
+        Sm87TargetAotProjectionTensorScalePath::
+            kFp8F32ToBf16RneTimes2Pow120ToBf16RneAfterFullK &&
+    kGdnP40.numerical_contract.exceptional_encoding ==
+        Sm87TargetAotProjectionExceptionalEncoding::
+            kFp8MarlinTerminalNanCodesBecomeSigned480 &&
+    kGdnP40.numerical_contract.block_scale_group_k == 0U &&
+    kGdnP40.numerical_contract.fp8_bias_recovery_exponent == 120);
+static_assert(
+    kGateP40.numerical_contract.mma_instruction ==
+        Sm87TargetAotProjectionMmaInstruction::
+            kM16N8K16RowColF32Bf16Bf16F32 &&
+    kGateP40.numerical_contract.k_traversal ==
+        Sm87TargetAotProjectionKTraversal::
+            kWarpM64N64FullKAscendingK64ThenK16 &&
+    kGateP40.numerical_contract.publication ==
+        Sm87TargetAotProjectionPublication::
+            kFp32TensorScaleMultiplyRnThenBf16Rne &&
+    kGateP40.numerical_contract
+        .activation_operand_preserves_source_bf16_bits &&
+    kGateP40.numerical_contract.weight_operand_is_bf16_before_mma &&
+    kGateP40.numerical_contract.accumulator_is_fp32 &&
+    kGateP40.numerical_contract
+        .partition_accumulator_identity_is_independent &&
+    kGateP40.numerical_contract.tensor_scale_is_partition_local &&
+    kGateP40.numerical_contract.tensor_scale_applied_after_full_k &&
+    kGateP40.numerical_contract.tensor_scale_multiply_is_fp32_rn &&
+    kGateP40.numerical_contract.cross_warp_reduction_forbidden &&
+    kGateP40.numerical_contract.cross_cta_reduction_forbidden &&
+    kGateP40.numerical_contract.final_publication_is_bf16_rne);
 static_assert(kGateP40.partitions[0U].role ==
                   Sm87TargetAotLogicalRole::kNvFp4Gate &&
               kGateP40.partitions[1U].role ==
                   Sm87TargetAotLogicalRole::kNvFp4Up &&
-              kGateP40.partitions[1U].output_offset == 17'408U);
+              kGateP40.partitions[1U].output_offset == 17'408U &&
+              kGateP40.partitions[0U].independent_weight_payload &&
+              kGateP40.partitions[1U].independent_weight_payload &&
+              kGateP40.partitions[0U].independent_tensor_scale &&
+              kGateP40.partitions[1U].independent_tensor_scale &&
+              kGateP40.partitions[0U].independent_reduction_tree &&
+              kGateP40.partitions[1U].independent_reduction_tree &&
+              kGateP40.partitions[0U].bf16_rounding_boundary &&
+              kGateP40.partitions[1U].bf16_rounding_boundary &&
+              kGateP40.partitions[0U].bf16_round_to_nearest_even &&
+              kGateP40.partitions[1U].bf16_round_to_nearest_even);
 static_assert(kFullP40.partitions[0U].output_features == 12'288U &&
               kFullP40.partitions[1U].output_offset == 12'288U &&
               kFullP40.partitions[2U].output_offset == 13'312U);
@@ -87,7 +164,21 @@ static_assert(
     (kGateP40.policy & kernels::kSm87TargetAotGateUpSameCtaPartitionPair) !=
         0U &&
     (kGateP40.policy &
-     kernels::kSm87TargetAotGateBf16ReadyBeforeUpConsumer) != 0U);
+     kernels::kSm87TargetAotGateAndUpBf16ReadyBeforeSiluTimesUp) != 0U);
+static_assert(
+    (kGateP40.policy &
+     kernels::kSm87TargetAotGateUpSameCtaBf16Lifetime) != 0U &&
+    (kGateP40.policy &
+     kernels::kSm87TargetAotGateUpNoGlobalBf16Intermediate) != 0U &&
+    (kGateP40.policy &
+     kernels::kSm87TargetAotGateUpReclaimAfterSiluTimesUp) != 0U);
+static_assert(
+    kDownP40.gate_up_bf16_lifetime.gate_temporary_scope ==
+        Sm87TargetAotGateUpBf16Scope::kInvalid &&
+    kDownP40.gate_up_bf16_lifetime.up_publication_scope ==
+        Sm87TargetAotGateUpBf16Scope::kInvalid &&
+    kDownP40.gate_up_bf16_lifetime.reclaim_point ==
+        Sm87TargetAotGateUpBf16ReclaimPoint::kInvalid);
 static_assert(!kernels::sm87_target_aot_projection_plan(
                    Sm87TargetAotProjectionRole::kNvFp4GateUp, 39'999U)
                    .valid());
@@ -198,13 +289,125 @@ void test_plan_mutation_fails_closed(TestContext& test) {
   changed.partitions[1U].independent_tensor_scale = false;
   test.expect(!changed.valid(), "merged Up scale mutation fails closed");
   changed = kGateP40;
+  changed.partitions[0U].independent_weight_payload = false;
+  test.expect(!changed.valid(), "merged Gate weight identity fails closed");
+  changed = kGateP40;
+  changed.partitions[1U].independent_reduction_tree = false;
+  test.expect(!changed.valid(), "merged Up reduction tree fails closed");
+  changed = kGateP40;
+  changed.partitions[0U].bf16_round_to_nearest_even = false;
+  test.expect(!changed.valid(), "Gate BF16 RNE authority fails closed");
+  changed = kGateP40;
   changed.same_cta_partition_pair = false;
   test.expect(!changed.valid(),
               "Gate/Up cannot be scheduled to unrelated persistent CTAs");
   changed = kGateP40;
-  changed.gate_bf16_ready_before_up_consumer = false;
+  changed.gate_and_up_bf16_ready_before_silu_times_up = false;
   test.expect(!changed.valid(),
-              "Up must consume the Gate BF16 publication, not accumulator");
+              "SiLU-times-Up must await both independent BF16 publications");
+  changed = kGateP40;
+  changed.gate_up_bf16_lifetime.gate_temporary_scope =
+      Sm87TargetAotGateUpBf16Scope::kInvalid;
+  test.expect(!changed.valid(), "Gate BF16 temporary must stay CTA-private");
+  changed = kGateP40;
+  changed.gate_up_bf16_lifetime.up_publication_scope =
+      Sm87TargetAotGateUpBf16Scope::kInvalid;
+  test.expect(!changed.valid(), "Up BF16 publication must stay CTA-private");
+  changed = kGateP40;
+  changed.gate_up_bf16_lifetime.silu_times_up_consumes_gate_and_up_bf16 =
+      false;
+  test.expect(!changed.valid(),
+              "SiLU-times-Up must consume both independent BF16 values");
+  changed = kGateP40;
+  changed.gate_up_bf16_lifetime.reclaim_point =
+      Sm87TargetAotGateUpBf16ReclaimPoint::kInvalid;
+  test.expect(!changed.valid(),
+              "Gate/Up BF16 lifetime must end only after fused consumption");
+  changed = kGateP40;
+  changed.gate_up_bf16_lifetime
+      .global_intermediate_materialization_forbidden = false;
+  test.expect(!changed.valid(),
+              "global Gate/Up BF16 intermediate materialization is forbidden");
+  changed = kGateP40;
+  changed.gate_up_bf16_lifetime.cross_cta_handoff_forbidden = false;
+  test.expect(!changed.valid(),
+              "Gate/Up BF16 cross-CTA handoff is forbidden");
+  changed = kGateP40;
+  changed.numerical_contract.b_operand_path =
+      Sm87TargetAotProjectionBOperandPath::kInvalid;
+  test.expect(!changed.valid(), "NVFP4 BF16 B operand path fails closed");
+  changed = kGateP40;
+  changed.numerical_contract.tensor_scale_path =
+      Sm87TargetAotProjectionTensorScalePath::kInvalid;
+  test.expect(!changed.valid(), "post-full-K tensor scale path fails closed");
+  changed = kGateP40;
+  changed.numerical_contract.exceptional_encoding =
+      Sm87TargetAotProjectionExceptionalEncoding::kInvalid;
+  test.expect(!changed.valid(), "NVFP4 exceptional scale domain fails closed");
+  changed = kGateP40;
+  changed.numerical_contract.block_scale_group_k = 0U;
+  test.expect(!changed.valid(), "NVFP4 K16 block-scale group fails closed");
+  changed = kGateP40;
+  changed.numerical_contract.mma_instruction =
+      Sm87TargetAotProjectionMmaInstruction::kInvalid;
+  test.expect(!changed.valid(), "BF16 MMA instruction identity fails closed");
+  changed = kGateP40;
+  changed.numerical_contract.k_traversal =
+      Sm87TargetAotProjectionKTraversal::kInvalid;
+  test.expect(!changed.valid(), "full-K K64/K16 traversal fails closed");
+  changed = kGateP40;
+  changed.numerical_contract.publication =
+      Sm87TargetAotProjectionPublication::kInvalid;
+  test.expect(!changed.valid(), "projection publication path fails closed");
+  changed = kGateP40;
+  changed.numerical_contract.activation_operand_preserves_source_bf16_bits =
+      false;
+  test.expect(!changed.valid(), "BF16 A operand boundary fails closed");
+  changed = kGateP40;
+  changed.numerical_contract.weight_operand_is_bf16_before_mma = false;
+  test.expect(!changed.valid(), "BF16 B operand boundary fails closed");
+  changed = kGateP40;
+  changed.numerical_contract.accumulator_is_fp32 = false;
+  test.expect(!changed.valid(), "FP32 accumulator identity fails closed");
+  changed = kGateP40;
+  changed.numerical_contract.partition_accumulator_identity_is_independent =
+      false;
+  test.expect(!changed.valid(), "partition accumulator identity fails closed");
+  changed = kGateP40;
+  changed.numerical_contract.tensor_scale_is_partition_local = false;
+  test.expect(!changed.valid(), "partition-local tensor scale fails closed");
+  changed = kGateP40;
+  changed.numerical_contract.tensor_scale_applied_after_full_k = false;
+  test.expect(!changed.valid(), "early tensor-scale mutation fails closed");
+  changed = kGateP40;
+  changed.numerical_contract.tensor_scale_multiply_is_fp32_rn = false;
+  test.expect(!changed.valid(), "FP32-RN tensor scale multiply fails closed");
+  changed = kGateP40;
+  changed.numerical_contract.cross_warp_reduction_forbidden = false;
+  test.expect(!changed.valid(), "cross-warp reduction mutation fails closed");
+  changed = kGdnP40;
+  changed.numerical_contract.cross_cta_reduction_forbidden = false;
+  test.expect(!changed.valid(), "cross-CTA reduction mutation fails closed");
+  changed = kGdnP40;
+  changed.numerical_contract.final_publication_is_bf16_rne = false;
+  test.expect(!changed.valid(), "final BF16-RNE publication fails closed");
+  changed = kGdnP40;
+  changed.numerical_contract.b_operand_path =
+      Sm87TargetAotProjectionBOperandPath::
+          kNvFp4E2M1TimesE4M3FnBf16Rne;
+  test.expect(!changed.valid(), "FP8 raw Marlin B path fails closed");
+  changed = kGdnP40;
+  changed.numerical_contract.tensor_scale_path =
+      Sm87TargetAotProjectionTensorScalePath::
+          kNvFp4IndependentFp32AfterFullK;
+  test.expect(!changed.valid(), "FP8 double-BF16 scale path fails closed");
+  changed = kGdnP40;
+  changed.numerical_contract.fp8_bias_recovery_exponent = 0;
+  test.expect(!changed.valid(), "FP8 2^120 bias recovery fails closed");
+  changed = kGdnP40;
+  changed.numerical_contract.exceptional_encoding =
+      Sm87TargetAotProjectionExceptionalEncoding::kInvalid;
+  test.expect(!changed.valid(), "FP8 terminal-code behavior fails closed");
   changed = kGateP40;
   changed.production_dispatch_eligible = true;
   test.expect(!changed.valid(), "production eligibility cannot be self-declared");

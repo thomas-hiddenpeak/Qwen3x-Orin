@@ -866,6 +866,10 @@ struct Sm87TargetAotProjectionPackedSourceBinding {
       Sm87TargetAotLogicalRole::kInvalid;
   std::uint32_t partition_index = 0U;
   std::uint64_t tensor_identity = 0U;
+  // weight_digest is SHA-256 of the complete canonical packed-weight tensor.
+  // scale_digest is SHA-256 of the complete block-scale tensor (when present)
+  // followed by the four little-endian bytes of tensor_scale_bits. Neither
+  // digest may be synthesized from names, shapes, or other metadata.
   Sm87TargetAotProjectionSha256Digest weight_digest{};
   Sm87TargetAotProjectionSha256Digest scale_digest{};
   std::uint32_t output_features = 0U;
@@ -1014,6 +1018,100 @@ struct Sm87TargetAotProjectionPackedPayloadReceipt {
   Sm87TargetAotProjectionSha256Digest observed_payload_digest{};
   bool digest_computed_from_payload_bytes = false;
 };
+
+enum class Sm87TargetAotProjectionPackedTransformIdentity : std::uint16_t {
+  kInvalid = 0U,
+  // A bit-preserving permutation from each canonical [N,K] source into the
+  // ConsumerN64K16LaneComponentV1 address map. NVFP4 nibbles and E4M3FN
+  // block-scale bytes are copied exactly; FP8 E4M3FN weight bytes are copied
+  // exactly. The independent FP32 tensor scale remains outside the payload.
+  kCanonicalNkToConsumerN64K16LaneComponentV1,
+};
+
+struct Sm87TargetAotProjectionPackedPartitionTransformReceipt {
+  Sm87TargetAotLogicalRole logical_role =
+      Sm87TargetAotLogicalRole::kInvalid;
+  std::uint32_t partition_index = 0U;
+  std::uint64_t tensor_identity = 0U;
+  Sm87TargetAotProjectionSha256Digest observed_source_weight_digest{};
+  Sm87TargetAotProjectionSha256Digest observed_source_scale_digest{};
+  std::uint64_t source_weight_bytes_hashed = 0U;
+  std::uint64_t source_scale_bytes_hashed = 0U;
+  std::uint64_t repacked_weight_values = 0U;
+  std::uint64_t repacked_block_scale_values = 0U;
+  // Only NVFP4's E4M3FN block-scale tensor is an admission domain that
+  // rejects terminal NaN encodings. FP8 weight bytes are authenticated by
+  // digest and retain admitted Marlin's raw 0x7f/0xff -> +/-480 semantics.
+  std::uint64_t source_block_scale_e4m3fn_bytes_scanned = 0U;
+  std::uint64_t payload_block_scale_e4m3fn_bytes_scanned = 0U;
+  std::uint64_t source_forbidden_block_scale_codes = 0U;
+  std::uint64_t payload_forbidden_block_scale_codes = 0U;
+  std::uint64_t payload_offset = 0U;
+  std::uint64_t payload_bytes = 0U;
+  bool source_digests_computed_from_tensor_bytes = false;
+  bool canonical_address_bijection_applied = false;
+  bool bit_exact_weight_permutation = false;
+  bool bit_exact_block_scale_permutation = false;
+  bool tensor_scale_kept_external = false;
+};
+
+[[nodiscard]] constexpr bool
+sm87_target_aot_projection_partition_transform_receipt_is_zero(
+    const Sm87TargetAotProjectionPackedPartitionTransformReceipt&
+        receipt) noexcept {
+  return receipt.logical_role == Sm87TargetAotLogicalRole::kInvalid &&
+         receipt.partition_index == 0U && receipt.tensor_identity == 0U &&
+         sm87_target_aot_projection_digest_is_zero(
+             receipt.observed_source_weight_digest) &&
+         sm87_target_aot_projection_digest_is_zero(
+             receipt.observed_source_scale_digest) &&
+         receipt.source_weight_bytes_hashed == 0U &&
+         receipt.source_scale_bytes_hashed == 0U &&
+         receipt.repacked_weight_values == 0U &&
+         receipt.repacked_block_scale_values == 0U &&
+         receipt.source_block_scale_e4m3fn_bytes_scanned == 0U &&
+         receipt.payload_block_scale_e4m3fn_bytes_scanned == 0U &&
+         receipt.source_forbidden_block_scale_codes == 0U &&
+         receipt.payload_forbidden_block_scale_codes == 0U &&
+         receipt.payload_offset == 0U && receipt.payload_bytes == 0U &&
+         !receipt.source_digests_computed_from_tensor_bytes &&
+         !receipt.canonical_address_bijection_applied &&
+         !receipt.bit_exact_weight_permutation &&
+         !receipt.bit_exact_block_scale_permutation &&
+         !receipt.tensor_scale_kept_external;
+}
+
+struct Sm87TargetAotProjectionPackedTransformReceipt {
+  std::uint64_t artifact_identity = 0U;
+  std::uint64_t source_inventory_identity = 0U;
+  Sm87TargetAotProjectionRole role =
+      Sm87TargetAotProjectionRole::kInvalid;
+  Sm87TargetAotProjectionPackedPlanIdentity plan_identity =
+      Sm87TargetAotProjectionPackedPlanIdentity::kInvalid;
+  Sm87TargetAotProjectionPackedLayoutIdentity layout_identity =
+      Sm87TargetAotProjectionPackedLayoutIdentity::kInvalid;
+  Sm87TargetAotProjectionEncoding encoding =
+      Sm87TargetAotProjectionEncoding::kInvalid;
+  Sm87TargetAotProjectionPackedTransformIdentity transform_identity =
+      Sm87TargetAotProjectionPackedTransformIdentity::kInvalid;
+  std::uint32_t partition_count = 0U;
+  std::array<Sm87TargetAotProjectionPackedPartitionTransformReceipt,
+             kSm87TargetAotProjectionPackedMaxPartitions>
+      partitions{};
+  Sm87TargetAotProjectionPackedPayloadReceipt payload{};
+  bool deterministic_transform = false;
+  bool no_arithmetic_conversion = false;
+  bool no_request_time_repacking = false;
+};
+
+[[nodiscard]] constexpr bool
+sm87_target_aot_projection_block_scale_e4m3fn_code_is_forbidden(
+    const std::uint8_t code) noexcept {
+  const bool terminal_nan = code == 0x7fU || code == 0xffU;
+  const bool negative_nonzero =
+      (code & 0x80U) != 0U && (code & 0x7fU) != 0U;
+  return terminal_nan || negative_nonzero;
+}
 
 [[nodiscard]] constexpr std::uint64_t
 sm87_target_aot_projection_manifest_hash_byte(std::uint64_t hash,
@@ -1209,6 +1307,89 @@ sm87_target_aot_projection_validate_payload_receipt(
          !sm87_target_aot_projection_digest_is_zero(
              receipt.observed_payload_digest) &&
          receipt.observed_payload_digest == manifest.payload_digest;
+}
+
+[[nodiscard]] constexpr bool
+sm87_target_aot_projection_validate_transform_receipt(
+    const Sm87TargetAotProjectionPackedManifest& manifest,
+    const Sm87TargetAotProjectionPackedSourceInventory& expected,
+    const Sm87TargetAotProjectionPackedTransformReceipt& receipt) noexcept {
+  if (!sm87_target_aot_projection_validate_packed_manifest(manifest,
+                                                           expected) ||
+      receipt.artifact_identity != manifest.artifact_identity ||
+      receipt.source_inventory_identity !=
+          manifest.source_inventory_identity ||
+      receipt.role != manifest.role ||
+      receipt.plan_identity != manifest.plan_identity ||
+      receipt.layout_identity != manifest.layout_identity ||
+      receipt.encoding != manifest.encoding ||
+      receipt.transform_identity !=
+          Sm87TargetAotProjectionPackedTransformIdentity::
+              kCanonicalNkToConsumerN64K16LaneComponentV1 ||
+      receipt.partition_count != manifest.source_count ||
+      !receipt.deterministic_transform ||
+      !receipt.no_arithmetic_conversion ||
+      !receipt.no_request_time_repacking ||
+      !sm87_target_aot_projection_validate_payload_receipt(
+          manifest, receipt.payload)) {
+    return false;
+  }
+
+  const auto layout =
+      sm87_target_aot_projection_packed_layout(manifest.role);
+  for (std::size_t index = 0U; index < receipt.partitions.size(); ++index) {
+    const auto& observed = receipt.partitions[index];
+    if (index >= receipt.partition_count) {
+      if (!sm87_target_aot_projection_partition_transform_receipt_is_zero(
+              observed)) {
+        return false;
+      }
+      continue;
+    }
+
+    const auto& partition = layout.partitions[index];
+    const auto& source = expected.sources[index];
+    const std::uint64_t values =
+        static_cast<std::uint64_t>(partition.output_features) *
+        partition.input_features;
+    const std::uint64_t source_weight_bytes =
+        values * partition.weight_bits / 8U;
+    const std::uint64_t block_scale_values =
+        partition.block_scale_group_k == 0U
+            ? 0U
+            : values / partition.block_scale_group_k;
+    // scale_digest authenticates all scale sources: the optional E4M3FN
+    // block-scale tensor followed by the independent FP32 tensor scale.
+    const std::uint64_t source_scale_bytes =
+        block_scale_values + sizeof(std::uint32_t);
+    const std::uint64_t block_scale_e4m3fn_bytes = block_scale_values;
+    if (observed.logical_role != partition.logical_role ||
+        observed.partition_index != index ||
+        observed.tensor_identity != source.tensor_identity ||
+        observed.observed_source_weight_digest != source.weight_digest ||
+        observed.observed_source_scale_digest != source.scale_digest ||
+        observed.source_weight_bytes_hashed != source_weight_bytes ||
+        observed.source_scale_bytes_hashed != source_scale_bytes ||
+        observed.repacked_weight_values != values ||
+        observed.repacked_block_scale_values != block_scale_values ||
+        observed.source_block_scale_e4m3fn_bytes_scanned !=
+            block_scale_e4m3fn_bytes ||
+        observed.payload_block_scale_e4m3fn_bytes_scanned !=
+            block_scale_e4m3fn_bytes ||
+        observed.source_forbidden_block_scale_codes != 0U ||
+        observed.payload_forbidden_block_scale_codes != 0U ||
+        observed.payload_offset != partition.payload_offset ||
+        observed.payload_bytes != partition.payload_bytes ||
+        !observed.source_digests_computed_from_tensor_bytes ||
+        !observed.canonical_address_bijection_applied ||
+        !observed.bit_exact_weight_permutation ||
+        observed.bit_exact_block_scale_permutation !=
+            (block_scale_values != 0U) ||
+        !observed.tensor_scale_kept_external) {
+      return false;
+    }
+  }
+  return true;
 }
 
 inline bool sm87_target_aot_projection_seal_packed_manifest(
