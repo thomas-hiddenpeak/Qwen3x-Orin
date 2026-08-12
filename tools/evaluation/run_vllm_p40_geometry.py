@@ -93,6 +93,8 @@ VLLM_VERSION = "0.26.0"
 VLLM_BINARY_SHA256 = (
     "52c6299affc4b84979fb11b9537e531b055a532bba54ee0e894d1e910014936d"
 )
+VLLM_LOG_STATS_INTERVAL_SECONDS = 10.0
+VLLM_LOG_STATS_INTERVAL_ENV_VALUE = "10.0"
 
 VLLM_SOURCE_SHA256 = {
     "_C_stable_libtorch.abi3.so": (
@@ -107,8 +109,14 @@ VLLM_SOURCE_SHA256 = {
     "engine/arg_utils.py": (
         "e46d992fb2553f7ecd71d9b64459ecbc7daa740305b19e862493389d1b68d11a"
     ),
+    "entrypoints/serve/utils/server_utils.py": (
+        "52a4e59852a5c478ddf9d4dec1737dd5c8a807000d646ee61c9828d49f2d8491"
+    ),
     "entrypoints/openai/completion/serving.py": (
         "2590281b465d8a9e31252bd92407661f3af9adeddf7bd52c80395cc9fbb9e19c"
+    ),
+    "envs.py": (
+        "e078b0acb8e658faa6a8144d13a9036e2a82af40b348f419489a2607247cd936"
     ),
     "config/scheduler.py": (
         "a816cf79a3e74ffc0984f9bebb274275b26f46be8b28cb77a29388a0996263c8"
@@ -787,6 +795,98 @@ def validate_evalscope_summary(path: pathlib.Path) -> dict[str, float]:
     return normalized
 
 
+def validate_logger_environment_receipt(
+    receipt: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind logger configuration only to the receipt from the same run."""
+
+    base_allowlist = receipt.get("base_allowlist")
+    controlled_overrides = receipt.get("controlled_overrides")
+    if (
+        not isinstance(base_allowlist, list)
+        or any(not isinstance(key, str) for key in base_allowlist)
+        or not isinstance(controlled_overrides, Mapping)
+    ):
+        raise GeometryError("malformed same-run environment receipt")
+    variable = "VLLM_LOG_STATS_INTERVAL"
+    if variable in base_allowlist:
+        raise GeometryError(
+            f"same-run environment receipt inherits forbidden {variable}"
+        )
+    observed = controlled_overrides.get(variable)
+    if observed != VLLM_LOG_STATS_INTERVAL_ENV_VALUE:
+        raise GeometryError(
+            f"same-run environment receipt does not bind {variable}="
+            f"{VLLM_LOG_STATS_INTERVAL_ENV_VALUE}: {observed!r}"
+        )
+    return {
+        "base_allowlist_excludes_variable": True,
+        "controlled_environment_value": observed,
+        "same_run_environment_receipt_bound": True,
+    }
+
+
+def logger_window_contract(
+    same_run_environment_receipt: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Describe logger semantics without inventing per-run configuration."""
+
+    if same_run_environment_receipt is None:
+        configured_interval: float | None = None
+        authority = "unbound_without_same_run_environment_receipt"
+        receipt_binding = {
+            "base_allowlist_excludes_variable": None,
+            "controlled_environment_value": None,
+            "same_run_environment_receipt_bound": False,
+        }
+    else:
+        receipt_binding = validate_logger_environment_receipt(
+            same_run_environment_receipt
+        )
+        configured_interval = VLLM_LOG_STATS_INTERVAL_SECONDS
+        authority = (
+            "same_run_environment_receipt_bound_"
+            "supporting_service_telemetry_only"
+        )
+    return {
+        "authority": authority,
+        "configured_interval_seconds": configured_interval,
+        "configuration": {
+            "environment_variable": "VLLM_LOG_STATS_INTERVAL",
+            "same_run_receipt_binding": receipt_binding,
+            "vllm_positive_value_default_seconds": 10.0,
+        },
+        "trigger_semantics": (
+            "the vLLM server lifespan task sleeps for the configured interval, "
+            "then awaits engine_client.do_log_stats"
+        ),
+        "prompt_token_numerator_semantics": (
+            "sum of iteration_stats.prompt_token_stats.computed recorded by "
+            "the local LoggingStatLogger since its previous reset; cached and "
+            "transferred prompt tokens are excluded"
+        ),
+        "elapsed_time_denominator_semantics": (
+            "time.monotonic() at log update minus the local last_log_time; the "
+            "printed line does not expose this elapsed value and it need not "
+            "equal the configured sleep interval exactly"
+        ),
+        "prompt_throughput_formula": (
+            "sum(iteration_stats.prompt_token_stats.computed) / "
+            "(time.monotonic_now - last_log_time)"
+        ),
+        "scope_exclusions": [
+            "request_elapsed_time",
+            "pure_prefill_latency",
+            "external_ttft",
+        ],
+        "source_bindings": [
+            "envs.py",
+            "entrypoints/serve/utils/server_utils.py",
+            "v1/metrics/loggers.py",
+        ],
+    }
+
+
 def build_prefill_metric_surfaces(
     result: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -794,9 +894,25 @@ def build_prefill_metric_surfaces(
     evalscope = result.get("evalscope")
     metric_delta = result.get("server_metric_delta")
     log_observations = result.get("server", {}).get("final_log_observations")
+    observed_logger_contract = (
+        log_observations.get("logger_window_contract")
+        if isinstance(log_observations, Mapping)
+        else None
+    )
+    logger_contract = (
+        dict(observed_logger_contract)
+        if isinstance(observed_logger_contract, Mapping)
+        else logger_window_contract()
+    )
     return {
         "logger_window": {
-            "authority": "supporting_telemetry_only",
+            "authority": logger_contract.get(
+                "authority", "unbound_without_same_run_environment_receipt"
+            ),
+            "configured_interval_seconds": logger_contract.get(
+                "configured_interval_seconds"
+            ),
+            "metric_contract": logger_contract,
             "samples": (
                 log_observations.get("logger_interval_samples", [])
                 if isinstance(log_observations, Mapping)
@@ -984,6 +1100,7 @@ def environment_overrides(budget: int) -> dict[str, str]:
         "FLASHINFER_NO_DOWNLOAD": "1",
         "VLLM_NO_USAGE_STATS": "1",
         "VLLM_DO_NOT_TRACK": "1",
+        "VLLM_LOG_STATS_INTERVAL": VLLM_LOG_STATS_INTERVAL_ENV_VALUE,
         "TMPDIR": str(temporary),
         "XDG_CACHE_HOME": str(cache),
         "XDG_CONFIG_HOME": str(configuration),
@@ -2146,7 +2263,11 @@ def run_measured_evalscope(
     return result, telemetry, failure
 
 
-def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
+def observe_server_log(
+    path: pathlib.Path,
+    budget: int,
+    same_run_environment_receipt: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     try:
         raw_log = path.read_bytes()
     except OSError as error:
@@ -2159,6 +2280,10 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
     # event attribution inside its actual LF-delimited record.
     text = raw_log.decode("utf-8", errors="replace")
     physical_lines = text.split("\n")
+    logger_contract = logger_window_contract(same_run_environment_receipt)
+    logger_receipt_bound = logger_contract["configuration"][
+        "same_run_receipt_binding"
+    ]["same_run_environment_receipt_bound"]
     forbidden = (
         "linear_backend='humming'",
         '"linear_backend": "humming"',
@@ -2286,6 +2411,10 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
                         ),
                         "physical_line_contains_carriage_return": "\r" in line,
                         "month_day_clock": event_timestamp(line, offset),
+                        "configured_interval_seconds": logger_contract[
+                            "configured_interval_seconds"
+                        ],
+                        "authority": logger_contract["authority"],
                         "prompt_tokens_per_second": float(match.group("prompt")),
                         "generation_tokens_per_second": float(
                             match.group("generation")
@@ -2351,9 +2480,9 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
         r"Selected ([A-Za-z0-9_]+) for ModelOptFp8LinearMethod", text
     )
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "parser_identity": (
-            "q3x.vllm_server_log_observation.lf_physical_lines.v2"
+            "q3x.vllm_server_log_observation.lf_physical_lines.v3"
         ),
         "physical_line_contract": {
             "delimiter": "LF_byte_only",
@@ -2424,11 +2553,15 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
             if logger_interval_prompt_throughput
             else None
         ),
+        "logger_window_contract": logger_contract,
         "log_sha256": hashlib.sha256(raw_log).hexdigest(),
         "authority": {
             "backend_and_startup_route": "supporting_route_evidence",
-            "logger_interval_throughput": "supporting_telemetry_only",
-            "logger_interval_duration": "not_established_by_server_log",
+            "logger_interval_throughput": logger_contract["authority"],
+            "logger_configured_interval": logger_contract["authority"],
+            "logger_actual_monotonic_elapsed_denominator": (
+                "not_exposed_by_printed_server_log"
+            ),
             "nvfp4_linear_runtime_hit": "not_established_by_server_log",
             "request_latency": "not_established_by_server_log",
             "request_phase_from_http_response_start_access_log": (
@@ -2442,9 +2575,18 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
             "ModelOpt source, but this server log has no NVFP4 runtime-selection "
             "or kernel-hit observation; its status is therefore source-resolved/"
             "runtime-hit-unproven. Avg prompt throughput is "
-            "computed from tokens recorded during vLLM's local logger interval; "
-            "the actual interval duration is not present in this server log and "
-            "must not be assumed to be exactly ten seconds from nominal cadence. "
+            + (
+                "bound by the same-run environment receipt to this harness's "
+                "10.0-second logging trigger and "
+                if logger_receipt_bound
+                else "not bound to a configured interval because no same-run "
+                "environment receipt was supplied; the attested source default "
+                "alone is not attributed to this parsed run. It is "
+            )
+            + "computed from locally recorded computed prompt tokens divided by "
+            "the LoggingStatLogger's actual monotonic elapsed time since reset. "
+            "That actual denominator is not printed and need not equal 10.0 "
+            "seconds exactly. "
             "A long iteration is recorded atomically after it completes, so this "
             "window rate is not request elapsed time or pure-Prefill latency. "
             "For streaming requests the retained POST line is an access-log "
@@ -2487,6 +2629,7 @@ def run_budget(
 ) -> dict[str, Any]:
     run_dir = config.output_dir / f"b{budget}"
     run_dir.mkdir(parents=True, exist_ok=False)
+    run_environment_receipt = environment_receipt(budget)
     write_json(
         run_dir / "command.json",
         {
@@ -2506,7 +2649,7 @@ def run_budget(
                 f"p40-b{budget}",
                 runtime.executable,
             ),
-            "environment": environment_receipt(budget),
+            "environment": run_environment_receipt,
         },
     )
     rpc_before_server = collect_vllm_rpc_sockets()
@@ -2844,7 +2987,9 @@ def run_budget(
             if server is not None:
                 try:
                     final_log_observations = observe_server_log(
-                        server_log_path, budget
+                        server_log_path,
+                        budget,
+                        same_run_environment_receipt=run_environment_receipt,
                     )
                     write_json(
                         run_dir / "server-log-observations.json",

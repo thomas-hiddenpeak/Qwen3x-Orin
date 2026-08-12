@@ -194,6 +194,20 @@ class VllmP40GeometryTest(unittest.TestCase):
             4_300.0,
         )
         self.assertEqual(
+            surfaces["logger_window"]["configured_interval_seconds"], None
+        )
+        self.assertEqual(
+            surfaces["logger_window"]["authority"],
+            "unbound_without_same_run_environment_receipt",
+        )
+        self.assertEqual(
+            surfaces["logger_window"]["metric_contract"][
+                "prompt_throughput_formula"
+            ],
+            "sum(iteration_stats.prompt_token_stats.computed) / "
+            "(time.monotonic_now - last_log_time)",
+        )
+        self.assertEqual(
             surfaces["request_prefill"]["tokens_per_second"], 5_000.0
         )
         self.assertEqual(
@@ -232,6 +246,7 @@ class VllmP40GeometryTest(unittest.TestCase):
             "HOME": "/untrusted/home",
             "VLLM_NO_USAGE_STATS": "0",
             "VLLM_DO_NOT_TRACK": "0",
+            "VLLM_LOG_STATS_INTERVAL": "37.5",
             "FLASHINFER_NO_DOWNLOAD": "0",
         }
         with mock.patch.dict(os.environ, hostile):
@@ -248,7 +263,13 @@ class VllmP40GeometryTest(unittest.TestCase):
         self.assertEqual(effective["HOME"], str(GEOMETRY.WORK_ROOT / "home"))
         self.assertEqual(effective["VLLM_NO_USAGE_STATS"], "1")
         self.assertEqual(effective["VLLM_DO_NOT_TRACK"], "1")
+        self.assertEqual(effective["VLLM_LOG_STATS_INTERVAL"], "10.0")
         self.assertEqual(effective["FLASHINFER_NO_DOWNLOAD"], "1")
+        receipt = GEOMETRY.environment_receipt(8_192)
+        self.assertEqual(
+            receipt["controlled_overrides"]["VLLM_LOG_STATS_INTERVAL"],
+            "10.0",
+        )
 
     def test_alternate_pycache_prefix_must_remain_empty(self) -> None:
         GEOMETRY.WORK_ROOT.mkdir(parents=True, exist_ok=True)
@@ -350,6 +371,58 @@ class VllmP40GeometryTest(unittest.TestCase):
         self.assertIn(
             "third_party/deep_gemm/__init__.py", GEOMETRY.VLLM_SOURCE_SHA256
         )
+
+    def test_logger_window_source_semantics_are_pinned(self) -> None:
+        self.assertEqual(
+            GEOMETRY.VLLM_SOURCE_SHA256["envs.py"],
+            "e078b0acb8e658faa6a8144d13a9036e2a82af40b348f419489a2607247cd936",
+        )
+        self.assertEqual(
+            GEOMETRY.VLLM_SOURCE_SHA256[
+                "entrypoints/serve/utils/server_utils.py"
+            ],
+            "52a4e59852a5c478ddf9d4dec1737dd5c8a807000d646ee61c9828d49f2d8491",
+        )
+        contract = GEOMETRY.logger_window_contract()
+        self.assertIsNone(contract["configured_interval_seconds"])
+        self.assertEqual(
+            contract["authority"],
+            "unbound_without_same_run_environment_receipt",
+        )
+        self.assertFalse(
+            contract["configuration"]["same_run_receipt_binding"][
+                "same_run_environment_receipt_bound"
+            ]
+        )
+        for relative in contract["source_bindings"]:
+            self.assertIn(relative, GEOMETRY.VLLM_SOURCE_SHA256)
+        self.assertIn(
+            "time.monotonic()",
+            contract["elapsed_time_denominator_semantics"],
+        )
+        self.assertEqual(
+            contract["scope_exclusions"],
+            ["request_elapsed_time", "pure_prefill_latency", "external_ttft"],
+        )
+
+    def test_logger_window_receipt_binding_is_strict(self) -> None:
+        formal = GEOMETRY.logger_window_contract(
+            GEOMETRY.environment_receipt(8_192)
+        )
+        self.assertEqual(formal["configured_interval_seconds"], 10.0)
+        self.assertEqual(
+            formal["authority"],
+            "same_run_environment_receipt_bound_"
+            "supporting_service_telemetry_only",
+        )
+        inherited = GEOMETRY.environment_receipt(8_192)
+        inherited["base_allowlist"].append("VLLM_LOG_STATS_INTERVAL")
+        with self.assertRaisesRegex(GEOMETRY.GeometryError, "inherits forbidden"):
+            GEOMETRY.logger_window_contract(inherited)
+        wrong = GEOMETRY.environment_receipt(8_192)
+        wrong["controlled_overrides"]["VLLM_LOG_STATS_INTERVAL"] = "20.0"
+        with self.assertRaisesRegex(GEOMETRY.GeometryError, "does not bind"):
+            GEOMETRY.logger_window_contract(wrong)
 
     def test_only_unlinked_posix_semaphore_matches_deleted_mapping_rule(self) -> None:
         accepted = "/dev/shm/sem.5zLMSe (deleted)"
@@ -601,11 +674,17 @@ class VllmP40GeometryTest(unittest.TestCase):
                 )
             )
             log.write_text(required)
-            observed = GEOMETRY.observe_server_log(log, 8_192)
-            self.assertEqual(observed["schema_version"], 2)
+            observed = GEOMETRY.observe_server_log(
+                log,
+                8_192,
+                same_run_environment_receipt=GEOMETRY.environment_receipt(
+                    8_192
+                ),
+            )
+            self.assertEqual(observed["schema_version"], 3)
             self.assertEqual(
                 observed["parser_identity"],
-                "q3x.vllm_server_log_observation.lf_physical_lines.v2",
+                "q3x.vllm_server_log_observation.lf_physical_lines.v3",
             )
             self.assertTrue(all(observed["required_route_probe_hits"].values()))
             self.assertEqual(
@@ -626,6 +705,17 @@ class VllmP40GeometryTest(unittest.TestCase):
                 ],
                 "after_first_before_second_http_response_start_access_log_"
                 "observation",
+            )
+            self.assertEqual(
+                observed["logger_interval_samples"][0][
+                    "configured_interval_seconds"
+                ],
+                10.0,
+            )
+            self.assertEqual(
+                observed["logger_interval_samples"][0]["authority"],
+                "same_run_environment_receipt_bound_"
+                "supporting_service_telemetry_only",
             )
             self.assertEqual(
                 len(observed["http_response_start_access_log_observations"]),
@@ -680,15 +770,30 @@ class VllmP40GeometryTest(unittest.TestCase):
                 "not_established",
             )
             self.assertEqual(
-                observed["authority"]["logger_interval_duration"],
-                "not_established_by_server_log",
+                observed["authority"]["logger_configured_interval"],
+                "same_run_environment_receipt_bound_"
+                "supporting_service_telemetry_only",
+            )
+            self.assertEqual(
+                observed["authority"][
+                    "logger_actual_monotonic_elapsed_denominator"
+                ],
+                "not_exposed_by_printed_server_log",
+            )
+            self.assertEqual(
+                observed["logger_window_contract"][
+                    "prompt_token_numerator_semantics"
+                ],
+                "sum of iteration_stats.prompt_token_stats.computed recorded by "
+                "the local LoggingStatLogger since its previous reset; cached "
+                "and transferred prompt tokens are excluded",
             )
             self.assertIn(
                 "not proof of client header receipt",
                 observed["note"],
             )
             self.assertIn(
-                "must not be assumed to be exactly ten seconds",
+                "bound by the same-run environment receipt",
                 observed["note"],
             )
             self.assertIn("warmup completion", observed["note"])
@@ -697,7 +802,13 @@ class VllmP40GeometryTest(unittest.TestCase):
                     "Using AttentionBackendEnum.FLASHINFER backend.\n", ""
                 )
             )
-            missing_route = GEOMETRY.observe_server_log(log, 8_192)
+            missing_route = GEOMETRY.observe_server_log(
+                log,
+                8_192,
+                same_run_environment_receipt=GEOMETRY.environment_receipt(
+                    8_192
+                ),
+            )
             self.assertFalse(missing_route["route_validation"]["passed"])
             self.assertIn(
                 "flashinfer_attention",
@@ -710,7 +821,13 @@ class VllmP40GeometryTest(unittest.TestCase):
                 4300.0,
             )
             log.write_text(required + "\nUsing Humming")
-            forbidden_route = GEOMETRY.observe_server_log(log, 8_192)
+            forbidden_route = GEOMETRY.observe_server_log(
+                log,
+                8_192,
+                same_run_environment_receipt=GEOMETRY.environment_receipt(
+                    8_192
+                ),
+            )
             self.assertFalse(forbidden_route["route_validation"]["passed"])
             self.assertIn(
                 "Using Humming",
@@ -1027,7 +1144,7 @@ class VllmP40GeometryTest(unittest.TestCase):
                 partial["prefill_metric_surfaces"]["logger_window"][
                     "authority"
                 ],
-                "supporting_telemetry_only",
+                "unbound_without_same_run_environment_receipt",
             )
             evidence = json.loads(
                 (run_dir / "post-request-evidence.json").read_text()
@@ -1081,6 +1198,42 @@ class VllmP40GeometryTest(unittest.TestCase):
             log.write_bytes(raw_log)
 
             observed = GEOMETRY.observe_server_log(log, 8_192)
+
+            self.assertIsNone(
+                observed["logger_window_contract"][
+                    "configured_interval_seconds"
+                ]
+            )
+            self.assertEqual(
+                observed["logger_window_contract"]["authority"],
+                "unbound_without_same_run_environment_receipt",
+            )
+            standalone_samples = observed["logger_interval_samples"]
+            self.assertIsNone(
+                standalone_samples[0]["configured_interval_seconds"]
+            )
+            self.assertEqual(
+                standalone_samples[0]["authority"],
+                "unbound_without_same_run_environment_receipt",
+            )
+            formal = GEOMETRY.observe_server_log(
+                log,
+                8_192,
+                same_run_environment_receipt=GEOMETRY.environment_receipt(
+                    8_192
+                ),
+            )
+            self.assertEqual(
+                formal["logger_window_contract"][
+                    "configured_interval_seconds"
+                ],
+                10.0,
+            )
+            self.assertEqual(
+                formal["logger_interval_samples"][0]["authority"],
+                "same_run_environment_receipt_bound_"
+                "supporting_service_telemetry_only",
+            )
 
             self.assertEqual(
                 observed["physical_line_contract"],
