@@ -62,6 +62,45 @@ static_assert(kernels::sm87_target_aot_projection_packed_k16_for_lane_component(
                   0U, 1U) == 8U &&
               kernels::sm87_target_aot_projection_packed_k16_for_lane_component(
                   3U, 3U) == 15U);
+static_assert(
+    kernels::sm87_target_aot_projection_mma_b_register_component(0U) == 0U &&
+    kernels::sm87_target_aot_projection_mma_b_register_component(1U) == 2U &&
+    kernels::sm87_target_aot_projection_mma_b_register_component(2U) == 1U &&
+    kernels::sm87_target_aot_projection_mma_b_register_component(3U) == 3U &&
+    kernels::sm87_target_aot_projection_mma_b_register_component(4U) ==
+        0xffU &&
+    kernels::sm87_target_aot_projection_packed_k16_for_lane_component(
+        2U,
+        kernels::sm87_target_aot_projection_mma_b_register_component(0U)) ==
+        4U &&
+    kernels::sm87_target_aot_projection_packed_k16_for_lane_component(
+        2U,
+        kernels::sm87_target_aot_projection_mma_b_register_component(1U)) ==
+        5U &&
+    kernels::sm87_target_aot_projection_packed_k16_for_lane_component(
+        2U,
+        kernels::sm87_target_aot_projection_mma_b_register_component(2U)) ==
+        12U &&
+    kernels::sm87_target_aot_projection_packed_k16_for_lane_component(
+        2U,
+        kernels::sm87_target_aot_projection_mma_b_register_component(3U)) ==
+        13U);
+static_assert(
+    kernels::sm87_target_aot_projection_nvfp4_physical_warp(
+        Sm87TargetAotProjectionRole::kNvFp4GateUp, 0U, 0U, 0U)
+            .physical_warp == 0U &&
+    kernels::sm87_target_aot_projection_nvfp4_physical_warp(
+        Sm87TargetAotProjectionRole::kNvFp4GateUp, 0U, 0U, 2U)
+            .physical_warp == 0U &&
+    kernels::sm87_target_aot_projection_nvfp4_physical_warp(
+        Sm87TargetAotProjectionRole::kNvFp4GateUp, 1U, 1U, 3U)
+            .physical_warp == 7U &&
+    kernels::sm87_target_aot_projection_nvfp4_physical_warp(
+        Sm87TargetAotProjectionRole::kNvFp4Down, 0U, 1U, 3U)
+            .physical_warp == 7U &&
+    !kernels::sm87_target_aot_projection_nvfp4_physical_warp(
+         Sm87TargetAotProjectionRole::kFp8FullQkv, 0U, 0U, 0U)
+         .valid);
 
 class TestContext {
  public:
@@ -187,8 +226,10 @@ make_transform_receipt(
          left.nibble == right.nibble &&
          left.s2r_lane == right.s2r_lane &&
          left.s2r_component == right.s2r_component &&
-         left.consumer_warp0 == right.consumer_warp0 &&
-         left.consumer_warp1 == right.consumer_warp1;
+         left.virtual_m_warp_consumer0 ==
+             right.virtual_m_warp_consumer0 &&
+         left.virtual_m_warp_consumer1 ==
+             right.virtual_m_warp_consumer1;
 }
 
 [[nodiscard]] bool same_logical_scale(
@@ -198,8 +239,10 @@ make_transform_receipt(
          left.partition_index == right.partition_index && left.n == right.n &&
          left.scale_group == right.scale_group &&
          left.byte_offset == right.byte_offset &&
-         left.consumer_warp0 == right.consumer_warp0 &&
-         left.consumer_warp1 == right.consumer_warp1;
+         left.virtual_m_warp_consumer0 ==
+             right.virtual_m_warp_consumer0 &&
+         left.virtual_m_warp_consumer1 ==
+             right.virtual_m_warp_consumer1;
 }
 
 // Exhaustive proof is factorized instead of allocating a payload-sized set:
@@ -316,8 +359,8 @@ make_transform_receipt(
         const auto address =
             kernels::sm87_target_aot_projection_packed_weight_address(
                 layout, partition_index, n, k);
-        if (!address.valid || address.consumer_warp0 != address.n_warp ||
-            address.consumer_warp1 != address.n_warp + 4U ||
+        if (!address.valid || address.virtual_m_warp_consumer0 != 0U ||
+            address.virtual_m_warp_consumer1 != 1U ||
             !same_logical_weight(
                 address,
                 kernels::sm87_target_aot_projection_packed_reverse_weight(
@@ -402,8 +445,8 @@ make_transform_receipt(
                   partition.payload_offset +
                       static_cast<std::uint64_t>(linear_fragment) *
                           fragment_bytes ||
-              fragment.consumer_warp0 != n_warp ||
-              fragment.consumer_warp1 != n_warp + 4U ||
+              fragment.virtual_m_warp_consumer0 != 0U ||
+              fragment.virtual_m_warp_consumer1 != 1U ||
               (partition.block_scale_group_k != 0U &&
                fragment.block_scale_offset !=
                    partition.payload_offset +
@@ -476,6 +519,103 @@ make_transform_receipt(
     payload_cursor += partition.payload_bytes;
   }
   return payload_cursor == layout.payload_bytes;
+}
+
+void test_nvfp4_physical_warp_maps(TestContext& test) {
+  for (std::size_t n_half = 0U; n_half < 2U; ++n_half) {
+    std::array<std::uint8_t, 8U> seen{};
+    for (std::size_t partition_branch = 0U; partition_branch < 2U;
+         ++partition_branch) {
+      for (std::size_t m_warp = 0U; m_warp < 2U; ++m_warp) {
+        for (std::size_t n_warp_in_half = 0U; n_warp_in_half < 2U;
+             ++n_warp_in_half) {
+          const std::size_t n_warp = n_half * 2U + n_warp_in_half;
+          const auto mapping =
+              kernels::sm87_target_aot_projection_nvfp4_physical_warp(
+                  Sm87TargetAotProjectionRole::kNvFp4GateUp,
+                  partition_branch, m_warp, n_warp);
+          const std::size_t expected =
+              partition_branch * 4U + m_warp * 2U + n_warp_in_half;
+          if (!mapping.valid ||
+              mapping.partition_branch != partition_branch ||
+              mapping.n_half != n_half ||
+              mapping.virtual_m_warp != m_warp ||
+              mapping.virtual_n_warp != n_warp_in_half ||
+              mapping.physical_warp != expected ||
+              !mapping.physical_warp_reused_across_n_halves ||
+              expected >= seen.size() || seen[expected] != 0U) {
+            test.expect(false,
+                        "Gate/Up branch and N-half warp map is exhaustive");
+            return;
+          }
+          seen[expected] = 1U;
+
+          const auto reused =
+              kernels::sm87_target_aot_projection_nvfp4_physical_warp(
+                  Sm87TargetAotProjectionRole::kNvFp4GateUp,
+                  partition_branch, m_warp,
+                  (1U - n_half) * 2U + n_warp_in_half);
+          if (!reused.valid || reused.physical_warp != mapping.physical_warp) {
+            test.expect(false,
+                        "Gate/Up physical warps are reused across N halves");
+            return;
+          }
+        }
+      }
+    }
+    for (const auto count : seen) {
+      if (count != 1U) {
+        test.expect(false,
+                    "each Gate/Up N half owns all eight physical warps once");
+        return;
+      }
+    }
+  }
+
+  std::array<std::uint8_t, 8U> seen_down{};
+  for (std::size_t m_warp = 0U; m_warp < 2U; ++m_warp) {
+    for (std::size_t n_warp = 0U; n_warp < 4U; ++n_warp) {
+      const auto mapping =
+          kernels::sm87_target_aot_projection_nvfp4_physical_warp(
+              Sm87TargetAotProjectionRole::kNvFp4Down, 0U, m_warp,
+              n_warp);
+      const std::size_t expected = m_warp * 4U + n_warp;
+      if (!mapping.valid || mapping.partition_branch != 0U ||
+          mapping.n_half != 0U || mapping.virtual_m_warp != m_warp ||
+          mapping.virtual_n_warp != n_warp ||
+          mapping.physical_warp != expected ||
+          mapping.physical_warp_reused_across_n_halves ||
+          expected >= seen_down.size() || seen_down[expected] != 0U) {
+        test.expect(false, "Down physical warp map is m*4+n");
+        return;
+      }
+      seen_down[expected] = 1U;
+    }
+  }
+  for (const auto count : seen_down) {
+    if (count != 1U) {
+      test.expect(false, "Down owns all eight physical warps once");
+      return;
+    }
+  }
+
+  test.expect(
+      !kernels::sm87_target_aot_projection_nvfp4_physical_warp(
+           Sm87TargetAotProjectionRole::kNvFp4GateUp, 2U, 0U, 0U)
+           .valid &&
+          !kernels::sm87_target_aot_projection_nvfp4_physical_warp(
+               Sm87TargetAotProjectionRole::kNvFp4Down, 1U, 0U, 0U)
+               .valid &&
+          !kernels::sm87_target_aot_projection_nvfp4_physical_warp(
+               Sm87TargetAotProjectionRole::kNvFp4Down, 0U, 2U, 0U)
+               .valid &&
+          !kernels::sm87_target_aot_projection_nvfp4_physical_warp(
+               Sm87TargetAotProjectionRole::kNvFp4Down, 0U, 0U, 4U)
+               .valid &&
+          !kernels::sm87_target_aot_projection_nvfp4_physical_warp(
+               Sm87TargetAotProjectionRole::kFp8FullQkv, 0U, 0U, 0U)
+               .valid,
+      "NVFP4 physical warp map fails closed outside its exact role domain");
 }
 
 void test_all_roles_and_token_independence(TestContext& test) {
@@ -841,6 +981,7 @@ void test_typed_manifests(TestContext& test) {
 int main() {
   TestContext test;
   test_all_roles_and_token_independence(test);
+  test_nvfp4_physical_warp_maps(test);
   test_mapping_bounds_and_wrong_offsets(test);
   test_layout_mutations_fail_closed(test);
   test_payload_binding_and_alias(test);

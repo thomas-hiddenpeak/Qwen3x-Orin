@@ -364,12 +364,15 @@ double- or triple-buffered GPU pipeline is selected yet. The DAG permits GDN
 QKVZ and A/B to overlap after input normalization, but stream assignment,
 simultaneous resource fit, and any performance benefit remain unqualified.
 
-The build admission for this descriptor is default-off and test-only. It
-contains no CUDA implementation, launcher, selector, device handle, API
-wiring, resource qualification, numerical qualification, or production
-dispatch authority. The next implementation step must bind new packed assets
-and native CUDA bodies directly to the real P40 API route; passing the host
-schema cannot promote the current production path.
+The build admission for the descriptor remains default-off and test-only. A
+separate default-off admission now contains a real-byte host transformation
+and compile-only NVFP4 Gate+Up/Down CUDA bodies, but its public launcher is
+fail-closed. Neither admission contains a production selector, owned device
+asset, API wiring, resource qualification, numerical qualification, or
+production dispatch authority. The next implementation step must bind the
+actual checkpoint sources and device payload to the complete real P40 API
+candidate; passing either host schema or CUDA compilation cannot promote the
+current production path.
 
 The pre-CUDA implementation contract is now frozen as a second host-only
 milestone:
@@ -397,9 +400,24 @@ milestone:
   not an authenticated payload.
 
 These declarations are implementation constraints, not numerical or payload
-qualification. The loader still has to hash and scan the actual real-checkpoint
-bytes, and CUDA still has to reproduce the declared traces against the named
-real-model oracle before either qualification bit can change.
+qualification. The new asset builder proves that supplied byte intervals can
+be hashed, domain-scanned, permuted and replayed bit-exactly; its synthetic
+host tests do not authenticate the deployed checkpoint. The unexecuted,
+compiled NVFP4 bodies encode the intended three-stage K64 feed, decoded-B
+register double buffer, full-K FP32 ownership, same-CTA Gate/Up BF16 lifetime
+and Down residual boundary. Static compilation currently reports Gate+Up at
+246 registers/thread and Down at 210, both with zero stack and zero spill,
+using 76,800 bytes of dynamic shared memory; SASS contains `LDGSTS`, `LDSM`,
+and BF16 `HMMA`. Those are implementation observations only. A typed
+device-upload receipt requires the future loader to bind the authenticated
+host digest to an owned allocation and exact payload subrange, stream owner,
+post-copy completion event, and retained lifetime. The schema itself does not
+inspect or authenticate device memory, and the binder may not manufacture
+those facts from a raw pointer. The loader must still issue that receipt from
+the real checkpoint upload, the CUDA bodies must pass the named real-model
+numerical oracle and reviewed resource gate, and a separately reviewed
+admission launcher must reach the real API before any qualification bit
+changes.
 
 ## 9. One bounded reference-geometry witness
 

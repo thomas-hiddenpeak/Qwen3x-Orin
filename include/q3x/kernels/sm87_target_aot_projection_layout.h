@@ -56,11 +56,12 @@ enum class Sm87TargetAotProjectionPackedLayoutIdentity : std::uint16_t {
   // [K16][N-warp][N8-panel][lane][component].  NVFP4 stores four lane
   // components in two bytes: even component ordinals occupy the low nibble
   // and odd component ordinals occupy the high nibble. FP8 stores the four
-  // components in four bytes. Both FP8 payload and block scales are E4M3FN;
-  // the future numerical contract must explicitly handle terminal 0x7f/0xff
-  // encodings before qualification. This layout schema only preserves their
-  // bytes. NVFP4 scales
-  // follow B in [K16][N-warp][N8-panel][row] order.
+  // components in four bytes. Both FP8 payload and block scales are E4M3FN.
+  // NVFP4 block scales reject terminal NaNs and negative nonzero encodings;
+  // FP8 weight bytes retain admitted Marlin's raw 0x7f/0xff -> +/-480
+  // interpretation. This layout preserves admitted bytes without arithmetic
+  // conversion. NVFP4 scales follow B in
+  // [K16][N-warp][N8-panel][row] order.
   kConsumerN64K16LaneComponentV1,
 };
 
@@ -118,6 +119,9 @@ struct Sm87TargetAotProjectionPackedLayout {
   std::uint32_t n_warps = 0U;
   std::uint32_t m_warps = 0U;
   bool token_count_independent = false;
+  // Means a reviewed, admitted executable consumer exists for this canonical
+  // layout. Compile-only CUDA evidence is reported separately as
+  // Sm87TargetAotNvFp4CudaResources::kernel_compiled.
   bool cuda_implementation_present = false;
   bool static_resources_qualified = false;
   bool numerical_contract_qualified = false;
@@ -384,8 +388,12 @@ struct Sm87TargetAotProjectionPackedFragment {
   std::uint8_t k16 = 0U;
   std::uint8_t n_warp = 0U;
   std::uint8_t n8_panel = 0U;
-  std::uint8_t consumer_warp0 = 0U;
-  std::uint8_t consumer_warp1 = 0U;
+  // A packed B fragment is consumed by both virtual M64 rows. These values
+  // are virtual M-warp coordinates, never absolute CTA warp IDs. The
+  // role-specific physical mapping is explicit below for the admitted NVFP4
+  // GateUp and Down plans.
+  std::uint8_t virtual_m_warp_consumer0 = 0U;
+  std::uint8_t virtual_m_warp_consumer1 = 0U;
   std::uint64_t weight_offset = 0U;
   std::uint32_t weight_bytes = 0U;
   std::uint64_t block_scale_offset = 0U;
@@ -425,14 +433,73 @@ sm87_target_aot_projection_packed_fragment(
           static_cast<std::uint8_t>(k16),
           static_cast<std::uint8_t>(n_warp),
           static_cast<std::uint8_t>(n8_panel),
-          static_cast<std::uint8_t>(n_warp),
-          static_cast<std::uint8_t>(
-              n_warp + kSm87TargetAotProjectionPackedNWarpCount),
+          0U,
+          1U,
           weight_offset,
           weight_fragment_bytes,
           partition.block_scale_bytes_per_cell == 0U ? 0U : scale_offset,
           partition.block_scale_bytes_per_cell == 0U ? 0U : 8U,
           true};
+}
+
+// Physical warp ownership is a kernel-role contract, not a property of the
+// persisted B permutation. Gate and Up each own a four-warp branch; the two
+// N128 halves are processed in sequence and reuse the same physical warps.
+// Down owns the full 2M x 4N warp grid concurrently.
+struct Sm87TargetAotProjectionNvFp4PhysicalWarp {
+  Sm87TargetAotProjectionRole role =
+      Sm87TargetAotProjectionRole::kInvalid;
+  std::uint8_t partition_branch = 0U;
+  std::uint8_t n_half = 0U;
+  std::uint8_t virtual_m_warp = 0U;
+  std::uint8_t virtual_n_warp = 0U;
+  std::uint8_t physical_warp = 0U;
+  bool physical_warp_reused_across_n_halves = false;
+  bool valid = false;
+};
+
+[[nodiscard]] constexpr Sm87TargetAotProjectionNvFp4PhysicalWarp
+sm87_target_aot_projection_nvfp4_physical_warp(
+    const Sm87TargetAotProjectionRole role,
+    const std::size_t partition_index,
+    const std::size_t virtual_m_warp,
+    const std::size_t n_warp) noexcept {
+  if (virtual_m_warp >= kSm87TargetAotProjectionPackedMWarpCount ||
+      n_warp >= kSm87TargetAotProjectionPackedNWarpCount) {
+    return {};
+  }
+  if (role == Sm87TargetAotProjectionRole::kNvFp4GateUp) {
+    if (partition_index >= 2U) {
+      return {};
+    }
+    const std::size_t n_half = n_warp / 2U;
+    const std::size_t n_warp_in_half = n_warp % 2U;
+    const std::size_t physical_warp =
+        partition_index * 4U + virtual_m_warp * 2U + n_warp_in_half;
+    return {role,
+            static_cast<std::uint8_t>(partition_index),
+            static_cast<std::uint8_t>(n_half),
+            static_cast<std::uint8_t>(virtual_m_warp),
+            static_cast<std::uint8_t>(n_warp_in_half),
+            static_cast<std::uint8_t>(physical_warp),
+            true,
+            true};
+  }
+  if (role == Sm87TargetAotProjectionRole::kNvFp4Down) {
+    if (partition_index != 0U) {
+      return {};
+    }
+    const std::size_t physical_warp = virtual_m_warp * 4U + n_warp;
+    return {role,
+            0U,
+            0U,
+            static_cast<std::uint8_t>(virtual_m_warp),
+            static_cast<std::uint8_t>(n_warp),
+            static_cast<std::uint8_t>(physical_warp),
+            false,
+            true};
+  }
+  return {};
 }
 
 [[nodiscard]] constexpr std::uint8_t
@@ -459,6 +526,19 @@ sm87_target_aot_projection_packed_k16_for_lane_component(
       ((component & 1U) != 0U ? 8U : 0U));
 }
 
+// The packed payload keeps load-coalesced component order [K0,K8,K1,K9].
+// The SM87 m16n8k16.col register ABI instead consumes [K0,K1] in b.x0 and
+// [K8,K9] in b.x1.  This helper is the explicit persisted-component -> MMA
+// register-half permutation used by the CUDA decoder.
+[[nodiscard]] constexpr std::uint8_t
+sm87_target_aot_projection_mma_b_register_component(
+    const std::uint32_t register_component) noexcept {
+  constexpr std::array<std::uint8_t, 4U> kPackedComponent{{0U, 2U, 1U, 3U}};
+  return register_component < kPackedComponent.size()
+             ? kPackedComponent[register_component]
+             : 0xffU;
+}
+
 struct Sm87TargetAotProjectionPackedWeightAddress {
   std::uint32_t partition_index = 0U;
   std::uint32_t n = 0U;
@@ -468,8 +548,8 @@ struct Sm87TargetAotProjectionPackedWeightAddress {
   std::uint8_t s2r_lane = 0U;
   std::uint8_t s2r_component = 0U;
   std::uint8_t n_warp = 0U;
-  std::uint8_t consumer_warp0 = 0U;
-  std::uint8_t consumer_warp1 = 0U;
+  std::uint8_t virtual_m_warp_consumer0 = 0U;
+  std::uint8_t virtual_m_warp_consumer1 = 0U;
   bool valid = false;
 };
 
@@ -525,8 +605,8 @@ sm87_target_aot_projection_packed_weight_address(
           static_cast<std::uint8_t>(lane),
           static_cast<std::uint8_t>(component),
           static_cast<std::uint8_t>(n_warp),
-          fragment.consumer_warp0,
-          fragment.consumer_warp1,
+          fragment.virtual_m_warp_consumer0,
+          fragment.virtual_m_warp_consumer1,
           true};
 }
 
@@ -536,8 +616,8 @@ struct Sm87TargetAotProjectionPackedScaleAddress {
   std::uint32_t scale_group = 0U;
   std::uint64_t byte_offset = 0U;
   std::uint8_t n_warp = 0U;
-  std::uint8_t consumer_warp0 = 0U;
-  std::uint8_t consumer_warp1 = 0U;
+  std::uint8_t virtual_m_warp_consumer0 = 0U;
+  std::uint8_t virtual_m_warp_consumer1 = 0U;
   bool valid = false;
 };
 
@@ -576,8 +656,8 @@ sm87_target_aot_projection_packed_scale_address(
           static_cast<std::uint32_t>(scale_group),
           fragment.block_scale_offset + row,
           static_cast<std::uint8_t>(n_warp),
-          fragment.consumer_warp0,
-          fragment.consumer_warp1,
+          fragment.virtual_m_warp_consumer0,
+          fragment.virtual_m_warp_consumer1,
           true};
 }
 
@@ -1001,6 +1081,8 @@ struct Sm87TargetAotProjectionPackedManifest {
   std::uint32_t payload_alignment = 0U;
   Sm87TargetAotProjectionSha256Digest payload_digest{};
   bool token_count_independent = false;
+  // Sealed artifact authority for an admitted executable consumer, not mere
+  // existence of a default-off compile-only translation unit.
   bool cuda_implementation_present = false;
   bool static_resources_qualified = false;
   bool numerical_contract_qualified = false;

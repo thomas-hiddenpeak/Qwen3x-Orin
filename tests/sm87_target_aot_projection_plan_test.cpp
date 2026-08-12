@@ -186,6 +186,21 @@ static_assert(!kernels::sm87_target_aot_projection_plan(
                    static_cast<Sm87TargetAotProjectionRole>(0xffU), 40'000U)
                    .valid());
 
+[[nodiscard]] constexpr bool down_first_wave_is_b_stationary() noexcept {
+  for (std::size_t cta = 0U;
+       cta < kernels::kSm87TargetAotProjectionPersistentCtas; ++cta) {
+    const auto task = kernels::sm87_target_aot_projection_persistent_task(
+        kDownP40, cta, 0U);
+    if (!task.valid || task.m_tile != cta || task.n_tile != 0U ||
+        task.first_partition != 0U || task.partition_count != 1U) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static_assert(down_first_wave_is_b_stationary());
+
 class TestContext {
  public:
   void expect(const bool condition, const char* const message) {
@@ -221,6 +236,13 @@ class TestContext {
         }
       } else if (task.partition_count != 1U ||
                  task.first_partition >= plan.partition_count) {
+        return false;
+      }
+      const std::size_t linear =
+          cta + iteration * kernels::kSm87TargetAotProjectionPersistentCtas;
+      if (plan.role == Sm87TargetAotProjectionRole::kNvFp4Down &&
+          (task.m_tile != linear % plan.grid_m ||
+           task.n_tile != linear / plan.grid_m)) {
         return false;
       }
       const std::size_t canonical = task.m_tile * plan.grid_n + task.n_tile;

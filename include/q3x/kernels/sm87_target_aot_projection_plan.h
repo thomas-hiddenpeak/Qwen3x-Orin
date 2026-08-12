@@ -286,6 +286,8 @@ struct Sm87TargetAotProjectionPlan {
   Sm87TargetAotGateUpBf16Lifetime gate_up_bf16_lifetime{};
   Sm87TargetAotProjectionNumericalContract numerical_contract{};
   bool stream_k = false;
+  // Means a reviewed, admitted executable implementation is present for this
+  // canonical plan. A default-off compile-only body does not satisfy it.
   bool cuda_implementation_present = false;
   bool static_resources_qualified = false;
   bool numerical_contract_qualified = false;
@@ -643,6 +645,15 @@ sm87_target_aot_projection_task(
   if (!plan.valid() || linear_task >= plan.logical_tasks ||
       plan.raster_group_m == 0U) {
     return {};
+  }
+  // Down is K-heavy and has only twenty N256 tiles. Keep each N tile
+  // stationary while the persistent grid walks every M128 tile so adjacent
+  // CTAs consume the same packed-B cell stream. Gate/Up retains its M-group2
+  // raster below, and the remaining roles retain their existing role-local
+  // raster contracts.
+  if (plan.role == Sm87TargetAotProjectionRole::kNvFp4Down) {
+    return {linear_task % plan.grid_m, linear_task / plan.grid_m, 0U, 1U,
+            true};
   }
   const std::size_t group_span = plan.raster_group_m * plan.grid_n;
   const std::size_t group = linear_task / group_span;

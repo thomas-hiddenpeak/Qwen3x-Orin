@@ -98,11 +98,16 @@ second host-only contract freezes actual NVFP4/FP8-Marlin projection arithmetic,
 same-CTA Gate/Up lifetime, source-to-packed-payload authentication fields,
 Attention preprocess/core finite-precision order, and the exact-C16 GDN
 candidate's `[head,value,key]` axes and recurrence order. Exact-C16 does not
-inherit qualification from the deployed Chunk64 family. This is architecture
-and implementation-contract evidence only. It adds no CUDA body, selector,
-runner/API binding, real-byte packed-asset receipt, accuracy result, resource
-qualification, numerical qualification, or performance result; the incumbent
-remains 392.804397 tok/s and the installed route is unchanged.
+inherit qualification from the deployed Chunk64 family. A third default-off
+admission now hashes caller-supplied host byte intervals, performs and replays
+the bit-exact packed permutation, seals a host manifest plus transform receipt,
+and compiles real NVFP4 Gate+Up and Down CUDA bodies. Synthetic host fixtures
+exercise this machinery but do not authenticate the deployed checkpoint or
+device allocation. The public launcher remains deliberately fail-closed: no
+target-AOT loader binding or loader-issued device-upload receipt, executable
+dispatch, accuracy result, resource qualification, numerical qualification,
+runner/API binding, or performance result exists. The incumbent remains
+392.804397 tok/s and the installed route is unchanged.
 
 ## 2. Current capability matrix
 
@@ -115,7 +120,7 @@ remains 392.804397 tok/s and the installed route is unchanged.
 | Final product API | Designed | No installed production server/profile or release attestation exists |
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
 | Target-length Prefill | P40 development route exercised | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
-| SM87 whole-system AOT Prefill candidate | Host topology plus finite-precision/payload schema, default-off and non-executable | Real-byte authenticated packed assets, CUDA bodies, runner/API binding, exact accuracy, resource fit, and clean-host real-P40 evidence are all missing |
+| SM87 whole-system AOT Prefill candidate | Host topology and finite-precision contracts plus a real-byte host packer and compile-only NVFP4 Gate+Up/Down bodies; default-off and non-executable | Bind actual checkpoint tensors through loader/device ownership, implement remaining FP8/Attention/GDN/handoffs, open reviewed launch, prove exact accuracy and resource fit, then obtain clean-host real-P40 API evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
