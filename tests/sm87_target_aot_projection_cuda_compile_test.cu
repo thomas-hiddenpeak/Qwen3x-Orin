@@ -184,7 +184,6 @@ make_device_upload_receipt(
   // bytes and the launcher remains fail-closed before any enqueue.
   constexpr std::uintptr_t kAllocationGuard = 4'096U;
   kernels::Sm87TargetAotNvFp4CudaDeviceUploadReceipt receipt;
-  receipt.receipt_identity = 0x7100'0000'0000'0001ULL;
   receipt.artifact_identity = manifest.artifact_identity;
   receipt.source_inventory_identity = manifest.source_inventory_identity;
   receipt.role = manifest.role;
@@ -204,6 +203,7 @@ make_device_upload_receipt(
   }
   receipt.device_allocation_identity = 0x7200'0000'0000'0001ULL;
   receipt.device_allocation_owner_identity = 0x7300'0000'0000'0001ULL;
+  receipt.device_ordinal = 0;
   receipt.device_allocation_begin = payload_address - kAllocationGuard;
   receipt.device_allocation_bytes =
       manifest.payload_bytes + 2U * kAllocationGuard;
@@ -218,14 +218,28 @@ make_device_upload_receipt(
       receipt.device_allocation_owner_identity;
   receipt.upload_stream_identity = 0x7400'0000'0000'0001ULL;
   receipt.upload_completion_event_identity = 0x7500'0000'0000'0001ULL;
+  receipt.verification_stream_owner_identity =
+      receipt.device_allocation_owner_identity;
+  receipt.verification_stream_identity = receipt.upload_stream_identity;
+  receipt.verification_completion_event_identity =
+      0x7600'0000'0000'0001ULL;
+  receipt.verification_readback_bytes = manifest.payload_bytes;
+  receipt.verification_readback_digest = manifest.payload_digest;
   receipt.host_payload_digest_verified_before_copy = true;
   receipt.host_payload_immutable_until_completion = true;
   receipt.copy_enqueued_to_exact_payload_range = true;
   receipt.completion_event_recorded_after_copy = true;
   receipt.completion_event_observed = true;
   receipt.upload_completed = true;
+  receipt.verification_copy_enqueued_from_exact_payload_range = true;
+  receipt.verification_event_recorded_after_copy = true;
+  receipt.verification_event_observed = true;
+  receipt.verification_completed = true;
   receipt.device_payload_matches_host_payload = true;
   receipt.allocation_retained_for_asset_lifetime = true;
+  receipt.receipt_identity =
+      kernels::sm87_target_aot_nvfp4_cuda_compute_upload_receipt_identity(
+          receipt);
   return receipt;
 }
 
@@ -352,6 +366,33 @@ int main() {
            valid_binding.transform, bad_upload)
            .valid,
       "incomplete upload state must fail closed");
+
+  bad_upload = valid_binding.upload;
+  bad_upload.device_ordinal = -1;
+  test.expect(
+      !kernels::sm87_target_aot_bind_nvfp4_cuda_asset(
+           valid_binding.manifest, valid_binding.inventory,
+           valid_binding.transform, bad_upload)
+           .valid,
+      "upload receipt must name a concrete CUDA device ordinal");
+
+  bad_upload = valid_binding.upload;
+  bad_upload.verification_completed = false;
+  test.expect(
+      !kernels::sm87_target_aot_bind_nvfp4_cuda_asset(
+           valid_binding.manifest, valid_binding.inventory,
+           valid_binding.transform, bad_upload)
+           .valid,
+      "device readback verification completion must fail closed");
+
+  bad_upload = valid_binding.upload;
+  bad_upload.verification_readback_digest.bytes[0U] ^= 1U;
+  test.expect(
+      !kernels::sm87_target_aot_bind_nvfp4_cuda_asset(
+           valid_binding.manifest, valid_binding.inventory,
+           valid_binding.transform, bad_upload)
+           .valid,
+      "device readback SHA-256 must equal the authenticated host payload");
 
   bad_upload = valid_binding.upload;
   bad_upload.device_payload_matches_host_payload = false;

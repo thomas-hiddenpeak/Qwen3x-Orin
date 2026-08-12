@@ -29,10 +29,10 @@ namespace q3x::kernels {
          role == Sm87TargetAotProjectionRole::kNvFp4Down;
 }
 
-// This receipt is issued by the future loader/uploader, never by the binder
-// below.  The issuing component must own the allocation and stream, hash and
-// authenticate the exact host payload before the copy, keep those source
-// bytes immutable through completion, record the named event after the copy,
+// This receipt is issued by the private default-off loader/uploader, never by
+// the binder below. The issuing component must own the allocation and stream,
+// hash and authenticate the exact host payload before the copy, keep those
+// source bytes immutable through completion, record the named event after the copy,
 // and observe that event complete before setting the terminal facts.  A T0
 // test may construct a receipt to exercise this schema, but doing so does not
 // authenticate device memory and grants no execution or production authority.
@@ -64,6 +64,7 @@ struct Sm87TargetAotNvFp4CudaDeviceUploadReceipt final {
   // authenticated asset view merely by having the expected byte count.
   std::uint64_t device_allocation_identity = 0U;
   std::uint64_t device_allocation_owner_identity = 0U;
+  std::int32_t device_ordinal = -1;
   std::uintptr_t device_allocation_begin = 0U;
   std::uintptr_t device_allocation_end = 0U;
   std::uint64_t device_allocation_bytes = 0U;
@@ -77,6 +78,11 @@ struct Sm87TargetAotNvFp4CudaDeviceUploadReceipt final {
   std::uint64_t upload_stream_owner_identity = 0U;
   std::uint64_t upload_stream_identity = 0U;
   std::uint64_t upload_completion_event_identity = 0U;
+  std::uint64_t verification_stream_owner_identity = 0U;
+  std::uint64_t verification_stream_identity = 0U;
+  std::uint64_t verification_completion_event_identity = 0U;
+  std::uint64_t verification_readback_bytes = 0U;
+  Sm87TargetAotProjectionSha256Digest verification_readback_digest{};
 
   bool host_payload_digest_verified_before_copy = false;
   bool host_payload_immutable_until_completion = false;
@@ -84,15 +90,99 @@ struct Sm87TargetAotNvFp4CudaDeviceUploadReceipt final {
   bool completion_event_recorded_after_copy = false;
   bool completion_event_observed = false;
   bool upload_completed = false;
+  bool verification_copy_enqueued_from_exact_payload_range = false;
+  bool verification_event_recorded_after_copy = false;
+  bool verification_event_observed = false;
+  bool verification_completed = false;
   bool device_payload_matches_host_payload = false;
   bool allocation_retained_for_asset_lifetime = false;
 };
 
+// Deterministic T0 coherence seal over every receipt fact other than the seal
+// itself. This detects field substitution in retained evidence. It is not a
+// secret/MAC and therefore grants no execution authority; only an owner-backed
+// private Engine capability may do that.
+[[nodiscard]] constexpr std::uint64_t
+sm87_target_aot_nvfp4_cuda_compute_upload_receipt_identity(
+    const Sm87TargetAotNvFp4CudaDeviceUploadReceipt& receipt) noexcept {
+  std::uint64_t hash = 14'695'981'039'346'656'037ULL;
+  constexpr std::array<std::uint8_t, 10U> domain{
+      {'q', '3', 'x', '.', 'u', 'p', 'l', 'o', 'a', 'd'}};
+  for (const std::uint8_t byte : domain) {
+    hash = sm87_target_aot_projection_manifest_hash_byte(hash, byte);
+  }
+  const auto add = [&hash](const std::uint64_t value,
+                           const std::size_t bytes) constexpr {
+    hash = sm87_target_aot_projection_manifest_hash_u64(hash, value, bytes);
+  };
+  add(receipt.artifact_identity, sizeof(receipt.artifact_identity));
+  add(receipt.source_inventory_identity,
+      sizeof(receipt.source_inventory_identity));
+  add(static_cast<std::uint8_t>(receipt.role), 1U);
+  add(static_cast<std::uint16_t>(receipt.plan_identity), 2U);
+  add(static_cast<std::uint16_t>(receipt.layout_identity), 2U);
+  add(static_cast<std::uint16_t>(receipt.transform_identity), 2U);
+  add(receipt.host_payload_offset, sizeof(receipt.host_payload_offset));
+  add(receipt.host_payload_bytes, sizeof(receipt.host_payload_bytes));
+  for (const std::uint8_t byte : receipt.host_payload_digest.bytes) {
+    add(byte, 1U);
+  }
+  add(receipt.host_manifest_seal.value,
+      sizeof(receipt.host_manifest_seal.value));
+  for (const std::uint32_t bits : receipt.tensor_scale_bits) {
+    add(bits, sizeof(bits));
+  }
+  add(receipt.tensor_scale_count, sizeof(receipt.tensor_scale_count));
+  add(receipt.device_allocation_identity,
+      sizeof(receipt.device_allocation_identity));
+  add(receipt.device_allocation_owner_identity,
+      sizeof(receipt.device_allocation_owner_identity));
+  add(static_cast<std::uint32_t>(receipt.device_ordinal),
+      sizeof(receipt.device_ordinal));
+  add(receipt.device_allocation_begin,
+      sizeof(receipt.device_allocation_begin));
+  add(receipt.device_allocation_end, sizeof(receipt.device_allocation_end));
+  add(receipt.device_allocation_bytes,
+      sizeof(receipt.device_allocation_bytes));
+  add(receipt.device_payload_begin, sizeof(receipt.device_payload_begin));
+  add(receipt.device_payload_end, sizeof(receipt.device_payload_end));
+  add(receipt.device_payload_bytes, sizeof(receipt.device_payload_bytes));
+  add(receipt.upload_stream_owner_identity,
+      sizeof(receipt.upload_stream_owner_identity));
+  add(receipt.upload_stream_identity, sizeof(receipt.upload_stream_identity));
+  add(receipt.upload_completion_event_identity,
+      sizeof(receipt.upload_completion_event_identity));
+  add(receipt.verification_stream_owner_identity,
+      sizeof(receipt.verification_stream_owner_identity));
+  add(receipt.verification_stream_identity,
+      sizeof(receipt.verification_stream_identity));
+  add(receipt.verification_completion_event_identity,
+      sizeof(receipt.verification_completion_event_identity));
+  add(receipt.verification_readback_bytes,
+      sizeof(receipt.verification_readback_bytes));
+  for (const std::uint8_t byte : receipt.verification_readback_digest.bytes) {
+    add(byte, 1U);
+  }
+  add(receipt.host_payload_digest_verified_before_copy, 1U);
+  add(receipt.host_payload_immutable_until_completion, 1U);
+  add(receipt.copy_enqueued_to_exact_payload_range, 1U);
+  add(receipt.completion_event_recorded_after_copy, 1U);
+  add(receipt.completion_event_observed, 1U);
+  add(receipt.upload_completed, 1U);
+  add(receipt.verification_copy_enqueued_from_exact_payload_range, 1U);
+  add(receipt.verification_event_recorded_after_copy, 1U);
+  add(receipt.verification_event_observed, 1U);
+  add(receipt.verification_completed, 1U);
+  add(receipt.device_payload_matches_host_payload, 1U);
+  add(receipt.allocation_retained_for_asset_lifetime, 1U);
+  return hash;
+}
+
 // This is a schema/coherence validator for a receipt supplied by the owning
 // loader. It does not query CUDA pointer attributes, prove device residency,
 // hash device memory, or establish that the opaque identities correspond to
-// live CUDA objects. Those are obligations of the future receipt issuer and
-// its device oracle.
+// live CUDA objects. It is T0 structural evidence only; those facts and all
+// execution authority belong to the private owner-backed issuer/Engine path.
 [[nodiscard]] constexpr bool
 sm87_target_aot_nvfp4_cuda_device_upload_receipt_matches(
     const Sm87TargetAotProjectionPackedLayout& layout,
@@ -122,6 +212,8 @@ sm87_target_aot_nvfp4_cuda_device_upload_receipt_matches(
       expected_manifest_seal.value == 0U ||
       expected_tensor_scale_count != layout.partition_count ||
       receipt.receipt_identity == 0U ||
+      receipt.receipt_identity !=
+          sm87_target_aot_nvfp4_cuda_compute_upload_receipt_identity(receipt) ||
       receipt.artifact_identity != expected_artifact_identity ||
       receipt.source_inventory_identity !=
           expected_source_inventory_identity ||
@@ -136,6 +228,7 @@ sm87_target_aot_nvfp4_cuda_device_upload_receipt_matches(
       receipt.tensor_scale_count != expected_tensor_scale_count ||
       receipt.device_allocation_identity == 0U ||
       receipt.device_allocation_owner_identity == 0U ||
+      receipt.device_ordinal < 0 ||
       receipt.device_allocation_begin == 0U ||
       receipt.device_allocation_bytes == 0U ||
       receipt.device_allocation_bytes >
@@ -167,11 +260,24 @@ sm87_target_aot_nvfp4_cuda_device_upload_receipt_matches(
           receipt.device_allocation_owner_identity ||
       receipt.upload_stream_identity == 0U ||
       receipt.upload_completion_event_identity == 0U ||
+      receipt.verification_stream_owner_identity == 0U ||
+      receipt.verification_stream_owner_identity !=
+          receipt.device_allocation_owner_identity ||
+      receipt.verification_stream_identity == 0U ||
+      receipt.verification_completion_event_identity == 0U ||
+      receipt.verification_completion_event_identity ==
+          receipt.upload_completion_event_identity ||
+      receipt.verification_readback_bytes != expected_host_payload_bytes ||
+      receipt.verification_readback_digest != expected_host_payload_digest ||
       !receipt.host_payload_digest_verified_before_copy ||
       !receipt.host_payload_immutable_until_completion ||
       !receipt.copy_enqueued_to_exact_payload_range ||
       !receipt.completion_event_recorded_after_copy ||
       !receipt.completion_event_observed || !receipt.upload_completed ||
+      !receipt.verification_copy_enqueued_from_exact_payload_range ||
+      !receipt.verification_event_recorded_after_copy ||
+      !receipt.verification_event_observed ||
+      !receipt.verification_completed ||
       !receipt.device_payload_matches_host_payload ||
       !receipt.allocation_retained_for_asset_lifetime) {
     return false;

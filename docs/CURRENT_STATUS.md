@@ -89,6 +89,22 @@ The current stock-auto route also selected Marlin FP8, FlashInfer Attention,
 and Triton/FLA GDN without Humming, so it is not yet a matched reconstruction
 of the known optimized vLLM observation.
 
+The retained warmup from that invalid package now has a diagnostic-only
+three-surface reconciliation. For the singleton 40K warmup, the request-bound
+server Prefill interval reports 368.579880 token/s, server TTFT reports
+368.358289 token/s, and prompt tokens divided by EvalScope TTFT report
+368.238711 token/s. EvalScope's printed 368.2478 token/s is input-plus-output
+throughput over test duration, not pure Prefill. The nearby vLLM backend
+`Avg prompt throughput` sample is 3999.7 token/s, 10.851650x the
+request-bound server rate. vLLM's logger source semantics and the
+fresh-process singleton join are consistent with completed prompt work
+landing in a later local logger interval; the backend line does not expose
+that interval's exact duration and is not a per-request latency. The evidence
+lacks a stable cross-surface request ID and a formal warmup thermal/frequency
+envelope, so it changes neither the invalid run's status nor the 4.3K tok/s
+owner-established starting line. Exact formulas and raw hashes are frozen in
+the [`warmup metric reconciliation`](metadata/qwen36-27b-vllm-p40-warmup-metric-reconciliation-2026-08-12.json).
+
 A default-off, host-only descriptor now freezes the next whole-system AOT
 candidate for P40/P60/approximately-P130: the exact 64-layer GDN/Attention
 schedule, 14 physical groups, five projection roles, paired BF16 A/B producer,
@@ -101,13 +117,18 @@ candidate's `[head,value,key]` axes and recurrence order. Exact-C16 does not
 inherit qualification from the deployed Chunk64 family. A third default-off
 admission now hashes caller-supplied host byte intervals, performs and replays
 the bit-exact packed permutation, seals a host manifest plus transform receipt,
-and compiles real NVFP4 Gate+Up and Down CUDA bodies. Synthetic host fixtures
-exercise this machinery but do not authenticate the deployed checkpoint or
-device allocation. The public launcher remains deliberately fail-closed: no
-target-AOT loader binding or loader-issued device-upload receipt, executable
-dispatch, accuracy result, resource qualification, numerical qualification,
-runner/API binding, or performance result exists. The incumbent remains
-392.804397 tok/s and the installed route is unchanged.
+and compiles real NVFP4 Gate+Up and Down CUDA bodies. A fourth default-off,
+test-only slice implements the exact 64-layer real-checkpoint NVFP4 source
+audit, bounded host transformation, owned 9,625,927,680-byte device arena,
+upload completion, independent device readback, and SHA-256-backed receipt
+issuance for 128 artifacts and 192 sources. It has compiled and passed host
+structural checks only: it has never prepared the real checkpoint on a device
+and has issued no retained production receipt. It does not attach
+`ModelWeights`, authorize a launcher, or bind a runner/API route. The public
+launcher therefore remains deliberately fail-closed, with no target-AOT
+accuracy result, resource or numerical qualification, executable dispatch,
+API evidence, or performance result. The incumbent remains 392.804397 tok/s
+and the installed route is unchanged.
 
 ## 2. Current capability matrix
 
@@ -120,7 +141,7 @@ runner/API binding, or performance result exists. The incumbent remains
 | Final product API | Designed | No installed production server/profile or release attestation exists |
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
 | Target-length Prefill | P40 development route exercised | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
-| SM87 whole-system AOT Prefill candidate | Host topology and finite-precision contracts plus a real-byte host packer and compile-only NVFP4 Gate+Up/Down bodies; default-off and non-executable | Bind actual checkpoint tensors through loader/device ownership, implement remaining FP8/Attention/GDN/handoffs, open reviewed launch, prove exact accuracy and resource fit, then obtain clean-host real-P40 API evidence |
+| SM87 whole-system AOT Prefill candidate | Host topology and finite-precision contracts, real-byte host packer, compile-only NVFP4 Gate+Up/Down bodies, and a default-off/unexecuted real-checkpoint NVFP4 device owner/uploader; non-executable | Execute and retain authenticated real-checkpoint preparation, attach owned views to `ModelWeights`, pass layer-0 numerical/resource gates, implement remaining FP8/Attention/GDN/handoffs, open reviewed launch, then obtain clean-host real-P40 API evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

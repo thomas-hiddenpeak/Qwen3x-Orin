@@ -106,6 +106,10 @@ option(Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION
   "Build the test-only byte-authenticated host transform, device-receipt schema, and compile-only NVFP4 CUDA feed for AC-PREFILL-SM87-AOT-SYSTEM-v1"
   OFF
 )
+option(Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION
+  "Build the test-only real-checkpoint target-AOT device owner, uploader, and receipt issuer"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -292,6 +296,18 @@ if(Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION AND
     "Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION requires the complete host-only SM87 AOT system contract"
   )
 endif()
+if(Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION AND
+   NOT Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION requires the byte-authenticated target-AOT projection admission"
+  )
+endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
     Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION) OR
    (Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -437,6 +453,18 @@ if(Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION)
   )
   target_compile_definitions(q3x_core PUBLIC
     Q3X_ENABLE_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION=1
+  )
+endif()
+target_sources(q3x_core PRIVATE
+  src/runtime/sm87_target_aot_projection_device_assets.cpp
+)
+if(Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
+  # This bit adds only the engine-lifetime real-checkpoint arena owner,
+  # bounded loader/uploader, and device-readback receipt issuer. It does not
+  # attach ModelWeights, bind a runner route, or open the compile-only public
+  # launcher.
+  target_compile_definitions(q3x_core PUBLIC
+    Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION=1
   )
 endif()
 q3x_enable_warnings(q3x_core)
@@ -2558,6 +2586,26 @@ if(BUILD_TESTING)
     )
     set_tests_properties(sm87_target_aot_projection_cuda_compile PROPERTIES
       LABELS "host;sm87;prefill;target_aot;projection;cuda_compile;default_off"
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
+    add_executable(q3x_sm87_target_aot_projection_device_assets_host_test
+      tests/sm87_target_aot_projection_device_assets_host_test.cpp
+    )
+    target_link_libraries(
+      q3x_sm87_target_aot_projection_device_assets_host_test
+      PRIVATE q3x::core
+    )
+    q3x_enable_warnings(
+      q3x_sm87_target_aot_projection_device_assets_host_test
+    )
+    add_test(NAME sm87_target_aot_projection_device_assets_host
+      COMMAND q3x_sm87_target_aot_projection_device_assets_host_test
+    )
+    set_tests_properties(
+      sm87_target_aot_projection_device_assets_host PROPERTIES
+      LABELS "host;sm87;prefill;target_aot;projection;device_asset;structure;default_off"
     )
   endif()
 

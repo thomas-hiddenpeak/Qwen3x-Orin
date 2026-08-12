@@ -365,14 +365,20 @@ QKVZ and A/B to overlap after input normalization, but stream assignment,
 simultaneous resource fit, and any performance benefit remain unqualified.
 
 The build admission for the descriptor remains default-off and test-only. A
-separate default-off admission now contains a real-byte host transformation
-and compile-only NVFP4 Gate+Up/Down CUDA bodies, but its public launcher is
-fail-closed. Neither admission contains a production selector, owned device
-asset, API wiring, resource qualification, numerical qualification, or
-production dispatch authority. The next implementation step must bind the
-actual checkpoint sources and device payload to the complete real P40 API
-candidate; passing either host schema or CUDA compilation cannot promote the
-current production path.
+separate default-off admission contains a real-byte host transformation and
+compile-only NVFP4 Gate+Up/Down CUDA bodies, while a further default-off,
+test-only slice implements an engine-lifetime NVFP4 device owner and an
+all-or-nothing real-checkpoint uploader. That uploader audits the exact
+64-layer resident source inventory, transforms one bounded artifact at a time,
+and issues a receipt only after an independent device readback matches the
+host payload SHA-256. It has compiled and passed host structural checks but
+has not been run against the real checkpoint, attached to `ModelWeights`, or
+retained a device receipt. No admission contains a production selector, API
+wiring, resource or numerical qualification, or production dispatch
+authority. The next implementation step is authenticated `ModelWeights`
+attachment followed by the layer-0 real-model numerical and resource gates;
+neither host schema, CUDA compilation, nor an unexecuted loader can promote
+the production path.
 
 The pre-CUDA implementation contract is now frozen as a second host-only
 milestone:
@@ -409,15 +415,16 @@ and Down residual boundary. Static compilation currently reports Gate+Up at
 246 registers/thread and Down at 210, both with zero stack and zero spill,
 using 76,800 bytes of dynamic shared memory; SASS contains `LDGSTS`, `LDSM`,
 and BF16 `HMMA`. Those are implementation observations only. A typed
-device-upload receipt requires the future loader to bind the authenticated
-host digest to an owned allocation and exact payload subrange, stream owner,
-post-copy completion event, and retained lifetime. The schema itself does not
-inspect or authenticate device memory, and the binder may not manufacture
-those facts from a raw pointer. The loader must still issue that receipt from
-the real checkpoint upload, the CUDA bodies must pass the named real-model
-numerical oracle and reviewed resource gate, and a separately reviewed
-admission launcher must reach the real API before any qualification bit
-changes.
+device-upload receipt is now issued only by the default-off loader after
+binding the authenticated host digest to an owned allocation and exact payload
+subrange, observing upload completion, reading the exact device range back,
+and matching its SHA-256. The public schema and binder remain non-authoritative
+and cannot manufacture those facts from a raw pointer. No real-checkpoint
+preparation has executed or produced a retained receipt yet. The owned views
+still require authenticated `ModelWeights` attachment, the CUDA bodies must
+pass the named layer-0 real-model numerical oracle and reviewed resource gate,
+and a separately reviewed admission launcher must reach the real API before
+any qualification bit changes.
 
 ## 9. One bounded reference-geometry witness
 
