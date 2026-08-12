@@ -5431,6 +5431,9 @@ struct ReferenceEngine::Impl {
                 kSm87TargetAotProjectionDeviceArenaBytes ||
             preparation.verification_d2h_bytes !=
                 kSm87TargetAotProjectionDeviceArenaBytes ||
+            preparation.verified_payload_catalog_sha256.size() != 64U ||
+            preparation.verified_payload_catalog_sha256 ==
+                std::string(64U, '0') ||
             preparation.owner_identity == 0U ||
             preparation.allocation_identity == 0U ||
             preparation.device_ordinal < 0) {
@@ -5474,6 +5477,8 @@ struct ReferenceEngine::Impl {
             preparation.payload_h2d_bytes;
         impl->load.target_aot_projection_verification_d2h_bytes =
             preparation.verification_d2h_bytes;
+        impl->load.target_aot_projection_verified_payload_catalog_sha256 =
+            preparation.verified_payload_catalog_sha256;
         impl->load.target_aot_projection_owner_identity =
             preparation.owner_identity;
         impl->load.target_aot_projection_allocation_identity =

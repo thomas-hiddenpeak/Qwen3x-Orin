@@ -138,6 +138,11 @@ struct Sm87TargetAotProjectionDevicePreparationStats final {
   std::uint64_t source_d2h_bytes = 0U;
   std::uint64_t payload_h2d_bytes = 0U;
   std::uint64_t verification_d2h_bytes = 0U;
+  // Stable SHA-256 over the complete ordered catalog of 128 manifests,
+  // source digests, and matching device-readback payload digests. Unlike the
+  // runtime owner/allocation identities, it excludes transaction identities,
+  // pointers, streams, and events.
+  std::string verified_payload_catalog_sha256;
   std::uint64_t owner_identity = 0U;
   std::uint64_t allocation_identity = 0U;
   std::int32_t device_ordinal = -1;

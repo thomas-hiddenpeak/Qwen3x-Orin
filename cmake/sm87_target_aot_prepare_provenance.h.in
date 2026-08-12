@@ -1,0 +1,58 @@
+#pragma once
+
+namespace q3x::test::sm87_target_aot_prepare_provenance {
+
+inline constexpr char kGitCommit[] = "@Q3X_PROVENANCE_GIT_COMMIT@";
+inline constexpr char kGitTree[] = "@Q3X_PROVENANCE_GIT_TREE@";
+inline constexpr bool kGitClean = @Q3X_PROVENANCE_GIT_CLEAN@;
+inline constexpr char kCmakeVersion[] = "@Q3X_PROVENANCE_CMAKE_VERSION@";
+inline constexpr char kGenerator[] = "@Q3X_PROVENANCE_GENERATOR@";
+inline constexpr char kBuildType[] = "@Q3X_PROVENANCE_BUILD_TYPE@";
+inline constexpr bool kBuildTesting = @Q3X_PROVENANCE_BUILD_TESTING@;
+inline constexpr char kQ3xCudaArchitectures[] =
+    "@Q3X_PROVENANCE_Q3X_CUDA_ARCHITECTURES@";
+inline constexpr char kEffectiveCudaArchitectures[] =
+    "@Q3X_PROVENANCE_EFFECTIVE_CUDA_ARCHITECTURES@";
+inline constexpr char kCxxCompiler[] = "@Q3X_PROVENANCE_CXX_COMPILER@";
+inline constexpr char kCxxCompilerId[] = "@Q3X_PROVENANCE_CXX_COMPILER_ID@";
+inline constexpr char kCxxCompilerVersion[] =
+    "@Q3X_PROVENANCE_CXX_COMPILER_VERSION@";
+inline constexpr char kCxxCompilerSha256[] =
+    "@Q3X_PROVENANCE_CXX_COMPILER_SHA256@";
+inline constexpr char kCudaCompiler[] = "@Q3X_PROVENANCE_CUDA_COMPILER@";
+inline constexpr char kCudaCompilerId[] =
+    "@Q3X_PROVENANCE_CUDA_COMPILER_ID@";
+inline constexpr char kCudaCompilerVersion[] =
+    "@Q3X_PROVENANCE_CUDA_COMPILER_VERSION@";
+inline constexpr char kCudaCompilerSha256[] =
+    "@Q3X_PROVENANCE_CUDA_COMPILER_SHA256@";
+inline constexpr char kCudaToolkitVersion[] =
+    "@Q3X_PROVENANCE_CUDA_TOOLKIT_VERSION@";
+inline constexpr char kCxxReleaseFlags[] =
+    "@Q3X_PROVENANCE_CXX_RELEASE_FLAGS@";
+inline constexpr char kCudaReleaseFlags[] =
+    "@Q3X_PROVENANCE_CUDA_RELEASE_FLAGS@";
+inline constexpr char kCxxGlobalFlags[] =
+    "@Q3X_PROVENANCE_CXX_GLOBAL_FLAGS@";
+inline constexpr char kCudaGlobalFlags[] =
+    "@Q3X_PROVENANCE_CUDA_GLOBAL_FLAGS@";
+inline constexpr bool kAotSystemAdmission =
+    @Q3X_PROVENANCE_AOT_SYSTEM_ADMISSION@;
+inline constexpr bool kTargetProjectionAdmission =
+    @Q3X_PROVENANCE_TARGET_PROJECTION_ADMISSION@;
+inline constexpr bool kTargetDeviceAssetsAdmission =
+    @Q3X_PROVENANCE_TARGET_DEVICE_ASSETS_ADMISSION@;
+inline constexpr bool kFp8MarlinPrefillAdmission =
+    @Q3X_PROVENANCE_FP8_MARLIN_PREFILL_ADMISSION@;
+inline constexpr bool kNvFp4MarlinPrefillAdmission =
+    @Q3X_PROVENANCE_NVFP4_MARLIN_PREFILL_ADMISSION@;
+inline constexpr bool kP40PackedProjectionAdmission =
+    @Q3X_PROVENANCE_P40_PACKED_PROJECTION_ADMISSION@;
+inline constexpr bool kP40PackedNvFp4V2Admission =
+    @Q3X_PROVENANCE_P40_PACKED_NVFP4_V2_ADMISSION@;
+inline constexpr bool kP40VllmMarlinParityAdmission =
+    @Q3X_PROVENANCE_P40_VLLM_MARLIN_PARITY_ADMISSION@;
+inline constexpr char kBuildReceiptSha256[] =
+    "@Q3X_PROVENANCE_BUILD_RECEIPT_SHA256@";
+
+}  // namespace q3x::test::sm87_target_aot_prepare_provenance

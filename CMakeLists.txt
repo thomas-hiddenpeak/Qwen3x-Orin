@@ -2607,6 +2607,63 @@ if(BUILD_TESTING)
       sm87_target_aot_projection_device_assets_host PROPERTIES
       LABELS "host;sm87;prefill;target_aot;projection;device_asset;structure;default_off"
     )
+
+    # Explicitly invoked real-checkpoint preparation probe. It is not a ctest:
+    # execution requires an owner-supplied pinned checkpoint, an admitted clean
+    # Jetson resource lane, and a repository-local evidence output path.
+    find_package(Git REQUIRED)
+    set(target_aot_prepare_provenance_header
+      "${CMAKE_CURRENT_BINARY_DIR}/generated/tests/sm87_target_aot_prepare_provenance.h"
+    )
+    add_custom_target(q3x_sm87_target_aot_prepare_provenance
+      COMMAND "${CMAKE_COMMAND}"
+        "-DQ3X_PROVENANCE_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        "-DQ3X_PROVENANCE_GIT_EXECUTABLE=${GIT_EXECUTABLE}"
+        "-DQ3X_PROVENANCE_TEMPLATE=${CMAKE_SOURCE_DIR}/cmake/sm87_target_aot_prepare_provenance.h.in"
+        "-DQ3X_PROVENANCE_OUTPUT=${target_aot_prepare_provenance_header}"
+        "-DQ3X_PROVENANCE_CMAKE_VERSION=${CMAKE_VERSION}"
+        "-DQ3X_PROVENANCE_GENERATOR=${CMAKE_GENERATOR}"
+        "-DQ3X_PROVENANCE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+        "-DQ3X_PROVENANCE_BUILD_TESTING=${BUILD_TESTING}"
+        "-DQ3X_PROVENANCE_Q3X_CUDA_ARCHITECTURES=${Q3X_CUDA_ARCHITECTURES}"
+        "-DQ3X_PROVENANCE_EFFECTIVE_CUDA_ARCHITECTURES=${CMAKE_CUDA_ARCHITECTURES}"
+        "-DQ3X_PROVENANCE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "-DQ3X_PROVENANCE_CXX_COMPILER_ID=${CMAKE_CXX_COMPILER_ID}"
+        "-DQ3X_PROVENANCE_CXX_COMPILER_VERSION=${CMAKE_CXX_COMPILER_VERSION}"
+        "-DQ3X_PROVENANCE_CUDA_COMPILER=${CMAKE_CUDA_COMPILER}"
+        "-DQ3X_PROVENANCE_CUDA_COMPILER_ID=${CMAKE_CUDA_COMPILER_ID}"
+        "-DQ3X_PROVENANCE_CUDA_COMPILER_VERSION=${CMAKE_CUDA_COMPILER_VERSION}"
+        "-DQ3X_PROVENANCE_CUDA_TOOLKIT_VERSION=${CUDAToolkit_VERSION}"
+        "-DQ3X_PROVENANCE_CXX_RELEASE_FLAGS=${CMAKE_CXX_FLAGS_RELEASE}"
+        "-DQ3X_PROVENANCE_CUDA_RELEASE_FLAGS=${CMAKE_CUDA_FLAGS_RELEASE}"
+        "-DQ3X_PROVENANCE_CXX_GLOBAL_FLAGS=${CMAKE_CXX_FLAGS}"
+        "-DQ3X_PROVENANCE_CUDA_GLOBAL_FLAGS=${CMAKE_CUDA_FLAGS}"
+        "-DQ3X_PROVENANCE_AOT_SYSTEM_ADMISSION=${Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION}"
+        "-DQ3X_PROVENANCE_TARGET_PROJECTION_ADMISSION=${Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION}"
+        "-DQ3X_PROVENANCE_TARGET_DEVICE_ASSETS_ADMISSION=${Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION}"
+        "-DQ3X_PROVENANCE_FP8_MARLIN_PREFILL_ADMISSION=${Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION}"
+        "-DQ3X_PROVENANCE_NVFP4_MARLIN_PREFILL_ADMISSION=${Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION}"
+        "-DQ3X_PROVENANCE_P40_PACKED_PROJECTION_ADMISSION=${Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION}"
+        "-DQ3X_PROVENANCE_P40_PACKED_NVFP4_V2_ADMISSION=${Q3X_BUILD_P40_PACKED_NVFP4_V2_ADMISSION}"
+        "-DQ3X_PROVENANCE_P40_VLLM_MARLIN_PARITY_ADMISSION=${Q3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION}"
+        -P "${CMAKE_SOURCE_DIR}/cmake/GenerateSm87TargetAotPrepareProvenance.cmake"
+      BYPRODUCTS "${target_aot_prepare_provenance_header}"
+      VERBATIM
+    )
+    add_executable(q3x_sm87_target_aot_real_checkpoint_prepare_probe
+      tests/sm87_target_aot_real_checkpoint_prepare_probe.cpp
+    )
+    add_dependencies(q3x_sm87_target_aot_real_checkpoint_prepare_probe
+      q3x_sm87_target_aot_prepare_provenance
+    )
+    target_include_directories(
+      q3x_sm87_target_aot_real_checkpoint_prepare_probe PRIVATE
+      "${CMAKE_CURRENT_BINARY_DIR}/generated/tests"
+    )
+    target_link_libraries(q3x_sm87_target_aot_real_checkpoint_prepare_probe
+      PRIVATE q3x::engine CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_target_aot_real_checkpoint_prepare_probe)
   endif()
 
   add_executable(q3x_prefill_operator_bindings_test

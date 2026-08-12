@@ -618,6 +618,10 @@ struct ReferenceEngineLoadStats {
   std::uint64_t target_aot_projection_source_d2h_bytes = 0U;
   std::uint64_t target_aot_projection_payload_h2d_bytes = 0U;
   std::uint64_t target_aot_projection_verification_d2h_bytes = 0U;
+  // Stable identity of the complete ordered manifest/source/device-readback
+  // digest catalog. Runtime owner/allocation identities remain lifetime
+  // witnesses only.
+  std::string target_aot_projection_verified_payload_catalog_sha256;
   std::uint64_t target_aot_projection_owner_identity = 0U;
   std::uint64_t target_aot_projection_allocation_identity = 0U;
   std::int32_t target_aot_projection_device_ordinal = -1;

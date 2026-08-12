@@ -49,6 +49,8 @@ constexpr std::string_view kStreamIdentityDomain =
     "q3x.sm87.target-aot.device-assets.stream.v1";
 constexpr std::string_view kEventIdentityDomain =
     "q3x.sm87.target-aot.device-assets.event.v1";
+constexpr std::string_view kVerifiedPayloadCatalogDomain =
+    "q3x.sm87.target-aot.device-assets.verified-payload-catalog.v1";
 
 std::atomic<std::uint64_t> g_device_asset_transaction_serial{1U};
 
@@ -791,6 +793,11 @@ void cleanup_stream(cudaStream_t& stream, cudaEvent_t& upload_event,
   }
   cudaEvent_t upload_event = nullptr;
   cudaEvent_t verification_event = nullptr;
+  core::Sha256 verified_payload_catalog_hasher;
+  bool verified_payload_catalog_hash_ok =
+      hash_string(verified_payload_catalog_hasher,
+                  kVerifiedPayloadCatalogDomain);
+  std::uint64_t verified_payload_catalog_bytes = 0U;
   const std::uint64_t stream_identity = make_runtime_identity(
       kStreamIdentityDomain, checkpoint_digest, transaction_serial,
       owner_identity, 1U);
@@ -931,6 +938,119 @@ void cleanup_stream(cudaStream_t& stream, cudaEvent_t& upload_event,
       owner.release();
       return result;
     }
+    if (planned.device_arena_offset != verified_payload_catalog_bytes) {
+      result.hard_failure = true;
+      result.message =
+          "target-AOT verified-payload catalog order failed";
+      cleanup_stream(stream, upload_event, verification_event);
+      owner.release();
+      return result;
+    }
+    verified_payload_catalog_hash_ok =
+        verified_payload_catalog_hash_ok &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      static_cast<std::uint64_t>(planned.layer_index)) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      static_cast<std::uint8_t>(planned.role)) &&
+        verified_payload_catalog_hasher.update(
+            build.manifest.magic.data(), build.manifest.magic.size()) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      build.manifest.abi_major) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      build.manifest.abi_minor) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      build.manifest.header_bytes) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      planned.device_arena_offset) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      build.manifest.artifact_identity) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      inspection.inventory.identity) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      static_cast<std::uint16_t>(
+                          build.manifest.plan_identity)) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      static_cast<std::uint16_t>(
+                          build.manifest.layout_identity)) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      static_cast<std::uint8_t>(
+                          build.manifest.encoding)) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      static_cast<std::uint16_t>(
+                          build.transform_receipt.transform_identity)) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      build.manifest.payload_offset) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      build.manifest.payload_bytes) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      build.manifest.artifact_bytes) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      build.manifest.payload_alignment) &&
+        verified_payload_catalog_hasher.update(
+            build.manifest.payload_digest.bytes.data(),
+            build.manifest.payload_digest.bytes.size()) &&
+        verified_payload_catalog_hasher.update(
+            readback_digest.bytes.data(), readback_digest.bytes.size()) &&
+        hash_unsigned(
+            verified_payload_catalog_hasher,
+            static_cast<std::uint8_t>(
+                build.manifest.token_count_independent)) &&
+        hash_unsigned(
+            verified_payload_catalog_hasher,
+            static_cast<std::uint8_t>(
+                build.manifest.cuda_implementation_present)) &&
+        hash_unsigned(
+            verified_payload_catalog_hasher,
+            static_cast<std::uint8_t>(
+                build.manifest.static_resources_qualified)) &&
+        hash_unsigned(
+            verified_payload_catalog_hasher,
+            static_cast<std::uint8_t>(
+                build.manifest.numerical_contract_qualified)) &&
+        hash_unsigned(
+            verified_payload_catalog_hasher,
+            static_cast<std::uint8_t>(
+                build.manifest.production_dispatch_eligible)) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      build.manifest.seal.value) &&
+        hash_unsigned(verified_payload_catalog_hasher,
+                      inspection.inventory.source_count);
+    for (std::size_t source_index = 0U;
+         source_index < inspection.inventory.source_count; ++source_index) {
+      const auto& source = inspection.inventory.sources[source_index];
+      verified_payload_catalog_hash_ok =
+          verified_payload_catalog_hash_ok &&
+          hash_unsigned(verified_payload_catalog_hasher,
+                        static_cast<std::uint8_t>(source.logical_role)) &&
+          hash_unsigned(verified_payload_catalog_hasher,
+                        source.partition_index) &&
+          hash_unsigned(verified_payload_catalog_hasher,
+                        source.tensor_identity) &&
+          verified_payload_catalog_hasher.update(
+              source.weight_digest.bytes.data(),
+              source.weight_digest.bytes.size()) &&
+          verified_payload_catalog_hasher.update(
+              source.scale_digest.bytes.data(),
+              source.scale_digest.bytes.size()) &&
+          hash_unsigned(verified_payload_catalog_hasher,
+                        source.output_features) &&
+          hash_unsigned(verified_payload_catalog_hasher,
+                        source.input_features) &&
+          hash_unsigned(verified_payload_catalog_hasher,
+                        source.tensor_scale_bits) &&
+          hash_unsigned(verified_payload_catalog_hasher,
+                        source.payload_offset) &&
+          hash_unsigned(verified_payload_catalog_hasher,
+                        source.payload_bytes);
+    }
+    if (!verified_payload_catalog_hash_ok) {
+      result.hard_failure = true;
+      result.message = "target-AOT verified-payload catalog hashing failed";
+      cleanup_stream(stream, upload_event, verification_event);
+      owner.release();
+      return result;
+    }
+    verified_payload_catalog_bytes += layout.payload_bytes;
     result.verification_d2h_bytes += layout.payload_bytes;
 
     const std::uint64_t upload_event_identity = make_runtime_identity(
@@ -1039,6 +1159,23 @@ void cleanup_stream(cudaStream_t& stream, cudaEvent_t& upload_event,
     result.hard_failure = true;
     result.cuda_error = static_cast<int>(status);
     result.message = "target-AOT loader stream destruction failed";
+    owner.release();
+    return result;
+  }
+  if (verified_payload_catalog_bytes != owner_bytes ||
+      !verified_payload_catalog_hash_ok) {
+    result.hard_failure = true;
+    result.message =
+        "target-AOT verified-payload catalog did not close the exact arena";
+    owner.release();
+    return result;
+  }
+  result.verified_payload_catalog_sha256 =
+      verified_payload_catalog_hasher.finalize().hex();
+  if (result.verified_payload_catalog_sha256.size() != 64U ||
+      result.verified_payload_catalog_sha256 == std::string(64U, '0')) {
+    result.hard_failure = true;
+    result.message = "target-AOT verified-payload catalog digest was invalid";
     owner.release();
     return result;
   }
