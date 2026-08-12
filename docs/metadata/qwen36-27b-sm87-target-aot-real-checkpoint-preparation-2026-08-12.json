@@ -214,7 +214,13 @@
       "use_in_combined_diagnosis": "owner/process/orphan corroboration only"
     },
     "combined_classification": "no_owner_leak",
-    "interpretation": "The first hash-frozen post-exit page-pool/IOVMM snapshot closes the source gap within 99,438,592 bytes, and the later complete process/IOVMM/FSI/handle snapshot finds no surviving probe owner. This bounded diagnosis does not rewrite source status=fail. The next child execution must capture all fields immediately so future evidence does not depend on rollout recovery."
+    "interpretation": "The first hash-frozen post-exit page-pool/IOVMM snapshot closes the source gap within 99,438,592 bytes, and the later complete process/IOVMM/FSI/handle snapshot finds no surviving probe owner. This bounded diagnosis does not rewrite source status=fail. The next child execution must capture all fields immediately so future evidence does not depend on rollout recovery.",
+    "limitations": [
+      "No pre-run page-pool snapshot was retained, so this record does not claim that every reusable page was created by this probe; it only closes the observed gap against an owner-free global pool.",
+      "The evidence excludes a persistent Engine/target-AOT owner leak after process exit; it does not prove synchronous physical-page return at the exact engine-destruction instant.",
+      "The first snapshot did not include FSI or handles_by_pid in the same call; those owner-table facts are supplied by the later corroborating snapshot.",
+      "The full 118 MB Codex rollout contains unrelated session context and is not copied into the repository; its completed-file hash, exact call/output line hashes, and decoded snapshot-text hash are frozen above."
+    ]
   },
   "diagnostic_timing_only": {
     "probe_wall_milliseconds": 725045,
