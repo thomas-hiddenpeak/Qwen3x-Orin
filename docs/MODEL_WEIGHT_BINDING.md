@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: typed resident-weight graph, numerical payload, lifetime, and dispatch-interface contract
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-08-12
   supersedes: []
   superseded_by: []
   ssot_for: ModelWeights types, binding validation, non-owning lifetime, and projection API behavior
@@ -39,6 +39,14 @@ views.
 every queued operation that consumes a bound pointer. `ModelWeights` does not
 retain or extend owner lifetime. Moving `ResidentWeights` transfers its arena;
 destroying or move-assigning over that owner invalidates all bound views.
+
+The default-off target-AOT Prefill admission is deliberately different from a
+public sidecar view. Its Engine-owned device arena is retained by a non-movable
+owner, while `ModelWeights` stores only a private owner pointer plus the sealed
+owner/allocation/device/range identity snapshot. Attachment accepts that owner
+alone, never a descriptor, receipt, pointer, or copyable CUDA view. Moving
+`ModelWeights` transfers both private owner back-links exactly once; destruction
+or replacement detaches them before the owner is released.
 
 The callback-based `WeightBindingSource` overload exists for deterministic
 tests and already-validated adapters. It does not weaken tensor validation.
@@ -167,6 +175,18 @@ engine construction path are real runtime dependencies of the attached
 Only sidecars not selected by the current DeploymentPlan/default route are
 dormant; named local work packages may study them without turning their
 mechanisms into global rules.
+
+The target-AOT lifetime attachment is private rather than part of the public
+sidecar API. Before committing it, `ModelWeights` validates the exact 64-layer
+Gate/Up/Down shapes, 128 distinct artifacts, 128 distinct source inventories,
+192 globally distinct source tensor identities, transform/upload/readback
+receipt coherence, device ordinal and pointer residency, exact scale bits, and
+one aligned, gap-free, non-overlapping 9,625,927,680-byte arena closure. Any
+legacy Prefill Marlin, P40 packed, or parity attachment rejects the transaction;
+Decode-only sidecars may coexist. Failure leaves `ModelWeights` unchanged.
+While the transaction is attached, the owner's public `release()` fails closed;
+the attachment itself exposes no launcher, tactic, request-path switch, or
+production qualification.
 
 ## Failure and verification boundary
 

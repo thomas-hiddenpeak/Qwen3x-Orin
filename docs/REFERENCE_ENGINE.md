@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: correctness-first engine ownership, generation, timing, trace, and failure contract
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-08-12
   supersedes: []
   superseded_by: []
   ssot_for: ReferenceEngine lifecycle, generation semantics, tracing, timing, and error behavior
@@ -43,11 +43,13 @@ One heap-stable implementation object owns this lifetime chain:
 
 The sidecar owners cover FP8 output, NVFP4 Down scale6, optional Gate/Up
 coupled-feed, FP8 Prefill QKV/supermatrix, build-selected Marlin admission, and
-optional Down consumer-order layouts. Declaration order is a safety contract:
-destruction is runner, request state, model bindings, sidecar owners in reverse
-declaration order, resident arena, then tokenizer. Moving the engine transfers
-its owning implementation pointer; it does not relocate objects retained by
-the runner.
+optional Down consumer-order layouts. A separate default-off target-AOT owner
+may retain the exact 64-layer NVFP4 Prefill arena and a private `ModelWeights`
+lifetime attachment without exposing its descriptors or views. Declaration
+order is a safety contract: destruction is bound plan, runner, request state,
+model bindings, target-AOT/other sidecar owners in reverse declaration order,
+resident arena, then tokenizer. Moving the engine transfers its owning
+implementation pointer; it does not relocate objects retained by the runner.
 
 `create_reference_engine(model_directory, options)` creates a reusable engine.
 `generate_reference(...)` is the one-shot CLI-oriented convenience path. The
@@ -59,6 +61,16 @@ global performance prescription.
 Creation fails closed on tokenizer, resident-load, weight-binding,
 request-state, runner-factory, capacity, arithmetic, or allocation errors. It
 does not publish a partially usable engine.
+
+`prepare_sm87_target_aot_projection_device_assets` is an append-only,
+programmatic, default-false startup option for the test admission only. A
+binary without that admission, or a request using a non-SM87 backend, nonlegacy
+execution, nondefault Prefill tactics, or Decode Graph cache, rejects it before
+model I/O. A valid request skips mutually exclusive old Prefill projection
+sidecars, uploads and independently reads back the exact authenticated arena,
+then transactionally attaches the owner before runner creation. Decode-only
+sidecars may coexist. Success prepares lifetime state only: it selects no
+tactic, launcher, runner route, CLI flag, API behavior, or production path.
 
 ## Accepted prompt surfaces
 
@@ -190,6 +202,13 @@ time. The product API must add separately attested queue/admission, pure
 Prompt-Prefill, first-token, commit, and publication intervals as required by
 the SDD; these legacy engine fields cannot substitute for them.
 
+When the target-AOT preparation-only option succeeds, its cold-start record
+also reports preparation/attachment transaction time,
+requested/enabled/attached state, exact
+artifact/source/arena/staging and D2H/H2D/readback byte counts, plus private
+owner/allocation identities and device ordinal. These are startup ownership
+facts, not numerical, execution, API, or performance qualification.
+
 ## Trace and replay contract
 
 Trace capture must be enabled when the engine is created and requested by the
@@ -210,6 +229,10 @@ and fallback reasons are observable, but they have no authority to define the
 default route or Production lifecycle state. Their detailed experiments and
 historical measurements belong in evidence records rather than this active
 contract.
+
+The target-AOT preparation-only option is subject to the same authority
+boundary: even an authenticated attachment remains non-executable until a
+separately reviewed numerical/resource gate and launcher/runner/API route exist.
 
 ## Installed `generate` CLI contract
 

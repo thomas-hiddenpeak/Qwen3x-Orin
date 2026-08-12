@@ -2340,6 +2340,35 @@ void test_engine_backend_validation(TestContext& test) {
               "one-shot generation rejects an unknown logits mode before I/O");
 }
 
+void test_target_aot_device_preparation_fails_closed_before_io(
+    TestContext& test) {
+  runtime::ReferenceEngineOptions defaults;
+  test.expect(!defaults.prepare_sm87_target_aot_projection_device_assets,
+              "target-AOT device preparation defaults off");
+
+  runtime::ReferenceEngineOptions requested;
+  requested.prepare_sm87_target_aot_projection_device_assets = true;
+  const runtime::ReferenceEngineCreateResult result =
+      runtime::create_reference_engine("/path/must/not/be/read", requested);
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
+  test.expect(!result &&
+                  result.diagnostic.code ==
+                      runtime::ReferenceEngineError::kInvalidArgument &&
+                  result.diagnostic.stage ==
+                      "target_aot_projection_device_assets",
+              "compiled target-AOT preparation rejects an incompatible "
+              "engine before model I/O");
+#else
+  test.expect(!result &&
+                  result.diagnostic.code ==
+                      runtime::ReferenceEngineError::kPrefillPlanUnavailable &&
+                  result.diagnostic.stage ==
+                      "target_aot_projection_device_assets",
+              "uncompiled target-AOT preparation fails closed before model "
+              "I/O");
+#endif
+}
+
 }  // namespace
 
 int main() {
@@ -2363,6 +2392,7 @@ int main() {
   test_generated_text_stop_semantics(test);
   test_committed_token_observer_and_cancellation(test);
   test_engine_backend_validation(test);
+  test_target_aot_device_preparation_fails_closed_before_io(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference engine control test(s) failed\n";
     return 1;

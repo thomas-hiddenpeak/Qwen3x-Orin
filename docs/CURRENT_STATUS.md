@@ -121,14 +121,19 @@ and compiles real NVFP4 Gate+Up and Down CUDA bodies. A fourth default-off,
 test-only slice implements the exact 64-layer real-checkpoint NVFP4 source
 audit, bounded host transformation, owned 9,625,927,680-byte device arena,
 upload completion, independent device readback, and SHA-256-backed receipt
-issuance for 128 artifacts and 192 sources. It has compiled and passed host
-structural checks only: it has never prepared the real checkpoint on a device
-and has issued no retained production receipt. It does not attach
-`ModelWeights`, authorize a launcher, or bind a runner/API route. The public
-launcher therefore remains deliberately fail-closed, with no target-AOT
-accuracy result, resource or numerical qualification, executable dispatch,
-API evidence, or performance result. The incumbent remains 392.804397 tok/s
-and the installed route is unchanged.
+issuance for 128 artifacts and 192 sources. The Engine now has a default-off,
+startup-only trigger that skips mutually exclusive legacy Prefill projection
+sidecars and performs a private, owner-backed, transactional `ModelWeights`
+attachment after the complete upload is authenticated. The owner is
+non-movable, public release fails while attached, and no naked descriptor,
+receipt, or device view is exposed. This path has compiled and passed host
+structural and fail-closed checks only: it has never prepared the real
+checkpoint on a device and has issued no retained production receipt. The
+attachment does not authorize a launcher or bind a runner/API route. The
+public launcher therefore remains deliberately fail-closed, with no
+target-AOT accuracy result, resource or numerical qualification, executable
+dispatch, API evidence, or performance result. The incumbent remains
+392.804397 tok/s and the installed route is unchanged.
 
 ## 2. Current capability matrix
 
@@ -141,7 +146,7 @@ and the installed route is unchanged.
 | Final product API | Designed | No installed production server/profile or release attestation exists |
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
 | Target-length Prefill | P40 development route exercised | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
-| SM87 whole-system AOT Prefill candidate | Host topology and finite-precision contracts, real-byte host packer, compile-only NVFP4 Gate+Up/Down bodies, and a default-off/unexecuted real-checkpoint NVFP4 device owner/uploader; non-executable | Execute and retain authenticated real-checkpoint preparation, attach owned views to `ModelWeights`, pass layer-0 numerical/resource gates, implement remaining FP8/Attention/GDN/handoffs, open reviewed launch, then obtain clean-host real-P40 API evidence |
+| SM87 whole-system AOT Prefill candidate | Host topology and finite-precision contracts, real-byte host packer, compile-only NVFP4 Gate+Up/Down bodies, plus a default-off/unexecuted real-checkpoint NVFP4 device owner/uploader and private transactional `ModelWeights` lifetime attachment; non-executable | Execute and retain authenticated real-checkpoint preparation/attachment, pass layer-0 numerical/resource gates, implement remaining FP8/Attention/GDN/handoffs, open reviewed launch, then obtain clean-host real-P40 API evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

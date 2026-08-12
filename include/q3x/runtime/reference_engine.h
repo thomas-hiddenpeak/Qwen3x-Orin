@@ -18,6 +18,8 @@
 
 namespace q3x::runtime {
 
+struct Sm87TargetAotProjectionDevicePreparationStats;
+
 inline constexpr std::uint32_t kQwen36ImEndTokenId = 248'046U;
 
 enum class ReferenceEngineError : std::uint8_t {
@@ -252,6 +254,12 @@ struct ReferenceEngineOptions {
   // partial panels retain the authenticated exact span ledger.
   LayerMajorPrefillProjectionTactic prefill_projection_tactic =
       LayerMajorPrefillProjectionTactic::kExactSegmentedC512;
+  // Default-off startup-only target-AOT NVFP4 asset preparation. This does
+  // not select a runner tactic or open an executable route; it exists solely
+  // to close real-checkpoint ownership and attachment before layer-0 oracle
+  // admission. Unsupported binaries and incompatible engine modes fail
+  // closed instead of ignoring a requested preparation.
+  bool prepare_sm87_target_aot_projection_device_assets = false;
 };
 
 // Text-only messages accepted by the pinned Qwen 3.6 chat formatter. The
@@ -487,6 +495,7 @@ struct ReferenceEngineLoadStats {
   double nvfp4_marlin_prefill_sidecar_milliseconds = 0.0;
   double p40_packed_projection_asset_milliseconds = 0.0;
   double nvfp4_marlin_p40_parity_sidecar_milliseconds = 0.0;
+  double target_aot_projection_device_asset_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -596,6 +605,22 @@ struct ReferenceEngineLoadStats {
   std::size_t nvfp4_marlin_p40_parity_sources = 0U;
   std::uint64_t nvfp4_marlin_p40_parity_sidecar_bytes = 0U;
   std::string nvfp4_marlin_p40_parity_manifest_sha256;
+  // Startup-only target-AOT NVFP4 ownership evidence. `enabled` means all
+  // 128 artifacts were uploaded/read back and owner-backed attachment to
+  // ModelWeights completed; it does not mean a launcher or route exists.
+  bool target_aot_projection_device_assets_requested = false;
+  bool target_aot_projection_device_assets_enabled = false;
+  bool target_aot_projection_device_assets_attached = false;
+  std::size_t target_aot_projection_device_asset_artifacts = 0U;
+  std::size_t target_aot_projection_device_asset_sources = 0U;
+  std::uint64_t target_aot_projection_device_asset_bytes = 0U;
+  std::uint64_t target_aot_projection_host_staging_peak_bytes = 0U;
+  std::uint64_t target_aot_projection_source_d2h_bytes = 0U;
+  std::uint64_t target_aot_projection_payload_h2d_bytes = 0U;
+  std::uint64_t target_aot_projection_verification_d2h_bytes = 0U;
+  std::uint64_t target_aot_projection_owner_identity = 0U;
+  std::uint64_t target_aot_projection_allocation_identity = 0U;
+  std::int32_t target_aot_projection_device_ordinal = -1;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.
@@ -798,6 +823,14 @@ class ReferenceEngine {
   friend ReferenceOneShotResult generate_reference(
       const std::filesystem::path&, std::string_view,
       const ReferenceOneShotOptions&);
+  [[nodiscard]] static Sm87TargetAotProjectionDevicePreparationStats
+  prepare_target_aot_projection_device_assets(
+      const ResidentWeights& resident, const ModelWeights& model_weights,
+      std::uint64_t minimum_free_bytes_after_prepare,
+      Sm87TargetAotProjectionDeviceAssets& owner);
+  [[nodiscard]] static bool attach_target_aot_projection_device_assets(
+      ModelWeights& model_weights,
+      Sm87TargetAotProjectionDeviceAssets& owner) noexcept;
   struct Impl;
   explicit ReferenceEngine(std::unique_ptr<Impl> impl) noexcept;
   [[nodiscard]] ReferenceGenerateResult generate_tokenized(

@@ -40,6 +40,9 @@ orientation in order:
 
 Then read the complete route required by the work:
 
+When more than one route applies, merge them in the bullet order below and
+skip documents already read; later bullets do not replace earlier routes.
+
 - performance implementation, retention, or promotion:
   [`REAL_MODEL_PERFORMANCE_POLICY.md`](REAL_MODEL_PERFORMANCE_POLICY.md);
 - Prefill architecture or implementation:

@@ -24,6 +24,8 @@ inline constexpr std::size_t kSm87TargetAotProjectionDeviceSourceCount =
 inline constexpr std::uint64_t kSm87TargetAotProjectionDeviceArenaBytes =
     9'625'927'680ULL;
 inline constexpr std::uint64_t
+    kSm87TargetAotProjectionCanonicalSourceD2hBytes = 9'625'928'448ULL;
+inline constexpr std::uint64_t
     kSm87TargetAotProjectionMaximumArtifactPayloadBytes = 100'270'080ULL;
 inline constexpr std::uint64_t
     kSm87TargetAotProjectionMaximumHostStagingBytes =
@@ -44,7 +46,9 @@ struct Sm87TargetAotProjectionDeviceAssetDescriptor final {
 // Engine-lifetime owner for the exact 64-layer NVFP4 target-AOT projection
 // inventory. The device arena contains payload bytes only. Host manifests,
 // transform receipts, uploader receipts, and source inventories remain in the
-// owner. This slice does not attach views to ModelWeights or any runner.
+// owner. A default-off Engine startup transaction may attach this owner to
+// ModelWeights as a private lifetime capability; no naked view is published
+// and no runner or launcher is authorized by that attachment.
 class Sm87TargetAotProjectionDeviceAssets final {
  public:
   Sm87TargetAotProjectionDeviceAssets() noexcept = default;
@@ -55,15 +59,20 @@ class Sm87TargetAotProjectionDeviceAssets final {
   Sm87TargetAotProjectionDeviceAssets& operator=(
       const Sm87TargetAotProjectionDeviceAssets&) = delete;
   Sm87TargetAotProjectionDeviceAssets(
-      Sm87TargetAotProjectionDeviceAssets&& other) noexcept;
+      Sm87TargetAotProjectionDeviceAssets&&) = delete;
   Sm87TargetAotProjectionDeviceAssets& operator=(
-      Sm87TargetAotProjectionDeviceAssets&& other) noexcept;
+      Sm87TargetAotProjectionDeviceAssets&&) = delete;
 
-  void release() noexcept;
+  // A prepared but unattached owner may be released during startup rollback.
+  // Once ModelWeights is attached, release fails closed so public code cannot
+  // invalidate an engine-owned capability.
+  bool release() noexcept;
 
   [[nodiscard]] bool empty() const noexcept {
     return arena_ == nullptr && bytes_ == 0U && descriptor_count_ == 0U &&
-           allocation_identity_ == 0U && owner_identity_ == 0U;
+           allocation_identity_ == 0U && owner_identity_ == 0U &&
+           prepared_model_weights_ == nullptr &&
+           attached_model_weights_ == nullptr;
   }
 
   // Structural presence only. It deliberately does not expose a naked
@@ -77,10 +86,11 @@ class Sm87TargetAotProjectionDeviceAssets final {
 
  private:
   friend class ReferenceEngine;
+  friend class ModelWeights;
 
-  // Private loader-issued authority. The next Engine integration slice may
-  // call this only through a ReferenceEngine member; there is deliberately no
-  // public/free preparation or receipt-issuance function.
+  // Private loader-issued authority. Engine startup may call this only through
+  // a ReferenceEngine member; there is deliberately no public/free
+  // preparation or receipt-issuance function.
   [[nodiscard]] Sm87TargetAotProjectionDevicePreparationStats prepare(
       const ResidentWeights& resident, const ModelWeights& model_weights,
       std::uint64_t minimum_free_bytes_after_prepare);
@@ -103,6 +113,7 @@ class Sm87TargetAotProjectionDeviceAssets final {
   [[nodiscard]] std::size_t descriptor_count() const noexcept {
     return descriptor_count_;
   }
+  void release_unconditionally() noexcept;
 
   std::uint8_t* arena_ = nullptr;
   std::uint64_t bytes_ = 0U;
@@ -113,6 +124,8 @@ class Sm87TargetAotProjectionDeviceAssets final {
              kSm87TargetAotProjectionDeviceArtifactCount>
       descriptors_{};
   std::size_t descriptor_count_ = 0U;
+  const ModelWeights* prepared_model_weights_ = nullptr;
+  const ModelWeights* attached_model_weights_ = nullptr;
 };
 
 struct Sm87TargetAotProjectionDevicePreparationStats final {
@@ -125,6 +138,9 @@ struct Sm87TargetAotProjectionDevicePreparationStats final {
   std::uint64_t source_d2h_bytes = 0U;
   std::uint64_t payload_h2d_bytes = 0U;
   std::uint64_t verification_d2h_bytes = 0U;
+  std::uint64_t owner_identity = 0U;
+  std::uint64_t allocation_identity = 0U;
+  std::int32_t device_ordinal = -1;
   int cuda_error = 0;
   std::string message;
 };
@@ -133,8 +149,9 @@ struct Sm87TargetAotProjectionDevicePreparationStats final {
 // ResidentWeights and its already-bound ModelWeights view, authenticates all
 // 192 canonical NVFP4 sources, transforms and validates one bounded artifact
 // at a time, uploads into the exact arena, then reads each device payload back
-// and compares its SHA-256 before issuing a receipt. It never mutates
-// ModelWeights and is not callable from a request path.
+// and compares its SHA-256 before issuing a receipt. Preparation itself never
+// mutates ModelWeights; the Engine performs a separate private transactional
+// attachment immediately afterward. Neither operation is request-callable.
 [[nodiscard]] constexpr bool
 sm87_target_aot_projection_device_assets_compiled() noexcept {
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
@@ -154,6 +171,9 @@ static_assert(kSm87TargetAotProjectionDeviceArenaBytes ==
                    kernels::sm87_target_aot_projection_packed_layout(
                        kernels::Sm87TargetAotProjectionRole::kNvFp4Down)
                        .payload_bytes));
+static_assert(kSm87TargetAotProjectionCanonicalSourceD2hBytes ==
+              kSm87TargetAotProjectionDeviceArenaBytes +
+                  kSm87TargetAotProjectionDeviceSourceCount * sizeof(float));
 static_assert(kSm87TargetAotProjectionMaximumArtifactPayloadBytes ==
               kernels::sm87_target_aot_projection_packed_layout(
                   kernels::Sm87TargetAotProjectionRole::kNvFp4GateUp)

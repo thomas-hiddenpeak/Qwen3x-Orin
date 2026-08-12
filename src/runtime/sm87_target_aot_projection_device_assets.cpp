@@ -1074,6 +1074,9 @@ void cleanup_stream(cudaStream_t& stream, cudaEvent_t& upload_event,
   result.artifacts = descriptor_count;
   result.sources = kSm87TargetAotProjectionDeviceSourceCount;
   result.arena_bytes = owner_bytes;
+  result.owner_identity = owner_identity;
+  result.allocation_identity = allocation_identity;
+  result.device_ordinal = owner_device_ordinal;
   return result;
 }
 
@@ -1082,39 +1085,18 @@ void cleanup_stream(cudaStream_t& stream, cudaEvent_t& upload_event,
 }  // namespace
 
 Sm87TargetAotProjectionDeviceAssets::~Sm87TargetAotProjectionDeviceAssets() {
-  release();
+  release_unconditionally();
 }
 
-Sm87TargetAotProjectionDeviceAssets::Sm87TargetAotProjectionDeviceAssets(
-    Sm87TargetAotProjectionDeviceAssets&& other) noexcept
-    : arena_(std::exchange(other.arena_, nullptr)),
-      bytes_(std::exchange(other.bytes_, 0U)),
-      allocation_identity_(std::exchange(other.allocation_identity_, 0U)),
-      owner_identity_(std::exchange(other.owner_identity_, 0U)),
-      device_ordinal_(std::exchange(other.device_ordinal_, -1)),
-      descriptors_(other.descriptors_),
-      descriptor_count_(std::exchange(other.descriptor_count_, 0U)) {
-  other.descriptors_ = {};
-}
-
-Sm87TargetAotProjectionDeviceAssets&
-Sm87TargetAotProjectionDeviceAssets::operator=(
-    Sm87TargetAotProjectionDeviceAssets&& other) noexcept {
-  if (this != &other) {
-    release();
-    arena_ = std::exchange(other.arena_, nullptr);
-    bytes_ = std::exchange(other.bytes_, 0U);
-    allocation_identity_ = std::exchange(other.allocation_identity_, 0U);
-    owner_identity_ = std::exchange(other.owner_identity_, 0U);
-    device_ordinal_ = std::exchange(other.device_ordinal_, -1);
-    descriptors_ = other.descriptors_;
-    descriptor_count_ = std::exchange(other.descriptor_count_, 0U);
-    other.descriptors_ = {};
+bool Sm87TargetAotProjectionDeviceAssets::release() noexcept {
+  if (attached_model_weights_ != nullptr) {
+    return false;
   }
-  return *this;
+  release_unconditionally();
+  return true;
 }
 
-void Sm87TargetAotProjectionDeviceAssets::release() noexcept {
+void Sm87TargetAotProjectionDeviceAssets::release_unconditionally() noexcept {
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
   if (arena_ != nullptr) {
     (void)cudaFree(arena_);
@@ -1127,6 +1109,8 @@ void Sm87TargetAotProjectionDeviceAssets::release() noexcept {
   device_ordinal_ = -1;
   descriptors_ = {};
   descriptor_count_ = 0U;
+  prepared_model_weights_ = nullptr;
+  attached_model_weights_ = nullptr;
 }
 
 const Sm87TargetAotProjectionDeviceAssetDescriptor*
@@ -1153,12 +1137,18 @@ Sm87TargetAotProjectionDeviceAssets::prepare(
     const std::uint64_t minimum_free_bytes_after_prepare) {
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
   try {
-    return prepare_impl(resident, model_weights,
-                        minimum_free_bytes_after_prepare, *this, arena_, bytes_,
-                        allocation_identity_, owner_identity_, device_ordinal_,
-                        descriptors_, descriptor_count_);
+    Sm87TargetAotProjectionDevicePreparationStats result = prepare_impl(
+        resident, model_weights, minimum_free_bytes_after_prepare, *this,
+        arena_, bytes_, allocation_identity_, owner_identity_, device_ordinal_,
+        descriptors_, descriptor_count_);
+    if (result.enabled && !result.hard_failure) {
+      prepared_model_weights_ = &model_weights;
+    } else {
+      (void)release();
+    }
+    return result;
   } catch (const std::exception& error) {
-    release();
+    (void)release();
     Sm87TargetAotProjectionDevicePreparationStats result;
     result.hard_failure = true;
     result.message =
@@ -1166,7 +1156,7 @@ Sm87TargetAotProjectionDeviceAssets::prepare(
         error.what();
     return result;
   } catch (...) {
-    release();
+    (void)release();
     Sm87TargetAotProjectionDevicePreparationStats result;
     result.hard_failure = true;
     result.message =

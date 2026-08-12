@@ -107,7 +107,7 @@ option(Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION
   OFF
 )
 option(Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION
-  "Build the test-only real-checkpoint target-AOT device owner, uploader, and receipt issuer"
+  "Build the test-only real-checkpoint target-AOT device owner, uploader, receipt issuer, and private ModelWeights attachment"
   OFF
 )
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
@@ -460,9 +460,9 @@ target_sources(q3x_core PRIVATE
 )
 if(Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
   # This bit adds only the engine-lifetime real-checkpoint arena owner,
-  # bounded loader/uploader, and device-readback receipt issuer. It does not
-  # attach ModelWeights, bind a runner route, or open the compile-only public
-  # launcher.
+  # bounded loader/uploader, device-readback receipt issuer, and private
+  # ModelWeights lifetime attachment. It does not bind a runner route or open
+  # the compile-only public launcher.
   target_compile_definitions(q3x_core PUBLIC
     Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION=1
   )

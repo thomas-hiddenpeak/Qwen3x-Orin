@@ -371,14 +371,18 @@ test-only slice implements an engine-lifetime NVFP4 device owner and an
 all-or-nothing real-checkpoint uploader. That uploader audits the exact
 64-layer resident source inventory, transforms one bounded artifact at a time,
 and issues a receipt only after an independent device readback matches the
-host payload SHA-256. It has compiled and passed host structural checks but
-has not been run against the real checkpoint, attached to `ModelWeights`, or
-retained a device receipt. No admission contains a production selector, API
-wiring, resource or numerical qualification, or production dispatch
-authority. The next implementation step is authenticated `ModelWeights`
-attachment followed by the layer-0 real-model numerical and resource gates;
-neither host schema, CUDA compilation, nor an unexecuted loader can promote
-the production path.
+host payload SHA-256. A default-off Engine startup trigger now performs the
+upload and then attaches the retained owner to `ModelWeights` through one
+private all-or-nothing lifetime capability; it skips mutually exclusive old
+Prefill projection sidecars, exposes no naked view, and grants no execution
+authority. It has compiled and passed host structural/fail-closed checks but
+has not been run against the real checkpoint or retained a device receipt. No
+admission contains a production selector, API wiring, resource or numerical
+qualification, or production dispatch authority. The next implementation step
+is executing and retaining the authenticated real-checkpoint
+preparation/attachment followed by the layer-0 real-model numerical and
+resource gates; neither host schema, CUDA compilation, nor an unexecuted loader
+can promote the production path.
 
 The pre-CUDA implementation contract is now frozen as a second host-only
 milestone:
@@ -420,11 +424,11 @@ binding the authenticated host digest to an owned allocation and exact payload
 subrange, observing upload completion, reading the exact device range back,
 and matching its SHA-256. The public schema and binder remain non-authoritative
 and cannot manufacture those facts from a raw pointer. No real-checkpoint
-preparation has executed or produced a retained receipt yet. The owned views
-still require authenticated `ModelWeights` attachment, the CUDA bodies must
-pass the named layer-0 real-model numerical oracle and reviewed resource gate,
-and a separately reviewed admission launcher must reach the real API before
-any qualification bit changes.
+preparation has executed or produced a retained receipt yet. The private
+owner-backed `ModelWeights` attachment is implemented but therefore remains
+unexecuted. The CUDA bodies must pass the named layer-0 real-model numerical
+oracle and reviewed resource gate, and a separately reviewed admission launcher
+must reach the real API before any qualification bit changes.
 
 ## 9. One bounded reference-geometry witness
 

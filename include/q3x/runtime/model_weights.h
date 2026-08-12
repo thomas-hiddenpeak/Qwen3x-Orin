@@ -14,6 +14,9 @@
 
 namespace q3x::runtime {
 
+class ReferenceEngine;
+class Sm87TargetAotProjectionDeviceAssets;
+
 inline constexpr std::size_t kQwen36DenseLayerCount = 64U;
 inline constexpr std::size_t kQwen36LinearAttentionLayerCount = 48U;
 inline constexpr std::size_t kQwen36FullAttentionLayerCount = 16U;
@@ -504,9 +507,9 @@ class ModelWeights {
  public:
   ModelWeights(const ModelWeights&) = delete;
   ModelWeights& operator=(const ModelWeights&) = delete;
-  ModelWeights(ModelWeights&&) noexcept = default;
-  ModelWeights& operator=(ModelWeights&&) noexcept = default;
-  ~ModelWeights() = default;
+  ModelWeights(ModelWeights&& other) noexcept;
+  ModelWeights& operator=(ModelWeights&& other) noexcept;
+  ~ModelWeights();
 
   [[nodiscard]] const Bf16LinearWeight& embed_tokens() const noexcept {
     return embed_tokens_;
@@ -637,6 +640,8 @@ class ModelWeights {
       std::size_t descriptor_count) noexcept;
 
  private:
+  friend class ReferenceEngine;
+  friend class Sm87TargetAotProjectionDeviceAssets;
   friend class ModelWeightBinder;
   friend struct WeightBindResult;
   friend WeightBindResult bind_qwen36_27b_weights(
@@ -644,11 +649,29 @@ class ModelWeights {
 
   ModelWeights() = default;
 
+  struct Sm87TargetAotProjectionAttachment final {
+    const Sm87TargetAotProjectionDeviceAssets* owner = nullptr;
+    std::uint64_t owner_identity = 0U;
+    std::uint64_t allocation_identity = 0U;
+    std::uintptr_t arena_begin = 0U;
+    std::uint64_t arena_bytes = 0U;
+    std::int32_t device_ordinal = -1;
+    std::size_t artifact_count = 0U;
+  };
+
+  // Private owner-backed transaction. It never accepts descriptors, receipts,
+  // or naked device views. Future execution must re-resolve layer/role through
+  // the same retained owner and identity snapshot.
+  [[nodiscard]] bool attach_sm87_target_aot_projection_assets(
+      Sm87TargetAotProjectionDeviceAssets& owner) noexcept;
+  void detach_sm87_target_aot_projection_assets() noexcept;
+
   Bf16LinearWeight embed_tokens_;
   Bf16VectorWeight final_norm_;
   LinearWeight lm_head_;
   std::array<DecoderLayerWeights, kQwen36DenseLayerCount> layers_{};
   WeightBindingStats stats_;
+  Sm87TargetAotProjectionAttachment target_aot_projection_attachment_{};
 };
 
 enum class WeightBindErrorCode : std::uint8_t {

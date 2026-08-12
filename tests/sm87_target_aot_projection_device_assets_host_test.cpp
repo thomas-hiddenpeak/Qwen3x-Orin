@@ -109,13 +109,7 @@ int main() {
     return 1;
   }
 
-  runtime::Sm87TargetAotProjectionDeviceAssets moved(std::move(owner));
-  if (!owner.empty() || !moved.empty()) {
-    std::cerr << "target-AOT owner move did not transfer lifetime state\n";
-    return 1;
-  }
-  moved.release();
-  if (!moved.empty()) {
+  if (!owner.release() || !owner.empty()) {
     std::cerr << "target-AOT owner release did not clear state\n";
     return 1;
   }
@@ -124,7 +118,9 @@ int main() {
                 runtime::Sm87TargetAotProjectionDeviceAssets>);
   static_assert(!std::is_copy_assignable_v<
                 runtime::Sm87TargetAotProjectionDeviceAssets>);
-  static_assert(std::is_move_constructible_v<
+  static_assert(!std::is_move_constructible_v<
+                runtime::Sm87TargetAotProjectionDeviceAssets>);
+  static_assert(!std::is_move_assignable_v<
                 runtime::Sm87TargetAotProjectionDeviceAssets>);
 
   std::cout << "SM87 target-AOT device owner host checks passed\n";

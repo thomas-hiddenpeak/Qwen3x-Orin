@@ -11,6 +11,7 @@
 #endif
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 #include "q3x/runtime/p40_packed_projection_assets.h"
+#include "q3x/runtime/sm87_target_aot_projection_device_assets.h"
 #include "q3x/text/tokenizer.h"
 #include "reference_engine_prefill_authority.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
@@ -4506,7 +4507,8 @@ struct ReferenceEngine::Impl {
   // bound Prefill plan -> runner -> request_state -> model_weights -> Decode
   // Down consumer-order sidecars -> independent parity/packed/Marlin
   // admission sidecars -> Prefill supermatrix/QKV sidecars -> down scale6
-  // sidecars -> output sidecars -> resident_weights -> tokenizer.
+  // sidecars -> target-AOT owner -> output sidecars -> resident_weights ->
+  // tokenizer.
   std::unique_ptr<text::Tokenizer> tokenizer;
   std::optional<ResidentWeights> resident_weights;
   Sm87Fp8OutputProjectionSidecars fp8_output_sidecars;
@@ -4525,6 +4527,7 @@ struct ReferenceEngine::Impl {
       nvfp4_marlin_p40_parity_sidecars;
 #endif
   P40PackedProjectionAssets p40_packed_projection_assets;
+  Sm87TargetAotProjectionDeviceAssets target_aot_projection_device_assets;
   Sm87NvFp4DownConsumerOrderSidecars
       nvfp4_down_consumer_order_sidecars;
   std::optional<ModelWeights> model_weights;
@@ -4809,6 +4812,35 @@ struct ReferenceEngine::Impl {
       return result;
     }
 #endif
+#if !defined(Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
+    if (options.prepare_sm87_target_aot_projection_device_assets) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kPrefillPlanUnavailable,
+          "target_aot_projection_device_assets",
+          "this binary does not contain the default-off real-checkpoint "
+          "target-AOT NVFP4 device owner/uploader");
+      return result;
+    }
+#else
+    if (options.prepare_sm87_target_aot_projection_device_assets &&
+        (options.projection_backend != ProjectionBackend::kSm87WeightOnly ||
+         options.prefill_execution_mode !=
+             ReferencePrefillExecutionMode::kLegacyC512Tiled ||
+         options.prefill_full_attention_tactic !=
+             LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512 ||
+         options.prefill_projection_tactic !=
+             LayerMajorPrefillProjectionTactic::kExactSegmentedC512 ||
+         options.decode_graph_cache_policy !=
+             ReferenceDecodeGraphCachePolicy::kDisabled)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "target_aot_projection_device_assets",
+          "target-AOT preparation-only admission requires the SM87 backend, "
+          "legacy execution, exact default tactics, and no Decode Graph "
+          "cache");
+      return result;
+    }
+#endif
     if (!is_valid_reference_decode_graph_cache_policy(
             options.decode_graph_cache_policy)) {
       result.diagnostic = engine_diagnostic(
@@ -4864,6 +4896,8 @@ struct ReferenceEngine::Impl {
       impl->load.projection_backend = options.projection_backend;
       impl->load.decode_graph_cache_requested_policy =
           options.decode_graph_cache_policy;
+      impl->load.target_aot_projection_device_assets_requested =
+          options.prepare_sm87_target_aot_projection_device_assets;
       if (prepared_tokenizer != nullptr) {
         impl->tokenizer = std::move(prepared_tokenizer);
         impl->load.tokenizer_milliseconds =
@@ -5101,14 +5135,17 @@ struct ReferenceEngine::Impl {
           } else {
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
           const bool prepare_fp8_supermatrix =
+              !options.prepare_sm87_target_aot_projection_device_assets &&
               options.prefill_projection_tactic ==
               LayerMajorPrefillProjectionTactic::
                   kNativePromptWideP40ProjectionReset;
 #else
-          constexpr bool prepare_fp8_supermatrix = true;
+          const bool prepare_fp8_supermatrix =
+              !options.prepare_sm87_target_aot_projection_device_assets;
 #endif
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
-          if (!prepare_fp8_supermatrix) {
+          if (!options.prepare_sm87_target_aot_projection_device_assets &&
+              !prepare_fp8_supermatrix) {
             const Clock::time_point fp8_marlin_begin = Clock::now();
             const Sm87Fp8MarlinPrefillPreparation fp8_marlin_preparation =
                 prepare_sm87_fp8_marlin_prefill_sidecars(
@@ -5170,7 +5207,8 @@ struct ReferenceEngine::Impl {
                 preparation.bytes;
           }
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
-          if (!prepare_p40_packed_nvfp4_v2 &&
+          if (!options.prepare_sm87_target_aot_projection_device_assets &&
+              !prepare_p40_packed_nvfp4_v2 &&
               !prepare_p40_vllm_marlin_parity) {
             const Clock::time_point marlin_begin = Clock::now();
             // The sealed layer-major arithmetic contract always launches the
@@ -5367,6 +5405,81 @@ struct ReferenceEngine::Impl {
           impl->load.nvfp4_down_consumer_order_sidecar_bytes =
               preparation.bytes;
         }
+      }
+
+      if (options.prepare_sm87_target_aot_projection_device_assets) {
+        const Clock::time_point target_aot_begin = Clock::now();
+        const Sm87TargetAotProjectionDevicePreparationStats preparation =
+            ReferenceEngine::prepare_target_aot_projection_device_assets(
+                *impl->resident_weights, *impl->model_weights,
+                options.request_options.min_free_bytes_after_create,
+                impl->target_aot_projection_device_assets);
+        impl->load.target_aot_projection_device_asset_milliseconds =
+            elapsed_milliseconds(target_aot_begin);
+        if (preparation.hard_failure || !preparation.enabled ||
+            preparation.artifacts !=
+                kSm87TargetAotProjectionDeviceArtifactCount ||
+            preparation.sources !=
+                kSm87TargetAotProjectionDeviceSourceCount ||
+            preparation.arena_bytes !=
+                kSm87TargetAotProjectionDeviceArenaBytes ||
+            preparation.host_staging_peak_bytes !=
+                kSm87TargetAotProjectionMaximumHostStagingBytes ||
+            preparation.source_d2h_bytes !=
+                kSm87TargetAotProjectionCanonicalSourceD2hBytes ||
+            preparation.payload_h2d_bytes !=
+                kSm87TargetAotProjectionDeviceArenaBytes ||
+            preparation.verification_d2h_bytes !=
+                kSm87TargetAotProjectionDeviceArenaBytes ||
+            preparation.owner_identity == 0U ||
+            preparation.allocation_identity == 0U ||
+            preparation.device_ordinal < 0) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              "target_aot_projection_device_asset_prepare",
+              preparation.message.empty()
+                  ? "target-AOT preparation did not publish the exact "
+                    "authenticated NVFP4 inventory"
+                  : preparation.message);
+          result.diagnostic.cuda_error = preparation.cuda_error;
+          return result;
+        }
+        if (!ReferenceEngine::attach_target_aot_projection_device_assets(
+                *impl->model_weights,
+                impl->target_aot_projection_device_assets)) {
+          impl->load.target_aot_projection_device_asset_milliseconds =
+              elapsed_milliseconds(target_aot_begin);
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              "target_aot_projection_device_asset_attach",
+              "the prepared target-AOT owner failed its transactional "
+              "ModelWeights attachment");
+          return result;
+        }
+        impl->load.target_aot_projection_device_asset_milliseconds =
+            elapsed_milliseconds(target_aot_begin);
+        impl->load.target_aot_projection_device_assets_enabled = true;
+        impl->load.target_aot_projection_device_assets_attached = true;
+        impl->load.target_aot_projection_device_asset_artifacts =
+            preparation.artifacts;
+        impl->load.target_aot_projection_device_asset_sources =
+            preparation.sources;
+        impl->load.target_aot_projection_device_asset_bytes =
+            preparation.arena_bytes;
+        impl->load.target_aot_projection_host_staging_peak_bytes =
+            preparation.host_staging_peak_bytes;
+        impl->load.target_aot_projection_source_d2h_bytes =
+            preparation.source_d2h_bytes;
+        impl->load.target_aot_projection_payload_h2d_bytes =
+            preparation.payload_h2d_bytes;
+        impl->load.target_aot_projection_verification_d2h_bytes =
+            preparation.verification_d2h_bytes;
+        impl->load.target_aot_projection_owner_identity =
+            preparation.owner_identity;
+        impl->load.target_aot_projection_allocation_identity =
+            preparation.allocation_identity;
+        impl->load.target_aot_projection_device_ordinal =
+            preparation.device_ordinal;
       }
 
       {
@@ -5693,6 +5806,21 @@ struct ReferenceEngine::Impl {
     }
   }
 };
+
+Sm87TargetAotProjectionDevicePreparationStats
+ReferenceEngine::prepare_target_aot_projection_device_assets(
+    const ResidentWeights& resident, const ModelWeights& model_weights,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    Sm87TargetAotProjectionDeviceAssets& owner) {
+  return owner.prepare(resident, model_weights,
+                       minimum_free_bytes_after_prepare);
+}
+
+bool ReferenceEngine::attach_target_aot_projection_device_assets(
+    ModelWeights& model_weights,
+    Sm87TargetAotProjectionDeviceAssets& owner) noexcept {
+  return model_weights.attach_sm87_target_aot_projection_assets(owner);
+}
 
 ReferenceEngine::ReferenceEngine(std::unique_ptr<Impl> impl) noexcept
     : impl_(std::move(impl)) {}

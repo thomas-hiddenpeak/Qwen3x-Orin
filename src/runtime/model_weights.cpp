@@ -1,6 +1,7 @@
 #include "q3x/runtime/model_weights.h"
 
 #include "q3x/io/safetensors.h"
+#include "q3x/runtime/sm87_target_aot_projection_device_assets.h"
 
 #include <cuda_runtime.h>
 
@@ -171,6 +172,309 @@ template <typename Weight>
 }
 
 }  // namespace
+
+ModelWeights::ModelWeights(ModelWeights&& other) noexcept
+    : embed_tokens_(std::move(other.embed_tokens_)),
+      final_norm_(std::move(other.final_norm_)),
+      lm_head_(std::move(other.lm_head_)),
+      layers_(std::move(other.layers_)),
+      stats_(std::move(other.stats_)),
+      target_aot_projection_attachment_(
+          other.target_aot_projection_attachment_) {
+  auto* const owner = const_cast<Sm87TargetAotProjectionDeviceAssets*>(
+      target_aot_projection_attachment_.owner);
+  if (owner != nullptr) {
+    if (owner->attached_model_weights_ == &other &&
+        owner->prepared_model_weights_ == &other) {
+      owner->attached_model_weights_ = this;
+      owner->prepared_model_weights_ = this;
+    } else {
+      if (owner->attached_model_weights_ == &other) {
+        owner->attached_model_weights_ = nullptr;
+      }
+      if (owner->prepared_model_weights_ == &other) {
+        owner->prepared_model_weights_ = nullptr;
+      }
+      target_aot_projection_attachment_ = {};
+    }
+  }
+  other.target_aot_projection_attachment_ = {};
+}
+
+ModelWeights& ModelWeights::operator=(ModelWeights&& other) noexcept {
+  if (this != &other) {
+    detach_sm87_target_aot_projection_assets();
+    embed_tokens_ = std::move(other.embed_tokens_);
+    final_norm_ = std::move(other.final_norm_);
+    lm_head_ = std::move(other.lm_head_);
+    layers_ = std::move(other.layers_);
+    stats_ = std::move(other.stats_);
+    target_aot_projection_attachment_ =
+        other.target_aot_projection_attachment_;
+    auto* const owner = const_cast<Sm87TargetAotProjectionDeviceAssets*>(
+        target_aot_projection_attachment_.owner);
+    if (owner != nullptr) {
+      if (owner->attached_model_weights_ == &other &&
+          owner->prepared_model_weights_ == &other) {
+        owner->attached_model_weights_ = this;
+        owner->prepared_model_weights_ = this;
+      } else {
+        if (owner->attached_model_weights_ == &other) {
+          owner->attached_model_weights_ = nullptr;
+        }
+        if (owner->prepared_model_weights_ == &other) {
+          owner->prepared_model_weights_ = nullptr;
+        }
+        target_aot_projection_attachment_ = {};
+      }
+    }
+    other.target_aot_projection_attachment_ = {};
+  }
+  return *this;
+}
+
+ModelWeights::~ModelWeights() {
+  detach_sm87_target_aot_projection_assets();
+}
+
+void ModelWeights::detach_sm87_target_aot_projection_assets() noexcept {
+  auto* const owner = const_cast<Sm87TargetAotProjectionDeviceAssets*>(
+      target_aot_projection_attachment_.owner);
+  if (owner != nullptr && owner->attached_model_weights_ == this) {
+    owner->attached_model_weights_ = nullptr;
+  }
+  if (owner != nullptr && owner->prepared_model_weights_ == this) {
+    owner->prepared_model_weights_ = nullptr;
+  }
+  target_aot_projection_attachment_ = {};
+}
+
+bool ModelWeights::attach_sm87_target_aot_projection_assets(
+    Sm87TargetAotProjectionDeviceAssets& owner) noexcept {
+  using kernels::Sm87TargetAotLogicalRole;
+  using kernels::Sm87TargetAotProjectionRole;
+
+  if (target_aot_projection_attachment_.owner != nullptr || owner.empty() ||
+      owner.attached_model_weights_ != nullptr ||
+      owner.prepared_model_weights_ != this || owner.data() == nullptr ||
+      owner.size_bytes() != kSm87TargetAotProjectionDeviceArenaBytes ||
+      owner.owner_identity() == 0U || owner.allocation_identity() == 0U ||
+      owner.device_ordinal() < 0 ||
+      owner.descriptor_count() !=
+          kSm87TargetAotProjectionDeviceArtifactCount) {
+    return false;
+  }
+  const auto arena_begin =
+      reinterpret_cast<std::uintptr_t>(owner.data());
+  if (arena_begin == 0U ||
+      owner.size_bytes() > std::numeric_limits<std::uintptr_t>::max() ||
+      arena_begin > std::numeric_limits<std::uintptr_t>::max() -
+                        static_cast<std::uintptr_t>(owner.size_bytes())) {
+    return false;
+  }
+  const auto arena_end =
+      arena_begin + static_cast<std::uintptr_t>(owner.size_bytes());
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
+  int active_device_ordinal = -1;
+  cudaPointerAttributes arena_attributes{};
+  if (cudaGetDevice(&active_device_ordinal) != cudaSuccess ||
+      active_device_ordinal != owner.device_ordinal() ||
+      cudaPointerGetAttributes(&arena_attributes, owner.data()) !=
+          cudaSuccess ||
+      arena_attributes.type != cudaMemoryTypeDevice ||
+      arena_attributes.device != owner.device_ordinal()) {
+    return false;
+  }
+#endif
+  std::array<std::uint64_t,
+             kSm87TargetAotProjectionDeviceArtifactCount>
+      artifact_identities{};
+  std::array<std::uint64_t,
+             kSm87TargetAotProjectionDeviceArtifactCount>
+      source_inventory_identities{};
+  std::array<std::uint64_t,
+             kSm87TargetAotProjectionDeviceSourceCount>
+      tensor_identities{};
+  std::size_t artifact_index = 0U;
+  std::size_t source_inventory_index = 0U;
+  std::size_t tensor_identity_index = 0U;
+  std::uint64_t expected_offset = 0U;
+
+  const auto float_bits = [](const float value) noexcept {
+    std::uint32_t bits = 0U;
+    static_assert(sizeof(bits) == sizeof(value));
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+  };
+  for (std::size_t layer_index = 0U; layer_index < layers_.size();
+       ++layer_index) {
+    DecoderLayerWeights& layer = layers_[layer_index];
+    NvFp4LinearWeight* const gate = nvfp4_gate_projection(layer);
+    NvFp4LinearWeight* const up = nvfp4_up_projection(layer);
+    NvFp4LinearWeight* const down = nvfp4_down_projection(layer);
+    if (!has_valid_nvfp4_payload(gate) || !has_valid_nvfp4_payload(up) ||
+        !has_valid_nvfp4_payload(down) || gate->output_size != 17'408U ||
+        gate->input_size != 5'120U || up->output_size != 17'408U ||
+        up->input_size != 5'120U || down->output_size != 5'120U ||
+        down->input_size != 17'408U ||
+        gate->prefill_marlin_gate_up_layout !=
+            NvFp4MarlinGateUpLayout::kUnbound ||
+        up->prefill_marlin_gate_up_layout !=
+            NvFp4MarlinGateUpLayout::kUnbound ||
+        down->prefill_marlin_gate_up_layout !=
+            NvFp4MarlinGateUpLayout::kUnbound ||
+        gate->prefill_marlin_weight != nullptr ||
+        gate->prefill_marlin_scales != nullptr ||
+        gate->prefill_marlin_global_scale != nullptr ||
+        up->prefill_marlin_weight != nullptr ||
+        up->prefill_marlin_scales != nullptr ||
+        up->prefill_marlin_global_scale != nullptr ||
+        down->prefill_marlin_weight != nullptr ||
+        down->prefill_marlin_scales != nullptr ||
+        down->prefill_marlin_global_scale != nullptr ||
+        !empty_p40_packed_artifact_view(
+            gate->prefill_p40_packed_artifact) ||
+        !empty_p40_packed_artifact_view(up->prefill_p40_packed_artifact) ||
+        !empty_p40_packed_artifact_view(
+            down->prefill_p40_packed_artifact) ||
+        !empty_nvfp4_marlin_p40_parity_view(
+            gate->prefill_p40_vllm_marlin_parity) ||
+        !empty_nvfp4_marlin_p40_parity_view(
+            up->prefill_p40_vllm_marlin_parity) ||
+        !empty_nvfp4_marlin_p40_parity_view(
+            down->prefill_p40_vllm_marlin_parity)) {
+      return false;
+    }
+
+    const auto validate = [&](const Sm87TargetAotProjectionRole role,
+                              const std::uint32_t gate_bits,
+                              const std::uint32_t up_bits,
+                              const std::uint32_t source_count) noexcept {
+      const auto* const descriptor = owner.find(layer_index, role);
+      const auto layout =
+          kernels::sm87_target_aot_projection_packed_layout(role);
+      if (descriptor == nullptr || !layout.valid() ||
+          expected_offset > owner.size_bytes() ||
+          layout.payload_bytes > owner.size_bytes() - expected_offset ||
+          descriptor->layer_index != layer_index ||
+          descriptor->role != role ||
+          descriptor->device_arena_offset != expected_offset ||
+          descriptor->manifest.source_count != source_count ||
+          descriptor->source_inventory.source_count != source_count ||
+          !kernels::sm87_target_aot_projection_validate_transform_receipt(
+              descriptor->manifest, descriptor->source_inventory,
+              descriptor->transform_receipt) ||
+          !kernels::
+              sm87_target_aot_nvfp4_cuda_device_upload_receipt_structurally_valid(
+                  descriptor->manifest, descriptor->upload_receipt) ||
+          !kernels::sm87_target_aot_nvfp4_cuda_asset_valid(
+              descriptor->view) ||
+          descriptor->view.artifact_identity !=
+              descriptor->manifest.artifact_identity ||
+          descriptor->view.source_inventory_identity !=
+              descriptor->source_inventory.identity ||
+          descriptor->view.transform_identity !=
+              descriptor->transform_receipt.transform_identity ||
+          descriptor->view.host_payload_digest !=
+              descriptor->manifest.payload_digest ||
+          descriptor->view.host_manifest_seal != descriptor->manifest.seal ||
+          descriptor->view.device_upload_receipt.receipt_identity !=
+              descriptor->upload_receipt.receipt_identity ||
+          descriptor->view.payload.begin !=
+              arena_begin + static_cast<std::uintptr_t>(expected_offset) ||
+          descriptor->view.payload.end !=
+              descriptor->view.payload.begin +
+                  static_cast<std::uintptr_t>(layout.payload_bytes) ||
+          descriptor->view.payload.end > arena_end ||
+          descriptor->upload_receipt.device_allocation_identity !=
+              owner.allocation_identity() ||
+          descriptor->upload_receipt.device_allocation_owner_identity !=
+              owner.owner_identity() ||
+          descriptor->upload_receipt.device_ordinal !=
+              owner.device_ordinal() ||
+          descriptor->upload_receipt.device_allocation_begin != arena_begin ||
+          descriptor->upload_receipt.device_allocation_end != arena_end ||
+          descriptor->upload_receipt.device_allocation_bytes !=
+              owner.size_bytes() ||
+          descriptor->manifest.sources[0U].tensor_scale_bits != gate_bits ||
+          (source_count == 2U &&
+           descriptor->manifest.sources[1U].tensor_scale_bits != up_bits) ||
+          artifact_index >= artifact_identities.size() ||
+          source_inventory_index >= source_inventory_identities.size() ||
+          descriptor->manifest.artifact_identity == 0U ||
+          descriptor->source_inventory.identity == 0U ||
+          std::find(artifact_identities.begin(),
+                    artifact_identities.begin() + artifact_index,
+                    descriptor->manifest.artifact_identity) !=
+              artifact_identities.begin() + artifact_index ||
+          std::find(source_inventory_identities.begin(),
+                    source_inventory_identities.begin() +
+                        source_inventory_index,
+                    descriptor->source_inventory.identity) !=
+              source_inventory_identities.begin() +
+                  source_inventory_index) {
+        return false;
+      }
+      if ((role == Sm87TargetAotProjectionRole::kNvFp4GateUp &&
+           (descriptor->manifest.sources[0U].logical_role !=
+                Sm87TargetAotLogicalRole::kNvFp4Gate ||
+            descriptor->manifest.sources[1U].logical_role !=
+                Sm87TargetAotLogicalRole::kNvFp4Up)) ||
+          (role == Sm87TargetAotProjectionRole::kNvFp4Down &&
+           descriptor->manifest.sources[0U].logical_role !=
+               Sm87TargetAotLogicalRole::kNvFp4Down)) {
+        return false;
+      }
+      for (std::size_t source_index = 0U; source_index < source_count;
+           ++source_index) {
+        const std::uint64_t tensor_identity =
+            descriptor->source_inventory.sources[source_index]
+                .tensor_identity;
+        if (tensor_identity == 0U ||
+            tensor_identity_index >= tensor_identities.size() ||
+            std::find(tensor_identities.begin(),
+                      tensor_identities.begin() + tensor_identity_index,
+                      tensor_identity) !=
+                tensor_identities.begin() + tensor_identity_index) {
+          return false;
+        }
+        tensor_identities[tensor_identity_index++] = tensor_identity;
+      }
+      artifact_identities[artifact_index++] =
+          descriptor->manifest.artifact_identity;
+      source_inventory_identities[source_inventory_index++] =
+          descriptor->source_inventory.identity;
+      expected_offset += layout.payload_bytes;
+      return true;
+    };
+
+    if (!validate(Sm87TargetAotProjectionRole::kNvFp4GateUp,
+                  float_bits(gate->weight_scale_2),
+                  float_bits(up->weight_scale_2), 2U) ||
+        !validate(Sm87TargetAotProjectionRole::kNvFp4Down,
+                  float_bits(down->weight_scale_2), 0U, 1U)) {
+      return false;
+    }
+  }
+  if (artifact_index != artifact_identities.size() ||
+      source_inventory_index != source_inventory_identities.size() ||
+      tensor_identity_index != tensor_identities.size() ||
+      expected_offset != owner.size_bytes()) {
+    return false;
+  }
+
+  Sm87TargetAotProjectionAttachment attachment;
+  attachment.owner = &owner;
+  attachment.owner_identity = owner.owner_identity();
+  attachment.allocation_identity = owner.allocation_identity();
+  attachment.arena_begin = arena_begin;
+  attachment.arena_bytes = owner.size_bytes();
+  attachment.device_ordinal = owner.device_ordinal();
+  attachment.artifact_count = artifact_index;
+  target_aot_projection_attachment_ = attachment;
+  owner.attached_model_weights_ = this;
+  return true;
+}
 
 class ModelWeightBinder {
  public:
