@@ -169,6 +169,42 @@ class VllmP40GeometryTest(unittest.TestCase):
         self.assertNotIn("--from", direct)
         self.assertNotIn("--offline", direct)
 
+    def test_prefill_metric_surfaces_are_not_conflated(self) -> None:
+        result = {
+            "evalscope": {
+                "TTFT (ms)": 1000.0,
+                "prompt_tokens_per_ttft_second": 40_000.0,
+            },
+            "server_metric_delta": {
+                "prefill_phase_seconds": 8.0,
+                "server_prefill_phase_tokens_per_second": 5_000.0,
+            },
+            "server": {
+                "final_log_observations": {
+                    "logger_interval_samples": [
+                        {"prompt_tokens_per_second": 4_300.0}
+                    ],
+                    "logger_interval_prompt_throughput_maximum": 4_300.0,
+                }
+            },
+        }
+        surfaces = GEOMETRY.build_prefill_metric_surfaces(result)
+        self.assertEqual(
+            surfaces["logger_window"]["maximum_prompt_tokens_per_second"],
+            4_300.0,
+        )
+        self.assertEqual(
+            surfaces["request_prefill"]["tokens_per_second"], 5_000.0
+        )
+        self.assertEqual(
+            surfaces["external_ttft"]["prompt_tokens_per_ttft_second"],
+            40_000.0,
+        )
+        self.assertNotEqual(
+            surfaces["logger_window"]["authority"],
+            surfaces["request_prefill"]["authority"],
+        )
+
     def test_all_generated_environment_directories_stay_in_work_root(self) -> None:
         overrides = GEOMETRY.environment_overrides(8_192)
         for key in GEOMETRY.DIRECTORY_ENVIRONMENT_KEYS:
@@ -661,11 +697,354 @@ class VllmP40GeometryTest(unittest.TestCase):
                     "Using AttentionBackendEnum.FLASHINFER backend.\n", ""
                 )
             )
-            with self.assertRaisesRegex(GEOMETRY.GeometryError, "route evidence"):
-                GEOMETRY.observe_server_log(log, 8_192)
+            missing_route = GEOMETRY.observe_server_log(log, 8_192)
+            self.assertFalse(missing_route["route_validation"]["passed"])
+            self.assertIn(
+                "flashinfer_attention",
+                missing_route["route_validation"][
+                    "missing_required_route_probes"
+                ],
+            )
+            self.assertEqual(
+                missing_route["logger_interval_prompt_throughput_maximum"],
+                4300.0,
+            )
             log.write_text(required + "\nUsing Humming")
-            with self.assertRaisesRegex(GEOMETRY.GeometryError, "forbidden route"):
-                GEOMETRY.observe_server_log(log, 8_192)
+            forbidden_route = GEOMETRY.observe_server_log(log, 8_192)
+            self.assertFalse(forbidden_route["route_validation"]["passed"])
+            self.assertIn(
+                "Using Humming",
+                forbidden_route["route_validation"][
+                    "forbidden_route_matches"
+                ],
+            )
+
+    def test_measured_telemetry_failure_is_returned_for_post_collection(
+        self,
+    ) -> None:
+        primary = GEOMETRY.GeometryError("thermal envelope crossed")
+        with tempfile.TemporaryDirectory() as temporary:
+            telemetry = pathlib.Path(temporary) / "measured-tegrastats.log"
+            telemetry.write_text("invalid thermal sample\n", encoding="utf-8")
+            monitor = mock.Mock()
+            with (
+                mock.patch.object(
+                    GEOMETRY,
+                    "start_telemetry_monitor",
+                    return_value=(monitor, {"started": True}),
+                ),
+                mock.patch.object(GEOMETRY, "wait_for_telemetry_lines"),
+                mock.patch.object(
+                    GEOMETRY,
+                    "_telemetry_complete_line_count",
+                    side_effect=(1, 4),
+                ),
+                mock.patch.object(
+                    GEOMETRY,
+                    "run_evalscope",
+                    return_value={"TTFT (ms)": 1.0},
+                ),
+                mock.patch.object(
+                    GEOMETRY,
+                    "stop_telemetry_monitor",
+                    return_value={"group_empty": True},
+                ),
+                mock.patch.object(
+                    GEOMETRY,
+                    "validate_measurement_telemetry",
+                    side_effect=primary,
+                ),
+            ):
+                result, receipt, failure = GEOMETRY.run_measured_evalscope(
+                    self.make_config(),
+                    mock.Mock(),
+                    40_000,
+                    pathlib.Path(temporary) / "evalscope",
+                    "p40",
+                    pathlib.Path(temporary) / "evalscope.log",
+                    telemetry,
+                )
+
+            self.assertEqual(result, {"TTFT (ms)": 1.0})
+            self.assertIs(failure, primary)
+            self.assertIn("thermal envelope crossed", receipt["validation_error"])
+            self.assertTrue(telemetry.with_suffix(".json").is_file())
+
+    def test_telemetry_receipt_write_failure_does_not_replace_primary(
+        self,
+    ) -> None:
+        primary = GEOMETRY.GeometryError("thermal envelope crossed")
+        original_write_json = GEOMETRY.write_json
+        with tempfile.TemporaryDirectory() as temporary:
+            telemetry = pathlib.Path(temporary) / "measured-tegrastats.log"
+            telemetry.write_text("invalid thermal sample\n", encoding="utf-8")
+
+            def fail_telemetry_receipt(path: pathlib.Path, value: object) -> None:
+                if path == telemetry.with_suffix(".json"):
+                    raise OSError("telemetry receipt disk failure")
+                original_write_json(path, value)
+
+            with (
+                mock.patch.object(
+                    GEOMETRY,
+                    "start_telemetry_monitor",
+                    return_value=(mock.Mock(), {"started": True}),
+                ),
+                mock.patch.object(GEOMETRY, "wait_for_telemetry_lines"),
+                mock.patch.object(
+                    GEOMETRY,
+                    "_telemetry_complete_line_count",
+                    side_effect=(1, 4),
+                ),
+                mock.patch.object(
+                    GEOMETRY,
+                    "run_evalscope",
+                    return_value={"TTFT (ms)": 1.0},
+                ),
+                mock.patch.object(
+                    GEOMETRY,
+                    "stop_telemetry_monitor",
+                    return_value={"group_empty": True},
+                ),
+                mock.patch.object(
+                    GEOMETRY,
+                    "validate_measurement_telemetry",
+                    side_effect=primary,
+                ),
+                mock.patch.object(
+                    GEOMETRY, "write_json", side_effect=fail_telemetry_receipt
+                ),
+            ):
+                result, receipt, failure = GEOMETRY.run_measured_evalscope(
+                    self.make_config(),
+                    mock.Mock(),
+                    40_000,
+                    pathlib.Path(temporary) / "evalscope",
+                    "p40",
+                    pathlib.Path(temporary) / "evalscope.log",
+                    telemetry,
+                )
+
+            self.assertEqual(result, {"TTFT (ms)": 1.0})
+            self.assertIs(failure, primary)
+            self.assertIn("thermal envelope crossed", receipt["validation_error"])
+
+    def run_mocked_invalid_budget(
+        self,
+        output: pathlib.Path,
+        *,
+        primary: BaseException,
+        metric_failure: BaseException,
+        write_failure_name: str | None = None,
+    ) -> tuple[object, object]:
+        cache = {"file_count": 0, "bytes": 0, "files": {}}
+        cache_snapshot = mock.Mock(return_value=cache)
+        fake_server = mock.Mock(pid=424242)
+        termination = {"cleanup_started": False, "received": []}
+        original_write_json = GEOMETRY.write_json
+
+        def maybe_fail_write(path: pathlib.Path, value: object) -> None:
+            if write_failure_name is not None and path.name == write_failure_name:
+                raise OSError(f"injected {write_failure_name} write failure")
+            original_write_json(path, value)
+
+        geometry_patches = {
+            "collect_vllm_rpc_sockets": mock.Mock(return_value=[]),
+            "wait_for_thermal_cooldown": mock.Mock(return_value={}),
+            "run_preflight": mock.Mock(
+                return_value={"decision": {"accepted": True}}
+            ),
+            "install_termination_handlers": mock.Mock(
+                return_value=(termination, {})
+            ),
+            "restore_termination_handlers": mock.Mock(),
+            "wait_for_server": mock.Mock(),
+            "run_evalscope": mock.Mock(return_value={}),
+            "snapshot_compilation_caches": cache_snapshot,
+            "collect_server_process_tree_runtime": mock.Mock(
+                return_value={"processes": []}
+            ),
+            "run_measured_evalscope": mock.Mock(
+                return_value=(
+                    {},
+                    {"validation_error": repr(primary)},
+                    primary,
+                )
+            ),
+            "collect_performance_lane_state": mock.Mock(
+                return_value={"lane": "captured"}
+            ),
+            "fetch_text": mock.Mock(side_effect=("before", "after")),
+            "parse_prometheus": mock.Mock(return_value=mock.Mock()),
+            "validate_metric_delta": mock.Mock(side_effect=metric_failure),
+            "stop_process_group": mock.Mock(return_value={"group_empty": True}),
+            "cleanup_vllm_rpc_sockets": mock.Mock(return_value={}),
+            "observe_server_log": mock.Mock(
+                return_value={"route_validation": {"passed": True}}
+            ),
+            "write_json": mock.Mock(side_effect=maybe_fail_write),
+        }
+        config = dataclasses.replace(self.make_config(), output_dir=output)
+        with (
+            mock.patch.multiple(GEOMETRY, **geometry_patches),
+            mock.patch.object(
+                GEOMETRY.subprocess, "Popen", return_value=fake_server
+            ),
+            mock.patch.multiple(
+                GEOMETRY.os,
+                getpgid=mock.Mock(return_value=424242),
+                getsid=mock.Mock(return_value=424242),
+            ),
+            mock.patch.multiple(
+                GEOMETRY.time,
+                monotonic=mock.Mock(side_effect=(0.0, 1.0, 21.0)),
+                sleep=mock.Mock(),
+            ),
+        ):
+            GEOMETRY.run_budget(config, mock.Mock(), 40_000)
+        return cache_snapshot, geometry_patches["observe_server_log"]
+
+    def test_post_and_cleanup_receipt_failures_do_not_replace_primary(
+        self,
+    ) -> None:
+        GEOMETRY.WORK_ROOT.mkdir(parents=True, exist_ok=True)
+        for receipt_name in ("post-request-evidence.json", "cleanup.json"):
+            with self.subTest(receipt=receipt_name):
+                primary = GEOMETRY.GeometryError("thermal envelope crossed")
+                with tempfile.TemporaryDirectory(
+                    dir=GEOMETRY.WORK_ROOT
+                ) as temporary:
+                    with self.assertRaisesRegex(
+                        GEOMETRY.GeometryError, "thermal envelope crossed"
+                    ):
+                        self.run_mocked_invalid_budget(
+                            pathlib.Path(temporary) / "formal",
+                            primary=primary,
+                            metric_failure=GEOMETRY.GeometryError(
+                                "delta invalid"
+                            ),
+                            write_failure_name=receipt_name,
+                        )
+
+    def test_keyboard_interrupt_during_metric_collection_is_not_hidden(
+        self,
+    ) -> None:
+        GEOMETRY.WORK_ROOT.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=GEOMETRY.WORK_ROOT) as temporary:
+            with self.assertRaises(KeyboardInterrupt):
+                self.run_mocked_invalid_budget(
+                    pathlib.Path(temporary) / "formal",
+                    primary=GEOMETRY.GeometryError("thermal envelope crossed"),
+                    metric_failure=KeyboardInterrupt(),
+                )
+            run_dir = pathlib.Path(temporary) / "formal" / "b40000"
+            self.assertTrue((run_dir / "server.log").is_file())
+            self.assertTrue((run_dir / "server-log-observations.json").is_file())
+
+    def test_primary_request_failure_still_collects_post_request_evidence(
+        self,
+    ) -> None:
+        primary = GEOMETRY.GeometryError("thermal envelope crossed")
+        cache = {"file_count": 0, "bytes": 0, "files": {}}
+        fake_server = mock.Mock(pid=424242)
+        GEOMETRY.WORK_ROOT.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=GEOMETRY.WORK_ROOT) as temporary:
+            output = pathlib.Path(temporary) / "formal"
+            config = dataclasses.replace(self.make_config(), output_dir=output)
+            termination = {"cleanup_started": False, "received": []}
+            geometry_patches = {
+                "collect_vllm_rpc_sockets": mock.Mock(return_value=[]),
+                "wait_for_thermal_cooldown": mock.Mock(return_value={}),
+                "run_preflight": mock.Mock(
+                    return_value={"decision": {"accepted": True}}
+                ),
+                "install_termination_handlers": mock.Mock(
+                    return_value=(termination, {})
+                ),
+                "restore_termination_handlers": mock.Mock(),
+                "wait_for_server": mock.Mock(),
+                "run_evalscope": mock.Mock(return_value={}),
+                "snapshot_compilation_caches": mock.Mock(return_value=cache),
+                "collect_server_process_tree_runtime": mock.Mock(
+                    return_value={"processes": []}
+                ),
+                "run_measured_evalscope": mock.Mock(
+                    return_value=(
+                        {},
+                        {"validation_error": repr(primary)},
+                        primary,
+                    )
+                ),
+                "collect_performance_lane_state": mock.Mock(
+                    return_value={"lane": "captured"}
+                ),
+                "fetch_text": mock.Mock(side_effect=("before", "after")),
+                "parse_prometheus": mock.Mock(return_value=mock.Mock()),
+                "validate_metric_delta": mock.Mock(
+                    side_effect=GEOMETRY.GeometryError("delta invalid")
+                ),
+                "stop_process_group": mock.Mock(
+                    return_value={"group_empty": True}
+                ),
+                "cleanup_vllm_rpc_sockets": mock.Mock(return_value={}),
+                "observe_server_log": mock.Mock(
+                    return_value={"route_validation": {"passed": True}}
+                ),
+            }
+            with (
+                mock.patch.multiple(GEOMETRY, **geometry_patches),
+                mock.patch.object(
+                    GEOMETRY.subprocess, "Popen", return_value=fake_server
+                ),
+                mock.patch.multiple(
+                    GEOMETRY.os,
+                    getpgid=mock.Mock(return_value=424242),
+                    getsid=mock.Mock(return_value=424242),
+                ),
+                mock.patch.multiple(
+                    GEOMETRY.time,
+                    monotonic=mock.Mock(side_effect=(0.0, 1.0, 21.0)),
+                    sleep=mock.Mock(),
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    GEOMETRY.GeometryError, "thermal envelope crossed"
+                ):
+                    GEOMETRY.run_budget(config, mock.Mock(), 40_000)
+
+            run_dir = output / "b40000"
+            for name in (
+                "server-runtime-after-request.json",
+                "lane-state-after-request.json",
+                "metrics-after-attempt-001.prom",
+                "cache-after-measured.json",
+                "post-request-evidence.json",
+            ):
+                self.assertTrue((run_dir / name).is_file(), name)
+            partial = json.loads((run_dir / "partial-result.json").read_text())
+            self.assertFalse(partial["valid"])
+            self.assertEqual(
+                partial["prefill_metric_surfaces"]["logger_window"][
+                    "authority"
+                ],
+                "supporting_telemetry_only",
+            )
+            evidence = json.loads(
+                (run_dir / "post-request-evidence.json").read_text()
+            )
+            self.assertIn(
+                "thermal envelope crossed",
+                evidence["primary_request_error"]["repr"],
+            )
+            self.assertEqual(
+                evidence["collectors"]["prometheus_after"]["status"], "fail"
+            )
+            self.assertIn(
+                "delta invalid",
+                evidence["collectors"]["prometheus_after"]["attempts"][0][
+                    "validation_error"
+                ]["repr"],
+            )
 
     def test_server_log_preserves_cr_progress_inside_lf_physical_lines(
         self,

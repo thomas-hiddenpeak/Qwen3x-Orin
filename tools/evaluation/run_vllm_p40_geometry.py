@@ -781,7 +781,66 @@ def validate_evalscope_summary(path: pathlib.Path) -> dict[str, float]:
         raise GeometryError("EvalScope latency is absent or non-positive")
     normalized["TTFT (ms)"] = float(ttft)
     normalized["Avg Latency (s)"] = float(latency)
+    normalized["prompt_tokens_per_ttft_second"] = (
+        PROMPT_TOKENS / (float(ttft) / 1_000.0)
+    )
     return normalized
+
+
+def build_prefill_metric_surfaces(
+    result: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Keep the three Prefill observations separate and explicitly scoped."""
+    evalscope = result.get("evalscope")
+    metric_delta = result.get("server_metric_delta")
+    log_observations = result.get("server", {}).get("final_log_observations")
+    return {
+        "logger_window": {
+            "authority": "supporting_telemetry_only",
+            "samples": (
+                log_observations.get("logger_interval_samples", [])
+                if isinstance(log_observations, Mapping)
+                else []
+            ),
+            "maximum_prompt_tokens_per_second": (
+                log_observations.get(
+                    "logger_interval_prompt_throughput_maximum"
+                )
+                if isinstance(log_observations, Mapping)
+                else None
+            ),
+        },
+        "request_prefill": {
+            "authority": "request_bound_server_evidence",
+            "tokens_per_second": (
+                metric_delta.get("server_prefill_phase_tokens_per_second")
+                if isinstance(metric_delta, Mapping)
+                else None
+            ),
+            "prefill_phase_seconds": (
+                metric_delta.get("prefill_phase_seconds")
+                if isinstance(metric_delta, Mapping)
+                else None
+            ),
+        },
+        "external_ttft": {
+            "authority": "product_visible_external_result",
+            "ttft_milliseconds": (
+                evalscope.get("TTFT (ms)")
+                if isinstance(evalscope, Mapping)
+                else None
+            ),
+            "prompt_tokens_per_ttft_second": (
+                evalscope.get("prompt_tokens_per_ttft_second")
+                if isinstance(evalscope, Mapping)
+                else None
+            ),
+        },
+        "comparison_contract": (
+            "logger_window, request_prefill, and external_ttft are distinct "
+            "metric surfaces and are not expected to be numerically equal"
+        ),
+    }
 
 
 def build_server_command(config: GeometryConfig, budget: int) -> list[str]:
@@ -1985,12 +2044,17 @@ def run_measured_evalscope(
     name: str,
     log_path: pathlib.Path,
     telemetry_path: pathlib.Path,
-) -> tuple[dict[str, float], dict[str, Any]]:
+) -> tuple[
+    dict[str, float] | None,
+    dict[str, Any],
+    BaseException | None,
+]:
     monitor: subprocess.Popen[bytes] | None = None
     monitor_start: dict[str, Any] = {}
     monitor_stop: dict[str, Any] = {}
     result: dict[str, float] | None = None
     failure: BaseException | None = None
+    control_failure: BaseException | None = None
     pre_request_samples = 0
     request_end_samples = 0
     request_window: dict[str, Any] = {}
@@ -2029,14 +2093,20 @@ def run_measured_evalscope(
             3.0,
         )
     except BaseException as error:
-        failure = error
+        if isinstance(error, Exception):
+            failure = error
+        else:
+            control_failure = error
     finally:
         if monitor is not None:
             try:
                 monitor_stop = stop_telemetry_monitor(monitor)
             except BaseException as error:
                 monitor_stop = {"cleanup_error": repr(error)}
-                if failure is None:
+                if not isinstance(error, Exception):
+                    if control_failure is None:
+                        control_failure = error
+                elif failure is None:
                     failure = error
 
     telemetry: dict[str, Any] = {
@@ -2051,14 +2121,29 @@ def run_measured_evalscope(
             )
         except BaseException as error:
             telemetry["validation_error"] = repr(error)
-            if failure is None:
+            if not isinstance(error, Exception):
+                if control_failure is None:
+                    control_failure = error
+            elif failure is None:
                 failure = error
-    write_json(telemetry_path.with_suffix(".json"), telemetry)
-    if failure is not None:
-        raise failure
-    if result is None:
-        raise GeometryError("measured EvalScope request produced no result")
-    return result, telemetry
+    try:
+        write_json(telemetry_path.with_suffix(".json"), telemetry)
+    except BaseException as error:
+        if not isinstance(error, Exception):
+            if control_failure is None:
+                control_failure = error
+        elif failure is None:
+            failure = error
+    if control_failure is not None:
+        raise control_failure
+    if result is None and failure is None:
+        failure = GeometryError("measured EvalScope request produced no result")
+    # Do not raise here.  The server is still alive, and a thermal, frequency,
+    # EvalScope, or telemetry validation failure must not prevent the caller
+    # from retaining the post-request runtime, metric, and cache state.  The
+    # exact exception object is returned so run_budget can re-raise the primary
+    # failure after those best-effort collectors finish.
+    return result, telemetry, failure
 
 
 def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
@@ -2082,8 +2167,6 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
         "speculative_config=SpeculativeConfig",
     )
     matched_forbidden = [value for value in forbidden if value in text]
-    if matched_forbidden:
-        raise GeometryError(f"vLLM log shows a forbidden route: {matched_forbidden}")
     required_probes = {
         "chunked_prefill": "enable_chunked_prefill=True",
         "exact_macrochunk_budget": f"'max_num_batched_tokens': {budget}",
@@ -2095,8 +2178,15 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
     }
     probe_hits = {name: value in text for name, value in required_probes.items()}
     missing = [name for name, hit in probe_hits.items() if not hit]
+    validation_reasons: list[str] = []
+    if matched_forbidden:
+        validation_reasons.append(
+            f"vLLM log shows a forbidden route: {matched_forbidden}"
+        )
     if missing:
-        raise GeometryError(f"vLLM log is missing required route evidence: {missing}")
+        validation_reasons.append(
+            f"vLLM log is missing required route evidence: {missing}"
+        )
     logger_pattern = re.compile(
         r"Avg prompt throughput:\s*(?P<prompt>[0-9]+(?:\.[0-9]+)?)\s+"
         r"tokens/s,\s*Avg generation throughput:\s*"
@@ -2280,6 +2370,12 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
         "budget": budget,
         "forbidden_route_matches": matched_forbidden,
         "required_route_probe_hits": probe_hits,
+        "route_validation": {
+            "passed": not validation_reasons,
+            "missing_required_route_probes": missing,
+            "forbidden_route_matches": matched_forbidden,
+            "failure_reasons": validation_reasons,
+        },
         "backend_evidence": {
             "quantization": first_group(r"\bquantization=([^,\s]+)"),
             "requested_linear_backend": first_group(
@@ -2429,6 +2525,17 @@ def run_budget(
     server_log: Any = None
     server: subprocess.Popen[bytes] | None = None
     failure: BaseException | None = None
+
+    def retain_failure(error: BaseException) -> None:
+        """Keep the first ordinary failure, but never hide control flow."""
+        nonlocal failure
+        is_control = not isinstance(error, Exception)
+        current_is_control = (
+            failure is not None and not isinstance(failure, Exception)
+        )
+        if failure is None or (is_control and not current_is_control):
+            failure = error
+
     result: dict[str, Any] = {
         "preflight_before_server": result_preflight["decision"],
         "rpc_socket_admission": {"before_server": rpc_before_server},
@@ -2514,7 +2621,7 @@ def run_budget(
         before_path.write_text(before_text, encoding="utf-8")
         before = parse_prometheus(before_text)
 
-        result["evalscope"], result["measurement_telemetry"] = (
+        measured_result, measured_telemetry, request_failure = (
             run_measured_evalscope(
                 config,
                 runtime,
@@ -2525,48 +2632,190 @@ def run_budget(
                 run_dir / "measured-tegrastats.log",
             )
         )
-        runtime_after_request = collect_server_process_tree_runtime(
-            config, server.pid
-        )
-        write_json(
-            run_dir / "server-runtime-after-request.json", runtime_after_request
-        )
-        if server_process_tree_stability_key(
-            runtime_after_request
-        ) != server_process_tree_stability_key(runtime_before_request):
-            raise GeometryError(
-                "vLLM process/runtime identity changed during the measured request"
-            )
-        result["server_runtime_stable"] = True
-        result["lane_state_after_request"] = collect_performance_lane_state()
-        deadline = time.monotonic() + 20.0
-        last_error: GeometryError | None = None
-        while time.monotonic() < deadline:
-            after_text = fetch_text(metrics_url)
-            after = parse_prometheus(after_text)
-            try:
-                result["server_metric_delta"] = validate_metric_delta(before, after)
-            except GeometryError as error:
-                last_error = error
-                time.sleep(1.0)
-                continue
-            (run_dir / "metrics-after.prom").write_text(after_text, encoding="utf-8")
-            break
-        else:
-            raise GeometryError(f"Prometheus delta did not settle: {last_error}")
-        cache_after_measured = snapshot_compilation_caches(budget)
-        write_json(run_dir / "cache-after-measured.json", cache_after_measured)
-        if cache_after_measured != cache_after_warmup:
-            raise GeometryError(
-                "compilation/JIT cache changed during the measured request"
-            )
-        result["compilation_cache_stable"] = {
-            "stable": True,
-            "file_count": cache_after_measured["file_count"],
-            "bytes": cache_after_measured["bytes"],
+        result["measurement_telemetry"] = measured_telemetry
+        if measured_result is not None:
+            result["evalscope"] = measured_result
+
+        def error_receipt(error: BaseException) -> dict[str, str]:
+            return {
+                "type": type(error).__name__,
+                "repr": repr(error),
+            }
+
+        post_request_evidence: dict[str, Any] = {
+            "schema_version": 1,
+            "artifact": "q3x_vllm_p40_post_request_evidence",
+            "primary_request_error": (
+                error_receipt(request_failure)
+                if request_failure is not None
+                else None
+            ),
+            "collectors": {},
+            "secondary_errors": [],
         }
+        secondary_failures: list[Exception] = []
+
+        def record_secondary(name: str, error: Exception) -> None:
+            receipt = {"collector": name, **error_receipt(error)}
+            post_request_evidence["secondary_errors"].append(receipt)
+            secondary_failures.append(error)
+
+        runtime_after_path = run_dir / "server-runtime-after-request.json"
+        try:
+            runtime_after_request = collect_server_process_tree_runtime(
+                config, server.pid
+            )
+            write_json(runtime_after_path, runtime_after_request)
+            if server_process_tree_stability_key(
+                runtime_after_request
+            ) != server_process_tree_stability_key(runtime_before_request):
+                raise GeometryError(
+                    "vLLM process/runtime identity changed during the measured "
+                    "request"
+                )
+            result["server_runtime_stable"] = True
+            post_request_evidence["collectors"]["server_runtime"] = {
+                "status": "pass",
+                "path": runtime_after_path.name,
+                "sha256": sha256_file(runtime_after_path),
+                "stable": True,
+            }
+        except Exception as error:
+            post_request_evidence["collectors"]["server_runtime"] = {
+                "status": "fail",
+                "path": (
+                    runtime_after_path.name if runtime_after_path.exists() else None
+                ),
+                "error": error_receipt(error),
+            }
+            record_secondary("server_runtime", error)
+
+        lane_after_path = run_dir / "lane-state-after-request.json"
+        try:
+            lane_after_request = collect_performance_lane_state()
+            write_json(lane_after_path, lane_after_request)
+            result["lane_state_after_request"] = lane_after_request
+            post_request_evidence["collectors"]["performance_lane"] = {
+                "status": "pass",
+                "path": lane_after_path.name,
+                "sha256": sha256_file(lane_after_path),
+            }
+        except Exception as error:
+            post_request_evidence["collectors"]["performance_lane"] = {
+                "status": "fail",
+                "path": lane_after_path.name if lane_after_path.exists() else None,
+                "error": error_receipt(error),
+            }
+            record_secondary("performance_lane", error)
+
+        metrics_attempts: list[dict[str, Any]] = []
+        metrics_collector: dict[str, Any] = {
+            "status": "fail",
+            "attempts": metrics_attempts,
+        }
+        post_request_evidence["collectors"]["prometheus_after"] = metrics_collector
+        try:
+            deadline = time.monotonic() + 20.0
+            last_error: Exception | None = None
+            attempt = 0
+            while time.monotonic() < deadline:
+                attempt += 1
+                attempt_record: dict[str, Any] = {"ordinal": attempt}
+                metrics_attempts.append(attempt_record)
+                try:
+                    after_text = fetch_text(metrics_url)
+                except Exception as error:
+                    attempt_record["fetch_error"] = error_receipt(error)
+                    last_error = error
+                    time.sleep(1.0)
+                    continue
+
+                attempt_path = run_dir / f"metrics-after-attempt-{attempt:03d}.prom"
+                # Retain every raw successful scrape before parsing or applying
+                # the exact one-request delta gate.  An invalid delta remains
+                # useful diagnostic evidence and must not erase its source.
+                attempt_path.write_text(after_text, encoding="utf-8")
+                attempt_record.update(
+                    {
+                        "path": attempt_path.name,
+                        "sha256": sha256_file(attempt_path),
+                        "bytes": len(after_text.encode("utf-8")),
+                    }
+                )
+                try:
+                    after = parse_prometheus(after_text)
+                    metric_delta = validate_metric_delta(before, after)
+                except Exception as error:
+                    attempt_record["validation_error"] = error_receipt(error)
+                    last_error = error
+                    time.sleep(1.0)
+                    continue
+
+                final_after_path = run_dir / "metrics-after.prom"
+                final_after_path.write_text(after_text, encoding="utf-8")
+                result["server_metric_delta"] = metric_delta
+                metrics_collector.update(
+                    {
+                        "status": "pass",
+                        "settled_attempt": attempt,
+                        "path": final_after_path.name,
+                        "sha256": sha256_file(final_after_path),
+                    }
+                )
+                break
+            else:
+                raise GeometryError(
+                    f"Prometheus delta did not settle: {last_error}"
+                )
+        except Exception as error:
+            metrics_collector["error"] = error_receipt(error)
+            record_secondary("prometheus_after", error)
+
+        cache_after_path = run_dir / "cache-after-measured.json"
+        try:
+            cache_after_measured = snapshot_compilation_caches(budget)
+            write_json(cache_after_path, cache_after_measured)
+            if cache_after_measured != cache_after_warmup:
+                raise GeometryError(
+                    "compilation/JIT cache changed during the measured request"
+                )
+            result["compilation_cache_stable"] = {
+                "stable": True,
+                "file_count": cache_after_measured["file_count"],
+                "bytes": cache_after_measured["bytes"],
+            }
+            post_request_evidence["collectors"]["compilation_cache"] = {
+                "status": "pass",
+                "path": cache_after_path.name,
+                "sha256": sha256_file(cache_after_path),
+                "stable": True,
+            }
+        except Exception as error:
+            post_request_evidence["collectors"]["compilation_cache"] = {
+                "status": "fail",
+                "path": cache_after_path.name if cache_after_path.exists() else None,
+                "error": error_receipt(error),
+            }
+            record_secondary("compilation_cache", error)
+
+        post_request_evidence["completed_at_utc"] = dt.datetime.now(
+            dt.timezone.utc
+        ).isoformat()
+        try:
+            write_json(
+                run_dir / "post-request-evidence.json", post_request_evidence
+            )
+        except Exception as error:
+            # The aggregate receipt is itself a best-effort collector.  Its
+            # write failure must never replace the request/telemetry failure
+            # that made this run invalid in the first place.
+            record_secondary("post_request_evidence", error)
+        if request_failure is not None:
+            raise request_failure
+        if secondary_failures:
+            raise secondary_failures[0]
     except BaseException as error:  # preserve cleanup even on KeyboardInterrupt
-        failure = error
+        retain_failure(error)
     finally:
         termination_state["cleanup_started"] = True
         cleanup["termination_signals"] = termination_state["received"]
@@ -2576,8 +2825,7 @@ def run_budget(
                     cleanup["process_group"] = stop_process_group(server)
                 except BaseException as error:
                     cleanup["process_group_error"] = repr(error)
-                    if failure is None:
-                        failure = error
+                    retain_failure(error)
             process_group_released = server is None or bool(
                 cleanup.get("process_group", {}).get("group_empty")
             )
@@ -2586,10 +2834,13 @@ def run_budget(
                     cleanup["rpc_sockets"] = cleanup_vllm_rpc_sockets()
                 except BaseException as error:
                     cleanup["rpc_socket_error"] = repr(error)
-                    if failure is None:
-                        failure = error
+                    retain_failure(error)
             if server_log is not None:
-                server_log.close()
+                try:
+                    server_log.close()
+                except BaseException as error:
+                    cleanup["server_log_close_error"] = repr(error)
+                    retain_failure(error)
             if server is not None:
                 try:
                     final_log_observations = observe_server_log(
@@ -2602,6 +2853,9 @@ def run_budget(
                     result.setdefault("server", {})["final_log_observations"] = (
                         final_log_observations
                     )
+                    result["prefill_metric_surfaces"] = (
+                        build_prefill_metric_surfaces(result)
+                    )
                     cleanup["server_log_observations"] = {
                         "path": "server-log-observations.json",
                         "sha256": sha256_file(
@@ -2609,10 +2863,23 @@ def run_budget(
                         ),
                         "retained_when_performance_invalid": True,
                     }
+                    route_validation = final_log_observations.get(
+                        "route_validation", {}
+                    )
+                    if route_validation.get("passed") is not True:
+                        route_error = GeometryError(
+                            "vLLM server-log route validation failed: "
+                            f"{route_validation.get('failure_reasons')}"
+                        )
+                        cleanup["server_log_route_validation_error"] = {
+                            "type": type(route_error).__name__,
+                            "repr": repr(route_error),
+                            "structured_observation_retained": True,
+                        }
+                        retain_failure(route_error)
                 except BaseException as error:
                     cleanup["server_log_audit_error"] = repr(error)
-                    if failure is None:
-                        failure = error
+                    retain_failure(error)
             if server is not None and process_group_released:
                 try:
                     cleanup["thermal_cooldown_before_post_release"] = (
@@ -2622,20 +2889,51 @@ def run_budget(
                     )
                 except BaseException as error:
                     cleanup["thermal_cooldown_error"] = repr(error)
-                    if failure is None:
-                        failure = error
+                    retain_failure(error)
             try:
                 cleanup["post_release_preflight"] = run_preflight(
                     config, run_dir / "post-release-preflight.json", ()
                 )["decision"]
             except BaseException as error:
                 cleanup["post_release_error"] = repr(error)
-                if failure is None:
-                    failure = error
-            write_json(run_dir / "cleanup.json", cleanup)
+                retain_failure(error)
+        except BaseException as error:
+            cleanup["unexpected_cleanup_error"] = repr(error)
+            retain_failure(error)
         finally:
-            restore_termination_handlers(previous_handlers)
+            try:
+                restore_termination_handlers(previous_handlers)
+            except BaseException as error:
+                cleanup["termination_handler_restore_error"] = repr(error)
+                retain_failure(error)
+            try:
+                write_json(run_dir / "cleanup.json", cleanup)
+            except BaseException as error:
+                retain_failure(error)
     if failure is not None:
+        result["prefill_metric_surfaces"] = build_prefill_metric_surfaces(result)
+        partial_result = {
+            "schema_version": 1,
+            "artifact": "q3x_vllm_p40_partial_result",
+            "valid": False,
+            "budget": budget,
+            "failure": {
+                "type": type(failure).__name__,
+                "repr": repr(failure),
+            },
+            "prefill_metric_surfaces": result["prefill_metric_surfaces"],
+            "available_result": result,
+        }
+        try:
+            write_json(run_dir / "partial-result.json", partial_result)
+        except BaseException as receipt_error:
+            try:
+                failure.add_note(
+                    "partial result receipt could not be written: "
+                    f"{receipt_error!r}"
+                )
+            except (AttributeError, TypeError):
+                pass
         raise failure
     if termination_state["received"]:
         raise GeometryError(
@@ -2644,6 +2942,7 @@ def run_budget(
         )
     result["budget"] = budget
     result["planned_scheduled_forwards"] = math.ceil(PROMPT_TOKENS / budget)
+    result["prefill_metric_surfaces"] = build_prefill_metric_surfaces(result)
     result["valid"] = True
     write_json(run_dir / "result.json", result)
     return result
@@ -3584,7 +3883,16 @@ def run(config: GeometryConfig) -> dict[str, Any]:
         )
     except BaseException as error:
         manifest["failure"] = repr(error)
-        write_json(config.output_dir / "manifest.json", manifest)
+        try:
+            write_json(config.output_dir / "manifest.json", manifest)
+        except BaseException as receipt_error:
+            try:
+                error.add_note(
+                    "manifest failure receipt could not be written: "
+                    f"{receipt_error!r}"
+                )
+            except (AttributeError, TypeError):
+                pass
         raise
     manifest["valid"] = True
     manifest["completed_at_utc"] = dt.datetime.now(dt.timezone.utc).isoformat()
