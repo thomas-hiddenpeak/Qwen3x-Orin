@@ -249,6 +249,33 @@ be executing. Warmup completion and measured-request attribution therefore
 require the joined EvalScope transaction and explicit request/engine
 boundaries.
 
+The following reconciliation is mandatory whenever a vLLM number is compared
+with the native runner. It follows the pinned vLLM `0.26.0` implementations in
+`vllm/v1/metrics/loggers.py` and `vllm/v1/metrics/stats.py`; similar labels do
+not make the intervals interchangeable.
+
+| Surface | Numerator and interval | Authority | Main reason it differs |
+| --- | --- | --- | --- |
+| vLLM `Avg prompt throughput` | Engine-wide `prompt_token_stats.computed` accumulated when iteration stats arrive, divided by `monotonic_now - last_log_time`; the counter then resets | Route-adjacent service telemetry only | A default approximately-ten-second bucket, chunked iterations, and multiple requests share one denominator; a complete long iteration can land atomically in a later bucket |
+| vLLM `request_prefill_time` plus `request_prefill_kv_computed_tokens` deltas | Per finished request, newly computed non-cached prompt tokens divided by `first_token_ts - scheduled_ts` | Server Prefill-phase evidence | Includes any Prefill preemption and the engine path through the first new-token event, but excludes client/HTTP time and queue-before-schedule time |
+| EvalScope prompt tokens divided by TTFT | Exact submitted prompt-token count divided by POST-start to first non-empty generated-token event | Product-visible external result | Includes API parsing/admission, queueing, engine work, first-token publication, streaming, and client observation; the full prompt numerator must not be used when the server reports cache reuse |
+
+The expected comparison is therefore not equality among all three numbers.
+For one cold, no-cache, batch-one request, the Prometheus request deltas are
+the controlling bridge between the external TTFT and backend execution. The
+backend log explains route, JIT/autotune, chunking and scheduler state around
+that request. Its ten-second rate is retained to reconcile service behavior
+and the owner's observed vLLM window, but never substitutes for either the
+request-bound server interval or EvalScope TTFT.
+
+A difference is decomposed in this order: verify exact token and cache-source
+deltas; bind warmup and measured request identities; compare POST-to-first-
+token TTFT with scheduled-to-first-token Prefill; account for queue and
+response publication; then use iteration details, JIT/cache mutation and
+backend selection from the log to explain the remaining engine interval. If
+those request boundaries are missing, the cause remains unresolved rather
+than being assigned from nearby log-line order.
+
 Legacy/unsealed evidence retains the byte-stable
 `target-prefill-witness-v1` schema. A successfully committed sealed
 layer-major request emits `target-prefill-witness-v2`, adding the actual
