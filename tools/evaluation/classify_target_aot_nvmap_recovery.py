@@ -11,6 +11,7 @@ post-destruction memory-recovery question.
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
 import hashlib
 import json
@@ -35,6 +36,22 @@ BOOT_ID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
 SIZE_TOKEN_PATTERN = re.compile(r"^[0-9]+(?:[KMGTP]i?B?|B)?$", re.IGNORECASE)
+HEX_TOKEN_PATTERN = re.compile(r"^[0-9a-fA-F]+$")
+ADDRESS_TOKEN_PATTERN = re.compile(r"^(?:[0-9a-fA-F]+|0[xX][0-9a-fA-F]+)$")
+ALLOCATION_CLIENT_HEADER = ("CLIENT", "PROCESS", "PID", "SIZE")
+ALLOCATION_DETAIL_HEADER = (
+    "BASE",
+    "SIZE",
+    "FLAGS",
+    "REFS",
+    "DUPES",
+    "PINS",
+    "KMAPS",
+    "UMAPS",
+    "SHARE",
+    "UID",
+    "FROM_HUGETLBFS",
+)
 REQUIRED_CHECKS = (
     "source_build_provenance_valid",
     "binary_provenance_valid",
@@ -695,38 +712,88 @@ def _parse_client_rows(
 
 def _parse_allocation_client_rows(
     text: str,
-) -> tuple[list[int], list[dict[str, Any]], list[str], list[str]]:
+) -> tuple[
+    list[int],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[str],
+    list[str],
+]:
     pids: set[int] = set()
-    rows: list[dict[str, Any]] = []
+    client_rows: list[dict[str, Any]] = []
+    allocation_detail_rows: list[dict[str, Any]] = []
     unparsed: list[str] = []
     summaries: list[str] = []
+    saw_client_header = False
+    saw_detail_header = False
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line:
             continue
         fields = line.split()
-        if [field.upper() for field in fields] == [
-            "CLIENT",
-            "PROCESS",
-            "PID",
-            "SIZE",
-        ]:
+        if tuple(fields) == ALLOCATION_CLIENT_HEADER:
+            saw_client_header = True
+            continue
+        if tuple(fields) == ALLOCATION_DETAIL_HEADER:
+            saw_detail_header = True
             continue
         if (
-            len(fields) == 2
+            saw_client_header
+            and len(fields) == 2
             and fields[0].lower() == "total"
             and SIZE_TOKEN_PATTERN.fullmatch(fields[1])
         ):
             summaries.append(raw_line)
             continue
+        detail_claimed = (
+            saw_detail_header
+            and (
+                raw_line[:1].isspace()
+                or ADDRESS_TOKEN_PATTERN.fullmatch(fields[0]) is not None
+            )
+        )
+        if detail_claimed:
+            if (
+                len(fields) == len(ALLOCATION_DETAIL_HEADER)
+                and HEX_TOKEN_PATTERN.fullmatch(fields[0])
+                and SIZE_TOKEN_PATTERN.fullmatch(fields[1])
+                and HEX_TOKEN_PATTERN.fullmatch(fields[2])
+                and all(field.isdecimal() for field in fields[3:9])
+                and HEX_TOKEN_PATTERN.fullmatch(fields[9])
+                and fields[10] in ("0", "1")
+            ):
+                allocation_detail_rows.append(
+                    {
+                        "base": fields[0],
+                        "size": fields[1],
+                        "flags": fields[2],
+                        "refs": int(fields[3]),
+                        "dupes": int(fields[4]),
+                        "pins": int(fields[5]),
+                        "kmaps": int(fields[6]),
+                        "umaps": int(fields[7]),
+                        "share": int(fields[8]),
+                        "uid": fields[9],
+                        "from_hugetlbfs": int(fields[10]),
+                        "raw_line": raw_line,
+                    }
+                )
+            else:
+                # Indentation or an address-like first token claims the detail
+                # grammar.  It must never fall through and masquerade as a
+                # four-column client row when SIZE or later columns are
+                # truncated, unfamiliar, or malformed.
+                unparsed.append(raw_line)
+            continue
         if (
-            len(fields) == 4
+            saw_client_header
+            and len(fields) == 4
             and fields[2].isdecimal()
             and SIZE_TOKEN_PATTERN.fullmatch(fields[3])
         ):
             pid = int(fields[2])
             pids.add(pid)
-            rows.append(
+            client_rows.append(
                 {
                     "client": fields[0],
                     "process": fields[1],
@@ -734,12 +801,18 @@ def _parse_allocation_client_rows(
                     "size": fields[3],
                 }
             )
-        else:
-            # Retain exact whitespace and every column.  Allocation-table
-            # formats have changed between Jetson releases; silently dropping
-            # an unfamiliar detail row could hide the probe's surviving owner.
-            unparsed.append(raw_line)
-    return sorted(pids), rows, unparsed, summaries
+            continue
+        # Retain exact whitespace and every column.  Allocation-table formats
+        # have changed between Jetson releases; silently dropping an
+        # unfamiliar detail row could hide the probe's surviving owner.
+        unparsed.append(raw_line)
+    return (
+        sorted(pids),
+        client_rows,
+        allocation_detail_rows,
+        unparsed,
+        summaries,
+    )
 
 
 def _capture_table(path: pathlib.Path, *, optional: bool = False) -> dict[str, Any]:
@@ -795,11 +868,13 @@ def capture_nvmap(debugfs_root: pathlib.Path, page_size: int) -> dict[str, Any]:
             (
                 allocation_pids,
                 allocation_rows,
+                allocation_detail_rows,
                 unparsed_allocation_lines,
                 allocation_summary_lines,
             ) = _parse_allocation_client_rows(str(allocations["text"]))
             allocations["client_pids"] = allocation_pids
             allocations["client_rows"] = allocation_rows
+            allocations["allocation_detail_rows"] = allocation_detail_rows
             allocations["unparsed_allocation_lines"] = (
                 unparsed_allocation_lines
             )
@@ -807,6 +882,7 @@ def capture_nvmap(debugfs_root: pathlib.Path, page_size: int) -> dict[str, Any]:
         else:
             allocations["client_pids"] = []
             allocations["client_rows"] = []
+            allocations["allocation_detail_rows"] = []
             allocations["unparsed_allocation_lines"] = []
             allocations["summary_lines"] = []
         spaces[space] = {
@@ -836,6 +912,94 @@ def capture_nvmap(debugfs_root: pathlib.Path, page_size: int) -> dict[str, Any]:
         "handles_by_pid_pids": handle_pids,
         "handles_by_pid": handle_entries,
     }
+
+
+def normalize_observed_nvmap_snapshot(
+    snapshot: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Re-derive table rows from an already captured immutable raw snapshot.
+
+    A lifecycle report intentionally retains both raw debugfs text and the
+    parser output that existed when it was captured.  Offline reclassification
+    must use the current strict parser against that raw text; otherwise a
+    parser correction cannot repair a frozen report, and stale derived fields
+    could be mistaken for current evidence.
+    """
+
+    normalized = copy.deepcopy(dict(snapshot))
+    spaces = normalized.get("address_spaces")
+    if not isinstance(spaces, dict):
+        raise EvidenceError("observed nvmap address_spaces must be an object")
+    for name in ("iovmm", "fsi"):
+        space = spaces.get(name)
+        if not isinstance(space, dict):
+            raise EvidenceError(
+                f"observed nvmap address_spaces.{name} must be an object"
+            )
+
+        orphan = space.get("orphan_handles")
+        if not isinstance(orphan, dict) or orphan.get("present") is not True:
+            raise EvidenceError(
+                f"observed nvmap {name}.orphan_handles must be present"
+            )
+        orphan_text = orphan.get("text")
+        if not isinstance(orphan_text, str):
+            raise EvidenceError(
+                f"observed nvmap {name}.orphan_handles.text must be text"
+            )
+        orphan_lines = _orphan_data_lines(orphan_text)
+        orphan["data_lines"] = orphan_lines
+        orphan["empty"] = not orphan_lines
+
+        clients = space.get("clients")
+        if not isinstance(clients, dict) or clients.get("present") is not True:
+            raise EvidenceError(f"observed nvmap {name}.clients must be present")
+        clients_text = clients.get("text")
+        if not isinstance(clients_text, str):
+            raise EvidenceError(
+                f"observed nvmap {name}.clients.text must be text"
+            )
+        client_pids, client_rows, unparsed_client_lines = _parse_client_rows(
+            clients_text
+        )
+        clients["client_pids"] = client_pids
+        clients["client_rows"] = client_rows
+        clients["unparsed_client_lines"] = unparsed_client_lines
+
+        allocations = space.get("allocations")
+        if not isinstance(allocations, dict) or not isinstance(
+            allocations.get("present"), bool
+        ):
+            raise EvidenceError(
+                f"observed nvmap {name}.allocations must record present"
+            )
+        if allocations["present"]:
+            allocations_text = allocations.get("text")
+            if not isinstance(allocations_text, str):
+                raise EvidenceError(
+                    f"observed nvmap {name}.allocations.text must be text"
+                )
+            (
+                allocation_pids,
+                allocation_rows,
+                allocation_detail_rows,
+                unparsed_allocation_lines,
+                allocation_summary_lines,
+            ) = _parse_allocation_client_rows(allocations_text)
+            allocations["client_pids"] = allocation_pids
+            allocations["client_rows"] = allocation_rows
+            allocations["allocation_detail_rows"] = allocation_detail_rows
+            allocations["unparsed_allocation_lines"] = (
+                unparsed_allocation_lines
+            )
+            allocations["summary_lines"] = allocation_summary_lines
+        else:
+            allocations["client_pids"] = []
+            allocations["client_rows"] = []
+            allocations["allocation_detail_rows"] = []
+            allocations["unparsed_allocation_lines"] = []
+            allocations["summary_lines"] = []
+    return normalized
 
 
 def read_boot_id(proc_root: pathlib.Path) -> str:
@@ -1018,7 +1182,7 @@ def derive_report(
     nvmap = (
         capture_nvmap(debugfs_root, page_size)
         if observed_nvmap is None
-        else dict(observed_nvmap)
+        else normalize_observed_nvmap_snapshot(observed_nvmap)
     )
     binary = _mapping(probe["binary"], "binary")
     binary_authentication = (

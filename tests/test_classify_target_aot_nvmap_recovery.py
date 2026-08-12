@@ -386,6 +386,183 @@ class TargetAotNvmapRecoveryTest(unittest.TestCase):
                         [],
                     )
 
+    def test_real_jetson_allocation_detail_rows_are_structured_separately(
+        self,
+    ) -> None:
+        payload = (
+            "CLIENT                        PROCESS      PID        SIZE\n"
+            "                                          BASE        SIZE    FLAGS   "
+            "REFS  DUPES   PINS  KMAPS  UMAPS  SHARE      UID "
+            "FROM_HUGETLBFS\n"
+            "user                             Xorg     2599      17854K\n"
+            "                                             0       1280K "
+            "10120001      6      1      0      0      0      3 "
+            "ffff000085af9800      0 \n"
+            "total                                               17854K\n"
+        )
+        with tempfile.TemporaryDirectory(dir=RECOVERY.WORK_ROOT) as temporary:
+            report, _classified = self.derive(
+                pathlib.Path(temporary),
+                allocation_payload_by_space={"iovmm": payload, "fsi": payload},
+            )
+
+        self.assertTrue(
+            report["criteria"]["nvmap_allocation_tables_parse_completely"]
+        )
+        for space in ("iovmm", "fsi"):
+            allocations = report["nvmap_snapshot"]["address_spaces"][space][
+                "allocations"
+            ]
+            self.assertEqual(
+                allocations["client_rows"],
+                [
+                    {
+                        "client": "user",
+                        "process": "Xorg",
+                        "pid": 2599,
+                        "size": "17854K",
+                    }
+                ],
+            )
+            self.assertEqual(allocations["client_pids"], [2599])
+            self.assertEqual(allocations["unparsed_allocation_lines"], [])
+            self.assertEqual(len(allocations["allocation_detail_rows"]), 1)
+            detail = allocations["allocation_detail_rows"][0]
+            self.assertEqual(
+                {
+                    key: detail[key.lower()]
+                    for key in RECOVERY.ALLOCATION_DETAIL_HEADER
+                },
+                {
+                    "BASE": "0",
+                    "SIZE": "1280K",
+                    "FLAGS": "10120001",
+                    "REFS": 6,
+                    "DUPES": 1,
+                    "PINS": 0,
+                    "KMAPS": 0,
+                    "UMAPS": 0,
+                    "SHARE": 3,
+                    "UID": "ffff000085af9800",
+                    "FROM_HUGETLBFS": 0,
+                },
+            )
+            self.assertNotIn("pid", detail)
+            self.assertNotIn("process", detail)
+
+    def test_malformed_jetson_allocation_detail_rows_fail_closed_in_each_space(
+        self,
+    ) -> None:
+        header = (
+            "CLIENT PROCESS PID SIZE\n"
+            "BASE SIZE FLAGS REFS DUPES PINS KMAPS UMAPS SHARE UID "
+            "FROM_HUGETLBFS\n"
+            "user Xorg 2599 17854K\n"
+        )
+        malformed_rows = (
+            "0 1280K 10120001 6 1 0 0 0 3 ffff000085af9800",
+            "0 1280K not-hex 6 1 0 0 0 3 ffff000085af9800 0",
+            "0 1280K 10120001 six 1 0 0 0 3 ffff000085af9800 0",
+            "0 1280K 10120001 6 1 0 0 0 3 not-hex 0",
+            "0 1280K 10120001 6 1 0 0 0 3 ffff000085af9800 2",
+        )
+        safe = header + "total 17854K\n"
+        for space in ("iovmm", "fsi"):
+            for malformed in malformed_rows:
+                with self.subTest(space=space, malformed=malformed):
+                    payloads = {"iovmm": safe, "fsi": safe}
+                    payloads[space] = header + malformed + "\ntotal 17854K\n"
+                    with tempfile.TemporaryDirectory(
+                        dir=RECOVERY.WORK_ROOT
+                    ) as temporary:
+                        report, classified = self.derive(
+                            pathlib.Path(temporary),
+                            allocation_payload_by_space=payloads,
+                        )
+                    self.assertFalse(classified)
+                    self.assertFalse(
+                        report["criteria"]
+                        ["nvmap_allocation_tables_parse_completely"]
+                    )
+                    allocations = report["nvmap_snapshot"]["address_spaces"][
+                        space
+                    ]["allocations"]
+                    self.assertEqual(
+                        allocations["unparsed_allocation_lines"], [malformed]
+                    )
+                    self.assertEqual(allocations["allocation_detail_rows"], [])
+
+    def test_detail_prefix_claims_truncated_rows_before_client_grammar(
+        self,
+    ) -> None:
+        truncated_detail = "0 1280K 6 1K"
+        pseudo_client = "dead 64K 4242 2K"
+        bad_size_address = "0 bad 6 1K"
+        indented_bad_size_address = "    0 bad 6 1K"
+        prefixed_address = "0x0 1280K 6 1K"
+        indented_prefixed_address = "\t0x0 1280K 6 1K"
+        prefixed_full_detail = (
+            "0x0 1280K 10120001 6 1 0 0 0 3 ffff000085af9800 0"
+        )
+        rejected_detail_claims = [
+            truncated_detail,
+            pseudo_client,
+            bad_size_address,
+            indented_bad_size_address,
+            prefixed_address,
+            indented_prefixed_address,
+            prefixed_full_detail,
+        ]
+        indented_summary = "    total 17854K"
+        payload = (
+            "CLIENT PROCESS PID SIZE\n"
+            "BASE SIZE FLAGS REFS DUPES PINS KMAPS UMAPS SHARE UID "
+            "FROM_HUGETLBFS\n"
+            "   \n"
+            + "\n".join(rejected_detail_claims)
+            + "\nuser Xorg 2599 17854K\n"
+            + indented_summary
+            + "\n"
+        )
+        with tempfile.TemporaryDirectory(dir=RECOVERY.WORK_ROOT) as temporary:
+            report, classified = self.derive(
+                pathlib.Path(temporary),
+                allocation_payload_by_space={"iovmm": payload, "fsi": payload},
+            )
+
+        self.assertFalse(classified)
+        self.assertFalse(
+            report["criteria"]["nvmap_allocation_tables_parse_completely"]
+        )
+        self.assertEqual(
+            report["observed_nvmap_pid_sets"]["allocation_client_pids"],
+            [2599],
+        )
+        for space in ("iovmm", "fsi"):
+            allocations = report["nvmap_snapshot"]["address_spaces"][space][
+                "allocations"
+            ]
+            self.assertEqual(
+                allocations["unparsed_allocation_lines"],
+                rejected_detail_claims,
+            )
+            self.assertEqual(allocations["allocation_detail_rows"], [])
+            self.assertEqual(allocations["client_pids"], [2599])
+            self.assertEqual(allocations["summary_lines"], [indented_summary])
+            self.assertNotIn(6, allocations["client_pids"])
+            self.assertNotIn(4242, allocations["client_pids"])
+            self.assertEqual(
+                allocations["client_rows"],
+                [
+                    {
+                        "client": "user",
+                        "process": "Xorg",
+                        "pid": 2599,
+                        "size": "17854K",
+                    }
+                ],
+            )
+
     def test_live_same_probe_elf_is_rejected_and_visible_in_owner_tables(self) -> None:
         with tempfile.TemporaryDirectory(dir=RECOVERY.WORK_ROOT) as temporary:
             report, classified = self.derive(
