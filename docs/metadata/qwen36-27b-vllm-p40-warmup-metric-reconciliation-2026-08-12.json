@@ -68,6 +68,28 @@
       "path": ".q3x-work/evaluation/vllm-p40-target-formal-20260812-r5/b40000/server.log",
       "bytes": 24661,
       "sha256": "febdcdb72d4d2397a135efe26261f9238d3db9c83662f77d64dd927f3d2cc3db"
+    },
+    "same_run_command_and_environment_receipt": {
+      "path": ".q3x-work/evaluation/vllm-p40-target-formal-20260812-r5/b40000/command.json",
+      "bytes": 7911,
+      "sha256": "f82742392a7be7654ad7c9ba50e18e9e0aee8b2db8aea43eba01cc77062fec48",
+      "inherited_base_environment_keys": [
+        "USER",
+        "LOGNAME",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TZ",
+        "XDG_RUNTIME_DIR",
+        "XDG_DATA_DIRS"
+      ],
+      "vllm_log_stats_interval_inherited": false,
+      "vllm_log_stats_interval_explicitly_controlled_in_this_historical_receipt": false
+    },
+    "vllm_logger_source_identity": {
+      "envs.py_sha256": "e078b0acb8e658faa6a8144d13a9036e2a82af40b348f419489a2607247cd936",
+      "entrypoints_serve_utils_server_utils.py_sha256": "52a4e59852a5c478ddf9d4dec1737dd5c8a807000d646ee61c9828d49f2d8491",
+      "v1_metrics_loggers.py_sha256": "d5a91626cf79118f98ae6438c842cb30fc44ca14463c7e2af5871e3da8e51bcf"
     }
   },
   "evalscope_observations": {
@@ -240,8 +262,11 @@
     "http_response_start_access_log_observations_seen": 1,
     "http_response_start_access_log_semantics": "access_log_emitted_at_asgi_http_response_start",
     "position": "after warmup EvalScope completion and before the formal measured request response-start access",
-    "formula_semantics": "engine-wide computed prompt tokens accumulated when iteration stats arrive, divided by the local logger interval and then reset",
-    "logger_interval_duration": "not_established_by_server_log",
+    "formula_semantics": "engine-wide computed prompt tokens accumulated when iteration stats arrive, divided by the local logger's actual monotonic interval and then reset",
+    "configured_trigger_interval_seconds": 10.0,
+    "configured_trigger_interval_authority": "inference from the fresh controlled environment: VLLM_LOG_STATS_INTERVAL was absent from the eight-key inherited base allowlist, vLLM 0.26.0 envs.py defaults an absent positive value to 10.0 seconds, and the source-bound server task sleeps for that value before do_log_stats; future harness runs bind the value explicitly in their same-run environment receipt",
+    "actual_monotonic_denominator": "not_exposed_by_server_log",
+    "actual_monotonic_denominator_may_differ_from_configured_trigger": true,
     "implied_logger_interval_seconds_if_all_40000_tokens_landed_in_this_bucket_decimal": "10.00075005625421906642998224866865014876",
     "implied_logger_interval_authority": "source-semantics-and-singleton-join inference only; not an observed interval",
     "request_elapsed_throughput": false,
@@ -298,7 +323,7 @@
       "EvalScope Total Throughput is a product workload rate over Test Duration and includes the one output token. It is not a pure prompt rate and cannot be compared as though it were request_prefill_kv_computed_tokens divided by request_prefill_time.",
       "The prompt-over-EvalScope-TTFT diagnostic is lower than the server Prefill rate because the external interval includes non-Prefill server work plus HTTP/client observation. The retained aggregates split the 100.546773938980-ms difference into 65.284685697400 ms between server Prefill and server TTFT and 35.262088241580 ms between server TTFT and EvalScope TTFT.",
       "Only 0.039999838918 ms of the 65.284685697400-ms server-side difference is directly identified as queue time. The remaining 65.244685858482 ms is not safely assignable to admission, first-token work, publication, or another subphase from these aggregate metrics alone.",
-      "The 3999.7-token/s logger sample is 10.8516503878x the server request-phase Prefill rate. The vLLM logger source semantics and singleton join are consistent with the completed 40000-token iteration being accounted in a later local logger interval, but the log does not observe that interval's exact duration. It does not demonstrate a 3999.7-token/s request, pure-Prefill, or TTFT result.",
+      "The 3999.7-token/s logger sample is 10.8516503878x the server request-phase Prefill rate. The vLLM logger source semantics and singleton join are consistent with the completed 40000-token iteration being accounted in a later local logger interval. In this historical controlled environment, the source default resolved the configured trigger to 10.0 seconds; current and future harness runs fix VLLM_LOG_STATS_INTERVAL=10.0 explicitly in their same-run receipt. The printed rate uses the logger's actual monotonic time since reset; that actual denominator is not printed and need not equal 10 seconds exactly. It does not demonstrate a 3999.7-token/s request, pure-Prefill, or TTFT result.",
       "Server log line 129 is the streaming warmup HTTP response-start observation, not completion. Line 130 records _compute_slot_mapping_kernel JIT during the warmup transaction, so this warmup was not a JIT-free steady-state sample even before applying the missing thermal/frequency-envelope gate.",
       "The singleton join is strong enough to reconcile metric semantics but lacks a stable cross-surface request ID and a formally bracketed pre-warmup Prometheus scrape, so it has diagnostic authority only."
     ]

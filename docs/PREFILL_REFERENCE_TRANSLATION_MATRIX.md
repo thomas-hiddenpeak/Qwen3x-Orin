@@ -392,12 +392,23 @@ preserves rather than overwrites the source status. The tracked
 [`real-checkpoint preparation record`](metadata/qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12.json)
 freezes both layers of evidence and their narrow authority.
 
-No admission contains a production selector, API wiring, resource or numerical
-qualification, or production dispatch authority. The next implementation step
-is a combined layer-0 real-model M192 numerical/resource oracle plus immediate
-parent/child lifetime capture that replaces the recovered-history method, not
-another loader-only milestone. Neither payload authentication nor lifetime
-attachment can promote the production path.
+The following clean Release/SM87 execution at `9d0613a` passed the combined
+layer-0 real-model M192 Gate+Up and Down-plus-residual bitwise Oracle, including
+the full M128 region and predicated M64 tail, and passed the same-ELF resource
+and exact-geometry gates. Its parent captured the child identity and canonical
+Jetson owner tables immediately after exit. The original lifecycle report is
+preserved as `inconclusive`; a strict parser at `5687871` re-derived the same
+immutable raw snapshot as `no_owner_leak` with 20/20 criteria. The tracked
+[`layer-0 M192 Oracle record`](metadata/qwen36-27b-sm87-target-aot-layer0-m192-oracle-2026-08-12.json)
+freezes the numerical, resource, lifecycle, and source-status boundaries.
+
+No admission contains a production selector, API wiring, public execution
+route, or production dispatch authority. The narrow M192 result does not
+qualify the complete model. The next implementation step is persisted direct
+loading followed by the complete 64-layer FP8/Attention/GDN/buffer/state/
+handoff composition, not another isolated loader or local tile scan. Neither
+payload authentication, lifetime attachment, nor this narrow Oracle can
+promote the production path.
 
 The pre-CUDA implementation contract is now frozen as a second host-only
 milestone:
@@ -424,8 +435,8 @@ milestone:
   the admitted Marlin raw-code semantics. A metadata-derived pseudo-digest is
   not an authenticated payload.
 
-These declarations are implementation constraints, not numerical or payload
-qualification. The new asset builder proves that supplied byte intervals can
+These declarations are implementation constraints. The new asset builder
+proves that supplied byte intervals can
 be hashed, domain-scanned, permuted and replayed bit-exactly; its synthetic
 host tests do not authenticate the deployed checkpoint. The unexecuted,
 compiled NVFP4 bodies encode the intended three-stage K64 feed, decoded-B
@@ -433,7 +444,9 @@ register double buffer, full-K FP32 ownership, same-CTA Gate/Up BF16 lifetime
 and Down residual boundary. Static compilation currently reports Gate+Up at
 246 registers/thread and Down at 210, both with zero stack and zero spill,
 using 76,800 bytes of dynamic shared memory; SASS contains `LDGSTS`, `LDSM`,
-and BF16 `HMMA`. Those are implementation observations only. A typed
+and BF16 `HMMA`. The later real-checkpoint M192 execution qualifies these
+resource and geometry facts only for that private layer-0 Oracle and same ELF.
+A typed
 device-upload receipt is now issued only by the default-off loader after
 binding the authenticated host digest to an owned allocation and exact payload
 subrange, observing upload completion, reading the exact device range back,
@@ -441,9 +454,10 @@ and matching its SHA-256. The public schema and binder remain non-authoritative
 and cannot manufacture those facts from a raw pointer. Real-checkpoint
 preparation, readback, and private attachment have executed under the bounded
 evidence above; they grant no execution authority. The CUDA bodies must pass
-the named layer-0 real-model numerical
-oracle and reviewed resource gate, and a separately reviewed admission launcher
-must reach the real API before any qualification bit changes.
+complete-composition and complete-model accuracy gates beyond the already
+passed narrow layer-0 M192 Oracle, and a separately reviewed admission launcher
+must reach the real API before any performance or production qualification bit
+changes.
 
 The preparation probe reported
 `target_prepare_attach_milliseconds=699705.551133`. This is diagnostic timing
@@ -535,14 +549,19 @@ observation, not request completion; line 130 records
 be active. The later `3999.7 tok/s` line is the aggregate logger interval after
 the warmup's prompt accounting settled. It is before the measured POST's
 response-start observation and is not the measured P40 result. The vLLM
-0.26.0 logger accumulates iteration tokens into a local interval whose
-nominal cadence is approximately ten seconds, but whose exact duration is not
-printed; a long single iteration can be accounted atomically in a later
-bucket and print a rate unrelated to that iteration's elapsed time. Future
-witnesses retain a structured backend-log timeline even when their performance result is
-invalid, but join it with request TTFT, explicit request/engine boundaries,
-and Prometheus scheduler geometry before any phase or performance
-interpretation. Access-line order alone never establishes request completion.
+0.26.0 logger accumulates computed iteration prompt tokens into a local
+interval. Future witnesses explicitly fix `VLLM_LOG_STATS_INTERVAL=10.0` and
+bind the relevant `envs.py`, server logging task, and `LoggingStatLogger`
+source identities. Ten seconds is the configured sleep/trigger interval; the
+printed rate's denominator is the logger's actual monotonic time since reset,
+which is not printed and need not equal ten seconds exactly. A long single
+iteration can be accounted atomically in a later bucket and print a
+service-window rate unrelated to that iteration's elapsed time. Future
+witnesses retain this structured backend-log timeline even when their
+performance result is invalid, but join it with request TTFT, explicit
+request/engine boundaries, and Prometheus scheduler geometry before any phase
+or performance interpretation. Access-line order alone never establishes
+request completion.
 
 The retained warmup is now reconciled across all three surfaces in the
 [`warmup metric reconciliation`](metadata/qwen36-27b-vllm-p40-warmup-metric-reconciliation-2026-08-12.json).

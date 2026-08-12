@@ -1,0 +1,267 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen36-27b-sm87-target-aot-layer0-m192-oracle-2026-08-12",
+  "recorded_at_utc": "2026-08-12T08:19:35Z",
+  "classification": {
+    "authority": "layer0_m192_real_checkpoint_numerical_resource_and_lifecycle_admission_evidence",
+    "layer0_m192_real_checkpoint_numerical_authority": true,
+    "same_elf_sm87_resource_authority": true,
+    "bounded_post_exit_lifecycle_diagnostic_authority": true,
+    "full_model_numerical_authority": false,
+    "generation_authority": false,
+    "api_authority": false,
+    "performance_authority": false,
+    "public_launcher_authority": false,
+    "release_authority": false,
+    "production_promotion_authority": false
+  },
+  "contracts": {
+    "architecture_candidate": "AC-PREFILL-SM87-AOT-SYSTEM-v1",
+    "work_package": "WP-PREFILL-REFERENCE-TRANSLATION-v1",
+    "admission_scope": "default-off test-only private layer-0 M192 oracle",
+    "production_route_changed": false,
+    "incumbent_prefill_tokens_per_second": 392.804397
+  },
+  "model": {
+    "identity": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "directory_used_read_only": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "metadata_sha256": {
+      "config.json": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+      "hf_quant_config.json": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+      "model.safetensors.index.json": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2"
+    },
+    "checkpoint_payload_identity_source": "qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12"
+  },
+  "measurement_repository": {
+    "branch": "codex/prefill-target-path",
+    "oracle_build_commit": "9d0613a9ad90891999570a153629dc39f77451d8",
+    "oracle_build_tree": "72aa5147269f6ea409fc7883386199de9e76349d",
+    "clean_at_build": true,
+    "lifecycle_classifier_fix_commit": "56878713d9f3eb3d0344f3f74d7a8841c5e484ee",
+    "lifecycle_classifier_fix_tree": "5bed85be61d0ff354f6761eebad98bfd98747640",
+    "lifecycle_classifier_path": "tools/evaluation/classify_target_aot_nvmap_recovery.py",
+    "lifecycle_classifier_sha256": "196b68d1edda4fca1be1bf2880600ea95c7eb4bfd7bda32dc07770c78cda7304"
+  },
+  "build": {
+    "binary_path": ".q3x-work/target-aot-layer0-m192-9d0613a/q3x_sm87_target_aot_real_checkpoint_prepare_probe",
+    "binary_bytes": 10068736,
+    "binary_sha256": "dce7fa285b56f3bf1a7f45efb866d27c13a75264213da58a625ba51f303d80b7",
+    "receipt_sha256": "571d775cedca05770125c86ce0dc7960638b1281da19a13dee853712628c23c6",
+    "build_type": "Release",
+    "build_testing": true,
+    "cmake_version": "3.28.3",
+    "generator": "Unix Makefiles",
+    "cuda_toolkit_version": "13.3.33",
+    "cuda_architecture": "87",
+    "admissions": {
+      "aot_system": true,
+      "target_projection": true,
+      "target_device_assets": true,
+      "target_layer0_m192_oracle": true,
+      "fp8_marlin_prefill": false,
+      "nvfp4_marlin_prefill": false,
+      "p40_packed_projection": false,
+      "p40_packed_nvfp4_v2": false,
+      "p40_vllm_marlin_parity": false
+    }
+  },
+  "source_artifacts": {
+    "initial_fail_closed_preflight": {
+      "path": ".q3x-work/evidence/prefill-target-path/target-aot-layer0-m192-preflight-9d0613a.json",
+      "bytes": 31271,
+      "sha256": "c0c8c287f3feba93ae4377c9d9fbeed2aaf8747ad8296e2a5eb104e632aaf7e5",
+      "decision": "reject_busy",
+      "reason": "display-stack nvmap/render holders were not yet explicitly allowlisted"
+    },
+    "admitted_clean_host_preflight": {
+      "path": ".q3x-work/evidence/prefill-target-path/target-aot-layer0-m192-admitted-preflight-9d0613a.json",
+      "bytes": 31206,
+      "sha256": "2a908b3fb3bb7d8a0a52cb30899bd61e4c56176a7449e0a238709ecd25d6ccc7",
+      "decision": "pass",
+      "tegrastats_samples": 20,
+      "maximum_gr3d_percent": 0.0,
+      "gpu_device_fd_audit_complete": true,
+      "allowlisted_display_pids": [2599, 2719, 2738]
+    },
+    "child_oracle_evidence": {
+      "path": ".q3x-work/evidence/prefill-target-path/target-aot-layer0-m192-9d0613a/child-evidence.json",
+      "bytes": 13551,
+      "sha256": "ca741581ea2555015ca0bdf43c4ccde8d6220e90a615ee72b1750aa95c869eb3",
+      "schema_version": 3,
+      "source_status": "fail"
+    },
+    "original_parent_child_lifecycle": {
+      "path": ".q3x-work/evidence/prefill-target-path/target-aot-layer0-m192-9d0613a/lifecycle-report.json",
+      "bytes": 95955,
+      "sha256": "8a468b93d337320e8935c60913741b1f40fb35417127160979c1ed3fe49744ff",
+      "classification": "inconclusive",
+      "preserved_without_overwrite": true
+    },
+    "strict_offline_lifecycle_rederivation": {
+      "path": ".q3x-work/evidence/prefill-target-path/target-aot-layer0-m192-9d0613a/offline-rederived-nvmap-recovery-v4.json",
+      "bytes": 54323,
+      "sha256": "164e93b4eddbb070b15170c8aec2c30bacfc589cba0e5eebf981c05dd399a121",
+      "classification": "no_owner_leak",
+      "criteria_passed": 20,
+      "criteria_total": 20,
+      "rejection_reasons": [],
+      "raw_nvmap_tables_reparsed": true
+    },
+    "post_run_clean_host_preflight": {
+      "path": ".q3x-work/evidence/prefill-target-path/target-aot-layer0-m192-postrun-preflight-9d0613a.json",
+      "bytes": 31422,
+      "sha256": "3cd33f7874084804120f716596d557b8419d08af6367f10b4f7dd5acb20aaf1f",
+      "decision": "pass",
+      "tegrastats_samples": 20,
+      "maximum_gr3d_percent": 0.0,
+      "gpu_device_fd_audit_complete": true
+    }
+  },
+  "target_aot_payload": {
+    "attached": true,
+    "source_count": 192,
+    "artifact_count": 128,
+    "arena_bytes": 9625927680,
+    "verified_payload_catalog_sha256": "367572d8f5aab87c655695fc621562e0e88cb5d1a9656370353d55ab1c4ebdbe",
+    "owner_identity_nonzero": true,
+    "allocation_identity_nonzero": true,
+    "layer0_gate_up_payload_sha256": "9d5c1541defd7f5e073d8cb4398a5db80fa81c0da8c2013a3cf6cb25ed52e20c",
+    "layer0_down_payload_sha256": "57e26917a562729c22dccdc0915259869961230f9b1aceb569645c1adf8bc343"
+  },
+  "layer0_m192_numerical_oracle": {
+    "passed": true,
+    "token_count": 192,
+    "full_token_count": 128,
+    "tail_token_count": 64,
+    "baseline_route": "canonical-sm87-nvfp4-m32x6-gate-up-silu-down-m32x6-residual",
+    "candidate_plan": "source-private-layer0-m192-m128n256k64-persistent16-v1",
+    "candidate_layout": "consumer-n64-k16-lane-component-v1",
+    "candidate_publication": "gate-up-silu-bf16;down-plus-immutable-residual-to-independent-bf16",
+    "gate_up": {
+      "elements": 3342336,
+      "full_elements": 2228224,
+      "tail_elements": 1114112,
+      "baseline_candidate_mismatches": 0,
+      "baseline_replay_mismatches": 0,
+      "candidate_replay_mismatches": 0,
+      "baseline_sha256": "06513cad9d717d840fe005e3387369352e4a6b1628cb354f33758133b9da0091",
+      "candidate_sha256": "06513cad9d717d840fe005e3387369352e4a6b1628cb354f33758133b9da0091",
+      "replay_sha256": "06513cad9d717d840fe005e3387369352e4a6b1628cb354f33758133b9da0091",
+      "bitwise_exact": true
+    },
+    "down_plus_residual": {
+      "elements": 983040,
+      "full_elements": 655360,
+      "tail_elements": 327680,
+      "baseline_candidate_mismatches": 0,
+      "baseline_replay_mismatches": 0,
+      "candidate_replay_mismatches": 0,
+      "baseline_sha256": "9a3f30d5a38be7bcb709545307c0dbd5cab0279ba4fbac7b98309331ff7a0720",
+      "candidate_sha256": "9a3f30d5a38be7bcb709545307c0dbd5cab0279ba4fbac7b98309331ff7a0720",
+      "replay_sha256": "9a3f30d5a38be7bcb709545307c0dbd5cab0279ba4fbac7b98309331ff7a0720",
+      "bitwise_exact": true
+    },
+    "common_gates": {
+      "all_finite": true,
+      "complete_write": true,
+      "guards_intact": true,
+      "activation_preserved": true,
+      "residual_preserved": true,
+      "replay_passed": true,
+      "cleanup_synchronize_passed": true,
+      "device_frees_succeeded": "11/11",
+      "stream_destroy_passed": true,
+      "all_cuda_errors_zero": true
+    }
+  },
+  "same_elf_sm87_resource_oracle": {
+    "device": "SM87",
+    "device_sm_count": 16,
+    "common": {
+      "binary_version": 87,
+      "static_shared_bytes": 0,
+      "dynamic_shared_bytes": 76800,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "active_blocks_per_sm": 1,
+      "physical_ctas": 16,
+      "block_m": 128,
+      "block_n": 256,
+      "block_k": 64,
+      "pipeline_stages": 3
+    },
+    "gate_up": {
+      "registers_per_thread": 246,
+      "logical_tasks": 136,
+      "logical_tasks_per_cta_min": 8,
+      "logical_tasks_per_cta_max": 9,
+      "n_stationary": false,
+      "exact_geometry_gate": true,
+      "exact_resource_gate": true
+    },
+    "down": {
+      "registers_per_thread": 210,
+      "logical_tasks": 40,
+      "logical_tasks_per_cta_min": 2,
+      "logical_tasks_per_cta_max": 3,
+      "n_stationary": true,
+      "exact_geometry_gate": true,
+      "exact_resource_gate": true
+    }
+  },
+  "lifecycle_evidence": {
+    "source_child": {
+      "status": "fail",
+      "status_preserved": true,
+      "exclusive_failed_check": "memory_recovered_after_destroy",
+      "cuda_free_before_bytes": 57689321472,
+      "cuda_free_after_destroy_bytes": 50641469440,
+      "cuda_free_gap_bytes": 7047852032
+    },
+    "original_parent_child_report": {
+      "classification": "inconclusive",
+      "identity_binding_passed": true,
+      "exclusive_failed_criterion": "nvmap_allocation_tables_parse_completely",
+      "reason": "the original parser did not recognize Jetson allocation-detail rows"
+    },
+    "strict_offline_rederivation": {
+      "classification": "no_owner_leak",
+      "source_status_rewritten": false,
+      "criteria_passed": "20/20",
+      "absolute_post_exit_pagepool_bytes": 8241508352,
+      "pagepool_adjusted_residual_bytes": 0,
+      "iovmm_allocation_client_rows": 3,
+      "iovmm_allocation_detail_rows": 60,
+      "iovmm_unparsed_allocation_lines": 0,
+      "fsi_allocation_client_rows": 3,
+      "fsi_allocation_detail_rows": 0,
+      "fsi_unparsed_allocation_lines": 0,
+      "matching_probe_elf_pids": [],
+      "probe_name_matching_nvmap_pids": [],
+      "handles_without_current_client_rows": [],
+      "orphan_tables_empty": true,
+      "remaining_client_pids": [2599, 2719, 2738]
+    },
+    "limitation": "This diagnosis applies only to the authenticated child and its immediate frozen canonical Jetson snapshot. It is not a general leak-freedom proof and does not make the child source status pass."
+  },
+  "diagnostic_timing_only": {
+    "probe_wall_milliseconds": 728418,
+    "engine_total_milliseconds": 724307.075949,
+    "resident_load_milliseconds": 19989.943319,
+    "target_prepare_attach_milliseconds": 701709.6913,
+    "performance_baseline": false,
+    "architecture_implication": "Persist authenticated AOT payloads offline and load them directly at startup; online repack plus complete readback is not an admissible product startup path."
+  },
+  "next_gate": {
+    "name": "complete_target_aot_prefill_composition",
+    "requirements": [
+      "persist and directly load the authenticated target-AOT payload catalog",
+      "compose all 64 layers and the FP8 QKV/Z/O, grouped online Attention, exact GDN, buffer, state, and handoff plans without undeclared fallback",
+      "retain the exact layer-0 M192 numerical and same-ELF resource boundary while extending complete-model accuracy",
+      "open a separately reviewed admission launcher only after the complete composition exists",
+      "return first to one clean-host real P40 OpenAI-compatible API and EvalScope gate with backend/startup logs retained"
+    ]
+  },
+  "claim_boundary": "This record proves only the real-checkpoint layer-0 M192 Gate+Up and Down-plus-residual bitwise boundary, same-ELF SM87 resource/geometry facts, and a bounded post-exit owner diagnosis. It does not authorize a public launcher, complete-model execution, generation, API, performance, release, or production promotion."
+}

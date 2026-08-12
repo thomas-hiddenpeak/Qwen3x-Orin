@@ -98,8 +98,13 @@ EvalScope's printed 368.2478 input-plus-output token/s are auxiliary
 observations, not additional pure-Prefill surfaces. The logger value is
 10.851650x the request-bound server rate. vLLM's logger source semantics and the
 fresh-process singleton join are consistent with completed prompt work
-landing in a later local logger interval; the backend line does not expose
-that interval's exact duration and is not a per-request latency. The evidence
+landing in a later local logger interval. Future harness executions now
+explicitly fix `VLLM_LOG_STATS_INTERVAL=10.0` and bind `envs.py`, the server
+logging task, and `LoggingStatLogger`: ten seconds is the configured trigger,
+while the printed rate divides locally recorded computed prompt tokens by the
+logger's actual monotonic time since reset. That actual denominator is not
+printed and need not be exactly ten seconds; the value is service-window
+telemetry, not per-request latency or pure Prefill. The evidence
 lacks a stable cross-surface request ID and a formal warmup thermal/frequency
 envelope, so it changes neither the invalid run's status nor the 4.3K tok/s
 owner-established starting line. Exact formulas and raw hashes are frozen in
@@ -160,6 +165,37 @@ authenticated AOT payload generation plus direct startup loading an explicit
 implementation requirement. The incumbent remains 392.804397 tok/s and the
 installed route is unchanged.
 
+A clean Release/SM87 probe at `9d0613a` has now closed the next narrow gate on
+the same pinned checkpoint. The private layer-0 M192 candidate covers one full
+M128 region and one predicated M64 tail. Gate+Up matched the canonical route at
+all 3,342,336 BF16 elements and Down-plus-residual matched at all 983,040
+elements; baseline/candidate/replay digests are identical in both roles, with
+zero mismatches, intact guards, complete writes, preserved inputs, and zero
+CUDA errors. The same ELF records Gate+Up/Down at 246/210 registers per thread,
+76,800 dynamic shared bytes, zero local bytes, 256 threads, one active CTA/SM,
+and exactly 16 physical CTAs on the 16-SM device; both geometry and resource
+gates pass.
+
+The child evidence still preserves `status=fail` because only its immediate
+in-process `cudaMemGetInfo` recovery check failed. Its parent bound the exact
+child PID/start time/ELF and captured canonical `/proc` and Jetson `nvmap`
+immediately after exit. The original parent report remains `inconclusive`
+because its parser did not recognize the real 11-column allocation-detail
+format. A strict parser at `5687871` re-derived the same immutable raw snapshot
+without overwriting either source: all 20 criteria pass, the classification is
+`no_owner_leak`, the 7,047,852,032-byte free-memory gap is fully covered by the
+8,241,508,352-byte page pool, and no probe process, probe-named client,
+unattributed handle, or orphan remains. The exact three-layer status and claim boundary are frozen in
+the
+[`layer-0 M192 Oracle record`](metadata/qwen36-27b-sm87-target-aot-layer0-m192-oracle-2026-08-12.json).
+
+This grants only layer-0 M192 real-checkpoint numerical authority, same-ELF
+SM87 resource/geometry authority, and a bounded lifecycle diagnosis. It grants
+no complete-model, public-launcher, generation, API, performance, release, or
+production authority. The 701,709.6913 ms prepare/attach and 728,418 ms probe
+wall times remain diagnostics, not performance measurements. The default
+runner and its 392.804397-token/s incumbent are unchanged.
+
 ## 2. Current capability matrix
 
 | Capability | Current state | Missing production condition |
@@ -171,7 +207,7 @@ installed route is unchanged.
 | Final product API | Designed | No installed production server/profile or release attestation exists |
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
 | Target-length Prefill | P40 development route exercised | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
-| SM87 whole-system AOT Prefill candidate | Host topology and finite-precision contracts, real-byte host packer, compile-only NVFP4 Gate+Up/Down bodies, plus executed real-checkpoint upload/readback/private attachment and a bounded post-exit `no_owner_leak` diagnosis; default-off and non-executable | Pass the layer-0 M192 numerical/resource oracle while replacing recovered-history attribution with immediate parent/child lifecycle capture; persist and directly load authenticated AOT payloads; implement FP8/Attention/GDN/handoffs; open reviewed launch; then obtain clean-host real-P40 API evidence |
+| SM87 whole-system AOT Prefill candidate | Default-off and non-executable; real-checkpoint upload/readback/private attachment is authenticated, and the layer-0 M192 Gate+Up/Down-plus-residual candidate has passed bitwise, same-ELF SM87 resource/geometry, and immediate-snapshot lifecycle gates | Persist and directly load authenticated AOT payloads; compose all 64 layers plus FP8 QKV/Z/O, grouped online Attention, exact GDN, buffers/state/handoffs without fallback; extend complete-model accuracy; open a reviewed admission launch; then return to clean-host real-P40 API/EvalScope evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

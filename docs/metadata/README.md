@@ -42,6 +42,19 @@ it does not rewrite the source result. The record has preparation-dependency
 authority only and grants no numerical, launcher, generation, API,
 performance, release, or production authority.
 
+The next default-off real-checkpoint gate is frozen in
+[`qwen36-27b-sm87-target-aot-layer0-m192-oracle-2026-08-12.json`](qwen36-27b-sm87-target-aot-layer0-m192-oracle-2026-08-12.json).
+The private layer-0 M192 Gate+Up and Down-plus-residual candidate is bitwise
+identical to the canonical baseline and replay across the full M128 region and
+predicated M64 tail. The same ELF passes its SM87 geometry/resource gates. The
+child source status remains `fail` only at immediate in-process memory
+recovery; the original parent lifecycle report remains `inconclusive`, while a
+strict reparse of its immutable immediate Jetson `nvmap` snapshot yields
+`no_owner_leak` with 20/20 criteria. This record grants only layer-0 M192
+numerical, same-ELF resource, and bounded lifecycle-diagnostic authority. It
+grants no complete-model, public-launcher, generation, API, performance,
+release, or production authority.
+
 The rejected real-API P40K screen of the explicit segmented-Marlin projection
 wrapper plus grouped-Q64 Attention is frozen in
 [`qwen36-27b-prefill-p40k-segmented-marlin-q64-api-2026-08-09.json`](qwen36-27b-prefill-p40k-segmented-marlin-q64-api-2026-08-09.json).
