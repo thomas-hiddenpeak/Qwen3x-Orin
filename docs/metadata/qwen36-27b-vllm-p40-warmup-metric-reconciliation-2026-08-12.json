@@ -1,0 +1,323 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen36-27b-vllm-p40-warmup-metric-reconciliation-2026-08-12",
+  "observed_interval": {
+    "warmup_evalscope_log_started_at": "2026-08-12T05:22:28+08:00",
+    "inference_jit_event_at": "2026-08-12T05:22:34+08:00",
+    "warmup_evalscope_completed_at": "2026-08-12T05:24:22+08:00",
+    "logger_sample_at": "2026-08-12T05:24:30+08:00",
+    "timezone": "Asia/Shanghai"
+  },
+  "classification": {
+    "authority": "diagnostic_metric_semantics_only",
+    "valid_performance_sample": false,
+    "performance_invalidation_reason": "no_formal_warmup_thermal_frequency_envelope",
+    "architecture_selection_authority": false,
+    "release_performance_authority": false,
+    "production_promotion_authority": false,
+    "vllm_baseline_authority": false,
+    "owner_4300_prompt_tok_s_target_changed": false
+  },
+  "measurement_repository": {
+    "branch": "codex/prefill-target-path",
+    "commit": "fe626be2c699a64345cb2481435483ab5e3934e9",
+    "tree": "2ed52226d6efd26bf69e710542072c93f1ea709d"
+  },
+  "scope": {
+    "runtime": "stock vLLM 0.26.0",
+    "model": "nvidia/Qwen3.6-27B-NVFP4",
+    "phase": "P40000 harness warmup before the thermally invalid formal request",
+    "prompt_tokens": 40000,
+    "output_tokens": 1,
+    "parallel": 1,
+    "prefix_cache_enabled": false,
+    "mtp_enabled": false,
+    "evalscope_version": "1.9.1",
+    "join_grain": "one singleton warmup API transaction",
+    "stable_cross_surface_request_id_available": false,
+    "join_method": "singleton EvalScope transaction plus process-local Prometheus count=1 plus fixed-harness server-log order"
+  },
+  "source_artifacts": {
+    "root": ".q3x-work/evaluation/vllm-p40-target-formal-20260812-r5",
+    "metrics_after_warmup_before_measured_request": {
+      "path": ".q3x-work/evaluation/vllm-p40-target-formal-20260812-r5/b40000/metrics-before.prom",
+      "bytes": 52650,
+      "sha256": "a249a19c4a614449506b69631523664bb577ef1f8c74b67163208955b4c7363e"
+    },
+    "warmup_evalscope_capture_log": {
+      "path": ".q3x-work/evaluation/vllm-p40-target-formal-20260812-r5/b40000/warmup-evalscope.log",
+      "bytes": 16454,
+      "sha256": "56dd71151f2a8e0b27dd54d0579c66dbdbcbc68a5bf7f789875e492c9e698e20"
+    },
+    "warmup_evalscope_benchmark_log": {
+      "path": ".q3x-work/evaluation/vllm-p40-target-formal-20260812-r5/b40000/warmup/warmup-b40000/benchmark.log",
+      "bytes": 9083,
+      "sha256": "1bcdaff9fc75312dc2fe74aea8dd229726514945d5298765c20f7faf6134d69b"
+    },
+    "warmup_evalscope_summary": {
+      "path": ".q3x-work/evaluation/vllm-p40-target-formal-20260812-r5/b40000/warmup/warmup-b40000/parallel_1_number_1/benchmark_summary.json",
+      "bytes": 496,
+      "sha256": "305059fd5825ac5bb8433bd4c968f97c683000938ea3a5691b7b3ff6e528f16f"
+    },
+    "warmup_evalscope_database": {
+      "path": ".q3x-work/evaluation/vllm-p40-target-formal-20260812-r5/b40000/warmup/warmup-b40000/parallel_1_number_1/benchmark_data.db",
+      "bytes": 233472,
+      "sha256": "34627b5219bac8035433845f1130641be22e4c593203c30a4a5328bb3a991e09"
+    },
+    "server_log": {
+      "path": ".q3x-work/evaluation/vllm-p40-target-formal-20260812-r5/b40000/server.log",
+      "bytes": 24661,
+      "sha256": "febdcdb72d4d2397a135efe26261f9238d3db9c83662f77d64dd927f3d2cc3db"
+    }
+  },
+  "evalscope_observations": {
+    "summary": {
+      "success_requests": 1,
+      "failed_requests": 0,
+      "test_duration_seconds": 108.6252,
+      "ttft_milliseconds": 108625.19,
+      "average_latency_seconds": 108.6252,
+      "average_input_tokens": 40000.0,
+      "average_output_tokens": 1.0,
+      "reported_total_throughput_tokens_per_second": 368.2478,
+      "reported_total_throughput_semantics": "product workload total throughput over Test Duration, including 40000 input tokens and 1 output token; not pure Prompt-Prefill throughput and not prompt tokens divided by TTFT",
+      "formula_using_displayed_fields": "(40000 + 1) / 108.6252",
+      "recomputed_from_displayed_fields_decimal": "368.24788354820060170199916778058866634998140394678",
+      "reported_minus_recomputed_from_rounded_fields_decimal": "-0.00008354820060170199916778058866634998140394678"
+    },
+    "database": {
+      "sqlite_quick_check": "ok",
+      "result_rows": 1,
+      "success": 1,
+      "start_time_monotonic_seconds": 2179514.083698734,
+      "completed_time_monotonic_seconds": 2179622.708937651,
+      "latency_seconds": 108.62523891683668,
+      "first_chunk_latency_seconds": 108.62519491603598,
+      "prompt_tokens": 40000,
+      "completion_tokens": 1,
+      "request_id": null,
+      "summary_ttft_rounding_delta_milliseconds": "0.00491603598000"
+    },
+    "prompt_over_summary_ttft_diagnostic": {
+      "formula": "40000 / (108625.19 / 1000)",
+      "tokens_per_second_decimal": "368.23871148119510769095087428615775033396949639398",
+      "semantics": "prompt tokens divided by EvalScope POST-to-first-non-empty-token TTFT; a product-facing diagnostic, not server pure Prefill"
+    },
+    "prompt_over_database_first_chunk_diagnostic": {
+      "formula": "40000 / 108.62519491603598",
+      "tokens_per_second_decimal": "368.23869481586478290136249650760726997097374111032",
+      "semantics": "same external diagnostic using the unrounded database first-chunk interval"
+    }
+  },
+  "prometheus_singleton_warmup_deltas": {
+    "snapshot_phase": "after the warmup transaction and before the formal measured transaction",
+    "formal_two_snapshot_delta_available": false,
+    "delta_basis": "The fresh process exposes exactly one successful /v1/completions request, every relevant request histogram has count=1, and the EvalScope database has exactly one successful row. The values below are therefore the entire singleton warmup increment, but are not represented as a formally bracketed before/after scrape.",
+    "metrics": {
+      "vllm:prompt_tokens_total": {
+        "delta": 40000.0,
+        "source_line": 117
+      },
+      "vllm:prompt_tokens_by_source_total{source=local_compute}": {
+        "delta": 40000.0,
+        "source_line": 123
+      },
+      "vllm:prompt_tokens_by_source_total{source=local_cache_hit}": {
+        "delta": 0.0,
+        "source_line": 124
+      },
+      "vllm:prompt_tokens_by_source_total{source=external_kv_transfer}": {
+        "delta": 0.0,
+        "source_line": 125
+      },
+      "vllm:prompt_tokens_cached_total": {
+        "delta": 0.0,
+        "source_line": 133
+      },
+      "vllm:generation_tokens_total": {
+        "delta": 1.0,
+        "source_line": 139
+      },
+      "vllm:request_success_total{finished_reason=length}": {
+        "delta": 1.0,
+        "source_line": 146
+      },
+      "vllm:num_preemptions_total": {
+        "delta": 0.0,
+        "source_line": 111
+      },
+      "vllm:request_prompt_tokens_count": {
+        "delta": 1.0,
+        "source_line": 174
+      },
+      "vllm:request_prompt_tokens_sum": {
+        "delta": 40000.0,
+        "source_line": 175
+      },
+      "vllm:time_to_first_token_seconds_count": {
+        "delta": 1.0,
+        "source_line": 304
+      },
+      "vllm:time_to_first_token_seconds_sum": {
+        "delta": 108.58992791175842,
+        "source_line": 305
+      },
+      "vllm:e2e_request_latency_seconds_count": {
+        "delta": 1.0,
+        "source_line": 387
+      },
+      "vllm:e2e_request_latency_seconds_sum": {
+        "delta": 108.58992791175842,
+        "source_line": 388
+      },
+      "vllm:request_queue_time_seconds_count": {
+        "delta": 1.0,
+        "source_line": 416
+      },
+      "vllm:request_queue_time_seconds_sum": {
+        "delta": 0.000039999838918447495,
+        "source_line": 417
+      },
+      "vllm:request_inference_time_seconds_count": {
+        "delta": 1.0,
+        "source_line": 445
+      },
+      "vllm:request_inference_time_seconds_sum": {
+        "delta": 108.52464322606102,
+        "source_line": 446
+      },
+      "vllm:request_prefill_time_seconds_count": {
+        "delta": 1.0,
+        "source_line": 474
+      },
+      "vllm:request_prefill_time_seconds_sum": {
+        "delta": 108.52464322606102,
+        "source_line": 475
+      },
+      "vllm:request_decode_time_seconds_count": {
+        "delta": 1.0,
+        "source_line": 503
+      },
+      "vllm:request_decode_time_seconds_sum": {
+        "delta": 0.0,
+        "source_line": 504
+      },
+      "vllm:request_prefill_kv_computed_tokens_count": {
+        "delta": 1.0,
+        "source_line": 525
+      },
+      "vllm:request_prefill_kv_computed_tokens_sum": {
+        "delta": 40000.0,
+        "source_line": 526
+      },
+      "http_requests_total{handler=/v1/completions,method=POST,status=2xx}": {
+        "delta": 1.0,
+        "source_line": 535
+      }
+    }
+  },
+  "server_request_phase_diagnostics": {
+    "prefill": {
+      "formula": "delta(vllm:request_prefill_kv_computed_tokens_sum) / delta(vllm:request_prefill_time_seconds_sum) = 40000 / 108.52464322606102",
+      "tokens_per_second_decimal": "368.57988020912868912590254017177981731003233324140",
+      "display_tokens_per_second": 368.5798802091,
+      "semantics": "server scheduled Prefill phase through the first new-token event, excluding cached prompt tokens"
+    },
+    "ttft": {
+      "formula": "delta(vllm:request_prefill_kv_computed_tokens_sum) / delta(vllm:time_to_first_token_seconds_sum) = 40000 / 108.58992791175842",
+      "tokens_per_second_decimal": "368.35828855604837852256083526705012411541726863601",
+      "display_tokens_per_second": 368.358288556,
+      "semantics": "computed prompt tokens divided by the server time-to-first-token interval; not pure Prefill"
+    }
+  },
+  "vllm_logger_observation": {
+    "parser_schema_version": 2,
+    "parser_identity": "q3x.vllm_server_log_observation.lf_physical_lines.v2",
+    "physical_line_delimiter": "LF_byte_only",
+    "server_log_line": 131,
+    "timestamp": "2026-08-12T05:24:30+08:00",
+    "reported_avg_prompt_throughput_tokens_per_second": 3999.7,
+    "http_response_start_access_log_observations_seen": 1,
+    "http_response_start_access_log_semantics": "access_log_emitted_at_asgi_http_response_start",
+    "position": "after warmup EvalScope completion and before the formal measured request response-start access",
+    "formula_semantics": "engine-wide computed prompt tokens accumulated when iteration stats arrive, divided by the local logger interval and then reset",
+    "logger_interval_duration": "not_established_by_server_log",
+    "implied_logger_interval_seconds_if_all_40000_tokens_landed_in_this_bucket_decimal": "10.00075005625421906642998224866865014876",
+    "implied_logger_interval_authority": "source-semantics-and-singleton-join inference only; not an observed interval",
+    "request_elapsed_throughput": false,
+    "pure_prefill_throughput": false,
+    "external_ttft_throughput": false
+  },
+  "reconciliation": {
+    "latency_gaps_milliseconds": {
+      "evalscope_summary_ttft_minus_server_prefill": {
+        "formula": "108625.19 - (108.52464322606102 * 1000)",
+        "value_decimal": "100.54677393898000"
+      },
+      "evalscope_summary_ttft_minus_server_ttft": {
+        "formula": "108625.19 - (108.58992791175842 * 1000)",
+        "value_decimal": "35.26208824158000"
+      },
+      "server_ttft_minus_server_prefill": {
+        "formula": "(108.58992791175842 - 108.52464322606102) * 1000",
+        "value_decimal": "65.28468569740000"
+      },
+      "server_queue": {
+        "formula": "0.000039999838918447495 * 1000",
+        "value_decimal": "0.039999838918447495000"
+      },
+      "server_ttft_minus_prefill_minus_queue_unassigned": {
+        "formula": "(108.58992791175842 - 108.52464322606102 - 0.000039999838918447495) * 1000",
+        "value_decimal": "65.244685858481552505000"
+      }
+    },
+    "throughput_ratios": {
+      "logger_over_server_prefill": {
+        "formula": "3999.7 / 368.57988020912868912590254017177981731003233324140",
+        "value_decimal": "10.851650387781906542350000000000000000000000000000",
+        "display_value": 10.8516503878
+      },
+      "logger_over_server_ttft": {
+        "formula": "3999.7 / 368.35828855604837852256083526705012411541726863601",
+        "value_decimal": "10.858178366716503811850000000000000000000000000000"
+      },
+      "logger_over_evalscope_prompt_ttft_diagnostic": {
+        "formula": "3999.7 / 368.23871148119510769095087428615775033396949639398",
+        "value_decimal": "10.861704311075000000000000000000000000000000000000"
+      },
+      "server_prefill_over_evalscope_prompt_ttft_diagnostic": {
+        "formula": "368.57988020912868912590254017177981731003233324140 / 368.23871148119510769095087428615775033396949639398",
+        "value_decimal": "1.0009264879473460897688024336910553823366887776122"
+      },
+      "server_ttft_over_evalscope_prompt_ttft_diagnostic": {
+        "formula": "368.35828855604837852256083526705012411541726863601 / 368.23871148119510769095087428615775033396949639398",
+        "value_decimal": "1.0003247270618895191551272504360505117890195683717"
+      }
+    },
+    "causal_findings": [
+      "EvalScope Total Throughput is a product workload rate over Test Duration and includes the one output token. It is not a pure prompt rate and cannot be compared as though it were request_prefill_kv_computed_tokens divided by request_prefill_time.",
+      "The prompt-over-EvalScope-TTFT diagnostic is lower than the server Prefill rate because the external interval includes non-Prefill server work plus HTTP/client observation. The retained aggregates split the 100.546773938980-ms difference into 65.284685697400 ms between server Prefill and server TTFT and 35.262088241580 ms between server TTFT and EvalScope TTFT.",
+      "Only 0.039999838918 ms of the 65.284685697400-ms server-side difference is directly identified as queue time. The remaining 65.244685858482 ms is not safely assignable to admission, first-token work, publication, or another subphase from these aggregate metrics alone.",
+      "The 3999.7-token/s logger sample is 10.8516503878x the server request-phase Prefill rate. The vLLM logger source semantics and singleton join are consistent with the completed 40000-token iteration being accounted in a later local logger interval, but the log does not observe that interval's exact duration. It does not demonstrate a 3999.7-token/s request, pure-Prefill, or TTFT result.",
+      "Server log line 129 is the streaming warmup HTTP response-start observation, not completion. Line 130 records _compute_slot_mapping_kernel JIT during the warmup transaction, so this warmup was not a JIT-free steady-state sample even before applying the missing thermal/frequency-envelope gate.",
+      "The singleton join is strong enough to reconcile metric semantics but lacks a stable cross-surface request ID and a formally bracketed pre-warmup Prometheus scrape, so it has diagnostic authority only."
+    ]
+  },
+  "performance_validity": {
+    "formal_warmup_tegrastats_interval_retained": false,
+    "formal_warmup_frequency_envelope_retained": false,
+    "formal_warmup_thermal_envelope_retained": false,
+    "jit_free_warmup": false,
+    "valid_for_performance": false,
+    "reason": "No formal clean-host warmup thermal/frequency interval was retained, and an inference-time Triton JIT occurred during the transaction. The values may explain metric semantics only."
+  },
+  "claim_boundary": {
+    "owner_vllm_starting_line_prompt_tokens_per_second": 4300.0,
+    "owner_target_status": "unchanged",
+    "use_this_record_as_vllm_baseline": false,
+    "use_this_record_to_lower_owner_target": false,
+    "use_logger_sample_as_request_throughput": false,
+    "use_evalscope_total_throughput_as_pure_prefill": false,
+    "statement": "This record reconciles how one invalid warmup appears on EvalScope, Prometheus, and the vLLM logger. It neither establishes a vLLM performance baseline nor changes the project owner's 4.3K prompt-token/s planning constraint."
+  }
+}

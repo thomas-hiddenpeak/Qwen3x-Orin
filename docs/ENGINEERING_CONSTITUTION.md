@@ -289,11 +289,13 @@ These targets remain active until the project owner changes them:
 | Accuracy | Production output/capability does not regress | public evaluation plus pinned deterministic oracles |
 
 The observed vLLM Agent experience is the starting reference for these
-Prefill targets. A ten-second `Avg prompt throughput` log around 4.3K token/s
-is supporting telemetry, not an upper bound and not permission to reduce the
-business target. EvalScope is another product-facing observation surface; a
-short-prompt corpus or unmatched endpoint cannot invalidate the long-context
-Agent requirement.
+Prefill targets. An `Avg prompt throughput` log around 4.3K token/s, emitted
+on vLLM's nominal approximately-ten-second logger cadence, is supporting
+telemetry; the log line does not establish its exact elapsed interval or a
+single request's Prefill latency. It is not an upper bound and not permission
+to reduce the business target. EvalScope is another product-facing
+observation surface; a short-prompt corpus or unmatched endpoint cannot
+invalidate the long-context Agent requirement.
 
 The native runner must first match vLLM's useful performance on this
 specialized hardware/model family. Its market justification then requires

@@ -566,10 +566,16 @@ class VllmP40GeometryTest(unittest.TestCase):
             )
             log.write_text(required)
             observed = GEOMETRY.observe_server_log(log, 8_192)
+            self.assertEqual(observed["schema_version"], 2)
+            self.assertEqual(
+                observed["parser_identity"],
+                "q3x.vllm_server_log_observation.lf_physical_lines.v2",
+            )
             self.assertTrue(all(observed["required_route_probe_hits"].values()))
             self.assertEqual(
-                observed["ten_second_logger_prompt_throughput_maximum"], 4300.0
+                observed["logger_interval_prompt_throughput_maximum"], 4300.0
             )
+            self.assertNotIn("ten_second_logger_samples", observed)
             self.assertEqual(
                 observed["backend_evidence"]["quantization"], "modelopt_mixed"
             )
@@ -578,17 +584,28 @@ class VllmP40GeometryTest(unittest.TestCase):
                 "auto",
             )
             self.assertEqual(
-                observed["ten_second_logger_samples"][0][
-                    "position_by_fixed_harness_response_start_order"
+                observed["logger_interval_samples"][0][
+                    "position_by_fixed_harness_http_response_start_"
+                    "access_log_order"
                 ],
-                "after_first_before_second_response_start_access",
+                "after_first_before_second_http_response_start_access_log_"
+                "observation",
             )
             self.assertEqual(
-                len(observed["http_response_start_accesses"]), 2
+                len(observed["http_response_start_access_log_observations"]),
+                2,
             )
             self.assertEqual(
-                observed["http_response_start_accesses"][0]["semantics"],
-                "http_response_start_access",
+                observed["http_response_start_access_log_observations"][0][
+                    "semantics"
+                ],
+                "access_log_emitted_at_asgi_http_response_start",
+            )
+            self.assertEqual(
+                observed["backend_evidence"]["nvfp4_linear_selection"][
+                    "evidence_status"
+                ],
+                "source-resolved/runtime-hit-unproven",
             )
             self.assertNotIn("api_completion_responses", observed)
             self.assertEqual(
@@ -599,13 +616,13 @@ class VllmP40GeometryTest(unittest.TestCase):
             )
             self.assertEqual(
                 observed["startup_and_compilation"]["runtime_jit_events"][0][
-                    "http_response_start_accesses_seen"
+                    "http_response_start_access_log_observations_seen"
                 ],
                 1,
             )
             self.assertEqual(
                 observed["startup_and_compilation"]["runtime_jit_events"][0][
-                    "request_phase_from_access_log"
+                    "request_phase_from_http_response_start_access_log"
                 ],
                 "indeterminate_including_streaming_warmup",
             )
@@ -621,11 +638,21 @@ class VllmP40GeometryTest(unittest.TestCase):
             )
             self.assertFalse(observed["authority"]["performance_promotion"])
             self.assertEqual(
-                observed["authority"]["request_phase_from_access_log"],
+                observed["authority"][
+                    "request_phase_from_http_response_start_access_log"
+                ],
                 "not_established",
             )
+            self.assertEqual(
+                observed["authority"]["logger_interval_duration"],
+                "not_established_by_server_log",
+            )
             self.assertIn(
-                "response-start observation, not request completion",
+                "not proof of client header receipt",
+                observed["note"],
+            )
+            self.assertIn(
+                "must not be assumed to be exactly ten seconds",
                 observed["note"],
             )
             self.assertIn("warmup completion", observed["note"])
@@ -639,6 +666,89 @@ class VllmP40GeometryTest(unittest.TestCase):
             log.write_text(required + "\nUsing Humming")
             with self.assertRaisesRegex(GEOMETRY.GeometryError, "forbidden route"):
                 GEOMETRY.observe_server_log(log, 8_192)
+
+    def test_server_log_preserves_cr_progress_inside_lf_physical_lines(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            log = pathlib.Path(temporary) / "server.log"
+            route_records = (
+                b"speculative_config=None, quantization=modelopt_mixed,",
+                b"enable_prefix_caching=False, enable_chunked_prefill=True,",
+                b"non-default args: {'max_num_batched_tokens': 8192}, "
+                b"kernel_config=KernelConfig(linear_backend='auto')",
+                b"Using AttentionBackendEnum.FLASHINFER backend.",
+                b"Using Triton/FLA GDN prefill kernel "
+                b"(requested=auto, head_k_dim=128).",
+            )
+            logger_before_start = (
+                b"progress=10%\r08-12 05:00:20 [loggers.py:310] Engine 000: "
+                b"Avg prompt throughput: 100.0 tokens/s, Avg generation "
+                b"throughput: 0.0 tokens/s, Running: 1 reqs, Waiting: 0 reqs, "
+                b"GPU KV cache usage: 0.0%, Prefix cache hit rate: 0.0%\r"
+                b'INFO: 127.0.0.1 - "POST /v1/completions HTTP/1.1" 200 OK'
+            )
+            second_start_before_logger = (
+                b"progress=90%\r"
+                b'INFO: 127.0.0.1 - "POST /v1/completions HTTP/1.1" 200 OK\r'
+                b"08-12 05:00:30 [loggers.py:310] Engine 000: Avg prompt "
+                b"throughput: 200.0 tokens/s, Avg generation throughput: "
+                b"0.0 tokens/s, Running: 0 reqs, Waiting: 0 reqs, GPU KV "
+                b"cache usage: 0.0%, Prefix cache hit rate: 0.0%"
+            )
+            raw_log = b"\n".join(
+                route_records + (logger_before_start, second_start_before_logger)
+            )
+            log.write_bytes(raw_log)
+
+            observed = GEOMETRY.observe_server_log(log, 8_192)
+
+            self.assertEqual(
+                observed["physical_line_contract"],
+                {
+                    "delimiter": "LF_byte_only",
+                    "decoded_physical_line_count": 7,
+                    "carriage_return_byte_count": 4,
+                    "bare_carriage_return_byte_count": 4,
+                    "carriage_returns_preserved_within_physical_lines": True,
+                },
+            )
+            starts = observed["http_response_start_access_log_observations"]
+            samples = observed["logger_interval_samples"]
+            self.assertEqual([event["line"] for event in starts], [6, 7])
+            self.assertEqual([sample["line"] for sample in samples], [6, 7])
+            self.assertTrue(
+                all(
+                    event["physical_line_contains_carriage_return"]
+                    for event in starts
+                )
+            )
+            self.assertEqual(
+                samples[0][
+                    "http_response_start_access_log_observations_seen"
+                ],
+                0,
+            )
+            self.assertEqual(
+                samples[0][
+                    "position_by_fixed_harness_http_response_start_"
+                    "access_log_order"
+                ],
+                "before_first_http_response_start_access_log_observation",
+            )
+            self.assertEqual(
+                samples[1][
+                    "http_response_start_access_log_observations_seen"
+                ],
+                2,
+            )
+            self.assertEqual(
+                observed["logger_interval_prompt_throughput_tokens_per_second"],
+                [100.0, 200.0],
+            )
+            self.assertEqual(
+                observed["log_sha256"], hashlib.sha256(raw_log).hexdigest()
+            )
 
 
 if __name__ == "__main__":

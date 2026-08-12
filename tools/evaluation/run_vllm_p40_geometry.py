@@ -2063,9 +2063,17 @@ def run_measured_evalscope(
 
 def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        raw_log = path.read_bytes()
     except OSError as error:
         raise GeometryError(f"cannot read vLLM log {path}: {error}") from error
+    # vLLM and its progress renderers can emit bare carriage returns while
+    # updating one terminal line.  Universal-newline text IO and
+    # str.splitlines() both turn those updates into fictitious physical lines.
+    # Decode only after retaining the original bytes, and recognize LF alone
+    # as the physical-record delimiter.  CR remains available for byte-order
+    # event attribution inside its actual LF-delimited record.
+    text = raw_log.decode("utf-8", errors="replace")
+    physical_lines = text.split("\n")
     forbidden = (
         "linear_backend='humming'",
         '"linear_backend": "humming"',
@@ -2110,77 +2118,121 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
         r"(?P<kernel>[^.]+)\."
     )
 
-    logger_samples: list[dict[str, Any]] = []
-    http_response_start_accesses: list[dict[str, Any]] = []
+    logger_interval_samples: list[dict[str, Any]] = []
+    http_response_start_access_log_observations: list[dict[str, Any]] = []
     runtime_jit_events: list[dict[str, Any]] = []
-    response_start_accesses_seen = 0
-    for line_number, line in enumerate(text.splitlines(), start=1):
-        response_start_access = response_start_access_pattern.search(line)
-        if response_start_access is not None:
-            response_start_accesses_seen += 1
-            http_response_start_accesses.append(
-                {
-                    "ordinal": response_start_accesses_seen,
-                    "line": line_number,
-                    "status": int(response_start_access.group("status")),
-                    "semantics": "http_response_start_access",
-                }
-            )
-        stamp = timestamp_pattern.search(line)
-        logger = logger_pattern.search(line)
-        if logger is not None:
-            if response_start_accesses_seen == 0:
-                response_start_position = "before_first_response_start_access"
-            elif response_start_accesses_seen == 1:
+    http_response_start_access_log_observations_seen = 0
+
+    def event_timestamp(line: str, offset: int) -> str | None:
+        preceding = None
+        carriage_return_segment_start = line.rfind("\r", 0, offset) + 1
+        for candidate in timestamp_pattern.finditer(line):
+            if candidate.start() > offset:
+                break
+            if candidate.start() >= carriage_return_segment_start:
+                preceding = candidate
+        return preceding.group("stamp") if preceding is not None else None
+
+    for line_number, line in enumerate(physical_lines, start=1):
+        # A progress renderer can leave several observations in one physical
+        # LF record separated by CR.  Process every match in original byte
+        # order instead of imposing parser-type order on that record.
+        events: list[tuple[int, str, Any]] = []
+        events.extend(
+            (match.start(), "http_response_start_access_log", match)
+            for match in response_start_access_pattern.finditer(line)
+        )
+        events.extend(
+            (match.start(), "logger_interval", match)
+            for match in logger_pattern.finditer(line)
+        )
+        events.extend(
+            (match.start(), "runtime_jit", match)
+            for match in jit_pattern.finditer(line)
+        )
+        events.sort(key=lambda event: event[0])
+
+        for offset, kind, match in events:
+            if kind == "http_response_start_access_log":
+                http_response_start_access_log_observations_seen += 1
+                http_response_start_access_log_observations.append(
+                    {
+                        "ordinal": (
+                            http_response_start_access_log_observations_seen
+                        ),
+                        "line": line_number,
+                        "character_offset_within_decoded_physical_line": (
+                            offset
+                        ),
+                        "physical_line_contains_carriage_return": "\r" in line,
+                        "status": int(match.group("status")),
+                        "semantics": (
+                            "access_log_emitted_at_asgi_http_response_start"
+                        ),
+                    }
+                )
+                continue
+
+            if http_response_start_access_log_observations_seen == 0:
                 response_start_position = (
-                    "after_first_before_second_response_start_access"
+                    "before_first_http_response_start_access_log_observation"
+                )
+            elif http_response_start_access_log_observations_seen == 1:
+                response_start_position = (
+                    "after_first_before_second_http_response_start_access_log_"
+                    "observation"
                 )
             else:
-                response_start_position = "after_second_response_start_access"
-            logger_samples.append(
-                {
-                    "line": line_number,
-                    "month_day_clock": (
-                        stamp.group("stamp") if stamp is not None else None
-                    ),
-                    "prompt_tokens_per_second": float(logger.group("prompt")),
-                    "generation_tokens_per_second": float(
-                        logger.group("generation")
-                    ),
-                    "running_requests": int(logger.group("running")),
-                    "waiting_requests": int(logger.group("waiting")),
-                    "gpu_kv_cache_usage_percent": float(logger.group("kv")),
-                    "prefix_cache_hit_rate_percent": float(
-                        logger.group("prefix")
-                    ),
-                    "http_response_start_accesses_seen": (
-                        response_start_accesses_seen
-                    ),
-                    "position_by_fixed_harness_response_start_order": (
-                        response_start_position
-                    ),
-                }
-            )
-        jit = jit_pattern.search(line)
-        if jit is not None:
+                response_start_position = (
+                    "after_second_http_response_start_access_log_observation"
+                )
+
+            if kind == "logger_interval":
+                logger_interval_samples.append(
+                    {
+                        "line": line_number,
+                        "character_offset_within_decoded_physical_line": (
+                            offset
+                        ),
+                        "physical_line_contains_carriage_return": "\r" in line,
+                        "month_day_clock": event_timestamp(line, offset),
+                        "prompt_tokens_per_second": float(match.group("prompt")),
+                        "generation_tokens_per_second": float(
+                            match.group("generation")
+                        ),
+                        "running_requests": int(match.group("running")),
+                        "waiting_requests": int(match.group("waiting")),
+                        "gpu_kv_cache_usage_percent": float(match.group("kv")),
+                        "prefix_cache_hit_rate_percent": float(
+                            match.group("prefix")
+                        ),
+                        "http_response_start_access_log_observations_seen": (
+                            http_response_start_access_log_observations_seen
+                        ),
+                        "position_by_fixed_harness_http_response_start_"
+                        "access_log_order": response_start_position,
+                    }
+                )
+                continue
+
             runtime_jit_events.append(
                 {
                     "line": line_number,
-                    "month_day_clock": (
-                        stamp.group("stamp") if stamp is not None else None
+                    "character_offset_within_decoded_physical_line": offset,
+                    "physical_line_contains_carriage_return": "\r" in line,
+                    "month_day_clock": event_timestamp(line, offset),
+                    "kernel": match.group("kernel").strip(),
+                    "http_response_start_access_log_observations_seen": (
+                        http_response_start_access_log_observations_seen
                     ),
-                    "kernel": jit.group("kernel").strip(),
-                    "http_response_start_accesses_seen": (
-                        response_start_accesses_seen
-                    ),
-                    "request_phase_from_access_log": (
+                    "request_phase_from_http_response_start_access_log": (
                         "indeterminate_including_streaming_warmup"
                     ),
                 }
             )
 
-    logger_prompt_throughput = [
-        sample["prompt_tokens_per_second"] for sample in logger_samples
+    logger_interval_prompt_throughput = [
+        sample["prompt_tokens_per_second"] for sample in logger_interval_samples
     ]
 
     def first_group(pattern: str) -> str | None:
@@ -2209,6 +2261,22 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
         r"Selected ([A-Za-z0-9_]+) for ModelOptFp8LinearMethod", text
     )
     return {
+        "schema_version": 2,
+        "parser_identity": (
+            "q3x.vllm_server_log_observation.lf_physical_lines.v2"
+        ),
+        "physical_line_contract": {
+            "delimiter": "LF_byte_only",
+            "decoded_physical_line_count": len(physical_lines),
+            "carriage_return_byte_count": raw_log.count(b"\r"),
+            "bare_carriage_return_byte_count": sum(
+                1
+                for offset, value in enumerate(raw_log)
+                if value == 0x0D
+                and (offset + 1 == len(raw_log) or raw_log[offset + 1] != 0x0A)
+            ),
+            "carriage_returns_preserved_within_physical_lines": True,
+        },
         "budget": budget,
         "forbidden_route_matches": matched_forbidden,
         "required_route_probe_hits": probe_hits,
@@ -2225,9 +2293,11 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
             "flashinfer_resolved_dtypes": first_group(
                 r"FlashInfer resolved query dtypes:\s*([^\n]+)"
             ),
-            "nvfp4_linear_selection": (
-                "MarlinNvFp4LinearKernel (source-attested; no selection log)"
-            ),
+            "nvfp4_linear_selection": {
+                "kernel": "MarlinNvFp4LinearKernel",
+                "evidence_status": "source-resolved/runtime-hit-unproven",
+                "runtime_selection_log_observed": False,
+            },
             "humming_runtime_selected": bool(
                 re.search(r"Using Humming|linear_backend=['\"]humming", text)
             ),
@@ -2246,34 +2316,45 @@ def observe_server_log(path: pathlib.Path, budget: int) -> dict[str, Any]:
             in text,
             "runtime_jit_events": runtime_jit_events,
         },
-        "http_response_start_accesses": http_response_start_accesses,
-        "ten_second_logger_samples": logger_samples,
-        "ten_second_logger_prompt_throughput_tokens_per_second": (
-            logger_prompt_throughput
+        "http_response_start_access_log_observations": (
+            http_response_start_access_log_observations
         ),
-        "ten_second_logger_prompt_throughput_maximum": (
-            max(logger_prompt_throughput) if logger_prompt_throughput else None
+        "logger_interval_samples": logger_interval_samples,
+        "logger_interval_prompt_throughput_tokens_per_second": (
+            logger_interval_prompt_throughput
         ),
-        "log_sha256": sha256_file(path),
+        "logger_interval_prompt_throughput_maximum": (
+            max(logger_interval_prompt_throughput)
+            if logger_interval_prompt_throughput
+            else None
+        ),
+        "log_sha256": hashlib.sha256(raw_log).hexdigest(),
         "authority": {
             "backend_and_startup_route": "supporting_route_evidence",
-            "logger_window_throughput": "supporting_telemetry_only",
+            "logger_interval_throughput": "supporting_telemetry_only",
+            "logger_interval_duration": "not_established_by_server_log",
+            "nvfp4_linear_runtime_hit": "not_established_by_server_log",
             "request_latency": "not_established_by_server_log",
-            "request_phase_from_access_log": "not_established",
+            "request_phase_from_http_response_start_access_log": (
+                "not_established"
+            ),
             "scheduler_geometry": "must_be_established_by_metric_delta",
             "performance_promotion": False,
         },
         "note": (
-            "W4A16_NVFP4 is pinned to Marlin by vLLM 0.26.0 ModelOpt source; "
-            "the complete startup log is retained because not every direct kernel "
-            "binding emits a runtime selection line; the installed ModelOpt "
-            "source identity is attested separately. Avg prompt throughput is "
+            "W4A16_NVFP4 resolves to Marlin in the attested vLLM 0.26.0 "
+            "ModelOpt source, but this server log has no NVFP4 runtime-selection "
+            "or kernel-hit observation; its status is therefore source-resolved/"
+            "runtime-hit-unproven. Avg prompt throughput is "
             "computed from tokens recorded during vLLM's local logger interval; "
-            "a long iteration is recorded atomically after it completes, so this "
+            "the actual interval duration is not present in this server log and "
+            "must not be assumed to be exactly ten seconds from nominal cadence. "
+            "A long iteration is recorded atomically after it completes, so this "
             "window rate is not request elapsed time or pure-Prefill latency. "
-            "For streaming requests the retained POST access line is treated "
-            "only as an HTTP response-start observation, not request completion; "
-            "access-line order alone cannot assign a logger or JIT event to "
+            "For streaming requests the retained POST line is an access-log "
+            "observation emitted at ASGI http.response.start, not proof of client "
+            "header receipt, first body byte, or request completion; its order "
+            "alone cannot assign a logger or JIT event to "
             "warmup completion, the measured request, or another request phase."
         ),
     }

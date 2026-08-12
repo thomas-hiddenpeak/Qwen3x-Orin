@@ -54,7 +54,23 @@
   },
   "server_log_analysis": {
     "authority": "supporting_route_and_startup_evidence_only",
-    "successful_http_response_start_accesses": 2,
+    "parser_schema_version": 2,
+    "parser_identity": "q3x.vllm_server_log_observation.lf_physical_lines.v2",
+    "physical_line_contract": {
+      "delimiter": "LF_byte_only",
+      "decoded_physical_line_count": 155,
+      "carriage_return_byte_count": 17,
+      "bare_carriage_return_byte_count": 12,
+      "carriage_returns_preserved_within_physical_lines": true
+    },
+    "http_response_start_access_log_observations": 2,
+    "http_response_start_access_log_semantics": "access_log_emitted_at_asgi_http_response_start",
+    "logger_interval_duration": "not_established_by_server_log",
+    "nvfp4_linear_selection": {
+      "kernel": "MarlinNvFp4LinearKernel",
+      "evidence_status": "source-resolved/runtime-hit-unproven",
+      "runtime_selection_log_observed": false
+    },
     "startup": {
       "compile_range": [1, 40000],
       "torch_compile_seconds": 133.46,
@@ -66,25 +82,25 @@
       {
         "month_day_clock": "08-12 05:22:34",
         "kernel": "_compute_slot_mapping_kernel",
-        "http_response_start_accesses_seen": 1,
-        "request_phase_from_access_log": "indeterminate_including_streaming_warmup"
+        "http_response_start_access_log_observations_seen": 1,
+        "request_phase_from_http_response_start_access_log": "indeterminate_including_streaming_warmup"
       }
     ],
-    "logger_samples": [
+    "logger_interval_samples": [
       {
         "month_day_clock": "08-12 05:24:30",
         "prompt_tokens_per_second": 3999.7,
-        "http_response_start_accesses_seen": 1,
-        "position_by_fixed_harness_response_start_order": "after_first_before_second_response_start_access"
+        "http_response_start_access_log_observations_seen": 1,
+        "position_by_fixed_harness_http_response_start_access_log_order": "after_first_before_second_http_response_start_access_log_observation"
       },
       {
         "month_day_clock": "08-12 05:24:40",
         "prompt_tokens_per_second": 0.0,
-        "http_response_start_accesses_seen": 1,
-        "position_by_fixed_harness_response_start_order": "after_first_before_second_response_start_access"
+        "http_response_start_access_log_observations_seen": 1,
+        "position_by_fixed_harness_http_response_start_access_log_order": "after_first_before_second_http_response_start_access_log_observation"
       }
     ],
-    "interpretation": "The first POST 200 access line is the warmup streaming HTTP response-start observation, not request completion; the following JIT event can still belong to warmup inference. Joined with the harness transaction, the later 3999.7 tok/s sample is an aggregate logger window after warmup prompt accounting settled and before the measured POST response start. It is not request elapsed throughput, pure Prefill throughput, or the invalid measured request's result; access-line order alone cannot establish request phase."
+    "interpretation": "The first POST 200 access line is an access-log observation emitted at ASGI http.response.start, not proof of client header receipt, first body byte, or request completion; the following JIT event can still belong to warmup inference. Joined with the harness transaction, the later 3999.7 tok/s sample is an aggregate logger interval after warmup prompt accounting settled and before the measured POST response-start access-log observation. Its exact interval duration is not established by the server log. It is not request elapsed throughput, pure Prefill throughput, or the invalid measured request's result; access-log order alone cannot establish request phase."
   },
   "invalidation": {
     "harness_failure": "clock/RAM drift at tegrastats line 45: gpu=(1294,1294), emc=3200, cpu=2201 MHz, ram_total=62878 MiB",

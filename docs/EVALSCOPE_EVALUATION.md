@@ -238,10 +238,11 @@ another.
 
 The vLLM logger rate has supporting-telemetry authority only. In vLLM 0.26.0,
 computed prompt tokens are added when an engine iteration reports its stats,
-then divided by the elapsed local logger interval, whose default cadence is
-ten seconds. A single long Prefill iteration can therefore be accounted
-atomically in the next short logger bucket. Its printed token/s is neither the
-iteration's elapsed throughput nor request TTFT. The structured observation
+then divided by the elapsed local logger interval. The default cadence is
+approximately ten seconds, but the backend line itself does not retain that
+interval's exact elapsed duration. A single long Prefill iteration can
+therefore be accounted atomically in the next short logger bucket. Its printed
+token/s is neither the iteration's elapsed throughput nor request TTFT. The structured observation
 records how many fixed-harness HTTP response-start access observations precede
 each logger and JIT event. That ordering is useful but does not establish a
 request phase: after the first streaming response start, the warmup may still
@@ -256,7 +257,7 @@ not make the intervals interchangeable.
 
 | Surface | Numerator and interval | Authority | Main reason it differs |
 | --- | --- | --- | --- |
-| vLLM `Avg prompt throughput` | Engine-wide `prompt_token_stats.computed` accumulated when iteration stats arrive, divided by `monotonic_now - last_log_time`; the counter then resets | Route-adjacent service telemetry only | A default approximately-ten-second bucket, chunked iterations, and multiple requests share one denominator; a complete long iteration can land atomically in a later bucket |
+| vLLM `Avg prompt throughput` | Engine-wide `prompt_token_stats.computed` accumulated when iteration stats arrive, divided by `monotonic_now - last_log_time`; the counter then resets | Route-adjacent service telemetry only | The actual local interval may differ from the nominal approximately-ten-second cadence; chunked iterations and multiple requests share one denominator, and a complete long iteration can land atomically in a later bucket |
 | vLLM `request_prefill_time` plus `request_prefill_kv_computed_tokens` deltas | Per finished request, newly computed non-cached prompt tokens divided by `first_token_ts - scheduled_ts` | Server Prefill-phase evidence | Includes any Prefill preemption and the engine path through the first new-token event, but excludes client/HTTP time and queue-before-schedule time |
 | EvalScope prompt tokens divided by TTFT | Exact submitted prompt-token count divided by POST-start to first non-empty generated-token event | Product-visible external result | Includes API parsing/admission, queueing, engine work, first-token publication, streaming, and client observation; the full prompt numerator must not be used when the server reports cache reuse |
 
@@ -264,9 +265,9 @@ The expected comparison is therefore not equality among all three numbers.
 For one cold, no-cache, batch-one request, the Prometheus request deltas are
 the controlling bridge between the external TTFT and backend execution. The
 backend log explains route, JIT/autotune, chunking and scheduler state around
-that request. Its ten-second rate is retained to reconcile service behavior
-and the owner's observed vLLM window, but never substitutes for either the
-request-bound server interval or EvalScope TTFT.
+that request. Its logger-interval rate is retained to reconcile service
+behavior and the owner's observed vLLM window, but never substitutes for
+either the request-bound server interval or EvalScope TTFT.
 
 A difference is decomposed in this order: verify exact token and cache-source
 deltas; bind warmup and measured request identities; compare POST-to-first-

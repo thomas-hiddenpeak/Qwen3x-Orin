@@ -434,7 +434,8 @@ does not consume that valid-witness slot:
   identity retained; and
 - EvalScope TTFT plus vLLM's scheduled-to-first-token Prefill-phase telemetry
   kept as distinct observables. The latter is not mislabeled as pure GPU
-  kernel time or as the logger's 10-second aggregate prompt throughput.
+  kernel time or as the logger's local-interval aggregate prompt throughput;
+  that interval's exact duration is not established by the log line.
 
 This first witness reconciles the owner's known vLLM behavior with the exact
 current configuration at the production target before any explanatory
@@ -498,16 +499,41 @@ Its backend log remains valid route evidence, with an important streaming
 correction. Line 129 is the warmup POST's HTTP response-start access
 observation, not request completion; line 130 records
 `_compute_slot_mapping_kernel` JIT while that warmup inference/stream can still
-be active. The later `3999.7 tok/s` line is the aggregate logger window after
+be active. The later `3999.7 tok/s` line is the aggregate logger interval after
 the warmup's prompt accounting settled. It is before the measured POST's
 response-start observation and is not the measured P40 result. The vLLM
-0.26.0 logger accumulates iteration tokens into a local ten-second bucket; a
-long single iteration can be accounted atomically in a later bucket and print
-a rate unrelated to that iteration's elapsed time. Future witnesses retain a
-structured backend-log timeline even when their performance result is
+0.26.0 logger accumulates iteration tokens into a local interval whose
+nominal cadence is approximately ten seconds, but whose exact duration is not
+printed; a long single iteration can be accounted atomically in a later
+bucket and print a rate unrelated to that iteration's elapsed time. Future
+witnesses retain a structured backend-log timeline even when their performance result is
 invalid, but join it with request TTFT, explicit request/engine boundaries,
 and Prometheus scheduler geometry before any phase or performance
 interpretation. Access-line order alone never establishes request completion.
+
+The retained warmup is now reconciled across all three surfaces in the
+[`warmup metric reconciliation`](metadata/qwen36-27b-vllm-p40-warmup-metric-reconciliation-2026-08-12.json).
+The singleton-joined cold/no-cache 40K warmup recorded `40000 /
+108.52464322606102 =
+368.579880` token/s from the server's scheduled-to-first-token Prefill
+interval, `40000 / 108.58992791175842 = 368.358289` token/s from server TTFT,
+and `40000 / 108.62519 = 368.238711` token/s when EvalScope prompt tokens are
+divided by external TTFT. EvalScope's separately printed `368.2478` token/s
+is total input-plus-output throughput over test duration and is not relabeled
+as pure prompt throughput. The external-to-server-Prefill gap is only
+`100.546774 ms`, whereas the nearby logger sample is `3999.7` token/s, or
+`10.851650x` the request-bound server rate. The vLLM logger source semantics
+and fresh-process singleton join support this metric interpretation, although
+the evidence lacks a stable cross-surface request ID and therefore has no
+performance authority. It is consistent with the logger sample being a
+window-accounting observation, not a pure-Prefill measurement.
+
+These warmup figures have metric-semantics authority only. That warmup did not
+have a formal thermal/frequency envelope, while the later measured request was
+thermally invalid; neither becomes a vLLM performance baseline. The mismatch
+instead requires auditing the stock r5 route, preparation, and configuration
+against the owner's optimized vLLM route. It does not lower the owner-observed
+4.3K reference or the locked 40K--60K product target.
 
 The r5 thermal rejection also exposed a retained-evidence gap: the measured
 telemetry validator raised before the launcher captured
@@ -532,7 +558,7 @@ The retained log currently gives the following causal comparison surface:
 | Compile and warmup | range `[1,40000]`; `torch.compile` 133.46 s; initial profile/warmup 99.82 s; AOT function saved | Startup specialization and cache readiness are material parts of the observed route | Timed-request Prefill or TTFT performance |
 | FlashInfer autotune | enabled | The Attention route may select a shape-specific plan during preparation | That every relevant shape was tuned or reused during measurement |
 | Inference-time JIT warning | `_compute_slot_mapping_kernel` at line 130, immediately after the warmup streaming response-start access at line 129 | Runtime compilation occurred during the continuing warmup inference; the response-start access did not close the request | Its cost in the later invalid measured request, or any request phase inferred from access order alone |
-| Prompt-throughput logger | `3999.7`, then `0.0` tok/s; one HTTP response-start access previously observed | Joined with the harness, this is a post-warmup accounting window before the measured response start | Per-request elapsed throughput, pure Prefill throughput, measured-P40 throughput, or request completion from the access line |
+| Prompt-throughput logger | `3999.7`, then `0.0` tok/s; one HTTP response-start access-log observation previously emitted | Joined with the harness, this is a post-warmup accounting interval before the measured response start | The interval's exact duration, per-request elapsed throughput, pure Prefill throughput, measured-P40 throughput, or request completion from the access line |
 
 Joined with the current Q3X request witness, those facts narrow the gap without
 pretending that the invalid run is a reference score:
