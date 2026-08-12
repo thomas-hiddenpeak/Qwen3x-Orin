@@ -15,6 +15,11 @@ namespace q3x::runtime {
 class Sm87TargetAotProjectionDeviceAssets;
 struct Sm87TargetAotProjectionDevicePreparationStats;
 class ReferenceEngine;
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+namespace reference_engine_test_detail {
+class Sm87TargetAotLayer0M192OracleAccess;
+}
+#endif
 
 inline constexpr std::size_t kSm87TargetAotProjectionDeviceLayerCount = 64U;
 inline constexpr std::size_t kSm87TargetAotProjectionDeviceArtifactCount =
@@ -87,6 +92,10 @@ class Sm87TargetAotProjectionDeviceAssets final {
  private:
   friend class ReferenceEngine;
   friend class ModelWeights;
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  friend class reference_engine_test_detail::
+      Sm87TargetAotLayer0M192OracleAccess;
+#endif
 
   // Private loader-issued authority. Engine startup may call this only through
   // a ReferenceEngine member; there is deliberately no public/free

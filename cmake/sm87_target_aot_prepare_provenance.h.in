@@ -42,6 +42,8 @@ inline constexpr bool kTargetProjectionAdmission =
     @Q3X_PROVENANCE_TARGET_PROJECTION_ADMISSION@;
 inline constexpr bool kTargetDeviceAssetsAdmission =
     @Q3X_PROVENANCE_TARGET_DEVICE_ASSETS_ADMISSION@;
+inline constexpr bool kTargetLayer0M192OracleAdmission =
+    @Q3X_PROVENANCE_TARGET_LAYER0_M192_ORACLE_ADMISSION@;
 inline constexpr bool kFp8MarlinPrefillAdmission =
     @Q3X_PROVENANCE_FP8_MARLIN_PREFILL_ADMISSION@;
 inline constexpr bool kNvFp4MarlinPrefillAdmission =

@@ -110,6 +110,10 @@ option(Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION
   "Build the test-only real-checkpoint target-AOT device owner, uploader, receipt issuer, and private ModelWeights attachment"
   OFF
 )
+option(Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION
+  "Build the test-only real-weight layer-0 M192 numerical/resource oracle for the private target-AOT NVFP4 kernels"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -308,6 +312,18 @@ if(Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION AND
     "Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION requires the byte-authenticated target-AOT projection admission"
   )
 endif()
+if(Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION AND
+   NOT Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION requires the real-checkpoint target-AOT device assets admission"
+  )
+endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
     Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION) OR
    (Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -465,6 +481,15 @@ if(Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
   # the compile-only public launcher.
   target_compile_definitions(q3x_core PUBLIC
     Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  # The source-private Oracle needs narrowly gated friendship in three
+  # installed class definitions. Propagate one admission bit from the core
+  # interface so core, kernels, engine, probes, tests, and package consumers
+  # all preprocess those class definitions identically.
+  target_compile_definitions(q3x_core PUBLIC
+    Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION=1
   )
 endif()
 q3x_enable_warnings(q3x_core)
@@ -831,7 +856,66 @@ if(BUILD_TESTING)
     set_tests_properties(orin_perf_preflight_host PROPERTIES
       LABELS "performance;preflight;host"
     )
+    add_test(
+      NAME target_aot_nvmap_recovery_host
+      COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
+              "${Python3_EXECUTABLE}" -m unittest
+              tests.test_classify_target_aot_nvmap_recovery
+    )
+    set_tests_properties(target_aot_nvmap_recovery_host PROPERTIES
+      LABELS "correctness;checkpoint;host;sm87"
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    add_test(
+      NAME target_aot_probe_lifecycle_host
+      COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
+              "${Python3_EXECUTABLE}" -m unittest
+              tests.test_run_target_aot_probe_with_nvmap
+    )
+    set_tests_properties(target_aot_probe_lifecycle_host PROPERTIES
+      LABELS "correctness;checkpoint;host;sm87"
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
   endif()
+
+  add_executable(q3x_sm87_target_aot_oracle_admission_contract_test
+    tests/sm87_target_aot_oracle_admission_contract_test.cpp
+  )
+  target_link_libraries(
+    q3x_sm87_target_aot_oracle_admission_contract_test PRIVATE q3x::core
+  )
+  if(Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+    target_compile_definitions(
+      q3x_sm87_target_aot_oracle_admission_contract_test PRIVATE
+      Q3X_EXPECT_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION=1
+    )
+  else()
+    target_compile_definitions(
+      q3x_sm87_target_aot_oracle_admission_contract_test PRIVATE
+      Q3X_EXPECT_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION=0
+    )
+  endif()
+  q3x_enable_warnings(q3x_sm87_target_aot_oracle_admission_contract_test)
+  add_test(NAME sm87_target_aot_oracle_admission_contract
+    COMMAND q3x_sm87_target_aot_oracle_admission_contract_test
+  )
+  set_tests_properties(sm87_target_aot_oracle_admission_contract PROPERTIES
+    LABELS "host;sm87;prefill;target_aot;oracle;admission;odr"
+  )
+
+  add_test(NAME sm87_target_aot_oracle_header_surface_contract
+    COMMAND "${CMAKE_COMMAND}"
+      "-DQ3X_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+      "-DQ3X_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+      "-DQ3X_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+      "-DQ3X_CUDA_INCLUDE_DIRS=${CUDAToolkit_INCLUDE_DIRS}"
+      "-DQ3X_EXPECT_ORACLE=${Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION}"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifySm87TargetAotOracleHeaderSurface.cmake"
+  )
+  set_tests_properties(
+    sm87_target_aot_oracle_header_surface_contract PROPERTIES
+    LABELS "host;sm87;prefill;target_aot;oracle;installed_header;odr"
+  )
 
   set(Q3X_E2E_MODEL_DIR "" CACHE PATH
       "Pinned Qwen3.6-27B-NVFP4 model directory for optional E2E tests")
@@ -2587,6 +2671,19 @@ if(BUILD_TESTING)
     set_tests_properties(sm87_target_aot_projection_cuda_compile PROPERTIES
       LABELS "host;sm87;prefill;target_aot;projection;cuda_compile;default_off"
     )
+
+    if(NOT Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+      add_test(NAME sm87_target_aot_layer0_m192_oracle_isolation
+        COMMAND "${CMAKE_COMMAND}"
+          "-DQ3X_KERNEL_ARCHIVE=$<TARGET_FILE:q3x_kernels>"
+          "-DQ3X_NM=${CMAKE_NM}"
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifySm87TargetAotOracleIsolation.cmake"
+      )
+      set_tests_properties(
+        sm87_target_aot_layer0_m192_oracle_isolation PROPERTIES
+        LABELS "host;sm87;prefill;target_aot;projection;oracle_isolation;default_off"
+      )
+    endif()
   endif()
 
   if(Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
@@ -2641,6 +2738,7 @@ if(BUILD_TESTING)
         "-DQ3X_PROVENANCE_AOT_SYSTEM_ADMISSION=${Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION}"
         "-DQ3X_PROVENANCE_TARGET_PROJECTION_ADMISSION=${Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION}"
         "-DQ3X_PROVENANCE_TARGET_DEVICE_ASSETS_ADMISSION=${Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION}"
+        "-DQ3X_PROVENANCE_TARGET_LAYER0_M192_ORACLE_ADMISSION=${Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION}"
         "-DQ3X_PROVENANCE_FP8_MARLIN_PREFILL_ADMISSION=${Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION}"
         "-DQ3X_PROVENANCE_NVFP4_MARLIN_PREFILL_ADMISSION=${Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION}"
         "-DQ3X_PROVENANCE_P40_PACKED_PROJECTION_ADMISSION=${Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION}"
@@ -2660,10 +2758,26 @@ if(BUILD_TESTING)
       q3x_sm87_target_aot_real_checkpoint_prepare_probe PRIVATE
       "${CMAKE_CURRENT_BINARY_DIR}/generated/tests"
     )
+    if(Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+      target_include_directories(
+        q3x_sm87_target_aot_real_checkpoint_prepare_probe PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+      )
+    endif()
     target_link_libraries(q3x_sm87_target_aot_real_checkpoint_prepare_probe
       PRIVATE q3x::engine CUDA::cudart
     )
     q3x_enable_warnings(q3x_sm87_target_aot_real_checkpoint_prepare_probe)
+    add_test(NAME sm87_target_aot_prepare_probe_contract
+      COMMAND "${CMAKE_COMMAND}"
+        "-DQ3X_PROBE=$<TARGET_FILE:q3x_sm87_target_aot_real_checkpoint_prepare_probe>"
+        "-DQ3X_NM=${CMAKE_NM}"
+        "-DQ3X_EXPECT_ORACLE=${Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifySm87TargetAotPrepareProbeContract.cmake"
+    )
+    set_tests_properties(sm87_target_aot_prepare_probe_contract PROPERTIES
+      LABELS "host;sm87;prefill;target_aot;checkpoint;oracle;schema;gate"
+    )
   endif()
 
   add_executable(q3x_prefill_operator_bindings_test

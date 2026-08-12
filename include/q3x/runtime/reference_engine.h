@@ -19,6 +19,11 @@
 namespace q3x::runtime {
 
 struct Sm87TargetAotProjectionDevicePreparationStats;
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+namespace reference_engine_test_detail {
+class Sm87TargetAotLayer0M192OracleAccess;
+}
+#endif
 
 inline constexpr std::uint32_t kQwen36ImEndTokenId = 248'046U;
 
@@ -821,6 +826,13 @@ class ReferenceEngine {
       const ReferenceDecodeGraphP2ScreenOptions& options = {});
 
  private:
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  // The test-only implementation and all of its evidence types live in a
+  // source-private header. This friendship exposes no installed method,
+  // result type, device view, or production selector.
+  friend class reference_engine_test_detail::
+      Sm87TargetAotLayer0M192OracleAccess;
+#endif
   friend struct ReferenceEngineCreateResult;
   friend ReferenceEngineCreateResult create_reference_engine(
       const std::filesystem::path&, const ReferenceEngineOptions&);

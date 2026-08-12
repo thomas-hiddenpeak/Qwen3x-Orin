@@ -22,9 +22,14 @@ constexpr auto kDownP60 = kernels::sm87_target_aot_projection_plan(
     kernels::Sm87TargetAotProjectionRole::kNvFp4Down, 60'000U);
 constexpr auto kDownP130 = kernels::sm87_target_aot_projection_plan(
     kernels::Sm87TargetAotProjectionRole::kNvFp4Down, 130'000U);
+constexpr auto kGateM192 = kernels::sm87_target_aot_projection_plan(
+    kernels::Sm87TargetAotProjectionRole::kNvFp4GateUp, 192U);
+constexpr auto kDownM192 = kernels::sm87_target_aot_projection_plan(
+    kernels::Sm87TargetAotProjectionRole::kNvFp4Down, 192U);
 
 static_assert(kGateP40.valid() && kGateP60.valid() && kGateP130.valid());
 static_assert(kDownP40.valid() && kDownP60.valid() && kDownP130.valid());
+static_assert(!kGateM192.valid() && !kDownM192.valid());
 static_assert(kGateP40.dynamic_shared_bytes == 76'800U);
 static_assert(kDownP130.dynamic_shared_bytes == 76'800U);
 static_assert(kGateP40.physical_ctas == 16U &&

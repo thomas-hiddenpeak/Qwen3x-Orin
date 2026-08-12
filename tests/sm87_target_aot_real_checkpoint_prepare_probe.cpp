@@ -1,6 +1,9 @@
 #include "q3x/core/sha256.h"
 #include "q3x/runtime/reference_engine.h"
 #include "q3x/runtime/sm87_target_aot_projection_device_assets.h"
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+#include "sm87_target_aot_layer0_m192_oracle_evidence_internal.h"
+#endif
 #include "sm87_target_aot_prepare_provenance.h"
 
 #include <cuda_runtime.h>
@@ -11,7 +14,13 @@
 #include <chrono>
 #include <cctype>
 #include <cstdint>
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+#include <ctime>
+#endif
 #include <filesystem>
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+#include <fstream>
+#endif
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -21,6 +30,9 @@
 
 namespace core = q3x::core;
 namespace runtime = q3x::runtime;
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+namespace oracle = q3x::runtime::reference_engine_test_detail;
+#endif
 namespace provenance = q3x::test::sm87_target_aot_prepare_provenance;
 
 namespace {
@@ -85,9 +97,47 @@ void write_boolean(std::ostream& output, const bool value) {
   return true;
 }
 
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+[[nodiscard]] std::string utc_now() {
+  const auto now = std::chrono::system_clock::now();
+  const auto seconds = std::chrono::time_point_cast<std::chrono::seconds>(now);
+  const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+      now - seconds).count();
+  const std::time_t time = std::chrono::system_clock::to_time_t(now);
+  std::tm utc{};
+  if (gmtime_r(&time, &utc) == nullptr) {
+    return {};
+  }
+  char date[32U]{};
+  if (std::strftime(date, sizeof(date), "%Y-%m-%dT%H:%M:%S", &utc) == 0U) {
+    return {};
+  }
+  std::ostringstream output;
+  output << date << '.' << std::setw(3) << std::setfill('0')
+         << milliseconds << 'Z';
+  return output.str();
+}
+
+[[nodiscard]] std::string read_boot_id() {
+  std::ifstream input("/proc/sys/kernel/random/boot_id");
+  std::string value;
+  if (!std::getline(input, value)) {
+    return {};
+  }
+  return value;
+}
+#endif
+
 struct ProbeEvidence final {
   bool passed = false;
   std::filesystem::path model_directory;
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  std::string child_started_at_utc;
+  std::string child_evidence_finished_at_utc;
+  std::string boot_id;
+  std::uint64_t child_pid = 0U;
+  bool execution_identity_valid = false;
+#endif
 
   bool source_build_provenance_valid = false;
   bool binary_provenance_valid = false;
@@ -125,10 +175,166 @@ struct ProbeEvidence final {
   bool c512_competition_path_exercised = false;
   bool exact_target_inventory = false;
   bool mutually_exclusive_prefill_sidecars_empty = false;
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  bool layer0_m192_oracle_attempted = false;
+#endif
   bool memory_recovered_after_destroy = false;
   runtime::ReferenceEngineLoadStats load;
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  oracle::Sm87TargetAotLayer0M192OracleOutcome layer0_m192_oracle;
+#endif
   runtime::ReferenceEngineDiagnostic diagnostic;
 };
+
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+void write_kernel_resources(
+    std::ostream& output,
+    const oracle::Sm87TargetAotLayer0M192KernelResourceEvidence& value) {
+  output << "{\"role\": " << static_cast<unsigned int>(value.role)
+         << ", \"binary_version\": " << value.binary_version
+         << ", \"registers_per_thread\": " << value.registers_per_thread
+         << ", \"static_shared_bytes\": " << value.static_shared_bytes
+         << ", \"dynamic_shared_bytes\": " << value.dynamic_shared_bytes
+         << ", \"local_bytes\": " << value.local_bytes
+         << ", \"maximum_threads_per_block\": "
+         << value.maximum_threads_per_block
+         << ", \"active_blocks_per_sm\": " << value.active_blocks_per_sm
+         << ", \"physical_ctas\": " << value.physical_ctas
+         << ", \"device_ordinal\": " << value.device_ordinal
+         << ", \"device_major\": " << value.device_major
+         << ", \"device_minor\": " << value.device_minor
+         << ", \"device_sm_count\": " << value.device_sm_count
+         << ", \"block_m\": " << value.block_m
+         << ", \"block_n\": " << value.block_n
+         << ", \"block_k\": " << value.block_k
+         << ", \"pipeline_stages\": " << value.pipeline_stages
+         << ", \"cta_threads\": " << value.cta_threads
+         << ", \"grid_m\": " << value.grid_m
+         << ", \"grid_n\": " << value.grid_n
+         << ", \"full_logical_tasks\": " << value.full_logical_tasks
+         << ", \"tail_logical_tasks\": " << value.tail_logical_tasks
+         << ", \"total_logical_tasks\": " << value.total_logical_tasks
+         << ", \"n_halves_per_logical_task\": "
+         << value.n_halves_per_logical_task
+         << ", \"n_half_features\": " << value.n_half_features
+         << ", \"raster_group_m\": " << value.raster_group_m
+         << ", \"n_stationary\": ";
+  write_boolean(output, value.n_stationary);
+  output << ", \"logical_tasks_per_cta_min\": "
+         << value.logical_tasks_per_cta_min
+         << ", \"logical_tasks_per_cta_max\": "
+         << value.logical_tasks_per_cta_max
+         << ", \"exact_geometry_gate\": ";
+  write_boolean(output, value.exact_geometry_gate);
+  output
+         << ", \"exact_resource_gate\": ";
+  write_boolean(output, value.exact_resource_gate);
+  output << '}';
+}
+
+void write_boundary(
+    std::ostream& output,
+    const oracle::Sm87TargetAotLayer0M192BoundaryEvidence& value) {
+  output << "{\"elements\": " << value.elements
+         << ", \"full_elements\": " << value.full_elements
+         << ", \"tail_elements\": " << value.tail_elements
+         << ", \"baseline_candidate_full_mismatches\": "
+         << value.baseline_candidate_full_mismatches
+         << ", \"baseline_candidate_tail_mismatches\": "
+         << value.baseline_candidate_tail_mismatches
+         << ", \"baseline_replay_full_mismatches\": "
+         << value.baseline_replay_full_mismatches
+         << ", \"baseline_replay_tail_mismatches\": "
+         << value.baseline_replay_tail_mismatches
+         << ", \"candidate_replay_full_mismatches\": "
+         << value.candidate_replay_full_mismatches
+         << ", \"candidate_replay_tail_mismatches\": "
+         << value.candidate_replay_tail_mismatches
+         << ", \"first_mismatch_present\": ";
+  write_boolean(output, value.first_mismatch_present);
+  output << ", \"first_mismatch_index\": " << value.first_mismatch_index
+         << ", \"first_mismatch_row\": " << value.first_mismatch_row
+         << ", \"first_mismatch_column\": "
+         << value.first_mismatch_column
+         << ", \"first_mismatch_expected\": "
+         << value.first_mismatch_expected
+         << ", \"first_mismatch_actual\": " << value.first_mismatch_actual
+         << ", \"first_mismatch_pair\": ";
+  write_json_string(output, value.first_mismatch_pair);
+  output << ", \"baseline_sha256\": ";
+  write_json_string(output, value.baseline_sha256);
+  output << ", \"candidate_sha256\": ";
+  write_json_string(output, value.candidate_sha256);
+  output << ", \"replay_sha256\": ";
+  write_json_string(output, value.replay_sha256);
+  output << ", \"baseline_all_finite\": ";
+  write_boolean(output, value.baseline_all_finite);
+  output << ", \"candidate_all_finite\": ";
+  write_boolean(output, value.candidate_all_finite);
+  output << ", \"replay_all_finite\": ";
+  write_boolean(output, value.replay_all_finite);
+  output << ", \"baseline_complete_write\": ";
+  write_boolean(output, value.baseline_complete_write);
+  output << ", \"candidate_complete_write\": ";
+  write_boolean(output, value.candidate_complete_write);
+  output << ", \"replay_complete_write\": ";
+  write_boolean(output, value.replay_complete_write);
+  output << ", \"baseline_guards_intact\": ";
+  write_boolean(output, value.baseline_guards_intact);
+  output << ", \"candidate_guards_intact\": ";
+  write_boolean(output, value.candidate_guards_intact);
+  output << ", \"replay_guards_intact\": ";
+  write_boolean(output, value.replay_guards_intact);
+  output << ", \"baseline_candidate_bitwise_exact\": ";
+  write_boolean(output, value.baseline_candidate_bitwise_exact);
+  output << ", \"baseline_replay_bitwise_exact\": ";
+  write_boolean(output, value.baseline_replay_bitwise_exact);
+  output << ", \"candidate_replay_bitwise_exact\": ";
+  write_boolean(output, value.candidate_replay_bitwise_exact);
+  output << ", \"bitwise_exact\": ";
+  write_boolean(output, value.bitwise_exact);
+  output << '}';
+}
+
+void write_fixture(
+    std::ostream& output,
+    const oracle::Sm87TargetAotLayer0M192FixtureEvidence& value) {
+  output << "{\"generator\": ";
+  write_json_string(output, value.generator);
+  output << ", \"dtype\": ";
+  write_json_string(output, value.dtype);
+  output << ", \"shape\": [" << value.rows << ", " << value.columns
+         << "], \"elements\": " << value.elements << ", \"bytes\": "
+         << value.bytes << ", \"sha256\": ";
+  write_json_string(output, value.sha256);
+  output << '}';
+}
+
+void write_artifact(
+    std::ostream& output,
+    const oracle::Sm87TargetAotLayer0M192ArtifactEvidence& value) {
+  output << "{\"layer_index\": " << value.layer_index
+         << ", \"role\": " << static_cast<unsigned int>(value.role)
+         << ", \"artifact_identity\": " << value.artifact_identity
+         << ", \"source_inventory_identity\": "
+         << value.source_inventory_identity
+         << ", \"upload_receipt_identity\": "
+         << value.upload_receipt_identity << ", \"plan_identity\": "
+         << value.plan_identity << ", \"layout_identity\": "
+         << value.layout_identity << ", \"transform_identity\": "
+         << value.transform_identity << ", \"device_arena_offset\": "
+         << value.device_arena_offset << ", \"payload_bytes\": "
+         << value.payload_bytes << ", \"payload_sha256\": ";
+  write_json_string(output, value.payload_sha256);
+  output << ", \"manifest_seal\": " << value.manifest_seal
+         << ", \"allocation_owner_identity\": "
+         << value.allocation_owner_identity << ", \"allocation_identity\": "
+         << value.allocation_identity << ", \"device_ordinal\": "
+         << value.device_ordinal << ", \"exact\": ";
+  write_boolean(output, value.exact);
+  output << '}';
+}
+#endif
 
 [[nodiscard]] bool capture_provenance(ProbeEvidence& evidence) {
   std::error_code error;
@@ -171,6 +377,9 @@ struct ProbeEvidence final {
       provenance::kAotSystemAdmission &&
       provenance::kTargetProjectionAdmission &&
       provenance::kTargetDeviceAssetsAdmission &&
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+      provenance::kTargetLayer0M192OracleAdmission &&
+#endif
       !provenance::kFp8MarlinPrefillAdmission &&
       !provenance::kNvFp4MarlinPrefillAdmission &&
       !provenance::kP40PackedProjectionAdmission &&
@@ -216,6 +425,29 @@ struct ProbeEvidence final {
 [[nodiscard]] bool write_evidence(const std::filesystem::path& path,
                                   const ProbeEvidence& evidence) {
   std::ostringstream output;
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  output << "{\n  \"schema_version\": 3,\n  \"artifact\": "
+            "\"q3x_sm87_target_aot_real_checkpoint_preparation\",\n"
+            "  \"status\": \""
+         << (evidence.passed ? "pass" : "fail")
+         << "\",\n  \"claim_boundary\": "
+            "\"prepare, authenticated device readback, private attachment, "
+            "fixed-M192 layer-0 numerical/resource oracle, and destruction "
+            "only; no generation, timing/performance, runner, public-launcher, "
+            "or production-route authority\",\n"
+            "  \"model_directory\": ";
+  write_json_string(output, evidence.model_directory.string());
+  output << ",\n  \"execution_identity\": {\n    \"boot_id\": ";
+  write_json_string(output, evidence.boot_id);
+  output << ",\n    \"child_pid\": " << evidence.child_pid
+         << ",\n    \"child_started_at_utc\": ";
+  write_json_string(output, evidence.child_started_at_utc);
+  output << ",\n    \"child_evidence_finished_at_utc\": ";
+  write_json_string(output, evidence.child_evidence_finished_at_utc);
+  output << ",\n    \"valid\": ";
+  write_boolean(output, evidence.execution_identity_valid);
+  output << "\n  },\n  \"source\": {\n    \"git_commit\": ";
+#else
   output << "{\n  \"schema_version\": 2,\n  \"artifact\": "
             "\"q3x_sm87_target_aot_real_checkpoint_preparation\",\n"
             "  \"status\": \""
@@ -227,6 +459,7 @@ struct ProbeEvidence final {
             "  \"model_directory\": ";
   write_json_string(output, evidence.model_directory.string());
   output << ",\n  \"source\": {\n    \"git_commit\": ";
+#endif
   write_json_string(output, provenance::kGitCommit);
   output << ",\n    \"git_tree\": ";
   write_json_string(output, provenance::kGitTree);
@@ -284,6 +517,10 @@ struct ProbeEvidence final {
   write_boolean(output, provenance::kTargetProjectionAdmission);
   output << ",\n      \"target_device_assets\": ";
   write_boolean(output, provenance::kTargetDeviceAssetsAdmission);
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  output << ",\n      \"target_layer0_m192_oracle\": ";
+  write_boolean(output, provenance::kTargetLayer0M192OracleAdmission);
+#endif
   output << ",\n      \"fp8_marlin_prefill\": ";
   write_boolean(output, provenance::kFp8MarlinPrefillAdmission);
   output << ",\n      \"nvfp4_marlin_prefill\": ";
@@ -328,6 +565,10 @@ struct ProbeEvidence final {
   write_boolean(output, evidence.engine_create_attempted);
   output << ",\n    \"during_mem_info\": ";
   write_boolean(output, evidence.during_mem_info_attempted);
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  output << ",\n    \"layer0_m192_oracle\": ";
+  write_boolean(output, evidence.layer0_m192_oracle_attempted);
+#endif
   output << ",\n    \"synchronize_before_destroy\": ";
   write_boolean(output, evidence.synchronize_attempted);
   output << ",\n    \"engine_destroy\": ";
@@ -338,6 +579,10 @@ struct ProbeEvidence final {
   write_boolean(output, evidence.memory_recovery_audit_attempted);
   output << "\n  },\n  \"checks\": {\n    \"source_build_provenance_valid\": ";
   write_boolean(output, evidence.source_build_provenance_valid);
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  output << ",\n    \"execution_identity_valid\": ";
+  write_boolean(output, evidence.execution_identity_valid);
+#endif
   output << ",\n    \"binary_provenance_valid\": ";
   write_boolean(output, evidence.binary_provenance_valid);
   output << ",\n    \"engine_created\": ";
@@ -350,6 +595,10 @@ struct ProbeEvidence final {
   write_boolean(output, evidence.exact_target_inventory);
   output << ",\n    \"mutually_exclusive_prefill_sidecars_empty\": ";
   write_boolean(output, evidence.mutually_exclusive_prefill_sidecars_empty);
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  output << ",\n    \"layer0_m192_oracle_passed\": ";
+  write_boolean(output, evidence.layer0_m192_oracle.ok());
+#endif
   output << ",\n    \"engine_destroy_completed\": ";
   write_boolean(output, evidence.engine_destroy_completed);
   output << ",\n    \"final_total_matches_initial\": ";
@@ -447,7 +696,135 @@ struct ProbeEvidence final {
   output << ",\n    \"p40_vllm_parity_enabled\": ";
   write_boolean(output,
                 evidence.load.nvfp4_marlin_p40_parity_sidecars_enabled);
-  output << "\n  },\n  \"diagnostic\": {\n    \"code\": "
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  output << "\n  },\n  \"layer0_m192_oracle\": {\n    \"attempted\": ";
+  write_boolean(output, evidence.layer0_m192_oracle_attempted);
+  output << ",\n    \"result_available\": ";
+  write_boolean(output, evidence.layer0_m192_oracle.value.has_value());
+  output << ",\n    \"passed\": ";
+  write_boolean(output, evidence.layer0_m192_oracle.ok());
+  output << ",\n    \"result\": ";
+  if (!evidence.layer0_m192_oracle.value.has_value()) {
+    output << "null";
+  } else {
+    const auto& value = *evidence.layer0_m192_oracle.value;
+    output << "{\n      \"layer_index\": " << value.layer_index
+           << ",\n      \"token_count\": " << value.token_count
+           << ",\n      \"full_token_count\": " << value.full_token_count
+           << ",\n      \"tail_token_count\": " << value.tail_token_count
+           << ",\n      \"baseline_gate_launches\": "
+           << value.baseline_gate_launches
+           << ",\n      \"baseline_up_launches\": "
+           << value.baseline_up_launches
+           << ",\n      \"baseline_down_launches\": "
+           << value.baseline_down_launches
+           << ",\n      \"candidate_gate_up_launches\": "
+           << value.candidate_gate_up_launches
+           << ",\n      \"candidate_down_launches\": "
+           << value.candidate_down_launches
+           << ",\n      \"replay_gate_up_launches\": "
+           << value.replay_gate_up_launches
+           << ",\n      \"replay_down_launches\": "
+           << value.replay_down_launches
+           << ",\n      \"owner_attachment_authenticated\": ";
+    write_boolean(output, value.owner_attachment_authenticated);
+    output << ",\n      \"canonical_layer0_weights\": ";
+    write_boolean(output, value.canonical_layer0_weights);
+    output << ",\n      \"activation_preserved_after_candidate\": ";
+    write_boolean(output, value.activation_preserved_after_candidate);
+    output << ",\n      \"residual_preserved_after_candidate\": ";
+    write_boolean(output, value.residual_preserved_after_candidate);
+    output << ",\n      \"activation_preserved_after_replay\": ";
+    write_boolean(output, value.activation_preserved_after_replay);
+    output << ",\n      \"residual_preserved_after_replay\": ";
+    write_boolean(output, value.residual_preserved_after_replay);
+    output << ",\n      \"activation_fixture\": ";
+    write_fixture(output, value.activation_fixture);
+    output << ",\n      \"residual_fixture\": ";
+    write_fixture(output, value.residual_fixture);
+    output << ",\n      \"receipt\": {\n        \"baseline_route\": ";
+    write_json_string(output, value.receipt.baseline_route);
+    output << ",\n        \"candidate_plan\": ";
+    write_json_string(output, value.receipt.candidate_plan);
+    output << ",\n        \"candidate_layout\": ";
+    write_json_string(output, value.receipt.candidate_layout);
+    output << ",\n        \"candidate_publication\": ";
+    write_json_string(output, value.receipt.candidate_publication);
+    output << ",\n        \"owner_identity\": "
+           << value.receipt.owner_identity
+           << ",\n        \"allocation_identity\": "
+           << value.receipt.allocation_identity
+           << ",\n        \"arena_bytes\": " << value.receipt.arena_bytes
+           << ",\n        \"device_ordinal\": "
+           << value.receipt.device_ordinal
+           << ",\n        \"artifact_count\": "
+           << value.receipt.artifact_count
+           << ",\n        \"verified_payload_catalog_sha256\": ";
+    write_json_string(output,
+                      value.receipt.verified_payload_catalog_sha256);
+    output << ",\n        \"attachment_exact\": ";
+    write_boolean(output, value.receipt.attachment_exact);
+    output << ",\n        \"complete_owner_allocation_ranges_checked\": ";
+    write_boolean(output,
+                  value.receipt.complete_owner_allocation_ranges_checked);
+    output << ",\n        \"complete_owner_allocation_exact_cover\": ";
+    write_boolean(output,
+                  value.receipt.complete_owner_allocation_exact_cover);
+    output << ",\n        \"complete_owner_allocation_nonoverlap\": ";
+    write_boolean(output,
+                  value.receipt.complete_owner_allocation_nonoverlap);
+    output << ",\n        \"oracle_allocations_disjoint_from_owner\": ";
+    write_boolean(output,
+                  value.receipt.oracle_allocations_disjoint_from_owner);
+    output << ",\n        \"gate_up\": ";
+    write_artifact(output, value.receipt.gate_up);
+    output << ",\n        \"down\": ";
+    write_artifact(output, value.receipt.down);
+    output << "\n      }";
+    output << ",\n      \"gate_up_resources\": ";
+    write_kernel_resources(output, value.gate_up_resources);
+    output << ",\n      \"down_resources\": ";
+    write_kernel_resources(output, value.down_resources);
+    output << ",\n      \"gate_up\": ";
+    write_boundary(output, value.gate_up);
+    output << ",\n      \"down_residual\": ";
+    write_boundary(output, value.down_residual);
+    output << ",\n      \"cleanup\": {\"synchronize_attempted\": ";
+    write_boolean(output, value.cleanup.synchronize_attempted);
+    output << ", \"synchronize_cuda_error\": "
+           << value.cleanup.synchronize_cuda_error
+           << ", \"device_frees_attempted\": "
+           << value.cleanup.device_frees_attempted
+           << ", \"device_frees_succeeded\": "
+           << value.cleanup.device_frees_succeeded
+           << ", \"first_device_free_cuda_error\": "
+           << value.cleanup.first_device_free_cuda_error
+           << ", \"stream_destroy_attempted\": ";
+    write_boolean(output, value.cleanup.stream_destroy_attempted);
+    output << ", \"stream_destroy_cuda_error\": "
+           << value.cleanup.stream_destroy_cuda_error << ", \"passed\": ";
+    write_boolean(output, value.cleanup.passed);
+    output << '}';
+    output << ",\n      \"passed\": ";
+    write_boolean(output, value.passed);
+    output << "\n    }";
+  }
+  output << ",\n    \"diagnostic\": {\n      \"code\": "
+         << static_cast<unsigned int>(
+                evidence.layer0_m192_oracle.diagnostic.code)
+         << ",\n      \"stage\": ";
+  write_json_string(output, evidence.layer0_m192_oracle.diagnostic.stage);
+  output << ",\n      \"message\": ";
+  write_json_string(output, evidence.layer0_m192_oracle.diagnostic.message);
+  output << ",\n      \"context\": ";
+  write_json_string(output, evidence.layer0_m192_oracle.diagnostic.context);
+  output << ",\n      \"cuda_error\": "
+         << evidence.layer0_m192_oracle.diagnostic.cuda_error
+         << "\n    }\n  }";
+#else
+  output << "\n  }";
+#endif
+  output << ",\n  \"diagnostic\": {\n    \"code\": "
          << static_cast<unsigned int>(evidence.diagnostic.code)
          << ",\n    \"stage\": ";
   write_json_string(output, evidence.diagnostic.stage);
@@ -473,9 +850,29 @@ int main(const int argc, char** argv) {
       runtime::sm87_target_aot_projection_device_assets_compiled());
   ProbeEvidence evidence;
   evidence.model_directory = argv[1];
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  evidence.child_started_at_utc = utc_now();
+  evidence.boot_id = read_boot_id();
+  evidence.child_pid = static_cast<std::uint64_t>(getpid());
+  evidence.execution_identity_valid =
+      !evidence.child_started_at_utc.empty() && !evidence.boot_id.empty() &&
+      evidence.child_pid != 0U;
+#endif
   const std::filesystem::path evidence_path = argv[2];
   const auto started = std::chrono::steady_clock::now();
   (void)capture_provenance(evidence);
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  if (!evidence.execution_identity_valid ||
+      !evidence.source_build_provenance_valid ||
+      !evidence.binary_provenance_valid) {
+    evidence.diagnostic.code = runtime::ReferenceEngineError::kInvalidArgument;
+    evidence.diagnostic.stage = "provenance_gate";
+    evidence.diagnostic.message =
+        "real-checkpoint preparation requires boot/time/process execution "
+        "identity, a clean frozen Release SM87 admission build, and a "
+        "self-hashed running ELF";
+  }
+#else
   if (!evidence.source_build_provenance_valid ||
       !evidence.binary_provenance_valid) {
     evidence.diagnostic.code = runtime::ReferenceEngineError::kInvalidArgument;
@@ -484,6 +881,7 @@ int main(const int argc, char** argv) {
         "real-checkpoint preparation requires a clean, frozen Release SM87 "
         "admission build and a self-hashed running ELF";
   }
+#endif
 
   evidence.device_query_attempted = true;
   cudaError_t status = cudaGetDevice(&evidence.device_ordinal);
@@ -499,11 +897,20 @@ int main(const int argc, char** argv) {
   }
 
   runtime::ReferenceEngineCreateResult created;
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  if (evidence.execution_identity_valid &&
+      evidence.source_build_provenance_valid &&
+      evidence.binary_provenance_valid &&
+      evidence.device_query_cuda_error == 0 &&
+      evidence.initial_mem_info_attempted &&
+      evidence.initial_mem_info_cuda_error == 0) {
+#else
   if (evidence.source_build_provenance_valid &&
       evidence.binary_provenance_valid &&
       evidence.device_query_cuda_error == 0 &&
       evidence.initial_mem_info_attempted &&
       evidence.initial_mem_info_cuda_error == 0) {
+#endif
     runtime::ReferenceEngineOptions options;
     options.projection_backend = runtime::ProjectionBackend::kSm87WeightOnly;
     options.prepare_sm87_target_aot_projection_device_assets = true;
@@ -569,6 +976,18 @@ int main(const int argc, char** argv) {
           !evidence.load.nvfp4_marlin_prefill_sidecars_enabled &&
           !evidence.load.p40_packed_projection_assets_enabled &&
           !evidence.load.nvfp4_marlin_p40_parity_sidecars_enabled;
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+      if (evidence.exact_target_inventory &&
+          evidence.mutually_exclusive_prefill_sidecars_empty) {
+        evidence.layer0_m192_oracle_attempted = true;
+        evidence.layer0_m192_oracle =
+            oracle::Sm87TargetAotLayer0M192OracleAccess::screen(
+                *created.value);
+        if (!evidence.layer0_m192_oracle) {
+          evidence.diagnostic = evidence.layer0_m192_oracle.diagnostic;
+        }
+      }
+#endif
     }
   }
 
@@ -611,6 +1030,9 @@ int main(const int argc, char** argv) {
           std::chrono::steady_clock::now() - started)
           .count());
   evidence.passed =
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+      evidence.execution_identity_valid &&
+#endif
       evidence.source_build_provenance_valid &&
       evidence.binary_provenance_valid && evidence.device_query_attempted &&
       evidence.device_query_cuda_error == 0 &&
@@ -623,6 +1045,10 @@ int main(const int argc, char** argv) {
       evidence.during_total_matches_initial &&
       evidence.exact_target_inventory &&
       evidence.mutually_exclusive_prefill_sidecars_empty &&
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+      evidence.layer0_m192_oracle_attempted &&
+      evidence.layer0_m192_oracle.ok() &&
+#endif
       evidence.synchronize_attempted && evidence.synchronize_cuda_error == 0 &&
       evidence.engine_destroy_attempted &&
       evidence.engine_destroy_completed && evidence.final_mem_info_attempted &&
@@ -630,6 +1056,14 @@ int main(const int argc, char** argv) {
       evidence.final_total_matches_initial &&
       evidence.memory_recovery_audit_attempted &&
       evidence.memory_recovered_after_destroy;
+
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  evidence.child_evidence_finished_at_utc = utc_now();
+  evidence.execution_identity_valid =
+      evidence.execution_identity_valid &&
+      !evidence.child_evidence_finished_at_utc.empty();
+  evidence.passed = evidence.passed && evidence.execution_identity_valid;
+#endif
 
   if (!write_evidence(evidence_path, evidence)) {
     std::cerr << "failed to publish create-only evidence: " << evidence_path

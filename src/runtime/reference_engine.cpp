@@ -10,11 +10,16 @@
 #include "q3x/kernels/sm87_nvfp4_marlin_p40_parity.h"
 #endif
 #include "q3x/kernels/sm87_weight_only_gemv.h"
+#include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/p40_packed_projection_assets.h"
 #include "q3x/runtime/sm87_target_aot_projection_device_assets.h"
 #include "q3x/text/tokenizer.h"
 #include "reference_engine_prefill_authority.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+#include "sm87_target_aot_layer0_m192_oracle_internal.h"
+#include "sm87_target_aot_layer0_m192_oracle_evidence_internal.h"
+#endif
 
 #include <cuda_runtime_api.h>
 
@@ -137,6 +142,257 @@ struct DecodeGraphP1DeviceBuffer {
     return status;
   }
 };
+
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+inline constexpr std::size_t kTargetAotOracleGuardBytes = 256U;
+inline constexpr std::uint8_t kTargetAotOracleGuardValue = 0xa5U;
+inline constexpr std::uint8_t kTargetAotOraclePayloadPoison = 0xffU;
+
+using TargetAotOracleArtifactEvidence = reference_engine_test_detail::
+    Sm87TargetAotLayer0M192ArtifactEvidence;
+using TargetAotOracleBoundaryEvidence = reference_engine_test_detail::
+    Sm87TargetAotLayer0M192BoundaryEvidence;
+using TargetAotOracleCleanupEvidence = reference_engine_test_detail::
+    Sm87TargetAotLayer0M192CleanupEvidence;
+using TargetAotOracleKernelResourceEvidence = reference_engine_test_detail::
+    Sm87TargetAotLayer0M192KernelResourceEvidence;
+
+struct TargetAotOracleStream final {
+  cudaStream_t value = nullptr;
+
+  TargetAotOracleStream() noexcept = default;
+  TargetAotOracleStream(const TargetAotOracleStream&) = delete;
+  TargetAotOracleStream& operator=(const TargetAotOracleStream&) = delete;
+  ~TargetAotOracleStream() {
+    if (value != nullptr) {
+      (void)cudaStreamDestroy(value);
+    }
+  }
+
+  [[nodiscard]] cudaError_t release() noexcept {
+    if (value == nullptr) {
+      return cudaSuccess;
+    }
+    const cudaError_t status = cudaStreamDestroy(value);
+    if (status == cudaSuccess) {
+      value = nullptr;
+    }
+    return status;
+  }
+};
+
+struct TargetAotOracleDeviceBuffer final {
+  std::uint8_t* allocation = nullptr;
+  std::uint16_t* data = nullptr;
+  std::size_t payload_bytes = 0U;
+  std::size_t allocation_bytes = 0U;
+
+  TargetAotOracleDeviceBuffer() noexcept = default;
+  TargetAotOracleDeviceBuffer(const TargetAotOracleDeviceBuffer&) = delete;
+  TargetAotOracleDeviceBuffer& operator=(
+      const TargetAotOracleDeviceBuffer&) = delete;
+  ~TargetAotOracleDeviceBuffer() {
+    if (allocation != nullptr) {
+      (void)cudaFree(allocation);
+    }
+  }
+
+  [[nodiscard]] cudaError_t allocate_and_guard(
+      const std::size_t requested_bytes, const cudaStream_t stream) noexcept {
+    if (allocation != nullptr || requested_bytes == 0U ||
+        requested_bytes > std::numeric_limits<std::size_t>::max() -
+                              2U * kTargetAotOracleGuardBytes) {
+      return cudaErrorInvalidValue;
+    }
+    allocation_bytes = requested_bytes + 2U * kTargetAotOracleGuardBytes;
+    cudaError_t status = cudaMalloc(
+        reinterpret_cast<void**>(&allocation), allocation_bytes);
+    if (status != cudaSuccess) {
+      return status;
+    }
+    payload_bytes = requested_bytes;
+    data = reinterpret_cast<std::uint16_t*>(
+        allocation + kTargetAotOracleGuardBytes);
+    status = cudaMemsetAsync(allocation, kTargetAotOracleGuardValue,
+                             allocation_bytes, stream);
+    if (status == cudaSuccess) {
+      status = cudaMemsetAsync(data, kTargetAotOraclePayloadPoison,
+                               payload_bytes, stream);
+    }
+    return status;
+  }
+
+  [[nodiscard]] cudaError_t poison(const cudaStream_t stream) noexcept {
+    if (data == nullptr || payload_bytes == 0U) {
+      return cudaErrorInvalidValue;
+    }
+    return cudaMemsetAsync(data, kTargetAotOraclePayloadPoison, payload_bytes,
+                           stream);
+  }
+
+  [[nodiscard]] cudaError_t release() noexcept {
+    if (allocation == nullptr) {
+      return cudaSuccess;
+    }
+    const cudaError_t status = cudaFree(allocation);
+    if (status == cudaSuccess) {
+      allocation = nullptr;
+      data = nullptr;
+      payload_bytes = 0U;
+      allocation_bytes = 0U;
+    }
+    return status;
+  }
+
+  [[nodiscard]] bool guards_intact() const noexcept {
+    if (allocation == nullptr || data == nullptr || payload_bytes == 0U) {
+      return false;
+    }
+    std::array<std::uint8_t, kTargetAotOracleGuardBytes> before{};
+    std::array<std::uint8_t, kTargetAotOracleGuardBytes> after{};
+    if (cudaMemcpy(before.data(), allocation, before.size(),
+                   cudaMemcpyDeviceToHost) != cudaSuccess ||
+        cudaMemcpy(after.data(), allocation + kTargetAotOracleGuardBytes +
+                                           payload_bytes,
+                   after.size(), cudaMemcpyDeviceToHost) != cudaSuccess) {
+      return false;
+    }
+    return std::all_of(before.begin(), before.end(), [](const auto byte) {
+             return byte == kTargetAotOracleGuardValue;
+           }) &&
+           std::all_of(after.begin(), after.end(), [](const auto byte) {
+             return byte == kTargetAotOracleGuardValue;
+           });
+  }
+};
+
+[[nodiscard]] std::string target_aot_oracle_sha256(
+    const std::vector<std::uint16_t>& values) {
+  core::Sha256 hasher;
+  if (!hasher.update(values.data(),
+                     values.size() * sizeof(std::uint16_t))) {
+    return {};
+  }
+  return hasher.finalize().hex();
+}
+
+[[nodiscard]] bool target_aot_oracle_all_finite(
+    const std::vector<std::uint16_t>& values) noexcept {
+  return std::all_of(values.begin(), values.end(), [](const auto bits) {
+    return (bits & 0x7f80U) != 0x7f80U;
+  });
+}
+
+void target_aot_oracle_compare(
+    const std::vector<std::uint16_t>& baseline,
+    const std::vector<std::uint16_t>& candidate,
+    const std::vector<std::uint16_t>& replay, const std::size_t features,
+    const bool baseline_guards_intact,
+    const bool candidate_guards_intact,
+    const bool replay_guards_intact,
+    TargetAotOracleBoundaryEvidence& evidence) {
+  constexpr std::size_t kTokens =
+      kernels::sm87_target_aot_layer0_m192_oracle_detail::kTokenCount;
+  constexpr std::size_t kFullTokens =
+      kernels::sm87_target_aot_layer0_m192_oracle_detail::kFullTokenCount;
+  evidence.elements = static_cast<std::uint64_t>(kTokens) * features;
+  evidence.full_elements = static_cast<std::uint64_t>(kFullTokens) * features;
+  evidence.tail_elements = evidence.elements - evidence.full_elements;
+  evidence.baseline_guards_intact = baseline_guards_intact;
+  evidence.candidate_guards_intact = candidate_guards_intact;
+  evidence.replay_guards_intact = replay_guards_intact;
+  if (baseline.size() != evidence.elements ||
+      candidate.size() != evidence.elements ||
+      replay.size() != evidence.elements) {
+    return;
+  }
+  evidence.baseline_sha256 = target_aot_oracle_sha256(baseline);
+  evidence.candidate_sha256 = target_aot_oracle_sha256(candidate);
+  evidence.replay_sha256 = target_aot_oracle_sha256(replay);
+  evidence.baseline_all_finite = target_aot_oracle_all_finite(baseline);
+  evidence.candidate_all_finite = target_aot_oracle_all_finite(candidate);
+  evidence.replay_all_finite = target_aot_oracle_all_finite(replay);
+  evidence.baseline_complete_write = evidence.baseline_all_finite;
+  evidence.candidate_complete_write = evidence.candidate_all_finite;
+  evidence.replay_complete_write = evidence.replay_all_finite;
+  const auto compare_pair = [&](const std::vector<std::uint16_t>& expected,
+                                const std::vector<std::uint16_t>& actual,
+                                std::uint64_t& full_mismatches,
+                                std::uint64_t& tail_mismatches,
+                                const std::string_view pair) {
+    for (std::size_t index = 0U; index < expected.size(); ++index) {
+      if (expected[index] == actual[index]) {
+        continue;
+      }
+      const std::size_t row = index / features;
+      if (row < kFullTokens) {
+        ++full_mismatches;
+      } else {
+        ++tail_mismatches;
+      }
+      if (!evidence.first_mismatch_present) {
+        evidence.first_mismatch_present = true;
+        evidence.first_mismatch_index = index;
+        evidence.first_mismatch_row = static_cast<std::uint32_t>(row);
+        evidence.first_mismatch_column =
+            static_cast<std::uint32_t>(index % features);
+        evidence.first_mismatch_expected = expected[index];
+        evidence.first_mismatch_actual = actual[index];
+        evidence.first_mismatch_pair = std::string(pair);
+      }
+    }
+  };
+  compare_pair(baseline, candidate,
+               evidence.baseline_candidate_full_mismatches,
+               evidence.baseline_candidate_tail_mismatches,
+               "baseline_candidate");
+  compare_pair(baseline, replay, evidence.baseline_replay_full_mismatches,
+               evidence.baseline_replay_tail_mismatches,
+               "baseline_replay");
+  compare_pair(candidate, replay, evidence.candidate_replay_full_mismatches,
+               evidence.candidate_replay_tail_mismatches,
+               "candidate_replay");
+  evidence.baseline_candidate_bitwise_exact =
+      evidence.baseline_candidate_full_mismatches == 0U &&
+      evidence.baseline_candidate_tail_mismatches == 0U;
+  evidence.baseline_replay_bitwise_exact =
+      evidence.baseline_replay_full_mismatches == 0U &&
+      evidence.baseline_replay_tail_mismatches == 0U;
+  evidence.candidate_replay_bitwise_exact =
+      evidence.candidate_replay_full_mismatches == 0U &&
+      evidence.candidate_replay_tail_mismatches == 0U;
+  evidence.bitwise_exact =
+      evidence.baseline_candidate_bitwise_exact &&
+      evidence.baseline_replay_bitwise_exact &&
+      evidence.candidate_replay_bitwise_exact &&
+      evidence.baseline_complete_write && evidence.candidate_complete_write &&
+      evidence.replay_complete_write && evidence.baseline_guards_intact &&
+      evidence.candidate_guards_intact && evidence.replay_guards_intact &&
+      !evidence.baseline_sha256.empty() &&
+      evidence.baseline_sha256 == evidence.candidate_sha256 &&
+      evidence.candidate_sha256 == evidence.replay_sha256;
+}
+
+[[nodiscard]] std::string target_aot_oracle_digest_hex(
+    const kernels::Sm87TargetAotProjectionSha256Digest& digest) {
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::string output;
+  output.resize(2U * digest.bytes.size());
+  for (std::size_t index = 0U; index < digest.bytes.size(); ++index) {
+    output[2U * index] = kHex[digest.bytes[index] >> 4U];
+    output[2U * index + 1U] = kHex[digest.bytes[index] & 0x0fU];
+  }
+  return output;
+}
+
+[[nodiscard]] std::uint32_t target_aot_oracle_float_bits(
+    const float value) noexcept {
+  std::uint32_t bits = 0U;
+  static_assert(sizeof(bits) == sizeof(value));
+  std::memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+#endif
 
 struct DecodeGraphP1StateRestoreGuard {
   RequestState* state = nullptr;
@@ -5860,6 +6116,881 @@ std::uint32_t ReferenceEngine::max_sequence_length() const noexcept {
              ? impl_->request_state->max_sequence_length()
              : 0U;
 }
+
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+reference_engine_test_detail::Sm87TargetAotLayer0M192OracleOutcome
+reference_engine_test_detail::Sm87TargetAotLayer0M192OracleAccess::screen(
+    ReferenceEngine& engine) {
+  Sm87TargetAotLayer0M192OracleOutcome outcome;
+  Sm87TargetAotLayer0M192OracleResult result;
+  result.layer_index = 0U;
+  result.token_count = 192U;
+  result.full_token_count = 128U;
+  result.tail_token_count = 64U;
+  using Role = kernels::Sm87TargetAotProjectionRole;
+  using PrivateResources =
+      kernels::sm87_target_aot_layer0_m192_oracle_detail::KernelResources;
+  constexpr std::size_t kTokens =
+      kernels::sm87_target_aot_layer0_m192_oracle_detail::kTokenCount;
+  constexpr std::size_t kHidden =
+      kernels::kSm87TargetAotProjectionHidden;
+  constexpr std::size_t kIntermediate =
+      kernels::kSm87TargetAotProjectionIntermediate;
+  constexpr std::size_t kActivationElements = kTokens * kHidden;
+  constexpr std::size_t kGateUpElements = kTokens * kIntermediate;
+  constexpr std::size_t kHiddenBytes =
+      kActivationElements * sizeof(std::uint16_t);
+  constexpr std::size_t kGateUpBytes =
+      kGateUpElements * sizeof(std::uint16_t);
+
+  TargetAotOracleStream stream;
+  TargetAotOracleDeviceBuffer activation;
+  TargetAotOracleDeviceBuffer residual_fixture;
+  TargetAotOracleDeviceBuffer baseline_gate;
+  TargetAotOracleDeviceBuffer baseline_up;
+  TargetAotOracleDeviceBuffer baseline_gate_up;
+  TargetAotOracleDeviceBuffer baseline_down;
+  TargetAotOracleDeviceBuffer baseline_down_residual;
+  TargetAotOracleDeviceBuffer candidate_gate_up;
+  TargetAotOracleDeviceBuffer candidate_down_residual;
+  TargetAotOracleDeviceBuffer replay_gate_up;
+  TargetAotOracleDeviceBuffer replay_down_residual;
+  std::array<TargetAotOracleDeviceBuffer*, 11U> buffers{{
+      &activation,
+      &residual_fixture,
+      &baseline_gate,
+      &baseline_up,
+      &baseline_gate_up,
+      &baseline_down,
+      &baseline_down_residual,
+      &candidate_gate_up,
+      &candidate_down_residual,
+      &replay_gate_up,
+      &replay_down_residual,
+  }};
+  bool cleanup_completed = false;
+  const auto cleanup = [&]() {
+    if (cleanup_completed) {
+      return;
+    }
+    auto& evidence = result.cleanup;
+    if (stream.value != nullptr) {
+      evidence.synchronize_attempted = true;
+      evidence.synchronize_cuda_error =
+          static_cast<int>(cudaStreamSynchronize(stream.value));
+    }
+    for (TargetAotOracleDeviceBuffer* const buffer : buffers) {
+      if (buffer->allocation == nullptr) {
+        continue;
+      }
+      ++evidence.device_frees_attempted;
+      const cudaError_t free_status = buffer->release();
+      if (free_status == cudaSuccess) {
+        ++evidence.device_frees_succeeded;
+      } else if (evidence.first_device_free_cuda_error == 0) {
+        evidence.first_device_free_cuda_error =
+            static_cast<int>(free_status);
+      }
+    }
+    if (stream.value != nullptr) {
+      evidence.stream_destroy_attempted = true;
+      evidence.stream_destroy_cuda_error =
+          static_cast<int>(stream.release());
+    }
+    evidence.passed = evidence.synchronize_attempted &&
+                      evidence.synchronize_cuda_error == 0 &&
+                      evidence.device_frees_attempted == buffers.size() &&
+                      evidence.device_frees_succeeded == buffers.size() &&
+                      evidence.first_device_free_cuda_error == 0 &&
+                      evidence.stream_destroy_attempted &&
+                      evidence.stream_destroy_cuda_error == 0;
+    cleanup_completed = true;
+  };
+
+  const auto fail = [&](const ReferenceEngineError code,
+                        const std::string& stage,
+                        const std::string& message,
+                        const int cuda_error = 0) {
+    cleanup();
+    result.passed = false;
+    outcome.value = result;
+    outcome.diagnostic = engine_diagnostic(code, stage, message);
+    outcome.diagnostic.cuda_error = cuda_error;
+    return outcome;
+  };
+
+  try {
+    if (!engine || engine.impl_ == nullptr ||
+        !engine.impl_->model_weights.has_value()) {
+      return fail(ReferenceEngineError::kInvalidArgument,
+                  "target_aot_layer0_m192_oracle_engine",
+                  "the reference engine lifetime chain is incomplete");
+    }
+    ModelWeights& model_weights = *engine.impl_->model_weights;
+    Sm87TargetAotProjectionDeviceAssets& owner =
+        engine.impl_->target_aot_projection_device_assets;
+    const auto& attachment =
+        model_weights.target_aot_projection_attachment_;
+    result.receipt.baseline_route =
+        "canonical-sm87-nvfp4-m32x6-gate-up-silu-down-m32x6-residual";
+    result.receipt.candidate_plan =
+        "source-private-layer0-m192-m128n256k64-persistent16-v1";
+    result.receipt.candidate_layout =
+        "consumer-n64-k16-lane-component-v1";
+    result.receipt.candidate_publication =
+        "gate-up-silu-bf16;down-plus-immutable-residual-to-independent-bf16";
+    result.receipt.owner_identity = owner.owner_identity_;
+    result.receipt.allocation_identity = owner.allocation_identity_;
+    result.receipt.arena_bytes = owner.bytes_;
+    result.receipt.device_ordinal = owner.device_ordinal_;
+    result.receipt.artifact_count = owner.descriptor_count_;
+    result.receipt.verified_payload_catalog_sha256 =
+        engine.impl_->load
+            .target_aot_projection_verified_payload_catalog_sha256;
+    result.owner_attachment_authenticated =
+        attachment.owner == &owner && owner.prepared_model_weights_ ==
+                                          &model_weights &&
+        owner.attached_model_weights_ == &model_weights &&
+        attachment.owner_identity != 0U &&
+        attachment.owner_identity == owner.owner_identity_ &&
+        attachment.allocation_identity != 0U &&
+        attachment.allocation_identity == owner.allocation_identity_ &&
+        attachment.arena_begin ==
+            reinterpret_cast<std::uintptr_t>(owner.arena_) &&
+        attachment.arena_bytes == owner.bytes_ &&
+        attachment.device_ordinal == owner.device_ordinal_ &&
+        attachment.artifact_count == owner.descriptor_count_ &&
+        attachment.artifact_count ==
+            kSm87TargetAotProjectionDeviceArtifactCount;
+    result.receipt.attachment_exact =
+        result.owner_attachment_authenticated &&
+        result.receipt.verified_payload_catalog_sha256.size() == 64U;
+    if (!result.owner_attachment_authenticated) {
+      return fail(ReferenceEngineError::kInvalidArgument,
+                  "target_aot_layer0_m192_oracle_attachment",
+                  "the private target-AOT owner/ModelWeights attachment "
+                  "identity or lifetime did not authenticate");
+    }
+
+    const std::uintptr_t owner_begin =
+        reinterpret_cast<std::uintptr_t>(owner.arena_);
+    const bool owner_end_fits =
+        owner_begin != 0U &&
+        owner.bytes_ <= std::numeric_limits<std::uintptr_t>::max() &&
+        owner_begin <= std::numeric_limits<std::uintptr_t>::max() -
+                           static_cast<std::uintptr_t>(owner.bytes_);
+    const std::uintptr_t owner_end =
+        owner_end_fits
+            ? owner_begin + static_cast<std::uintptr_t>(owner.bytes_)
+            : 0U;
+    std::uint64_t exact_cursor = 0U;
+    bool ranges_exact =
+        owner_end_fits &&
+        owner.descriptor_count_ ==
+            kSm87TargetAotProjectionDeviceArtifactCount;
+    bool ranges_nonoverlap = ranges_exact;
+    std::vector<std::uint64_t> artifact_identities;
+    std::vector<std::uint64_t> inventory_identities;
+    artifact_identities.reserve(owner.descriptor_count_);
+    inventory_identities.reserve(owner.descriptor_count_);
+    for (std::size_t index = 0U; index < owner.descriptor_count_; ++index) {
+      const auto& descriptor = owner.descriptors_[index];
+      const auto& upload = descriptor.upload_receipt;
+      const auto& view = descriptor.view;
+      const bool range_fits =
+          exact_cursor <= owner.bytes_ &&
+          descriptor.device_arena_offset == exact_cursor &&
+          descriptor.manifest.payload_bytes <= owner.bytes_ - exact_cursor;
+      const std::uintptr_t expected_begin =
+          range_fits
+              ? owner_begin +
+                    static_cast<std::uintptr_t>(descriptor.device_arena_offset)
+              : 0U;
+      const std::uintptr_t expected_end =
+          range_fits
+              ? expected_begin + static_cast<std::uintptr_t>(
+                                     descriptor.manifest.payload_bytes)
+              : 0U;
+      const bool identity_unique =
+          std::find(artifact_identities.begin(), artifact_identities.end(),
+                    descriptor.manifest.artifact_identity) ==
+              artifact_identities.end() &&
+          std::find(inventory_identities.begin(), inventory_identities.end(),
+                    descriptor.manifest.source_inventory_identity) ==
+              inventory_identities.end();
+      const bool exact =
+          range_fits && identity_unique && descriptor.layer_index < 64U &&
+          descriptor.role == descriptor.manifest.role &&
+          descriptor.role == descriptor.source_inventory.role &&
+          descriptor.manifest.artifact_identity != 0U &&
+          descriptor.manifest.source_inventory_identity != 0U &&
+          descriptor.manifest.source_inventory_identity ==
+              descriptor.source_inventory.identity &&
+          kernels::sm87_target_aot_projection_packed_manifest_structurally_valid(
+              descriptor.manifest) &&
+          kernels::sm87_target_aot_nvfp4_cuda_asset_valid(view) &&
+          upload.device_allocation_owner_identity == owner.owner_identity_ &&
+          upload.device_allocation_identity == owner.allocation_identity_ &&
+          upload.device_ordinal == owner.device_ordinal_ &&
+          upload.device_allocation_begin == owner_begin &&
+          upload.device_allocation_end == owner_end &&
+          upload.device_allocation_bytes == owner.bytes_ &&
+          upload.device_payload_begin == expected_begin &&
+          upload.device_payload_end == expected_end &&
+          upload.device_payload_bytes == descriptor.manifest.payload_bytes &&
+          view.payload.begin == expected_begin &&
+          view.payload.end == expected_end &&
+          view.payload.bytes == descriptor.manifest.payload_bytes;
+      ranges_exact = ranges_exact && exact;
+      if (index > 0U) {
+        const auto& previous = owner.descriptors_[index - 1U].view.payload;
+        ranges_nonoverlap =
+            ranges_nonoverlap && previous.end <= view.payload.begin;
+      }
+      artifact_identities.push_back(descriptor.manifest.artifact_identity);
+      inventory_identities.push_back(
+          descriptor.manifest.source_inventory_identity);
+      if (range_fits) {
+        exact_cursor += descriptor.manifest.payload_bytes;
+      }
+    }
+    result.receipt.complete_owner_allocation_ranges_checked =
+        owner.descriptor_count_ ==
+        kSm87TargetAotProjectionDeviceArtifactCount;
+    result.receipt.complete_owner_allocation_nonoverlap =
+        ranges_nonoverlap;
+    result.receipt.complete_owner_allocation_exact_cover =
+        ranges_exact && exact_cursor == owner.bytes_ &&
+        (owner.descriptor_count_ == 0U ||
+         owner.descriptors_[owner.descriptor_count_ - 1U].view.payload.end ==
+             owner_end);
+    if (!result.receipt.complete_owner_allocation_ranges_checked ||
+        !result.receipt.complete_owner_allocation_nonoverlap ||
+        !result.receipt.complete_owner_allocation_exact_cover) {
+      return fail(ReferenceEngineError::kInvalidArgument,
+                  "target_aot_layer0_m192_oracle_owner_ranges",
+                  "the complete 128-artifact owner allocation did not form "
+                  "one exact, non-overlapping arena cover");
+    }
+
+    const auto* const gate_up_asset = owner.find(0U, Role::kNvFp4GateUp);
+    const auto* const down_asset = owner.find(0U, Role::kNvFp4Down);
+    if (gate_up_asset == nullptr || down_asset == nullptr ||
+        gate_up_asset->layer_index != 0U || down_asset->layer_index != 0U ||
+        gate_up_asset->role != Role::kNvFp4GateUp ||
+        down_asset->role != Role::kNvFp4Down ||
+        gate_up_asset->view.device_upload_receipt
+                .device_allocation_owner_identity != owner.owner_identity_ ||
+        down_asset->view.device_upload_receipt
+                .device_allocation_owner_identity != owner.owner_identity_ ||
+        gate_up_asset->view.device_upload_receipt
+                .device_allocation_identity != owner.allocation_identity_ ||
+        down_asset->view.device_upload_receipt.device_allocation_identity !=
+            owner.allocation_identity_) {
+      return fail(ReferenceEngineError::kInvalidArgument,
+                  "target_aot_layer0_m192_oracle_assets",
+                  "layer-0 GateUp/Down assets were not resolved through the "
+                  "authenticated retained owner");
+    }
+    const auto capture_artifact = [&owner](
+        const Sm87TargetAotProjectionDeviceAssetDescriptor& source,
+        TargetAotOracleArtifactEvidence& destination) {
+      destination.layer_index = source.layer_index;
+      destination.role = static_cast<std::uint8_t>(source.role);
+      destination.artifact_identity = source.manifest.artifact_identity;
+      destination.source_inventory_identity =
+          source.manifest.source_inventory_identity;
+      destination.upload_receipt_identity =
+          source.upload_receipt.receipt_identity;
+      destination.plan_identity =
+          static_cast<std::uint16_t>(source.manifest.plan_identity);
+      destination.layout_identity =
+          static_cast<std::uint16_t>(source.manifest.layout_identity);
+      destination.transform_identity = static_cast<std::uint16_t>(
+          source.transform_receipt.transform_identity);
+      destination.device_arena_offset = source.device_arena_offset;
+      destination.payload_bytes = source.manifest.payload_bytes;
+      destination.payload_sha256 =
+          target_aot_oracle_digest_hex(source.manifest.payload_digest);
+      destination.manifest_seal = source.manifest.seal.value;
+      destination.allocation_owner_identity =
+          source.upload_receipt.device_allocation_owner_identity;
+      destination.allocation_identity =
+          source.upload_receipt.device_allocation_identity;
+      destination.device_ordinal = source.upload_receipt.device_ordinal;
+      destination.exact =
+          source.view.artifact_identity == source.manifest.artifact_identity &&
+          source.view.source_inventory_identity ==
+              source.manifest.source_inventory_identity &&
+          source.view.host_payload_digest == source.manifest.payload_digest &&
+          source.view.host_manifest_seal == source.manifest.seal &&
+          source.upload_receipt.device_allocation_owner_identity ==
+              owner.owner_identity_ &&
+          source.upload_receipt.device_allocation_identity ==
+              owner.allocation_identity_ &&
+          source.upload_receipt.device_ordinal == owner.device_ordinal_ &&
+          destination.payload_sha256.size() == 64U;
+    };
+    capture_artifact(*gate_up_asset, result.receipt.gate_up);
+    capture_artifact(*down_asset, result.receipt.down);
+    if (!result.receipt.gate_up.exact || !result.receipt.down.exact) {
+      return fail(ReferenceEngineError::kInvalidArgument,
+                  "target_aot_layer0_m192_oracle_artifact_receipts",
+                  "layer-0 GateUp/Down artifact receipt identities or "
+                  "payload digests did not close");
+    }
+
+    const DecoderLayerWeights& layer0 = model_weights.layer(0U);
+    const auto* const gate =
+        std::get_if<NvFp4LinearWeight>(&layer0.mlp.gate_proj);
+    const auto* const up =
+        std::get_if<NvFp4LinearWeight>(&layer0.mlp.up_proj);
+    const auto* const down =
+        std::get_if<NvFp4LinearWeight>(&layer0.mlp.down_proj);
+    result.canonical_layer0_weights =
+        gate != nullptr && up != nullptr && down != nullptr &&
+        gate->packed_weight != nullptr && gate->block_scale != nullptr &&
+        up->packed_weight != nullptr && up->block_scale != nullptr &&
+        down->packed_weight != nullptr && down->block_scale != nullptr &&
+        gate->output_size == kIntermediate && gate->input_size == kHidden &&
+        up->output_size == kIntermediate && up->input_size == kHidden &&
+        down->output_size == kHidden && down->input_size == kIntermediate &&
+        std::isfinite(gate->weight_scale_2) && gate->weight_scale_2 > 0.0F &&
+        std::isfinite(up->weight_scale_2) && up->weight_scale_2 > 0.0F &&
+        std::isfinite(down->weight_scale_2) &&
+        down->weight_scale_2 > 0.0F &&
+        gate_up_asset->view.tensor_scale_count == 2U &&
+        down_asset->view.tensor_scale_count == 1U &&
+        gate_up_asset->view.tensor_scale_bits[0U] ==
+            target_aot_oracle_float_bits(gate->weight_scale_2) &&
+        gate_up_asset->view.tensor_scale_bits[1U] ==
+            target_aot_oracle_float_bits(up->weight_scale_2) &&
+        down_asset->view.tensor_scale_bits[0U] ==
+            target_aot_oracle_float_bits(down->weight_scale_2);
+    if (!result.canonical_layer0_weights) {
+      return fail(ReferenceEngineError::kInvalidArgument,
+                  "target_aot_layer0_m192_oracle_canonical_weights",
+                  "layer 0 did not expose the exact canonical NVFP4 "
+                  "Gate/Up/Down bindings and tensor scales");
+    }
+
+    const auto query_resources = [](
+        const Role role, const int expected_registers,
+        TargetAotOracleKernelResourceEvidence& destination) {
+      PrivateResources source;
+      const int status = kernels::
+          sm87_target_aot_layer0_m192_oracle_detail::query_resources(
+              role, &source);
+      if (status != static_cast<int>(cudaSuccess)) {
+        return status;
+      }
+      destination.role = static_cast<std::uint8_t>(source.role);
+      destination.binary_version = source.binary_version;
+      destination.registers_per_thread = source.registers_per_thread;
+      destination.static_shared_bytes = source.static_shared_bytes;
+      destination.dynamic_shared_bytes = source.dynamic_shared_bytes;
+      destination.local_bytes = source.local_bytes;
+      destination.maximum_threads_per_block =
+          source.maximum_threads_per_block;
+      destination.active_blocks_per_sm = source.active_blocks_per_sm;
+      destination.physical_ctas = source.physical_ctas;
+      destination.device_ordinal = source.device_ordinal;
+      destination.device_major = source.device_major;
+      destination.device_minor = source.device_minor;
+      destination.device_sm_count = source.device_sm_count;
+      destination.block_m = 128U;
+      destination.block_n = 256U;
+      destination.block_k = 64U;
+      destination.pipeline_stages = 3U;
+      destination.cta_threads = 256U;
+      destination.grid_m = 2U;
+      destination.grid_n =
+          role == Role::kNvFp4GateUp ? 68U : 20U;
+      destination.full_logical_tasks = destination.grid_n;
+      destination.tail_logical_tasks = destination.grid_n;
+      destination.total_logical_tasks =
+          destination.full_logical_tasks + destination.tail_logical_tasks;
+      destination.n_halves_per_logical_task =
+          role == Role::kNvFp4GateUp ? 2U : 1U;
+      destination.n_half_features =
+          role == Role::kNvFp4GateUp ? 128U : 256U;
+      destination.raster_group_m =
+          role == Role::kNvFp4GateUp ? 2U : 1U;
+      destination.n_stationary = role == Role::kNvFp4Down;
+      destination.logical_tasks_per_cta_min =
+          destination.total_logical_tasks / 16U;
+      destination.logical_tasks_per_cta_max =
+          (destination.total_logical_tasks + 15U) / 16U;
+      destination.exact_geometry_gate =
+          destination.grid_m == 2U &&
+          ((role == Role::kNvFp4GateUp &&
+            destination.full_logical_tasks == 68U &&
+            destination.tail_logical_tasks == 68U &&
+            destination.total_logical_tasks == 136U &&
+            destination.n_halves_per_logical_task == 2U &&
+            destination.n_half_features == 128U &&
+            destination.raster_group_m == 2U &&
+            !destination.n_stationary &&
+            destination.logical_tasks_per_cta_min == 8U &&
+            destination.logical_tasks_per_cta_max == 9U) ||
+           (role == Role::kNvFp4Down &&
+            destination.full_logical_tasks == 20U &&
+            destination.tail_logical_tasks == 20U &&
+            destination.total_logical_tasks == 40U &&
+            destination.n_halves_per_logical_task == 1U &&
+            destination.n_half_features == 256U &&
+            destination.raster_group_m == 1U &&
+            destination.n_stationary &&
+            destination.logical_tasks_per_cta_min == 2U &&
+            destination.logical_tasks_per_cta_max == 3U));
+      destination.exact_resource_gate =
+          destination.exact_geometry_gate && source.role == role &&
+          source.binary_version == 87 &&
+          source.registers_per_thread == expected_registers &&
+          source.static_shared_bytes == 0U &&
+          source.dynamic_shared_bytes == 76'800U &&
+          source.local_bytes == 0U &&
+          source.maximum_threads_per_block == 256 &&
+          source.active_blocks_per_sm == 1 && source.physical_ctas == 16 &&
+          source.device_major == 8 && source.device_minor == 7 &&
+          source.device_sm_count == 16;
+      return static_cast<int>(cudaSuccess);
+    };
+    int status = query_resources(Role::kNvFp4GateUp, 246,
+                                 result.gate_up_resources);
+    if (status == static_cast<int>(cudaSuccess)) {
+      status = query_resources(Role::kNvFp4Down, 210,
+                               result.down_resources);
+    }
+    if (status != static_cast<int>(cudaSuccess)) {
+      return fail(ReferenceEngineError::kRunnerStepFailure,
+                  "target_aot_layer0_m192_oracle_resources",
+                  "same-ELF target-AOT kernel resource query failed", status);
+    }
+    if (!result.gate_up_resources.exact_resource_gate ||
+        !result.down_resources.exact_resource_gate ||
+        result.gate_up_resources.device_ordinal != owner.device_ordinal_ ||
+        result.down_resources.device_ordinal != owner.device_ordinal_) {
+      return fail(ReferenceEngineError::kRunnerStepFailure,
+                  "target_aot_layer0_m192_oracle_resource_gate",
+                  "same-ELF kernel resources did not meet the exact SM87 "
+                  "register/shared/local/occupancy/CTA contract");
+    }
+
+    cudaError_t cuda_status =
+        cudaStreamCreateWithFlags(&stream.value, cudaStreamNonBlocking);
+    if (cuda_status != cudaSuccess) {
+      return fail(ReferenceEngineError::kAllocationFailure,
+                  "target_aot_layer0_m192_oracle_stream",
+                  "could not create the isolated oracle CUDA stream",
+                  static_cast<int>(cuda_status));
+    }
+
+    const auto allocate = [&](TargetAotOracleDeviceBuffer& buffer,
+                              const std::size_t bytes) {
+      return buffer.allocate_and_guard(bytes, stream.value);
+    };
+    cuda_status = allocate(activation, kHiddenBytes);
+    if (cuda_status == cudaSuccess) {
+      cuda_status = allocate(residual_fixture, kHiddenBytes);
+    }
+    if (cuda_status == cudaSuccess) {
+      cuda_status = allocate(baseline_gate, kGateUpBytes);
+    }
+    if (cuda_status == cudaSuccess) {
+      cuda_status = allocate(baseline_up, kGateUpBytes);
+    }
+    if (cuda_status == cudaSuccess) {
+      cuda_status = allocate(baseline_gate_up, kGateUpBytes);
+    }
+    if (cuda_status == cudaSuccess) {
+      cuda_status = allocate(baseline_down, kHiddenBytes);
+    }
+    if (cuda_status == cudaSuccess) {
+      cuda_status = allocate(baseline_down_residual, kHiddenBytes);
+    }
+    if (cuda_status == cudaSuccess) {
+      cuda_status = allocate(candidate_gate_up, kGateUpBytes);
+    }
+    if (cuda_status == cudaSuccess) {
+      cuda_status = allocate(candidate_down_residual, kHiddenBytes);
+    }
+    if (cuda_status == cudaSuccess) {
+      cuda_status = allocate(replay_gate_up, kGateUpBytes);
+    }
+    if (cuda_status == cudaSuccess) {
+      cuda_status = allocate(replay_down_residual, kHiddenBytes);
+    }
+    if (cuda_status != cudaSuccess) {
+      return fail(ReferenceEngineError::kAllocationFailure,
+                  "target_aot_layer0_m192_oracle_buffers",
+                  "could not allocate guarded oracle buffers",
+                  static_cast<int>(cuda_status));
+    }
+
+    bool oracle_allocations_disjoint = owner_end_fits;
+    for (std::size_t index = 0U; index < buffers.size(); ++index) {
+      const auto* const buffer = buffers[index];
+      const std::uintptr_t begin =
+          reinterpret_cast<std::uintptr_t>(buffer->allocation);
+      const bool end_fits =
+          begin != 0U && buffer->allocation_bytes != 0U &&
+          buffer->allocation_bytes <=
+              std::numeric_limits<std::uintptr_t>::max() &&
+          begin <= std::numeric_limits<std::uintptr_t>::max() -
+                       static_cast<std::uintptr_t>(buffer->allocation_bytes);
+      const std::uintptr_t end =
+          end_fits
+              ? begin +
+                    static_cast<std::uintptr_t>(buffer->allocation_bytes)
+              : 0U;
+      oracle_allocations_disjoint =
+          oracle_allocations_disjoint && end_fits &&
+          (end <= owner_begin || begin >= owner_end);
+      for (std::size_t prior = 0U; prior < index; ++prior) {
+        const std::uintptr_t prior_begin =
+            reinterpret_cast<std::uintptr_t>(buffers[prior]->allocation);
+        const std::uintptr_t prior_end =
+            prior_begin + static_cast<std::uintptr_t>(
+                              buffers[prior]->allocation_bytes);
+        oracle_allocations_disjoint =
+            oracle_allocations_disjoint &&
+            (end <= prior_begin || begin >= prior_end);
+      }
+    }
+    result.receipt.oracle_allocations_disjoint_from_owner =
+        oracle_allocations_disjoint;
+    if (!result.receipt.oracle_allocations_disjoint_from_owner) {
+      return fail(ReferenceEngineError::kInvalidArgument,
+                  "target_aot_layer0_m192_oracle_buffer_overlap",
+                  "oracle activation/output allocations overlap the complete "
+                  "authenticated owner arena or one another");
+    }
+
+    constexpr std::array<std::uint16_t, 12U> kActivationPalette{
+        0x0000U, 0x8000U, 0x3c80U, 0xbc80U, 0x3d00U, 0xbd00U,
+        0x3d80U, 0xbd80U, 0x3e00U, 0xbe00U, 0x3e80U, 0xbe80U};
+    constexpr std::array<std::uint16_t, 10U> kResidualPalette{
+        0x0000U, 0x8000U, 0x3c00U, 0xbc00U, 0x3c80U,
+        0xbc80U, 0x3d00U, 0xbd00U, 0x3d80U, 0xbd80U};
+    std::vector<std::uint16_t> activation_host(kActivationElements);
+    std::vector<std::uint16_t> residual_host(kActivationElements);
+    for (std::size_t row = 0U; row < kTokens; ++row) {
+      for (std::size_t column = 0U; column < kHidden; ++column) {
+        const std::size_t index = row * kHidden + column;
+        activation_host[index] = kActivationPalette[
+            (row * 17U + column * 29U + (column >> 5U)) %
+            kActivationPalette.size()];
+        residual_host[index] = kResidualPalette[
+            (row * 23U + column * 11U + (row ^ column)) %
+            kResidualPalette.size()];
+      }
+    }
+    result.activation_fixture.generator =
+        "q3x.layer0-m192.activation-palette-row17-column29-shift5.v1";
+    result.activation_fixture.dtype = "bfloat16-raw-little-endian";
+    result.activation_fixture.rows = static_cast<std::uint32_t>(kTokens);
+    result.activation_fixture.columns = static_cast<std::uint32_t>(kHidden);
+    result.activation_fixture.elements = kActivationElements;
+    result.activation_fixture.bytes = kHiddenBytes;
+    result.activation_fixture.sha256 =
+        target_aot_oracle_sha256(activation_host);
+    result.residual_fixture.generator =
+        "q3x.layer0-m192.residual-palette-row23-column11-xor.v1";
+    result.residual_fixture.dtype = "bfloat16-raw-little-endian";
+    result.residual_fixture.rows = static_cast<std::uint32_t>(kTokens);
+    result.residual_fixture.columns = static_cast<std::uint32_t>(kHidden);
+    result.residual_fixture.elements = kActivationElements;
+    result.residual_fixture.bytes = kHiddenBytes;
+    result.residual_fixture.sha256 =
+        target_aot_oracle_sha256(residual_host);
+    if (result.activation_fixture.sha256.size() != 64U ||
+        result.residual_fixture.sha256.size() != 64U) {
+      return fail(ReferenceEngineError::kInvalidArgument,
+                  "target_aot_layer0_m192_oracle_fixture_identity",
+                  "deterministic BF16 fixture SHA-256 identities failed");
+    }
+    cuda_status = cudaMemcpyAsync(activation.data, activation_host.data(),
+                                  kHiddenBytes, cudaMemcpyHostToDevice,
+                                  stream.value);
+    if (cuda_status == cudaSuccess) {
+      cuda_status = cudaMemcpyAsync(
+          residual_fixture.data, residual_host.data(), kHiddenBytes,
+          cudaMemcpyHostToDevice, stream.value);
+    }
+    if (cuda_status != cudaSuccess) {
+      return fail(ReferenceEngineError::kRunnerStepFailure,
+                  "target_aot_layer0_m192_oracle_fixture_upload",
+                  "could not upload deterministic finite BF16 fixtures",
+                  static_cast<int>(cuda_status));
+    }
+
+    const auto launch_baseline_projection = [&](
+        const NvFp4LinearWeight& weight,
+        const std::uint16_t* const input, const std::size_t input_features,
+        std::uint16_t* const output, const std::size_t output_features,
+        std::size_t& launch_count) {
+      for (std::size_t first_row = 0U; first_row < kTokens;
+           first_row += 32U) {
+        const int launch_status =
+            kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
+                weight.packed_weight, weight.block_scale,
+                weight.weight_scale_2, input + first_row * input_features,
+                output_features, input_features,
+                output + first_row * output_features,
+                static_cast<void*>(stream.value));
+        if (launch_status != static_cast<int>(cudaSuccess)) {
+          return launch_status;
+        }
+        ++launch_count;
+      }
+      return static_cast<int>(cudaSuccess);
+    };
+
+    status = launch_baseline_projection(
+        *gate, activation.data, kHidden, baseline_gate.data, kIntermediate,
+        result.baseline_gate_launches);
+    if (status == static_cast<int>(cudaSuccess)) {
+      status = launch_baseline_projection(
+          *up, activation.data, kHidden, baseline_up.data, kIntermediate,
+          result.baseline_up_launches);
+    }
+    if (status == static_cast<int>(cudaSuccess)) {
+      status = launch_silu_mul_reference_cuda(
+          baseline_gate.data, baseline_up.data, kGateUpElements,
+          baseline_gate_up.data, static_cast<void*>(stream.value));
+    }
+    if (status == static_cast<int>(cudaSuccess)) {
+      status = launch_baseline_projection(
+          *down, baseline_gate_up.data, kIntermediate, baseline_down.data,
+          kHidden, result.baseline_down_launches);
+    }
+    if (status == static_cast<int>(cudaSuccess)) {
+      status = launch_residual_add_reference_cuda(
+          baseline_down.data, residual_fixture.data, kActivationElements,
+          baseline_down_residual.data, static_cast<void*>(stream.value));
+    }
+    if (status != static_cast<int>(cudaSuccess)) {
+      return fail(ReferenceEngineError::kRunnerStepFailure,
+                  "target_aot_layer0_m192_oracle_baseline",
+                  "canonical six-M32 layer-0 baseline enqueue failed",
+                  status);
+    }
+
+    const auto launch_candidate_pair = [&positive = result](
+        TargetAotOracleDeviceBuffer& gate_up_output,
+        TargetAotOracleDeviceBuffer& down_output, const bool replay,
+        const std::uint16_t* const activation_input,
+        const std::uint16_t* const residual_input,
+        const kernels::Sm87TargetAotNvFp4CudaAssetView& gate_up_view,
+        const kernels::Sm87TargetAotNvFp4CudaAssetView& down_view,
+        const cudaStream_t candidate_stream) {
+      int launch_status = kernels::
+          sm87_target_aot_layer0_m192_oracle_detail::launch(
+              Role::kNvFp4GateUp, activation_input, gate_up_view, nullptr,
+              gate_up_output.data, static_cast<void*>(candidate_stream));
+      if (launch_status != static_cast<int>(cudaSuccess)) {
+        return launch_status;
+      }
+      if (replay) {
+        ++positive.replay_gate_up_launches;
+      } else {
+        ++positive.candidate_gate_up_launches;
+      }
+      launch_status = kernels::
+          sm87_target_aot_layer0_m192_oracle_detail::launch(
+              Role::kNvFp4Down, gate_up_output.data, down_view, residual_input,
+              down_output.data, static_cast<void*>(candidate_stream));
+      if (launch_status == static_cast<int>(cudaSuccess)) {
+        if (replay) {
+          ++positive.replay_down_launches;
+        } else {
+          ++positive.candidate_down_launches;
+        }
+      }
+      return launch_status;
+    };
+
+    std::vector<std::uint16_t> baseline_gate_up_host(kGateUpElements);
+    std::vector<std::uint16_t> candidate_gate_up_host(kGateUpElements);
+    std::vector<std::uint16_t> replay_gate_up_host(kGateUpElements);
+    std::vector<std::uint16_t> baseline_down_host(kActivationElements);
+    std::vector<std::uint16_t> candidate_down_host(kActivationElements);
+    std::vector<std::uint16_t> replay_down_host(kActivationElements);
+    std::vector<std::uint16_t> activation_after_candidate(
+        kActivationElements);
+    std::vector<std::uint16_t> residual_after_candidate(kActivationElements);
+    std::vector<std::uint16_t> activation_after_replay(kActivationElements);
+    std::vector<std::uint16_t> residual_after_replay(kActivationElements);
+
+    status = launch_candidate_pair(
+        candidate_gate_up, candidate_down_residual, false, activation.data,
+        residual_fixture.data, gate_up_asset->view, down_asset->view,
+        stream.value);
+    if (status == static_cast<int>(cudaSuccess)) {
+      cuda_status = cudaMemcpyAsync(
+          baseline_gate_up_host.data(), baseline_gate_up.data, kGateUpBytes,
+          cudaMemcpyDeviceToHost, stream.value);
+    }
+    if (status == static_cast<int>(cudaSuccess) &&
+        cuda_status == cudaSuccess) {
+      cuda_status = cudaMemcpyAsync(
+          candidate_gate_up_host.data(), candidate_gate_up.data,
+          kGateUpBytes, cudaMemcpyDeviceToHost, stream.value);
+    }
+    if (status == static_cast<int>(cudaSuccess) &&
+        cuda_status == cudaSuccess) {
+      cuda_status = cudaMemcpyAsync(
+          baseline_down_host.data(), baseline_down_residual.data,
+          kHiddenBytes, cudaMemcpyDeviceToHost, stream.value);
+    }
+    if (status == static_cast<int>(cudaSuccess) &&
+        cuda_status == cudaSuccess) {
+      cuda_status = cudaMemcpyAsync(
+          candidate_down_host.data(), candidate_down_residual.data,
+          kHiddenBytes, cudaMemcpyDeviceToHost, stream.value);
+    }
+    if (status == static_cast<int>(cudaSuccess) &&
+        cuda_status == cudaSuccess) {
+      cuda_status = cudaMemcpyAsync(
+          activation_after_candidate.data(), activation.data, kHiddenBytes,
+          cudaMemcpyDeviceToHost, stream.value);
+    }
+    if (status == static_cast<int>(cudaSuccess) &&
+        cuda_status == cudaSuccess) {
+      cuda_status = cudaMemcpyAsync(
+          residual_after_candidate.data(), residual_fixture.data, kHiddenBytes,
+          cudaMemcpyDeviceToHost, stream.value);
+    }
+    if (status == static_cast<int>(cudaSuccess) &&
+        cuda_status == cudaSuccess) {
+      status = launch_candidate_pair(
+          replay_gate_up, replay_down_residual, true, activation.data,
+          residual_fixture.data, gate_up_asset->view, down_asset->view,
+          stream.value);
+    }
+    if (status == static_cast<int>(cudaSuccess) &&
+        cuda_status == cudaSuccess) {
+      cuda_status = cudaMemcpyAsync(
+          replay_gate_up_host.data(), replay_gate_up.data, kGateUpBytes,
+          cudaMemcpyDeviceToHost, stream.value);
+    }
+    if (status == static_cast<int>(cudaSuccess) &&
+        cuda_status == cudaSuccess) {
+      cuda_status = cudaMemcpyAsync(
+          replay_down_host.data(), replay_down_residual.data, kHiddenBytes,
+          cudaMemcpyDeviceToHost, stream.value);
+    }
+    if (status == static_cast<int>(cudaSuccess) &&
+        cuda_status == cudaSuccess) {
+      cuda_status = cudaMemcpyAsync(
+          activation_after_replay.data(), activation.data, kHiddenBytes,
+          cudaMemcpyDeviceToHost, stream.value);
+    }
+    if (status == static_cast<int>(cudaSuccess) &&
+        cuda_status == cudaSuccess) {
+      cuda_status = cudaMemcpyAsync(
+          residual_after_replay.data(), residual_fixture.data, kHiddenBytes,
+          cudaMemcpyDeviceToHost, stream.value);
+    }
+    if (status != static_cast<int>(cudaSuccess) ||
+        cuda_status != cudaSuccess) {
+      const int failure = status != static_cast<int>(cudaSuccess)
+                              ? status
+                              : static_cast<int>(cuda_status);
+      return fail(ReferenceEngineError::kRunnerStepFailure,
+                  "target_aot_layer0_m192_oracle_candidate",
+                  "private fixed-M192 candidate or evidence copy enqueue "
+                  "failed",
+                  failure);
+    }
+    cuda_status = cudaStreamSynchronize(stream.value);
+    if (cuda_status != cudaSuccess) {
+      return fail(ReferenceEngineError::kRunnerStepFailure,
+                  "target_aot_layer0_m192_oracle_synchronize",
+                  "M192 baseline/candidate/replay stream failed",
+                  static_cast<int>(cuda_status));
+    }
+
+    result.activation_preserved_after_candidate =
+        activation_after_candidate == activation_host;
+    result.residual_preserved_after_candidate =
+        residual_after_candidate == residual_host;
+    result.activation_preserved_after_replay =
+        activation_after_replay == activation_host;
+    result.residual_preserved_after_replay =
+        residual_after_replay == residual_host;
+    const bool activation_guards = activation.guards_intact();
+    const bool residual_guards = residual_fixture.guards_intact();
+    const bool baseline_gate_guards =
+        activation_guards && baseline_gate.guards_intact() &&
+        baseline_up.guards_intact() && baseline_gate_up.guards_intact();
+    const bool candidate_gate_guards =
+        activation_guards && candidate_gate_up.guards_intact();
+    const bool replay_gate_guards =
+        activation_guards && replay_gate_up.guards_intact();
+    const bool baseline_down_guards =
+        residual_guards && baseline_down.guards_intact() &&
+        baseline_down_residual.guards_intact();
+    const bool candidate_down_guards =
+        residual_guards && candidate_down_residual.guards_intact();
+    const bool replay_down_guards =
+        residual_guards && replay_down_residual.guards_intact();
+    target_aot_oracle_compare(
+        baseline_gate_up_host, candidate_gate_up_host, replay_gate_up_host,
+        kIntermediate, baseline_gate_guards, candidate_gate_guards,
+        replay_gate_guards, result.gate_up);
+    target_aot_oracle_compare(
+        baseline_down_host, candidate_down_host, replay_down_host, kHidden,
+        baseline_down_guards, candidate_down_guards, replay_down_guards,
+        result.down_residual);
+    cleanup();
+    result.passed = result.owner_attachment_authenticated &&
+                    result.receipt.attachment_exact &&
+                    result.receipt.complete_owner_allocation_ranges_checked &&
+                    result.receipt.complete_owner_allocation_exact_cover &&
+                    result.receipt.complete_owner_allocation_nonoverlap &&
+                    result.receipt.oracle_allocations_disjoint_from_owner &&
+                    result.receipt.gate_up.exact &&
+                    result.receipt.down.exact &&
+                    result.canonical_layer0_weights &&
+                    result.activation_fixture.sha256.size() == 64U &&
+                    result.residual_fixture.sha256.size() == 64U &&
+                    result.gate_up_resources.exact_resource_gate &&
+                    result.down_resources.exact_resource_gate &&
+                    result.baseline_gate_launches == 6U &&
+                    result.baseline_up_launches == 6U &&
+                    result.baseline_down_launches == 6U &&
+                    result.candidate_gate_up_launches == 1U &&
+                    result.candidate_down_launches == 1U &&
+                    result.replay_gate_up_launches == 1U &&
+                    result.replay_down_launches == 1U &&
+                    result.activation_preserved_after_candidate &&
+                    result.residual_preserved_after_candidate &&
+                    result.activation_preserved_after_replay &&
+                    result.residual_preserved_after_replay &&
+                    result.gate_up.bitwise_exact &&
+                    result.down_residual.bitwise_exact &&
+                    result.cleanup.passed;
+    outcome.value = result;
+    if (!result.passed) {
+      outcome.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "target_aot_layer0_m192_oracle_gate",
+          "real-weight M192 full/tail, guard, replay, or bitwise gate failed");
+      return outcome;
+    }
+    return outcome;
+  } catch (const std::bad_alloc&) {
+    return fail(ReferenceEngineError::kAllocationFailure,
+                "target_aot_layer0_m192_oracle_host_buffers",
+                "host allocation failed while constructing oracle evidence");
+  } catch (const std::exception& error) {
+    return fail(ReferenceEngineError::kInvalidArgument,
+                "target_aot_layer0_m192_oracle_exception", error.what());
+  }
+}
+#endif
 
 ReferenceGenerateResult ReferenceEngine::generate(
     const std::string_view user_prompt,

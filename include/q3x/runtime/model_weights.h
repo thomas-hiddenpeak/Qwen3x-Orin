@@ -16,6 +16,11 @@ namespace q3x::runtime {
 
 class ReferenceEngine;
 class Sm87TargetAotProjectionDeviceAssets;
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+namespace reference_engine_test_detail {
+class Sm87TargetAotLayer0M192OracleAccess;
+}
+#endif
 
 inline constexpr std::size_t kQwen36DenseLayerCount = 64U;
 inline constexpr std::size_t kQwen36LinearAttentionLayerCount = 48U;
@@ -642,6 +647,10 @@ class ModelWeights {
  private:
   friend class ReferenceEngine;
   friend class Sm87TargetAotProjectionDeviceAssets;
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  friend class reference_engine_test_detail::
+      Sm87TargetAotLayer0M192OracleAccess;
+#endif
   friend class ModelWeightBinder;
   friend struct WeightBindResult;
   friend WeightBindResult bind_qwen36_27b_weights(

@@ -1,9 +1,14 @@
 #include "q3x/kernels/sm87_target_aot_projection_cuda.h"
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+#include "../../runtime/sm87_target_aot_layer0_m192_oracle_internal.h"
+#endif
 
 #include <cuda_runtime.h>
 
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
+#include <cstring>
 
 namespace q3x::kernels {
 namespace {
@@ -762,8 +767,7 @@ void sm87_target_aot_nvfp4_down_kernel(
        linear_task < logical_tasks; linear_task += kPersistentCtas) {
     unsigned int m_tile = 0U;
     unsigned int n_tile = 0U;
-    projection_task(linear_task, grid_m, kGridN, 1U, true, m_tile,
-                    n_tile);
+    projection_task(linear_task, grid_m, kGridN, 1U, true, m_tile, n_tile);
     const unsigned int first_m = m_tile * kTileM;
     WarpAccumulator accumulators;
     run_full_k<false, kDownKTiles>(storage, input, payload, rows, first_m,
@@ -773,6 +777,87 @@ void sm87_target_aot_nvfp4_down_kernel(
     __syncthreads();
   }
 }
+
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+__device__ __forceinline__ void publish_down_residual_to_oracle_output(
+    const WarpAccumulator& accumulators, const unsigned int rows,
+    const unsigned int first_m, const unsigned int first_n,
+    const unsigned int warp, const unsigned int lane,
+    const float tensor_scale, const std::uint16_t* const residual,
+    std::uint16_t* const output) noexcept {
+  const unsigned int warp_m = warp / 4U;
+  const unsigned int warp_n = warp % 4U;
+  const unsigned int lane_group = lane / 4U;
+  const unsigned int lane_in_group = lane % 4U;
+#pragma unroll
+  for (unsigned int m16 = 0U; m16 < kM16Panels; ++m16) {
+    const unsigned int local_row0 =
+        warp_m * kWarpM + m16 * 16U + lane_group;
+    const unsigned int local_row1 = local_row0 + 8U;
+    const unsigned int global_row0 = first_m + local_row0;
+    const unsigned int global_row1 = first_m + local_row1;
+#pragma unroll
+    for (unsigned int n8 = 0U; n8 < kN8Panels; ++n8) {
+      const unsigned int column =
+          first_n + warp_n * kWarpN + n8 * 8U + lane_in_group * 2U;
+      const auto& value = accumulators[m16][n8];
+      if (global_row0 < rows) {
+        const auto* const source = reinterpret_cast<const std::uint32_t*>(
+            residual + static_cast<std::size_t>(global_row0) *
+                           kSm87TargetAotProjectionHidden + column);
+        auto* const destination = reinterpret_cast<std::uint32_t*>(
+            output + static_cast<std::size_t>(global_row0) *
+                         kSm87TargetAotProjectionHidden + column);
+        *destination = add_residual_pair(
+            pack_scaled_bf16_pair(value.x0, value.x1, tensor_scale), *source);
+      }
+      if (global_row1 < rows) {
+        const auto* const source = reinterpret_cast<const std::uint32_t*>(
+            residual + static_cast<std::size_t>(global_row1) *
+                           kSm87TargetAotProjectionHidden + column);
+        auto* const destination = reinterpret_cast<std::uint32_t*>(
+            output + static_cast<std::size_t>(global_row1) *
+                         kSm87TargetAotProjectionHidden + column);
+        *destination = add_residual_pair(
+            pack_scaled_bf16_pair(value.x2, value.x3, tensor_scale), *source);
+      }
+    }
+  }
+}
+
+__global__ __launch_bounds__(kThreads, 1)
+void sm87_target_aot_nvfp4_down_m192_oracle_kernel(
+    const std::uint16_t* __restrict__ input,
+    const std::uint8_t* __restrict__ payload, const unsigned int rows,
+    const float tensor_scale,
+    const std::uint16_t* __restrict__ residual,
+    std::uint16_t* __restrict__ output) {
+  extern __shared__ __align__(32) std::uint8_t dynamic_storage[];
+  auto* const storage =
+      reinterpret_cast<NvFp4PipelineStorage*>(dynamic_storage);
+  const unsigned int grid_m = (rows + kTileM - 1U) / kTileM;
+  constexpr unsigned int kGridN = kDownNTiles;
+  const unsigned int logical_tasks = grid_m * kGridN;
+  const unsigned int warp = threadIdx.x / kWarpSize;
+  const unsigned int lane = threadIdx.x % kWarpSize;
+
+  for (unsigned int linear_task = blockIdx.x;
+       linear_task < logical_tasks; linear_task += kPersistentCtas) {
+    unsigned int m_tile = 0U;
+    unsigned int n_tile = 0U;
+    projection_task(linear_task, grid_m, kGridN, 1U, true, m_tile,
+                    n_tile);
+    const unsigned int first_m = m_tile * kTileM;
+    WarpAccumulator accumulators;
+    run_full_k<false, kDownKTiles>(storage, input, payload, rows, first_m,
+                                  n_tile, 0U, accumulators);
+    publish_down_residual_to_oracle_output(
+        accumulators, rows, first_m, n_tile * kTileN, warp, lane,
+        tensor_scale, residual, output);
+    __syncthreads();
+  }
+}
+#endif
 
 [[nodiscard]] cudaError_t query_kernel_resources(
     const Sm87TargetAotProjectionRole role,
@@ -833,5 +918,228 @@ int launch_sm87_target_aot_nvfp4_cuda(
   // and resource evidence; changing plan/layout bits never opens this symbol.
   return static_cast<int>(cudaErrorNotSupported);
 }
+
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+namespace sm87_target_aot_layer0_m192_oracle_detail {
+
+namespace {
+
+[[nodiscard]] cudaError_t set_oracle_dynamic_shared_attribute(
+    const Sm87TargetAotProjectionRole role) noexcept {
+  if (role == Sm87TargetAotProjectionRole::kNvFp4GateUp) {
+    return cudaFuncSetAttribute(
+        sm87_target_aot_nvfp4_gate_up_kernel,
+        cudaFuncAttributeMaxDynamicSharedMemorySize,
+        static_cast<int>(kSm87TargetAotNvFp4SharedBytes));
+  }
+  if (role == Sm87TargetAotProjectionRole::kNvFp4Down) {
+    return cudaFuncSetAttribute(
+        sm87_target_aot_nvfp4_down_m192_oracle_kernel,
+        cudaFuncAttributeMaxDynamicSharedMemorySize,
+        static_cast<int>(kSm87TargetAotNvFp4SharedBytes));
+  }
+  return cudaErrorInvalidValue;
+}
+
+[[nodiscard]] bool exact_device_pointer(const void* const pointer,
+                                        const int device_ordinal) noexcept {
+  cudaPointerAttributes attributes{};
+  const cudaError_t status = cudaPointerGetAttributes(&attributes, pointer);
+  return status == cudaSuccess && attributes.type == cudaMemoryTypeDevice &&
+         attributes.device == device_ordinal;
+}
+
+[[nodiscard]] bool fixed_m192_arguments_valid(
+    const Sm87TargetAotProjectionRole role,
+    const std::uint16_t* const input,
+    const Sm87TargetAotNvFp4CudaAssetView& asset,
+    const std::uint16_t* const residual,
+    std::uint16_t* const output) noexcept {
+  if (!sm87_target_aot_nvfp4_cuda_role(role) ||
+      !sm87_target_aot_nvfp4_cuda_asset_valid(asset) ||
+      asset.payload.role != role || input == nullptr ||
+      output == nullptr ||
+      (role == Sm87TargetAotProjectionRole::kNvFp4GateUp &&
+       residual != nullptr) ||
+      (role == Sm87TargetAotProjectionRole::kNvFp4Down &&
+       residual == nullptr) ||
+      reinterpret_cast<std::uintptr_t>(input) % 16U != 0U ||
+      reinterpret_cast<std::uintptr_t>(output) % 16U != 0U ||
+      (residual != nullptr &&
+       reinterpret_cast<std::uintptr_t>(residual) % 16U != 0U)) {
+    return false;
+  }
+  const std::uint64_t input_features =
+      role == Sm87TargetAotProjectionRole::kNvFp4GateUp
+          ? kSm87TargetAotProjectionHidden
+          : kSm87TargetAotProjectionIntermediate;
+  const std::uint64_t output_features =
+      role == Sm87TargetAotProjectionRole::kNvFp4GateUp
+          ? kSm87TargetAotProjectionIntermediate
+          : kSm87TargetAotProjectionHidden;
+  const auto input_range = sm87_target_aot_nvfp4_cuda_byte_range(
+      input, kTokenCount * input_features * sizeof(std::uint16_t));
+  const auto output_range = sm87_target_aot_nvfp4_cuda_byte_range(
+      output,
+      kTokenCount * output_features * sizeof(std::uint16_t));
+  const auto residual_range =
+      residual == nullptr
+          ? Sm87TargetAotNvFp4CudaByteRange{}
+          : sm87_target_aot_nvfp4_cuda_byte_range(
+                residual, kTokenCount * kSm87TargetAotProjectionHidden *
+                              sizeof(std::uint16_t));
+  const auto& upload = asset.device_upload_receipt;
+  const Sm87TargetAotNvFp4CudaByteRange allocation_range{
+      upload.device_allocation_begin, upload.device_allocation_end,
+      upload.device_allocation_begin != 0U &&
+          upload.device_allocation_end > upload.device_allocation_begin};
+  if (!input_range.valid || !output_range.valid || !allocation_range.valid ||
+      (residual != nullptr && !residual_range.valid) ||
+      sm87_target_aot_nvfp4_cuda_ranges_overlap(input_range, output_range) ||
+      (residual != nullptr &&
+       (sm87_target_aot_nvfp4_cuda_ranges_overlap(input_range,
+                                                  residual_range) ||
+        sm87_target_aot_nvfp4_cuda_ranges_overlap(output_range,
+                                                  residual_range))) ||
+      sm87_target_aot_nvfp4_cuda_ranges_overlap(input_range,
+                                                allocation_range) ||
+      sm87_target_aot_nvfp4_cuda_ranges_overlap(output_range,
+                                                allocation_range) ||
+      (residual != nullptr &&
+       sm87_target_aot_nvfp4_cuda_ranges_overlap(residual_range,
+                                                allocation_range))) {
+    return false;
+  }
+
+  int active_device = -1;
+  if (cudaGetDevice(&active_device) != cudaSuccess ||
+      active_device != asset.device_upload_receipt.device_ordinal ||
+      !exact_device_pointer(input, active_device) ||
+      !exact_device_pointer(output, active_device) ||
+      (residual != nullptr &&
+       !exact_device_pointer(residual, active_device)) ||
+      !exact_device_pointer(
+          reinterpret_cast<const void*>(asset.payload.begin),
+          active_device)) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < asset.tensor_scale_count; ++index) {
+    float scale = 0.0F;
+    std::memcpy(&scale, &asset.tensor_scale_bits[index], sizeof(scale));
+    if (!std::isfinite(scale) || scale <= 0.0F) {
+      return false;
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
+int query_resources(const Sm87TargetAotProjectionRole role,
+                    KernelResources* const resources) noexcept {
+  if (resources == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *resources = {};
+  if (!sm87_target_aot_nvfp4_cuda_role(role)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaError_t status = set_oracle_dynamic_shared_attribute(role);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  cudaFuncAttributes attributes{};
+  int active_blocks = 0;
+  if (role == Sm87TargetAotProjectionRole::kNvFp4GateUp) {
+    status = cudaFuncGetAttributes(
+        &attributes, sm87_target_aot_nvfp4_gate_up_kernel);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks, sm87_target_aot_nvfp4_gate_up_kernel, kThreads,
+          kSm87TargetAotNvFp4SharedBytes);
+    }
+  } else {
+    status = cudaFuncGetAttributes(
+        &attributes, sm87_target_aot_nvfp4_down_m192_oracle_kernel);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks, sm87_target_aot_nvfp4_down_m192_oracle_kernel,
+          kThreads,
+          kSm87TargetAotNvFp4SharedBytes);
+    }
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  int device = -1;
+  cudaDeviceProp properties{};
+  status = cudaGetDevice(&device);
+  if (status == cudaSuccess) {
+    status = cudaGetDeviceProperties(&properties, device);
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  resources->role = role;
+  resources->binary_version = attributes.binaryVersion;
+  resources->registers_per_thread = attributes.numRegs;
+  resources->static_shared_bytes = attributes.sharedSizeBytes;
+  resources->dynamic_shared_bytes = kSm87TargetAotNvFp4SharedBytes;
+  resources->local_bytes = attributes.localSizeBytes;
+  resources->maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  resources->active_blocks_per_sm = active_blocks;
+  resources->physical_ctas = kPersistentCtas;
+  resources->device_ordinal = device;
+  resources->device_major = properties.major;
+  resources->device_minor = properties.minor;
+  resources->device_sm_count = properties.multiProcessorCount;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch(const Sm87TargetAotProjectionRole role,
+           const std::uint16_t* const input,
+           const Sm87TargetAotNvFp4CudaAssetView& authenticated_asset,
+           const std::uint16_t* const residual,
+           std::uint16_t* const output,
+           void* const cuda_stream) noexcept {
+  if (!fixed_m192_arguments_valid(role, input, authenticated_asset, residual,
+                                  output)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaError_t status = set_oracle_dynamic_shared_attribute(role);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  float scale0 = 0.0F;
+  float scale1 = 0.0F;
+  std::memcpy(&scale0, &authenticated_asset.tensor_scale_bits[0U],
+              sizeof(scale0));
+  if (authenticated_asset.tensor_scale_count == 2U) {
+    std::memcpy(&scale1, &authenticated_asset.tensor_scale_bits[1U],
+                sizeof(scale1));
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  const auto* const payload = reinterpret_cast<const std::uint8_t*>(
+      authenticated_asset.payload.begin);
+  (void)cudaGetLastError();
+  if (role == Sm87TargetAotProjectionRole::kNvFp4GateUp) {
+    sm87_target_aot_nvfp4_gate_up_kernel
+        <<<kPersistentCtas, kThreads, kSm87TargetAotNvFp4SharedBytes,
+           stream>>>(input, payload, static_cast<unsigned int>(kTokenCount),
+                     scale0, scale1, output);
+  } else {
+    sm87_target_aot_nvfp4_down_m192_oracle_kernel
+        <<<kPersistentCtas, kThreads, kSm87TargetAotNvFp4SharedBytes,
+           stream>>>(input, payload, static_cast<unsigned int>(kTokenCount),
+                     scale0, residual, output);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
+}  // namespace sm87_target_aot_layer0_m192_oracle_detail
+#endif
 
 }  // namespace q3x::kernels
