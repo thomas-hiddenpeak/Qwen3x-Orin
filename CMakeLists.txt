@@ -98,6 +98,10 @@ option(Q3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION
   "Build the test-only exact-P40000 vLLM-Marlin projection host-dispatch reference"
   OFF
 )
+option(Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION
+  "Build the test-only host admission schema for AC-PREFILL-SM87-AOT-SYSTEM-v1"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -268,6 +272,11 @@ if(Q3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION AND
     "Q3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION requires the exact-P40000 whole-core substrate and canonical NVFP4 Marlin inventory"
   )
 endif()
+if(Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION is a host-only test admission and requires BUILD_TESTING=ON"
+  )
+endif()
 if((Q3X_BUILD_GDN_B8_ADMISSION AND
     Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION) OR
    (Q3X_BUILD_GDN_B8_ADMISSION AND
@@ -393,6 +402,14 @@ if(Q3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION)
   # private definition below so default builds do not acquire the kernels.
   target_compile_definitions(q3x_core PUBLIC
     Q3X_ENABLE_P40_VLLM_MARLIN_PARITY_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION)
+  # This bit exposes only a host descriptor schema. It has no CUDA sources,
+  # launcher, selector, or production route, and has no dependency on any
+  # rejected Prefill admission.
+  target_compile_definitions(q3x_core PUBLIC
+    Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ADMISSION=1
   )
 endif()
 q3x_enable_warnings(q3x_core)
@@ -2407,6 +2424,76 @@ if(BUILD_TESTING)
   )
   set_tests_properties(prefill_execution_plan PROPERTIES
     LABELS "host;prefill;architecture;plan"
+  )
+
+  add_executable(q3x_sm87_target_aot_projection_plan_test
+    tests/sm87_target_aot_projection_plan_test.cpp
+  )
+  target_link_libraries(q3x_sm87_target_aot_projection_plan_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(q3x_sm87_target_aot_projection_plan_test)
+  add_test(NAME sm87_target_aot_projection_plan
+    COMMAND q3x_sm87_target_aot_projection_plan_test
+  )
+  set_tests_properties(sm87_target_aot_projection_plan PROPERTIES
+    LABELS "host;sm87;prefill;architecture_design;non_executable;projection;plan"
+  )
+
+  add_executable(q3x_sm87_target_aot_projection_layout_test
+    tests/sm87_target_aot_projection_layout_test.cpp
+  )
+  target_link_libraries(q3x_sm87_target_aot_projection_layout_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(q3x_sm87_target_aot_projection_layout_test)
+  add_test(NAME sm87_target_aot_projection_layout
+    COMMAND q3x_sm87_target_aot_projection_layout_test
+  )
+  set_tests_properties(sm87_target_aot_projection_layout PROPERTIES
+    LABELS "host;sm87;prefill;architecture_design;non_executable;projection;layout"
+  )
+
+  add_executable(q3x_sm87_target_aot_attention_plan_test
+    tests/sm87_target_aot_attention_plan_test.cpp
+  )
+  target_link_libraries(q3x_sm87_target_aot_attention_plan_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(q3x_sm87_target_aot_attention_plan_test)
+  add_test(NAME sm87_target_aot_attention_plan
+    COMMAND q3x_sm87_target_aot_attention_plan_test
+  )
+  set_tests_properties(sm87_target_aot_attention_plan PROPERTIES
+    LABELS "host;sm87;prefill;architecture_design;non_executable;attention;plan"
+  )
+
+  add_executable(q3x_sm87_target_aot_gdn_plan_test
+    tests/sm87_target_aot_gdn_plan_test.cpp
+  )
+  target_link_libraries(q3x_sm87_target_aot_gdn_plan_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(q3x_sm87_target_aot_gdn_plan_test)
+  add_test(NAME sm87_target_aot_gdn_plan
+    COMMAND q3x_sm87_target_aot_gdn_plan_test
+  )
+  set_tests_properties(sm87_target_aot_gdn_plan PROPERTIES
+    LABELS "host;sm87;prefill;architecture_design;non_executable;gdn;plan"
+  )
+
+  add_executable(q3x_sm87_aot_prefill_system_plan_test
+    tests/sm87_aot_prefill_system_plan_test.cpp
+  )
+  target_link_libraries(q3x_sm87_aot_prefill_system_plan_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(q3x_sm87_aot_prefill_system_plan_test)
+  add_test(NAME sm87_aot_prefill_system_plan
+    COMMAND q3x_sm87_aot_prefill_system_plan_test
+  )
+  set_tests_properties(sm87_aot_prefill_system_plan PROPERTIES
+    LABELS "host;sm87;prefill;architecture_design;non_executable;system;plan"
   )
 
   add_executable(q3x_prefill_operator_bindings_test

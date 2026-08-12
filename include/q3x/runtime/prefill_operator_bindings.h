@@ -1,6 +1,7 @@
 #pragma once
 
 #include "q3x/runtime/prefill_execution_plan.h"
+#include "q3x/runtime/prefill_operator_roles.h"
 
 #include <array>
 #include <cstddef>
@@ -8,55 +9,12 @@
 
 namespace q3x::runtime {
 
-// Typed host contract for the indivisible operator boundary of
-// AC-PREFILL-LAYERMAJOR-8K-v1. It contains opaque DeploymentPlan identities,
-// never device pointers, CUDA handles, function pointers, or a route selector.
-enum class PrefillBindingRole : std::uint8_t {
-  kNvfp4GateUp = 0,
-  kNvfp4Down,
-  kLinearFp8Qkv,
-  kLinearFp8Z,
-  kLinearFp8O,
-  kFullFp8Q,
-  kFullFp8K,
-  kFullFp8V,
-  kFullFp8O,
-  kLinearBf16A,
-  kLinearBf16B,
-  kExactGdn,
-  kExactCausalAttention,
-  kResidual,
-  kNormalization,
-  kEmbedding,
-  kFinalHandoff,
-  kCount,
-  kInvalid = 0xffU,
-};
-
+// Backward-compatible count name for the original layer-major binding ABI.
+// New candidate-neutral users consume kPrefillRequiredOperatorRoleCount.
 inline constexpr std::size_t kLayerMajorPrefillRequiredOperatorRoleCount =
-    static_cast<std::size_t>(PrefillBindingRole::kCount);
+    kPrefillRequiredOperatorRoleCount;
 
 static_assert(kLayerMajorPrefillRequiredOperatorRoleCount == 17U);
-
-enum class PrefillNumericalMode : std::uint8_t {
-  kUnbound = 0,
-  kExact,
-  kApproximate,
-};
-
-enum class PrefillOperatorProvider : std::uint8_t {
-  kUnbound = 0,
-  kNative,
-  kCuBlasLtReference,
-  kExternalRuntime,
-};
-
-enum class PrefillTacticMode : std::uint8_t {
-  kUnbound = 0,
-  kAheadOfTime,
-  kJit,
-  kRequestTimeSelected,
-};
 
 // A role can describe an unbound C8192 target or the current C512 inventory
 // without claiming that either has executed. Only kAuthenticatedC8192 can

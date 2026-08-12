@@ -310,6 +310,73 @@ traffic, or publishing more boundary state. The target-first witness below
 establishes the whole-prompt endpoint; only a later explanatory sweep may
 measure that system trade, rather than treating chunking as a kernel feature.
 
+### 8.1 Host-only whole-system design freeze
+
+The first architecture translation is frozen as a non-executable host
+descriptor for exactly P40, P60, and approximately P130. It describes one
+64-layer request DAG with 14 physical execution groups: embedding, input
+normalization, GDN QKVZ and A/B producers, GDN, GDN output/residual, full-QKV,
+Q/K normalization and RoPE publication, full Attention, Attention
+output/residual, post-Attention normalization, Gate+Up, Down/residual, and the
+final handoff. Full Attention occurs at zero-based layers `3,7,...,63`; the
+remaining 48 layers use the exact GDN constituent. Its canonical launch
+ledger is `1 + 64 + 48 + 48 + 48 + 48 + 16 + 16 + 16 + 16 + 64 + 64 + 64 +
+1 = 514`. Logical publication counts, projection tiles, Attention CTAs, and
+GDN recurrence tasks remain separate domains and are never added to that
+ledger.
+
+The projection constituent declares five shape-specific roles: NVFP4
+Gate+Up, NVFP4 Down, FP8 GDN QKVZ, FP8 full-QKV, and FP8 Attention output.
+All use an M128/N256/K64 physical tile with eight warps, but Gate+Up, GDN
+QKVZ, and full-QKV retain an M-raster group of two while Down and Attention
+output use one. NVFP4 and FP8 operands keep independent packed-weight and
+scale contracts. The GDN A/B producer is a separate paired BF16 plan with two
+independent weights, accumulators, and BF16-RNE publications; pairing does not
+turn the two model tensors into one numerical operation.
+
+The canonical system contract contains 39 typed resource edges and 13 typed
+event edges. Gate and Up are paired inside one CTA while retaining independent
+reduction and BF16-RNE authority. Processed K/V state is staged for the private
+request transaction but remains unpublished; GDN output is layer-local until
+its O projection consumes it. Convolution history, recurrent state, position,
+final KV state, and final hidden state become Decode-visible only through one
+whole-request commit.
+
+The full-Attention constituent fixes Q128/KV32, two K/V shared-memory stages,
+FP32 online softmax, no score matrix, no split-KV, and the exact model
+preprocess contract: centered Q/K RMSNorm, 64 rotary elements (32 NeoX
+pairs), bit-exact per-head gate split/copy, and bit-exact V publication. The
+GDN constituent is one layer-long 16-CTA kernel design. Each CTA owns one Q/K
+group and three value-head state chains, advances exact ordered C16 blocks,
+rounds recurrent state to BF16 after every token, and uses C64 only as a
+two-slot preparation window. Cold state and convolution history begin from
+register zero; no cooperative grid barrier or in-kernel global commit is
+permitted. Ordinary kernel completion makes the layer-local output visible to
+its O projection and records a stream-ordered ready receipt for history and
+recurrent-state spans prebound to the private request transaction. No
+per-layer CPU callback or host synchronization is allowed. That receipt is
+not `PrefillStateCommitted`: state stays invisible to Decode until the single
+whole-request commit, and cancellation discards every unpublished span.
+
+Internal buffering is therefore explicit but local: three projection stages,
+two Attention K/V stages, and two GDN C16 preparation slots. No cross-operator
+double- or triple-buffered GPU pipeline is selected yet. The DAG permits GDN
+QKVZ and A/B to overlap after input normalization, but stream assignment,
+simultaneous resource fit, and any performance benefit remain unqualified.
+
+The build admission for this descriptor is default-off and test-only. It
+contains no CUDA implementation, launcher, selector, device handle, API
+wiring, resource qualification, numerical qualification, or production
+dispatch authority. The next implementation step must bind new packed assets
+and native CUDA bodies directly to the real P40 API route; passing the host
+schema cannot promote the current production path. Before that CUDA feed is
+admissible, the implementation contract must additionally freeze the complete
+finite-precision operation/reduction order, encode GDN recurrent-state axes as
+head/value/key rather than two anonymous dimensions, authenticate the source-
+to-packed-payload transformation including forbidden FP8 scale encodings, and
+fix the same-CTA Gate/Up BF16 temporary lifetime and reclamation point. This
+milestone freezes topology, not numerical or payload qualification.
+
 ## 9. One bounded reference-geometry witness
 
 After the source matrix is frozen, obtain exactly one valid target-first
@@ -394,6 +461,47 @@ rate unrelated to that iteration's elapsed time. Future witnesses retain a
 structured backend-log timeline even when their performance result is
 invalid, but join it with request TTFT and Prometheus scheduler geometry
 before any performance interpretation.
+
+The retained log currently gives the following causal comparison surface:
+
+| Log observation | Captured value | What it can explain | What it cannot prove |
+| --- | --- | --- | --- |
+| Requested linear backend | `auto` | The runtime, rather than the launch command, selected the concrete projection path | That the selected path matches the owner's optimized vLLM configuration |
+| Actual FP8 linear kernel | `MarlinFP8ScaledMMLinearKernel` | Projection timings belong to Marlin FP8, not Humming | Native Q3X projection parity or the owner-observed 4.3K result |
+| Attention backend | `AttentionBackendEnum.FLASHINFER` | Attention executes through FlashInfer on SM87 | A request-level Attention duration without a matched phase interval |
+| GDN Prefill backend | Triton/FLA | GDN executes through the Triton/FLA path | Exact equivalence to the Q3X per-token BF16-state contract |
+| Humming selected | `false` | This run does not exercise Humming's packed W4A16 pipeline | That Humming is unavailable or unsuitable on SM87 |
+| Compile and warmup | range `[1,40000]`; `torch.compile` 133.46 s; initial profile/warmup 99.82 s; AOT function saved | Startup specialization and cache readiness are material parts of the observed route | Timed-request Prefill or TTFT performance |
+| FlashInfer autotune | enabled | The Attention route may select a shape-specific plan during preparation | That every relevant shape was tuned or reused during measurement |
+| Inference-time JIT warning | `_compute_slot_mapping_kernel` after one completed response | The route was not entirely free of runtime compilation after nominal warmup | Its cost inside the invalid measured request without a joined timestamp interval |
+| Prompt-throughput logger | `3999.7`, then `0.0` tok/s; one completion previously observed | Ten-second service telemetry and its placement between warmup and measurement | Per-request elapsed throughput, pure Prefill throughput, or a valid P40 score |
+
+Joined with the current Q3X request witness, those facts narrow the gap without
+pretending that the invalid run is a reference score:
+
+| Comparison surface | Current observable difference | Causal interpretation and next discriminator |
+| --- | --- | --- |
+| Request geometry | vLLM compiled and admitted `[1,40000]`; Q3X executes five M8000 fill panels and five M8000 drain panels around each whole-P40 core | Repeated layer/projection traversal and weight service are a structural Q3X suspect. The next Q3X candidate removes that panel-major production geometry; a matched server metric delta must first prove that vLLM actually scheduled all 40K tokens in one request. |
+| Projection route | vLLM logged Marlin FP8 and source-pinned ModelOpt NVFP4 Marlin; Q3X spends about 79% of request time in Gate/Up, Down, and FP8 projection families | A shared backend name does not imply the same tile, packed layout, reuse, or launch topology. Same-shape NCU/NSys is explanatory evidence after a real-API direction, not a substitute for replacing the whole projection feed. |
+| Attention route | Both observed paths name FlashInfer, while Q3X still spends 13.35% in whole-prompt Attention | Backend selection alone cannot explain parity. Preprocess layout, Q/K/V publication, cache format, selected tactic, and request-shape specialization must be compared on the joined request interval. |
+| GDN route | vLLM selected Triton/FLA; Q3X retains its own exact per-token-BF16 recurrence path | This is a genuine architecture difference, but FLA's algebra cannot be assumed numerically equivalent. The native layer-long fused candidate must preserve Q3X's exact recurrence boundary and prove accuracy before performance promotion. |
+| Shape preparation | vLLM completed `torch.compile`, warmup, AOT save, and FlashInfer autotune for the declared range before timing; Q3X's selected production route has no equivalent authenticated whole-system plan | The transferable mechanism is pre-request shape and tactic closure, not request-time JIT. Q3X therefore freezes P40/P60/P130 AOT plans and forbids request-time discovery. |
+| Runtime compilation | A slot-mapping kernel still JIT-compiled after one completed response | This can contaminate a nominally warmed request, but the current log cannot place its duration inside the invalid measured interval. A future valid witness must join JIT/cache events to explicit request boundaries and reject cache mutation during timing. |
+
+The current evidence therefore points first to whole-request dataflow and
+physical work geometry, not Python or HTTP overhead: Q3X's retained P40
+witness differs from server TTFT by only 3.730501 ms while the GPU request is
+about 101.8 seconds. It does not yet allocate the remaining gap to individual
+vLLM kernels; that requires a valid, route-matched request and phase-aligned
+profile.
+
+Every future reference run therefore keeps three evidence classes separate:
+the backend/startup log identifies the route and possible causes; the
+request-bound EvalScope/API record measures product-visible TTFT; and an
+explicit server phase interval, when available, measures scheduled-to-first-
+token Prefill. A conclusion that one backend explains a performance gap must
+join all three to the same request identity rather than infer latency from a
+nearby log line.
 
 This feedback closes an unchanged rerun, not the target. The captured route
 used stock vLLM `0.26.0` with auto linear selection, Marlin FP8, FlashInfer

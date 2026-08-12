@@ -89,6 +89,16 @@ The current stock-auto route also selected Marlin FP8, FlashInfer Attention,
 and Triton/FLA GDN without Humming, so it is not yet a matched reconstruction
 of the known optimized vLLM observation.
 
+A default-off, host-only descriptor now freezes the next whole-system AOT
+candidate for P40/P60/approximately-P130: the exact 64-layer GDN/Attention
+schedule, 14 physical groups, five projection roles, paired BF16 A/B producer,
+Q128/KV32 online-softmax Attention, and per-token-BF16 GDN transaction are
+represented as one typed DAG with 39 resource and 13 event edge classes. This
+is architecture design evidence only. It adds no CUDA body, selector,
+runner/API binding, accuracy result, resource qualification, numerical or
+packed-payload qualification, or performance result; the incumbent remains
+392.804397 tok/s and the installed route is unchanged.
+
 ## 2. Current capability matrix
 
 | Capability | Current state | Missing production condition |
@@ -100,6 +110,7 @@ of the known optimized vLLM observation.
 | Final product API | Designed | No installed production server/profile or release attestation exists |
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
 | Target-length Prefill | P40 development route exercised | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
+| SM87 whole-system AOT Prefill candidate | Host descriptor, default-off and non-executable | Native packed assets, CUDA bodies, runner/API binding, exact accuracy, resource fit, and clean-host real-P40 evidence are all missing |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
