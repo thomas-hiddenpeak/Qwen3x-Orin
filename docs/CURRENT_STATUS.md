@@ -90,13 +90,13 @@ and Triton/FLA GDN without Humming, so it is not yet a matched reconstruction
 of the known optimized vLLM observation.
 
 The retained warmup from that invalid package now has a diagnostic-only
-three-surface reconciliation. For the singleton 40K warmup, the request-bound
-server Prefill interval reports 368.579880 token/s, server TTFT reports
-368.358289 token/s, and prompt tokens divided by EvalScope TTFT report
-368.238711 token/s. EvalScope's printed 368.2478 token/s is input-plus-output
-throughput over test duration, not pure Prefill. The nearby vLLM backend
-`Avg prompt throughput` sample is 3999.7 token/s, 10.851650x the
-request-bound server rate. vLLM's logger source semantics and the
+three-surface reconciliation. The three primary surfaces are the vLLM backend
+`Avg prompt throughput` logger at 3999.7 token/s, the request-bound server
+Prefill interval at 368.579880 token/s, and prompt tokens divided by EvalScope
+TTFT at 368.238711 token/s. The server-TTFT-derived 368.358289 token/s and
+EvalScope's printed 368.2478 input-plus-output token/s are auxiliary
+observations, not additional pure-Prefill surfaces. The logger value is
+10.851650x the request-bound server rate. vLLM's logger source semantics and the
 fresh-process singleton join are consistent with completed prompt work
 landing in a later local logger interval; the backend line does not expose
 that interval's exact duration and is not a per-request latency. The evidence
@@ -126,14 +126,39 @@ startup-only trigger that skips mutually exclusive legacy Prefill projection
 sidecars and performs a private, owner-backed, transactional `ModelWeights`
 attachment after the complete upload is authenticated. The owner is
 non-movable, public release fails while attached, and no naked descriptor,
-receipt, or device view is exposed. This path has compiled and passed host
-structural and fail-closed checks only: it has never prepared the real
-checkpoint on a device and has issued no retained production receipt. The
-attachment does not authorize a launcher or bind a runner/API route. The
-public launcher therefore remains deliberately fail-closed, with no
-target-AOT accuracy result, resource or numerical qualification, executable
-dispatch, API evidence, or performance result. The incumbent remains
-392.804397 tok/s and the installed route is unchanged.
+receipt, or device view is exposed.
+
+A provenance-frozen Release/SM87 test-admission probe at `855a7cb` has now
+executed that preparation path against the pinned real checkpoint. It audited
+192 source tensors, generated and independently read back 128 authenticated
+NVFP4 artifacts in one 9,625,927,680-byte device arena, transactionally
+attached the nonzero owner/allocation lifetime to `ModelWeights`, and kept all
+mutually exclusive legacy Prefill sidecars disabled. The verified payload
+catalog SHA-256 is
+`367572d8f5aab87c655695fc621562e0e88cb5d1a9656370353d55ab1c4ebdbe`.
+Every CUDA, inventory, attachment, and Engine-destruction check passed. The
+source probe remains formally `fail` because its immediate in-process
+`cudaMemGetInfo` recovery check reported an 8,340,946,944-byte deficit. A
+hash-frozen post-exit Jetson `nvmap` snapshot recovered from a completed Codex
+rollout records 2,012,087 reusable pages, an empty IOVMM orphan table, and only
+the three allowlisted desktop clients. It explains 8,241,508,352 bytes and
+leaves a 99,438,592-byte residual, below the fixed 256 MiB diagnostic
+tolerance. A later full process/IOVMM/FSI/handle snapshot independently found
+no matching process, client, handle, or orphan. The derived classification is
+therefore `no_owner_leak`; it preserves rather than rewrites the source
+`fail`. Exact identities, raw-event hashes, limitations, and claim boundaries
+are frozen in the
+[`real-checkpoint preparation record`](metadata/qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12.json).
+
+This is preparation and lifetime-attribution evidence only. The attachment
+does not authorize a launcher or bind a runner/API route, and the public
+launcher remains deliberately fail-closed. There is still no target-AOT
+numerical, generation, API, performance, release, or production authority.
+The observed 699,705.551133 ms online prepare/attach time is a correctness-run
+startup diagnostic, not a performance baseline; it makes offline-persisted,
+authenticated AOT payload generation plus direct startup loading an explicit
+implementation requirement. The incumbent remains 392.804397 tok/s and the
+installed route is unchanged.
 
 ## 2. Current capability matrix
 
@@ -146,7 +171,7 @@ dispatch, API evidence, or performance result. The incumbent remains
 | Final product API | Designed | No installed production server/profile or release attestation exists |
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
 | Target-length Prefill | P40 development route exercised | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
-| SM87 whole-system AOT Prefill candidate | Host topology and finite-precision contracts, real-byte host packer, compile-only NVFP4 Gate+Up/Down bodies, plus a default-off/unexecuted real-checkpoint NVFP4 device owner/uploader and private transactional `ModelWeights` lifetime attachment; non-executable | Execute and retain authenticated real-checkpoint preparation/attachment, pass layer-0 numerical/resource gates, implement remaining FP8/Attention/GDN/handoffs, open reviewed launch, then obtain clean-host real-P40 API evidence |
+| SM87 whole-system AOT Prefill candidate | Host topology and finite-precision contracts, real-byte host packer, compile-only NVFP4 Gate+Up/Down bodies, plus executed real-checkpoint upload/readback/private attachment and a bounded post-exit `no_owner_leak` diagnosis; default-off and non-executable | Pass the layer-0 M192 numerical/resource oracle while replacing recovered-history attribution with immediate parent/child lifecycle capture; persist and directly load authenticated AOT payloads; implement FP8/Attention/GDN/handoffs; open reviewed launch; then obtain clean-host real-P40 API evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

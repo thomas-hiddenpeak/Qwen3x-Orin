@@ -29,6 +29,19 @@ operator-panel integration step; its older comparator used FP8, Attention,
 and GDN fallbacks, so the result has no constituent-level attribution,
 architecture-selection, release, or production authority.
 
+The first real-checkpoint preparation of the default-off SM87 whole-system AOT
+candidate is frozen in
+[`qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12.json`](qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12.json).
+It records 128 independently read-back NVFP4 artifacts from 192 pinned source
+tensors in one 9,625,927,680-byte device arena, their private `ModelWeights`
+attachment, and the exact payload-catalog digest. The source probe remains
+formally `fail` at its in-process `cudaMemGetInfo` recovery gate. A separate,
+bounded post-exit `no_owner_leak` diagnosis combines the first hash-frozen
+page-pool/IOVMM snapshot with a later complete process/IOVMM/FSI/handle audit;
+it does not rewrite the source result. The record has preparation-dependency
+authority only and grants no numerical, launcher, generation, API,
+performance, release, or production authority.
+
 The rejected real-API P40K screen of the explicit segmented-Marlin projection
 wrapper plus grouped-Q64 Attention is frozen in
 [`qwen36-27b-prefill-p40k-segmented-marlin-q64-api-2026-08-09.json`](qwen36-27b-prefill-p40k-segmented-marlin-q64-api-2026-08-09.json).

@@ -375,14 +375,29 @@ host payload SHA-256. A default-off Engine startup trigger now performs the
 upload and then attaches the retained owner to `ModelWeights` through one
 private all-or-nothing lifetime capability; it skips mutually exclusive old
 Prefill projection sidecars, exposes no naked view, and grants no execution
-authority. It has compiled and passed host structural/fail-closed checks but
-has not been run against the real checkpoint or retained a device receipt. No
-admission contains a production selector, API wiring, resource or numerical
+authority. A provenance-frozen Release/SM87 probe at `855a7cb` has now run the
+loader against the pinned real checkpoint: 192 source tensors produced 128
+artifacts in one 9,625,927,680-byte device arena, independent readback closed
+the payload catalog at
+`367572d8f5aab87c655695fc621562e0e88cb5d1a9656370353d55ab1c4ebdbe`,
+and private owner-backed attachment completed with all older Prefill sidecars
+absent. The source probe remains `fail` solely at its immediate in-process
+memory-recovery check. The first retained post-exit `nvmap` snapshot was
+recovered from a completed, hash-frozen Codex rollout. Its 2,012,087 reusable
+pages leave a 99,438,592-byte adjusted residual, below the fixed 256 MiB
+tolerance, while the IOVMM orphan table is empty and only allowlisted desktop
+clients remain. A later complete process/IOVMM/FSI/handle snapshot corroborates
+that no matching owner survived. The derived `no_owner_leak` diagnosis
+preserves rather than overwrites the source status. The tracked
+[`real-checkpoint preparation record`](metadata/qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12.json)
+freezes both layers of evidence and their narrow authority.
+
+No admission contains a production selector, API wiring, resource or numerical
 qualification, or production dispatch authority. The next implementation step
-is executing and retaining the authenticated real-checkpoint
-preparation/attachment followed by the layer-0 real-model numerical and
-resource gates; neither host schema, CUDA compilation, nor an unexecuted loader
-can promote the production path.
+is a combined layer-0 real-model M192 numerical/resource oracle plus immediate
+parent/child lifetime capture that replaces the recovered-history method, not
+another loader-only milestone. Neither payload authentication nor lifetime
+attachment can promote the production path.
 
 The pre-CUDA implementation contract is now frozen as a second host-only
 milestone:
@@ -423,12 +438,19 @@ device-upload receipt is now issued only by the default-off loader after
 binding the authenticated host digest to an owned allocation and exact payload
 subrange, observing upload completion, reading the exact device range back,
 and matching its SHA-256. The public schema and binder remain non-authoritative
-and cannot manufacture those facts from a raw pointer. No real-checkpoint
-preparation has executed or produced a retained receipt yet. The private
-owner-backed `ModelWeights` attachment is implemented but therefore remains
-unexecuted. The CUDA bodies must pass the named layer-0 real-model numerical
+and cannot manufacture those facts from a raw pointer. Real-checkpoint
+preparation, readback, and private attachment have executed under the bounded
+evidence above; they grant no execution authority. The CUDA bodies must pass
+the named layer-0 real-model numerical
 oracle and reviewed resource gate, and a separately reviewed admission launcher
 must reach the real API before any qualification bit changes.
+
+The preparation probe reported
+`target_prepare_attach_milliseconds=699705.551133`. This is diagnostic timing
+from a correctness-only run, not a startup or model-performance baseline. It
+does establish that production cannot repack and independently reread all
+9.626 GB online: the authenticated payload catalog must be persisted by an
+offline AOT step and loaded directly at startup under the DeploymentPlan.
 
 ## 9. One bounded reference-geometry witness
 

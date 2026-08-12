@@ -206,8 +206,9 @@ When the target-AOT preparation-only option succeeds, its cold-start record
 also reports preparation/attachment transaction time,
 requested/enabled/attached state, exact
 artifact/source/arena/staging and D2H/H2D/readback byte counts, plus private
-owner/allocation identities and device ordinal. These are startup ownership
-facts, not numerical, execution, API, or performance qualification.
+owner/allocation identities, device ordinal, and the verified payload-catalog
+SHA-256. These are startup ownership facts, not numerical, execution, API, or
+performance qualification.
 
 ## Trace and replay contract
 

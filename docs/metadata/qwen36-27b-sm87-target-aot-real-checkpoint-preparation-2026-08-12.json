@@ -1,0 +1,241 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12",
+  "recorded_at_utc": "2026-08-12T05:52:56Z",
+  "classification": {
+    "authority": "real_checkpoint_preparation_dependency_evidence",
+    "source_probe_status": "fail",
+    "source_probe_status_preserved": true,
+    "derived_nvmap_classification": "no_owner_leak",
+    "payload_authentication_passed": true,
+    "private_attachment_passed": true,
+    "engine_destruction_completed": true,
+    "source_in_process_memory_recovery_gate_passed": false,
+    "derived_post_exit_no_owner_leak_diagnostic_passed": true,
+    "numerical_authority": false,
+    "launcher_authority": false,
+    "generation_authority": false,
+    "api_authority": false,
+    "performance_authority": false,
+    "release_authority": false,
+    "production_promotion_authority": false
+  },
+  "claim_boundary": "The pinned real checkpoint was packed into authenticated target-AOT NVFP4 artifacts, uploaded, independently read back, and transactionally attached to the private ModelWeights lifetime. This record preserves the source probe failure and adds a bounded post-exit no-owner-leak diagnosis from a hash-frozen historical page-pool/IOVMM snapshot plus a later complete owner-table audit. It grants no numerical, executable-launcher, generation, API, performance, release, or production-route authority.",
+  "contracts": {
+    "architecture_candidate": "AC-PREFILL-SM87-AOT-SYSTEM-v1",
+    "work_package": "WP-PREFILL-REFERENCE-TRANSLATION-v1"
+  },
+  "measurement_repository": {
+    "branch": "codex/prefill-target-path",
+    "commit": "855a7cbf18634a887e856551dccb21a60538beb8",
+    "tree": "5dc1224de00493889deb22adaaf460663f5bb304",
+    "clean_at_build": true
+  },
+  "model": {
+    "identity": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "directory_used_read_only": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "metadata_sha256": {
+      "config.json": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+      "hf_quant_config.json": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+      "model.safetensors.index.json": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2"
+    },
+    "shards": [
+      {
+        "filename": "model-00001-of-00003.safetensors",
+        "sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d",
+        "bytes_read": 9965652512,
+        "bytes_copied": 9044065808
+      },
+      {
+        "filename": "model-00002-of-00003.safetensors",
+        "sha256": "06da4242b0f491118d19d4d4c7564307a7bd6059c6bed284e08c93f6fc5a556d",
+        "bytes_read": 9985757032,
+        "bytes_copied": 9985621536
+      },
+      {
+        "filename": "model-00003-of-00003.safetensors",
+        "sha256": "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845",
+        "bytes_read": 1970287640,
+        "bytes_copied": 1120881752
+      }
+    ]
+  },
+  "source_artifacts": {
+    "clean_host_preflight": {
+      "path": ".q3x-work/evidence/prefill-target-path/target-aot-real-preparation-admitted-preflight-855a7cb.json",
+      "bytes": 31693,
+      "sha256": "ff9ee04476d0c363454b7bc842af93b0cbe110402042c86b1fe53b9f613a427a",
+      "decision": "pass",
+      "tegrastats_samples": 20,
+      "maximum_gr3d_percent": 0.0,
+      "gpu_device_fd_audit_complete": true
+    },
+    "preparation_probe": {
+      "path": ".q3x-work/evidence/prefill-target-path/target-aot-real-checkpoint-preparation-855a7cb.json",
+      "bytes": 5340,
+      "sha256": "443dcad6dae8ffdecdac082e50ebac6c612c94957c7cd85a72db60694a176ed7",
+      "schema_version": 2,
+      "artifact": "q3x_sm87_target_aot_real_checkpoint_preparation",
+      "status": "fail"
+    },
+    "post_exit_nvmap_diagnostic": {
+      "path": ".q3x-work/evidence/prefill-target-path/target-aot-real-checkpoint-nvmap-recovery-855a7cb.json",
+      "bytes": 17561,
+      "sha256": "0f972f8e5481eb18e9c8585f962e634cbb46aca3d78796e5e82484a110342318",
+      "captured_at_utc": "2026-08-12T05:44:35.386455+00:00",
+      "classification": "inconclusive"
+    },
+    "recovered_historical_nvmap_diagnostic": {
+      "path": ".q3x-work/evidence/prefill-target-path/target-aot-real-checkpoint-nvmap-rollout-recovery-855a7cb.json",
+      "bytes": 5821,
+      "sha256": "6cad4b767815366842e7dd1ef6d2fe1d08777bfa5b40b55a1e4da1e961ff22ba",
+      "classification": "no_owner_leak",
+      "source_probe_status_preserved": "fail"
+    }
+  },
+  "build": {
+    "binary_path": ".q3x-work/target-aot-real-855a7cb/q3x_sm87_target_aot_real_checkpoint_prepare_probe",
+    "binary_bytes": 8944080,
+    "binary_sha256": "9295ca8c166b2b0ebe70bf0c57f4c7779da362f6316ab0cde6e6b222fae97476",
+    "receipt_sha256": "70bd9f1b4743c2d5e6ab18c119b30a6bf716ea4804dc902c95982b373868bf08",
+    "build_type": "Release",
+    "cmake_version": "3.28.3",
+    "generator": "Unix Makefiles",
+    "cxx_compiler": {
+      "path": "/usr/bin/c++",
+      "id": "GNU",
+      "version": "13.3.0",
+      "sha256": "fc02363794280f404c6ca6f5da1c8fe469be902e9de140d35d8573bb3393f53b"
+    },
+    "cuda_compiler": {
+      "path": "/usr/local/cuda/bin/nvcc",
+      "id": "NVIDIA",
+      "version": "13.3.33",
+      "sha256": "4918741aa01a8ab4712353e81302a643e08226ace24997dc11d05eb99d473c20"
+    },
+    "cuda_toolkit_version": "13.3.33",
+    "requested_cuda_architecture": "87",
+    "effective_cuda_architecture": "87",
+    "admissions": {
+      "aot_system": true,
+      "target_projection": true,
+      "target_device_assets": true,
+      "fp8_marlin_prefill": false,
+      "nvfp4_marlin_prefill": false,
+      "p40_packed_projection": false,
+      "p40_packed_nvfp4_v2": false,
+      "p40_vllm_marlin_parity": false
+    }
+  },
+  "resident_checkpoint_load": {
+    "bytes_read": 21921697184,
+    "bytes_copied": 20150569096,
+    "bytes_skipped": 1771128088,
+    "shard_workers": 3,
+    "pinned_staging_bytes": 402653184
+  },
+  "request_state": {
+    "arena_bytes": 200310784,
+    "max_sequence_length": 512,
+    "prefill_chunk_size": 512,
+    "c512_competition_path_exercised": true
+  },
+  "target_aot_projection": {
+    "requested": true,
+    "enabled": true,
+    "attached": true,
+    "artifact_count": 128,
+    "source_count": 192,
+    "arena_bytes": 9625927680,
+    "host_staging_peak_bytes": 200540160,
+    "source_d2h_bytes": 9625928448,
+    "payload_h2d_bytes": 9625927680,
+    "verification_d2h_bytes": 9625927680,
+    "verified_payload_catalog_sha256": "367572d8f5aab87c655695fc621562e0e88cb5d1a9656370353d55ab1c4ebdbe",
+    "owner_identity_nonzero": true,
+    "allocation_identity_nonzero": true,
+    "device_ordinal": 0,
+    "mutually_exclusive_legacy_prefill_sidecars_all_disabled": true
+  },
+  "source_probe_checks": {
+    "source_build_provenance_valid": true,
+    "binary_provenance_valid": true,
+    "engine_created": true,
+    "c512_competition_path_exercised": true,
+    "during_total_matches_initial": true,
+    "exact_target_inventory": true,
+    "mutually_exclusive_prefill_sidecars_empty": true,
+    "engine_destroy_completed": true,
+    "final_total_matches_initial": true,
+    "all_cuda_errors_zero": true,
+    "diagnostic_code": 0,
+    "memory_recovered_after_destroy": false,
+    "exclusive_failed_check": "memory_recovered_after_destroy"
+  },
+  "memory_recovery": {
+    "source_cuda_mem_get_info": {
+      "total_before_bytes": 65932095488,
+      "total_during_bytes": 65932095488,
+      "total_after_destroy_bytes": 65932095488,
+      "free_before_bytes": 60375707648,
+      "free_during_bytes": 28009820160,
+      "free_after_destroy_bytes": 52034760704,
+      "free_gap_bytes": 8340946944,
+      "tolerance_bytes": 268435456
+    },
+    "first_retained_post_exit_nvmap": {
+      "source_kind": "completed_codex_rollout_raw_event",
+      "source_rollout_sha256": "85ba8e4d653498ad35d734e3a7cf4597af5571c5926760a8e6d9ee97ae990738",
+      "call_id": "call_S7Cl33iX6jafOAMroqP7urkq",
+      "output_event_timestamp": "2026-08-12T05:21:36.979Z",
+      "raw_output_event_line_sha256": "02b04a3662d6a451d5193840e5f9b1b404aa4a81cb2552b7f3d45d79e3d186c3",
+      "decoded_snapshot_text_sha256": "7fc136527bd44b14905f0b24ed322d67c04c2d48fb68fc923dc979e8c54e479b",
+      "host_page_size_bytes": 4096,
+      "page_pool_available_pages": 2012087,
+      "page_pool_available_bytes": 8241508352,
+      "pagepool_adjusted_residual_bytes": 99438592,
+      "iovmm_orphan_table_empty": true,
+      "probe_named_iovmm_client_present": false
+    },
+    "later_complete_owner_audit": {
+      "boot_id": "9f8c5766-d811-4679-b5c1-1f5c3b2c9965",
+      "host_page_size_bytes": 4096,
+      "page_pool_available_pages": 1906736,
+      "page_pool_available_bytes": 7809990656,
+      "pagepool_adjusted_residual_bytes": 530956288,
+      "matching_probe_process_pids": [],
+      "matching_probe_client_or_allocation_pids": [],
+      "handles_without_current_client_rows": [],
+      "iovmm_orphan_table_empty": true,
+      "fsi_orphan_table_empty": true,
+      "only_failed_criterion_when_using_its_later_pool_value": "post_exit_pagepool_explains_cuda_free_gap_within_tolerance",
+      "delayed_snapshot_classification": "inconclusive",
+      "use_in_combined_diagnosis": "owner/process/orphan corroboration only"
+    },
+    "combined_classification": "no_owner_leak",
+    "interpretation": "The first hash-frozen post-exit page-pool/IOVMM snapshot closes the source gap within 99,438,592 bytes, and the later complete process/IOVMM/FSI/handle snapshot finds no surviving probe owner. This bounded diagnosis does not rewrite source status=fail. The next child execution must capture all fields immediately so future evidence does not depend on rollout recovery."
+  },
+  "diagnostic_timing_only": {
+    "probe_wall_milliseconds": 725045,
+    "engine_total_milliseconds": 721550.31111600006,
+    "resident_load_milliseconds": 19498.656780000001,
+    "weight_bind_milliseconds": 24.544812,
+    "request_state_milliseconds": 10.171002,
+    "target_prepare_attach_milliseconds": 699705.55113299994,
+    "runner_factory_milliseconds": 0.696774,
+    "performance_baseline": false,
+    "architecture_implication": "Production startup must consume offline-persisted authenticated AOT payloads directly; request-time or ordinary online startup repacking/readback is not an admissible deployment shape."
+  },
+  "next_gate": {
+    "name": "layer0_real_model_m192_numerical_resource_and_lifecycle_oracle",
+    "single_prepare_required": true,
+    "requirements": [
+      "reuse the same authenticated and privately attached target-AOT owner",
+      "bitwise Gate+Up and Down-plus-residual boundary equality for full M128 and predicated M64 tail regions",
+      "same-ELF SM87 resource and occupancy gates",
+      "immediate parent/child nvmap page-pool and owner-table snapshots",
+      "no production dispatch, API, or performance claim"
+    ]
+  }
+}
