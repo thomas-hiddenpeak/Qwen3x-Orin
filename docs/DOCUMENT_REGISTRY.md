@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: exhaustive tracked-Markdown inventory and classification
   effective: 2026-08-09
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-08-14
   supersedes: []
   superseded_by: []
   ssot_for: tracked Markdown paths, primary classes, roles, and lifecycle states
@@ -21,13 +21,13 @@ document. Classes and authority rules are defined by
 
 ## Audit snapshot
 
-- Audit date: 2026-08-12.
-- Expected integrated-tree coverage: **68 Markdown paths**.
-- Classified: **68**.
+- Audit date: 2026-08-14.
+- Expected integrated-tree coverage: **69 Markdown paths**.
+- Classified: **69**.
 - Unclassified: **0**.
 - Duplicate registrations: **0**.
-- Automated validator: **PASS** (`68` tracked, `68` registered, `38`
-  required first-party headers, `39` headers checked, `835` local links,
+- Automated validator: **PASS** (`69` tracked, `69` registered, `38`
+  required first-party headers, `40` headers checked, `845` local links,
   `0` errors).
 - Inventory basis: every literal path expected from `git ls-files '*.md'`
   after the SDD/document-governance refactor is committed.
@@ -106,7 +106,7 @@ authority only for its exact recorded protocol.
 | `docs/PREFILL_REFERENCE_AUDIT.md` | `historical_architecture_audit` | historical | Superseded as current Prefill design authority by `docs/PREFILL_ARCHITECTURE_RESET.md`, which refines `docs/SDD.md`; retains pinned source-analysis provenance. |
 | `docs/ROADMAP_LEGACY.md` | `historical_roadmap_ledger` | historical | Superseded by concise active `docs/ROADMAP.md`; retained for linked chronology, with Git history and evidence owning exact observations. |
 
-## Evidence (28)
+## Evidence (29)
 
 | Path | Role | Lifecycle | Evidence authority |
 | --- | --- | --- | --- |
@@ -135,6 +135,7 @@ authority only for its exact recorded protocol.
 | `docs/analysis/prefill-p513-gdn-wy-vllm-layout-2026-07-30/README.md` | `experiment_evidence` | frozen | Value-head-owned WY layout candidate evidence. |
 | `docs/analysis/prefill-p513-nsys-2026-07-28/README.md` | `profile_evidence` | frozen | Real P513 kernel-list/NSys audit for the exact old protocol; diagnostic only. |
 | `docs/analysis/prefill-p513-vllm-architecture-2026-07-29/README.md` | `external_profile_evidence` | frozen | Same-host stock-vLLM architecture profile; reference only. |
+| `docs/analysis/prefill-target-aot-p40-failed-api-2026-08-14/README.md` | `experiment_evidence` | frozen | Failed real-model P40 API smoke, static architecture closure, and v1 rejection record; contains no performance result. |
 | `docs/analysis/priority-assessment-2026-07-23/source_notes.md` | `decision_evidence` | frozen | Source notes for the dated priority assessment; no current planning authority. |
 | `docs/metadata/README.md` | `metadata_evidence_ledger` | frozen | Accumulated normalized checkpoint/build/evaluation facts; individual records retain exact scope. |
 | `tests/fixtures/README.md` | `fixture_evidence_catalog` | frozen | Meaning and provenance of checked-in normalized correctness fixtures. |

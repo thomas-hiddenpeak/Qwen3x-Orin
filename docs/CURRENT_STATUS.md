@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-08-13
+  last_reviewed: 2026-08-14
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-08-13.
+Snapshot date: 2026-08-14.
 
 This page is a replaceable state snapshot. It does not own architecture,
 delivery order, or experiment history. The system design is in
@@ -217,28 +217,36 @@ default runner nor the Prefill incumbent. Exact identities, catalogs,
 byte-accounting, source statuses, and claim boundaries are frozen in the
 [`persisted create/direct-load record`](metadata/qwen36-27b-sm87-target-aot-persisted-create-direct-load-2026-08-13.json).
 
-The next implementation slice now covers the missing complete projection and
-request ownership domains, but remains disconnected from dispatch. A second,
-independent startup-only owner inventories 256 target-AOT artifacts from 400
-real checkpoint sources in one 16,840,130,560-byte arena: all 128 NVFP4 MLP
-artifacts plus all 128 FP8 GDN/full-Attention input and output artifacts. It
-uses encoding-specific upload receipts and rejects the frozen NVFP4-only v1
-bundle format instead of widening it. A separate opaque P40 request owner
-freezes one 5,075,652,608-byte allocation for the exact 40,001-token residual,
-KV, GDN state, activation-lifetime, alias, event, and final-handoff contract;
-Engine-owned RoPE is excluded from that request allocation. Both admissions
-are default-off, mutually fail closed around their dependencies, and expose no
-legacy fallback or caller-made device identity.
+Commit `fad42f7` now exposes the first complete target-AOT composition through
+an explicit, default-off `sm87-target-aot-p40` API route. It authenticates and
+attaches all 256 projection artifacts from 400 checkpoint sources, owns the
+5,075,652,608-byte exact P40001 request arena plus Engine RoPE, rearms that
+state without request-time allocation, executes all 64 layers, and validates
+the final greedy handoff receipt. The default build cannot select this route;
+MTP, cuBLASLt, JIT, request-time repack/autotune, approximation, and fallback
+remain excluded.
 
-The FP8 constituent has also advanced from a host plan to three compiled SM87
-CUDA bodies for GDN QKVZ, full QKV, and Attention O. Static inspection records
-197--201 registers per thread, zero local/stack bytes, and emitted
-`LDGSTS`/BF16-HMMA/`ldmatrix` instructions. This is T0 build/SASS evidence
-only: no real-model FP8 numerical run, complete 64-layer execution, API
-direction result, or production qualification has occurred, and the public
-launcher remains deliberately fail-closed. The next architecture gate is
-therefore the source-private authenticated launch seam plus Attention, exact
-GDN, BF16 A/B, residual/state transactions, and one complete P40 API return.
+The first clean-host real-model P40000-to-one API smoke did not return. The
+client received zero bytes and no HTTP response before its 840.000399-second
+timeout, while the GPU continued working after disconnect. It produced no
+route receipt, accuracy result, or valid timing, so it changes neither the
+production path nor the 392.804397-token/s incumbent. Static causal closure
+found no software deadlock but did identify a structurally serial composition:
+the principal kernels are one CTA/SM, GDN uses only 16 owners to traverse 40K
+tokens and three value heads, all projection roles use 16 persistent CTAs, and
+Attention repeatedly traverses the causal KV work from high-resource Q
+owners. The route also lacks end-to-end target-path cancellation and
+host-visible stage progress.
+
+This closes `AC-PREFILL-SM87-AOT-SYSTEM-v1` as a performance candidate. The
+exact chain remains a default-off correctness and diagnostic control; it will
+not receive an unchanged rerun or a local parameter scan. The successor must
+first add bounded progress/cancellation, then replace the whole dataflow with
+48-value-head exact GDN ownership, role-specific bulk projection plans, and a
+K/V-reusing effective-Q Attention plan before returning directly to the real
+P40 API gate. Exact identity, failure semantics, work ledger, and decision are
+frozen in the
+[`failed target-AOT P40 API record`](analysis/prefill-target-aot-p40-failed-api-2026-08-14/README.md).
 
 ## 2. Current capability matrix
 
@@ -251,7 +259,7 @@ GDN, BF16 A/B, residual/state transactions, and one complete P40 API return.
 | Final product API | Designed | No installed production server/profile or release attestation exists |
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
 | Target-length Prefill | P40 development route exercised | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
-| SM87 whole-system AOT Prefill candidate | Default-off and non-executable; real-checkpoint NVFP4 persistence/oracle evidence is retained, while the complete 256-artifact owner, exact P40 request owner, and three FP8 CUDA bodies have passed only host/static gates | Bind the source-private authenticated launch seam; compose all 64 layers with BF16 A/B, grouped online Attention, exact GDN, residual/state/handoff and no fallback; extend complete-model accuracy; then return immediately to clean-host real-P40 API/EvalScope evidence |
+| SM87 whole-system AOT Prefill candidate | Default-off v1 is executable through the real P40 API but rejected as a performance composition after a zero-byte 840.000399-second failed smoke; no production or timing authority | Add bounded progress/cancellation, replace serial v1 ownership with the complete bulk-dataflow successor, then require a successful clean-host real-P40 API return before EvalScope or qualification |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

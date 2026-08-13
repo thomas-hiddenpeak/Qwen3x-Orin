@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-08-14
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -164,7 +164,14 @@ measurement as a current plan.
 
 ### Active architecture candidate
 
-The active successor is **`AC-PREFILL-SM87-AOT-SYSTEM-v1`**. It is one
+`AC-PREFILL-SM87-AOT-SYSTEM-v1` reached the exact real-model P40 API and was
+closed after its first request returned no bytes before the 840.000399-second
+client timeout. Its frozen evidence identifies whole-composition
+serialization rather than an admissible local tuning gap. The v1 chain is now
+a default-off correctness/diagnostic control and cannot receive an unchanged
+rerun or parameter scan.
+
+The active successor is **`AC-PREFILL-SM87-BULK-DATAFLOW-v2`**. It is one
 complete Prefill composition, not a projection-first sequence of independently
 selected kernels. Its P40 allocation is:
 
@@ -174,6 +181,11 @@ selected kernels. Its P40 allocation is:
 - about 1.0 s for all remaining work; and
 - no more than 9.302326 s total, equivalent to the 4,300 prompt tok/s starting
   line on exactly 40,000 consumed prompt tokens.
+
+Before another target-length performance run, v2 must expose host-visible
+layer/operator progress and propagate client cancellation through bounded
+device-safe points. This is a liveness prerequisite, not a performance
+substitute.
 
 These are planning allocations derived from the owner-set target, not
 hardware-bound claims. The candidate must cover Gate/Up, Down, FP8 QKV/Z/O,
@@ -247,12 +259,13 @@ and its current critical path.
 Execution order:
 
 1. complete the reference/source dataflow matrix and SM87 translation;
-2. close any matched-path or physical-lane discrepancy exposed by the bounded
-   target-first reference witness before interpreting its timing;
-3. choose macrochunk geometry and full-family ownership from that matrix;
+2. implement target-path progress, disconnect cancellation, and bounded safe
+   points without admitting a second unchanged-v1 timing run;
+3. freeze 48-value-head GDN ownership, role-specific projection macrotiles,
+   and the effective-Q Attention producer/consumer topology from that matrix;
 4. freeze numerical, state, buffer, synchronization, and AOT-plan identities;
 5. implement the mutually required projection, Attention, GDN, and handoff
-   seams in one candidate binary;
+   seams in one v2 candidate binary;
 6. return immediately to one clean-host real P40 API direction witness;
 7. use a bounded profile only to answer a predeclared causal question that can
    select a materially different complete dataflow; and
