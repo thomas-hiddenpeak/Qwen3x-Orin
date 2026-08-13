@@ -216,8 +216,29 @@ performance, release, or production authority, and it changes neither the
 default runner nor the Prefill incumbent. Exact identities, catalogs,
 byte-accounting, source statuses, and claim boundaries are frozen in the
 [`persisted create/direct-load record`](metadata/qwen36-27b-sm87-target-aot-persisted-create-direct-load-2026-08-13.json).
-The next architecture gate is complete 64-layer target-AOT composition across
-NVFP4 and FP8 projections, Attention, exact GDN, buffers, state, and handoff.
+
+The next implementation slice now covers the missing complete projection and
+request ownership domains, but remains disconnected from dispatch. A second,
+independent startup-only owner inventories 256 target-AOT artifacts from 400
+real checkpoint sources in one 16,840,130,560-byte arena: all 128 NVFP4 MLP
+artifacts plus all 128 FP8 GDN/full-Attention input and output artifacts. It
+uses encoding-specific upload receipts and rejects the frozen NVFP4-only v1
+bundle format instead of widening it. A separate opaque P40 request owner
+freezes one 5,075,652,608-byte allocation for the exact 40,001-token residual,
+KV, GDN state, activation-lifetime, alias, event, and final-handoff contract;
+Engine-owned RoPE is excluded from that request allocation. Both admissions
+are default-off, mutually fail closed around their dependencies, and expose no
+legacy fallback or caller-made device identity.
+
+The FP8 constituent has also advanced from a host plan to three compiled SM87
+CUDA bodies for GDN QKVZ, full QKV, and Attention O. Static inspection records
+197--201 registers per thread, zero local/stack bytes, and emitted
+`LDGSTS`/BF16-HMMA/`ldmatrix` instructions. This is T0 build/SASS evidence
+only: no real-model FP8 numerical run, complete 64-layer execution, API
+direction result, or production qualification has occurred, and the public
+launcher remains deliberately fail-closed. The next architecture gate is
+therefore the source-private authenticated launch seam plus Attention, exact
+GDN, BF16 A/B, residual/state transactions, and one complete P40 API return.
 
 ## 2. Current capability matrix
 
@@ -230,7 +251,7 @@ NVFP4 and FP8 projections, Attention, exact GDN, buffers, state, and handoff.
 | Final product API | Designed | No installed production server/profile or release attestation exists |
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
 | Target-length Prefill | P40 development route exercised | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
-| SM87 whole-system AOT Prefill candidate | Default-off and non-executable; real-checkpoint upload/readback/private attachment, persisted create, fresh-process authenticated direct load, and the layer-0 M192 Gate+Up/Down-plus-residual Oracle have passed their narrow admission gates | Compose all 64 layers plus FP8 QKV/Z/O, grouped online Attention, exact GDN, buffers/state/handoffs without fallback; extend complete-model accuracy; open a reviewed admission launch; then return to clean-host real-P40 API/EvalScope evidence |
+| SM87 whole-system AOT Prefill candidate | Default-off and non-executable; real-checkpoint NVFP4 persistence/oracle evidence is retained, while the complete 256-artifact owner, exact P40 request owner, and three FP8 CUDA bodies have passed only host/static gates | Bind the source-private authenticated launch seam; compose all 64 layers with BF16 A/B, grouped online Attention, exact GDN, residual/state/handoff and no fallback; extend complete-model accuracy; then return immediately to clean-host real-P40 API/EvalScope evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

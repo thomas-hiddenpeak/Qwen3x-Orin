@@ -16,6 +16,7 @@ namespace q3x::runtime {
 
 class ReferenceEngine;
 class Sm87TargetAotProjectionDeviceAssets;
+class Sm87TargetAotCompleteProjectionDeviceAssets;
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
 namespace target_aot_execution_detail {
 class Sm87TargetAotProjectionExecutionAccess;
@@ -652,6 +653,7 @@ class ModelWeights {
  private:
   friend class ReferenceEngine;
   friend class Sm87TargetAotProjectionDeviceAssets;
+  friend class Sm87TargetAotCompleteProjectionDeviceAssets;
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
   friend class target_aot_execution_detail::
       Sm87TargetAotProjectionExecutionAccess;
@@ -677,12 +679,25 @@ class ModelWeights {
     std::size_t artifact_count = 0U;
   };
 
+  struct Sm87TargetAotCompleteProjectionAttachment final {
+    const Sm87TargetAotCompleteProjectionDeviceAssets* owner = nullptr;
+    std::uint64_t owner_identity = 0U;
+    std::uint64_t allocation_identity = 0U;
+    std::uintptr_t arena_begin = 0U;
+    std::uint64_t arena_bytes = 0U;
+    std::int32_t device_ordinal = -1;
+    std::size_t artifact_count = 0U;
+  };
+
   // Private owner-backed transaction. It never accepts descriptors, receipts,
   // or naked device views. Future execution must re-resolve layer/role through
   // the same retained owner and identity snapshot.
   [[nodiscard]] bool attach_sm87_target_aot_projection_assets(
       Sm87TargetAotProjectionDeviceAssets& owner) noexcept;
   void detach_sm87_target_aot_projection_assets() noexcept;
+  [[nodiscard]] bool attach_sm87_target_aot_complete_projection_assets(
+      Sm87TargetAotCompleteProjectionDeviceAssets& owner) noexcept;
+  void detach_sm87_target_aot_complete_projection_assets() noexcept;
 
   Bf16LinearWeight embed_tokens_;
   Bf16VectorWeight final_norm_;
@@ -690,6 +705,8 @@ class ModelWeights {
   std::array<DecoderLayerWeights, kQwen36DenseLayerCount> layers_{};
   WeightBindingStats stats_;
   Sm87TargetAotProjectionAttachment target_aot_projection_attachment_{};
+  Sm87TargetAotCompleteProjectionAttachment
+      target_aot_complete_projection_attachment_{};
 };
 
 enum class WeightBindErrorCode : std::uint8_t {

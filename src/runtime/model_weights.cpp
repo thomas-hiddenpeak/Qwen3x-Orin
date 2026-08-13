@@ -2,6 +2,7 @@
 
 #include "q3x/io/safetensors.h"
 #include "q3x/runtime/sm87_target_aot_projection_device_assets.h"
+#include "q3x/runtime/sm87_target_aot_projection_complete_device_assets.h"
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
 #include "sm87_target_aot_projection_execution_access_internal.h"
 #endif
@@ -183,7 +184,9 @@ ModelWeights::ModelWeights(ModelWeights&& other) noexcept
       layers_(std::move(other.layers_)),
       stats_(std::move(other.stats_)),
       target_aot_projection_attachment_(
-          other.target_aot_projection_attachment_) {
+          other.target_aot_projection_attachment_),
+      target_aot_complete_projection_attachment_(
+          other.target_aot_complete_projection_attachment_) {
   auto* const owner = const_cast<Sm87TargetAotProjectionDeviceAssets*>(
       target_aot_projection_attachment_.owner);
   if (owner != nullptr) {
@@ -202,10 +205,23 @@ ModelWeights::ModelWeights(ModelWeights&& other) noexcept
     }
   }
   other.target_aot_projection_attachment_ = {};
+  auto* const complete_owner =
+      const_cast<Sm87TargetAotCompleteProjectionDeviceAssets*>(
+          target_aot_complete_projection_attachment_.owner);
+  if (complete_owner != nullptr) {
+    if (complete_owner->prepared_model_weights_ == &other &&
+        complete_owner->execution_bound_) {
+      complete_owner->prepared_model_weights_ = this;
+    } else {
+      target_aot_complete_projection_attachment_ = {};
+    }
+  }
+  other.target_aot_complete_projection_attachment_ = {};
 }
 
 ModelWeights& ModelWeights::operator=(ModelWeights&& other) noexcept {
   if (this != &other) {
+    detach_sm87_target_aot_complete_projection_assets();
     detach_sm87_target_aot_projection_assets();
     embed_tokens_ = std::move(other.embed_tokens_);
     final_norm_ = std::move(other.final_norm_);
@@ -232,11 +248,26 @@ ModelWeights& ModelWeights::operator=(ModelWeights&& other) noexcept {
       }
     }
     other.target_aot_projection_attachment_ = {};
+    target_aot_complete_projection_attachment_ =
+        other.target_aot_complete_projection_attachment_;
+    auto* const complete_owner =
+        const_cast<Sm87TargetAotCompleteProjectionDeviceAssets*>(
+            target_aot_complete_projection_attachment_.owner);
+    if (complete_owner != nullptr) {
+      if (complete_owner->prepared_model_weights_ == &other &&
+          complete_owner->execution_bound_) {
+        complete_owner->prepared_model_weights_ = this;
+      } else {
+        target_aot_complete_projection_attachment_ = {};
+      }
+    }
+    other.target_aot_complete_projection_attachment_ = {};
   }
   return *this;
 }
 
 ModelWeights::~ModelWeights() {
+  detach_sm87_target_aot_complete_projection_assets();
   detach_sm87_target_aot_projection_assets();
 }
 
@@ -252,12 +283,170 @@ void ModelWeights::detach_sm87_target_aot_projection_assets() noexcept {
   target_aot_projection_attachment_ = {};
 }
 
+void ModelWeights::detach_sm87_target_aot_complete_projection_assets()
+    noexcept {
+  auto* const owner =
+      const_cast<Sm87TargetAotCompleteProjectionDeviceAssets*>(
+          target_aot_complete_projection_attachment_.owner);
+  if (owner != nullptr && owner->prepared_model_weights_ == this) {
+    owner->execution_bound_ = false;
+  }
+  target_aot_complete_projection_attachment_ = {};
+}
+
+bool ModelWeights::attach_sm87_target_aot_complete_projection_assets(
+    Sm87TargetAotCompleteProjectionDeviceAssets& owner) noexcept {
+  if (target_aot_projection_attachment_.owner != nullptr ||
+      target_aot_complete_projection_attachment_.owner != nullptr ||
+      owner.empty() || owner.prepared_model_weights_ != this ||
+      owner.prepared_resident_ == nullptr || owner.execution_bound_ ||
+      owner.arena_ == nullptr ||
+      owner.bytes_ != kSm87TargetAotCompleteProjectionDeviceArenaBytes ||
+      owner.owner_identity_ == 0U || owner.allocation_identity_ == 0U ||
+      owner.device_ordinal_ < 0 ||
+      owner.descriptor_count_ !=
+          kSm87TargetAotCompleteProjectionDeviceArtifactCount) {
+    return false;
+  }
+  const auto arena_begin = reinterpret_cast<std::uintptr_t>(owner.arena_);
+  if (arena_begin == 0U ||
+      owner.bytes_ > std::numeric_limits<std::uintptr_t>::max() -
+                         arena_begin) {
+    return false;
+  }
+
+  std::uint64_t expected_offset = 0U;
+  for (std::size_t layer_index = 0U;
+       layer_index < kQwen36DenseLayerCount; ++layer_index) {
+    DecoderLayerWeights& layer = layers_[layer_index];
+    const auto* const gate =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.gate_proj);
+    const auto* const up =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.up_proj);
+    const auto* const down =
+        std::get_if<NvFp4LinearWeight>(&layer.mlp.down_proj);
+    if (!has_valid_nvfp4_payload(gate) || !has_valid_nvfp4_payload(up) ||
+        !has_valid_nvfp4_payload(down) ||
+        !empty_p40_packed_artifact_view(gate->prefill_p40_packed_artifact) ||
+        !empty_p40_packed_artifact_view(up->prefill_p40_packed_artifact) ||
+        !empty_p40_packed_artifact_view(down->prefill_p40_packed_artifact) ||
+        gate->prefill_marlin_gate_up_layout !=
+            NvFp4MarlinGateUpLayout::kUnbound ||
+        up->prefill_marlin_gate_up_layout !=
+            NvFp4MarlinGateUpLayout::kUnbound ||
+        down->prefill_marlin_gate_up_layout !=
+            NvFp4MarlinGateUpLayout::kUnbound ||
+        gate->prefill_marlin_weight != nullptr ||
+        up->prefill_marlin_weight != nullptr ||
+        down->prefill_marlin_weight != nullptr ||
+        gate->prefill_marlin_scales != nullptr ||
+        up->prefill_marlin_scales != nullptr ||
+        down->prefill_marlin_scales != nullptr ||
+        gate->prefill_marlin_global_scale != nullptr ||
+        up->prefill_marlin_global_scale != nullptr ||
+        down->prefill_marlin_global_scale != nullptr ||
+        gate->down_scale6_sidecar != nullptr ||
+        up->down_scale6_sidecar != nullptr ||
+        down->down_scale6_sidecar != nullptr ||
+        gate->down_scale6_base != 0U || up->down_scale6_base != 0U ||
+        down->down_scale6_base != 0U ||
+        gate->down_consumer_order_weight != nullptr ||
+        up->down_consumer_order_weight != nullptr ||
+        down->down_consumer_order_weight != nullptr ||
+        gate->decode_gate_up_coupled_feed_sidecar != nullptr ||
+        up->decode_gate_up_coupled_feed_sidecar != nullptr ||
+        down->decode_gate_up_coupled_feed_sidecar != nullptr ||
+        !empty_nvfp4_marlin_p40_parity_view(
+            gate->prefill_p40_vllm_marlin_parity) ||
+        !empty_nvfp4_marlin_p40_parity_view(
+            up->prefill_p40_vllm_marlin_parity) ||
+        !empty_nvfp4_marlin_p40_parity_view(
+            down->prefill_p40_vllm_marlin_parity)) {
+      return false;
+    }
+
+    std::array<const Fp8LinearWeight*, 4U> fp8{};
+    std::size_t fp8_count = 0U;
+    if (sm87_target_aot_complete_is_full_layer(layer_index)) {
+      const auto* const full =
+          std::get_if<FullAttentionWeights>(&layer.attention);
+      if (full == nullptr) {
+        return false;
+      }
+      fp8[fp8_count++] = std::get_if<Fp8LinearWeight>(&full->q_proj);
+      fp8[fp8_count++] = std::get_if<Fp8LinearWeight>(&full->k_proj);
+      fp8[fp8_count++] = std::get_if<Fp8LinearWeight>(&full->v_proj);
+      fp8[fp8_count++] = std::get_if<Fp8LinearWeight>(&full->o_proj);
+    } else {
+      const auto* const linear =
+          std::get_if<LinearAttentionWeights>(&layer.attention);
+      if (linear == nullptr) {
+        return false;
+      }
+      fp8[fp8_count++] =
+          std::get_if<Fp8LinearWeight>(&linear->in_proj_qkv);
+      fp8[fp8_count++] = std::get_if<Fp8LinearWeight>(&linear->in_proj_z);
+      fp8[fp8_count++] = std::get_if<Fp8LinearWeight>(&linear->out_proj);
+    }
+    for (std::size_t index = 0U; index < fp8_count; ++index) {
+      const Fp8LinearWeight* const projection = fp8[index];
+      if (!has_valid_fp8_payload(projection) ||
+          projection->m1_aosoa4_preswizzled_weight != nullptr ||
+          projection->prefill_qkv_register_feed_sidecar != nullptr ||
+          projection->prefill_supermatrix_sidecar != nullptr ||
+          projection->prefill_marlin_weight != nullptr ||
+          projection->prefill_marlin_scales != nullptr ||
+          !empty_p40_packed_artifact_view(
+              projection->prefill_p40_packed_artifact)) {
+        return false;
+      }
+    }
+
+    const std::array<kernels::Sm87TargetAotProjectionRole, 4U> roles{{
+        kernels::Sm87TargetAotProjectionRole::kNvFp4GateUp,
+        kernels::Sm87TargetAotProjectionRole::kNvFp4Down,
+        sm87_target_aot_complete_is_full_layer(layer_index)
+            ? kernels::Sm87TargetAotProjectionRole::kFp8FullQkv
+            : kernels::Sm87TargetAotProjectionRole::kFp8GdnQkvZ,
+        kernels::Sm87TargetAotProjectionRole::kFp8AttentionOutput}};
+    for (const auto role : roles) {
+      const auto* const descriptor = owner.find(layer_index, role);
+      const auto layout =
+          kernels::sm87_target_aot_projection_packed_layout(role);
+      if (descriptor == nullptr || !layout.valid() ||
+          !sm87_target_aot_complete_device_descriptor_valid(
+              *descriptor, layer_index, role, expected_offset, arena_begin,
+              owner.bytes_, owner.owner_identity_, owner.allocation_identity_,
+              owner.device_ordinal_)) {
+        return false;
+      }
+      expected_offset += layout.payload_bytes;
+    }
+  }
+  if (expected_offset != owner.bytes_) {
+    return false;
+  }
+  Sm87TargetAotCompleteProjectionAttachment attachment;
+  attachment.owner = &owner;
+  attachment.owner_identity = owner.owner_identity_;
+  attachment.allocation_identity = owner.allocation_identity_;
+  attachment.arena_begin = arena_begin;
+  attachment.arena_bytes = owner.bytes_;
+  attachment.device_ordinal = owner.device_ordinal_;
+  attachment.artifact_count = owner.descriptor_count_;
+  owner.execution_bound_ = true;
+  target_aot_complete_projection_attachment_ = attachment;
+  return true;
+}
+
 bool ModelWeights::attach_sm87_target_aot_projection_assets(
     Sm87TargetAotProjectionDeviceAssets& owner) noexcept {
   using kernels::Sm87TargetAotLogicalRole;
   using kernels::Sm87TargetAotProjectionRole;
 
-  if (target_aot_projection_attachment_.owner != nullptr || owner.empty() ||
+  if (target_aot_projection_attachment_.owner != nullptr ||
+      target_aot_complete_projection_attachment_.owner != nullptr ||
+      owner.empty() ||
       owner.attached_model_weights_ != nullptr ||
       owner.prepared_model_weights_ != this || owner.data() == nullptr ||
       owner.size_bytes() != kSm87TargetAotProjectionDeviceArenaBytes ||
