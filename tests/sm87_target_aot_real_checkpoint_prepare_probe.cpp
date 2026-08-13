@@ -131,6 +131,10 @@ void write_boolean(std::ostream& output, const bool value) {
 struct ProbeEvidence final {
   bool passed = false;
   std::filesystem::path model_directory;
+  std::string asset_mode = "online_prepare";
+  std::filesystem::path persistent_bundle_path;
+  std::string expected_payload_catalog_sha256;
+  bool persistent_bundle_contract_exact = false;
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
   std::string child_started_at_utc;
   std::string child_evidence_finished_at_utc;
@@ -426,16 +430,19 @@ void write_artifact(
                                   const ProbeEvidence& evidence) {
   std::ostringstream output;
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
-  output << "{\n  \"schema_version\": 3,\n  \"artifact\": "
+  output << "{\n  \"schema_version\": 4,\n  \"artifact\": "
             "\"q3x_sm87_target_aot_real_checkpoint_preparation\",\n"
             "  \"status\": \""
          << (evidence.passed ? "pass" : "fail")
-         << "\",\n  \"claim_boundary\": "
-            "\"prepare, authenticated device readback, private attachment, "
-            "fixed-M192 layer-0 numerical/resource oracle, and destruction "
-            "only; no generation, timing/performance, runner, public-launcher, "
-            "or production-route authority\",\n"
-            "  \"model_directory\": ";
+         << "\",\n  \"claim_boundary\": ";
+  write_json_string(
+      output,
+      evidence.asset_mode +
+          ", authenticated device readback, private attachment, "
+          "fixed-M192 layer-0 numerical/resource oracle, and destruction only; no "
+          "generation, timing/performance, runner, public-launcher, or "
+          "production-route authority");
+  output << ",\n  \"model_directory\": ";
   write_json_string(output, evidence.model_directory.string());
   output << ",\n  \"execution_identity\": {\n    \"boot_id\": ";
   write_json_string(output, evidence.boot_id);
@@ -452,11 +459,14 @@ void write_artifact(
             "\"q3x_sm87_target_aot_real_checkpoint_preparation\",\n"
             "  \"status\": \""
          << (evidence.passed ? "pass" : "fail")
-         << "\",\n  \"claim_boundary\": "
-            "\"prepare, authenticated device readback, private attachment, "
-            "and destruction only; no launcher, generation, numerical, "
-            "performance, or production-route authority\",\n"
-            "  \"model_directory\": ";
+         << "\",\n  \"claim_boundary\": ";
+  write_json_string(
+      output,
+      evidence.asset_mode +
+          ", authenticated device readback, private attachment, "
+          "and destruction only; no launcher, generation, numerical, "
+          "performance, or production-route authority");
+  output << ",\n  \"model_directory\": ";
   write_json_string(output, evidence.model_directory.string());
   output << ",\n  \"source\": {\n    \"git_commit\": ";
 #endif
@@ -593,6 +603,8 @@ void write_artifact(
   write_boolean(output, evidence.during_total_matches_initial);
   output << ",\n    \"exact_target_inventory\": ";
   write_boolean(output, evidence.exact_target_inventory);
+  output << ",\n    \"persistent_bundle_contract_exact\": ";
+  write_boolean(output, evidence.persistent_bundle_contract_exact);
   output << ",\n    \"mutually_exclusive_prefill_sidecars_empty\": ";
   write_boolean(output, evidence.mutually_exclusive_prefill_sidecars_empty);
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
@@ -649,7 +661,15 @@ void write_artifact(
          << evidence.load.request_max_sequence_length
          << ",\n    \"prefill_chunk_size\": "
          << evidence.load.request_prefill_chunk_size
-         << "\n  },\n  \"target_aot\": {\n    \"requested\": ";
+         << "\n  },\n  \"target_aot\": {\n    \"asset_mode\": ";
+  write_json_string(output, evidence.asset_mode);
+  output << ",\n    \"persistent_bundle_path\": ";
+  write_json_string(output, evidence.persistent_bundle_path.string());
+  output << ",\n    \"expected_payload_catalog_sha256\": ";
+  write_json_string(output, evidence.expected_payload_catalog_sha256);
+  output << ",\n    \"persistent_bundle_contract_exact\": ";
+  write_boolean(output, evidence.persistent_bundle_contract_exact);
+  output << ",\n    \"requested\": ";
   write_boolean(output,
                 evidence.load.target_aot_projection_device_assets_requested);
   output << ",\n    \"enabled\": ";
@@ -672,7 +692,30 @@ void write_artifact(
          << evidence.load.target_aot_projection_payload_h2d_bytes
          << ",\n    \"verification_d2h_bytes\": "
          << evidence.load.target_aot_projection_verification_d2h_bytes
-         << ",\n    \"verified_payload_catalog_sha256\": ";
+         << ",\n    \"loaded_from_persisted_bundle\": ";
+  write_boolean(
+      output,
+      evidence.load
+          .target_aot_projection_device_assets_loaded_from_persisted_bundle);
+  output << ",\n    \"persistent_bundle_file_bytes_read\": "
+         << evidence.load
+                .target_aot_projection_persistent_bundle_file_bytes_read
+         << ",\n    \"persistent_bundle_host_authentication_passes\": "
+         << evidence.load
+                .target_aot_projection_persistent_bundle_host_authentication_passes
+         << ",\n    \"persistent_bundle_created\": ";
+  write_boolean(
+      output,
+      evidence.load.target_aot_projection_persistent_bundle_created);
+  output << ",\n    \"persistent_bundle_file_bytes_written\": "
+         << evidence.load
+                .target_aot_projection_persistent_bundle_file_bytes_written
+         << ",\n    \"persistent_record_header_catalog_sha256\": ";
+  write_json_string(
+      output,
+      evidence.load
+          .target_aot_projection_persistent_record_header_catalog_sha256);
+  output << ",\n    \"verified_payload_catalog_sha256\": ";
   write_json_string(
       output,
       evidence.load.target_aot_projection_verified_payload_catalog_sha256);
@@ -840,9 +883,10 @@ void write_artifact(
 }  // namespace
 
 int main(const int argc, char** argv) {
-  if (argc != 3) {
+  if (argc != 3 && argc != 6) {
     std::cerr << "usage: " << argv[0]
-              << " MODEL_DIRECTORY EVIDENCE_JSON\n";
+              << " MODEL_DIRECTORY EVIDENCE_JSON"
+                 " [create|load BUNDLE_PATH EXPECTED_CATALOG_SHA256]\n";
     return 2;
   }
 
@@ -850,6 +894,21 @@ int main(const int argc, char** argv) {
       runtime::sm87_target_aot_projection_device_assets_compiled());
   ProbeEvidence evidence;
   evidence.model_directory = argv[1];
+  if (argc == 6) {
+    evidence.asset_mode = argv[3];
+    evidence.persistent_bundle_path = argv[4];
+    evidence.expected_payload_catalog_sha256 = argv[5];
+    if ((evidence.asset_mode != "create" &&
+         evidence.asset_mode != "load") ||
+        !evidence.persistent_bundle_path.is_absolute() ||
+        evidence.persistent_bundle_path.filename().empty() ||
+        !is_lower_hex(evidence.expected_payload_catalog_sha256, 64U) ||
+        evidence.expected_payload_catalog_sha256 == std::string(64U, '0')) {
+      std::cerr << "invalid target-AOT persistent bundle mode, path, or "
+                   "external catalog trust root\n";
+      return 2;
+    }
+  }
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
   evidence.child_started_at_utc = utc_now();
   evidence.boot_id = read_boot_id();
@@ -913,7 +972,19 @@ int main(const int argc, char** argv) {
 #endif
     runtime::ReferenceEngineOptions options;
     options.projection_backend = runtime::ProjectionBackend::kSm87WeightOnly;
-    options.prepare_sm87_target_aot_projection_device_assets = true;
+    options.prepare_sm87_target_aot_projection_device_assets =
+        evidence.asset_mode != "load";
+    if (evidence.asset_mode == "create") {
+      options.create_sm87_target_aot_projection_bundle =
+          evidence.persistent_bundle_path;
+      options.expected_sm87_target_aot_projection_payload_catalog_sha256 =
+          evidence.expected_payload_catalog_sha256;
+    } else if (evidence.asset_mode == "load") {
+      options.load_sm87_target_aot_projection_bundle =
+          evidence.persistent_bundle_path;
+      options.expected_sm87_target_aot_projection_payload_catalog_sha256 =
+          evidence.expected_payload_catalog_sha256;
+    }
     options.request_options.max_sequence_length = 512U;
     options.request_options.prefill_chunk_size =
         runtime::kMaximumRequestPrefillChunkSize;
@@ -952,10 +1023,6 @@ int main(const int argc, char** argv) {
               runtime::kSm87TargetAotProjectionDeviceSourceCount &&
           evidence.load.target_aot_projection_device_asset_bytes ==
               runtime::kSm87TargetAotProjectionDeviceArenaBytes &&
-          evidence.load.target_aot_projection_host_staging_peak_bytes ==
-              runtime::kSm87TargetAotProjectionMaximumHostStagingBytes &&
-          evidence.load.target_aot_projection_source_d2h_bytes ==
-              runtime::kSm87TargetAotProjectionCanonicalSourceD2hBytes &&
           evidence.load.target_aot_projection_payload_h2d_bytes ==
               runtime::kSm87TargetAotProjectionDeviceArenaBytes &&
           evidence.load.target_aot_projection_verification_d2h_bytes ==
@@ -968,6 +1035,83 @@ int main(const int argc, char** argv) {
           evidence.load.target_aot_projection_allocation_identity != 0U &&
           evidence.load.target_aot_projection_device_ordinal ==
               evidence.device_ordinal;
+      const bool catalog_matches_mode =
+          evidence.asset_mode == "online_prepare"
+              ? is_lower_hex(
+                    evidence.load
+                        .target_aot_projection_verified_payload_catalog_sha256,
+                    64U)
+              : evidence.load
+                        .target_aot_projection_verified_payload_catalog_sha256 ==
+                    evidence.expected_payload_catalog_sha256;
+      if (evidence.asset_mode == "load") {
+        evidence.persistent_bundle_contract_exact =
+            catalog_matches_mode &&
+            evidence.load
+                .target_aot_projection_device_assets_loaded_from_persisted_bundle &&
+            evidence.load.target_aot_projection_host_staging_peak_bytes ==
+                runtime::kSm87TargetAotProjectionMaximumArtifactPayloadBytes &&
+            evidence.load.target_aot_projection_source_d2h_bytes == 0U &&
+            evidence.load
+                    .target_aot_projection_persistent_bundle_file_bytes_read ==
+                runtime::kSm87TargetAotProjectionPersistentDirectLoadFileBytesRead &&
+            evidence.load
+                    .target_aot_projection_persistent_bundle_host_authentication_passes ==
+                2U &&
+            !evidence.load.target_aot_projection_persistent_bundle_created &&
+            evidence.load
+                    .target_aot_projection_persistent_bundle_file_bytes_written ==
+                0U &&
+            is_lower_hex(
+                evidence.load
+                    .target_aot_projection_persistent_record_header_catalog_sha256,
+                64U);
+      } else if (evidence.asset_mode == "create") {
+        evidence.persistent_bundle_contract_exact =
+            catalog_matches_mode &&
+            !evidence.load
+                 .target_aot_projection_device_assets_loaded_from_persisted_bundle &&
+            evidence.load.target_aot_projection_host_staging_peak_bytes ==
+                runtime::kSm87TargetAotProjectionMaximumHostStagingBytes &&
+            evidence.load.target_aot_projection_source_d2h_bytes ==
+                runtime::kSm87TargetAotProjectionCanonicalSourceD2hBytes &&
+            evidence.load
+                    .target_aot_projection_persistent_bundle_file_bytes_read ==
+                0U &&
+            evidence.load
+                    .target_aot_projection_persistent_bundle_host_authentication_passes ==
+                0U &&
+            evidence.load.target_aot_projection_persistent_bundle_created &&
+            evidence.load
+                    .target_aot_projection_persistent_bundle_file_bytes_written ==
+                runtime::kSm87TargetAotProjectionPersistentBundleBytes &&
+            is_lower_hex(
+                evidence.load
+                    .target_aot_projection_persistent_record_header_catalog_sha256,
+                64U);
+      } else {
+        evidence.persistent_bundle_contract_exact =
+            catalog_matches_mode &&
+            !evidence.load
+                 .target_aot_projection_device_assets_loaded_from_persisted_bundle &&
+            evidence.load.target_aot_projection_host_staging_peak_bytes ==
+                runtime::kSm87TargetAotProjectionMaximumHostStagingBytes &&
+            evidence.load.target_aot_projection_source_d2h_bytes ==
+                runtime::kSm87TargetAotProjectionCanonicalSourceD2hBytes &&
+            evidence.load
+                    .target_aot_projection_persistent_bundle_file_bytes_read ==
+                0U &&
+            evidence.load
+                    .target_aot_projection_persistent_bundle_host_authentication_passes ==
+                0U &&
+            !evidence.load.target_aot_projection_persistent_bundle_created &&
+            evidence.load
+                    .target_aot_projection_persistent_bundle_file_bytes_written ==
+                0U &&
+            evidence.load
+                .target_aot_projection_persistent_record_header_catalog_sha256
+                .empty();
+      }
       evidence.mutually_exclusive_prefill_sidecars_empty =
           evidence.c512_competition_path_exercised &&
           !evidence.load.fp8_prefill_qkv_sidecars_enabled &&
@@ -978,6 +1122,7 @@ int main(const int argc, char** argv) {
           !evidence.load.nvfp4_marlin_p40_parity_sidecars_enabled;
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
       if (evidence.exact_target_inventory &&
+          evidence.persistent_bundle_contract_exact &&
           evidence.mutually_exclusive_prefill_sidecars_empty) {
         evidence.layer0_m192_oracle_attempted = true;
         evidence.layer0_m192_oracle =
@@ -1044,6 +1189,7 @@ int main(const int argc, char** argv) {
       evidence.during_mem_info_cuda_error == 0 &&
       evidence.during_total_matches_initial &&
       evidence.exact_target_inventory &&
+      evidence.persistent_bundle_contract_exact &&
       evidence.mutually_exclusive_prefill_sidecars_empty &&
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
       evidence.layer0_m192_oracle_attempted &&

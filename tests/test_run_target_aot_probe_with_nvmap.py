@@ -81,7 +81,10 @@ def source_probe(
     child_pid: int,
     child_started: str,
     child_finished: str,
-    schema_version: int = 3,
+    schema_version: int = 4,
+    asset_mode: str = "online_prepare",
+    bundle_path: str = "",
+    expected_catalog: str = "",
 ) -> dict[str, object]:
     probe: dict[str, object] = {
         "schema_version": schema_version,
@@ -150,7 +153,7 @@ def source_probe(
             "cuda_error": 0,
         },
     }
-    if schema_version == 3:
+    if schema_version in (3, 4):
         probe["execution_identity"] = {
             "boot_id": BOOT_ID,
             "child_pid": child_pid,
@@ -158,7 +161,42 @@ def source_probe(
             "child_evidence_finished_at_utc": child_finished,
             "valid": True,
         }
-    else:
+    if schema_version == 4:
+        header_catalog = ""
+        verified_catalog = "a" * 64
+        loaded = False
+        created = False
+        file_bytes_read = 0
+        host_authentication_passes = 0
+        file_bytes_written = 0
+        if asset_mode == "create":
+            header_catalog = "b" * 64
+            verified_catalog = expected_catalog
+            created = True
+            file_bytes_written = WRAPPER.TARGET_AOT_PERSISTENT_BUNDLE_BYTES
+        elif asset_mode == "load":
+            header_catalog = "b" * 64
+            verified_catalog = expected_catalog
+            loaded = True
+            file_bytes_read = 2 * WRAPPER.TARGET_AOT_PERSISTENT_BUNDLE_BYTES
+            host_authentication_passes = 2
+        probe["checks"]["persistent_bundle_contract_exact"] = True
+        probe["target_aot"] = {
+            "asset_mode": asset_mode,
+            "persistent_bundle_path": bundle_path,
+            "expected_payload_catalog_sha256": expected_catalog,
+            "persistent_bundle_contract_exact": True,
+            "loaded_from_persisted_bundle": loaded,
+            "persistent_bundle_file_bytes_read": file_bytes_read,
+            "persistent_bundle_host_authentication_passes": (
+                host_authentication_passes
+            ),
+            "persistent_bundle_created": created,
+            "persistent_bundle_file_bytes_written": file_bytes_written,
+            "persistent_record_header_catalog_sha256": header_catalog,
+            "verified_payload_catalog_sha256": verified_catalog,
+        }
+    elif schema_version == 2:
         del probe["checks"]["execution_identity_valid"]
         del probe["checks"]["layer0_m192_oracle_passed"]
         del probe["attempted"]["layer0_m192_oracle"]
@@ -175,6 +213,7 @@ class FakeProcess:
         reported_pid: int,
         schema_version: int,
         source_pass: bool,
+        reported_bundle_request: tuple[str, str, str],
     ) -> None:
         self.pid = 4242
         self.command = command
@@ -182,6 +221,7 @@ class FakeProcess:
         self.reported_pid = reported_pid
         self.schema_version = schema_version
         self.source_pass = source_pass
+        self.reported_bundle_request = reported_bundle_request
         self.started = WRAPPER.utc_now()
 
     def wait(self) -> int:
@@ -192,6 +232,9 @@ class FakeProcess:
             child_started=WRAPPER.format_utc(self.started),
             child_finished=WRAPPER.format_utc(finished),
             schema_version=self.schema_version,
+            asset_mode=self.reported_bundle_request[0],
+            bundle_path=self.reported_bundle_request[1],
+            expected_catalog=self.reported_bundle_request[2],
         )
         if self.source_pass:
             evidence["status"] = "pass"
@@ -211,10 +254,14 @@ class TargetAotLifecycleWrapperTest(unittest.TestCase):
         root: pathlib.Path,
         *,
         reported_pid: int = 4242,
-        schema_version: int = 3,
+        schema_version: int = 4,
         live_authentication_failure: bool = False,
         replace_path_during_launch: bool = False,
         source_pass: bool = False,
+        bundle_mode: str | None = None,
+        bundle_path: pathlib.Path | None = None,
+        expected_catalog: str | None = None,
+        reported_bundle_request: tuple[str, str, str] | None = None,
     ) -> tuple[dict[str, object], bool, pathlib.Path]:
         debugfs, proc = make_fake_host(root)
         binary_path = root / "probe/q3x_target_aot_probe"
@@ -233,12 +280,22 @@ class TargetAotLifecycleWrapperTest(unittest.TestCase):
             executable_fd = int(executable.rsplit("/", 1)[1])
             os.fstat(executable_fd)
             self.popen_fd_was_open = True
+            command_bundle_request = (
+                (command[3], command[4], command[5])
+                if len(command) == 6
+                else ("online_prepare", "", "")
+            )
             process = FakeProcess(
                 command,
                 binary,
                 reported_pid=reported_pid,
                 schema_version=schema_version,
                 source_pass=source_pass,
+                reported_bundle_request=(
+                    reported_bundle_request
+                    if reported_bundle_request is not None
+                    else command_bundle_request
+                ),
             )
             if replace_path_during_launch:
                 replacement = binary_path.with_name("replacement_probe")
@@ -276,12 +333,15 @@ class TargetAotLifecycleWrapperTest(unittest.TestCase):
                 output_path=output,
                 debugfs_root=debugfs,
                 proc_root=proc,
+                bundle_mode=bundle_mode,
+                bundle_path=bundle_path,
+                expected_catalog=expected_catalog,
                 popen_factory=popen_factory,
                 live_authenticator=live_authenticator,
             )
         return report, accepted, output
 
-    def test_fake_roots_never_accept_even_with_bound_schema_v3_child(self) -> None:
+    def test_fake_roots_never_accept_even_with_bound_schema_v4_child(self) -> None:
         with tempfile.TemporaryDirectory(dir=RECOVERY.WORK_ROOT) as temporary:
             report, accepted, output = self.execute(pathlib.Path(temporary))
             published = json.loads(output.read_text(encoding="utf-8"))
@@ -290,6 +350,15 @@ class TargetAotLifecycleWrapperTest(unittest.TestCase):
         self.assertFalse(report["combined_lifecycle_accepted"])
         self.assertEqual(report["classification"], "inconclusive")
         self.assertTrue(report["identity_binding"]["bound"])
+        self.assertTrue(report["bundle_request_binding"]["bound"])
+        self.assertEqual(
+            report["bundle_request_binding"]["requested"],
+            {
+                "asset_mode": "online_prepare",
+                "persistent_bundle_path": "",
+                "expected_payload_catalog_sha256": "",
+            },
+        )
         self.assertEqual(
             report["observation_authority"]["authority"],
             "test_only_injected_roots",
@@ -320,6 +389,111 @@ class TargetAotLifecycleWrapperTest(unittest.TestCase):
         self.assertRegex(executable, r"^/proc/self/fd/[0-9]+$")
         self.assertEqual(pass_fds, (int(executable.rsplit("/", 1)[1]),))
         self.assertTrue(self.popen_fd_was_open)
+
+    def test_persistent_bundle_request_is_triplet_bound_and_workspace_local(
+        self,
+    ) -> None:
+        catalog = "367572d8f5aab87c655695fc621562e0e88cb5d1a9656370353d55ab1c4ebdbe"
+        with tempfile.TemporaryDirectory(dir=RECOVERY.WORK_ROOT) as temporary:
+            root = pathlib.Path(temporary)
+            create_path = root / "assets/target-aot.bundle"
+            mode, resolved, observed_catalog = WRAPPER.validate_bundle_request(
+                "create", create_path, catalog
+            )
+            self.assertEqual(mode, "create")
+            self.assertEqual(resolved, create_path.resolve(strict=False))
+            self.assertEqual(observed_catalog, catalog)
+            self.assertTrue(create_path.parent.is_dir())
+
+            with create_path.open("wb") as stream:
+                stream.truncate(WRAPPER.TARGET_AOT_PERSISTENT_BUNDLE_BYTES)
+            mode, resolved, observed_catalog = WRAPPER.validate_bundle_request(
+                "load", create_path, catalog
+            )
+            self.assertEqual(mode, "load")
+            self.assertEqual(resolved, create_path.resolve(strict=True))
+            self.assertEqual(observed_catalog, catalog)
+
+            with self.assertRaisesRegex(
+                RECOVERY.EvidenceError, "required together"
+            ):
+                WRAPPER.validate_bundle_request("load", create_path, None)
+            with self.assertRaisesRegex(
+                RECOVERY.EvidenceError, "nonzero lowercase SHA-256"
+            ):
+                WRAPPER.validate_bundle_request(
+                    "load", create_path, "0" * 64
+                )
+
+    def test_child_bundle_mode_path_and_catalog_must_match_command(self) -> None:
+        catalog = "367572d8f5aab87c655695fc621562e0e88cb5d1a9656370353d55ab1c4ebdbe"
+        cases = (
+            ("load", None, None),
+            ("create", "different", None),
+            ("create", None, "d" * 64),
+        )
+        for reported_mode, reported_path_case, reported_catalog_case in cases:
+            with self.subTest(
+                mode=reported_mode,
+                path=reported_path_case,
+                catalog=reported_catalog_case,
+            ), tempfile.TemporaryDirectory(
+                dir=RECOVERY.WORK_ROOT
+            ) as temporary:
+                root = pathlib.Path(temporary)
+                command_path = root / "assets/target-aot.bundle"
+                reported_path = (
+                    root / "assets/different-target-aot.bundle"
+                    if reported_path_case == "different"
+                    else command_path
+                )
+                with self.assertRaisesRegex(
+                    RECOVERY.EvidenceError,
+                    "does not match the launched command",
+                ):
+                    self.execute(
+                        root,
+                        bundle_mode="create",
+                        bundle_path=command_path,
+                        expected_catalog=catalog,
+                        reported_bundle_request=(
+                            reported_mode,
+                            str(reported_path.resolve(strict=False)),
+                            reported_catalog_case or catalog,
+                        ),
+                    )
+
+    def test_persistent_modes_bind_exact_child_request(self) -> None:
+        catalog = "367572d8f5aab87c655695fc621562e0e88cb5d1a9656370353d55ab1c4ebdbe"
+        for mode in ("create", "load"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory(
+                dir=RECOVERY.WORK_ROOT
+            ) as temporary:
+                root = pathlib.Path(temporary)
+                bundle = root / "assets/target-aot.bundle"
+                if mode == "load":
+                    bundle.parent.mkdir(parents=True)
+                    with bundle.open("wb") as stream:
+                        stream.truncate(
+                            WRAPPER.TARGET_AOT_PERSISTENT_BUNDLE_BYTES
+                        )
+                report, accepted, _output = self.execute(
+                    root,
+                    bundle_mode=mode,
+                    bundle_path=bundle,
+                    expected_catalog=catalog,
+                )
+                expected_path = str(bundle.resolve(strict=mode == "load"))
+                self.assertFalse(accepted)
+                self.assertTrue(report["bundle_request_binding"]["bound"])
+                self.assertEqual(
+                    report["bundle_request_binding"]["requested"],
+                    {
+                        "asset_mode": mode,
+                        "persistent_bundle_path": expected_path,
+                        "expected_payload_catalog_sha256": catalog,
+                    },
+                )
 
     def test_fake_roots_cannot_accept_even_a_complete_source_pass(self) -> None:
         with tempfile.TemporaryDirectory(dir=RECOVERY.WORK_ROOT) as temporary:
@@ -395,12 +569,12 @@ class TargetAotLifecycleWrapperTest(unittest.TestCase):
         self.assertIn("injected", report["child"]["live_binary"]["error"])
         self.assertFalse(report["identity_binding"]["bound"])
 
-    def test_schema_v2_child_is_rejected_by_parent_wrapper(self) -> None:
+    def test_legacy_schema_child_is_rejected_by_parent_wrapper(self) -> None:
         with tempfile.TemporaryDirectory(dir=RECOVERY.WORK_ROOT) as temporary:
             with self.assertRaisesRegex(
-                RECOVERY.EvidenceError, "schema-v3"
+                RECOVERY.EvidenceError, "schema-v4"
             ):
-                self.execute(pathlib.Path(temporary), schema_version=2)
+                self.execute(pathlib.Path(temporary), schema_version=3)
 
     def test_existing_parent_output_fails_before_launch(self) -> None:
         with tempfile.TemporaryDirectory(dir=RECOVERY.WORK_ROOT) as temporary:

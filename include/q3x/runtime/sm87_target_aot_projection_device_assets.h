@@ -8,7 +8,9 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <string>
+#include <string_view>
 
 namespace q3x::runtime {
 
@@ -35,6 +37,11 @@ inline constexpr std::uint64_t
 inline constexpr std::uint64_t
     kSm87TargetAotProjectionMaximumHostStagingBytes =
         2U * kSm87TargetAotProjectionMaximumArtifactPayloadBytes;
+inline constexpr std::uint64_t
+    kSm87TargetAotProjectionPersistentBundleBytes = 9'626'456'064ULL;
+inline constexpr std::uint64_t
+    kSm87TargetAotProjectionPersistentDirectLoadFileBytesRead =
+        2U * kSm87TargetAotProjectionPersistentBundleBytes;
 
 struct Sm87TargetAotProjectionDeviceAssetDescriptor final {
   std::size_t layer_index = 0U;
@@ -102,7 +109,14 @@ class Sm87TargetAotProjectionDeviceAssets final {
   // preparation or receipt-issuance function.
   [[nodiscard]] Sm87TargetAotProjectionDevicePreparationStats prepare(
       const ResidentWeights& resident, const ModelWeights& model_weights,
+      const std::filesystem::path& create_bundle_path,
+      std::string_view expected_verified_payload_catalog_sha256,
       std::uint64_t minimum_free_bytes_after_prepare);
+  [[nodiscard]] Sm87TargetAotProjectionDevicePreparationStats load_persisted(
+      const ResidentWeights& resident, const ModelWeights& model_weights,
+      const std::filesystem::path& bundle_path,
+      std::string_view expected_verified_payload_catalog_sha256,
+      std::uint64_t minimum_free_bytes_after_load);
 
   [[nodiscard]] const Sm87TargetAotProjectionDeviceAssetDescriptor* find(
       std::size_t layer_index,
@@ -137,7 +151,15 @@ class Sm87TargetAotProjectionDeviceAssets final {
   const ModelWeights* attached_model_weights_ = nullptr;
 };
 
+enum class Sm87TargetAotProjectionDeviceAssetSource : std::uint8_t {
+  kNone = 0U,
+  kOnlineCheckpointTransform,
+  kPersistedBundle,
+};
+
 struct Sm87TargetAotProjectionDevicePreparationStats final {
+  Sm87TargetAotProjectionDeviceAssetSource source =
+      Sm87TargetAotProjectionDeviceAssetSource::kNone;
   bool enabled = false;
   bool hard_failure = false;
   std::size_t artifacts = 0U;
@@ -147,6 +169,18 @@ struct Sm87TargetAotProjectionDevicePreparationStats final {
   std::uint64_t source_d2h_bytes = 0U;
   std::uint64_t payload_h2d_bytes = 0U;
   std::uint64_t verification_d2h_bytes = 0U;
+  // Persisted direct loading reads one canonical bundle and performs no
+  // source-tensor D2H, online permutation, or source-to-payload replay.
+  // This count includes the superblock, record headers, and payload bytes
+  // read from the already-open bundle descriptor. Persisted direct loading
+  // performs one complete pre-CUDA bundle authentication pass, then rereads
+  // the complete bundle during upload/readback, so success reports exactly
+  // two bundle byte images.
+  std::uint64_t persistent_bundle_file_bytes_read = 0U;
+  std::uint32_t persistent_bundle_host_authentication_passes = 0U;
+  bool persistent_bundle_created = false;
+  std::uint64_t persistent_bundle_file_bytes_written = 0U;
+  std::string persistent_record_header_catalog_sha256;
   // Stable SHA-256 over the complete ordered catalog of 128 manifests,
   // source digests, and matching device-readback payload digests. Unlike the
   // runtime owner/allocation identities, it excludes transaction identities,
@@ -159,13 +193,13 @@ struct Sm87TargetAotProjectionDevicePreparationStats final {
   std::string message;
 };
 
-// Loader-only all-or-nothing preparation. It consumes the exact pinned
-// ResidentWeights and its already-bound ModelWeights view, authenticates all
-// 192 canonical NVFP4 sources, transforms and validates one bounded artifact
-// at a time, uploads into the exact arena, then reads each device payload back
-// and compares its SHA-256 before issuing a receipt. Preparation itself never
-// mutates ModelWeights; the Engine performs a separate private transactional
-// attachment immediately afterward. Neither operation is request-callable.
+// Default-off all-or-nothing asset admission. Online preparation transforms
+// 192 authenticated canonical sources; persisted loading performs two full
+// bounded host-authentication passes and no source D2H/repack. Both upload the
+// exact arena and independently hash each device readback before issuing a
+// runtime receipt. Neither mutates ModelWeights: the Engine performs a
+// separate private transactional attachment immediately afterward. No
+// operation is request-callable or grants execution authority.
 [[nodiscard]] constexpr bool
 sm87_target_aot_projection_device_assets_compiled() noexcept {
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
@@ -192,5 +226,8 @@ static_assert(kSm87TargetAotProjectionMaximumArtifactPayloadBytes ==
               kernels::sm87_target_aot_projection_packed_layout(
                   kernels::Sm87TargetAotProjectionRole::kNvFp4GateUp)
                   .payload_bytes);
+static_assert(
+    kSm87TargetAotProjectionPersistentDirectLoadFileBytesRead ==
+    19'252'912'128ULL);
 
 }  // namespace q3x::runtime

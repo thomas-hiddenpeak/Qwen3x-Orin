@@ -6,7 +6,7 @@ q3x_document:
   owner: prefill-maintainers
   authority: source-to-SM87 translation and selection record for WP-PREFILL-REFERENCE-TRANSLATION-v1
   effective: 2026-08-12
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-08-13
   supersedes: []
   superseded_by: []
   ssot_for: the active Prefill reference-translation work package only
@@ -371,14 +371,14 @@ test-only slice implements an engine-lifetime NVFP4 device owner and an
 all-or-nothing real-checkpoint uploader. That uploader audits the exact
 64-layer resident source inventory, transforms one bounded artifact at a time,
 and issues a receipt only after an independent device readback matches the
-host payload SHA-256. A default-off Engine startup trigger now performs the
-upload and then attaches the retained owner to `ModelWeights` through one
-private all-or-nothing lifetime capability; it skips mutually exclusive old
-Prefill projection sidecars, exposes no naked view, and grants no execution
-authority. A provenance-frozen Release/SM87 probe at `855a7cb` has now run the
-loader against the pinned real checkpoint: 192 source tensors produced 128
-artifacts in one 9,625,927,680-byte device arena, independent readback closed
-the payload catalog at
+host payload SHA-256. A default-off Engine startup trigger performs the upload
+and then attaches the retained owner to `ModelWeights` through one private
+all-or-nothing lifetime capability; it skips mutually exclusive old Prefill
+projection sidecars, exposes no naked view, and grants no execution authority.
+A provenance-frozen Release/SM87 probe at `855a7cb` has run that online loader
+against the pinned real checkpoint: 192 source tensors produced 128 artifacts
+in one 9,625,927,680-byte device arena, independent readback closed the payload
+catalog at
 `367572d8f5aab87c655695fc621562e0e88cb5d1a9656370353d55ab1c4ebdbe`,
 and private owner-backed attachment completed with all older Prefill sidecars
 absent. The source probe remains `fail` solely at its immediate in-process
@@ -402,13 +402,44 @@ immutable raw snapshot as `no_owner_leak` with 20/20 criteria. The tracked
 [`layer-0 M192 Oracle record`](metadata/qwen36-27b-sm87-target-aot-layer0-m192-oracle-2026-08-12.json)
 freezes the numerical, resource, lifecycle, and source-status boundaries.
 
+The current source slice adds persisted target-AOT creation and direct loading
+to that same default-off lifetime admission. When asset preparation is
+selected, its three legal modes are: online prepare only; online prepare plus
+a create-only bundle and externally supplied expected payload catalog; or
+direct load from a bundle plus that external trust root. The persistence ABI
+is one fixed little-endian 9,626,456,064-byte file: a 4,096-byte superblock and
+128 layer-major records, each with a canonical 4,096-byte header followed by
+its payload. Headers retain source inventories, manifests, and transform
+receipts but never runtime pointers or upload receipts.
+
+Direct loading authenticates the live pinned checkpoint and complete source
+inventory, superblock, every record header, exact layout/offset/scale identity,
+every payload, and both complete catalogs before any CUDA operation or
+target-arena allocation. It performs no source-tensor D2H and no online
+transform/repack; each persisted payload is reread, rehashed and scale-domain
+checked before H2D, independently read back, and included in the externally
+authenticated catalog before the private owner is committed. Offline creation
+writes those device-readback bytes during the
+existing online transaction and publishes the completed file with create-only
+atomic rename semantics. It never overwrites an existing asset.
+Publication is a separate file transaction from later Engine attachment: a
+durably published asset remains recoverable by authenticated direct load even
+if attachment or runner creation later fails. Crash-left same-target temporary
+files fail closed before another full reservation and require manual audit;
+the runtime does not guess that an unknown file is safe to delete.
+
+This is a code and host-contract milestone only. A clean-host real-checkpoint
+GPU run has not yet created a retained bundle or proved a fresh-process direct
+load, its zero-source-D2H accounting, lifecycle recovery, or startup effect.
 No admission contains a production selector, API wiring, public execution
 route, or production dispatch authority. The narrow M192 result does not
-qualify the complete model. The next implementation step is persisted direct
-loading followed by the complete 64-layer FP8/Attention/GDN/buffer/state/
-handoff composition, not another isolated loader or local tile scan. Neither
-payload authentication, lifetime attachment, nor this narrow Oracle can
-promote the production path.
+qualify the complete model. The next evidence step is one clean-host
+real-checkpoint create transaction followed by a fresh-process authenticated
+direct-load transaction. Only then does implementation proceed to the complete
+64-layer FP8/Attention/GDN/buffer/state/handoff composition, rather than
+another isolated loader or local tile scan. Neither payload authentication,
+lifetime attachment, persistence, nor this narrow Oracle can promote the
+production path.
 
 The pre-CUDA implementation contract is now frozen as a second host-only
 milestone:
@@ -459,12 +490,13 @@ passed narrow layer-0 M192 Oracle, and a separately reviewed admission launcher
 must reach the real API before any performance or production qualification bit
 changes.
 
-The preparation probe reported
+The earlier online-preparation probe reported
 `target_prepare_attach_milliseconds=699705.551133`. This is diagnostic timing
 from a correctness-only run, not a startup or model-performance baseline. It
 does establish that production cannot repack and independently reread all
-9.626 GB online: the authenticated payload catalog must be persisted by an
-offline AOT step and loaded directly at startup under the DeploymentPlan.
+9.626 GB online. The new persisted-bundle code is the implementation response,
+but its clean-host real-checkpoint create/direct-load evidence remains pending;
+no startup result is claimed here.
 
 ## 9. One bounded reference-geometry witness
 

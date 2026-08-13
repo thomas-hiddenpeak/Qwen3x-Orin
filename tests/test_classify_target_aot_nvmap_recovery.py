@@ -124,6 +124,52 @@ def valid_probe_v3(binary_path: pathlib.Path) -> dict[str, object]:
     return probe
 
 
+def valid_probe_v4(
+    binary_path: pathlib.Path,
+    *,
+    asset_mode: str = "online_prepare",
+    bundle_path: str = "",
+    expected_catalog: str = "",
+) -> dict[str, object]:
+    probe = valid_probe_v3(binary_path)
+    probe["schema_version"] = 4
+    probe["checks"]["persistent_bundle_contract_exact"] = True
+    header_catalog = ""
+    verified_catalog = "a" * 64
+    loaded = False
+    created = False
+    file_bytes_read = 0
+    host_authentication_passes = 0
+    file_bytes_written = 0
+    if asset_mode == "create":
+        header_catalog = "b" * 64
+        verified_catalog = expected_catalog
+        created = True
+        file_bytes_written = RECOVERY.TARGET_AOT_PERSISTENT_BUNDLE_BYTES
+    elif asset_mode == "load":
+        header_catalog = "b" * 64
+        verified_catalog = expected_catalog
+        loaded = True
+        file_bytes_read = 2 * RECOVERY.TARGET_AOT_PERSISTENT_BUNDLE_BYTES
+        host_authentication_passes = 2
+    probe["target_aot"] = {
+        "asset_mode": asset_mode,
+        "persistent_bundle_path": bundle_path,
+        "expected_payload_catalog_sha256": expected_catalog,
+        "persistent_bundle_contract_exact": True,
+        "loaded_from_persisted_bundle": loaded,
+        "persistent_bundle_file_bytes_read": file_bytes_read,
+        "persistent_bundle_host_authentication_passes": (
+            host_authentication_passes
+        ),
+        "persistent_bundle_created": created,
+        "persistent_bundle_file_bytes_written": file_bytes_written,
+        "persistent_record_header_catalog_sha256": header_catalog,
+        "verified_payload_catalog_sha256": verified_catalog,
+    }
+    return probe
+
+
 def write_text(path: pathlib.Path, value: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(value, encoding="utf-8")
@@ -780,6 +826,62 @@ class TargetAotNvmapRecoveryTest(unittest.TestCase):
             RECOVERY.EvidenceError, "layer0_m192_oracle_passed"
         ):
             RECOVERY.validate_probe_shape(probe)
+
+    def test_schema_v4_requires_and_mirrors_persistent_bundle_check(self) -> None:
+        missing = valid_probe_v4(pathlib.Path("/placeholder"))
+        del missing["checks"]["persistent_bundle_contract_exact"]
+        with self.assertRaisesRegex(
+            RECOVERY.EvidenceError, "persistent_bundle_contract_exact"
+        ):
+            RECOVERY.validate_probe_shape(missing)
+
+        disagreeing = valid_probe_v4(pathlib.Path("/placeholder"))
+        disagreeing["target_aot"]["persistent_bundle_contract_exact"] = False
+        with self.assertRaisesRegex(RECOVERY.EvidenceError, "fields disagree"):
+            RECOVERY.validate_probe_shape(disagreeing)
+
+    def test_schema_v4_validates_all_persistence_modes(self) -> None:
+        catalog = "c" * 64
+        bundle = "/workspace/.q3x-work/assets/target-aot.bundle"
+        cases = (
+            valid_probe_v4(pathlib.Path("/placeholder")),
+            valid_probe_v4(
+                pathlib.Path("/placeholder"),
+                asset_mode="create",
+                bundle_path=bundle,
+                expected_catalog=catalog,
+            ),
+            valid_probe_v4(
+                pathlib.Path("/placeholder"),
+                asset_mode="load",
+                bundle_path=bundle,
+                expected_catalog=catalog,
+            ),
+        )
+        for probe in cases:
+            with self.subTest(mode=probe["target_aot"]["asset_mode"]):
+                RECOVERY.validate_probe_shape(probe)
+
+        missing_load_header = copy.deepcopy(cases[-1])
+        missing_load_header["target_aot"][
+            "persistent_record_header_catalog_sha256"
+        ] = ""
+        with self.assertRaisesRegex(RECOVERY.EvidenceError, "lower SHA256"):
+            RECOVERY.validate_probe_shape(missing_load_header)
+
+        incomplete_load_passes = copy.deepcopy(cases[-1])
+        incomplete_load_passes["target_aot"][
+            "persistent_bundle_host_authentication_passes"
+        ] = 1
+        with self.assertRaisesRegex(RECOVERY.EvidenceError, "read contract"):
+            RECOVERY.validate_probe_shape(incomplete_load_passes)
+
+        incomplete_load_bytes = copy.deepcopy(cases[-1])
+        incomplete_load_bytes["target_aot"][
+            "persistent_bundle_file_bytes_read"
+        ] = RECOVERY.TARGET_AOT_PERSISTENT_BUNDLE_BYTES
+        with self.assertRaisesRegex(RECOVERY.EvidenceError, "read contract"):
+            RECOVERY.validate_probe_shape(incomplete_load_bytes)
 
     def test_schema_v3_rejects_internally_inconsistent_oracle_evidence(self) -> None:
         cases: list[tuple[str, object]] = []

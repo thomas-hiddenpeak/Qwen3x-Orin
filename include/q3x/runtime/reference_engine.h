@@ -265,6 +265,22 @@ struct ReferenceEngineOptions {
   // admission. Unsupported binaries and incompatible engine modes fail
   // closed instead of ignoring a requested preparation.
   bool prepare_sm87_target_aot_projection_device_assets = false;
+  // Default-off direct-load successor to the online preparation-only path.
+  // A non-empty bundle path selects persisted loading and is mutually
+  // exclusive with `prepare_sm87_target_aot_projection_device_assets`.
+  // The expected catalog SHA-256 is caller-supplied test-admission data; a
+  // digest stored only inside the bundle is never sufficient to authorize
+  // its payloads. Production promotion must bind this value to an
+  // authenticated DeploymentPlan/release attestation rather than a free
+  // option.
+  std::filesystem::path load_sm87_target_aot_projection_bundle;
+  // Optional create-only offline output for the online preparation path.
+  // This is a one-time deployment asset build, never a request-time cache.
+  // The final file is atomically published without replacing an existing
+  // path and must later be consumed through the direct-load option above.
+  std::filesystem::path create_sm87_target_aot_projection_bundle;
+  std::string
+      expected_sm87_target_aot_projection_payload_catalog_sha256;
 };
 
 // Text-only messages accepted by the pinned Qwen 3.6 chat formatter. The
@@ -616,6 +632,8 @@ struct ReferenceEngineLoadStats {
   bool target_aot_projection_device_assets_requested = false;
   bool target_aot_projection_device_assets_enabled = false;
   bool target_aot_projection_device_assets_attached = false;
+  bool target_aot_projection_device_assets_loaded_from_persisted_bundle =
+      false;
   std::size_t target_aot_projection_device_asset_artifacts = 0U;
   std::size_t target_aot_projection_device_asset_sources = 0U;
   std::uint64_t target_aot_projection_device_asset_bytes = 0U;
@@ -623,6 +641,15 @@ struct ReferenceEngineLoadStats {
   std::uint64_t target_aot_projection_source_d2h_bytes = 0U;
   std::uint64_t target_aot_projection_payload_h2d_bytes = 0U;
   std::uint64_t target_aot_projection_verification_d2h_bytes = 0U;
+  std::uint64_t target_aot_projection_persistent_bundle_file_bytes_read =
+      0U;
+  std::uint32_t
+      target_aot_projection_persistent_bundle_host_authentication_passes = 0U;
+  bool target_aot_projection_persistent_bundle_created = false;
+  std::uint64_t target_aot_projection_persistent_bundle_file_bytes_written =
+      0U;
+  std::string
+      target_aot_projection_persistent_record_header_catalog_sha256;
   // Stable identity of the complete ordered manifest/source/device-readback
   // digest catalog. Runtime owner/allocation identities remain lifetime
   // witnesses only.
@@ -842,7 +869,16 @@ class ReferenceEngine {
   [[nodiscard]] static Sm87TargetAotProjectionDevicePreparationStats
   prepare_target_aot_projection_device_assets(
       const ResidentWeights& resident, const ModelWeights& model_weights,
+      const std::filesystem::path& create_bundle_path,
+      std::string_view expected_verified_payload_catalog_sha256,
       std::uint64_t minimum_free_bytes_after_prepare,
+      Sm87TargetAotProjectionDeviceAssets& owner);
+  [[nodiscard]] static Sm87TargetAotProjectionDevicePreparationStats
+  load_target_aot_projection_device_assets(
+      const ResidentWeights& resident, const ModelWeights& model_weights,
+      const std::filesystem::path& bundle_path,
+      std::string_view expected_verified_payload_catalog_sha256,
+      std::uint64_t minimum_free_bytes_after_load,
       Sm87TargetAotProjectionDeviceAssets& owner);
   [[nodiscard]] static bool attach_target_aot_projection_device_assets(
       ModelWeights& model_weights,

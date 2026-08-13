@@ -4,7 +4,7 @@
 The wrapper launches exactly one already-built probe.  It authenticates the
 ELF before launch and while the child is alive, captures Jetson nvmap state
 immediately before launch and immediately after exit, and binds those parent
-observations to the probe's schema-v3 evidence.  It never clears a pool or
+observations to the probe's schema-v4 evidence.  It never clears a pool or
 cache and never rewrites the child's source status.
 """
 
@@ -28,6 +28,7 @@ import classify_target_aot_nvmap_recovery as recovery
 
 PARENT_ARTIFACT = "q3x_sm87_target_aot_parent_child_nvmap_lifecycle"
 MAX_CHILD_STREAM_BYTES = 16 * 1024 * 1024
+TARGET_AOT_PERSISTENT_BUNDLE_BYTES = 9_626_456_064
 
 
 def utc_now() -> dt.datetime:
@@ -217,6 +218,70 @@ def validate_model_directory(path: pathlib.Path) -> pathlib.Path:
     return resolved
 
 
+def validate_bundle_request(
+    mode: str | None,
+    path: pathlib.Path | None,
+    expected_catalog: str | None,
+) -> tuple[str | None, pathlib.Path | None, str | None]:
+    if mode is None and path is None and expected_catalog is None:
+        return None, None, None
+    if mode not in {"create", "load"} or path is None or expected_catalog is None:
+        raise recovery.EvidenceError(
+            "--bundle-mode, --bundle-path and --expected-catalog are required together"
+        )
+    if (
+        len(expected_catalog) != 64
+        or expected_catalog == "0" * 64
+        or any(character not in "0123456789abcdef" for character in expected_catalog)
+    ):
+        raise recovery.EvidenceError(
+            "--expected-catalog must be one nonzero lowercase SHA-256"
+        )
+
+    work = recovery.WORK_ROOT.resolve()
+    expanded = path.expanduser()
+    if expanded.is_symlink():
+        raise recovery.EvidenceError("--bundle-path must not be a symlink")
+    if mode == "load":
+        resolved = recovery.validate_input_path(expanded)
+        try:
+            status = resolved.stat()
+        except OSError as error:
+            raise recovery.EvidenceError(
+                f"cannot stat --bundle-path {resolved}: {error}"
+            ) from error
+        if status.st_size != TARGET_AOT_PERSISTENT_BUNDLE_BYTES:
+            raise recovery.EvidenceError(
+                "--bundle-path is not the exact target-AOT bundle size"
+            )
+        if status.st_nlink != 1:
+            raise recovery.EvidenceError(
+                "--bundle-path must have exactly one filesystem link"
+            )
+    else:
+        resolved = expanded.resolve(strict=False)
+        if not recovery._path_is_within(resolved, work) or resolved == work:
+            raise recovery.EvidenceError(
+                "--bundle-path must resolve below repository .q3x-work"
+            )
+        if resolved.exists():
+            raise recovery.EvidenceError(
+                f"refusing to replace existing target-AOT bundle: {resolved}"
+            )
+        try:
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            parent = resolved.parent.resolve(strict=True)
+        except OSError as error:
+            raise recovery.EvidenceError(
+                f"cannot create or resolve --bundle-path parent: {error}"
+            ) from error
+        if not recovery._path_is_within(parent, work):
+            raise recovery.EvidenceError(
+                "--bundle-path parent escaped repository .q3x-work"
+            )
+    return mode, resolved, expected_catalog
+
+
 def capture_parent_snapshot(
     *,
     debugfs_root: pathlib.Path,
@@ -335,6 +400,52 @@ def _complete_source_pass(probe: Mapping[str, Any]) -> bool:
     )
 
 
+def bind_child_bundle_request(
+    probe: Mapping[str, Any],
+    *,
+    bundle_mode: str | None,
+    bundle_path: pathlib.Path | None,
+    expected_catalog: str | None,
+) -> dict[str, Any]:
+    target = recovery._mapping(probe.get("target_aot"), "target_aot")
+    requested_mode = bundle_mode if bundle_mode is not None else "online_prepare"
+    requested_path = str(bundle_path) if bundle_path is not None else ""
+    requested_catalog = expected_catalog if expected_catalog is not None else ""
+    criteria = {
+        "asset_mode_matches_command": target.get("asset_mode") == requested_mode,
+        "persistent_bundle_path_matches_command": (
+            target.get("persistent_bundle_path") == requested_path
+        ),
+        "expected_payload_catalog_matches_command": (
+            target.get("expected_payload_catalog_sha256") == requested_catalog
+        ),
+    }
+    if not all(criteria.values()):
+        mismatches = ", ".join(
+            name for name, accepted in criteria.items() if not accepted
+        )
+        raise recovery.EvidenceError(
+            "schema-v4 child target-AOT request does not match the launched "
+            f"command: {mismatches}"
+        )
+    return {
+        "requested": {
+            "asset_mode": requested_mode,
+            "persistent_bundle_path": requested_path,
+            "expected_payload_catalog_sha256": requested_catalog,
+        },
+        "child": {
+            "asset_mode": target["asset_mode"],
+            "persistent_bundle_path": target["persistent_bundle_path"],
+            "expected_payload_catalog_sha256": target[
+                "expected_payload_catalog_sha256"
+            ],
+        },
+        "criteria": criteria,
+        "bound": True,
+    }
+
+
 def bind_child_identity(
     probe: Mapping[str, Any],
     *,
@@ -379,7 +490,7 @@ def bind_child_identity(
         post_snapshot["probe_process_audit"], "post probe_process_audit"
     )
     criteria = {
-        "source_probe_schema_is_v3": probe.get("schema_version") == 3,
+        "source_probe_schema_is_v4": probe.get("schema_version") == 4,
         "source_execution_identity_declared_valid": execution.get("valid") is True,
         "source_child_pid_matches_launched_pid": (
             execution.get("child_pid") == launched_pid
@@ -435,6 +546,9 @@ def run_probe(
     output_path: pathlib.Path,
     debugfs_root: pathlib.Path,
     proc_root: pathlib.Path,
+    bundle_mode: str | None = None,
+    bundle_path: pathlib.Path | None = None,
+    expected_catalog: str | None = None,
     popen_factory: Callable[..., Any] = subprocess.Popen,
     live_authenticator: Callable[..., Mapping[str, Any]] = authenticate_live_child,
     snapshotter: Callable[..., Mapping[str, Any]] = capture_parent_snapshot,
@@ -446,6 +560,9 @@ def run_probe(
             "--child-evidence and --output must name different files"
         )
     model = validate_model_directory(model_directory)
+    bundle_mode, bundle, expected_catalog = validate_bundle_request(
+        bundle_mode, bundle_path, expected_catalog
+    )
     presnapshot_binary = authenticate_probe_executable(probe_path)
     child_output.parent.mkdir(parents=True, exist_ok=True)
     parent_output.parent.mkdir(parents=True, exist_ok=True)
@@ -486,6 +603,8 @@ def run_probe(
             "--probe identity changed between pre-snapshot and launch fd authentication"
         )
     command = [str(prelaunch_binary["path"]), str(model), str(child_output)]
+    if bundle_mode is not None and bundle is not None and expected_catalog is not None:
+        command.extend([bundle_mode, str(bundle), expected_catalog])
     stdout_name = ""
     stderr_name = ""
     try:
@@ -556,10 +675,16 @@ def run_probe(
         frozen_child_path = recovery.validate_input_path(child_output)
         probe, _raw, child_sha256 = recovery.read_frozen_probe(frozen_child_path)
         recovery.validate_probe_shape(probe)
-        if probe.get("schema_version") != 3:
+        if probe.get("schema_version") != 4:
             raise recovery.EvidenceError(
-                "parent/child lifecycle wrapper requires schema-v3 child evidence"
+                "parent/child lifecycle wrapper requires schema-v4 child evidence"
             )
+        bundle_request_binding = bind_child_bundle_request(
+            probe,
+            bundle_mode=bundle_mode,
+            bundle_path=bundle,
+            expected_catalog=expected_catalog,
+        )
 
         post_captured_at = parse_utc(
             str(post_snapshot["capture_finished_at_utc"]),
@@ -609,6 +734,7 @@ def run_probe(
         combined_acceptance_criteria = {
             "canonical_proc_and_nvmap_roots": production_observation_bound,
             "parent_child_identity_bound": identity_bound,
+            "source_bundle_request_bound": bundle_request_binding["bound"],
             "recovery_diagnostic_or_complete_source_pass": (
                 recovery_or_source_accepted
             ),
@@ -631,6 +757,9 @@ def run_probe(
                 "probe": str(prelaunch_binary["path"]),
                 "model_directory": str(model),
                 "child_evidence": str(child_output),
+                "bundle_mode": bundle_mode,
+                "bundle_path": str(bundle) if bundle is not None else None,
+                "expected_catalog": expected_catalog,
                 "shell": False,
                 "execution_source": "retained_authenticated_fd",
                 "argv0_preserved_as_probe_path": True,
@@ -664,6 +793,7 @@ def run_probe(
                 "criteria": binding_criteria,
                 "bound": identity_bound,
             },
+            "bundle_request_binding": bundle_request_binding,
             "observation_authority": dict(observation_authority),
             "combined_acceptance_criteria": combined_acceptance_criteria,
             "recovery_diagnostic": derived,
@@ -686,7 +816,7 @@ def run_probe(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "launch one schema-v3 target-AOT probe with immediate pre/post "
+            "launch one schema-v4 target-AOT probe with immediate pre/post "
             "Jetson nvmap lifecycle capture"
         )
     )
@@ -694,6 +824,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model-directory", type=pathlib.Path, required=True)
     parser.add_argument("--child-evidence", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)
+    parser.add_argument("--bundle-mode", choices=("create", "load"))
+    parser.add_argument("--bundle-path", type=pathlib.Path)
+    parser.add_argument("--expected-catalog")
     parser.add_argument(
         "--debugfs-root",
         type=pathlib.Path,
@@ -725,6 +858,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_path=args.output,
             debugfs_root=args.debugfs_root,
             proc_root=args.proc_root,
+            bundle_mode=args.bundle_mode,
+            bundle_path=args.bundle_path,
+            expected_catalog=args.expected_catalog,
         )
     except recovery.EvidenceError as error:
         print(f"error: {error}", file=sys.stderr)

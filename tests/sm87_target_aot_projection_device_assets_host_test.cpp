@@ -14,8 +14,17 @@ static_assert(runtime::kSm87TargetAotProjectionDeviceArenaBytes ==
               9'625'927'680ULL);
 static_assert(runtime::kSm87TargetAotProjectionMaximumHostStagingBytes ==
               200'540'160ULL);
+static_assert(
+    runtime::kSm87TargetAotProjectionPersistentDirectLoadFileBytesRead ==
+    19'252'912'128ULL);
 
 int main() {
+  const runtime::Sm87TargetAotProjectionDevicePreparationStats empty_stats;
+  if (empty_stats.persistent_bundle_file_bytes_read != 0U ||
+      empty_stats.persistent_bundle_host_authentication_passes != 0U) {
+    std::cerr << "default persistence authentication accounting is not zero\n";
+    return 1;
+  }
   kernels::Sm87TargetAotNvFp4CudaDeviceUploadReceipt receipt;
   receipt.artifact_identity = 1U;
   receipt.source_inventory_identity = 2U;

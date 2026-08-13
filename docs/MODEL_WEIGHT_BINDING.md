@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: typed resident-weight graph, numerical payload, lifetime, and dispatch-interface contract
   effective: 2026-08-09
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-08-13
   supersedes: []
   superseded_by: []
   ssot_for: ModelWeights types, binding validation, non-owning lifetime, and projection API behavior
@@ -177,16 +177,48 @@ dormant; named local work packages may study them without turning their
 mechanisms into global rules.
 
 The target-AOT lifetime attachment is private rather than part of the public
-sidecar API. Before committing it, `ModelWeights` validates the exact 64-layer
-Gate/Up/Down shapes, 128 distinct artifacts, 128 distinct source inventories,
-192 globally distinct source tensor identities, transform/upload/readback
-receipt coherence, device ordinal and pointer residency, exact scale bits, and
-one aligned, gap-free, non-overlapping 9,625,927,680-byte arena closure. Any
-legacy Prefill Marlin, P40 packed, or parity attachment rejects the transaction;
-Decode-only sidecars may coexist. Failure leaves `ModelWeights` unchanged.
-While the transaction is attached, the owner's public `release()` fails closed;
-the attachment itself exposes no launcher, tactic, request-path switch, or
-production qualification.
+sidecar API. It accepts assets from either authenticated online preparation or
+authenticated persisted direct loading; their source does not weaken the
+attachment contract. Before committing it, `ModelWeights` validates the exact
+64-layer Gate/Up/Down shapes, 128 distinct artifacts, 128 distinct source
+inventories, 192 globally distinct source tensor identities, transform/upload/
+readback receipt coherence, device ordinal and pointer residency, exact scale
+bits, and one aligned, gap-free, non-overlapping 9,625,927,680-byte arena
+closure. Any legacy Prefill Marlin, P40 packed, or parity attachment rejects
+the transaction; Decode-only sidecars may coexist. Failure leaves
+`ModelWeights` unchanged. While the transaction is attached, the owner's
+public `release()` fails closed; the attachment itself exposes no launcher,
+tactic, request-path switch, or Production qualification.
+
+### Persisted target-AOT trust boundary
+
+The source-private persistence ABI never serializes a `ModelWeights` object,
+raw manifest struct, device pointer, owner/allocation identity, CUDA event, or
+runtime upload receipt. Its fixed little-endian bundle contains one
+4,096-byte superblock and 128 canonical layer-major record headers plus their
+NVFP4 Gate+Up/Down payloads. Persisted source inventories, manifests, and
+transform receipts are evidence inputs only; they cannot manufacture runtime
+device authority.
+
+Direct loading first re-derives the complete plan from the live pinned
+checkpoint and bound `ModelWeights`, authenticates the checkpoint identity,
+external nonzero payload-catalog trust root, superblock, all record headers,
+source identities, layouts, offsets, scale bits, every payload, and both
+header and payload catalogs before any CUDA operation or target-arena
+allocation. It then rereads one bounded payload at a time, rechecks its digest
+and NVFP4 scale domain, uploads it, and independently hashes the device
+readback. Only those runtime observations may create the private
+upload/readback descriptor and owner-backed attachment. The direct path
+therefore performs zero source-tensor D2H and no online transform/repack, but
+still requires one H2D and one verification D2H over the exact arena of
+9,625,927,680 bytes.
+
+Offline creation uses the online authenticated preparation transaction and
+writes the device-readback payloads into an unpublished, exact-size file. It
+publishes only after every record and the externally expected payload catalog
+close, using create-only atomic rename semantics so an existing deployment
+asset is never replaced. Neither creation nor loading grants execution,
+numerical, API, performance, or Production authority.
 
 ## Failure and verification boundary
 

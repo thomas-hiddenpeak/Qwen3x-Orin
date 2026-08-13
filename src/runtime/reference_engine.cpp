@@ -64,6 +64,18 @@ inline constexpr double kProductionDecodeGraphMaximumPrepareMilliseconds =
 inline constexpr std::uint64_t kProductionDecodeGraphMaximumFreeDropBytes =
     256ULL * 1024ULL * 1024ULL;
 
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
+[[nodiscard]] bool is_lower_hex_sha256(const std::string_view value) noexcept {
+  return value.size() == 64U &&
+         value != std::string_view(
+                      "0000000000000000000000000000000000000000000000000000000000000000") &&
+         std::all_of(value.begin(), value.end(), [](const char digit) {
+           return (digit >= '0' && digit <= '9') ||
+                  (digit >= 'a' && digit <= 'f');
+         });
+}
+#endif
+
 // Same-ELF test-only admission. The ordinary runner schedule remains the
 // unconditional default; only the exact value "1" moves the final prompt
 // token into the bulk-prefill tile path.
@@ -5068,17 +5080,63 @@ struct ReferenceEngine::Impl {
       return result;
     }
 #endif
+    const bool target_aot_persisted_path_supplied =
+        !options.load_sm87_target_aot_projection_bundle.empty();
+    const bool target_aot_create_path_supplied =
+        !options.create_sm87_target_aot_projection_bundle.empty();
+    const bool target_aot_persisted_digest_supplied =
+        !options.expected_sm87_target_aot_projection_payload_catalog_sha256
+             .empty();
+    const bool target_aot_assets_requested =
+        options.prepare_sm87_target_aot_projection_device_assets ||
+        target_aot_persisted_path_supplied ||
+        target_aot_create_path_supplied || target_aot_persisted_digest_supplied;
 #if !defined(Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
-    if (options.prepare_sm87_target_aot_projection_device_assets) {
+    if (target_aot_assets_requested) {
       result.diagnostic = engine_diagnostic(
           ReferenceEngineError::kPrefillPlanUnavailable,
           "target_aot_projection_device_assets",
           "this binary does not contain the default-off real-checkpoint "
-          "target-AOT NVFP4 device owner/uploader");
+          "target-AOT NVFP4 device owner/uploader/direct-loader");
       return result;
     }
 #else
-    if (options.prepare_sm87_target_aot_projection_device_assets &&
+    const bool target_aot_configuration_valid =
+        !target_aot_assets_requested ||
+        (options.prepare_sm87_target_aot_projection_device_assets &&
+         !target_aot_persisted_path_supplied &&
+         ((!target_aot_create_path_supplied &&
+           !target_aot_persisted_digest_supplied) ||
+          (target_aot_create_path_supplied &&
+           target_aot_persisted_digest_supplied))) ||
+        (!options.prepare_sm87_target_aot_projection_device_assets &&
+         target_aot_persisted_path_supplied &&
+         !target_aot_create_path_supplied &&
+         target_aot_persisted_digest_supplied);
+    const bool target_aot_paths_valid =
+        (!target_aot_persisted_path_supplied ||
+         (options.load_sm87_target_aot_projection_bundle.is_absolute() &&
+          !options.load_sm87_target_aot_projection_bundle.filename()
+               .empty())) &&
+        (!target_aot_create_path_supplied ||
+         (options.create_sm87_target_aot_projection_bundle.is_absolute() &&
+          !options.create_sm87_target_aot_projection_bundle.filename()
+               .empty()));
+    if (!target_aot_configuration_valid || !target_aot_paths_valid ||
+        (target_aot_persisted_digest_supplied &&
+         !is_lower_hex_sha256(
+             options
+                 .expected_sm87_target_aot_projection_payload_catalog_sha256))) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "target_aot_projection_device_assets",
+          "target-AOT startup requires one mode: online prepare, online "
+          "prepare plus a create-only bundle and lowercase external catalog "
+          "SHA-256, or direct load plus that external trust root; bundle "
+          "paths must be absolute file paths");
+      return result;
+    }
+    if (target_aot_assets_requested &&
         (options.projection_backend != ProjectionBackend::kSm87WeightOnly ||
          options.prefill_execution_mode !=
              ReferencePrefillExecutionMode::kLegacyC512Tiled ||
@@ -5091,7 +5149,7 @@ struct ReferenceEngine::Impl {
       result.diagnostic = engine_diagnostic(
           ReferenceEngineError::kInvalidArgument,
           "target_aot_projection_device_assets",
-          "target-AOT preparation-only admission requires the SM87 backend, "
+          "target-AOT asset admission requires the SM87 backend, "
           "legacy execution, exact default tactics, and no Decode Graph "
           "cache");
       return result;
@@ -5153,7 +5211,7 @@ struct ReferenceEngine::Impl {
       impl->load.decode_graph_cache_requested_policy =
           options.decode_graph_cache_policy;
       impl->load.target_aot_projection_device_assets_requested =
-          options.prepare_sm87_target_aot_projection_device_assets;
+          target_aot_assets_requested;
       if (prepared_tokenizer != nullptr) {
         impl->tokenizer = std::move(prepared_tokenizer);
         impl->load.tokenizer_milliseconds =
@@ -5391,16 +5449,16 @@ struct ReferenceEngine::Impl {
           } else {
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
           const bool prepare_fp8_supermatrix =
-              !options.prepare_sm87_target_aot_projection_device_assets &&
+              !target_aot_assets_requested &&
               options.prefill_projection_tactic ==
               LayerMajorPrefillProjectionTactic::
                   kNativePromptWideP40ProjectionReset;
 #else
           const bool prepare_fp8_supermatrix =
-              !options.prepare_sm87_target_aot_projection_device_assets;
+              !target_aot_assets_requested;
 #endif
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
-          if (!options.prepare_sm87_target_aot_projection_device_assets &&
+          if (!target_aot_assets_requested &&
               !prepare_fp8_supermatrix) {
             const Clock::time_point fp8_marlin_begin = Clock::now();
             const Sm87Fp8MarlinPrefillPreparation fp8_marlin_preparation =
@@ -5463,7 +5521,7 @@ struct ReferenceEngine::Impl {
                 preparation.bytes;
           }
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
-          if (!options.prepare_sm87_target_aot_projection_device_assets &&
+          if (!target_aot_assets_requested &&
               !prepare_p40_packed_nvfp4_v2 &&
               !prepare_p40_vllm_marlin_parity) {
             const Clock::time_point marlin_begin = Clock::now();
@@ -5663,26 +5721,83 @@ struct ReferenceEngine::Impl {
         }
       }
 
-      if (options.prepare_sm87_target_aot_projection_device_assets) {
+      if (target_aot_assets_requested) {
         const Clock::time_point target_aot_begin = Clock::now();
         const Sm87TargetAotProjectionDevicePreparationStats preparation =
-            ReferenceEngine::prepare_target_aot_projection_device_assets(
-                *impl->resident_weights, *impl->model_weights,
-                options.request_options.min_free_bytes_after_create,
-                impl->target_aot_projection_device_assets);
+            target_aot_persisted_path_supplied
+                ? ReferenceEngine::load_target_aot_projection_device_assets(
+                      *impl->resident_weights, *impl->model_weights,
+                      options.load_sm87_target_aot_projection_bundle,
+                      options
+                          .expected_sm87_target_aot_projection_payload_catalog_sha256,
+                      options.request_options.min_free_bytes_after_create,
+                      impl->target_aot_projection_device_assets)
+                : ReferenceEngine::prepare_target_aot_projection_device_assets(
+                      *impl->resident_weights, *impl->model_weights,
+                      options.create_sm87_target_aot_projection_bundle,
+                      options
+                          .expected_sm87_target_aot_projection_payload_catalog_sha256,
+                      options.request_options.min_free_bytes_after_create,
+                      impl->target_aot_projection_device_assets);
         impl->load.target_aot_projection_device_asset_milliseconds =
             elapsed_milliseconds(target_aot_begin);
+        const bool source_accounting_valid =
+            target_aot_persisted_path_supplied
+                ? preparation.source ==
+                          Sm87TargetAotProjectionDeviceAssetSource::
+                              kPersistedBundle &&
+                      preparation.host_staging_peak_bytes ==
+                          kSm87TargetAotProjectionMaximumArtifactPayloadBytes &&
+                      preparation.source_d2h_bytes == 0U &&
+                      preparation.persistent_bundle_file_bytes_read ==
+                          kSm87TargetAotProjectionPersistentDirectLoadFileBytesRead &&
+                      preparation
+                              .persistent_bundle_host_authentication_passes ==
+                          2U &&
+                      !preparation.persistent_bundle_created &&
+                      preparation.persistent_bundle_file_bytes_written == 0U &&
+                      preparation.persistent_record_header_catalog_sha256
+                          .size() == 64U &&
+                      preparation.verified_payload_catalog_sha256 ==
+                          options
+                              .expected_sm87_target_aot_projection_payload_catalog_sha256
+                : preparation.source ==
+                          Sm87TargetAotProjectionDeviceAssetSource::
+                              kOnlineCheckpointTransform &&
+                      preparation.host_staging_peak_bytes ==
+                          kSm87TargetAotProjectionMaximumHostStagingBytes &&
+                      preparation.source_d2h_bytes ==
+                          kSm87TargetAotProjectionCanonicalSourceD2hBytes &&
+                      preparation.persistent_bundle_file_bytes_read == 0U &&
+                      preparation
+                              .persistent_bundle_host_authentication_passes ==
+                          0U &&
+                      (target_aot_create_path_supplied
+                           ? preparation.persistent_bundle_created &&
+                                 preparation
+                                         .persistent_bundle_file_bytes_written ==
+                                     kSm87TargetAotProjectionPersistentBundleBytes &&
+                                 preparation
+                                         .persistent_record_header_catalog_sha256
+                                         .size() == 64U &&
+                                 preparation.verified_payload_catalog_sha256 ==
+                                     options
+                                         .expected_sm87_target_aot_projection_payload_catalog_sha256
+                           : !preparation.persistent_bundle_created &&
+                                 preparation
+                                         .persistent_bundle_file_bytes_written ==
+                                     0U &&
+                                 preparation
+                                     .persistent_record_header_catalog_sha256
+                                     .empty());
         if (preparation.hard_failure || !preparation.enabled ||
+            !source_accounting_valid ||
             preparation.artifacts !=
                 kSm87TargetAotProjectionDeviceArtifactCount ||
             preparation.sources !=
                 kSm87TargetAotProjectionDeviceSourceCount ||
             preparation.arena_bytes !=
                 kSm87TargetAotProjectionDeviceArenaBytes ||
-            preparation.host_staging_peak_bytes !=
-                kSm87TargetAotProjectionMaximumHostStagingBytes ||
-            preparation.source_d2h_bytes !=
-                kSm87TargetAotProjectionCanonicalSourceD2hBytes ||
             preparation.payload_h2d_bytes !=
                 kSm87TargetAotProjectionDeviceArenaBytes ||
             preparation.verification_d2h_bytes !=
@@ -5695,9 +5810,13 @@ struct ReferenceEngine::Impl {
             preparation.device_ordinal < 0) {
           result.diagnostic = engine_diagnostic(
               ReferenceEngineError::kRunnerFactoryFailure,
-              "target_aot_projection_device_asset_prepare",
+              target_aot_persisted_path_supplied
+                  ? "target_aot_projection_device_asset_direct_load"
+                  : target_aot_create_path_supplied
+                        ? "target_aot_projection_device_asset_offline_create"
+                  : "target_aot_projection_device_asset_prepare",
               preparation.message.empty()
-                  ? "target-AOT preparation did not publish the exact "
+                  ? "target-AOT asset loading did not publish the exact "
                     "authenticated NVFP4 inventory"
                   : preparation.message);
           result.diagnostic.cuda_error = preparation.cuda_error;
@@ -5719,6 +5838,9 @@ struct ReferenceEngine::Impl {
             elapsed_milliseconds(target_aot_begin);
         impl->load.target_aot_projection_device_assets_enabled = true;
         impl->load.target_aot_projection_device_assets_attached = true;
+        impl->load
+            .target_aot_projection_device_assets_loaded_from_persisted_bundle =
+            target_aot_persisted_path_supplied;
         impl->load.target_aot_projection_device_asset_artifacts =
             preparation.artifacts;
         impl->load.target_aot_projection_device_asset_sources =
@@ -5733,6 +5855,19 @@ struct ReferenceEngine::Impl {
             preparation.payload_h2d_bytes;
         impl->load.target_aot_projection_verification_d2h_bytes =
             preparation.verification_d2h_bytes;
+        impl->load.target_aot_projection_persistent_bundle_file_bytes_read =
+            preparation.persistent_bundle_file_bytes_read;
+        impl->load
+            .target_aot_projection_persistent_bundle_host_authentication_passes =
+            preparation.persistent_bundle_host_authentication_passes;
+        impl->load.target_aot_projection_persistent_bundle_created =
+            preparation.persistent_bundle_created;
+        impl->load
+            .target_aot_projection_persistent_bundle_file_bytes_written =
+            preparation.persistent_bundle_file_bytes_written;
+        impl->load
+            .target_aot_projection_persistent_record_header_catalog_sha256 =
+            preparation.persistent_record_header_catalog_sha256;
         impl->load.target_aot_projection_verified_payload_catalog_sha256 =
             preparation.verified_payload_catalog_sha256;
         impl->load.target_aot_projection_owner_identity =
@@ -6071,10 +6206,26 @@ struct ReferenceEngine::Impl {
 Sm87TargetAotProjectionDevicePreparationStats
 ReferenceEngine::prepare_target_aot_projection_device_assets(
     const ResidentWeights& resident, const ModelWeights& model_weights,
+    const std::filesystem::path& create_bundle_path,
+    const std::string_view expected_verified_payload_catalog_sha256,
     const std::uint64_t minimum_free_bytes_after_prepare,
     Sm87TargetAotProjectionDeviceAssets& owner) {
-  return owner.prepare(resident, model_weights,
+  return owner.prepare(resident, model_weights, create_bundle_path,
+                       expected_verified_payload_catalog_sha256,
                        minimum_free_bytes_after_prepare);
+}
+
+Sm87TargetAotProjectionDevicePreparationStats
+ReferenceEngine::load_target_aot_projection_device_assets(
+    const ResidentWeights& resident, const ModelWeights& model_weights,
+    const std::filesystem::path& bundle_path,
+    const std::string_view expected_verified_payload_catalog_sha256,
+    const std::uint64_t minimum_free_bytes_after_load,
+    Sm87TargetAotProjectionDeviceAssets& owner) {
+  return owner.load_persisted(
+      resident, model_weights, bundle_path,
+      expected_verified_payload_catalog_sha256,
+      minimum_free_bytes_after_load);
 }
 
 bool ReferenceEngine::attach_target_aot_projection_device_assets(

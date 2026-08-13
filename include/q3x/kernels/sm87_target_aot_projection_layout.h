@@ -12,10 +12,10 @@ namespace q3x::kernels {
 // Host-only packed-operand layout schema for AC-PREFILL-SM87-AOT-SYSTEM-v1.
 // Sm87TargetAotProjectionPackedManifest is an in-memory sidecar schema, not
 // an on-disk header and never safe to serialize with a struct byte copy. The
-// 4096-byte header reservation and canonical little-endian encoding remain a
-// future loader contract and must be frozen before an asset is authenticated.
-// The
-// layout is derived for the M128N256K64, eight-warp projection plan.  It is
+// source-private persistence codec explicitly encodes selected fields into a
+// canonical 4096-byte little-endian record header; changing that disk image
+// requires an explicit persistence-ABI revision. The layout is derived for
+// the M128N256K64, eight-warp projection plan.  It is
 // independent of prompt M: P40, P60, and P130 use the same engine-lifetime
 // artifact.  This header exposes no CUDA launcher and grants no resource,
 // numerical, or production qualification.
@@ -1090,9 +1090,10 @@ struct Sm87TargetAotProjectionPackedManifest {
   Sm87TargetAotProjectionPackedManifestSeal seal{};
 };
 
-// A future loader creates this receipt only after hashing the actual payload
-// byte interval. Manifest validation alone authenticates schema/source keys;
-// it deliberately cannot authenticate bytes that were not supplied to it.
+// An authenticated online or persisted loader creates this receipt only after
+// hashing the actual payload byte interval. Manifest validation alone
+// authenticates schema/source keys; it deliberately cannot authenticate bytes
+// that were not supplied to it.
 struct Sm87TargetAotProjectionPackedPayloadReceipt {
   std::uint64_t artifact_identity = 0U;
   std::uint64_t observed_payload_offset = 0U;

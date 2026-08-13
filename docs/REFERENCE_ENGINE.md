@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: correctness-first engine ownership, generation, timing, trace, and failure contract
   effective: 2026-08-09
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-08-13
   supersedes: []
   superseded_by: []
   ssot_for: ReferenceEngine lifecycle, generation semantics, tracing, timing, and error behavior
@@ -62,15 +62,75 @@ Creation fails closed on tokenizer, resident-load, weight-binding,
 request-state, runner-factory, capacity, arithmetic, or allocation errors. It
 does not publish a partially usable engine.
 
-`prepare_sm87_target_aot_projection_device_assets` is an append-only,
-programmatic, default-false startup option for the test admission only. A
-binary without that admission, or a request using a non-SM87 backend, nonlegacy
-execution, nondefault Prefill tactics, or Decode Graph cache, rejects it before
-model I/O. A valid request skips mutually exclusive old Prefill projection
-sidecars, uploads and independently reads back the exact authenticated arena,
-then transactionally attaches the owner before runner creation. Decode-only
-sidecars may coexist. Success prepares lifetime state only: it selects no
-tactic, launcher, runner route, CLI flag, API behavior, or production path.
+The target-AOT NVFP4 asset admission is programmatic, default-off, and test
+only. When selected, exactly one of these startup modes is legal:
+
+1. **online prepare:**
+   `prepare_sm87_target_aot_projection_device_assets=true` with no bundle path
+   or external catalog;
+2. **online prepare plus offline bundle creation:** the same preparation flag,
+   one absolute create path, and one nonzero lowercase external expected
+   payload-catalog SHA-256; or
+3. **persisted direct load:** one absolute load path and the same kind of
+   external expected catalog, with the online-preparation flag false.
+
+The create path, load path, and external catalog are bound as complete mode
+tuples; a partial tuple, simultaneous create/load, or another combination
+fails before asset I/O. A binary without the admission, or a request using a
+non-SM87 backend, nonlegacy execution, nondefault Prefill tactics, or Decode
+Graph cache, rejects the request before model I/O.
+
+Online preparation authenticates the checkpoint sources, transforms one
+bounded artifact at a time, uploads and independently reads back the exact
+arena, and optionally writes the device-verified bytes to a create-only
+bundle. Persisted direct load performs no source-tensor D2H and no online
+repack. It authenticates the live checkpoint/inventory, superblock, all 128
+record headers, fixed geometry, and header catalog before allocating the
+target GPU arena; it then hashes and domain-checks each bounded payload before
+upload and independently reads the device range back. Neither route commits
+an attachment until all 128 artifacts, the complete payload catalog, file
+snapshot, byte accounting, and retained-memory checks close.
+
+All three modes skip mutually exclusive old Prefill projection sidecars and
+transactionally attach the private owner before runner creation; Decode-only
+sidecars may coexist. Success prepares an authenticated engine-lifetime asset
+only. It selects no tactic, launcher, runner route, CLI flag, API behavior,
+performance result, or Production path.
+
+### Persisted bundle boundary
+
+Persistence ABI 1.0 is one fixed little-endian file: a 4,096-byte superblock
+followed by 128 layer-major records, each containing one canonical 4,096-byte
+record header and its Gate+Up or Down payload. The file is exactly
+9,626,456,064 bytes, of which 9,625,927,680 bytes are payloads in the exact
+device-arena order. The superblock binds the pinned repository/revision/SM87
+tuple, checkpoint identity, externally expected payload catalog, and the
+SHA-256 catalog of all canonical record-header images. Each record binds its
+ordinal, role, offsets, source inventory, packed manifest, transform receipt,
+and payload digest. Runtime pointers, allocation/owner identities, streams,
+events, and upload receipts are deliberately absent from disk. The catalog
+copy inside the file never self-authorizes the bundle; the caller must supply
+the matching expected digest. That option is currently caller-supplied test
+admission data, not a signed DeploymentPlan or release attestation, and cannot
+be described as a Production trust-root integration.
+
+The bundle writer reserves a same-directory unpublished temporary file,
+writes and syncs authenticated records, closes the external payload catalog,
+writes the superblock last, and publishes with create-only atomic rename
+semantics. It never replaces an existing destination. A direct loader opens
+an exact-size regular single-link file through no-follow path traversal,
+retains one descriptor and file snapshot throughout authentication, and fails
+closed if the file changes. A stale same-target temporary file is reported for
+manual audit before any new 9.626 GB reservation and is never deleted
+automatically. If rename succeeds but directory synchronization fails, the
+final name is retained and reported as durability-uncertain; the caller must
+not retry or remove it until the direct loader has securely reauthenticated
+that exact file.
+
+Bundle publication and Engine attachment are separate transactions. A valid,
+durably published create-mode asset remains at the caller-selected path if a
+later private attachment or runner-creation step fails; a subsequent process
+may recover it only through the authenticated direct-load mode.
 
 ## Accepted prompt surfaces
 
@@ -202,13 +262,17 @@ time. The product API must add separately attested queue/admission, pure
 Prompt-Prefill, first-token, commit, and publication intervals as required by
 the SDD; these legacy engine fields cannot substitute for them.
 
-When the target-AOT preparation-only option succeeds, its cold-start record
-also reports preparation/attachment transaction time,
-requested/enabled/attached state, exact
-artifact/source/arena/staging and D2H/H2D/readback byte counts, plus private
-owner/allocation identities, device ordinal, and the verified payload-catalog
-SHA-256. These are startup ownership facts, not numerical, execution, API, or
-performance qualification.
+When a target-AOT asset mode succeeds, its cold-start record also reports the
+preparation-or-load and attachment transaction time, requested/enabled/
+attached state, source mode, exact artifact/source/arena/staging and
+D2H/H2D/readback byte counts, plus private owner/allocation identities,
+device ordinal, and the verified payload-catalog SHA-256. Direct load must
+report `source_d2h_bytes=0`, one complete pre-CUDA bundle-authentication read,
+and one subsequent complete bundle reread during upload. Create mode reports
+create-only publication, one exact-bundle byte count, and the record-header
+catalog; online prepare without persistence reports neither bundle read nor
+write. These are startup ownership and admission facts, not numerical,
+execution, API, performance, or Production qualification.
 
 ## Trace and replay contract
 
@@ -231,9 +295,11 @@ default route or Production lifecycle state. Their detailed experiments and
 historical measurements belong in evidence records rather than this active
 contract.
 
-The target-AOT preparation-only option is subject to the same authority
-boundary: even an authenticated attachment remains non-executable until a
-separately reviewed numerical/resource gate and launcher/runner/API route exist.
+The target-AOT online/create/direct-load modes are subject to the same
+authority boundary: even an authenticated attachment remains non-executable
+until a separately reviewed numerical/resource gate and launcher/runner/API
+route exist. The persisted-bundle milestone therefore grants test admission
+and engine-lifetime ownership only.
 
 ## Installed `generate` CLI contract
 

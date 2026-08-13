@@ -466,6 +466,7 @@ if(Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION)
   # authority.
   target_sources(q3x_core PRIVATE
     src/runtime/sm87_target_aot_projection_assets.cpp
+    src/runtime/sm87_target_aot_projection_persistence.cpp
   )
   target_compile_definitions(q3x_core PUBLIC
     Q3X_ENABLE_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION=1
@@ -2644,6 +2645,29 @@ if(BUILD_TESTING)
   )
 
   if(Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION)
+    add_executable(q3x_sm87_target_aot_projection_persistence_host_test
+      tests/sm87_target_aot_projection_persistence_host_test.cpp
+    )
+    target_include_directories(
+      q3x_sm87_target_aot_projection_persistence_host_test
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+    )
+    target_link_libraries(
+      q3x_sm87_target_aot_projection_persistence_host_test
+      PRIVATE q3x::core
+    )
+    q3x_enable_warnings(
+      q3x_sm87_target_aot_projection_persistence_host_test
+    )
+    add_test(NAME sm87_target_aot_projection_persistence_host
+      COMMAND q3x_sm87_target_aot_projection_persistence_host_test
+        "${CMAKE_CURRENT_BINARY_DIR}/q3x-sm87-target-aot-persistence-host"
+    )
+    set_tests_properties(
+      sm87_target_aot_projection_persistence_host PROPERTIES
+      LABELS "host;sm87;prefill;target_aot;projection;persistence;correctness;default_off"
+    )
+
     add_executable(q3x_sm87_target_aot_projection_assets_test
       tests/sm87_target_aot_projection_assets_test.cpp
     )

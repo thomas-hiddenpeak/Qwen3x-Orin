@@ -68,6 +68,11 @@ SCHEMA_V3_REQUIRED_CHECKS = (
     "execution_identity_valid",
     "layer0_m192_oracle_passed",
 )
+SCHEMA_V4_REQUIRED_CHECKS = (
+    "persistent_bundle_contract_exact",
+)
+ORACLE_SCHEMA_VERSIONS = (3, 4)
+TARGET_AOT_PERSISTENT_BUNDLE_BYTES = 9_626_456_064
 M192_TOKENS = 192
 M192_FULL_TOKENS = 128
 M192_TAIL_TOKENS = 64
@@ -189,6 +194,178 @@ def _lower_sha256(value: Any, name: str) -> str:
     ):
         raise EvidenceError(f"source probe field {name!r} must be lower SHA256")
     return value
+
+
+def _nonzero_lower_sha256(value: Any, name: str) -> str:
+    digest = _lower_sha256(value, name)
+    if digest == "0" * 64:
+        raise EvidenceError(f"source probe field {name!r} must be nonzero")
+    return digest
+
+
+def _boolean(mapping: Mapping[str, Any], field: str, scope: str) -> bool:
+    value = mapping.get(field)
+    if not isinstance(value, bool):
+        raise EvidenceError(
+            f"source probe field {scope}.{field!s} must be boolean"
+        )
+    return value
+
+
+def _validate_v4_target_aot(
+    probe: Mapping[str, Any], checks: Mapping[str, Any]
+) -> None:
+    target = _mapping(probe.get("target_aot"), "target_aot")
+    mode = target.get("asset_mode")
+    if mode not in ("online_prepare", "create", "load"):
+        raise EvidenceError("source probe target_aot.asset_mode is invalid")
+
+    bundle_path = target.get("persistent_bundle_path")
+    expected_catalog = target.get("expected_payload_catalog_sha256")
+    header_catalog = target.get("persistent_record_header_catalog_sha256")
+    verified_catalog = target.get("verified_payload_catalog_sha256")
+    for field, value in (
+        ("persistent_bundle_path", bundle_path),
+        ("expected_payload_catalog_sha256", expected_catalog),
+        ("persistent_record_header_catalog_sha256", header_catalog),
+        ("verified_payload_catalog_sha256", verified_catalog),
+    ):
+        if not isinstance(value, str):
+            raise EvidenceError(f"source probe target_aot.{field} must be text")
+
+    contract_exact = _boolean(
+        target, "persistent_bundle_contract_exact", "target_aot"
+    )
+    if checks.get("persistent_bundle_contract_exact") is not contract_exact:
+        raise EvidenceError(
+            "source probe target_aot/checks persistent bundle contract fields disagree"
+        )
+
+    loaded = _boolean(
+        target, "loaded_from_persisted_bundle", "target_aot"
+    )
+    created = _boolean(target, "persistent_bundle_created", "target_aot")
+    file_bytes_read = _nonnegative_integer(
+        target.get("persistent_bundle_file_bytes_read"),
+        "target_aot.persistent_bundle_file_bytes_read",
+    )
+    host_authentication_passes = _nonnegative_integer(
+        target.get("persistent_bundle_host_authentication_passes"),
+        "target_aot.persistent_bundle_host_authentication_passes",
+    )
+    file_bytes_written = _nonnegative_integer(
+        target.get("persistent_bundle_file_bytes_written"),
+        "target_aot.persistent_bundle_file_bytes_written",
+    )
+
+    if mode == "online_prepare":
+        if bundle_path or expected_catalog:
+            raise EvidenceError(
+                "source probe online_prepare target-AOT request must not name a bundle"
+            )
+        if (
+            loaded
+            or created
+            or file_bytes_read != 0
+            or file_bytes_written != 0
+            or host_authentication_passes != 0
+        ):
+            raise EvidenceError(
+                "source probe online_prepare persistence activity is invalid"
+            )
+        if header_catalog:
+            raise EvidenceError(
+                "source probe online_prepare header catalog must be empty"
+            )
+        if contract_exact:
+            _nonzero_lower_sha256(
+                verified_catalog,
+                "target_aot.verified_payload_catalog_sha256",
+            )
+        elif verified_catalog:
+            _nonzero_lower_sha256(
+                verified_catalog,
+                "target_aot.verified_payload_catalog_sha256",
+            )
+        return
+
+    if not bundle_path or not pathlib.Path(bundle_path).is_absolute():
+        raise EvidenceError(
+            "source probe persistent target-AOT bundle path must be absolute"
+        )
+    expected = _nonzero_lower_sha256(
+        expected_catalog, "target_aot.expected_payload_catalog_sha256"
+    )
+
+    if mode == "create":
+        if loaded or file_bytes_read != 0 or host_authentication_passes != 0:
+            raise EvidenceError(
+                "source probe create-mode read/loaded persistence fields are invalid"
+            )
+        if contract_exact:
+            if not created or file_bytes_written != TARGET_AOT_PERSISTENT_BUNDLE_BYTES:
+                raise EvidenceError(
+                    "source probe create-mode persisted bundle write contract mismatch"
+                )
+            _nonzero_lower_sha256(
+                header_catalog,
+                "target_aot.persistent_record_header_catalog_sha256",
+            )
+            if _nonzero_lower_sha256(
+                verified_catalog,
+                "target_aot.verified_payload_catalog_sha256",
+            ) != expected:
+                raise EvidenceError(
+                    "source probe create-mode verified catalog does not match request"
+                )
+        else:
+            if header_catalog:
+                _nonzero_lower_sha256(
+                    header_catalog,
+                    "target_aot.persistent_record_header_catalog_sha256",
+                )
+            if verified_catalog:
+                _nonzero_lower_sha256(
+                    verified_catalog,
+                    "target_aot.verified_payload_catalog_sha256",
+                )
+        return
+
+    if created or file_bytes_written != 0:
+        raise EvidenceError(
+            "source probe load-mode create/write persistence fields are invalid"
+        )
+    if contract_exact:
+        if (
+            not loaded
+            or file_bytes_read != 2 * TARGET_AOT_PERSISTENT_BUNDLE_BYTES
+            or host_authentication_passes != 2
+        ):
+            raise EvidenceError(
+                "source probe load-mode persisted bundle read contract mismatch"
+            )
+        _nonzero_lower_sha256(
+            header_catalog,
+            "target_aot.persistent_record_header_catalog_sha256",
+        )
+        if _nonzero_lower_sha256(
+            verified_catalog,
+            "target_aot.verified_payload_catalog_sha256",
+        ) != expected:
+            raise EvidenceError(
+                "source probe load-mode verified catalog does not match request"
+            )
+    else:
+        if header_catalog:
+            _nonzero_lower_sha256(
+                header_catalog,
+                "target_aot.persistent_record_header_catalog_sha256",
+            )
+        if verified_catalog:
+            _nonzero_lower_sha256(
+                verified_catalog,
+                "target_aot.verified_payload_catalog_sha256",
+            )
 
 
 def _required_true(mapping: Mapping[str, Any], name: str) -> None:
@@ -481,14 +658,14 @@ def _validate_passed_m192_result(result: Mapping[str, Any]) -> None:
 
 def validate_probe_shape(probe: Mapping[str, Any]) -> None:
     schema_version = probe.get("schema_version")
-    if schema_version not in (2, 3):
-        raise EvidenceError("source probe schema_version must be 2 or 3")
+    if schema_version not in (2, 3, 4):
+        raise EvidenceError("source probe schema_version must be 2, 3, or 4")
     if probe.get("artifact") != EXPECTED_ARTIFACT:
         raise EvidenceError(f"source probe artifact must be {EXPECTED_ARTIFACT!r}")
     if probe.get("status") not in ("pass", "fail"):
         raise EvidenceError("source probe status must be 'pass' or 'fail'")
 
-    if schema_version == 3:
+    if schema_version in ORACLE_SCHEMA_VERSIONS:
         execution = _mapping(probe.get("execution_identity"), "execution_identity")
         boot_id = execution.get("boot_id")
         if not isinstance(boot_id, str) or not BOOT_ID_PATTERN.fullmatch(boot_id):
@@ -536,8 +713,15 @@ def validate_probe_shape(probe: Mapping[str, Any]) -> None:
 
     checks = _mapping(probe.get("checks"), "checks")
     schema_required_checks = (
-        SCHEMA_V3_REQUIRED_CHECKS if schema_version == 3 else ()
+        SCHEMA_V3_REQUIRED_CHECKS
+        if schema_version in ORACLE_SCHEMA_VERSIONS
+        else ()
     )
+    if schema_version == 4:
+        schema_required_checks = (
+            *schema_required_checks,
+            *SCHEMA_V4_REQUIRED_CHECKS,
+        )
     for name in (*REQUIRED_CHECKS, *schema_required_checks, MEMORY_CHECK):
         if not isinstance(checks.get(name), bool):
             raise EvidenceError(f"source probe checks.{name} must be boolean")
@@ -576,7 +760,10 @@ def validate_probe_shape(probe: Mapping[str, Any]) -> None:
     _nonnegative_integer(diagnostic.get("code"), "diagnostic.code")
     _nonnegative_integer(diagnostic.get("cuda_error"), "diagnostic.cuda_error")
 
-    if schema_version == 3:
+    if schema_version == 4:
+        _validate_v4_target_aot(probe, checks)
+
+    if schema_version in ORACLE_SCHEMA_VERSIONS:
         execution = _mapping(probe["execution_identity"], "execution_identity")
         if checks["execution_identity_valid"] is not execution["valid"]:
             raise EvidenceError(
@@ -1327,7 +1514,7 @@ def derive_report(
         ),
         **root_binding["criteria"],
     }
-    if probe["schema_version"] == 3:
+    if probe["schema_version"] in ORACLE_SCHEMA_VERSIONS:
         execution = _mapping(probe["execution_identity"], "execution_identity")
         child_finished = _utc_datetime(
             execution["child_evidence_finished_at_utc"],

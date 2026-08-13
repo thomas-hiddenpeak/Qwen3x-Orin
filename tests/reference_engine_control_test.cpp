@@ -8,6 +8,7 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -2343,8 +2344,115 @@ void test_engine_backend_validation(TestContext& test) {
 void test_target_aot_device_preparation_fails_closed_before_io(
     TestContext& test) {
   runtime::ReferenceEngineOptions defaults;
-  test.expect(!defaults.prepare_sm87_target_aot_projection_device_assets,
-              "target-AOT device preparation defaults off");
+  test.expect(
+      !defaults.prepare_sm87_target_aot_projection_device_assets &&
+          defaults.load_sm87_target_aot_projection_bundle.empty() &&
+          defaults.create_sm87_target_aot_projection_bundle.empty() &&
+          defaults
+              .expected_sm87_target_aot_projection_payload_catalog_sha256
+              .empty(),
+      "all target-AOT online, offline-create, and direct-load modes default "
+      "off");
+
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
+  const auto expect_invalid_configuration = [&test](
+                                                runtime::ReferenceEngineOptions
+                                                    options,
+                                                const char* const label) {
+    const runtime::ReferenceEngineCreateResult invalid =
+        runtime::create_reference_engine("/path/must/not/be/read", options);
+    test.expect(!invalid &&
+                    invalid.diagnostic.code ==
+                        runtime::ReferenceEngineError::kInvalidArgument &&
+                    invalid.diagnostic.stage ==
+                        "target_aot_projection_device_assets" &&
+                    invalid.diagnostic.message.find(
+                        "startup requires one mode") != std::string::npos,
+                label);
+  };
+  constexpr std::string_view kCatalog =
+      "367572d8f5aab87c655695fc621562e0e88cb5d1a9656370353d55ab1c4ebdbe";
+
+  runtime::ReferenceEngineOptions invalid;
+  invalid.load_sm87_target_aot_projection_bundle = "/workspace/assets.aot";
+  expect_invalid_configuration(
+      invalid, "persisted target-AOT load rejects a missing trust root before "
+               "model I/O");
+
+  invalid = {};
+  invalid.expected_sm87_target_aot_projection_payload_catalog_sha256 =
+      std::string(kCatalog);
+  expect_invalid_configuration(
+      invalid, "target-AOT rejects a digest without a load/create mode before "
+               "model I/O");
+
+  invalid = {};
+  invalid.prepare_sm87_target_aot_projection_device_assets = true;
+  invalid.create_sm87_target_aot_projection_bundle = "relative/assets.aot";
+  invalid.expected_sm87_target_aot_projection_payload_catalog_sha256 =
+      std::string(kCatalog);
+  expect_invalid_configuration(
+      invalid, "target-AOT offline creation rejects a relative output before "
+               "model I/O");
+
+  invalid = {};
+  invalid.load_sm87_target_aot_projection_bundle = "/workspace/load.aot";
+  invalid.create_sm87_target_aot_projection_bundle =
+      "/workspace/create.aot";
+  invalid.expected_sm87_target_aot_projection_payload_catalog_sha256 =
+      std::string(kCatalog);
+  expect_invalid_configuration(
+      invalid, "target-AOT rejects simultaneous direct-load and offline-create "
+               "paths before model I/O");
+
+  invalid = {};
+  invalid.load_sm87_target_aot_projection_bundle = "/workspace/assets.aot";
+  invalid.expected_sm87_target_aot_projection_payload_catalog_sha256 =
+      std::string(64U, 'A');
+  expect_invalid_configuration(
+      invalid, "target-AOT rejects a non-lowercase external trust root before "
+               "model I/O");
+
+  invalid.expected_sm87_target_aot_projection_payload_catalog_sha256 =
+      std::string(64U, '0');
+  expect_invalid_configuration(
+      invalid, "target-AOT rejects an all-zero external trust root before "
+               "model I/O");
+
+  const auto expect_valid_mode_then_incompatible_engine =
+      [&test](runtime::ReferenceEngineOptions options,
+              const char* const label) {
+        const runtime::ReferenceEngineCreateResult invalid =
+            runtime::create_reference_engine("/path/must/not/be/read",
+                                             options);
+        test.expect(!invalid &&
+                        invalid.diagnostic.code ==
+                            runtime::ReferenceEngineError::kInvalidArgument &&
+                        invalid.diagnostic.stage ==
+                            "target_aot_projection_device_assets" &&
+                        invalid.diagnostic.message.find(
+                            "asset admission requires") != std::string::npos,
+                    label);
+      };
+  runtime::ReferenceEngineOptions valid_create;
+  valid_create.prepare_sm87_target_aot_projection_device_assets = true;
+  valid_create.create_sm87_target_aot_projection_bundle =
+      "/workspace/create.aot";
+  valid_create.expected_sm87_target_aot_projection_payload_catalog_sha256 =
+      std::string(kCatalog);
+  expect_valid_mode_then_incompatible_engine(
+      valid_create, "offline-create mode passes source classification before "
+                    "engine compatibility validation");
+
+  runtime::ReferenceEngineOptions valid_load;
+  valid_load.load_sm87_target_aot_projection_bundle =
+      "/workspace/load.aot";
+  valid_load.expected_sm87_target_aot_projection_payload_catalog_sha256 =
+      std::string(kCatalog);
+  expect_valid_mode_then_incompatible_engine(
+      valid_load, "direct-load mode passes source classification before "
+                  "engine compatibility validation");
+#endif
 
   runtime::ReferenceEngineOptions requested;
   requested.prepare_sm87_target_aot_projection_device_assets = true;
