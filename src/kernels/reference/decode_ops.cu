@@ -1,5 +1,7 @@
 #include "q3x/runtime/decode_ops.h"
 
+#include "../sm87/sm87_target_aot_attention_preprocess_launch_internal.h"
+
 #include <cooperative_groups.h>
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
@@ -3331,6 +3333,45 @@ int launch_full_attention_preprocess_24_4_256_64_prompt_wide_p8000_cuda(
   return static_cast<int>(cudaErrorNotSupported);
 #endif
 }
+
+namespace sm87_target_aot_attention_preprocess_execution_detail {
+
+int launch_p8000(
+    const std::uint16_t* const interleaved_q_gate,
+    std::uint16_t* const key,
+    const std::uint16_t* const q_weight,
+    const std::uint16_t* const k_weight,
+    const float epsilon,
+    std::uint16_t* const query_output,
+    std::uint16_t* const gate_output,
+    const float* const cosines,
+    const float* const sines,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    void* const cuda_stream) noexcept {
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+  return launch_full_attention_preprocess_24_4_256_64_impl(
+      interleaved_q_gate, key, q_weight, k_weight, epsilon, query_output,
+      gate_output, cosines, sines, first_position, token_count,
+      FullAttentionPreprocessLaunchPolicy::kPromptWideP8000, cuda_stream);
+#else
+  (void)interleaved_q_gate;
+  (void)key;
+  (void)q_weight;
+  (void)k_weight;
+  (void)epsilon;
+  (void)query_output;
+  (void)gate_output;
+  (void)cosines;
+  (void)sines;
+  (void)first_position;
+  (void)token_count;
+  (void)cuda_stream;
+  return static_cast<int>(cudaErrorNotSupported);
+#endif
+}
+
+}  // namespace sm87_target_aot_attention_preprocess_execution_detail
 
 int launch_full_attention_preprocess_24_4_256_64_cuda(
     const std::uint16_t* const interleaved_q_gate,

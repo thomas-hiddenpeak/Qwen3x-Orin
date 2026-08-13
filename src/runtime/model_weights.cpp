@@ -6,6 +6,9 @@
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
 #include "sm87_target_aot_projection_execution_access_internal.h"
 #endif
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION)
+#include "sm87_target_aot_projection_complete_execution_access_internal.h"
+#endif
 
 #include <cuda_runtime.h>
 
@@ -667,6 +670,274 @@ bool ModelWeights::attach_sm87_target_aot_projection_assets(
   owner.attached_model_weights_ = this;
   return true;
 }
+
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION)
+namespace target_aot_complete_execution_detail {
+namespace {
+
+using Role = kernels::Sm87TargetAotProjectionRole;
+using Encoding = kernels::Sm87TargetAotProjectionEncoding;
+using Descriptor = Sm87TargetAotCompleteDeviceAssetDescriptor;
+using Owner = Sm87TargetAotCompleteProjectionDeviceAssets;
+
+[[nodiscard]] constexpr std::array<Role, 4U> layer_roles(
+    const std::size_t layer_index) noexcept {
+  return {{Role::kNvFp4GateUp, Role::kNvFp4Down,
+           sm87_target_aot_complete_is_full_layer(layer_index)
+               ? Role::kFp8FullQkv
+               : Role::kFp8GdnQkvZ,
+           Role::kFp8AttentionOutput}};
+}
+
+}  // namespace
+
+bool Sm87TargetAotCompleteProjectionExecutionAccess::attachment_matches(
+    const ModelWeights* const model_weights, const Owner* const owner,
+    const std::uint64_t owner_identity,
+    const std::uint64_t allocation_identity,
+    const std::uintptr_t arena_begin, const std::uint64_t arena_bytes,
+    const std::int32_t device_ordinal) noexcept {
+  if (model_weights == nullptr || owner == nullptr || owner_identity == 0U ||
+      allocation_identity == 0U || arena_begin == 0U ||
+      arena_bytes != kSm87TargetAotCompleteProjectionDeviceArenaBytes ||
+      device_ordinal < 0 ||
+      arena_bytes > std::numeric_limits<std::uintptr_t>::max() - arena_begin ||
+      owner->arena_ == nullptr ||
+      reinterpret_cast<std::uintptr_t>(owner->arena_) != arena_begin ||
+      owner->bytes_ != arena_bytes || owner->owner_identity_ != owner_identity ||
+      owner->allocation_identity_ != allocation_identity ||
+      owner->device_ordinal_ != device_ordinal ||
+      owner->descriptor_count_ !=
+          kSm87TargetAotCompleteProjectionDeviceArtifactCount ||
+      owner->prepared_resident_ == nullptr ||
+      owner->prepared_model_weights_ != model_weights ||
+      !owner->execution_bound_ ||
+      model_weights->target_aot_projection_attachment_.owner != nullptr) {
+    return false;
+  }
+  const auto& attachment =
+      model_weights->target_aot_complete_projection_attachment_;
+  return attachment.owner == owner &&
+         attachment.owner_identity == owner_identity &&
+         attachment.allocation_identity == allocation_identity &&
+         attachment.arena_begin == arena_begin &&
+         attachment.arena_bytes == arena_bytes &&
+         attachment.device_ordinal == device_ordinal &&
+         attachment.artifact_count ==
+             kSm87TargetAotCompleteProjectionDeviceArtifactCount;
+}
+
+bool Sm87TargetAotCompleteProjectionExecutionAccess::descriptor_matches(
+    const Owner& owner, const Descriptor& descriptor,
+    const std::size_t layer_index, const Role role,
+    const std::uint64_t expected_offset) noexcept {
+  const std::size_t index =
+      sm87_target_aot_complete_descriptor_ordinal(layer_index, role);
+  const auto layout = kernels::sm87_target_aot_projection_packed_layout(role);
+  const std::uintptr_t arena_begin =
+      reinterpret_cast<std::uintptr_t>(owner.arena_);
+  if (index >= owner.descriptors_.size() ||
+      index >= owner.descriptor_count_ ||
+      &descriptor != &owner.descriptors_[index] || !layout.valid() ||
+      expected_offset !=
+          sm87_target_aot_complete_expected_arena_offset(layer_index, role) ||
+      descriptor.encoding != layout.encoding ||
+      descriptor.manifest.artifact_identity == 0U ||
+      descriptor.source_inventory.identity == 0U ||
+      descriptor.source_inventory.source_count != layout.partition_count ||
+      !sm87_target_aot_complete_device_descriptor_valid(
+          descriptor, layer_index, role, expected_offset, arena_begin,
+          owner.bytes_, owner.owner_identity_, owner.allocation_identity_,
+          owner.device_ordinal_)) {
+    return false;
+  }
+
+  if (sm87_target_aot_complete_role_is_nvfp4(role)) {
+    return descriptor.encoding ==
+               Encoding::kNvFp4E2M1Block16E4M3FnScale &&
+           descriptor.nvfp4_upload_receipt.receipt_identity != 0U &&
+           descriptor.nvfp4_upload_receipt.receipt_identity ==
+               descriptor.nvfp4_view.device_upload_receipt.receipt_identity &&
+           descriptor.nvfp4_view.payload.begin ==
+               arena_begin + static_cast<std::uintptr_t>(expected_offset);
+  }
+  if (sm87_target_aot_complete_role_is_fp8(role)) {
+    return descriptor.encoding == Encoding::kFp8E4M3FnTensorScale &&
+           descriptor.fp8_upload_receipt.receipt_identity != 0U &&
+           descriptor.fp8_upload_receipt.receipt_identity ==
+               descriptor.fp8_view.device_upload_receipt.receipt_identity &&
+           descriptor.fp8_view.payload.begin ==
+               arena_begin + static_cast<std::uintptr_t>(expected_offset);
+  }
+  return false;
+}
+
+std::optional<Sm87TargetAotCompleteProjectionExecutionAccess>
+Sm87TargetAotCompleteProjectionExecutionAccess::bind(
+    const ModelWeights& model_weights) noexcept {
+  const auto& attachment =
+      model_weights.target_aot_complete_projection_attachment_;
+  const Owner* const owner = attachment.owner;
+  if (!attachment_matches(
+          &model_weights, owner, attachment.owner_identity,
+          attachment.allocation_identity, attachment.arena_begin,
+          attachment.arena_bytes, attachment.device_ordinal)) {
+    return std::nullopt;
+  }
+
+  std::array<const Descriptor*,
+             kSm87TargetAotCompleteProjectionDeviceArtifactCount>
+      descriptors{};
+  std::array<std::uint64_t,
+             kSm87TargetAotCompleteProjectionDeviceArtifactCount>
+      artifact_identities{};
+  std::array<std::uint64_t,
+             kSm87TargetAotCompleteProjectionDeviceArtifactCount>
+      inventory_identities{};
+  std::array<std::uint64_t,
+             kSm87TargetAotCompleteProjectionDeviceSourceCount>
+      source_identities{};
+  std::size_t artifact_count = 0U;
+  std::size_t source_count = 0U;
+  std::uint64_t expected_offset = 0U;
+  for (std::size_t layer_index = 0U;
+       layer_index < kSm87TargetAotCompleteProjectionDeviceLayerCount;
+       ++layer_index) {
+    for (const Role role : layer_roles(layer_index)) {
+      const std::size_t index =
+          sm87_target_aot_complete_descriptor_ordinal(layer_index, role);
+      if (index != artifact_count || index >= descriptors.size()) {
+        return std::nullopt;
+      }
+      const Descriptor* const descriptor = &owner->descriptors_[index];
+      if (!descriptor_matches(*owner, *descriptor, layer_index, role,
+                              expected_offset) ||
+          std::find(artifact_identities.begin(),
+                    artifact_identities.begin() + artifact_count,
+                    descriptor->manifest.artifact_identity) !=
+              artifact_identities.begin() + artifact_count ||
+          std::find(inventory_identities.begin(),
+                    inventory_identities.begin() + artifact_count,
+                    descriptor->source_inventory.identity) !=
+              inventory_identities.begin() + artifact_count) {
+        return std::nullopt;
+      }
+      for (std::size_t source_index = 0U;
+           source_index < descriptor->source_inventory.source_count;
+           ++source_index) {
+        const std::uint64_t identity =
+            descriptor->source_inventory.sources[source_index]
+                .tensor_identity;
+        if (identity == 0U || source_count >= source_identities.size() ||
+            std::find(source_identities.begin(),
+                      source_identities.begin() + source_count,
+                      identity) != source_identities.begin() + source_count) {
+          return std::nullopt;
+        }
+        source_identities[source_count++] = identity;
+      }
+      descriptors[index] = descriptor;
+      artifact_identities[artifact_count] =
+          descriptor->manifest.artifact_identity;
+      inventory_identities[artifact_count] =
+          descriptor->source_inventory.identity;
+      ++artifact_count;
+      expected_offset += descriptor->manifest.payload_bytes;
+    }
+  }
+  if (artifact_count != descriptors.size() ||
+      source_count != source_identities.size() ||
+      expected_offset != attachment.arena_bytes) {
+    return std::nullopt;
+  }
+  return Sm87TargetAotCompleteProjectionExecutionAccess(
+      &model_weights, owner, attachment.owner_identity,
+      attachment.allocation_identity, attachment.arena_begin,
+      attachment.arena_bytes, attachment.device_ordinal, descriptors);
+}
+
+bool Sm87TargetAotCompleteProjectionExecutionAccess::attached()
+    const noexcept {
+  return attachment_matches(model_weights_, owner_, owner_identity_,
+                            allocation_identity_, arena_begin_, arena_bytes_,
+                            device_ordinal_);
+}
+
+std::optional<Sm87TargetAotCompleteProjectionExecutionAsset>
+Sm87TargetAotCompleteProjectionExecutionAccess::resolve(
+    const std::size_t layer_index, const Role role) const noexcept {
+  const std::size_t index =
+      sm87_target_aot_complete_descriptor_ordinal(layer_index, role);
+  if (index >= descriptors_.size() || !attached()) {
+    return std::nullopt;
+  }
+  const Descriptor* const descriptor = descriptors_[index];
+  const std::uint64_t expected_offset =
+      sm87_target_aot_complete_expected_arena_offset(layer_index, role);
+  if (descriptor == nullptr ||
+      !descriptor_matches(*owner_, *descriptor, layer_index, role,
+                          expected_offset)) {
+    return std::nullopt;
+  }
+  return Sm87TargetAotCompleteProjectionExecutionAsset(
+      model_weights_, owner_, descriptor, owner_identity_,
+      allocation_identity_, arena_begin_, arena_bytes_, device_ordinal_,
+      layer_index, role, descriptor->encoding,
+      descriptor->manifest.artifact_identity,
+      descriptor->source_inventory.identity,
+      descriptor->manifest.payload_bytes);
+}
+
+const kernels::Sm87TargetAotNvFp4CudaAssetView*
+Sm87TargetAotCompleteProjectionExecutionAsset::borrow_nvfp4_cuda_asset()
+    const noexcept {
+  if (!sm87_target_aot_complete_role_is_nvfp4(role_) ||
+      encoding_ != Encoding::kNvFp4E2M1Block16E4M3FnScale ||
+      !Sm87TargetAotCompleteProjectionExecutionAccess::attachment_matches(
+          model_weights_, owner_, owner_identity_, allocation_identity_,
+          arena_begin_, arena_bytes_, device_ordinal_)) {
+    return nullptr;
+  }
+  const std::uint64_t expected_offset =
+      sm87_target_aot_complete_expected_arena_offset(layer_index_, role_);
+  if (descriptor_ == nullptr ||
+      !Sm87TargetAotCompleteProjectionExecutionAccess::descriptor_matches(
+          *owner_, *descriptor_, layer_index_, role_, expected_offset) ||
+      descriptor_->encoding != encoding_ ||
+      descriptor_->manifest.artifact_identity != artifact_identity_ ||
+      descriptor_->source_inventory.identity != source_inventory_identity_ ||
+      descriptor_->manifest.payload_bytes != payload_bytes_) {
+    return nullptr;
+  }
+  return &descriptor_->nvfp4_view;
+}
+
+const kernels::Sm87TargetAotFp8CudaAssetView*
+Sm87TargetAotCompleteProjectionExecutionAsset::borrow_fp8_cuda_asset()
+    const noexcept {
+  if (!sm87_target_aot_complete_role_is_fp8(role_) ||
+      encoding_ != Encoding::kFp8E4M3FnTensorScale ||
+      !Sm87TargetAotCompleteProjectionExecutionAccess::attachment_matches(
+          model_weights_, owner_, owner_identity_, allocation_identity_,
+          arena_begin_, arena_bytes_, device_ordinal_)) {
+    return nullptr;
+  }
+  const std::uint64_t expected_offset =
+      sm87_target_aot_complete_expected_arena_offset(layer_index_, role_);
+  if (descriptor_ == nullptr ||
+      !Sm87TargetAotCompleteProjectionExecutionAccess::descriptor_matches(
+          *owner_, *descriptor_, layer_index_, role_, expected_offset) ||
+      descriptor_->encoding != encoding_ ||
+      descriptor_->manifest.artifact_identity != artifact_identity_ ||
+      descriptor_->source_inventory.identity != source_inventory_identity_ ||
+      descriptor_->manifest.payload_bytes != payload_bytes_) {
+    return nullptr;
+  }
+  return &descriptor_->fp8_view;
+}
+
+}  // namespace target_aot_complete_execution_detail
+#endif
 
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
 namespace target_aot_execution_detail {

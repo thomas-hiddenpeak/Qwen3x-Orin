@@ -118,6 +118,10 @@ option(Q3X_BUILD_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION
   "Build the test-only exact-P40000 target-AOT request-state owner"
   OFF
 )
+option(Q3X_BUILD_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION
+  "Build the test-only complete-owner exact-P40000 target-AOT execution chain"
+  OFF
+)
 option(Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION
   "Build the test-only real-weight layer-0 M192 numerical/resource oracle for the private target-AOT NVFP4 kernels"
   OFF
@@ -342,6 +346,22 @@ if(Q3X_BUILD_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION AND
    NOT Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION)
   message(FATAL_ERROR
     "Q3X_BUILD_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION requires the complete host-only SM87 AOT system contract"
+  )
+endif()
+if(Q3X_BUILD_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION AND
+   (NOT Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION OR
+    NOT Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION OR
+    NOT Q3X_BUILD_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION OR
+    NOT Q3X_BUILD_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION OR
+    NOT Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION))
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION requires the host AOT contract, authenticated complete projection owner, exact P40000 request owner, and BF16 A/B execution inventory"
   )
 endif()
 if(Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION AND
@@ -711,6 +731,14 @@ if(Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION)
     Q3X_ENABLE_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/sm87_target_aot_gdn.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/fp8_marlin_w8a16.cu
@@ -757,6 +785,14 @@ add_library(q3x_engine STATIC
   src/runtime/reference_engine_control.cpp
   src/runtime/reference_engine_prefill_authority.cpp
 )
+if(Q3X_BUILD_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+  target_sources(q3x_engine PRIVATE
+    src/runtime/sm87_target_aot_p40_executor_internal.cpp
+  )
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION=1
+  )
+endif()
 add_library(q3x::engine ALIAS q3x_engine)
 set_target_properties(q3x_engine PROPERTIES
   EXPORT_NAME engine
@@ -2731,6 +2767,43 @@ if(BUILD_TESTING)
   )
   set_tests_properties(sm87_target_aot_request_state_plan PROPERTIES
     LABELS "host;sm87;prefill;target_aot;request_state;memory_plan;default_off"
+  )
+
+  add_executable(q3x_sm87_target_aot_gdn_cuda_host_test
+    tests/sm87_target_aot_gdn_cuda_host_test.cpp
+  )
+  target_link_libraries(q3x_sm87_target_aot_gdn_cuda_host_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(q3x_sm87_target_aot_gdn_cuda_host_test)
+  add_test(NAME sm87_target_aot_gdn_cuda_host
+    COMMAND q3x_sm87_target_aot_gdn_cuda_host_test
+  )
+  set_tests_properties(sm87_target_aot_gdn_cuda_host PROPERTIES
+    LABELS "host;sm87;prefill;target_aot;gdn;cuda_contract;default_off"
+  )
+
+  add_executable(q3x_sm87_target_aot_p40_executor_contract_test
+    tests/sm87_target_aot_p40_executor_contract_test.cpp
+  )
+  target_link_libraries(q3x_sm87_target_aot_p40_executor_contract_test
+    PRIVATE q3x::engine
+  )
+  if(Q3X_BUILD_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+    target_compile_definitions(
+      q3x_sm87_target_aot_p40_executor_contract_test PRIVATE
+      Q3X_EXPECT_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION=1
+      Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION=1
+      Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION=1
+      Q3X_ENABLE_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION=1
+    )
+  endif()
+  q3x_enable_warnings(q3x_sm87_target_aot_p40_executor_contract_test)
+  add_test(NAME sm87_target_aot_p40_executor_contract
+    COMMAND q3x_sm87_target_aot_p40_executor_contract_test
+  )
+  set_tests_properties(sm87_target_aot_p40_executor_contract PROPERTIES
+    LABELS "host;sm87;prefill;target_aot;executor;contract;default_off"
   )
 
   if(Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION)

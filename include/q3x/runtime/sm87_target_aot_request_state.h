@@ -12,7 +12,8 @@ namespace q3x::runtime {
 // surface is intentionally unrelated to RequestState: it has no legacy
 // profile, raw-arena accessor, caller-supplied address, or caller-supplied
 // identity.  The only executable view is declared in an engine-internal
-// header and is derived by this owner from its one allocation.
+// header and is derived by this owner from its one allocation and one
+// nonblocking execution stream.
 inline constexpr std::size_t kSm87TargetAotP40PromptTokens = 40'000U;
 inline constexpr std::size_t kSm87TargetAotP40RequestCapacityTokens = 40'001U;
 inline constexpr std::size_t kSm87TargetAotP40LayerCount = 64U;
@@ -41,6 +42,8 @@ inline constexpr std::size_t kSm87TargetAotP40GlobalEventCount = 7U;
 inline constexpr std::size_t kSm87TargetAotP40OwnedEventCount =
     kSm87TargetAotP40LayerCount * kSm87TargetAotP40LayerEventCount +
     kSm87TargetAotP40GlobalEventCount;
+inline constexpr std::size_t kSm87TargetAotCancellationSignalBytes =
+    sizeof(std::uint32_t);
 
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION)
 inline constexpr bool kSm87TargetAotRequestStateV1AdmissionCompiled = true;
@@ -252,6 +255,8 @@ enum class Sm87TargetAotRequestStateError : std::uint8_t {
   kPlanInvalid,
   kInsufficientDeviceMemory,
   kAllocationFailure,
+  kStreamCreationFailure,
+  kCancellationControlFailure,
   kEventCreationFailure,
   kInitializationFailure,
   kOwnerSnapshotInvalid,
@@ -311,8 +316,10 @@ struct Sm87TargetAotRequestStateResult {
 
 // Default-off and fixed-shape. The caller supplies neither memory nor an
 // identity namespace. When admission is compiled this function owns the one
-// 5,075,652,608-byte allocation and all CUDA events; otherwise it fails before
-// querying or mutating the GPU.
+// 5,075,652,608-byte allocation, one nonblocking CUDA stream, one mapped
+// owner-controlled cancellation word, and all CUDA events; otherwise it fails
+// before querying or mutating the GPU. The cancellation word is control state,
+// not a second device arena allocation.
 [[nodiscard]] const char* to_string(
     Sm87TargetAotRequestStateError error) noexcept;
 

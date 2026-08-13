@@ -18,6 +18,11 @@ namespace {
 
 using sm87_target_aot_request_detail::BoundEvent;
 using sm87_target_aot_request_detail::BoundSpan;
+using sm87_target_aot_request_detail::ExecutionTransactionError;
+using sm87_target_aot_request_detail::ExecutionTransactionLedger;
+using sm87_target_aot_request_detail::ExecutionTransactionStatus;
+using sm87_target_aot_request_detail::GlobalCompletionPoint;
+using sm87_target_aot_request_detail::LayerCompletionPoint;
 using sm87_target_aot_request_detail::OwnerSnapshot;
 
 constexpr std::uint64_t kBf16Bytes = 2U;
@@ -48,6 +53,192 @@ std::atomic<std::uint64_t> g_next_owner_identity{1U};
              g_next_owner_identity.fetch_add(1U, std::memory_order_relaxed) :
              result;
 }
+
+[[nodiscard]] constexpr ExecutionTransactionStatus transaction_ok() noexcept {
+  return {};
+}
+
+[[nodiscard]] constexpr ExecutionTransactionStatus transaction_error(
+    const ExecutionTransactionError code, const char* const context,
+    const int cuda_error = 0) noexcept {
+  return {code, context, cuda_error};
+}
+
+[[nodiscard]] ExecutionTransactionStatus validate_begin_transition(
+    const ExecutionTransactionLedger& ledger) noexcept {
+  if (ledger.phase !=
+          Sm87TargetAotRequestTransactionPhase::kAdmittedUnpublished ||
+      ledger.transaction_epoch == 0U || ledger.next_layer != 0U ||
+      ledger.next_layer_completion != 0U ||
+      ledger.next_global_completion != 0U || ledger.final_event_recorded) {
+    return transaction_error(ExecutionTransactionError::kInvalidTransition,
+                             "begin_requires_admitted_owner");
+  }
+  return transaction_ok();
+}
+
+void observe_begin_transition(ExecutionTransactionLedger& ledger) noexcept {
+  ledger.phase =
+      Sm87TargetAotRequestTransactionPhase::kPrefillActiveUnpublished;
+}
+
+[[nodiscard]] ExecutionTransactionStatus validate_epoch(
+    const ExecutionTransactionLedger& ledger,
+    const std::uint64_t transaction_epoch) noexcept {
+  if (transaction_epoch == 0U ||
+      transaction_epoch != ledger.transaction_epoch) {
+    return transaction_error(ExecutionTransactionError::kTransactionMismatch,
+                             "owner_transaction_epoch_mismatch");
+  }
+  return transaction_ok();
+}
+
+[[nodiscard]] ExecutionTransactionStatus validate_layer_transition(
+    const ExecutionTransactionLedger& ledger,
+    const std::uint64_t transaction_epoch, const std::size_t layer,
+    const LayerCompletionPoint point) noexcept {
+  const ExecutionTransactionStatus epoch =
+      validate_epoch(ledger, transaction_epoch);
+  if (!epoch) {
+    return epoch;
+  }
+  if (ledger.phase !=
+      Sm87TargetAotRequestTransactionPhase::kPrefillActiveUnpublished) {
+    return transaction_error(ExecutionTransactionError::kInvalidTransition,
+                             "layer_completion_requires_active_prefill");
+  }
+  const std::size_t point_index = static_cast<std::size_t>(point);
+  if (layer >= kSm87TargetAotP40LayerCount ||
+      point_index >= kSm87TargetAotP40LayerEventCount ||
+      ledger.next_global_completion !=
+          static_cast<std::size_t>(
+              GlobalCompletionPoint::kAllLayersComplete) ||
+      ledger.next_layer != layer ||
+      ledger.next_layer_completion != point_index) {
+    return transaction_error(ExecutionTransactionError::kCompletionOutOfOrder,
+                             "layer_completion_out_of_order");
+  }
+  return transaction_ok();
+}
+
+void observe_layer_completion(ExecutionTransactionLedger& ledger) noexcept {
+  ++ledger.next_layer_completion;
+  if (ledger.next_layer_completion == kSm87TargetAotP40LayerEventCount) {
+    ledger.next_layer_completion = 0U;
+    ++ledger.next_layer;
+  }
+}
+
+[[nodiscard]] ExecutionTransactionStatus validate_global_transition(
+    const ExecutionTransactionLedger& ledger,
+    const std::uint64_t transaction_epoch,
+    const GlobalCompletionPoint point) noexcept {
+  const ExecutionTransactionStatus epoch =
+      validate_epoch(ledger, transaction_epoch);
+  if (!epoch) {
+    return epoch;
+  }
+  if (ledger.phase !=
+      Sm87TargetAotRequestTransactionPhase::kPrefillActiveUnpublished) {
+    return transaction_error(ExecutionTransactionError::kInvalidTransition,
+                             "global_completion_requires_active_prefill");
+  }
+  const std::size_t point_index = static_cast<std::size_t>(point);
+  const std::size_t all_layers_index = static_cast<std::size_t>(
+      GlobalCompletionPoint::kAllLayersComplete);
+  const std::size_t commit_index =
+      static_cast<std::size_t>(GlobalCompletionPoint::kRequestCommit);
+  if (point_index >= kSm87TargetAotP40GlobalEventCount ||
+      point_index == commit_index ||
+      point_index != ledger.next_global_completion) {
+    return transaction_error(ExecutionTransactionError::kCompletionOutOfOrder,
+                             "global_completion_out_of_order");
+  }
+  if (point_index < all_layers_index) {
+    if (ledger.next_layer != 0U || ledger.next_layer_completion != 0U) {
+      return transaction_error(
+          ExecutionTransactionError::kCompletionOutOfOrder,
+          "global_prefix_completion_after_layer_execution");
+    }
+  } else if (ledger.next_layer != kSm87TargetAotP40LayerCount ||
+             ledger.next_layer_completion != 0U) {
+    return transaction_error(ExecutionTransactionError::kCompletionIncomplete,
+                             "global_suffix_requires_all_layers");
+  }
+  return transaction_ok();
+}
+
+void observe_global_completion(ExecutionTransactionLedger& ledger) noexcept {
+  ++ledger.next_global_completion;
+}
+
+[[nodiscard]] ExecutionTransactionStatus validate_commit_transition(
+    const ExecutionTransactionLedger& ledger,
+    const std::uint64_t transaction_epoch) noexcept {
+  const ExecutionTransactionStatus epoch =
+      validate_epoch(ledger, transaction_epoch);
+  if (!epoch) {
+    return epoch;
+  }
+  if (ledger.phase !=
+      Sm87TargetAotRequestTransactionPhase::kPrefillActiveUnpublished) {
+    return transaction_error(ExecutionTransactionError::kInvalidTransition,
+                             "commit_requires_active_prefill");
+  }
+  if (ledger.next_layer != kSm87TargetAotP40LayerCount ||
+      ledger.next_layer_completion != 0U ||
+      ledger.next_global_completion !=
+          static_cast<std::size_t>(GlobalCompletionPoint::kRequestCommit)) {
+    return transaction_error(ExecutionTransactionError::kCompletionIncomplete,
+                             "commit_requires_all_completion_events");
+  }
+  return transaction_ok();
+}
+
+void observe_commit_transition(ExecutionTransactionLedger& ledger) noexcept {
+  ledger.final_event_recorded = true;
+  ledger.phase = Sm87TargetAotRequestTransactionPhase::kCommitted;
+}
+
+[[nodiscard]] ExecutionTransactionStatus validate_cancel_transition(
+    const ExecutionTransactionLedger& ledger,
+    const std::uint64_t transaction_epoch) noexcept {
+  const ExecutionTransactionStatus epoch =
+      validate_epoch(ledger, transaction_epoch);
+  if (!epoch) {
+    return epoch;
+  }
+  if (ledger.phase !=
+          Sm87TargetAotRequestTransactionPhase::kAdmittedUnpublished &&
+      ledger.phase !=
+          Sm87TargetAotRequestTransactionPhase::kPrefillActiveUnpublished) {
+    return transaction_error(ExecutionTransactionError::kInvalidTransition,
+                             "cancel_requires_unpublished_owner");
+  }
+  return transaction_ok();
+}
+
+void observe_cancel_transition(ExecutionTransactionLedger& ledger) noexcept {
+  ledger.phase = Sm87TargetAotRequestTransactionPhase::kCancelled;
+}
+
+class NonConcurrentOperation final {
+ public:
+  explicit NonConcurrentOperation(std::atomic_flag& active) noexcept
+      : active_(&active),
+        acquired_(!active_->test_and_set(std::memory_order_acquire)) {}
+  ~NonConcurrentOperation() {
+    if (acquired_) {
+      active_->clear(std::memory_order_release);
+    }
+  }
+
+  [[nodiscard]] explicit operator bool() const noexcept { return acquired_; }
+
+ private:
+  std::atomic_flag* active_ = nullptr;
+  bool acquired_ = false;
+};
 
 [[nodiscard]] constexpr Sm87TargetAotRequestRegion region(
     const std::uint64_t offset, const std::uint64_t bytes,
@@ -491,11 +682,28 @@ bool validate_sm87_target_aot_p40_request_memory_plan(
 struct Sm87TargetAotP40RequestState::Impl final {
   Sm87TargetAotP40RequestMemoryPlan plan{};
   void* arena = nullptr;
+  cudaStream_t stream = nullptr;
+  std::uint64_t stream_identity = 0U;
+  std::uint32_t* cancellation_host = nullptr;
+  const std::uint32_t* cancellation_device = nullptr;
+  std::uint64_t cancellation_signal_identity = 0U;
   std::vector<cudaEvent_t> events;
   std::vector<PhysicalRangeIdentity> physical_ranges;
   OwnerSnapshot snapshot{};
+  ExecutionTransactionLedger execution{};
+  std::atomic_flag operation_active = ATOMIC_FLAG_INIT;
 
   ~Impl() {
+    if (cancellation_host != nullptr) {
+      // Wake any layer-long constituent before waiting for the owner stream.
+      // The unpublished transaction is discarded by lifetime teardown.
+      __atomic_store_n(cancellation_host, 1U, __ATOMIC_RELEASE);
+    }
+    if (stream != nullptr) {
+      // Cancellation and ordinary destruction both drain the one owner stream
+      // before any event or request memory can lose its lifetime.
+      (void)cudaStreamSynchronize(stream);
+    }
     for (const cudaEvent_t event : events) {
       if (event != nullptr) {
         (void)cudaEventDestroy(event);
@@ -503,6 +711,12 @@ struct Sm87TargetAotP40RequestState::Impl final {
     }
     if (arena != nullptr) {
       (void)cudaFree(arena);
+    }
+    if (stream != nullptr) {
+      (void)cudaStreamDestroy(stream);
+    }
+    if (cancellation_host != nullptr) {
+      (void)cudaFreeHost(cancellation_host);
     }
     (void)cudaGetLastError();
   }
@@ -586,6 +800,40 @@ create_sm87_target_aot_p40_request_state() noexcept {
                            static_cast<int>(status)};
       return result;
     }
+    status = cudaStreamCreateWithFlags(&impl->stream, cudaStreamNonBlocking);
+    if (status != cudaSuccess) {
+      result.diagnostic = {
+          Sm87TargetAotRequestStateError::kStreamCreationFailure,
+          "cudaStreamCreateWithFlags(target_aot_p40_request_state)",
+          static_cast<int>(status)};
+      return result;
+    }
+    impl->stream_identity = next_identity();
+    status = cudaHostAlloc(
+        reinterpret_cast<void**>(&impl->cancellation_host),
+        kSm87TargetAotCancellationSignalBytes,
+        cudaHostAllocMapped | cudaHostAllocPortable);
+    if (status != cudaSuccess) {
+      result.diagnostic = {
+          Sm87TargetAotRequestStateError::kCancellationControlFailure,
+          "cudaHostAlloc(target_aot_cancellation_signal)",
+          static_cast<int>(status)};
+      return result;
+    }
+    void* cancellation_device = nullptr;
+    status = cudaHostGetDevicePointer(
+        &cancellation_device, impl->cancellation_host, 0U);
+    if (status != cudaSuccess || cancellation_device == nullptr) {
+      result.diagnostic = {
+          Sm87TargetAotRequestStateError::kCancellationControlFailure,
+          "cudaHostGetDevicePointer(target_aot_cancellation_signal)",
+          static_cast<int>(status)};
+      return result;
+    }
+    impl->cancellation_device =
+        static_cast<const std::uint32_t*>(cancellation_device);
+    impl->cancellation_signal_identity = next_identity();
+    __atomic_store_n(impl->cancellation_host, 0U, __ATOMIC_RELEASE);
     impl->events.reserve(kSm87TargetAotP40OwnedEventCount);
     for (std::size_t index = 0U; index < kSm87TargetAotP40OwnedEventCount;
          ++index) {
@@ -600,13 +848,22 @@ create_sm87_target_aot_p40_request_state() noexcept {
       }
       impl->events.push_back(event);
     }
-    status = cudaMemset(impl->arena, 0,
-                        static_cast<std::size_t>(
-                            impl->plan.persistent_arena.byte_size));
+    status = cudaMemsetAsync(
+        impl->arena, 0,
+        static_cast<std::size_t>(impl->plan.persistent_arena.byte_size),
+        impl->stream);
     if (status != cudaSuccess) {
       result.diagnostic = {
           Sm87TargetAotRequestStateError::kInitializationFailure,
-          "cudaMemset(target_aot_p40_persistent_transaction)",
+          "cudaMemsetAsync(target_aot_p40_persistent_transaction)",
+          static_cast<int>(status)};
+      return result;
+    }
+    status = cudaStreamSynchronize(impl->stream);
+    if (status != cudaSuccess) {
+      result.diagnostic = {
+          Sm87TargetAotRequestStateError::kInitializationFailure,
+          "cudaStreamSynchronize(target_aot_p40_cold_reset)",
           static_cast<int>(status)};
       return result;
     }
@@ -643,6 +900,7 @@ create_sm87_target_aot_p40_request_state() noexcept {
     for (std::uint64_t* const entry : table_entries) {
       *entry = next_identity();
     }
+    snapshot.token_ids = impl->bind(impl->plan.token_ids.storage);
 
     std::size_t event_index = 0U;
     for (std::size_t layer = 0U; layer < snapshot.layers.size(); ++layer) {
@@ -717,6 +975,9 @@ create_sm87_target_aot_p40_request_state() noexcept {
     }
     snapshot.transaction_phase =
         Sm87TargetAotRequestTransactionPhase::kAdmittedUnpublished;
+    impl->execution.phase = snapshot.transaction_phase;
+    impl->execution.transaction_epoch =
+        snapshot.epochs.request_transaction_epoch;
     snapshot.engine_rope_is_external =
         !impl->plan.engine_rope.included_in_request_arena;
     snapshot.all_kv_in_place_aliases_verified = true;
@@ -762,6 +1023,10 @@ const char* to_string(const Sm87TargetAotRequestStateError error) noexcept {
       return "insufficient_device_memory";
     case Sm87TargetAotRequestStateError::kAllocationFailure:
       return "allocation_failure";
+    case Sm87TargetAotRequestStateError::kStreamCreationFailure:
+      return "stream_creation_failure";
+    case Sm87TargetAotRequestStateError::kCancellationControlFailure:
+      return "cancellation_control_failure";
     case Sm87TargetAotRequestStateError::kEventCreationFailure:
       return "event_creation_failure";
     case Sm87TargetAotRequestStateError::kInitializationFailure:
@@ -845,7 +1110,16 @@ bool validate_owner_snapshot(const OwnerSnapshot& snapshot) noexcept {
       !snapshot.all_kv_in_place_aliases_verified ||
       snapshot.transaction_phase ==
           Sm87TargetAotRequestTransactionPhase::kInvalid ||
+      !bound_span_valid(snapshot, snapshot.token_ids) ||
       !bound_span_valid(snapshot, snapshot.final_hidden)) {
+    return false;
+  }
+  const auto* const arena =
+      static_cast<std::uint8_t*>(snapshot.allocation_base);
+  if (snapshot.token_ids.device_data !=
+          arena + snapshot.plan->token_ids.storage.arena_offset ||
+      snapshot.token_ids.byte_size !=
+          snapshot.plan->token_ids.storage.byte_size) {
     return false;
   }
   std::size_t gdn_count = 0U;
@@ -949,6 +1223,402 @@ const OwnerSnapshot* Sm87TargetAotRequestStateAccess::snapshot(
   return owner.impl_ != nullptr && validate_owner_snapshot(owner.impl_->snapshot)
              ? &owner.impl_->snapshot
              : nullptr;
+}
+
+BeginExecutionResult Sm87TargetAotRequestStateAccess::begin(
+    Sm87TargetAotP40RequestState& owner) noexcept {
+  BeginExecutionResult result;
+#if !defined(Q3X_ENABLE_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION)
+  (void)owner;
+  result.status = transaction_error(
+      ExecutionTransactionError::kAdmissionDisabled,
+      "target_aot_request_state_admission_disabled");
+  return result;
+#else
+  if (owner.impl_ == nullptr) {
+    result.status = transaction_error(ExecutionTransactionError::kOwnerInvalid,
+                                      "null_request_state_owner");
+    return result;
+  }
+  auto& impl = *owner.impl_;
+  NonConcurrentOperation operation(impl.operation_active);
+  if (!operation) {
+    result.status = transaction_error(
+        ExecutionTransactionError::kConcurrentAccess,
+        "request_state_concurrent_begin");
+    return result;
+  }
+  if (impl.stream == nullptr || impl.stream_identity == 0U ||
+      impl.cancellation_host == nullptr ||
+      impl.cancellation_device == nullptr ||
+      impl.cancellation_signal_identity == 0U ||
+      impl.snapshot.transaction_phase != impl.execution.phase ||
+      !validate_owner_snapshot(impl.snapshot)) {
+    result.status = transaction_error(ExecutionTransactionError::kOwnerInvalid,
+                                      "request_state_owner_invalid_at_begin");
+    return result;
+  }
+  result.status = validate_begin_transition(impl.execution);
+  if (!result.status) {
+    return result;
+  }
+  __atomic_store_n(impl.cancellation_host, 0U, __ATOMIC_RELEASE);
+  observe_begin_transition(impl.execution);
+  impl.snapshot.transaction_phase = impl.execution.phase;
+  result.transaction = OwnerBoundExecutionTransaction(
+      &owner, static_cast<void*>(impl.stream), impl.stream_identity,
+      impl.snapshot.allocation_identity,
+      impl.cancellation_device, impl.cancellation_signal_identity,
+      impl.snapshot.epochs.admission_epoch,
+      impl.execution.transaction_epoch);
+  return result;
+#endif
+}
+
+ExecutionTransactionStatus
+Sm87TargetAotRequestStateAccess::record_layer_completion(
+    const OwnerBoundExecutionTransaction& transaction,
+    const std::size_t layer, const LayerCompletionPoint point) noexcept {
+#if !defined(Q3X_ENABLE_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION)
+  (void)transaction;
+  (void)layer;
+  (void)point;
+  return transaction_error(ExecutionTransactionError::kAdmissionDisabled,
+                           "target_aot_request_state_admission_disabled");
+#else
+  if (transaction.owner_ == nullptr || transaction.owner_->impl_ == nullptr) {
+    return transaction_error(ExecutionTransactionError::kOwnerInvalid,
+                             "null_layer_completion_owner");
+  }
+  auto& impl = *transaction.owner_->impl_;
+  NonConcurrentOperation operation(impl.operation_active);
+  if (!operation) {
+    return transaction_error(ExecutionTransactionError::kConcurrentAccess,
+                             "request_state_concurrent_layer_completion");
+  }
+  if (transaction.cuda_stream_ != static_cast<void*>(impl.stream) ||
+      transaction.stream_identity_ != impl.stream_identity ||
+      transaction.allocation_identity_ !=
+          impl.snapshot.allocation_identity ||
+      transaction.device_cancellation_signal_ !=
+          impl.cancellation_device ||
+      transaction.cancellation_signal_identity_ !=
+          impl.cancellation_signal_identity ||
+      transaction.admission_epoch_ != impl.snapshot.epochs.admission_epoch ||
+      transaction.transaction_epoch_ != impl.execution.transaction_epoch ||
+      impl.snapshot.transaction_phase != impl.execution.phase) {
+    return transaction_error(ExecutionTransactionError::kTransactionMismatch,
+                             "layer_completion_owner_binding_mismatch");
+  }
+  ExecutionTransactionStatus transition = validate_layer_transition(
+      impl.execution, transaction.transaction_epoch_, layer, point);
+  if (!transition) {
+    return transition;
+  }
+  const std::size_t event_index =
+      layer * kSm87TargetAotP40LayerEventCount +
+      static_cast<std::size_t>(point);
+  const cudaError_t status =
+      cudaEventRecord(impl.events[event_index], impl.stream);
+  if (status != cudaSuccess) {
+    return transaction_error(
+        ExecutionTransactionError::kCudaEventRecordFailure,
+        "cudaEventRecord(target_aot_layer_completion)",
+        static_cast<int>(status));
+  }
+  observe_layer_completion(impl.execution);
+  return transaction_ok();
+#endif
+}
+
+ExecutionTransactionStatus
+Sm87TargetAotRequestStateAccess::record_global_completion(
+    const OwnerBoundExecutionTransaction& transaction,
+    const GlobalCompletionPoint point) noexcept {
+#if !defined(Q3X_ENABLE_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION)
+  (void)transaction;
+  (void)point;
+  return transaction_error(ExecutionTransactionError::kAdmissionDisabled,
+                           "target_aot_request_state_admission_disabled");
+#else
+  if (transaction.owner_ == nullptr || transaction.owner_->impl_ == nullptr) {
+    return transaction_error(ExecutionTransactionError::kOwnerInvalid,
+                             "null_global_completion_owner");
+  }
+  auto& impl = *transaction.owner_->impl_;
+  NonConcurrentOperation operation(impl.operation_active);
+  if (!operation) {
+    return transaction_error(ExecutionTransactionError::kConcurrentAccess,
+                             "request_state_concurrent_global_completion");
+  }
+  if (transaction.cuda_stream_ != static_cast<void*>(impl.stream) ||
+      transaction.stream_identity_ != impl.stream_identity ||
+      transaction.allocation_identity_ !=
+          impl.snapshot.allocation_identity ||
+      transaction.device_cancellation_signal_ !=
+          impl.cancellation_device ||
+      transaction.cancellation_signal_identity_ !=
+          impl.cancellation_signal_identity ||
+      transaction.admission_epoch_ != impl.snapshot.epochs.admission_epoch ||
+      transaction.transaction_epoch_ != impl.execution.transaction_epoch ||
+      impl.snapshot.transaction_phase != impl.execution.phase) {
+    return transaction_error(ExecutionTransactionError::kTransactionMismatch,
+                             "global_completion_owner_binding_mismatch");
+  }
+  ExecutionTransactionStatus transition = validate_global_transition(
+      impl.execution, transaction.transaction_epoch_, point);
+  if (!transition) {
+    return transition;
+  }
+  const std::size_t event_index =
+      kSm87TargetAotP40LayerCount * kSm87TargetAotP40LayerEventCount +
+      static_cast<std::size_t>(point);
+  const cudaError_t status =
+      cudaEventRecord(impl.events[event_index], impl.stream);
+  if (status != cudaSuccess) {
+    return transaction_error(
+        ExecutionTransactionError::kCudaEventRecordFailure,
+        "cudaEventRecord(target_aot_global_completion)",
+        static_cast<int>(status));
+  }
+  observe_global_completion(impl.execution);
+  return transaction_ok();
+#endif
+}
+
+ExecutionTransactionStatus Sm87TargetAotRequestStateAccess::commit(
+    const OwnerBoundExecutionTransaction& transaction) noexcept {
+#if !defined(Q3X_ENABLE_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION)
+  (void)transaction;
+  return transaction_error(ExecutionTransactionError::kAdmissionDisabled,
+                           "target_aot_request_state_admission_disabled");
+#else
+  if (transaction.owner_ == nullptr || transaction.owner_->impl_ == nullptr) {
+    return transaction_error(ExecutionTransactionError::kOwnerInvalid,
+                             "null_commit_owner");
+  }
+  auto& impl = *transaction.owner_->impl_;
+  NonConcurrentOperation operation(impl.operation_active);
+  if (!operation) {
+    return transaction_error(ExecutionTransactionError::kConcurrentAccess,
+                             "request_state_concurrent_commit");
+  }
+  if (transaction.cuda_stream_ != static_cast<void*>(impl.stream) ||
+      transaction.stream_identity_ != impl.stream_identity ||
+      transaction.allocation_identity_ !=
+          impl.snapshot.allocation_identity ||
+      transaction.device_cancellation_signal_ !=
+          impl.cancellation_device ||
+      transaction.cancellation_signal_identity_ !=
+          impl.cancellation_signal_identity ||
+      transaction.admission_epoch_ != impl.snapshot.epochs.admission_epoch ||
+      transaction.transaction_epoch_ != impl.execution.transaction_epoch ||
+      impl.snapshot.transaction_phase != impl.execution.phase ||
+      !validate_owner_snapshot(impl.snapshot)) {
+    return transaction_error(ExecutionTransactionError::kTransactionMismatch,
+                             "commit_owner_binding_mismatch");
+  }
+  ExecutionTransactionStatus transition = validate_commit_transition(
+      impl.execution, transaction.transaction_epoch_);
+  if (!transition) {
+    return transition;
+  }
+  constexpr std::size_t kGlobalEventBase =
+      kSm87TargetAotP40LayerCount * kSm87TargetAotP40LayerEventCount;
+  constexpr std::size_t kPrerequisiteIndex =
+      static_cast<std::size_t>(GlobalCompletionPoint::kPersistentStateStaged);
+  constexpr std::size_t kCommitIndex =
+      static_cast<std::size_t>(GlobalCompletionPoint::kRequestCommit);
+  // The ledger proves every prescribed event was recorded in order on this
+  // owner stream.  Waiting for its terminal prerequisite therefore waits for
+  // the full transitive event chain before the commit receipt is issued.
+  cudaError_t status =
+      cudaEventSynchronize(impl.events[kGlobalEventBase + kPrerequisiteIndex]);
+  if (status != cudaSuccess) {
+    return transaction_error(
+        ExecutionTransactionError::kCudaEventSynchronizeFailure,
+        "cudaEventSynchronize(target_aot_required_completions)",
+        static_cast<int>(status));
+  }
+  if (!impl.execution.final_event_recorded) {
+    status = cudaEventRecord(impl.events[kGlobalEventBase + kCommitIndex],
+                             impl.stream);
+    if (status != cudaSuccess) {
+      return transaction_error(
+          ExecutionTransactionError::kCudaEventRecordFailure,
+          "cudaEventRecord(target_aot_request_commit)",
+          static_cast<int>(status));
+    }
+    impl.execution.final_event_recorded = true;
+  }
+  status = cudaEventSynchronize(impl.events[kGlobalEventBase + kCommitIndex]);
+  if (status != cudaSuccess) {
+    return transaction_error(
+        ExecutionTransactionError::kCudaEventSynchronizeFailure,
+        "cudaEventSynchronize(target_aot_request_commit)",
+        static_cast<int>(status));
+  }
+  observe_commit_transition(impl.execution);
+  impl.snapshot.transaction_phase = impl.execution.phase;
+  return transaction_ok();
+#endif
+}
+
+ExecutionTransactionStatus Sm87TargetAotRequestStateAccess::cancel(
+    const OwnerBoundExecutionTransaction& transaction) noexcept {
+#if !defined(Q3X_ENABLE_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION)
+  (void)transaction;
+  return transaction_error(ExecutionTransactionError::kAdmissionDisabled,
+                           "target_aot_request_state_admission_disabled");
+#else
+  if (transaction.owner_ == nullptr || transaction.owner_->impl_ == nullptr) {
+    return transaction_error(ExecutionTransactionError::kOwnerInvalid,
+                             "null_cancel_owner");
+  }
+  auto& impl = *transaction.owner_->impl_;
+  NonConcurrentOperation operation(impl.operation_active);
+  if (!operation) {
+    return transaction_error(ExecutionTransactionError::kConcurrentAccess,
+                             "request_state_concurrent_cancel");
+  }
+  if (transaction.cuda_stream_ != static_cast<void*>(impl.stream) ||
+      transaction.stream_identity_ != impl.stream_identity ||
+      transaction.allocation_identity_ !=
+          impl.snapshot.allocation_identity ||
+      transaction.device_cancellation_signal_ !=
+          impl.cancellation_device ||
+      transaction.cancellation_signal_identity_ !=
+          impl.cancellation_signal_identity ||
+      transaction.admission_epoch_ != impl.snapshot.epochs.admission_epoch ||
+      transaction.transaction_epoch_ != impl.execution.transaction_epoch ||
+      impl.snapshot.transaction_phase != impl.execution.phase) {
+    return transaction_error(ExecutionTransactionError::kTransactionMismatch,
+                             "cancel_owner_binding_mismatch");
+  }
+  ExecutionTransactionStatus transition = validate_cancel_transition(
+      impl.execution, transaction.transaction_epoch_);
+  if (!transition) {
+    return transition;
+  }
+  // Publish cancellation before draining the stream so a layer-long GDN
+  // constituent can stop at its next C16 safe point. Its outputs remain
+  // transaction-private and are never committed.
+  __atomic_store_n(impl.cancellation_host, 1U, __ATOMIC_RELEASE);
+  const cudaError_t status = cudaStreamSynchronize(impl.stream);
+  // Cancellation is terminal even when CUDA reports a drain failure: no
+  // subsequent call can publish partially completed request state.
+  observe_cancel_transition(impl.execution);
+  impl.snapshot.transaction_phase = impl.execution.phase;
+  if (status != cudaSuccess) {
+    return transaction_error(
+        ExecutionTransactionError::kCudaStreamSynchronizeFailure,
+        "cudaStreamSynchronize(target_aot_request_cancel)",
+        static_cast<int>(status));
+  }
+  return transaction_ok();
+#endif
+}
+
+ExecutionTransactionStatus Sm87TargetAotRequestStateAccess::cancel_admitted(
+    Sm87TargetAotP40RequestState& owner) noexcept {
+#if !defined(Q3X_ENABLE_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION)
+  (void)owner;
+  return transaction_error(ExecutionTransactionError::kAdmissionDisabled,
+                           "target_aot_request_state_admission_disabled");
+#else
+  if (owner.impl_ == nullptr) {
+    return transaction_error(ExecutionTransactionError::kOwnerInvalid,
+                             "null_admitted_cancel_owner");
+  }
+  auto& impl = *owner.impl_;
+  NonConcurrentOperation operation(impl.operation_active);
+  if (!operation) {
+    return transaction_error(ExecutionTransactionError::kConcurrentAccess,
+                             "request_state_concurrent_admitted_cancel");
+  }
+  ExecutionTransactionStatus transition = validate_cancel_transition(
+      impl.execution, impl.execution.transaction_epoch);
+  if (!transition || impl.execution.phase !=
+                         Sm87TargetAotRequestTransactionPhase::
+                             kAdmittedUnpublished) {
+    return transition ? transaction_error(
+                            ExecutionTransactionError::kInvalidTransition,
+                            "cancel_admitted_rejects_active_owner") :
+                        transition;
+  }
+  __atomic_store_n(impl.cancellation_host, 1U, __ATOMIC_RELEASE);
+  const cudaError_t status = cudaStreamSynchronize(impl.stream);
+  observe_cancel_transition(impl.execution);
+  impl.snapshot.transaction_phase = impl.execution.phase;
+  if (status != cudaSuccess) {
+    return transaction_error(
+        ExecutionTransactionError::kCudaStreamSynchronizeFailure,
+        "cudaStreamSynchronize(target_aot_admitted_cancel)",
+        static_cast<int>(status));
+  }
+  return transaction_ok();
+#endif
+}
+
+HostExecutionTransactionFixture Sm87TargetAotRequestStateAccess::host_fixture(
+    const std::uint64_t transaction_epoch) noexcept {
+  HostExecutionTransactionFixture fixture;
+  fixture.ledger_.transaction_epoch = transaction_epoch;
+  return fixture;
+}
+
+ExecutionTransactionStatus Sm87TargetAotRequestStateAccess::host_begin(
+    HostExecutionTransactionFixture& fixture) noexcept {
+  const ExecutionTransactionStatus transition =
+      validate_begin_transition(fixture.ledger_);
+  if (transition) {
+    observe_begin_transition(fixture.ledger_);
+  }
+  return transition;
+}
+
+ExecutionTransactionStatus Sm87TargetAotRequestStateAccess::host_record_layer(
+    HostExecutionTransactionFixture& fixture, const std::uint64_t epoch,
+    const std::size_t layer, const LayerCompletionPoint point) noexcept {
+  const ExecutionTransactionStatus transition =
+      validate_layer_transition(fixture.ledger_, epoch, layer, point);
+  if (transition) {
+    observe_layer_completion(fixture.ledger_);
+  }
+  return transition;
+}
+
+ExecutionTransactionStatus Sm87TargetAotRequestStateAccess::host_record_global(
+    HostExecutionTransactionFixture& fixture, const std::uint64_t epoch,
+    const GlobalCompletionPoint point) noexcept {
+  const ExecutionTransactionStatus transition =
+      validate_global_transition(fixture.ledger_, epoch, point);
+  if (transition) {
+    observe_global_completion(fixture.ledger_);
+  }
+  return transition;
+}
+
+ExecutionTransactionStatus Sm87TargetAotRequestStateAccess::host_commit(
+    HostExecutionTransactionFixture& fixture,
+    const std::uint64_t epoch) noexcept {
+  const ExecutionTransactionStatus transition =
+      validate_commit_transition(fixture.ledger_, epoch);
+  if (transition) {
+    observe_commit_transition(fixture.ledger_);
+  }
+  return transition;
+}
+
+ExecutionTransactionStatus Sm87TargetAotRequestStateAccess::host_cancel(
+    HostExecutionTransactionFixture& fixture,
+    const std::uint64_t epoch) noexcept {
+  const ExecutionTransactionStatus transition =
+      validate_cancel_transition(fixture.ledger_, epoch);
+  if (transition) {
+    observe_cancel_transition(fixture.ledger_);
+  }
+  return transition;
 }
 
 }  // namespace q3x::runtime::sm87_target_aot_request_detail

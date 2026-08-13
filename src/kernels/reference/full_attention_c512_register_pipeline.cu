@@ -9,6 +9,8 @@
  */
 #include "q3x/runtime/decode_ops.h"
 
+#include "../sm87/sm87_target_aot_attention_launch_internal.h"
+
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 #if defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
@@ -353,6 +355,14 @@ __device__ __forceinline__ void bulk_gqa_cp_async_wait_group_1() {
   asm volatile("cp.async.wait_group 1;" ::: "memory");
 #endif
 }
+
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+__device__ __forceinline__ void bulk_gqa_cp_async_wait_group_2() {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  asm volatile("cp.async.wait_group 2;" ::: "memory");
+#endif
+}
+#endif
 
 __device__ __forceinline__ void bulk_gqa_cp_async_wait_group_0() {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
@@ -747,6 +757,28 @@ static_assert(sizeof(BulkGqaGroupSharedStorage<kBulkGqaGroupQueryTile>) ==
 static_assert(
     sizeof(BulkGqaGroupSharedStorage<kBulkGqaGroupQ128V4QueryTile>) ==
     kBulkCausalGqaGroupQ128V4DynamicSharedBytes);
+
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+// The target-AOT body deliberately owns a separate storage type and kernel
+// entry so adding the second K/V slot cannot alter the established public
+// Q64/Q128 instantiations or their SASS.  Slot i contains one complete K32
+// and V32 tile; while PV consumes slot i, cp.async fills slot i^1.
+struct alignas(16) TargetAotAttentionQ128Kv32TwoStageSharedStorage {
+  alignas(16) std::uint16_t
+      query[kBulkGqaGroupQ128V4QueryTile * kBulkGqaHeadDimension];
+  alignas(16) std::uint16_t
+      key[2U][kBulkGqaGroupKvTile * kBulkGqaHeadDimension];
+  alignas(16) std::uint16_t
+      value[2U][kBulkGqaGroupKvTile * kBulkGqaHeadDimension];
+};
+
+static_assert(
+    sizeof(TargetAotAttentionQ128Kv32TwoStageSharedStorage) ==
+    kernels::kSm87TargetAotAttentionSharedBytes);
+static_assert(
+    sizeof(TargetAotAttentionQ128Kv32TwoStageSharedStorage) ==
+    128U * 1024U);
+#endif
 
 template <bool kExactC512, unsigned int kThreads>
 __device__ __forceinline__ void bulk_gqa_stage_group_kv_tile(
@@ -1194,6 +1226,337 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
   }
 }
 
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+// Exact-P40000 target-AOT Attention core.  This intentionally remains a
+// separate entry from the established public Q64/Q128 kernel above: the
+// numerical instruction order is identical, while K/V32 ownership is a true
+// two-slot ping-pong.  After QK on slot i, both K and V for slot i^1 are
+// issued; wait_group 2 retires only the current V dependency, allowing both
+// next-tile copies to overlap the current probability/PV traversal.
+__global__ __launch_bounds__(kBulkGqaGroupQ128V4Threads, 1)
+void sm87_target_aot_attention_q128_kv32_p40_two_stage_kernel(
+    const std::uint16_t* const __restrict__ query,
+    const std::uint16_t* const __restrict__ key_cache,
+    const std::uint16_t* const __restrict__ value_cache,
+    const std::uint16_t* const __restrict__ gate,
+    std::uint16_t* const __restrict__ output) {
+  extern __shared__ __align__(16) unsigned char dynamic_shared[];
+  auto& storage =
+      *reinterpret_cast<
+          TargetAotAttentionQ128Kv32TwoStageSharedStorage*>(
+          dynamic_shared);
+
+  constexpr unsigned int kPackedQueryTile =
+      kBulkGqaGroupQ128V4QueryTile;
+  constexpr unsigned int kThreads = kBulkGqaGroupQ128V4Threads;
+  constexpr unsigned int kTokenCount = 40'000U;
+  constexpr unsigned int kPackedQueryCount =
+      kTokenCount * kBulkGqaQueriesPerKv;
+  constexpr unsigned int kQueryVectors =
+      kPackedQueryTile * kBulkGqaHeadDimension *
+      sizeof(std::uint16_t) / sizeof(uint4);
+  constexpr unsigned int kOutputFragments =
+      kBulkGqaHeadDimension / 16U;
+  constexpr unsigned int kScoreFragments =
+      kBulkGqaGroupKvTile / 16U;
+  constexpr unsigned int kBaselinePackedQueryTile =
+      kBulkGqaGroupQueryTile;
+  static_assert(kPackedQueryCount % kPackedQueryTile == 0U);
+  static_assert(kPackedQueryTile % kBulkGqaTensorCoreQueryTile == 0U);
+  static_assert(kThreads ==
+                (kPackedQueryTile / kBulkGqaTensorCoreQueryTile) * 32U);
+  static_assert(kOutputFragments == 16U);
+  static_assert(kScoreFragments == 2U);
+  static_assert(kThreads ==
+                kernels::kSm87TargetAotAttentionThreads);
+
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread >> 5U;
+  const unsigned int lane = thread & 31U;
+  const unsigned int kv_head = blockIdx.z;
+  const unsigned int first_packed_query =
+      blockIdx.x * kPackedQueryTile;
+  const unsigned int warp_packed_query =
+      first_packed_query + warp * kBulkGqaTensorCoreQueryTile;
+  const unsigned int last_packed_query =
+      first_packed_query + kPackedQueryTile - 1U;
+  const unsigned int causal_kv_length =
+      last_packed_query / kBulkGqaQueriesPerKv + 1U;
+  const unsigned int iteration_count =
+      (causal_kv_length + kBulkGqaGroupKvTile - 1U) /
+      kBulkGqaGroupKvTile;
+  const unsigned int baseline_group_first_packed_query =
+      first_packed_query +
+      (warp >> 2U) * kBaselinePackedQueryTile;
+  const unsigned int baseline_group_end_packed_query =
+      baseline_group_first_packed_query + kBaselinePackedQueryTile;
+  const unsigned int baseline_group_iteration_count =
+      ((baseline_group_end_packed_query - 1U) /
+           kBulkGqaQueriesPerKv +
+       1U + kBulkGqaGroupKvTile - 1U) /
+      kBulkGqaGroupKvTile;
+
+  auto* const shared_query_vectors =
+      reinterpret_cast<uint4*>(storage.query);
+  for (unsigned int vector = thread; vector < kQueryVectors;
+       vector += kThreads) {
+    const unsigned int local_packed_query = vector / 32U;
+    const unsigned int vector_in_head = vector - local_packed_query * 32U;
+    const unsigned int packed_query =
+        first_packed_query + local_packed_query;
+    const unsigned int query_token =
+        packed_query / kBulkGqaQueriesPerKv;
+    const unsigned int query_in_group =
+        packed_query - query_token * kBulkGqaQueriesPerKv;
+    const unsigned int query_head =
+        kv_head * kBulkGqaQueriesPerKv + query_in_group;
+    const std::size_t global_vector =
+        (static_cast<std::size_t>(query_token) * kBulkGqaQueryHeads +
+         query_head) *
+            32U +
+        vector_in_head;
+    shared_query_vectors[vector] =
+        reinterpret_cast<const uint4*>(query)[global_vector];
+  }
+  __syncthreads();
+
+  nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 16, 16, 16, float>
+      output_fragments[kOutputFragments];
+#pragma unroll
+  for (unsigned int fragment = 0U; fragment < kOutputFragments;
+       ++fragment) {
+    nvcuda::wmma::fill_fragment(output_fragments[fragment], 0.0F);
+  }
+  float maxima[2] = {-__int_as_float(0x7f800000),
+                     -__int_as_float(0x7f800000)};
+  float denominators[2] = {0.0F, 0.0F};
+
+  bulk_gqa_stage_group_kv_tile<false, kThreads>(
+      storage.key[0U], key_cache, kv_head, 0U, kTokenCount, thread);
+  bulk_gqa_stage_group_kv_tile<false, kThreads>(
+      storage.value[0U], value_cache, kv_head, 0U, kTokenCount, thread);
+
+  for (unsigned int iteration = 0U; iteration < iteration_count;
+       ++iteration) {
+    bulk_gqa_cp_async_wait_group_1();
+    __syncthreads();
+
+    const bool baseline_group_iteration_active =
+        iteration < baseline_group_iteration_count;
+    nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 16, 16, 16,
+                           float>
+        score_fragments[kScoreFragments];
+#pragma unroll
+    for (unsigned int score = 0U; score < kScoreFragments; ++score) {
+      nvcuda::wmma::fill_fragment(score_fragments[score], 0.0F);
+    }
+    const auto* const query_bf16 =
+        reinterpret_cast<const __nv_bfloat16*>(storage.query) +
+        warp * kBulkGqaTensorCoreQueryTile * kBulkGqaHeadDimension;
+    const auto* const key_bf16 =
+        reinterpret_cast<const __nv_bfloat16*>(
+            storage.key[iteration & 1U]);
+    if (baseline_group_iteration_active) {
+#pragma unroll
+      for (unsigned int dimension = 0U;
+           dimension < kBulkGqaHeadDimension; dimension += 16U) {
+        nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 16, 16, 16,
+                               __nv_bfloat16,
+                               nvcuda::wmma::row_major>
+            query_fragment;
+        nvcuda::wmma::load_matrix_sync(
+            query_fragment, query_bf16 + dimension,
+            kBulkGqaHeadDimension);
+#pragma unroll
+        for (unsigned int score = 0U; score < kScoreFragments; ++score) {
+          nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 16, 16, 16,
+                                 __nv_bfloat16,
+                                 nvcuda::wmma::col_major>
+              key_fragment;
+          nvcuda::wmma::load_matrix_sync(
+              key_fragment,
+              key_bf16 + score * kBulkGqaTensorCoreKvTile *
+                               kBulkGqaHeadDimension +
+                  dimension,
+              kBulkGqaHeadDimension);
+          nvcuda::wmma::mma_sync(score_fragments[score], query_fragment,
+                                 key_fragment, score_fragments[score]);
+        }
+      }
+    }
+
+    const bool has_next = iteration + 1U < iteration_count;
+    if (has_next) {
+      bulk_gqa_stage_group_kv_tile<false, kThreads>(
+          storage.key[(iteration + 1U) & 1U], key_cache, kv_head,
+          (iteration + 1U) * kBulkGqaGroupKvTile, kTokenCount, thread);
+      bulk_gqa_stage_group_kv_tile<false, kThreads>(
+          storage.value[(iteration + 1U) & 1U], value_cache, kv_head,
+          (iteration + 1U) * kBulkGqaGroupKvTile, kTokenCount, thread);
+      bulk_gqa_cp_async_wait_group_2();
+    } else {
+      bulk_gqa_cp_async_wait_group_0();
+    }
+    __syncthreads();
+
+    const auto* const value_bf16 =
+        reinterpret_cast<const __nv_bfloat16*>(
+            storage.value[iteration & 1U]);
+    if (baseline_group_iteration_active) {
+#pragma unroll
+      for (unsigned int score = 0U; score < kScoreFragments; ++score) {
+        auto& score_fragment = score_fragments[score];
+#pragma unroll
+        for (unsigned int reg = 0U; reg < 8U; ++reg) {
+          const unsigned int row =
+              lane / 4U + 8U * ((reg % 4U) / 2U);
+          const unsigned int column =
+              2U * (lane % 4U) + 8U * (reg / 4U) + reg % 2U;
+          const unsigned int packed_query = warp_packed_query + row;
+          const unsigned int query_position =
+              packed_query / kBulkGqaQueriesPerKv;
+          const unsigned int kv_position =
+              iteration * kBulkGqaGroupKvTile +
+              score * kBulkGqaTensorCoreKvTile +
+              column;
+          score_fragment.x[reg] =
+              kv_position <= query_position
+                  ? score_fragment.x[reg] * kBulkGqaAttentionScale
+                  : -__int_as_float(0x7f800000);
+        }
+
+        __nv_bfloat16 probability_bits[8];
+#pragma unroll
+        for (unsigned int row_group = 0U; row_group < 2U; ++row_group) {
+          const unsigned int first = 2U * row_group;
+          float local_maximum = fmaxf(
+              fmaxf(score_fragment.x[first],
+                    score_fragment.x[first + 1U]),
+              fmaxf(score_fragment.x[first + 4U],
+                    score_fragment.x[first + 5U]));
+          local_maximum =
+              fmaxf(local_maximum,
+                    __shfl_xor_sync(0xffff'ffffU, local_maximum, 1U));
+          local_maximum =
+              fmaxf(local_maximum,
+                    __shfl_xor_sync(0xffff'ffffU, local_maximum, 2U));
+          const float previous_maximum = maxima[row_group];
+          const float next_maximum =
+              fmaxf(previous_maximum, local_maximum);
+          const float correction =
+              previous_maximum == -__int_as_float(0x7f800000)
+                  ? 0.0F
+                  : bulk_gqa_fast_exp(previous_maximum - next_maximum);
+          denominators[row_group] *= correction;
+#pragma unroll
+          for (unsigned int fragment = 0U;
+               fragment < kOutputFragments; ++fragment) {
+            output_fragments[fragment].x[first] *= correction;
+            output_fragments[fragment].x[first + 1U] *= correction;
+            output_fragments[fragment].x[first + 4U] *= correction;
+            output_fragments[fragment].x[first + 5U] *= correction;
+          }
+          float local_denominator = 0.0F;
+          const unsigned int registers[4] = {
+              first, first + 1U, first + 4U, first + 5U};
+#pragma unroll
+          for (unsigned int item = 0U; item < 4U; ++item) {
+            const unsigned int reg = registers[item];
+            const float probability =
+                bulk_gqa_fast_exp(score_fragment.x[reg] - next_maximum);
+            probability_bits[reg] = __float2bfloat16_rn(probability);
+            local_denominator += __bfloat162float(probability_bits[reg]);
+          }
+          local_denominator +=
+              __shfl_xor_sync(0xffff'ffffU, local_denominator, 1U);
+          local_denominator +=
+              __shfl_xor_sync(0xffff'ffffU, local_denominator, 2U);
+          denominators[row_group] += local_denominator;
+          maxima[row_group] = next_maximum;
+        }
+
+        nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 16, 16, 16,
+                               __nv_bfloat16,
+                               nvcuda::wmma::row_major>
+            probability_fragment;
+#pragma unroll
+        for (unsigned int reg = 0U;
+             reg < probability_fragment.num_elements; ++reg) {
+          probability_fragment.x[reg] = probability_bits[reg];
+        }
+#pragma unroll
+        for (unsigned int fragment = 0U; fragment < kOutputFragments;
+             ++fragment) {
+          nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 16, 16, 16,
+                                 __nv_bfloat16,
+                                 nvcuda::wmma::row_major>
+              value_fragment;
+          nvcuda::wmma::load_matrix_sync(
+              value_fragment,
+              value_bf16 + score * kBulkGqaTensorCoreKvTile *
+                                 kBulkGqaHeadDimension +
+                  16U * fragment,
+              kBulkGqaHeadDimension);
+          nvcuda::wmma::mma_sync(output_fragments[fragment],
+                                 probability_fragment, value_fragment,
+                                 output_fragments[fragment]);
+        }
+      }
+    }
+
+    // All warps must retire current-slot PV before the following iteration
+    // can recycle this slot as the next async destination.
+    __syncthreads();
+  }
+  bulk_gqa_cp_async_wait_group_0();
+  __syncthreads();
+
+#pragma unroll
+  for (unsigned int fragment = 0U; fragment < kOutputFragments;
+       ++fragment) {
+#pragma unroll
+    for (unsigned int row_group = 0U; row_group < 2U; ++row_group) {
+      const unsigned int first = 2U * row_group;
+      const unsigned int packed_query =
+          warp_packed_query + lane / 4U + 8U * row_group;
+      const unsigned int query_token =
+          packed_query / kBulkGqaQueriesPerKv;
+      const unsigned int query_in_group =
+          packed_query - query_token * kBulkGqaQueriesPerKv;
+      const unsigned int query_head =
+          kv_head * kBulkGqaQueriesPerKv + query_in_group;
+      const unsigned int first_dimension =
+          fragment * 16U + 2U * (lane % 4U);
+      const std::size_t low_index =
+          (static_cast<std::size_t>(query_token) * kBulkGqaQueryHeads +
+           query_head) *
+              kBulkGqaHeadDimension +
+          first_dimension;
+      const std::size_t high_index = low_index + 8U;
+      const float inverse_denominator = 1.0F / denominators[row_group];
+      const std::uint16_t low_first = bulk_gqa_apply_sigmoid_gate(
+          output_fragments[fragment].x[first] * inverse_denominator,
+          gate[low_index]);
+      const std::uint16_t low_second = bulk_gqa_apply_sigmoid_gate(
+          output_fragments[fragment].x[first + 1U] * inverse_denominator,
+          gate[low_index + 1U]);
+      const std::uint16_t high_first = bulk_gqa_apply_sigmoid_gate(
+          output_fragments[fragment].x[first + 4U] * inverse_denominator,
+          gate[high_index]);
+      const std::uint16_t high_second = bulk_gqa_apply_sigmoid_gate(
+          output_fragments[fragment].x[first + 5U] * inverse_denominator,
+          gate[high_index + 1U]);
+      *reinterpret_cast<std::uint32_t*>(output + low_index) =
+          static_cast<std::uint32_t>(low_first) |
+          (static_cast<std::uint32_t>(low_second) << 16U);
+      *reinterpret_cast<std::uint32_t*>(output + high_index) =
+          static_cast<std::uint32_t>(high_first) |
+          (static_cast<std::uint32_t>(high_second) << 16U);
+    }
+  }
+}
+#endif
+
 [[nodiscard]] int launch_bulk_gqa_group_q64_v3_fixed_impl(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
@@ -1493,5 +1856,217 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_cuda(
       query, key_cache, value_cache, gate, first_position, token_count,
       output, stream);
 }
+
+namespace sm87_target_aot_attention_execution_detail {
+
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+namespace {
+
+constexpr unsigned int kTargetP40GridX =
+    static_cast<unsigned int>(
+        kTargetP40TokenCount * kBulkGqaQueriesPerKv /
+        kBulkGqaGroupQ128V4QueryTile);
+static_assert(kTargetP40GridX == 1'875U);
+static_assert(kTargetP40TokenCount * kBulkGqaQueriesPerKv %
+                      kBulkGqaGroupQ128V4QueryTile ==
+                  0U);
+
+[[nodiscard]] cudaError_t validate_target_p40_device(
+    const std::int32_t device_ordinal,
+    cudaDeviceProp* const properties) noexcept {
+  if (device_ordinal < 0 || properties == nullptr) {
+    return cudaErrorInvalidValue;
+  }
+  int current_device = -1;
+  cudaError_t status = cudaGetDevice(&current_device);
+  if (status != cudaSuccess) {
+    return status;
+  }
+  if (current_device != device_ordinal) {
+    return cudaErrorInvalidDevice;
+  }
+  status = cudaGetDeviceProperties(properties, current_device);
+  if (status != cudaSuccess) {
+    return status;
+  }
+  return properties->major == 8 && properties->minor == 7 &&
+                 properties->multiProcessorCount == 16 &&
+                 properties->warpSize == 32 &&
+                 properties->maxThreadsPerBlock >=
+                     static_cast<int>(
+                         kernels::kSm87TargetAotAttentionThreads) &&
+                 properties->sharedMemPerBlockOptin >=
+                     kernels::kSm87TargetAotAttentionSharedBytes
+             ? cudaSuccess
+             : cudaErrorNotSupported;
+}
+
+[[nodiscard]] bool target_p40_exact_device_range(
+    const void* const pointer, const std::size_t bytes,
+    const std::int32_t device_ordinal) noexcept {
+  const auto range = target_p40_byte_range(pointer, bytes);
+  if (!range.valid) {
+    return false;
+  }
+  const void* const endpoints[2U] = {
+      pointer, reinterpret_cast<const void*>(range.end - 1U)};
+  for (const void* const endpoint : endpoints) {
+    cudaPointerAttributes attributes{};
+    if (cudaPointerGetAttributes(&attributes, endpoint) != cudaSuccess ||
+        attributes.type != cudaMemoryTypeDevice ||
+        attributes.device != device_ordinal) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] cudaError_t validate_target_p40_device_ranges(
+    const TargetP40Arguments& arguments) noexcept {
+  const std::array<std::pair<const void*, std::size_t>, 5U> ranges{{
+      {arguments.processed_query, kTargetP40QueryBytes},
+      {arguments.processed_key, kTargetP40KvBytes},
+      {arguments.processed_value, kTargetP40KvBytes},
+      {arguments.processed_gate, kTargetP40QueryBytes},
+      {arguments.gated_output, kTargetP40QueryBytes},
+  }};
+  for (const auto& range : ranges) {
+    if (!target_p40_exact_device_range(
+            range.first, range.second, arguments.device_ordinal)) {
+      return cudaErrorInvalidDevicePointer;
+    }
+  }
+  return cudaSuccess;
+}
+
+[[nodiscard]] cudaError_t set_target_p40_dynamic_shared() noexcept {
+  return cudaFuncSetAttribute(
+      sm87_target_aot_attention_q128_kv32_p40_two_stage_kernel,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      static_cast<int>(kernels::kSm87TargetAotAttentionSharedBytes));
+}
+
+}  // namespace
+
+int query_q128_kv32_p40_two_stage_resources(
+    const std::int32_t device_ordinal,
+    TargetP40Resources* const resources) noexcept {
+  if (resources == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *resources = {};
+
+  cudaDeviceProp properties{};
+  cudaError_t status =
+      validate_target_p40_device(device_ordinal, &properties);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  status = set_target_p40_dynamic_shared();
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  cudaFuncAttributes attributes{};
+  status = cudaFuncGetAttributes(
+      &attributes,
+      sm87_target_aot_attention_q128_kv32_p40_two_stage_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      sm87_target_aot_attention_q128_kv32_p40_two_stage_kernel,
+      static_cast<int>(kernels::kSm87TargetAotAttentionThreads),
+      kernels::kSm87TargetAotAttentionSharedBytes);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  resources->token_count = kTargetP40TokenCount;
+  resources->query_rows = kernels::kSm87TargetAotAttentionQueryRows;
+  resources->kv_tokens = kernels::kSm87TargetAotAttentionKvTokens;
+  resources->pipeline_stages =
+      kernels::kSm87TargetAotAttentionPipelineStages;
+  resources->threads = kernels::kSm87TargetAotAttentionThreads;
+  resources->warps = kernels::kSm87TargetAotAttentionWarps;
+  resources->binary_version = attributes.binaryVersion;
+  resources->registers_per_thread = attributes.numRegs;
+  resources->static_shared_bytes = attributes.sharedSizeBytes;
+  resources->dynamic_shared_bytes =
+      kernels::kSm87TargetAotAttentionSharedBytes;
+  resources->local_bytes = attributes.localSizeBytes;
+  resources->maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  resources->active_blocks_per_sm = active_blocks;
+  resources->device_ordinal = device_ordinal;
+  resources->device_sm_count = properties.multiProcessorCount;
+  resources->device_optin_shared_bytes =
+      properties.sharedMemPerBlockOptin;
+  resources->kernel_compiled = true;
+  resources->exact_p40000_only = true;
+  resources->cp_async_kv = true;
+  resources->kv_ping_pong = true;
+  // Observation is not admission.  Numerical and whole-executor evidence
+  // must qualify this body before any production dispatcher can name it.
+  resources->static_resources_qualified = false;
+  resources->numerical_contract_qualified = false;
+  resources->production_dispatch_eligible = false;
+  return target_p40_resources_structurally_valid(*resources)
+             ? static_cast<int>(cudaSuccess)
+             : static_cast<int>(cudaErrorNotSupported);
+}
+
+int launch_q128_kv32_p40_two_stage(
+    const TargetP40Arguments& arguments) noexcept {
+  if (!target_p40_arguments_structurally_valid(arguments)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  TargetP40Resources resources{};
+  const int resource_status = query_q128_kv32_p40_two_stage_resources(
+      arguments.device_ordinal, &resources);
+  if (resource_status != static_cast<int>(cudaSuccess)) {
+    return resource_status;
+  }
+  const cudaError_t range_status =
+      validate_target_p40_device_ranges(arguments);
+  if (range_status != cudaSuccess) {
+    return static_cast<int>(range_status);
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  const dim3 blocks(kTargetP40GridX, 1U, kBulkGqaKvHeads);
+  (void)cudaGetLastError();
+  sm87_target_aot_attention_q128_kv32_p40_two_stage_kernel<<<
+      blocks, kernels::kSm87TargetAotAttentionThreads,
+      kernels::kSm87TargetAotAttentionSharedBytes, stream>>>(
+      arguments.processed_query, arguments.processed_key,
+      arguments.processed_value, arguments.processed_gate,
+      arguments.gated_output);
+  return static_cast<int>(cudaPeekAtLastError());
+}
+#else
+int query_q128_kv32_p40_two_stage_resources(
+    const std::int32_t device_ordinal,
+    TargetP40Resources* const resources) noexcept {
+  if (resources == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  (void)device_ordinal;
+  *resources = {};
+  return static_cast<int>(cudaErrorNotSupported);
+}
+
+int launch_q128_kv32_p40_two_stage(
+    const TargetP40Arguments& arguments) noexcept {
+  if (!target_p40_arguments_structurally_valid(arguments)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  return static_cast<int>(cudaErrorNotSupported);
+}
+#endif
+
+}  // namespace sm87_target_aot_attention_execution_detail
 
 }  // namespace q3x::runtime

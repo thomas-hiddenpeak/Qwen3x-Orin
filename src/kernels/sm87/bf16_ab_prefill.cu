@@ -2,6 +2,8 @@
 
 #include "q3x/kernels/reference_gemv.h"
 
+#include "sm87_target_aot_bf16_ab_launch_internal.h"
+
 #include <cuda_runtime.h>
 
 #include <cstddef>
@@ -281,7 +283,8 @@ void bf16_ab_prefill_m64_n96_k64_kernel(
     const std::uint16_t* const second_weights,
     const std::uint16_t* const input,
     std::uint16_t* const first_output,
-    std::uint16_t* const second_output) {
+    std::uint16_t* const second_output,
+    const unsigned int output_row_stride) {
   extern __shared__ __align__(32) std::uint8_t dynamic_storage[];
   auto* const pipeline =
       reinterpret_cast<PipelineStorage*>(dynamic_storage);
@@ -354,12 +357,12 @@ void bf16_ab_prefill_m64_n96_k64_kernel(
     const unsigned int output_column = panel * 8U + 2U * lane_in_group;
     *reinterpret_cast<std::uint32_t*>(
         selected_output +
-        static_cast<std::size_t>(token0) * kRowsPerProjection +
+        static_cast<std::size_t>(token0) * output_row_stride +
         output_column) =
         pack_bf16_pair(accumulators[panel].x0, accumulators[panel].x1);
     *reinterpret_cast<std::uint32_t*>(
         selected_output +
-        static_cast<std::size_t>(token1) * kRowsPerProjection +
+        static_cast<std::size_t>(token1) * output_row_stride +
         output_column) =
         pack_bf16_pair(accumulators[panel].x2, accumulators[panel].x3);
   }
@@ -501,9 +504,63 @@ int launch_sm87_bf16_ab_prompt_wide_p40_cuda(
       <<<static_cast<unsigned int>(plan.grid_blocks), kThreads,
          kDynamicSharedBytes, static_cast<cudaStream_t>(cuda_stream)>>>(
           first_weights, second_weights, input,
-          first_output, second_output);
+          first_output, second_output, kRowsPerProjection);
   return static_cast<int>(cudaGetLastError());
 }
+
+namespace sm87_target_aot_bf16_ab_execution_detail {
+
+int launch_interleaved_p40(
+    const std::uint16_t* const a_weights,
+    const std::uint16_t* const b_weights,
+    const std::uint16_t* const input,
+    std::uint16_t* const interleaved_ab_output,
+    void* const cuda_stream) noexcept {
+  if (!pointer_is_aligned(a_weights, alignof(uint4)) ||
+      !pointer_is_aligned(b_weights, alignof(uint4)) ||
+      !pointer_is_aligned(input, alignof(uint4)) ||
+      !pointer_is_aligned(interleaved_ab_output, alignof(std::uint32_t))) {
+    return invalid_value();
+  }
+  constexpr std::size_t kWeightBytes =
+      kSm87Bf16AbPromptWideP40WeightElements * sizeof(std::uint16_t);
+  constexpr std::size_t kInputBytes =
+      kSm87Bf16AbPromptWideP40InputElements * sizeof(std::uint16_t);
+  constexpr std::size_t kInterleavedBytes =
+      kSm87Bf16AbPromptWideP40Tokens * kLogicalRows *
+      sizeof(std::uint16_t);
+  if (byte_range_overflows(a_weights, kWeightBytes) ||
+      byte_range_overflows(b_weights, kWeightBytes) ||
+      byte_range_overflows(input, kInputBytes) ||
+      byte_range_overflows(interleaved_ab_output, kInterleavedBytes) ||
+      byte_ranges_overlap(interleaved_ab_output, kInterleavedBytes,
+                          a_weights, kWeightBytes) ||
+      byte_ranges_overlap(interleaved_ab_output, kInterleavedBytes,
+                          b_weights, kWeightBytes) ||
+      byte_ranges_overlap(interleaved_ab_output, kInterleavedBytes,
+                          input, kInputBytes)) {
+    return invalid_value();
+  }
+  Sm87Bf16AbPromptWideP40Resources resources{};
+  const int capability_status =
+      query_sm87_bf16_ab_prompt_wide_p40_resources_cuda(&resources);
+  if (capability_status != static_cast<int>(cudaSuccess) ||
+      !resources.valid()) {
+    return capability_status == static_cast<int>(cudaSuccess)
+               ? static_cast<int>(cudaErrorNotSupported)
+               : capability_status;
+  }
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  bf16_ab_prefill_m64_n96_k64_kernel
+      <<<kSm87Bf16AbPromptWideP40GridBlocks, kThreads,
+         kDynamicSharedBytes, stream>>>(
+          a_weights, b_weights, input, interleaved_ab_output,
+          interleaved_ab_output + kRowsPerProjection, kLogicalRows);
+  return static_cast<int>(cudaGetLastError());
+}
+
+}  // namespace sm87_target_aot_bf16_ab_execution_detail
 
 int launch_sm87_bf16_ab_large_m_prefill_cuda(
     const std::uint16_t* const first_weights,
@@ -565,7 +622,7 @@ int launch_sm87_bf16_ab_large_m_prefill_cuda(
     bf16_ab_prefill_m64_n96_k64_kernel
         <<<blocks, kThreads, kDynamicSharedBytes, stream>>>(
             first_weights, second_weights, input,
-            first_output, second_output);
+            first_output, second_output, kRowsPerProjection);
     const cudaError_t launch_status = cudaGetLastError();
     if (launch_status != cudaSuccess) {
       return static_cast<int>(launch_status);

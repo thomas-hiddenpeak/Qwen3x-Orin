@@ -22,6 +22,11 @@ namespace target_aot_execution_detail {
 class Sm87TargetAotProjectionExecutionAccess;
 }
 #endif
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION)
+namespace target_aot_complete_execution_detail {
+class Sm87TargetAotCompleteProjectionExecutionAccess;
+}
+#endif
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
 namespace reference_engine_test_detail {
 class Sm87TargetAotLayer0M192OracleAccess;
@@ -657,6 +662,10 @@ class ModelWeights {
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION)
   friend class target_aot_execution_detail::
       Sm87TargetAotProjectionExecutionAccess;
+#endif
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION)
+  friend class target_aot_complete_execution_detail::
+      Sm87TargetAotCompleteProjectionExecutionAccess;
 #endif
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
   friend class reference_engine_test_detail::

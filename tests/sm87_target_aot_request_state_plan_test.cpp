@@ -1,5 +1,7 @@
 #include "q3x/runtime/sm87_target_aot_request_state.h"
 
+#include "../src/runtime/sm87_target_aot_request_state_access_internal.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -45,6 +47,9 @@ static_assert(runtime::kSm87TargetAotP40RequestArenaBytes ==
               5'075'652'608ULL);
 static_assert(runtime::kSm87TargetAotP40RequestLocalRopeBytes == 0U);
 static_assert(runtime::kSm87TargetAotP40OwnedEventCount == 519U);
+static_assert(!std::is_default_constructible_v<
+              runtime::sm87_target_aot_request_detail::
+                  OwnerBoundExecutionTransaction>);
 
 void test_exact_ledger(TestContext& test) {
   const auto plan =
@@ -216,6 +221,118 @@ void test_default_off_create(TestContext& test) {
 #endif
 }
 
+void test_host_execution_transaction_illegal_transitions(TestContext& test) {
+  namespace detail = runtime::sm87_target_aot_request_detail;
+  using Access = detail::Sm87TargetAotRequestStateAccess;
+  using Global = detail::GlobalCompletionPoint;
+  using Layer = detail::LayerCompletionPoint;
+  constexpr std::uint64_t kEpoch = 0x513U;
+
+  auto fixture = Access::host_fixture(kEpoch);
+  test.expect(
+      !Access::host_record_global(fixture, kEpoch, Global::kTokenIdsReady),
+      "completion cannot be asserted before begin");
+  test.expect(!Access::host_commit(fixture, kEpoch),
+              "admitted owner cannot commit without execution");
+  test.expect(static_cast<bool>(Access::host_begin(fixture)),
+              "begin admits exactly one owner-bound execution epoch");
+  test.expect(
+      fixture.phase() == runtime::Sm87TargetAotRequestTransactionPhase::
+                             kPrefillActiveUnpublished,
+      "begin moves admitted owner to active unpublished execution");
+  test.expect(!Access::host_begin(fixture),
+              "a second begin cannot overlap one request");
+  test.expect(
+      !Access::host_record_layer(fixture, kEpoch, 0U,
+                                 Layer::kInputProjections),
+      "layer work cannot precede token and embedding completions");
+  test.expect(
+      !Access::host_record_global(fixture, kEpoch,
+                                  Global::kEmbeddingComplete),
+      "global completions cannot skip their owner-stream order");
+  test.expect(
+      !Access::host_record_global(fixture, kEpoch + 1U,
+                                  Global::kTokenIdsReady),
+      "a forged transaction epoch cannot record completion");
+  test.expect(
+      Access::host_record_global(fixture, kEpoch, Global::kTokenIdsReady) &&
+          Access::host_record_global(fixture, kEpoch,
+                                     Global::kEmbeddingComplete),
+      "token and embedding completion prefix records in order");
+  test.expect(
+      !Access::host_record_layer(fixture, kEpoch, 1U,
+                                 Layer::kInputProjections),
+      "a later layer cannot overtake the current layer");
+  test.expect(
+      !Access::host_record_layer(
+          fixture, kEpoch, 0U, Layer::kStateOrAttentionPreparation),
+      "a later layer completion point cannot overtake its producer");
+
+  bool all_layers_recorded = true;
+  for (std::size_t layer = 0U;
+       layer < runtime::kSm87TargetAotP40LayerCount; ++layer) {
+    for (std::size_t point = 0U;
+         point < runtime::kSm87TargetAotP40LayerEventCount; ++point) {
+      all_layers_recorded =
+          all_layers_recorded &&
+          static_cast<bool>(Access::host_record_layer(
+              fixture, kEpoch, layer, static_cast<Layer>(point)));
+    }
+  }
+  test.expect(all_layers_recorded,
+              "all 512 layer completion points record in canonical order");
+  test.expect(!Access::host_commit(fixture, kEpoch),
+              "layer completion alone cannot publish request state");
+  test.expect(
+      !Access::host_record_global(fixture, kEpoch,
+                                  Global::kRequestCommit),
+      "only commit owns the final CUDA event");
+
+  const std::array<Global, 4U> suffix{{
+      Global::kAllLayersComplete,
+      Global::kFinalNormComplete,
+      Global::kFinalHiddenComplete,
+      Global::kPersistentStateStaged,
+  }};
+  bool suffix_recorded = true;
+  for (const Global point : suffix) {
+    suffix_recorded = suffix_recorded &&
+                      static_cast<bool>(Access::host_record_global(
+                          fixture, kEpoch, point));
+  }
+  test.expect(suffix_recorded,
+              "all prescribed global prerequisites record in order");
+  test.expect(static_cast<bool>(Access::host_commit(fixture, kEpoch)),
+              "complete owner event ledger commits exactly once");
+  test.expect(
+      fixture.phase() ==
+          runtime::Sm87TargetAotRequestTransactionPhase::kCommitted,
+      "successful commit is the sole publication transition");
+  test.expect(!Access::host_commit(fixture, kEpoch) &&
+                  !Access::host_cancel(fixture, kEpoch) &&
+                  !Access::host_record_layer(
+                      fixture, kEpoch, 0U, Layer::kInputProjections),
+              "committed owner rejects every later mutation");
+
+  auto admitted_cancel = Access::host_fixture(kEpoch + 1U);
+  test.expect(Access::host_cancel(admitted_cancel, kEpoch + 1U) &&
+                  admitted_cancel.phase() ==
+                      runtime::Sm87TargetAotRequestTransactionPhase::
+                          kCancelled &&
+                  !Access::host_begin(admitted_cancel),
+              "admitted cancellation is terminal and unpublished");
+
+  auto active_cancel = Access::host_fixture(kEpoch + 2U);
+  test.expect(Access::host_begin(active_cancel) &&
+                  Access::host_cancel(active_cancel, kEpoch + 2U) &&
+                  !Access::host_commit(active_cancel, kEpoch + 2U),
+              "active cancellation prevents later publication");
+
+  auto zero_epoch = Access::host_fixture(0U);
+  test.expect(!Access::host_begin(zero_epoch),
+              "zero owner epoch fails closed before execution");
+}
+
 }  // namespace
 
 int main() {
@@ -225,5 +342,6 @@ int main() {
   test_family_lifetimes_and_aliases(test);
   test_forged_plans_fail_closed(test);
   test_default_off_create(test);
+  test_host_execution_transaction_illegal_transitions(test);
   return test.failures() == 0 ? 0 : 1;
 }

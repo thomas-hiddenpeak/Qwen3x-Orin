@@ -1,4 +1,6 @@
 #include "q3x/kernels/sm87_target_aot_projection_cuda.h"
+
+#include "sm87_target_aot_projection_launch_internal.h"
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
 #include "../../runtime/sm87_target_aot_layer0_m192_oracle_internal.h"
 #endif
@@ -890,6 +892,109 @@ void sm87_target_aot_nvfp4_down_m192_oracle_kernel(
   return cudaSuccess;
 }
 
+[[nodiscard]] cudaError_t set_execution_dynamic_shared_attribute(
+    const Sm87TargetAotProjectionRole role) noexcept {
+  if (role == Sm87TargetAotProjectionRole::kNvFp4GateUp) {
+    return cudaFuncSetAttribute(
+        sm87_target_aot_nvfp4_gate_up_kernel,
+        cudaFuncAttributeMaxDynamicSharedMemorySize,
+        static_cast<int>(kSm87TargetAotNvFp4SharedBytes));
+  }
+  if (role == Sm87TargetAotProjectionRole::kNvFp4Down) {
+    return cudaFuncSetAttribute(
+        sm87_target_aot_nvfp4_down_kernel,
+        cudaFuncAttributeMaxDynamicSharedMemorySize,
+        static_cast<int>(kSm87TargetAotNvFp4SharedBytes));
+  }
+  return cudaErrorInvalidValue;
+}
+
+[[nodiscard]] cudaError_t validate_execution_device() noexcept {
+  int device = -1;
+  cudaError_t status = cudaGetDevice(&device);
+  if (status != cudaSuccess) {
+    return status;
+  }
+  cudaDeviceProp properties{};
+  status = cudaGetDeviceProperties(&properties, device);
+  if (status != cudaSuccess) {
+    return status;
+  }
+  return properties.major == 8 && properties.minor == 7 &&
+                 properties.multiProcessorCount ==
+                     static_cast<int>(kSm87TargetAotProjectionSmCount) &&
+                 properties.sharedMemPerBlockOptin >=
+                     kSm87TargetAotNvFp4SharedBytes
+             ? cudaSuccess
+             : cudaErrorNotSupported;
+}
+
+[[nodiscard]] bool execution_device_pointer(
+    const void* const pointer, const int device_ordinal) noexcept {
+  cudaPointerAttributes attributes{};
+  const cudaError_t status = cudaPointerGetAttributes(&attributes, pointer);
+  return status == cudaSuccess && attributes.type == cudaMemoryTypeDevice &&
+         attributes.device == device_ordinal;
+}
+
+[[nodiscard]] int launch_authenticated_nvfp4_body(
+    const Sm87TargetAotNvFp4CudaArguments& arguments) noexcept {
+  if (!sm87_target_aot_nvfp4_cuda_arguments_valid(arguments)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const cudaError_t device_status = validate_execution_device();
+  if (device_status != cudaSuccess) {
+    return static_cast<int>(device_status);
+  }
+  const auto& upload = arguments.asset.device_upload_receipt;
+  int current_device = -1;
+  const cudaError_t current_status = cudaGetDevice(&current_device);
+  if (current_status != cudaSuccess) {
+    return static_cast<int>(current_status);
+  }
+  if (current_device != upload.device_ordinal ||
+      !execution_device_pointer(
+          reinterpret_cast<const void*>(arguments.asset.payload.begin),
+          upload.device_ordinal) ||
+      !execution_device_pointer(arguments.input, upload.device_ordinal) ||
+      !execution_device_pointer(arguments.output_or_residual,
+                                upload.device_ordinal)) {
+    return static_cast<int>(cudaErrorInvalidDevicePointer);
+  }
+  float scales[2U]{};
+  for (std::size_t index = 0U; index < arguments.asset.tensor_scale_count;
+       ++index) {
+    std::memcpy(&scales[index], &arguments.asset.tensor_scale_bits[index],
+                sizeof(float));
+    if (!std::isfinite(scales[index]) || scales[index] <= 0.0F) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+  }
+  const cudaError_t attribute_status =
+      set_execution_dynamic_shared_attribute(arguments.role);
+  if (attribute_status != cudaSuccess) {
+    return static_cast<int>(attribute_status);
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  const auto* const payload = reinterpret_cast<const std::uint8_t*>(
+      arguments.asset.payload.begin);
+  (void)cudaGetLastError();
+  if (arguments.role == Sm87TargetAotProjectionRole::kNvFp4GateUp) {
+    sm87_target_aot_nvfp4_gate_up_kernel
+        <<<kPersistentCtas, kThreads, kSm87TargetAotNvFp4SharedBytes,
+           stream>>>(arguments.input, payload,
+                     static_cast<unsigned int>(arguments.token_count),
+                     scales[0U], scales[1U], arguments.output_or_residual);
+  } else {
+    sm87_target_aot_nvfp4_down_kernel
+        <<<kPersistentCtas, kThreads, kSm87TargetAotNvFp4SharedBytes,
+           stream>>>(arguments.input, payload,
+                     static_cast<unsigned int>(arguments.token_count),
+                     scales[0U], arguments.output_or_residual);
+  }
+  return static_cast<int>(cudaPeekAtLastError());
+}
+
 }  // namespace
 
 int query_sm87_target_aot_nvfp4_cuda_resources(
@@ -918,6 +1023,15 @@ int launch_sm87_target_aot_nvfp4_cuda(
   // and resource evidence; changing plan/layout bits never opens this symbol.
   return static_cast<int>(cudaErrorNotSupported);
 }
+
+namespace sm87_target_aot_projection_execution_detail {
+
+int launch_authenticated_nvfp4(
+    const Sm87TargetAotNvFp4CudaArguments& arguments) noexcept {
+  return launch_authenticated_nvfp4_body(arguments);
+}
+
+}  // namespace sm87_target_aot_projection_execution_detail
 
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
 namespace sm87_target_aot_layer0_m192_oracle_detail {

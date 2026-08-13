@@ -1,5 +1,7 @@
 #include "q3x/kernels/sm87_target_aot_projection_fp8_cuda.h"
 
+#include "sm87_target_aot_projection_launch_internal.h"
+
 #include <cuda_runtime.h>
 
 #include <cstddef>
@@ -423,7 +425,10 @@ void sm87_target_aot_fp8_kernel(
     const std::uint16_t* __restrict__ input,
     const std::uint8_t* __restrict__ payload, const unsigned int rows,
     const float scale0, const float scale1, const float scale2,
-    std::uint16_t* __restrict__ output) {
+    std::uint16_t* __restrict__ output,
+    std::uint16_t* __restrict__ secondary_output,
+    std::uint16_t* __restrict__ tertiary_output,
+    const bool scatter_full_qkv) {
   extern __shared__ __align__(32) std::uint8_t dynamic_storage[];
   auto* const storage = reinterpret_cast<Fp8PipelineStorage*>(dynamic_storage);
   const unsigned int grid_m = (rows + kTileM - 1U) / kTileM;
@@ -479,8 +484,24 @@ void sm87_target_aot_fp8_kernel(
         storage, input, payload, rows, m_tile * kTileM,
         partition_offset,
         partition_n_tile, accumulators);
-    publish_output(accumulators, rows, kOutputFeatures, m_tile * kTileM,
-                   n_tile * kTileN, compensated_scale, output);
+    std::uint16_t* destination = output;
+    unsigned int destination_features = kOutputFeatures;
+    unsigned int destination_first_n = n_tile * kTileN;
+    if constexpr (kRole ==
+                  Sm87TargetAotProjectionRole::kFp8FullQkv) {
+      if (scatter_full_qkv) {
+        destination = partition == 0U
+                          ? output
+                          : (partition == 1U ? secondary_output
+                                             : tertiary_output);
+        destination_features =
+            partition == 0U ? 12'288U : 1'024U;
+        destination_first_n = partition_n_tile * kTileN;
+      }
+    }
+    publish_output(accumulators, rows, destination_features,
+                   m_tile * kTileM, destination_first_n,
+                   compensated_scale, destination);
     __syncthreads();
   }
 }
@@ -629,10 +650,11 @@ template <typename Kernel>
         <<<grid, block, kSm87TargetAotFp8SharedBytes, stream>>>(
             arguments.input,
             reinterpret_cast<const std::uint8_t*>(
-                arguments.asset.payload.begin),
+            arguments.asset.payload.begin),
             static_cast<unsigned int>(arguments.token_count),
             compensated_scales[0U], compensated_scales[1U],
-            compensated_scales[2U], arguments.output);
+            compensated_scales[2U], arguments.output, nullptr, nullptr,
+            false);
   } else if (arguments.role ==
              Sm87TargetAotProjectionRole::kFp8FullQkv) {
     sm87_target_aot_fp8_kernel<
@@ -641,10 +663,11 @@ template <typename Kernel>
         <<<grid, block, kSm87TargetAotFp8SharedBytes, stream>>>(
             arguments.input,
             reinterpret_cast<const std::uint8_t*>(
-                arguments.asset.payload.begin),
+            arguments.asset.payload.begin),
             static_cast<unsigned int>(arguments.token_count),
             compensated_scales[0U], compensated_scales[1U],
-            compensated_scales[2U], arguments.output);
+            compensated_scales[2U], arguments.output, nullptr, nullptr,
+            false);
   } else {
     sm87_target_aot_fp8_kernel<
         Sm87TargetAotProjectionRole::kFp8AttentionOutput,
@@ -652,11 +675,116 @@ template <typename Kernel>
         <<<grid, block, kSm87TargetAotFp8SharedBytes, stream>>>(
             arguments.input,
             reinterpret_cast<const std::uint8_t*>(
-                arguments.asset.payload.begin),
+            arguments.asset.payload.begin),
             static_cast<unsigned int>(arguments.token_count),
             compensated_scales[0U], compensated_scales[1U],
-            compensated_scales[2U], arguments.output);
+            compensated_scales[2U], arguments.output, nullptr, nullptr,
+            false);
   }
+  return static_cast<int>(cudaPeekAtLastError());
+}
+
+[[nodiscard]] bool scatter_arguments_valid(
+    const sm87_target_aot_projection_execution_detail::
+        Sm87TargetAotFp8FullQkvScatterArguments& arguments) noexcept {
+  if (arguments.asset.payload.role !=
+          Sm87TargetAotProjectionRole::kFp8FullQkv ||
+      !sm87_target_aot_fp8_cuda_asset_valid(arguments.asset) ||
+      !sm87_target_aot_projection_plan(
+           Sm87TargetAotProjectionRole::kFp8FullQkv,
+           arguments.token_count)
+           .valid() ||
+      arguments.input == nullptr || arguments.q_gate_output == nullptr ||
+      arguments.key_output == nullptr || arguments.value_output == nullptr) {
+    return false;
+  }
+  const std::array<const void*, 4U> pointers{{
+      arguments.input, arguments.q_gate_output, arguments.key_output,
+      arguments.value_output}};
+  for (const void* const pointer : pointers) {
+    if (reinterpret_cast<std::uintptr_t>(pointer) % 16U != 0U) {
+      return false;
+    }
+  }
+  constexpr std::array<std::uint64_t, 4U> widths{{
+      5'120U, 12'288U, 1'024U, 1'024U}};
+  std::array<Sm87TargetAotFp8CudaByteRange, 5U> ranges{};
+  for (std::size_t index = 0U; index < pointers.size(); ++index) {
+    ranges[index] = sm87_target_aot_fp8_cuda_byte_range(
+        pointers[index],
+        static_cast<std::uint64_t>(arguments.token_count) * widths[index] *
+            sizeof(std::uint16_t));
+  }
+  ranges[4U] = {arguments.asset.payload.begin, arguments.asset.payload.end,
+                arguments.asset.payload.valid};
+  for (std::size_t first = 0U; first < ranges.size(); ++first) {
+    if (!ranges[first].valid) {
+      return false;
+    }
+    for (std::size_t second = first + 1U; second < ranges.size(); ++second) {
+      if (sm87_target_aot_fp8_cuda_ranges_overlap(ranges[first],
+                                                   ranges[second])) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] int launch_authenticated_fp8_full_qkv_scatter_body(
+    const sm87_target_aot_projection_execution_detail::
+        Sm87TargetAotFp8FullQkvScatterArguments& arguments) noexcept {
+  if (!scatter_arguments_valid(arguments)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const cudaError_t device_status = validate_fixed_device();
+  if (device_status != cudaSuccess) {
+    return static_cast<int>(device_status);
+  }
+  const auto& upload = arguments.asset.device_upload_receipt;
+  int current_device = -1;
+  const cudaError_t current_status = cudaGetDevice(&current_device);
+  if (current_status != cudaSuccess) {
+    return static_cast<int>(current_status);
+  }
+  const std::array<const void*, 5U> pointers{{
+      reinterpret_cast<const void*>(arguments.asset.payload.begin),
+      arguments.input, arguments.q_gate_output, arguments.key_output,
+      arguments.value_output}};
+  if (current_device != upload.device_ordinal) {
+    return static_cast<int>(cudaErrorInvalidDevicePointer);
+  }
+  for (const void* const pointer : pointers) {
+    if (!exact_device_pointer(pointer, upload.device_ordinal)) {
+      return static_cast<int>(cudaErrorInvalidDevicePointer);
+    }
+  }
+  const cudaError_t attribute_status = set_dynamic_shared(
+      Sm87TargetAotProjectionRole::kFp8FullQkv);
+  if (attribute_status != cudaSuccess) {
+    return static_cast<int>(attribute_status);
+  }
+  float compensated_scales[3U]{};
+  for (std::size_t index = 0U; index < 3U; ++index) {
+    const std::uint32_t bits = static_cast<std::uint32_t>(
+                                   arguments.asset
+                                       .compensated_tensor_scale_bf16_bits[
+                                           index])
+                               << 16U;
+    std::memcpy(&compensated_scales[index], &bits, sizeof(float));
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  (void)cudaGetLastError();
+  sm87_target_aot_fp8_kernel<
+      Sm87TargetAotProjectionRole::kFp8FullQkv,
+      5'120U, 14'336U, 80U, 2U, 3U>
+      <<<kPersistentCtas, kThreads, kSm87TargetAotFp8SharedBytes, stream>>>(
+          arguments.input,
+          reinterpret_cast<const std::uint8_t*>(arguments.asset.payload.begin),
+          static_cast<unsigned int>(arguments.token_count),
+          compensated_scales[0U], compensated_scales[1U],
+          compensated_scales[2U], arguments.q_gate_output,
+          arguments.key_output, arguments.value_output, true);
   return static_cast<int>(cudaPeekAtLastError());
 }
 
@@ -705,5 +833,19 @@ int launch_sm87_target_aot_fp8_cuda(
   }
   return static_cast<int>(cudaErrorNotSupported);
 }
+
+namespace sm87_target_aot_projection_execution_detail {
+
+int launch_authenticated_fp8(
+    const Sm87TargetAotFp8CudaArguments& arguments) noexcept {
+  return launch_authenticated_fp8_body(arguments);
+}
+
+int launch_authenticated_fp8_full_qkv_scatter(
+    const Sm87TargetAotFp8FullQkvScatterArguments& arguments) noexcept {
+  return launch_authenticated_fp8_full_qkv_scatter_body(arguments);
+}
+
+}  // namespace sm87_target_aot_projection_execution_detail
 
 }  // namespace q3x::kernels
