@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 project(Q3xInstalledEngineConsumer LANGUAGES CXX)
 
 include(CTest)
-find_package(Qwen3xOrin 0.4.0 EXACT CONFIG REQUIRED)
+find_package(Qwen3xOrin 0.5.0 EXACT CONFIG REQUIRED)
 
 add_executable(q3x_installed_engine_consumer main.cpp)
 target_compile_features(q3x_installed_engine_consumer PRIVATE cxx_std_17)

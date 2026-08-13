@@ -25,7 +25,7 @@ int main() {
           q3x::runtime::ProjectionBackend::kReference ||
       one_shot_options.projection_backend !=
           q3x::runtime::ProjectionBackend::kReference ||
-      Q3X_VERSION_MAJOR != 0 || Q3X_VERSION_MINOR != 4 ||
+      Q3X_VERSION_MAJOR != 0 || Q3X_VERSION_MINOR != 5 ||
       Q3X_VERSION_PATCH != 0 ||
       q3x::runtime::kMaximumRequestPrefillChunkSize != 512U) {
     return 1;
