@@ -1606,6 +1606,24 @@ void test_complete_engine_route_contract(TestContext& test) {
       "the target route cannot be mixed with a legacy layer-major route");
 }
 
+void test_bounded_prefill_cancellation_closes_without_500(TestContext& test) {
+  using q3x::runtime::ReferenceEngineError;
+  test.expect(
+      server::close_cancelled_generation_without_error_response(
+          false, false, ReferenceEngineError::kCancelled),
+      "an engine-observed bounded cancellation closes without a 500 response");
+  test.expect(
+      server::close_cancelled_generation_without_error_response(
+          true, false, ReferenceEngineError::kRunnerStepFailure) &&
+          server::close_cancelled_generation_without_error_response(
+              false, true, ReferenceEngineError::kRunnerStepFailure),
+      "disconnect and shutdown also close an unpublished response");
+  test.expect(
+      !server::close_cancelled_generation_without_error_response(
+          false, false, ReferenceEngineError::kRunnerStepFailure),
+      "a real runner failure is not hidden by the cancellation policy");
+}
+
 }  // namespace
 
 int main() {
@@ -1618,6 +1636,7 @@ int main() {
   test_target_prefill_witness_evidence(test);
   test_prefill_tactic_defaults_remain_exact(test);
   test_complete_engine_route_contract(test);
+  test_bounded_prefill_cancellation_closes_without_500(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " OpenAI protocol test(s) failed\n";
     return 1;

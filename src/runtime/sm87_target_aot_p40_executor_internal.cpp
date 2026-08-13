@@ -808,7 +808,8 @@ Sm87TargetAotP40ExecutorBindResult Sm87TargetAotP40Executor::bind(
 Sm87TargetAotP40ExecutionResult Sm87TargetAotP40Executor::execute(
     const std::uint32_t* const host_prompt_token_ids,
     const std::size_t prompt_tokens,
-    const std::size_t requested_handoff_tokens) noexcept {
+    const std::size_t requested_handoff_tokens,
+    const Sm87TargetAotP40ExecutionControl& control) noexcept {
   Sm87TargetAotP40ExecutionResult result;
   result.receipt.prompt_tokens = prompt_tokens;
   result.receipt.requested_handoff_tokens = requested_handoff_tokens;
@@ -816,12 +817,14 @@ Sm87TargetAotP40ExecutionResult Sm87TargetAotP40Executor::execute(
     !defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) || \
     !defined(Q3X_ENABLE_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION)
   (void)host_prompt_token_ids;
+  (void)control;
   result.status = status(Sm87TargetAotP40ExecutorError::kAdmissionDisabled,
                          "executor_admission_not_compiled");
   return result;
 #else
   if (model_weights_ == nullptr || request_owner_ == nullptr ||
       host_prompt_token_ids == nullptr ||
+      !control.valid() ||
       !sm87_target_aot_p40_exact_request_shape(prompt_tokens,
                                                requested_handoff_tokens)) {
     result.status = status(
@@ -885,6 +888,18 @@ Sm87TargetAotP40ExecutionResult Sm87TargetAotP40Executor::execute(
   auto record_failure = [&]() {
     return cancel_after_failure(transaction, std::move(result));
   };
+  auto cancel_requested = [&](const char* const context,
+                              const std::size_t layer) {
+    result.status = status(Sm87TargetAotP40ExecutorError::kCancelled,
+                           context, layer);
+    return cancel_after_failure(transaction, std::move(result));
+  };
+
+  if (control.cancellation_probe != nullptr &&
+      control.cancellation_probe(control.cancellation_context)) {
+    return cancel_requested("cancelled_before_target_aot_submission",
+                            kSm87TargetAotP40LayerCount);
+  }
 
   const cudaError_t copy_status = cudaMemcpyAsync(
       snapshot->token_ids.device_data, host_prompt_token_ids,
@@ -1279,7 +1294,38 @@ Sm87TargetAotP40ExecutionResult Sm87TargetAotP40Executor::execute(
                       &result, "layer_complete")) {
       return record_failure();
     }
+
+    // LayerComplete is recorded on the owner stream after every arithmetic
+    // and state write in this layer. Waiting on that owner-private event keeps
+    // at most one layer queued, turns completion into a host-visible safe
+    // point, and leaves every arithmetic/publication boundary unchanged.
+    const auto waited =
+        RequestAccess::wait_layer_completion(transaction, layer_index);
+    if (!waited) {
+      result.status = status(
+          Sm87TargetAotP40ExecutorError::kTransactionWaitFailure,
+          "wait_layer_complete", layer_index, waited.cuda_error,
+          waited.code);
+      return record_failure();
+    }
     ++result.receipt.completed_layers;
+    if (control.progress_observer != nullptr) {
+      const Sm87TargetAotP40ProgressEvent progress{
+          transaction.transaction_epoch(),
+          layer_index,
+          result.receipt.completed_layers,
+          kSm87TargetAotP40LayerCount,
+          layer.kind == Sm87TargetAotRequestLayerKind::kFullAttention
+              ? Sm87TargetAotP40ProgressLayerKind::kFullAttention
+              : Sm87TargetAotP40ProgressLayerKind::kGdn,
+      };
+      control.progress_observer(control.progress_context, progress);
+    }
+    if (control.cancellation_probe != nullptr &&
+        control.cancellation_probe(control.cancellation_context)) {
+      return cancel_requested("cancelled_after_target_aot_layer",
+                              layer_index);
+    }
   }
 
   if (!record_global(transaction, GlobalPoint::kAllLayersComplete, &result,
@@ -1388,6 +1434,15 @@ Sm87TargetAotP40ExecutionResult Sm87TargetAotP40Executor::execute(
   }
   result.receipt.finalization =
       Sm87TargetAotP40Finalization::kHandoffReady;
+
+  // The validated handoff is still transaction-private. A disconnect or
+  // shutdown observed here wins before the single request-wide commit and
+  // publishes the owner cancellation word through cancel().
+  if (control.cancellation_probe != nullptr &&
+      control.cancellation_probe(control.cancellation_context)) {
+    return cancel_requested("cancelled_before_target_aot_commit",
+                            kSm87TargetAotP40LayerCount);
+  }
 
   // Persistent KV/GDN state was written transaction-privately throughout the
   // layer loop.  This terminal event now covers those writes together with

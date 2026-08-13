@@ -359,6 +359,28 @@ struct ReferenceTokenEvent {
 using ReferenceTokenObserver = bool (*)(
     void* context, const ReferenceTokenEvent& event) noexcept;
 
+enum class ReferencePrefillProgressLayerKind : std::uint8_t {
+  kGdn = 0U,
+  kFullAttention,
+};
+
+// Target-AOT progress is reported only after the owner-issued LayerComplete
+// event has finished on the device. It is observational and carries no state
+// publication or cancellation authority.
+struct ReferencePrefillProgressEvent {
+  ReferenceGenerationRoute generation_route =
+      ReferenceGenerationRoute::kReference;
+  std::uint64_t transaction_epoch = 0U;
+  std::size_t completed_layer_index = kReferenceNoLayer;
+  std::size_t completed_layers = 0U;
+  std::size_t total_layers = 0U;
+  ReferencePrefillProgressLayerKind layer_kind =
+      ReferencePrefillProgressLayerKind::kGdn;
+};
+
+using ReferencePrefillProgressObserver = void (*)(
+    void* context, const ReferencePrefillProgressEvent& event) noexcept;
+
 struct ReferenceGenerateOptions {
   std::uint32_t max_new_tokens = 16U;
   bool capture_trace = false;
@@ -391,6 +413,10 @@ struct ReferenceGenerateOptions {
   ReferenceWholeRequestPrefillOptions::CancellationProbe
       prefill_cancellation_probe = nullptr;
   void* prefill_cancellation_context = nullptr;
+  // Optional target-AOT-only host progress observer. Fields remain append-only
+  // so the historical token-observer aggregate positions stay unchanged.
+  ReferencePrefillProgressObserver prefill_progress_observer = nullptr;
+  void* prefill_progress_context = nullptr;
 };
 
 enum class ReferenceStopReason : std::uint8_t {

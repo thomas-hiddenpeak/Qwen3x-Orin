@@ -1696,6 +1696,66 @@ Sm87TargetAotRequestStateAccess::record_layer_completion(
 }
 
 ExecutionTransactionStatus
+Sm87TargetAotRequestStateAccess::wait_layer_completion(
+    const OwnerBoundExecutionTransaction& transaction,
+    const std::size_t layer) noexcept {
+#if !defined(Q3X_ENABLE_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION)
+  (void)transaction;
+  (void)layer;
+  return transaction_error(ExecutionTransactionError::kAdmissionDisabled,
+                           "target_aot_request_state_admission_disabled");
+#else
+  if (transaction.owner_ == nullptr || transaction.owner_->impl_ == nullptr) {
+    return transaction_error(ExecutionTransactionError::kOwnerInvalid,
+                             "null_layer_wait_owner");
+  }
+  auto& impl = *transaction.owner_->impl_;
+  NonConcurrentOperation operation(impl.operation_active);
+  if (!operation) {
+    return transaction_error(ExecutionTransactionError::kConcurrentAccess,
+                             "request_state_concurrent_layer_wait");
+  }
+  if (transaction.cuda_stream_ != static_cast<void*>(impl.stream) ||
+      transaction.stream_identity_ != impl.stream_identity ||
+      transaction.allocation_identity_ !=
+          impl.snapshot.allocation_identity ||
+      transaction.device_cancellation_signal_ != impl.cancellation_device ||
+      transaction.cancellation_signal_identity_ !=
+          impl.cancellation_signal_identity ||
+      transaction.admission_epoch_ != impl.snapshot.epochs.admission_epoch ||
+      transaction.transaction_epoch_ != impl.execution.transaction_epoch ||
+      impl.snapshot.transaction_phase != impl.execution.phase) {
+    return transaction_error(ExecutionTransactionError::kTransactionMismatch,
+                             "layer_wait_owner_binding_mismatch");
+  }
+  if (layer >= kSm87TargetAotP40LayerCount ||
+      impl.execution.phase !=
+          Sm87TargetAotRequestTransactionPhase::kPrefillActiveUnpublished ||
+      impl.execution.next_layer <= layer ||
+      impl.execution.next_layer_completion != 0U) {
+    return transaction_error(ExecutionTransactionError::kCompletionIncomplete,
+                             "layer_wait_requires_recorded_layer_complete");
+  }
+  const std::size_t event_index =
+      layer * kSm87TargetAotP40LayerEventCount +
+      static_cast<std::size_t>(LayerCompletionPoint::kLayerComplete);
+  if (impl.event_record_epochs[event_index] !=
+      transaction.transaction_epoch_) {
+    return transaction_error(ExecutionTransactionError::kCompletionIncomplete,
+                             "layer_wait_requires_current_event_generation");
+  }
+  const cudaError_t status = cudaEventSynchronize(impl.events[event_index]);
+  if (status != cudaSuccess) {
+    return transaction_error(
+        ExecutionTransactionError::kCudaEventSynchronizeFailure,
+        "cudaEventSynchronize(target_aot_layer_complete)",
+        static_cast<int>(status));
+  }
+  return transaction_ok();
+#endif
+}
+
+ExecutionTransactionStatus
 Sm87TargetAotRequestStateAccess::record_global_completion(
     const OwnerBoundExecutionTransaction& transaction,
     const GlobalCompletionPoint point) noexcept {

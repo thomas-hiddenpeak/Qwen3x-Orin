@@ -141,6 +141,18 @@ validate_evaluation_server_engine_route_contract(
   return "unknown complete-engine route contract error";
 }
 
+// A bounded Prefill cancellation publishes no partial response.  The worker
+// closes the event stream instead of relabelling the expected cancellation as
+// an internal server failure, even if the caller flag changes between the
+// probe and result handling.
+[[nodiscard]] constexpr bool
+close_cancelled_generation_without_error_response(
+    const bool request_cancelled, const bool server_stopping,
+    const runtime::ReferenceEngineError diagnostic) noexcept {
+  return request_cancelled || server_stopping ||
+         diagnostic == runtime::ReferenceEngineError::kCancelled;
+}
+
 // Loads one resident model, starts a bounded HTTP ingress and exactly one
 // inference worker, and blocks until stop_requested becomes true or a fatal
 // server error occurs. The listener is not exposed until model loading has

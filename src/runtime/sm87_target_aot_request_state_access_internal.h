@@ -266,6 +266,12 @@ class Sm87TargetAotRequestStateAccess final {
   [[nodiscard]] static ExecutionTransactionStatus record_layer_completion(
       const OwnerBoundExecutionTransaction& transaction, std::size_t layer,
       LayerCompletionPoint point) noexcept;
+  // Waits only on the owner-issued LayerComplete event for this transaction
+  // generation.  The raw event remains private and no ledger transition is
+  // manufactured by the host wait.
+  [[nodiscard]] static ExecutionTransactionStatus wait_layer_completion(
+      const OwnerBoundExecutionTransaction& transaction,
+      std::size_t layer) noexcept;
   [[nodiscard]] static ExecutionTransactionStatus record_global_completion(
       const OwnerBoundExecutionTransaction& transaction,
       GlobalCompletionPoint point) noexcept;

@@ -644,12 +644,54 @@ struct ObserverContext {
   bool protocol_failure = false;
   std::string protocol_failure_message;
   std::optional<Clock::time_point> first_token_committed_at;
+  std::optional<Clock::time_point> prefill_progress_started_at;
+  std::optional<Clock::time_point> previous_prefill_progress_at;
 };
 
 bool prefill_cancelled(void* const opaque) noexcept {
   const auto& context = *static_cast<const ObserverContext*>(opaque);
   return context.job->cancelled.load(std::memory_order_relaxed) ||
          context.stopping->load(std::memory_order_relaxed);
+}
+
+void observe_target_aot_prefill_progress(
+    void* const opaque,
+    const runtime::ReferencePrefillProgressEvent& progress) noexcept {
+  auto& context = *static_cast<ObserverContext*>(opaque);
+  try {
+    const Clock::time_point observed_at = Clock::now();
+    const double elapsed = context.prefill_progress_started_at.has_value()
+                               ? elapsed_milliseconds(
+                                     *context.prefill_progress_started_at,
+                                     observed_at)
+                               : 0.0;
+    const double delta = context.previous_prefill_progress_at.has_value()
+                             ? elapsed_milliseconds(
+                                   *context.previous_prefill_progress_at,
+                                   observed_at)
+                             : elapsed;
+    context.previous_prefill_progress_at = observed_at;
+    std::ostringstream record;
+    record << "target_aot_progress_v1"
+           << " request_id=" << context.job->id
+           << " route=" << runtime::to_string(progress.generation_route)
+           << " transaction_epoch=" << progress.transaction_epoch
+           << " completed_layer_index=" << progress.completed_layer_index
+           << " completed_layers=" << progress.completed_layers
+           << " total_layers=" << progress.total_layers
+           << " elapsed_ms=" << elapsed
+           << " layer_delta_ms=" << delta
+           << " layer_kind="
+           << (progress.layer_kind ==
+                       runtime::ReferencePrefillProgressLayerKind::
+                           kFullAttention
+                   ? "full_attention"
+                   : "gdn");
+    std::cerr << record.str() << '\n';
+  } catch (...) {
+    // Progress is observational. It must never change model execution or the
+    // request's success/cancellation semantics.
+  }
 }
 
 bool observe_gateway_token(
@@ -1060,13 +1102,26 @@ void execute_job(runtime::ReferenceEngine& engine,
   generate_options.emit_nvtx_phase_ranges =
       options.emit_nvtx_phase_ranges;
   if (options.prefill_execution_mode == runtime::
-          ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
+          ReferencePrefillExecutionMode::kWholeRequestLayerMajor ||
+      options.engine_route ==
+          runtime::ReferenceGenerationRoute::kSm87TargetAotP40) {
     generate_options.prefill_cancellation_probe = prefill_cancelled;
     generate_options.prefill_cancellation_context = &observer;
+  }
+  if (options.engine_route ==
+      runtime::ReferenceGenerationRoute::kSm87TargetAotP40) {
+    generate_options.prefill_progress_observer =
+        observe_target_aot_prefill_progress;
+    generate_options.prefill_progress_context = &observer;
   }
 
   runtime::ReferenceGenerateResult generated;
   const Clock::time_point generation_started_at = Clock::now();
+  if (options.engine_route ==
+      runtime::ReferenceGenerationRoute::kSm87TargetAotP40) {
+    observer.prefill_progress_started_at = generation_started_at;
+    observer.previous_prefill_progress_at = generation_started_at;
+  }
   switch (job->request.prompt_kind) {
     case OpenAIPromptKind::kChatMessages:
       generated = engine.generate_chat(job->request.messages,
@@ -1091,8 +1146,10 @@ void execute_job(runtime::ReferenceEngine& engine,
         stopping);
     return;
   }
-  if (job->cancelled.load(std::memory_order_relaxed) ||
-      stopping.load(std::memory_order_relaxed)) {
+  if (close_cancelled_generation_without_error_response(
+          job->cancelled.load(std::memory_order_relaxed),
+          stopping.load(std::memory_order_relaxed),
+          generated.diagnostic.code)) {
     if (!generated) {
       std::cerr << "evaluation request " << job->id
                 << (generated.diagnostic.code ==

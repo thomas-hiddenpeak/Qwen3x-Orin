@@ -1826,7 +1826,11 @@ void test_nvtx_phase_ranges_preserve_control_semantics(TestContext& test) {
   const runtime::ReferenceGenerateOptions default_generate_options;
   const detail::GenerationControlOptions default_control_options;
   test.expect(!default_generate_options.emit_nvtx_phase_ranges &&
-                  !default_control_options.emit_nvtx_phase_ranges,
+                  !default_control_options.emit_nvtx_phase_ranges &&
+                  default_generate_options.prefill_progress_observer ==
+                      nullptr &&
+                  default_generate_options.prefill_progress_context ==
+                      nullptr,
               "NVTX phase ranges are disabled by default");
   test.expect(baseline && with_nvtx &&
                   baseline_fake.phase_calls == nvtx_fake.phase_calls &&

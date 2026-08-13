@@ -27,6 +27,7 @@ static_assert(kContract.layer_completion_events == 512U);
 static_assert(kContract.global_completion_events == 7U);
 static_assert(kContract.producer_lanes == 2U);
 static_assert(kContract.producer_join_event_slots == 2U);
+static_assert(kContract.maximum_queued_layers == 1U);
 static_assert(kContract.producer_launches_initially_serial);
 static_assert(!kContract.producer_parallelism_claimed);
 static_assert(!kContract.mtp_permitted);
@@ -34,6 +35,9 @@ static_assert(!kContract.fallback_permitted);
 static_assert(!kContract.cublaslt_permitted);
 static_assert(!kContract.jit_permitted);
 static_assert(kContract.final_handoff_callable);
+static_assert(kContract.owner_validated_layer_wait);
+static_assert(kContract.cancellation_probe_after_each_layer);
+static_assert(kContract.cancellation_word_published_on_cancel);
 static_assert(!std::is_default_constructible_v<
               executor::Sm87TargetAotP40Executor>);
 static_assert(!std::is_copy_constructible_v<
@@ -162,6 +166,44 @@ void test_committed_handoff_is_the_only_success(TestContext& test) {
               "an observed nonfinite logit cancels instead of publishing");
 }
 
+bool never_cancel(void*) noexcept { return false; }
+
+void discard_progress(
+    void*, const executor::Sm87TargetAotP40ProgressEvent&) noexcept {}
+
+void test_liveness_control_contract(TestContext& test) {
+  executor::Sm87TargetAotP40ExecutionControl control;
+  test.expect(control.valid(),
+              "callbacks are optional while layer completion waits remain active");
+
+  control.cancellation_context = &control;
+  test.expect(!control.valid(),
+              "a cancellation context cannot manufacture a cancellation probe");
+  control.cancellation_probe = never_cancel;
+  test.expect(control.valid(),
+              "an existing cancellation probe and context are admitted");
+
+  control.progress_context = &control;
+  test.expect(!control.valid(),
+              "a progress context cannot manufacture completion authority");
+  control.progress_observer = discard_progress;
+  test.expect(control.valid(),
+              "an observational progress callback and context are admitted");
+
+  const executor::Sm87TargetAotP40ProgressEvent progress{
+      7U,
+      2U,
+      3U,
+      kContract.layers,
+      executor::Sm87TargetAotP40ProgressLayerKind::kGdn,
+  };
+  test.expect(progress.transaction_epoch == 7U &&
+                  progress.completed_layer_index == 2U &&
+                  progress.completed_layers == 3U &&
+                  progress.total_layers == 64U,
+              "progress identifies one completed owner event generation");
+}
+
 void test_admission_binary_links_executor(TestContext& test) {
 #if defined(Q3X_EXPECT_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
   // Taking the address of this non-inline definition forces the admission
@@ -192,6 +234,7 @@ int main() {
   test_canonical_layer_and_panel_schedule(test);
   test_final_handoff_scratch_lifetime(test);
   test_committed_handoff_is_the_only_success(test);
+  test_liveness_control_contract(test);
   test_admission_binary_links_executor(test);
   if (test.failures() != 0) {
     return 1;

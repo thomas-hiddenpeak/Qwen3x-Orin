@@ -103,6 +103,7 @@ struct Sm87TargetAotP40ExecutionContract final {
   std::size_t global_completion_events = 0U;
   std::size_t producer_lanes = 0U;
   std::size_t producer_join_event_slots = 0U;
+  std::size_t maximum_queued_layers = 0U;
   bool exact_p40000_only = false;
   bool cold_request_only = false;
   bool one_owner_stream = false;
@@ -113,6 +114,9 @@ struct Sm87TargetAotP40ExecutionContract final {
   bool cublaslt_permitted = true;
   bool jit_permitted = true;
   bool final_handoff_callable = true;
+  bool owner_validated_layer_wait = false;
+  bool cancellation_probe_after_each_layer = false;
+  bool cancellation_word_published_on_cancel = false;
 
   [[nodiscard]] constexpr bool valid() const noexcept {
     return prompt_tokens == kSm87TargetAotP40PromptTokens &&
@@ -136,11 +140,14 @@ struct Sm87TargetAotP40ExecutionContract final {
            producer_lanes == kSm87TargetAotP40ProducerLanes &&
            producer_join_event_slots ==
                kSm87TargetAotP40ProducerJoinEventSlots &&
+           maximum_queued_layers == 1U &&
            exact_p40000_only && cold_request_only && one_owner_stream &&
            producer_launches_initially_serial &&
            !producer_parallelism_claimed && !mtp_permitted &&
            !fallback_permitted && !cublaslt_permitted && !jit_permitted &&
-           final_handoff_callable;
+           final_handoff_callable && owner_validated_layer_wait &&
+           cancellation_probe_after_each_layer &&
+           cancellation_word_published_on_cancel;
   }
 };
 
@@ -159,6 +166,7 @@ sm87_target_aot_p40_execution_contract() noexcept {
       kSm87TargetAotP40GlobalEventCount,
       kSm87TargetAotP40ProducerLanes,
       kSm87TargetAotP40ProducerJoinEventSlots,
+      1U,
       true,
       true,
       true,
@@ -168,6 +176,9 @@ sm87_target_aot_p40_execution_contract() noexcept {
       false,
       false,
       false,
+      true,
+      true,
+      true,
       true,
   };
 }
@@ -205,7 +216,9 @@ enum class Sm87TargetAotP40ExecutorError : std::uint8_t {
   kLiveAssetValidationFailure,
   kCudaOperationFailure,
   kTransactionRecordFailure,
+  kTransactionWaitFailure,
   kInvalidHandoffResult,
+  kCancelled,
   kTransactionCancelFailure,
 };
 
@@ -237,6 +250,36 @@ enum class Sm87TargetAotP40Finalization : std::uint8_t {
   kLogitsReady,
   kHandoffReady,
   kCommitted,
+};
+
+enum class Sm87TargetAotP40ProgressLayerKind : std::uint8_t {
+  kGdn = 0U,
+  kFullAttention,
+};
+
+struct Sm87TargetAotP40ProgressEvent final {
+  std::uint64_t transaction_epoch = 0U;
+  std::size_t completed_layer_index = kSm87TargetAotP40LayerCount;
+  std::size_t completed_layers = 0U;
+  std::size_t total_layers = kSm87TargetAotP40LayerCount;
+  Sm87TargetAotP40ProgressLayerKind layer_kind =
+      Sm87TargetAotP40ProgressLayerKind::kGdn;
+};
+
+using Sm87TargetAotP40CancellationProbe = bool (*)(void* context) noexcept;
+using Sm87TargetAotP40ProgressObserver = void (*)(
+    void* context, const Sm87TargetAotP40ProgressEvent& event) noexcept;
+
+struct Sm87TargetAotP40ExecutionControl final {
+  Sm87TargetAotP40CancellationProbe cancellation_probe = nullptr;
+  void* cancellation_context = nullptr;
+  Sm87TargetAotP40ProgressObserver progress_observer = nullptr;
+  void* progress_context = nullptr;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return (cancellation_probe != nullptr || cancellation_context == nullptr) &&
+           (progress_observer != nullptr || progress_context == nullptr);
+  }
 };
 
 struct Sm87TargetAotP40ExecutionReceipt final {
@@ -312,7 +355,8 @@ class Sm87TargetAotP40Executor final {
       const std::uint32_t* host_prompt_token_ids,
       std::size_t prompt_tokens,
       std::size_t requested_handoff_tokens =
-          kSm87TargetAotP40HandoffTokens) noexcept;
+          kSm87TargetAotP40HandoffTokens,
+      const Sm87TargetAotP40ExecutionControl& control = {}) noexcept;
 
  private:
   using ProjectionAccess =

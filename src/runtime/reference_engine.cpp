@@ -62,6 +62,34 @@ thread_local reference_runner_detail::
 
 using Clock = std::chrono::steady_clock;
 
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+struct TargetAotProgressObserverContext final {
+  ReferencePrefillProgressObserver observer = nullptr;
+  void* observer_context = nullptr;
+};
+
+void observe_target_aot_progress(
+    void* const opaque,
+    const sm87_target_aot_p40_executor_detail::
+        Sm87TargetAotP40ProgressEvent& event) noexcept {
+  const auto& context =
+      *static_cast<const TargetAotProgressObserverContext*>(opaque);
+  ReferencePrefillProgressEvent public_event;
+  public_event.generation_route =
+      ReferenceGenerationRoute::kSm87TargetAotP40;
+  public_event.transaction_epoch = event.transaction_epoch;
+  public_event.completed_layer_index = event.completed_layer_index;
+  public_event.completed_layers = event.completed_layers;
+  public_event.total_layers = event.total_layers;
+  public_event.layer_kind =
+      event.layer_kind == sm87_target_aot_p40_executor_detail::
+                              Sm87TargetAotP40ProgressLayerKind::kFullAttention
+          ? ReferencePrefillProgressLayerKind::kFullAttention
+          : ReferencePrefillProgressLayerKind::kGdn;
+  context.observer(context.observer_context, public_event);
+}
+#endif
+
 inline constexpr std::uint32_t kProductionDecodeGraphFirstPosition = 19U;
 inline constexpr std::uint32_t kProductionDecodeGraphLastPosition = 43U;
 inline constexpr std::uint32_t kProductionDecodeGraphCaptureTokenId = 0U;
@@ -7628,7 +7656,9 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
       (options.token_observer == nullptr &&
        options.token_observer_context != nullptr) ||
       (options.prefill_cancellation_probe == nullptr &&
-       options.prefill_cancellation_context != nullptr)) {
+       options.prefill_cancellation_context != nullptr) ||
+      (options.prefill_progress_observer == nullptr &&
+       options.prefill_progress_context != nullptr)) {
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "generation_options",
         "prompt tokens must be non-empty, max_new_tokens must be positive, "
@@ -7653,16 +7683,14 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
         options.use_prepared_decode_graph_cache ||
         options.prefill_execution_mode !=
             ReferencePrefillExecutionMode::kLegacyC512Tiled ||
-        options.prefill_cancellation_probe != nullptr ||
-        options.prefill_cancellation_context != nullptr ||
         impl_->target_aot_request_state == nullptr ||
         impl_->target_aot_executor == nullptr) {
       result.diagnostic = engine_diagnostic(
           ReferenceEngineError::kInvalidArgument,
           "target_aot_generation_options",
           "sm87-target-aot-p40 admits exactly 40000 prompt tokens, one "
-          "predicted-only output token, trace/graph/cancellation disabled, "
-          "and no legacy layer-major selector");
+          "predicted-only output token, trace/graph disabled, and no legacy "
+          "layer-major selector");
       return result;
     }
     try {
@@ -7678,16 +7706,36 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
       }
 
       const Clock::time_point execute_begin = Clock::now();
+      sm87_target_aot_p40_executor_detail::
+          Sm87TargetAotP40ExecutionControl execution_control;
+      execution_control.cancellation_probe =
+          options.prefill_cancellation_probe;
+      execution_control.cancellation_context =
+          options.prefill_cancellation_context;
+      TargetAotProgressObserverContext progress_context;
+      if (options.prefill_progress_observer != nullptr) {
+        progress_context.observer = options.prefill_progress_observer;
+        progress_context.observer_context =
+            options.prefill_progress_context;
+        execution_control.progress_observer = observe_target_aot_progress;
+        execution_control.progress_context = &progress_context;
+      }
       const auto executed = impl_->target_aot_executor->execute(
-          prompt_token_ids.data(), prompt_token_ids.size(), 1U);
+          prompt_token_ids.data(), prompt_token_ids.size(), 1U,
+          execution_control);
       const double execute_milliseconds =
           elapsed_milliseconds(execute_begin);
       if (!executed) {
         result.diagnostic = engine_diagnostic(
-            ReferenceEngineError::kRunnerStepFailure,
+            executed.status.code == sm87_target_aot_p40_executor_detail::
+                                        Sm87TargetAotP40ExecutorError::kCancelled
+                ? ReferenceEngineError::kCancelled
+                : ReferenceEngineError::kRunnerStepFailure,
             "target_aot_p40_execute", executed.status.context);
         result.diagnostic.cuda_error = executed.status.cuda_error;
         result.diagnostic.layer = executed.status.layer;
+        result.diagnostic.retired_prefill_quanta =
+            executed.receipt.completed_layers;
         return result;
       }
       const auto& receipt = executed.receipt;
@@ -7825,6 +7873,14 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     }
   }
 #endif
+  if (options.prefill_progress_observer != nullptr) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument,
+        "prefill_progress_observer",
+        "the layer progress observer is available only for the "
+        "sm87-target-aot-p40 route");
+    return result;
+  }
   if (options.capture_trace && !impl_->trace_enabled) {
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "generation_options",
