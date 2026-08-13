@@ -144,7 +144,7 @@ The principal audited loci are:
 | vLLM ModelOpt W4A16 selection | W4A16 is distinct from native W4A4; BF16 A, packed E2M1/E4M3 scales, exact role boundaries | General backend registry and automatic fallback order | Bind every NVFP4/FP8 role to one explicit SM87 launcher and fail closed | Accidentally attributing a W4A4/native-FP4 result to the W4A16 route |
 | Humming SM8x W4A16 | Static N/K/layout, M buckets, packed B+scale through global/shared movement, register decode immediately before BF16 MMA, multistage load/decode/MMA, persistent scheduler, L2-aware raster | Runtime source generation, cubin cache/load, generic palette, NVML discovery | Generate fixed cubins offline; freeze role-specific layout, M range, tile, stages, CTA residency, Stream-K/raster, compiler and SASS identity | Reusing one Gate tactic for K-heavy Down or reproducing only the tile while omitting the pipeline |
 | Triton/vLLM kernels | Packed load, local unpack/dequant, dot ownership, masked tails, fused consumer boundaries, and shape heuristics | Runtime Triton JIT plus the audited ROCm/GPTQ W4A16 or same-dtype scaled-MM contracts | Use only the transferable fusion and ownership ideas; express an independently derived NVFP4/FP8 result as native AOT C++/CUDA | Copying GPTQ/ROCm scales, W8A8 semantics, or a fixed tile into the ModelOpt W4A16 path |
-| FlashInfer FA2 Prefill | Packed-Q GQA reuse, swizzled shared K/V, `cp.async`, BF16 HMMA QK/PV, FP32 online-softmax state, no score matrix | Template/JIT URI, paged-cache generality, dynamic plan buffers, FA3-only resources | Fixed Q24/KV4/D256/NHD/causal AOT plan; retain a Q64/KV32 control and design one larger effective-Q producer/consumer candidate | Rewriting the current Q64 path without reducing K/V reload, or changing the reduction/publication contract |
+| FlashInfer FA2 Prefill | Packed-Q GQA reuse, swizzled shared K/V, `cp.async`, BF16 HMMA QK/PV, FP32 online-softmax state, no score matrix | Template/JIT URI, paged-cache generality, dynamic plan buffers, FA3-only resources | Fixed Q24/KV4/D256/NHD/causal AOT plan; retain the Q64/KV32 incumbent control and the exact Q128/KV32 body, then schedule the latter as a 16-SM persistent L2 cohort | Rewriting Q64 in place, claiming Q256 despite the FP32-output-state resource closure, or changing the reduction/publication contract |
 | FLA gated delta rule | Q/K work sharing, bounded C16/C32/C64 work graph, producer preparation, boundary-state ownership, adjacent output consumer | FP32 authoritative state across a chunk, WY/KKT associative state transform, global intermediate tensors | Keep the exact token-serial BF16 state core; fuse/shared-stage QK, gate, convolution, RMSNorm/SiLU, and O-projection boundaries around it | Deferring per-token BF16 state rounding or materializing multi-GB FLA intermediates |
 | Mamba selective scan/SSD | Local work, explicit boundary state, state pass, and output reconstruction as separate schedulable phases | Associative FP32 scan state and model-specific recurrence | Use the work-graph decomposition and fixed resource planning without replacing the Qwen GDN transition | Calling a real-number associative scan bitwise-equivalent to the rounded recurrence |
 | qwen35-thor | Separate Prefill/Decode entry points, model-specific chunk size, bulk Attention, persistent handles/workspace | SM110 TMA/UMMA/cluster mechanisms and its hardware/model thresholds | Preserve the separation and static workspace plan; translate physical work to SM87 primitives | Copying Thor thresholds, materialized score storage, or hardware-specific mechanisms |
@@ -226,33 +226,51 @@ one-pass INT4 upper-bound assumption, so no IMMA sidecar or kernel is selected.
 The authentic checkpoint provides no alternative K16 dictionary shortcut:
 early, middle, and terminal layer searches find zero repeated packed-code
 keys in more than fifty million Gate/Up/Down block instances, even with scale
-ignored. Projection work therefore pauses at a matched executed-work and
-route ledger rather than producing another nominal-ISA kernel skeleton.
+ignored. The subsequent matched executed-work ledger confirms all 64 layers,
+the complete 1.948-Pop projection total, SM87 W8A16/W4A16 arithmetic, and no
+MTP/cache/activation-quantization deletion. It also corrects fused outer calls
+versus physical launch counts. Projection work now resumes only inside the
+complete role-specific v2 dataflow, not as another nominal-ISA skeleton.
 
 ## 6. Attention translation
 
-The existing vendored path proves the owner's SM87 compatibility correction:
-FlashInfer FA2 is usable on SM87 and already executes in this project. For the
-fixed BF16 Q24/KV4/D256 shape, the current path uses packed Q, Q64, KV32, four
-Q warps, and `cp.async`/HMMA online softmax. The whole-prompt wrapper passes
-no split-KV workspace.
+The vendored FlashInfer path proves the owner's SM87 compatibility correction:
+FA2 is usable on SM87 and already executes in the retained v10 incumbent. For
+the fixed BF16 Q24/KV4/D256 shape its heuristic uses packed Q, Q64, KV32,
+`cp.async`/HMMA online softmax, and no split-KV workspace. That path remains
+an accuracy-unqualified direction, not the v2 numerical body.
 
-At P40 the Q grid already has about 15,000 CTAs. Split-KV adds no missing
-occupancy for this case; paging and service-level chunking are not automatic
-batch-one throughput wins. The current Attention result instead indicates
-repeated K/V service across many Q64 owners. The next structural comparison
-therefore has only two planned topologies:
+The closed target-AOT v1 control is a separate exact Q128/KV32 body: 256
+threads, 128 KiB shared memory, 254 registers per thread, zero local bytes,
+one CTA/SM, and 7,500 CTAs per P40 layer. It performs 75,080,000 KV32
+iterations over all 16 full-Attention layers. Its first P40 API request did
+not return, so there is no valid target-AOT Attention time and the retained
+13.634-second FlashInfer interval must not be assigned to it.
 
-1. the existing Q64/KV32 direct path as a control; and
-2. a Q128 or Q256 effective-Q producer/consumer path in which one staged K/V
-   tile serves more Q work, with V-output partitioning used to control
-   register pressure.
+Direct Q256 is closed as the first v2 slice. Its exact FP32 output state alone
+requires `256 * 256 = 65,536` FP32 accumulators, the complete SM87 register
+file, before QK, softmax, addressing, or loop state. Moving that state to
+shared memory requires another 256 KiB. A D128-times-two form reduces local
+state but repeats QK/softmax and is diagnostic rather than terminal.
 
-The first real P40 API direction decides whether the complete composition
-moves. Only after a positive direction may a bounded profile verify that
-L2/DRAM traffic fell, HMMA and `cp.async` are active, and register/shared
-pressure did not create a new critical bottleneck. A same-skeleton Q64 rewrite
-or broad tile scan is outside this package.
+The selected executable slice therefore reuses the exact Q128/KV32 arithmetic
+body and changes only whole-GPU ownership. Sixteen persistent CTA lanes work
+on the same KV head in 118 snake-mapped epochs. Even epochs map lane `l` to
+`16e+l`; odd epochs map it to `16e+15-l`. In the last epoch, 13 lanes perform
+the same final-tile read/compute without storing, keeping the cohort aligned
+for the next head at about 1.3852% extra KV iterations. No cooperative launch,
+global lock, or cross-CTA barrier is needed because every real query tile has
+one output owner and K/V are read-only. CTA-local Q remains 128; the claimed
+effective Q of 2,048 exists only as an L2 temporal-service opportunity across
+the 16 SMs.
+
+The current logical K/V request is about 2.460 TB over P40. Perfect cohort
+reuse would reduce distinct K/V payload to about 157.12 GB, but CUDA does not
+guarantee block phase alignment and the existing grid may already receive
+some natural L2 hits. These are design arithmetic, not a measured floor or
+speed result. The complete real P40 API direction decides whether the
+composition moves; only after a positive direction may bounded NCU verify
+that DRAM/L2 service changed without changing the exact arithmetic body.
 
 The direct FlashInfer path does not quantize Q/K/V or intentionally truncate
 the Attention formula, but it remains accuracy-unqualified because its
@@ -690,8 +708,8 @@ pretending that the invalid run is a reference score:
 
 | Comparison surface | Current observable difference | Causal interpretation and next discriminator |
 | --- | --- | --- |
-| Request geometry | vLLM compiled and admitted `[1,40000]`; Q3X executes five M8000 fill panels and five M8000 drain panels around each whole-P40 core | Repeated layer/projection traversal and weight service are a structural Q3X suspect. The next Q3X candidate removes that panel-major production geometry; a matched server metric delta must first prove that vLLM actually scheduled all 40K tokens in one request. |
-| Projection route | vLLM logged Marlin FP8 and source-pinned ModelOpt NVFP4 Marlin; Q3X spends about 79% of request time in Gate/Up, Down, and FP8 projection families | A shared backend name does not imply the same tile, packed layout, reuse, or launch topology. Same-shape NCU/NSys is explanatory evidence after a real-API direction, not a substitute for replacing the whole projection feed. |
+| Request geometry | The matched audit closes vLLM's batch-one/no-cache P40 as one scheduler work unit; Q3X v10 executes five M8000 fill panels and five M8000 drain panels around each whole-P40 core | Scheduler grain and kernel grain remain distinct: pinned Marlin internally splits every relevant P40 outer call into 40 row chunks. The v2 candidate removes Q3X panel-major traversal only as part of the complete role-specific feed, not because one outer call is assumed to be one kernel. |
+| Projection route | vLLM logged Marlin FP8 and source-pinned ModelOpt NVFP4 Marlin; Q3X spends about 79% of request time in Gate/Up, Down, and FP8 projection families | The matched ledger finds 128 fused outer calls but source-derives 5,120 Marlin kernels per quantized family, versus Q3X v10's 1,040 FP8 and 128 NVFP4 receipt counts. Launch count is not the gap; packed layout, scale partitions, CTA work, decode/MMA utilization, and useful data residence remain the discriminators. Same-shape NCU/NSys follows a real-API direction. |
 | Attention route | Both observed paths name FlashInfer, while Q3X still spends 13.35% in whole-prompt Attention | Backend selection alone cannot explain parity. Preprocess layout, Q/K/V publication, cache format, selected tactic, and request-shape specialization must be compared on the joined request interval. |
 | GDN route | vLLM selected Triton/FLA; Q3X retains its own exact per-token-BF16 recurrence path | This is a genuine architecture difference, but FLA's algebra cannot be assumed numerically equivalent. The native layer-long fused candidate must preserve Q3X's exact recurrence boundary and prove accuracy before performance promotion. |
 | Shape preparation | vLLM completed `torch.compile`, warmup, AOT save, and FlashInfer autotune for the declared range before timing; Q3X's selected production route has no equivalent authenticated whole-system plan | The transferable mechanism is pre-request shape and tactic closure, not request-time JIT. Q3X therefore freezes P40/P60/P130 AOT plans and forbids request-time discovery. |

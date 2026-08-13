@@ -204,11 +204,23 @@ screen also found zero repeated packed E2M1 K16 keys in more than fifty
 million Gate/Up/Down role-block instances, including the optimistic
 scale-ignored form, so dictionary and identical/proportional-code cross-role
 reuse are not successors. These results preserve rather than lower the 4.3K
-target. They make matched route and executed-work reconciliation the P0 for
-projection selection: the implementation must account for the same model
-roles, token IDs, cache state, backend, arithmetic class, and token accounting
-as the owner-established reference before another projection skeleton is
-written.
+target. They made matched route and executed-work reconciliation the P0 for
+projection selection.
+
+That matched ledger is now complete. It confirms all 64 layer bodies, 192
+NVFP4 MLP roles, 208 FP8 checkpoint roles, 96 BF16 A/B roles, and the existing
+`1.948-Pop` projection total. The retained SM87 vLLM route is W8A16/W4A16 and
+does not remove the work through activation quantization, MTP, cache, or
+terminal liveness. It also separates 128 fused outer calls from the pinned
+Marlin source's expected 5,120 P40 physical launches per quantized family;
+Q3X v10 records 1,040 FP8 and 128 NVFP4 physical launches. Launch count is
+therefore not the missing architecture. The exact closure and remaining route
+unknowns are frozen in the
+[matched-work evidence](metadata/qwen36-27b-prefill-p40-matched-work-ledger-2026-08-14.json).
+Its default-off executable checker binds every exact role/shape/scale
+partition to outer-operation and physical-launch identities, so subsequent v2
+API receipts can fail closed on missing or substituted work instead of
+reconstructing the ledger after timing.
 
 The first bounded package is
 **[`WP-PREFILL-REFERENCE-TRANSLATION-v1`](PREFILL_REFERENCE_TRANSLATION_MATRIX.md)**:
@@ -279,13 +291,16 @@ and its current critical path.
 
 Execution order:
 
-1. complete the matched vLLM/Q3X production-work ledger, including model
-   roles, arithmetic backend, cache state, scheduler token accounting, and
-   liveness; this is active and requires no unchanged reference timing run;
-2. freeze the effective-Q/KV-reuse Attention topology and the projection
-   execution class that can credibly fit the whole-P40 allocation;
-3. implement the already-selected default-off exact GDN C64 cell and the
-   corresponding Attention cell, locking bits and static resources without
+1. retain the completed matched vLLM/Q3X production-work ledger, including
+   model roles, arithmetic backend, cache state, scheduler token accounting,
+   liveness, outer operations, and physical launches; no unchanged reference
+   timing run follows;
+2. retain the frozen Q128 persistent-L2-cohort Attention topology and close
+   the role-specific projection execution class that can credibly fit the
+   whole-P40 allocation;
+3. retain the passed single-C64 GDN bitwise oracle and the compiled P40
+   Attention cohort cell; implement the GDN continuation/double-slot launcher
+   and close Attention candidate-versus-control bitwise equivalence without
    using synthetic timing for selection;
 4. freeze the combined numerical, state, buffer, cancellation,
    synchronization, and AOT-plan identities;

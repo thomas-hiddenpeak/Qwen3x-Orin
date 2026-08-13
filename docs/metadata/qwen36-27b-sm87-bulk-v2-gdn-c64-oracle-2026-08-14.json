@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-sm87-bulk-v2-gdn-c64-oracle-2026-08-14",
+  "recorded_at": "2026-08-14T06:17:06+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "single_c64_synthetic_bitwise_correctness_pass",
+  "authority": {
+    "scope": "default-off single-layer, single-C64 GDN v2 execution cell",
+    "synthetic_correctness_authority": true,
+    "static_resource_authority": true,
+    "real_activation_authority": false,
+    "performance_authority": false,
+    "whole_layer_authority": false,
+    "whole_prompt_authority": false,
+    "api_authority": false,
+    "accuracy_qualification_authority": false,
+    "production_promotion_authority": false
+  },
+  "source_identity": {
+    "base_commit": "061c1a72fbea25fbd17e1f594fd1ab7e40620172",
+    "working_tree_state": "uncommitted candidate sources; each relevant source and built object is hash-bound below",
+    "files": [
+      {
+        "path": "include/q3x/kernels/sm87_bulk_dataflow_v2_gdn_c64.h",
+        "sha256": "071b71770013ab01db4613ccd52d42203c024a596cf1edf84c542284e6dd0a97"
+      },
+      {
+        "path": "include/q3x/kernels/sm87_bulk_dataflow_v2_gdn_p40_plan.h",
+        "sha256": "15732de5e03194381eeb0bcd5f549f3f2517f0c9d693948b5ced4a6cb9545dbe"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_bulk_dataflow_v2_gdn_c64.cu",
+        "sha256": "c7bd8c6c5d7a041e8b724aae115ecd50b7662a7b5292c2ca208ce0b185b555c1"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_gdn_c64_host_test.cpp",
+        "sha256": "548d989ddd1d7928219dbe201361e263efbe82e684a373686c4a272e1d7c070f"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_gdn_c64_cuda_oracle_test.cu",
+        "sha256": "df9412a0e722df9609ec2812f66c37ddf1920b86ad837792f50cb235bb69a974"
+      }
+    ],
+    "built_kernel_object_sha256": "e05e870f30d9f6b2ada9d158c5aab177eff7f9f1872a05d343c1d0468d3134bd",
+    "oracle_executable_sha256": "78f1c291f7b20439d3a86d675371efef37a5b4ed82729b790988d6366fef85e9"
+  },
+  "target": {
+    "cuda_binary_version": 87,
+    "compute_capability": "8.7",
+    "multiprocessors": 16,
+    "prompt_capacity_tokens": 130000,
+    "cell_first_position": 64,
+    "cell_tokens": 64
+  },
+  "cell_topology": {
+    "producer": {
+      "grid_ctas": 1024,
+      "threads_per_cta": 128,
+      "ownership": "four token rows times one of 16 QK or 48 V producer roles"
+    },
+    "recurrence": {
+      "grid_ctas": 48,
+      "threads_per_cta": 256,
+      "ownership": "one value head per CTA with token-serial exact BF16 authoritative state"
+    },
+    "epilogue": {
+      "grid_ctas": 384,
+      "threads_per_cta": 256,
+      "ownership": "eight token-head rows per CTA for exact RMSNorm, SiLU gate and BF16 publication"
+    },
+    "launcher": "all three stages are currently enqueued on one caller-owned stream",
+    "selector_reachable": false
+  },
+  "finite_precision_contract": {
+    "convolution": "FP32 oldest-to-current fmaf, SiLU, BF16 RNE",
+    "qk_normalization": "frozen target-AOT FP32 pair/shuffle tree and rsqrtf order",
+    "gate_scalars": "CUDA expf/log1pf threshold-20 softplus and stable sigmoid in FP32",
+    "recurrence": "token-serial alpha scaling, prediction, update and same-token pre-round FP32 output; BF16 RNE state after every token",
+    "epilogue": "raw BF16 input, frozen RMS reduction, BF16 norm weight, SiLU gate and BF16 RNE output",
+    "forbidden_substitutions": [
+      "FP32 authoritative chunk state",
+      "WY/KKT/SSD associative scan",
+      "delayed recurrent-state rounding",
+      "tolerance-only comparison"
+    ]
+  },
+  "oracle": {
+    "result": "PASS",
+    "data_class": "deterministic synthetic adversarial correctness only",
+    "incoming_state": "nonzero BF16 recurrent state and nonzero convolution history",
+    "input_classes": [
+      "positive and negative zero",
+      "positive and negative BF16 subnormals",
+      "signed normal values",
+      "softplus threshold neighborhoods",
+      "positive and negative sigmoid regimes",
+      "nonunit signed normalization weights"
+    ],
+    "reference_ownership": "independent global-buffer CUDA implementation; it does not call the candidate kernels or candidate device helpers",
+    "compared_surfaces": [
+      {
+        "name": "raw recurrence output",
+        "bf16_words": 393216,
+        "comparison": "bitwise complete surface"
+      },
+      {
+        "name": "final norm/gated output",
+        "bf16_words": 393216,
+        "comparison": "bitwise complete surface"
+      },
+      {
+        "name": "per-token recurrent-state trace",
+        "bf16_words": 50331648,
+        "comparison": "bitwise complete surface"
+      },
+      {
+        "name": "final recurrent state",
+        "bf16_words": 786432,
+        "comparison": "bitwise complete surface"
+      },
+      {
+        "name": "final convolution history",
+        "bf16_words": 30720,
+        "comparison": "bitwise complete surface"
+      }
+    ],
+    "timing_used_for_selection": false
+  },
+  "static_resources": {
+    "source": "cuobjdump --dump-resource-usage on the hash-bound oracle executable",
+    "producer": {
+      "registers_per_thread": 36,
+      "stack_bytes": 0,
+      "shared_bytes": 2048,
+      "local_bytes": 0
+    },
+    "recurrence": {
+      "registers_per_thread": 78,
+      "stack_bytes": 0,
+      "shared_bytes": 34056,
+      "local_bytes": 0
+    },
+    "state_trace_recurrence": {
+      "registers_per_thread": 80,
+      "stack_bytes": 0,
+      "shared_bytes": 34056,
+      "local_bytes": 0,
+      "authority": "oracle only"
+    },
+    "epilogue": {
+      "registers_per_thread": 25,
+      "stack_bytes": 0,
+      "shared_bytes": 0,
+      "local_bytes": 0
+    }
+  },
+  "p40_host_plan": {
+    "authority": "host-only dependency and memory contract; no multi-stream launcher exists yet",
+    "chunks": 625,
+    "chunk_tokens": 64,
+    "prepared_slots": 2,
+    "raw_output_slots": 2,
+    "history_slots": 2,
+    "logical_streams": 3,
+    "reusable_events": 6,
+    "private_bytes": 6987776,
+    "continuation_boundaries_admitted": true,
+    "double_slot_execution_implemented": false
+  },
+  "qualification_gaps": [
+    "real-model activations and real checkpoint constants",
+    "two consecutive C64 cells compared as one continuation",
+    "executable double-slot and three-stream dependency graph",
+    "whole GDN layer and complete P40000 composition",
+    "input immutability, redzones, replay and cancellation qualification",
+    "real OpenAI-compatible API performance direction",
+    "external accuracy qualification"
+  ],
+  "decision": {
+    "result": "RETAIN_AS_DEFAULT_OFF_V2_CORRECTNESS_CELL",
+    "production_change": false,
+    "performance_claim": false,
+    "next_step": "compose the exact C64 cell behind the bounded P40 double-slot graph, bind real projection publications and return the complete v2 candidate to the clean-host P40 API gate"
+  }
+}

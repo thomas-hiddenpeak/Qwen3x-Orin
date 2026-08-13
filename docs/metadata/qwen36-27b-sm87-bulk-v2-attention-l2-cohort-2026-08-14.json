@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-sm87-bulk-v2-attention-l2-cohort-2026-08-14",
+  "recorded_at": "2026-08-14T06:27:33+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "mapping_and_static_resource_cell_complete_numerical_oracle_pending",
+  "authority": {
+    "scope": "default-off exact-P40000 full-Attention persistent L2-cohort execution cell",
+    "host_mapping_authority": true,
+    "static_resource_authority": true,
+    "numerical_qualification_authority": false,
+    "real_model_authority": false,
+    "performance_authority": false,
+    "api_authority": false,
+    "production_promotion_authority": false,
+    "gpu_run": false
+  },
+  "source_identity": {
+    "base_commit": "061c1a72fbea25fbd17e1f594fd1ab7e40620172",
+    "working_tree_state": "uncommitted candidate sources; the relevant sources and built objects are hash-bound below",
+    "files": [
+      {
+        "path": "include/q3x/kernels/sm87_bulk_dataflow_v2_attention_l2_cohort.h",
+        "sha256": "ae4d75a4d8c4277a76718f3edeed4b1882349fec1b797b4643779225c0431e7b"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_attention_l2_cohort_host_test.cpp",
+        "sha256": "2b1c6597914ffbf7b3e12fbbf49e5b0eda072aac013b64866a90ef0cb29fea2d"
+      },
+      {
+        "path": "src/kernels/reference/full_attention_c512_register_pipeline.cu",
+        "sha256": "78e1771714036c652e876236ce722f7ea91d9117367fc74e0a0f5e76c833d8d8"
+      }
+    ],
+    "candidate_object_sha256": "0056363fdc00ec367586f0f55bc11b8dadb8707f10e25cd468a6e0f8d1bec47e",
+    "control_object_sha256": "ad3214e03bef533f936c76d81c58a2b5bc1ff2229c3002c07c86134d907c83af",
+    "host_mapping_test_sha256": "2be8db75f5434c16a7a2aa86a49ace9761b391a45607a43a9d4bcfc9d06e2e4f"
+  },
+  "fixed_shape": {
+    "prompt_tokens": 40000,
+    "query_heads": 24,
+    "kv_heads": 4,
+    "head_dimension": 256,
+    "causal": true,
+    "input_dtype": "BF16",
+    "output_dtype": "BF16"
+  },
+  "numerical_body": {
+    "origin": "the existing target-AOT Q128/KV32 two-stage arithmetic body",
+    "cta_query_rows": 128,
+    "kv_tile_tokens": 32,
+    "online_softmax_state": "FP32",
+    "qk_and_pv": "BF16 tensor-core MMA with the frozen reduction/publication order",
+    "implementation_relation": "the target-AOT control wrapper and the v2 cohort wrapper call the same force-inlined device body",
+    "candidate_vs_control_bitwise_cuda_oracle": false,
+    "numerical_contract_qualified": false
+  },
+  "ownership_and_mapping": {
+    "kernel_launches": 4,
+    "launch_order": "four stream-ordered launches, one KV head per launch",
+    "persistent_ctas_per_launch": 16,
+    "query_tiles_per_kv_head": 1875,
+    "snake_epochs": 118,
+    "scheduled_bodies_per_kv_head": 1888,
+    "real_output_tiles": 7500,
+    "store_disabled_repeat_bodies": 52,
+    "last_epoch": "lanes 13, 14 and 15 uniquely own query tiles 1874, 1873 and 1872; lanes 0 through 12 repeat tile 1874 without stores",
+    "bijection_host_proof": "PASS: every one of the 7500 real output tiles has exactly one writer",
+    "cooperative_launch": false,
+    "cross_cta_barrier": false,
+    "cross_cta_lock_or_counter": false,
+    "phase_lockstep_guaranteed": false,
+    "scheduler_co_residency_guaranteed": false,
+    "resource_capacity_for_all_ctas": true
+  },
+  "static_resources": {
+    "source": "cuobjdump --dump-resource-usage on the hash-bound candidate and control objects",
+    "candidate": {
+      "registers_per_thread": 254,
+      "stack_bytes": 0,
+      "static_shared_bytes": 0,
+      "dynamic_shared_bytes": 131072,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "launch_bound_ctas_per_sm": 1
+    },
+    "refactored_control": {
+      "registers_per_thread": 254,
+      "stack_bytes": 0,
+      "static_shared_bytes": 0,
+      "dynamic_shared_bytes": 131072,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "launch_bound_ctas_per_sm": 1
+    },
+    "device_gate": "exact 16-SM SM87 with sufficient opt-in shared memory; runtime occupancy must report at least one CTA per SM"
+  },
+  "build_and_host_tests": {
+    "default_off_build": "PASS",
+    "admitted_build": "PASS",
+    "combined_control_and_candidate_build": "PASS",
+    "host_mapping_test": "PASS",
+    "refactored_control_tests": {
+      "sm87_target_aot_attention_plan": "PASS",
+      "sm87_target_aot_p40_executor_contract": "PASS"
+    },
+    "performance_timing_collected": false
+  },
+  "traffic_hypothesis": {
+    "incumbent_logical_kv_request_bytes_over_16_layers": 2460221440000,
+    "mechanism": "sixteen same-KV-head CTA lanes request the same K/V32 sequence at nearby phases so L2 may service repeated requests without changing CTA-local arithmetic",
+    "snake_order_purpose": "reverse lane-to-query ownership each epoch to counter persistent phase drift without introducing a barrier",
+    "guaranteed_reduction": false,
+    "selection_rule": "only a positive complete real P40 API composition can retain the direction; NCU may then attribute DRAM/L2 behavior"
+  },
+  "qualification_gaps": [
+    "candidate-versus-control bitwise CUDA oracle",
+    "real projection/preprocess buffer composition",
+    "real-model complete-layer output equivalence",
+    "complete v2 executor and request-state/cancellation integration",
+    "clean-host P40000 OpenAI-compatible API direction",
+    "external accuracy and long-capacity qualification"
+  ],
+  "decision": {
+    "result": "RETAIN_AS_DEFAULT_OFF_ATTENTION_V2_EXECUTION_CELL",
+    "production_change": false,
+    "performance_claim": false,
+    "next_step": "bind the cell to the complete projection, preprocess, GDN, MLP and handoff v2 executor, close the numerical oracle, and return the whole composition to the real P40 API gate"
+  }
+}

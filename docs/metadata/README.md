@@ -243,6 +243,40 @@ proportional-code cross-role plan as the next material Prefill architecture.
 The stratified CPU result is not a universal all-block theorem, a GPU timing,
 an accuracy result, or production authority.
 
+The source- and receipt-matched P40 model-work closure is frozen in
+[`qwen36-27b-prefill-p40-matched-work-ledger-2026-08-14.json`](qwen36-27b-prefill-p40-matched-work-ledger-2026-08-14.json).
+It confirms all 64 layers and the existing 1.948-Pop projection ledger,
+identifies the selected SM87 vLLM projection routes as W8A16 and W4A16, and
+finds no MTP/cache/activation-quantization work deletion in the matched cold
+forward. It strictly separates checkpoint roles, fused outer operations, and
+physical launches: the pinned Marlin source derives 5,120 P40 kernels for
+each quantized family, while the Q3X v10 receipt records 1,040 FP8 and 128
+NVFP4 launches. It also records that the vLLM interval logger is not a
+per-request pure-Prefill timer. This is planning and accounting authority,
+not a GPU performance result, an optimized-vLLM route reconstruction, an
+accuracy result, a target change, or production authority.
+
+The first exact GDN v2 execution cell and its SM87 synthetic bitwise oracle
+are frozen in
+[`qwen36-27b-sm87-bulk-v2-gdn-c64-oracle-2026-08-14.json`](qwen36-27b-sm87-bulk-v2-gdn-c64-oracle-2026-08-14.json).
+It hash-binds the default-off single-C64 sources and binary, the complete
+raw/final/state/history comparison surfaces, and the static resources of the
+producer, 48-head recurrence, and epilogue kernels. It also records the
+host-only 625-chunk P40 double-slot dependency plan. The record is synthetic
+single-cell correctness and static-resource authority only; it is not a
+real-model, whole-prompt, performance, external-accuracy, or production
+result, and the multi-stream P40 launcher remains unimplemented.
+
+The first exact-P40 full-Attention v2 ownership cell is frozen in
+[`qwen36-27b-sm87-bulk-v2-attention-l2-cohort-2026-08-14.json`](qwen36-27b-sm87-bulk-v2-attention-l2-cohort-2026-08-14.json).
+It hash-binds the 16-lane/118-epoch snake mapping, its 7,500 unique output
+owners and 52 store-disabled repeats, the shared target-AOT arithmetic body,
+and matching candidate/control static resources. The record explicitly does
+not claim phase lockstep, scheduler co-residency, L2/DRAM reduction, bitwise
+numerical qualification, real-model performance, API effect, or production
+authority. Those claims require the pending candidate-versus-control oracle
+and complete real P40 v2 composition.
+
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in
 [`qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json`](qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json).

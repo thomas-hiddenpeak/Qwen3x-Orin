@@ -478,12 +478,51 @@ unique as well. The exact result and scope boundary are frozen in the
 No dictionary, repeated-block cache, or identical/proportional-code
 cross-role CUDA path is implemented from this negative structural screen.
 
-The next projection decision must therefore begin with a matched production
-work ledger. It may reopen only a mechanism that removes live bilinear work,
-proves a checkpoint-specific exact common subexpression, or supplies a
-complete role-specific dataflow whose physical work fits the whole-P40
-allocation. Changing the nominal MMA instruction without reducing the
-executed work is not an architecture successor.
+### 5.5 Matched P40 work closure
+
+The required matched production-work audit is now complete. It preserves the
+`1,948,044,492,800,000` conventional-operation total above and finds no
+missing model layer or projection role in the ledger. The pinned stock vLLM
+forward executes all 64 layer bodies and their MLPs: 48 GDN layers and 16
+full-Attention layers. Its cold matched route does not delete work through
+MTP, Prefix cache, external KV, terminal liveness, or activation
+quantization. In particular, the selected SM87 FP8 Marlin path discards the
+configured input scale and runs BF16 activation times FP8 weight (W8A16);
+the NVFP4 MLP is BF16-activation W4A16.
+
+Three count domains are now explicitly non-interchangeable:
+
+| Family | Logical checkpoint roles | Fused outer operations | Physical CUDA launches |
+| --- | ---: | ---: | ---: |
+| FP8 GDN/full Attention | 208 | 128 | vLLM source-derived 5,120; Q3X v10 receipt 1,040 |
+| NVFP4 MLP | 192 | 128 | vLLM source-derived 5,120; Q3X v10 receipt 128 |
+| BF16 GDN A/B | 96 | 48 | Backend-dependent; not inferred here |
+
+The vLLM physical counts are a static consequence of the pinned P40 Marlin
+source: every relevant `N` exceeds 4,096 and each outer operation is split as
+`39 * 1024 + 64`, or 40 row chunks. They are not an NSys observation. Q3X's
+counts come from its authenticated v10 route receipt. Neither lower nor higher
+launch count proves packed-weight reuse, Tensor Core utilization, or request
+throughput.
+
+The audit also closes activation quantization as an explanation, but exposes
+two exactness constraints. vLLM's FLA GDN keeps authoritative FP32 state
+across a C64 chunk before casting the boundary, whereas Q3X publishes BF16
+authoritative state after every token. And vLLM may requantize fused FP8
+partitions to a maximum weight scale, while the authentic checkpoint contains
+different partition weight-scale bits. A native fused QKVZ/QKV plan must keep
+the original codes and partition-specific scales.
+
+The complete formulas, source identities, logger-accounting semantics, and
+claim boundaries are frozen in the
+[matched-work evidence](metadata/qwen36-27b-prefill-p40-matched-work-ledger-2026-08-14.json).
+This closure neither turns the retained stock route into the owner's optimized
+route nor lowers the 4.3K target. The next projection decision may reopen only
+a mechanism that removes live bilinear work, proves a checkpoint-specific
+exact common subexpression, or supplies a complete role-specific dataflow
+whose physical work fits the whole-P40 allocation. Changing outer-call count
+or the nominal MMA instruction without changing useful dataflow is not an
+architecture successor.
 
 ## 6. Layer 63 production-liveness deletion
 

@@ -9,6 +9,8 @@
  */
 #include "q3x/runtime/decode_ops.h"
 
+#include "q3x/kernels/sm87_bulk_dataflow_v2_attention_l2_cohort.h"
+
 #include "../sm87/sm87_target_aot_attention_launch_internal.h"
 
 #include <cuda_bf16.h>
@@ -356,7 +358,8 @@ __device__ __forceinline__ void bulk_gqa_cp_async_wait_group_1() {
 #endif
 }
 
-#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION) || \
+    defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION)
 __device__ __forceinline__ void bulk_gqa_cp_async_wait_group_2() {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
   asm volatile("cp.async.wait_group 2;" ::: "memory");
@@ -758,7 +761,8 @@ static_assert(
     sizeof(BulkGqaGroupSharedStorage<kBulkGqaGroupQ128V4QueryTile>) ==
     kBulkCausalGqaGroupQ128V4DynamicSharedBytes);
 
-#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION) || \
+    defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION)
 // The target-AOT body deliberately owns a separate storage type and kernel
 // entry so adding the second K/V slot cannot alter the established public
 // Q64/Q128 instantiations or their SASS.  Slot i contains one complete K32
@@ -1226,25 +1230,25 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
   }
 }
 
-#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
-// Exact-P40000 target-AOT Attention core.  This intentionally remains a
-// separate entry from the established public Q64/Q128 kernel above: the
-// numerical instruction order is identical, while K/V32 ownership is a true
-// two-slot ping-pong.  After QK on slot i, both K and V for slot i^1 are
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION) || \
+    defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION)
+// Exact-P40000 target-AOT Attention numerical body.  Both the established
+// target-AOT control and the v2 persistent-L2-cohort wrapper call this exact
+// function, so changing CTA ownership cannot silently change QK/PV order,
+// online-softmax state, or BF16/gate publication.  K/V32 ownership remains a
+// true two-slot ping-pong: after QK on slot i, both K and V for slot i^1 are
 // issued; wait_group 2 retires only the current V dependency, allowing both
 // next-tile copies to overlap the current probability/PV traversal.
-__global__ __launch_bounds__(kBulkGqaGroupQ128V4Threads, 1)
-void sm87_target_aot_attention_q128_kv32_p40_two_stage_kernel(
+__device__ __forceinline__
+void sm87_target_aot_attention_q128_kv32_p40_two_stage_body(
     const std::uint16_t* const __restrict__ query,
     const std::uint16_t* const __restrict__ key_cache,
     const std::uint16_t* const __restrict__ value_cache,
     const std::uint16_t* const __restrict__ gate,
-    std::uint16_t* const __restrict__ output) {
-  extern __shared__ __align__(16) unsigned char dynamic_shared[];
-  auto& storage =
-      *reinterpret_cast<
-          TargetAotAttentionQ128Kv32TwoStageSharedStorage*>(
-          dynamic_shared);
+    std::uint16_t* const __restrict__ output,
+    TargetAotAttentionQ128Kv32TwoStageSharedStorage& storage,
+    const unsigned int query_tile, const unsigned int kv_head,
+    const bool store_enabled) {
 
   constexpr unsigned int kPackedQueryTile =
       kBulkGqaGroupQ128V4QueryTile;
@@ -1273,9 +1277,8 @@ void sm87_target_aot_attention_q128_kv32_p40_two_stage_kernel(
   const unsigned int thread = threadIdx.x;
   const unsigned int warp = thread >> 5U;
   const unsigned int lane = thread & 31U;
-  const unsigned int kv_head = blockIdx.z;
   const unsigned int first_packed_query =
-      blockIdx.x * kPackedQueryTile;
+      query_tile * kPackedQueryTile;
   const unsigned int warp_packed_query =
       first_packed_query + warp * kBulkGqaTensorCoreQueryTile;
   const unsigned int last_packed_query =
@@ -1516,6 +1519,9 @@ void sm87_target_aot_attention_q128_kv32_p40_two_stage_kernel(
        ++fragment) {
 #pragma unroll
     for (unsigned int row_group = 0U; row_group < 2U; ++row_group) {
+      if (!store_enabled) {
+        continue;
+      }
       const unsigned int first = 2U * row_group;
       const unsigned int packed_query =
           warp_packed_query + lane / 4U + 8U * row_group;
@@ -1555,6 +1561,56 @@ void sm87_target_aot_attention_q128_kv32_p40_two_stage_kernel(
     }
   }
 }
+
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+__global__ __launch_bounds__(kBulkGqaGroupQ128V4Threads, 1)
+void sm87_target_aot_attention_q128_kv32_p40_two_stage_kernel(
+    const std::uint16_t* const __restrict__ query,
+    const std::uint16_t* const __restrict__ key_cache,
+    const std::uint16_t* const __restrict__ value_cache,
+    const std::uint16_t* const __restrict__ gate,
+    std::uint16_t* const __restrict__ output) {
+  extern __shared__ __align__(16) unsigned char dynamic_shared[];
+  auto& storage =
+      *reinterpret_cast<
+          TargetAotAttentionQ128Kv32TwoStageSharedStorage*>(
+          dynamic_shared);
+  sm87_target_aot_attention_q128_kv32_p40_two_stage_body(
+      query, key_cache, value_cache, gate, output, storage, blockIdx.x,
+      blockIdx.z, true);
+}
+#endif
+
+#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION)
+// One launch binds one KV head and exactly 16 persistent CTA lanes.  No
+// cooperative launch, cross-CTA barrier, counter, or lock exists.  The host
+// issues four stream-ordered launches so a resident wave cannot mix KV heads.
+__global__ __launch_bounds__(kBulkGqaGroupQ128V4Threads, 1)
+void sm87_bulk_v2_attention_q128_kv32_p40_l2_cohort_kernel(
+    const std::uint16_t* const __restrict__ query,
+    const std::uint16_t* const __restrict__ key_cache,
+    const std::uint16_t* const __restrict__ value_cache,
+    const std::uint16_t* const __restrict__ gate,
+    std::uint16_t* const __restrict__ output,
+    const unsigned int kv_head) {
+  extern __shared__ __align__(16) unsigned char dynamic_shared[];
+  auto& storage =
+      *reinterpret_cast<
+          TargetAotAttentionQ128Kv32TwoStageSharedStorage*>(
+          dynamic_shared);
+  const unsigned int persistent_lane = blockIdx.x;
+#pragma unroll 1
+  for (unsigned int epoch = 0U;
+       epoch < kernels::kSm87BulkV2AttentionSnakeEpochs; ++epoch) {
+    const auto work = kernels::sm87_bulk_v2_attention_work_item(
+        kv_head, persistent_lane, epoch);
+    sm87_target_aot_attention_q128_kv32_p40_two_stage_body(
+        query, key_cache, value_cache, gate, output, storage,
+        static_cast<unsigned int>(work.query_tile), kv_head,
+        work.store_enabled);
+  }
+}
+#endif
 #endif
 
 [[nodiscard]] int launch_bulk_gqa_group_q64_v3_fixed_impl(
@@ -2070,3 +2126,206 @@ int launch_q128_kv32_p40_two_stage(
 }  // namespace sm87_target_aot_attention_execution_detail
 
 }  // namespace q3x::runtime
+
+namespace q3x::kernels {
+
+#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION)
+namespace {
+
+[[nodiscard]] cudaError_t validate_bulk_v2_attention_device(
+    const std::int32_t device_ordinal,
+    cudaDeviceProp* const properties) noexcept {
+  if (device_ordinal < 0 || properties == nullptr) {
+    return cudaErrorInvalidValue;
+  }
+  int current_device = -1;
+  cudaError_t status = cudaGetDevice(&current_device);
+  if (status != cudaSuccess) {
+    return status;
+  }
+  if (current_device != device_ordinal) {
+    return cudaErrorInvalidDevice;
+  }
+  status = cudaGetDeviceProperties(properties, current_device);
+  if (status != cudaSuccess) {
+    return status;
+  }
+  return properties->major == 8 && properties->minor == 7 &&
+                 properties->multiProcessorCount ==
+                     kSm87BulkV2AttentionRequiredSmCount &&
+                 properties->warpSize == 32 &&
+                 properties->maxThreadsPerBlock >=
+                     static_cast<int>(kSm87BulkV2AttentionThreads) &&
+                 properties->sharedMemPerBlockOptin >=
+                     kSm87BulkV2AttentionDynamicSharedBytes
+             ? cudaSuccess
+             : cudaErrorNotSupported;
+}
+
+[[nodiscard]] bool bulk_v2_attention_device_range_valid(
+    const Sm87BulkV2AttentionByteRange& range,
+    const std::int32_t device_ordinal) noexcept {
+  if (!range.valid) {
+    return false;
+  }
+  const void* const endpoints[2U] = {
+      reinterpret_cast<const void*>(range.begin),
+      reinterpret_cast<const void*>(range.end - 1U)};
+  for (const void* const endpoint : endpoints) {
+    cudaPointerAttributes attributes{};
+    if (cudaPointerGetAttributes(&attributes, endpoint) != cudaSuccess ||
+        attributes.type != cudaMemoryTypeDevice ||
+        attributes.device != device_ordinal) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] cudaError_t validate_bulk_v2_attention_device_ranges(
+    const Sm87BulkV2AttentionArguments& arguments) noexcept {
+  for (const auto& range :
+       sm87_bulk_v2_attention_argument_ranges(arguments)) {
+    if (!bulk_v2_attention_device_range_valid(range,
+                                               arguments.device_ordinal)) {
+      return cudaErrorInvalidDevicePointer;
+    }
+  }
+  return cudaSuccess;
+}
+
+[[nodiscard]] cudaError_t set_bulk_v2_attention_dynamic_shared() noexcept {
+  return cudaFuncSetAttribute(
+      runtime::sm87_bulk_v2_attention_q128_kv32_p40_l2_cohort_kernel,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      static_cast<int>(kSm87BulkV2AttentionDynamicSharedBytes));
+}
+
+}  // namespace
+#endif
+
+int query_sm87_bulk_dataflow_v2_attention_l2_cohort_resources_cuda(
+    const std::int32_t device_ordinal,
+    Sm87BulkV2AttentionResources* const resources) noexcept {
+  if (resources == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *resources = {};
+#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION)
+  cudaDeviceProp properties{};
+  cudaError_t status =
+      validate_bulk_v2_attention_device(device_ordinal, &properties);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  status = set_bulk_v2_attention_dynamic_shared();
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  cudaFuncAttributes attributes{};
+  status = cudaFuncGetAttributes(
+      &attributes,
+      runtime::sm87_bulk_v2_attention_q128_kv32_p40_l2_cohort_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      runtime::sm87_bulk_v2_attention_q128_kv32_p40_l2_cohort_kernel,
+      static_cast<int>(kSm87BulkV2AttentionThreads),
+      kSm87BulkV2AttentionDynamicSharedBytes);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  resources->binary_version = attributes.binaryVersion;
+  resources->registers_per_thread = attributes.numRegs;
+  resources->static_shared_bytes = attributes.sharedSizeBytes;
+  resources->dynamic_shared_bytes =
+      kSm87BulkV2AttentionDynamicSharedBytes;
+  resources->local_bytes = attributes.localSizeBytes;
+  resources->maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  resources->active_blocks_per_sm = active_blocks;
+  resources->device_sm_count = properties.multiProcessorCount;
+  resources->device_optin_shared_bytes = properties.sharedMemPerBlockOptin;
+  resources->threads_per_block =
+      static_cast<int>(kSm87BulkV2AttentionThreads);
+  resources->physical_grid_ctas_per_launch =
+      static_cast<int>(kSm87BulkV2AttentionPersistentLanes);
+  resources->physical_launches =
+      static_cast<int>(kSm87BulkV2AttentionKernelLaunches);
+  resources->query_tiles_per_kv_head =
+      kSm87BulkV2AttentionQueryTilesPerKvHead;
+  resources->snake_epochs = kSm87BulkV2AttentionSnakeEpochs;
+  resources->store_disabled_bodies =
+      kSm87BulkV2AttentionStoreDisabledBodies;
+  resources->kernel_compiled = true;
+  resources->exact_p40000_only = true;
+  resources->same_kv_head_per_launch = true;
+  resources->mapping_bijective =
+      sm87_bulk_v2_attention_mapping_is_bijective();
+  resources->no_cooperative_launch = true;
+  resources->no_cross_cta_barrier_or_lock = true;
+  resources->persistent_cta_residency_capacity =
+      active_blocks * properties.multiProcessorCount >=
+      static_cast<int>(kSm87BulkV2AttentionPersistentLanes);
+  resources->resource_gate_passed = true;
+  // This first cell has mapping/static-resource authority only.  It cannot
+  // manufacture numerical qualification or a production selector.
+  resources->numerical_contract_qualified = false;
+  resources->production_dispatch_eligible = false;
+  return sm87_bulk_v2_attention_resources_valid(*resources)
+             ? static_cast<int>(cudaSuccess)
+             : static_cast<int>(cudaErrorNotSupported);
+#else
+  (void)device_ordinal;
+  return static_cast<int>(cudaErrorNotSupported);
+#endif
+}
+
+int launch_sm87_bulk_dataflow_v2_attention_l2_cohort_cuda(
+    const Sm87BulkV2AttentionArguments& arguments) noexcept {
+  if (!sm87_bulk_v2_attention_arguments_valid(arguments)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION)
+  Sm87BulkV2AttentionResources resources{};
+  const int resource_status =
+      query_sm87_bulk_dataflow_v2_attention_l2_cohort_resources_cuda(
+          arguments.device_ordinal, &resources);
+  if (resource_status != static_cast<int>(cudaSuccess)) {
+    return resource_status;
+  }
+  const cudaError_t range_status =
+      validate_bulk_v2_attention_device_ranges(arguments);
+  if (range_status != cudaSuccess) {
+    return static_cast<int>(range_status);
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  const dim3 blocks(
+      static_cast<unsigned int>(kSm87BulkV2AttentionPersistentLanes), 1U,
+      1U);
+  (void)cudaGetLastError();
+  for (unsigned int kv_head = 0U;
+       kv_head < kSm87BulkV2AttentionKvHeads; ++kv_head) {
+    runtime::sm87_bulk_v2_attention_q128_kv32_p40_l2_cohort_kernel<<<
+        blocks, kSm87BulkV2AttentionThreads,
+        kSm87BulkV2AttentionDynamicSharedBytes, stream>>>(
+        arguments.processed_query, arguments.processed_key,
+        arguments.processed_value, arguments.processed_gate,
+        arguments.gated_output, kv_head);
+    const cudaError_t launch_status = cudaPeekAtLastError();
+    if (launch_status != cudaSuccess) {
+      return static_cast<int>(launch_status);
+    }
+  }
+  return static_cast<int>(cudaSuccess);
+#else
+  return static_cast<int>(cudaErrorNotSupported);
+#endif
+}
+
+}  // namespace q3x::kernels

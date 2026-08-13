@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-p40-matched-work-ledger-2026-08-14",
+  "recorded_at": "2026-08-14T05:50:04+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "complete_source_and_retained_receipt_work_accounting_audit",
+  "authority": {
+    "planning_authority": "closes the model-role and conventional projection-operation ledger for one cold no-cache P40000 forward and separates checkpoint roles, fused outer operations, and physical CUDA launches",
+    "performance_authority": false,
+    "accuracy_authority": false,
+    "production_promotion_authority": false,
+    "gpu_run": false,
+    "synthetic_data_used": false
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "architecture": "Qwen3_5ForConditionalGeneration",
+    "layers": 64,
+    "gdn_layers": 48,
+    "full_attention_layers": 16,
+    "layer_pattern": "three GDN layers followed by one full-Attention layer",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quant_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2"
+  },
+  "audit_inputs": {
+    "q3x_commit": "061c1a72fbea25fbd17e1f594fd1ab7e40620172",
+    "vllm_release": "v0.26.0",
+    "vllm_source_commit": "568afb3a13806beb53bb2e6bd518269357b237c0",
+    "vllm_source_worktree_clean": true,
+    "q3x_whole_core_receipt": "docs/metadata/qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json",
+    "q3x_whole_core_receipt_sha256": "b0847b1f1965570d7311f6b73c137f11e34bc65c893ae76783583bb4fcd7a9fa",
+    "vllm_metric_reconciliation": "docs/metadata/qwen36-27b-vllm-p40-warmup-metric-reconciliation-2026-08-12.json",
+    "vllm_metric_reconciliation_sha256": "d83a2d7d5df57a04e432ba728265cbcc2fa57d6d8c830273841eba805fff4c48"
+  },
+  "source_bindings": [
+    {
+      "path": ".q3x-work/references/vllm-v0.26.0/vllm/model_executor/models/qwen3_5.py",
+      "sha256": "da738a2017741b8df66cbdb2ce5301c5cdec87ffacb2279f85245640eb33c496",
+      "purpose": "layer construction, architecture and MTP-weight exclusion"
+    },
+    {
+      "path": ".q3x-work/references/vllm-v0.26.0/vllm/model_executor/models/qwen3_next.py",
+      "sha256": "b642c10eb68978ca0df25f92ea866add08b31e654d99e78eaac0195d8bc6c74b",
+      "purpose": "all-layer forward and mandatory per-layer MLP"
+    },
+    {
+      "path": ".q3x-work/references/vllm-v0.26.0/vllm/model_executor/layers/quantization/modelopt.py",
+      "sha256": "6732d6c46718f9f0a98ca1fd04ed730ac299c4f506b62adfd5029c8112a93207",
+      "purpose": "ModelOpt fused-partition and quantization behavior"
+    },
+    {
+      "path": ".q3x-work/references/vllm-v0.26.0/vllm/model_executor/kernels/linear/scaled_mm/marlin.py",
+      "sha256": "eb4f0c3494d320ed71cc06ecff40eafa6695bbe60d10c178d67df0484bdf0b8f",
+      "purpose": "SM87 FP8 weight-only W8A16 route and input-scale removal"
+    },
+    {
+      "path": ".q3x-work/references/vllm-v0.26.0/vllm/model_executor/layers/quantization/utils/marlin_utils_fp8.py",
+      "sha256": "c8751930b2d9e9d79451c410b1094e7bd7ee364d554b2e2dea5f2a19cf3fc17f",
+      "purpose": "SM87 W8A8 rejection"
+    },
+    {
+      "path": ".q3x-work/references/vllm-v0.26.0/csrc/libtorch_stable/quantization/marlin/marlin.cu",
+      "sha256": "522ca0a4077ded473c2415e2bc20c14569e2c523e3456f632bbd71202befa00f",
+      "purpose": "P40000 max-parallel row chunking and physical launch derivation"
+    },
+    {
+      "path": ".q3x-work/references/vllm-v0.26.0/vllm/v1/metrics/loggers.py",
+      "sha256": "d5a91626cf79118f98ae6438c842cb30fc44ca14463c7e2af5871e3da8e51bcf",
+      "purpose": "Avg prompt throughput accumulation, elapsed denominator and reset"
+    },
+    {
+      "path": ".q3x-work/references/vllm-v0.26.0/vllm/v1/core/sched/scheduler.py",
+      "sha256": "2ed2a550b6558b2495eda845a97ae38bcf0225027b9e25fbf00fc3880c1d3941",
+      "purpose": "PrefillStats publication only with an EngineCore output"
+    },
+    {
+      "path": ".q3x-work/references/vllm-v0.26.0/vllm/v1/metrics/stats.py",
+      "sha256": "7682d3086bf5395f163f423677485432ee2c035aada2f370c0f82b291e53ca47",
+      "purpose": "computed prompt-token definition excluding cache and transferred KV"
+    }
+  ],
+  "workload": {
+    "prompt_tokens": 40000,
+    "output_tokens": 1,
+    "batch_size": 1,
+    "prefix_cache_tokens": 0,
+    "external_kv_tokens": 0,
+    "mtp_enabled": false,
+    "scheduler_work_unit": "one P40000 Prefill step for the retained matched stock route",
+    "terminal_layer_liveness_deletion_applied": false
+  },
+  "projection_work_ledger": {
+    "nvfp4_mlp": {
+      "logical_checkpoint_roles": 192,
+      "formula": "64 * (Gate + Up + Down)",
+      "fused_outer_operations": 128,
+      "outer_formula": "64 * (GateUp + Down)",
+      "conventional_operations": 1369020825600000,
+      "activation_dtype": "BF16",
+      "weight_format": "ModelOpt NVFP4 W4A16"
+    },
+    "gdn_fp8": {
+      "logical_checkpoint_roles": 144,
+      "logical_formula": "48 * (QKV + Z + O)",
+      "semantic_output_subroles": 240,
+      "semantic_formula": "48 * (Q + K + V + Z + O)",
+      "fused_outer_operations": 96,
+      "outer_formula": "48 * (QKVZ + O)",
+      "conventional_operations": 442918502400000,
+      "activation_dtype": "BF16",
+      "weight_format": "E4M3FN FP8 W8A16"
+    },
+    "full_attention_fp8": {
+      "logical_checkpoint_roles": 64,
+      "logical_formula": "16 * (Q + K + V + O)",
+      "fused_outer_operations": 32,
+      "outer_formula": "16 * (QKV + O)",
+      "conventional_operations": 134217728000000,
+      "activation_dtype": "BF16",
+      "weight_format": "E4M3FN FP8 W8A16"
+    },
+    "gdn_bf16_ab": {
+      "logical_checkpoint_roles": 96,
+      "logical_formula": "48 * (A + B)",
+      "fused_outer_operations": 48,
+      "outer_formula": "48 * paired-BA",
+      "conventional_operations": 1887436800000,
+      "activation_dtype": "BF16",
+      "weight_format": "BF16"
+    },
+    "total": {
+      "fp8_logical_checkpoint_roles": 208,
+      "fp8_fused_outer_operations": 128,
+      "nvfp4_logical_checkpoint_roles": 192,
+      "nvfp4_fused_outer_operations": 128,
+      "bf16_ab_logical_checkpoint_roles": 96,
+      "bf16_ab_fused_outer_operations": 48,
+      "conventional_operations": 1948044492800000
+    }
+  },
+  "physical_launch_accounting": {
+    "stock_vllm_source_derived_not_profiled": {
+      "row_chunk_formula": "39 * 1024 + 64 = 40000",
+      "cuda_kernels_per_fused_outer_operation": 40,
+      "fp8_expected_cuda_kernels": 5120,
+      "nvfp4_expected_cuda_kernels": 5120,
+      "qualification": "static consequence of the pinned Marlin P40000 source path because every listed output N exceeds 4096; not an NSys observation"
+    },
+    "q3x_v10_retained_receipt": {
+      "fp8_physical_launches": 1040,
+      "fp8_formula": "5 M8000 panels * 208 checkpoint roles",
+      "nvfp4_physical_launches": 128,
+      "nvfp4_formula": "64 whole-P40000 GateUp + 64 whole-P40000 Down",
+      "qualification": "authenticated Q3X route receipt; launch count alone has no speed or efficiency authority"
+    }
+  },
+  "matched_route_findings": {
+    "no_model_work_deletion": [
+      "all 64 layers execute their attention or GDN block and their MLP",
+      "the retained stock route does not use MTP",
+      "the cold matched workload has no Prefix-cache or external-KV deletion",
+      "chunked-Prefill scheduling can change physical M shapes and boundaries but does not remove projection roles",
+      "the retained stock route does not apply the Q3X terminal-layer liveness deletion"
+    ],
+    "activation_quantization": "The selected SM87 FP8 Marlin kernel deletes the configured input scale and executes BF16 activation times FP8 weight. Activation quantization is not an explanation for the owner-observed gap.",
+    "gdn_numerical_mismatch": "The pinned vLLM FLA route retains an FP32 authoritative state across a C64 chunk before casting the boundary state. Q3X freezes BF16 authoritative state after every token, so FLA state algebra is a reference mechanism rather than an exact production replacement.",
+    "fused_fp8_scale_constraint": "Real-checkpoint fused partitions share input-scale bits but not all weight-scale bits. An exact Q3X fused QKVZ or QKV body must preserve partition-specific original codes and scales instead of inheriting vLLM max-scale requantization.",
+    "humming_selected_in_retained_stock_log": false
+  },
+  "vllm_logger_semantics": {
+    "formula": "sum of received PrefillStats.computed since reset / actual monotonic elapsed since reset",
+    "default_trigger_seconds": 10,
+    "request_boundary_behavior": "partial Prefill chunks do not emit EngineCore output and therefore do not publish PrefillStats to the logger; the complete logical prompt count can land atomically in a later logger interval",
+    "retained_singleton_example": {
+      "computed_prompt_tokens": 40000,
+      "request_bound_prefill_seconds": 108.52464322606102,
+      "request_bound_prefill_tokens_per_second": 368.5798802091287,
+      "nearby_logger_tokens_per_second": 3999.7,
+      "logger_over_request_ratio": 10.8516503878
+    },
+    "claim_boundary": "The interval logger sample is service-window accounting rather than a per-request pure-Prefill timer. This distinction does not lower or replace the owner-established 4.3K tok/s planning constraint or the observed 1-2 second long-Agent product target."
+  },
+  "decision": {
+    "result": "KEEP_THE_1_948P_MODEL_WORK_LEDGER_AND_REJECT_OUTER_CALL_COUNT_AS_A_PERFORMANCE_PROXY",
+    "closed_hypotheses": [
+      "missing layers or MLP roles explain the difference",
+      "SM87 vLLM uses W8A8 activation quantization for these FP8 projections",
+      "128 vLLM fused outer calls means 128 physical CUDA launches",
+      "MTP, Prefix cache or external KV deleted the matched cold-request work"
+    ],
+    "unresolved_variables": [
+      "the exact owner-optimized vLLM route and startup/backend receipt was not retained",
+      "the owner observation and retained stock request-bound sample are not the same metric or proven route",
+      "physical CTA scheduling, packed-operand service, decode/MMA utilization and exact GDN/Attention arithmetic differ"
+    ],
+    "next_step": "Do not rerun an unchanged vLLM route. Bind a three-level Q3X work manifest to every real API receipt, then implement the complete role-specific FP8, NVFP4, Attention and exact-GDN v2 dataflow and return it directly to the clean-host P40 API gate.",
+    "owner_starting_line_prompt_tokens_per_second": 4300.0,
+    "owner_target_status": "unchanged"
+  }
+}

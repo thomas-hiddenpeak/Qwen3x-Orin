@@ -269,7 +269,39 @@ repeated K16 E2M1 blocks across 50,135,040 authentic Gate/Up/Down instances,
 even when block scales are ignored. Dictionary and cross-Gate-Up identical/
 proportional-code reuse are therefore rejected as material successors. These
 negative class screens do not lower the owner-established 4.3K target; they
-make matched production work and route accounting the active projection P0.
+made matched production work and route accounting the projection P0.
+
+That matched source/receipt audit is now closed. The 64-layer topology and
+the complete `1,948,044,492,800,000` conventional projection-operation ledger
+contain no missing layer or role: the retained stock vLLM route does not
+delete this work through MTP, Prefix cache, external KV, terminal liveness, or
+activation quantization. On SM87 its FP8 projections are BF16-activation
+W8A16 and its NVFP4 MLP is W4A16. The audit also corrects an earlier invalid
+comparison: vLLM's 128 FP8 and 128 NVFP4 counts are fused outer operations,
+not physical CUDA launches. The pinned P40 Marlin source splits every such
+outer operation into 40 row chunks, giving a source-derived 5,120 physical
+kernels per quantized family; Q3X v10's authenticated receipt instead records
+1,040 FP8 and 128 NVFP4 physical launches. Neither count is a throughput or
+utilization proxy. The exact formulas, source hashes, numerical-route gaps,
+and vLLM logger semantics are frozen in the
+[`P40 matched-work ledger`](metadata/qwen36-27b-prefill-p40-matched-work-ledger-2026-08-14.json).
+The ledger now also has a default-off host checker that materializes all 496
+logical roles, 304 fused outer operations, and 1,216 authenticated Q3X v10
+physical launches with exact M/N/K, BF16 activation dtype, source-scale
+partition, physical artifact, and P8000/P40000 ownership. Its logical and
+physical arithmetic totals independently close to the same
+`1,948,044,492,800,000` operations. This checker is diagnostic route
+accounting, not a proposed v2 launch topology or a performance result.
+
+The same audit confirms that vLLM's interval `Avg prompt throughput` can
+receive a completed request's full logical prompt count in a later logger
+window; it is not a per-request pure-Prefill timer. This metric correction
+does not downgrade the owner's optimized-route observation, 1--2 second Agent
+experience, or the 4.3K planning floor. The exact optimized route identity was
+not retained and remains unknown. Q3X therefore does not spend another run on
+the unchanged stock reference: every new native API receipt will bind logical
+roles, fused operations, physical launches, shapes, arithmetic and cache
+state while the target remains fixed.
 
 The exact GDN v2 topology is now frozen for implementation: 48 independent
 value-head recurrence owners replace the v1 16-owner/three-head serial chain;
@@ -277,8 +309,48 @@ C64 exact preparation, token-serial BF16 recurrence, and exact bulk
 RMSNorm/SiLU form separate bounded stages. Per-token BF16 state rounding and
 pre-round same-token output use remain unchanged. WY/KKT/SSD, FP32
 authoritative chunk state, and delayed rounding remain excluded. The first
-default-off single-C64 cell is implementation work, not a performance result
-or production route.
+default-off single-C64 cell is now implemented as three kernels with no
+selector: a token-parallel producer, 48-head recurrence, and rows8 epilogue.
+Static SM87 compilation reports respectively 36/78/25 registers per thread,
+zero local bytes, and 2,048/34,056/0 bytes of shared memory; the separate
+state-trace recurrence reports 80 registers. A deterministic adversarial SM87
+CUDA oracle now passes bitwise over raw/final output, all 50,331,648 per-token
+BF16 state words, final recurrent state, and convolution history against an
+independent ownership/reference implementation with nonzero incoming state
+and history. The exact source, binary, surfaces, resources, and authority
+boundary are frozen in the
+[`GDN C64 oracle record`](metadata/qwen36-27b-sm87-bulk-v2-gdn-c64-oracle-2026-08-14.json).
+This is synthetic correctness authority for the single C64 cell only. A
+host-only P40 dependency plan now closes 625 continuation chunks, two bounded
+prepared/raw/history slots, three logical streams, six reusable events, and
+6,987,776 bytes of private state, but no multi-stream launcher exists yet.
+The cell remains test-only and single-stream, and has no real-activation, API,
+performance, cancellation, executable double-buffer, whole-layer,
+qualification, or production authority until the complete v2 composition
+closes.
+
+The full-Attention v2 topology is also frozen for its first executable slice.
+The closed target-AOT control already uses Q128/KV32, 128 KiB shared memory,
+254 registers per thread, one CTA/SM, and 7,500 CTAs per P40 layer; it has no
+valid P40 timing because its request never returned. Direct Q256 cannot retain
+the exact FP32 D256 output state without exhausting the complete SM87 register
+file before any other state is counted. The selected slice therefore keeps
+the Q128 arithmetic body and schedules 16 persistent CTA lanes as an L2
+temporal cohort over one KV head, using snake epochs and no cross-CTA barrier.
+Its effective Q is 2,048 only at the whole-GPU L2 service boundary. The
+default-off exact-P40 cell is now implemented as four stream-ordered
+same-KV-head launches. Its host proof maps all 7,500 real query tiles to one
+writer and retains 52 final-epoch repeat bodies with stores disabled. The
+candidate and refactored target-AOT control both compile to 254 registers,
+zero stack/local bytes, 128 KiB dynamic shared memory, and one-CTA/SM capacity;
+the control contract tests pass. The exact mapping, build, resources, traffic
+hypothesis, and authority limits are frozen in the
+[`Attention cohort record`](metadata/qwen36-27b-sm87-bulk-v2-attention-l2-cohort-2026-08-14.json).
+The shared device body narrows arithmetic drift, but no candidate-versus-
+control bitwise CUDA oracle exists yet, so numerical qualification remains
+false. Expected DRAM reuse is a falsifiable architecture hypothesis, not a
+measured speedup; a positive real-API composition must precede any NCU
+attribution.
 
 ## 2. Current capability matrix
 

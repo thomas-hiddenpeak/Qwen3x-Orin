@@ -127,6 +127,18 @@ option(Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION
   "Build the test-only real-weight layer-0 M192 numerical/resource oracle for the private target-AOT NVFP4 kernels"
   OFF
 )
+option(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_GDN_C64_ADMISSION
+  "Build the default-off single-layer/single-C64 exact GDN v2 execution cell"
+  OFF
+)
+option(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION
+  "Build the default-off exact-P40000 Attention v2 persistent-L2-cohort cell"
+  OFF
+)
+option(Q3X_BUILD_P40_PROJECTION_WORK_MANIFEST_DIAGNOSTIC
+  "Build the host-only three-level P40 v10 projection work checker"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -369,6 +381,24 @@ if(Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION AND
    NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_GDN_C64_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_GDN_C64_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_P40_PROJECTION_WORK_MANIFEST_DIAGNOSTIC AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_P40_PROJECTION_WORK_MANIFEST_DIAGNOSTIC is diagnostic-only and requires BUILD_TESTING=ON"
   )
 endif()
 if(Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION AND
@@ -771,6 +801,19 @@ if(Q3X_BUILD_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_GDN_C64_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/sm87_bulk_dataflow_v2_gdn_c64.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_GDN_C64_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION)
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
@@ -2817,6 +2860,92 @@ if(BUILD_TESTING)
   set_tests_properties(sm87_target_aot_gdn_cuda_host PROPERTIES
     LABELS "host;sm87;prefill;target_aot;gdn;cuda_contract;default_off"
   )
+
+  add_executable(q3x_sm87_bulk_dataflow_v2_gdn_c64_host_test
+    tests/sm87_bulk_dataflow_v2_gdn_c64_host_test.cpp
+  )
+  target_link_libraries(q3x_sm87_bulk_dataflow_v2_gdn_c64_host_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(q3x_sm87_bulk_dataflow_v2_gdn_c64_host_test)
+  add_test(NAME sm87_bulk_dataflow_v2_gdn_c64_host
+    COMMAND q3x_sm87_bulk_dataflow_v2_gdn_c64_host_test
+  )
+  set_tests_properties(sm87_bulk_dataflow_v2_gdn_c64_host PROPERTIES
+    LABELS "host;sm87;prefill;bulk_dataflow_v2;gdn;c64;default_off"
+  )
+
+  add_executable(
+    q3x_sm87_bulk_dataflow_v2_attention_l2_cohort_host_test
+    tests/sm87_bulk_dataflow_v2_attention_l2_cohort_host_test.cpp
+  )
+  target_link_libraries(
+    q3x_sm87_bulk_dataflow_v2_attention_l2_cohort_host_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(
+    q3x_sm87_bulk_dataflow_v2_attention_l2_cohort_host_test
+  )
+  add_test(NAME sm87_bulk_dataflow_v2_attention_l2_cohort_host
+    COMMAND q3x_sm87_bulk_dataflow_v2_attention_l2_cohort_host_test
+  )
+  set_tests_properties(
+    sm87_bulk_dataflow_v2_attention_l2_cohort_host PROPERTIES
+    LABELS "host;sm87;prefill;bulk_dataflow_v2;attention;p40;l2_cohort;default_off"
+  )
+
+  if(Q3X_BUILD_P40_PROJECTION_WORK_MANIFEST_DIAGNOSTIC)
+    add_executable(q3x_p40_projection_work_manifest_host_test
+      tests/p40_projection_work_manifest_host_test.cpp
+    )
+    target_compile_definitions(
+      q3x_p40_projection_work_manifest_host_test PRIVATE
+      Q3X_ENABLE_P40_PROJECTION_WORK_MANIFEST_DIAGNOSTIC=1
+    )
+    target_compile_features(
+      q3x_p40_projection_work_manifest_host_test PRIVATE cxx_std_17
+    )
+    # The checker deliberately materializes a large diagnostic table. Its
+    # value is validation, not optimized execution, so keep compile cost
+    # bounded even when the surrounding build is Release.
+    target_compile_options(
+      q3x_p40_projection_work_manifest_host_test PRIVATE
+      $<$<COMPILE_LANGUAGE:CXX>:-O0>
+    )
+    q3x_enable_warnings(q3x_p40_projection_work_manifest_host_test)
+    add_test(NAME p40_projection_work_manifest_host
+      COMMAND q3x_p40_projection_work_manifest_host_test
+    )
+    set_tests_properties(p40_projection_work_manifest_host PROPERTIES
+      LABELS "host;prefill;p40;work_manifest;diagnostic;default_off"
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_GDN_C64_ADMISSION)
+    add_executable(q3x_sm87_bulk_dataflow_v2_gdn_c64_cuda_oracle_test
+      tests/sm87_bulk_dataflow_v2_gdn_c64_cuda_oracle_test.cu
+    )
+    target_link_libraries(q3x_sm87_bulk_dataflow_v2_gdn_c64_cuda_oracle_test
+      PRIVATE q3x::core q3x::kernels CUDA::cudart
+    )
+    target_compile_options(
+      q3x_sm87_bulk_dataflow_v2_gdn_c64_cuda_oracle_test PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+    )
+    q3x_enable_warnings(
+      q3x_sm87_bulk_dataflow_v2_gdn_c64_cuda_oracle_test
+    )
+    add_test(NAME sm87_bulk_dataflow_v2_gdn_c64_cuda_oracle
+      COMMAND q3x_sm87_bulk_dataflow_v2_gdn_c64_cuda_oracle_test
+    )
+    set_tests_properties(sm87_bulk_dataflow_v2_gdn_c64_cuda_oracle PROPERTIES
+      LABELS "cuda;sm87;prefill;bulk_dataflow_v2;gdn;c64;correctness;synthetic;default_off"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 600
+    )
+  endif()
 
   add_executable(q3x_sm87_target_aot_p40_executor_contract_test
     tests/sm87_target_aot_p40_executor_contract_test.cpp
