@@ -19,6 +19,7 @@
 namespace q3x::runtime {
 
 struct Sm87TargetAotProjectionDevicePreparationStats;
+struct Sm87TargetAotCompleteDevicePreparationStats;
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
 namespace reference_engine_test_detail {
 class Sm87TargetAotLayer0M192OracleAccess;
@@ -72,6 +73,44 @@ enum class ReferenceDecodeGraphCachePolicy : std::uint8_t {
     const ReferenceDecodeGraphCachePolicy policy) noexcept {
   return policy == ReferenceDecodeGraphCachePolicy::kDisabled ||
          policy == ReferenceDecodeGraphCachePolicy::kSm87ShortPositions;
+}
+
+// Stable host/API identity for the complete generation implementation. This
+// is deliberately above ProjectionBackend and ReferencePrefillExecutionMode:
+// selecting one of those lower-level mechanisms must never imply that the
+// complete target-AOT runner was selected. The target route remains
+// fail-closed until its Engine and server boundaries are explicitly wired.
+enum class ReferenceGenerationRoute : std::uint8_t {
+  kReference = 0,
+  kSm87TargetAotP40,
+};
+
+[[nodiscard]] constexpr bool is_valid_reference_generation_route(
+    const ReferenceGenerationRoute route) noexcept {
+  return route == ReferenceGenerationRoute::kReference ||
+         route == ReferenceGenerationRoute::kSm87TargetAotP40;
+}
+
+[[nodiscard]] constexpr std::string_view to_string(
+    const ReferenceGenerationRoute route) noexcept {
+  switch (route) {
+    case ReferenceGenerationRoute::kReference:
+      return "reference";
+    case ReferenceGenerationRoute::kSm87TargetAotP40:
+      return "sm87-target-aot-p40";
+  }
+  return "invalid";
+}
+
+[[nodiscard]] constexpr std::optional<ReferenceGenerationRoute>
+parse_reference_generation_route(const std::string_view text) noexcept {
+  if (text == "reference") {
+    return ReferenceGenerationRoute::kReference;
+  }
+  if (text == "sm87-target-aot-p40") {
+    return ReferenceGenerationRoute::kSm87TargetAotP40;
+  }
+  return std::nullopt;
 }
 
 // Host-observable Prefill scheduling identity. The legacy value covers the
@@ -222,6 +261,10 @@ inline constexpr std::string_view
     kLayerMajorNativePromptWideP40VllmMarlinParityDeploymentPlanId =
         "q3x.sm87.ac-prefill-p40-vllm-marlin-parity."
         "native-p40-canonical-nvfp4-legacy-stripe.v1";
+// Independent complete-engine identity for the exact-P40000 target-AOT
+// execution chain. It is never inferred from a projection/Attention tactic.
+inline constexpr std::string_view kSm87TargetAotP40DeploymentPlanId =
+    "q3x.sm87.target-aot.exact-p40000-one-token.v1";
 
 [[nodiscard]] constexpr bool is_valid_reference_prefill_execution_mode(
     const ReferencePrefillExecutionMode mode) noexcept {
@@ -281,6 +324,12 @@ struct ReferenceEngineOptions {
   std::filesystem::path create_sm87_target_aot_projection_bundle;
   std::string
       expected_sm87_target_aot_projection_payload_catalog_sha256;
+  // Append-only complete generation-route identity. The default preserves
+  // the existing ReferenceEngine path. The target value is a host contract
+  // only until the Engine explicitly binds its executor; callers must never
+  // interpret a lower-level SM87 backend or Prefill tactic as this route.
+  ReferenceGenerationRoute generation_route =
+      ReferenceGenerationRoute::kReference;
 };
 
 // Text-only messages accepted by the pinned Qwen 3.6 chat formatter. The
@@ -366,6 +415,10 @@ struct ReferenceGenerationTiming {
   // Whole-request-only final publication interval. Legacy routes retain the
   // exact zero default. prompt_prefill/TTFT/total include this value.
   double commit_prefill_milliseconds = 0.0;
+  // False when prompt_prefill_milliseconds is only a diagnostic whole-engine
+  // interval and cannot qualify or promote a pure-Prefill result.  Existing
+  // routes retain their current true default and byte-stable witness schema.
+  bool prompt_prefill_phase_qualified = true;
 };
 
 struct ReferenceTraceDigest {
@@ -405,6 +458,31 @@ struct ReferenceGeneration {
   std::vector<ReferenceTraceDigest> traces;
   std::size_t decode_graph_replays = 0U;
   std::size_t decode_graph_serial_fallbacks = 0U;
+  // Complete-engine route actually used by this committed result.  This is
+  // execution evidence, not a copy of a requested selector.  The target
+  // route publishes the exact executor receipt below and never synthesizes
+  // legacy Prefix steps.
+  ReferenceGenerationRoute generation_route =
+      ReferenceGenerationRoute::kReference;
+  RequestMemoryProfile request_memory_profile =
+      RequestMemoryProfile::kLegacyC512;
+  std::uint64_t consumed_prompt_tokens = 0U;
+  bool full_prompt_consumed = false;
+  std::uint64_t target_aot_admission_epoch = 0U;
+  std::uint64_t target_aot_transaction_epoch = 0U;
+  std::uint64_t target_aot_completed_layers = 0U;
+  std::uint64_t target_aot_completed_gdn_layers = 0U;
+  std::uint64_t target_aot_completed_full_attention_layers = 0U;
+  std::uint64_t target_aot_completed_attention_panels = 0U;
+  std::uint64_t target_aot_recorded_layer_events = 0U;
+  std::uint64_t target_aot_recorded_global_events = 0U;
+  bool target_aot_transaction_committed = false;
+  bool target_aot_handoff_result_observed = false;
+  bool target_aot_handoff_complete = false;
+  bool target_aot_used_fallback = false;
+  bool target_aot_used_mtp = false;
+  bool target_aot_used_cublaslt = false;
+  bool target_aot_used_jit = false;
   ReferencePrefillExecutionMode prefill_execution_mode =
       ReferencePrefillExecutionMode::kLegacyC512Tiled;
   // Empty for legacy execution. Whole-request execution copies the identity
@@ -502,6 +580,8 @@ struct ReferenceEngineLoadStats {
   // Engine-wide dispatcher policy accepted by the factory. This is a
   // configured route fact, not per-operator launch attestation.
   ProjectionBackend projection_backend = ProjectionBackend::kReference;
+  ReferenceGenerationRoute generation_route =
+      ReferenceGenerationRoute::kReference;
   double tokenizer_milliseconds = 0.0;
   double resident_load_milliseconds = 0.0;
   double weight_bind_milliseconds = 0.0;
@@ -517,6 +597,10 @@ struct ReferenceEngineLoadStats {
   double p40_packed_projection_asset_milliseconds = 0.0;
   double nvfp4_marlin_p40_parity_sidecar_milliseconds = 0.0;
   double target_aot_projection_device_asset_milliseconds = 0.0;
+  double target_aot_complete_projection_device_asset_milliseconds = 0.0;
+  double target_aot_engine_rope_milliseconds = 0.0;
+  double target_aot_request_owner_milliseconds = 0.0;
+  double target_aot_executor_bind_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -657,6 +741,22 @@ struct ReferenceEngineLoadStats {
   std::uint64_t target_aot_projection_owner_identity = 0U;
   std::uint64_t target_aot_projection_allocation_identity = 0U;
   std::int32_t target_aot_projection_device_ordinal = -1;
+  bool target_aot_complete_projection_device_assets_enabled = false;
+  bool target_aot_complete_projection_device_assets_attached = false;
+  std::size_t target_aot_complete_projection_artifacts = 0U;
+  std::size_t target_aot_complete_projection_sources = 0U;
+  std::uint64_t target_aot_complete_projection_bytes = 0U;
+  std::uint64_t target_aot_complete_projection_source_d2h_bytes = 0U;
+  std::uint64_t target_aot_complete_projection_payload_h2d_bytes = 0U;
+  std::uint64_t target_aot_complete_projection_verification_d2h_bytes = 0U;
+  std::string target_aot_complete_projection_catalog_sha256;
+  std::uint64_t target_aot_complete_projection_owner_identity = 0U;
+  std::uint64_t target_aot_complete_projection_allocation_identity = 0U;
+  std::int32_t target_aot_complete_projection_device_ordinal = -1;
+  bool target_aot_engine_rope_ready = false;
+  std::uint64_t target_aot_engine_rope_bytes = 0U;
+  bool target_aot_request_owner_ready = false;
+  bool target_aot_executor_ready = false;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.
@@ -883,6 +983,15 @@ class ReferenceEngine {
   [[nodiscard]] static bool attach_target_aot_projection_device_assets(
       ModelWeights& model_weights,
       Sm87TargetAotProjectionDeviceAssets& owner) noexcept;
+  [[nodiscard]] static Sm87TargetAotCompleteDevicePreparationStats
+  prepare_target_aot_complete_projection_device_assets(
+      const ResidentWeights& resident, const ModelWeights& model_weights,
+      std::uint64_t minimum_free_bytes_after_prepare,
+      Sm87TargetAotCompleteProjectionDeviceAssets& owner);
+  [[nodiscard]] static bool
+  attach_target_aot_complete_projection_device_assets(
+      ModelWeights& model_weights,
+      Sm87TargetAotCompleteProjectionDeviceAssets& owner) noexcept;
   struct Impl;
   explicit ReferenceEngine(std::unique_ptr<Impl> impl) noexcept;
   [[nodiscard]] ReferenceGenerateResult generate_tokenized(

@@ -30,7 +30,8 @@ class Sha256 {
   [[nodiscard]] Sha256Digest finalize() noexcept;
 
  private:
-  void transform(const std::uint8_t* block) noexcept;
+  void transform_blocks(const std::uint8_t* blocks,
+                        std::size_t block_count) noexcept;
 
   std::array<std::uint32_t, 8> state_{};
   std::array<std::uint8_t, 64> buffer_{};

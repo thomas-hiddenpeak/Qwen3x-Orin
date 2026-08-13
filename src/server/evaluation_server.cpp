@@ -738,6 +738,13 @@ bool observe_gateway_token(
 
 [[nodiscard]] std::uint64_t consumed_prompt_tokens(
     const runtime::ReferenceGeneration& generation) noexcept {
+  if (generation.generation_route ==
+          runtime::ReferenceGenerationRoute::kSm87TargetAotP40 &&
+      generation.full_prompt_consumed &&
+      generation.consumed_prompt_tokens ==
+          generation.prompt_token_ids.size()) {
+    return generation.consumed_prompt_tokens;
+  }
   const std::size_t comparable =
       std::min(generation.prompt_token_ids.size(), generation.steps.size());
   std::size_t consumed = 0U;
@@ -805,9 +812,13 @@ void emit_target_prefill_witness(
         "engine_call_wall",
         elapsed_milliseconds(generation_started_at,
                              generation_finished_at));
-    record.pure_prefill = measured_phase(
-        "engine_prompt_prefill",
-        generation.timing.prompt_prefill_milliseconds);
+    record.pure_prefill =
+        generation.timing.prompt_prefill_phase_qualified
+            ? measured_phase("engine_prompt_prefill",
+                             generation.timing.prompt_prefill_milliseconds)
+            : unavailable_phase(
+                  "engine_prompt_prefill",
+                  "target_aot_interval_includes_first_token_finalization");
     record.finalize = measured_phase(
         "engine_finish_prefill",
         generation.timing.finish_prefill_milliseconds);
@@ -836,11 +847,15 @@ void emit_target_prefill_witness(
         generation.timing.prefix_execution_milliseconds.size();
     record.prefill_route_evidence = generation.prefill_route_evidence;
     record.projection_backend = engine.load_stats().projection_backend;
+    record.generation_route = generation.generation_route;
     record.prefill_execution_mode = generation.prefill_execution_mode;
     record.prefill_logical_panel_count =
         generation.prefill_logical_panel_count;
     record.request_memory_profile =
-        engine.load_stats().request_memory_profile;
+        generation.generation_route ==
+                runtime::ReferenceGenerationRoute::kSm87TargetAotP40
+            ? generation.request_memory_profile
+            : engine.load_stats().request_memory_profile;
     record.bounded_submission_window =
         generation.prefill_bounded_submission_window;
     record.submission_window_retirements =
@@ -946,6 +961,40 @@ void emit_target_prefill_witness(
     record.vllm_marlin_parity_layer_completion_receipt_count =
         generation.prefill_vllm_marlin_parity_layer_completion_receipt_count;
     record.deployment_plan_id = generation.prefill_deployment_plan_id;
+    record.target_aot_complete_projection_artifacts =
+        engine.load_stats().target_aot_complete_projection_artifacts;
+    record.target_aot_complete_projection_sources =
+        engine.load_stats().target_aot_complete_projection_sources;
+    record.target_aot_complete_projection_catalog_sha256 =
+        engine.load_stats().target_aot_complete_projection_catalog_sha256;
+    record.target_aot_admission_epoch =
+        generation.target_aot_admission_epoch;
+    record.target_aot_transaction_epoch =
+        generation.target_aot_transaction_epoch;
+    record.target_aot_completed_layers =
+        generation.target_aot_completed_layers;
+    record.target_aot_completed_gdn_layers =
+        generation.target_aot_completed_gdn_layers;
+    record.target_aot_completed_full_attention_layers =
+        generation.target_aot_completed_full_attention_layers;
+    record.target_aot_completed_attention_panels =
+        generation.target_aot_completed_attention_panels;
+    record.target_aot_recorded_layer_events =
+        generation.target_aot_recorded_layer_events;
+    record.target_aot_recorded_global_events =
+        generation.target_aot_recorded_global_events;
+    record.target_aot_transaction_committed =
+        generation.target_aot_transaction_committed;
+    record.target_aot_handoff_result_observed =
+        generation.target_aot_handoff_result_observed;
+    record.target_aot_handoff_complete =
+        generation.target_aot_handoff_complete;
+    record.target_aot_used_fallback = generation.target_aot_used_fallback;
+    record.target_aot_used_mtp = generation.target_aot_used_mtp;
+    record.target_aot_used_cublaslt = generation.target_aot_used_cublaslt;
+    record.target_aot_used_jit = generation.target_aot_used_jit;
+    record.pure_prefill_phase_qualified =
+        generation.timing.prompt_prefill_phase_qualified;
     std::cerr << serialize_target_prefill_witness(record) << '\n';
   } catch (...) {
     // Evidence is observational. Never convert an already successful model
@@ -1539,6 +1588,7 @@ void ingress_worker(
       !complete_utf8_prefix(options.served_model, served_model_bytes) ||
       served_model_bytes != options.served_model.size() ||
       !runtime::is_valid_projection_backend(options.projection_backend) ||
+      !runtime::is_valid_reference_generation_route(options.engine_route) ||
       !runtime::is_valid_reference_prefill_execution_mode(
           options.prefill_execution_mode) ||
       !runtime::is_valid_layer_major_prefill_full_attention_tactic(
@@ -1546,6 +1596,12 @@ void ingress_worker(
       !runtime::is_valid_layer_major_prefill_projection_tactic(
           options.prefill_projection_tactic)) {
     error = "evaluation server options are outside fixed safe bounds";
+    return false;
+  }
+  const EvaluationServerEngineRouteContractError route_error =
+      validate_evaluation_server_engine_route_contract(options);
+  if (route_error != EvaluationServerEngineRouteContractError::kNone) {
+    error = std::string(to_string(route_error));
     return false;
   }
   if (options.bind_address != "127.0.0.1") {
@@ -1627,6 +1683,7 @@ int run_evaluation_server(const EvaluationServerOptions& options,
   }
 
   runtime::ReferenceEngineOptions engine_options;
+  engine_options.generation_route = options.engine_route;
   engine_options.projection_backend = options.projection_backend;
   engine_options.prefill_execution_mode =
       options.prefill_execution_mode;
@@ -1644,7 +1701,9 @@ int run_evaluation_server(const EvaluationServerOptions& options,
   engine_options.request_options.min_free_bytes_after_create =
       options.request_min_free_bytes_after_create;
   engine_options.decode_graph_cache_policy =
-      options.projection_backend ==
+      options.engine_route ==
+              runtime::ReferenceGenerationRoute::kReference &&
+          options.projection_backend ==
               runtime::ProjectionBackend::kSm87WeightOnly
           ? runtime::ReferenceDecodeGraphCachePolicy::kSm87ShortPositions
           : runtime::ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -1693,6 +1752,7 @@ int run_evaluation_server(const EvaluationServerOptions& options,
   const runtime::ReferenceEngineLoadStats& load = engine.load_stats();
   std::cout << "ready: http://" << options.bind_address << ':'
             << options.port << "/v1 model=" << options.served_model
+            << " engine_route=" << runtime::to_string(options.engine_route)
             << " max_sequence_length=" << options.max_sequence_length
             << " prefill_chunk_size=" << options.prefill_chunk_size
             << " prefill_execution_mode="

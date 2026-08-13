@@ -394,16 +394,24 @@ static_assert(kSm87TargetAotP40Bf16LogitsBytes %
   return true;
 }
 
-[[nodiscard]] bool projection_resources_preflight() noexcept {
+[[nodiscard]] Sm87TargetAotP40ExecutorStatus static_preflight_failure(
+    const char* const context, const int cuda_error = 0) noexcept {
+  return {Sm87TargetAotP40ExecutorError::kStaticResourcePreflightFailure,
+          context, kSm87TargetAotP40LayerCount, cuda_error,
+          sm87_target_aot_request_detail::ExecutionTransactionError::kNone};
+}
+
+[[nodiscard]] Sm87TargetAotP40ExecutorStatus
+projection_resources_preflight() noexcept {
   for (const auto role : {Sm87TargetAotProjectionRole::kNvFp4GateUp,
                           Sm87TargetAotProjectionRole::kNvFp4Down}) {
     kernels::Sm87TargetAotNvFp4CudaResources resources{};
     const auto plan = kernels::sm87_target_aot_projection_plan(
         role, kSm87TargetAotP40PromptTokens);
-    if (!plan.valid() ||
+    const int query_status =
         kernels::query_sm87_target_aot_nvfp4_cuda_resources(
-            role, kSm87TargetAotP40PromptTokens, &resources) !=
-            static_cast<int>(cudaSuccess) ||
+            role, kSm87TargetAotP40PromptTokens, &resources);
+    if (!plan.valid() || query_status != static_cast<int>(cudaSuccess) ||
         resources.role != role || !resources.kernel_compiled ||
         resources.binary_version != 87 ||
         resources.registers_per_thread <= 0 ||
@@ -413,59 +421,76 @@ static_assert(kSm87TargetAotP40Bf16LogitsBytes %
         resources.static_resources_qualified ||
         resources.numerical_contract_qualified ||
         resources.production_dispatch_eligible) {
-      return false;
+      return static_preflight_failure(
+          role == Sm87TargetAotProjectionRole::kNvFp4GateUp
+              ? "static_resource_nvfp4_gate_up"
+              : "static_resource_nvfp4_down",
+          query_status);
     }
   }
   for (const auto role : {Sm87TargetAotProjectionRole::kFp8GdnQkvZ,
                           Sm87TargetAotProjectionRole::kFp8FullQkv,
                           Sm87TargetAotProjectionRole::kFp8AttentionOutput}) {
     kernels::Sm87TargetAotFp8CudaResources resources{};
-    if (kernels::query_sm87_target_aot_fp8_cuda_resources(
-            role, kSm87TargetAotP40PromptTokens, &resources) !=
-            static_cast<int>(cudaSuccess) ||
+    const int query_status = kernels::query_sm87_target_aot_fp8_cuda_resources(
+        role, kSm87TargetAotP40PromptTokens, &resources);
+    if (query_status != static_cast<int>(cudaSuccess) ||
         !kernels::sm87_target_aot_fp8_cuda_resources_structurally_valid(
             resources) ||
         !resources.kernel_compiled || resources.binary_version != 87) {
-      return false;
+      const char* context = "static_resource_fp8_attention_output";
+      if (role == Sm87TargetAotProjectionRole::kFp8GdnQkvZ) {
+        context = "static_resource_fp8_gdn_qkvz";
+      } else if (role == Sm87TargetAotProjectionRole::kFp8FullQkv) {
+        context = "static_resource_fp8_full_qkv";
+      }
+      return static_preflight_failure(context, query_status);
     }
   }
-  return true;
+  return {};
 }
 
-[[nodiscard]] bool constituent_resources_preflight(
+[[nodiscard]] Sm87TargetAotP40ExecutorStatus constituent_resources_preflight(
     const std::int32_t device_ordinal) noexcept {
   int current_device = -1;
-  if (cudaGetDevice(&current_device) != cudaSuccess ||
-      current_device != device_ordinal || !projection_resources_preflight()) {
-    return false;
+  const cudaError_t device_status = cudaGetDevice(&current_device);
+  if (device_status != cudaSuccess || current_device != device_ordinal) {
+    return static_preflight_failure("static_resource_device",
+                                    static_cast<int>(device_status));
+  }
+  const Sm87TargetAotP40ExecutorStatus projections =
+      projection_resources_preflight();
+  if (!projections) {
+    return projections;
   }
 
   kernels::Sm87Bf16AbPromptWideP40Resources ab{};
-  if (kernels::query_sm87_bf16_ab_prompt_wide_p40_resources_cuda(&ab) !=
-          static_cast<int>(cudaSuccess) ||
+  const int ab_status =
+      kernels::query_sm87_bf16_ab_prompt_wide_p40_resources_cuda(&ab);
+  if (ab_status != static_cast<int>(cudaSuccess) ||
       !ab.valid()) {
-    return false;
+    return static_preflight_failure("static_resource_bf16_ab", ab_status);
   }
 
   kernels::Sm87TargetAotGdnCudaResources gdn{};
-  if (kernels::query_sm87_target_aot_gdn_cuda_resources(
-          kSm87TargetAotP40PromptTokens, &gdn) !=
-          static_cast<int>(cudaSuccess) ||
+  const int gdn_status = kernels::query_sm87_target_aot_gdn_cuda_resources(
+      kSm87TargetAotP40PromptTokens, &gdn);
+  if (gdn_status != static_cast<int>(cudaSuccess) ||
       !kernels::sm87_target_aot_gdn_cuda_resources_structurally_valid(gdn) ||
       !gdn.kernel_compiled || gdn.binary_version != 87) {
-    return false;
+    return static_preflight_failure("static_resource_gdn", gdn_status);
   }
 
   sm87_target_aot_attention_execution_detail::TargetP40Resources attention{};
-  if (sm87_target_aot_attention_execution_detail::
-          query_q128_kv32_p40_two_stage_resources(device_ordinal,
-                                                  &attention) !=
-          static_cast<int>(cudaSuccess) ||
+  const int attention_status = sm87_target_aot_attention_execution_detail::
+      query_q128_kv32_p40_two_stage_resources(device_ordinal, &attention);
+  if (attention_status != static_cast<int>(cudaSuccess) ||
       !sm87_target_aot_attention_execution_detail::
           target_p40_resources_structurally_valid(attention)) {
-    return false;
+    return static_preflight_failure("static_resource_attention",
+                                    attention_status);
   }
-  return true;
+  return {};
 }
 
 [[nodiscard]] bool snapshot_ready_for_bind(
@@ -662,6 +687,29 @@ struct FinalHandoffScratchView final {
 
 }  // namespace
 
+Sm87TargetAotP40ExecutorStatus
+preflight_sm87_target_aot_p40_static_resources(
+    std::int32_t expected_device_ordinal) noexcept {
+#if !defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION) ||       \
+    !defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) || \
+    !defined(Q3X_ENABLE_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION)
+  (void)expected_device_ordinal;
+  return {Sm87TargetAotP40ExecutorError::kAdmissionDisabled,
+          "executor_admission_not_compiled"};
+#else
+  if (expected_device_ordinal < 0) {
+    int current_device = -1;
+    const cudaError_t cuda_status = cudaGetDevice(&current_device);
+    if (cuda_status != cudaSuccess || current_device < 0) {
+      return static_preflight_failure("static_resource_device",
+                                      static_cast<int>(cuda_status));
+    }
+    expected_device_ordinal = current_device;
+  }
+  return constituent_resources_preflight(expected_device_ordinal);
+#endif
+}
+
 Sm87TargetAotP40Executor::~Sm87TargetAotP40Executor() {
   if (pinned_handoff_result_ != nullptr) {
     (void)cudaFreeHost(pinned_handoff_result_);
@@ -720,10 +768,10 @@ Sm87TargetAotP40ExecutorBindResult Sm87TargetAotP40Executor::bind(
                            "engine_rope_static_preflight");
     return result;
   }
-  if (!constituent_resources_preflight(device_ordinal)) {
-    result.status = status(
-        Sm87TargetAotP40ExecutorError::kStaticResourcePreflightFailure,
-        "all_constituent_static_resources");
+  const Sm87TargetAotP40ExecutorStatus static_resources =
+      preflight_sm87_target_aot_p40_static_resources(device_ordinal);
+  if (!static_resources) {
+    result.status = static_resources;
     return result;
   }
 

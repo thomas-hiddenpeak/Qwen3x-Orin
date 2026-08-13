@@ -801,6 +801,28 @@ std::string serialize_target_prefill_witness(
   const bool p40_vllm_marlin_parity_candidate_v15 =
       record.deployment_plan_id == runtime::
           kLayerMajorNativePromptWideP40VllmMarlinParityDeploymentPlanId;
+  const bool target_aot_p40_candidate_v16 =
+      record.deployment_plan_id == runtime::kSm87TargetAotP40DeploymentPlanId;
+  bool target_aot_has_no_legacy_route_evidence =
+      !record.prefill_route_evidence.valid &&
+      !record.prefill_route_evidence.complete &&
+      !record.prefill_route_evidence.request_active &&
+      record.prefill_route_evidence.completed_layer_passes == 0U &&
+      record.prefill_route_evidence.expected_layer_passes == 0U &&
+      record.prefill_route_evidence.error ==
+          runtime::PrefillRouteEvidenceError::kNone;
+  for (const runtime::PrefillOperatorRouteCounts& counts :
+       record.prefill_route_evidence.operators) {
+    target_aot_has_no_legacy_route_evidence =
+        target_aot_has_no_legacy_route_evidence &&
+        counts.production_hits == 0U && counts.exact_fallback_hits == 0U &&
+        counts.forbidden_hits == 0U;
+  }
+  for (const std::uint64_t hits :
+       record.prefill_route_evidence.forbidden_boundary_hits) {
+    target_aot_has_no_legacy_route_evidence =
+        target_aot_has_no_legacy_route_evidence && hits == 0U;
+  }
   constexpr std::uint64_t kLayerCount = 64U;
   constexpr std::uint64_t kLinearAttentionLayerCount = 48U;
   constexpr std::uint64_t kAttentionLayerCount = 16U;
@@ -1147,6 +1169,40 @@ std::string serialize_target_prefill_witness(
       record.packed_nvfp4_v2_gate_up_hits == 0U &&
       record.packed_nvfp4_v2_down_hits == 0U &&
       record.packed_nvfp4_v2_physical_launches == 0U;
+  const bool target_aot_p40_package_counts_complete =
+      target_aot_p40_candidate_v16 &&
+      record.generation_route ==
+          runtime::ReferenceGenerationRoute::kSm87TargetAotP40 &&
+      record.projection_backend == runtime::ProjectionBackend::kSm87WeightOnly &&
+      record.request_memory_profile ==
+          runtime::RequestMemoryProfile::kSm87TargetAotP40Owner &&
+      record.prefill_execution_mode ==
+          runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled &&
+      record.prefill_logical_panel_count == 1U &&
+      !record.bounded_submission_window &&
+      record.submission_window_retirements == 0U &&
+      target_aot_has_no_legacy_route_evidence &&
+      record.prompt_tokens == 40'000U &&
+      record.consumed_prompt_tokens == record.prompt_tokens &&
+      record.full_prompt_consumed && record.completion_tokens == 1U &&
+      record.prefix_execution_count == 1U &&
+      record.target_aot_complete_projection_artifacts == 256U &&
+      record.target_aot_complete_projection_sources == 400U &&
+      record.target_aot_complete_projection_catalog_sha256.size() == 64U &&
+      record.target_aot_admission_epoch != 0U &&
+      record.target_aot_transaction_epoch != 0U &&
+      record.target_aot_completed_layers == 64U &&
+      record.target_aot_completed_gdn_layers == 48U &&
+      record.target_aot_completed_full_attention_layers == 16U &&
+      record.target_aot_completed_attention_panels == 80U &&
+      record.target_aot_recorded_layer_events == 512U &&
+      record.target_aot_recorded_global_events == 7U &&
+      record.target_aot_transaction_committed &&
+      record.target_aot_handoff_result_observed &&
+      record.target_aot_handoff_complete &&
+      !record.target_aot_used_fallback && !record.target_aot_used_mtp &&
+      !record.target_aot_used_cublaslt && !record.target_aot_used_jit &&
+      !record.pure_prefill_phase_qualified;
   const bool accuracy_unqualified_candidate =
       candidate_v3 || projection_candidate_v4 ||
       native_large_m_candidate_v5 || flashinfer_exact_candidate_v6 ||
@@ -1156,9 +1212,13 @@ std::string serialize_target_prefill_witness(
       p40_projection_reset_candidate_v11 ||
       p40_packed_projection_candidate_v13 ||
       p40_packed_nvfp4_v2_candidate_v14 ||
-      p40_vllm_marlin_parity_candidate_v15;
+      p40_vllm_marlin_parity_candidate_v15 ||
+      target_aot_p40_candidate_v16;
   std::string output =
-      p40_vllm_marlin_parity_candidate_v15
+      target_aot_p40_candidate_v16
+          ? "{\"record\":\"target-prefill-witness-v16\","
+            "\"schema_version\":16,\"request\":{\"id\":"
+      : p40_vllm_marlin_parity_candidate_v15
           ? "{\"record\":\"target-prefill-witness-v15\","
             "\"schema_version\":15,\"request\":{\"id\":"
       : p40_packed_nvfp4_v2_candidate_v14
@@ -1223,7 +1283,15 @@ std::string serialize_target_prefill_witness(
   output += ',';
   append_phase_evidence(output, "generation", record.generation);
   output += ',';
-  append_phase_evidence(output, "pure_prefill", record.pure_prefill);
+  if (target_aot_p40_candidate_v16) {
+    RequestPhaseEvidence unqualified_pure_prefill;
+    unqualified_pure_prefill.scope = "engine_prompt_prefill";
+    unqualified_pure_prefill.unavailable_reason =
+        "target_aot_interval_includes_first_token_finalization";
+    append_phase_evidence(output, "pure_prefill", unqualified_pure_prefill);
+  } else {
+    append_phase_evidence(output, "pure_prefill", record.pure_prefill);
+  }
   output += ',';
   append_phase_evidence(output, "finalize", record.finalize);
   output += ',';
@@ -1252,6 +1320,9 @@ std::string serialize_target_prefill_witness(
               std::to_string(record.prefill_logical_panel_count) +
               ",\"request_memory_profile\":";
     switch (record.request_memory_profile) {
+      case runtime::RequestMemoryProfile::kSm87TargetAotP40Owner:
+        append_json_string(output, "sm87-target-aot-p40-request-owner");
+        break;
       case runtime::RequestMemoryProfile::kLayerMajorP40WholeCore:
         append_json_string(output, "layer-major-p40-whole-core");
         break;
@@ -1260,6 +1331,7 @@ std::string serialize_target_prefill_witness(
         break;
       case runtime::RequestMemoryProfile::kLegacyC512:
       default:
+        // Preserve the pre-v16 fail-closed/default spelling byte for byte.
         append_json_string(output, "legacy-c512");
         break;
     }
@@ -1267,7 +1339,74 @@ std::string serialize_target_prefill_witness(
     output += record.bounded_submission_window ? "true" : "false";
     output += ",\"submission_window_retirements\":" +
               std::to_string(record.submission_window_retirements);
-    if (p40_vllm_marlin_parity_candidate_v15) {
+    if (target_aot_p40_candidate_v16) {
+      output += ",\"complete_engine_route\":";
+      append_json_string(output, "sm87-target-aot-p40");
+      output += ",\"package_complete\":";
+      output += target_aot_p40_package_counts_complete ? "true" : "false";
+      const bool server_response_timing_available =
+          record.ttft.milliseconds.has_value() &&
+          std::isfinite(*record.ttft.milliseconds) &&
+          *record.ttft.milliseconds >= 0.0 &&
+          record.total.milliseconds.has_value() &&
+          std::isfinite(*record.total.milliseconds) &&
+          *record.total.milliseconds >= 0.0;
+      output +=
+          ",\"phase_qualification\":{\"pure_prefill_promotion_eligible\":";
+      output += record.pure_prefill_phase_qualified ? "true" : "false";
+      output += ",\"server_response_timing_available\":";
+      output += server_response_timing_available ? "true" : "false";
+      output +=
+          ",\"external_api_e2e_measurement_eligible\":true,"
+          "\"external_api_e2e_source\":\"external_framework_transaction\"";
+      output += ",\"reason\":";
+      append_json_string(
+          output, record.pure_prefill_phase_qualified
+                      ? "qualified_phase_boundary"
+                      : "target_aot_interval_includes_first_token_finalization");
+      output += "}";
+      output +=
+          ",\"authenticated_projection_owner\":{\"artifacts\":" +
+          std::to_string(record.target_aot_complete_projection_artifacts) +
+          ",\"sources\":" +
+          std::to_string(record.target_aot_complete_projection_sources) +
+          ",\"catalog_sha256\":";
+      append_json_string(
+          output, record.target_aot_complete_projection_catalog_sha256);
+      output +=
+          "},\"executor_receipt\":{\"admission_epoch\":" +
+          std::to_string(record.target_aot_admission_epoch) +
+          ",\"transaction_epoch\":" +
+          std::to_string(record.target_aot_transaction_epoch) +
+          ",\"completed_layers\":" +
+          std::to_string(record.target_aot_completed_layers) +
+          ",\"completed_gdn_layers\":" +
+          std::to_string(record.target_aot_completed_gdn_layers) +
+          ",\"completed_full_attention_layers\":" +
+          std::to_string(record.target_aot_completed_full_attention_layers) +
+          ",\"completed_attention_panels\":" +
+          std::to_string(record.target_aot_completed_attention_panels) +
+          ",\"recorded_layer_events\":" +
+          std::to_string(record.target_aot_recorded_layer_events) +
+          ",\"recorded_global_events\":" +
+          std::to_string(record.target_aot_recorded_global_events) +
+          ",\"transaction_committed\":";
+      output += record.target_aot_transaction_committed ? "true" : "false";
+      output += ",\"handoff_result_observed\":";
+      output +=
+          record.target_aot_handoff_result_observed ? "true" : "false";
+      output += ",\"handoff_complete\":";
+      output += record.target_aot_handoff_complete ? "true" : "false";
+      output += ",\"used_fallback\":";
+      output += record.target_aot_used_fallback ? "true" : "false";
+      output += ",\"used_mtp\":";
+      output += record.target_aot_used_mtp ? "true" : "false";
+      output += ",\"used_cublaslt\":";
+      output += record.target_aot_used_cublaslt ? "true" : "false";
+      output += ",\"used_jit\":";
+      output += record.target_aot_used_jit ? "true" : "false";
+      output += "}";
+    } else if (p40_vllm_marlin_parity_candidate_v15) {
       const bool parity_receipts_complete =
           complete_vllm_marlin_parity_layer_receipts(record);
       output += ",\"projection_tactic\":";

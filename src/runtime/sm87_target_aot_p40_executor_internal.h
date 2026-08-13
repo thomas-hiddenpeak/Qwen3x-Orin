@@ -223,6 +223,14 @@ struct Sm87TargetAotP40ExecutorStatus final {
   }
 };
 
+// Performs the complete device/kernel resource preflight without loading or
+// transforming model assets. Engine startup calls this before the expensive
+// complete-owner preparation so a missing constituent fails in milliseconds,
+// with the exact constituent named in context.
+[[nodiscard]] Sm87TargetAotP40ExecutorStatus
+preflight_sm87_target_aot_p40_static_resources(
+    std::int32_t expected_device_ordinal = -1) noexcept;
+
 enum class Sm87TargetAotP40Finalization : std::uint8_t {
   kNotStarted = 0U,
   kFinalHiddenReady,

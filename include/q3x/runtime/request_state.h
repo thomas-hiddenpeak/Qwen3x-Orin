@@ -44,7 +44,26 @@ enum class RequestMemoryProfile : std::uint8_t {
     // from the C8192 compatibility layout and admits only P40000 prompt work
     // inside a P40001 request capacity.
     kLayerMajorP40WholeCore,
+    // Independent opaque 5,075,652,608-byte owner used only by the complete
+    // SM87 target-AOT P40000 route.  It is not a RequestState layout and must
+    // never be reported as either legacy C512 or layer-major whole-core.
+    kSm87TargetAotP40Owner,
 };
+
+[[nodiscard]] constexpr std::string_view to_string(
+    const RequestMemoryProfile profile) noexcept {
+    switch (profile) {
+        case RequestMemoryProfile::kLegacyC512:
+            return "legacy-c512";
+        case RequestMemoryProfile::kLayerMajorC8192:
+            return "layer-major-c8192";
+        case RequestMemoryProfile::kLayerMajorP40WholeCore:
+            return "layer-major-p40-whole-core";
+        case RequestMemoryProfile::kSm87TargetAotP40Owner:
+            return "sm87-target-aot-p40-request-owner";
+    }
+    return "invalid";
+}
 
 enum class RequestErrorCode : std::uint8_t {
     kNone,

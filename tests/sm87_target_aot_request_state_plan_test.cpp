@@ -50,6 +50,44 @@ static_assert(runtime::kSm87TargetAotP40OwnedEventCount == 519U);
 static_assert(!std::is_default_constructible_v<
               runtime::sm87_target_aot_request_detail::
                   OwnerBoundExecutionTransaction>);
+static_assert(std::is_trivially_copyable_v<
+              runtime::Sm87TargetAotRequestRearmResult>);
+
+void test_rearm_receipt_contract(TestContext& test) {
+  runtime::Sm87TargetAotRequestRearmResult receipt;
+  test.expect(!receipt, "empty rearm receipt is not a successful audit");
+
+  receipt.source_phase =
+      runtime::Sm87TargetAotRequestTransactionPhase::kCommitted;
+  receipt.result_phase =
+      runtime::Sm87TargetAotRequestTransactionPhase::kAdmittedUnpublished;
+  receipt.admission_epoch = 11U;
+  receipt.previous_transaction_epoch = 12U;
+  receipt.request_transaction_epoch = 13U;
+  receipt.previous_cold_reset_epoch = 10U;
+  receipt.cold_reset_epoch = 14U;
+  receipt.event_reset_epoch = 14U;
+  receipt.allocation_identity = 15U;
+  receipt.stream_identity = 16U;
+  receipt.cancellation_signal_identity = 17U;
+  receipt.zeroed_arena_bytes =
+      runtime::kSm87TargetAotP40RequestArenaBytes;
+  receipt.logical_event_count_reset =
+      runtime::kSm87TargetAotP40OwnedEventCount;
+  receipt.stream_drained = true;
+  receipt.addresses_and_identities_preserved = true;
+  test.expect(static_cast<bool>(receipt),
+              "complete rearm receipt proves cold reset and stable ownership");
+
+  receipt.request_transaction_epoch = receipt.previous_transaction_epoch;
+  test.expect(!receipt,
+              "rearm receipt rejects a reused request transaction epoch");
+  test.expect(
+      std::string(runtime::to_string(
+          runtime::Sm87TargetAotRequestRearmError::kActiveTransaction)) ==
+          "active_transaction",
+      "rearm error has a stable audit spelling");
+}
 
 void test_exact_ledger(TestContext& test) {
   const auto plan =
@@ -324,9 +362,71 @@ void test_host_execution_transaction_illegal_transitions(TestContext& test) {
 
   auto active_cancel = Access::host_fixture(kEpoch + 2U);
   test.expect(Access::host_begin(active_cancel) &&
+                  !Access::host_rearm(active_cancel, kEpoch + 3U) &&
+                  active_cancel.phase() ==
+                      runtime::Sm87TargetAotRequestTransactionPhase::
+                          kPrefillActiveUnpublished &&
+                  active_cancel.transaction_epoch() == kEpoch + 2U &&
                   Access::host_cancel(active_cancel, kEpoch + 2U) &&
                   !Access::host_commit(active_cancel, kEpoch + 2U),
               "active cancellation prevents later publication");
+  test.expect(
+      Access::host_rearm(active_cancel, kEpoch + 3U) &&
+          active_cancel.phase() ==
+              runtime::Sm87TargetAotRequestTransactionPhase::
+                  kAdmittedUnpublished &&
+          active_cancel.transaction_epoch() == kEpoch + 3U &&
+          !Access::host_record_global(active_cancel, kEpoch + 2U,
+                                      Global::kTokenIdsReady) &&
+          Access::host_begin(active_cancel) &&
+          Access::host_record_global(active_cancel, kEpoch + 3U,
+                                     Global::kTokenIdsReady),
+      "cancelled owner rearms with a fresh epoch and a cleared ledger");
+
+  auto committed_rearm = Access::host_fixture(kEpoch + 4U);
+  test.expect(static_cast<bool>(Access::host_begin(committed_rearm)),
+              "committed rearm fixture begins");
+  bool committed_layers = true;
+  committed_layers =
+      committed_layers && static_cast<bool>(Access::host_record_global(
+                              committed_rearm, kEpoch + 4U,
+                              Global::kTokenIdsReady));
+  committed_layers =
+      committed_layers && static_cast<bool>(Access::host_record_global(
+                              committed_rearm, kEpoch + 4U,
+                              Global::kEmbeddingComplete));
+  for (std::size_t layer = 0U;
+       layer < runtime::kSm87TargetAotP40LayerCount; ++layer) {
+    for (std::size_t point = 0U;
+         point < runtime::kSm87TargetAotP40LayerEventCount; ++point) {
+      committed_layers =
+          committed_layers &&
+          static_cast<bool>(Access::host_record_layer(
+              committed_rearm, kEpoch + 4U, layer,
+              static_cast<Layer>(point)));
+    }
+  }
+  for (const Global point : suffix) {
+    committed_layers =
+        committed_layers &&
+        static_cast<bool>(Access::host_record_global(
+            committed_rearm, kEpoch + 4U, point));
+  }
+  test.expect(committed_layers &&
+                  Access::host_commit(committed_rearm, kEpoch + 4U) &&
+                  Access::host_rearm(committed_rearm, kEpoch + 5U) &&
+                  committed_rearm.phase() ==
+                      runtime::Sm87TargetAotRequestTransactionPhase::
+                          kAdmittedUnpublished &&
+                  committed_rearm.transaction_epoch() == kEpoch + 5U,
+              "committed owner rearms to the exact admitted cold phase");
+
+  auto admitted_rearm = Access::host_fixture(kEpoch + 6U);
+  test.expect(!Access::host_rearm(admitted_rearm, 0U) &&
+                  !Access::host_rearm(admitted_rearm, kEpoch + 6U) &&
+                  Access::host_rearm(admitted_rearm, kEpoch + 7U) &&
+                  admitted_rearm.transaction_epoch() == kEpoch + 7U,
+              "admitted rearm requires a distinct nonzero epoch");
 
   auto zero_epoch = Access::host_fixture(0U);
   test.expect(!Access::host_begin(zero_epoch),
@@ -338,6 +438,7 @@ void test_host_execution_transaction_illegal_transitions(TestContext& test) {
 int main() {
   TestContext test;
   test_exact_ledger(test);
+  test_rearm_receipt_contract(test);
   test_persistent_layer_map(test);
   test_family_lifetimes_and_aliases(test);
   test_forged_plans_fail_closed(test);

@@ -5,6 +5,7 @@ project(Qwen3xOrin VERSION 0.5.0 LANGUAGES CXX CUDA)
 include(GNUInstallDirs)
 include(CTest)
 include(CMakePackageConfigHelpers)
+include(CheckCXXSourceCompiles)
 include(cmake/CompilerWarnings.cmake)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -443,6 +444,39 @@ add_library(q3x_core STATIC
   src/quantization/fp8.cpp
   src/quantization/nvfp4.cpp
 )
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+   CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$" AND
+   CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  set(_q3x_saved_required_flags "${CMAKE_REQUIRED_FLAGS}")
+  set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -march=armv8-a+sha2")
+  check_cxx_source_compiles(
+    "#include <arm_neon.h>
+     #include <asm/hwcap.h>
+     #include <sys/auxv.h>
+     #if !defined(__ARM_FEATURE_SHA2)
+     #error ARM SHA2 feature macro missing
+     #endif
+     int main() {
+       uint32x4_t value = vdupq_n_u32(0U);
+       value = vsha256hq_u32(value, value, value);
+       return static_cast<int>(vgetq_lane_u32(value, 0)) +
+              static_cast<int>(getauxval(AT_HWCAP) & HWCAP_SHA2);
+     }"
+    Q3X_CXX_HAS_ARM_SHA2_INTRINSICS
+  )
+  set(CMAKE_REQUIRED_FLAGS "${_q3x_saved_required_flags}")
+  unset(_q3x_saved_required_flags)
+  if(Q3X_CXX_HAS_ARM_SHA2_INTRINSICS)
+    target_sources(q3x_core PRIVATE src/core/sha256_arm_sha2.cpp)
+    set_source_files_properties(src/core/sha256_arm_sha2.cpp PROPERTIES
+      COMPILE_OPTIONS "-march=armv8-a+sha2"
+      COMPILE_DEFINITIONS Q3X_SHA256_ARM_SHA2_COMPILED=1
+    )
+    target_compile_definitions(q3x_core PRIVATE
+      Q3X_SHA256_ARM_SHA2_COMPILED=1
+    )
+  endif()
+endif()
 add_library(q3x::core ALIAS q3x_core)
 set_target_properties(q3x_core PROPERTIES
   EXPORT_NAME core
@@ -787,6 +821,7 @@ add_library(q3x_engine STATIC
 )
 if(Q3X_BUILD_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
   target_sources(q3x_engine PRIVATE
+    src/runtime/sm87_target_aot_engine_rope_internal.cpp
     src/runtime/sm87_target_aot_p40_executor_internal.cpp
   )
   target_compile_definitions(q3x_engine PRIVATE
@@ -3089,8 +3124,16 @@ if(BUILD_TESTING)
 
   add_executable(q3x_sha256_test tests/sha256_test.cpp)
   target_link_libraries(q3x_sha256_test PRIVATE q3x::core)
+  target_include_directories(q3x_sha256_test PRIVATE src/core)
   q3x_enable_warnings(q3x_sha256_test)
   add_test(NAME sha256 COMMAND q3x_sha256_test)
+
+  add_executable(q3x_sha256_benchmark EXCLUDE_FROM_ALL
+    tests/sha256_benchmark.cpp
+  )
+  target_link_libraries(q3x_sha256_benchmark PRIVATE q3x::core)
+  target_include_directories(q3x_sha256_benchmark PRIVATE src/core)
+  q3x_enable_warnings(q3x_sha256_benchmark)
 
   add_executable(q3x_json_test tests/json_test.cpp)
   target_link_libraries(q3x_json_test PRIVATE q3x::core)

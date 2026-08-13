@@ -54,10 +54,14 @@ enum class ResidentLoadErrorCode : std::uint8_t {
 };
 
 enum class ResidentSha256Backend : std::uint8_t {
-    // Prefer the Linux AF_ALG SHA-256 implementation, but fall back to the
-    // portable in-process implementation if AF_ALG cannot be initialized
-    // before any shard bytes are consumed.
+    // Prefer the Linux AF_ALG SHA-256 implementation, but fall back to Q3X's
+    // in-process implementation if AF_ALG cannot be initialized before any
+    // shard bytes are consumed. The in-process implementation preserves the
+    // portable digest/API contract and may transparently dispatch to a
+    // runtime-detected CPU ISA implementation such as ARMv8 SHA2.
     kAuto,
+    // Select Q3X's in-process implementation. This stable serialized name is
+    // historical; it does not force the scalar compression function.
     kPortable,
     kLinuxAfAlg,
 };

@@ -26,6 +26,7 @@ struct OwnerEpochs final {
   std::uint64_t admission_epoch = 0U;
   std::uint64_t request_transaction_epoch = 0U;
   std::uint64_t cold_reset_epoch = 0U;
+  std::uint64_t event_reset_epoch = 0U;
   std::uint64_t staged_kv_epoch = 0U;
   std::uint64_t position_rope_epoch = 0U;
 };
@@ -291,6 +292,9 @@ class Sm87TargetAotRequestStateAccess final {
       HostExecutionTransactionFixture& fixture, std::uint64_t epoch) noexcept;
   [[nodiscard]] static ExecutionTransactionStatus host_cancel(
       HostExecutionTransactionFixture& fixture, std::uint64_t epoch) noexcept;
+  [[nodiscard]] static ExecutionTransactionStatus host_rearm(
+      HostExecutionTransactionFixture& fixture,
+      std::uint64_t next_transaction_epoch) noexcept;
 };
 
 [[nodiscard]] bool validate_owner_snapshot(

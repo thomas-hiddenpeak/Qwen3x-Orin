@@ -1260,6 +1260,134 @@ void test_target_prefill_witness_evidence(TestContext& test) {
       "stream completion, schedule, legacy-route contamination, or "
       "physical-count mismatch");
 
+  server::TargetPrefillWitnessRecord target_aot_p40_record;
+  target_aot_p40_record.request_id = record.request_id;
+  target_aot_p40_record.request_body_sha256 = record.request_body_sha256;
+  target_aot_p40_record.model = record.model;
+  target_aot_p40_record.endpoint = record.endpoint;
+  target_aot_p40_record.prompt_kind = record.prompt_kind;
+  target_aot_p40_record.prompt_token_ids_u32le_sha256 =
+      record.prompt_token_ids_u32le_sha256;
+  target_aot_p40_record.queue = record.queue;
+  target_aot_p40_record.admission = record.admission;
+  target_aot_p40_record.generation = record.generation;
+  target_aot_p40_record.pure_prefill = record.pure_prefill;
+  target_aot_p40_record.finalize = record.finalize;
+  target_aot_p40_record.ttft = record.ttft;
+  target_aot_p40_record.first_byte = record.first_byte;
+  target_aot_p40_record.decode = record.decode;
+  target_aot_p40_record.total = record.total;
+  target_aot_p40_record.requested_prefill_chunk_size = 512U;
+  target_aot_p40_record.prompt_tokens = 40'000U;
+  target_aot_p40_record.consumed_prompt_tokens = 40'000U;
+  target_aot_p40_record.full_prompt_consumed = true;
+  target_aot_p40_record.completion_tokens = 1U;
+  target_aot_p40_record.effective_prefill_chunk_size = 40'000U;
+  target_aot_p40_record.prefix_execution_count = 1U;
+  target_aot_p40_record.projection_backend =
+      q3x::runtime::ProjectionBackend::kSm87WeightOnly;
+  target_aot_p40_record.generation_route =
+      q3x::runtime::ReferenceGenerationRoute::kSm87TargetAotP40;
+  target_aot_p40_record.prefill_execution_mode = q3x::runtime::
+      ReferencePrefillExecutionMode::kLegacyC512Tiled;
+  target_aot_p40_record.prefill_logical_panel_count = 1U;
+  target_aot_p40_record.request_memory_profile =
+      q3x::runtime::RequestMemoryProfile::kSm87TargetAotP40Owner;
+  target_aot_p40_record.target_aot_complete_projection_artifacts = 256U;
+  target_aot_p40_record.target_aot_complete_projection_sources = 400U;
+  target_aot_p40_record.target_aot_complete_projection_catalog_sha256 =
+      std::string(64U, 'a');
+  target_aot_p40_record.target_aot_admission_epoch = 17U;
+  target_aot_p40_record.target_aot_transaction_epoch = 18U;
+  target_aot_p40_record.target_aot_completed_layers = 64U;
+  target_aot_p40_record.target_aot_completed_gdn_layers = 48U;
+  target_aot_p40_record.target_aot_completed_full_attention_layers = 16U;
+  target_aot_p40_record.target_aot_completed_attention_panels = 80U;
+  target_aot_p40_record.target_aot_recorded_layer_events = 512U;
+  target_aot_p40_record.target_aot_recorded_global_events = 7U;
+  target_aot_p40_record.target_aot_transaction_committed = true;
+  target_aot_p40_record.target_aot_handoff_result_observed = true;
+  target_aot_p40_record.target_aot_handoff_complete = true;
+  target_aot_p40_record.pure_prefill_phase_qualified = false;
+  target_aot_p40_record.deployment_plan_id =
+      q3x::runtime::kSm87TargetAotP40DeploymentPlanId;
+  const std::string target_aot_p40_serialized =
+      server::serialize_target_prefill_witness(target_aot_p40_record);
+  test.expect(
+      valid_json(target_aot_p40_serialized) &&
+          target_aot_p40_serialized.find(
+              R"("record":"target-prefill-witness-v16","schema_version":16)") !=
+              std::string::npos &&
+          target_aot_p40_serialized.find(
+              R"("complete_engine_route":"sm87-target-aot-p40","package_complete":true)") !=
+              std::string::npos &&
+          target_aot_p40_serialized.find(
+              R"("request_memory_profile":"sm87-target-aot-p40-request-owner")") !=
+              std::string::npos &&
+          target_aot_p40_serialized.find(
+              R"("pure_prefill":{"available":false,"scope":"engine_prompt_prefill","milliseconds":null,"unavailable_reason":"target_aot_interval_includes_first_token_finalization"})") !=
+              std::string::npos &&
+          target_aot_p40_serialized.find(
+              R"("phase_qualification":{"pure_prefill_promotion_eligible":false,"server_response_timing_available":true,"external_api_e2e_measurement_eligible":true,"external_api_e2e_source":"external_framework_transaction","reason":"target_aot_interval_includes_first_token_finalization"})") !=
+              std::string::npos &&
+          target_aot_p40_serialized.find(
+              R"("artifacts":256,"sources":400)") != std::string::npos &&
+          target_aot_p40_serialized.find(
+              R"("completed_layers":64,"completed_gdn_layers":48,"completed_full_attention_layers":16,"completed_attention_panels":80,"recorded_layer_events":512,"recorded_global_events":7,"transaction_committed":true,"handoff_result_observed":true,"handoff_complete":true,"used_fallback":false,"used_mtp":false,"used_cublaslt":false,"used_jit":false)") !=
+              std::string::npos &&
+          target_aot_p40_serialized.find(
+              R"("qualification":"accuracy-unqualified-architecture-candidate")") !=
+              std::string::npos,
+      "v16 seals the complete target-AOT route from an authenticated owner "
+      "and committed exact executor receipt");
+  server::TargetPrefillWitnessRecord target_aot_with_legacy_route_evidence =
+      target_aot_p40_record;
+  target_aot_with_legacy_route_evidence.prefill_route_evidence =
+      record.prefill_route_evidence;
+  const std::string target_aot_with_legacy_route_serialized =
+      server::serialize_target_prefill_witness(
+          target_aot_with_legacy_route_evidence);
+  test.expect(
+      valid_json(target_aot_with_legacy_route_serialized) &&
+          target_aot_with_legacy_route_serialized.find(
+              R"("package_complete":false)") != std::string::npos,
+      "v16 rejects inherited legacy route-pass evidence instead of using it "
+      "to forge target-AOT completeness");
+
+  server::TargetPrefillWitnessRecord legacy_route_with_target_plan = record;
+  legacy_route_with_target_plan.deployment_plan_id =
+      q3x::runtime::kSm87TargetAotP40DeploymentPlanId;
+  legacy_route_with_target_plan.generation_route =
+      q3x::runtime::ReferenceGenerationRoute::kSm87TargetAotP40;
+  legacy_route_with_target_plan.request_memory_profile =
+      q3x::runtime::RequestMemoryProfile::kSm87TargetAotP40Owner;
+  legacy_route_with_target_plan.pure_prefill_phase_qualified = false;
+  const std::string legacy_route_with_target_plan_serialized =
+      server::serialize_target_prefill_witness(legacy_route_with_target_plan);
+  test.expect(
+      valid_json(legacy_route_with_target_plan_serialized) &&
+          legacy_route_with_target_plan_serialized.find(
+              R"("package_complete":false)") != std::string::npos,
+      "a target plan label and a complete legacy route pass cannot synthesize "
+      "the target owner or executor receipt");
+
+  --target_aot_p40_record.target_aot_recorded_layer_events;
+  const std::string target_aot_p40_incomplete =
+      server::serialize_target_prefill_witness(target_aot_p40_record);
+  test.expect(
+      valid_json(target_aot_p40_incomplete) &&
+          target_aot_p40_incomplete.find(R"("package_complete":false)") !=
+              std::string::npos,
+      "v16 fails closed when one target executor event is missing");
+  test.expect(
+      static_cast<std::uint8_t>(
+          q3x::runtime::RequestMemoryProfile::kSm87TargetAotP40Owner) == 3U &&
+          q3x::runtime::to_string(
+              q3x::runtime::RequestMemoryProfile::kSm87TargetAotP40Owner) ==
+              "sm87-target-aot-p40-request-owner",
+      "the independent target owner has an append-only stable memory-profile "
+      "identity");
+
   server::TargetPrefillWitnessRecord v14_with_v15_only_fields =
       packed_nvfp4_v2_p40_record;
   v14_with_v15_only_fields.vllm_marlin_parity_gate_up_hits = 64U;
@@ -1386,7 +1514,11 @@ void test_prefill_tactic_defaults_remain_exact(TestContext& test) {
   const server::EvaluationServerOptions server_options;
   const q3x::runtime::ReferenceEngineOptions engine_options;
   test.expect(
-      server_options.prefill_execution_mode == q3x::runtime::
+      server_options.engine_route ==
+              q3x::runtime::ReferenceGenerationRoute::kReference &&
+          engine_options.generation_route ==
+              q3x::runtime::ReferenceGenerationRoute::kReference &&
+          server_options.prefill_execution_mode == q3x::runtime::
               ReferencePrefillExecutionMode::kLegacyC512Tiled &&
           server_options.prefill_full_attention_tactic == q3x::runtime::
               LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512 &&
@@ -1395,6 +1527,83 @@ void test_prefill_tactic_defaults_remain_exact(TestContext& test) {
           engine_options.prefill_full_attention_tactic == q3x::runtime::
               LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512,
       "Q128-v4 exposure does not change server or engine defaults");
+}
+
+void test_complete_engine_route_contract(TestContext& test) {
+  using q3x::runtime::ReferenceGenerationRoute;
+  using server::EvaluationServerEngineRouteContractError;
+
+  test.expect(
+      q3x::runtime::parse_reference_generation_route("reference") ==
+              ReferenceGenerationRoute::kReference &&
+          q3x::runtime::parse_reference_generation_route(
+              "sm87-target-aot-p40") ==
+              ReferenceGenerationRoute::kSm87TargetAotP40 &&
+          !q3x::runtime::parse_reference_generation_route("auto").has_value() &&
+          q3x::runtime::to_string(
+              ReferenceGenerationRoute::kSm87TargetAotP40) ==
+              "sm87-target-aot-p40",
+      "complete generation routes have exact parse and display identities");
+
+  server::EvaluationServerOptions options;
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(options) ==
+          EvaluationServerEngineRouteContractError::kNone,
+      "the existing reference route remains the valid default");
+
+  options.engine_route = ReferenceGenerationRoute::kSm87TargetAotP40;
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(options) ==
+          EvaluationServerEngineRouteContractError::
+              kTargetRequiresExactP40001Capacity,
+      "the target route rejects the adapter's default P8192 capacity");
+
+  options.max_sequence_length =
+      q3x::runtime::kSm87TargetAotP40RequestCapacityTokens;
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(options) ==
+          EvaluationServerEngineRouteContractError::
+              kTargetRequiresOneOutputToken,
+      "the target route rejects a multi-token output contract");
+
+  options.maximum_output_tokens = 1U;
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(options) ==
+          EvaluationServerEngineRouteContractError::
+              kTargetRequiresExactRequestArenaCapacity,
+      "the target route rejects the legacy two-GiB arena ceiling");
+
+  options.request_max_arena_bytes =
+      q3x::runtime::kSm87TargetAotP40RequestArenaBytes;
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(options) ==
+          EvaluationServerEngineRouteContractError::kNone,
+      "the exact P40000 plus one-token host contract is admitted");
+
+  options.projection_backend = q3x::runtime::ProjectionBackend::kReference;
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(options) ==
+          EvaluationServerEngineRouteContractError::
+              kTargetRequiresSm87ProjectionBackend,
+      "the target route cannot select the reference projection backend");
+  options.projection_backend =
+      q3x::runtime::ProjectionBackend::kSm87WeightOnly;
+
+  options.prefill_chunk_size = 256U;
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(options) ==
+          EvaluationServerEngineRouteContractError::
+              kTargetRequiresFixedC512HostChunk,
+      "the target route rejects an ambiguous legacy host chunk selector");
+  options.prefill_chunk_size = q3x::runtime::kMaximumRequestPrefillChunkSize;
+
+  options.prefill_execution_mode = q3x::runtime::
+      ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(options) ==
+          EvaluationServerEngineRouteContractError::
+              kTargetRequiresNeutralLegacyPrefillSelectors,
+      "the target route cannot be mixed with a legacy layer-major route");
 }
 
 }  // namespace
@@ -1408,6 +1617,7 @@ int main() {
   test_serialization(test);
   test_target_prefill_witness_evidence(test);
   test_prefill_tactic_defaults_remain_exact(test);
+  test_complete_engine_route_contract(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " OpenAI protocol test(s) failed\n";
     return 1;

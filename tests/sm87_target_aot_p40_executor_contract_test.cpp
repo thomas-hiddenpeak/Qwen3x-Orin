@@ -1,4 +1,5 @@
 #include "../src/runtime/sm87_target_aot_p40_executor_internal.h"
+#include "../src/runtime/sm87_target_aot_engine_rope_internal.h"
 
 #include <cstddef>
 #include <iostream>
@@ -39,6 +40,14 @@ static_assert(!std::is_copy_constructible_v<
               executor::Sm87TargetAotP40Executor>);
 static_assert(!std::is_move_constructible_v<
               executor::Sm87TargetAotP40Executor>);
+static_assert(executor::kSm87TargetAotEngineRopePositions == 262'144U);
+static_assert(executor::kSm87TargetAotEngineRopePairs == 32U);
+static_assert(executor::kSm87TargetAotEngineRopeAllocationBytes ==
+              kContract.layers * 1'048'576ULL);
+static_assert(!std::is_copy_constructible_v<
+              executor::Sm87TargetAotEngineRopeOwner>);
+static_assert(!std::is_move_constructible_v<
+              executor::Sm87TargetAotEngineRopeOwner>);
 
 #if defined(Q3X_EXPECT_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
 static_assert(executor::kSm87TargetAotP40ExecutorAdmissionCompiled);
@@ -161,8 +170,14 @@ void test_admission_binary_links_executor(TestContext& test) {
   using BindFunction = decltype(&executor::Sm87TargetAotP40Executor::bind);
   volatile BindFunction bind_symbol =
       &executor::Sm87TargetAotP40Executor::bind;
+  using RopeCreateFunction =
+      decltype(&executor::create_sm87_target_aot_engine_rope);
+  volatile RopeCreateFunction rope_create_symbol =
+      &executor::create_sm87_target_aot_engine_rope;
   test.expect(bind_symbol != nullptr,
               "the admission binary links the real executor bind symbol");
+  test.expect(rope_create_symbol != nullptr,
+              "the admission binary links the engine RoPE owner factory");
 #else
   test.expect(!executor::kSm87TargetAotP40ExecutorAdmissionCompiled,
               "the default binary keeps the target executor closed");

@@ -13,9 +13,15 @@
 #include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/p40_packed_projection_assets.h"
 #include "q3x/runtime/sm87_target_aot_projection_device_assets.h"
+#include "q3x/runtime/sm87_target_aot_projection_complete_device_assets.h"
+#include "q3x/runtime/sm87_target_aot_request_state.h"
 #include "q3x/text/tokenizer.h"
 #include "reference_engine_prefill_authority.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+#include "sm87_target_aot_engine_rope_internal.h"
+#include "sm87_target_aot_p40_executor_internal.h"
+#endif
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
 #include "sm87_target_aot_layer0_m192_oracle_internal.h"
 #include "sm87_target_aot_layer0_m192_oracle_evidence_internal.h"
@@ -4772,11 +4778,11 @@ exchange_reference_engine_generate_return_snapshot_hook(
 
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
-  // bound Prefill plan -> runner -> request_state -> model_weights -> Decode
-  // Down consumer-order sidecars -> independent parity/packed/Marlin
-  // admission sidecars -> Prefill supermatrix/QKV sidecars -> down scale6
-  // sidecars -> target-AOT owner -> output sidecars -> resident_weights ->
-  // tokenizer.
+  // bound Prefill plan -> legacy runner/state -> target executor/request/RoPE
+  // -> model_weights -> Decode Down consumer-order sidecars -> complete and
+  // independent target-AOT/parity/packed/Marlin owners -> Prefill
+  // supermatrix/QKV and down-scale sidecars -> output sidecars ->
+  // resident_weights -> tokenizer.
   std::unique_ptr<text::Tokenizer> tokenizer;
   std::optional<ResidentWeights> resident_weights;
   Sm87Fp8OutputProjectionSidecars fp8_output_sidecars;
@@ -4796,15 +4802,29 @@ struct ReferenceEngine::Impl {
 #endif
   P40PackedProjectionAssets p40_packed_projection_assets;
   Sm87TargetAotProjectionDeviceAssets target_aot_projection_device_assets;
+  Sm87TargetAotCompleteProjectionDeviceAssets
+      target_aot_complete_projection_device_assets;
   Sm87NvFp4DownConsumerOrderSidecars
       nvfp4_down_consumer_order_sidecars;
   std::optional<ModelWeights> model_weights;
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+  std::unique_ptr<sm87_target_aot_p40_executor_detail::
+                      Sm87TargetAotEngineRopeOwner>
+      target_aot_engine_rope;
+  std::unique_ptr<Sm87TargetAotP40RequestState>
+      target_aot_request_state;
+  std::unique_ptr<sm87_target_aot_p40_executor_detail::
+                      Sm87TargetAotP40Executor>
+      target_aot_executor;
+#endif
   std::optional<RequestState> request_state;
   std::optional<ReferenceRunner> runner;
   std::unique_ptr<
       const reference_engine_detail::BoundPrefillExecutionPlan>
       bound_prefill_plan;
   ReferenceEngineLoadStats load;
+  ReferenceGenerationRoute generation_route =
+      ReferenceGenerationRoute::kReference;
   bool trace_enabled = false;
   bool decode_graph_cache_ready = false;
   LayerMajorPrefillMlpScheduleTactic prefill_mlp_schedule_tactic =
@@ -4841,6 +4861,57 @@ struct ReferenceEngine::Impl {
           "unknown projection backend");
       return result;
     }
+    if (!is_valid_reference_generation_route(options.generation_route)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument, "generation_route",
+          "unknown complete generation route");
+      return result;
+    }
+    const bool target_aot_p40_route =
+        options.generation_route ==
+        ReferenceGenerationRoute::kSm87TargetAotP40;
+#if !defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+    if (target_aot_p40_route) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kPrefillPlanUnavailable, "generation_route",
+          "this binary does not contain the exact-P40000 target-AOT "
+          "complete executor");
+      return result;
+    }
+#else
+    if (target_aot_p40_route &&
+        (options.projection_backend != ProjectionBackend::kSm87WeightOnly ||
+         options.enable_trace ||
+         options.decode_graph_cache_policy !=
+             ReferenceDecodeGraphCachePolicy::kDisabled ||
+         options.prefill_execution_mode !=
+             ReferencePrefillExecutionMode::kLegacyC512Tiled ||
+         options.prefill_full_attention_tactic !=
+             LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512 ||
+         options.prefill_projection_tactic !=
+             LayerMajorPrefillProjectionTactic::kExactSegmentedC512 ||
+         options.request_options.batch_size != 1U ||
+         options.request_options.max_sequence_length !=
+             kSm87TargetAotP40RequestCapacityTokens ||
+         options.request_options.prefill_chunk_size !=
+             kMaximumRequestPrefillChunkSize ||
+         options.request_options.max_arena_bytes <
+             kSm87TargetAotP40RequestArenaBytes ||
+         options.prepare_sm87_target_aot_projection_device_assets ||
+         !options.load_sm87_target_aot_projection_bundle.empty() ||
+         !options.create_sm87_target_aot_projection_bundle.empty() ||
+         !options
+              .expected_sm87_target_aot_projection_payload_catalog_sha256
+              .empty())) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument, "generation_route",
+          "sm87-target-aot-p40 requires batch-one P40001 capacity, one "
+          "fixed C512 host boundary, SM87 projection, trace/graph disabled, "
+          "neutral legacy tactics, a 5075652608-byte arena ceiling, and no "
+          "legacy target-AOT bundle/owner options");
+      return result;
+    }
+#endif
     if (!is_valid_reference_prefill_execution_mode(
             options.prefill_execution_mode) ||
         !is_valid_layer_major_prefill_full_attention_tactic(
@@ -5169,12 +5240,29 @@ struct ReferenceEngine::Impl {
       result.diagnostic = std::move(*diagnostic);
       return result;
     }
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+    if (target_aot_p40_route) {
+      const auto static_resources =
+          sm87_target_aot_p40_executor_detail::
+              preflight_sm87_target_aot_p40_static_resources();
+      if (!static_resources) {
+        result.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kRunnerFactoryFailure,
+            "target_aot_static_resource_preflight",
+            static_resources.context);
+        result.diagnostic.context = static_resources.context;
+        result.diagnostic.cuda_error = static_resources.cuda_error;
+        return result;
+      }
+    }
+#endif
 
     try {
       const bool tokenizer_was_prepared = prepared_tokenizer != nullptr;
       const bool resident_was_prepared = prepared_resident.has_value();
       auto impl = std::make_unique<Impl>();
       impl->trace_enabled = options.enable_trace;
+      impl->generation_route = options.generation_route;
       impl->prefill_mlp_schedule_tactic =
           options.prefill_projection_tactic ==
                   LayerMajorPrefillProjectionTactic::
@@ -5208,6 +5296,7 @@ struct ReferenceEngine::Impl {
                     kLayerWideP40ExactFullM
               : LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
       impl->load.projection_backend = options.projection_backend;
+      impl->load.generation_route = options.generation_route;
       impl->load.decode_graph_cache_requested_policy =
           options.decode_graph_cache_policy;
       impl->load.target_aot_projection_device_assets_requested =
@@ -5261,6 +5350,178 @@ struct ReferenceEngine::Impl {
         impl->model_weights.emplace(std::move(*weights.value));
         impl->load.binding = impl->model_weights->stats();
       }
+
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+      if (target_aot_p40_route) {
+        constexpr std::uint64_t kTargetRequestAndRopeBytes =
+            kSm87TargetAotP40RequestArenaBytes +
+            sm87_target_aot_p40_executor_detail::
+                kSm87TargetAotEngineRopeAllocationBytes;
+        if (options.request_options.min_free_bytes_after_create >
+            std::numeric_limits<std::uint64_t>::max() -
+                kTargetRequestAndRopeBytes) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kArithmeticOverflow,
+              "target_aot_complete_resource_reserve",
+              "target request, RoPE, and retained free-memory reserve "
+              "overflow uint64_t");
+          return result;
+        }
+        const std::uint64_t complete_owner_retained_margin =
+            options.request_options.min_free_bytes_after_create +
+            kTargetRequestAndRopeBytes;
+        const Clock::time_point asset_begin = Clock::now();
+        const Sm87TargetAotCompleteDevicePreparationStats preparation =
+            ReferenceEngine::
+                prepare_target_aot_complete_projection_device_assets(
+                    *impl->resident_weights, *impl->model_weights,
+                    complete_owner_retained_margin,
+                    impl->target_aot_complete_projection_device_assets);
+        impl->load.target_aot_complete_projection_device_asset_milliseconds =
+            elapsed_milliseconds(asset_begin);
+        if (preparation.hard_failure || !preparation.enabled ||
+            preparation.artifacts !=
+                kSm87TargetAotCompleteProjectionDeviceArtifactCount ||
+            preparation.sources !=
+                kSm87TargetAotCompleteProjectionDeviceSourceCount ||
+            preparation.arena_bytes !=
+                kSm87TargetAotCompleteProjectionDeviceArenaBytes ||
+            preparation.source_d2h_bytes !=
+                kSm87TargetAotCompleteProjectionCanonicalSourceD2hBytes ||
+            preparation.payload_h2d_bytes !=
+                kSm87TargetAotCompleteProjectionDeviceArenaBytes ||
+            preparation.verification_d2h_bytes !=
+                kSm87TargetAotCompleteProjectionDeviceArenaBytes ||
+            preparation.verified_payload_catalog_sha256.size() != 64U ||
+            preparation.owner_identity == 0U ||
+            preparation.allocation_identity == 0U ||
+            preparation.device_ordinal < 0) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              "target_aot_complete_projection_prepare",
+              preparation.message.empty()
+                  ? "complete target-AOT projection preparation did not "
+                    "publish its exact 256-artifact inventory"
+                  : preparation.message);
+          result.diagnostic.cuda_error = preparation.cuda_error;
+          return result;
+        }
+        if (!ReferenceEngine::
+                attach_target_aot_complete_projection_device_assets(
+                    *impl->model_weights,
+                    impl->target_aot_complete_projection_device_assets)) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              "target_aot_complete_projection_attach",
+              "complete target-AOT projection owner failed its "
+              "ModelWeights attachment transaction");
+          return result;
+        }
+        impl->load.target_aot_complete_projection_device_assets_enabled =
+            true;
+        impl->load.target_aot_complete_projection_device_assets_attached =
+            true;
+        impl->load.target_aot_complete_projection_artifacts =
+            preparation.artifacts;
+        impl->load.target_aot_complete_projection_sources =
+            preparation.sources;
+        impl->load.target_aot_complete_projection_bytes =
+            preparation.arena_bytes;
+        impl->load.target_aot_complete_projection_source_d2h_bytes =
+            preparation.source_d2h_bytes;
+        impl->load.target_aot_complete_projection_payload_h2d_bytes =
+            preparation.payload_h2d_bytes;
+        impl->load.target_aot_complete_projection_verification_d2h_bytes =
+            preparation.verification_d2h_bytes;
+        impl->load.target_aot_complete_projection_catalog_sha256 =
+            preparation.verified_payload_catalog_sha256;
+        impl->load.target_aot_complete_projection_owner_identity =
+            preparation.owner_identity;
+        impl->load.target_aot_complete_projection_allocation_identity =
+            preparation.allocation_identity;
+        impl->load.target_aot_complete_projection_device_ordinal =
+            preparation.device_ordinal;
+
+        const Clock::time_point rope_begin = Clock::now();
+        auto rope = sm87_target_aot_p40_executor_detail::
+            create_sm87_target_aot_engine_rope(
+                options.request_options.min_free_bytes_after_create +
+                kSm87TargetAotP40RequestArenaBytes);
+        impl->load.target_aot_engine_rope_milliseconds =
+            elapsed_milliseconds(rope_begin);
+        if (!rope) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              "target_aot_engine_rope",
+              sm87_target_aot_p40_executor_detail::to_string(
+                  rope.status.code));
+          result.diagnostic.context = rope.status.context;
+          result.diagnostic.cuda_error = rope.status.cuda_error;
+          return result;
+        }
+        impl->target_aot_engine_rope = std::move(rope.owner);
+        impl->load.target_aot_engine_rope_ready = true;
+        impl->load.target_aot_engine_rope_bytes =
+            impl->target_aot_engine_rope->bytes();
+
+        const Clock::time_point request_begin = Clock::now();
+        Sm87TargetAotRequestStateResult request =
+            create_sm87_target_aot_p40_request_state();
+        impl->load.target_aot_request_owner_milliseconds =
+            elapsed_milliseconds(request_begin);
+        if (!request) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRequestStateFailure,
+              "target_aot_request_owner",
+              to_string(request.diagnostic.code));
+          result.diagnostic.context = request.diagnostic.context;
+          result.diagnostic.cuda_error = request.diagnostic.cuda_error;
+          return result;
+        }
+        impl->target_aot_request_state = std::move(request.value);
+        impl->load.target_aot_request_owner_ready = true;
+        impl->load.request_arena_bytes = kSm87TargetAotP40RequestArenaBytes;
+        impl->load.request_max_sequence_length =
+            kSm87TargetAotP40RequestCapacityTokens;
+        impl->load.request_prefill_chunk_size =
+            kMaximumRequestPrefillChunkSize;
+        impl->load.request_memory_profile =
+            RequestMemoryProfile::kSm87TargetAotP40Owner;
+
+        const Clock::time_point bind_begin = Clock::now();
+        auto bound = sm87_target_aot_p40_executor_detail::
+            Sm87TargetAotP40Executor::bind(
+                *impl->model_weights, *impl->target_aot_request_state,
+                impl->target_aot_engine_rope->view());
+        impl->load.target_aot_executor_bind_milliseconds =
+            elapsed_milliseconds(bind_begin);
+        if (!bound) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              "target_aot_executor_bind", bound.status.context);
+          result.diagnostic.cuda_error = bound.status.cuda_error;
+          result.diagnostic.layer = bound.status.layer;
+          return result;
+        }
+        impl->target_aot_executor = std::move(bound.executor);
+        impl->load.target_aot_executor_ready = true;
+
+        double prepared_milliseconds = 0.0;
+        if (prepared_work_wall_milliseconds > 0.0) {
+          prepared_milliseconds = prepared_work_wall_milliseconds;
+        } else {
+          prepared_milliseconds =
+              (tokenizer_was_prepared ? prepared_tokenizer_milliseconds
+                                      : 0.0) +
+              (resident_was_prepared ? prepared_resident_milliseconds
+                                     : 0.0);
+        }
+        impl->load.total_milliseconds =
+            elapsed_milliseconds(build_begin) + prepared_milliseconds;
+        result.value = std::move(impl);
+        return result;
+      }
+#endif
 
       {
         const Clock::time_point begin = Clock::now();
@@ -6234,6 +6495,25 @@ bool ReferenceEngine::attach_target_aot_projection_device_assets(
   return model_weights.attach_sm87_target_aot_projection_assets(owner);
 }
 
+Sm87TargetAotCompleteDevicePreparationStats
+ReferenceEngine::prepare_target_aot_complete_projection_device_assets(
+    const ResidentWeights& resident, const ModelWeights& model_weights,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    Sm87TargetAotCompleteProjectionDeviceAssets& owner) {
+  Sm87TargetAotCompleteOnlinePreparationRequest request;
+  request.phase = Sm87TargetAotCompletePreparationPhase::kEngineStartup;
+  request.minimum_free_bytes_after_prepare =
+      minimum_free_bytes_after_prepare;
+  return owner.prepare_online(resident, model_weights, request);
+}
+
+bool ReferenceEngine::attach_target_aot_complete_projection_device_assets(
+    ModelWeights& model_weights,
+    Sm87TargetAotCompleteProjectionDeviceAssets& owner) noexcept {
+  return model_weights.attach_sm87_target_aot_complete_projection_assets(
+      owner);
+}
+
 ReferenceEngine::ReferenceEngine(std::unique_ptr<Impl> impl) noexcept
     : impl_(std::move(impl)) {}
 
@@ -6245,7 +6525,20 @@ ReferenceEngine& ReferenceEngine::operator=(ReferenceEngine&&) noexcept =
 ReferenceEngine::operator bool() const noexcept {
   if (impl_ == nullptr || impl_->tokenizer == nullptr ||
       !impl_->resident_weights.has_value() ||
-      !impl_->model_weights.has_value() ||
+      !impl_->model_weights.has_value()) {
+    return false;
+  }
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+  if (impl_->generation_route ==
+      ReferenceGenerationRoute::kSm87TargetAotP40) {
+    return impl_->target_aot_engine_rope != nullptr &&
+           impl_->target_aot_request_state != nullptr &&
+           impl_->target_aot_executor != nullptr &&
+           impl_->load.target_aot_complete_projection_device_assets_attached &&
+           impl_->load.target_aot_executor_ready;
+  }
+#endif
+  if (impl_->generation_route != ReferenceGenerationRoute::kReference ||
       !impl_->request_state.has_value() || !impl_->runner.has_value()) {
     return false;
   }
@@ -6263,6 +6556,14 @@ const ReferenceEngineLoadStats& ReferenceEngine::load_stats() const noexcept {
 }
 
 std::uint32_t ReferenceEngine::max_sequence_length() const noexcept {
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+  if (impl_ != nullptr && impl_->generation_route ==
+                              ReferenceGenerationRoute::kSm87TargetAotP40 &&
+      impl_->target_aot_request_state != nullptr) {
+    return static_cast<std::uint32_t>(
+        kSm87TargetAotP40RequestCapacityTokens);
+  }
+#endif
   return impl_ != nullptr && impl_->request_state.has_value()
              ? impl_->request_state->max_sequence_length()
              : 0U;
@@ -7343,6 +7644,187 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
       return result;
     }
   }
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+  if (impl_->generation_route ==
+      ReferenceGenerationRoute::kSm87TargetAotP40) {
+    if (prompt_token_ids.size() != kSm87TargetAotP40PromptTokens ||
+        options.max_new_tokens != 1U || options.capture_trace ||
+        options.logits_mode != ReferenceLogitsMode::kPredictedTokenOnly ||
+        options.use_prepared_decode_graph_cache ||
+        options.prefill_execution_mode !=
+            ReferencePrefillExecutionMode::kLegacyC512Tiled ||
+        options.prefill_cancellation_probe != nullptr ||
+        options.prefill_cancellation_context != nullptr ||
+        impl_->target_aot_request_state == nullptr ||
+        impl_->target_aot_executor == nullptr) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "target_aot_generation_options",
+          "sm87-target-aot-p40 admits exactly 40000 prompt tokens, one "
+          "predicted-only output token, trace/graph/cancellation disabled, "
+          "and no legacy layer-major selector");
+      return result;
+    }
+    try {
+      const Sm87TargetAotRequestRearmResult rearm =
+          impl_->target_aot_request_state->rearm_for_cold_request();
+      if (!rearm) {
+        result.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kRunnerResetFailure,
+            "target_aot_request_rearm", to_string(rearm.error));
+        result.diagnostic.context = rearm.context;
+        result.diagnostic.cuda_error = rearm.cuda_error;
+        return result;
+      }
+
+      const Clock::time_point execute_begin = Clock::now();
+      const auto executed = impl_->target_aot_executor->execute(
+          prompt_token_ids.data(), prompt_token_ids.size(), 1U);
+      const double execute_milliseconds =
+          elapsed_milliseconds(execute_begin);
+      if (!executed) {
+        result.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kRunnerStepFailure,
+            "target_aot_p40_execute", executed.status.context);
+        result.diagnostic.cuda_error = executed.status.cuda_error;
+        result.diagnostic.layer = executed.status.layer;
+        return result;
+      }
+      const auto& receipt = executed.receipt;
+      const bool receipt_exact =
+          receipt.prompt_tokens == kSm87TargetAotP40PromptTokens &&
+          receipt.requested_handoff_tokens == 1U &&
+          receipt.completed_layers == kSm87TargetAotP40LayerCount &&
+          receipt.completed_gdn_layers == kSm87TargetAotP40GdnLayerCount &&
+          receipt.completed_full_attention_layers ==
+              kSm87TargetAotP40FullLayerCount &&
+          receipt.completed_attention_panels == 80U &&
+          receipt.recorded_layer_events ==
+              kSm87TargetAotP40LayerCount *
+                  kSm87TargetAotP40LayerEventCount &&
+          receipt.recorded_global_events ==
+              kSm87TargetAotP40GlobalEventCount &&
+          receipt.admission_epoch != 0U &&
+          receipt.transaction_epoch == rearm.request_transaction_epoch &&
+          receipt.handoff_token_id < kReferenceVocabularySize &&
+          receipt.handoff_has_nonfinite == 0U &&
+          receipt.transaction_committed &&
+          receipt.handoff_result_observed && receipt.handoff_complete &&
+          !receipt.used_fallback && !receipt.used_mtp &&
+          !receipt.used_cublaslt && !receipt.used_jit;
+      if (!receipt_exact) {
+        result.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kRunnerStepFailure,
+            "target_aot_p40_receipt",
+            "committed target executor receipt did not close the exact "
+            "P40000/64-layer/no-fallback contract");
+        return result;
+      }
+
+      std::vector<std::uint32_t> generated_token_ids{
+          receipt.handoff_token_id};
+      const bool is_stop_token =
+          receipt.handoff_token_id == options.stop_token_id;
+      std::vector<std::uint32_t> text_token_ids;
+      if (!is_stop_token) {
+        text_token_ids = generated_token_ids;
+      }
+      text::DecodeOptions decode_options;
+      decode_options.skip_special_tokens = false;
+      text::DecodeResult decoded =
+          impl_->tokenizer->decode(text_token_ids, decode_options);
+      if (!decoded) {
+        result.diagnostic = tokenizer_diagnostic("target_aot_generated_decode",
+                                                 decoded.error);
+        result.diagnostic.code = ReferenceEngineError::kDecodeFailure;
+        return result;
+      }
+      if (options.token_observer != nullptr) {
+        ReferenceTokenEvent event;
+        event.index = 0U;
+        event.token_id = receipt.handoff_token_id;
+        event.text_delta = decoded.text;
+        event.generated_text = decoded.text;
+        event.elapsed_milliseconds = execute_milliseconds;
+        event.is_stop_token = is_stop_token;
+        if (!options.token_observer(options.token_observer_context, event)) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kCancelled,
+              "target_aot_token_observer",
+              "token observer cancelled after the committed target-AOT "
+              "handoff");
+          return result;
+        }
+      }
+
+      ReferenceGeneration generation;
+      generation.rendered_prompt = std::move(rendered_prompt);
+      generation.prompt_token_ids = std::move(prompt_token_ids);
+      generation.generated_token_ids = std::move(generated_token_ids);
+      generation.generated_text = std::move(decoded.text);
+      generation.stop_reason = is_stop_token
+                                   ? ReferenceStopReason::kImEnd
+                                   : ReferenceStopReason::kMaxNewTokens;
+      generation.requested_prefill_chunk_size = options.prefill_chunk_size;
+      generation.effective_prefill_chunk_size =
+          static_cast<std::uint32_t>(kSm87TargetAotP40PromptTokens);
+      generation.all_prompt_tokens_prefilled_by_tiles = true;
+      generation.timing.prefix_execution_milliseconds.push_back(
+          execute_milliseconds);
+      generation.timing.prompt_prefill_milliseconds = execute_milliseconds;
+      generation.timing.prompt_prefill_phase_qualified = false;
+      generation.timing.time_to_first_token_milliseconds =
+          execute_milliseconds;
+      generation.timing.total_generation_milliseconds = execute_milliseconds;
+      generation.generation_route =
+          ReferenceGenerationRoute::kSm87TargetAotP40;
+      generation.request_memory_profile =
+          RequestMemoryProfile::kSm87TargetAotP40Owner;
+      generation.consumed_prompt_tokens = receipt.prompt_tokens;
+      generation.full_prompt_consumed = true;
+      generation.target_aot_admission_epoch = receipt.admission_epoch;
+      generation.target_aot_transaction_epoch = receipt.transaction_epoch;
+      generation.target_aot_completed_layers = receipt.completed_layers;
+      generation.target_aot_completed_gdn_layers =
+          receipt.completed_gdn_layers;
+      generation.target_aot_completed_full_attention_layers =
+          receipt.completed_full_attention_layers;
+      generation.target_aot_completed_attention_panels =
+          receipt.completed_attention_panels;
+      generation.target_aot_recorded_layer_events =
+          receipt.recorded_layer_events;
+      generation.target_aot_recorded_global_events =
+          receipt.recorded_global_events;
+      generation.target_aot_transaction_committed =
+          receipt.transaction_committed;
+      generation.target_aot_handoff_result_observed =
+          receipt.handoff_result_observed;
+      generation.target_aot_handoff_complete = receipt.handoff_complete;
+      generation.target_aot_used_fallback = receipt.used_fallback;
+      generation.target_aot_used_mtp = receipt.used_mtp;
+      generation.target_aot_used_cublaslt = receipt.used_cublaslt;
+      generation.target_aot_used_jit = receipt.used_jit;
+      generation.prefill_execution_mode =
+          ReferencePrefillExecutionMode::kLegacyC512Tiled;
+      generation.prefill_deployment_plan_id =
+          std::string(kSm87TargetAotP40DeploymentPlanId);
+      generation.prefill_logical_panel_count = 1U;
+      result.value.emplace(std::move(generation));
+      return result;
+    } catch (const std::bad_alloc&) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kAllocationFailure,
+          "target_aot_generation_result",
+          "host allocation failed while publishing target-AOT result");
+      return result;
+    } catch (const std::exception& error) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "target_aot_generation_exception", error.what());
+      return result;
+    }
+  }
+#endif
   if (options.capture_trace && !impl_->trace_enabled) {
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "generation_options",

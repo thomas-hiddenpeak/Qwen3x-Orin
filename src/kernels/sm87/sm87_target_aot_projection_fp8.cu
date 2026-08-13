@@ -506,13 +506,20 @@ void sm87_target_aot_fp8_kernel(
   }
 }
 
+[[nodiscard]] cudaError_t set_dynamic_shared(
+    Sm87TargetAotProjectionRole role) noexcept;
+
 template <typename Kernel>
 [[nodiscard]] cudaError_t query_resources(
     Kernel kernel, const Sm87TargetAotProjectionRole role,
     const std::size_t token_count,
     Sm87TargetAotFp8CudaResources* const resources) noexcept {
+  cudaError_t status = set_dynamic_shared(role);
+  if (status != cudaSuccess) {
+    return status;
+  }
   cudaFuncAttributes attributes{};
-  cudaError_t status = cudaFuncGetAttributes(&attributes, kernel);
+  status = cudaFuncGetAttributes(&attributes, kernel);
   if (status != cudaSuccess) {
     return status;
   }

@@ -99,6 +99,8 @@ struct TargetPrefillWitnessRecord {
   runtime::PrefillRouteEvidence prefill_route_evidence;
   runtime::ProjectionBackend projection_backend =
       runtime::ProjectionBackend::kReference;
+  runtime::ReferenceGenerationRoute generation_route =
+      runtime::ReferenceGenerationRoute::kReference;
   runtime::ReferencePrefillExecutionMode prefill_execution_mode =
       runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled;
   std::uint64_t prefill_logical_panel_count = 0U;
@@ -167,6 +169,31 @@ struct TargetPrefillWitnessRecord {
              runtime::kReferenceDecoderLayerCount>
       vllm_marlin_parity_layer_completion_receipts{};
   std::uint64_t vllm_marlin_parity_layer_completion_receipt_count = 0U;
+  // Complete target-AOT engine evidence. These fields are populated only
+  // from a committed executor receipt and its engine-lifetime authenticated
+  // 256-artifact owner; configured selectors cannot synthesize them.
+  std::size_t target_aot_complete_projection_artifacts = 0U;
+  std::size_t target_aot_complete_projection_sources = 0U;
+  std::string target_aot_complete_projection_catalog_sha256;
+  std::uint64_t target_aot_admission_epoch = 0U;
+  std::uint64_t target_aot_transaction_epoch = 0U;
+  std::uint64_t target_aot_completed_layers = 0U;
+  std::uint64_t target_aot_completed_gdn_layers = 0U;
+  std::uint64_t target_aot_completed_full_attention_layers = 0U;
+  std::uint64_t target_aot_completed_attention_panels = 0U;
+  std::uint64_t target_aot_recorded_layer_events = 0U;
+  std::uint64_t target_aot_recorded_global_events = 0U;
+  bool target_aot_transaction_committed = false;
+  bool target_aot_handoff_result_observed = false;
+  bool target_aot_handoff_complete = false;
+  bool target_aot_used_fallback = false;
+  bool target_aot_used_mtp = false;
+  bool target_aot_used_cublaslt = false;
+  bool target_aot_used_jit = false;
+  // Append-only phase authority.  A false value means a retained diagnostic
+  // duration must not be promoted as pure Prefill; external API TTFT/total
+  // evidence remains independently observable.
+  bool pure_prefill_phase_qualified = true;
   // Empty for legacy/unsealed paths. A non-empty identifier is emitted only
   // after a sealed whole-request generation has completed successfully.
   std::string deployment_plan_id;

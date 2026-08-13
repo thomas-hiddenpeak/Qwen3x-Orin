@@ -9,6 +9,7 @@
 #include <exception>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -34,6 +35,7 @@ void PrintUsage(std::ostream& output) {
       << "  --model ID                  Served OpenAI model id\n"
       << "  --max-sequence-length N     Resident request capacity (default 8192)\n"
       << "  --max-output-tokens N       Per-request output ceiling (default 4096)\n"
+      << "  --engine-route reference|sm87-target-aot-p40 (default reference)\n"
       << "  --prefill-chunk-size N      Native Prefill chunk 1..512 (default 512)\n"
       << "  --prefill-execution-mode legacy|layer-major (default legacy)\n"
       << "  --prefill-attention-tactic exact-segmented|native-group-q64-panel|\n"
@@ -129,6 +131,14 @@ template <typename T>
         error = "--max-output-tokens must be positive";
         return false;
       }
+    } else if (argument == "--engine-route") {
+      const std::optional<q3x::runtime::ReferenceGenerationRoute> route =
+          q3x::runtime::parse_reference_generation_route(value);
+      if (!route.has_value()) {
+        error = "--engine-route must be reference or sm87-target-aot-p40";
+        return false;
+      }
+      options.engine_route = *route;
     } else if (argument == "--prefill-chunk-size") {
       if (!ParseUnsigned(value, options.prefill_chunk_size) ||
           options.prefill_chunk_size == 0U ||
@@ -297,6 +307,13 @@ int main(const int argc, char** const argv) {
   if (!ParseArguments(argc, argv, options, error)) {
     std::cerr << "error: " << error << "\n\n";
     PrintUsage(std::cerr);
+    return 2;
+  }
+  const q3x::server::EvaluationServerEngineRouteContractError route_error =
+      q3x::server::validate_evaluation_server_engine_route_contract(options);
+  if (route_error !=
+      q3x::server::EvaluationServerEngineRouteContractError::kNone) {
+    std::cerr << "error: " << q3x::server::to_string(route_error) << '\n';
     return 2;
   }
   std::signal(SIGINT, RequestStop);

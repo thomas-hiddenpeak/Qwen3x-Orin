@@ -222,6 +222,155 @@ void observe_cancel_transition(ExecutionTransactionLedger& ledger) noexcept {
   ledger.phase = Sm87TargetAotRequestTransactionPhase::kCancelled;
 }
 
+[[nodiscard]] ExecutionTransactionStatus validate_rearm_transition(
+    const ExecutionTransactionLedger& ledger,
+    const std::uint64_t next_transaction_epoch) noexcept {
+  if (ledger.transaction_epoch == 0U || next_transaction_epoch == 0U ||
+      next_transaction_epoch == ledger.transaction_epoch) {
+    return transaction_error(ExecutionTransactionError::kTransactionMismatch,
+                             "rearm_requires_fresh_transaction_epoch");
+  }
+  if (ledger.phase ==
+      Sm87TargetAotRequestTransactionPhase::kPrefillActiveUnpublished) {
+    return transaction_error(ExecutionTransactionError::kInvalidTransition,
+                             "rearm_rejects_active_transaction");
+  }
+  if (ledger.phase !=
+          Sm87TargetAotRequestTransactionPhase::kAdmittedUnpublished &&
+      ledger.phase != Sm87TargetAotRequestTransactionPhase::kCommitted &&
+      ledger.phase != Sm87TargetAotRequestTransactionPhase::kCancelled) {
+    return transaction_error(ExecutionTransactionError::kInvalidTransition,
+                             "rearm_requires_inactive_owner_phase");
+  }
+  return transaction_ok();
+}
+
+void observe_rearm_transition(ExecutionTransactionLedger& ledger,
+                              const std::uint64_t next_transaction_epoch)
+    noexcept {
+  ledger = {};
+  ledger.phase =
+      Sm87TargetAotRequestTransactionPhase::kAdmittedUnpublished;
+  ledger.transaction_epoch = next_transaction_epoch;
+}
+
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION)
+[[nodiscard]] bool stable_span_equal(const BoundSpan& left,
+                                     const BoundSpan& right) noexcept {
+  return left.device_data == right.device_data &&
+         left.byte_size == right.byte_size &&
+         left.physical_span_identity == right.physical_span_identity &&
+         left.lifetime_identity == right.lifetime_identity &&
+         left.publication_identity == right.publication_identity;
+}
+
+[[nodiscard]] bool stable_event_equal(const BoundEvent& left,
+                                      const BoundEvent& right) noexcept {
+  return left.cuda_event == right.cuda_event &&
+         left.event_identity == right.event_identity;
+}
+
+[[nodiscard]] bool stable_tables_equal(
+    const sm87_target_aot_request_detail::OwnerTableIdentities& left,
+    const sm87_target_aot_request_detail::OwnerTableIdentities& right)
+    noexcept {
+  return left.request_memory_plan == right.request_memory_plan &&
+         left.layer_residual == right.layer_residual &&
+         left.input_norm == right.input_norm &&
+         left.gdn_raw_qkvz == right.gdn_raw_qkvz &&
+         left.gdn_bf16_ab == right.gdn_bf16_ab &&
+         left.gdn_output == right.gdn_output &&
+         left.attention_raw_qkv == right.attention_raw_qkv &&
+         left.attention_processed_qkv == right.attention_processed_qkv &&
+         left.attention_output == right.attention_output &&
+         left.mlp_activated == right.mlp_activated &&
+         left.down_branch == right.down_branch &&
+         left.staged_kv_transaction == right.staged_kv_transaction &&
+         left.conv_history_transaction == right.conv_history_transaction &&
+         left.recurrent_state_transaction ==
+             right.recurrent_state_transaction &&
+         left.layer_completion_events == right.layer_completion_events &&
+         left.request_transaction_events ==
+             right.request_transaction_events &&
+         left.final_hidden == right.final_hidden;
+}
+
+[[nodiscard]] bool stable_snapshot_identity_equal(
+    const OwnerSnapshot& left, const OwnerSnapshot& right) noexcept {
+  if (left.plan != right.plan ||
+      left.allocation_base != right.allocation_base ||
+      left.allocation_bytes != right.allocation_bytes ||
+      left.allocation_identity != right.allocation_identity ||
+      left.epochs.admission_epoch != right.epochs.admission_epoch ||
+      left.epochs.position_rope_epoch != right.epochs.position_rope_epoch ||
+      !stable_tables_equal(left.tables, right.tables) ||
+      !stable_span_equal(left.token_ids, right.token_ids) ||
+      !stable_span_equal(left.final_hidden, right.final_hidden) ||
+      left.engine_rope_is_external != right.engine_rope_is_external ||
+      left.all_kv_in_place_aliases_verified !=
+          right.all_kv_in_place_aliases_verified) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < left.layers.size(); ++index) {
+    const auto& lhs = left.layers[index];
+    const auto& rhs = right.layers[index];
+    if (lhs.kind != rhs.kind || lhs.family_ordinal != rhs.family_ordinal ||
+        !stable_span_equal(lhs.residual, rhs.residual) ||
+        !stable_span_equal(lhs.input_normalized, rhs.input_normalized) ||
+        !stable_span_equal(lhs.gdn.raw_qkvz, rhs.gdn.raw_qkvz) ||
+        !stable_span_equal(lhs.gdn.bf16_ab, rhs.gdn.bf16_ab) ||
+        !stable_span_equal(lhs.gdn.output, rhs.gdn.output) ||
+        !stable_span_equal(lhs.gdn.o_branch, rhs.gdn.o_branch) ||
+        !stable_span_equal(lhs.gdn.final_conv_history,
+                           rhs.gdn.final_conv_history) ||
+        !stable_span_equal(lhs.gdn.final_recurrent_state,
+                           rhs.gdn.final_recurrent_state) ||
+        !stable_span_equal(lhs.attention.raw_q_gate,
+                           rhs.attention.raw_q_gate) ||
+        !stable_span_equal(lhs.attention.raw_k, rhs.attention.raw_k) ||
+        !stable_span_equal(lhs.attention.raw_v, rhs.attention.raw_v) ||
+        !stable_span_equal(lhs.attention.processed_q,
+                           rhs.attention.processed_q) ||
+        !stable_span_equal(lhs.attention.processed_gate,
+                           rhs.attention.processed_gate) ||
+        !stable_span_equal(lhs.attention.processed_k,
+                           rhs.attention.processed_k) ||
+        !stable_span_equal(lhs.attention.processed_v,
+                           rhs.attention.processed_v) ||
+        !stable_span_equal(lhs.attention.pre_gate_output,
+                           rhs.attention.pre_gate_output) ||
+        !stable_span_equal(lhs.attention.gated_output,
+                           rhs.attention.gated_output) ||
+        !stable_span_equal(lhs.attention.o_branch,
+                           rhs.attention.o_branch) ||
+        lhs.attention.k_in_place_transaction_alias_verified !=
+            rhs.attention.k_in_place_transaction_alias_verified ||
+        lhs.attention.v_in_place_transaction_alias_verified !=
+            rhs.attention.v_in_place_transaction_alias_verified ||
+        !stable_span_equal(lhs.mlp.normalized_input,
+                           rhs.mlp.normalized_input) ||
+        !stable_span_equal(lhs.mlp.activated, rhs.mlp.activated) ||
+        !stable_span_equal(lhs.mlp.down_branch, rhs.mlp.down_branch)) {
+      return false;
+    }
+    for (std::size_t event = 0U; event < lhs.completion_events.size();
+         ++event) {
+      if (!stable_event_equal(lhs.completion_events[event],
+                              rhs.completion_events[event])) {
+        return false;
+      }
+    }
+  }
+  for (std::size_t event = 0U; event < left.global_events.size(); ++event) {
+    if (!stable_event_equal(left.global_events[event],
+                            right.global_events[event])) {
+      return false;
+    }
+  }
+  return true;
+}
+#endif
+
 class NonConcurrentOperation final {
  public:
   explicit NonConcurrentOperation(std::atomic_flag& active) noexcept
@@ -688,6 +837,12 @@ struct Sm87TargetAotP40RequestState::Impl final {
   const std::uint32_t* cancellation_device = nullptr;
   std::uint64_t cancellation_signal_identity = 0U;
   std::vector<cudaEvent_t> events;
+  // CUDA events are reusable handles and have no reset-to-unrecorded API.
+  // This fixed ledger is therefore the publication authority: zero means the
+  // handle has not been recorded for the current request epoch.  Rearm clears
+  // it only after the owner stream has drained.
+  std::array<std::uint64_t, kSm87TargetAotP40OwnedEventCount>
+      event_record_epochs{};
   std::vector<PhysicalRangeIdentity> physical_ranges;
   OwnerSnapshot snapshot{};
   ExecutionTransactionLedger execution{};
@@ -761,6 +916,177 @@ Sm87TargetAotP40RequestState::transaction_phase() const noexcept {
 
 bool Sm87TargetAotP40RequestState::committed() const noexcept {
   return transaction_phase() == Sm87TargetAotRequestTransactionPhase::kCommitted;
+}
+
+Sm87TargetAotRequestRearmResult
+Sm87TargetAotP40RequestState::rearm_for_cold_request() noexcept {
+  Sm87TargetAotRequestRearmResult result;
+#if !defined(Q3X_ENABLE_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION)
+  result.error = Sm87TargetAotRequestRearmError::kAdmissionDisabled;
+  result.context = "Q3X_BUILD_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION";
+  return result;
+#else
+  if (impl_ == nullptr) {
+    result.error = Sm87TargetAotRequestRearmError::kOwnerInvalid;
+    result.context = "null_request_state_owner_at_rearm";
+    return result;
+  }
+  auto& impl = *impl_;
+  NonConcurrentOperation operation(impl.operation_active);
+  if (!operation) {
+    result.error = Sm87TargetAotRequestRearmError::kConcurrentAccess;
+    result.context = "request_state_concurrent_rearm";
+    return result;
+  }
+
+  result.source_phase = impl.execution.phase;
+  result.admission_epoch = impl.snapshot.epochs.admission_epoch;
+  result.previous_transaction_epoch = impl.execution.transaction_epoch;
+  result.previous_cold_reset_epoch = impl.snapshot.epochs.cold_reset_epoch;
+  result.allocation_identity = impl.snapshot.allocation_identity;
+  result.stream_identity = impl.stream_identity;
+  result.cancellation_signal_identity =
+      impl.cancellation_signal_identity;
+
+  if (impl.stream == nullptr || impl.stream_identity == 0U ||
+      impl.arena == nullptr || impl.cancellation_host == nullptr ||
+      impl.cancellation_device == nullptr ||
+      impl.cancellation_signal_identity == 0U ||
+      impl.events.size() != kSm87TargetAotP40OwnedEventCount ||
+      impl.snapshot.transaction_phase != impl.execution.phase ||
+      !sm87_target_aot_request_detail::validate_owner_snapshot(
+          impl.snapshot)) {
+    result.error = Sm87TargetAotRequestRearmError::kOwnerInvalid;
+    result.context = "request_state_owner_invalid_at_rearm";
+    return result;
+  }
+  if (impl.execution.phase ==
+      Sm87TargetAotRequestTransactionPhase::kPrefillActiveUnpublished) {
+    result.error = Sm87TargetAotRequestRearmError::kActiveTransaction;
+    result.context = "rearm_rejects_active_transaction";
+    return result;
+  }
+  if (impl.execution.phase !=
+          Sm87TargetAotRequestTransactionPhase::kAdmittedUnpublished &&
+      impl.execution.phase != Sm87TargetAotRequestTransactionPhase::kCommitted &&
+      impl.execution.phase != Sm87TargetAotRequestTransactionPhase::kCancelled) {
+    result.error = Sm87TargetAotRequestRearmError::kInvalidTerminalPhase;
+    result.context = "rearm_requires_inactive_owner_phase";
+    return result;
+  }
+
+  const std::uint64_t next_transaction_epoch = next_identity();
+  const ExecutionTransactionStatus transition = validate_rearm_transition(
+      impl.execution, next_transaction_epoch);
+  if (!transition) {
+    result.error = Sm87TargetAotRequestRearmError::kInvalidTerminalPhase;
+    result.context = transition.context;
+    return result;
+  }
+
+  const OwnerSnapshot stable_snapshot_before = impl.snapshot;
+  void* const arena_before = impl.arena;
+  const cudaStream_t stream_before = impl.stream;
+  const std::uint64_t stream_identity_before = impl.stream_identity;
+  std::uint32_t* const cancellation_host_before = impl.cancellation_host;
+  const std::uint32_t* const cancellation_device_before =
+      impl.cancellation_device;
+  const std::uint64_t cancellation_identity_before =
+      impl.cancellation_signal_identity;
+  const cudaEvent_t* const event_storage_before = impl.events.data();
+  const std::size_t event_count_before = impl.events.size();
+  const PhysicalRangeIdentity* const physical_range_storage_before =
+      impl.physical_ranges.data();
+  const std::size_t physical_range_count_before =
+      impl.physical_ranges.size();
+
+  const auto poison = [&impl]() noexcept {
+    __atomic_store_n(impl.cancellation_host, 1U, __ATOMIC_RELEASE);
+    impl.execution.phase = Sm87TargetAotRequestTransactionPhase::kInvalid;
+    impl.snapshot.transaction_phase =
+        Sm87TargetAotRequestTransactionPhase::kInvalid;
+  };
+
+  // No active transaction exists.  Keep cancellation asserted while the old
+  // stream tail drains and while the complete cold-request image is rebuilt.
+  __atomic_store_n(impl.cancellation_host, 1U, __ATOMIC_RELEASE);
+  cudaError_t status = cudaStreamSynchronize(impl.stream);
+  if (status != cudaSuccess) {
+    poison();
+    result.error = Sm87TargetAotRequestRearmError::kStreamDrainFailure;
+    result.context = "cudaStreamSynchronize(target_aot_rearm_old_tail)";
+    result.cuda_error = static_cast<int>(status);
+    return result;
+  }
+
+  status = cudaMemsetAsync(
+      impl.arena, 0, static_cast<std::size_t>(impl.plan.arena_bytes),
+      impl.stream);
+  if (status != cudaSuccess) {
+    poison();
+    result.error = Sm87TargetAotRequestRearmError::kArenaResetEnqueueFailure;
+    result.context = "cudaMemsetAsync(target_aot_rearm_cold_request_arena)";
+    result.cuda_error = static_cast<int>(status);
+    return result;
+  }
+  status = cudaStreamSynchronize(impl.stream);
+  if (status != cudaSuccess) {
+    poison();
+    result.error =
+        Sm87TargetAotRequestRearmError::kArenaResetSynchronizeFailure;
+    result.context = "cudaStreamSynchronize(target_aot_rearm_cold_reset)";
+    result.cuda_error = static_cast<int>(status);
+    return result;
+  }
+  result.stream_drained = true;
+  result.zeroed_arena_bytes = impl.plan.arena_bytes;
+
+  impl.event_record_epochs.fill(0U);
+  result.logical_event_count_reset = impl.event_record_epochs.size();
+  const std::uint64_t next_cold_reset_epoch = next_identity();
+  observe_rearm_transition(impl.execution, next_transaction_epoch);
+  impl.snapshot.epochs.request_transaction_epoch = next_transaction_epoch;
+  impl.snapshot.epochs.cold_reset_epoch = next_cold_reset_epoch;
+  impl.snapshot.epochs.event_reset_epoch = next_cold_reset_epoch;
+  impl.snapshot.epochs.staged_kv_epoch = next_cold_reset_epoch;
+  impl.snapshot.transaction_phase = impl.execution.phase;
+
+  result.request_transaction_epoch = next_transaction_epoch;
+  result.cold_reset_epoch = next_cold_reset_epoch;
+  result.event_reset_epoch = next_cold_reset_epoch;
+  result.result_phase = impl.execution.phase;
+  result.addresses_and_identities_preserved =
+      arena_before == impl.arena && stream_before == impl.stream &&
+      stream_identity_before == impl.stream_identity &&
+      cancellation_host_before == impl.cancellation_host &&
+      cancellation_device_before == impl.cancellation_device &&
+      cancellation_identity_before == impl.cancellation_signal_identity &&
+      event_storage_before == impl.events.data() &&
+      event_count_before == impl.events.size() &&
+      physical_range_storage_before == impl.physical_ranges.data() &&
+      physical_range_count_before == impl.physical_ranges.size() &&
+      stable_snapshot_identity_equal(stable_snapshot_before, impl.snapshot);
+
+  bool events_logically_reset = true;
+  for (const std::uint64_t epoch : impl.event_record_epochs) {
+    events_logically_reset = events_logically_reset && epoch == 0U;
+  }
+  if (!result.addresses_and_identities_preserved ||
+      !events_logically_reset ||
+      !sm87_target_aot_request_detail::validate_owner_snapshot(
+          impl.snapshot)) {
+    poison();
+    result.result_phase = impl.execution.phase;
+    result.error =
+        Sm87TargetAotRequestRearmError::kPostResetValidationFailure;
+    result.context = "target_aot_rearm_post_reset_owner_validation";
+    return result;
+  }
+
+  __atomic_store_n(impl.cancellation_host, 0U, __ATOMIC_RELEASE);
+  result.context = "target_aot_p40_cold_request_rearmed";
+  return result;
+#endif
 }
 
 Sm87TargetAotRequestStateResult
@@ -850,12 +1176,12 @@ create_sm87_target_aot_p40_request_state() noexcept {
     }
     status = cudaMemsetAsync(
         impl->arena, 0,
-        static_cast<std::size_t>(impl->plan.persistent_arena.byte_size),
+        static_cast<std::size_t>(impl->plan.arena_bytes),
         impl->stream);
     if (status != cudaSuccess) {
       result.diagnostic = {
           Sm87TargetAotRequestStateError::kInitializationFailure,
-          "cudaMemsetAsync(target_aot_p40_persistent_transaction)",
+          "cudaMemsetAsync(target_aot_p40_cold_request_arena)",
           static_cast<int>(status)};
       return result;
     }
@@ -876,6 +1202,7 @@ create_sm87_target_aot_p40_request_state() noexcept {
     snapshot.epochs.admission_epoch = next_identity();
     snapshot.epochs.request_transaction_epoch = next_identity();
     snapshot.epochs.cold_reset_epoch = next_identity();
+    snapshot.epochs.event_reset_epoch = snapshot.epochs.cold_reset_epoch;
     snapshot.epochs.staged_kv_epoch = snapshot.epochs.cold_reset_epoch;
     snapshot.epochs.position_rope_epoch = next_identity();
     const std::array<std::uint64_t*, 17U> table_entries{{
@@ -1037,6 +1364,32 @@ const char* to_string(const Sm87TargetAotRequestStateError error) noexcept {
   return "unknown";
 }
 
+const char* to_string(const Sm87TargetAotRequestRearmError error) noexcept {
+  switch (error) {
+    case Sm87TargetAotRequestRearmError::kNone:
+      return "none";
+    case Sm87TargetAotRequestRearmError::kAdmissionDisabled:
+      return "admission_disabled";
+    case Sm87TargetAotRequestRearmError::kOwnerInvalid:
+      return "owner_invalid";
+    case Sm87TargetAotRequestRearmError::kConcurrentAccess:
+      return "concurrent_access";
+    case Sm87TargetAotRequestRearmError::kActiveTransaction:
+      return "active_transaction";
+    case Sm87TargetAotRequestRearmError::kInvalidTerminalPhase:
+      return "invalid_terminal_phase";
+    case Sm87TargetAotRequestRearmError::kStreamDrainFailure:
+      return "stream_drain_failure";
+    case Sm87TargetAotRequestRearmError::kArenaResetEnqueueFailure:
+      return "arena_reset_enqueue_failure";
+    case Sm87TargetAotRequestRearmError::kArenaResetSynchronizeFailure:
+      return "arena_reset_synchronize_failure";
+    case Sm87TargetAotRequestRearmError::kPostResetValidationFailure:
+      return "post_reset_validation_failure";
+  }
+  return "unknown";
+}
+
 }  // namespace q3x::runtime
 
 namespace q3x::runtime::sm87_target_aot_request_detail {
@@ -1104,6 +1457,7 @@ bool validate_owner_snapshot(const OwnerSnapshot& snapshot) noexcept {
       snapshot.epochs.admission_epoch == 0U ||
       snapshot.epochs.request_transaction_epoch == 0U ||
       snapshot.epochs.cold_reset_epoch == 0U ||
+      snapshot.epochs.event_reset_epoch != snapshot.epochs.cold_reset_epoch ||
       snapshot.epochs.staged_kv_epoch != snapshot.epochs.cold_reset_epoch ||
       snapshot.epochs.position_rope_epoch == 0U ||
       !tables_valid(snapshot.tables) || !snapshot.engine_rope_is_external ||
@@ -1248,10 +1602,15 @@ BeginExecutionResult Sm87TargetAotRequestStateAccess::begin(
         "request_state_concurrent_begin");
     return result;
   }
+  bool events_logically_reset = true;
+  for (const std::uint64_t epoch : impl.event_record_epochs) {
+    events_logically_reset = events_logically_reset && epoch == 0U;
+  }
   if (impl.stream == nullptr || impl.stream_identity == 0U ||
       impl.cancellation_host == nullptr ||
       impl.cancellation_device == nullptr ||
       impl.cancellation_signal_identity == 0U ||
+      !events_logically_reset ||
       impl.snapshot.transaction_phase != impl.execution.phase ||
       !validate_owner_snapshot(impl.snapshot)) {
     result.status = transaction_error(ExecutionTransactionError::kOwnerInvalid,
@@ -1318,6 +1677,10 @@ Sm87TargetAotRequestStateAccess::record_layer_completion(
   const std::size_t event_index =
       layer * kSm87TargetAotP40LayerEventCount +
       static_cast<std::size_t>(point);
+  if (impl.event_record_epochs[event_index] != 0U) {
+    return transaction_error(ExecutionTransactionError::kCompletionOutOfOrder,
+                             "layer_event_generation_already_recorded");
+  }
   const cudaError_t status =
       cudaEventRecord(impl.events[event_index], impl.stream);
   if (status != cudaSuccess) {
@@ -1326,6 +1689,7 @@ Sm87TargetAotRequestStateAccess::record_layer_completion(
         "cudaEventRecord(target_aot_layer_completion)",
         static_cast<int>(status));
   }
+  impl.event_record_epochs[event_index] = transaction.transaction_epoch_;
   observe_layer_completion(impl.execution);
   return transaction_ok();
 #endif
@@ -1373,6 +1737,10 @@ Sm87TargetAotRequestStateAccess::record_global_completion(
   const std::size_t event_index =
       kSm87TargetAotP40LayerCount * kSm87TargetAotP40LayerEventCount +
       static_cast<std::size_t>(point);
+  if (impl.event_record_epochs[event_index] != 0U) {
+    return transaction_error(ExecutionTransactionError::kCompletionOutOfOrder,
+                             "global_event_generation_already_recorded");
+  }
   const cudaError_t status =
       cudaEventRecord(impl.events[event_index], impl.stream);
   if (status != cudaSuccess) {
@@ -1381,6 +1749,7 @@ Sm87TargetAotRequestStateAccess::record_global_completion(
         "cudaEventRecord(target_aot_global_completion)",
         static_cast<int>(status));
   }
+  impl.event_record_epochs[event_index] = transaction.transaction_epoch_;
   observe_global_completion(impl.execution);
   return transaction_ok();
 #endif
@@ -1429,6 +1798,23 @@ ExecutionTransactionStatus Sm87TargetAotRequestStateAccess::commit(
       static_cast<std::size_t>(GlobalCompletionPoint::kPersistentStateStaged);
   constexpr std::size_t kCommitIndex =
       static_cast<std::size_t>(GlobalCompletionPoint::kRequestCommit);
+  constexpr std::size_t kAbsoluteCommitIndex =
+      kGlobalEventBase + kCommitIndex;
+  for (std::size_t index = 0U; index < kAbsoluteCommitIndex; ++index) {
+    if (impl.event_record_epochs[index] != transaction.transaction_epoch_) {
+      return transaction_error(
+          ExecutionTransactionError::kCompletionIncomplete,
+          "commit_requires_current_event_generations");
+    }
+  }
+  if ((!impl.execution.final_event_recorded &&
+       impl.event_record_epochs[kAbsoluteCommitIndex] != 0U) ||
+      (impl.execution.final_event_recorded &&
+       impl.event_record_epochs[kAbsoluteCommitIndex] !=
+           transaction.transaction_epoch_)) {
+    return transaction_error(ExecutionTransactionError::kCompletionOutOfOrder,
+                             "commit_event_generation_mismatch");
+  }
   // The ledger proves every prescribed event was recorded in order on this
   // owner stream.  Waiting for its terminal prerequisite therefore waits for
   // the full transitive event chain before the commit receipt is issued.
@@ -1441,17 +1827,18 @@ ExecutionTransactionStatus Sm87TargetAotRequestStateAccess::commit(
         static_cast<int>(status));
   }
   if (!impl.execution.final_event_recorded) {
-    status = cudaEventRecord(impl.events[kGlobalEventBase + kCommitIndex],
-                             impl.stream);
+    status = cudaEventRecord(impl.events[kAbsoluteCommitIndex], impl.stream);
     if (status != cudaSuccess) {
       return transaction_error(
           ExecutionTransactionError::kCudaEventRecordFailure,
           "cudaEventRecord(target_aot_request_commit)",
           static_cast<int>(status));
     }
+    impl.event_record_epochs[kAbsoluteCommitIndex] =
+        transaction.transaction_epoch_;
     impl.execution.final_event_recorded = true;
   }
-  status = cudaEventSynchronize(impl.events[kGlobalEventBase + kCommitIndex]);
+  status = cudaEventSynchronize(impl.events[kAbsoluteCommitIndex]);
   if (status != cudaSuccess) {
     return transaction_error(
         ExecutionTransactionError::kCudaEventSynchronizeFailure,
@@ -1617,6 +2004,17 @@ ExecutionTransactionStatus Sm87TargetAotRequestStateAccess::host_cancel(
       validate_cancel_transition(fixture.ledger_, epoch);
   if (transition) {
     observe_cancel_transition(fixture.ledger_);
+  }
+  return transition;
+}
+
+ExecutionTransactionStatus Sm87TargetAotRequestStateAccess::host_rearm(
+    HostExecutionTransactionFixture& fixture,
+    const std::uint64_t next_transaction_epoch) noexcept {
+  const ExecutionTransactionStatus transition = validate_rearm_transition(
+      fixture.ledger_, next_transaction_epoch);
+  if (transition) {
+    observe_rearm_transition(fixture.ledger_, next_transaction_epoch);
   }
   return transition;
 }

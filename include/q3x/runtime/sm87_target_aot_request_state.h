@@ -13,7 +13,9 @@ namespace q3x::runtime {
 // profile, raw-arena accessor, caller-supplied address, or caller-supplied
 // identity.  The only executable view is declared in an engine-internal
 // header and is derived by this owner from its one allocation and one
-// nonblocking execution stream.
+// nonblocking execution stream.  The allocation may serve repeated requests,
+// but every admitted transaction starts from the same zeroed cold-request
+// state through rearm_for_cold_request().
 inline constexpr std::size_t kSm87TargetAotP40PromptTokens = 40'000U;
 inline constexpr std::size_t kSm87TargetAotP40RequestCapacityTokens = 40'001U;
 inline constexpr std::size_t kSm87TargetAotP40LayerCount = 64U;
@@ -268,6 +270,70 @@ struct Sm87TargetAotRequestStateDiagnostic {
   int cuda_error = 0;
 };
 
+enum class Sm87TargetAotRequestRearmError : std::uint8_t {
+  kNone = 0U,
+  kAdmissionDisabled,
+  kOwnerInvalid,
+  kConcurrentAccess,
+  kActiveTransaction,
+  kInvalidTerminalPhase,
+  kStreamDrainFailure,
+  kArenaResetEnqueueFailure,
+  kArenaResetSynchronizeFailure,
+  kPostResetValidationFailure,
+};
+
+// Allocation-free receipt for one cold-request rearm.  Stable owner identity
+// fields allow the engine and its evaluation harness to prove that warmup and
+// measured requests reused the same allocation, stream, event set, and mapped
+// cancellation control.  Only the request/cold-reset epochs advance.
+struct Sm87TargetAotRequestRearmResult final {
+  Sm87TargetAotRequestRearmError error =
+      Sm87TargetAotRequestRearmError::kNone;
+  const char* context = "none";
+  int cuda_error = 0;
+  Sm87TargetAotRequestTransactionPhase source_phase =
+      Sm87TargetAotRequestTransactionPhase::kInvalid;
+  Sm87TargetAotRequestTransactionPhase result_phase =
+      Sm87TargetAotRequestTransactionPhase::kInvalid;
+  std::uint64_t admission_epoch = 0U;
+  std::uint64_t previous_transaction_epoch = 0U;
+  std::uint64_t request_transaction_epoch = 0U;
+  std::uint64_t previous_cold_reset_epoch = 0U;
+  std::uint64_t cold_reset_epoch = 0U;
+  std::uint64_t event_reset_epoch = 0U;
+  std::uint64_t allocation_identity = 0U;
+  std::uint64_t stream_identity = 0U;
+  std::uint64_t cancellation_signal_identity = 0U;
+  std::uint64_t zeroed_arena_bytes = 0U;
+  std::size_t logical_event_count_reset = 0U;
+  bool stream_drained = false;
+  bool addresses_and_identities_preserved = false;
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return error == Sm87TargetAotRequestRearmError::kNone &&
+           (source_phase ==
+                Sm87TargetAotRequestTransactionPhase::kAdmittedUnpublished ||
+            source_phase ==
+                Sm87TargetAotRequestTransactionPhase::kCommitted ||
+            source_phase ==
+                Sm87TargetAotRequestTransactionPhase::kCancelled) &&
+           result_phase ==
+               Sm87TargetAotRequestTransactionPhase::kAdmittedUnpublished &&
+           admission_epoch != 0U && previous_transaction_epoch != 0U &&
+           request_transaction_epoch != 0U &&
+           request_transaction_epoch != previous_transaction_epoch &&
+           previous_cold_reset_epoch != 0U && cold_reset_epoch != 0U &&
+           cold_reset_epoch != previous_cold_reset_epoch &&
+           event_reset_epoch == cold_reset_epoch &&
+           allocation_identity != 0U &&
+           stream_identity != 0U && cancellation_signal_identity != 0U &&
+           zeroed_arena_bytes == kSm87TargetAotP40RequestArenaBytes &&
+           logical_event_count_reset == kSm87TargetAotP40OwnedEventCount &&
+           stream_drained && addresses_and_identities_preserved;
+  }
+};
+
 namespace sm87_target_aot_request_detail {
 class Sm87TargetAotRequestStateAccess;
 }
@@ -292,6 +358,14 @@ class Sm87TargetAotP40RequestState final {
   [[nodiscard]] Sm87TargetAotRequestTransactionPhase transaction_phase()
       const noexcept;
   [[nodiscard]] bool committed() const noexcept;
+  // Reuses the exact owner allocation for a new cold request.  Active
+  // transactions fail without synchronization or mutation.  For an admitted,
+  // committed, or cancelled owner this call drains the owner stream, zeros the
+  // complete persistent and transient arena, invalidates all logical event
+  // generations, clears cancellation, and advances the transaction/reset
+  // epochs without reallocating or changing any stable identity.
+  [[nodiscard]] Sm87TargetAotRequestRearmResult rearm_for_cold_request()
+      noexcept;
 
  private:
   struct Impl;
@@ -322,5 +396,7 @@ struct Sm87TargetAotRequestStateResult {
 // not a second device arena allocation.
 [[nodiscard]] const char* to_string(
     Sm87TargetAotRequestStateError error) noexcept;
+[[nodiscard]] const char* to_string(
+    Sm87TargetAotRequestRearmError error) noexcept;
 
 }  // namespace q3x::runtime
