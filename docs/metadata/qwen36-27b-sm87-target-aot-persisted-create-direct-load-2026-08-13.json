@@ -1,0 +1,330 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen36-27b-sm87-target-aot-persisted-create-direct-load-2026-08-13",
+  "recorded_at_utc": "2026-08-13T16:12:06Z",
+  "classification": {
+    "authority": "real_checkpoint_persisted_asset_create_and_fresh_process_direct_load_dependency_evidence",
+    "persisted_bundle_creation_passed": true,
+    "fresh_process_direct_load_passed": true,
+    "cross_process_identity_binding_passed": true,
+    "create_source_probe_status": "fail",
+    "load_source_probe_status": "fail",
+    "source_probe_statuses_preserved": true,
+    "create_derived_nvmap_classification": "no_owner_leak",
+    "load_derived_nvmap_classification": "no_owner_leak",
+    "create_combined_lifecycle_accepted": true,
+    "load_combined_lifecycle_accepted": true,
+    "layer0_m192_regression_oracle_passed_in_both_processes": true,
+    "complete_model_numerical_authority": false,
+    "generation_authority": false,
+    "api_authority": false,
+    "performance_authority": false,
+    "public_launcher_authority": false,
+    "release_authority": false,
+    "production_promotion_authority": false
+  },
+  "claim_boundary": "A clean Release/SM87 test-admission binary created one authenticated, create-only target-AOT NVFP4 bundle from the pinned real checkpoint, and a later fresh process directly loaded that exact retained file with two complete host-authentication passes, zero source-tensor D2H, exact payload H2D plus independent device readback, private ModelWeights attachment, and the already admitted layer-0 M192 regression Oracle. Both child probes preserve status=fail solely at their immediate cudaMemGetInfo recovery check; each canonical parent snapshot independently classifies no_owner_leak and satisfies the combined lifecycle acceptance contract. This is persisted-asset and direct-load dependency evidence only. It grants no complete-model numerical, generation, API, timing/performance, public-launcher, release, or production-route authority.",
+  "contracts": {
+    "architecture_candidate": "AC-PREFILL-SM87-AOT-SYSTEM-v1",
+    "work_package": "WP-PREFILL-REFERENCE-TRANSLATION-v1",
+    "admission_scope": "default-off test-only offline create plus authenticated startup direct load",
+    "external_payload_catalog_trust_root_scope": "caller-supplied test admission only; not a signed DeploymentPlan or production trust root",
+    "production_route_changed": false,
+    "incumbent_prefill_tokens_per_second": 392.804397
+  },
+  "measurement_repository": {
+    "branch": "codex/prefill-target-path",
+    "commit": "27f5c716a9c53ef046955aadf133358b8fc10516",
+    "tree": "c2a2a9073c6f6d5678d0922ea1df1e609f02dd16",
+    "clean_at_build": true
+  },
+  "model": {
+    "identity": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "directory_used_read_only": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "checkpoint_identity_sha256_encoded_in_bundle": "a2239b5e66f55f28c17543dbf3b0086c7bf4023ae561bdf09e1108193b5532fa",
+    "checkpoint_payload_identity_source": "qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12",
+    "resident_shards": [
+      {
+        "filename": "model-00001-of-00003.safetensors",
+        "sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d"
+      },
+      {
+        "filename": "model-00002-of-00003.safetensors",
+        "sha256": "06da4242b0f491118d19d4d4c7564307a7bd6059c6bed284e08c93f6fc5a556d"
+      },
+      {
+        "filename": "model-00003-of-00003.safetensors",
+        "sha256": "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845"
+      }
+    ]
+  },
+  "build": {
+    "binary_path": ".q3x-work/build-aot-persist-27f5c71-sm87/q3x_sm87_target_aot_real_checkpoint_prepare_probe",
+    "binary_bytes": 10144024,
+    "binary_sha256": "cb2602ac3c5ef2272b05bd09c5befe578dfba1a4b223923907e755d2185caa1f",
+    "receipt_sha256": "c6846b8eae6a1fe3439ec40a5c80ecd8c350d20fec035f08bb5a9a3ea0bbb8ff",
+    "build_type": "Release",
+    "build_testing": true,
+    "cmake_version": "3.28.3",
+    "generator": "Unix Makefiles",
+    "cuda_toolkit_version": "13.3.33",
+    "cuda_architecture": "87",
+    "admissions": {
+      "aot_system": true,
+      "target_projection": true,
+      "target_device_assets": true,
+      "target_layer0_m192_oracle": true,
+      "fp8_marlin_prefill": false,
+      "nvfp4_marlin_prefill": false,
+      "p40_packed_projection": false,
+      "p40_packed_nvfp4_v2": false,
+      "p40_vllm_marlin_parity": false
+    }
+  },
+  "persistent_bundle": {
+    "path": ".q3x-work/assets/qwen36-27b-sm87-target-aot-nvfp4-27f5c71.bundle",
+    "file_sha256_after_fresh_process_load": "7980b83a7dd708fcd158061fbd6e01668130708c9f0d9336ba2325312e99c4d7",
+    "file_bytes": 9626456064,
+    "regular_file": true,
+    "link_count": 1,
+    "permissions_octal": "0600",
+    "abi": {
+      "magic_ascii": "Q3XAOTB1",
+      "major": 1,
+      "minor": 0,
+      "byte_order": "little-endian",
+      "endian_tag_hex": "0x01020304",
+      "target_sm_major": 8,
+      "target_sm_minor": 7,
+      "layer_count": 64,
+      "artifact_count": 128,
+      "source_count": 192,
+      "record_order": "layer-major Gate+Up then Down",
+      "superblock_bytes": 4096,
+      "record_header_bytes": 4096,
+      "records_offset_bytes": 4096,
+      "payload_arena_bytes": 9625927680,
+      "bundle_bytes": 9626456064
+    },
+    "superblock_authentication": {
+      "checkpoint_identity_sha256": "a2239b5e66f55f28c17543dbf3b0086c7bf4023ae561bdf09e1108193b5532fa",
+      "externally_expected_payload_catalog_sha256": "367572d8f5aab87c655695fc621562e0e88cb5d1a9656370353d55ab1c4ebdbe",
+      "record_header_catalog_sha256": "74130365cf875d380d79d75a159f7916d2ea90e549f029052b4f51cbd44a02f1",
+      "superblock_header_sha256": "27863d9a5419ddf9a174dd559f59fb445223eb69f5718cb6d79da475cf477dc1"
+    },
+    "runtime_authority_serialized": false,
+    "serialized_runtime_pointers_or_owner_identities": false
+  },
+  "source_artifacts": {
+    "create_clean_host_preflight": {
+      "path": ".q3x-work/evidence/target-aot-persistence-27f5c71-preflight-create-root.json",
+      "bytes": 31512,
+      "sha256": "c79e294285c3595c5a982444f3c119ac6df640a1f60d992dbbc7263f548168b2",
+      "schema_version": 1,
+      "decision": "pass"
+    },
+    "load_clean_host_preflight": {
+      "path": ".q3x-work/evidence/target-aot-persistence-27f5c71-preflight-load-root.json",
+      "bytes": 31587,
+      "sha256": "e9405583fcf4d705cd61edfde131a8753a8a03913edba5a3ee9fd3635db7ea18",
+      "schema_version": 1,
+      "decision": "pass"
+    },
+    "create_child_probe": {
+      "path": ".q3x-work/evidence/target-aot-persistence-27f5c71-create-child.json",
+      "bytes": 14270,
+      "sha256": "f0766b1d022c29c4376a4bae61f8070c7ddb030e68a97341b5ad26ab9390a898",
+      "schema_version": 4,
+      "source_status": "fail"
+    },
+    "create_parent_lifecycle": {
+      "path": ".q3x-work/evidence/target-aot-persistence-27f5c71-create-parent.json",
+      "bytes": 166387,
+      "sha256": "0c3cbdb2f3bcd3eb1fe304a73b7c9f6a3d6772409f0a74a0ab72f2745500ba4c",
+      "schema_version": 1,
+      "classification": "no_owner_leak",
+      "combined_lifecycle_accepted": true
+    },
+    "load_child_probe": {
+      "path": ".q3x-work/evidence/target-aot-persistence-27f5c71-load-child.json",
+      "bytes": 14265,
+      "sha256": "878dbc4c9722604e7ff9c6a9be85bc7b54da7731f3a8220ebdc4f76f3faea409",
+      "schema_version": 4,
+      "source_status": "fail"
+    },
+    "load_parent_lifecycle": {
+      "path": ".q3x-work/evidence/target-aot-persistence-27f5c71-load-parent.json",
+      "bytes": 166371,
+      "sha256": "2f8380002d3465c0de0cda3d62a105cf95e53609ee8bc44b46137dd7188b0e36",
+      "schema_version": 1,
+      "classification": "no_owner_leak",
+      "combined_lifecycle_accepted": true
+    },
+    "persisted_bundle": {
+      "path": ".q3x-work/assets/qwen36-27b-sm87-target-aot-nvfp4-27f5c71.bundle",
+      "bytes": 9626456064,
+      "sha256": "7980b83a7dd708fcd158061fbd6e01668130708c9f0d9336ba2325312e99c4d7"
+    }
+  },
+  "clean_host_preflights": {
+    "create": {
+      "created_at_utc": "2026-08-13T15:46:11.364493+00:00",
+      "decision": "pass",
+      "tegrastats_samples": 20,
+      "maximum_gr3d_percent": 0.0,
+      "gpu_device_fd_audit_complete": true,
+      "collection_errors": []
+    },
+    "load": {
+      "created_at_utc": "2026-08-13T16:01:06.762630+00:00",
+      "decision": "pass",
+      "tegrastats_samples": 20,
+      "maximum_gr3d_percent": 0.0,
+      "gpu_device_fd_audit_complete": true,
+      "collection_errors": []
+    }
+  },
+  "create_execution": {
+    "execution_identity": {
+      "boot_id": "9f8c5766-d811-4679-b5c1-1f5c3b2c9965",
+      "parent_pid": 1821576,
+      "child_pid": 1821577,
+      "child_started_at_utc": "2026-08-13T15:47:23.875Z",
+      "child_evidence_finished_at_utc": "2026-08-13T15:59:41.806Z",
+      "valid": true
+    },
+    "asset_mode": "create",
+    "persistent_bundle_contract_exact": true,
+    "persistent_bundle_created": true,
+    "loaded_from_persisted_bundle": false,
+    "persistent_bundle_file_bytes_written": 9626456064,
+    "persistent_bundle_file_bytes_read": 0,
+    "persistent_bundle_host_authentication_passes": 0,
+    "artifacts": 128,
+    "sources": 192,
+    "arena_bytes": 9625927680,
+    "host_staging_peak_bytes": 200540160,
+    "source_d2h_bytes": 9625928448,
+    "payload_h2d_bytes": 9625927680,
+    "verification_d2h_bytes": 9625927680,
+    "private_attachment_completed": true,
+    "mutually_exclusive_legacy_prefill_sidecars_all_disabled": true,
+    "verified_payload_catalog_sha256": "367572d8f5aab87c655695fc621562e0e88cb5d1a9656370353d55ab1c4ebdbe",
+    "persistent_record_header_catalog_sha256": "74130365cf875d380d79d75a159f7916d2ea90e549f029052b4f51cbd44a02f1",
+    "layer0_m192_oracle": {
+      "passed": true,
+      "gate_up_output_sha256": "06513cad9d717d840fe005e3387369352e4a6b1628cb354f33758133b9da0091",
+      "down_plus_residual_output_sha256": "9a3f30d5a38be7bcb709545307c0dbd5cab0279ba4fbac7b98309331ff7a0720"
+    }
+  },
+  "fresh_process_direct_load": {
+    "execution_identity": {
+      "boot_id": "9f8c5766-d811-4679-b5c1-1f5c3b2c9965",
+      "parent_pid": 1827918,
+      "child_pid": 1827919,
+      "child_started_at_utc": "2026-08-13T16:01:34.540Z",
+      "child_evidence_finished_at_utc": "2026-08-13T16:06:34.946Z",
+      "valid": true
+    },
+    "asset_mode": "load",
+    "persistent_bundle_contract_exact": true,
+    "loaded_from_persisted_bundle": true,
+    "persistent_bundle_created": false,
+    "persistent_bundle_file_bytes_written": 0,
+    "persistent_bundle_file_bytes_read": 19252912128,
+    "persistent_bundle_file_bytes_read_formula": "2 * 9,626,456,064-byte complete bundle",
+    "persistent_bundle_host_authentication_passes": 2,
+    "first_complete_bundle_authentication_precedes_cuda_by_contract": true,
+    "online_source_transform_or_repack_executed": false,
+    "artifacts": 128,
+    "sources": 192,
+    "arena_bytes": 9625927680,
+    "host_staging_peak_bytes": 100270080,
+    "source_d2h_bytes": 0,
+    "payload_h2d_bytes": 9625927680,
+    "verification_d2h_bytes": 9625927680,
+    "private_attachment_completed": true,
+    "mutually_exclusive_legacy_prefill_sidecars_all_disabled": true,
+    "verified_payload_catalog_sha256": "367572d8f5aab87c655695fc621562e0e88cb5d1a9656370353d55ab1c4ebdbe",
+    "persistent_record_header_catalog_sha256": "74130365cf875d380d79d75a159f7916d2ea90e549f029052b4f51cbd44a02f1",
+    "layer0_m192_oracle": {
+      "passed": true,
+      "gate_up_output_sha256": "06513cad9d717d840fe005e3387369352e4a6b1628cb354f33758133b9da0091",
+      "down_plus_residual_output_sha256": "9a3f30d5a38be7bcb709545307c0dbd5cab0279ba4fbac7b98309331ff7a0720"
+    }
+  },
+  "cross_process_invariants": {
+    "distinct_child_processes": true,
+    "create_child_pid": 1821577,
+    "load_child_pid": 1827919,
+    "same_boot_id": true,
+    "load_started_after_create_evidence_completed": true,
+    "same_git_commit_and_tree": true,
+    "same_binary_sha256": true,
+    "same_read_only_model_directory": true,
+    "same_persisted_bundle_path": true,
+    "same_external_payload_catalog_sha256": true,
+    "same_verified_payload_catalog_sha256": true,
+    "same_record_header_catalog_sha256": true,
+    "same_layer0_m192_gate_up_output_sha256": true,
+    "same_layer0_m192_down_plus_residual_output_sha256": true,
+    "load_reused_online_create_output_without_source_d2h_or_repack": true
+  },
+  "lifecycle_evidence": {
+    "create": {
+      "source_child_status": "fail",
+      "source_status_preserved": true,
+      "exclusive_failed_check": "memory_recovered_after_destroy",
+      "cuda_free_gap_bytes": 2209910784,
+      "absolute_post_exit_pagepool_bytes": 8241508352,
+      "pagepool_adjusted_residual_bytes": 0,
+      "fixed_tolerance_bytes": 268435456,
+      "all_cuda_errors_zero": true,
+      "parent_identity_binding_passed": true,
+      "bundle_request_binding_passed": true,
+      "canonical_proc_and_nvmap_roots": true,
+      "derived_classification": "no_owner_leak",
+      "derived_criteria_passed": "20/20",
+      "combined_lifecycle_accepted": true
+    },
+    "load": {
+      "source_child_status": "fail",
+      "source_status_preserved": true,
+      "exclusive_failed_check": "memory_recovered_after_destroy",
+      "cuda_free_gap_bytes": 659361792,
+      "absolute_post_exit_pagepool_bytes": 8241508352,
+      "pagepool_adjusted_residual_bytes": 0,
+      "fixed_tolerance_bytes": 268435456,
+      "all_cuda_errors_zero": true,
+      "parent_identity_binding_passed": true,
+      "bundle_request_binding_passed": true,
+      "canonical_proc_and_nvmap_roots": true,
+      "derived_classification": "no_owner_leak",
+      "derived_criteria_passed": "20/20",
+      "combined_lifecycle_accepted": true
+    },
+    "limitation": "Each no_owner_leak result is a bounded canonical post-exit diagnosis for its exact authenticated child and immediate snapshot. Neither rewrites the child status=fail, proves synchronous page return at Engine destruction, nor establishes general leak freedom."
+  },
+  "diagnostic_timing_only": {
+    "create_probe_wall_milliseconds": 737930,
+    "create_engine_total_milliseconds": 733795.578306,
+    "create_target_prepare_attach_milliseconds": 716228.870594,
+    "load_probe_wall_milliseconds": 300405,
+    "load_engine_total_milliseconds": 296162.635267,
+    "load_target_prepare_attach_milliseconds": 282143.945965,
+    "performance_baseline": false,
+    "comparison_authority": false,
+    "interpretation": "The observations confirm that the persisted path executes and removes source-tensor D2H plus online transform/repack. These correctness/lifecycle probe timings were not a predeclared startup benchmark and cannot be reported as a retained speedup or product-performance result."
+  },
+  "next_gate": {
+    "name": "complete_64_layer_target_aot_prefill_composition",
+    "requirements": [
+      "consume the authenticated persisted NVFP4 projection assets through the private owner without reopening online preparation",
+      "compose all 64 layers with FP8 QKV/Z/O, exact grouped online Attention, exact GDN/SSM, buffer ownership, state publication, and Prefill-to-Decode handoff",
+      "extend the admitted layer-0 M192 boundary to complete-model numerical and route coverage without undeclared fallback",
+      "keep the public launcher and production selector closed until the complete composition exists",
+      "return the complete composition first to one clean-host real P40 OpenAI-compatible API and EvalScope gate before P60 and approximately P130 qualification"
+    ]
+  }
+}

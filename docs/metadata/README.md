@@ -55,6 +55,21 @@ numerical, same-ELF resource, and bounded lifecycle-diagnostic authority. It
 grants no complete-model, public-launcher, generation, API, performance,
 release, or production authority.
 
+The persisted-asset successor is frozen in
+[`qwen36-27b-sm87-target-aot-persisted-create-direct-load-2026-08-13.json`](qwen36-27b-sm87-target-aot-persisted-create-direct-load-2026-08-13.json).
+One clean Release/SM87 test-admission process created the fixed ABI-1.0,
+9,626,456,064-byte bundle from the pinned real checkpoint. A later fresh
+process authenticated and directly loaded that exact file with two complete
+bundle passes, zero source-tensor D2H or online repack, exact arena H2D plus
+independent device readback, and matching payload/header catalogs and M192
+Oracle outputs. Both source children still preserve `status=fail` solely at
+their immediate memory-recovery check; their canonical parent snapshots each
+classify `no_owner_leak` with 20/20 criteria and accept the bounded lifecycle.
+This closes only the offline-create/direct-load dependency. It grants no
+complete-model numerical, generation, API, performance, public-launcher,
+release, or production authority; the next gate is the full 64-layer target-AOT
+Prefill composition.
+
 The rejected real-API P40K screen of the explicit segmented-Marlin projection
 wrapper plus grouped-Q64 Attention is frozen in
 [`qwen36-27b-prefill-p40k-segmented-marlin-q64-api-2026-08-09.json`](qwen36-27b-prefill-p40k-segmented-marlin-q64-api-2026-08-09.json).

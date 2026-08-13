@@ -428,18 +428,31 @@ if attachment or runner creation later fails. Crash-left same-target temporary
 files fail closed before another full reservation and require manual audit;
 the runtime does not guess that an unknown file is safe to delete.
 
-This is a code and host-contract milestone only. A clean-host real-checkpoint
-GPU run has not yet created a retained bundle or proved a fresh-process direct
-load, its zero-source-D2H accounting, lifecycle recovery, or startup effect.
-No admission contains a production selector, API wiring, public execution
-route, or production dispatch authority. The narrow M192 result does not
-qualify the complete model. The next evidence step is one clean-host
-real-checkpoint create transaction followed by a fresh-process authenticated
-direct-load transaction. Only then does implementation proceed to the complete
-64-layer FP8/Attention/GDN/buffer/state/handoff composition, rather than
-another isolated loader or local tile scan. Neither payload authentication,
-lifetime attachment, persistence, nor this narrow Oracle can promote the
-production path.
+A clean Release/SM87 create transaction and fresh-process direct-load
+transaction at `27f5c71` have now exercised the persisted path against the
+pinned real checkpoint. The schema-v4 create record published the fixed
+9,626,456,064-byte bundle for 128 artifacts and 192 authenticated sources.
+The schema-v4 load record performed two complete host-authentication passes,
+read exactly 19,252,912,128 bundle bytes, performed zero source-tensor D2H,
+reproduced both authenticated catalogs, attached the private owner, and
+repassed the layer-0 M192 Oracle. Both child probes preserve `status=fail`
+solely at their immediate in-process memory-recovery check. Their strict
+canonical Jetson parent reports independently classified the post-exit state
+as `no_owner_leak` and set `combined_lifecycle_accepted=true` without
+rewriting the child status.
+
+This passes only the persisted create/direct-load lifecycle admission. No
+admission contains a production selector, API wiring, public execution route,
+or production dispatch authority, and the observations have no startup or
+model-performance authority. The narrow M192 result still does not qualify
+the complete model. Exact identities, catalogs, byte accounting, source
+statuses, and claim boundaries are frozen in the
+[`persisted create/direct-load record`](metadata/qwen36-27b-sm87-target-aot-persisted-create-direct-load-2026-08-13.json).
+The next architecture gate is the complete 64-layer target-AOT composition of
+FP8 and NVFP4 projections, Attention, exact GDN, buffers, state, and handoff,
+not another isolated loader or local tile scan. Neither payload
+authentication, lifetime attachment, persistence, nor this narrow Oracle can
+promote the production path.
 
 The pre-CUDA implementation contract is now frozen as a second host-only
 milestone:
@@ -494,9 +507,9 @@ The earlier online-preparation probe reported
 `target_prepare_attach_milliseconds=699705.551133`. This is diagnostic timing
 from a correctness-only run, not a startup or model-performance baseline. It
 does establish that production cannot repack and independently reread all
-9.626 GB online. The new persisted-bundle code is the implementation response,
-but its clean-host real-checkpoint create/direct-load evidence remains pending;
-no startup result is claimed here.
+9.626 GB online. The persisted-bundle code and admitted real-checkpoint
+create/direct-load pair above are the implementation response; neither their
+wall times nor this correctness/lifecycle evidence is a startup result.
 
 ## 9. One bounded reference-geometry witness
 

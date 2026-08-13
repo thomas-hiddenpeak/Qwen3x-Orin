@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-08-13
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-08-12.
+Snapshot date: 2026-08-13.
 
 This page is a replaceable state snapshot. It does not own architecture,
 delivery order, or experiment history. The system design is in
@@ -157,8 +157,9 @@ are frozen in the
 
 This is preparation and lifetime-attribution evidence only. The attachment
 does not authorize a launcher or bind a runner/API route, and the public
-launcher remains deliberately fail-closed. There is still no target-AOT
-numerical, generation, API, performance, release, or production authority.
+launcher remains deliberately fail-closed. That preparation record by itself
+has no target-AOT numerical, generation, API, performance, release, or
+production authority.
 The observed 699,705.551133 ms online prepare/attach time is a correctness-run
 startup diagnostic, not a performance baseline; it makes offline-persisted,
 authenticated AOT payload generation plus direct startup loading an explicit
@@ -196,6 +197,28 @@ production authority. The 701,709.6913 ms prepare/attach and 728,418 ms probe
 wall times remain diagnostics, not performance measurements. The default
 runner and its 392.804397-token/s incumbent are unchanged.
 
+A subsequent clean Release/SM87 create transaction and fresh-process direct
+load at `27f5c71` have now passed the narrow persisted-asset lifecycle
+admission. The create transaction published the fixed 9,626,456,064-byte
+bundle for all 128 artifacts and 192 authenticated sources. The load
+transaction performed two complete host-authentication passes, read exactly
+19,252,912,128 bundle bytes, performed zero source-tensor D2H, reproduced the
+same payload and record-header catalogs, attached the private owner, and
+repassed the layer-0 M192 Oracle. Both schema-v4 child probes preserve
+`status=fail` solely because their immediate in-process
+`cudaMemGetInfo` recovery checks failed; both strict canonical Jetson parent
+reports classified the post-exit state as `no_owner_leak` and set
+`combined_lifecycle_accepted=true` without rewriting either child status.
+
+This closes persistence and authenticated direct-load admission only. It
+grants no complete-model execution, generation, public-launcher, API,
+performance, release, or production authority, and it changes neither the
+default runner nor the Prefill incumbent. Exact identities, catalogs,
+byte-accounting, source statuses, and claim boundaries are frozen in the
+[`persisted create/direct-load record`](metadata/qwen36-27b-sm87-target-aot-persisted-create-direct-load-2026-08-13.json).
+The next architecture gate is complete 64-layer target-AOT composition across
+NVFP4 and FP8 projections, Attention, exact GDN, buffers, state, and handoff.
+
 ## 2. Current capability matrix
 
 | Capability | Current state | Missing production condition |
@@ -207,7 +230,7 @@ runner and its 392.804397-token/s incumbent are unchanged.
 | Final product API | Designed | No installed production server/profile or release attestation exists |
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
 | Target-length Prefill | P40 development route exercised | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
-| SM87 whole-system AOT Prefill candidate | Default-off and non-executable; real-checkpoint upload/readback/private attachment is authenticated, and the layer-0 M192 Gate+Up/Down-plus-residual candidate has passed bitwise, same-ELF SM87 resource/geometry, and immediate-snapshot lifecycle gates | Persist and directly load authenticated AOT payloads; compose all 64 layers plus FP8 QKV/Z/O, grouped online Attention, exact GDN, buffers/state/handoffs without fallback; extend complete-model accuracy; open a reviewed admission launch; then return to clean-host real-P40 API/EvalScope evidence |
+| SM87 whole-system AOT Prefill candidate | Default-off and non-executable; real-checkpoint upload/readback/private attachment, persisted create, fresh-process authenticated direct load, and the layer-0 M192 Gate+Up/Down-plus-residual Oracle have passed their narrow admission gates | Compose all 64 layers plus FP8 QKV/Z/O, grouped online Attention, exact GDN, buffers/state/handoffs without fallback; extend complete-model accuracy; open a reviewed admission launch; then return to clean-host real-P40 API/EvalScope evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
