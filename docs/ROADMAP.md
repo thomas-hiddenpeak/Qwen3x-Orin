@@ -182,10 +182,11 @@ selected kernels. Its P40 allocation is:
 - no more than 9.302326 s total, equivalent to the 4,300 prompt tok/s starting
   line on exactly 40,000 consumed prompt tokens.
 
-Before another target-length performance run, v2 must expose host-visible
-layer/operator progress and propagate client cancellation through bounded
-device-safe points. This is a liveness prerequisite, not a performance
-substitute.
+The v1 diagnostic control now exposes host-visible per-layer progress and
+propagates client cancellation through bounded device-safe points. Its 64
+host waits are diagnostic serialization, not the v2 schedule. The complete v2
+must retain bounded progress/cancellation through device-ordered epochs and
+must not restore an unobservable whole-request execution interval.
 
 These are planning allocations derived from the owner-set target, not
 hardware-bound claims. The candidate must cover Gate/Up, Down, FP8 QKV/Z/O,
@@ -194,6 +195,20 @@ live producer/consumer boundaries in one authenticated AOT execution plan.
 It may not introduce a full-model BF16 weight copy, cuBLASLt production path,
 MTP, approximate arithmetic, request-time JIT/repack/autotune, silent
 fallback, or request-time tactic discovery.
+
+Two candidate classes are now closed before implementation. An impossible
+one-pass dense INT4 mapping of the listed P40 projection work still exceeds
+the 5.0-second projection allocation, so exact dense integer limb/bit-plane
+re-expression is not a v2 CUDA path. A real-checkpoint early/middle/terminal
+screen also found zero repeated packed E2M1 K16 keys in more than fifty
+million Gate/Up/Down role-block instances, including the optimistic
+scale-ignored form, so dictionary and identical/proportional-code cross-role
+reuse are not successors. These results preserve rather than lower the 4.3K
+target. They make matched route and executed-work reconciliation the P0 for
+projection selection: the implementation must account for the same model
+roles, token IDs, cache state, backend, arithmetic class, and token accounting
+as the owner-established reference before another projection skeleton is
+written.
 
 The first bounded package is
 **[`WP-PREFILL-REFERENCE-TRANSLATION-v1`](PREFILL_REFERENCE_TRANSLATION_MATRIX.md)**:
@@ -234,7 +249,9 @@ implementation is selected:
 
 - **SM87 AOT projection plan:** distinct packed-operand ownership and
   load/decode/MMA schedules for NVFP4 Gate/Up, K-heavy NVFP4 Down, and FP8
-  QKV/Z/O. One universal tile or persistent-grid skeleton is not assumed.
+  QKV/Z/O, selected only after the matched production work ledger closes the
+  current 1.948-Pop/reference-route discrepancy. One universal tile,
+  persistent-grid skeleton, or nominal low-bit ISA is not assumed.
 - **`WP-P40-EXACT-ATTENTION-v1`:** exact whole-prompt online-softmax
   Attention with ordered KV publication, consumer-native Q/gate/layout
   handling, and a declared sequence-parallel work plan. FlashInfer and
@@ -243,8 +260,12 @@ implementation is selected:
 - **`WP-P40-EXACT-GDN-v1`:** one prompt-span recurrent work graph with
   chunk-local parallel work, only the mathematical boundary-state dependency
   serialized, exact BF16 state/publication semantics, and panel-wide BF16 A/B
-  tactics. FLA and Mamba selective-scan supply reference mechanisms; the
-  provisional GDN plus BF16 A/B allocation is 1.5 s.
+  tactics. The selected v2 topology uses 48 independent value-head owners and
+  C64 preparation/recurrence/consumer stages with two bounded slots. Every
+  token still publishes BF16 state for the next token and uses its pre-round
+  update for same-token output; WY/KKT/SSD and FP32 authoritative chunk state
+  remain forbidden. FLA and Mamba selective-scan supply organization
+  mechanisms only; the provisional GDN plus BF16 A/B allocation is 1.5 s.
 - **Handoff and composition plan:** one final exact Prefill state publication,
   bounded arena/control-state lifetimes, no illegal aliasing, and explicit
   overlap only where the dependency graph permits it.
@@ -258,12 +279,16 @@ and its current critical path.
 
 Execution order:
 
-1. complete the reference/source dataflow matrix and SM87 translation;
-2. implement target-path progress, disconnect cancellation, and bounded safe
-   points without admitting a second unchanged-v1 timing run;
-3. freeze 48-value-head GDN ownership, role-specific projection macrotiles,
-   and the effective-Q Attention producer/consumer topology from that matrix;
-4. freeze numerical, state, buffer, synchronization, and AOT-plan identities;
+1. complete the matched vLLM/Q3X production-work ledger, including model
+   roles, arithmetic backend, cache state, scheduler token accounting, and
+   liveness; this is active and requires no unchanged reference timing run;
+2. freeze the effective-Q/KV-reuse Attention topology and the projection
+   execution class that can credibly fit the whole-P40 allocation;
+3. implement the already-selected default-off exact GDN C64 cell and the
+   corresponding Attention cell, locking bits and static resources without
+   using synthetic timing for selection;
+4. freeze the combined numerical, state, buffer, cancellation,
+   synchronization, and AOT-plan identities;
 5. implement the mutually required projection, Attention, GDN, and handoff
    seams in one v2 candidate binary;
 6. return immediately to one clean-host real P40 API direction witness;

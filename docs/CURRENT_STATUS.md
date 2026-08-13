@@ -248,6 +248,38 @@ P40 API gate. Exact identity, failure semantics, work ledger, and decision are
 frozen in the
 [`failed target-AOT P40 API record`](analysis/prefill-target-aot-p40-failed-api-2026-08-14/README.md).
 
+Commit `291305b` has since closed the diagnostic liveness prerequisite on that
+default-off control. The request owner now waits at authenticated per-layer
+events, emits structured elapsed and layer-delta progress, polls disconnect
+cancellation before submission, after each completed layer, and before final
+commit, and maps cancellation to a drained private transaction without an
+HTTP 500 or partial state publication. At most one complete layer is queued.
+This supplies bounded observability for development; its 64 host waits and
+one-layer cancellation bound are deliberately not the v2 performance
+schedule, and no second unchanged-v1 timing run was made.
+
+Two real-checkpoint architecture screens now further constrain v2. Dense
+INT8/INT4 limb or bit-plane re-expression is rejected before CUDA because an
+impossible one-pass INT4 mapping of the complete listed projection work still
+requires about 11.46 seconds at an optimistic 170-TOPS planning rate, beyond
+the 5.0-second projection allocation. The actual source-pinned ModelOpt
+NVFP4-Marlin path decodes to BF16 and uses BF16 Tensor Core MMA; it supplies no
+hidden integer shortcut. Separately, sampled layers 0, 31, and 63 contain zero
+repeated K16 E2M1 blocks across 50,135,040 authentic Gate/Up/Down instances,
+even when block scales are ignored. Dictionary and cross-Gate-Up identical/
+proportional-code reuse are therefore rejected as material successors. These
+negative class screens do not lower the owner-established 4.3K target; they
+make matched production work and route accounting the active projection P0.
+
+The exact GDN v2 topology is now frozen for implementation: 48 independent
+value-head recurrence owners replace the v1 16-owner/three-head serial chain;
+C64 exact preparation, token-serial BF16 recurrence, and exact bulk
+RMSNorm/SiLU form separate bounded stages. Per-token BF16 state rounding and
+pre-round same-token output use remain unchanged. WY/KKT/SSD, FP32
+authoritative chunk state, and delayed rounding remain excluded. The first
+default-off single-C64 cell is implementation work, not a performance result
+or production route.
+
 ## 2. Current capability matrix
 
 | Capability | Current state | Missing production condition |
@@ -259,7 +291,7 @@ frozen in the
 | Final product API | Designed | No installed production server/profile or release attestation exists |
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
 | Target-length Prefill | P40 development route exercised | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
-| SM87 whole-system AOT Prefill candidate | Default-off v1 is executable through the real P40 API but rejected as a performance composition after a zero-byte 840.000399-second failed smoke; no production or timing authority | Add bounded progress/cancellation, replace serial v1 ownership with the complete bulk-dataflow successor, then require a successful clean-host real-P40 API return before EvalScope or qualification |
+| SM87 whole-system AOT Prefill candidate | Default-off v1 is executable through the real P40 API but rejected as a performance composition after a zero-byte 840.000399-second failed smoke; diagnostic per-layer progress and bounded cancellation are now implemented, with no production or timing authority | Replace serial v1 ownership with the complete bulk-dataflow v2 successor, preserve bounded cancellation without diagnostic host serialization, then require a successful clean-host real-P40 API return before EvalScope or qualification |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

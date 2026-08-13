@@ -6,7 +6,7 @@ q3x_document:
   owner: prefill-maintainers
   authority: Prefill mathematical equivalence, finite-precision identity, and production-observable liveness
   effective: 2026-08-11
-  last_reviewed: 2026-08-11
+  last_reviewed: 2026-08-14
   supersedes: []
   superseded_by: []
   ssot_for: Prefill architecture proof order, equivalence proof classes, P40 arithmetic ledger, and liveness-deletion eligibility
@@ -434,6 +434,56 @@ The proposal advances to CUDA only when that measured pass count can fit the
 kernel implementation. This is distinct from approximation: calibrated W4A4,
 truncated planes, changed reduction parents, or delayed state rounding remain
 accuracy-unqualified regardless of their nominal peak rate.
+
+### 5.4 Closed dense-integer and exact K16-reuse classes
+
+The dense integer-limb/bit-plane proposal is closed before CUDA
+implementation for the pinned P40 graph. Using the full listed projection
+ledger and an intentionally impossible best case in which every projection
+maps to one dense INT4 operation, an optimistic `170 TOPS` SM87 planning rate
+still gives:
+
+```text
+1,948,044,492,800,000 operations / 170e12 operations/s
+  = 11.459085 seconds
+```
+
+That already exceeds the complete 5.0-second projection allocation. The
+NVFP4 MLP subset alone would require about 8.053064 seconds under the same
+one-pass assumption. A real exact expansion is worse: an ordinary BF16
+significand requires at least two signed-INT8 limbs in the absence of a
+proved trailing-zero restriction, while one NVFP4 K16 code plane needs at
+least one. At the approximately `85 TOPS` dense INT8 planning rate, two passes
+over the NVFP4 MLP subset give about 32.212255 seconds before reconstruction,
+scale rejoin, fallback, or movement. Even deleting the separately proved
+terminal-layer dead work does not change this decision.
+
+This closes only the dense integer re-expression of the current listed work.
+It is not a hardware impossibility claim and it does not lower the 4.3K
+target. In particular, the source-pinned ModelOpt NVFP4 Marlin path does not
+provide a hidden integer route: it decodes FE2M1 and its E4M3 block scale to
+BF16 and executes `mma.sync ... f32.bf16.bf16.f32`. Its INT8 template branch
+is a different scalar type and is not the W4A16 FE2M1 path. A conflict between
+the listed work and an observed reference rate therefore returns to matched
+route, model-work, token-accounting, cache, and backend reconciliation rather
+than authorizing an IMMA kernel or changing the target.
+
+The pinned checkpoint also supplies no material repeated K16 structure for a
+dictionary or common-block successor. A stratified early/middle/terminal
+audit examined 50,135,040 authentic Gate/Up/Down K16 role-block instances.
+Every eight-byte packed E2M1 key was unique even when its block-scale byte was
+ignored. Combined Gate-plus-Up searches found every one of 33,423,360 keys
+unique as well. The exact result and scope boundary are frozen in the
+[K16 reuse evidence](metadata/qwen36-27b-nvfp4-k16-exact-reuse-audit-2026-08-14.json).
+No dictionary, repeated-block cache, or identical/proportional-code
+cross-role CUDA path is implemented from this negative structural screen.
+
+The next projection decision must therefore begin with a matched production
+work ledger. It may reopen only a mechanism that removes live bilinear work,
+proves a checkpoint-specific exact common subexpression, or supplies a
+complete role-specific dataflow whose physical work fits the whole-P40
+allocation. Changing the nominal MMA instruction without reducing the
+executed work is not an architecture successor.
 
 ## 6. Layer 63 production-liveness deletion
 

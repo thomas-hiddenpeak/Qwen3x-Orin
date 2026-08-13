@@ -6,7 +6,7 @@ q3x_document:
   owner: prefill-maintainers
   authority: source-to-SM87 translation and selection record for WP-PREFILL-REFERENCE-TRANSLATION-v1
   effective: 2026-08-12
-  last_reviewed: 2026-08-13
+  last_reviewed: 2026-08-14
   supersedes: []
   superseded_by: []
   ssot_for: the active Prefill reference-translation work package only
@@ -17,10 +17,12 @@ q3x_document:
 
 This document is the bounded working record for
 `WP-PREFILL-REFERENCE-TRANSLATION-v1` under
-`AC-PREFILL-SM87-AOT-SYSTEM-v1`. It does not amend the product target,
-stable SDD boundary, current implementation status, numerical contract, or
-production route. Those authorities remain with the Constitution, system and
-Prefill SDDs, Current Status, and numerical ledger.
+`AC-PREFILL-SM87-BULK-DATAFLOW-v2`. The predecessor
+`AC-PREFILL-SM87-AOT-SYSTEM-v1` is retained only as the closed diagnostic
+control described by Current Status. This document does not amend the product
+target, stable SDD boundary, current implementation status, numerical
+contract, or production route. Those authorities remain with the
+Constitution, system and Prefill SDDs, Current Status, and numerical ledger.
 
 The purpose of a separate work-package document is deliberate: source pins,
 candidate hypotheses, and falsifiers change during development without
@@ -33,7 +35,7 @@ stable system boundary returns to the SDD.
 | Field | Binding |
 | --- | --- |
 | Product symptom | Cold/no-cache, single-request 40K--60K and approximately 130K Prefill remains below the owner-set API target and useful vLLM starting line |
-| Parent candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` |
+| Parent candidate | `AC-PREFILL-SM87-BULK-DATAFLOW-v2` |
 | Active package | `WP-PREFILL-REFERENCE-TRANSLATION-v1` |
 | Incumbent | The P40 development route identified by [Current Status](CURRENT_STATUS.md), not restated here |
 | Numerical boundary | [Prefill mathematical-equivalence ledger](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md) |
@@ -214,6 +216,19 @@ The first implementation is selected from the combined A/B/scale
 load-decode-MMA-epilogue plan. It is not assembled by accepting individual
 `.ca`, `cp.async`, raster, stage, or decode-sharing toggles in isolation.
 
+Source inspection closes a misleading arithmetic branch. ModelOpt W4A16
+NVFP4 Marlin accepts BF16/FP16 activation without activation quantization,
+decodes FE2M1 plus E4M3 block scale to BF16, and executes the BF16
+`mma.sync.m16n8k16` template. Its INT8 template specialization is not the
+FE2M1 path. Re-expressing the complete listed P40 projection work as dense
+integer limbs also fails the v2 projection allocation under an impossible
+one-pass INT4 upper-bound assumption, so no IMMA sidecar or kernel is selected.
+The authentic checkpoint provides no alternative K16 dictionary shortcut:
+early, middle, and terminal layer searches find zero repeated packed-code
+keys in more than fifty million Gate/Up/Down block instances, even with scale
+ignored. Projection work therefore pauses at a matched executed-work and
+route ledger rather than producing another nominal-ISA kernel skeleton.
+
 ## 6. Attention translation
 
 The existing vendored path proves the owner's SM87 compatibility correction:
@@ -270,10 +285,24 @@ FP8 QKV/Z and BF16 A/B producers
 Parallelism remains available across 48 value heads, 16 shared QK groups,
 preparation, and consumers. Q/K normalization is computed once per QK head
 and may be reused by its three value heads only after the original reduction
-and FP32 operand bits are preserved. C16/C32/C64 bounded workspaces, four
-warps, and a two-stage ping-pong pipeline are the source-derived starting
-structure. The current 256-thread, roughly 139-KiB, one-CTA/SM monolith is not
-inherited as a universal resource plan.
+and FP32 operand bits are preserved. The selected v2 topology is a C64
+three-stage graph: a token-parallel exact producer, 48 independent
+value-head recurrence owners, and an exact rows8 RMSNorm/SiLU consumer. Two
+producer slots and two raw-output slots bound the pipeline; authoritative
+state remains one BF16 private span ordered by the recurrence stream. The
+48-owner core removes the v1's artificial serialization of three value heads
+behind each of 16 owners while preserving every token's BF16 state boundary.
+
+The recurrence cell targets 48 CTAs of 256 threads, one value head and one
+128x128 state per CTA, no more than 85 registers per thread, zero local bytes,
+and at least three resident CTAs per SM. Falling to two CTAs/SM changes the
+16-SM execution from one owner wave to two and reopens the architecture; it is
+not accepted as a local tuning result. C64 state boundaries add about 94.30 GB
+of logical state read/write over all P40 GDN layers. L2 persistence may reduce
+its physical DRAM service, but the cost remains explicit. A later C256
+super-epoch may be considered only if the complete direction proves this
+boundary is causal. The old 256-thread, roughly 139-KiB, one-CTA/SM monolith
+is retained only as the closed v1 control.
 
 No FLA-style full-prompt A/W/U/state materialization is allowed. Such tensors
 would consume multiple GiB at P40/P60 and reproduce the movement problem the
@@ -346,21 +375,20 @@ The full-Attention constituent fixes Q128/KV32, two K/V shared-memory stages,
 FP32 online softmax, no score matrix, no split-KV, and the exact model
 preprocess contract: centered Q/K RMSNorm, 64 rotary elements (32 NeoX
 pairs), bit-exact per-head gate split/copy, and bit-exact V publication. The
-GDN constituent is one layer-long 16-CTA kernel design. Each CTA owns one Q/K
-group and three value-head state chains, advances exact ordered C16 blocks,
-rounds recurrent state to BF16 after every token, and uses C64 only as a
-two-slot preparation window. Cold state and convolution history begin from
-register zero; no cooperative grid barrier or in-kernel global commit is
-permitted. Ordinary kernel completion makes the layer-local output visible to
-its O projection and records a stream-ordered ready receipt for history and
-recurrent-state spans prebound to the private request transaction. No
-per-layer CPU callback or host synchronization is allowed. That receipt is
-not `PrefillStateCommitted`: state stays invisible to Decode until the single
+first host-only GDN constituent was a layer-long 16-CTA v1 design. Each CTA
+owned one Q/K group and three value-head state chains. The failed target API
+smoke has now closed that ownership as a performance architecture. The v2
+successor uses the 48-owner C64 producer/recurrence/consumer graph above. Cold
+state and convolution history still begin from register zero; no cooperative
+grid barrier or in-kernel global commit is permitted. Completion of a bounded
+recurrence epoch may publish only layer-private readiness. It is not
+`PrefillStateCommitted`: state remains invisible to Decode until the single
 whole-request commit, and cancellation discards every unpublished span.
 
 Internal buffering is therefore explicit but local: three projection stages,
-two Attention K/V stages, and two GDN C16 preparation slots. No cross-operator
-double- or triple-buffered GPU pipeline is selected yet. The DAG permits GDN
+two Attention K/V stages, and the v2 GDN's two C64 producer plus two raw-output
+slots. No cross-operator double- or triple-buffered GPU pipeline is selected
+yet. The DAG permits GDN
 QKVZ and A/B to overlap after input normalization, but stream assignment,
 simultaneous resource fit, and any performance benefit remain unqualified.
 

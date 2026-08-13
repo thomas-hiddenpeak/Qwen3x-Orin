@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-k16-exact-reuse-audit-2026-08-14",
+  "measured_at": "2026-08-14T05:19:43+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "complete_real_checkpoint_structural_audit_exact_k16_reuse_direction_rejected",
+  "authority": {
+    "planning_authority": "closes exact K16 dictionary reuse and cross-Gate-Up identical/proportional-code reuse as a material Prefill architecture for the sampled early, middle, and terminal layers of this pinned checkpoint",
+    "performance_authority": false,
+    "accuracy_authority": false,
+    "production_promotion_authority": false,
+    "gpu_run": false,
+    "synthetic_data_used": false
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "access": "read_only",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "quant_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1"
+  },
+  "scope": {
+    "sampled_layers": [
+      0,
+      31,
+      63
+    ],
+    "roles_per_layer": [
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ],
+    "k16_blocks_per_role_per_layer": 5570560,
+    "role_block_instances_examined": 50135040,
+    "gate_up_cross_role_block_instances_examined": 33423360
+  },
+  "method": {
+    "source_format": "Safetensors U8 tensors with eight packed E2M1 bytes and one E4M3 block-scale byte per K16 block",
+    "exact_key": "eight packed E2M1 bytes plus the corresponding E4M3 K16 scale byte",
+    "optimistic_q_only_key": "eight packed E2M1 bytes with scale ignored; this is only an upper bound for any proportional-block opportunity",
+    "within_role_test": "count repeated exact and optimistic keys independently for Gate, Up, and Down",
+    "cross_role_test": "count repeated keys over the concatenated Gate and Up inventories when their tensor-global scale bits are identical",
+    "raw_layer0_inventory": ".q3x-work/evidence/prefill-target-path/math-equivalence/nvfp4-k16-exact-reuse-layer0.json",
+    "raw_layer0_sha256": "72581141584b210f5c327ac1c69ff34e40b649be26f38f829576d30dd38f5cf0",
+    "raw_layers31_63_inventory": ".q3x-work/evidence/prefill-target-path/math-equivalence/nvfp4-k16-exact-reuse-layers31-63.json",
+    "raw_layers31_63_sha256": "f749abc2788e654a302a0ba2c9d7fe7d8c30536054fad1972240eda2176ae83d"
+  },
+  "aggregate": {
+    "within_role_exact_duplicate_instances_beyond_first": 0,
+    "within_role_q_only_duplicate_instances_beyond_first": 0,
+    "gate_up_cross_role_exact_duplicate_instances_beyond_first": 0,
+    "gate_up_cross_role_q_only_duplicate_instances_beyond_first": 0,
+    "maximum_multiplicity": 1,
+    "sampled_duplicate_percent": 0.0
+  },
+  "decision": {
+    "result": "REJECT_EXACT_K16_DICTIONARY_AND_CROSS_GATE_UP_BLOCK_REUSE_AS_MATERIAL_PREFILL_SUCCESSOR",
+    "reason": "Across 50,135,040 authentic MLP role-block instances in early, middle, and terminal layers, every packed E2M1 K16 code block was unique even before its block scale was considered. The combined Gate-plus-Up searches likewise found every one of 33,423,360 optimistic q-only and exact q-plus-scale keys unique. A dictionary, repeated-block cache, or identical/proportional-code cross-role plan therefore has no observed reuse to exploit and cannot remove the order-of-magnitude work required by the P40 target.",
+    "scope_boundary": "This stratified structural screen does not prove that no duplicate exists anywhere in the remaining 61 layers, and it is not a performance result. Zero duplicates in more than fifty million authentic role blocks is sufficient to reject this mechanism as the next material architecture; it does not authorize a universal mathematical claim about every checkpoint block.",
+    "next_step": "Do not build or benchmark a K16 dictionary/repeated-block CUDA path. Reconcile the matched production work ledger and pursue only exact work deletion or a complete role-specific dataflow with a credible whole-P40 budget."
+  }
+}

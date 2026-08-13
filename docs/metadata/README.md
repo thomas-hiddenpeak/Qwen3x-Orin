@@ -232,6 +232,17 @@ zero codes. This closes exact-zero/2:4 sparsity as a material successor for
 the pinned model; it is a CPU structural audit, not a GPU performance or
 accuracy result.
 
+The stratified real-checkpoint K16 reuse screen is frozen in
+[`qwen36-27b-nvfp4-k16-exact-reuse-audit-2026-08-14.json`](qwen36-27b-nvfp4-k16-exact-reuse-audit-2026-08-14.json).
+It inspects early, middle, and terminal layers and finds zero repeated packed
+E2M1 blocks among 50,135,040 authentic Gate/Up/Down role-block instances,
+even under an optimistic key that ignores the K16 scale. The combined
+Gate-plus-Up searches likewise find zero repeated keys among 33,423,360
+instances. This closes a dictionary, repeated-block cache, or identical/
+proportional-code cross-role plan as the next material Prefill architecture.
+The stratified CPU result is not a universal all-block theorem, a GPU timing,
+an accuracy result, or production authority.
+
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in
 [`qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json`](qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json).
