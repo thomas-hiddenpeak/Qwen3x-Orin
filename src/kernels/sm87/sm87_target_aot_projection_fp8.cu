@@ -1,6 +1,9 @@
 #include "q3x/kernels/sm87_target_aot_projection_fp8_cuda.h"
 
 #include "sm87_target_aot_projection_launch_internal.h"
+#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_FP8_PROJECTION_ADMISSION)
+#include "sm87_target_aot_projection_fp8_oracle_internal.h"
+#endif
 
 #include <cuda_runtime.h>
 
@@ -852,6 +855,84 @@ int launch_authenticated_fp8_full_qkv_scatter(
     const Sm87TargetAotFp8FullQkvScatterArguments& arguments) noexcept {
   return launch_authenticated_fp8_full_qkv_scatter_body(arguments);
 }
+
+#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_FP8_PROJECTION_ADMISSION)
+int launch_raw_fp8_v1_oracle(
+    const Sm87TargetAotFp8RawOracleArguments& arguments) noexcept {
+  const auto layout =
+      sm87_target_aot_projection_packed_layout(arguments.role);
+  const bool full =
+      arguments.role == Sm87TargetAotProjectionRole::kFp8FullQkv;
+  if (!layout.valid() || !sm87_target_aot_fp8_cuda_role(arguments.role) ||
+      arguments.token_count != 64U || arguments.input == nullptr ||
+      arguments.payload == nullptr || arguments.primary_output == nullptr ||
+      arguments.cuda_stream == nullptr ||
+      reinterpret_cast<std::uintptr_t>(arguments.input) % 16U != 0U ||
+      reinterpret_cast<std::uintptr_t>(arguments.payload) % 16U != 0U ||
+      reinterpret_cast<std::uintptr_t>(arguments.primary_output) % 16U !=
+          0U ||
+      (full &&
+       (arguments.secondary_output == nullptr ||
+        arguments.tertiary_output == nullptr ||
+        reinterpret_cast<std::uintptr_t>(arguments.secondary_output) % 16U !=
+            0U ||
+        reinterpret_cast<std::uintptr_t>(arguments.tertiary_output) % 16U !=
+            0U)) ||
+      (!full && (arguments.secondary_output != nullptr ||
+                 arguments.tertiary_output != nullptr))) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  for (std::size_t index = 0U; index < layout.partition_count; ++index) {
+    if (arguments.compensated_scale_bf16_bits[index] == 0U) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+  }
+  const cudaError_t attribute_status = set_dynamic_shared(arguments.role);
+  if (attribute_status != cudaSuccess) {
+    return static_cast<int>(attribute_status);
+  }
+  float scales[3U]{};
+  for (std::size_t index = 0U; index < 3U; ++index) {
+    const std::uint32_t bits = static_cast<std::uint32_t>(
+                                   arguments.compensated_scale_bf16_bits[
+                                       index])
+                               << 16U;
+    std::memcpy(&scales[index], &bits, sizeof(float));
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  (void)cudaGetLastError();
+  if (arguments.role == Sm87TargetAotProjectionRole::kFp8GdnQkvZ) {
+    sm87_target_aot_fp8_kernel<
+        Sm87TargetAotProjectionRole::kFp8GdnQkvZ,
+        5'120U, 16'384U, 80U, 2U, 2U>
+        <<<kPersistentCtas, kThreads, kSm87TargetAotFp8SharedBytes, stream>>>(
+            arguments.input, arguments.payload,
+            static_cast<unsigned int>(arguments.token_count), scales[0U],
+            scales[1U], scales[2U], arguments.primary_output, nullptr,
+            nullptr, false);
+  } else if (arguments.role ==
+             Sm87TargetAotProjectionRole::kFp8FullQkv) {
+    sm87_target_aot_fp8_kernel<
+        Sm87TargetAotProjectionRole::kFp8FullQkv,
+        5'120U, 14'336U, 80U, 2U, 3U>
+        <<<kPersistentCtas, kThreads, kSm87TargetAotFp8SharedBytes, stream>>>(
+            arguments.input, arguments.payload,
+            static_cast<unsigned int>(arguments.token_count), scales[0U],
+            scales[1U], scales[2U], arguments.primary_output,
+            arguments.secondary_output, arguments.tertiary_output, true);
+  } else {
+    sm87_target_aot_fp8_kernel<
+        Sm87TargetAotProjectionRole::kFp8AttentionOutput,
+        6'144U, 5'120U, 96U, 1U, 1U>
+        <<<kPersistentCtas, kThreads, kSm87TargetAotFp8SharedBytes, stream>>>(
+            arguments.input, arguments.payload,
+            static_cast<unsigned int>(arguments.token_count), scales[0U],
+            scales[1U], scales[2U], arguments.primary_output, nullptr,
+            nullptr, false);
+  }
+  return static_cast<int>(cudaPeekAtLastError());
+}
+#endif
 
 }  // namespace sm87_target_aot_projection_execution_detail
 

@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-sm87-bulk-v2-fp8-family-oracle-2026-08-14",
+  "recorded_at": "2026-08-14T07:30:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "three_shape_synthetic_same_elf_differential_pass_default_off",
+  "authority": {
+    "scope": "default-off FP8 GDN-QKVZ, full-QKV, and Attention-O bulk-v2 execution family",
+    "host_and_static_authority": true,
+    "synthetic_bitwise_differential_authority": true,
+    "real_checkpoint_activation_authority": false,
+    "full_p40_execution_authority": false,
+    "performance_authority": false,
+    "api_authority": false,
+    "production_promotion_authority": false
+  },
+  "source_identity": {
+    "base_commit": "cb4aa55",
+    "working_tree_state": "uncommitted default-off candidate sources; relevant files and executable are hash-bound below",
+    "files": [
+      {
+        "path": "include/q3x/kernels/sm87_bulk_dataflow_v2_fp8_projection.h",
+        "sha256": "d55b991de8802a499421dfff37c747827908e4aca6a4d26b2937a05e77a0f90b"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_bulk_dataflow_v2_fp8_projection.cu",
+        "sha256": "2139c3380fb893e2d511a4852303b93e3be1218419e05b8c3bab2861a10e9554"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_target_aot_projection_fp8.cu",
+        "sha256": "0daf19861be9afdf68ac48efa258f5281e6c379771e21ed8293eb78d615652be"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_target_aot_projection_fp8_oracle_internal.h",
+        "sha256": "e7635b6b91ccb7bac414020636d76774ab1c111ce3dc160adbebf4dadfeff46f"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_fp8_projection_host_test.cpp",
+        "sha256": "4076b6a1eec25a6d284ab4f0414036ec83296dc62ffa64b10f7ef5430a2ebab1"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_fp8_projection_cuda_oracle_test.cu",
+        "sha256": "04769d09b1906530275b7e03d0de0b0a2b427a5ab868b87c8c71effc556a81de"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_bulk_dataflow_v2_fp8_projection_launch_internal.h",
+        "sha256": "3f8d90d2b700e1ddcc9eb99bea41b3a1d57a8fc0faa44998c56523dfc1989a84"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_fp8_prevalidated_host_test.cpp",
+        "sha256": "4e9d1e04d98e28fc7e5cebc51e4e95a805862a6595d7654a66a1e144ba898b2d"
+      }
+    ],
+    "cuda_oracle_executable_sha256": "d3573abeebe2b7ef3c7c5e031cba8ade8e9f331bf6742fbc76aa9fea56cc9d7b",
+    "default_off_kernel_archive_sha256": "3c5034d19841c66585e91f2a74ebf38f5d7fa7f25bd2f08fed81a0f8f4bd36bc",
+    "default_off_raw_or_bulk_test_symbols_present": false
+  },
+  "family_manifest": {
+    "prompt_tokens": 40000,
+    "segments_per_role": 40,
+    "segment_shape": "39 x M1024 plus 1 x M64",
+    "logical_roles": 128,
+    "gdn_qkvz_roles": 48,
+    "full_qkv_roles": 16,
+    "attention_output_roles": 64,
+    "planned_physical_launches": 5120,
+    "tile": "M64N256K64",
+    "threads": 256,
+    "persistent_ctas": 16,
+    "g2s_pipeline_stages": 4,
+    "register_decode_stages": 2,
+    "activation_shared_layout": "row-XOR 16-byte vectors",
+    "work_order": "N-major M64 cohort",
+    "authenticated_payload_relation": "same target-AOT persisted FP8 bytes; no request-time repack or scale conversion",
+    "production_selector_reachable": false
+  },
+  "finite_precision_contract": {
+    "activation": "BF16",
+    "weight": "raw Marlin E4M3FN byte interpretation, including terminal 0x7f/0xff",
+    "accumulation": "FP32 tensor-core MMA in ascending full-K order, no split-K",
+    "scale": "partition-private compensated tensor scale after full-K accumulation",
+    "publication": "BF16 round-to-nearest-even",
+    "candidate_vs_control": "same-ELF v2 M64 candidate versus existing v1 M128 body publishing the same M64 rows"
+  },
+  "oracle": {
+    "result": "PASS",
+    "elapsed_seconds": 0.84,
+    "data_class": "deterministic synthetic correctness only",
+    "roles": ["FP8 GDN QKVZ", "FP8 full QKV", "FP8 Attention O"],
+    "cases_per_role": ["all-zero payload", "first K tile", "last K tile"],
+    "checks": [
+      "candidate exact expected output",
+      "same-ELF v1 control exact expected output",
+      "candidate deterministic replay",
+      "complete input immutability",
+      "complete payload immutability",
+      "input, payload, and every output redzone"
+    ],
+    "numerical_contract_qualified": false,
+    "reason_not_qualified": "no real checkpoint activation or complete P40 family composition has run"
+  },
+  "initial_failure_and_repair": {
+    "initial_result": "FAIL: Attention O row 0 column 0 expected 0x0000 observed 0xbe50",
+    "diagnosis": "0xbe50 is the compensated result of raw FP8 guard byte 0xa5",
+    "root_cause": "the original oracle initialized guards on the legacy default stream while payload copies and kernels ran on a nonblocking stream, so the unordered guard memset could overwrite payload bytes",
+    "kernel_change_required": false,
+    "repair": "all guard, input, payload, and output initialization now executes on the same explicit stream",
+    "preservation_rule": "the failed observation remains part of this record and is not presented as a kernel rejection"
+  },
+  "static_resources": {
+    "dynamic_shared_bytes": 98304,
+    "active_ctas_per_sm": 1,
+    "local_bytes": 0,
+    "roles": [
+      {"role": "FP8 GDN QKVZ", "registers_per_thread": 137},
+      {"role": "FP8 full QKV", "registers_per_thread": 138},
+      {"role": "FP8 Attention O", "registers_per_thread": 136}
+    ]
+  },
+  "startup_seal_and_hot_path": {
+    "canonical_role_bindings_sealed": 128,
+    "complete_device_allocation_ranges_validated": true,
+    "exact_nonblocking_stream_validated": true,
+    "authenticated_weight_owner_identity_bound": true,
+    "resource_queries_at_startup_only": true,
+    "hot_path_static_cuda_queries": 0,
+    "segments_submitted_per_role": 40,
+    "partial_submission_receipt": true,
+    "request_owner_drain_required_on_partial_submit": true,
+    "host_contract_test": "PASS"
+  },
+  "clean_host_preflight": {
+    "result": "PASS",
+    "samples": 5,
+    "maximum_gr3d_percent": 0.0,
+    "evidence_workspace_path": ".q3x-work/preflight-v2/fp8-oracle-retest-2026-08-14T0735.json",
+    "evidence_sha256": "8cedad60ec20d39929d0bb5c75cc4834d4e59a3b13acf6653f11961c5b5dbf6a"
+  },
+  "qualification_gaps": [
+    "real-checkpoint FP8 payload plus production-bound activations",
+    "complete M1024 and 39-plus-tail P40 execution",
+    "all 128 role assets and exact family receipt",
+    "composition with preprocess, Attention/GDN, residuals, MLP, state, and final handoff",
+    "clean-host real OpenAI-compatible P40 API direction",
+    "external accuracy and long-capacity qualification"
+  ],
+  "decision": {
+    "result": "RETAIN_AS_DEFAULT_OFF_FP8_V2_EXECUTION_FAMILY_BASE",
+    "production_change": false,
+    "performance_claim": false,
+    "next_step": "bind authenticated real assets into the complete v2 runner and let the first real API P40 direction screen decide architectural value"
+  }
+}

@@ -1,10 +1,13 @@
 #include "q3x/kernels/sm87_bulk_dataflow_v2_gdn_c64.h"
+#include "q3x/kernels/sm87_bulk_dataflow_v2_gdn_p40_plan.h"
 
+#include <cuda.h>
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 namespace q3x::kernels {
 namespace {
@@ -28,6 +31,21 @@ static_assert(kProducerWarps == 4U);
 static_assert(kRecurrenceWarps == 8U);
 static_assert(kConvWeightsPerQkRole == 1'024U);
 static_assert(kConvWeightsPerValueRole == 512U);
+
+__global__ void sample_mapped_cancellation_word_kernel(
+    const std::uint32_t* const mapped_device_alias,
+    std::uint32_t* const device_snapshot) {
+  if (blockIdx.x == 0U && threadIdx.x == 0U) {
+    *device_snapshot = *reinterpret_cast<const volatile std::uint32_t*>(
+        mapped_device_alias);
+  }
+}
+
+void CUDART_CB set_mapped_cancellation_word_host_callback(
+    void* const user_data) {
+  auto* const host_word = static_cast<std::uint32_t*>(user_data);
+  __atomic_store_n(host_word, 1U, __ATOMIC_RELEASE);
+}
 
 [[nodiscard]] __device__ __forceinline__ float decode_bf16(
     const std::uint16_t value) noexcept {
@@ -133,7 +151,20 @@ void prepare_exact_c64_kernel(
     std::uint16_t* const prepared_v,
     float* const alpha,
     float* const beta,
-    std::uint16_t* const final_conv_history) {
+    std::uint16_t* const final_conv_history,
+    const std::uint32_t* const cancellation_signal) {
+  __shared__ std::uint32_t cancellation_observed;
+  if (threadIdx.x == 0U) {
+    cancellation_observed =
+        cancellation_signal == nullptr
+            ? 0U
+            : *reinterpret_cast<const volatile std::uint32_t*>(
+                  cancellation_signal);
+  }
+  __syncthreads();
+  if (cancellation_observed != 0U) {
+    return;
+  }
   __shared__ std::uint16_t staged_weights[kConvWeightsPerQkRole];
   const unsigned int role = blockIdx.y;
   const bool qk_role = role < kSm87BulkV2GdnQkProducerRoles;
@@ -330,11 +361,12 @@ struct RecurrenceSharedStorage final {
   float normalized_q[kSm87TargetAotGdnStateKeyDimension];
   float normalized_k[kSm87TargetAotGdnStateKeyDimension];
   float scalars[2U];
+  std::uint32_t cancellation_observed;
   float row_scratch[kRecurrenceWarps * kRowsPerRecurrenceWarp *
                     kScratchRowStride];
 };
 
-static_assert(sizeof(RecurrenceSharedStorage) == 34'056U);
+static_assert(sizeof(RecurrenceSharedStorage) == 34'060U);
 
 __device__ __forceinline__ void load_head_state(
     HeadRegisterState& state,
@@ -421,7 +453,8 @@ void recur_exact_c64_kernel(
     const std::uint16_t* const initial_state,
     std::uint16_t* const raw_output,
     std::uint16_t* const final_state,
-    std::uint16_t* const state_trace) {
+    std::uint16_t* const state_trace,
+    const std::uint32_t* const cancellation_signal) {
   __shared__ RecurrenceSharedStorage storage;
   const unsigned int value_head = blockIdx.x;
   const unsigned int qk_group =
@@ -430,6 +463,17 @@ void recur_exact_c64_kernel(
   const unsigned int lane = threadIdx.x % kWarpSize;
   const unsigned int warp_first_row = warp * kRowsPerRecurrenceWarp;
   HeadRegisterState state;
+  if (threadIdx.x == 0U) {
+    storage.cancellation_observed =
+        cancellation_signal == nullptr
+            ? 0U
+            : *reinterpret_cast<const volatile std::uint32_t*>(
+                  cancellation_signal);
+  }
+  __syncthreads();
+  if (storage.cancellation_observed != 0U) {
+    return;
+  }
   load_head_state(state, value_head, initial_state);
 
 #pragma unroll 1
@@ -582,7 +626,20 @@ void rms_norm_silu_rows8_exact_kernel(
     const std::uint16_t* const raw_qkvz,
     const std::uint16_t* const norm_weight,
     const std::uint32_t norm_epsilon_bits,
-    std::uint16_t* const output) {
+    std::uint16_t* const output,
+    const std::uint32_t* const cancellation_signal) {
+  __shared__ std::uint32_t cancellation_observed;
+  if (threadIdx.x == 0U) {
+    cancellation_observed =
+        cancellation_signal == nullptr
+            ? 0U
+            : *reinterpret_cast<const volatile std::uint32_t*>(
+                  cancellation_signal);
+  }
+  __syncthreads();
+  if (cancellation_observed != 0U) {
+    return;
+  }
   const unsigned int warp = threadIdx.x / kWarpSize;
   const unsigned int lane = threadIdx.x % kWarpSize;
   const unsigned int row =
@@ -663,6 +720,33 @@ void rms_norm_silu_rows8_exact_kernel(
          attributes.device == device;
 }
 
+[[nodiscard]] bool exact_device_allocation_range(
+    const Sm87BulkV2GdnByteRange& range, const int device) noexcept {
+  if (!range.valid) {
+    return false;
+  }
+  const auto* const pointer = reinterpret_cast<const void*>(range.begin);
+  if (!exact_device_pointer(pointer, device)) {
+    return false;
+  }
+
+  CUdeviceptr allocation_base = 0U;
+  std::size_t allocation_bytes = 0U;
+  const CUresult status = cuMemGetAddressRange(
+      &allocation_base, &allocation_bytes,
+      static_cast<CUdeviceptr>(range.begin));
+  if (status != CUDA_SUCCESS || allocation_bytes == 0U) {
+    return false;
+  }
+  const std::uintptr_t base = static_cast<std::uintptr_t>(allocation_base);
+  if (allocation_bytes >
+      std::numeric_limits<std::uintptr_t>::max() - base) {
+    return false;
+  }
+  const std::uintptr_t allocation_end = base + allocation_bytes;
+  return range.begin >= base && range.end <= allocation_end;
+}
+
 template <class Kernel>
 [[nodiscard]] cudaError_t inspect_kernel(
     const Kernel kernel,
@@ -721,6 +805,217 @@ template <class Kernel>
     }
   }
   return true;
+}
+
+[[nodiscard]] bool all_p40_device_pointers(
+    const Sm87BulkV2GdnP40Arguments& arguments,
+    const int device) noexcept {
+  const auto ranges = sm87_bulk_v2_gdn_p40_argument_ranges(arguments);
+  for (std::size_t index = 0U; index < kSm87BulkV2GdnP40DeviceRangeCount;
+       ++index) {
+    const auto& range = ranges[index];
+    if (!exact_device_allocation_range(range, device)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool exact_mapped_cancellation_owner(
+    const Sm87BulkV2GdnP40Arguments& arguments) noexcept {
+  cudaPointerAttributes host_attributes{};
+  cudaPointerAttributes alias_attributes{};
+  const cudaError_t host_status = cudaPointerGetAttributes(
+      &host_attributes, arguments.cancellation_host_word);
+  const cudaError_t alias_status = cudaPointerGetAttributes(
+      &alias_attributes, arguments.cancellation_device_alias);
+  if (host_status != cudaSuccess || alias_status != cudaSuccess ||
+      host_attributes.type != cudaMemoryTypeHost ||
+      alias_attributes.type != cudaMemoryTypeHost) {
+    return false;
+  }
+  return host_attributes.hostPointer == arguments.cancellation_host_word &&
+         host_attributes.devicePointer ==
+             arguments.cancellation_device_alias &&
+         alias_attributes.hostPointer == arguments.cancellation_host_word &&
+         alias_attributes.devicePointer ==
+             arguments.cancellation_device_alias;
+}
+
+[[nodiscard]] cudaError_t validate_idle_p40_execution_owner(
+    const Sm87BulkV2GdnP40Arguments& arguments) noexcept {
+  for (void* const identity : arguments.streams) {
+    unsigned int flags = 0U;
+    const cudaError_t status = cudaStreamGetFlags(
+        reinterpret_cast<cudaStream_t>(identity), &flags);
+    if (status != cudaSuccess) {
+      return status;
+    }
+    if ((flags & cudaStreamNonBlocking) == 0U) {
+      return cudaErrorInvalidResourceHandle;
+    }
+  }
+  void* const event_identities[] = {
+      arguments.prepared_ready_events[0U],
+      arguments.prepared_ready_events[1U],
+      arguments.recurrence_done_events[0U],
+      arguments.recurrence_done_events[1U],
+      arguments.epilogue_done_events[0U],
+      arguments.epilogue_done_events[1U],
+  };
+  for (void* const identity : event_identities) {
+    const cudaError_t status =
+        cudaEventQuery(reinterpret_cast<cudaEvent_t>(identity));
+    // A request owner is reusable only after every event from its previous
+    // transaction is complete. This also validates fresh event handles
+    // without recording or otherwise mutating them.
+    if (status != cudaSuccess) {
+      return status;
+    }
+  }
+  return cudaSuccess;
+}
+
+[[nodiscard]] cudaError_t validate_idle_p40_session_bridge(
+    const Sm87BulkV2GdnP40SessionPlan& plan) noexcept {
+  unsigned int flags = 0U;
+  cudaError_t status = cudaStreamGetFlags(
+      reinterpret_cast<cudaStream_t>(plan.main_stream), &flags);
+  if (status != cudaSuccess) {
+    return status;
+  }
+  if ((flags & cudaStreamNonBlocking) == 0U) {
+    return cudaErrorInvalidResourceHandle;
+  }
+  // The bridge event is a session-owned reusable identity. It must be idle at
+  // admission; after that, stream/event ordering is sufficient and the hot
+  // epoch path never queries it again.
+  status = cudaEventQuery(
+      reinterpret_cast<cudaEvent_t>(plan.ingress_ready_event));
+  return status;
+}
+
+[[nodiscard]] cudaError_t drain_p40_streams(
+    const Sm87BulkV2GdnP40Arguments& arguments) noexcept {
+  cudaError_t first_error = cudaSuccess;
+  for (void* const identity : arguments.streams) {
+    const cudaError_t status =
+        cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(identity));
+    if (first_error == cudaSuccess && status != cudaSuccess) {
+      first_error = status;
+    }
+  }
+  return first_error;
+}
+
+void begin_p40_submission(
+    Sm87BulkV2GdnP40SubmissionReceipt* const receipt) noexcept {
+  ++receipt->generation;
+  receipt->lifecycle = Sm87BulkV2GdnP40OwnerLifecycle::kSubmitted;
+  receipt->successful_submission_calls = 0U;
+  receipt->first_error = static_cast<std::int32_t>(cudaSuccess);
+  receipt->submission_started = false;
+  receipt->drain_attempted = false;
+  receipt->drain_completed = false;
+  receipt->reusable = false;
+}
+
+[[nodiscard]] cudaError_t record_successful_submission(
+    const Sm87BulkV2GdnP40Arguments& arguments) noexcept {
+  auto* const receipt = arguments.submission_receipt;
+  receipt->submission_started = true;
+  ++receipt->successful_submission_calls;
+  if (arguments.test_only_fail_after_successful_submissions !=
+          std::numeric_limits<std::size_t>::max() &&
+      receipt->successful_submission_calls >=
+          arguments.test_only_fail_after_successful_submissions) {
+    return cudaErrorUnknown;
+  }
+  return cudaSuccess;
+}
+
+[[nodiscard]] int poison_after_p40_submission_failure(
+    const Sm87BulkV2GdnP40Arguments& arguments,
+    const cudaError_t submission_error) noexcept {
+  auto* const receipt = arguments.submission_receipt;
+  if (!receipt->submission_started) {
+    receipt->first_error = static_cast<std::int32_t>(submission_error);
+    receipt->lifecycle = Sm87BulkV2GdnP40OwnerLifecycle::kReady;
+    receipt->reusable = true;
+    return static_cast<int>(submission_error);
+  }
+  receipt->first_error = static_cast<std::int32_t>(submission_error);
+  receipt->drain_attempted = true;
+  const cudaError_t drain_status = drain_p40_streams(arguments);
+  receipt->drain_completed = drain_status == cudaSuccess;
+  receipt->lifecycle = Sm87BulkV2GdnP40OwnerLifecycle::kPoisoned;
+  receipt->reusable = false;
+  return static_cast<int>(submission_error != cudaSuccess ? submission_error
+                                                          : drain_status);
+}
+
+[[nodiscard]] cudaError_t enqueue_prepare_exact_c64(
+    const Sm87BulkV2GdnC64Arguments& arguments,
+    const std::uint32_t* const cancellation_signal = nullptr) noexcept {
+  const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  const dim3 producer_grid(
+      static_cast<unsigned int>(kSm87BulkV2GdnC64Tokens /
+                                kSm87BulkV2GdnProducerRowsPerCta),
+      static_cast<unsigned int>(kSm87BulkV2GdnProducerRoles));
+  prepare_exact_c64_kernel<<<producer_grid, kSm87BulkV2GdnProducerThreads, 0U,
+                             stream>>>(
+      arguments.raw_qkvz, arguments.interleaved_ab, arguments.conv_weight,
+      arguments.initial_conv_history, arguments.a_log, arguments.dt_bias,
+      arguments.l2_epsilon_fp32_bits, arguments.normalized_q,
+      arguments.normalized_k, arguments.prepared_v, arguments.alpha,
+      arguments.beta, arguments.final_conv_history, cancellation_signal);
+  return cudaPeekAtLastError();
+}
+
+[[nodiscard]] cudaError_t enqueue_cancellation_snapshot(
+    const std::uint32_t* const mapped_device_alias,
+    std::uint32_t* const device_snapshot, const cudaStream_t stream) noexcept {
+  sample_mapped_cancellation_word_kernel<<<1U, 1U, 0U, stream>>>(
+      mapped_device_alias, device_snapshot);
+  return cudaPeekAtLastError();
+}
+
+[[nodiscard]] cudaError_t enqueue_recurrence_exact_c64(
+    const Sm87BulkV2GdnC64Arguments& arguments,
+    std::uint16_t* const state_trace,
+    const std::uint32_t* const cancellation_signal = nullptr) noexcept {
+  const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  if (state_trace == nullptr) {
+    recur_exact_c64_kernel<false>
+        <<<kSm87BulkV2GdnRecurrenceCtas, kSm87BulkV2GdnRecurrenceThreads, 0U,
+           stream>>>(
+            arguments.normalized_q, arguments.normalized_k,
+            arguments.prepared_v, arguments.alpha, arguments.beta,
+            arguments.initial_recurrent_state, arguments.raw_output,
+            arguments.final_recurrent_state, nullptr, cancellation_signal);
+  } else {
+    recur_exact_c64_kernel<true>
+        <<<kSm87BulkV2GdnRecurrenceCtas, kSm87BulkV2GdnRecurrenceThreads, 0U,
+           stream>>>(
+            arguments.normalized_q, arguments.normalized_k,
+            arguments.prepared_v, arguments.alpha, arguments.beta,
+            arguments.initial_recurrent_state, arguments.raw_output,
+            arguments.final_recurrent_state, state_trace,
+            cancellation_signal);
+  }
+  return cudaPeekAtLastError();
+}
+
+[[nodiscard]] cudaError_t enqueue_epilogue_exact_c64(
+    const Sm87BulkV2GdnC64Arguments& arguments,
+    const std::uint32_t* const cancellation_signal = nullptr) noexcept {
+  const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  rms_norm_silu_rows8_exact_kernel
+      <<<kSm87BulkV2GdnEpilogueCtas, kSm87BulkV2GdnEpilogueThreads, 0U,
+         stream>>>(arguments.raw_output, arguments.raw_qkvz,
+                   arguments.norm_weight, arguments.norm_epsilon_fp32_bits,
+                   arguments.output, cancellation_signal);
+  return cudaPeekAtLastError();
 }
 
 [[nodiscard]] int launch_impl(
@@ -786,52 +1081,156 @@ template <class Kernel>
     }
   }
 
-  const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
   (void)cudaGetLastError();
-  const dim3 producer_grid(
-      static_cast<unsigned int>(kSm87BulkV2GdnC64Tokens /
-                                kSm87BulkV2GdnProducerRowsPerCta),
-      static_cast<unsigned int>(kSm87BulkV2GdnProducerRoles));
-  prepare_exact_c64_kernel<<<producer_grid, kSm87BulkV2GdnProducerThreads, 0U,
-                             stream>>>(
-      arguments.raw_qkvz, arguments.interleaved_ab, arguments.conv_weight,
-      arguments.initial_conv_history, arguments.a_log, arguments.dt_bias,
-      arguments.l2_epsilon_fp32_bits, arguments.normalized_q,
-      arguments.normalized_k, arguments.prepared_v, arguments.alpha,
-      arguments.beta, arguments.final_conv_history);
-  status = cudaPeekAtLastError();
+  status = enqueue_prepare_exact_c64(arguments);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
-
-  if (state_trace == nullptr) {
-    recur_exact_c64_kernel<false>
-        <<<kSm87BulkV2GdnRecurrenceCtas, kSm87BulkV2GdnRecurrenceThreads, 0U,
-           stream>>>(
-            arguments.normalized_q, arguments.normalized_k,
-            arguments.prepared_v, arguments.alpha, arguments.beta,
-            arguments.initial_recurrent_state, arguments.raw_output,
-            arguments.final_recurrent_state, nullptr);
-  } else {
-    recur_exact_c64_kernel<true>
-        <<<kSm87BulkV2GdnRecurrenceCtas, kSm87BulkV2GdnRecurrenceThreads, 0U,
-           stream>>>(
-            arguments.normalized_q, arguments.normalized_k,
-            arguments.prepared_v, arguments.alpha, arguments.beta,
-            arguments.initial_recurrent_state, arguments.raw_output,
-            arguments.final_recurrent_state, state_trace);
-  }
-  status = cudaPeekAtLastError();
+  status = enqueue_recurrence_exact_c64(arguments, state_trace);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
+  return static_cast<int>(enqueue_epilogue_exact_c64(arguments));
+}
 
-  rms_norm_silu_rows8_exact_kernel
-      <<<kSm87BulkV2GdnEpilogueCtas, kSm87BulkV2GdnEpilogueThreads, 0U,
-         stream>>>(arguments.raw_output, arguments.raw_qkvz,
-                   arguments.norm_weight, arguments.norm_epsilon_fp32_bits,
-                   arguments.output);
-  return static_cast<int>(cudaPeekAtLastError());
+[[nodiscard]] bool prevalidate_p40_derived_views(
+    const Sm87BulkV2GdnP40Arguments& arguments) noexcept {
+  constexpr auto plan = sm87_bulk_v2_gdn_p40_plan();
+  const auto producer_stream = reinterpret_cast<cudaStream_t>(
+      arguments.streams[static_cast<std::size_t>(
+          Sm87BulkV2GdnStream::kProducer) - 1U]);
+  for (std::size_t index = 0U; index < plan.chunk_count; ++index) {
+    const auto chunk = sm87_bulk_v2_gdn_p40_chunk(plan, index);
+    const auto cell = sm87_bulk_v2_gdn_p40_chunk_arguments(
+        arguments, chunk, reinterpret_cast<void*>(producer_stream));
+    if (!sm87_bulk_v2_gdn_c64_arguments_valid(cell)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] int enqueue_prevalidated_p40_epoch(
+    const Sm87BulkV2GdnP40Arguments& arguments,
+    const bool waits_for_prior_epoch_slots,
+    const bool begins_submission) noexcept {
+  constexpr auto plan = sm87_bulk_v2_gdn_p40_plan();
+  const auto producer_stream = reinterpret_cast<cudaStream_t>(
+      arguments.streams[static_cast<std::size_t>(
+          Sm87BulkV2GdnStream::kProducer) - 1U]);
+  const auto recurrence_stream = reinterpret_cast<cudaStream_t>(
+      arguments.streams[static_cast<std::size_t>(
+          Sm87BulkV2GdnStream::kRecurrence) - 1U]);
+  const auto epilogue_stream = reinterpret_cast<cudaStream_t>(
+      arguments.streams[static_cast<std::size_t>(
+          Sm87BulkV2GdnStream::kEpilogue) - 1U]);
+
+  if (begins_submission) {
+    begin_p40_submission(arguments.submission_receipt);
+  }
+  const auto submit = [&](const cudaError_t operation_status) noexcept {
+    if (operation_status != cudaSuccess) {
+      return operation_status;
+    }
+    return record_successful_submission(arguments);
+  };
+
+  cudaError_t status = cudaSuccess;
+  for (std::size_t index = 0U; index < plan.chunk_count; ++index) {
+    const auto chunk = sm87_bulk_v2_gdn_p40_chunk(plan, index);
+    const std::size_t slot = chunk.prepared_slot;
+    const auto prepared_ready = reinterpret_cast<cudaEvent_t>(
+        arguments.prepared_ready_events[slot]);
+    const auto recurrence_done = reinterpret_cast<cudaEvent_t>(
+        arguments.recurrence_done_events[slot]);
+    const auto epilogue_done = reinterpret_cast<cudaEvent_t>(
+        arguments.epilogue_done_events[slot]);
+    const bool reuses_prior_slot = waits_for_prior_epoch_slots ||
+                                   chunk.producer_waits_for_recurrence_slot;
+
+    if (reuses_prior_slot) {
+      status = submit(cudaStreamWaitEvent(producer_stream, recurrence_done,
+                                          0U));
+      if (status != cudaSuccess) {
+        return poison_after_p40_submission_failure(arguments, status);
+      }
+      status = submit(
+          cudaStreamWaitEvent(producer_stream, epilogue_done, 0U));
+      if (status != cudaSuccess) {
+        return poison_after_p40_submission_failure(arguments, status);
+      }
+    }
+    if (arguments.test_only_cancel_before_chunk == index) {
+      status = submit(cudaLaunchHostFunc(
+          producer_stream, set_mapped_cancellation_word_host_callback,
+          arguments.cancellation_host_word));
+      if (status != cudaSuccess) {
+        return poison_after_p40_submission_failure(arguments, status);
+      }
+    }
+    // One producer-stream sampler publishes the C64 cancellation decision.
+    // prepared_ready and recurrence_done carry that snapshot to the remaining
+    // two stages. Reuse waits epilogue_done, its final reader.
+    status = submit(enqueue_cancellation_snapshot(
+        arguments.cancellation_device_alias,
+        arguments.cancellation_snapshot[slot], producer_stream));
+    if (status != cudaSuccess) {
+      return poison_after_p40_submission_failure(arguments, status);
+    }
+    auto cell = sm87_bulk_v2_gdn_p40_chunk_arguments(
+        arguments, chunk, reinterpret_cast<void*>(producer_stream));
+    status = submit(enqueue_prepare_exact_c64(
+        cell, arguments.cancellation_snapshot[slot]));
+    if (status != cudaSuccess) {
+      return poison_after_p40_submission_failure(arguments, status);
+    }
+    status = submit(cudaEventRecord(prepared_ready, producer_stream));
+    if (status != cudaSuccess) {
+      return poison_after_p40_submission_failure(arguments, status);
+    }
+
+    status = submit(
+        cudaStreamWaitEvent(recurrence_stream, prepared_ready, 0U));
+    if (status != cudaSuccess) {
+      return poison_after_p40_submission_failure(arguments, status);
+    }
+    if (chunk.recurrence_waits_for_epilogue_slot) {
+      status = submit(
+          cudaStreamWaitEvent(recurrence_stream, epilogue_done, 0U));
+      if (status != cudaSuccess) {
+        return poison_after_p40_submission_failure(arguments, status);
+      }
+    }
+    cell = sm87_bulk_v2_gdn_p40_chunk_arguments(
+        arguments, chunk, reinterpret_cast<void*>(recurrence_stream));
+    status = submit(enqueue_recurrence_exact_c64(
+        cell, nullptr, arguments.cancellation_snapshot[slot]));
+    if (status != cudaSuccess) {
+      return poison_after_p40_submission_failure(arguments, status);
+    }
+    status = submit(cudaEventRecord(recurrence_done, recurrence_stream));
+    if (status != cudaSuccess) {
+      return poison_after_p40_submission_failure(arguments, status);
+    }
+
+    status = submit(
+        cudaStreamWaitEvent(epilogue_stream, recurrence_done, 0U));
+    if (status != cudaSuccess) {
+      return poison_after_p40_submission_failure(arguments, status);
+    }
+    cell = sm87_bulk_v2_gdn_p40_chunk_arguments(
+        arguments, chunk, reinterpret_cast<void*>(epilogue_stream));
+    status = submit(enqueue_epilogue_exact_c64(
+        cell, arguments.cancellation_snapshot[slot]));
+    if (status != cudaSuccess) {
+      return poison_after_p40_submission_failure(arguments, status);
+    }
+    status = submit(cudaEventRecord(epilogue_done, epilogue_stream));
+    if (status != cudaSuccess) {
+      return poison_after_p40_submission_failure(arguments, status);
+    }
+  }
+  return static_cast<int>(cudaSuccess);
 }
 
 }  // namespace
@@ -908,6 +1307,346 @@ int launch_sm87_bulk_dataflow_v2_gdn_c64_state_trace_cuda(
     return static_cast<int>(cudaErrorInvalidValue);
   }
   return launch_impl(arguments, state_after_token);
+}
+
+int launch_sm87_bulk_dataflow_v2_gdn_p40_cuda(
+    const Sm87BulkV2GdnP40Arguments& arguments) noexcept {
+  if (!sm87_bulk_v2_gdn_p40_arguments_valid(arguments)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  int device = -1;
+  cudaError_t status = validate_fixed_device(&device);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  if (!all_p40_device_pointers(arguments, device)) {
+    return static_cast<int>(cudaErrorInvalidDevicePointer);
+  }
+  if (!exact_mapped_cancellation_owner(arguments)) {
+    return static_cast<int>(cudaErrorInvalidDevicePointer);
+  }
+  auto* const receipt = arguments.submission_receipt;
+  if (!sm87_bulk_v2_gdn_p40_submission_receipt_valid(*receipt) ||
+      receipt->lifecycle != Sm87BulkV2GdnP40OwnerLifecycle::kReady ||
+      !receipt->reusable) {
+    return static_cast<int>(cudaErrorInvalidResourceHandle);
+  }
+  status = validate_idle_p40_execution_owner(arguments);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  Sm87BulkV2GdnC64Resources resources{};
+  const int query_status =
+      query_sm87_bulk_dataflow_v2_gdn_c64_resources_cuda(&resources);
+  if (query_status != static_cast<int>(cudaSuccess)) {
+    return query_status;
+  }
+  if (!sm87_bulk_v2_gdn_c64_resources_valid(resources)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+
+  // Validate every derived C64 view before enqueueing the first operation.
+  // This makes malformed aggregate bindings fail closed without leaving a
+  // partially submitted request on any of the owner streams.
+  if (!prevalidate_p40_derived_views(arguments)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  (void)cudaGetLastError();
+  return enqueue_prevalidated_p40_epoch(arguments, false, true);
+}
+
+int drain_sm87_bulk_dataflow_v2_gdn_p40_cuda(
+    const Sm87BulkV2GdnP40Arguments& arguments) noexcept {
+  if (!sm87_bulk_v2_gdn_p40_arguments_valid(arguments) ||
+      !sm87_bulk_v2_gdn_p40_submission_receipt_valid(
+          *arguments.submission_receipt)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  auto* const receipt = arguments.submission_receipt;
+  if (receipt->lifecycle == Sm87BulkV2GdnP40OwnerLifecycle::kPoisoned) {
+    return receipt->first_error == static_cast<std::int32_t>(cudaSuccess)
+               ? static_cast<int>(cudaErrorInvalidResourceHandle)
+               : receipt->first_error;
+  }
+  if (receipt->lifecycle == Sm87BulkV2GdnP40OwnerLifecycle::kReady) {
+    return static_cast<int>(cudaSuccess);
+  }
+  receipt->drain_attempted = true;
+  const cudaError_t status = drain_p40_streams(arguments);
+  receipt->drain_completed = status == cudaSuccess;
+  if (status == cudaSuccess) {
+    receipt->lifecycle = Sm87BulkV2GdnP40OwnerLifecycle::kReady;
+    receipt->reusable = true;
+    return static_cast<int>(cudaSuccess);
+  }
+  receipt->first_error = static_cast<std::int32_t>(status);
+  receipt->lifecycle = Sm87BulkV2GdnP40OwnerLifecycle::kPoisoned;
+  receipt->reusable = false;
+  return static_cast<int>(status);
+}
+
+int initialize_sm87_bulk_dataflow_v2_gdn_p40_session_cuda(
+    Sm87BulkV2GdnP40Session* const session,
+    const Sm87BulkV2GdnP40SessionPlan& plan) noexcept {
+  if (session == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if (session->lifecycle != Sm87BulkV2GdnP40SessionLifecycle::kEmpty ||
+      !sm87_bulk_v2_gdn_p40_session_state_valid(*session)) {
+    return static_cast<int>(cudaErrorInvalidResourceHandle);
+  }
+  if (!sm87_bulk_v2_gdn_p40_session_plan_valid(plan)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const auto& owner = plan.layers[0U];
+  auto* const receipt = owner.submission_receipt;
+  if (!sm87_bulk_v2_gdn_p40_submission_receipt_valid(*receipt) ||
+      receipt->lifecycle != Sm87BulkV2GdnP40OwnerLifecycle::kReady ||
+      !receipt->reusable) {
+    return static_cast<int>(cudaErrorInvalidResourceHandle);
+  }
+
+  int device = -1;
+  cudaError_t status = validate_fixed_device(&device);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  // Every layer-dependent allocation is admitted exactly once here. Static
+  // double-slot storage is intentionally shared by all 48 sealed bindings;
+  // the hot epoch path trusts this immutable admission record.
+  for (const auto& layer : plan.layers) {
+    if (!all_p40_device_pointers(layer, device)) {
+      return static_cast<int>(cudaErrorInvalidDevicePointer);
+    }
+    if (!prevalidate_p40_derived_views(layer)) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+  }
+  if (!exact_mapped_cancellation_owner(owner)) {
+    return static_cast<int>(cudaErrorInvalidDevicePointer);
+  }
+  status = validate_idle_p40_execution_owner(owner);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  status = validate_idle_p40_session_bridge(plan);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  Sm87BulkV2GdnC64Resources resources{};
+  const int query_status =
+      query_sm87_bulk_dataflow_v2_gdn_c64_resources_cuda(&resources);
+  if (query_status != static_cast<int>(cudaSuccess)) {
+    return query_status;
+  }
+  if (!sm87_bulk_v2_gdn_c64_resources_valid(resources)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+
+  // Clear admission-only runtime status before the first hot launch. No hot
+  // epoch call performs cudaGetLastError, pointer queries, event queries, or
+  // resource/occupancy discovery.
+  (void)cudaGetLastError();
+  Sm87BulkV2GdnP40Session admitted{};
+  admitted.sealed_plan = plan;
+  admitted.sealed_resources = resources;
+  admitted.sealed_device = device;
+  admitted.lifecycle = Sm87BulkV2GdnP40SessionLifecycle::kReady;
+  *session = admitted;
+  return static_cast<int>(cudaSuccess);
+}
+
+int enqueue_sm87_bulk_dataflow_v2_gdn_p40_session_epoch_cuda(
+    Sm87BulkV2GdnP40Session* const session,
+    const std::size_t epoch) noexcept {
+  if (session == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if (epoch >= kSm87BulkV2GdnP40SessionLayerCount ||
+      epoch != session->next_epoch) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if ((session->lifecycle != Sm87BulkV2GdnP40SessionLifecycle::kReady &&
+       session->lifecycle != Sm87BulkV2GdnP40SessionLifecycle::kActive) ||
+      session->bridge_pending ||
+      session->next_epoch != session->bridged_epochs) {
+    return static_cast<int>(cudaErrorInvalidResourceHandle);
+  }
+
+  const auto& arguments = session->sealed_plan.layers[epoch];
+  auto* const receipt = arguments.submission_receipt;
+  if (!sm87_bulk_v2_gdn_p40_submission_receipt_valid(*receipt) ||
+      (epoch == 0U
+           ? (session->lifecycle !=
+                  Sm87BulkV2GdnP40SessionLifecycle::kReady ||
+              receipt->lifecycle != Sm87BulkV2GdnP40OwnerLifecycle::kReady ||
+              !receipt->reusable)
+           : (session->lifecycle !=
+                  Sm87BulkV2GdnP40SessionLifecycle::kActive ||
+              receipt->lifecycle !=
+                  Sm87BulkV2GdnP40OwnerLifecycle::kSubmitted ||
+              receipt->reusable))) {
+    return static_cast<int>(cudaErrorInvalidResourceHandle);
+  }
+
+  if (epoch == 0U) {
+    begin_p40_submission(receipt);
+  }
+  const auto fail = [&](const cudaError_t error) noexcept {
+    const int result = poison_after_p40_submission_failure(arguments, error);
+    session->bridge_pending = false;
+    session->lifecycle =
+        receipt->lifecycle == Sm87BulkV2GdnP40OwnerLifecycle::kPoisoned
+            ? Sm87BulkV2GdnP40SessionLifecycle::kPoisoned
+            : Sm87BulkV2GdnP40SessionLifecycle::kReady;
+    return result;
+  };
+  const auto submit = [&](const cudaError_t operation_status) noexcept {
+    if (operation_status != cudaSuccess) {
+      return operation_status;
+    }
+    return record_successful_submission(arguments);
+  };
+
+  const auto main_stream = reinterpret_cast<cudaStream_t>(
+      session->sealed_plan.main_stream);
+  const auto ingress_ready = reinterpret_cast<cudaEvent_t>(
+      session->sealed_plan.ingress_ready_event);
+  const auto producer_stream = reinterpret_cast<cudaStream_t>(
+      arguments.streams[static_cast<std::size_t>(
+          Sm87BulkV2GdnStream::kProducer) - 1U]);
+
+  cudaError_t status = submit(cudaEventRecord(ingress_ready, main_stream));
+  if (status != cudaSuccess) {
+    return fail(status);
+  }
+  status = submit(cudaStreamWaitEvent(producer_stream, ingress_ready, 0U));
+  if (status != cudaSuccess) {
+    return fail(status);
+  }
+
+  const int enqueue_status = enqueue_prevalidated_p40_epoch(
+      arguments, epoch != 0U, false);
+  if (enqueue_status != static_cast<int>(cudaSuccess)) {
+    session->bridge_pending = false;
+    session->lifecycle =
+        receipt->lifecycle == Sm87BulkV2GdnP40OwnerLifecycle::kPoisoned
+            ? Sm87BulkV2GdnP40SessionLifecycle::kPoisoned
+            : Sm87BulkV2GdnP40SessionLifecycle::kReady;
+    return enqueue_status;
+  }
+
+  ++session->next_epoch;
+  session->bridge_pending = true;
+  session->lifecycle =
+      session->next_epoch == kSm87BulkV2GdnP40SessionLayerCount
+          ? Sm87BulkV2GdnP40SessionLifecycle::kAwaitingDrain
+          : Sm87BulkV2GdnP40SessionLifecycle::kActive;
+  return static_cast<int>(cudaSuccess);
+}
+
+int bridge_sm87_bulk_dataflow_v2_gdn_p40_session_epoch_to_main_cuda(
+    Sm87BulkV2GdnP40Session* const session) noexcept {
+  if (session == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if ((session->lifecycle != Sm87BulkV2GdnP40SessionLifecycle::kActive &&
+       session->lifecycle !=
+           Sm87BulkV2GdnP40SessionLifecycle::kAwaitingDrain) ||
+      !session->bridge_pending || session->next_epoch == 0U ||
+      session->next_epoch != session->bridged_epochs + 1U) {
+    return static_cast<int>(cudaErrorInvalidResourceHandle);
+  }
+
+  const auto& arguments =
+      session->sealed_plan.layers[session->next_epoch - 1U];
+  auto* const receipt = arguments.submission_receipt;
+  if (!sm87_bulk_v2_gdn_p40_submission_receipt_valid(*receipt) ||
+      receipt->lifecycle != Sm87BulkV2GdnP40OwnerLifecycle::kSubmitted ||
+      receipt->reusable) {
+    return static_cast<int>(cudaErrorInvalidResourceHandle);
+  }
+
+  constexpr std::size_t kFinalEpilogueSlot =
+      (kSm87BulkV2GdnP40Chunks - 1U) % kSm87BulkV2GdnP40SlotCount;
+  static_assert(kFinalEpilogueSlot == 0U);
+  const auto final_epilogue = reinterpret_cast<cudaEvent_t>(
+      arguments.epilogue_done_events[kFinalEpilogueSlot]);
+  const auto main_stream = reinterpret_cast<cudaStream_t>(
+      session->sealed_plan.main_stream);
+  cudaError_t status = cudaStreamWaitEvent(main_stream, final_epilogue, 0U);
+  if (status == cudaSuccess) {
+    status = record_successful_submission(arguments);
+  }
+  if (status != cudaSuccess) {
+    const int result =
+        poison_after_p40_submission_failure(arguments, status);
+    session->bridge_pending = false;
+    session->lifecycle = Sm87BulkV2GdnP40SessionLifecycle::kPoisoned;
+    return result;
+  }
+
+  ++session->bridged_epochs;
+  session->bridge_pending = false;
+  return static_cast<int>(cudaSuccess);
+}
+
+int drain_sm87_bulk_dataflow_v2_gdn_p40_session_cuda(
+    Sm87BulkV2GdnP40Session* const session) noexcept {
+  if (session == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if (session->lifecycle == Sm87BulkV2GdnP40SessionLifecycle::kEmpty ||
+      session->lifecycle == Sm87BulkV2GdnP40SessionLifecycle::kDrained) {
+    return static_cast<int>(cudaErrorInvalidResourceHandle);
+  }
+  if (!sm87_bulk_v2_gdn_p40_session_state_valid(*session)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const auto& owner = session->sealed_plan.layers[0U];
+  auto* const receipt = owner.submission_receipt;
+  if (session->lifecycle == Sm87BulkV2GdnP40SessionLifecycle::kPoisoned) {
+    return receipt->first_error == static_cast<std::int32_t>(cudaSuccess)
+               ? static_cast<int>(cudaErrorInvalidResourceHandle)
+               : receipt->first_error;
+  }
+  if (session->lifecycle == Sm87BulkV2GdnP40SessionLifecycle::kReady) {
+    if (!sm87_bulk_v2_gdn_p40_submission_receipt_valid(*receipt) ||
+        receipt->lifecycle != Sm87BulkV2GdnP40OwnerLifecycle::kReady ||
+        !receipt->reusable) {
+      return static_cast<int>(cudaErrorInvalidResourceHandle);
+    }
+    session->lifecycle = Sm87BulkV2GdnP40SessionLifecycle::kDrained;
+    return static_cast<int>(cudaSuccess);
+  }
+  if (!sm87_bulk_v2_gdn_p40_submission_receipt_valid(*receipt) ||
+      receipt->lifecycle != Sm87BulkV2GdnP40OwnerLifecycle::kSubmitted ||
+      receipt->reusable) {
+    return static_cast<int>(cudaErrorInvalidResourceHandle);
+  }
+
+  receipt->drain_attempted = true;
+  const cudaError_t status = drain_p40_streams(owner);
+  receipt->drain_completed = status == cudaSuccess;
+  session->bridge_pending = false;
+  if (status == cudaSuccess) {
+    receipt->lifecycle = Sm87BulkV2GdnP40OwnerLifecycle::kReady;
+    receipt->reusable = true;
+    session->lifecycle = Sm87BulkV2GdnP40SessionLifecycle::kDrained;
+    return static_cast<int>(cudaSuccess);
+  }
+
+  receipt->first_error = static_cast<std::int32_t>(status);
+  receipt->lifecycle = Sm87BulkV2GdnP40OwnerLifecycle::kPoisoned;
+  receipt->reusable = false;
+  session->lifecycle = Sm87BulkV2GdnP40SessionLifecycle::kPoisoned;
+  return static_cast<int>(status);
 }
 
 }  // namespace q3x::kernels

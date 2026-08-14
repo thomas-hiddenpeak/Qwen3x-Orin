@@ -320,13 +320,18 @@ independent ownership/reference implementation with nonzero incoming state
 and history. The exact source, binary, surfaces, resources, and authority
 boundary are frozen in the
 [`GDN C64 oracle record`](metadata/qwen36-27b-sm87-bulk-v2-gdn-c64-oracle-2026-08-14.json).
-This is synthetic correctness authority for the single C64 cell only. A
-host-only P40 dependency plan now closes 625 continuation chunks, two bounded
-prepared/raw/history slots, three logical streams, six reusable events, and
-6,987,776 bytes of private state, but no multi-stream launcher exists yet.
-The cell remains test-only and single-stream, and has no real-activation, API,
-performance, cancellation, executable double-buffer, whole-layer,
-qualification, or production authority until the complete v2 composition
+This is synthetic correctness authority for the single C64 cell only. The
+default-off P40 continuation is now executable as a 625-chunk double-slot,
+three-stream layer session with six reusable slot events. A request session
+seals all 48 layer bindings and static CUDA facts once, enqueues successive
+layers through a device-event bridge, and drains only at request termination,
+cancellation, or failure; a partial submission permanently poisons the owner.
+Its complete 17-range private layout is frozen at 6,988,032 aligned bytes,
+including 16-byte-aligned cancellation snapshots at offsets 6,987,776 and
+6,987,792. A clean-host P40 scheduling oracle has passed the exact continuation
+and cancellation cases, but this remains synthetic scheduling/correctness
+authority. It has no real-activation, API, performance, whole-composition,
+qualification, or production authority until the complete v2 request path
 closes.
 
 The full-Attention v2 topology is also frozen for its first executable slice.
@@ -346,11 +351,107 @@ zero stack/local bytes, 128 KiB dynamic shared memory, and one-CTA/SM capacity;
 the control contract tests pass. The exact mapping, build, resources, traffic
 hypothesis, and authority limits are frozen in the
 [`Attention cohort record`](metadata/qwen36-27b-sm87-bulk-v2-attention-l2-cohort-2026-08-14.json).
-The shared device body narrows arithmetic drift, but no candidate-versus-
-control bitwise CUDA oracle exists yet, so numerical qualification remains
-false. Expected DRAM reuse is a falsifiable architecture hypothesis, not a
-measured speedup; a positive real-API composition must precede any NCU
-attribution.
+The candidate and control now also pass a same-binary exact CUDA oracle over
+all 7,500 output tiles / 245,760,000 BF16 elements, with all 52 repeated bodies
+suppressed and guard/input immutability checked. This is synthetic arithmetic
+authority only; the resource receipt deliberately retains
+`numerical_contract_qualified=false` and `production_dispatch_eligible=false`
+until the whole request is qualified. Expected DRAM reuse remains a
+falsifiable architecture hypothesis, not a measured speedup; a positive
+real-API composition must precede any NCU attribution.
+
+The first v2 FP8 family is likewise implemented and exact-oracle qualified as
+a default-off numerical control. It freezes 128 authenticated role bindings,
+40 segments per role, 5,120 M64N256K64 four-stage physical launches, and
+complete allocation-range validation at engine seal. The request hot seam
+performs no device, pointer, function-resource, occupancy, allocation-range,
+or stream query. Its clean-host exact CUDA oracle passes all GDN QKVZ, full
+QKV, and O shapes; static compilation reports 137/138/136 registers, zero
+local bytes, 98,304 bytes dynamic shared memory, and one CTA/SM. The forty
+segment boundary is no longer the selected performance topology: this code is
+retained for exact constituent control while the successor moves each FP8
+role to one whole-P40000 persistent launch.
+
+The first joint NVFP4 v2 constituent is now closed as a default-off exact
+control stepping stone, not a performance candidate. Its genuine one-launch
+M1024 body and M64 tail pass the same-ELF v1 comparison, independent expected
+values, control counts, cancellation, guards, and input-immutability oracle.
+The final static record is 127 registers with zero stack/spill for M64 and 128
+registers with 8 bytes of stack, 8 bytes of spill stores, and 16 bytes of spill
+loads for M1024. One M1024 launch still executes four serial M256 scheduler
+epochs and rereads the packed payload at each epoch; launch coalescing did not
+create cross-epoch weight residency.
+
+The closing traffic audit makes that topology ineligible before any real API
+timing. Gate+Up issues 222.8224 GB/layer of A requests and 62.6688 GB/layer of
+weight/scale requests; even an ideal four-row Gate+Up reuse leaves
+15.74240256 GB/layer of weight traffic. Down issues 27.8528 GB/layer of H
+requests and 31.3344 GB/layer of weight/scale requests; its row-outer complete
+50.13504-MB sweep cannot survive in the 4-MiB L2 across rows, so the Down
+weight lower bound remains 31.3344 GB/layer. Across 64 layers the resulting
+3.012915-TB NVFP4 weight floor alone is 14.7115 seconds at 204.8 GB/s. Even
+granting impossible four-row reuse to every NVFP4 role and the most optimistic
+current FP8 reuse still gives 1.799839 TB, or 8.7883 seconds, before A/H,
+outputs, Attention, or GDN. Zero-spill work on this skeleton is therefore
+stopped. The selected successor is separate whole-P40000 persistent Gate+Up,
+K-heavy Down, and FP8 role kernels with shape-specific L2 cohorts; the exact
+control remains only an arithmetic and scheduler witness. The hash-bound
+oracle, final resources, byte formulas, authority limits, and topology decision
+are frozen in the
+[`NVFP4 exact-control closure`](metadata/qwen36-27b-sm87-bulk-v2-nvfp4-exact-control-closure-2026-08-14.json).
+
+The three role-specific whole-P40000 projection successors are now present as
+default-off CUDA admissions, but they are not connected to a real generation
+or API route. Gate+Up uses one 32-CTA cooperative launch with an
+M64/N64/K64, 4M-by-8N schedule; it shares each BF16 A stage while preserving
+independent Gate and Up packed operands, scales, FP32 accumulations, BF16-RNE
+publications, and the SiLU-times-Up boundary. K-heavy Down uses a separate
+M64/N256/K64, 8M-by-4N schedule and preserves the Down-scale, BF16-RNE,
+residual-add, BF16-RNE publication order. FP8 uses an independent
+M64/N128/K64, 4M-by-8N schedule and freezes 48 GDN-QKVZ, 16 full-QKV, and 64
+Attention-output outer roles, one whole-role launch each. All three use 32
+persistent CTAs, three `cp.async.cg` stages, two register-feed stages, full-K
+FP32 accumulation, and no split-K/global partial C.
+
+The current T0 resource observations are Gate+Up at 107 registers/thread and
+38,400 bytes dynamic shared memory, Down at 111 registers/thread and 52,224
+bytes, and FP8 GDN-QKVZ/full-QKV/Attention-output at 90/93/89 registers and
+49,152 bytes. All recorded variants have zero stack, spill, and local bytes
+and a static two-CTA/SM capacity on the 16-SM target. Down additionally needs
+startup configuration of the 52,224-byte dynamic-shared attribute on the
+exact kernel symbol. These are compiler/resource observations, not NCU or
+performance evidence. Same-kernel reduced-domain synthetic exact oracles pass
+for all three families and cover only their declared M64 correctness cells,
+cancellation, guards, and input/payload immutability; they are not a P40000
+execution, real-weight/activation qualification, or proof that the intended
+A/B service cohorts remain resident in L2.
+
+A whole-P40 v2 host contract now freezes the actual composition boundary:
+five streams, 12 reusable events, exact family-arena live phases, the separate
+1,280-byte device control plane, one mapped cancellation word, request-epoch
+progress, no request-time static CUDA queries, no whole 5.075-GB arena reset,
+and exactly one terminal host wait/drain. The data-plane cold reset is limited
+to 78,446,592 bytes of persistent GDN state/history; control state has a
+separate explicit reset. Attention preprocess/core, GDN state publication,
+embedding, final norm/LM-head/argmax/D2H, all 496 logical roles, 304 fused outer
+operations, and the complete 1.948-Pop projection ledger are part of the
+terminal receipt. Its ABI-major 3 terminal contract replaces the segmented
+projection counters with one versioned successor receipt: exactly 128 FP8
+whole-role launches, 128 NVFP4 whole-role launches, and 48 BF16 A/B launches
+cover the same 496 logical roles and 304 fused outer operations. A receipt
+containing any of the old 5,120 FP8 or 2,560 NVFP4 exact-control launches
+fails closed; the controls remain oracle-only.
+
+The independent default-off `RequestState` lifecycle now owns exactly one
+5,075,652,608-byte device data-plane allocation, borrows the v2 owner's five
+streams, keeps the 1,280-byte device control plane externally owned, and owns
+only a private eight-byte pinned `{token, nonfinite}` handoff. Request rearm
+clears 78,446,592 bytes of persistent GDN state/history rather than the whole
+arena, and the only D2H seam has a fixed internal source and private
+destination. Its host lifecycle tests attest allocation, ownership, reset,
+failure, cancellation, and no-hot-static-query contracts only. The composite
+owner/executor, final GDN state/history publication, real API route, complete
+P40000 numerical result, and performance selection remain open.
 
 ## 2. Current capability matrix
 
@@ -364,6 +465,7 @@ attribution.
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
 | Target-length Prefill | P40 development route exercised | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
 | SM87 whole-system AOT Prefill candidate | Default-off v1 is executable through the real P40 API but rejected as a performance composition after a zero-byte 840.000399-second failed smoke; diagnostic per-layer progress and bounded cancellation are now implemented, with no production or timing authority | Replace serial v1 ownership with the complete bulk-dataflow v2 successor, preserve bounded cancellation without diagnostic host serialization, then require a successful clean-host real-P40 API return before EvalScope or qualification |
+| SM87 bulk-dataflow v2 Prefill successor | Whole-P40000 Gate+Up, Down, and FP8 CUDA constituents, an ABI-3 projection receipt, and the exact request data owner exist only behind default-off test admissions; current evidence is T0 resources plus reduced-domain synthetic correctness/host contracts | Bind unforgeable startup capabilities in one composite executor, execute the complete exact model/state path, expose a distinct default-off API route, then let the clean-host real-P40 API direction gate decide value |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

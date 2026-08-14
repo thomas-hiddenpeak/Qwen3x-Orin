@@ -5,12 +5,13 @@
   "timezone": "Asia/Shanghai",
   "status": "single_c64_synthetic_bitwise_correctness_pass",
   "authority": {
-    "scope": "default-off single-layer, single-C64 GDN v2 execution cell",
+    "scope": "default-off single-C64 arithmetic cell plus P40000 double-slot/three-stream scheduling oracle",
     "synthetic_correctness_authority": true,
     "static_resource_authority": true,
     "real_activation_authority": false,
     "performance_authority": false,
-    "whole_layer_authority": false,
+    "whole_layer_scheduling_authority": true,
+    "whole_layer_real_activation_authority": false,
     "whole_prompt_authority": false,
     "api_authority": false,
     "accuracy_qualification_authority": false,
@@ -26,23 +27,24 @@
       },
       {
         "path": "include/q3x/kernels/sm87_bulk_dataflow_v2_gdn_p40_plan.h",
-        "sha256": "15732de5e03194381eeb0bcd5f549f3f2517f0c9d693948b5ced4a6cb9545dbe"
+        "sha256": "3fc5fa7666aea7babaef9a2572da5411d49d60ab74d63418d6f2e2656efda026"
       },
       {
         "path": "src/kernels/sm87/sm87_bulk_dataflow_v2_gdn_c64.cu",
-        "sha256": "c7bd8c6c5d7a041e8b724aae115ecd50b7662a7b5292c2ca208ce0b185b555c1"
+        "sha256": "f45daa0ea04e4649a9875aa4ae64aaa309e3de0681f07c3e4f53dff69868ae94"
       },
       {
         "path": "tests/sm87_bulk_dataflow_v2_gdn_c64_host_test.cpp",
-        "sha256": "548d989ddd1d7928219dbe201361e263efbe82e684a373686c4a272e1d7c070f"
+        "sha256": "fef5f6cd94d1ff4dbe5cce28c05f105467f7b5f3a7d0c203f3f01991efc424aa"
       },
       {
-        "path": "tests/sm87_bulk_dataflow_v2_gdn_c64_cuda_oracle_test.cu",
-        "sha256": "df9412a0e722df9609ec2812f66c37ddf1920b86ad837792f50cb235bb69a974"
+        "path": "tests/sm87_bulk_dataflow_v2_gdn_p40_cuda_oracle_test.cu",
+        "sha256": "54aa82b1a3a204497a81d71d47bf2be57e3fa467a4f298d7fb50d5f64d30e047"
       }
     ],
     "built_kernel_object_sha256": "e05e870f30d9f6b2ada9d158c5aab177eff7f9f1872a05d343c1d0468d3134bd",
-    "oracle_executable_sha256": "78f1c291f7b20439d3a86d675371efef37a5b4ed82729b790988d6366fef85e9"
+    "p40_host_executable_sha256": "e29ecf7851edb8cfefcc40a525f73863b45aca0fdb7e8553d209c9919ee5f867",
+    "p40_oracle_executable_sha256": "5db445a74f7580d697684da9b192e7c30e3bac5879f03e8977fd78a112876d32"
   },
   "target": {
     "cuda_binary_version": 87,
@@ -68,7 +70,8 @@
       "threads_per_cta": 256,
       "ownership": "eight token-head rows per CTA for exact RMSNorm, SiLU gate and BF16 publication"
     },
-    "launcher": "all three stages are currently enqueued on one caller-owned stream",
+    "single_cell_launcher": "all three stages are available on one caller-owned stream for the arithmetic control",
+    "p40_launcher": "two reusable slots over three nonblocking streams with event-ordered producer, recurrence and epilogue stages",
     "selector_reachable": false
   },
   "finite_precision_contract": {
@@ -155,7 +158,7 @@
     }
   },
   "p40_host_plan": {
-    "authority": "host-only dependency and memory contract; no multi-stream launcher exists yet",
+    "authority": "executable synthetic P40000 dependency, cancellation, replay and owner-lifecycle scheduling authority; no real-activation or performance authority",
     "chunks": 625,
     "chunk_tokens": 64,
     "prepared_slots": 2,
@@ -163,16 +166,24 @@
     "history_slots": 2,
     "logical_streams": 3,
     "reusable_events": 6,
-    "private_bytes": 6987776,
+    "session_terminal_bridge_events": 1,
+    "session_layers": 48,
+    "private_ranges": 17,
+    "cancellation_snapshot_offsets": [6987776, 6987792],
+    "private_payload_end": 6987796,
+    "private_bytes": 6988032,
     "continuation_boundaries_admitted": true,
-    "double_slot_execution_implemented": false
+    "double_slot_execution_implemented": true,
+    "startup_static_checks_once": true,
+    "request_hot_static_cuda_queries": 0,
+    "per_layer_host_drain": false,
+    "only_terminal_cancel_error_drain": true,
+    "partial_submit_poison": true,
+    "clean_host_oracle_result": "PASS"
   },
   "qualification_gaps": [
     "real-model activations and real checkpoint constants",
-    "two consecutive C64 cells compared as one continuation",
-    "executable double-slot and three-stream dependency graph",
     "whole GDN layer and complete P40000 composition",
-    "input immutability, redzones, replay and cancellation qualification",
     "real OpenAI-compatible API performance direction",
     "external accuracy qualification"
   ],
@@ -180,6 +191,6 @@
     "result": "RETAIN_AS_DEFAULT_OFF_V2_CORRECTNESS_CELL",
     "production_change": false,
     "performance_claim": false,
-    "next_step": "compose the exact C64 cell behind the bounded P40 double-slot graph, bind real projection publications and return the complete v2 candidate to the clean-host P40 API gate"
+    "next_step": "bind the sealed 48-layer GDN session to real FP8/BF16 publications, persistent state/history D2D publication and the complete v2 API executor"
   }
 }

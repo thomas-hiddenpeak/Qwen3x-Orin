@@ -11,8 +11,10 @@
 
 #include "q3x/kernels/sm87_bulk_dataflow_v2_attention_l2_cohort.h"
 
+#include "../sm87/sm87_bulk_dataflow_v2_attention_l2_cohort_launch_internal.h"
 #include "../sm87/sm87_target_aot_attention_launch_internal.h"
 
+#include <cuda.h>
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 #if defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
@@ -22,12 +24,14 @@
 #include <mma.h>
 
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <new>
 #include <utility>
 
 namespace q3x::runtime {
@@ -1562,7 +1566,8 @@ void sm87_target_aot_attention_q128_kv32_p40_two_stage_body(
   }
 }
 
-#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION) || \
+    defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION)
 __global__ __launch_bounds__(kBulkGqaGroupQ128V4Threads, 1)
 void sm87_target_aot_attention_q128_kv32_p40_two_stage_kernel(
     const std::uint16_t* const __restrict__ query,
@@ -1609,6 +1614,34 @@ void sm87_bulk_v2_attention_q128_kv32_p40_l2_cohort_kernel(
         static_cast<unsigned int>(work.query_tile), kv_head,
         work.store_enabled);
   }
+}
+
+// The normal persistent wrapper schedules these same 52 bodies as the
+// non-writing lanes of its last snake epoch.  This oracle-only kernel runs
+// exactly that subset against a poisoned output surface, using the same
+// numerical body and the same store_enabled=false argument.  It is never
+// reachable from a runner or production selector.
+__global__ __launch_bounds__(kBulkGqaGroupQ128V4Threads, 1)
+void sm87_bulk_v2_attention_suppressed_repeat_oracle_kernel(
+    const std::uint16_t* const __restrict__ query,
+    const std::uint16_t* const __restrict__ key_cache,
+    const std::uint16_t* const __restrict__ value_cache,
+    const std::uint16_t* const __restrict__ gate,
+    std::uint16_t* const __restrict__ output,
+    const bool store_enabled) {
+  extern __shared__ __align__(16) unsigned char dynamic_shared[];
+  auto& storage =
+      *reinterpret_cast<
+          TargetAotAttentionQ128Kv32TwoStageSharedStorage*>(
+          dynamic_shared);
+  const unsigned int kv_head = blockIdx.z;
+  const unsigned int persistent_lane = blockIdx.x;
+  const auto work = kernels::sm87_bulk_v2_attention_work_item(
+      kv_head, persistent_lane,
+      kernels::kSm87BulkV2AttentionSnakeEpochs - 1U);
+  sm87_target_aot_attention_q128_kv32_p40_two_stage_body(
+      query, key_cache, value_cache, gate, output, storage,
+      static_cast<unsigned int>(work.query_tile), kv_head, store_enabled);
 }
 #endif
 #endif
@@ -1915,7 +1948,8 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_cuda(
 
 namespace sm87_target_aot_attention_execution_detail {
 
-#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION) || \
+    defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION)
 namespace {
 
 constexpr unsigned int kTargetP40GridX =
@@ -2182,6 +2216,64 @@ namespace {
   return true;
 }
 
+// Startup sealing needs stronger evidence than endpoint pointer attributes:
+// both endpoints must resolve to the same live CUDA allocation and the whole
+// logical tensor range must fit inside it.  This driver query is never called
+// by the prevalidated request hot path.
+[[nodiscard]] bool bulk_v2_attention_complete_device_range_valid(
+    const Sm87BulkV2AttentionByteRange& range,
+    const std::int32_t device_ordinal) noexcept {
+  if (!range.valid || range.begin == 0U || range.end <= range.begin) {
+    return false;
+  }
+  const std::array<const void*, 2U> endpoints{{
+      reinterpret_cast<const void*>(range.begin),
+      reinterpret_cast<const void*>(range.end - 1U),
+  }};
+  std::array<CUdeviceptr, 2U> bases{{0U, 0U}};
+  std::array<std::size_t, 2U> bytes{{0U, 0U}};
+  for (std::size_t index = 0U; index < endpoints.size(); ++index) {
+    cudaPointerAttributes attributes{};
+    if (cudaPointerGetAttributes(&attributes, endpoints[index]) !=
+            cudaSuccess ||
+        attributes.type != cudaMemoryTypeDevice ||
+        attributes.device != device_ordinal ||
+        cuMemGetAddressRange(
+            &bases[index], &bytes[index],
+            static_cast<CUdeviceptr>(
+                reinterpret_cast<std::uintptr_t>(endpoints[index]))) !=
+            CUDA_SUCCESS ||
+        bases[index] == 0U || bytes[index] == 0U) {
+      return false;
+    }
+  }
+  if (bases[0U] != bases[1U] || bytes[0U] != bytes[1U]) {
+    return false;
+  }
+  const auto allocation_begin = static_cast<std::uintptr_t>(bases[0U]);
+  if (bytes[0U] > std::numeric_limits<std::uintptr_t>::max() ||
+      allocation_begin > std::numeric_limits<std::uintptr_t>::max() -
+                             static_cast<std::uintptr_t>(bytes[0U])) {
+    return false;
+  }
+  const auto allocation_end =
+      allocation_begin + static_cast<std::uintptr_t>(bytes[0U]);
+  return range.begin >= allocation_begin && range.end <= allocation_end;
+}
+
+[[nodiscard]] cudaError_t
+validate_bulk_v2_attention_complete_device_ranges(
+    const Sm87BulkV2AttentionArguments& arguments) noexcept {
+  for (const auto& range :
+       sm87_bulk_v2_attention_argument_ranges(arguments)) {
+    if (!bulk_v2_attention_complete_device_range_valid(
+            range, arguments.device_ordinal)) {
+      return cudaErrorInvalidDevicePointer;
+    }
+  }
+  return cudaSuccess;
+}
+
 [[nodiscard]] cudaError_t validate_bulk_v2_attention_device_ranges(
     const Sm87BulkV2AttentionArguments& arguments) noexcept {
   for (const auto& range :
@@ -2327,5 +2419,280 @@ int launch_sm87_bulk_dataflow_v2_attention_l2_cohort_cuda(
   return static_cast<int>(cudaErrorNotSupported);
 #endif
 }
+
+namespace sm87_bulk_v2_attention_execution_detail {
+namespace {
+
+#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION)
+[[nodiscard]] std::uint64_t mix_attention_seal_nonce(
+    std::uint64_t nonce, const std::uint64_t value) noexcept {
+  nonce ^= value + 0x9e37'79b9'7f4a'7c15ULL + (nonce << 6U) +
+           (nonce >> 2U);
+  return nonce;
+}
+#endif
+
+[[nodiscard]] Sm87BulkV2AttentionSealResult attention_seal_failure(
+    const cudaError_t error,
+    const Sm87BulkV2AttentionSealFailure failure) noexcept {
+  Sm87BulkV2AttentionSealResult result;
+  result.cuda_error = static_cast<int>(error);
+  result.failure = failure;
+  return result;
+}
+
+}  // namespace
+
+Sm87BulkV2AttentionSealResult seal_sm87_bulk_v2_attention_p40_cuda(
+    const Sm87BulkV2AttentionSealRequest& request) noexcept {
+  if (request.layer_bindings == nullptr ||
+      request.layer_binding_count !=
+          kSm87BulkV2AttentionFullLayerBindings ||
+      request.device_ordinal < 0 || request.cuda_stream == nullptr ||
+      request.deployment_identity == 0U ||
+      request.binding_catalog_identity == 0U ||
+      request.binding_lifetime_owner_identity == 0U ||
+      request.cuda_stream_owner_identity == 0U) {
+    return attention_seal_failure(
+        cudaErrorInvalidValue,
+        Sm87BulkV2AttentionSealFailure::kInvalidRequest);
+  }
+#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION)
+  int current_device = -1;
+  cudaError_t status = cudaGetDevice(&current_device);
+  if (status != cudaSuccess || current_device != request.device_ordinal) {
+    return attention_seal_failure(
+        status == cudaSuccess ? cudaErrorInvalidDevice : status,
+        Sm87BulkV2AttentionSealFailure::kDevice);
+  }
+
+  unsigned int stream_flags = 0U;
+  status = cudaStreamGetFlags(
+      reinterpret_cast<cudaStream_t>(request.cuda_stream), &stream_flags);
+  if (status != cudaSuccess ||
+      (stream_flags & cudaStreamNonBlocking) == 0U) {
+    return attention_seal_failure(
+        status == cudaSuccess ? cudaErrorInvalidResourceHandle : status,
+        Sm87BulkV2AttentionSealFailure::kStream);
+  }
+
+  Sm87BulkV2AttentionResources resources{};
+  const int resource_status =
+      query_sm87_bulk_dataflow_v2_attention_l2_cohort_resources_cuda(
+          request.device_ordinal, &resources);
+  if (resource_status != static_cast<int>(cudaSuccess) ||
+      !sm87_bulk_v2_attention_resources_valid(resources)) {
+    return attention_seal_failure(
+        resource_status == static_cast<int>(cudaSuccess)
+            ? cudaErrorNotSupported
+            : static_cast<cudaError_t>(resource_status),
+        Sm87BulkV2AttentionSealFailure::kResources);
+  }
+
+  std::array<Sm87BulkV2AttentionBinding,
+             kSm87BulkV2AttentionFullLayerBindings>
+      sealed_bindings{};
+  for (std::size_t ordinal = 0U; ordinal < sealed_bindings.size();
+       ++ordinal) {
+    const auto& binding = request.layer_bindings[ordinal];
+    const std::size_t expected_layer = ordinal * 4U + 3U;
+    if (binding.model_layer != expected_layer ||
+        binding.arguments.device_ordinal != request.device_ordinal ||
+        binding.arguments.cuda_stream != request.cuda_stream ||
+        !sm87_bulk_v2_attention_arguments_valid(binding.arguments)) {
+      return attention_seal_failure(
+          cudaErrorInvalidValue,
+          Sm87BulkV2AttentionSealFailure::kBindingIdentity);
+    }
+    status = validate_bulk_v2_attention_complete_device_ranges(
+        binding.arguments);
+    if (status != cudaSuccess) {
+      return attention_seal_failure(
+          status, Sm87BulkV2AttentionSealFailure::kBindingRange);
+    }
+    sealed_bindings[ordinal] = binding;
+  }
+
+  static std::atomic<std::uint64_t> seal_serial{1U};
+  std::uint64_t nonce = 0x5133'5832'4134'3046ULL;
+  nonce = mix_attention_seal_nonce(nonce, request.deployment_identity);
+  nonce = mix_attention_seal_nonce(nonce,
+                                   request.binding_catalog_identity);
+  nonce = mix_attention_seal_nonce(
+      nonce, request.binding_lifetime_owner_identity);
+  nonce = mix_attention_seal_nonce(nonce,
+                                   request.cuda_stream_owner_identity);
+  nonce = mix_attention_seal_nonce(
+      nonce, reinterpret_cast<std::uintptr_t>(request.cuda_stream));
+  nonce = mix_attention_seal_nonce(
+      nonce, seal_serial.fetch_add(1U, std::memory_order_relaxed));
+  if (nonce == 0U) {
+    nonce = 0x5133'5832'4134'3046ULL;
+  }
+
+  Sm87BulkV2AttentionSealReceipt receipt{};
+  receipt.magic = kSm87BulkV2AttentionSealReceiptMagic;
+  receipt.version = kSm87BulkV2AttentionSealReceiptVersion;
+  receipt.seal_nonce = nonce;
+  receipt.deployment_identity = request.deployment_identity;
+  receipt.binding_catalog_identity = request.binding_catalog_identity;
+  receipt.binding_lifetime_owner_identity =
+      request.binding_lifetime_owner_identity;
+  receipt.cuda_stream_owner_identity = request.cuda_stream_owner_identity;
+  receipt.device_ordinal = request.device_ordinal;
+  receipt.cuda_stream = request.cuda_stream;
+  receipt.sealed_layer_bindings = sealed_bindings.size();
+  receipt.sealed_resource_kernels = 1U;
+  receipt.hot_path_static_cuda_queries = 0U;
+  receipt.exact_sm87_device_validated = true;
+  receipt.nonblocking_stream_validated = true;
+  receipt.complete_device_ranges_validated = true;
+  receipt.static_resources_validated_at_startup = true;
+  receipt.request_hot_path_prevalidated = true;
+  receipt.numerical_contract_qualified = false;
+  receipt.production_dispatch_eligible = false;
+  if (!sm87_bulk_v2_attention_seal_receipt_valid(receipt)) {
+    return attention_seal_failure(
+        cudaErrorInvalidValue,
+        Sm87BulkV2AttentionSealFailure::kInvalidRequest);
+  }
+
+  auto access = std::unique_ptr<Sm87BulkV2AttentionSealedAccess>(
+      new (std::nothrow) Sm87BulkV2AttentionSealedAccess(
+          sealed_bindings, request.cuda_stream, receipt));
+  if (access == nullptr) {
+    return attention_seal_failure(
+        cudaErrorMemoryAllocation,
+        Sm87BulkV2AttentionSealFailure::kAllocation);
+  }
+  Sm87BulkV2AttentionSealResult result;
+  result.access = std::move(access);
+  result.receipt = receipt;
+  result.cuda_error = static_cast<int>(cudaSuccess);
+  result.failure = Sm87BulkV2AttentionSealFailure::kNone;
+  return result;
+#else
+  return attention_seal_failure(cudaErrorNotSupported,
+                                Sm87BulkV2AttentionSealFailure::kResources);
+#endif
+}
+
+int enqueue_sm87_bulk_v2_attention_p40_prevalidated_cuda(
+    const Sm87BulkV2AttentionSealedAccess& access,
+    const std::uint64_t request_epoch, const std::size_t model_layer,
+    Sm87BulkV2AttentionSubmissionReceipt* const receipt) noexcept {
+  if (receipt == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *receipt = {};
+  const std::size_t ordinal =
+      sm87_bulk_v2_attention_full_ordinal(model_layer);
+  if (!access.valid() || request_epoch == 0U ||
+      ordinal >= kSm87BulkV2AttentionFullLayerBindings) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION)
+  receipt->magic = kSm87BulkV2AttentionSubmissionReceiptMagic;
+  receipt->version = kSm87BulkV2AttentionSubmissionReceiptVersion;
+  receipt->seal_nonce = access.receipt_.seal_nonce;
+  receipt->request_epoch = request_epoch;
+  receipt->model_layer = static_cast<std::uint32_t>(model_layer);
+  receipt->expected_launches = kSm87BulkV2AttentionKernelLaunches;
+  receipt->failed_launch_ordinal =
+      std::numeric_limits<std::size_t>::max();
+  receipt->prevalidated_hot_path_used = true;
+  receipt->static_cuda_query_issued = false;
+
+  const auto& arguments = access.bindings_[ordinal].arguments;
+  const auto stream = reinterpret_cast<cudaStream_t>(access.cuda_stream_);
+  const dim3 blocks(
+      static_cast<unsigned int>(kSm87BulkV2AttentionPersistentLanes), 1U,
+      1U);
+  const cudaError_t prior_error = cudaGetLastError();
+  if (prior_error != cudaSuccess) {
+    receipt->cuda_error = static_cast<int>(prior_error);
+    receipt->state =
+        Sm87BulkV2AttentionSubmissionState::kFailedBeforeSubmission;
+    return receipt->cuda_error;
+  }
+  for (unsigned int kv_head = 0U;
+       kv_head < kSm87BulkV2AttentionKvHeads; ++kv_head) {
+    ++receipt->attempted_launches;
+    runtime::sm87_bulk_v2_attention_q128_kv32_p40_l2_cohort_kernel<<<
+        blocks, kSm87BulkV2AttentionThreads,
+        kSm87BulkV2AttentionDynamicSharedBytes, stream>>>(
+        arguments.processed_query, arguments.processed_key,
+        arguments.processed_value, arguments.processed_gate,
+        arguments.gated_output, kv_head);
+    const cudaError_t launch_status = cudaPeekAtLastError();
+    if (launch_status != cudaSuccess) {
+      receipt->failed_launch_ordinal = kv_head;
+      receipt->cuda_error = static_cast<int>(launch_status);
+      receipt->owner_drain_required = receipt->submitted_launches != 0U;
+      receipt->state =
+          receipt->owner_drain_required
+              ? Sm87BulkV2AttentionSubmissionState::
+                    kFailedAfterPartialSubmission
+              : Sm87BulkV2AttentionSubmissionState::
+                    kFailedBeforeSubmission;
+      return receipt->cuda_error;
+    }
+    ++receipt->submitted_launches;
+  }
+  receipt->cuda_error = static_cast<int>(cudaSuccess);
+  receipt->state = Sm87BulkV2AttentionSubmissionState::kSubmitted;
+  receipt->owner_drain_required = false;
+  return static_cast<int>(cudaSuccess);
+#else
+  return static_cast<int>(cudaErrorNotSupported);
+#endif
+}
+
+}  // namespace sm87_bulk_v2_attention_execution_detail
+
+#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION)
+namespace sm87_bulk_v2_attention_oracle_detail {
+
+int launch_suppressed_repeat_bodies_cuda(
+    const Sm87BulkV2AttentionArguments& arguments) noexcept {
+  if (!sm87_bulk_v2_attention_arguments_valid(arguments)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  Sm87BulkV2AttentionResources resources{};
+  const int resource_status =
+      query_sm87_bulk_dataflow_v2_attention_l2_cohort_resources_cuda(
+          arguments.device_ordinal, &resources);
+  if (resource_status != static_cast<int>(cudaSuccess)) {
+    return resource_status;
+  }
+  const cudaError_t range_status =
+      validate_bulk_v2_attention_device_ranges(arguments);
+  if (range_status != cudaSuccess) {
+    return static_cast<int>(range_status);
+  }
+  const cudaError_t attribute_status = cudaFuncSetAttribute(
+      runtime::sm87_bulk_v2_attention_suppressed_repeat_oracle_kernel,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      static_cast<int>(kSm87BulkV2AttentionDynamicSharedBytes));
+  if (attribute_status != cudaSuccess) {
+    return static_cast<int>(attribute_status);
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  const dim3 blocks(
+      static_cast<unsigned int>(kSm87BulkV2AttentionFinalRepeatLanes), 1U,
+      static_cast<unsigned int>(kSm87BulkV2AttentionKvHeads));
+  (void)cudaGetLastError();
+  runtime::sm87_bulk_v2_attention_suppressed_repeat_oracle_kernel<<<
+      blocks, kSm87BulkV2AttentionThreads,
+      kSm87BulkV2AttentionDynamicSharedBytes, stream>>>(
+      arguments.processed_query, arguments.processed_key,
+      arguments.processed_value, arguments.processed_gate,
+      arguments.gated_output, false);
+  return static_cast<int>(cudaPeekAtLastError());
+}
+
+}  // namespace sm87_bulk_v2_attention_oracle_detail
+#endif
 
 }  // namespace q3x::kernels

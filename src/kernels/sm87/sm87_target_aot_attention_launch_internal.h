@@ -148,9 +148,10 @@ struct TargetP40Resources final {
 // preprocessing remains an executor responsibility; this entry is a pure
 // exact-P40000 Q128/KV32 two-stage core and has no fallback, environment
 // selector, request-time JIT, or autotune path.  The kernel and its acquiring
-// implementation exist only under
-// Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION; the default build
-// retains these declarations solely as fail-closed NotSupported sentinels.
+// implementation exist only under the complete target-AOT admission or the
+// default-off Attention-v2 admission that needs this exact body as its CUDA
+// differential control. The default build retains these declarations solely
+// as fail-closed NotSupported sentinels.
 [[nodiscard]] int query_q128_kv32_p40_two_stage_resources(
     std::int32_t device_ordinal,
     TargetP40Resources* resources) noexcept;

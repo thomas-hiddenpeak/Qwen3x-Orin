@@ -4,8 +4,10 @@
 
 #include "sm87_target_aot_bf16_ab_launch_internal.h"
 
+#include <cuda.h>
 #include <cuda_runtime.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -509,6 +511,192 @@ int launch_sm87_bf16_ab_prompt_wide_p40_cuda(
 }
 
 namespace sm87_target_aot_bf16_ab_execution_detail {
+
+namespace {
+
+constexpr std::uint64_t kInterleavedP40SealTag =
+    0x5142'4132'5034'3041ULL;
+
+[[nodiscard]] bool exact_device_pointer(const void* const pointer,
+                                        const int device) noexcept {
+  cudaPointerAttributes attributes{};
+  const cudaError_t status = cudaPointerGetAttributes(&attributes, pointer);
+  return status == cudaSuccess && attributes.type == cudaMemoryTypeDevice &&
+         attributes.device == device;
+}
+
+[[nodiscard]] bool exact_device_allocation_range(
+    const void* const pointer, const std::size_t bytes,
+    const int device) noexcept {
+  if (byte_range_overflows(pointer, bytes) || bytes == 0U) {
+    return false;
+  }
+  const auto begin = reinterpret_cast<std::uintptr_t>(pointer);
+  const auto end = begin + bytes;
+  const std::array<const void*, 2U> endpoints{{
+      pointer, reinterpret_cast<const void*>(end - 1U),
+  }};
+  std::array<CUdeviceptr, 2U> bases{{0U, 0U}};
+  std::array<std::size_t, 2U> allocation_bytes{{0U, 0U}};
+  for (std::size_t index = 0U; index < endpoints.size(); ++index) {
+    if (!exact_device_pointer(endpoints[index], device) ||
+        cuMemGetAddressRange(
+            &bases[index], &allocation_bytes[index],
+            static_cast<CUdeviceptr>(
+                reinterpret_cast<std::uintptr_t>(endpoints[index]))) !=
+            CUDA_SUCCESS ||
+        bases[index] == 0U || allocation_bytes[index] == 0U) {
+      return false;
+    }
+  }
+  if (bases[0U] != bases[1U] ||
+      allocation_bytes[0U] != allocation_bytes[1U]) {
+    return false;
+  }
+  const auto allocation_begin =
+      static_cast<std::uintptr_t>(bases[0U]);
+  if (allocation_bytes[0U] >
+      std::numeric_limits<std::uintptr_t>::max() - allocation_begin) {
+    return false;
+  }
+  const auto allocation_end = allocation_begin + allocation_bytes[0U];
+  return begin >= allocation_begin && end <= allocation_end;
+}
+
+[[nodiscard]] bool binding_valid(
+    const InterleavedP40Binding& binding,
+    const std::size_t ordinal,
+    const int device) noexcept {
+  constexpr std::size_t kWeightBytes =
+      kSm87Bf16AbPromptWideP40WeightElements * sizeof(std::uint16_t);
+  constexpr std::size_t kInputBytes =
+      kSm87Bf16AbPromptWideP40InputElements * sizeof(std::uint16_t);
+  constexpr std::size_t kInterleavedBytes =
+      kSm87Bf16AbPromptWideP40Tokens * kLogicalRows *
+      sizeof(std::uint16_t);
+  if (binding.layer >= 64U || (binding.layer + 1U) % 4U == 0U ||
+      binding.layer - binding.layer / 4U != ordinal ||
+      !pointer_is_aligned(binding.a_weights, alignof(uint4)) ||
+      !pointer_is_aligned(binding.b_weights, alignof(uint4)) ||
+      !pointer_is_aligned(binding.input, alignof(uint4)) ||
+      !pointer_is_aligned(binding.interleaved_ab_output,
+                          alignof(std::uint32_t)) ||
+      byte_range_overflows(binding.a_weights, kWeightBytes) ||
+      byte_range_overflows(binding.b_weights, kWeightBytes) ||
+      byte_range_overflows(binding.input, kInputBytes) ||
+      byte_range_overflows(binding.interleaved_ab_output,
+                           kInterleavedBytes) ||
+      byte_ranges_overlap(binding.interleaved_ab_output,
+                          kInterleavedBytes, binding.a_weights,
+                          kWeightBytes) ||
+      byte_ranges_overlap(binding.interleaved_ab_output,
+                          kInterleavedBytes, binding.b_weights,
+                          kWeightBytes) ||
+      byte_ranges_overlap(binding.interleaved_ab_output,
+                          kInterleavedBytes, binding.input,
+                          kInputBytes)) {
+    return false;
+  }
+  return exact_device_allocation_range(binding.a_weights, kWeightBytes,
+                                       device) &&
+         exact_device_allocation_range(binding.b_weights, kWeightBytes,
+                                       device) &&
+         exact_device_allocation_range(binding.input, kInputBytes, device) &&
+         exact_device_allocation_range(binding.interleaved_ab_output,
+                                       kInterleavedBytes, device);
+}
+
+}  // namespace
+
+bool SealedInterleavedP40Access::valid() const noexcept {
+  return device_ordinal_ >= 0 && cuda_stream_ != nullptr &&
+         seal_nonce_ != 0U;
+}
+
+SealedInterleavedP40Result seal_interleaved_p40(
+    const InterleavedP40Binding* const bindings,
+    const std::size_t binding_count, void* const cuda_stream) noexcept {
+  SealedInterleavedP40Result result;
+  if (bindings == nullptr ||
+      binding_count != kInterleavedP40LayerBindings ||
+      cuda_stream == nullptr) {
+    result.cuda_error = static_cast<int>(cudaErrorInvalidValue);
+    return result;
+  }
+  int device = -1;
+  cudaError_t status = cudaGetDevice(&device);
+  if (status != cudaSuccess || device < 0) {
+    result.cuda_error = static_cast<int>(status);
+    return result;
+  }
+  unsigned int stream_flags = 0U;
+  status = cudaStreamGetFlags(static_cast<cudaStream_t>(cuda_stream),
+                              &stream_flags);
+  if (status != cudaSuccess ||
+      (stream_flags & cudaStreamNonBlocking) == 0U) {
+    result.cuda_error = static_cast<int>(
+        status == cudaSuccess ? cudaErrorInvalidResourceHandle : status);
+    return result;
+  }
+  Sm87Bf16AbPromptWideP40Resources resources{};
+  const int resource_status =
+      query_sm87_bf16_ab_prompt_wide_p40_resources_cuda(&resources);
+  if (resource_status != static_cast<int>(cudaSuccess) ||
+      !resources.valid()) {
+    result.cuda_error =
+        resource_status == static_cast<int>(cudaSuccess)
+            ? static_cast<int>(cudaErrorNotSupported)
+            : resource_status;
+    return result;
+  }
+  std::array<InterleavedP40Binding, kInterleavedP40LayerBindings> sealed{};
+  std::uint64_t nonce = kInterleavedP40SealTag ^
+                        static_cast<std::uint64_t>(device + 1);
+  for (std::size_t ordinal = 0U; ordinal < sealed.size(); ++ordinal) {
+    if (!binding_valid(bindings[ordinal], ordinal, device)) {
+      result.cuda_error = static_cast<int>(cudaErrorInvalidDevicePointer);
+      return result;
+    }
+    sealed[ordinal] = bindings[ordinal];
+    nonce ^= reinterpret_cast<std::uintptr_t>(bindings[ordinal].a_weights) +
+             0x9e37'79b9'7f4a'7c15ULL + (nonce << 6U) + (nonce >> 2U);
+    nonce ^= reinterpret_cast<std::uintptr_t>(bindings[ordinal].b_weights) +
+             0x9e37'79b9'7f4a'7c15ULL + (nonce << 6U) + (nonce >> 2U);
+  }
+  if (nonce == 0U) {
+    nonce = kInterleavedP40SealTag;
+  }
+  result.access =
+      SealedInterleavedP40Access(sealed, device, cuda_stream, nonce);
+  return result;
+}
+
+int enqueue_interleaved_p40_prevalidated(
+    const SealedInterleavedP40Access& access,
+    const std::size_t gdn_ordinal,
+    std::size_t* const submitted_launches) noexcept {
+  if (submitted_launches == nullptr) {
+    return invalid_value();
+  }
+  *submitted_launches = 0U;
+  if (!access.valid() || gdn_ordinal >= access.bindings_.size()) {
+    return invalid_value();
+  }
+  const auto& binding = access.bindings_[gdn_ordinal];
+  bf16_ab_prefill_m64_n96_k64_kernel
+      <<<kSm87Bf16AbPromptWideP40GridBlocks, kThreads,
+         kDynamicSharedBytes,
+         static_cast<cudaStream_t>(access.cuda_stream_)>>>(
+          binding.a_weights, binding.b_weights, binding.input,
+          binding.interleaved_ab_output,
+          binding.interleaved_ab_output + kRowsPerProjection,
+          kLogicalRows);
+  const cudaError_t status = cudaPeekAtLastError();
+  if (status == cudaSuccess) {
+    *submitted_launches = 1U;
+  }
+  return static_cast<int>(status);
+}
 
 int launch_interleaved_p40(
     const std::uint16_t* const a_weights,

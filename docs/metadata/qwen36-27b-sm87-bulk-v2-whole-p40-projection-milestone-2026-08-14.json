@@ -1,0 +1,411 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-sm87-bulk-v2-whole-p40-projection-milestone-2026-08-14",
+  "recorded_at": "2026-08-14T10:38:43+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "default_off_t0_t1_projection_constituents_pass_not_composed",
+  "decision_unit": "architecture_candidate_constituent_milestone",
+  "architecture_candidate_id": "AC-PREFILL-SM87-BULK-DATAFLOW-v2",
+  "authority": {
+    "scope": "whole-P40000 Gate+Up, Down, and FP8 CUDA constituent implementation, reduced-domain synthetic exactness, static compiler resources, RequestState ownership, and ABI-major 3 projection receipt",
+    "t0_build_abi_static_resource_observation_authority": true,
+    "t1_synthetic_correctness_authority": true,
+    "request_state_host_lifecycle_authority": true,
+    "real_checkpoint_weight_authority": false,
+    "real_prompt_activation_or_state_authority": false,
+    "complete_p40000_execution_authority": false,
+    "api_authority": false,
+    "performance_authority": false,
+    "nsys_or_ncu_authority": false,
+    "l2_or_dram_residency_authority": false,
+    "numerical_qualification_authority": false,
+    "release_authority": false,
+    "production_authority": false,
+    "gpu_correctness_run": true,
+    "gpu_performance_run": false
+  },
+  "source_identity": {
+    "base_commit": "cb4aa55bf15b0149197542ba82bd92781377e335",
+    "working_tree_state": "uncommitted default-off milestone sources; every relevant source is hash-bound below",
+    "files": [
+      {
+        "path": "CMakeLists.txt",
+        "sha256": "d1c9956bda9e666bfc12dadf37fdc359e578b203210e0abbbac1a08b9fca94bf"
+      },
+      {
+        "path": "include/q3x/kernels/sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40.h",
+        "sha256": "7adb36af7998e43e9aaf1885db202e56c7c5fc4556a23197f85d5375b3eec200"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40.cu",
+        "sha256": "1010a79d8277dd3543be42d41a82b3b284ffe4ed3e2feea53927b54ef606a82f"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_oracle_internal.h",
+        "sha256": "7343f89923000e3a67a8d58b172ed5ceadd7fe059217a8197e2fdef8625833db"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_host_test.cpp",
+        "sha256": "ddc4fa6c2d894dde52f426501f6a911cad6f891f0342abb5064c59c911556129"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_cuda_oracle_test.cu",
+        "sha256": "364da9413325532f6be0a372db9f4db8cb939f0fabaf961d42423d0e01ec12e1"
+      },
+      {
+        "path": "include/q3x/kernels/sm87_bulk_dataflow_v2_nvfp4_down_whole_p40.h",
+        "sha256": "ea082e6fe8694e378f95ae280be7c725868d9b3c5a9419b9807e7e7bf9ee5602"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_down_whole_p40.cu",
+        "sha256": "2972402b6bc39c9f1ddc9f56f069748b3da96d172139ecf5f1b97a568f191d8c"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_oracle_internal.h",
+        "sha256": "a9d12fe7c215c7b862a4027fb1d9234c4b7c7dfd4b9ce77475a128824ed014df"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_host_test.cpp",
+        "sha256": "73d5129c1a18c41a6f5797ff6860d4e14964a368d9981b621cecc124885847bd"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_cuda_oracle_test.cu",
+        "sha256": "be5c75105223aa0b724d3905a03e284449648570807353bfda1c6c0bae3f8616"
+      },
+      {
+        "path": "include/q3x/kernels/sm87_bulk_dataflow_v2_fp8_whole_p40.h",
+        "sha256": "05c507d8110ad3911dc04b166fed130386ffd0057db5d91ef804aaeacf64f91b"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_bulk_dataflow_v2_fp8_whole_p40.cu",
+        "sha256": "6cc02aa28614840d32f905db429efd0a9cac594840cd0773b3aa043638a06ea2"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_bulk_dataflow_v2_fp8_whole_p40_oracle_internal.h",
+        "sha256": "0e362af2dcac10ab25e91f6b0ed095f198355eafaf7a9ddbcff66413445bfa07"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_fp8_whole_p40_host_test.cpp",
+        "sha256": "58397f5bcf6c5cc4cbde324c79065d4d64538a9b3711999ce234fe298648d82c"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_fp8_whole_p40_cuda_oracle_test.cu",
+        "sha256": "7817af552c6d7aab0d2d8e3df1948fd23c8c8a54d07416f1fe275b2ebcd62f0c"
+      },
+      {
+        "path": "include/q3x/runtime/sm87_bulk_dataflow_v2_p40_projection_successor.h",
+        "sha256": "1191af5fdf10748900350f89e7827bec009d9f02fc211aa5ad857c077c5de53d"
+      },
+      {
+        "path": "include/q3x/runtime/sm87_bulk_dataflow_v2_p40_plan.h",
+        "sha256": "b26626ebe95966309fd2b6fc1eb939e2bf6a51beafa13b8c1b621560d06651fe"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_p40_projection_successor_host_test.cpp",
+        "sha256": "f4f2b398d47ac4fa42776d9fd035e1431015d2e83eb22f993a45a75b537f0a17"
+      },
+      {
+        "path": "src/runtime/sm87_bulk_dataflow_v2_p40_request_state_internal.h",
+        "sha256": "9840eb00d52e859cc969aca948a5dae84d24e3ef7049ebc97a4577fed11cf661"
+      },
+      {
+        "path": "src/runtime/sm87_bulk_dataflow_v2_p40_request_state_internal.cpp",
+        "sha256": "5dbe4502f9e23da073ff1912fc7462da9de8bc133a7fdde43cc80310b06b3cc6"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_p40_request_state_host_test.cpp",
+        "sha256": "e4952ede05545d143cdedc1e455ef64f9ddb65f558b2897e52817d67c8e3595e"
+      },
+      {
+        "path": "src/runtime/sm87_bulk_dataflow_v2_p40_owner_internal.h",
+        "sha256": "33519ad38ea7145e1952377df37b5e133a391d3605d4233f5348e81579c80dd9"
+      },
+      {
+        "path": "src/runtime/sm87_bulk_dataflow_v2_p40_owner_internal.cpp",
+        "sha256": "ba53449f793e86bc42deada02133066f4f2c8ecfa6acc70e5034ae6c8c974b0a"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_p40_owner_host_test.cpp",
+        "sha256": "86868993c5d4760454ebebd19eb772d1050210bf3aa991f004d23dcb0815a9fb"
+      }
+    ]
+  },
+  "projection_successor_contract": {
+    "prompt_tokens": 40000,
+    "plan_abi_major": 3,
+    "plan_abi_minor": 0,
+    "successor_manifest_abi_major": 1,
+    "successor_manifest_abi_minor": 0,
+    "logical_checkpoint_roles": 496,
+    "fused_outer_operations": 304,
+    "conventional_projection_operations": 1948044492800000,
+    "fp8": {
+      "logical_checkpoint_roles": 208,
+      "gdn_qkvz_outer_operations": 48,
+      "full_qkv_outer_operations": 16,
+      "attention_output_outer_operations": 64,
+      "whole_role_launches": 128
+    },
+    "nvfp4": {
+      "logical_checkpoint_roles": 192,
+      "gate_up_outer_operations": 64,
+      "down_outer_operations": 64,
+      "whole_role_launches": 128
+    },
+    "bf16_ab": {
+      "logical_checkpoint_roles": 96,
+      "fused_outer_operations": 48,
+      "physical_launches": 48
+    },
+    "oracle_only_exact_control_launches": {
+      "fp8_segmented": 5120,
+      "nvfp4_m64_m1024": 2560,
+      "required_in_successor_terminal_receipt": 0
+    },
+    "caller_filled_receipt_is_launch_capability": false,
+    "numerical_contract_qualified": false,
+    "static_resource_contract_qualified": false,
+    "production_dispatch_eligible": false
+  },
+  "whole_p40000_constituents": {
+    "common": {
+      "persistent_ctas": 32,
+      "threads_per_cta": 256,
+      "pipeline_stages": 3,
+      "register_feed_stages": 2,
+      "accumulation": "ascending full-K FP32 tensor-core MMA",
+      "split_k": false,
+      "global_partial_c": false,
+      "request_time_jit_repack_autotune_or_static_cuda_query": false,
+      "one_outer_launch_per_complete_model_role": true
+    },
+    "nvfp4_gate_up": {
+      "identity": "q3x.sm87.bulk-v2.nvfp4-gate-up.whole-p40000.m64n64k64-raster-m4n8.v1",
+      "shape": "M40000 N17408+17408 K5120",
+      "tile": "M64N64K64",
+      "cohort": "4M x 8N",
+      "finite_precision_boundary": "shared BF16 A; independent Gate/Up packed E2M1 plus E4M3 block scales and tensor scales; independent FP32 sums; BF16-RNE Gate and Up; SiLU(Gate)*Up; BF16-RNE H",
+      "registers_per_thread": 107,
+      "dynamic_shared_bytes": 38400,
+      "stack_bytes": 0,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0,
+      "local_bytes": 0,
+      "active_ctas_per_sm": 2,
+      "cooperative_grid_capacity": 32,
+      "sass": {
+        "ldgsts_e_bypass_128": 24,
+        "ldsm": 8,
+        "hmma_16816_f32_bf16": 32,
+        "ldl": 0,
+        "stl": 0
+      }
+    },
+    "nvfp4_down": {
+      "identity": "kPersistent32CtaM64N256K64Cohort8M4NExactV1",
+      "shape": "M40000 N5120 K17408",
+      "tile": "M64N256K64",
+      "cohort": "8M x 4N",
+      "finite_precision_boundary": "BF16 H; packed E2M1 plus E4M3 block scale and tensor scale; FP32 sum; BF16-RNE projection; BF16 residual add; BF16-RNE residual publication",
+      "registers_per_thread": 111,
+      "dynamic_shared_bytes": 52224,
+      "dynamic_shared_symbol_opt_in_required": true,
+      "stack_bytes": 0,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0,
+      "local_bytes": 0,
+      "active_ctas_per_sm": 2,
+      "cooperative_grid_capacity": 32,
+      "sass": {
+        "ldgsts_e_bypass_128": 20,
+        "hmma_16816_f32_bf16": 64,
+        "ldl": 0,
+        "stl": 0
+      }
+    },
+    "fp8": {
+      "identity": "q3x.sm87.bulk-v2.fp8.whole-p40000.m64n128k64-raster-m4n8.v1",
+      "roles": [
+        "FP8 GDN QKVZ",
+        "FP8 full QKV",
+        "FP8 Attention output"
+      ],
+      "shapes": [
+        "M40000 N16384 K5120",
+        "M40000 N14336 K5120",
+        "M40000 N5120 K6144"
+      ],
+      "tile": "M64N128K64",
+      "cohort": "4M x 8N",
+      "finite_precision_boundary": "BF16 A; unchanged authenticated K16-major raw E4M3FN payload including terminal codes; partition-private compensated tensor scale after full-K FP32 sum; BF16-RNE publication to original role partitions",
+      "registers_per_thread": {
+        "gdn_qkvz": 90,
+        "full_qkv": 93,
+        "attention_output": 89
+      },
+      "dynamic_shared_bytes": 49152,
+      "stack_bytes": 0,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0,
+      "local_bytes": 0,
+      "active_ctas_per_sm": 2,
+      "cooperative_grid_capacity": 32,
+      "ptx": {
+        "entry_symbols": 3,
+        "maxntid": "256,1,1",
+        "minnctapersm": 2
+      },
+      "aggregate_three_symbol_sass": {
+        "role_symbols": 3,
+        "partial_c_symbols": 0,
+        "ldgsts_e_bypass_128": 48,
+        "ldsm": 24,
+        "hmma_16816_f32_bf16": 96
+      }
+    }
+  },
+  "synthetic_exact_oracles": {
+    "result": "PASS",
+    "authority_class": "T1 deterministic synthetic correctness only",
+    "whole_kernel_symbol_used": true,
+    "full_p40000_domain_executed": false,
+    "reduced_domain": "M64 correctness cells with role-appropriate N/K coverage",
+    "checks": [
+      "bitwise expected output and same-ELF control where applicable",
+      "FP8 K16-major and N128-half asymmetric payload placement including terminal codes",
+      "ascending full-K and original scale/rounding/publication boundaries",
+      "deterministic replay",
+      "input and packed-payload immutability",
+      "complete guards",
+      "bounded cancellation before publication"
+    ],
+    "real_model_numerical_contract_qualified": false
+  },
+  "request_state": {
+    "execution_class": "default_off_development_resource",
+    "device_data_plane_allocations": 1,
+    "device_data_plane_bytes": 5075652608,
+    "gdn_cold_reset_bytes": 78446592,
+    "whole_arena_reset_forbidden": true,
+    "borrowed_owner_streams": 5,
+    "externally_owned_device_control_bytes": 1280,
+    "private_pinned_handoff_bytes": 8,
+    "pinned_handoff_fields": [
+      "token",
+      "nonfinite"
+    ],
+    "d2h_source": "fixed internal final-greedy workspace",
+    "d2h_destination": "private pinned handoff",
+    "hot_static_cuda_queries": 0,
+    "host_lifecycle_test": "PASS",
+    "executable_complete_model_owner": false
+  },
+  "ignored_workspace_evidence": [
+    {
+      "path": ".q3x-work/evidence/nvfp4-gateup-whole-p40/hash_bound_static_audit.json",
+      "sha256": "c6e2200a619d911fba191ff077cbd0a6e1628fcac2e51d428c02cc2ada1dd06e"
+    },
+    {
+      "path": ".q3x-work/evidence/nvfp4-gateup-whole-p40/q3x_sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_cuda_oracle_test.3.sm_87.cubin",
+      "sha256": "c5a1c249b2719cc981c60079e617ae2cbeb47aebb8d6dfa84b370185f6e3a2e0"
+    },
+    {
+      "path": ".q3x-work/build/v2-gateup-whole-p40/q3x_sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_cuda_oracle_test",
+      "sha256": "e9ae3f333654846828ddb90ceedc5e29bd1f33bae4f04702250481822d161430"
+    },
+    {
+      "path": ".q3x-work/evidence/bulk-v2-down-whole-p40-static/kernel.sass",
+      "sha256": "4fc1f96ef270d6b30312c8ca726c7499456e6c8bd4250499dfa1b507b4257e35"
+    },
+    {
+      "path": ".q3x-work/evidence/bulk-v2-down-whole-p40-static/resource.txt",
+      "sha256": "b26b43e5d907af3d911b7e877d9b4a78799dbd90e39ef64b8dda88d2abfeb034"
+    },
+    {
+      "path": ".q3x-work/build/v2-down-whole-p40-cuda/q3x_sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_cuda_oracle_test",
+      "sha256": "05702dc69ad96faa26b5c4063e714e1d21f1e52718bf071830ef3a2fb6f75a44"
+    },
+    {
+      "path": ".q3x-work/build/fp8-whole-p40-make/fp8-whole-p40.sass",
+      "sha256": "02dc9b33ea4250ac0681f03b946b77c47943c4c144d3d54898fbb7e3befcedeb"
+    },
+    {
+      "path": ".q3x-work/build/fp8-whole-p40-make/fp8-whole-p40.ptx",
+      "sha256": "147297c8fee9ae7710c29caab93bfedc6bc966e48be9fea7757b22ffa4df4d78"
+    },
+    {
+      "path": ".q3x-work/build/fp8-whole-p40-make/q3x_sm87_bulk_dataflow_v2_fp8_whole_p40_cuda_oracle_test",
+      "sha256": "1d198f2dbf1b38d85f6361bbdfe25b08cf425854d1fa0e941e4ad67eccab6d9f"
+    },
+    {
+      "path": ".q3x-work/build/v2-whole-projection-milestone/libq3x_engine.a",
+      "sha256": "cbafc09869941c16e984b4c344efa608e119c8b054816d624cfc903bcd6965a1"
+    },
+    {
+      "path": ".q3x-work/build/v2-whole-projection-milestone/libq3x_kernels.a",
+      "sha256": "315c143ff7f798b5ca5fe62e8560a1a61beeecac860147ac5e8a05ef62d83fa2"
+    },
+    {
+      "path": ".q3x-work/build/v2-whole-projection-milestone/q3x_sm87_bulk_dataflow_v2_fp8_whole_p40_cuda_oracle_test",
+      "sha256": "8657c7526bfe4430827572791334a3e697ecf84e450d6dc4a6df5847bfecfa69"
+    },
+    {
+      "path": ".q3x-work/build/v2-whole-projection-milestone/q3x_sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_cuda_oracle_test",
+      "sha256": "ddbd0eda0cc08107dccff2b116cc3f9d8524ea24058f457dc072befaf7643712"
+    },
+    {
+      "path": ".q3x-work/build/v2-whole-projection-milestone/q3x_sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_cuda_oracle_test",
+      "sha256": "239e99d34a0d849a70bb058b0fbee219289e1141e8f14b8d36ce7ab66ae61b28"
+    }
+  ],
+  "test_results": {
+    "gate_up_host_contract": "PASS",
+    "gate_up_cuda_exact_oracle": "PASS",
+    "down_host_contract": "PASS",
+    "down_cuda_exact_oracle": "PASS",
+    "fp8_host_contract": "PASS",
+    "fp8_cuda_exact_oracle": "PASS",
+    "projection_successor_manifest_and_negative_receipt": "PASS",
+    "request_state_host_lifecycle": "PASS",
+    "independent_p0_p1_code_audit": "PASS_WITH_NO_OPEN_P0_OR_P1",
+    "fresh_combined_build_directory": ".q3x-work/build/v2-whole-projection-milestone",
+    "fresh_combined_build_targets": {
+      "q3x_engine": "PASS",
+      "q3x_kernels": "PASS"
+    },
+    "fresh_combined_selected_suite": {
+      "host_tests_passed": 7,
+      "cuda_correctness_tests_passed": 7,
+      "tests_failed": 0,
+      "total_tests": 14,
+      "wall_time_retained_as_performance_evidence": false,
+      "authority": "T0/T1 build, host contract, and synthetic correctness only"
+    },
+    "default_off_build_testing_off": {
+      "q3x_engine_and_q3x_kernels_build": "PASS",
+      "whole_projection_or_owner_objects_present": false
+    },
+    "release_style_gated_configuration": "EXPECTED_FAIL_CLOSED",
+    "performance_test_executed": false,
+    "profiler_capture_executed": false
+  },
+  "explicitly_unproven": [
+    "public resource and receipt observations are not launch capabilities",
+    "unforgeable private startup capability that binds the exact loaded symbols and code hashes",
+    "cancellation behavior outside the reduced M64 synthetic oracle domain",
+    "complete natural-layer P40000 execution and terminal state publication",
+    "real checkpoint weights plus real prompt-derived activations and recurrent state",
+    "real OpenAI-compatible API route and EvalScope transaction",
+    "pure Prefill or TTFT performance",
+    "NCU or NSys attribution",
+    "actual DRAM traffic reduction or L2 residency from the planned service cohorts",
+    "P60 or approximately-P130 geometry and capacity",
+    "complete numerical, capability, release, and production qualification"
+  ],
+  "decision": {
+    "result": "RETAIN_AS_DEFAULT_OFF_CONSTITUENT_MILESTONE_AND_CONTINUE_COMPOSITION",
+    "production_change": false,
+    "performance_claim": false,
+    "next_gate": "build one composite v2 owner/executor and distinct default-off API route, then return directly to a clean-host cold/no-cache real P40000 API direction witness"
+  }
+}

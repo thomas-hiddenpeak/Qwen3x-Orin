@@ -295,21 +295,34 @@ Execution order:
    model roles, arithmetic backend, cache state, scheduler token accounting,
    liveness, outer operations, and physical launches; no unchanged reference
    timing run follows;
-2. retain the frozen Q128 persistent-L2-cohort Attention topology and close
-   the role-specific projection execution class that can credibly fit the
-   whole-P40 allocation;
-3. retain the passed single-C64 GDN bitwise oracle and the compiled P40
-   Attention cohort cell; implement the GDN continuation/double-slot launcher
-   and close Attention candidate-versus-control bitwise equivalence without
-   using synthetic timing for selection;
-4. freeze the combined numerical, state, buffer, cancellation,
-   synchronization, and AOT-plan identities;
-5. implement the mutually required projection, Attention, GDN, and handoff
-   seams in one v2 candidate binary;
-6. return immediately to one clean-host real P40 API direction witness;
-7. use a bounded profile only to answer a predeclared causal question that can
+2. retain the frozen and bitwise-oracled Q128 persistent-L2-cohort Attention,
+   the first 128-role/5,120-launch FP8 numerical control, and the exact
+   48-layer GDN double-slot/three-stream request session;
+3. retain the closed M64/M1024 joint NVFP4 same-ELF oracle only as a
+   default-off exact control. Its four serial M256 epochs do not provide
+   cross-group residency, and its traffic floor fails the whole-P40
+   projection allocation before timing;
+4. retain the implemented, default-off whole-P40000 Gate+Up, K-heavy Down,
+   and FP8 QKVZ/QKV/O constituents as the three shape-specific projection
+   successors. Their current gates are T0 compiler/resources and
+   reduced-domain synthetic exact oracles only; no L2 residency, real-P40,
+   API, performance, or production claim follows. Each quantized outer role
+   has one whole-M launch boundary and a 32-CTA SM87 scheduler. The former
+   5,120 FP8 and 2,560 NVFP4 exact-control launches remain oracle-only and
+   cannot satisfy the successor receipt;
+5. retain the frozen whole-P40 five-stream/12-event arena, control-plane,
+   exact 5,075,652,608-byte `RequestState`, and ABI-major 3 projection receipt.
+   Complete the private startup owner and unforgeable prevalidated
+   constituent access capabilities; then integrate final GDN state/history
+   publication, final norm, LM-head, argmax, fixed-source D2H, and the
+   terminal receipt in one v2 executor;
+6. expose that executor only through a distinct default-off OpenAI API route,
+   with no production selector or release claim;
+7. return immediately to one clean-host real P40 API direction witness after
+   `tegrastats`/process/device-handle preflight;
+8. use a bounded profile only to answer a predeclared causal question that can
    select a materially different complete dataflow; and
-8. qualify a positive composition or close and redesign the architecture
+9. qualify a positive composition or close and redesign the architecture
    version. Do not convert a negative result into a local parameter scan.
 
 ### Promotion and stop gates

@@ -135,6 +135,30 @@ option(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION
   "Build the default-off exact-P40000 Attention v2 persistent-L2-cohort cell"
   OFF
 )
+option(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_PROJECTION_ADMISSION
+  "Build the default-off M64N256K64 four-stage FP8 projection-family executor base"
+  OFF
+)
+option(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_WHOLE_P40_ADMISSION
+  "Build the default-off whole-P40000 FP8 4Mx8N cohort successor and same-kernel exact CUDA oracle"
+  OFF
+)
+option(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_PROJECTION_ADMISSION
+  "Build the default-off exact-control/no-residency NVFP4 v2 stepping stone and CUDA oracle"
+  OFF
+)
+option(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_DOWN_WHOLE_P40_ADMISSION
+  "Build the default-off whole-P40000 K-heavy NVFP4 Down 8Mx4N cohort successor and exact CUDA oracle"
+  OFF
+)
+option(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION
+  "Build the default-off whole-P40000 NVFP4 Gate+Up 4Mx8N cohort successor and exact CUDA oracle"
+  OFF
+)
+option(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_OWNER_ADMISSION
+  "Build the default-off whole-P40 v2 resource owner and host lifecycle contract"
+  OFF
+)
 option(Q3X_BUILD_P40_PROJECTION_WORK_MANIFEST_DIAGNOSTIC
   "Build the host-only three-level P40 v10 projection work checker"
   OFF
@@ -393,6 +417,73 @@ if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION AND
    NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_PROJECTION_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_PROJECTION_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_PROJECTION_ADMISSION AND
+   NOT Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_PROJECTION_ADMISSION requires authenticated target-AOT FP8 payload assets"
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_WHOLE_P40_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_WHOLE_P40_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_WHOLE_P40_ADMISSION AND
+   (NOT Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION OR
+    NOT Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_PROJECTION_ADMISSION))
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_WHOLE_P40_ADMISSION requires authenticated target-AOT FP8 assets and the same-ELF exact-control family"
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_PROJECTION_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_PROJECTION_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_PROJECTION_ADMISSION AND
+   NOT Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_PROJECTION_ADMISSION requires authenticated target-AOT NVFP4 payload assets"
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_DOWN_WHOLE_P40_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_DOWN_WHOLE_P40_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_DOWN_WHOLE_P40_ADMISSION AND
+   NOT Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_DOWN_WHOLE_P40_ADMISSION requires authenticated target-AOT NVFP4 payload assets"
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION AND
+   NOT Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION requires authenticated target-AOT NVFP4 payload assets"
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_OWNER_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_OWNER_ADMISSION is an incomplete default-off architecture slice and requires BUILD_TESTING=ON"
   )
 endif()
 if(Q3X_BUILD_P40_PROJECTION_WORK_MANIFEST_DIAGNOSTIC AND
@@ -807,13 +898,81 @@ if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_GDN_C64_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/sm87_bulk_dataflow_v2_gdn_c64.cu
   )
+  target_link_libraries(q3x_kernels PRIVATE CUDA::cuda_driver)
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_GDN_C64_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION)
+  target_link_libraries(q3x_kernels PRIVATE CUDA::cuda_driver)
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_PROJECTION_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/sm87_bulk_dataflow_v2_fp8_projection.cu
+  )
+  set_property(SOURCE
+    src/kernels/sm87/sm87_bulk_dataflow_v2_fp8_projection.cu
+    APPEND PROPERTY COMPILE_OPTIONS "-Xptxas=-v"
+  )
+  target_link_libraries(q3x_kernels PRIVATE CUDA::cuda_driver)
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_FP8_PROJECTION_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_WHOLE_P40_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/sm87_bulk_dataflow_v2_fp8_whole_p40.cu
+  )
+  set_property(SOURCE
+    src/kernels/sm87/sm87_bulk_dataflow_v2_fp8_whole_p40.cu
+    APPEND PROPERTY COMPILE_OPTIONS "-Xptxas=-v"
+  )
+  target_link_libraries(q3x_kernels PRIVATE CUDA::cuda_driver)
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_FP8_WHOLE_P40_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_PROJECTION_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_projection.cu
+    src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_projection_numerical.cu
+  )
+  set_property(SOURCE
+    src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_projection.cu
+    src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_projection_numerical.cu
+    APPEND PROPERTY COMPILE_OPTIONS "-Xptxas=-v"
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_NVFP4_PROJECTION_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_DOWN_WHOLE_P40_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_down_whole_p40.cu
+  )
+  set_property(SOURCE
+    src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_down_whole_p40.cu
+    APPEND PROPERTY COMPILE_OPTIONS "-Xptxas=-v"
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_NVFP4_DOWN_WHOLE_P40_ADMISSION=1
+    Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_NVFP4_PROJECTION_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40.cu
+  )
+  set_property(SOURCE
+    src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40.cu
+    APPEND PROPERTY COMPILE_OPTIONS "-Xptxas=-v"
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION=1
+    Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_NVFP4_PROJECTION_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
@@ -862,6 +1021,26 @@ add_library(q3x_engine STATIC
   src/runtime/reference_engine_control.cpp
   src/runtime/reference_engine_prefill_authority.cpp
 )
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_OWNER_ADMISSION)
+  # These sources own only the v2 startup resources and the source-private
+  # ownership/lifecycle state machine.  It has no selector/API binding and its
+  # default-off development seal remains fail-closed until every real
+  # constituent capability is qualified.  No production selector/factory is
+  # present in this slice.
+  target_sources(q3x_engine PRIVATE
+    src/runtime/sm87_bulk_dataflow_v2_p40_constituent_seal_internal.cpp
+    src/runtime/sm87_bulk_dataflow_v2_p40_owner_internal.cpp
+    src/runtime/sm87_bulk_dataflow_v2_p40_request_state_internal.cpp
+  )
+  target_include_directories(q3x_engine PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+  )
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_ADMISSION=1
+    Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_REQUEST_STATE_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
   target_sources(q3x_engine PRIVATE
     src/runtime/sm87_target_aot_engine_rope_internal.cpp
@@ -2894,6 +3073,485 @@ if(BUILD_TESTING)
     LABELS "host;sm87;prefill;bulk_dataflow_v2;attention;p40;l2_cohort;default_off"
   )
 
+  add_executable(q3x_sm87_bulk_dataflow_v2_fp8_projection_host_test
+    tests/sm87_bulk_dataflow_v2_fp8_projection_host_test.cpp
+  )
+  target_link_libraries(
+    q3x_sm87_bulk_dataflow_v2_fp8_projection_host_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(
+    q3x_sm87_bulk_dataflow_v2_fp8_projection_host_test
+  )
+  add_test(NAME sm87_bulk_dataflow_v2_fp8_projection_host
+    COMMAND q3x_sm87_bulk_dataflow_v2_fp8_projection_host_test
+  )
+  set_tests_properties(
+    sm87_bulk_dataflow_v2_fp8_projection_host PROPERTIES
+    LABELS "host;sm87;prefill;bulk_dataflow_v2;projection;fp8;p40;static;default_off"
+  )
+
+  add_executable(q3x_sm87_bulk_dataflow_v2_fp8_whole_p40_host_test
+    tests/sm87_bulk_dataflow_v2_fp8_whole_p40_host_test.cpp
+  )
+  target_link_libraries(
+    q3x_sm87_bulk_dataflow_v2_fp8_whole_p40_host_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(
+    q3x_sm87_bulk_dataflow_v2_fp8_whole_p40_host_test
+  )
+  add_test(NAME sm87_bulk_dataflow_v2_fp8_whole_p40_host
+    COMMAND q3x_sm87_bulk_dataflow_v2_fp8_whole_p40_host_test
+  )
+  set_tests_properties(
+    sm87_bulk_dataflow_v2_fp8_whole_p40_host PROPERTIES
+    LABELS "host;sm87;prefill;bulk_dataflow_v2;projection;fp8;whole_p40;mapping;traffic;default_off"
+  )
+
+  add_executable(
+    q3x_sm87_bulk_dataflow_v2_fp8_prevalidated_host_test
+    tests/sm87_bulk_dataflow_v2_fp8_prevalidated_host_test.cpp
+  )
+  target_include_directories(
+    q3x_sm87_bulk_dataflow_v2_fp8_prevalidated_host_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87"
+  )
+  target_link_libraries(
+    q3x_sm87_bulk_dataflow_v2_fp8_prevalidated_host_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(
+    q3x_sm87_bulk_dataflow_v2_fp8_prevalidated_host_test
+  )
+  add_test(NAME sm87_bulk_dataflow_v2_fp8_prevalidated_host
+    COMMAND q3x_sm87_bulk_dataflow_v2_fp8_prevalidated_host_test
+  )
+  set_tests_properties(
+    sm87_bulk_dataflow_v2_fp8_prevalidated_host PROPERTIES
+    LABELS "host;sm87;prefill;bulk_dataflow_v2;projection;fp8;p40;startup_seal;prevalidated;default_off"
+  )
+
+  add_executable(
+    q3x_sm87_bulk_dataflow_v2_attention_prevalidated_host_test
+    tests/sm87_bulk_dataflow_v2_attention_prevalidated_host_test.cpp
+  )
+  target_include_directories(
+    q3x_sm87_bulk_dataflow_v2_attention_prevalidated_host_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87"
+  )
+  target_link_libraries(
+    q3x_sm87_bulk_dataflow_v2_attention_prevalidated_host_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(
+    q3x_sm87_bulk_dataflow_v2_attention_prevalidated_host_test
+  )
+  add_test(NAME sm87_bulk_dataflow_v2_attention_prevalidated_host
+    COMMAND q3x_sm87_bulk_dataflow_v2_attention_prevalidated_host_test
+  )
+  set_tests_properties(
+    sm87_bulk_dataflow_v2_attention_prevalidated_host PROPERTIES
+    LABELS "host;sm87;prefill;bulk_dataflow_v2;attention;p40;startup_seal;prevalidated;default_off"
+  )
+
+  add_executable(
+    q3x_sm87_target_aot_bf16_ab_prevalidated_host_test
+    tests/sm87_target_aot_bf16_ab_prevalidated_host_test.cpp
+  )
+  target_include_directories(
+    q3x_sm87_target_aot_bf16_ab_prevalidated_host_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87"
+  )
+  target_link_libraries(
+    q3x_sm87_target_aot_bf16_ab_prevalidated_host_test PRIVATE q3x::core
+  )
+  q3x_enable_warnings(
+    q3x_sm87_target_aot_bf16_ab_prevalidated_host_test
+  )
+  add_test(NAME sm87_target_aot_bf16_ab_prevalidated_host
+    COMMAND q3x_sm87_target_aot_bf16_ab_prevalidated_host_test
+  )
+  set_tests_properties(
+    sm87_target_aot_bf16_ab_prevalidated_host PROPERTIES
+    LABELS "host;sm87;prefill;bulk_dataflow_v2;gdn;bf16_ab;p40;startup_seal;prevalidated;default_off"
+  )
+
+  add_executable(q3x_sm87_bulk_dataflow_v2_nvfp4_projection_host_test
+    tests/sm87_bulk_dataflow_v2_nvfp4_projection_host_test.cpp
+  )
+  target_link_libraries(
+    q3x_sm87_bulk_dataflow_v2_nvfp4_projection_host_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(
+    q3x_sm87_bulk_dataflow_v2_nvfp4_projection_host_test
+  )
+  add_test(NAME sm87_bulk_dataflow_v2_nvfp4_projection_host
+    COMMAND q3x_sm87_bulk_dataflow_v2_nvfp4_projection_host_test
+  )
+  set_tests_properties(
+    sm87_bulk_dataflow_v2_nvfp4_projection_host PROPERTIES
+    LABELS "host;sm87;prefill;bulk_dataflow_v2;projection;nvfp4;p40;static;numerical_admission;default_off"
+  )
+
+  add_executable(
+    q3x_sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_host_test
+    tests/sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_host_test.cpp
+  )
+  target_link_libraries(
+    q3x_sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_host_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(
+    q3x_sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_host_test
+  )
+  add_test(NAME sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_host
+    COMMAND q3x_sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_host_test
+  )
+  set_tests_properties(
+    sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_host PROPERTIES
+    LABELS "host;sm87;prefill;bulk_dataflow_v2;projection;nvfp4;down;p40;8m4n;traffic_contract;default_off"
+  )
+
+  add_executable(
+    q3x_sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_host_test
+    tests/sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_host_test.cpp
+  )
+  target_link_libraries(
+    q3x_sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_host_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(
+    q3x_sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_host_test
+  )
+  add_test(NAME sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_host
+    COMMAND q3x_sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_host_test
+  )
+  set_tests_properties(
+    sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_host PROPERTIES
+    LABELS "host;sm87;prefill;bulk_dataflow_v2;projection;nvfp4;gate_up;p40;4m8n;traffic_contract;default_off"
+  )
+
+  add_executable(
+    q3x_sm87_bulk_dataflow_v2_p40_projection_successor_host_test
+    tests/sm87_bulk_dataflow_v2_p40_projection_successor_host_test.cpp
+  )
+  target_link_libraries(
+    q3x_sm87_bulk_dataflow_v2_p40_projection_successor_host_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(
+    q3x_sm87_bulk_dataflow_v2_p40_projection_successor_host_test
+  )
+  add_test(NAME sm87_bulk_dataflow_v2_p40_projection_successor_host
+    COMMAND q3x_sm87_bulk_dataflow_v2_p40_projection_successor_host_test
+  )
+  set_tests_properties(
+    sm87_bulk_dataflow_v2_p40_projection_successor_host PROPERTIES
+    LABELS "host;sm87;prefill;bulk_dataflow_v2;projection;whole_p40;receipt;default_off"
+  )
+
+  add_executable(q3x_sm87_bulk_dataflow_v2_p40_plan_host_test
+    tests/sm87_bulk_dataflow_v2_p40_plan_host_test.cpp
+  )
+  target_link_libraries(q3x_sm87_bulk_dataflow_v2_p40_plan_host_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(q3x_sm87_bulk_dataflow_v2_p40_plan_host_test)
+  add_test(NAME sm87_bulk_dataflow_v2_p40_plan_host
+    COMMAND q3x_sm87_bulk_dataflow_v2_p40_plan_host_test
+  )
+  set_tests_properties(sm87_bulk_dataflow_v2_p40_plan_host PROPERTIES
+    LABELS "host;sm87;prefill;bulk_dataflow_v2;p40;whole_request;arena;control_plane;default_off"
+  )
+
+  if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_OWNER_ADMISSION)
+    add_executable(q3x_sm87_bulk_dataflow_v2_p40_owner_host_test
+      src/runtime/sm87_bulk_dataflow_v2_p40_constituent_seal_internal.cpp
+      src/runtime/sm87_bulk_dataflow_v2_p40_owner_internal.cpp
+      src/runtime/sm87_bulk_dataflow_v2_p40_request_state_internal.cpp
+      tests/sm87_bulk_dataflow_v2_p40_owner_host_test.cpp
+    )
+    target_include_directories(
+      q3x_sm87_bulk_dataflow_v2_p40_owner_host_test PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+    )
+    target_compile_definitions(
+      q3x_sm87_bulk_dataflow_v2_p40_owner_host_test PRIVATE
+      Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_ADMISSION=1
+      Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_HOST_FIXTURE=1
+      Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_REQUEST_STATE_ADMISSION=1
+    )
+    target_link_libraries(
+      q3x_sm87_bulk_dataflow_v2_p40_owner_host_test
+      PRIVATE q3x::core CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_bulk_dataflow_v2_p40_owner_host_test
+    )
+    add_test(NAME sm87_bulk_dataflow_v2_p40_owner_host
+      COMMAND q3x_sm87_bulk_dataflow_v2_p40_owner_host_test
+    )
+    set_tests_properties(sm87_bulk_dataflow_v2_p40_owner_host PROPERTIES
+      LABELS "host;sm87;prefill;bulk_dataflow_v2;p40;ownership;lifecycle;startup_resources;default_off"
+    )
+
+    add_executable(q3x_sm87_bulk_dataflow_v2_p40_request_state_host_test
+      src/runtime/sm87_bulk_dataflow_v2_p40_request_state_internal.cpp
+      tests/sm87_bulk_dataflow_v2_p40_request_state_host_test.cpp
+    )
+    target_include_directories(
+      q3x_sm87_bulk_dataflow_v2_p40_request_state_host_test PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+    )
+    target_compile_definitions(
+      q3x_sm87_bulk_dataflow_v2_p40_request_state_host_test PRIVATE
+      Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_REQUEST_STATE_ADMISSION=1
+      Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_REQUEST_STATE_HOST_FIXTURE=1
+    )
+    target_link_libraries(
+      q3x_sm87_bulk_dataflow_v2_p40_request_state_host_test
+      PRIVATE q3x::core CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_bulk_dataflow_v2_p40_request_state_host_test
+    )
+    add_test(NAME sm87_bulk_dataflow_v2_p40_request_state_host
+      COMMAND q3x_sm87_bulk_dataflow_v2_p40_request_state_host_test
+    )
+    set_tests_properties(
+      sm87_bulk_dataflow_v2_p40_request_state_host PROPERTIES
+      LABELS "host;sm87;prefill;bulk_dataflow_v2;p40;request_state;arena;pinned_handoff;startup_seal;default_off"
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION)
+    add_executable(
+      q3x_sm87_bulk_dataflow_v2_attention_l2_cohort_cuda_oracle_test
+      tests/sm87_bulk_dataflow_v2_attention_l2_cohort_cuda_oracle_test.cu
+    )
+    target_include_directories(
+      q3x_sm87_bulk_dataflow_v2_attention_l2_cohort_cuda_oracle_test
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87"
+    )
+    target_link_libraries(
+      q3x_sm87_bulk_dataflow_v2_attention_l2_cohort_cuda_oracle_test
+      PRIVATE q3x::core q3x::kernels CUDA::cudart
+    )
+    target_compile_options(
+      q3x_sm87_bulk_dataflow_v2_attention_l2_cohort_cuda_oracle_test PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+    )
+    q3x_enable_warnings(
+      q3x_sm87_bulk_dataflow_v2_attention_l2_cohort_cuda_oracle_test
+    )
+    add_test(NAME sm87_bulk_dataflow_v2_attention_l2_cohort_cuda_oracle
+      COMMAND
+        q3x_sm87_bulk_dataflow_v2_attention_l2_cohort_cuda_oracle_test
+    )
+    set_tests_properties(
+      sm87_bulk_dataflow_v2_attention_l2_cohort_cuda_oracle PROPERTIES
+      LABELS "cuda;sm87;prefill;bulk_dataflow_v2;attention;p40;l2_cohort;correctness;synthetic;default_off"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 900
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_PROJECTION_ADMISSION)
+    add_executable(
+      q3x_sm87_bulk_dataflow_v2_fp8_projection_cuda_oracle_test
+      tests/sm87_bulk_dataflow_v2_fp8_projection_cuda_oracle_test.cu
+    )
+    target_include_directories(
+      q3x_sm87_bulk_dataflow_v2_fp8_projection_cuda_oracle_test
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87"
+    )
+    target_compile_definitions(
+      q3x_sm87_bulk_dataflow_v2_fp8_projection_cuda_oracle_test PRIVATE
+      Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_FP8_PROJECTION_ADMISSION=1
+    )
+    target_link_libraries(
+      q3x_sm87_bulk_dataflow_v2_fp8_projection_cuda_oracle_test
+      PRIVATE q3x::core q3x::kernels CUDA::cudart
+    )
+    target_compile_options(
+      q3x_sm87_bulk_dataflow_v2_fp8_projection_cuda_oracle_test PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+    )
+    q3x_enable_warnings(
+      q3x_sm87_bulk_dataflow_v2_fp8_projection_cuda_oracle_test
+    )
+    add_test(NAME sm87_bulk_dataflow_v2_fp8_projection_cuda_oracle
+      COMMAND q3x_sm87_bulk_dataflow_v2_fp8_projection_cuda_oracle_test
+    )
+    set_tests_properties(
+      sm87_bulk_dataflow_v2_fp8_projection_cuda_oracle PROPERTIES
+      LABELS "cuda;sm87;prefill;bulk_dataflow_v2;projection;fp8;p40;bit_exact;synthetic;default_off"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 1200
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_WHOLE_P40_ADMISSION)
+    add_executable(
+      q3x_sm87_bulk_dataflow_v2_fp8_whole_p40_cuda_oracle_test
+      tests/sm87_bulk_dataflow_v2_fp8_whole_p40_cuda_oracle_test.cu
+    )
+    target_include_directories(
+      q3x_sm87_bulk_dataflow_v2_fp8_whole_p40_cuda_oracle_test
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87"
+    )
+    target_compile_definitions(
+      q3x_sm87_bulk_dataflow_v2_fp8_whole_p40_cuda_oracle_test PRIVATE
+      Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_FP8_PROJECTION_ADMISSION=1
+      Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_FP8_WHOLE_P40_ADMISSION=1
+    )
+    target_link_libraries(
+      q3x_sm87_bulk_dataflow_v2_fp8_whole_p40_cuda_oracle_test
+      PRIVATE q3x::core q3x::kernels CUDA::cudart
+    )
+    target_compile_options(
+      q3x_sm87_bulk_dataflow_v2_fp8_whole_p40_cuda_oracle_test PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+    )
+    q3x_enable_warnings(
+      q3x_sm87_bulk_dataflow_v2_fp8_whole_p40_cuda_oracle_test
+    )
+    add_test(NAME sm87_bulk_dataflow_v2_fp8_whole_p40_cuda_oracle
+      COMMAND q3x_sm87_bulk_dataflow_v2_fp8_whole_p40_cuda_oracle_test
+    )
+    set_tests_properties(
+      sm87_bulk_dataflow_v2_fp8_whole_p40_cuda_oracle PROPERTIES
+      LABELS "cuda;sm87;prefill;bulk_dataflow_v2;projection;fp8;whole_p40;4m8n;bit_exact;synthetic;default_off"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 1200
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_PROJECTION_ADMISSION)
+    add_executable(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_projection_cuda_oracle_test
+      tests/sm87_bulk_dataflow_v2_nvfp4_projection_cuda_oracle_test.cu
+    )
+    target_include_directories(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_projection_cuda_oracle_test
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87"
+    )
+    target_compile_definitions(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_projection_cuda_oracle_test PRIVATE
+      Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_NVFP4_PROJECTION_ADMISSION=1
+    )
+    target_link_libraries(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_projection_cuda_oracle_test
+      PRIVATE q3x::core q3x::kernels CUDA::cudart
+    )
+    target_compile_options(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_projection_cuda_oracle_test PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+    )
+    q3x_enable_warnings(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_projection_cuda_oracle_test
+    )
+    add_test(NAME sm87_bulk_dataflow_v2_nvfp4_projection_cuda_oracle
+      COMMAND q3x_sm87_bulk_dataflow_v2_nvfp4_projection_cuda_oracle_test
+    )
+    set_tests_properties(
+      sm87_bulk_dataflow_v2_nvfp4_projection_cuda_oracle PROPERTIES
+      LABELS "cuda;sm87;prefill;bulk_dataflow_v2;projection;nvfp4;p40;bit_exact;synthetic;default_off"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 1200
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_DOWN_WHOLE_P40_ADMISSION)
+    add_executable(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_cuda_oracle_test
+      tests/sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_cuda_oracle_test.cu
+    )
+    target_include_directories(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_cuda_oracle_test
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87"
+    )
+    target_compile_definitions(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_cuda_oracle_test PRIVATE
+      Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_NVFP4_DOWN_WHOLE_P40_ADMISSION=1
+      Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_NVFP4_PROJECTION_ADMISSION=1
+    )
+    target_link_libraries(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_cuda_oracle_test
+      PRIVATE q3x::core q3x::kernels CUDA::cudart
+    )
+    target_compile_options(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_cuda_oracle_test
+      PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+    )
+    q3x_enable_warnings(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_cuda_oracle_test
+    )
+    add_test(NAME sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_cuda_oracle
+      COMMAND
+        q3x_sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_cuda_oracle_test
+    )
+    set_tests_properties(
+      sm87_bulk_dataflow_v2_nvfp4_down_whole_p40_cuda_oracle PROPERTIES
+      LABELS "cuda;sm87;prefill;bulk_dataflow_v2;projection;nvfp4;down;p40;8m4n;bit_exact;synthetic;default_off"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 1200
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION)
+    add_executable(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_cuda_oracle_test
+      tests/sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_cuda_oracle_test.cu
+    )
+    target_include_directories(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_cuda_oracle_test
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87"
+    )
+    target_compile_definitions(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_cuda_oracle_test
+      PRIVATE
+      Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION=1
+      Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_NVFP4_PROJECTION_ADMISSION=1
+    )
+    target_link_libraries(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_cuda_oracle_test
+      PRIVATE q3x::core q3x::kernels CUDA::cudart
+    )
+    target_compile_options(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_cuda_oracle_test
+      PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+    )
+    q3x_enable_warnings(
+      q3x_sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_cuda_oracle_test
+    )
+    add_test(NAME sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_cuda_oracle
+      COMMAND
+        q3x_sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_cuda_oracle_test
+    )
+    set_tests_properties(
+      sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40_cuda_oracle PROPERTIES
+      LABELS "cuda;sm87;prefill;bulk_dataflow_v2;projection;nvfp4;gate_up;p40;4m8n;bit_exact;synthetic;default_off"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 1200
+    )
+  endif()
+
   if(Q3X_BUILD_P40_PROJECTION_WORK_MANIFEST_DIAGNOSTIC)
     add_executable(q3x_p40_projection_work_manifest_host_test
       tests/p40_projection_work_manifest_host_test.cpp
@@ -2944,6 +3602,30 @@ if(BUILD_TESTING)
       RUN_SERIAL TRUE
       SKIP_RETURN_CODE 77
       TIMEOUT 600
+    )
+
+    add_executable(q3x_sm87_bulk_dataflow_v2_gdn_p40_cuda_oracle_test
+      tests/sm87_bulk_dataflow_v2_gdn_p40_cuda_oracle_test.cu
+    )
+    target_link_libraries(q3x_sm87_bulk_dataflow_v2_gdn_p40_cuda_oracle_test
+      PRIVATE q3x::core q3x::kernels CUDA::cudart
+    )
+    target_compile_options(
+      q3x_sm87_bulk_dataflow_v2_gdn_p40_cuda_oracle_test PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+    )
+    q3x_enable_warnings(
+      q3x_sm87_bulk_dataflow_v2_gdn_p40_cuda_oracle_test
+    )
+    add_test(NAME sm87_bulk_dataflow_v2_gdn_p40_cuda_oracle
+      COMMAND q3x_sm87_bulk_dataflow_v2_gdn_p40_cuda_oracle_test
+    )
+    set_tests_properties(sm87_bulk_dataflow_v2_gdn_p40_cuda_oracle PROPERTIES
+      LABELS "cuda;sm87;prefill;bulk_dataflow_v2;gdn;p40;double_slot;three_stream;correctness;synthetic;default_off"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 900
     )
   endif()
 

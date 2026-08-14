@@ -374,12 +374,58 @@ ledger.
 
 The projection constituent declares five shape-specific roles: NVFP4
 Gate+Up, NVFP4 Down, FP8 GDN QKVZ, FP8 full-QKV, and FP8 Attention output.
-All use an M128/N256/K64 physical tile with eight warps, but Gate+Up, GDN
-QKVZ, and full-QKV retain an M-raster group of two while Down and Attention
-output use one. NVFP4 and FP8 operands keep independent packed-weight and
-scale contracts. The GDN A/B producer is a separate paired BF16 plan with two
+The earlier host freeze proposed one M128/N256/K64 family with only a small
+M-raster distinction. Executable traffic accounting has superseded that
+projection portion of the freeze: Gate+Up, K-heavy Down, and FP8 require three
+different whole-P40000 persistent schedules. They may not inherit one tile,
+raster, cache policy, or segment count merely because the arithmetic primitive
+is shared. NVFP4 and FP8 operands keep independent packed-weight and scale
+contracts. The GDN A/B producer remains a separate paired BF16 plan with two
 independent weights, accumulators, and BF16-RNE publications; pairing does not
 turn the two model tensors into one numerical operation.
+
+The first executable NVFP4 control used 39 M1024 launches plus one M64 tail
+per layer, but each M1024 body serialized four complete M256 epochs. Static
+source accounting proves that boundary cannot fit the projection allocation:
+the realistic NVFP4 weight floor is 3.012915 TB across the family, or 14.7115
+seconds at 204.8 GB/s, and even impossible four-row reuse for every NVFP4 role
+plus optimistic segmented FP8 reuse remains 8.7883 seconds before other
+traffic. The exact body is retained as a same-ELF numerical control only.
+The selected successor follows the proven whole-M principle in vLLM Marlin's
+persistent stripe/Stream-K scheduler and Humming's L2-aware raster, translated
+to fixed AOT SM87 kernels: one whole-P40000 launch per projection role, 32
+persistent CTAs, and role-specific two-dimensional M/N cohorts. Gate+Up shares
+each A stage while preserving two independent accumulations and publications;
+Down balances H reuse against B-panel reuse under its much larger K and short
+N grid; FP8 receives a separate schedule rather than retaining forty M1024
+segments. The source hashes, exact oracle, final compiler resources, and
+communication rejection are frozen in the
+[`NVFP4 exact-control closure`](metadata/qwen36-27b-sm87-bulk-v2-nvfp4-exact-control-closure-2026-08-14.json).
+
+That translation now has three separately compiled default-off CUDA
+constituents. Gate+Up maps the shared-A/independent-B invariant to
+M64/N64/K64 cells in a 4M-by-8N cohort. Down maps its K-heavy short-N shape to
+M64/N256/K64 cells in an 8M-by-4N cohort. FP8 maps the authenticated
+K16-major Marlin payload, including partition-private scales, to
+M64/N128/K64 cells in a separate 4M-by-8N cohort. Each uses 32 persistent
+CTAs, three `cp.async.cg` stages, two register-feed stages, ascending full-K
+FP32 accumulation, no split-K/global partial C, and one cooperative outer
+launch for each complete P40000 model role. Gate+Up retains two independent
+NVFP4 scale and rounding authorities through the fused SiLU-times-Up
+publication; Down retains its two BF16-RNE boundaries around residual add;
+FP8 retains the original raw E4M3 bytes and the distinct QKV/Z/O output
+partitions.
+
+Their present evidence stops at T0 compiler/resource observations and T1
+reduced-domain synthetic exactness. Gate+Up/Down/FP8 compile at respectively
+107/111 and 89--93 registers/thread, zero stack/spill/local bytes, and
+38,400/52,224/49,152 bytes of dynamic shared memory with a static two-CTA/SM
+capacity; Down's exact symbol requires startup dynamic-shared opt-in. The
+oracles exercise M64 correctness cells, not the full P40000 dataflow. No NCU
+counter, real-payload timing, scheduler co-residency, DRAM reduction, or L2
+residency has been measured. The three same-kernel reduced-domain synthetic
+exact oracles pass, but the cohort mapping remains a falsifiable
+service-order hypothesis until a complete real-API composition is positive.
 
 The canonical system contract contains 39 typed resource edges and 13 typed
 event edges. Gate and Up are paired inside one CTA while retaining independent
@@ -409,6 +455,26 @@ slots. No cross-operator double- or triple-buffered GPU pipeline is selected
 yet. The DAG permits GDN
 QKVZ and A/B to overlap after input normalization, but stream assignment,
 simultaneous resource fit, and any performance benefit remain unqualified.
+
+The composition contract has consequently advanced to ABI-major 3 without
+claiming execution. Its projection-successor manifest keeps the 496 logical
+checkpoint roles and 304 fused outer operations distinct from physical work:
+48 GDN-QKVZ, 16 full-QKV, and 64 Attention-output launches form the 128 FP8
+whole-role receipts; 64 Gate+Up and 64 Down launches form the 128 NVFP4
+receipts; 48 BF16 A/B launches complete the projection ledger. The old 5,120
+FP8 and 2,560 NVFP4 control launch counts must both be zero in a complete v2
+receipt. Caller-filled receipts are terminal observations, not launch
+capabilities.
+
+The separate v2 `RequestState` now realizes the data-plane lifetime side of
+this host contract: one exact 5,075,652,608-byte device allocation, only
+78,446,592 cold-reset bytes for GDN persistent state/history, the owner's five
+borrowed streams, an externally owned 1,280-byte device control plane, and a
+private eight-byte pinned greedy handoff. Its fixed D2H source prevents an
+executor from redirecting the handoff. This is a host-tested ownership and
+lifecycle boundary only; the private startup capability that binds every
+constituent, the executable natural-layer chain, terminal state publication,
+and default-off API route remain to be composed.
 
 The build admission for the descriptor remains default-off and test-only. A
 separate default-off admission contains a real-byte host transformation and

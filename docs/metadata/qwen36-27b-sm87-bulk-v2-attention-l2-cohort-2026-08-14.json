@@ -1,19 +1,20 @@
 {
   "schema_version": 1,
   "artifact": "qwen36-27b-sm87-bulk-v2-attention-l2-cohort-2026-08-14",
-  "recorded_at": "2026-08-14T06:27:33+08:00",
+  "recorded_at": "2026-08-14T07:30:00+08:00",
   "timezone": "Asia/Shanghai",
-  "status": "mapping_and_static_resource_cell_complete_numerical_oracle_pending",
+  "status": "full_p40_synthetic_same_body_differential_pass_default_off",
   "authority": {
     "scope": "default-off exact-P40000 full-Attention persistent L2-cohort execution cell",
     "host_mapping_authority": true,
     "static_resource_authority": true,
-    "numerical_qualification_authority": false,
+    "synthetic_full_surface_differential_authority": true,
+    "real_model_numerical_qualification_authority": false,
     "real_model_authority": false,
     "performance_authority": false,
     "api_authority": false,
     "production_promotion_authority": false,
-    "gpu_run": false
+    "gpu_run": true
   },
   "source_identity": {
     "base_commit": "061c1a72fbea25fbd17e1f594fd1ab7e40620172",
@@ -29,12 +30,33 @@
       },
       {
         "path": "src/kernels/reference/full_attention_c512_register_pipeline.cu",
-        "sha256": "78e1771714036c652e876236ce722f7ea91d9117367fc74e0a0f5e76c833d8d8"
+        "sha256": "7b88ca06039c4bd9c25b22eac45e23045042c6295a67a71ee3cdd61e28620365"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_bulk_dataflow_v2_attention_l2_cohort_oracle_internal.h",
+        "sha256": "7f040452f1507dee5cb8ee6b5faddfa6b68b5ea5c9fb92f2f4af9e6733b0ae76"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_target_aot_attention_launch_internal.h",
+        "sha256": "e3fd764c69bf48ce2afabee9034ff7e6da6bdd1c1ae447356c06a8ac9b19b30a"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_attention_l2_cohort_cuda_oracle_test.cu",
+        "sha256": "fcf5d16914b295cac1359f70a380406262f34bbfa58efa995dfe66560d8b133f"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_bulk_dataflow_v2_attention_l2_cohort_launch_internal.h",
+        "sha256": "f1e4ca45d2951985cdf23371d974c603921c72202e8e4f555db85263a8cc2501"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_attention_prevalidated_host_test.cpp",
+        "sha256": "6d6696cbacae8bf5ffac89403c207cde1df7df8eeaf613cecf390810b9d7c9a5"
       }
     ],
     "candidate_object_sha256": "0056363fdc00ec367586f0f55bc11b8dadb8707f10e25cd468a6e0f8d1bec47e",
     "control_object_sha256": "ad3214e03bef533f936c76d81c58a2b5bc1ff2229c3002c07c86134d907c83af",
-    "host_mapping_test_sha256": "2be8db75f5434c16a7a2aa86a49ace9761b391a45607a43a9d4bcfc9d06e2e4f"
+    "host_mapping_test_sha256": "2be8db75f5434c16a7a2aa86a49ace9761b391a45607a43a9d4bcfc9d06e2e4f",
+    "cuda_oracle_executable_sha256": "702c0f72479173cbcba95dda554ac334fd6b40d03448122205d819ac47a78348"
   },
   "fixed_shape": {
     "prompt_tokens": 40000,
@@ -52,7 +74,14 @@
     "online_softmax_state": "FP32",
     "qk_and_pv": "BF16 tensor-core MMA with the frozen reduction/publication order",
     "implementation_relation": "the target-AOT control wrapper and the v2 cohort wrapper call the same force-inlined device body",
-    "candidate_vs_control_bitwise_cuda_oracle": false,
+    "candidate_vs_control_bitwise_cuda_oracle": true,
+    "compared_output_tiles": 7500,
+    "compared_bf16_elements": 245760000,
+    "candidate_replay_deterministic": true,
+    "suppressed_repeat_bodies_executed": 52,
+    "suppressed_repeat_publication_unchanged": true,
+    "input_buffers_immutable": true,
+    "buffer_redzones_intact": true,
     "numerical_contract_qualified": false
   },
   "ownership_and_mapping": {
@@ -104,7 +133,26 @@
       "sm87_target_aot_attention_plan": "PASS",
       "sm87_target_aot_p40_executor_contract": "PASS"
     },
+    "clean_host_preflight": {
+      "result": "PASS",
+      "samples": 5,
+      "maximum_gr3d_percent": 0.0,
+      "evidence_workspace_path": ".q3x-work/preflight-v2/bulk-v2-oracles-accepted-2026-08-14T0705.json",
+      "evidence_sha256": "949a06ae71ea6c725830be87ae02f1bef19f994a2cd4e0e3a0309a82a90a1a6e"
+    },
+    "cuda_differential_oracle": "PASS: 17.13 s correctness-only run",
     "performance_timing_collected": false
+  },
+  "startup_seal_and_hot_path": {
+    "canonical_full_layer_bindings_sealed": 16,
+    "complete_device_allocation_ranges_validated": true,
+    "exact_nonblocking_stream_validated": true,
+    "resource_queries_at_startup_only": true,
+    "hot_path_static_cuda_queries": 0,
+    "launches_submitted_per_full_layer": 4,
+    "partial_submission_receipt": true,
+    "request_owner_drain_required_on_partial_submit": true,
+    "host_contract_test": "PASS"
   },
   "traffic_hypothesis": {
     "incumbent_logical_kv_request_bytes_over_16_layers": 2460221440000,
@@ -114,7 +162,6 @@
     "selection_rule": "only a positive complete real P40 API composition can retain the direction; NCU may then attribute DRAM/L2 behavior"
   },
   "qualification_gaps": [
-    "candidate-versus-control bitwise CUDA oracle",
     "real projection/preprocess buffer composition",
     "real-model complete-layer output equivalence",
     "complete v2 executor and request-state/cancellation integration",
@@ -125,6 +172,6 @@
     "result": "RETAIN_AS_DEFAULT_OFF_ATTENTION_V2_EXECUTION_CELL",
     "production_change": false,
     "performance_claim": false,
-    "next_step": "bind the cell to the complete projection, preprocess, GDN, MLP and handoff v2 executor, close the numerical oracle, and return the whole composition to the real P40 API gate"
+    "next_step": "bind the exact differential cell to the complete projection, preprocess, GDN, MLP and handoff v2 executor, then return the whole composition to the real P40 API gate"
   }
 }

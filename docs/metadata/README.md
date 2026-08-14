@@ -265,17 +265,44 @@ producer, 48-head recurrence, and epilogue kernels. It also records the
 host-only 625-chunk P40 double-slot dependency plan. The record is synthetic
 single-cell correctness and static-resource authority only; it is not a
 real-model, whole-prompt, performance, external-accuracy, or production
-result, and the multi-stream P40 launcher remains unimplemented.
+result. The record now additionally hash-binds the executable 48-layer
+three-stream/double-slot request session and its clean-host synthetic
+continuation/cancellation oracle; neither closes the complete v2 route.
 
 The first exact-P40 full-Attention v2 ownership cell is frozen in
 [`qwen36-27b-sm87-bulk-v2-attention-l2-cohort-2026-08-14.json`](qwen36-27b-sm87-bulk-v2-attention-l2-cohort-2026-08-14.json).
 It hash-binds the 16-lane/118-epoch snake mapping, its 7,500 unique output
 owners and 52 store-disabled repeats, the shared target-AOT arithmetic body,
 and matching candidate/control static resources. The record explicitly does
-not claim phase lockstep, scheduler co-residency, L2/DRAM reduction, bitwise
-numerical qualification, real-model performance, API effect, or production
-authority. Those claims require the pending candidate-versus-control oracle
-and complete real P40 v2 composition.
+not claim phase lockstep, scheduler co-residency, L2/DRAM reduction, real-model
+performance, API effect, or production authority. Its same-binary synthetic
+candidate-versus-control oracle now passes all 7,500 output tiles while the
+resource receipt deliberately leaves complete numerical qualification false;
+the remaining claims require the complete real P40 v2 composition.
+
+The first segmented FP8 v2 exact-control family is frozen in
+[`qwen36-27b-sm87-bulk-v2-fp8-family-oracle-2026-08-14.json`](qwen36-27b-sm87-bulk-v2-fp8-family-oracle-2026-08-14.json).
+It binds 128 role assets and 5,120 M64N256K64 physical launches and passes a
+same-ELF synthetic exact oracle for GDN-QKVZ, full-QKV, and Attention output.
+It remains a default-off arithmetic control only; the forty-segment physical
+boundary is not the selected successor and has no real-P40, API, performance,
+accuracy-qualification, release, or production authority.
+
+The joint NVFP4 M64/M1024 exact-control closure is frozen in
+[`qwen36-27b-sm87-bulk-v2-nvfp4-exact-control-closure-2026-08-14.json`](qwen36-27b-sm87-bulk-v2-nvfp4-exact-control-closure-2026-08-14.json).
+It records the passing same-ELF synthetic exact oracle and final compiler
+resources, then rejects its four-serial-M256 internal topology through a
+source-derived traffic floor. This is arithmetic, scheduler, and structural
+accounting evidence only, not a timing or production result.
+
+The role-specific whole-P40000 projection implementation milestone is frozen
+in
+[`qwen36-27b-sm87-bulk-v2-whole-p40-projection-milestone-2026-08-14.json`](qwen36-27b-sm87-bulk-v2-whole-p40-projection-milestone-2026-08-14.json).
+It hash-binds the Gate+Up, Down, and FP8 whole-role sources, reduced-domain
+synthetic exact oracles, T0 compiler resources, the exact request-state owner,
+and the ABI-major 3 successor receipt. The record explicitly grants no
+real-weight/activation, complete P40000 execution, API, performance, NCU, L2
+residency, release, or production authority.
 
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in

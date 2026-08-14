@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-sm87-bulk-v2-nvfp4-exact-control-closure-2026-08-14",
+  "recorded_at": "2026-08-14T09:38:37+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "synthetic_same_elf_exact_pass_structural_traffic_reject_default_off",
+  "authority": {
+    "scope": "default-off M64 and one-launch M1024 joint Gate+Up-to-Down exact-control stepping stone",
+    "host_and_static_authority": true,
+    "synthetic_bitwise_differential_authority": true,
+    "structural_source_traffic_authority": true,
+    "real_checkpoint_activation_authority": false,
+    "full_p40_execution_authority": false,
+    "performance_authority": false,
+    "api_authority": false,
+    "production_promotion_authority": false,
+    "gpu_correctness_run": true,
+    "gpu_performance_run": false
+  },
+  "source_identity": {
+    "base_commit": "cb4aa55",
+    "working_tree_state": "uncommitted default-off exact-control sources; relevant files and executable are hash-bound below",
+    "files": [
+      {
+        "path": "include/q3x/kernels/sm87_bulk_dataflow_v2_nvfp4_projection.h",
+        "sha256": "ec34dde501a75b35d62bdc1f7d953e59ffb88bcf4a609fa203d34f2ae624f97b"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_projection.cu",
+        "sha256": "298c8c0fde7ad076f6a6dac880d0380366db7caac55d02f5a170809d8d6bbe8c"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_projection_numerical.cu",
+        "sha256": "b5dcfa54904364a2d36cbf45bcb2fc0c3b6e68f893ed568ec7a220a7ee7bc149"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_target_aot_projection_nvfp4.cu",
+        "sha256": "b4226b6c94ea1066501d8ce6145354edbc4aeafdd57e43b9830ee75325446e7e"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_target_aot_projection_nvfp4_oracle_internal.h",
+        "sha256": "c56074da42eb5e63c8abf5ec559f2ac3ab8d2eef1ce51cebaf931e2d9df2fa50"
+      },
+      {
+        "path": "src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_projection_oracle_internal.h",
+        "sha256": "cc7ec63b8af0eb394b652b182def4fcc098491edd4905f8004d00301ec1cdf3a"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_nvfp4_projection_host_test.cpp",
+        "sha256": "a947e7304c55d9be47b15c19017094f0571db6ff4260d02f0827fbf71db75993"
+      },
+      {
+        "path": "tests/sm87_bulk_dataflow_v2_nvfp4_projection_cuda_oracle_test.cu",
+        "sha256": "3abae12e943cb01230d3e5d76c3dc5227138206c19d0eeb08497a8e8dcd68c77"
+      }
+    ],
+    "cuda_oracle_executable_sha256": "8ed34b9989727661169c281f36563148fefd7c78a51ee3e410eaf7114d62bc6e"
+  },
+  "closed_topology": {
+    "identity": "kExactControlSteppingStoneM256J64N256K64NoResidencyV2",
+    "prompt_tokens": 40000,
+    "whole_layer_wrapper": "39 x M1024 plus 1 x M64",
+    "physical_macro_launches_over_64_layers": 2560,
+    "persistent_ctas": 32,
+    "threads_per_cta": 256,
+    "target_ctas_per_sm": 2,
+    "m1024_internal_execution": "four serial M256 scheduler epochs inside one cooperative launch",
+    "gate_up_down_ownership": "20 Down owners plus 12 dedicated Gate+Up producers with consumer work stealing",
+    "bf16_h_boundary_exact": true,
+    "cross_group_weight_residency_qualified": false,
+    "startup_sealed_prevalidated_p40_hot_path": false,
+    "production_dispatch_eligible": false
+  },
+  "finite_precision_and_oracle": {
+    "result": "PASS",
+    "data_class": "deterministic synthetic correctness only",
+    "candidate_control_relation": "candidate versus same-ELF v1 control plus an independent expected implementation",
+    "covered_shapes": [
+      "M64 tail",
+      "one-launch M1024 macro"
+    ],
+    "checks": [
+      "candidate bitwise expected output",
+      "same-ELF v1 bitwise expected output",
+      "macro and group control counts",
+      "deterministic replay",
+      "input and payload immutability",
+      "all redzones",
+      "cancellation suppresses private publication"
+    ],
+    "real_model_numerical_contract_qualified": false,
+    "performance_timing_collected": false
+  },
+  "static_resources": {
+    "m64_tail": {
+      "registers_per_thread": 127,
+      "stack_bytes": 0,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0,
+      "runtime_local_bytes": 0,
+      "dynamic_shared_bytes": 52224,
+      "active_ctas_per_sm": 2
+    },
+    "m1024": {
+      "registers_per_thread": 128,
+      "stack_bytes": 8,
+      "spill_store_bytes": 8,
+      "spill_load_bytes": 16,
+      "zero_spill_gate_passed": false
+    },
+    "resource_decision": "record final resources but stop local spill polishing because the topology fails the communication gate"
+  },
+  "traffic_closure": {
+    "method": "source-derived issued byte accounting with only explicitly possible L2 reuse credited; no GPU timing",
+    "device_dram_bandwidth_bytes_per_second": 204800000000,
+    "l2_capacity_bytes": 4194304,
+    "gate_up": {
+      "m64_n64_pair_tasks_per_layer": 170000,
+      "a_request_bytes_per_layer": 222822400000,
+      "weight_and_scale_request_bytes_per_layer": 62668800000,
+      "ideal_four_row_weight_bytes_per_layer_with_tail": 15742402560
+    },
+    "down": {
+      "m64_n256_tasks_per_layer": 12500,
+      "h_request_bytes_per_layer": 27852800000,
+      "weight_and_scale_request_bytes_per_layer": 31334400000,
+      "credited_cross_row_weight_reuse": 1,
+      "reason": "one complete Down N-panel sweep is 50,135,040 bytes and cannot remain in the 4-MiB L2 until the next row"
+    },
+    "nvfp4_realistic_weight_floor_bytes_over_64_layers": 3012915363840,
+    "nvfp4_realistic_weight_floor_seconds": 14.7115008,
+    "nvfp4_impossible_all_four_row_reuse_bytes_over_64_layers": 1511270645760,
+    "current_fp8_optimistic_segmented_weight_bytes": 288568115200,
+    "impossible_nvfp4_plus_optimistic_fp8_bytes": 1799838760960,
+    "impossible_nvfp4_plus_optimistic_fp8_seconds": 8.7882752,
+    "omitted_from_floor": [
+      "activation and H traffic beyond the listed requests",
+      "outputs and residuals",
+      "Attention",
+      "GDN",
+      "compute and synchronization"
+    ],
+    "five_second_projection_allocation_passed": false
+  },
+  "decision": {
+    "result": "RETAIN_ONLY_AS_DEFAULT_OFF_EXACT_CONTROL_AND_REJECT_AS_PERFORMANCE_TOPOLOGY",
+    "production_change": false,
+    "performance_claim": false,
+    "stop_local_parameter_scanning": true,
+    "selected_successor": "separate whole-P40000 persistent Gate+Up, K-heavy Down, and FP8 kernels with role-specific two-dimensional L2 cohorts and one whole-M launch per model role"
+  }
+}
