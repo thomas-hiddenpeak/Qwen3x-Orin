@@ -5,6 +5,7 @@
 #include <iostream>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 namespace runtime = q3x::runtime;
 
@@ -16,6 +17,14 @@ static_assert(!std::is_copy_constructible_v<
               runtime::Sm87MacroFeedV4RequestState>);
 static_assert(!std::is_move_constructible_v<
               runtime::Sm87MacroFeedV4RequestState>);
+static_assert(!std::is_default_constructible_v<
+              runtime::Sm87MacroFeedV4GdnLayerStateGrant>);
+static_assert(!std::is_copy_constructible_v<
+              runtime::Sm87MacroFeedV4GdnLayerStateGrant>);
+static_assert(std::is_move_constructible_v<
+              runtime::Sm87MacroFeedV4GdnLayerStateGrant>);
+static_assert(!std::is_aggregate_v<
+              runtime::Sm87MacroFeedV4GdnLayerStateGrant>);
 
 namespace {
 
@@ -47,6 +56,7 @@ struct Test final {
   mix(snapshot.request_epoch);
   mix(snapshot.state_epoch);
   mix(snapshot.pending_event_receipt_identity);
+  mix(snapshot.pending_gdn_layer_grant_identity);
   mix(snapshot.completed_panels);
   mix(snapshot.active_panel);
   mix(snapshot.next_model_layer);
@@ -204,12 +214,80 @@ void test_admission(Test& test) {
        layer < runtime::kSm87MacroFeedV4LayerCount; ++layer) {
     if (runtime::sm87_macrofeed_v4_expected_layer_kind(layer) ==
         runtime::Sm87MacroFeedV4LayerKind::kGdn) {
+      const auto before = state.snapshot();
+      auto authorization =
+          state.authorize_gdn_layer_state(access, panel, layer);
+      test.expect(static_cast<bool>(authorization),
+                  "GDN layer receives one owner-minted state-slice grant");
+      if (!authorization) {
+        return false;
+      }
+      const auto& grant = *authorization.grant;
+      const std::size_t ordinal = layer - layer / 4U;
+      const std::uint64_t active_bank_offset =
+          before.active_bank_index *
+          runtime::kSm87MacroFeedV4RecurrentEpochBytes;
+      const std::uint64_t candidate_bank_offset =
+          before.candidate_bank_index *
+          runtime::kSm87MacroFeedV4RecurrentEpochBytes;
+      test.expect(
+          grant.grant_identity() != 0U &&
+              grant.owner_identity() == before.owner_identity &&
+              grant.allocation_identity() == before.allocation_identity &&
+              grant.request_epoch() == before.request_epoch &&
+              grant.state_epoch() == before.state_epoch &&
+              grant.panel() == panel && grant.model_layer() == layer &&
+              grant.state_layer_ordinal() == ordinal &&
+              grant.active_bank_index() == before.active_bank_index &&
+              grant.candidate_bank_index() ==
+                  before.candidate_bank_index &&
+              grant.active_conv_allocation_offset() ==
+                  active_bank_offset +
+                      ordinal * runtime::kSm87MacroFeedV4ConvLayerBytes &&
+              grant.candidate_conv_allocation_offset() ==
+                  candidate_bank_offset +
+                      ordinal * runtime::kSm87MacroFeedV4ConvLayerBytes &&
+              grant.conv_bytes() ==
+                  runtime::kSm87MacroFeedV4ConvLayerBytes &&
+              grant.active_gdn_state_allocation_offset() ==
+                  active_bank_offset + runtime::kSm87MacroFeedV4ConvEpochBytes +
+                      ordinal *
+                          runtime::kSm87MacroFeedV4GdnStateLayerBytes &&
+              grant.candidate_gdn_state_allocation_offset() ==
+                  candidate_bank_offset +
+                      runtime::kSm87MacroFeedV4ConvEpochBytes +
+                      ordinal *
+                          runtime::kSm87MacroFeedV4GdnStateLayerBytes &&
+              grant.gdn_state_bytes() ==
+                  runtime::kSm87MacroFeedV4GdnStateLayerBytes,
+          "GDN grant binds the current banks and canonical allocation offsets");
+      const auto authorized = state.snapshot();
+      test.expect(
+          authorized.pending_gdn_layer_grant_identity ==
+                  grant.grant_identity() &&
+              authorized.panel_conv_layers_prepared ==
+                  before.panel_conv_layers_prepared &&
+              authorized.panel_gdn_layers_assigned ==
+                  before.panel_gdn_layers_assigned &&
+              authorized.active_bank_identity == before.active_bank_identity &&
+              authorized.candidate_bank_identity ==
+                  before.candidate_bank_identity,
+          "authorization exposes slices without claiming an enqueue");
       test.expect(static_cast<bool>(
-                      state.prepare_conv_layer_candidate(access, panel, layer)),
-                  "GDN layer prepares one Conv history slice");
-      test.expect(static_cast<bool>(
-                      state.assign_gdn_layer_candidate(access, panel, layer)),
-                  "GDN layer fully assigns one candidate state slice");
+                      state.commit_gdn_layer_candidate_enqueued(
+                          access, std::move(*authorization.grant))),
+                  "whole GDN layer enqueue commits its candidate slices");
+      const auto committed = state.snapshot();
+      test.expect(
+          committed.pending_gdn_layer_grant_identity == 0U &&
+              committed.active_bank_index == before.active_bank_index &&
+              committed.candidate_bank_index == before.candidate_bank_index &&
+              committed.active_bank_identity == before.active_bank_identity &&
+              committed.candidate_bank_identity ==
+                  before.candidate_bank_identity &&
+              committed.panel_swap_count == before.panel_swap_count &&
+              committed.state_epoch == before.state_epoch,
+          "one committed GDN layer never swaps the panel banks");
     } else {
       test.expect(static_cast<bool>(state.stage_attention_kv_layer(
                       access, panel, layer,
@@ -445,23 +523,98 @@ void test_ordering_and_discard(Test& test) {
   }
   auto& state = *created.state;
   const auto access = state.issue_sealed_access();
-  test.expect(!state.prepare_conv_layer_candidate(access, 0U, 0U),
-              "layer completion cannot precede panel begin");
+  test.expect(!state.authorize_gdn_layer_state(access, 0U, 0U),
+              "layer authorization cannot precede panel begin");
   const auto initial = snapshot_fingerprint(state.snapshot());
   test.expect(!state.begin_panel(access, 1U) &&
                   snapshot_fingerprint(state.snapshot()) == initial,
               "panel gap fails without mutation");
   test.expect(static_cast<bool>(state.begin_panel(access, 0U)),
               "first panel begins");
-  test.expect(!state.assign_gdn_layer_candidate(access, 0U, 0U),
-              "GDN assignment requires its Conv slice first");
-  test.expect(static_cast<bool>(
-                  state.prepare_conv_layer_candidate(access, 0U, 0U)) &&
-                  !state.prepare_conv_layer_candidate(access, 0U, 0U),
-              "duplicate Conv preparation fails closed");
-  test.expect(static_cast<bool>(
-                  state.assign_gdn_layer_candidate(access, 0U, 0U)),
-              "first GDN layer completes after Conv prepare");
+  test.expect(!state.authorize_gdn_layer_state(access, 1U, 0U),
+              "GDN authorization rejects a foreign panel");
+  test.expect(!state.authorize_gdn_layer_state(access, 0U, 1U),
+              "GDN authorization rejects an out-of-order layer");
+  auto first_authorization =
+      state.authorize_gdn_layer_state(access, 0U, 0U);
+  test.expect(static_cast<bool>(first_authorization),
+              "first GDN layer obtains a sealed grant");
+  if (!first_authorization) {
+    return;
+  }
+  const auto after_authorize = state.snapshot();
+  test.expect(!state.authorize_gdn_layer_state(access, 0U, 0U) &&
+                  snapshot_fingerprint(state.snapshot()) ==
+                      snapshot_fingerprint(after_authorize),
+              "a second grant cannot be minted for the pending layer");
+
+  auto live_grant = std::move(*first_authorization.grant);
+  runtime::Sm87MacroFeedV4GdnLayerStateGrant moved_grant(
+      std::move(live_grant));
+  const auto before_moved_from = snapshot_fingerprint(state.snapshot());
+  test.expect(!state.commit_gdn_layer_candidate_enqueued(
+                  access, std::move(live_grant)) &&
+                  snapshot_fingerprint(state.snapshot()) ==
+                      before_moved_from,
+              "a moved-from grant cannot commit or mutate the ledger");
+  auto foreign = runtime::Sm87MacroFeedV4RequestState::create(
+      runtime::make_sm87_macrofeed_v4_request_state_admission(
+          511U, 512U, 5'101U, 5'102U));
+  test.expect(static_cast<bool>(foreign),
+              "foreign grant-commit fixture creates");
+  if (!foreign) {
+    return;
+  }
+  const auto foreign_access = foreign.state->issue_sealed_access();
+  const auto before_foreign_commit = snapshot_fingerprint(state.snapshot());
+  test.expect(!state.commit_gdn_layer_candidate_enqueued(
+                  foreign_access, std::move(moved_grant)) &&
+                  snapshot_fingerprint(state.snapshot()) ==
+                      before_foreign_commit,
+              "foreign sealed access cannot consume a live GDN grant");
+  test.expect(static_cast<bool>(foreign.state->begin_panel(foreign_access, 0U)),
+              "foreign owner begins its independent panel");
+  auto foreign_authorization =
+      foreign.state->authorize_gdn_layer_state(foreign_access, 0U, 0U);
+  test.expect(static_cast<bool>(foreign_authorization),
+              "foreign owner mints its independent GDN grant");
+  if (!foreign_authorization) {
+    return;
+  }
+  const auto before_foreign_grant = snapshot_fingerprint(state.snapshot());
+  test.expect(!state.commit_gdn_layer_candidate_enqueued(
+                  access, std::move(*foreign_authorization.grant)) &&
+                  snapshot_fingerprint(state.snapshot()) ==
+                      before_foreign_grant,
+              "another owner's authentic grant cannot replace the pending grant");
+  const auto banks_before_layer_commit = state.snapshot();
+  test.expect(static_cast<bool>(state.commit_gdn_layer_candidate_enqueued(
+                  access, std::move(moved_grant))),
+              "the live moved grant commits exactly one whole layer");
+  const auto after_layer_commit = state.snapshot();
+  test.expect(after_layer_commit.next_model_layer == 1U &&
+                  after_layer_commit.panel_conv_layers_prepared == 1U &&
+                  after_layer_commit.panel_gdn_layers_assigned == 1U &&
+                  after_layer_commit.panel_conv_copy_bytes == 61'440U &&
+                  after_layer_commit.panel_gdn_assignment_bytes ==
+                      1'572'864U &&
+                  after_layer_commit.active_bank_identity ==
+                      banks_before_layer_commit.active_bank_identity &&
+                  after_layer_commit.candidate_bank_identity ==
+                      banks_before_layer_commit.candidate_bank_identity &&
+                  after_layer_commit.panel_swap_count == 0U &&
+                  after_layer_commit.state_epoch == 0U &&
+                  !state.commit_gdn_layer_candidate_enqueued(
+                      access, std::move(moved_grant)),
+              "grant is single-use and one layer commit does not swap banks");
+
+  auto failed_layer = state.authorize_gdn_layer_state(access, 0U, 1U);
+  test.expect(static_cast<bool>(failed_layer),
+              "next GDN layer can be authorized before its enqueue");
+  if (!failed_layer) {
+    return;
+  }
+  const auto active_before_failure = state.snapshot();
   runtime::Sm87MacroFeedV4RequestEventReceipt missing{};
   test.expect(!state.discard_active_panel(
                   access, missing,
@@ -472,8 +625,9 @@ void test_ordering_and_discard(Test& test) {
                   drain.receipt.state_epoch == 0U &&
                   drain.receipt.request_epoch == access.request_epoch(),
               "owner drain receipt binds request and state generations");
-  test.expect(!state.prepare_conv_layer_candidate(access, 0U, 1U),
-              "no layer mutation is accepted after drain completion");
+  test.expect(!state.commit_gdn_layer_candidate_enqueued(
+                  access, std::move(*failed_layer.grant)),
+              "failed whole-layer enqueue is never committed after drain");
   auto stale = drain.receipt;
   stale.allocation_identity += 1U;
   const auto frozen = snapshot_fingerprint(state.snapshot());
@@ -494,11 +648,17 @@ void test_ordering_and_discard(Test& test) {
                   cancelled.state_epoch == 0U &&
                   cancelled.panel_swap_count == 0U &&
                   cancelled.private_kv_valid_end == 0U &&
+                  cancelled.pending_gdn_layer_grant_identity == 0U &&
                   cancelled.candidate_discard_count == 1U &&
                   cancelled.last_discarded_candidate_identity ==
                       candidate_identity &&
+                  cancelled.active_bank_identity ==
+                      active_before_failure.active_bank_identity &&
+                  cancelled.active_bank_index ==
+                      active_before_failure.active_bank_index &&
+                  cancelled.panel_swap_count == 0U &&
                   !cancelled.logical_sequence_fence_published,
-              "cancel preserves active state and records candidate discard");
+              "failed layer discard preserves active state and records candidate discard");
   test.expect(!state.begin_panel(access, 0U) &&
                   !state.record_test_only_owner_drain_completion(access) &&
                   !state.abort_unpublished_request(

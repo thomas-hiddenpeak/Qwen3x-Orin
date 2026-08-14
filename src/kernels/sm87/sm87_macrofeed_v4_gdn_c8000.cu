@@ -1,5 +1,9 @@
 #include "q3x/kernels/sm87_macrofeed_v4_gdn_c8000.h"
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+#include "sm87_macrofeed_v4_bound_launch_internal.h"
+#endif
+
 #include <cuda.h>
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
@@ -764,6 +768,16 @@ template <class Arguments>
   return true;
 }
 
+struct ConstituentSubmitLedger final {
+  std::size_t accepted_kernel_launches = 0U;
+  std::size_t asynchronous_d2d_copies = 0U;
+  std::size_t conv_history_copy_bytes = 0U;
+};
+
+static_assert(kSm87MacroFeedV4GdnPhysicalKernelLaunches == 2U &&
+              kSm87MacroFeedV4GdnHistoryCopies == 1U &&
+              kSm87MacroFeedV4GdnConvHistoryBytes == 61'440U);
+
 [[nodiscard]] cudaError_t enqueue_constituent(
     std::uint16_t* const scratch,
     const std::uint16_t* const conv_weight,
@@ -778,13 +792,21 @@ template <class Arguments>
     const unsigned int token_count,
     const std::uint32_t l2_epsilon_fp32_bits,
     const std::uint32_t norm_epsilon_fp32_bits,
+    ConstituentSubmitLedger* const submit_ledger,
     const cudaStream_t stream) noexcept {
+  if (submit_ledger == nullptr) {
+    return cudaErrorInvalidValue;
+  }
+  *submit_ledger = {};
   cudaError_t status = cudaMemcpyAsync(
       candidate_conv_history, active_conv_history,
       kSm87MacroFeedV4GdnConvHistoryBytes, cudaMemcpyDeviceToDevice, stream);
   if (status != cudaSuccess) {
     return status;
   }
+  submit_ledger->asynchronous_d2d_copies = 1U;
+  submit_ledger->conv_history_copy_bytes =
+      kSm87MacroFeedV4GdnConvHistoryBytes;
   causal_conv1d_silu_c8000_in_place_kernel<<<
       kSm87MacroFeedV4GdnConvCtas, kSm87MacroFeedV4GdnConvThreads, 0U,
       stream>>>(scratch, conv_weight, candidate_conv_history, token_count,
@@ -793,13 +815,19 @@ template <class Arguments>
   if (status != cudaSuccess) {
     return status;
   }
+  submit_ledger->accepted_kernel_launches = 1U;
   exact_gdn_norm_gate_c8000_in_place_kernel<<<
       kSm87MacroFeedV4GdnRecurrenceCtas,
       kSm87MacroFeedV4GdnRecurrenceThreads, 0U, stream>>>(
       scratch, a_log, dt_bias, norm_weight, active_recurrent_state,
       candidate_recurrent_state, token_count, l2_epsilon_fp32_bits,
       norm_epsilon_fp32_bits, cancellation_signal);
-  return cudaPeekAtLastError();
+  status = cudaPeekAtLastError();
+  if (status != cudaSuccess) {
+    return status;
+  }
+  submit_ledger->accepted_kernel_launches = 2U;
+  return cudaSuccess;
 }
 
 }  // namespace
@@ -922,6 +950,7 @@ int launch_sm87_macrofeed_v4_gdn_c8000_admission_cuda(
           arguments, observed_resources.device_ordinal)) {
     return static_cast<int>(cudaErrorInvalidDevicePointer);
   }
+  ConstituentSubmitLedger submit_ledger{};
   status = enqueue_constituent(
       arguments.scratch, arguments.conv_weight, arguments.a_log,
       arguments.dt_bias, arguments.norm_weight,
@@ -930,7 +959,7 @@ int launch_sm87_macrofeed_v4_gdn_c8000_admission_cuda(
       arguments.candidate_recurrent_state, arguments.cancellation_signal,
       static_cast<unsigned int>(arguments.token_count),
       arguments.l2_epsilon_fp32_bits, arguments.norm_epsilon_fp32_bits,
-      stream);
+      &submit_ledger, stream);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
@@ -991,6 +1020,7 @@ int launch_sm87_macrofeed_v4_gdn_oracle_cuda(
     return static_cast<int>(cudaErrorInvalidDevicePointer);
   }
   (void)cudaGetLastError();
+  ConstituentSubmitLedger submit_ledger{};
   return static_cast<int>(enqueue_constituent(
       arguments.scratch, arguments.conv_weight, arguments.a_log,
       arguments.dt_bias, arguments.norm_weight,
@@ -1000,7 +1030,71 @@ int launch_sm87_macrofeed_v4_gdn_oracle_cuda(
       arguments.cancellation_signal,
       static_cast<unsigned int>(arguments.token_count),
       arguments.l2_epsilon_fp32_bits, arguments.norm_epsilon_fp32_bits,
+      &submit_ledger,
       reinterpret_cast<cudaStream_t>(arguments.cuda_stream)));
 }
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+namespace sm87_macrofeed_v4_bound_launch_detail {
+
+int enqueue_gdn_continuation_c8000_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4GdnContinuationC8000Arguments& arguments,
+    const Sm87MacroFeedV4GdnC8000AdmissionResourceSnapshot& resources,
+    Sm87MacroFeedV4GdnContinuationSubmitLedger* const
+        submit_ledger) noexcept {
+  if (submit_ledger == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *submit_ledger = {};
+  const Sm87MacroFeedV4GdnC8000Arguments fixed{
+      arguments.phase_scratch,
+      kSm87MacroFeedV4GdnC8000Tokens,
+      kSm87MacroFeedV4GdnScratchRowStride,
+      arguments.conv_weight,
+      arguments.a_log,
+      arguments.dt_bias,
+      arguments.norm_weight,
+      arguments.active_conv_history,
+      arguments.candidate_conv_history,
+      arguments.active_recurrent_state,
+      arguments.candidate_recurrent_state,
+      arguments.cancellation_signal,
+      arguments.l2_epsilon_fp32_bits,
+      arguments.norm_epsilon_fp32_bits,
+      token.cuda_stream_};
+  if (!sm87_macrofeed_v4_gdn_c8000_arguments_valid(fixed) ||
+      !resources.static_resource_gate_passed ||
+      !sm87_macrofeed_v4_gdn_c8000_admission_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const cudaError_t prior_status = cudaPeekAtLastError();
+  if (prior_status != cudaSuccess) {
+    return static_cast<int>(prior_status);
+  }
+  ConstituentSubmitLedger accepted{};
+  const cudaError_t status = enqueue_constituent(
+      fixed.scratch, fixed.conv_weight, fixed.a_log, fixed.dt_bias,
+      fixed.norm_weight, fixed.active_conv_history,
+      fixed.candidate_conv_history, fixed.active_recurrent_state,
+      fixed.candidate_recurrent_state, fixed.cancellation_signal,
+      static_cast<unsigned int>(fixed.token_count),
+      fixed.l2_epsilon_fp32_bits, fixed.norm_epsilon_fp32_bits,
+      &accepted,
+      reinterpret_cast<cudaStream_t>(token.cuda_stream_));
+  submit_ledger->accepted_kernel_launches =
+      accepted.accepted_kernel_launches;
+  submit_ledger->asynchronous_d2d_copies =
+      accepted.asynchronous_d2d_copies;
+  submit_ledger->conv_history_copy_bytes =
+      accepted.conv_history_copy_bytes;
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
+}  // namespace sm87_macrofeed_v4_bound_launch_detail
+#endif
 
 }  // namespace q3x::kernels

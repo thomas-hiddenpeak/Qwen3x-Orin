@@ -12,6 +12,10 @@ class Sm87MacroFeedV3P40ExecutionPackage;
 class Sm87MacroFeedV3P40ProjectionStartupBinding;
 }  // namespace q3x::runtime::sm87_macrofeed_v3_p40_execution_package_detail
 
+namespace q3x::runtime::sm87_macrofeed_v4_p40_startup_package_detail {
+class Sm87MacroFeedV4P40StartupPackage;
+}  // namespace q3x::runtime::sm87_macrofeed_v4_p40_startup_package_detail
+
 namespace q3x::runtime::target_aot_complete_execution_detail {
 
 struct Sm87TargetAotCompleteHostTestBf16AbPair final {
@@ -65,6 +69,8 @@ class Sm87TargetAotCompleteProjectionExecutionAsset final {
       Sm87MacroFeedV3P40ExecutionPackage;
   friend class sm87_macrofeed_v3_p40_execution_package_detail::
       Sm87MacroFeedV3P40ProjectionStartupBinding;
+  friend class sm87_macrofeed_v4_p40_startup_package_detail::
+      Sm87MacroFeedV4P40StartupPackage;
 
   Sm87TargetAotCompleteProjectionExecutionAsset(
       const ModelWeights* model_weights,

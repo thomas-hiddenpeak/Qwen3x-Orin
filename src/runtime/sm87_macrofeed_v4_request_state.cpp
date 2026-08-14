@@ -19,6 +19,7 @@ inline constexpr std::uint64_t kOwnerDrainEventIdentity =
 
 std::atomic<std::uint64_t> g_next_request_epoch{1U};
 std::atomic<std::uint64_t> g_next_event_receipt_identity{1U};
+std::atomic<std::uint64_t> g_next_gdn_layer_grant_identity{1U};
 
 [[nodiscard]] std::uint64_t next_nonzero(
     std::atomic<std::uint64_t>* const source) noexcept {
@@ -57,6 +58,21 @@ std::atomic<std::uint64_t> g_next_event_receipt_identity{1U};
     }
   }
   return kSm87MacroFeedV4LayerCount;
+}
+
+[[nodiscard]] constexpr std::size_t state_ordinal_for_model_layer(
+    const std::size_t model_layer) noexcept {
+  std::size_t ordinal = 0U;
+  for (std::size_t layer = 0U; layer < kSm87MacroFeedV4LayerCount; ++layer) {
+    if (!gdn_layer(layer)) {
+      continue;
+    }
+    if (layer == model_layer) {
+      return ordinal;
+    }
+    ++ordinal;
+  }
+  return kSm87MacroFeedV4StateLayerCount;
 }
 
 void add_issue(Sm87MacroFeedV4RequestAdmissionValidation* const validation,
@@ -387,6 +403,84 @@ Sm87MacroFeedV4RequestState::issue_sealed_access() const noexcept {
       state_.request_epoch);
 }
 
+Sm87MacroFeedV4GdnLayerStateGrant::Sm87MacroFeedV4GdnLayerStateGrant(
+    const std::uint64_t grant_identity,
+    const std::uint64_t owner_identity,
+    const std::uint64_t allocation_identity,
+    const std::uint64_t request_epoch, const std::uint64_t state_epoch,
+    const std::size_t panel, const std::size_t model_layer,
+    const std::size_t state_layer_ordinal,
+    const std::size_t active_bank_index,
+    const std::size_t candidate_bank_index,
+    const std::uint64_t active_conv_allocation_offset,
+    const std::uint64_t candidate_conv_allocation_offset,
+    const std::uint64_t conv_bytes,
+    const std::uint64_t active_gdn_state_allocation_offset,
+    const std::uint64_t candidate_gdn_state_allocation_offset,
+    const std::uint64_t gdn_state_bytes) noexcept
+    : grant_identity_(grant_identity),
+      owner_identity_(owner_identity),
+      allocation_identity_(allocation_identity),
+      request_epoch_(request_epoch),
+      state_epoch_(state_epoch),
+      panel_(panel),
+      model_layer_(model_layer),
+      state_layer_ordinal_(state_layer_ordinal),
+      active_bank_index_(active_bank_index),
+      candidate_bank_index_(candidate_bank_index),
+      active_conv_allocation_offset_(active_conv_allocation_offset),
+      candidate_conv_allocation_offset_(candidate_conv_allocation_offset),
+      conv_bytes_(conv_bytes),
+      active_gdn_state_allocation_offset_(
+          active_gdn_state_allocation_offset),
+      candidate_gdn_state_allocation_offset_(
+          candidate_gdn_state_allocation_offset),
+      gdn_state_bytes_(gdn_state_bytes) {}
+
+Sm87MacroFeedV4GdnLayerStateGrant::Sm87MacroFeedV4GdnLayerStateGrant(
+    Sm87MacroFeedV4GdnLayerStateGrant&& other) noexcept
+    : grant_identity_(std::exchange(other.grant_identity_, 0U)),
+      owner_identity_(std::exchange(other.owner_identity_, 0U)),
+      allocation_identity_(std::exchange(other.allocation_identity_, 0U)),
+      request_epoch_(std::exchange(other.request_epoch_, 0U)),
+      state_epoch_(std::exchange(other.state_epoch_, 0U)),
+      panel_(std::exchange(other.panel_, kSm87MacroFeedV4PanelCount)),
+      model_layer_(
+          std::exchange(other.model_layer_, kSm87MacroFeedV4LayerCount)),
+      state_layer_ordinal_(std::exchange(
+          other.state_layer_ordinal_, kSm87MacroFeedV4StateLayerCount)),
+      active_bank_index_(std::exchange(other.active_bank_index_, 2U)),
+      candidate_bank_index_(std::exchange(other.candidate_bank_index_, 2U)),
+      active_conv_allocation_offset_(
+          std::exchange(other.active_conv_allocation_offset_, 0U)),
+      candidate_conv_allocation_offset_(
+          std::exchange(other.candidate_conv_allocation_offset_, 0U)),
+      conv_bytes_(std::exchange(other.conv_bytes_, 0U)),
+      active_gdn_state_allocation_offset_(
+          std::exchange(other.active_gdn_state_allocation_offset_, 0U)),
+      candidate_gdn_state_allocation_offset_(
+          std::exchange(other.candidate_gdn_state_allocation_offset_, 0U)),
+      gdn_state_bytes_(std::exchange(other.gdn_state_bytes_, 0U)) {}
+
+void Sm87MacroFeedV4GdnLayerStateGrant::invalidate() noexcept {
+  grant_identity_ = 0U;
+  owner_identity_ = 0U;
+  allocation_identity_ = 0U;
+  request_epoch_ = 0U;
+  state_epoch_ = 0U;
+  panel_ = kSm87MacroFeedV4PanelCount;
+  model_layer_ = kSm87MacroFeedV4LayerCount;
+  state_layer_ordinal_ = kSm87MacroFeedV4StateLayerCount;
+  active_bank_index_ = 2U;
+  candidate_bank_index_ = 2U;
+  active_conv_allocation_offset_ = 0U;
+  candidate_conv_allocation_offset_ = 0U;
+  conv_bytes_ = 0U;
+  active_gdn_state_allocation_offset_ = 0U;
+  candidate_gdn_state_allocation_offset_ = 0U;
+  gdn_state_bytes_ = 0U;
+}
+
 Sm87MacroFeedV4RequestStateStatus
 Sm87MacroFeedV4RequestState::validate_access(
     const Sm87MacroFeedV4RequestStateSealedAccess& access) const noexcept {
@@ -539,7 +633,8 @@ Sm87MacroFeedV4RequestStateStatus Sm87MacroFeedV4RequestState::begin_panel(
   if (state_.private_kv_valid_end != panel * kSm87MacroFeedV4PanelTokens ||
       state_.active_bank_identity == 0U ||
       state_.candidate_bank_identity == 0U ||
-      state_.active_bank_identity == state_.candidate_bank_identity) {
+      state_.active_bank_identity == state_.candidate_bank_identity ||
+      state_.pending_gdn_layer_grant_identity != 0U) {
     return fail(Sm87MacroFeedV4RequestStateError::kInvalidTransition,
                 "begin_panel_private_owner_invalid", panel);
   }
@@ -557,6 +652,190 @@ Sm87MacroFeedV4RequestStateStatus Sm87MacroFeedV4RequestState::begin_panel(
   return ok();
 }
 
+Sm87MacroFeedV4GdnLayerStateAuthorizationResult
+Sm87MacroFeedV4RequestState::authorize_gdn_layer_state(
+    const Sm87MacroFeedV4RequestStateSealedAccess& access,
+    const std::size_t panel, const std::size_t model_layer) noexcept {
+  const std::lock_guard<std::mutex> lock(owner_mutex_);
+  Sm87MacroFeedV4GdnLayerStateAuthorizationResult result;
+  result.status = validate_access(access);
+  if (!result.status) {
+    return result;
+  }
+  if (state_.pending_event_receipt_identity != 0U) {
+    result.status = fail(
+        Sm87MacroFeedV4RequestStateError::kEventReceiptMismatch,
+        "gdn_grant_blocked_by_pending_owner_event", panel, model_layer);
+    return result;
+  }
+  if (state_.pending_gdn_layer_grant_identity != 0U ||
+      state_.current_conv_layer_prepared) {
+    result.status = fail(
+        Sm87MacroFeedV4RequestStateError::kGdnLayerGrantPending,
+        "gdn_layer_grant_already_pending", panel, model_layer);
+    return result;
+  }
+  if (state_.phase != Sm87MacroFeedV4RequestStatePhase::kPanelActive) {
+    result.status = fail(
+        Sm87MacroFeedV4RequestStateError::kInvalidTransition,
+        "gdn_grant_requires_active_panel", panel, model_layer);
+    return result;
+  }
+  if (panel != state_.active_panel) {
+    result.status = fail(Sm87MacroFeedV4RequestStateError::kPanelMismatch,
+                         "gdn_grant_panel_mismatch", panel, model_layer);
+    return result;
+  }
+  if (model_layer != state_.next_model_layer) {
+    result.status = fail(Sm87MacroFeedV4RequestStateError::kLayerMismatch,
+                         "gdn_grant_layer_out_of_order", panel,
+                         model_layer);
+    return result;
+  }
+  if (!gdn_layer(model_layer)) {
+    result.status = fail(
+        Sm87MacroFeedV4RequestStateError::kLayerKindMismatch,
+        "gdn_grant_requires_gdn_layer", panel, model_layer);
+    return result;
+  }
+  if (state_.active_bank_index >= admission_.recurrent_banks.size() ||
+      state_.candidate_bank_index >= admission_.recurrent_banks.size() ||
+      state_.active_bank_index == state_.candidate_bank_index) {
+    result.status = fail(
+        Sm87MacroFeedV4RequestStateError::kInvalidTransition,
+        "gdn_grant_bank_generation_invalid", panel, model_layer);
+    return result;
+  }
+  const std::size_t ordinal = state_ordinal_for_model_layer(model_layer);
+  if (ordinal >= admission_.recurrent_layers.size() ||
+      admission_.recurrent_layers[ordinal].model_layer != model_layer) {
+    result.status = fail(Sm87MacroFeedV4RequestStateError::kLayerMismatch,
+                         "gdn_grant_state_ordinal_invalid", panel,
+                         model_layer);
+    return result;
+  }
+
+  const auto& slice = admission_.recurrent_layers[ordinal];
+  const auto& active_bank =
+      admission_.recurrent_banks[state_.active_bank_index];
+  const auto& candidate_bank =
+      admission_.recurrent_banks[state_.candidate_bank_index];
+  const std::uint64_t grant_identity =
+      next_nonzero(&g_next_gdn_layer_grant_identity);
+  result.grant.emplace(Sm87MacroFeedV4GdnLayerStateGrant(
+      grant_identity, state_.owner_identity, state_.allocation_identity,
+      state_.request_epoch, state_.state_epoch, panel, model_layer, ordinal,
+      state_.active_bank_index, state_.candidate_bank_index,
+      active_bank.allocation_offset + slice.conv_offset,
+      candidate_bank.allocation_offset + slice.conv_offset, slice.conv_bytes,
+      active_bank.allocation_offset + slice.gdn_state_offset,
+      candidate_bank.allocation_offset + slice.gdn_state_offset,
+      slice.gdn_state_bytes));
+  state_.pending_gdn_layer_grant_identity = grant_identity;
+  result.status = ok();
+  return result;
+}
+
+Sm87MacroFeedV4RequestStateStatus
+Sm87MacroFeedV4RequestState::commit_gdn_layer_candidate_enqueued(
+    const Sm87MacroFeedV4RequestStateSealedAccess& access,
+    Sm87MacroFeedV4GdnLayerStateGrant&& grant) noexcept {
+  const std::lock_guard<std::mutex> lock(owner_mutex_);
+  const auto capability = validate_access(access);
+  if (!capability) {
+    return capability;
+  }
+  const std::size_t panel = grant.panel_;
+  const std::size_t model_layer = grant.model_layer_;
+  if (state_.pending_event_receipt_identity != 0U) {
+    return fail(Sm87MacroFeedV4RequestStateError::kEventReceiptMismatch,
+                "gdn_commit_blocked_by_pending_owner_event", panel,
+                model_layer);
+  }
+  if (state_.phase != Sm87MacroFeedV4RequestStatePhase::kPanelActive) {
+    return fail(Sm87MacroFeedV4RequestStateError::kInvalidTransition,
+                "gdn_commit_requires_active_panel", panel, model_layer);
+  }
+  if (panel != state_.active_panel) {
+    return fail(Sm87MacroFeedV4RequestStateError::kPanelMismatch,
+                "gdn_commit_panel_mismatch", panel, model_layer);
+  }
+  if (model_layer != state_.next_model_layer) {
+    return fail(Sm87MacroFeedV4RequestStateError::kLayerMismatch,
+                "gdn_commit_layer_out_of_order", panel, model_layer);
+  }
+  if (!gdn_layer(model_layer)) {
+    return fail(Sm87MacroFeedV4RequestStateError::kLayerKindMismatch,
+                "gdn_commit_requires_gdn_layer", panel, model_layer);
+  }
+  if (state_.pending_gdn_layer_grant_identity == 0U) {
+    return fail(Sm87MacroFeedV4RequestStateError::kGdnLayerGrantMismatch,
+                "gdn_commit_requires_live_grant", panel, model_layer);
+  }
+
+  const std::size_t ordinal = state_ordinal_for_model_layer(model_layer);
+  if (ordinal >= admission_.recurrent_layers.size() ||
+      state_.active_bank_index >= admission_.recurrent_banks.size() ||
+      state_.candidate_bank_index >= admission_.recurrent_banks.size()) {
+    return fail(Sm87MacroFeedV4RequestStateError::kInvalidTransition,
+                "gdn_commit_generation_invalid", panel, model_layer);
+  }
+  const auto& slice = admission_.recurrent_layers[ordinal];
+  const auto& active_bank =
+      admission_.recurrent_banks[state_.active_bank_index];
+  const auto& candidate_bank =
+      admission_.recurrent_banks[state_.candidate_bank_index];
+  const bool grant_matches =
+      grant.grant_identity_ != 0U &&
+      grant.grant_identity_ == state_.pending_gdn_layer_grant_identity &&
+      grant.owner_identity_ == state_.owner_identity &&
+      grant.allocation_identity_ == state_.allocation_identity &&
+      grant.request_epoch_ == state_.request_epoch &&
+      grant.state_epoch_ == state_.state_epoch && grant.panel_ == panel &&
+      grant.model_layer_ == model_layer &&
+      grant.state_layer_ordinal_ == ordinal &&
+      grant.active_bank_index_ == state_.active_bank_index &&
+      grant.candidate_bank_index_ == state_.candidate_bank_index &&
+      grant.active_conv_allocation_offset_ ==
+          active_bank.allocation_offset + slice.conv_offset &&
+      grant.candidate_conv_allocation_offset_ ==
+          candidate_bank.allocation_offset + slice.conv_offset &&
+      grant.conv_bytes_ == slice.conv_bytes &&
+      grant.active_gdn_state_allocation_offset_ ==
+          active_bank.allocation_offset + slice.gdn_state_offset &&
+      grant.candidate_gdn_state_allocation_offset_ ==
+          candidate_bank.allocation_offset + slice.gdn_state_offset &&
+      grant.gdn_state_bytes_ == slice.gdn_state_bytes;
+  if (!grant_matches) {
+    return fail(Sm87MacroFeedV4RequestStateError::kGdnLayerGrantMismatch,
+                "gdn_commit_grant_generation_or_slice_mismatch", panel,
+                model_layer);
+  }
+
+  state_.pending_gdn_layer_grant_identity = 0U;
+  ++state_.panel_conv_layers_prepared;
+  ++state_.panel_gdn_layers_assigned;
+  state_.panel_conv_copy_bytes += slice.conv_bytes;
+  state_.panel_gdn_assignment_bytes += slice.gdn_state_bytes;
+  state_.total_conv_copy_bytes += slice.conv_bytes;
+  state_.total_gdn_assignment_bytes += slice.gdn_state_bytes;
+  ++state_.next_model_layer;
+  if (state_.next_model_layer == kSm87MacroFeedV4LayerCount) {
+    state_.candidate_epoch_complete =
+        state_.panel_conv_layers_prepared ==
+            kSm87MacroFeedV4StateLayerCount &&
+        state_.panel_gdn_layers_assigned ==
+            kSm87MacroFeedV4StateLayerCount &&
+        state_.panel_kv_layers_staged ==
+            kSm87MacroFeedV4FullAttentionLayerCount;
+    if (state_.candidate_epoch_complete) {
+      state_.phase = Sm87MacroFeedV4RequestStatePhase::kPanelReady;
+    }
+  }
+  grant.invalidate();
+  return ok();
+}
+
 Sm87MacroFeedV4RequestStateStatus
 Sm87MacroFeedV4RequestState::prepare_conv_layer_candidate(
     const Sm87MacroFeedV4RequestStateSealedAccess& access,
@@ -570,6 +849,10 @@ Sm87MacroFeedV4RequestState::prepare_conv_layer_candidate(
     return fail(Sm87MacroFeedV4RequestStateError::kEventReceiptMismatch,
                 "conv_prepare_blocked_by_pending_owner_event", panel,
                 model_layer);
+  }
+  if (state_.pending_gdn_layer_grant_identity != 0U) {
+    return fail(Sm87MacroFeedV4RequestStateError::kGdnLayerGrantPending,
+                "conv_prepare_blocked_by_gdn_grant", panel, model_layer);
   }
   if (state_.phase != Sm87MacroFeedV4RequestStatePhase::kPanelActive) {
     return fail(Sm87MacroFeedV4RequestStateError::kInvalidTransition,
@@ -611,6 +894,10 @@ Sm87MacroFeedV4RequestState::assign_gdn_layer_candidate(
     return fail(Sm87MacroFeedV4RequestStateError::kEventReceiptMismatch,
                 "gdn_assignment_blocked_by_pending_owner_event", panel,
                 model_layer);
+  }
+  if (state_.pending_gdn_layer_grant_identity != 0U) {
+    return fail(Sm87MacroFeedV4RequestStateError::kGdnLayerGrantPending,
+                "gdn_assignment_blocked_by_gdn_grant", panel, model_layer);
   }
   if (state_.phase != Sm87MacroFeedV4RequestStatePhase::kPanelActive) {
     return fail(Sm87MacroFeedV4RequestStateError::kInvalidTransition,
@@ -666,6 +953,10 @@ Sm87MacroFeedV4RequestState::stage_attention_kv_layer(
     return fail(Sm87MacroFeedV4RequestStateError::kEventReceiptMismatch,
                 "kv_stage_blocked_by_pending_owner_event", panel,
                 model_layer);
+  }
+  if (state_.pending_gdn_layer_grant_identity != 0U) {
+    return fail(Sm87MacroFeedV4RequestStateError::kGdnLayerGrantPending,
+                "kv_stage_blocked_by_gdn_grant", panel, model_layer);
   }
   if (state_.phase != Sm87MacroFeedV4RequestStatePhase::kPanelActive) {
     return fail(Sm87MacroFeedV4RequestStateError::kInvalidTransition,
@@ -723,7 +1014,8 @@ Sm87MacroFeedV4RequestState::record_test_only_panel_completion(
   }
   if (state_.phase != Sm87MacroFeedV4RequestStatePhase::kPanelReady ||
       !state_.candidate_epoch_complete ||
-      state_.next_model_layer != kSm87MacroFeedV4LayerCount) {
+      state_.next_model_layer != kSm87MacroFeedV4LayerCount ||
+      state_.pending_gdn_layer_grant_identity != 0U) {
     result.status = fail(
         Sm87MacroFeedV4RequestStateError::kCandidateIncomplete,
         "panel_event_requires_layer63_and_complete_candidate",
@@ -791,7 +1083,8 @@ Sm87MacroFeedV4RequestStateStatus Sm87MacroFeedV4RequestState::commit_panel(
           kSm87MacroFeedV4FullAttentionLayerCount ||
       state_.panel_conv_copy_bytes != kSm87MacroFeedV4ConvEpochBytes ||
       state_.panel_gdn_assignment_bytes != kSm87MacroFeedV4GdnEpochBytes ||
-      state_.whole_epoch_copy_bytes != 0U) {
+      state_.whole_epoch_copy_bytes != 0U ||
+      state_.pending_gdn_layer_grant_identity != 0U) {
     return fail(Sm87MacroFeedV4RequestStateError::kCandidateIncomplete,
                 "panel_commit_candidate_coverage_incomplete", panel);
   }
@@ -884,8 +1177,79 @@ Sm87MacroFeedV4RequestState::discard_active_panel(
   state_.candidate_kv_valid_end = state_.private_kv_valid_end;
   state_.candidate_epoch_complete = false;
   state_.current_conv_layer_prepared = false;
+  state_.last_invalidated_gdn_layer_grant_identity =
+      state_.pending_gdn_layer_grant_identity;
+  state_.pending_gdn_layer_grant_identity = 0U;
   state_.active_panel = kSm87MacroFeedV4PanelCount;
   state_.pending_event_receipt_identity = 0U;
+  state_.phase = discard_phase(reason);
+  return ok();
+}
+
+Sm87MacroFeedV4RequestStateStatus
+Sm87MacroFeedV4RequestState::
+    discard_active_panel_after_physical_execution_drain(
+        const Sm87MacroFeedV4RequestStateSealedAccess& access,
+        const std::uint64_t execution_owner_identity,
+        const std::uint64_t allocation_identity,
+        const std::uint64_t request_epoch, const std::size_t panel,
+        const std::uint64_t panel_generation,
+        const std::uint64_t physical_receipt_identity,
+        const bool poison_terminal,
+        const Sm87MacroFeedV4RequestDiscardReason reason) noexcept {
+  const std::lock_guard<std::mutex> lock(owner_mutex_);
+  const auto capability = validate_access(access);
+  if (!capability) {
+    return capability;
+  }
+  if (!valid_discard_reason(reason)) {
+    return fail(Sm87MacroFeedV4RequestStateError::kInvalidDiscardReason,
+                "physical_discard_reason_invalid", panel);
+  }
+  if (state_.phase != Sm87MacroFeedV4RequestStatePhase::kPanelActive &&
+      state_.phase != Sm87MacroFeedV4RequestStatePhase::kPanelReady) {
+    return fail(Sm87MacroFeedV4RequestStateError::kInvalidTransition,
+                "physical_discard_requires_active_candidate", panel);
+  }
+  if (execution_owner_identity == 0U ||
+      execution_owner_identity != admission_.owner_identity ||
+      allocation_identity == 0U ||
+      allocation_identity != state_.allocation_identity ||
+      request_epoch == 0U || request_epoch != state_.request_epoch ||
+      panel_generation == 0U || physical_receipt_identity == 0U) {
+    return fail(Sm87MacroFeedV4RequestStateError::kEventReceiptMismatch,
+                "physical_owner_drain_identity_mismatch", panel);
+  }
+  if (panel != state_.active_panel || panel != state_.completed_panels) {
+    return fail(Sm87MacroFeedV4RequestStateError::kPanelMismatch,
+                "physical_discard_panel_mismatch", panel);
+  }
+  if (state_.pending_event_receipt_identity != 0U ||
+      state_.physical_owner_drain_receipt_identity != 0U ||
+      state_.physical_owner_drain_panel_generation != 0U ||
+      state_.physical_execution_receipt_issued) {
+    return fail(Sm87MacroFeedV4RequestStateError::kEventReceiptMismatch,
+                "physical_discard_requires_unique_completed_receipt", panel);
+  }
+  // A grant authorizes writes only to the candidate bank.  Once the exact
+  // execution owner has physically drained every producer, an uncommitted
+  // grant is safe to invalidate: no active-bank generation, KV visibility, or
+  // publication state is advanced.  A moved grant that survives in caller
+  // storage is thereafter rejected by both the terminal phase and this cleared
+  // live identity.
+  state_.last_invalidated_gdn_layer_grant_identity =
+      state_.pending_gdn_layer_grant_identity;
+  state_.pending_gdn_layer_grant_identity = 0U;
+  state_.last_discarded_candidate_identity = state_.candidate_bank_identity;
+  ++state_.candidate_discard_count;
+  state_.candidate_kv_valid_end = state_.private_kv_valid_end;
+  state_.candidate_epoch_complete = false;
+  state_.current_conv_layer_prepared = false;
+  state_.active_panel = kSm87MacroFeedV4PanelCount;
+  state_.physical_owner_drain_receipt_identity = physical_receipt_identity;
+  state_.physical_owner_drain_panel_generation = panel_generation;
+  state_.physical_execution_receipt_issued = true;
+  state_.physical_owner_drain_was_poison_terminal = poison_terminal;
   state_.phase = discard_phase(reason);
   return ok();
 }

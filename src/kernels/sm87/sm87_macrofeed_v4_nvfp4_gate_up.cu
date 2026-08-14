@@ -1,5 +1,9 @@
 #include "q3x/kernels/sm87_macrofeed_v4_nvfp4_gate_up.h"
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+#include "sm87_macrofeed_v4_bound_launch_internal.h"
+#endif
+
 #include "sm87_macrofeed_v3_nvfp4_decode.cuh"
 
 #include <cuda_runtime.h>
@@ -653,6 +657,17 @@ struct PointerRange final {
   return cudaSuccess;
 }
 
+[[nodiscard]] cudaError_t enqueue_constituent(
+    const Sm87MacroFeedV4NvFp4GateUpArguments& arguments,
+    const cudaStream_t stream) noexcept {
+  sm87_macrofeed_v4_nvfp4_gate_up_kernel
+      <<<kPersistentCtas, kThreads,
+         kSm87MacroFeedV4NvFp4GateUpDynamicSharedBytes, stream>>>(
+          arguments.input, arguments.payload, arguments.gate_tensor_scale,
+          arguments.up_tensor_scale, arguments.output);
+  return cudaPeekAtLastError();
+}
+
 }  // namespace
 
 bool sm87_macrofeed_v4_nvfp4_gate_up_arguments_valid(
@@ -729,13 +744,8 @@ int launch_sm87_macrofeed_v4_nvfp4_gate_up_cuda(
           arguments.canonical_v3_payload_receipt.device_ordinal) {
     return static_cast<int>(cudaErrorNotSupported);
   }
-  const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
-  sm87_macrofeed_v4_nvfp4_gate_up_kernel
-      <<<kPersistentCtas, kThreads,
-         kSm87MacroFeedV4NvFp4GateUpDynamicSharedBytes, stream>>>(
-          arguments.input, arguments.payload, arguments.gate_tensor_scale,
-          arguments.up_tensor_scale, arguments.output);
-  const cudaError_t status = cudaPeekAtLastError();
+  const cudaError_t status = enqueue_constituent(
+      arguments, reinterpret_cast<cudaStream_t>(arguments.cuda_stream));
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
@@ -799,5 +809,49 @@ int launch_sm87_macrofeed_v4_nvfp4_gate_up_tile_test_cuda(
           up_tensor_scale, output_m64_n128);
   return static_cast<int>(cudaPeekAtLastError());
 }
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+namespace sm87_macrofeed_v4_bound_launch_detail {
+
+int enqueue_gate_up_c8000_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4GateUpC8000Arguments& arguments,
+    const Sm87MacroFeedV4NvFp4GateUpCudaResources& resources,
+    std::size_t* const submitted_launches) noexcept {
+  if (submitted_launches == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *submitted_launches = 0U;
+  const Sm87MacroFeedV4NvFp4GateUpArguments fixed{
+      arguments.normalized_input,
+      arguments.payload,
+      arguments.payload_bytes,
+      arguments.gate_tensor_scale,
+      arguments.up_tensor_scale,
+      kSm87MacroFeedV4NvFp4GateUpTokens,
+      arguments.intermediate_output,
+      token.cuda_stream_,
+      arguments.canonical_v3_payload_receipt};
+  if (token.cuda_stream_ == nullptr ||
+      !sm87_macrofeed_v4_nvfp4_gate_up_arguments_valid(fixed) ||
+      !resources.static_resource_gate_passed ||
+      !sm87_macrofeed_v4_nvfp4_gate_up_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const cudaError_t prior_status = cudaPeekAtLastError();
+  if (prior_status != cudaSuccess) {
+    return static_cast<int>(prior_status);
+  }
+  const cudaError_t status = enqueue_constituent(
+      fixed, reinterpret_cast<cudaStream_t>(token.cuda_stream_));
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *submitted_launches = 1U;
+  return static_cast<int>(cudaSuccess);
+}
+
+}  // namespace sm87_macrofeed_v4_bound_launch_detail
+#endif
 
 }  // namespace q3x::kernels

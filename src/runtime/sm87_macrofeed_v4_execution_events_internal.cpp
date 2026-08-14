@@ -15,6 +15,8 @@ std::atomic<std::uint64_t> g_next_owner_identity{1U};
 std::atomic<std::uint64_t> g_next_seal_nonce{1U};
 std::atomic<std::uint64_t> g_next_enqueue_identity{1U};
 std::atomic<std::uint64_t> g_next_completion_identity{1U};
+std::atomic<std::uint64_t> g_next_gdn_layer_transaction_identity{1U};
+std::atomic<std::uint64_t> g_next_poison_quiescence_identity{1U};
 
 [[nodiscard]] std::uint64_t next_nonzero(
     std::atomic<std::uint64_t>* const source) noexcept {
@@ -312,6 +314,14 @@ void Sm87MacroFeedV4ExecutionEventsOwner::reset_request_ledger() noexcept {
   bf16_ab_submissions_ = 0U;
   gdn_qkvz_c8000_submissions_ = 0U;
   gdn_qkvz_ab_ready_wait_transactions_ = 0U;
+  gdn_continuation_c8000_submissions_ = 0U;
+  gdn_history_d2d_copies_ = 0U;
+  gdn_history_d2d_bytes_ = 0U;
+  gdn_output_c8000_submissions_ = 0U;
+  residual_post_norm_submissions_ = 0U;
+  gate_up_c8000_submissions_ = 0U;
+  down_c8000_submissions_ = 0U;
+  complete_gdn_layers_submitted_ = 0U;
   panel_done_recorded_ = false;
   draining_ = false;
   main_tail_recorded_ = false;
@@ -328,6 +338,7 @@ void Sm87MacroFeedV4ExecutionEventsOwner::reset_request_ledger() noexcept {
   poison_drain_stream_cuda_status_.fill(0);
   poison_drain_all_stream_synchronizations_attempted_ = false;
   poisoned_terminal_quiescence_attested_ = false;
+  poisoned_terminal_quiescence_identity_ = 0U;
   test_fail_next_bound_ab_wait_ = false;
 }
 
@@ -368,6 +379,14 @@ Sm87MacroFeedV4ExecutionEventsOwner::begin_request(
   if (request_epoch == 0U || request_epoch <= last_request_epoch_) {
     return fail(Sm87MacroFeedV4ExecutionError::kInvalidRequestEpoch,
                 "fresh_monotonic_request_epoch_required");
+  }
+  if (cold_recurrent_initializations_ != 1U ||
+      cold_recurrent_allocation_identity_ == 0U ||
+      cold_recurrent_allocation_begin_ == 0U ||
+      cold_recurrent_zero_bytes_ != kSm87MacroFeedV4RecurrentStorageBytes ||
+      allocation_identity != cold_recurrent_allocation_identity_) {
+    return fail(Sm87MacroFeedV4ExecutionError::kInvalidOwnerState,
+                "request_recurrent_allocation_must_match_cold_zero_seal");
   }
 
   reset_request_ledger();
@@ -741,6 +760,18 @@ Sm87MacroFeedV4ExecutionEventsOwner::submit_input_norm_and_record_ready(
     const kernels::Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot&
         resources) noexcept {
   std::lock_guard<std::mutex> lock(mutex_);
+  return submit_input_norm_and_record_ready_locked(
+      access, panel_access, arguments, resources);
+}
+
+Sm87MacroFeedV4EventEnqueueResult
+Sm87MacroFeedV4ExecutionEventsOwner::
+    submit_input_norm_and_record_ready_locked(
+        const Sm87MacroFeedV4ExecutionEventsAccess& access,
+        const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+        const kernels::Sm87MacroFeedV4InputNormArguments& arguments,
+        const kernels::Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot&
+            resources) noexcept {
   Sm87MacroFeedV4EventEnqueueResult result;
   result.status = validate_operation_access(access, panel_access);
   if (!result.status) {
@@ -831,6 +862,18 @@ Sm87MacroFeedV4ExecutionEventsOwner::submit_bf16_ab_and_record_ready(
     const kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot&
         resources) noexcept {
   std::lock_guard<std::mutex> lock(mutex_);
+  return submit_bf16_ab_and_record_ready_locked(
+      access, panel_access, arguments, resources);
+}
+
+Sm87MacroFeedV4EventEnqueueResult
+Sm87MacroFeedV4ExecutionEventsOwner::
+    submit_bf16_ab_and_record_ready_locked(
+        const Sm87MacroFeedV4ExecutionEventsAccess& access,
+        const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+        const kernels::Sm87MacroFeedV4Bf16AbArguments& arguments,
+        const kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot&
+            resources) noexcept {
   Sm87MacroFeedV4EventEnqueueResult result;
   result.status = validate_operation_access(access, panel_access);
   if (!result.status) {
@@ -921,6 +964,18 @@ Sm87MacroFeedV4ExecutionEventsOwner::
             Sm87MacroFeedV4GdnQkvzC8000Arguments& arguments,
         const kernels::Sm87MacroFeedV4Fp8CudaResources& resources) noexcept {
   std::lock_guard<std::mutex> lock(mutex_);
+  return submit_gdn_qkvz_c8000_then_wait_ab_ready_locked(
+      access, panel_access, arguments, resources);
+}
+
+Sm87MacroFeedV4EventEnqueueResult
+Sm87MacroFeedV4ExecutionEventsOwner::
+    submit_gdn_qkvz_c8000_then_wait_ab_ready_locked(
+        const Sm87MacroFeedV4ExecutionEventsAccess& access,
+        const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+        const kernels::sm87_macrofeed_v4_bound_launch_detail::
+            Sm87MacroFeedV4GdnQkvzC8000Arguments& arguments,
+        const kernels::Sm87MacroFeedV4Fp8CudaResources& resources) noexcept {
   Sm87MacroFeedV4EventEnqueueResult result;
   result.status = validate_operation_access(access, panel_access);
   if (!result.status) {
@@ -1056,6 +1111,393 @@ Sm87MacroFeedV4ExecutionEventsOwner::
   result.status = ok();
   return result;
 }
+
+Sm87MacroFeedV4ExecutionStatus
+Sm87MacroFeedV4ExecutionEventsOwner::initialize_cold_recurrent_storage(
+    const Sm87MacroFeedV4ExecutionEventsAccess& access,
+    void* const recurrent_allocation,
+    const std::size_t recurrent_bytes,
+    const std::uint64_t recurrent_allocation_identity) noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!owner_access_matches(access)) {
+    return fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                "cold_recurrent_zero_owner_issued_access");
+  }
+  if (state_ != Sm87MacroFeedV4ExecutionOwnerState::kReady ||
+      recurrent_allocation == nullptr ||
+      reinterpret_cast<std::uintptr_t>(recurrent_allocation) % 256U != 0U ||
+      recurrent_bytes != kSm87MacroFeedV4RecurrentStorageBytes ||
+      recurrent_allocation_identity == 0U ||
+      cold_recurrent_initializations_ != 0U ||
+      cold_recurrent_allocation_identity_ != 0U ||
+      cold_recurrent_allocation_begin_ != 0U ||
+      cold_recurrent_zero_bytes_ != 0U) {
+    return fail(Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
+                "cold_recurrent_zero_exact_once_before_request");
+  }
+
+  const auto control = reinterpret_cast<cudaStream_t>(
+      streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kControl)]);
+  cudaError_t cuda_status =
+      cudaMemsetAsync(recurrent_allocation, 0, recurrent_bytes, control);
+  if (cuda_status != cudaSuccess) {
+    const auto status = fail(
+        Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+        "cold_recurrent_zero_memset_enqueue", static_cast<int>(cuda_status),
+        Sm87MacroFeedV4ExecutionStream::kControl);
+    record_poison_cause(status);
+    return status;
+  }
+  // Construction-only physical fence.  No request or panel is active and no
+  // request-hot path may repeat this whole-arena operation.
+  cuda_status = cudaStreamSynchronize(control);
+  if (cuda_status != cudaSuccess) {
+    const auto status = fail(
+        Sm87MacroFeedV4ExecutionError::kCudaObservation,
+        "cold_recurrent_zero_control_observation",
+        static_cast<int>(cuda_status),
+        Sm87MacroFeedV4ExecutionStream::kControl);
+    record_poison_cause(status);
+    return status;
+  }
+  cold_recurrent_initializations_ = 1U;
+  cold_recurrent_allocation_identity_ = recurrent_allocation_identity;
+  cold_recurrent_allocation_begin_ =
+      reinterpret_cast<std::uintptr_t>(recurrent_allocation);
+  cold_recurrent_zero_bytes_ = recurrent_bytes;
+  return ok();
+}
+
+Sm87MacroFeedV4CompleteGdnLayerEnqueueResult
+Sm87MacroFeedV4ExecutionEventsOwner::
+    submit_complete_gdn_layer_c8000_prevalidated(
+        const Sm87MacroFeedV4ExecutionEventsAccess& access,
+        const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+        const Sm87MacroFeedV4CompleteGdnLayerC8000Submission& submission)
+        noexcept {
+  namespace bound =
+      kernels::sm87_macrofeed_v4_bound_launch_detail;
+  std::lock_guard<std::mutex> lock(mutex_);
+  Sm87MacroFeedV4CompleteGdnLayerEnqueueResult result;
+  result.status = validate_operation_access(access, panel_access);
+  if (!result.status) {
+    return result;
+  }
+
+  const void* const main_stream =
+      streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kMain)];
+  const void* const ab_stream =
+      streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kAbAux)];
+  auto checked_input_norm = submission.input_norm;
+  checked_input_norm.cuda_stream = const_cast<void*>(main_stream);
+  auto checked_bf16_ab = submission.bf16_ab;
+  checked_bf16_ab.cuda_stream = const_cast<void*>(ab_stream);
+  const kernels::Sm87MacroFeedV4Fp8Arguments checked_gdn_qkvz{
+      kernels::Sm87TargetAotProjectionRole::kFp8GdnQkvZ,
+      submission.gdn_qkvz.hidden_input,
+      kernels::kSm87MacroFeedV4Fp8HiddenRowStride,
+      submission.gdn_qkvz.asset,
+      kernels::kSm87MacroFeedV4Fp8Tokens,
+      submission.gdn_qkvz.phase_scratch,
+      kernels::kSm87MacroFeedV4Fp8ScratchRowStride,
+      nullptr,
+      0U,
+      nullptr,
+      0U,
+      const_cast<void*>(main_stream),
+      kernels::Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1};
+  const kernels::Sm87MacroFeedV4GdnC8000Arguments checked_continuation{
+      submission.gdn_continuation.phase_scratch,
+      kernels::kSm87MacroFeedV4GdnC8000Tokens,
+      kernels::kSm87MacroFeedV4GdnScratchRowStride,
+      submission.gdn_continuation.conv_weight,
+      submission.gdn_continuation.a_log,
+      submission.gdn_continuation.dt_bias,
+      submission.gdn_continuation.norm_weight,
+      submission.gdn_continuation.active_conv_history,
+      submission.gdn_continuation.candidate_conv_history,
+      submission.gdn_continuation.active_recurrent_state,
+      submission.gdn_continuation.candidate_recurrent_state,
+      submission.gdn_continuation.cancellation_signal,
+      submission.gdn_continuation.l2_epsilon_fp32_bits,
+      submission.gdn_continuation.norm_epsilon_fp32_bits,
+      const_cast<void*>(main_stream)};
+  const kernels::Sm87MacroFeedV4Fp8Arguments checked_gdn_output{
+      kernels::Sm87TargetAotProjectionRole::kFp8AttentionOutput,
+      submission.gdn_output.phase_scratch,
+      kernels::kSm87MacroFeedV4Fp8ScratchRowStride,
+      submission.gdn_output.asset,
+      kernels::kSm87MacroFeedV4Fp8Tokens,
+      submission.gdn_output.branch_output,
+      kernels::kSm87MacroFeedV4Fp8HiddenRowStride,
+      nullptr,
+      0U,
+      nullptr,
+      0U,
+      const_cast<void*>(main_stream),
+      kernels::Sm87MacroFeedV4Fp8InputLayout::kGdnContiguousVScratchV1};
+  const kernels::Sm87MacroFeedV4ResidualPostNormArguments
+      checked_residual_post_norm{
+          submission.residual_post_norm.left_residual_then_normalized,
+          submission.residual_post_norm.right_branch_then_residual,
+          submission.residual_post_norm.centered_weight,
+          kernels::kSm87MacroFeedV4NormResidualTokens,
+          kernels::kSm87MacroFeedV4NormResidualHidden,
+          kernels::kSm87MacroFeedV4NormResidualEpsilonFp32Bits,
+          const_cast<void*>(main_stream)};
+  const kernels::Sm87MacroFeedV4NvFp4GateUpArguments checked_gate_up{
+      submission.gate_up.normalized_input,
+      submission.gate_up.payload,
+      submission.gate_up.payload_bytes,
+      submission.gate_up.gate_tensor_scale,
+      submission.gate_up.up_tensor_scale,
+      kernels::kSm87MacroFeedV4NvFp4GateUpTokens,
+      submission.gate_up.intermediate_output,
+      const_cast<void*>(main_stream),
+      submission.gate_up.canonical_v3_payload_receipt};
+  const kernels::Sm87MacroFeedV4NvFp4DownArguments checked_down{
+      submission.down.intermediate_input,
+      submission.down.payload,
+      submission.down.payload_bytes,
+      submission.down.tensor_scale,
+      kernels::kSm87MacroFeedV4NvFp4DownTokens,
+      submission.down.residual_output,
+      const_cast<void*>(main_stream),
+      submission.down.payload_receipt};
+  if (cold_recurrent_initializations_ != 1U ||
+      cold_recurrent_allocation_identity_ != request_allocation_identity_ ||
+      cold_recurrent_allocation_begin_ == 0U ||
+      cold_recurrent_zero_bytes_ != kSm87MacroFeedV4RecurrentStorageBytes ||
+      submission.input_norm.cuda_stream != nullptr ||
+      submission.bf16_ab.cuda_stream != nullptr ||
+      !kernels::sm87_macrofeed_v4_input_norm_arguments_valid(
+          checked_input_norm) ||
+      !kernels::sm87_macrofeed_v4_bf16_ab_arguments_valid(checked_bf16_ab) ||
+      !kernels::sm87_macrofeed_v4_fp8_arguments_valid(checked_gdn_qkvz) ||
+      !kernels::sm87_macrofeed_v4_gdn_c8000_arguments_valid(
+          checked_continuation) ||
+      !kernels::sm87_macrofeed_v4_fp8_arguments_valid(checked_gdn_output) ||
+      !kernels::sm87_macrofeed_v4_residual_post_norm_arguments_valid(
+          checked_residual_post_norm) ||
+      !kernels::sm87_macrofeed_v4_nvfp4_gate_up_arguments_valid(
+          checked_gate_up) ||
+      !kernels::sm87_macrofeed_v4_nvfp4_down_arguments_valid(checked_down) ||
+      !kernels::sm87_macrofeed_v4_norm_residual_resource_gate(
+          submission.norm_resources) ||
+      !kernels::sm87_macrofeed_v4_bf16_ab_admission_resource_gate(
+          submission.bf16_ab_resources) ||
+      !kernels::sm87_macrofeed_v4_fp8_resource_gate(
+          submission.gdn_qkvz_resources) ||
+      !kernels::sm87_macrofeed_v4_gdn_c8000_admission_resource_gate(
+          submission.gdn_continuation_resources) ||
+      !kernels::sm87_macrofeed_v4_fp8_resource_gate(
+          submission.gdn_output_resources) ||
+      !kernels::sm87_macrofeed_v4_nvfp4_gate_up_resource_gate(
+          submission.gate_up_resources) ||
+      !kernels::sm87_macrofeed_v4_nvfp4_down_resource_gate(
+          submission.down_resources) ||
+      submission.norm_resources.device_ordinal != device_ordinal_ ||
+      submission.bf16_ab_resources.device_ordinal != device_ordinal_ ||
+      submission.gdn_qkvz_resources.device_ordinal != device_ordinal_ ||
+      submission.gdn_continuation_resources.device_ordinal !=
+          device_ordinal_ ||
+      submission.gdn_output_resources.device_ordinal != device_ordinal_ ||
+      submission.gate_up_resources.device_ordinal != device_ordinal_ ||
+      submission.down_resources.device_ordinal != device_ordinal_) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
+        "complete_gdn_layer_all_bindings_prevalidated_before_enqueue", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kNormReady, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+
+  auto enqueue = submit_input_norm_and_record_ready_locked(
+      access, panel_access, submission.input_norm,
+      submission.norm_resources);
+  if (!enqueue) {
+    result.status = enqueue.status;
+    if (state_ != Sm87MacroFeedV4ExecutionOwnerState::kPoisoned) {
+      record_poison_cause(result.status);
+    }
+    return result;
+  }
+
+  enqueue = wait_event_locked(
+      access, panel_access, Sm87MacroFeedV4ExecutionStream::kAbAux,
+      Sm87MacroFeedV4ExecutionEvent::kNormReady);
+  if (!enqueue) {
+    result.status = enqueue.status;
+    if (state_ != Sm87MacroFeedV4ExecutionOwnerState::kPoisoned) {
+      record_poison_cause(result.status);
+    }
+    return result;
+  }
+
+  enqueue = submit_bf16_ab_and_record_ready_locked(
+      access, panel_access, submission.bf16_ab,
+      submission.bf16_ab_resources);
+  if (!enqueue) {
+    result.status = enqueue.status;
+    if (state_ != Sm87MacroFeedV4ExecutionOwnerState::kPoisoned) {
+      record_poison_cause(result.status);
+    }
+    return result;
+  }
+
+  enqueue = submit_gdn_qkvz_c8000_then_wait_ab_ready_locked(
+      access, panel_access, submission.gdn_qkvz,
+      submission.gdn_qkvz_resources);
+  if (!enqueue) {
+    result.status = enqueue.status;
+    if (state_ != Sm87MacroFeedV4ExecutionOwnerState::kPoisoned) {
+      record_poison_cause(result.status);
+    }
+    return result;
+  }
+
+  const bound::Sm87MacroFeedV4LockedSubmitToken main_token(
+      streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kMain)]);
+  bound::Sm87MacroFeedV4GdnContinuationSubmitLedger continuation_ledger{};
+  int cuda_status = bound::enqueue_gdn_continuation_c8000_prevalidated(
+      main_token, submission.gdn_continuation,
+      submission.gdn_continuation_resources, &continuation_ledger);
+  bound_kernel_submissions_ +=
+      continuation_ledger.accepted_kernel_launches;
+  gdn_continuation_c8000_submissions_ +=
+      continuation_ledger.accepted_kernel_launches;
+  gdn_history_d2d_copies_ += continuation_ledger.asynchronous_d2d_copies;
+  gdn_history_d2d_bytes_ += continuation_ledger.conv_history_copy_bytes;
+  if (cuda_status != static_cast<int>(cudaSuccess) ||
+      continuation_ledger.accepted_kernel_launches != 2U ||
+      continuation_ledger.asynchronous_d2d_copies != 1U ||
+      continuation_ledger.conv_history_copy_bytes !=
+          kernels::kSm87MacroFeedV4GdnConvHistoryBytes) {
+    result.status = fail(
+        cuda_status == static_cast<int>(cudaSuccess)
+            ? Sm87MacroFeedV4ExecutionError::kReceiptInvalid
+            : Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+        "complete_gdn_layer_continuation_exact_two_launches", cuda_status,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kAbReady, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+
+  std::size_t submitted = 0U;
+  cuda_status = bound::enqueue_gdn_o_c8000_prevalidated(
+      main_token, submission.gdn_output, submission.gdn_output_resources,
+      &submitted);
+  if (cuda_status != static_cast<int>(cudaSuccess) || submitted != 1U) {
+    result.status = fail(
+        cuda_status == static_cast<int>(cudaSuccess)
+            ? Sm87MacroFeedV4ExecutionError::kReceiptInvalid
+            : Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+        "complete_gdn_layer_output_exact_one_launch", cuda_status,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kAbReady, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+  bound_kernel_submissions_ += submitted;
+  gdn_output_c8000_submissions_ += submitted;
+
+  submitted = 0U;
+  cuda_status = bound::enqueue_residual_post_norm_prevalidated(
+      main_token, submission.residual_post_norm,
+      submission.norm_resources, &submitted);
+  if (cuda_status != static_cast<int>(cudaSuccess) || submitted != 1U) {
+    result.status = fail(
+        cuda_status == static_cast<int>(cudaSuccess)
+            ? Sm87MacroFeedV4ExecutionError::kReceiptInvalid
+            : Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+        "complete_gdn_layer_residual_post_norm_exact_one_launch",
+        cuda_status, Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kAbReady, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+  bound_kernel_submissions_ += submitted;
+  residual_post_norm_submissions_ += submitted;
+
+  submitted = 0U;
+  cuda_status = bound::enqueue_gate_up_c8000_prevalidated(
+      main_token, submission.gate_up, submission.gate_up_resources,
+      &submitted);
+  if (cuda_status != static_cast<int>(cudaSuccess) || submitted != 1U) {
+    result.status = fail(
+        cuda_status == static_cast<int>(cudaSuccess)
+            ? Sm87MacroFeedV4ExecutionError::kReceiptInvalid
+            : Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+        "complete_gdn_layer_gate_up_exact_one_launch", cuda_status,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kAbReady, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+  bound_kernel_submissions_ += submitted;
+  gate_up_c8000_submissions_ += submitted;
+
+  submitted = 0U;
+  cuda_status = bound::enqueue_down_c8000_prevalidated(
+      main_token, submission.down, submission.down_resources, &submitted);
+  if (cuda_status != static_cast<int>(cudaSuccess) || submitted != 1U) {
+    result.status = fail(
+        cuda_status == static_cast<int>(cudaSuccess)
+            ? Sm87MacroFeedV4ExecutionError::kReceiptInvalid
+            : Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+        "complete_gdn_layer_down_exact_one_launch", cuda_status,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kAbReady, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+  bound_kernel_submissions_ += submitted;
+  down_c8000_submissions_ += submitted;
+  ++complete_gdn_layers_submitted_;
+
+  Sm87MacroFeedV4CompleteGdnLayerEnqueueReceipt receipt;
+  receipt.transaction_identity =
+      next_nonzero(&g_next_gdn_layer_transaction_identity);
+  receipt.owner_identity = owner_identity_;
+  receipt.request_epoch = request_epoch_;
+  receipt.panel = active_panel_;
+  receipt.panel_generation = active_panel_generation_;
+  receipt.input_norm_launches = 1U;
+  receipt.bf16_ab_launches = 1U;
+  receipt.gdn_qkvz_launches = 1U;
+  receipt.gdn_continuation_launches = 2U;
+  receipt.gdn_output_launches = 1U;
+  receipt.residual_post_norm_launches = 1U;
+  receipt.gate_up_launches = 1U;
+  receipt.down_launches = 1U;
+  receipt.bound_kernel_submissions = 9U;
+  receipt.asynchronous_d2d_copies = 1U;
+  receipt.conv_history_copy_bytes =
+      kernels::kSm87MacroFeedV4GdnConvHistoryBytes;
+  receipt.norm_ready_waited_by_ab = true;
+  receipt.ab_ready_waited_by_main = true;
+  receipt.complete_layer_enqueued = true;
+  receipt.physical_device_completion_attested = false;
+  receipt.panel_complete = false;
+  receipt.production_receipt_eligible = false;
+  result.receipt = receipt;
+  result.status = receipt.valid()
+                      ? ok()
+                      : fail(Sm87MacroFeedV4ExecutionError::kReceiptInvalid,
+                             "complete_gdn_layer_enqueue_receipt");
+  if (!result.status) {
+    record_poison_cause(result.status);
+  }
+  return result;
+}
 #endif
 
 Sm87MacroFeedV4EventEnqueueResult
@@ -1065,6 +1507,15 @@ Sm87MacroFeedV4ExecutionEventsOwner::wait_event(
     const Sm87MacroFeedV4ExecutionStream consumer,
     const Sm87MacroFeedV4ExecutionEvent event) noexcept {
   std::lock_guard<std::mutex> lock(mutex_);
+  return wait_event_locked(access, panel_access, consumer, event);
+}
+
+Sm87MacroFeedV4EventEnqueueResult
+Sm87MacroFeedV4ExecutionEventsOwner::wait_event_locked(
+    const Sm87MacroFeedV4ExecutionEventsAccess& access,
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const Sm87MacroFeedV4ExecutionStream consumer,
+    const Sm87MacroFeedV4ExecutionEvent event) noexcept {
   Sm87MacroFeedV4EventEnqueueResult result;
   result.status = validate_operation_access(access, panel_access);
   if (!result.status) {
@@ -1403,6 +1854,77 @@ Sm87MacroFeedV4ExecutionEventsOwner::discard_after_drain(
 }
 
 Sm87MacroFeedV4ExecutionStatus
+Sm87MacroFeedV4ExecutionEventsOwner::discard_request_state_after_drain(
+    const Sm87MacroFeedV4ExecutionEventsAccess& access,
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const Sm87MacroFeedV4PhysicalCompletionReceipt& owner_drained,
+    Sm87MacroFeedV4RequestState& request_owner,
+    const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+    const Sm87MacroFeedV4RequestDiscardReason reason) noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  Sm87MacroFeedV4ExecutionStatus status =
+      validate_operation_access(access, panel_access);
+  if (!status) {
+    return status;
+  }
+  const std::uint64_t main_generation =
+      event_state_[event_index(Sm87MacroFeedV4ExecutionEvent::kMainTail)]
+          .generation;
+  const std::uint64_t ab_generation =
+      event_state_[event_index(Sm87MacroFeedV4ExecutionEvent::kAbTail)]
+          .generation;
+  if (!draining_ || !main_tail_recorded_ || !ab_tail_recorded_ ||
+      !main_tail_joined_ || !ab_tail_joined_ ||
+      !owner_drained_recorded_ || main_generation == 0U ||
+      ab_generation == 0U) {
+    return fail(Sm87MacroFeedV4ExecutionError::kDrainIncomplete,
+                "combined_discard_requires_dual_tail_owner_drain", 0,
+                Sm87MacroFeedV4ExecutionStream::kControl,
+                Sm87MacroFeedV4ExecutionEvent::kOwnerDrained, active_panel_,
+                active_panel_generation_);
+  }
+  if (!completion_receipt_matches_locked(
+          panel_access, Sm87MacroFeedV4ExecutionEvent::kOwnerDrained,
+          owner_drained) ||
+      owner_drained.main_tail_generation_ != main_generation ||
+      owner_drained.ab_tail_generation_ != ab_generation) {
+    return fail(Sm87MacroFeedV4ExecutionError::kReceiptInvalid,
+                "combined_discard_requires_exact_physical_drain_receipt", 0,
+                Sm87MacroFeedV4ExecutionStream::kControl,
+                Sm87MacroFeedV4ExecutionEvent::kOwnerDrained, active_panel_,
+                active_panel_generation_);
+  }
+
+  // Lock ordering is EventsOwner -> RequestState, identical to begin_request().
+  // RequestState is terminalized before this owner retires the identities that
+  // authenticate the physical observation.
+  const auto request_discard =
+      request_owner.discard_active_panel_after_physical_execution_drain(
+          request_access, owner_identity_, request_allocation_identity_,
+          request_epoch_, active_panel_, active_panel_generation_,
+          owner_drained.receipt_identity_, false, reason);
+  if (!request_discard) {
+    const auto failure = fail(
+        Sm87MacroFeedV4ExecutionError::kRequestStateDiscard,
+        request_discard.context, 0, Sm87MacroFeedV4ExecutionStream::kControl,
+        Sm87MacroFeedV4ExecutionEvent::kOwnerDrained, active_panel_,
+        active_panel_generation_);
+    // Do not leave an owner whose physical and logical ledgers disagree in the
+    // reusable RequestActive state.  Preserve the live request/panel identities
+    // and poison it so the package can perform the terminal all-stream drain
+    // and retry the same owner-mediated RequestState discard exactly once.
+    record_poison_cause(failure);
+    return failure;
+  }
+
+  state_ = Sm87MacroFeedV4ExecutionOwnerState::kRequestDiscarded;
+  active_panel_ = kSm87MacroFeedV4PanelCount;
+  active_panel_generation_ = 0U;
+  request_epoch_ = 0U;
+  return ok();
+}
+
+Sm87MacroFeedV4ExecutionStatus
 Sm87MacroFeedV4ExecutionEventsOwner::complete_request(
     const Sm87MacroFeedV4ExecutionEventsAccess& access,
     const Sm87MacroFeedV4ExecutionPanelAccess& final_panel_access,
@@ -1445,6 +1967,27 @@ Sm87MacroFeedV4PoisonDrainResult
 Sm87MacroFeedV4ExecutionEventsOwner::drain_poisoned_request(
     const Sm87MacroFeedV4ExecutionEventsAccess& access) noexcept {
   std::lock_guard<std::mutex> lock(mutex_);
+  return drain_poisoned_request_locked(
+      access, nullptr, nullptr, Sm87MacroFeedV4RequestDiscardReason::kInvalid);
+}
+
+Sm87MacroFeedV4PoisonDrainResult
+Sm87MacroFeedV4ExecutionEventsOwner::drain_poisoned_request_and_discard(
+    const Sm87MacroFeedV4ExecutionEventsAccess& access,
+    Sm87MacroFeedV4RequestState& request_owner,
+    const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+    const Sm87MacroFeedV4RequestDiscardReason reason) noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return drain_poisoned_request_locked(access, &request_owner, &request_access,
+                                       reason);
+}
+
+Sm87MacroFeedV4PoisonDrainResult
+Sm87MacroFeedV4ExecutionEventsOwner::drain_poisoned_request_locked(
+    const Sm87MacroFeedV4ExecutionEventsAccess& access,
+    Sm87MacroFeedV4RequestState* const request_owner,
+    const Sm87MacroFeedV4RequestStateSealedAccess* const request_access,
+    const Sm87MacroFeedV4RequestDiscardReason reason) noexcept {
   Sm87MacroFeedV4PoisonDrainResult result;
   result.poison_cause = poison_cause_;
   if (!owner_access_matches(access)) {
@@ -1453,12 +1996,34 @@ Sm87MacroFeedV4ExecutionEventsOwner::drain_poisoned_request(
              "poison_drain_owner_issued_access");
     return result;
   }
+  const bool combined_discard = request_owner != nullptr;
+  if (combined_discard != (request_access != nullptr) ||
+      (combined_discard &&
+       (reason != Sm87MacroFeedV4RequestDiscardReason::kCancelled &&
+        reason != Sm87MacroFeedV4RequestDiscardReason::kFailed))) {
+    result.drain_status =
+        fail(Sm87MacroFeedV4ExecutionError::kRequestStateDiscard,
+             "poison_combined_discard_requires_exact_request_authority");
+    return result;
+  }
   if (state_ != Sm87MacroFeedV4ExecutionOwnerState::kPoisoned ||
       poison_cause_.error == Sm87MacroFeedV4ExecutionError::kNone ||
       poisoned_terminal_quiescence_attested_) {
     result.drain_status =
         fail(Sm87MacroFeedV4ExecutionError::kInvalidOwnerState,
              "poison_drain_requires_retained_cuda_failure");
+    return result;
+  }
+  if (combined_discard &&
+      (request_allocation_identity_ == 0U || request_epoch_ == 0U ||
+       active_panel_ >= kSm87MacroFeedV4PanelCount ||
+       active_panel_generation_ == 0U)) {
+    result.drain_status = fail(
+        Sm87MacroFeedV4ExecutionError::kRequestStateDiscard,
+        "poison_combined_discard_requires_live_panel_generation", 0,
+        Sm87MacroFeedV4ExecutionStream::kCount,
+        Sm87MacroFeedV4ExecutionEvent::kCount, active_panel_,
+        active_panel_generation_);
     return result;
   }
 
@@ -1505,6 +2070,38 @@ Sm87MacroFeedV4ExecutionEventsOwner::drain_poisoned_request(
     return result;
   }
   poisoned_terminal_quiescence_attested_ = true;
+  poisoned_terminal_quiescence_identity_ =
+      next_nonzero(&g_next_poison_quiescence_identity);
+  result.physical_quiescence_attested = true;
+  result.quiescence_identity = poisoned_terminal_quiescence_identity_;
+  result.discard_required = true;
+
+  if (combined_discard) {
+    // The audit identity above is never consumed as caller authority.  This
+    // EventsOwner still holds its exact poisoned request/panel generation and
+    // directly performs the only RequestState transition that may consume it.
+    result.request_state_status =
+        request_owner->discard_active_panel_after_physical_execution_drain(
+            *request_access, owner_identity_, request_allocation_identity_,
+            request_epoch_, active_panel_, active_panel_generation_,
+            poisoned_terminal_quiescence_identity_, true, reason);
+    if (!result.request_state_status) {
+      if (result.drain_status.error ==
+          Sm87MacroFeedV4ExecutionError::kNone) {
+        result.drain_status = fail(
+            Sm87MacroFeedV4ExecutionError::kRequestStateDiscard,
+            result.request_state_status.context, 0,
+            Sm87MacroFeedV4ExecutionStream::kCount,
+            Sm87MacroFeedV4ExecutionEvent::kCount, active_panel_,
+            active_panel_generation_);
+      }
+      // Physical quiescence is an immutable fact, but retain the live logical
+      // identities for diagnosis when RequestState rejects the terminal
+      // transition.  The poisoned owner remains permanently non-reusable.
+      return result;
+    }
+    result.request_state_discarded = true;
+  }
   // A terminal stream boundary makes request-owned storage safe to release;
   // it does not make a CUDA owner/context healthy again.  Keep the owner in
   // its non-reusable poisoned state so begin_request() can never clear the
@@ -1516,8 +2113,6 @@ Sm87MacroFeedV4ExecutionEventsOwner::drain_poisoned_request(
   if (synchronization_execution_clean) {
     result.drain_status = ok();
   }
-  result.physical_quiescence_attested = true;
-  result.discard_required = true;
   return result;
 }
 
@@ -1547,6 +2142,22 @@ Sm87MacroFeedV4ExecutionEventsOwner::snapshot() const noexcept {
   snapshot.gdn_qkvz_c8000_submissions = gdn_qkvz_c8000_submissions_;
   snapshot.gdn_qkvz_ab_ready_wait_transactions =
       gdn_qkvz_ab_ready_wait_transactions_;
+  snapshot.gdn_continuation_c8000_submissions =
+      gdn_continuation_c8000_submissions_;
+  snapshot.gdn_history_d2d_copies = gdn_history_d2d_copies_;
+  snapshot.gdn_history_d2d_bytes = gdn_history_d2d_bytes_;
+  snapshot.gdn_output_c8000_submissions = gdn_output_c8000_submissions_;
+  snapshot.residual_post_norm_submissions =
+      residual_post_norm_submissions_;
+  snapshot.gate_up_c8000_submissions = gate_up_c8000_submissions_;
+  snapshot.down_c8000_submissions = down_c8000_submissions_;
+  snapshot.complete_gdn_layers_submitted = complete_gdn_layers_submitted_;
+  snapshot.cold_recurrent_initializations = cold_recurrent_initializations_;
+  snapshot.cold_recurrent_allocation_identity =
+      cold_recurrent_allocation_identity_;
+  snapshot.cold_recurrent_allocation_begin =
+      cold_recurrent_allocation_begin_;
+  snapshot.cold_recurrent_zero_bytes = cold_recurrent_zero_bytes_;
   snapshot.streams_nonblocking = streams_nonblocking_;
   snapshot.panel_done_recorded = panel_done_recorded_;
   snapshot.main_tail_recorded = main_tail_recorded_;
@@ -1567,6 +2178,8 @@ Sm87MacroFeedV4ExecutionEventsOwner::snapshot() const noexcept {
       poison_drain_all_stream_synchronizations_attempted_;
   snapshot.poisoned_terminal_quiescence_attested =
       poisoned_terminal_quiescence_attested_;
+  snapshot.poisoned_terminal_quiescence_identity =
+      poisoned_terminal_quiescence_identity_;
   return snapshot;
 }
 
@@ -1706,6 +2319,36 @@ Sm87MacroFeedV4ExecutionEventsDriver::
       *access_, panel_access, arguments, resources);
 }
 
+Sm87MacroFeedV4CompleteGdnLayerEnqueueResult
+Sm87MacroFeedV4ExecutionEventsDriver::
+    submit_complete_gdn_layer_c8000_prevalidated(
+        const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+        const Sm87MacroFeedV4CompleteGdnLayerC8000Submission& submission)
+        noexcept {
+  if (owner_ == nullptr || access_ == nullptr) {
+    Sm87MacroFeedV4CompleteGdnLayerEnqueueResult result;
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+        "execution_driver_unbound");
+    return result;
+  }
+  return owner_->submit_complete_gdn_layer_c8000_prevalidated(
+      *access_, panel_access, submission);
+}
+
+Sm87MacroFeedV4ExecutionStatus
+Sm87MacroFeedV4ExecutionEventsDriver::initialize_cold_recurrent_storage(
+    void* const recurrent_allocation,
+    const std::size_t recurrent_bytes,
+    const std::uint64_t recurrent_allocation_identity) noexcept {
+  return owner_ == nullptr || access_ == nullptr
+             ? fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                    "execution_driver_unbound")
+             : owner_->initialize_cold_recurrent_storage(
+                   *access_, recurrent_allocation, recurrent_bytes,
+                   recurrent_allocation_identity);
+}
+
 Sm87MacroFeedV4PhysicalObservationResult
 Sm87MacroFeedV4ExecutionEventsDriver::observe_event_synchronize(
     const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
@@ -1739,6 +2382,21 @@ Sm87MacroFeedV4ExecutionEventsDriver::discard_after_drain(
                                            owner_drained);
 }
 
+Sm87MacroFeedV4ExecutionStatus
+Sm87MacroFeedV4ExecutionEventsDriver::discard_request_state_after_drain(
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const Sm87MacroFeedV4PhysicalCompletionReceipt& owner_drained,
+    Sm87MacroFeedV4RequestState& request_owner,
+    const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+    const Sm87MacroFeedV4RequestDiscardReason reason) noexcept {
+  return owner_ == nullptr || access_ == nullptr
+             ? fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                    "execution_driver_unbound")
+             : owner_->discard_request_state_after_drain(
+                   *access_, panel_access, owner_drained, request_owner,
+                   request_access, reason);
+}
+
 Sm87MacroFeedV4PoisonDrainResult
 Sm87MacroFeedV4ExecutionEventsDriver::drain_poisoned_request() noexcept {
   if (owner_ == nullptr || access_ == nullptr) {
@@ -1749,6 +2407,22 @@ Sm87MacroFeedV4ExecutionEventsDriver::drain_poisoned_request() noexcept {
     return result;
   }
   return owner_->drain_poisoned_request(*access_);
+}
+
+Sm87MacroFeedV4PoisonDrainResult
+Sm87MacroFeedV4ExecutionEventsDriver::drain_poisoned_request_and_discard(
+    Sm87MacroFeedV4RequestState& request_owner,
+    const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+    const Sm87MacroFeedV4RequestDiscardReason reason) noexcept {
+  if (owner_ == nullptr || access_ == nullptr) {
+    Sm87MacroFeedV4PoisonDrainResult result;
+    result.drain_status =
+        fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+             "execution_driver_unbound");
+    return result;
+  }
+  return owner_->drain_poisoned_request_and_discard(
+      *access_, request_owner, request_access, reason);
 }
 
 std::unique_ptr<Sm87MacroFeedV4ExecutionEventsDriver>

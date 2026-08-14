@@ -8,6 +8,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string_view>
 
 namespace q3x::runtime {
@@ -165,6 +166,8 @@ enum class Sm87MacroFeedV4RequestStateError : std::uint8_t {
   kCapabilityMismatch,
   kEventReceiptMissing,
   kEventReceiptMismatch,
+  kGdnLayerGrantPending,
+  kGdnLayerGrantMismatch,
 };
 
 struct Sm87MacroFeedV4RequestStateStatus final {
@@ -191,6 +194,7 @@ struct Sm87MacroFeedV4RequestStateSnapshot final {
   std::uint64_t request_epoch = 0U;
   std::uint64_t state_epoch = 0U;
   std::uint64_t pending_event_receipt_identity = 0U;
+  std::uint64_t pending_gdn_layer_grant_identity = 0U;
   std::size_t completed_panels = 0U;
   std::size_t active_panel = kSm87MacroFeedV4PanelCount;
   std::size_t next_model_layer = 0U;
@@ -212,6 +216,9 @@ struct Sm87MacroFeedV4RequestStateSnapshot final {
   std::size_t panel_swap_count = 0U;
   std::size_t candidate_discard_count = 0U;
   std::uint64_t last_discarded_candidate_identity = 0U;
+  std::uint64_t last_invalidated_gdn_layer_grant_identity = 0U;
+  std::uint64_t physical_owner_drain_receipt_identity = 0U;
+  std::uint64_t physical_owner_drain_panel_generation = 0U;
   bool current_conv_layer_prepared = false;
   bool candidate_epoch_complete = false;
   bool fallible_work_closed = false;
@@ -221,6 +228,7 @@ struct Sm87MacroFeedV4RequestStateSnapshot final {
   bool logical_sequence_fence_published = false;
   bool decode_access_issued = false;
   bool physical_execution_receipt_issued = false;
+  bool physical_owner_drain_was_poison_terminal = false;
   bool default_off = false;
   bool host_only = false;
   bool production_dispatch_eligible = true;
@@ -262,6 +270,120 @@ class Sm87MacroFeedV4RequestStateSealedAccess final {
   std::uint64_t request_epoch_ = 0U;
 
   friend class Sm87MacroFeedV4RequestState;
+};
+
+// Move-only, owner-minted authority for exactly one natural-order GDN layer.
+// It identifies immutable slices within the admitted recurrent allocation;
+// it deliberately exposes no host/device pointer, CUDA handle, or bank view.
+// Moving a grant invalidates the source, and a successful commit consumes the
+// destination.  The RequestState additionally authenticates the live nonce,
+// owner, request/state epoch, bank generation, layer, and canonical offsets.
+class Sm87MacroFeedV4GdnLayerStateGrant final {
+ public:
+  Sm87MacroFeedV4GdnLayerStateGrant() = delete;
+  Sm87MacroFeedV4GdnLayerStateGrant(
+      const Sm87MacroFeedV4GdnLayerStateGrant&) = delete;
+  Sm87MacroFeedV4GdnLayerStateGrant& operator=(
+      const Sm87MacroFeedV4GdnLayerStateGrant&) = delete;
+  Sm87MacroFeedV4GdnLayerStateGrant(
+      Sm87MacroFeedV4GdnLayerStateGrant&& other) noexcept;
+  Sm87MacroFeedV4GdnLayerStateGrant& operator=(
+      Sm87MacroFeedV4GdnLayerStateGrant&&) = delete;
+
+  [[nodiscard]] std::uint64_t grant_identity() const noexcept {
+    return grant_identity_;
+  }
+  [[nodiscard]] std::uint64_t owner_identity() const noexcept {
+    return owner_identity_;
+  }
+  [[nodiscard]] std::uint64_t allocation_identity() const noexcept {
+    return allocation_identity_;
+  }
+  [[nodiscard]] std::uint64_t request_epoch() const noexcept {
+    return request_epoch_;
+  }
+  [[nodiscard]] std::uint64_t state_epoch() const noexcept {
+    return state_epoch_;
+  }
+  [[nodiscard]] std::size_t panel() const noexcept { return panel_; }
+  [[nodiscard]] std::size_t model_layer() const noexcept {
+    return model_layer_;
+  }
+  [[nodiscard]] std::size_t state_layer_ordinal() const noexcept {
+    return state_layer_ordinal_;
+  }
+  [[nodiscard]] std::size_t active_bank_index() const noexcept {
+    return active_bank_index_;
+  }
+  [[nodiscard]] std::size_t candidate_bank_index() const noexcept {
+    return candidate_bank_index_;
+  }
+  [[nodiscard]] std::uint64_t active_conv_allocation_offset() const noexcept {
+    return active_conv_allocation_offset_;
+  }
+  [[nodiscard]] std::uint64_t candidate_conv_allocation_offset()
+      const noexcept {
+    return candidate_conv_allocation_offset_;
+  }
+  [[nodiscard]] std::uint64_t conv_bytes() const noexcept {
+    return conv_bytes_;
+  }
+  [[nodiscard]] std::uint64_t active_gdn_state_allocation_offset()
+      const noexcept {
+    return active_gdn_state_allocation_offset_;
+  }
+  [[nodiscard]] std::uint64_t candidate_gdn_state_allocation_offset()
+      const noexcept {
+    return candidate_gdn_state_allocation_offset_;
+  }
+  [[nodiscard]] std::uint64_t gdn_state_bytes() const noexcept {
+    return gdn_state_bytes_;
+  }
+
+ private:
+  Sm87MacroFeedV4GdnLayerStateGrant(
+      std::uint64_t grant_identity, std::uint64_t owner_identity,
+      std::uint64_t allocation_identity, std::uint64_t request_epoch,
+      std::uint64_t state_epoch, std::size_t panel,
+      std::size_t model_layer, std::size_t state_layer_ordinal,
+      std::size_t active_bank_index, std::size_t candidate_bank_index,
+      std::uint64_t active_conv_allocation_offset,
+      std::uint64_t candidate_conv_allocation_offset,
+      std::uint64_t conv_bytes,
+      std::uint64_t active_gdn_state_allocation_offset,
+      std::uint64_t candidate_gdn_state_allocation_offset,
+      std::uint64_t gdn_state_bytes) noexcept;
+
+  void invalidate() noexcept;
+
+  std::uint64_t grant_identity_ = 0U;
+  std::uint64_t owner_identity_ = 0U;
+  std::uint64_t allocation_identity_ = 0U;
+  std::uint64_t request_epoch_ = 0U;
+  std::uint64_t state_epoch_ = 0U;
+  std::size_t panel_ = kSm87MacroFeedV4PanelCount;
+  std::size_t model_layer_ = kSm87MacroFeedV4LayerCount;
+  std::size_t state_layer_ordinal_ = kSm87MacroFeedV4StateLayerCount;
+  std::size_t active_bank_index_ = 2U;
+  std::size_t candidate_bank_index_ = 2U;
+  std::uint64_t active_conv_allocation_offset_ = 0U;
+  std::uint64_t candidate_conv_allocation_offset_ = 0U;
+  std::uint64_t conv_bytes_ = 0U;
+  std::uint64_t active_gdn_state_allocation_offset_ = 0U;
+  std::uint64_t candidate_gdn_state_allocation_offset_ = 0U;
+  std::uint64_t gdn_state_bytes_ = 0U;
+
+  friend class Sm87MacroFeedV4RequestState;
+};
+
+struct Sm87MacroFeedV4GdnLayerStateAuthorizationResult final {
+  Sm87MacroFeedV4RequestStateStatus status{};
+  std::optional<Sm87MacroFeedV4GdnLayerStateGrant> grant{};
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return static_cast<bool>(status) && grant.has_value() &&
+           grant->grant_identity() != 0U;
+  }
 };
 
 enum class Sm87MacroFeedV4RequestEventKind : std::uint8_t {
@@ -343,10 +465,23 @@ class Sm87MacroFeedV4RequestState final {
   [[nodiscard]] Sm87MacroFeedV4RequestStateStatus begin_panel(
       const Sm87MacroFeedV4RequestStateSealedAccess& access,
       std::size_t panel) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4GdnLayerStateAuthorizationResult
+  authorize_gdn_layer_state(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      std::size_t panel, std::size_t model_layer) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus
+  commit_gdn_layer_candidate_enqueued(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      Sm87MacroFeedV4GdnLayerStateGrant&& grant) noexcept;
+
+  // Legacy host-ledger split retained only for old T0 fixtures.  A package
+  // must use the atomic authorize/whole-layer-enqueue/commit grant path above.
+  [[deprecated("T0 compatibility only; use authorize_gdn_layer_state")]]
   [[nodiscard]] Sm87MacroFeedV4RequestStateStatus
   prepare_conv_layer_candidate(
       const Sm87MacroFeedV4RequestStateSealedAccess& access,
       std::size_t panel, std::size_t model_layer) noexcept;
+  [[deprecated("T0 compatibility only; use commit_gdn_layer_candidate_enqueued")]]
   [[nodiscard]] Sm87MacroFeedV4RequestStateStatus
   assign_gdn_layer_candidate(
       const Sm87MacroFeedV4RequestStateSealedAccess& access,
@@ -413,6 +548,14 @@ class Sm87MacroFeedV4RequestState final {
   [[nodiscard]] bool event_receipt_matches(
       const Sm87MacroFeedV4RequestEventReceipt& receipt,
       Sm87MacroFeedV4RequestEventKind kind) const noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus
+  discard_active_panel_after_physical_execution_drain(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      std::uint64_t execution_owner_identity,
+      std::uint64_t allocation_identity, std::uint64_t request_epoch,
+      std::size_t panel, std::uint64_t panel_generation,
+      std::uint64_t physical_receipt_identity, bool poison_terminal,
+      Sm87MacroFeedV4RequestDiscardReason reason) noexcept;
 
   Sm87MacroFeedV4RequestStateAdmission admission_{};
   mutable std::mutex owner_mutex_;

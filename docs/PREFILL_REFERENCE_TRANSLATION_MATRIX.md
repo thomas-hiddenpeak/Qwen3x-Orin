@@ -17,9 +17,10 @@ q3x_document:
 
 This document is the bounded working record for
 `WP-PREFILL-REFERENCE-TRANSLATION-v1` under the reserved successor lineage
-`AC-PREFILL-SM87-MACROFEED-v4`. V4 remains a non-executable foundation and
-does not become a Constitution-defined `architecture_candidate` until the
-complete dataflow is runnable. V1/V2 and the complete V3 composition are
+`AC-PREFILL-SM87-MACROFEED-v4`. V4 remains a non-route-executable foundation
+with one BUILD_TESTING-only complete synthetic GDN layer fixture; it does not
+become a Constitution-defined `architecture_candidate` until the complete
+dataflow is runnable. V1/V2 and the complete V3 composition are
 retained only as the diagnostic controls described by Current Status. This
 document does not amend the product
 target, stable SDD boundary, current implementation status, numerical
@@ -566,36 +567,45 @@ two-stage M64N96K64 body, executes one 125-CTA C8000 grid, and writes A/B
 directly to scratch `[16384,16480)`; its M64 compact-versus-strided oracle is
 bitwise equal and it owns no compact bridge, tail, or runtime tactic choice.
 The package's typed bindings and V4-local resource seals are startup ownership
-facts only; they expose no launcher. It now binds all 48 real BF16 A/B pairs
-and permits the future execution package to seal the complete catalog once at
-construction; request execution may neither rescan `ModelWeights` nor repeat
-CUDA/catalog queries. The startup package also provides an all-or-nothing
-construction seal for the 48 natural GDN-QKVZ bindings with exact live CUDA
-allocation/upload-receipt agreement. The fake host catalog fails closed;
+facts only; they expose no launcher. It binds all 48 real BF16 A/B pairs, all
+64 real norm pairs, a 48-entry complete GDN catalog (QKVZ, dedicated GDN-O,
+and four continuation weights per natural GDN layer), and all 64 Gate+Up/Down
+pairs. Request execution may neither rescan `ModelWeights` nor repeat
+CUDA/catalog queries. The all-or-nothing construction seals require exact live
+CUDA allocation/upload-receipt, role, layout, and device agreement. The fake
+host catalog fails closed;
 the normal startup and execution factories are now private, and the core
 static library no longer contains the named synthetic-T1 construction
 wrapper. The private synthetic branch remains confined to the
 BUILD_TESTING-only archive for the CUDA fixture and grants no production
-authority. An Engine-private composition root wires only the normal 48-binding
-startup-to-execution chain into the existing default-off V3 real-owner
+authority. An Engine-private composition root wires only those normal catalogs
+into the existing default-off V3 real-owner
 harness, enforces `execution → startup → ModelWeights → complete target-AOT
 owner → resident` teardown, and adds exactly 599,261,184 bytes of
 transient/recurrent ownership to retained-memory admission. No pinned
-real-checkpoint Engine probe has executed that root yet, so positive execution
-of the complete catalog under the real owner is still open. A separate private
-owner now owns three nonblocking streams and nine events and enforces the
-five-panel, 48-AB-cycle-per-panel dependency graph without per-panel host
-observation. That owner and the
-startup package now compose only in an isolated synthetic-T1 layer-0 slice:
-Main executes InputNorm then fixed GDN-QKVZ, AbAux executes BF16 A/B after
-`NormReady`, Main waits on `AbReady`, and Control physically drains/discards
-without publication. The driver exposes neither raw ready-event recording nor
-caller-filled QKVZ submission. This establishes scheduling/write-set evidence,
-not real-checkpoint, complete-layer, or performance evidence. Full-K
-qualification of FP8,
-private binding and full-C8000 qualification of BF16 A/B, exact GDN and
-Attention, whole-model receipt, rollback, finalizer, and API launcher must
-compose before V4 is runnable or eligible for a P40 witness.
+real-checkpoint Engine probe has executed that root yet, so the normal factory
+and lifecycle currently have construction/build authority only; positive
+execution of the complete catalogs under the real owner is still open. A
+separate private owner now owns three nonblocking streams and nine events and
+enforces the five-panel, 48-AB-cycle-per-panel dependency graph without
+per-panel host observation. That owner and the startup package now compose one
+isolated synthetic-T1 complete GDN layer 0:
+`InputNorm → (QKVZ || A/B) → continuation(2 kernels + 1 asynchronous`
+`61,440-byte D2D history copy) → GDN-O → ResidualPostNorm → GateUp → Down`.
+The receipt counts exactly nine kernels plus the copy and grants layer
+completion only. Combined Events/RequestState drain physically quiesces and
+discards the candidate without a bank swap or canonical/Decode publication.
+RequestState consumes the owner-mediated physical-drain identity, and the
+complete-layer receipt requires the matching identity plus
+`physical_execution_receipt_issued=true`; the poison fixture separately proves
+that a pending GDN grant is invalidated at that physical boundary. The driver
+exposes neither raw ready-event recording nor caller-filled QKVZ submission.
+The live fixture uses zero-valued synthetic weights. This establishes complete
+synthetic-layer scheduling/lifetime evidence, not a real-checkpoint numerical,
+real-owner, whole-model, API, or performance result. Complete Attention-layer
+composition, all layers/panels, whole-model receipt, rollback, finalizer, and
+API launcher must still compose before V4 is runnable or eligible for a P40
+witness.
 
 The fixed Attention handoff now retains the FP8 projection's native
 `[Q256, Gate256]` head interleave. Q preprocessing and exact Attention both
@@ -819,6 +829,10 @@ Thermal admission uses hysteresis rather than changing the hard limit: three
 consecutive five-second samples of CPU/GPU/TJ at or below `65C` are required
 before server startup, before the measured request, and before post-release
 admission; every measured sample must still remain strictly below `70C`.
+
+The latest V4 performance admission stopped before execution because Xorg,
+GNOME, and Mutter held GPU-device handles. It produced no timing or profiler
+evidence. This does not relax the gate or authorize a contaminated result.
 
 ### 9.1 First target-first execution feedback
 

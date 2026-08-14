@@ -108,19 +108,30 @@ sm87_macrofeed_v4_test_transform(
     const std::uint64_t values =
         static_cast<std::uint64_t>(partition.output_features) *
         partition.input_features;
+    const std::uint64_t weight_bytes =
+        values * partition.weight_bits / 8U;
+    const std::uint64_t block_scale_values =
+        partition.block_scale_group_k == 0U
+            ? 0U
+            : values / partition.block_scale_group_k;
     observed.logical_role = partition.logical_role;
     observed.partition_index = static_cast<std::uint32_t>(index);
     observed.tensor_identity = source.tensor_identity;
     observed.observed_source_weight_digest = source.weight_digest;
     observed.observed_source_scale_digest = source.scale_digest;
-    observed.source_weight_bytes_hashed = values;
-    observed.source_scale_bytes_hashed = sizeof(std::uint32_t);
+    observed.source_weight_bytes_hashed = weight_bytes;
+    observed.source_scale_bytes_hashed =
+        block_scale_values + sizeof(std::uint32_t);
     observed.repacked_weight_values = values;
+    observed.repacked_block_scale_values = block_scale_values;
+    observed.source_block_scale_e4m3fn_bytes_scanned = block_scale_values;
+    observed.payload_block_scale_e4m3fn_bytes_scanned = block_scale_values;
     observed.payload_offset = partition.payload_offset;
     observed.payload_bytes = partition.payload_bytes;
     observed.source_digests_computed_from_tensor_bytes = true;
     observed.canonical_address_bijection_applied = true;
     observed.bit_exact_weight_permutation = true;
+    observed.bit_exact_block_scale_permutation = block_scale_values != 0U;
     observed.tensor_scale_kept_external = true;
   }
   return receipt;
@@ -219,6 +230,108 @@ struct Sm87MacroFeedV4LiveFp8AssetFixture final {
     asset = kernels::sm87_target_aot_bind_fp8_cuda_asset(
         manifest, inventory, transform, upload);
     return kernels::sm87_target_aot_fp8_cuda_asset_valid(asset);
+  }
+};
+
+// Honest live-CUDA counterpart for one synthetic NVFP4 projection artifact.
+// The payload remains zero-valued because this is a correctness/lifetime
+// fixture, but its manifest and transform ledger retain the exact 4-bit
+// weight bytes and E4M3 block-scale counts of the production layout.
+struct Sm87MacroFeedV4LiveNvFp4AssetFixture final {
+  Sm87MacroFeedV4LiveFp8Allocation payload_allocation;
+  kernels::Sm87TargetAotProjectionPackedSourceInventory inventory{};
+  kernels::Sm87TargetAotProjectionPackedManifest manifest{};
+  kernels::Sm87TargetAotProjectionPackedTransformReceipt transform{};
+  kernels::Sm87TargetAotNvFp4CudaDeviceUploadReceipt upload{};
+  kernels::Sm87TargetAotNvFp4CudaAssetView asset{};
+
+  [[nodiscard]] bool initialize(
+      const kernels::Sm87TargetAotProjectionRole role,
+      const int device_ordinal) noexcept {
+    const auto layout =
+        kernels::sm87_target_aot_projection_packed_layout(role);
+    if (!kernels::sm87_target_aot_nvfp4_cuda_role(role) || !layout.valid() ||
+        device_ordinal < 0 ||
+        !payload_allocation.allocate_zeroed(layout.payload_bytes)) {
+      return false;
+    }
+    inventory = sm87_macrofeed_v4_test_inventory(layout);
+    manifest = kernels::sm87_target_aot_projection_make_packed_manifest(
+        role, 0x5133'4e56'3441'5353ULL, inventory,
+        sm87_macrofeed_v4_test_digest(0x4e56'3455U +
+                                      static_cast<std::uint64_t>(role)));
+    transform =
+        sm87_macrofeed_v4_test_transform(layout, inventory, manifest);
+    if (!inventory.valid(layout) ||
+        !kernels::sm87_target_aot_projection_validate_packed_manifest(
+            manifest, inventory) ||
+        !kernels::sm87_target_aot_projection_validate_transform_receipt(
+            manifest, inventory, transform)) {
+      return false;
+    }
+
+    upload.artifact_identity = manifest.artifact_identity;
+    upload.source_inventory_identity = manifest.source_inventory_identity;
+    upload.role = role;
+    upload.plan_identity = layout.plan_identity;
+    upload.layout_identity = layout.layout_identity;
+    upload.transform_identity = transform.transform_identity;
+    upload.host_payload_offset = manifest.payload_offset;
+    upload.host_payload_bytes = manifest.payload_bytes;
+    upload.host_payload_digest = manifest.payload_digest;
+    upload.host_manifest_seal = manifest.seal;
+    upload.tensor_scale_count = manifest.source_count;
+    for (std::size_t index = 0U; index < manifest.source_count; ++index) {
+      upload.tensor_scale_bits[index] =
+          manifest.sources[index].tensor_scale_bits;
+    }
+    const std::uint64_t role_tag = static_cast<std::uint64_t>(role);
+    upload.device_allocation_identity =
+        0x5133'4e56'3441'4c4cULL ^ (role_tag << 8U);
+    upload.device_allocation_owner_identity =
+        0x5133'4e56'344f'574eULL ^ (role_tag << 8U);
+    upload.device_ordinal = device_ordinal;
+    upload.device_allocation_begin = reinterpret_cast<std::uintptr_t>(
+        payload_allocation.data());
+    upload.device_allocation_bytes = payload_allocation.bytes();
+    upload.device_allocation_end =
+        upload.device_allocation_begin + upload.device_allocation_bytes;
+    upload.device_payload_begin = upload.device_allocation_begin;
+    upload.device_payload_bytes = manifest.payload_bytes;
+    upload.device_payload_end =
+        upload.device_payload_begin + upload.device_payload_bytes;
+    upload.upload_stream_owner_identity =
+        upload.device_allocation_owner_identity;
+    upload.upload_stream_identity =
+        0x5133'4e56'3455'5053ULL ^ (role_tag << 8U);
+    upload.upload_completion_event_identity =
+        0x5133'4e56'3455'5045ULL ^ (role_tag << 8U);
+    upload.verification_stream_owner_identity =
+        upload.device_allocation_owner_identity;
+    upload.verification_stream_identity =
+        0x5133'4e56'3456'5353ULL ^ (role_tag << 8U);
+    upload.verification_completion_event_identity =
+        0x5133'4e56'3456'4556ULL ^ (role_tag << 8U);
+    upload.verification_readback_bytes = manifest.payload_bytes;
+    upload.verification_readback_digest = manifest.payload_digest;
+    upload.host_payload_digest_verified_before_copy = true;
+    upload.host_payload_immutable_until_completion = true;
+    upload.copy_enqueued_to_exact_payload_range = true;
+    upload.completion_event_recorded_after_copy = true;
+    upload.completion_event_observed = true;
+    upload.upload_completed = true;
+    upload.verification_copy_enqueued_from_exact_payload_range = true;
+    upload.verification_event_recorded_after_copy = true;
+    upload.verification_event_observed = true;
+    upload.verification_completed = true;
+    upload.device_payload_matches_host_payload = true;
+    upload.allocation_retained_for_asset_lifetime = true;
+    upload.receipt_identity =
+        kernels::sm87_target_aot_nvfp4_cuda_compute_upload_receipt_identity(
+            upload);
+    asset = kernels::sm87_target_aot_bind_nvfp4_cuda_asset(
+        manifest, inventory, transform, upload);
+    return kernels::sm87_target_aot_nvfp4_cuda_asset_valid(asset);
   }
 };
 

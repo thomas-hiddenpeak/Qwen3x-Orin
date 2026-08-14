@@ -160,6 +160,9 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
            execution_ != nullptr && startup_package_identity_ != 0U &&
            execution_package_identity_ != 0U &&
            gdn_qkvz_catalog_identity_ != 0U &&
+           mlp_pair_catalog_identity_ != 0U &&
+           retained_gdn_layer_catalog_fold_identity_ != 0U &&
+           retained_mlp_pair_catalog_fold_identity_ != 0U &&
            startup_->audit().package_identity == startup_package_identity_ &&
            execution_->audit().package_identity ==
                execution_package_identity_ &&
@@ -167,6 +170,12 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
                startup_package_identity_ &&
            execution_->audit().gdn_qkvz_catalog_identity ==
                gdn_qkvz_catalog_identity_ &&
+           execution_->audit().mlp_pair_catalog_identity ==
+               mlp_pair_catalog_identity_ &&
+           execution_->audit().retained_gdn_layer_catalog_fold_identity ==
+               retained_gdn_layer_catalog_fold_identity_ &&
+           execution_->audit().retained_mlp_pair_catalog_fold_identity ==
+               retained_mlp_pair_catalog_fold_identity_ &&
            construction_snapshot().valid();
   }
 
@@ -228,7 +237,11 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
         execution.audit.synthetic_t1_gdn_layer0_source ||
         execution.audit.gdn_qkvz_bindings !=
             kSm87MacroFeedV4StateLayerCount ||
-        execution.audit.gdn_qkvz_catalog_identity == 0U) {
+        execution.audit.gdn_qkvz_catalog_identity == 0U ||
+        execution.audit.mlp_pair_bindings != kSm87MacroFeedV4LayerCount ||
+        execution.audit.mlp_pair_catalog_identity == 0U ||
+        execution.audit.retained_gdn_layer_catalog_fold_identity == 0U ||
+        execution.audit.retained_mlp_pair_catalog_fold_identity == 0U) {
       result.context = execution.status.context == nullptr
                            ? "MacroFeed-v4 execution package failed closed"
                            : execution.status.context;
@@ -267,16 +280,35 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
             execution_ == nullptr
                 ? 0U
                 : execution_->audit().gdn_qkvz_catalog_identity),
+        mlp_pair_catalog_identity_(
+            execution_ == nullptr
+                ? 0U
+                : execution_->audit().mlp_pair_catalog_identity),
+        retained_gdn_layer_catalog_fold_identity_(
+            execution_ == nullptr
+                ? 0U
+                : execution_->audit()
+                      .retained_gdn_layer_catalog_fold_identity),
+        retained_mlp_pair_catalog_fold_identity_(
+            execution_ == nullptr
+                ? 0U
+                : execution_->audit()
+                      .retained_mlp_pair_catalog_fold_identity),
         construction_sealed_(
             startup_ != nullptr && execution_ != nullptr &&
             startup_package_identity_ != 0U &&
             execution_package_identity_ != 0U &&
             gdn_qkvz_catalog_identity_ != 0U &&
+            mlp_pair_catalog_identity_ != 0U &&
+            retained_gdn_layer_catalog_fold_identity_ != 0U &&
+            retained_mlp_pair_catalog_fold_identity_ != 0U &&
             execution_->audit().startup_package_identity ==
                 startup_package_identity_ &&
             !execution_->audit().synthetic_t1_gdn_layer0_source &&
             execution_->audit().gdn_qkvz_bindings ==
-                kSm87MacroFeedV4StateLayerCount) {}
+                kSm87MacroFeedV4StateLayerCount &&
+            execution_->audit().mlp_pair_bindings ==
+                kSm87MacroFeedV4LayerCount) {}
 
   // Reverse declaration destruction is execution_ then startup_.
   std::unique_ptr<StartupPackage> startup_;
@@ -284,6 +316,9 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
   std::uint64_t startup_package_identity_ = 0U;
   std::uint64_t execution_package_identity_ = 0U;
   std::uint64_t gdn_qkvz_catalog_identity_ = 0U;
+  std::uint64_t mlp_pair_catalog_identity_ = 0U;
+  std::uint64_t retained_gdn_layer_catalog_fold_identity_ = 0U;
+  std::uint64_t retained_mlp_pair_catalog_fold_identity_ = 0U;
   bool construction_sealed_ = false;
 };
 

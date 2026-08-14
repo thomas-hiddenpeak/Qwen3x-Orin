@@ -1,5 +1,9 @@
 #include "q3x/kernels/sm87_macrofeed_v4_nvfp4_down.h"
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+#include "sm87_macrofeed_v4_bound_launch_internal.h"
+#endif
+
 #include "sm87_macrofeed_v3_nvfp4_decode.cuh"
 
 #include <cuda_runtime.h>
@@ -604,6 +608,17 @@ struct PointerRange final {
   return cudaSuccess;
 }
 
+[[nodiscard]] cudaError_t enqueue_constituent(
+    const Sm87MacroFeedV4NvFp4DownArguments& arguments,
+    const cudaStream_t stream) noexcept {
+  sm87_macrofeed_v4_nvfp4_down_kernel
+      <<<kSm87MacroFeedV4NvFp4DownLogicalTasks, kThreads,
+         kSm87MacroFeedV4NvFp4DownDynamicSharedBytes, stream>>>(
+          arguments.input, arguments.payload, arguments.tensor_scale,
+          arguments.residual);
+  return cudaPeekAtLastError();
+}
+
 }  // namespace
 
 bool sm87_macrofeed_v4_nvfp4_down_arguments_valid(
@@ -679,13 +694,8 @@ int launch_sm87_macrofeed_v4_nvfp4_down_cuda(
     return static_cast<int>(cudaErrorNotSupported);
   }
 
-  const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
-  sm87_macrofeed_v4_nvfp4_down_kernel
-      <<<kSm87MacroFeedV4NvFp4DownLogicalTasks, kThreads,
-         kSm87MacroFeedV4NvFp4DownDynamicSharedBytes, stream>>>(
-          arguments.input, arguments.payload, arguments.tensor_scale,
-          arguments.residual);
-  const cudaError_t launch_status = cudaPeekAtLastError();
+  const cudaError_t launch_status = enqueue_constituent(
+      arguments, reinterpret_cast<cudaStream_t>(arguments.cuda_stream));
   if (launch_status != cudaSuccess) {
     return static_cast<int>(launch_status);
   }
@@ -750,5 +760,48 @@ int launch_sm87_macrofeed_v4_nvfp4_down_tile_test_cuda(
                    residual_m64_n128);
   return static_cast<int>(cudaPeekAtLastError());
 }
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+namespace sm87_macrofeed_v4_bound_launch_detail {
+
+int enqueue_down_c8000_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4DownC8000Arguments& arguments,
+    const Sm87MacroFeedV4NvFp4DownCudaResources& resources,
+    std::size_t* const submitted_launches) noexcept {
+  if (submitted_launches == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *submitted_launches = 0U;
+  const Sm87MacroFeedV4NvFp4DownArguments fixed{
+      arguments.intermediate_input,
+      arguments.payload,
+      arguments.payload_bytes,
+      arguments.tensor_scale,
+      kSm87MacroFeedV4NvFp4DownTokens,
+      arguments.residual_output,
+      token.cuda_stream_,
+      arguments.payload_receipt};
+  if (token.cuda_stream_ == nullptr ||
+      !sm87_macrofeed_v4_nvfp4_down_arguments_valid(fixed) ||
+      !resources.static_resource_gate_passed ||
+      !sm87_macrofeed_v4_nvfp4_down_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const cudaError_t prior_status = cudaPeekAtLastError();
+  if (prior_status != cudaSuccess) {
+    return static_cast<int>(prior_status);
+  }
+  const cudaError_t status = enqueue_constituent(
+      fixed, reinterpret_cast<cudaStream_t>(token.cuda_stream_));
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *submitted_launches = 1U;
+  return static_cast<int>(cudaSuccess);
+}
+
+}  // namespace sm87_macrofeed_v4_bound_launch_detail
+#endif
 
 }  // namespace q3x::kernels

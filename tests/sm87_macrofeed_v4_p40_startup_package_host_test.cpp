@@ -27,6 +27,9 @@ bool g_poison_v4_bf16_ab_resource_identity = false;
 bool g_fail_v4_gdn_qkvz_resource_query = false;
 std::int32_t g_v4_gdn_qkvz_device_ordinal = 0;
 bool g_poison_v4_gdn_qkvz_resource_identity = false;
+bool g_fail_v4_gdn_output_resource_query = false;
+std::int32_t g_v4_gdn_output_device_ordinal = 0;
+bool g_poison_v4_gdn_output_resource_identity = false;
 
 [[nodiscard]] Sm87MacroFeedV4NvFp4GateUpCudaResources
 host_test_v4_gate_up_resources() noexcept {
@@ -139,6 +142,20 @@ host_test_v4_gdn_qkvz_resources() noexcept {
   return resources;
 }
 
+[[nodiscard]] Sm87MacroFeedV4Fp8CudaResources
+host_test_v4_gdn_output_resources() noexcept {
+  auto resources = host_test_v4_gdn_qkvz_resources();
+  resources.identity = g_poison_v4_gdn_output_resource_identity
+                           ? Sm87MacroFeedV4Fp8Identity::kInvalid
+                           : Sm87MacroFeedV4Fp8Identity::
+                                 kGdnAttentionOutputM64N128K64OrdinaryGridV1;
+  resources.role = Sm87TargetAotProjectionRole::kFp8AttentionOutput;
+  resources.input_layout =
+      Sm87MacroFeedV4Fp8InputLayout::kGdnContiguousVScratchV1;
+  resources.device_ordinal = g_v4_gdn_output_device_ordinal;
+  return resources;
+}
+
 }  // namespace
 
 int query_sm87_macrofeed_v4_nvfp4_gate_up_cuda_resources(
@@ -179,17 +196,31 @@ int query_sm87_macrofeed_v4_fp8_cuda_resources(
     const Sm87TargetAotProjectionRole role,
     const Sm87MacroFeedV4Fp8InputLayout input_layout,
     Sm87MacroFeedV4Fp8CudaResources* const resources) noexcept {
-  if (resources == nullptr || g_fail_v4_gdn_qkvz_resource_query ||
-      role != Sm87TargetAotProjectionRole::kFp8GdnQkvZ ||
-      input_layout !=
-          Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1) {
-    if (resources != nullptr) {
-      *resources = {};
-    }
+  if (resources == nullptr) {
     return 1;
   }
-  *resources = host_test_v4_gdn_qkvz_resources();
-  return 0;
+  if (role == Sm87TargetAotProjectionRole::kFp8GdnQkvZ &&
+      input_layout ==
+          Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1) {
+    if (g_fail_v4_gdn_qkvz_resource_query) {
+      *resources = {};
+      return 1;
+    }
+    *resources = host_test_v4_gdn_qkvz_resources();
+    return 0;
+  }
+  if (role == Sm87TargetAotProjectionRole::kFp8AttentionOutput &&
+      input_layout ==
+          Sm87MacroFeedV4Fp8InputLayout::kGdnContiguousVScratchV1) {
+    if (g_fail_v4_gdn_output_resource_query) {
+      *resources = {};
+      return 1;
+    }
+    *resources = host_test_v4_gdn_output_resources();
+    return 0;
+  }
+  *resources = {};
+  return 1;
 }
 
 }  // namespace q3x::kernels
@@ -201,6 +232,61 @@ class Sm87MacroFeedV4P40StartupPackageHostTestFixture final {
   [[nodiscard]] static Sm87MacroFeedV4P40StartupPackageCreateResult create(
       const ModelWeights& model_weights) noexcept {
     return Sm87MacroFeedV4P40StartupPackage::create(model_weights);
+  }
+
+  [[nodiscard]] static bool typed_catalog_contract_closed(
+      const Sm87MacroFeedV4P40StartupPackage& package,
+      const ModelWeights& model_weights) noexcept {
+    static_assert(std::tuple_size_v<
+                      Sm87MacroFeedV4P40StartupPackage::
+                          GdnLayerExecutionBindingCatalog> ==
+                  kSm87MacroFeedV4P40StartupPackageGdnLayers);
+    static_assert(std::tuple_size_v<
+                      Sm87MacroFeedV4P40StartupPackage::
+                          MlpPairExecutionBindingCatalog> ==
+                  kSm87MacroFeedV4P40StartupPackageLayers);
+    static_assert(!std::is_same_v<
+                  Sm87MacroFeedV4P40StartupPackage::GdnOutputExecutionBinding,
+                  Sm87MacroFeedV4P40StartupPackage::GdnLayerExecutionBinding>);
+    static_assert(!std::is_same_v<
+                  Sm87MacroFeedV4P40StartupPackage::GateUpExecutionBinding,
+                  Sm87MacroFeedV4P40StartupPackage::DownExecutionBinding>);
+
+    const std::uint64_t mlp_identity =
+        Sm87MacroFeedV4P40StartupPackage::
+            compute_mlp_pair_binding_catalog_identity(
+                package.projection_access_, package.capabilities_,
+                package.audit_.deployment_plan_identity);
+    const std::uint64_t gdn_identity =
+        Sm87MacroFeedV4P40StartupPackage::
+            compute_gdn_qkvz_binding_catalog_identity(
+                package.projection_access_, package.capabilities_,
+                package.audit_.deployment_plan_identity,
+                package.seals_.gdn_qkvz.resources,
+                package.seals_.gdn_qkvz.output_resources,
+                model_weights);
+
+    auto full_output_substitution = package.seals_.gdn_qkvz.output_resources;
+    full_output_substitution.identity =
+        kernels::Sm87MacroFeedV4Fp8Identity::
+            kAttentionOutputM64N128K64OrdinaryGridV1;
+    full_output_substitution.input_layout =
+        kernels::Sm87MacroFeedV4Fp8InputLayout::
+            kFullAttentionInterleavedQScratchV1;
+    const std::uint64_t substituted_identity =
+        Sm87MacroFeedV4P40StartupPackage::
+            compute_gdn_qkvz_binding_catalog_identity(
+                package.projection_access_, package.capabilities_,
+                package.audit_.deployment_plan_identity,
+                package.seals_.gdn_qkvz.resources, full_output_substitution,
+                model_weights);
+
+    return mlp_identity != 0U &&
+           mlp_identity == package.seals_.gate_up.binding_catalog_identity &&
+           mlp_identity == package.seals_.down.binding_catalog_identity &&
+           gdn_identity != 0U &&
+           gdn_identity == package.seals_.gdn_qkvz.binding_catalog_identity &&
+           substituted_identity == 0U;
   }
 };
 
@@ -612,6 +698,10 @@ void test_complete_v4_foundation_package() {
               first.audit.deployment_plan_identity &&
           bf16_ab_seal.binding_catalog_identity ==
               first.audit.bf16_ab_binding_catalog_identity &&
+          gate_seal.binding_catalog_identity != 0U &&
+          gate_seal.binding_catalog_identity ==
+              down_seal.binding_catalog_identity &&
+          gate_seal.binding_count == 64U && down_seal.binding_count == 64U &&
           gdn_qkvz_seal.binding_catalog_identity ==
               first.audit.gdn_qkvz_binding_catalog_identity &&
           bf16_ab_seal.tensor_count == 96U &&
@@ -626,6 +716,8 @@ void test_complete_v4_foundation_package() {
                   bf16_ab_seal.resources) &&
           q3x::kernels::sm87_macrofeed_v4_fp8_resource_gate(
               gdn_qkvz_seal.resources) &&
+          q3x::kernels::sm87_macrofeed_v4_fp8_resource_gate(
+              gdn_qkvz_seal.output_resources) &&
           gdn_qkvz_seal.role == Role::kFp8GdnQkvZ &&
           gdn_qkvz_seal.input_layout ==
               q3x::kernels::Sm87MacroFeedV4Fp8InputLayout::
@@ -633,12 +725,21 @@ void test_complete_v4_foundation_package() {
           gdn_qkvz_seal.tactic_identity ==
               q3x::kernels::Sm87MacroFeedV4Fp8Identity::
                   kGdnQkvZM64N128K64OrdinaryGridV1 &&
+          gdn_qkvz_seal.output_role == Role::kFp8AttentionOutput &&
+          gdn_qkvz_seal.output_input_layout ==
+              q3x::kernels::Sm87MacroFeedV4Fp8InputLayout::
+                  kGdnContiguousVScratchV1 &&
+          gdn_qkvz_seal.output_tactic_identity ==
+              q3x::kernels::Sm87MacroFeedV4Fp8Identity::
+                  kGdnAttentionOutputM64N128K64OrdinaryGridV1 &&
           bf16_ab_seal.canonical_natural_layer_order &&
           bf16_ab_seal.canonical_a_then_b_role_order &&
           bf16_ab_seal.complete_live_device_ranges &&
           !bf16_ab_seal.raw_pointer_exposed &&
           gdn_qkvz_seal.canonical_natural_gdn_layer_order &&
           gdn_qkvz_seal.role_layout_and_tactic_fixed &&
+          gdn_qkvz_seal.output_role_layout_and_tactic_fixed &&
+          gdn_qkvz_seal.continuation_weights_execution_seal_required &&
           gdn_qkvz_seal.typed_asset_values_private &&
           !gdn_qkvz_seal.raw_pointer_exposed &&
           !gate_seal.launcher_authority && !down_seal.launcher_authority &&
@@ -651,6 +752,9 @@ void test_complete_v4_foundation_package() {
           !bf16_ab_seal.production_dispatch_eligible &&
           !gdn_qkvz_seal.production_dispatch_eligible,
       "V4 C8000 startup resource seals are not independently closed");
+  require_package(PackageFactory::typed_catalog_contract_closed(
+                      *first.package, *model_weights),
+                  "V4 typed GDN/MLP catalogs or GDN-O type isolation drifted");
 
   auto second = PackageFactory::create(*model_weights);
   require_package(static_cast<bool>(second) &&
@@ -712,7 +816,21 @@ void test_complete_v4_foundation_package() {
                             ? static_cast<std::uint64_t>(
                                   q3x::kernels::Sm87MacroFeedV4Fp8Identity::
                                       kGdnQkvZM64N128K64OrdinaryGridV1)
-                            : 0U));
+                            : (role == Role::kFp8FullQkv
+                                   ? static_cast<std::uint64_t>(
+                                         q3x::kernels::
+                                             Sm87MacroFeedV4Fp8Identity::
+                                                 kFullQkvM64N128K64OrdinaryGridV1)
+                                   : static_cast<std::uint64_t>(
+                                         (q3x::runtime::
+                                                  sm87_target_aot_complete_is_full_layer(
+                                                      layer)
+                                              ? q3x::kernels::
+                                                    Sm87MacroFeedV4Fp8Identity::
+                                                        kAttentionOutputM64N128K64OrdinaryGridV1
+                                              : q3x::kernels::
+                                                    Sm87MacroFeedV4Fp8Identity::
+                                                        kGdnAttentionOutputM64N128K64OrdinaryGridV1)))));
       require_package(binding->consumer_tactic_identity() == expected_tactic,
                       "V4 binding reused another execution tactic identity");
 
@@ -1016,6 +1134,27 @@ void test_resource_failures_fail_closed() {
               PackageError::kGdnQkvZResourceSeal,
       "changed GDN-QKVZ role/layout/tactic resource was accepted");
 
+  q3x::kernels::g_fail_v4_gdn_output_resource_query = true;
+  auto gdn_output_query_failure = PackageFactory::create(*weights);
+  q3x::kernels::g_fail_v4_gdn_output_resource_query = false;
+  require_package(
+      !gdn_output_query_failure &&
+          gdn_output_query_failure.package == nullptr &&
+          gdn_output_query_failure.status.error ==
+              PackageError::kGdnQkvZResourceSeal &&
+          gdn_output_query_failure.status.cuda_error == 1,
+      "V4 dedicated GDN-O resource query failure did not fail closed");
+
+  q3x::kernels::g_poison_v4_gdn_output_resource_identity = true;
+  auto gdn_output_identity_failure = PackageFactory::create(*weights);
+  q3x::kernels::g_poison_v4_gdn_output_resource_identity = false;
+  require_package(
+      !gdn_output_identity_failure &&
+          gdn_output_identity_failure.package == nullptr &&
+          gdn_output_identity_failure.status.error ==
+              PackageError::kGdnQkvZResourceSeal,
+      "Full-O/invalid tactic substitution was accepted as GDN-O");
+
   q3x::kernels::g_v4_down_device_ordinal = 1;
   auto device_failure = PackageFactory::create(*weights);
   q3x::kernels::g_v4_down_device_ordinal = 0;
@@ -1039,6 +1178,16 @@ void test_resource_failures_fail_closed() {
       !gdn_device_failure && gdn_device_failure.package == nullptr &&
           gdn_device_failure.status.error == PackageError::kDeviceMismatch,
       "V4 GDN-QKVZ resource seal accepted another device");
+
+  q3x::kernels::g_v4_gdn_output_device_ordinal = 1;
+  auto gdn_output_device_failure = PackageFactory::create(*weights);
+  q3x::kernels::g_v4_gdn_output_device_ordinal = 0;
+  require_package(
+      !gdn_output_device_failure &&
+          gdn_output_device_failure.package == nullptr &&
+          gdn_output_device_failure.status.error ==
+              PackageError::kDeviceMismatch,
+      "V4 GDN-O resource seal accepted another device");
   require_package(clear_fixture(weights, owner),
                   "resource fixture cleanup failed");
 }

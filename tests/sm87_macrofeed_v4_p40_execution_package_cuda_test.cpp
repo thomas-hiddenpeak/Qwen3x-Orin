@@ -52,6 +52,12 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
     return package.execute_gdn_layer0_front_half_once();
   }
 
+  [[nodiscard]] static Sm87MacroFeedV4GdnLayer0CompleteResult
+  execute_complete_once(
+      Sm87MacroFeedV4P40ExecutionPackage& package) noexcept {
+    return package.execute_gdn_layer0_complete_once();
+  }
+
   [[nodiscard]] static Sm87MacroFeedV4P40ExecutionPackageCreateResult
   create(
       const Sm87MacroFeedV4P40ExecutionPackage::StartupPackage& startup)
@@ -63,7 +69,39 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
   create_with_synthetic_t1_gdn_layer0(
       const Sm87MacroFeedV4P40ExecutionPackage::StartupPackage& startup,
       const kernels::Sm87TargetAotFp8CudaAssetView& asset) noexcept {
-    return Sm87MacroFeedV4P40ExecutionPackage::create_impl(startup, &asset);
+    return Sm87MacroFeedV4P40ExecutionPackage::create_impl(
+        startup, &asset, nullptr);
+  }
+
+  [[nodiscard]] static Sm87MacroFeedV4P40ExecutionPackageCreateResult
+  create_with_synthetic_t1_complete_gdn_layer0(
+      const Sm87MacroFeedV4P40ExecutionPackage::StartupPackage& startup,
+      const kernels::Sm87TargetAotFp8CudaAssetView& gdn_qkvz_asset,
+      const kernels::Sm87TargetAotFp8CudaAssetView& gdn_output_asset,
+      const kernels::Sm87TargetAotNvFp4CudaAssetView& gate_up_asset,
+      const kernels::Sm87TargetAotNvFp4CudaAssetView& down_asset,
+      const std::uint16_t* const conv_weight,
+      const std::uint16_t* const a_log,
+      const std::uint16_t* const dt_bias,
+      const std::uint16_t* const norm_weight,
+      const kernels::Sm87MacroFeedV3NvFp4GateUpPayloadReceipt&
+          gate_up_receipt,
+      const kernels::Sm87MacroFeedV3NvFp4DownPayloadReceipt&
+          down_receipt) noexcept {
+    Sm87MacroFeedV4P40ExecutionPackage::SyntheticCompleteGdnLayer0Source
+        source;
+    source.gdn_qkvz_asset = gdn_qkvz_asset;
+    source.gdn_output_asset = gdn_output_asset;
+    source.gate_up_asset = gate_up_asset;
+    source.down_asset = down_asset;
+    source.conv_weight = conv_weight;
+    source.a_log = a_log;
+    source.dt_bias = dt_bias;
+    source.norm_weight = norm_weight;
+    source.gate_up_receipt = gate_up_receipt;
+    source.down_receipt = down_receipt;
+    return Sm87MacroFeedV4P40ExecutionPackage::create_impl(
+        startup, nullptr, &source);
   }
 
   [[nodiscard]] static bool exercise_terminal_poison_drain(
@@ -108,6 +146,61 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
                    Sm87MacroFeedV4ExecutionOwnerState::kPoisoned &&
            snapshot.poison_drain_all_stream_synchronizations_attempted &&
            snapshot.poisoned_terminal_quiescence_attested && aborted;
+  }
+
+  [[nodiscard]] static bool
+  exercise_pending_gdn_grant_poison_drain(
+      Sm87MacroFeedV4P40ExecutionPackage& package) noexcept {
+    if (package.request_state_ == nullptr || package.events_owner_ == nullptr ||
+        package.events_driver_ == nullptr) {
+      return false;
+    }
+    const auto request_access = package.request_state_->issue_sealed_access();
+    const auto begin_request = package.events_driver_->begin_request(
+        *package.request_state_, request_access);
+    auto panel = package.events_driver_->begin_panel(0U);
+    const auto begin_state_panel =
+        package.request_state_->begin_panel(request_access, 0U);
+    auto authorized = package.request_state_->authorize_gdn_layer_state(
+        request_access, 0U, 0U);
+    if (!begin_request || !panel || !begin_state_panel || !authorized) {
+      return false;
+    }
+    const std::uint64_t grant_identity =
+        authorized.grant->grant_identity();
+    const auto before = package.request_state_->snapshot();
+    const auto injected =
+        sm87_macrofeed_v4_execution_events_detail::
+            Sm87MacroFeedV4ExecutionEventsCudaTestFixture::
+                inject_poison_without_drain(
+                    *package.events_owner_,
+                    sm87_macrofeed_v4_execution_events_detail::
+                        Sm87MacroFeedV4ExecutionError::kCudaSubmission);
+    const auto terminalized = package.terminalize_event_failure(
+        "test_pending_grant_cuda_failure", injected, &request_access);
+    const auto event_snapshot = package.events_driver_->snapshot();
+    const auto after = package.request_state_->snapshot();
+    const auto replay =
+        package.request_state_->commit_gdn_layer_candidate_enqueued(
+            request_access, std::move(*authorized.grant));
+    return terminalized.error ==
+               Sm87MacroFeedV4P40ExecutionPackageError::kExecutionEvent &&
+           event_snapshot.state ==
+               sm87_macrofeed_v4_execution_events_detail::
+                   Sm87MacroFeedV4ExecutionOwnerState::kPoisoned &&
+           event_snapshot.poisoned_terminal_quiescence_attested &&
+           after.phase == Sm87MacroFeedV4RequestStatePhase::kFailed &&
+           after.pending_gdn_layer_grant_identity == 0U &&
+           after.last_invalidated_gdn_layer_grant_identity == grant_identity &&
+           after.physical_execution_receipt_issued &&
+           after.physical_owner_drain_was_poison_terminal &&
+           after.candidate_discard_count == 1U &&
+           after.active_bank_identity == before.active_bank_identity &&
+           after.candidate_bank_identity == before.candidate_bank_identity &&
+           after.state_epoch == before.state_epoch &&
+           !after.canonical_state_published &&
+           !after.logical_sequence_fence_published &&
+           !after.decode_access_issued && !replay;
   }
 
   [[nodiscard]] static bool seed(
@@ -392,6 +485,155 @@ class LiveExecutionWeights final {
   bool final_post_norm_poisoned_ = false;
 };
 
+class LiveGdnContinuationWeights final {
+ public:
+  LiveGdnContinuationWeights() = default;
+  LiveGdnContinuationWeights(const LiveGdnContinuationWeights&) = delete;
+  LiveGdnContinuationWeights& operator=(
+      const LiveGdnContinuationWeights&) = delete;
+
+  ~LiveGdnContinuationWeights() {
+    if (allocation_ != nullptr) {
+      (void)cudaFree(allocation_);
+      allocation_ = nullptr;
+    }
+  }
+
+  [[nodiscard]] bool allocate() noexcept {
+    if (allocation_ != nullptr ||
+        cudaMalloc(&allocation_, kAllocationBytes) != cudaSuccess ||
+        allocation_ == nullptr) {
+      return false;
+    }
+    return cudaMemset(allocation_, 0, kAllocationBytes) == cudaSuccess &&
+           cudaDeviceSynchronize() == cudaSuccess;
+  }
+
+  [[nodiscard]] const std::uint16_t* conv_weight() const noexcept {
+    return pointer_at(kConvWeightOffset);
+  }
+  [[nodiscard]] const std::uint16_t* a_log() const noexcept {
+    return pointer_at(kALogOffset);
+  }
+  [[nodiscard]] const std::uint16_t* dt_bias() const noexcept {
+    return pointer_at(kDtBiasOffset);
+  }
+  [[nodiscard]] const std::uint16_t* norm_weight() const noexcept {
+    return pointer_at(kNormWeightOffset);
+  }
+  [[nodiscard]] constexpr std::size_t bytes() const noexcept {
+    return kAllocationBytes;
+  }
+
+ private:
+  static constexpr std::size_t kConvWeightOffset = 0U;
+  static constexpr std::size_t kALogOffset =
+      kConvWeightOffset + kernels::kSm87MacroFeedV4GdnConvWeightBytes;
+  static constexpr std::size_t kDtBiasOffset =
+      kALogOffset + kernels::kSm87MacroFeedV4GdnHeadVectorBytes;
+  static constexpr std::size_t kNormWeightOffset =
+      kDtBiasOffset + kernels::kSm87MacroFeedV4GdnHeadVectorBytes;
+  static constexpr std::size_t kAllocationBytes =
+      kNormWeightOffset + kernels::kSm87MacroFeedV4GdnNormWeightBytes;
+
+  static_assert(kernels::kSm87MacroFeedV4GdnConvWeightBytes == 81'920U);
+  static_assert(kernels::kSm87MacroFeedV4GdnHeadVectorBytes == 96U);
+  static_assert(kernels::kSm87MacroFeedV4GdnNormWeightBytes == 256U);
+  static_assert(kALogOffset % kernels::kSm87MacroFeedV4GdnPointerAlignment ==
+                0U);
+  static_assert(kDtBiasOffset %
+                    kernels::kSm87MacroFeedV4GdnPointerAlignment ==
+                0U);
+  static_assert(kNormWeightOffset %
+                    kernels::kSm87MacroFeedV4GdnPointerAlignment ==
+                0U);
+  static_assert(kAllocationBytes == 82'368U);
+
+  [[nodiscard]] const std::uint16_t* pointer_at(
+      const std::size_t offset) const noexcept {
+    return allocation_ == nullptr
+               ? nullptr
+               : reinterpret_cast<const std::uint16_t*>(
+                     static_cast<const std::uint8_t*>(allocation_) + offset);
+  }
+
+  void* allocation_ = nullptr;
+};
+
+[[nodiscard]] kernels::Sm87MacroFeedV3NvFp4GateUpPayloadReceipt
+make_gate_up_payload_receipt(
+    const q3x::tests::support::Sm87MacroFeedV4LiveNvFp4AssetFixture&
+        fixture) noexcept {
+  const auto layout = kernels::sm87_target_aot_projection_packed_layout(
+      kernels::Sm87TargetAotProjectionRole::kNvFp4GateUp);
+  kernels::Sm87MacroFeedV3NvFp4GateUpPayloadReceipt receipt;
+  receipt.plan_identity = kernels::kSm87MacroFeedV3NvFp4GateUpIdentity;
+  receipt.payload_identity = fixture.asset.artifact_identity;
+  receipt.gate_source_identity = fixture.inventory.sources[0U].tensor_identity;
+  receipt.up_source_identity = fixture.inventory.sources[1U].tensor_identity;
+  receipt.device_ordinal = fixture.upload.device_ordinal;
+  receipt.payload_begin = fixture.asset.payload.begin;
+  receipt.payload_end = fixture.asset.payload.end;
+  receipt.payload_bytes = fixture.asset.payload.bytes;
+  receipt.gate_partition_bytes = layout.partitions[0U].payload_bytes;
+  receipt.up_partition_bytes = layout.partitions[1U].payload_bytes;
+  receipt.canonical_consumer_n64_k16_lane_component_v1 =
+      fixture.asset.transform_identity ==
+      kernels::Sm87TargetAotProjectionPackedTransformIdentity::
+          kCanonicalNkToConsumerN64K16LaneComponentV1;
+  receipt.canonical_gate_then_up_partition_order =
+      layout.partitions[0U].logical_role ==
+          kernels::Sm87TargetAotLogicalRole::kNvFp4Gate &&
+      layout.partitions[1U].logical_role ==
+          kernels::Sm87TargetAotLogicalRole::kNvFp4Up;
+  receipt.independent_tensor_scales =
+      layout.partitions[0U].independent_tensor_scale &&
+      layout.partitions[1U].independent_tensor_scale;
+  receipt.host_bytes_authenticated_before_copy =
+      fixture.upload.host_payload_digest_verified_before_copy &&
+      fixture.upload.host_payload_immutable_until_completion;
+  receipt.device_readback_authenticated =
+      fixture.upload.verification_event_observed &&
+      fixture.upload.verification_completed &&
+      fixture.upload.device_payload_matches_host_payload;
+  receipt.allocation_retained_for_launch =
+      fixture.upload.allocation_retained_for_asset_lifetime;
+  receipt.receipt_identity = kernels::
+      sm87_macrofeed_v3_nvfp4_gate_up_compute_payload_receipt_identity(
+          receipt);
+  return receipt;
+}
+
+[[nodiscard]] kernels::Sm87MacroFeedV3NvFp4DownPayloadReceipt
+make_down_payload_receipt(
+    const q3x::tests::support::Sm87MacroFeedV4LiveNvFp4AssetFixture&
+        fixture) noexcept {
+  kernels::Sm87MacroFeedV3NvFp4DownPayloadReceipt receipt;
+  receipt.plan_identity = kernels::kSm87MacroFeedV3NvFp4DownIdentity;
+  receipt.payload_identity = fixture.asset.artifact_identity;
+  receipt.device_ordinal = fixture.upload.device_ordinal;
+  receipt.payload_begin = fixture.asset.payload.begin;
+  receipt.payload_end = fixture.asset.payload.end;
+  receipt.payload_bytes = fixture.asset.payload.bytes;
+  receipt.canonical_consumer_n64_k16_lane_component_v1 =
+      fixture.asset.transform_identity ==
+      kernels::Sm87TargetAotProjectionPackedTransformIdentity::
+          kCanonicalNkToConsumerN64K16LaneComponentV1;
+  receipt.host_bytes_authenticated_before_copy =
+      fixture.upload.host_payload_digest_verified_before_copy &&
+      fixture.upload.host_payload_immutable_until_completion;
+  receipt.device_readback_authenticated =
+      fixture.upload.verification_event_observed &&
+      fixture.upload.verification_completed &&
+      fixture.upload.device_payload_matches_host_payload;
+  receipt.allocation_retained_for_launch =
+      fixture.upload.allocation_retained_for_asset_lifetime;
+  receipt.receipt_identity =
+      kernels::sm87_macrofeed_v3_nvfp4_down_compute_payload_receipt_identity(
+          receipt);
+  return receipt;
+}
+
 [[nodiscard]] bool exact_sm87_device_available() noexcept {
   int device = -1;
   cudaDeviceProp properties{};
@@ -434,15 +676,14 @@ void test_real_cuda_front_half() {
   LiveExecutionWeights live_weights;
   q3x::tests::support::Sm87MacroFeedV4LiveFp8AssetFixture
       live_gdn_qkvz;
+  q3x::tests::support::Sm87MacroFeedV4LiveFp8AssetFixture
+      live_gdn_output;
+  q3x::tests::support::Sm87MacroFeedV4LiveNvFp4AssetFixture
+      live_gate_up;
+  q3x::tests::support::Sm87MacroFeedV4LiveNvFp4AssetFixture live_down;
+  LiveGdnContinuationWeights live_gdn_continuation;
   require_test(live_weights.allocate(),
                "could not allocate real BF16/LayerNorm CUDA fixtures");
-  require_test(
-      live_gdn_qkvz.initialize(
-          kernels::Sm87TargetAotProjectionRole::kFp8GdnQkvZ, 0),
-      "could not allocate honest synthetic-T1 GDN-QKVZ CUDA asset");
-  require_test(
-      live_gdn_qkvz.payload_allocation.bytes() == 83'886'080U,
-      "synthetic-T1 GDN-QKVZ payload did not use the exact real shape");
   std::optional<ModelWeights> model_weights =
       Access::make_complete_host_test_fixture(owner);
   require_test(model_weights.has_value(),
@@ -468,15 +709,28 @@ void test_real_cuda_front_half() {
   auto invalid_execution =
       execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::create(
           *invalid_startup.package);
-  require_test(
+  const bool invalid_norm_rejected =
       !invalid_execution && invalid_execution.package == nullptr &&
-          invalid_execution.status.error ==
-              execution::Sm87MacroFeedV4P40ExecutionPackageError::
-                  kLayerNormCatalog &&
-          invalid_execution.status.layer ==
-              q3x::runtime::kQwen36DenseLayerCount - 1U &&
-          invalid_execution.status.post_attention_norm &&
-          invalid_execution.status.cuda_error != 0,
+      invalid_execution.status.error ==
+          execution::Sm87MacroFeedV4P40ExecutionPackageError::
+              kLayerNormCatalog &&
+      invalid_execution.status.layer ==
+          q3x::runtime::kQwen36DenseLayerCount - 1U &&
+      invalid_execution.status.post_attention_norm &&
+      invalid_execution.status.cuda_error != 0;
+  if (!invalid_norm_rejected) {
+    std::cerr << "negative execution error="
+              << static_cast<unsigned>(invalid_execution.status.error)
+              << " context=" << invalid_execution.status.context
+              << " layer=" << invalid_execution.status.layer
+              << " post_norm="
+              << invalid_execution.status.post_attention_norm
+              << " cuda=" << invalid_execution.status.cuda_error
+              << " package=" << (invalid_execution.package != nullptr)
+              << '\n';
+  }
+  require_test(
+      invalid_norm_rejected,
       "one-past LayerNorm device range did not fail closed");
   invalid_startup.package.reset();
   require_test(live_weights.restore_final_post_norm(*model_weights),
@@ -505,6 +759,80 @@ void test_real_cuda_front_half() {
           fake_catalog_execution.status.layer == 0U &&
           fake_catalog_execution.status.cuda_error != 0,
       "fake target-AOT catalog acquired executable QKVZ authority");
+
+  // Keep these live allocations after the one-past LayerNorm negative.  CUDA
+  // is otherwise free to place a later allocation exactly at that one-past
+  // address, turning the intended invalid pointer into an unrelated live
+  // range and making the negative allocator-order dependent.
+  require_test(
+      live_gdn_qkvz.initialize(
+          kernels::Sm87TargetAotProjectionRole::kFp8GdnQkvZ, 0),
+      "could not allocate honest synthetic-T1 GDN-QKVZ CUDA asset");
+  require_test(
+      live_gdn_qkvz.payload_allocation.bytes() == 83'886'080U,
+      "synthetic-T1 GDN-QKVZ payload did not use the exact real shape");
+  require_test(
+      live_gdn_output.initialize(
+          kernels::Sm87TargetAotProjectionRole::kFp8AttentionOutput, 0),
+      "could not allocate honest synthetic-T1 GDN-output CUDA asset");
+  require_test(
+      live_gdn_output.payload_allocation.bytes() == 31'457'280U,
+      "synthetic-T1 GDN-output payload did not use the exact real shape");
+  require_test(
+      live_gate_up.initialize(
+          kernels::Sm87TargetAotProjectionRole::kNvFp4GateUp, 0),
+      "could not allocate honest synthetic-T1 Gate/Up CUDA asset");
+  require_test(
+      live_gate_up.payload_allocation.bytes() == 100'270'080U,
+      "synthetic-T1 Gate/Up payload did not use the exact real shape");
+  require_test(
+      live_down.initialize(
+          kernels::Sm87TargetAotProjectionRole::kNvFp4Down, 0),
+      "could not allocate honest synthetic-T1 Down CUDA asset");
+  require_test(
+      live_down.payload_allocation.bytes() == 50'135'040U,
+      "synthetic-T1 Down payload did not use the exact real shape");
+  require_test(live_gdn_continuation.allocate() &&
+                   live_gdn_continuation.bytes() == 82'368U,
+               "could not allocate exact complete-layer GDN weights");
+
+  constexpr std::uint64_t kNvFp4ValuesPerPartition =
+      17'408ULL * 5'120ULL;
+  constexpr std::uint64_t kNvFp4WeightBytesPerPartition =
+      kNvFp4ValuesPerPartition / 2U;
+  constexpr std::uint64_t kNvFp4BlockScalesPerPartition =
+      kNvFp4ValuesPerPartition / 16U;
+  const auto& gate_transform = live_gate_up.transform.partitions[0U];
+  const auto& down_transform = live_down.transform.partitions[0U];
+  require_test(
+      gate_transform.source_weight_bytes_hashed ==
+              kNvFp4WeightBytesPerPartition &&
+          gate_transform.repacked_weight_values ==
+              kNvFp4ValuesPerPartition &&
+          gate_transform.repacked_block_scale_values ==
+              kNvFp4BlockScalesPerPartition &&
+          gate_transform.source_block_scale_e4m3fn_bytes_scanned ==
+              kNvFp4BlockScalesPerPartition &&
+          gate_transform.payload_block_scale_e4m3fn_bytes_scanned ==
+              kNvFp4BlockScalesPerPartition &&
+          gate_transform.bit_exact_block_scale_permutation &&
+          down_transform.source_weight_bytes_hashed ==
+              kNvFp4WeightBytesPerPartition &&
+          down_transform.repacked_weight_values ==
+              kNvFp4ValuesPerPartition &&
+          down_transform.repacked_block_scale_values ==
+              kNvFp4BlockScalesPerPartition &&
+          down_transform.bit_exact_block_scale_permutation,
+      "synthetic NVFP4 transform ledger lost exact weight/scale counts");
+
+  const auto gate_up_receipt = make_gate_up_payload_receipt(live_gate_up);
+  const auto down_receipt = make_down_payload_receipt(live_down);
+  require_test(
+      kernels::sm87_macrofeed_v3_nvfp4_gate_up_payload_receipt_valid(
+          gate_up_receipt) &&
+          kernels::sm87_macrofeed_v3_nvfp4_down_payload_receipt_valid(
+              down_receipt),
+      "could not seal canonical V3 Gate/Up and Down payload receipts");
 
   auto terminal_drain_created =
       execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
@@ -635,6 +963,193 @@ void test_real_cuda_front_half() {
       "one-shot front-half package accepted a repeated execution");
 
   execution_created.package.reset();
+
+  auto mismatched_gate_receipt = gate_up_receipt;
+  ++mismatched_gate_receipt.payload_identity;
+  mismatched_gate_receipt.receipt_identity =
+      kernels::sm87_macrofeed_v3_nvfp4_gate_up_compute_payload_receipt_identity(
+          mismatched_gate_receipt);
+  require_test(
+      kernels::sm87_macrofeed_v3_nvfp4_gate_up_payload_receipt_valid(
+          mismatched_gate_receipt),
+      "asset-mismatched Gate/Up negative receipt was not self-consistent");
+  auto mismatched_receipt_execution =
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          create_with_synthetic_t1_complete_gdn_layer0(
+              *startup_created.package, live_gdn_qkvz.asset,
+              live_gdn_output.asset, live_gate_up.asset, live_down.asset,
+              live_gdn_continuation.conv_weight(),
+              live_gdn_continuation.a_log(),
+              live_gdn_continuation.dt_bias(),
+              live_gdn_continuation.norm_weight(), mismatched_gate_receipt,
+              down_receipt);
+  require_test(
+      !mismatched_receipt_execution &&
+          mismatched_receipt_execution.package == nullptr &&
+          mismatched_receipt_execution.status.error ==
+              execution::Sm87MacroFeedV4P40ExecutionPackageError::
+                  kCompleteLayerBinding,
+      "synthetic Gate/Up receipt detached from its asset was admitted");
+
+  auto overlapping_continuation_execution =
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          create_with_synthetic_t1_complete_gdn_layer0(
+              *startup_created.package, live_gdn_qkvz.asset,
+              live_gdn_output.asset, live_gate_up.asset, live_down.asset,
+              live_gdn_continuation.conv_weight(),
+              live_gdn_continuation.a_log(),
+              live_gdn_continuation.a_log(),
+              live_gdn_continuation.norm_weight(), gate_up_receipt,
+              down_receipt);
+  require_test(
+      !overlapping_continuation_execution &&
+          overlapping_continuation_execution.package == nullptr &&
+          overlapping_continuation_execution.status.error ==
+              execution::Sm87MacroFeedV4P40ExecutionPackageError::
+                  kCompleteLayerBinding,
+      "overlapping synthetic GDN continuation roles were admitted");
+
+  auto pending_grant_poison_execution =
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          create_with_synthetic_t1_complete_gdn_layer0(
+              *startup_created.package, live_gdn_qkvz.asset,
+              live_gdn_output.asset, live_gate_up.asset, live_down.asset,
+              live_gdn_continuation.conv_weight(),
+              live_gdn_continuation.a_log(),
+              live_gdn_continuation.dt_bias(),
+              live_gdn_continuation.norm_weight(), gate_up_receipt,
+              down_receipt);
+  require_test(static_cast<bool>(pending_grant_poison_execution),
+               "pending-grant poison package creation failed");
+  require_test(
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          exercise_pending_gdn_grant_poison_drain(
+              *pending_grant_poison_execution.package),
+      "poison drain did not invalidate a pending GDN grant without publication");
+  pending_grant_poison_execution.package.reset();
+
+  auto complete_execution_created =
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          create_with_synthetic_t1_complete_gdn_layer0(
+              *startup_created.package, live_gdn_qkvz.asset,
+              live_gdn_output.asset, live_gate_up.asset, live_down.asset,
+              live_gdn_continuation.conv_weight(),
+              live_gdn_continuation.a_log(),
+              live_gdn_continuation.dt_bias(),
+              live_gdn_continuation.norm_weight(), gate_up_receipt,
+              down_receipt);
+  if (!complete_execution_created) {
+    std::cerr << "complete execution package error="
+              << static_cast<unsigned>(
+                     complete_execution_created.status.error)
+              << " context=" << complete_execution_created.status.context
+              << " layer=" << complete_execution_created.status.layer
+              << " cuda=" << complete_execution_created.status.cuda_error
+              << '\n';
+  }
+  require_test(static_cast<bool>(complete_execution_created),
+               "complete GDN layer-0 package creation failed");
+  const auto& complete_audit = complete_execution_created.audit;
+  require_test(
+      complete_audit.valid() &&
+          complete_audit.fixed_gdn_layer0_front_half_bound &&
+          complete_audit.fixed_gdn_layer0_complete_bound &&
+          complete_audit.qkvz_ab_ready_transaction_bound &&
+          complete_audit.synthetic_t1_gdn_layer0_source &&
+          complete_audit.gdn_qkvz_catalog_identity == 0U &&
+          complete_audit.mlp_pair_catalog_identity == 0U &&
+          complete_audit.gdn_qkvz_bindings == 1U &&
+          complete_audit.mlp_pair_bindings == 1U &&
+          complete_audit.whole_layer_executor_bound &&
+          !complete_audit.whole_model_executor_bound &&
+          !complete_audit.selector_bound && !complete_audit.api_route_bound &&
+          complete_audit.default_off && !complete_audit.jit_present &&
+          !complete_audit.request_time_repack_present &&
+          !complete_audit.request_time_autotune_present &&
+          !complete_audit.fallback_present && !complete_audit.cublaslt_present &&
+          !complete_audit.mtp_present &&
+          !complete_audit.production_dispatch_eligible,
+      "complete-layer audit overstated source or production authority");
+  require_test(
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::seed(
+          *complete_execution_created.package),
+      "could not seed complete-layer private buffers");
+
+  const auto complete =
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          execute_complete_once(*complete_execution_created.package);
+  if (!complete) {
+    std::cerr << "complete layer error="
+              << static_cast<unsigned>(complete.status.error)
+              << " context=" << complete.status.context
+              << " cuda=" << complete.status.cuda_error << '\n';
+  }
+  require_test(static_cast<bool>(complete) && complete.receipt.valid(),
+               "complete GDN layer-0 execution did not close its receipt");
+  require_test(
+      complete.receipt.gdn_layer0_source_identity ==
+              complete_audit.gdn_layer0_source_identity &&
+          complete.receipt.gdn_qkvz_catalog_identity == 0U &&
+          complete.receipt.mlp_pair_catalog_identity == 0U &&
+          complete.receipt.synthetic_t1_gdn_layer0_source &&
+          complete.receipt.input_norm_launches == 1U &&
+          complete.receipt.bf16_ab_launches == 1U &&
+          complete.receipt.gdn_qkvz_launches == 1U &&
+          complete.receipt.gdn_continuation_launches == 2U &&
+          complete.receipt.gdn_output_launches == 1U &&
+          complete.receipt.residual_post_norm_launches == 1U &&
+          complete.receipt.gate_up_launches == 1U &&
+          complete.receipt.down_launches == 1U &&
+          complete.receipt.bound_kernel_submissions == 9U &&
+          complete.receipt.asynchronous_d2d_copies == 1U &&
+          complete.receipt.conv_history_copy_bytes == 61'440U &&
+          complete.receipt.physical_owner_drain_receipt_identity != 0U &&
+          complete.receipt.physical_completion_receipts == 1U &&
+          complete.receipt.norm_ready_waited_by_ab &&
+          complete.receipt.ab_ready_waited_by_main &&
+          complete.receipt.layer_complete &&
+          complete.receipt.state_candidate_recorded &&
+          complete.receipt.owner_drained_physically &&
+          complete.receipt.physical_execution_receipt_issued &&
+          complete.receipt.candidate_discarded_without_publication &&
+          complete.receipt.state_epoch_after ==
+              complete.receipt.state_epoch_before &&
+          complete.receipt.active_bank_after ==
+              complete.receipt.active_bank_before &&
+          complete.receipt.candidate_bank_after ==
+              complete.receipt.candidate_bank_before &&
+          !complete.receipt.panel_complete &&
+          !complete.receipt.model_complete &&
+          !complete.receipt.production_dispatch_eligible,
+      "complete-layer receipt did not prove exactly 9 kernels plus 1 D2D");
+
+  execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+      RequestOutcome complete_request_outcome{};
+  require_test(
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          read_request_outcome(*complete_execution_created.package,
+                               &complete_request_outcome),
+      "could not inspect complete-layer request-state outcome");
+  require_test(
+      complete_request_outcome.phase ==
+              q3x::runtime::Sm87MacroFeedV4RequestStatePhase::kFailed &&
+          !complete_request_outcome.canonical_state_published &&
+          !complete_request_outcome.logical_sequence_fence_published &&
+          !complete_request_outcome.decode_access_issued,
+      "complete synthetic layer published canonical or Decode-visible state");
+
+  const auto complete_repeated =
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          execute_complete_once(*complete_execution_created.package);
+  require_test(
+      !complete_repeated &&
+          complete_repeated.status.error ==
+              execution::Sm87MacroFeedV4P40ExecutionPackageError::
+                  kAlreadyExecuted &&
+          !complete_repeated.receipt.valid(),
+      "one-shot complete-layer package accepted a repeated execution");
+  complete_execution_created.package.reset();
+
   auto startup_independent_snapshot =
       execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
           create_with_synthetic_t1_gdn_layer0(

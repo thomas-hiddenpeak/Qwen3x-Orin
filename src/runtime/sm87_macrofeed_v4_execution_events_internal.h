@@ -83,6 +83,7 @@ enum class Sm87MacroFeedV4ExecutionError : std::uint8_t {
   kPanelIncomplete,
   kDrainIncomplete,
   kFinalPublicationIncomplete,
+  kRequestStateDiscard,
 };
 
 struct Sm87MacroFeedV4ExecutionStatus final {
@@ -307,16 +308,22 @@ struct Sm87MacroFeedV4PhysicalObservationResult final {
 struct Sm87MacroFeedV4PoisonDrainResult final {
   Sm87MacroFeedV4ExecutionStatus drain_status{};
   Sm87MacroFeedV4ExecutionStatus poison_cause{};
+  Sm87MacroFeedV4RequestStateStatus request_state_status{};
   std::array<int, kSm87MacroFeedV4ExecutionStreamCount>
       stream_cuda_status{};
+  // Audit identity only.  It is deliberately not accepted by RequestState as
+  // authority: the EventsOwner performs the state discard while it still owns
+  // the lock and the exact poisoned request generation.
+  std::uint64_t quiescence_identity = 0U;
   bool all_stream_synchronizations_attempted = false;
   bool physical_quiescence_attested = false;
+  bool request_state_discarded = false;
   bool discard_required = false;
 
   [[nodiscard]] explicit operator bool() const noexcept {
     return static_cast<bool>(drain_status) &&
            poison_cause.error != Sm87MacroFeedV4ExecutionError::kNone &&
-           physical_quiescence_attested;
+           quiescence_identity != 0U && physical_quiescence_attested;
   }
 };
 
@@ -328,6 +335,91 @@ struct Sm87MacroFeedV4PanelBeginResult final {
     return panel_access != nullptr && static_cast<bool>(status);
   }
 };
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+// One package-bound whole-GDN-layer submission.  Every constituent is fixed
+// to C8000 and all CUDA resources were sealed during package construction.
+// This type crosses only the private package -> EventsOwner boundary; it is
+// not a caller-fillable production API or a physical completion receipt.
+struct Sm87MacroFeedV4CompleteGdnLayerC8000Submission final {
+  kernels::Sm87MacroFeedV4InputNormArguments input_norm{};
+  kernels::Sm87MacroFeedV4Bf16AbArguments bf16_ab{};
+  kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4GdnQkvzC8000Arguments gdn_qkvz{};
+  kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4GdnContinuationC8000Arguments gdn_continuation{};
+  kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4GdnOC8000Arguments gdn_output{};
+  kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4ResidualPostNormC8000Arguments residual_post_norm{};
+  kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4GateUpC8000Arguments gate_up{};
+  kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4DownC8000Arguments down{};
+  kernels::Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot
+      norm_resources{};
+  kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot
+      bf16_ab_resources{};
+  kernels::Sm87MacroFeedV4Fp8CudaResources gdn_qkvz_resources{};
+  kernels::Sm87MacroFeedV4GdnC8000AdmissionResourceSnapshot
+      gdn_continuation_resources{};
+  kernels::Sm87MacroFeedV4Fp8CudaResources gdn_output_resources{};
+  kernels::Sm87MacroFeedV4NvFp4GateUpCudaResources gate_up_resources{};
+  kernels::Sm87MacroFeedV4NvFp4DownCudaResources down_resources{};
+};
+
+struct Sm87MacroFeedV4CompleteGdnLayerEnqueueReceipt final {
+  std::uint64_t transaction_identity = 0U;
+  std::uint64_t owner_identity = 0U;
+  std::uint64_t request_epoch = 0U;
+  std::size_t panel = kSm87MacroFeedV4PanelCount;
+  std::uint64_t panel_generation = 0U;
+  std::size_t input_norm_launches = 0U;
+  std::size_t bf16_ab_launches = 0U;
+  std::size_t gdn_qkvz_launches = 0U;
+  std::size_t gdn_continuation_launches = 0U;
+  std::size_t gdn_output_launches = 0U;
+  std::size_t residual_post_norm_launches = 0U;
+  std::size_t gate_up_launches = 0U;
+  std::size_t down_launches = 0U;
+  std::size_t bound_kernel_submissions = 0U;
+  std::size_t asynchronous_d2d_copies = 0U;
+  std::uint64_t conv_history_copy_bytes = 0U;
+  bool norm_ready_waited_by_ab = false;
+  bool ab_ready_waited_by_main = false;
+  bool complete_layer_enqueued = false;
+  bool physical_device_completion_attested = false;
+  bool panel_complete = false;
+  bool production_receipt_eligible = false;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return transaction_identity != 0U && owner_identity != 0U &&
+           request_epoch != 0U && panel < kSm87MacroFeedV4PanelCount &&
+           panel_generation != 0U && input_norm_launches == 1U &&
+           bf16_ab_launches == 1U && gdn_qkvz_launches == 1U &&
+           gdn_continuation_launches == 2U &&
+           gdn_output_launches == 1U &&
+           residual_post_norm_launches == 1U && gate_up_launches == 1U &&
+           down_launches == 1U && bound_kernel_submissions == 9U &&
+           asynchronous_d2d_copies == 1U &&
+           conv_history_copy_bytes ==
+               kernels::kSm87MacroFeedV4GdnConvHistoryBytes &&
+           norm_ready_waited_by_ab && ab_ready_waited_by_main &&
+           complete_layer_enqueued &&
+           !physical_device_completion_attested && !panel_complete &&
+           !production_receipt_eligible;
+  }
+};
+
+struct Sm87MacroFeedV4CompleteGdnLayerEnqueueResult final {
+  Sm87MacroFeedV4ExecutionStatus status{};
+  Sm87MacroFeedV4CompleteGdnLayerEnqueueReceipt receipt{};
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return static_cast<bool>(status) && receipt.valid();
+  }
+};
+#endif
 
 struct Sm87MacroFeedV4ExecutionEventsSnapshot final {
   Sm87MacroFeedV4ExecutionOwnerState state =
@@ -350,6 +442,18 @@ struct Sm87MacroFeedV4ExecutionEventsSnapshot final {
   std::size_t bf16_ab_submissions = 0U;
   std::size_t gdn_qkvz_c8000_submissions = 0U;
   std::size_t gdn_qkvz_ab_ready_wait_transactions = 0U;
+  std::size_t gdn_continuation_c8000_submissions = 0U;
+  std::size_t gdn_history_d2d_copies = 0U;
+  std::uint64_t gdn_history_d2d_bytes = 0U;
+  std::size_t gdn_output_c8000_submissions = 0U;
+  std::size_t residual_post_norm_submissions = 0U;
+  std::size_t gate_up_c8000_submissions = 0U;
+  std::size_t down_c8000_submissions = 0U;
+  std::size_t complete_gdn_layers_submitted = 0U;
+  std::size_t cold_recurrent_initializations = 0U;
+  std::uint64_t cold_recurrent_allocation_identity = 0U;
+  std::uintptr_t cold_recurrent_allocation_begin = 0U;
+  std::uint64_t cold_recurrent_zero_bytes = 0U;
   bool streams_nonblocking = false;
   bool panel_done_recorded = false;
   bool main_tail_recorded = false;
@@ -367,6 +471,7 @@ struct Sm87MacroFeedV4ExecutionEventsSnapshot final {
       poison_drain_stream_cuda_status{};
   bool poison_drain_all_stream_synchronizations_attempted = false;
   bool poisoned_terminal_quiescence_attested = false;
+  std::uint64_t poisoned_terminal_quiescence_identity = 0U;
   bool default_off = true;
   bool selector_bound = false;
   bool launcher_bound = false;
@@ -452,6 +557,17 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
       const kernels::sm87_macrofeed_v4_bound_launch_detail::
           Sm87MacroFeedV4GdnQkvzC8000Arguments& arguments,
       const kernels::Sm87MacroFeedV4Fp8CudaResources& resources) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4CompleteGdnLayerEnqueueResult
+  submit_complete_gdn_layer_c8000_prevalidated(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const Sm87MacroFeedV4CompleteGdnLayerC8000Submission& submission)
+      noexcept;
+  [[nodiscard]] Sm87MacroFeedV4ExecutionStatus
+  initialize_cold_recurrent_storage(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      void* recurrent_allocation, std::size_t recurrent_bytes,
+      std::uint64_t recurrent_allocation_identity) noexcept;
 #endif
 
   [[nodiscard]] Sm87MacroFeedV4PhysicalObservationResult
@@ -483,6 +599,19 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
       const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
       const Sm87MacroFeedV4PhysicalCompletionReceipt& owner_drained) noexcept;
 
+  // Whole-owner terminal transition.  The opaque physical receipt is checked
+  // while the EventsOwner lock is held, then this owner directly discards the
+  // matching RequestState candidate before retiring its own live generation.
+  // No caller-fillable receipt identity crosses that authority boundary.
+  [[nodiscard]] Sm87MacroFeedV4ExecutionStatus
+  discard_request_state_after_drain(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const Sm87MacroFeedV4PhysicalCompletionReceipt& owner_drained,
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+      Sm87MacroFeedV4RequestDiscardReason reason) noexcept;
+
   [[nodiscard]] Sm87MacroFeedV4ExecutionStatus complete_request(
       const Sm87MacroFeedV4ExecutionEventsAccess& access,
       const Sm87MacroFeedV4ExecutionPanelAccess& final_panel_access,
@@ -495,6 +624,12 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
   // cannot be swallowed or cleared by a later request.
   [[nodiscard]] Sm87MacroFeedV4PoisonDrainResult drain_poisoned_request(
       const Sm87MacroFeedV4ExecutionEventsAccess& access) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4PoisonDrainResult
+  drain_poisoned_request_and_discard(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+      Sm87MacroFeedV4RequestDiscardReason reason) noexcept;
 
   struct EventState final {
     std::uint64_t generation = 0U;
@@ -536,6 +671,34 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
       const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
       Sm87MacroFeedV4ExecutionStream producer,
       Sm87MacroFeedV4ExecutionEvent event) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4EventEnqueueResult wait_event_locked(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      Sm87MacroFeedV4ExecutionStream consumer,
+      Sm87MacroFeedV4ExecutionEvent event) noexcept;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  [[nodiscard]] Sm87MacroFeedV4EventEnqueueResult
+  submit_input_norm_and_record_ready_locked(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const kernels::Sm87MacroFeedV4InputNormArguments& arguments,
+      const kernels::Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot&
+          resources) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4EventEnqueueResult
+  submit_bf16_ab_and_record_ready_locked(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const kernels::Sm87MacroFeedV4Bf16AbArguments& arguments,
+      const kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot&
+          resources) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4EventEnqueueResult
+  submit_gdn_qkvz_c8000_then_wait_ab_ready_locked(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4GdnQkvzC8000Arguments& arguments,
+      const kernels::Sm87MacroFeedV4Fp8CudaResources& resources) noexcept;
+#endif
   void advance_record_order(Sm87MacroFeedV4ExecutionEvent event) noexcept;
   void advance_wait_order(Sm87MacroFeedV4ExecutionEvent event) noexcept;
   [[nodiscard]] Sm87MacroFeedV4EventEnqueueReceipt mint_enqueue_receipt(
@@ -555,6 +718,12 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
       const Sm87MacroFeedV4PhysicalCompletionReceipt& receipt) const noexcept;
   void record_poison_cause(
       const Sm87MacroFeedV4ExecutionStatus& cause) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4PoisonDrainResult
+  drain_poisoned_request_locked(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      Sm87MacroFeedV4RequestState* request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess* request_access,
+      Sm87MacroFeedV4RequestDiscardReason reason) noexcept;
   void reset_request_ledger() noexcept;
   void release_resources() noexcept;
 
@@ -586,6 +755,18 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
   std::size_t bf16_ab_submissions_ = 0U;
   std::size_t gdn_qkvz_c8000_submissions_ = 0U;
   std::size_t gdn_qkvz_ab_ready_wait_transactions_ = 0U;
+  std::size_t gdn_continuation_c8000_submissions_ = 0U;
+  std::size_t gdn_history_d2d_copies_ = 0U;
+  std::uint64_t gdn_history_d2d_bytes_ = 0U;
+  std::size_t gdn_output_c8000_submissions_ = 0U;
+  std::size_t residual_post_norm_submissions_ = 0U;
+  std::size_t gate_up_c8000_submissions_ = 0U;
+  std::size_t down_c8000_submissions_ = 0U;
+  std::size_t complete_gdn_layers_submitted_ = 0U;
+  std::size_t cold_recurrent_initializations_ = 0U;
+  std::uint64_t cold_recurrent_allocation_identity_ = 0U;
+  std::uintptr_t cold_recurrent_allocation_begin_ = 0U;
+  std::uint64_t cold_recurrent_zero_bytes_ = 0U;
   bool streams_nonblocking_ = false;
   bool panel_done_recorded_ = false;
   bool draining_ = false;
@@ -604,6 +785,7 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
       poison_drain_stream_cuda_status_{};
   bool poison_drain_all_stream_synchronizations_attempted_ = false;
   bool poisoned_terminal_quiescence_attested_ = false;
+  std::uint64_t poisoned_terminal_quiescence_identity_ = 0U;
   // Test fixture fault injection only.  It is unreachable without the
   // header-only test capability and never changes a production route.
   bool test_fail_next_bound_ab_wait_ = false;
@@ -691,6 +873,27 @@ class Sm87MacroFeedV4ExecutionEventsDriver final {
       const kernels::sm87_macrofeed_v4_bound_launch_detail::
           Sm87MacroFeedV4GdnQkvzC8000Arguments& arguments,
       const kernels::Sm87MacroFeedV4Fp8CudaResources& resources) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4CompleteGdnLayerEnqueueResult
+  submit_complete_gdn_layer_c8000_prevalidated(
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const Sm87MacroFeedV4CompleteGdnLayerC8000Submission& submission)
+      noexcept;
+  [[nodiscard]] Sm87MacroFeedV4ExecutionStatus
+  initialize_cold_recurrent_storage(
+      void* recurrent_allocation, std::size_t recurrent_bytes,
+      std::uint64_t recurrent_allocation_identity) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4ExecutionStatus
+  discard_request_state_after_drain(
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const Sm87MacroFeedV4PhysicalCompletionReceipt& owner_drained,
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+      Sm87MacroFeedV4RequestDiscardReason reason) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4PoisonDrainResult
+  drain_poisoned_request_and_discard(
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+      Sm87MacroFeedV4RequestDiscardReason reason) noexcept;
 
   explicit Sm87MacroFeedV4ExecutionEventsDriver(
       std::shared_ptr<Sm87MacroFeedV4ExecutionEventsOwner> owner,
@@ -755,6 +958,15 @@ class Sm87MacroFeedV4ExecutionEventsCudaTestFixture final {
     return owner.wait_event(*owner.access_, panel_access, consumer, event);
   }
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  [[nodiscard]] static Sm87MacroFeedV4ExecutionStatus
+  initialize_cold_recurrent_storage(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      void* recurrent_allocation, const std::size_t recurrent_bytes,
+      const std::uint64_t recurrent_allocation_identity) noexcept {
+    return owner.initialize_cold_recurrent_storage(
+        *owner.access_, recurrent_allocation, recurrent_bytes,
+        recurrent_allocation_identity);
+  }
   // Explicit test-only bypass for exercising transaction failures.  This is
   // deliberately absent from the execution driver and from non-test builds.
   [[nodiscard]] static Sm87MacroFeedV4EventEnqueueResult

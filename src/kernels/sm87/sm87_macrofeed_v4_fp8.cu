@@ -783,6 +783,65 @@ template <typename Kernel>
   return cudaPeekAtLastError();
 }
 
+// Fixed GDN-O counterpart to the QKVZ body above.  In particular, the tactic
+// identity is 4604: it reads the contiguous V slice at scratch offset 4096,
+// never the Full-Attention interleaved-Q layout represented by tactic 4603.
+[[nodiscard]] cudaError_t enqueue_gdn_o_c8000_body(
+    const std::uint16_t* const phase_scratch,
+    const Sm87TargetAotFp8CudaAssetView& asset,
+    std::uint16_t* const branch_output,
+    const cudaStream_t stream) noexcept {
+  constexpr auto kRole =
+      Sm87TargetAotProjectionRole::kFp8AttentionOutput;
+  constexpr auto kLayout =
+      Sm87MacroFeedV4Fp8InputLayout::kGdnContiguousVScratchV1;
+  constexpr auto plan = sm87_macrofeed_v4_fp8_plan(
+      kRole, kSm87MacroFeedV4Fp8Tokens, kLayout);
+  static_assert(plan.valid() &&
+                static_cast<std::uint64_t>(plan.identity) ==
+                    0x5133'4d46'5634'4604ULL &&
+                plan.input_physical_offset == 4'096U &&
+                plan.input_features == 6'144U &&
+                plan.input_row_stride == 17'408U &&
+                plan.primary_output_row_stride == 5'120U &&
+                plan.partition_count == 1U);
+  const Sm87MacroFeedV4Fp8Arguments fixed{
+      kRole,
+      phase_scratch,
+      kSm87MacroFeedV4Fp8ScratchRowStride,
+      asset,
+      kSm87MacroFeedV4Fp8Tokens,
+      branch_output,
+      kSm87MacroFeedV4Fp8HiddenRowStride,
+      nullptr,
+      0U,
+      nullptr,
+      0U,
+      reinterpret_cast<void*>(stream),
+      kLayout};
+  if (stream == nullptr || !sm87_macrofeed_v4_fp8_arguments_valid(fixed)) {
+    return cudaErrorInvalidValue;
+  }
+  const float scale =
+      bf16_to_float(asset.compensated_tensor_scale_bf16_bits[0U]);
+  if (!scale_valid(scale)) {
+    return cudaErrorInvalidValue;
+  }
+  const auto* const payload = reinterpret_cast<const std::uint8_t*>(
+      asset.payload.begin);
+  sm87_macrofeed_v4_fp8_kernel<
+      Sm87TargetAotProjectionRole::kFp8AttentionOutput, 6'144U, 96U,
+      Sm87MacroFeedV4Fp8InputLayout::kGdnContiguousVScratchV1>
+      <<<static_cast<unsigned int>(plan.logical_tasks),
+         static_cast<unsigned int>(kSm87MacroFeedV4Fp8Threads),
+         kSm87MacroFeedV4Fp8DynamicSharedBytes, stream>>>(
+          phase_scratch, kSm87MacroFeedV4Fp8ScratchRowStride, payload, scale,
+          0.0F, 0.0F, branch_output,
+          kSm87MacroFeedV4Fp8HiddenRowStride, nullptr, 0U, nullptr, 0U,
+          static_cast<unsigned int>(plan.grid_n));
+  return cudaPeekAtLastError();
+}
+
 [[nodiscard]] bool tile_test_arguments_valid(
     const Sm87MacroFeedV4Fp8TileTestArguments& arguments) noexcept {
   const auto input_layout = sm87_macrofeed_v4_fp8_resolve_input_layout(
@@ -1198,16 +1257,11 @@ int launch_sm87_macrofeed_v4_fp8_t1_admission_cuda(
             static_cast<unsigned int>(plan.grid_n));
   } else if (input_layout == Sm87MacroFeedV4Fp8InputLayout::
                                  kGdnContiguousVScratchV1) {
-    sm87_macrofeed_v4_fp8_kernel<
-        Sm87TargetAotProjectionRole::kFp8AttentionOutput, 6'144U, 96U,
-        Sm87MacroFeedV4Fp8InputLayout::kGdnContiguousVScratchV1>
-        <<<grid, block, kSm87MacroFeedV4Fp8DynamicSharedBytes, stream>>>(
-            arguments.input, arguments.input_row_stride, payload, scales[0U],
-            scales[1U], scales[2U], arguments.primary_output,
-            arguments.primary_output_row_stride, arguments.key_output,
-            arguments.key_output_row_stride, arguments.value_output,
-            arguments.value_output_row_stride,
-            static_cast<unsigned int>(plan.grid_n));
+    const cudaError_t enqueue_status = enqueue_gdn_o_c8000_body(
+        arguments.input, arguments.asset, arguments.primary_output, stream);
+    if (enqueue_status != cudaSuccess) {
+      return static_cast<int>(enqueue_status);
+    }
   } else {
     sm87_macrofeed_v4_fp8_kernel<
         Sm87TargetAotProjectionRole::kFp8AttentionOutput, 6'144U, 96U,
@@ -1292,6 +1346,59 @@ int enqueue_gdn_qkvz_c8000_prevalidated(
   }
   const cudaError_t status = enqueue_gdn_qkvz_c8000_body(
       arguments.hidden_input, arguments.asset, arguments.phase_scratch,
+      reinterpret_cast<cudaStream_t>(token.cuda_stream_));
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *submitted_launches = 1U;
+  return static_cast<int>(cudaSuccess);
+}
+
+int enqueue_gdn_o_c8000_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4GdnOC8000Arguments& arguments,
+    const Sm87MacroFeedV4Fp8CudaResources& resources,
+    std::size_t* const submitted_launches) noexcept {
+  if (submitted_launches == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *submitted_launches = 0U;
+  constexpr auto kRole =
+      Sm87TargetAotProjectionRole::kFp8AttentionOutput;
+  constexpr auto kLayout =
+      Sm87MacroFeedV4Fp8InputLayout::kGdnContiguousVScratchV1;
+  constexpr auto kIdentity =
+      Sm87MacroFeedV4Fp8Identity::
+          kGdnAttentionOutputM64N128K64OrdinaryGridV1;
+  static_assert(static_cast<std::uint64_t>(kIdentity) ==
+                0x5133'4d46'5634'4604ULL);
+  const Sm87MacroFeedV4Fp8Arguments fixed{
+      kRole,
+      arguments.phase_scratch,
+      kSm87MacroFeedV4Fp8ScratchRowStride,
+      arguments.asset,
+      kSm87MacroFeedV4Fp8Tokens,
+      arguments.branch_output,
+      kSm87MacroFeedV4Fp8HiddenRowStride,
+      nullptr,
+      0U,
+      nullptr,
+      0U,
+      token.cuda_stream_,
+      kLayout};
+  if (!sm87_macrofeed_v4_fp8_arguments_valid(fixed) ||
+      !resources.static_resource_gate_passed ||
+      !sm87_macrofeed_v4_fp8_resource_gate(resources) ||
+      resources.role != kRole || resources.input_layout != kLayout ||
+      resources.identity != kIdentity) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const cudaError_t prior_status = cudaPeekAtLastError();
+  if (prior_status != cudaSuccess) {
+    return static_cast<int>(prior_status);
+  }
+  const cudaError_t status = enqueue_gdn_o_c8000_body(
+      arguments.phase_scratch, arguments.asset, arguments.branch_output,
       reinterpret_cast<cudaStream_t>(token.cuda_stream_));
   if (status != cudaSuccess) {
     return static_cast<int>(status);

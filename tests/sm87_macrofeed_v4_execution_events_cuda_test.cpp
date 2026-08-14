@@ -82,13 +82,25 @@ struct BoundOwner final {
   events::Sm87MacroFeedV4ExecutionEventsCreateResult execution{};
   runtime::Sm87MacroFeedV4RequestStateCreateResult request{};
   runtime::Sm87MacroFeedV4RequestStateSealedAccess request_access;
+  void* recurrent_allocation = nullptr;
 
   BoundOwner(events::Sm87MacroFeedV4ExecutionEventsCreateResult execution_in,
              runtime::Sm87MacroFeedV4RequestStateCreateResult request_in,
-             runtime::Sm87MacroFeedV4RequestStateSealedAccess access_in)
+             runtime::Sm87MacroFeedV4RequestStateSealedAccess access_in,
+             void* const recurrent_allocation_in)
       : execution(std::move(execution_in)),
         request(std::move(request_in)),
-        request_access(access_in) {}
+        request_access(access_in),
+        recurrent_allocation(recurrent_allocation_in) {}
+
+  ~BoundOwner() {
+    execution.owner.reset();
+    request.state.reset();
+    if (recurrent_allocation != nullptr) {
+      (void)cudaFree(recurrent_allocation);
+      recurrent_allocation = nullptr;
+    }
+  }
 };
 
 [[nodiscard]] std::unique_ptr<BoundOwner> make_bound_owner(
@@ -108,6 +120,26 @@ struct BoundOwner final {
     return nullptr;
   }
 
+  void* recurrent_allocation = nullptr;
+  const cudaError_t allocation_status = cudaMalloc(
+      &recurrent_allocation, runtime::kSm87MacroFeedV4RecurrentStorageBytes);
+  test.expect(allocation_status == cudaSuccess &&
+                  recurrent_allocation != nullptr,
+              "test owner allocates exact dual-epoch recurrent storage");
+  if (allocation_status != cudaSuccess || recurrent_allocation == nullptr) {
+    return nullptr;
+  }
+  const auto cold_initialized = Fixture::initialize_cold_recurrent_storage(
+      *execution.owner, recurrent_allocation,
+      runtime::kSm87MacroFeedV4RecurrentStorageBytes, allocation_identity);
+  test.expect(static_cast<bool>(cold_initialized),
+              "test owner cold-initializes exact recurrent allocation once");
+  if (!cold_initialized) {
+    execution.owner.reset();
+    (void)cudaFree(recurrent_allocation);
+    return nullptr;
+  }
+
   const auto admission =
       runtime::make_sm87_macrofeed_v4_request_state_admission(
           owner_identity, allocation_identity, allocation_identity + 1U,
@@ -116,11 +148,14 @@ struct BoundOwner final {
   test.expect(static_cast<bool>(request),
               "host RequestState binds the same Engine identity");
   if (!request) {
+    execution.owner.reset();
+    (void)cudaFree(recurrent_allocation);
     return nullptr;
   }
   auto request_access = request.state->issue_sealed_access();
   return std::make_unique<BoundOwner>(std::move(execution),
-                                      std::move(request), request_access);
+                                      std::move(request), request_access,
+                                      recurrent_allocation);
 }
 
 void expect_physical_observation_forbidden(

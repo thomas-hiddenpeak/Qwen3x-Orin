@@ -4326,6 +4326,43 @@ int enqueue_input_norm_prevalidated(
   return static_cast<int>(cudaSuccess);
 }
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+int enqueue_residual_post_norm_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4ResidualPostNormC8000Arguments& arguments,
+    const Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot& resources,
+    std::size_t* const submitted_launches) noexcept {
+  if (submitted_launches == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *submitted_launches = 0U;
+  const Sm87MacroFeedV4ResidualPostNormArguments fixed{
+      arguments.left_residual_then_normalized,
+      arguments.right_branch_then_residual,
+      arguments.centered_weight,
+      kSm87MacroFeedV4NormResidualTokens,
+      kSm87MacroFeedV4NormResidualHidden,
+      kSm87MacroFeedV4NormResidualEpsilonFp32Bits,
+      token.cuda_stream_};
+  if (!sm87_macrofeed_v4_residual_post_norm_arguments_valid(fixed) ||
+      !resources.static_resource_gate_passed ||
+      !sm87_macrofeed_v4_norm_residual_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const cudaError_t prior_status = cudaPeekAtLastError();
+  if (prior_status != cudaSuccess) {
+    return static_cast<int>(prior_status);
+  }
+  const cudaError_t status = macrofeed_v4_residual_post_norm_enqueue(
+      fixed, reinterpret_cast<cudaStream_t>(token.cuda_stream_));
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *submitted_launches = 1U;
+  return static_cast<int>(cudaSuccess);
+}
+#endif
+
 }  // namespace sm87_macrofeed_v4_bound_launch_detail
 
 }  // namespace q3x::kernels

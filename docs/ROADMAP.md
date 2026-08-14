@@ -227,14 +227,16 @@ The tracked V4 foundation is default-off and not route-executable. It contains
 the host traversal/workspace/state contract, the owner/epoch-bound host request
 transaction, a private authenticated startup foundation package, independent
 C8000 NVFP4 Gate+Up and Down constituents, four layout-specific FP8 admissions,
-a fixed direct-scratch BF16 A/B admission, and an admission-only two-kernel
-exact-GDN C8000 continuation. It also contains an exact two-plane input-norm
+a fixed direct-scratch BF16 A/B admission, and a two-kernel exact-GDN C8000
+continuation admission. It also contains an exact two-plane input-norm
 and fused residual/post-norm admission that reuses the established
 finite-precision bodies without a copy or third hidden plane, plus a private
 three-stream/nine-event owner that enforces the device-ordered five-panel and
 48-cycle-per-panel dependency graph. A first isolated execution package now
-owns the fixed transient and recurrent arenas and executes only the discarded
-synthetic-T1 layer-0 `Norm → (QKVZ || A/B) → Main waits AbReady` front half.
+owns the fixed transient and recurrent arenas and executes one discarded,
+complete synthetic-T1 GDN layer 0:
+`InputNorm → (QKVZ || A/B) → continuation → GDN-O → ResidualPostNorm →`
+`GateUp → Down`.
 The FP8 tactics directly publish GDN
 QKV/Z, interleaved Full Q/G plus private NHD K/V, Attention O from interleaved
 Q slots, and GDN O from the fixed contiguous scratch slice `[4096,10240)`;
@@ -255,37 +257,46 @@ The GDN body preserves per-token BF16 state and active/candidate ownership in
 bounded C1/C65 bit oracles. The startup package binds all 48 real BF16 A/B
 pairs and all 64 real outer-norm pairs and exposes only construction-time
 private full-catalog seals. It also implements an all-or-nothing natural-order
-48-GDN-QKVZ execution-catalog seal with exact live CUDA allocation/upload
-receipt matching; the fake host catalog fails closed at ordinal zero. Its
+48-complete-GDN execution catalog (QKVZ, GDN-O, and four continuation weights)
+and a 64-layer Gate+Up/Down catalog with exact live CUDA
+allocation/upload-receipt matching; the fake host catalog fails closed at
+ordinal zero. Its
 normal startup and execution factories are private, the core static library
 contains no named synthetic-T1 construction wrapper, and the remaining
 private synthetic branch is confined to the BUILD_TESTING-only CUDA fixture
 without production authority. One Engine-private
-composition root now wires their normal 48-binding chain into the existing
+composition root now wires those normal catalogs into the existing
 default-off V3 real-owner harness. The root enforces `execution → startup →
 ModelWeights → complete target-AOT owner → resident` teardown and adds the
 442,368,000-byte transient plus 156,893,184-byte recurrent arenas, exactly
 599,261,184 bytes, to retained-memory admission. That source/build integration
 has not yet run through the pinned real checkpoint, so the positive real-owner
-48-binding witness remains open. The isolated package
-consumes layer-0 input norm and A/B through typed owner-locked submissions on
-Main and AbAux, then privately submits one fixed QKVZ body on Main before the
-owner-locked `AbReady` wait. Raw ready-event records and caller-filled QKVZ
-submissions are not exposed by the execution driver.
-Residual/post-norm, the rest of GDN, Attention, O, and the remaining layers
-are not privately composed, and none is numerically qualified at full C8000
-with the real checkpoint. The startup package
-regenerates the canonical plan, validates the live 256-artifact/400-source
-catalog once, retains typed payload/scale capabilities, and mints V4-local
-resource seals with no launcher authority. Execution-package construction may
+catalog witness remains open and the normal factory/Engine lifecycle has
+construction/build authority only. The isolated package consumes layer-0
+input norm, QKVZ, A/B, the two-kernel continuation plus one asynchronous
+61,440-byte convolution-history D2D copy, GDN-O, residual/post-norm, Gate+Up,
+and Down through typed owner-locked submissions. Its complete layer receipt
+counts exactly nine kernels plus that copy. Raw ready-event records and
+caller-filled QKVZ submissions are not exposed by the execution driver.
+Attention and the remaining layers are not privately composed, and none is
+numerically qualified at full C8000 with the real checkpoint. The startup
+package regenerates the canonical plan, validates the live
+256-artifact/400-source catalog once, retains typed payload/scale capabilities,
+and mints V4-local resource seals with no launcher authority.
+Execution-package construction may
 perform the expensive BF16/model/CUDA validation once; request execution may
 not rescan it. These ownership facts, bounded bit
 oracles, projection resource gates, event graph, and the Attention one-CTA/SM
 gate do not create a whole-product result. There is no V4 selector, whole-model
-launcher, complete layer/request execution package, real-checkpoint oracle,
-API timing, numerical qualification, or production eligibility yet. The
-isolated front-half receipt explicitly denies layer, panel, model, and dispatch
-completion. Those boundaries are blockers, not implied future facts.
+launcher, complete Attention-layer or 64-layer/request execution package,
+real-checkpoint oracle, API timing, numerical qualification, or production
+eligibility yet. The isolated synthetic receipt proves layer completion while
+explicitly denying panel, model, and dispatch completion. Its combined
+Events/RequestState drain discards the candidate without a bank swap or state
+publication; RequestState consumes the owner-mediated physical-drain identity,
+and that identity plus `physical_execution_receipt_issued` are strong receipt
+gates. The poison-path test invalidates a pending GDN grant after physical
+quiescence. Those boundaries are blockers, not implied future facts.
 
 Its P40 allocation remains:
 
@@ -417,26 +428,31 @@ logical final fence. A separate CUDA owner now supplies three nonblocking
 streams and nine private events, enforces 48 AB readiness cycles per panel,
 keeps panel closure device ordered, physically observes only final/safe-drain
 boundaries, and permanently poisons itself after exceptional drain. Its narrow
-driver now executes exactly one input norm, one fixed GDN-QKVZ body, and one
-BF16 A/B body in the layer-0 front-half slice before a physical safe discard.
-The QKVZ and A/B write sets are disjoint and their dependency graph permits
-physical overlap; no performance overlap is claimed. The startup package
-retains no execution-owning capability, and the slice issues no layer, model,
-production, or Decode receipt. None of those tests has real-model or
-performance authority.
+driver now executes one complete synthetic-T1 GDN layer 0: one InputNorm, one
+GDN-QKVZ, one BF16 A/B, two continuation kernels, one GDN-O, one
+ResidualPostNorm, one GateUp, and one Down, plus one asynchronous 61,440-byte
+D2D copy. The QKVZ and A/B write sets are disjoint and their dependency graph
+permits physical overlap; no performance overlap is claimed. Combined
+Events/RequestState drain proves physical quiescence, candidate discard, and
+pending-grant invalidation on poison without a bank swap or publication. Its
+owner-mediated drain identity is consumed by RequestState and cross-checked by
+the complete receipt together with `physical_execution_receipt_issued`. The
+startup package retains no execution-owning capability, and the receipt grants
+layer completion only—not panel, model, production, or Decode authority. The
+fixture uses zero-valued synthetic weights; none of these tests has real-model,
+numerical, or performance authority.
 
 Remaining execution order:
 
 1. run the pinned real-checkpoint Engine-lifetime probe through the already
-   wired, private normal startup/execution factories and obtain the still-open
-   complete real-owner 48-GDN-QKVZ seal. The layer-0 QKVZ/A-B dependency
-   closure remains implemented only in the synthetic-T1 CUDA lane; neither the
-   new lifetime anchor nor compilation may promote it from that evidence alone;
-2. bind exact GDN update/O, residual/post-norm, preprocess → fixed C8000
-   Attention → O, and all remaining natural layers/panels to the same private
-   arenas and event graph. Then qualify the complete C8000
-   BF16-A/B/FP8/GDN/Attention/norm/residual layer body, layout, finalizer,
-   rollback, and receipt paths without request-time catalog/resource queries;
+   wired private normal factories and obtain the still-open positive real-owner
+   48-complete-GDN/64-MLP catalog witness. Construction and compilation alone
+   cannot promote the synthetic-T1 layer receipt;
+2. compose the complete Attention layer (`InputNorm → Full-QKV → preprocess →`
+   `Attention → O → ResidualPostNorm → GateUp → Down`) and then bind both layer
+   kinds across all 64 natural layers and five panels to the same private arenas
+   and event graph. Qualify the complete C8000 layer bodies, layout, finalizer,
+   rollback, and receipts without request-time catalog/resource queries;
 3. expose exactly one default-off V4 route through the existing real OpenAI
    P40 API and verify that its receipt reports executed physical work rather
    than a forecast; and
@@ -446,6 +462,12 @@ Remaining execution order:
    whole-path result reopens the V4 global dataflow; it does not authorize a
    local parameter scan. P60 and P130 remain locked until the competitive,
    accuracy-admissible P40 gate passes.
+
+The latest clean-host admission stopped before execution because Xorg, GNOME,
+and Mutter held GPU-device handles. It produced no timing. Performance work
+remains fail-closed until the same `tegrastats`/process/device-handle preflight
+passes; no result from a contaminated host may enter an experiment or
+promotion decision.
 
 ### Promotion and stop gates
 
