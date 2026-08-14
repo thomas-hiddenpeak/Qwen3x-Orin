@@ -998,11 +998,13 @@ if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_DOWN_WHOLE_P40_ADMISSION)
 endif()
 if(Q3X_BUILD_SM87_MACROFEED_V3_ADMISSION)
   target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/sm87_macrofeed_v3_fp8.cu
     src/kernels/sm87/sm87_macrofeed_v3_gdn_p40.cu
     src/kernels/sm87/sm87_macrofeed_v3_nvfp4_down.cu
     src/kernels/sm87/sm87_macrofeed_v3_nvfp4_gate_up.cu
   )
   set_property(SOURCE
+    src/kernels/sm87/sm87_macrofeed_v3_fp8.cu
     src/kernels/sm87/sm87_macrofeed_v3_gdn_p40.cu
     src/kernels/sm87/sm87_macrofeed_v3_nvfp4_down.cu
     src/kernels/sm87/sm87_macrofeed_v3_nvfp4_gate_up.cu
@@ -3632,6 +3634,41 @@ if(BUILD_TESTING)
   endif()
 
   if(Q3X_BUILD_SM87_MACROFEED_V3_ADMISSION)
+    add_executable(q3x_sm87_macrofeed_v3_fp8_host_test
+      tests/sm87_macrofeed_v3_fp8_host_test.cpp
+    )
+    target_link_libraries(q3x_sm87_macrofeed_v3_fp8_host_test
+      PRIVATE q3x::kernels
+    )
+    q3x_enable_warnings(q3x_sm87_macrofeed_v3_fp8_host_test)
+    add_test(NAME sm87_macrofeed_v3_fp8_host
+      COMMAND q3x_sm87_macrofeed_v3_fp8_host_test
+    )
+    set_tests_properties(sm87_macrofeed_v3_fp8_host PROPERTIES
+      LABELS "host;sm87;prefill;macrofeed_v3;projection;fp8;p40;t0;default_off"
+    )
+
+    add_executable(q3x_sm87_macrofeed_v3_fp8_cuda_test
+      tests/sm87_macrofeed_v3_fp8_cuda_test.cu
+    )
+    target_link_libraries(q3x_sm87_macrofeed_v3_fp8_cuda_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    target_compile_options(q3x_sm87_macrofeed_v3_fp8_cuda_test
+      PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+    )
+    q3x_enable_warnings(q3x_sm87_macrofeed_v3_fp8_cuda_test)
+    add_test(NAME sm87_macrofeed_v3_fp8_cuda
+      COMMAND q3x_sm87_macrofeed_v3_fp8_cuda_test
+    )
+    set_tests_properties(sm87_macrofeed_v3_fp8_cuda PROPERTIES
+      LABELS "correctness;cuda;sm87;prefill;macrofeed_v3;projection;fp8;all_codes_bit_domain;partition_semantics;m128;m64_tail;bit_exact;synthetic;t1;default_off"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 300
+    )
+
     add_executable(q3x_sm87_macrofeed_v3_gdn_p40_host_test
       tests/sm87_macrofeed_v3_gdn_p40_host_test.cpp
     )
