@@ -702,6 +702,29 @@ A profiler trace can explain how a proved transformation maps to SM87. It
 cannot replace the proof, expand the dead set, or turn a different reduction
 tree into an exact route.
 
+### 8.1 `AC-PREFILL-SM87-MACROFEED-v4` foundation
+
+| Field | Current ledger entry |
+| --- | --- |
+| `transformation_id` | `AC-PREFILL-SM87-MACROFEED-v4`, successor to the complete default-off V3 control |
+| `api_mode` | OpenAI `/v1/completions`, pinned Qwen3.6-27B NVFP4, exact 40,000 consumed prompt tokens, batch one, cold/no-cache, one generated token |
+| `source_equation` / `target_equation` | The source is the natural 64-layer P40000 model composition. The target partitions the token axis into five contiguous C8000 panels and executes `panel=0..4` outside `layer=0..63`, without deleting a live equation or changing an API observable. |
+| `real_equivalence_proof` | Row-local projections/norms preserve their equations under a token partition. GDN carries the exact terminal state of panel `p` into `p+1`. Full Attention for a panel consumes every causally preceding committed K/V row plus the admitted current-panel prefix. These dependencies suffice over real numbers; the CUDA implementation remains absent. |
+| `live_set` / `dead_set` | All recurrent state, all 16-layer K/V rows, final hidden/logits/token, request status, cancellation, and commit fields remain live. V4 currently claims no liveness deletion. |
+| `finite_precision_contract` | The section-3 NVFP4 decode, K order, FP32 accumulator order, tensor scales, BF16-RNE publications, exact Attention ordering, and per-token BF16 GDN state remain required. Gate/Up and Down constituents preserve the declared projection order in synthetic bit tests; complete FP8, Attention, GDN, layer, and request equivalence are open. |
+| `state_transition_contract` | Two distinct 78,446,592-byte private convolution/GDN epochs are required. Each panel copies active to candidate, publishes no canonical state while fallible, swaps only after layer 63, and discards candidate on failure. KV uses a private valid-end; canonical recurrent publication occurs after panel five and sequence length is the final non-fallible visibility fence. No executor currently proves these transitions. |
+| `plan_and_receipts` | A default-off, non-executable host plan declares C8000×5 traversal, two C8000×5120 hidden owners, one phase-aliased C8000×17408 scratch owner, recurrent owner identities, and panel/final events. It has `launcher_present=false`, no selector, and no execution receipt. Gate/Up and Down are independent admission constituents only. |
+| `oracles` | The shared decoder covers every 16-bit packed word at unit scale and all 256 E4M3 codes on non-uniform words. Gate/Up and Down cover both canonical N128 halves plus M64/M37. Real-checkpoint projection, whole-state, cancellation/rollback, logits/token, and external API oracles are absent. |
+| `quantitative_scope` | The plan caps transient activation storage at 442,368,000 bytes and declares 156,893,184 bytes for two recurrent epochs. It removes no model MAC and has no measured API effect. |
+| `status` | `real-equivalent-only`; this is not numerical qualification or production eligibility. |
+| `target_effect` | Preserve the locked P40 ceiling of 9.302326 seconds (4,300 prompt tok/s starting line), then exceed the matched general engine; no local result may lower it. |
+
+The single scratch plane cannot hold the incumbent raw-Q/gate, processed-Q,
+and pre-gate/Attention-output owners concurrently. V4 therefore requires an
+in-place Q preprocessing and online/streaming exact-Attention lifetime proof.
+The `every_phase_fits` and dual-epoch fields are admission requirements, not
+claims that those executors already exist.
+
 ## 9. Non-conclusions and change control
 
 This ledger does not establish that the present P40 implementation is

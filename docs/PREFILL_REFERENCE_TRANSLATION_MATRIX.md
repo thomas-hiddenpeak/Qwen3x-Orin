@@ -16,10 +16,12 @@ q3x_document:
 # Prefill reference-to-SM87 translation matrix
 
 This document is the bounded working record for
-`WP-PREFILL-REFERENCE-TRANSLATION-v1` under
-`AC-PREFILL-SM87-MACROFEED-v3`. The V1 and V2 predecessors are retained only
-as the closed diagnostic controls described by Current Status. This document
-does not amend the product
+`WP-PREFILL-REFERENCE-TRANSLATION-v1` under the reserved successor lineage
+`AC-PREFILL-SM87-MACROFEED-v4`. V4 remains a non-executable foundation and
+does not become a Constitution-defined `architecture_candidate` until the
+complete dataflow is runnable. V1/V2 and the complete V3 composition are
+retained only as the diagnostic controls described by Current Status. This
+document does not amend the product
 target, stable SDD boundary, current implementation status, numerical
 contract, or production route. Those authorities remain with the
 Constitution, system and Prefill SDDs, Current Status, and numerical ledger.
@@ -35,7 +37,7 @@ stable system boundary returns to the SDD.
 | Field | Binding |
 | --- | --- |
 | Product symptom | Cold/no-cache, single-request 40K--60K and approximately 130K Prefill remains below the owner-set API target and useful vLLM starting line |
-| Parent candidate | `AC-PREFILL-SM87-MACROFEED-v3` |
+| Parent candidate lineage | `AC-PREFILL-SM87-MACROFEED-v4` (foundation; not yet runnable) |
 | Active package | `WP-PREFILL-REFERENCE-TRANSLATION-v1` |
 | Incumbent | The P40 development route identified by [Current Status](CURRENT_STATUS.md), not restated here |
 | Numerical boundary | [Prefill mathematical-equivalence ledger](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md) |
@@ -493,7 +495,7 @@ default-off `sm87-bulk-v2-p40` route are now composed. They remain development
 infrastructure only because the request did not complete and the architecture
 is performance-rejected.
 
-The selected translation successor is
+The completed translation predecessor is
 `AC-PREFILL-SM87-MACROFEED-v3`. Its complete default-off, test-only P40000
 source composition is now present. It preserves the completed v10 five-panel
 API/control and whole-prompt FlashInfer Attention substrate, while Gate+Up,
@@ -540,6 +542,14 @@ uses external EvalScope TTFT/New Prompt Throughput. Subtracting the finalizer
 duration would produce non-contiguous active time and is not an admissible
 metric. A positive architecture must later move or independently instrument
 the physical `PrefillStateCommitted` boundary before performance promotion.
+
+The active V4 foundation reuses these source translations and authenticated
+canonical payloads, but replaces the whole-request traversal with five C8000
+panels outside the natural layer loop. Its current implementation boundary is
+only the host workspace/state contract and independent C8000 NVFP4 Gate+Up and
+Down admissions. The missing FP8, exact GDN, in-place/streaming exact
+Attention, dual-epoch request state, whole-model receipt, rollback, and API
+launcher must compose before V4 is runnable or eligible for a P40 witness.
 
 The earlier default-off target-AOT admissions supplied the byte-authenticated
 asset and lifetime prerequisites now consumed by V3. One admission contains a
@@ -879,7 +889,8 @@ workload.
 This package closes only when all of the following are true:
 
 1. source pins and invariant/ISA/SM87 translations are complete;
-2. the V3 composition reaches one valid clean-host native P40 API witness and
+2. the V4 composition becomes runnable and reaches one valid clean-host native
+   P40 API witness, then
    is selected or rejected against the current native incumbent; explanatory
    smaller prompts or component cells cannot delay or replace that result;
 3. projection, Attention, GDN, buffer, state, and handoff plans form one
@@ -892,6 +903,6 @@ This package closes only when all of the following are true:
 
 The thermally invalid stock-vLLM P40 attempt remains route and metric-semantics
 feedback only. Reconstructing the unknown optimized reference route does not
-block the native V3 return point and cannot lower the owner-established 4.3K
+block the native V4 return point and cannot lower the owner-established 4.3K
 starting line. Until the native P40 result is recorded, source review and the
 present implementation change no default route.

@@ -485,9 +485,9 @@ answers the single predeclared causal question: collapsing a role into a
 did not create a competitive feed. It does not prove an L2 hit rate or grant
 NCU, numerical, or production authority.
 
-The active successor is now `AC-PREFILL-SM87-MACROFEED-v3`. The current
-development tree contains its complete default-off, test-only P40000 execution
-composition. It preserves the v10 five-panel API/control and whole-prompt
+The current development tree contains the complete default-off, test-only
+`AC-PREFILL-SM87-MACROFEED-v3` P40000 execution composition. It preserves the
+v10 five-panel API/control and whole-prompt
 FlashInfer Attention substrate, but binds role-specific non-cooperative
 M128/N256/K64-class Gate+Up, K-heavy Down, and FP8 macro feeds to one private
 startup package. Exact GDN uses one prompt-wide convolution launch plus eight
@@ -524,6 +524,34 @@ unavailable, and leaves the first P40 direction decision to external
 EvalScope TTFT/New Prompt Throughput. No duration subtraction is permitted to
 manufacture a non-contiguous pure phase.
 
+The active implementation successor is
+`AC-PREFILL-SM87-MACROFEED-v4`. Its present boundary is narrower and must not
+be confused with an executable route. A default-off host contract fixes exact
+P40000 as five contiguous C8000 panels with the panel loop outside the natural
+64-layer loop, two 81,920,000-byte hidden planes, one 278,528,000-byte
+phase-aliased scratch plane, two explicit 78,446,592-byte private recurrent
+epochs, private KV valid-end, and final-only canonical publication. The
+contract requires in-place/streaming Attention and GDN workspace aliasing;
+those executors do not yet exist.
+
+Two independent V4 NVFP4 constituents also exist. Gate+Up binds
+M8000/K5120/N17408 to M64N128K64, 256 threads, two stages, and 32 persistent
+CTAs; its production kernel compiles at 128 registers/thread with zero spill
+and admits two CTAs/SM. Down binds M8000/K17408/N5120 to M64N128K64, 256
+threads, two stages, and an ordinary 125×40 grid; its production kernel
+compiles at 102 registers/thread with zero spill and admits two CTAs/SM. The
+shared canonical NVFP4 decoder now has a direct asymmetric oracle covering all
+65,536 packed four-nibble words at scale 1 plus every E4M3 scale code on
+non-uniform words; the Gate/Up and Down tile oracles cover both canonical
+N128 halves and M64/M37. These are synthetic correctness/resource admissions,
+not real-model accuracy or performance results.
+
+V4 has no selector, whole-model launcher, authenticated execution package,
+FP8/GDN/Attention integration, real-checkpoint oracle, API witness,
+performance result, numerical qualification, release authority, or production
+eligibility. The v10 observation at 392.804397 prompt tok/s therefore remains
+the current whole-product incumbent.
+
 ## 2. Current capability matrix
 
 | Capability | Current state | Missing production condition |
@@ -537,7 +565,8 @@ manufacture a non-contiguous pure phase.
 | Target-length Prefill | P40 development route exercised | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
 | SM87 whole-system AOT Prefill v1 | Default-off real-P40 API composition; performance-rejected after a zero-byte 840.000399-second timeout | Retain only as correctness/diagnostic control; it is not an active performance candidate |
 | SM87 bulk-dataflow v2 Prefill | Complete default-off real-P40 API route; performance-rejected after a zero-byte 680.73-second EvalScope timeout and one bounded causal profile; accuracy remains unqualified | Retain exact constituents and evidence only; no V2 tuning, P60/P130, qualification, or production promotion |
-| SM87 MacroFeed v3 Prefill | Complete default-off, test-only 64-layer source composition with startup-bound target-AOT assets, role-specific macro projections, nine-kernel-per-layer exact GDN, cold rollback, and a V18 physical transaction; integrated build and focused admission tests pass | Return directly to one clean-host real-P40 API direction gate, then correct the pure-Prefill commit/finalizer boundary before promotion; no performance, numerical, release, or production qualification exists yet |
+| SM87 MacroFeed v3 Prefill | Complete default-off, test-only 64-layer source composition with startup-bound target-AOT assets, role-specific macro projections, nine-kernel-per-layer exact GDN, cold rollback, and a V18 physical transaction; integrated build and focused admission tests pass | Frozen executable diagnostic/control; no authoritative P40 timing, numerical, release, or production qualification exists |
+| SM87 MacroFeed v4 Prefill | Active, default-off, non-executable C8000×5 panel-major foundation; host workspace/state contract plus Gate+Up, Down, asymmetric decoder, half/tail, and two-CTA/SM admissions pass | Implement authenticated dual-epoch request state, C8000 FP8/GDN/in-place exact Attention, whole-model receipts and rollback, then real-checkpoint/state/API qualification; no selector or performance authority exists |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

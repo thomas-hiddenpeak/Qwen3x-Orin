@@ -155,8 +155,16 @@ option(Q3X_BUILD_SM87_MACROFEED_V3_ADMISSION
   "Build the independent default-off P40000 MacroFeed-v3 constituent T0/T1 slices"
   OFF
 )
+option(Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION
+  "Build the independent default-off M8000 MacroFeed-v4 NVFP4 Gate+Up T0/T1 constituent"
+  OFF
+)
 option(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION
   "Build the test-only complete P40000 MacroFeed-v3 execution-plan admission"
+  OFF
+)
+option(Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_DOWN_ADMISSION
+  "Build the default-off C8000 M64N128 two-CTA/SM MacroFeed-v4 NVFP4 Down constituent"
   OFF
 )
 option(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION
@@ -485,10 +493,22 @@ if(Q3X_BUILD_SM87_MACROFEED_V3_ADMISSION AND NOT BUILD_TESTING)
     "Q3X_BUILD_SM87_MACROFEED_V3_ADMISSION is an independent T0/T1 architecture slice and requires BUILD_TESTING=ON"
   )
 endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION is an independent T0/T1 architecture slice and requires BUILD_TESTING=ON"
+  )
+endif()
 if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION AND
    NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_DOWN_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_DOWN_ADMISSION is an independent CUDA admission constituent and requires BUILD_TESTING=ON"
   )
 endif()
 if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION AND
@@ -612,6 +632,7 @@ add_library(q3x_core STATIC
   src/runtime/resident_weights.cpp
   src/runtime/request_state.cpp
   src/runtime/sm87_macrofeed_v3_receipt.cpp
+  src/runtime/sm87_macrofeed_v4_panel_wavefront_plan.cpp
   src/kernels/reference/gemv_reference.cpp
   src/runtime/reference/decode_ops.cpp
   src/runtime/reference/gdn_decode.cpp
@@ -1044,6 +1065,24 @@ if(Q3X_BUILD_SM87_MACROFEED_V3_ADMISSION)
   )
   target_compile_definitions(q3x_core PRIVATE
     Q3X_ENABLE_SM87_MACROFEED_V3_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_DOWN_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/sm87_macrofeed_v4_nvfp4_down.cu
+  )
+  set_property(SOURCE
+    src/kernels/sm87/sm87_macrofeed_v4_nvfp4_down.cu
+    APPEND PROPERTY COMPILE_OPTIONS "-Xptxas=-v"
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/sm87_macrofeed_v4_nvfp4_gate_up.cu
+  )
+  set_property(SOURCE
+    src/kernels/sm87/sm87_macrofeed_v4_nvfp4_gate_up.cu
+    APPEND PROPERTY COMPILE_OPTIONS "-Xptxas=-v"
   )
 endif()
 if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
@@ -3103,6 +3142,21 @@ if(BUILD_TESTING)
     LABELS "host;sm87;prefill;macrofeed_v3;receipt;t0;default_off"
   )
 
+  add_executable(q3x_sm87_macrofeed_v4_panel_wavefront_plan_test
+    tests/sm87_macrofeed_v4_panel_wavefront_plan_test.cpp
+  )
+  target_link_libraries(
+    q3x_sm87_macrofeed_v4_panel_wavefront_plan_test PRIVATE q3x::core
+  )
+  q3x_enable_warnings(q3x_sm87_macrofeed_v4_panel_wavefront_plan_test)
+  add_test(NAME sm87_macrofeed_v4_panel_wavefront_plan
+    COMMAND q3x_sm87_macrofeed_v4_panel_wavefront_plan_test
+  )
+  set_tests_properties(
+    sm87_macrofeed_v4_panel_wavefront_plan PROPERTIES
+    LABELS "host;sm87;prefill;macrofeed_v4;panel_wavefront;plan;t0;default_off;non_executable"
+  )
+
   if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
     add_executable(q3x_sm87_macrofeed_v3_p40_execution_package_host_test
       tests/sm87_macrofeed_v3_p40_execution_package_host_test.cpp
@@ -3856,6 +3910,76 @@ if(BUILD_TESTING)
     )
     set_tests_properties(sm87_macrofeed_v3_nvfp4_gate_up_cuda PROPERTIES
       LABELS "correctness;cuda;sm87;prefill;macrofeed_v3;projection;nvfp4;gate_up;m128;m64_tail;bit_exact;synthetic;t1;default_off"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 300
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION)
+    add_executable(q3x_sm87_macrofeed_v4_nvfp4_gate_up_cuda_test
+      tests/sm87_macrofeed_v4_nvfp4_gate_up_cuda_test.cu
+    )
+    target_link_libraries(q3x_sm87_macrofeed_v4_nvfp4_gate_up_cuda_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    target_compile_options(q3x_sm87_macrofeed_v4_nvfp4_gate_up_cuda_test
+      PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+    )
+    q3x_enable_warnings(q3x_sm87_macrofeed_v4_nvfp4_gate_up_cuda_test)
+    add_test(NAME sm87_macrofeed_v4_nvfp4_gate_up_cuda
+      COMMAND q3x_sm87_macrofeed_v4_nvfp4_gate_up_cuda_test
+    )
+    set_tests_properties(sm87_macrofeed_v4_nvfp4_gate_up_cuda PROPERTIES
+      LABELS "correctness;cuda;sm87;prefill;macrofeed_v4;projection;nvfp4;gate_up;c8000;m64;m37_tail;bit_exact;synthetic;t1;default_off"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 300
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION OR
+     Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_DOWN_ADMISSION)
+    add_executable(q3x_sm87_macrofeed_v4_nvfp4_decode_cuda_test
+      tests/sm87_macrofeed_v4_nvfp4_decode_cuda_test.cu
+    )
+    target_link_libraries(q3x_sm87_macrofeed_v4_nvfp4_decode_cuda_test
+      PRIVATE CUDA::cudart
+    )
+    target_compile_options(q3x_sm87_macrofeed_v4_nvfp4_decode_cuda_test
+      PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+    )
+    q3x_enable_warnings(q3x_sm87_macrofeed_v4_nvfp4_decode_cuda_test)
+    add_test(NAME sm87_macrofeed_v4_nvfp4_decode_cuda
+      COMMAND q3x_sm87_macrofeed_v4_nvfp4_decode_cuda_test
+    )
+    set_tests_properties(sm87_macrofeed_v4_nvfp4_decode_cuda PROPERTIES
+      LABELS "correctness;cuda;sm87;prefill;macrofeed_v4;nvfp4;decode;asymmetric;exhaustive;bit_exact;synthetic;t1;default_off"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 300
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_DOWN_ADMISSION)
+    add_executable(q3x_sm87_macrofeed_v4_nvfp4_down_cuda_test
+      tests/sm87_macrofeed_v4_nvfp4_down_cuda_test.cu
+    )
+    target_link_libraries(q3x_sm87_macrofeed_v4_nvfp4_down_cuda_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    target_compile_options(q3x_sm87_macrofeed_v4_nvfp4_down_cuda_test
+      PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+    )
+    q3x_enable_warnings(q3x_sm87_macrofeed_v4_nvfp4_down_cuda_test)
+    add_test(NAME sm87_macrofeed_v4_nvfp4_down_cuda
+      COMMAND q3x_sm87_macrofeed_v4_nvfp4_down_cuda_test
+    )
+    set_tests_properties(sm87_macrofeed_v4_nvfp4_down_cuda PROPERTIES
+      LABELS "correctness;cuda;sm87;prefill;macrofeed_v4;projection;nvfp4;down;c8000;m64;m37_tail;bit_exact;synthetic;t1;default_off"
       RESOURCE_LOCK q3x_sm87_gpu
       RUN_SERIAL TRUE
       SKIP_RETURN_CODE 77

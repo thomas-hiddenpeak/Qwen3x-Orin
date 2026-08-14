@@ -312,8 +312,11 @@ seconds, so the record contains no TTFT or throughput result and no terminal
 V17 witness. The valid 120.002145-second profile attributes 84.2735% of
 aggregate kernel time to Gate+Up plus Down and 87.3325% to all projections.
 It closes `AC-PREFILL-SM87-BULK-DATAFLOW-v2` as performance-rejected while
-retaining it default-off, accuracy-unqualified, and non-production. V10 remains
-the control; the active successor is `AC-PREFILL-SM87-MACROFEED-v3`.
+retaining it default-off, accuracy-unqualified, and non-production. Its frozen
+record correctly names V3 as the successor selected at that time. V10 remains
+the whole-product control; V3 is now the complete executable diagnostic
+control, while `AC-PREFILL-SM87-MACROFEED-v4` is the reserved active successor
+lineage and remains a non-executable foundation.
 
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in

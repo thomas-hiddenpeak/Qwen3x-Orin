@@ -162,7 +162,7 @@ not repeat them. A new candidate compares against the incumbent identified
 there without inheriting a rejected kernel skeleton or treating an old
 measurement as a current plan.
 
-### Active architecture candidate
+### Active architecture program
 
 `AC-PREFILL-SM87-AOT-SYSTEM-v1` reached the exact real-model P40 API and was
 closed after its first request returned no bytes before the 840.000399-second
@@ -186,30 +186,47 @@ control. It receives no repetition, P60/P130, NCU tuning campaign, or
 production promotion. Exact API and profile evidence is frozen in the
 [`Bulk V2 P40 rejection record`](metadata/qwen36-27b-sm87-bulk-v2-p40-rejection-2026-08-14.json).
 
-The active successor is **`AC-PREFILL-SM87-MACROFEED-v3`**. It is one complete
-Prefill composition, not a projection-first sequence of independently
-selected kernels. Its default-off, test-only source composition is now present
-on the active development line; [Current Status](CURRENT_STATUS.md) owns the
-exact implementation boundary. It retains the v10 real-API
-transaction/control and FlashInfer Attention substrate, then changes the two
-profile-proven structural failures together:
+The last complete executable development composition is
+`AC-PREFILL-SM87-MACROFEED-v3`. It remains a default-off diagnostic/control
+route: its attempted local P40 run did not reach completion, and its host was
+not eligible for performance authority under the clean-host policy. V3 has no
+P40 timing, numerical qualification, release authority, or production
+dispatch. It is frozen against local tile, cache, stage, or launch scanning.
 
-- role-specific non-cooperative macro GEMMs begin from an
-  M128/N256/K64-class CTA geometry rather than the V2 32-CTA cooperative
-  small-cell monolith;
-- Gate+Up, K-heavy Down, and FP8 keep separate shape-specific feeds and
-  physical receipts;
-- exact GDN becomes layer-persistent or uses large macrochunks so each GDN
-  layer targets O(10) physical kernels rather than 625 three-kernel C64 cells
-  plus cancellation samples; and
-- the full-model receipt records real physical launches produced by the
-  executable route, not nominal outer calls or a caller-filled forecast.
+The reserved active successor lineage is
+**`AC-PREFILL-SM87-MACROFEED-v4`**. At the present boundary it is an
+architecture foundation/local work package, not yet the Constitution's
+`architecture_candidate`: that term becomes valid only after the complete
+dataflow is runnable on the real API route. V4 changes the
+whole-request traversal and ownership model before adding another kernel
+mechanism. Exact P40000 is partitioned into five contiguous C8000 panels; the
+panel loop is outermost and the natural layer-0--63 loop is innermost. Two
+C8000 hidden planes ping-pong across layers and one C8000×17408 scratch plane
+is reused by mutually exclusive phases. No full-P40 activation plane is part
+of the candidate. The architecture retains the real OpenAI P40 request and
+the exact finite-precision/state contract, then requires these coupled
+changes:
 
-That implementation fact is not a measurement. V3 has no real P40 result,
-numerical qualification, release authority, or production dispatch. The
-remaining active delivery step is to finish its integrated build/host
-admission and return the complete composition directly to the clean-host real
-P40 API gate frozen below.
+- C8000 shape-specific Gate+Up, K-heavy Down, and FP8 feeds consume
+  authenticated canonical AOT payloads without request-time repack, JIT,
+  autotune, fallback, cuBLASLt, MTP, or approximate arithmetic;
+- full Attention must preprocess Q in place and stream/reuse the processed-Q
+  owner because the incumbent raw-Q/gate plus processed-Q live set cannot fit
+  the single scratch plane;
+- GDN must alias consumed QKV/Z workspace while preserving every per-token
+  BF16 state boundary; and
+- convolution/GDN recurrent state uses two explicit 78,446,592-byte private
+  epochs, KV visibility uses a private valid-end fence, and canonical state is
+  published only after panel five, with sequence length as the final
+  non-fallible visibility fence.
+
+The tracked V4 foundation is deliberately non-executable and default-off. It
+contains the host traversal/workspace/state contract plus independent C8000
+NVFP4 Gate+Up and Down constituents; their synthetic bit oracles and hard
+two-CTA/SM resource gates do not create a whole-product result. There is no V4
+selector, launcher, authenticated execution package, real-checkpoint oracle,
+API timing, numerical qualification, or production eligibility yet. Those
+boundaries are blockers, not implied future facts.
 
 Its P40 allocation remains:
 
@@ -222,11 +239,11 @@ Its P40 allocation remains:
 
 The v1 diagnostic control exposes host-visible per-layer progress and
 propagates client cancellation through bounded device-safe points. Its 64
-host waits are diagnostic serialization, not the V3 schedule. V3 retains
-bounded progress/cancellation through its device-ordered work and uses a cold
-mutable-arena rollback on failure or cancellation; the pre-P40 admission must
-still prove that the integrated route does not restore an unobservable
-whole-request execution interval.
+host waits are diagnostic serialization, not a V4 schedule. V4 must retain
+bounded progress/cancellation through device-ordered work, discard the private
+candidate recurrent epoch on panel failure, and keep KV/sequence visibility
+private until the final request commit. A future pre-P40 admission must prove
+those operations rather than infer them from the host plan.
 
 These are planning allocations derived from the owner-set target, not
 hardware-bound claims. The candidate must cover Gate/Up, Down, FP8 QKV/Z/O,
@@ -272,10 +289,11 @@ The first bounded package is
    semantics feedback only. It has no performance result and does not replace
    the owner-established 4.3K starting line;
 3. do not repeat the unchanged stock reference or let reconstruction of the
-   unknown optimized reference route delay the native V3 gate. A future
+   unknown optimized reference route delay the native V4 gate. A future
    reference run requires a materially different, hash-bound configuration;
 4. retain the selected role-specific macro feeds and exact-GDN macrochunk
-   geometry in one Q3X-only AOT candidate covering the complete family set;
+   geometry in the C8000 panel-major V4 AOT candidate covering the complete
+   family set;
    and
 5. return the first executable composition directly to the incumbent P40 API
    gate. A material whole-path step advances qualification; a small complete
@@ -310,8 +328,9 @@ implementation is selected:
   arithmetic, but its 30,000 prepare/recurrence/epilogue chunks plus
   cancellation samples are rejected as a production submission topology. V3
   retains every token's BF16 state publication and pre-round same-token output
-  use while moving to a layer-persistent or large-macrochunk graph targeting
-  O(10) physical kernels per GDN layer. WY/KKT/SSD and FP32 authoritative
+  use while V4 maps the recurrence to a panel-sized layer-persistent or
+  large-macrochunk graph targeting O(10) physical kernels per GDN layer.
+  WY/KKT/SSD and FP32 authoritative
   chunk state remain forbidden. FLA and Mamba selective-scan supply
   organization mechanisms only; the provisional GDN plus BF16 A/B allocation
   is 1.5 s.
@@ -326,23 +345,30 @@ They are not independent active scans. The architecture may compose them only
 when the source/dataflow matrix shows that they serve the complete candidate
 and its current critical path.
 
-The matched work ledger, v10 control, V2 closure, three V3 projection feeds,
-nine-kernel-per-layer exact GDN, natural-order composition, private physical
-transaction, cold rollback, and distinct default-off OpenAI API route are no
-longer unfinished Roadmap items. The complete admission build and focused
-V3/authority/asset tests now pass; these facts still have no measured
+The matched work ledger, v10 control, V2 closure, and complete default-off V3
+control are no longer unfinished Roadmap items. The V4 host contract and its
+first two NVFP4 constituents are implementation facts only: the shared
+canonical decoder has an asymmetric nibble/scale bit oracle, both projection
+tests cover the two N128 halves and M64/M37, and both production kernels pass
+their two-CTA/SM resource gate. None of those tests has real-model or
 performance authority.
 
 Remaining execution order:
 
-1. return immediately to one clean-host, real-checkpoint, cold/no-cache P40
-   OpenAI API/EvalScope direction witness after
-   `tegrastats`/process/device-handle preflight; and
-2. for a material positive composition, correct the physical
-   finalizer/`PrefillStateCommitted` boundary before pure-Prefill promotion
-   and numerical/statistical qualification; otherwise close and redesign V3.
-   Do not convert a negative, incomplete, or merely small result into a local
-   parameter scan. P60 and P130 remain locked until the policy's competitive,
+1. bind the V4 contract to a private, authenticated startup package with two
+   recurrent epochs, private KV valid-end, panel commit/final publish events,
+   and no production selector;
+2. implement the missing C8000 FP8, exact GDN, in-place/streaming exact
+   Attention, residual/layout, finalizer, rollback, and receipt paths, then
+   close their component and whole-state oracles;
+3. expose exactly one default-off V4 route through the existing real OpenAI
+   P40 API and verify that its receipt reports executed physical work rather
+   than a forecast; and
+4. only then run one clean-host, real-checkpoint, cold/no-cache P40
+   OpenAI/EvalScope direction witness after
+   `tegrastats`/process/device-handle preflight. A negative or merely small
+   whole-path result reopens the V4 global dataflow; it does not authorize a
+   local parameter scan. P60 and P130 remain locked until the competitive,
    accuracy-admissible P40 gate passes.
 
 ### Promotion and stop gates

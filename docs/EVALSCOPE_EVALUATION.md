@@ -982,7 +982,7 @@ or local parameter scan. Exact protocol, hashes, profile attribution, and
 claim boundaries are frozen in the
 [`Bulk V2 P40 rejection record`](metadata/qwen36-27b-sm87-bulk-v2-p40-rejection-2026-08-14.json).
 
-### Frozen MacroFeed V3 first-P40 protocol on the V18 route
+### Archived MacroFeed V3 first-P40 protocol on the V18 route
 
 `AC-PREFILL-SM87-MACROFEED-v3` is a default-off, test-only architecture
 candidate. Its distinct deployment identity is
@@ -1020,11 +1020,11 @@ cuBLASLt, request-time JIT, repack, and autotune must all be false. A route
 label, submitted layer count, caller forecast, partial receipt, or incomplete
 stream cannot synthesize V18 completeness.
 
-No MacroFeed V3 real-model P40 timing exists at the time of this protocol
-freeze. The following commands are the first measurement procedure, not a
-record of a completed run. Run them from the repository root. The pinned
-checkpoint is read-only; every build, log, cache, temporary file, preflight,
-and result remains below `.q3x-work/`.
+No authoritative MacroFeed V3 real-model P40 timing exists. The following
+commands are retained as the frozen V18 procedure, not the active measurement
+plan, and must not be run to advance the current Roadmap. The pinned checkpoint
+is read-only; every build, log, cache, temporary file, preflight, and result
+remains below `.q3x-work/`.
 
 Configure and build the complete V3 admission binary and its tests:
 
@@ -1136,7 +1136,7 @@ cleanup_macrofeed_v3_server
 trap - EXIT INT TERM
 ```
 
-The single request is an early-stop V3 direction gate only. It is valid only
+The archived single request is an early-stop V3 direction gate only. It is valid only
 when EvalScope reports 1/1 success with exactly 40,000 input tokens and one
 output token, the server emits a complete V18 physical receipt, and the
 preflight owns an exclusive resource lane. V18's pure-Prefill phase must be
@@ -1146,8 +1146,7 @@ requires the pure-Prefill phase-boundary correction, then unlocks full
 real-checkpoint numerical and statistical qualification; it does not pass
 either gate. A negative, timeout, incomplete receipt, wrong route, or merely
 small result closes or redesigns V3 rather than starting a tile/stage/cache
-scan. P60 and P130 remain locked. V10 remains the frozen P40 incumbent until
-this procedure produces a valid result.
+scan. P60 and P130 remain locked. V10 remains the frozen P40 incumbent.
 
 The first WP-V2-C1-v3 direction reused the exact v10 host schedule and route
 counters through a binary-pinned, default-off overlay; the binary hash, not a
@@ -1165,6 +1164,24 @@ Prefill timing explains where that result came from; it never replaces the API
 result. A witness with an incomplete stream, unowned host resources, a route
 mismatch, allocation fallback, truncation, cache reuse, or missing interval is
 invalid rather than slow or fast.
+
+### MacroFeed V4 measurement eligibility
+
+`AC-PREFILL-SM87-MACROFEED-v4` currently has only a non-executable foundation:
+there is no selector, whole-model launcher, authenticated execution package,
+complete state oracle, or API receipt. It therefore has no valid EvalScope or
+server-timing command yet. Gate/Up, Down, decoder, occupancy, P513, NSys, or
+NCU results cannot substitute for that missing route.
+
+The first V4 performance run becomes eligible only after the Roadmap's C8000
+FP8, exact GDN, in-place/streaming exact Attention, dual recurrent epoch,
+rollback, final publication, and physical-receipt dependencies compose behind
+one default-off OpenAI route. It must then reuse the section-level P40 witness
+contract: real checkpoint, exact 40,000 consumed tokens, batch one,
+cold/no-cache, one output token, external EvalScope TTFT/New Prompt Throughput,
+server-native phase logs, and a fail-closed exclusive-host preflight using
+`tegrastats` plus process/device-handle ownership. No V4 performance claim is
+allowed before that boundary exists.
 
 ### Retained sealed P1025 direction screen
 
