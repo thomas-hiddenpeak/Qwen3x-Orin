@@ -14,6 +14,11 @@ class Sm87MacroFeedV3P40ProjectionStartupBinding;
 
 namespace q3x::runtime::target_aot_complete_execution_detail {
 
+struct Sm87TargetAotCompleteHostTestBf16AbPair final {
+  LinearWeight a;
+  LinearWeight b;
+};
+
 // Source-private immutable borrow of one artifact from the complete 256-entry
 // target-AOT catalog.  This capability neither owns nor extends the Engine
 // lifetime.  Every typed borrow revalidates the live ModelWeights attachment,
@@ -155,6 +160,13 @@ class Sm87TargetAotCompleteProjectionExecutionAccess final {
   [[nodiscard]] static std::optional<ModelWeights>
   make_complete_host_test_fixture(
       Sm87TargetAotCompleteProjectionDeviceAssets& owner) noexcept;
+  // Test-TU definition only.  This installs ModelWeights fields before a
+  // startup package is constructed; it never mutates an already-issued
+  // package and never creates a raw-pointer capability of its own.
+  [[nodiscard]] static bool install_complete_host_test_bf16_ab_pairs(
+      ModelWeights& model_weights,
+      const Sm87TargetAotCompleteHostTestBf16AbPair* pairs,
+      std::size_t pair_count) noexcept;
   [[nodiscard]] static bool poison_host_test_fixture_receipt(
       Sm87TargetAotCompleteProjectionDeviceAssets& owner,
       std::size_t layer_index,

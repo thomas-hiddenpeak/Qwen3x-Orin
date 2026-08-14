@@ -12,6 +12,10 @@
 
 namespace q3x::runtime {
 
+namespace sm87_macrofeed_v4_execution_events_detail {
+class Sm87MacroFeedV4ExecutionEventsOwner;
+}
+
 // Internal host-only admission and ownership ledger for the default-off
 // MacroFeed-v4
 // request transaction.  It owns no CUDA pointer, stream, event, launcher, or
@@ -393,6 +397,17 @@ class Sm87MacroFeedV4RequestState final {
 
   [[nodiscard]] Sm87MacroFeedV4RequestStateStatus validate_access(
       const Sm87MacroFeedV4RequestStateSealedAccess& access) const noexcept;
+  // Execution admission is deliberately owner-mediated.  The execution-event
+  // owner must present both the live RequestState object and its sealed access;
+  // validation occurs while this RequestState owns its mutex so a copied
+  // access cannot be detached from the object or admitted after the request
+  // has left the private boundary.
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus
+  validate_execution_begin_access(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      std::uint64_t expected_engine_owner_identity,
+      std::uint64_t* allocation_identity,
+      std::uint64_t* request_epoch) const noexcept;
   [[nodiscard]] Sm87MacroFeedV4RequestEventReceipt mint_event_receipt(
       Sm87MacroFeedV4RequestEventKind kind) noexcept;
   [[nodiscard]] bool event_receipt_matches(
@@ -402,6 +417,9 @@ class Sm87MacroFeedV4RequestState final {
   Sm87MacroFeedV4RequestStateAdmission admission_{};
   mutable std::mutex owner_mutex_;
   Sm87MacroFeedV4RequestStateSnapshot state_{};
+
+  friend class sm87_macrofeed_v4_execution_events_detail::
+      Sm87MacroFeedV4ExecutionEventsOwner;
 };
 
 }  // namespace q3x::runtime

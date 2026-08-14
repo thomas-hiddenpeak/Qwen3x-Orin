@@ -1,10 +1,17 @@
 #include "q3x/runtime/decode_ops.h"
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_NORM_RESIDUAL_ADMISSION)
+#include "q3x/kernels/sm87_macrofeed_v4_norm_residual.h"
+#endif
+
 #include "../sm87/sm87_target_aot_attention_preprocess_launch_internal.h"
 
 #include <cooperative_groups.h>
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_NORM_RESIDUAL_ADMISSION)
+#include <cuda.h>
+#endif
 #include <mma.h>
 
 #include <cmath>
@@ -3712,3 +3719,585 @@ int launch_gqa_attention_sigmoid_gate_24_4_256_cuda(
 }
 
 }  // namespace q3x::runtime
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_NORM_RESIDUAL_ADMISSION)
+namespace q3x::kernels {
+namespace {
+
+[[nodiscard]] bool macrofeed_v4_norm_residual_pointer_aligned(
+    const void* const pointer) noexcept {
+  return pointer != nullptr &&
+         reinterpret_cast<std::uintptr_t>(pointer) %
+                 kSm87MacroFeedV4NormResidualPointerAlignment ==
+             0U;
+}
+
+[[nodiscard]] bool macrofeed_v4_norm_residual_float_from_bits(
+    const std::uint32_t bits, float* const value) noexcept {
+  if (value == nullptr) {
+    return false;
+  }
+  std::memcpy(value, &bits, sizeof(bits));
+  return std::isfinite(*value) && *value > 0.0F;
+}
+
+[[nodiscard]] bool macrofeed_v4_input_norm_structural_valid(
+    const Sm87MacroFeedV4InputNormArguments& arguments,
+    const bool production_extent) noexcept {
+  const bool token_count_valid =
+      production_extent
+          ? arguments.token_count == kSm87MacroFeedV4NormResidualTokens
+          : arguments.token_count != 0U &&
+                arguments.token_count <=
+                    kSm87MacroFeedV4NormResidualOracleMaximumTokens;
+  float epsilon = 0.0F;
+  if (!token_count_valid ||
+      arguments.hidden_size != kSm87MacroFeedV4NormResidualHidden ||
+      arguments.epsilon_fp32_bits !=
+          kSm87MacroFeedV4NormResidualEpsilonFp32Bits ||
+      arguments.cuda_stream == nullptr ||
+      !macrofeed_v4_norm_residual_float_from_bits(
+          arguments.epsilon_fp32_bits, &epsilon) ||
+      !macrofeed_v4_norm_residual_pointer_aligned(arguments.input_hidden) ||
+      !macrofeed_v4_norm_residual_pointer_aligned(
+          arguments.centered_weight) ||
+      !macrofeed_v4_norm_residual_pointer_aligned(
+          arguments.output_hidden)) {
+    return false;
+  }
+  const std::uint64_t hidden_bytes =
+      arguments.token_count * kSm87MacroFeedV4NormResidualHidden *
+      sizeof(std::uint16_t);
+  const Sm87MacroFeedV4NormResidualByteRange input =
+      sm87_macrofeed_v4_norm_residual_byte_range(arguments.input_hidden,
+                                                 hidden_bytes);
+  const Sm87MacroFeedV4NormResidualByteRange output =
+      sm87_macrofeed_v4_norm_residual_byte_range(arguments.output_hidden,
+                                                 hidden_bytes);
+  const Sm87MacroFeedV4NormResidualByteRange weight =
+      sm87_macrofeed_v4_norm_residual_byte_range(
+          arguments.centered_weight,
+          kSm87MacroFeedV4NormResidualWeightBytes);
+  return sm87_macrofeed_v4_norm_residual_ranges_disjoint(input, output) &&
+         sm87_macrofeed_v4_norm_residual_ranges_disjoint(input, weight) &&
+         sm87_macrofeed_v4_norm_residual_ranges_disjoint(output, weight);
+}
+
+[[nodiscard]] bool macrofeed_v4_residual_post_norm_structural_valid(
+    const Sm87MacroFeedV4ResidualPostNormArguments& arguments,
+    const bool production_extent) noexcept {
+  const bool token_count_valid =
+      production_extent
+          ? arguments.token_count == kSm87MacroFeedV4NormResidualTokens
+          : arguments.token_count != 0U &&
+                arguments.token_count <=
+                    kSm87MacroFeedV4NormResidualOracleMaximumTokens;
+  float epsilon = 0.0F;
+  if (!token_count_valid ||
+      arguments.hidden_size != kSm87MacroFeedV4NormResidualHidden ||
+      arguments.epsilon_fp32_bits !=
+          kSm87MacroFeedV4NormResidualEpsilonFp32Bits ||
+      arguments.cuda_stream == nullptr ||
+      !macrofeed_v4_norm_residual_float_from_bits(
+          arguments.epsilon_fp32_bits, &epsilon) ||
+      !macrofeed_v4_norm_residual_pointer_aligned(
+          arguments.left_residual_then_normalized) ||
+      !macrofeed_v4_norm_residual_pointer_aligned(
+          arguments.right_branch_then_residual) ||
+      !macrofeed_v4_norm_residual_pointer_aligned(
+          arguments.centered_weight)) {
+    return false;
+  }
+  const std::uint64_t hidden_bytes =
+      arguments.token_count * kSm87MacroFeedV4NormResidualHidden *
+      sizeof(std::uint16_t);
+  const Sm87MacroFeedV4NormResidualByteRange left =
+      sm87_macrofeed_v4_norm_residual_byte_range(
+          arguments.left_residual_then_normalized, hidden_bytes);
+  const Sm87MacroFeedV4NormResidualByteRange right =
+      sm87_macrofeed_v4_norm_residual_byte_range(
+          arguments.right_branch_then_residual, hidden_bytes);
+  const Sm87MacroFeedV4NormResidualByteRange weight =
+      sm87_macrofeed_v4_norm_residual_byte_range(
+          arguments.centered_weight,
+          kSm87MacroFeedV4NormResidualWeightBytes);
+  return sm87_macrofeed_v4_norm_residual_ranges_disjoint(left, right) &&
+         sm87_macrofeed_v4_norm_residual_ranges_disjoint(left, weight) &&
+         sm87_macrofeed_v4_norm_residual_ranges_disjoint(right, weight);
+}
+
+[[nodiscard]] cudaError_t macrofeed_v4_norm_residual_validate_device(
+    int* const device_ordinal, cudaDeviceProp* const properties) noexcept {
+  if (device_ordinal == nullptr || properties == nullptr) {
+    return cudaErrorInvalidValue;
+  }
+  *device_ordinal = -1;
+  *properties = {};
+  cudaError_t status = cudaGetDevice(device_ordinal);
+  if (status != cudaSuccess || *device_ordinal < 0) {
+    return status == cudaSuccess ? cudaErrorInvalidDevice : status;
+  }
+  status = cudaGetDeviceProperties(properties, *device_ordinal);
+  if (status != cudaSuccess) {
+    return status;
+  }
+  return properties->major == 8 && properties->minor == 7 &&
+                 properties->multiProcessorCount ==
+                     static_cast<int>(
+                         kSm87MacroFeedV4NormResidualSmCount)
+             ? cudaSuccess
+             : cudaErrorNotSupported;
+}
+
+[[nodiscard]] bool macrofeed_v4_norm_residual_device_range_owned(
+    const Sm87MacroFeedV4NormResidualByteRange& range,
+    const int device_ordinal) noexcept {
+  if (!range.valid || range.begin == 0U || range.end <= range.begin ||
+      device_ordinal < 0) {
+    return false;
+  }
+  cudaPointerAttributes attributes{};
+  const auto* const pointer = reinterpret_cast<const void*>(range.begin);
+  if (cudaPointerGetAttributes(&attributes, pointer) != cudaSuccess ||
+      attributes.type != cudaMemoryTypeDevice ||
+      attributes.device != device_ordinal) {
+    return false;
+  }
+  CUdeviceptr allocation_base = 0U;
+  std::size_t allocation_bytes = 0U;
+  if (cuMemGetAddressRange(
+          &allocation_base, &allocation_bytes,
+          static_cast<CUdeviceptr>(range.begin)) != CUDA_SUCCESS ||
+      allocation_base == 0U || allocation_bytes == 0U) {
+    return false;
+  }
+  const auto allocation_begin =
+      static_cast<std::uintptr_t>(allocation_base);
+  if (allocation_bytes >
+      std::numeric_limits<std::uintptr_t>::max() - allocation_begin) {
+    return false;
+  }
+  const auto allocation_end = allocation_begin + allocation_bytes;
+  return range.begin >= allocation_begin && range.end <= allocation_end;
+}
+
+[[nodiscard]] bool macrofeed_v4_input_norm_device_ranges_owned(
+    const Sm87MacroFeedV4InputNormArguments& arguments,
+    const int device_ordinal) noexcept {
+  const std::uint64_t hidden_bytes =
+      arguments.token_count * kSm87MacroFeedV4NormResidualHidden *
+      sizeof(std::uint16_t);
+  const Sm87MacroFeedV4NormResidualByteRange ranges[] = {
+      sm87_macrofeed_v4_norm_residual_byte_range(arguments.input_hidden,
+                                                 hidden_bytes),
+      sm87_macrofeed_v4_norm_residual_byte_range(arguments.output_hidden,
+                                                 hidden_bytes),
+      sm87_macrofeed_v4_norm_residual_byte_range(
+          arguments.centered_weight,
+          kSm87MacroFeedV4NormResidualWeightBytes),
+  };
+  for (const auto& range : ranges) {
+    if (!macrofeed_v4_norm_residual_device_range_owned(range,
+                                                        device_ordinal)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool macrofeed_v4_residual_post_norm_device_ranges_owned(
+    const Sm87MacroFeedV4ResidualPostNormArguments& arguments,
+    const int device_ordinal) noexcept {
+  const std::uint64_t hidden_bytes =
+      arguments.token_count * kSm87MacroFeedV4NormResidualHidden *
+      sizeof(std::uint16_t);
+  const Sm87MacroFeedV4NormResidualByteRange ranges[] = {
+      sm87_macrofeed_v4_norm_residual_byte_range(
+          arguments.left_residual_then_normalized, hidden_bytes),
+      sm87_macrofeed_v4_norm_residual_byte_range(
+          arguments.right_branch_then_residual, hidden_bytes),
+      sm87_macrofeed_v4_norm_residual_byte_range(
+          arguments.centered_weight,
+          kSm87MacroFeedV4NormResidualWeightBytes),
+  };
+  for (const auto& range : ranges) {
+    if (!macrofeed_v4_norm_residual_device_range_owned(range,
+                                                        device_ordinal)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] constexpr bool macrofeed_v4_norm_residual_kernel_equal(
+    const Sm87MacroFeedV4NormResidualKernelResources& left,
+    const Sm87MacroFeedV4NormResidualKernelResources& right) noexcept {
+  return left.registers_per_thread == right.registers_per_thread &&
+         left.static_shared_bytes == right.static_shared_bytes &&
+         left.local_bytes == right.local_bytes &&
+         left.maximum_threads_per_block == right.maximum_threads_per_block &&
+         left.active_blocks_per_sm == right.active_blocks_per_sm &&
+         left.threads_per_block == right.threads_per_block &&
+         left.physical_grid_ctas == right.physical_grid_ctas;
+}
+
+[[nodiscard]] constexpr bool macrofeed_v4_norm_residual_resources_equal(
+    const Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot& left,
+    const Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot& right)
+    noexcept {
+  return left.identity == right.identity &&
+         left.device_ordinal == right.device_ordinal &&
+         left.compute_major == right.compute_major &&
+         left.compute_minor == right.compute_minor &&
+         left.sm_count == right.sm_count &&
+         left.binary_version == right.binary_version &&
+         macrofeed_v4_norm_residual_kernel_equal(left.input_norm,
+                                                 right.input_norm) &&
+         macrofeed_v4_norm_residual_kernel_equal(left.fused_residual_norm,
+                                                 right.fused_residual_norm) &&
+         left.kernels_compiled == right.kernels_compiled &&
+         left.exact_geometry == right.exact_geometry &&
+         left.static_resource_gate_passed ==
+             right.static_resource_gate_passed &&
+         left.numerical_contract_qualified ==
+             right.numerical_contract_qualified &&
+         left.production_dispatch_eligible ==
+             right.production_dispatch_eligible &&
+         left.startup_package_unbound == right.startup_package_unbound &&
+         left.execution_capability == right.execution_capability &&
+         left.caller_snapshot_grants_production_authority ==
+             right.caller_snapshot_grants_production_authority;
+}
+
+[[nodiscard]] cudaError_t macrofeed_v4_input_norm_enqueue(
+    const Sm87MacroFeedV4InputNormArguments& arguments,
+    const cudaStream_t stream) noexcept {
+  float epsilon = 0.0F;
+  std::memcpy(&epsilon, &arguments.epsilon_fp32_bits, sizeof(epsilon));
+  q3x::runtime::headwise_rms_norm_kernel<true, false>
+      <<<static_cast<unsigned int>(arguments.token_count),
+         static_cast<unsigned int>(
+             kSm87MacroFeedV4NormResidualInputNormThreads),
+         0U, stream>>>(arguments.input_hidden, arguments.centered_weight,
+                       nullptr, arguments.token_count, arguments.hidden_size,
+                       epsilon, arguments.output_hidden);
+  return cudaPeekAtLastError();
+}
+
+[[nodiscard]] cudaError_t macrofeed_v4_residual_post_norm_enqueue(
+    const Sm87MacroFeedV4ResidualPostNormArguments& arguments,
+    const cudaStream_t stream) noexcept {
+  float epsilon = 0.0F;
+  std::memcpy(&epsilon, &arguments.epsilon_fp32_bits, sizeof(epsilon));
+  q3x::runtime::
+      residual_add_headwise_centered_rms_norm_prefill_5120_kernel
+      <<<static_cast<unsigned int>(arguments.token_count),
+         static_cast<unsigned int>(kSm87MacroFeedV4NormResidualFusedThreads),
+         0U, stream>>>(arguments.left_residual_then_normalized,
+                   arguments.right_branch_then_residual,
+                   arguments.centered_weight, epsilon,
+                   arguments.right_branch_then_residual,
+                   arguments.left_residual_then_normalized);
+  return cudaPeekAtLastError();
+}
+
+void macrofeed_v4_norm_residual_fill_receipt(
+    const Sm87MacroFeedV4NormResidualOperation operation,
+    const int device_ordinal,
+    Sm87MacroFeedV4NormResidualAdmissionLaunchReceipt* const receipt) noexcept {
+  receipt->identity = kSm87MacroFeedV4NormResidualIdentity;
+  receipt->operation = operation;
+  receipt->device_ordinal = device_ordinal;
+  receipt->token_count = kSm87MacroFeedV4NormResidualTokens;
+  receipt->hidden_size = kSm87MacroFeedV4NormResidualHidden;
+  receipt->physical_kernel_launches = 1U;
+  receipt->established_exact_body_reused = true;
+  receipt->exact_alias_contract = true;
+  receipt->third_hidden_plane_absent = true;
+  receipt->current_device_revalidated = true;
+  receipt->caller_snapshot_exact_observed_match = true;
+  receipt->live_stream_device_observed = true;
+  receipt->device_allocation_ranges_owned = true;
+  receipt->launch_enqueued = true;
+  receipt->completion_observed = false;
+  receipt->numerical_contract_qualified = false;
+  receipt->production_dispatch_eligible = false;
+  receipt->startup_package_unbound = true;
+  receipt->execution_capability = false;
+  receipt->caller_snapshot_grants_production_authority = false;
+}
+
+}  // namespace
+
+bool sm87_macrofeed_v4_input_norm_arguments_valid(
+    const Sm87MacroFeedV4InputNormArguments& arguments) noexcept {
+  return macrofeed_v4_input_norm_structural_valid(arguments, true);
+}
+
+bool sm87_macrofeed_v4_residual_post_norm_arguments_valid(
+    const Sm87MacroFeedV4ResidualPostNormArguments& arguments) noexcept {
+  return macrofeed_v4_residual_post_norm_structural_valid(arguments, true);
+}
+
+int query_sm87_macrofeed_v4_norm_residual_admission_resources_cuda(
+    Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot* const
+        resources) noexcept {
+  if (resources == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *resources = {};
+  int device = -1;
+  cudaDeviceProp properties{};
+  cudaError_t status =
+      macrofeed_v4_norm_residual_validate_device(&device, &properties);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  cudaFuncAttributes norm_attributes{};
+  status = cudaFuncGetAttributes(
+      &norm_attributes,
+      q3x::runtime::headwise_rms_norm_kernel<true, false>);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  cudaFuncAttributes fused_attributes{};
+  status = cudaFuncGetAttributes(
+      &fused_attributes,
+      q3x::runtime::
+          residual_add_headwise_centered_rms_norm_prefill_5120_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int norm_active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &norm_active_blocks,
+      q3x::runtime::headwise_rms_norm_kernel<true, false>,
+      static_cast<int>(kSm87MacroFeedV4NormResidualInputNormThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int fused_active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &fused_active_blocks,
+      q3x::runtime::
+          residual_add_headwise_centered_rms_norm_prefill_5120_kernel,
+      static_cast<int>(kSm87MacroFeedV4NormResidualFusedThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  resources->identity = kSm87MacroFeedV4NormResidualIdentity;
+  resources->device_ordinal = device;
+  resources->compute_major = properties.major;
+  resources->compute_minor = properties.minor;
+  resources->sm_count = properties.multiProcessorCount;
+  resources->binary_version = norm_attributes.binaryVersion;
+  resources->input_norm = {
+      norm_attributes.numRegs,
+      norm_attributes.sharedSizeBytes,
+      norm_attributes.localSizeBytes,
+      norm_attributes.maxThreadsPerBlock,
+      norm_active_blocks,
+      static_cast<std::int32_t>(
+          kSm87MacroFeedV4NormResidualInputNormThreads),
+      static_cast<std::int32_t>(kSm87MacroFeedV4NormResidualGridCtas)};
+  resources->fused_residual_norm = {
+      fused_attributes.numRegs,
+      fused_attributes.sharedSizeBytes,
+      fused_attributes.localSizeBytes,
+      fused_attributes.maxThreadsPerBlock,
+      fused_active_blocks,
+      static_cast<std::int32_t>(kSm87MacroFeedV4NormResidualFusedThreads),
+      static_cast<std::int32_t>(kSm87MacroFeedV4NormResidualGridCtas)};
+  resources->kernels_compiled =
+      norm_attributes.binaryVersion == 87 &&
+      fused_attributes.binaryVersion == 87;
+  resources->exact_geometry = true;
+  resources->static_resource_gate_passed = true;
+  resources->numerical_contract_qualified = false;
+  resources->production_dispatch_eligible = false;
+  resources->startup_package_unbound = true;
+  resources->execution_capability = false;
+  resources->caller_snapshot_grants_production_authority = false;
+  resources->static_resource_gate_passed =
+      sm87_macrofeed_v4_norm_residual_resource_gate(*resources);
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_macrofeed_v4_input_norm_admission_cuda(
+    const Sm87MacroFeedV4InputNormArguments& arguments,
+    const Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot& resources,
+    Sm87MacroFeedV4NormResidualAdmissionLaunchReceipt* const receipt)
+    noexcept {
+  if (receipt == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *receipt = {};
+  if (!sm87_macrofeed_v4_input_norm_arguments_valid(arguments)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if (!sm87_macrofeed_v4_norm_residual_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot observed{};
+  const int query_status =
+      query_sm87_macrofeed_v4_norm_residual_admission_resources_cuda(
+          &observed);
+  if (query_status != static_cast<int>(cudaSuccess)) {
+    return query_status;
+  }
+  if (resources.device_ordinal != observed.device_ordinal) {
+    return static_cast<int>(cudaErrorInvalidDevice);
+  }
+  if (!macrofeed_v4_norm_residual_resources_equal(resources, observed)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  const auto stream =
+      reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  int stream_device = -1;
+  cudaError_t status = cudaStreamGetDevice(stream, &stream_device);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  if (stream_device != observed.device_ordinal) {
+    return static_cast<int>(cudaErrorInvalidDevice);
+  }
+  if (!macrofeed_v4_input_norm_device_ranges_owned(
+          arguments, observed.device_ordinal)) {
+    return static_cast<int>(cudaErrorInvalidDevicePointer);
+  }
+  (void)cudaGetLastError();
+  status = macrofeed_v4_input_norm_enqueue(arguments, stream);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  macrofeed_v4_norm_residual_fill_receipt(
+      Sm87MacroFeedV4NormResidualOperation::kInputCenteredRmsNorm,
+      observed.device_ordinal, receipt);
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_macrofeed_v4_residual_post_norm_admission_cuda(
+    const Sm87MacroFeedV4ResidualPostNormArguments& arguments,
+    const Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot& resources,
+    Sm87MacroFeedV4NormResidualAdmissionLaunchReceipt* const receipt)
+    noexcept {
+  if (receipt == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *receipt = {};
+  if (!sm87_macrofeed_v4_residual_post_norm_arguments_valid(arguments)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if (!sm87_macrofeed_v4_norm_residual_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot observed{};
+  const int query_status =
+      query_sm87_macrofeed_v4_norm_residual_admission_resources_cuda(
+          &observed);
+  if (query_status != static_cast<int>(cudaSuccess)) {
+    return query_status;
+  }
+  if (resources.device_ordinal != observed.device_ordinal) {
+    return static_cast<int>(cudaErrorInvalidDevice);
+  }
+  if (!macrofeed_v4_norm_residual_resources_equal(resources, observed)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  const auto stream =
+      reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  int stream_device = -1;
+  cudaError_t status = cudaStreamGetDevice(stream, &stream_device);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  if (stream_device != observed.device_ordinal) {
+    return static_cast<int>(cudaErrorInvalidDevice);
+  }
+  if (!macrofeed_v4_residual_post_norm_device_ranges_owned(
+          arguments, observed.device_ordinal)) {
+    return static_cast<int>(cudaErrorInvalidDevicePointer);
+  }
+  (void)cudaGetLastError();
+  status = macrofeed_v4_residual_post_norm_enqueue(arguments, stream);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  macrofeed_v4_norm_residual_fill_receipt(
+      Sm87MacroFeedV4NormResidualOperation::
+          kBranchResidualPostCenteredRmsNorm,
+      observed.device_ordinal, receipt);
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_macrofeed_v4_input_norm_oracle_cuda(
+    const Sm87MacroFeedV4InputNormArguments& arguments) noexcept {
+  if (!macrofeed_v4_input_norm_structural_valid(arguments, false)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot resources{};
+  const int query_status =
+      query_sm87_macrofeed_v4_norm_residual_admission_resources_cuda(
+          &resources);
+  if (query_status != static_cast<int>(cudaSuccess)) {
+    return query_status;
+  }
+  if (!sm87_macrofeed_v4_norm_residual_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  const auto stream =
+      reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  int stream_device = -1;
+  cudaError_t status = cudaStreamGetDevice(stream, &stream_device);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  if (stream_device != resources.device_ordinal) {
+    return static_cast<int>(cudaErrorInvalidDevice);
+  }
+  if (!macrofeed_v4_input_norm_device_ranges_owned(arguments,
+                                                    stream_device)) {
+    return static_cast<int>(cudaErrorInvalidDevicePointer);
+  }
+  (void)cudaGetLastError();
+  return static_cast<int>(macrofeed_v4_input_norm_enqueue(arguments, stream));
+}
+
+int launch_sm87_macrofeed_v4_residual_post_norm_oracle_cuda(
+    const Sm87MacroFeedV4ResidualPostNormArguments& arguments) noexcept {
+  if (!macrofeed_v4_residual_post_norm_structural_valid(arguments, false)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot resources{};
+  const int query_status =
+      query_sm87_macrofeed_v4_norm_residual_admission_resources_cuda(
+          &resources);
+  if (query_status != static_cast<int>(cudaSuccess)) {
+    return query_status;
+  }
+  if (!sm87_macrofeed_v4_norm_residual_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  const auto stream =
+      reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  int stream_device = -1;
+  cudaError_t status = cudaStreamGetDevice(stream, &stream_device);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  if (stream_device != resources.device_ordinal) {
+    return static_cast<int>(cudaErrorInvalidDevice);
+  }
+  if (!macrofeed_v4_residual_post_norm_device_ranges_owned(arguments,
+                                                           stream_device)) {
+    return static_cast<int>(cudaErrorInvalidDevicePointer);
+  }
+  (void)cudaGetLastError();
+  return static_cast<int>(
+      macrofeed_v4_residual_post_norm_enqueue(arguments, stream));
+}
+
+}  // namespace q3x::kernels
+#endif

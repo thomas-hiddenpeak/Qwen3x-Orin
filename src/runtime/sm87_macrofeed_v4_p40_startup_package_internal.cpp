@@ -6,6 +6,14 @@
 #include <limits>
 #include <new>
 #include <utility>
+#include <variant>
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
+#include <cuda.h>
+#include <cuda_runtime_api.h>
+#endif
 
 namespace q3x::runtime::sm87_macrofeed_v4_p40_startup_package_detail {
 namespace {
@@ -21,6 +29,21 @@ inline constexpr std::uint64_t kGateUpSealIssuerNonce =
     0x5133'4d46'5634'474eULL;
 inline constexpr std::uint64_t kDownSealIssuerNonce =
     0x5133'4d46'5634'444eULL;
+inline constexpr std::uint64_t kBf16AbSealIssuerNonce =
+    0x5133'4d46'5634'424eULL;
+inline constexpr std::uint64_t kBf16AbCapabilityIssuerNonce =
+    0x5133'4d46'5634'4243ULL;
+
+[[nodiscard]] constexpr std::size_t gdn_model_layer(
+    const std::size_t gdn_ordinal) noexcept {
+  return gdn_ordinal + gdn_ordinal / 3U;
+}
+
+[[nodiscard]] constexpr bool model_layer_is_gdn(
+    const std::size_t model_layer) noexcept {
+  return model_layer < kSm87MacroFeedV4P40StartupPackageLayers &&
+         (model_layer + 1U) % 4U != 0U;
+}
 
 [[nodiscard]] constexpr std::array<Role, 4U> layer_roles(
     const std::size_t layer_index) noexcept {
@@ -60,6 +83,51 @@ inline constexpr std::uint64_t kDownSealIssuerNonce =
     hash = mix(hash, byte);
   }
   return hash;
+}
+
+[[nodiscard]] constexpr bool t0_range(
+    const Sm87MacroFeedV4Bf16AbT0TensorDescriptor& tensor,
+    std::uintptr_t* const begin, std::uintptr_t* const end) noexcept {
+  if (begin == nullptr || end == nullptr || tensor.weight == nullptr ||
+      reinterpret_cast<std::uintptr_t>(tensor.weight) %
+              kernels::kSm87MacroFeedV4Bf16AbPointerAlignment !=
+          0U) {
+    return false;
+  }
+  *begin = reinterpret_cast<std::uintptr_t>(tensor.weight);
+  constexpr std::uintptr_t kBytes = static_cast<std::uintptr_t>(
+      kernels::kSm87MacroFeedV4Bf16AbWeightBytes);
+  if (*begin > std::numeric_limits<std::uintptr_t>::max() - kBytes) {
+    return false;
+  }
+  *end = *begin + kBytes;
+  return *end > *begin;
+}
+
+[[nodiscard, maybe_unused]] std::uint64_t bf16_ab_pair_identity(
+    const std::size_t ordinal, const std::size_t model_layer,
+    const std::uint16_t* const a_weights,
+    const std::uint16_t* const b_weights) noexcept {
+  if (ordinal >= kSm87MacroFeedV4P40StartupPackageBf16AbPairs ||
+      model_layer != gdn_model_layer(ordinal) ||
+      !model_layer_is_gdn(model_layer) || a_weights == nullptr ||
+      b_weights == nullptr) {
+    return 0U;
+  }
+  std::uint64_t identity = 0x5133'4d46'4142'5052ULL;
+  identity = mix(identity, ordinal + 1U);
+  identity = mix(identity, model_layer + 1U);
+  identity = mix(identity, reinterpret_cast<std::uintptr_t>(a_weights));
+  identity = mix(identity, reinterpret_cast<std::uintptr_t>(b_weights));
+  identity = mix(identity,
+                 kernels::kSm87MacroFeedV4Bf16AbWeightBytes);
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(
+                     Sm87MacroFeedV4Bf16AbWeightRole::kA));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(
+                     Sm87MacroFeedV4Bf16AbWeightRole::kB));
+  return identity == 0U ? 0x5133'4d46'4142'5052ULL : identity;
 }
 
 template <typename UploadReceipt>
@@ -189,7 +257,300 @@ template <typename UploadReceipt>
   return identity == 0U ? 0x5133'4d46'5634'4453ULL : identity;
 }
 
+[[nodiscard]] constexpr bool bf16_ab_resource_equal(
+    const kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot& left,
+    const kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot& right)
+    noexcept {
+  return left.identity == right.identity &&
+         left.device_ordinal == right.device_ordinal &&
+         left.compute_major == right.compute_major &&
+         left.compute_minor == right.compute_minor &&
+         left.sm_count == right.sm_count &&
+         left.binary_version == right.binary_version &&
+         left.registers_per_thread == right.registers_per_thread &&
+         left.static_shared_bytes == right.static_shared_bytes &&
+         left.dynamic_shared_bytes == right.dynamic_shared_bytes &&
+         left.local_bytes == right.local_bytes &&
+         left.maximum_threads_per_block == right.maximum_threads_per_block &&
+         left.active_blocks_per_sm == right.active_blocks_per_sm &&
+         left.threads_per_block == right.threads_per_block &&
+         left.physical_grid_ctas == right.physical_grid_ctas &&
+         left.kernel_compiled == right.kernel_compiled &&
+         left.exact_geometry == right.exact_geometry &&
+         left.static_resource_gate_passed ==
+             right.static_resource_gate_passed &&
+         left.numerical_contract_qualified ==
+             right.numerical_contract_qualified &&
+         left.production_dispatch_eligible ==
+             right.production_dispatch_eligible &&
+         left.startup_package_unbound == right.startup_package_unbound &&
+         left.execution_capability == right.execution_capability &&
+         left.caller_snapshot_grants_production_authority ==
+             right.caller_snapshot_grants_production_authority;
+}
+
+[[nodiscard]] std::uint64_t mix_bf16_ab_resource(
+    std::uint64_t identity,
+    const kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot&
+        resources) noexcept {
+  identity = mix(identity, static_cast<std::uint64_t>(resources.identity));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(resources.device_ordinal + 1));
+  identity = mix(identity, static_cast<std::uint64_t>(resources.compute_major));
+  identity = mix(identity, static_cast<std::uint64_t>(resources.compute_minor));
+  identity = mix(identity, static_cast<std::uint64_t>(resources.sm_count));
+  identity = mix(identity, static_cast<std::uint64_t>(resources.binary_version));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(resources.registers_per_thread));
+  identity = mix(identity, resources.static_shared_bytes);
+  identity = mix(identity, resources.dynamic_shared_bytes);
+  identity = mix(identity, resources.local_bytes);
+  identity = mix(
+      identity, static_cast<std::uint64_t>(resources.maximum_threads_per_block));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(resources.active_blocks_per_sm));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(resources.threads_per_block));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(resources.physical_grid_ctas));
+  identity = mix(identity, resources.kernel_compiled);
+  identity = mix(identity, resources.exact_geometry);
+  identity = mix(identity, resources.static_resource_gate_passed);
+  identity = mix(identity, resources.numerical_contract_qualified);
+  identity = mix(identity, resources.production_dispatch_eligible);
+  identity = mix(identity, resources.startup_package_unbound);
+  identity = mix(identity, resources.execution_capability);
+  identity = mix(identity,
+                 resources.caller_snapshot_grants_production_authority);
+  return identity;
+}
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
+[[nodiscard]] bool live_current_device_allocation_range(
+    const std::uint16_t* const pointer, const std::uint64_t bytes,
+    const std::int32_t expected_device, int* const cuda_error) noexcept {
+  if (cuda_error != nullptr) {
+    *cuda_error = 0;
+  }
+  if (pointer == nullptr || bytes == 0U || expected_device < 0 ||
+      !kernels::sm87_macrofeed_v4_bf16_ab_pointer_aligned(pointer)) {
+    if (cuda_error != nullptr) {
+      *cuda_error = static_cast<int>(cudaErrorInvalidValue);
+    }
+    return false;
+  }
+
+  int current_device = -1;
+  cudaError_t runtime_status = cudaGetDevice(&current_device);
+  if (runtime_status != cudaSuccess || current_device != expected_device) {
+    if (cuda_error != nullptr) {
+      *cuda_error = runtime_status == cudaSuccess
+                        ? static_cast<int>(cudaErrorInvalidDevice)
+                        : static_cast<int>(runtime_status);
+    }
+    return false;
+  }
+
+  const auto range =
+      kernels::sm87_macrofeed_v4_bf16_ab_byte_range(pointer, bytes);
+  if (!range.valid || range.end <= range.begin) {
+    if (cuda_error != nullptr) {
+      *cuda_error = static_cast<int>(cudaErrorInvalidValue);
+    }
+    return false;
+  }
+
+  cudaPointerAttributes begin_attributes{};
+  cudaPointerAttributes end_attributes{};
+  runtime_status = cudaPointerGetAttributes(&begin_attributes, pointer);
+  if (runtime_status != cudaSuccess) {
+    if (cuda_error != nullptr) {
+      *cuda_error = static_cast<int>(runtime_status);
+    }
+    return false;
+  }
+  const void* const last_byte =
+      reinterpret_cast<const void*>(range.end - 1U);
+  runtime_status = cudaPointerGetAttributes(&end_attributes, last_byte);
+  if (runtime_status != cudaSuccess ||
+      begin_attributes.type != cudaMemoryTypeDevice ||
+      end_attributes.type != cudaMemoryTypeDevice ||
+      begin_attributes.device != expected_device ||
+      end_attributes.device != expected_device) {
+    if (cuda_error != nullptr) {
+      *cuda_error = runtime_status == cudaSuccess
+                        ? static_cast<int>(cudaErrorInvalidDevicePointer)
+                        : static_cast<int>(runtime_status);
+    }
+    return false;
+  }
+
+  CUdeviceptr allocation_begin = 0U;
+  std::size_t allocation_bytes = 0U;
+  const CUresult driver_status = cuMemGetAddressRange(
+      &allocation_begin, &allocation_bytes,
+      static_cast<CUdeviceptr>(range.begin));
+  const std::uintptr_t allocation_start =
+      static_cast<std::uintptr_t>(allocation_begin);
+  const bool allocation_end_overflows =
+      allocation_bytes >
+      std::numeric_limits<std::uintptr_t>::max() - allocation_start;
+  const std::uintptr_t allocation_end =
+      allocation_end_overflows ? 0U : allocation_start + allocation_bytes;
+  if (driver_status != CUDA_SUCCESS || allocation_begin == 0U ||
+      allocation_bytes == 0U || allocation_end_overflows ||
+      range.begin < allocation_start || range.end > allocation_end) {
+    if (cuda_error != nullptr) {
+      *cuda_error = driver_status == CUDA_SUCCESS
+                        ? static_cast<int>(cudaErrorInvalidDevicePointer)
+                        : static_cast<int>(driver_status);
+    }
+    return false;
+  }
+
+  CUdeviceptr end_allocation_begin = 0U;
+  std::size_t end_allocation_bytes = 0U;
+  const CUresult end_driver_status = cuMemGetAddressRange(
+      &end_allocation_begin, &end_allocation_bytes,
+      static_cast<CUdeviceptr>(range.end - 1U));
+  if (end_driver_status != CUDA_SUCCESS ||
+      end_allocation_begin != allocation_begin ||
+      end_allocation_bytes != allocation_bytes) {
+    if (cuda_error != nullptr) {
+      *cuda_error = end_driver_status == CUDA_SUCCESS
+                        ? static_cast<int>(cudaErrorInvalidDevicePointer)
+                        : static_cast<int>(end_driver_status);
+    }
+    return false;
+  }
+  return true;
+}
+#endif
+
+[[nodiscard]] std::uint64_t bf16_ab_seal_identity(
+    const Sm87MacroFeedV4Bf16AbStartupSeal& seal) noexcept {
+  if (seal.package_identity == 0U ||
+      seal.deployment_plan_identity == 0U ||
+      seal.binding_catalog_identity == 0U ||
+      seal.tensor_count !=
+          kSm87MacroFeedV4P40StartupPackageBf16AbTensors ||
+      seal.pair_count != kSm87MacroFeedV4P40StartupPackageBf16AbPairs ||
+      !seal.canonical_natural_layer_order ||
+      !seal.canonical_a_then_b_role_order ||
+      !seal.complete_live_device_ranges || !seal.issued_by_v4_package ||
+      seal.caller_resource_snapshot_accepted || seal.raw_pointer_exposed ||
+      seal.launcher_authority || seal.production_dispatch_eligible ||
+      !kernels::sm87_macrofeed_v4_bf16_ab_admission_resource_gate(
+          seal.resources)) {
+    return 0U;
+  }
+  std::uint64_t identity = 0x5133'4d46'5634'4253ULL;
+  identity = mix(identity, seal.package_identity);
+  identity = mix(identity, seal.deployment_plan_identity);
+  identity = mix(identity, seal.binding_catalog_identity);
+  identity = mix(identity, seal.tensor_count);
+  identity = mix(identity, seal.pair_count);
+  identity = mix_bf16_ab_resource(identity, seal.resources);
+  identity = mix(identity, seal.canonical_natural_layer_order);
+  identity = mix(identity, seal.canonical_a_then_b_role_order);
+  identity = mix(identity, seal.complete_live_device_ranges);
+  identity = mix(identity, seal.issued_by_v4_package);
+  identity = mix(identity, seal.caller_resource_snapshot_accepted);
+  identity = mix(identity, seal.raw_pointer_exposed);
+  identity = mix(identity, seal.launcher_authority);
+  identity = mix(identity, seal.production_dispatch_eligible);
+  return identity == 0U ? 0x5133'4d46'5634'4253ULL : identity;
+}
+
 }  // namespace
+
+Sm87MacroFeedV4Bf16AbT0InventoryAudit
+inspect_sm87_macrofeed_v4_bf16_ab_t0_inventory(
+    const Sm87MacroFeedV4Bf16AbT0TensorDescriptor* const tensors,
+    const std::size_t tensor_count) noexcept {
+  Sm87MacroFeedV4Bf16AbT0InventoryAudit audit;
+  audit.live_cuda_device_ranges_validated = false;
+  audit.execution_capability = false;
+  if (tensors == nullptr ||
+      tensor_count != kSm87MacroFeedV4P40StartupPackageBf16AbTensors) {
+    audit.failure_index = 0U;
+    return audit;
+  }
+
+  std::array<std::uintptr_t,
+             kSm87MacroFeedV4P40StartupPackageBf16AbTensors>
+      begins{};
+  std::array<std::uintptr_t,
+             kSm87MacroFeedV4P40StartupPackageBf16AbTensors>
+      ends{};
+  std::uint64_t identity = 0x5133'4d46'4142'4341ULL;
+  for (std::size_t index = 0U; index < tensor_count; ++index) {
+    const auto& tensor = tensors[index];
+    const std::size_t ordinal = index / 2U;
+    const auto role = index % 2U == 0U
+                          ? Sm87MacroFeedV4Bf16AbWeightRole::kA
+                          : Sm87MacroFeedV4Bf16AbWeightRole::kB;
+    if (tensor.gdn_ordinal != ordinal ||
+        tensor.model_layer != gdn_model_layer(ordinal) ||
+        !model_layer_is_gdn(tensor.model_layer)) {
+      audit.failure_index = index;
+      return audit;
+    }
+    if (tensor.role != role) {
+      audit.canonical_natural_layer_order = true;
+      audit.failure_index = index;
+      return audit;
+    }
+    if (tensor.weight_kind != LinearWeightKind::kBf16 ||
+        tensor.output_size !=
+            kernels::kSm87MacroFeedV4Bf16AbRowsPerProjection ||
+        tensor.input_size !=
+            kernels::kSm87MacroFeedV4Bf16AbInputFeatures) {
+      audit.canonical_natural_layer_order = true;
+      audit.canonical_a_then_b_role_order = true;
+      audit.failure_index = index;
+      return audit;
+    }
+    if (!t0_range(tensor, &begins[index], &ends[index])) {
+      audit.canonical_natural_layer_order = true;
+      audit.canonical_a_then_b_role_order = true;
+      audit.exact_bf16_shapes = true;
+      audit.failure_index = index;
+      return audit;
+    }
+    for (std::size_t earlier = 0U; earlier < index; ++earlier) {
+      if (!(ends[earlier] <= begins[index] ||
+            ends[index] <= begins[earlier])) {
+        audit.canonical_natural_layer_order = true;
+        audit.canonical_a_then_b_role_order = true;
+        audit.exact_bf16_shapes = true;
+        audit.failure_index = index;
+        return audit;
+      }
+    }
+    identity = mix(identity, index + 1U);
+    identity = mix(identity, ordinal + 1U);
+    identity = mix(identity, tensor.model_layer + 1U);
+    identity = mix(identity, static_cast<std::uint64_t>(tensor.role));
+    identity = mix(identity, static_cast<std::uint64_t>(tensor.weight_kind));
+    identity = mix(identity, begins[index]);
+    identity = mix(identity, ends[index]);
+    identity = mix(identity, tensor.output_size);
+    identity = mix(identity, tensor.input_size);
+  }
+  audit.catalog_identity =
+      identity == 0U ? 0x5133'4d46'4142'4341ULL : identity;
+  audit.tensors = tensor_count;
+  audit.pairs = tensor_count / 2U;
+  audit.failure_index = tensor_count;
+  audit.canonical_natural_layer_order = true;
+  audit.canonical_a_then_b_role_order = true;
+  audit.exact_bf16_shapes = true;
+  audit.nonnull_16b_aligned_disjoint_ranges = true;
+  return audit;
+}
 
 bool Sm87MacroFeedV4GateUpStartupSeal::valid() const noexcept {
   return issuer_nonce_ == kGateUpSealIssuerNonce && seal_identity != 0U &&
@@ -201,14 +562,90 @@ bool Sm87MacroFeedV4DownStartupSeal::valid() const noexcept {
          seal_identity == down_seal_identity(*this);
 }
 
+bool Sm87MacroFeedV4Bf16AbStartupSeal::valid() const noexcept {
+  return issuer_nonce_ == kBf16AbSealIssuerNonce && seal_identity != 0U &&
+         seal_identity == bf16_ab_seal_identity(*this);
+}
+
+Sm87MacroFeedV4P40StartupPackage::Bf16AbStartupCapability::
+    Bf16AbStartupCapability(
+        const ModelWeights* const model_weights,
+        std::array<Bf16AbPair,
+                   kSm87MacroFeedV4P40StartupPackageBf16AbPairs>
+            pairs,
+        kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot resources,
+        const std::uint64_t catalog_identity,
+        const std::uint64_t package_identity,
+        const std::uint64_t deployment_plan_identity,
+        const std::uint64_t projection_owner_identity,
+        const std::uint64_t projection_allocation_identity,
+        const std::uint64_t projection_catalog_identity,
+        const std::uint64_t projection_device_identity,
+        const std::int32_t device_ordinal,
+        const std::uint64_t issuer_nonce) noexcept
+    : model_weights_(model_weights),
+      pairs_(std::move(pairs)),
+      resources_(resources),
+      catalog_identity_(catalog_identity),
+      package_identity_(package_identity),
+      deployment_plan_identity_(deployment_plan_identity),
+      projection_owner_identity_(projection_owner_identity),
+      projection_allocation_identity_(projection_allocation_identity),
+      projection_catalog_identity_(projection_catalog_identity),
+      projection_device_identity_(projection_device_identity),
+      device_ordinal_(device_ordinal),
+      issuer_nonce_(issuer_nonce) {}
+
+Sm87MacroFeedV4P40StartupPackage::Bf16AbStartupCapability::
+    Bf16AbStartupCapability(Bf16AbStartupCapability&& other) noexcept
+    : model_weights_(std::exchange(other.model_weights_, nullptr)),
+      pairs_(std::move(other.pairs_)),
+      resources_(std::exchange(
+          other.resources_,
+          kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot{})),
+      catalog_identity_(std::exchange(other.catalog_identity_, 0U)),
+      package_identity_(std::exchange(other.package_identity_, 0U)),
+      deployment_plan_identity_(
+          std::exchange(other.deployment_plan_identity_, 0U)),
+      projection_owner_identity_(
+          std::exchange(other.projection_owner_identity_, 0U)),
+      projection_allocation_identity_(
+          std::exchange(other.projection_allocation_identity_, 0U)),
+      projection_catalog_identity_(
+          std::exchange(other.projection_catalog_identity_, 0U)),
+      projection_device_identity_(
+          std::exchange(other.projection_device_identity_, 0U)),
+      device_ordinal_(std::exchange(other.device_ordinal_, -1)),
+      issuer_nonce_(std::exchange(other.issuer_nonce_, 0U)) {
+  other.pairs_ = {};
+}
+
+Sm87MacroFeedV4P40StartupPackage::Bf16AbStartupCapability::
+    ~Bf16AbStartupCapability() noexcept {
+  model_weights_ = nullptr;
+  pairs_ = {};
+  resources_ = {};
+  catalog_identity_ = 0U;
+  package_identity_ = 0U;
+  deployment_plan_identity_ = 0U;
+  projection_owner_identity_ = 0U;
+  projection_allocation_identity_ = 0U;
+  projection_catalog_identity_ = 0U;
+  projection_device_identity_ = 0U;
+  device_ordinal_ = -1;
+  issuer_nonce_ = 0U;
+}
+
 Sm87MacroFeedV4P40StartupPackage::Sm87MacroFeedV4P40StartupPackage(
     ProjectionAccess access,
     std::array<AssetCapability, kSm87MacroFeedV4P40StartupPackageArtifacts>
         capabilities,
+    Bf16AbStartupCapability bf16_ab_capability,
     Sm87MacroFeedV4PanelWavefrontPlan plan, StartupSeals seals,
     Sm87MacroFeedV4P40StartupPackageAudit audit) noexcept
     : projection_access_(std::move(access)),
       capabilities_(std::move(capabilities)),
+      bf16_ab_capability_(std::move(bf16_ab_capability)),
       plan_(std::move(plan)),
       seals_(std::move(seals)),
       audit_(audit) {}
@@ -232,7 +669,8 @@ Sm87MacroFeedV4P40StartupPackageCreateResult
 Sm87MacroFeedV4P40StartupPackage::create(
     const ModelWeights& model_weights) noexcept {
 #if !defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) || \
-    !defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION)
+    !defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) || \
+    !defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
   (void)model_weights;
   CreateResult result;
   result.status = failure(Error::kAdmissionDisabled, "admission_disabled");
@@ -274,13 +712,27 @@ Sm87MacroFeedV4P40StartupPackage::create(
                             "down_startup_resource_seal", status);
     return result;
   }
+
+  kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot bf16_ab;
+  status = kernels::
+      query_sm87_macrofeed_v4_bf16_ab_admission_resource_snapshot_cuda(
+          &bf16_ab);
+  if (status != 0 ||
+      !kernels::sm87_macrofeed_v4_bf16_ab_admission_resource_gate(
+          bf16_ab)) {
+    CreateResult result;
+    result.status = failure(Error::kBf16AbResourceSeal,
+                            "bf16_ab_startup_resource_seal", status);
+    return result;
+  }
   return build_from_private_authority(std::move(*access), std::move(plan),
-                                      gate_up, down);
+                                      gate_up, down, bf16_ab, model_weights);
 #endif
 }
 
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) && \
-    defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION)
+    defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
 
 std::uint64_t Sm87MacroFeedV4P40StartupPackage::
     compute_deployment_plan_identity(
@@ -490,6 +942,194 @@ std::uint64_t Sm87MacroFeedV4P40StartupPackage::
   return identity == 0U ? 0x5133'4d46'5634'504cULL : identity;
 }
 
+bool Sm87MacroFeedV4P40StartupPackage::build_bf16_ab_pairs(
+    const ModelWeights& model_weights, const std::int32_t device_ordinal,
+    std::array<Bf16AbPair,
+               kSm87MacroFeedV4P40StartupPackageBf16AbPairs>* const pairs,
+    Sm87MacroFeedV4Bf16AbT0InventoryAudit* const inventory,
+    int* const cuda_error, std::size_t* const failure_layer) noexcept {
+  if (pairs == nullptr || inventory == nullptr || cuda_error == nullptr ||
+      failure_layer == nullptr || device_ordinal < 0) {
+    return false;
+  }
+  *pairs = {};
+  *inventory = {};
+  *cuda_error = 0;
+  *failure_layer = kSm87MacroFeedV4P40StartupPackageLayers;
+
+  std::array<Sm87MacroFeedV4Bf16AbT0TensorDescriptor,
+             kSm87MacroFeedV4P40StartupPackageBf16AbTensors>
+      tensors{};
+  std::size_t ordinal = 0U;
+  for (std::size_t model_layer = 0U;
+       model_layer < kSm87MacroFeedV4P40StartupPackageLayers;
+       ++model_layer) {
+    const auto& attention = model_weights.layer(model_layer).attention;
+    if (!model_layer_is_gdn(model_layer)) {
+      if (!std::holds_alternative<FullAttentionWeights>(attention)) {
+        *failure_layer = model_layer;
+        return false;
+      }
+      continue;
+    }
+    if (ordinal >= pairs->size() ||
+        gdn_model_layer(ordinal) != model_layer) {
+      *failure_layer = model_layer;
+      return false;
+    }
+    const auto* const linear =
+        std::get_if<LinearAttentionWeights>(&attention);
+    if (linear == nullptr) {
+      *failure_layer = model_layer;
+      return false;
+    }
+    const auto* const a =
+        std::get_if<Bf16LinearWeight>(&linear->in_proj_a);
+    const auto* const b =
+        std::get_if<Bf16LinearWeight>(&linear->in_proj_b);
+    if (a == nullptr || b == nullptr) {
+      inventory->failure_index =
+          2U * ordinal + static_cast<std::size_t>(a != nullptr);
+      *failure_layer = model_layer;
+      return false;
+    }
+
+    tensors[2U * ordinal] = {
+        ordinal,
+        model_layer,
+        Sm87MacroFeedV4Bf16AbWeightRole::kA,
+        LinearWeightKind::kBf16,
+        a->weight,
+        a->output_size,
+        a->input_size,
+    };
+    tensors[2U * ordinal + 1U] = {
+        ordinal,
+        model_layer,
+        Sm87MacroFeedV4Bf16AbWeightRole::kB,
+        LinearWeightKind::kBf16,
+        b->weight,
+        b->output_size,
+        b->input_size,
+    };
+    (*pairs)[ordinal] = {
+        static_cast<std::uint32_t>(model_layer),
+        a->weight,
+        b->weight,
+        bf16_ab_pair_identity(ordinal, model_layer, a->weight, b->weight),
+    };
+    ++ordinal;
+  }
+  if (ordinal != pairs->size()) {
+    if (ordinal < pairs->size()) {
+      inventory->failure_index = 2U * ordinal;
+      *failure_layer = gdn_model_layer(ordinal);
+    }
+    return false;
+  }
+
+  auto structural = inspect_sm87_macrofeed_v4_bf16_ab_t0_inventory(
+      tensors.data(), tensors.size());
+  if (!structural.valid_t0()) {
+    *inventory = structural;
+    if (structural.failure_index < tensors.size()) {
+      *failure_layer = tensors[structural.failure_index].model_layer;
+    }
+    return false;
+  }
+  for (std::size_t index = 0U; index < tensors.size(); ++index) {
+    if (!live_current_device_allocation_range(
+            tensors[index].weight,
+            kernels::kSm87MacroFeedV4Bf16AbWeightBytes, device_ordinal,
+            cuda_error)) {
+      structural.failure_index = index;
+      *inventory = structural;
+      *failure_layer = tensors[index].model_layer;
+      return false;
+    }
+  }
+  for (std::size_t pair_index = 0U; pair_index < pairs->size();
+       ++pair_index) {
+    const auto& pair = (*pairs)[pair_index];
+    if (pair.pair_identity == 0U || pair.a_weights == nullptr ||
+        pair.b_weights == nullptr) {
+      inventory->failure_index = 2U * pair_index;
+      *failure_layer = pair.model_layer;
+      return false;
+    }
+  }
+  structural.live_cuda_device_ranges_validated = true;
+  *inventory = structural;
+  return true;
+}
+
+bool Sm87MacroFeedV4P40StartupPackage::Bf16AbStartupCapability::valid(
+    const ProjectionAccess& access) const noexcept {
+  if (issuer_nonce_ != kBf16AbCapabilityIssuerNonce ||
+      model_weights_ == nullptr || catalog_identity_ == 0U ||
+      package_identity_ == 0U || deployment_plan_identity_ == 0U ||
+      projection_owner_identity_ == 0U ||
+      projection_allocation_identity_ == 0U ||
+      projection_catalog_identity_ == 0U ||
+      projection_device_identity_ == 0U || !access.attached() ||
+      access.owner_identity() != projection_owner_identity_ ||
+      access.allocation_identity() != projection_allocation_identity_ ||
+      access.catalog_identity() != projection_catalog_identity_ ||
+      access.device_identity() != projection_device_identity_ ||
+      access.device_ordinal() != device_ordinal_ ||
+      device_ordinal_ < 0 || resources_.device_ordinal != device_ordinal_ ||
+      !kernels::sm87_macrofeed_v4_bf16_ab_admission_resource_gate(
+          resources_)) {
+    return false;
+  }
+
+  kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot fresh_resources;
+  const int resource_status = kernels::
+      query_sm87_macrofeed_v4_bf16_ab_admission_resource_snapshot_cuda(
+          &fresh_resources);
+  if (resource_status != 0 ||
+      !bf16_ab_resource_equal(resources_, fresh_resources)) {
+    return false;
+  }
+
+  std::array<Bf16AbPair,
+             kSm87MacroFeedV4P40StartupPackageBf16AbPairs>
+      fresh_pairs{};
+  Sm87MacroFeedV4Bf16AbT0InventoryAudit fresh_inventory;
+  int cuda_error = 0;
+  std::size_t failure_layer = kSm87MacroFeedV4P40StartupPackageLayers;
+  if (!Sm87MacroFeedV4P40StartupPackage::build_bf16_ab_pairs(
+          *model_weights_, device_ordinal_, &fresh_pairs, &fresh_inventory,
+          &cuda_error, &failure_layer) ||
+      cuda_error != 0 || fresh_inventory.catalog_identity == 0U ||
+      fresh_inventory.tensors !=
+          kSm87MacroFeedV4P40StartupPackageBf16AbTensors ||
+      fresh_inventory.pairs !=
+          kSm87MacroFeedV4P40StartupPackageBf16AbPairs ||
+      !fresh_inventory.canonical_natural_layer_order ||
+      !fresh_inventory.canonical_a_then_b_role_order ||
+      !fresh_inventory.exact_bf16_shapes ||
+      !fresh_inventory.nonnull_16b_aligned_disjoint_ranges ||
+      !fresh_inventory.live_cuda_device_ranges_validated ||
+      fresh_inventory.execution_capability ||
+      fresh_inventory.catalog_identity != catalog_identity_) {
+    return false;
+  }
+  for (std::size_t ordinal = 0U; ordinal < pairs_.size(); ++ordinal) {
+    const auto& retained = pairs_[ordinal];
+    const auto& fresh = fresh_pairs[ordinal];
+    if (retained.model_layer != gdn_model_layer(ordinal) ||
+        fresh.model_layer != retained.model_layer ||
+        fresh.a_weights != retained.a_weights ||
+        fresh.b_weights != retained.b_weights ||
+        fresh.pair_identity == 0U ||
+        fresh.pair_identity != retained.pair_identity) {
+      return false;
+    }
+  }
+  return true;
+}
+
 std::uint64_t Sm87MacroFeedV4P40StartupPackage::compute_package_identity(
     const ProjectionAccess& access,
     const std::array<AssetCapability,
@@ -498,6 +1138,9 @@ std::uint64_t Sm87MacroFeedV4P40StartupPackage::compute_package_identity(
     const Sm87MacroFeedV4PanelWavefrontPlan& plan,
     const kernels::Sm87MacroFeedV4NvFp4GateUpCudaResources& gate_up,
     const kernels::Sm87MacroFeedV4NvFp4DownCudaResources& down,
+    const std::uint64_t bf16_ab_binding_catalog_identity,
+    const kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot&
+        bf16_ab,
     const std::size_t sources) noexcept {
   const std::uint64_t plan_identity =
       compute_deployment_plan_identity(plan);
@@ -505,14 +1148,17 @@ std::uint64_t Sm87MacroFeedV4P40StartupPackage::compute_package_identity(
   if (!access.attached() || access.owner_identity() == 0U ||
       access.allocation_identity() == 0U || access.device_identity() == 0U ||
       access.device_ordinal() < 0 || catalog_identity == 0U ||
-      plan_identity == 0U ||
+      plan_identity == 0U || bf16_ab_binding_catalog_identity == 0U ||
       sources != kSm87MacroFeedV4P40StartupPackageSources ||
       !gate_up.static_resource_gate_passed ||
       !down.static_resource_gate_passed ||
       !kernels::sm87_macrofeed_v4_nvfp4_gate_up_resource_gate(gate_up) ||
       !kernels::sm87_macrofeed_v4_nvfp4_down_resource_gate(down) ||
+      !kernels::sm87_macrofeed_v4_bf16_ab_admission_resource_gate(
+          bf16_ab) ||
       gate_up.device_ordinal != access.device_ordinal() ||
-      down.device_ordinal != access.device_ordinal()) {
+      down.device_ordinal != access.device_ordinal() ||
+      bf16_ab.device_ordinal != access.device_ordinal()) {
     return 0U;
   }
 
@@ -531,6 +1177,7 @@ std::uint64_t Sm87MacroFeedV4P40StartupPackage::compute_package_identity(
                  static_cast<std::uint64_t>(access.device_ordinal() + 1));
   identity = mix(identity, capabilities.size());
   identity = mix(identity, sources);
+  identity = mix(identity, bf16_ab_binding_catalog_identity);
   for (std::size_t index = 0U; index < capabilities.size(); ++index) {
     const auto& capability = capabilities[index];
     if (!capability.asset || capability.artifact_identity == 0U ||
@@ -604,6 +1251,7 @@ std::uint64_t Sm87MacroFeedV4P40StartupPackage::compute_package_identity(
   identity = mix(identity, down.static_resource_gate_passed);
   identity = mix(identity, down.numerical_contract_qualified);
   identity = mix(identity, down.production_dispatch_eligible);
+  identity = mix_bf16_ab_resource(identity, bf16_ab);
   return identity == 0U ? 0x5133'4d46'5634'504bULL : identity;
 }
 
@@ -612,7 +1260,10 @@ Sm87MacroFeedV4P40StartupPackage::mint_startup_seals(
     const std::uint64_t package_identity,
     const std::uint64_t plan_identity,
     const kernels::Sm87MacroFeedV4NvFp4GateUpCudaResources& gate_up,
-    const kernels::Sm87MacroFeedV4NvFp4DownCudaResources& down) noexcept {
+    const kernels::Sm87MacroFeedV4NvFp4DownCudaResources& down,
+    const std::uint64_t bf16_ab_binding_catalog_identity,
+    const kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot&
+        bf16_ab) noexcept {
   StartupSeals seals;
   seals.gate_up.package_identity = package_identity;
   seals.gate_up.deployment_plan_identity = plan_identity;
@@ -635,6 +1286,26 @@ Sm87MacroFeedV4P40StartupPackage::mint_startup_seals(
   seals.down.production_dispatch_eligible = false;
   seals.down.issuer_nonce_ = kDownSealIssuerNonce;
   seals.down.seal_identity = down_seal_identity(seals.down);
+
+  seals.bf16_ab.package_identity = package_identity;
+  seals.bf16_ab.deployment_plan_identity = plan_identity;
+  seals.bf16_ab.binding_catalog_identity =
+      bf16_ab_binding_catalog_identity;
+  seals.bf16_ab.tensor_count =
+      kSm87MacroFeedV4P40StartupPackageBf16AbTensors;
+  seals.bf16_ab.pair_count =
+      kSm87MacroFeedV4P40StartupPackageBf16AbPairs;
+  seals.bf16_ab.resources = bf16_ab;
+  seals.bf16_ab.canonical_natural_layer_order = true;
+  seals.bf16_ab.canonical_a_then_b_role_order = true;
+  seals.bf16_ab.complete_live_device_ranges = true;
+  seals.bf16_ab.issued_by_v4_package = true;
+  seals.bf16_ab.caller_resource_snapshot_accepted = false;
+  seals.bf16_ab.raw_pointer_exposed = false;
+  seals.bf16_ab.launcher_authority = false;
+  seals.bf16_ab.production_dispatch_eligible = false;
+  seals.bf16_ab.issuer_nonce_ = kBf16AbSealIssuerNonce;
+  seals.bf16_ab.seal_identity = bf16_ab_seal_identity(seals.bf16_ab);
   return seals;
 }
 
@@ -644,20 +1315,26 @@ bool Sm87MacroFeedV4P40StartupPackage::startup_seals_valid(
     const std::int32_t device_ordinal) noexcept {
   return package_identity != 0U && plan_identity != 0U &&
          device_ordinal >= 0 && seals.gate_up.valid() &&
-         seals.down.valid() &&
+         seals.down.valid() && seals.bf16_ab.valid() &&
          seals.gate_up.package_identity == package_identity &&
          seals.down.package_identity == package_identity &&
+         seals.bf16_ab.package_identity == package_identity &&
          seals.gate_up.deployment_plan_identity == plan_identity &&
          seals.down.deployment_plan_identity == plan_identity &&
+         seals.bf16_ab.deployment_plan_identity == plan_identity &&
+         seals.bf16_ab.binding_catalog_identity != 0U &&
          seals.gate_up.resources.device_ordinal == device_ordinal &&
-         seals.down.resources.device_ordinal == device_ordinal;
+         seals.down.resources.device_ordinal == device_ordinal &&
+         seals.bf16_ab.resources.device_ordinal == device_ordinal;
 }
 
 Sm87MacroFeedV4P40StartupPackageCreateResult
 Sm87MacroFeedV4P40StartupPackage::build_from_private_authority(
     ProjectionAccess access, Sm87MacroFeedV4PanelWavefrontPlan plan,
     kernels::Sm87MacroFeedV4NvFp4GateUpCudaResources gate_up,
-    kernels::Sm87MacroFeedV4NvFp4DownCudaResources down) noexcept {
+    kernels::Sm87MacroFeedV4NvFp4DownCudaResources down,
+    kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot bf16_ab,
+    const ModelWeights& model_weights) noexcept {
   CreateResult result;
   if (!access.attached() ||
       access.artifact_count() != kSm87MacroFeedV4P40StartupPackageArtifacts) {
@@ -679,8 +1356,49 @@ Sm87MacroFeedV4P40StartupPackage::build_from_private_authority(
     return result;
   }
   if (gate_up.device_ordinal != device_ordinal ||
-      down.device_ordinal != device_ordinal) {
+      down.device_ordinal != device_ordinal ||
+      bf16_ab.device_ordinal != device_ordinal) {
     result.status = failure(Error::kDeviceMismatch, "startup_seal_device");
+    return result;
+  }
+  if (!kernels::sm87_macrofeed_v4_bf16_ab_admission_resource_gate(
+          bf16_ab)) {
+    result.status =
+        failure(Error::kBf16AbResourceSeal, "bf16_ab_resource_gate");
+    return result;
+  }
+
+  std::array<Bf16AbPair,
+             kSm87MacroFeedV4P40StartupPackageBf16AbPairs>
+      bf16_ab_pairs{};
+  Sm87MacroFeedV4Bf16AbT0InventoryAudit bf16_ab_inventory;
+  int bf16_ab_cuda_error = 0;
+  std::size_t bf16_ab_failure_layer =
+      kSm87MacroFeedV4P40StartupPackageLayers;
+  if (!build_bf16_ab_pairs(model_weights, device_ordinal, &bf16_ab_pairs,
+                           &bf16_ab_inventory, &bf16_ab_cuda_error,
+                           &bf16_ab_failure_layer)) {
+    result.status = failure(
+        bf16_ab_cuda_error == 0 ? Error::kBf16AbModelInventory
+                               : Error::kBf16AbDeviceRange,
+        bf16_ab_cuda_error == 0 ? "bf16_ab_model_inventory"
+                                : "bf16_ab_live_device_range",
+        bf16_ab_cuda_error, bf16_ab_failure_layer);
+    return result;
+  }
+  if (bf16_ab_inventory.catalog_identity == 0U ||
+      bf16_ab_inventory.tensors !=
+          kSm87MacroFeedV4P40StartupPackageBf16AbTensors ||
+      bf16_ab_inventory.pairs !=
+          kSm87MacroFeedV4P40StartupPackageBf16AbPairs ||
+      !bf16_ab_inventory.canonical_natural_layer_order ||
+      !bf16_ab_inventory.canonical_a_then_b_role_order ||
+      !bf16_ab_inventory.exact_bf16_shapes ||
+      !bf16_ab_inventory.nonnull_16b_aligned_disjoint_ranges ||
+      !bf16_ab_inventory.live_cuda_device_ranges_validated ||
+      bf16_ab_inventory.execution_capability) {
+    result.status =
+        failure(Error::kBf16AbModelInventory, "bf16_ab_inventory_audit");
     return result;
   }
 
@@ -848,9 +1566,11 @@ Sm87MacroFeedV4P40StartupPackage::build_from_private_authority(
   }
 
   const std::uint64_t package_identity = compute_package_identity(
-      access, capabilities, plan, gate_up, down, sources);
+      access, capabilities, plan, gate_up, down,
+      bf16_ab_inventory.catalog_identity, bf16_ab, sources);
   StartupSeals seals = mint_startup_seals(
-      package_identity, plan_identity, gate_up, down);
+      package_identity, plan_identity, gate_up, down,
+      bf16_ab_inventory.catalog_identity, bf16_ab);
   if (package_identity == 0U ||
       !startup_seals_valid(seals, package_identity, plan_identity,
                            device_ordinal)) {
@@ -879,6 +1599,11 @@ Sm87MacroFeedV4P40StartupPackage::build_from_private_authority(
   audit.gdn_projection_assets = gdn_assets;
   audit.full_projection_assets = full_assets;
   audit.attention_output_assets = output_assets;
+  audit.bf16_ab_tensors = bf16_ab_inventory.tensors;
+  audit.bf16_ab_pairs = bf16_ab_inventory.pairs;
+  audit.bf16_ab_binding_catalog_identity =
+      bf16_ab_inventory.catalog_identity;
+  audit.bf16_ab_resource_seal_identity = seals.bf16_ab.seal_identity;
   audit.canonical_plan_generated_internally = true;
   audit.caller_plan_accepted = false;
   audit.complete_projection_access_retained = true;
@@ -888,6 +1613,14 @@ Sm87MacroFeedV4P40StartupPackage::build_from_private_authority(
   audit.authenticated_upload_readback_retained = true;
   audit.projection_bindings_complete = true;
   audit.nvfp4_startup_seals_complete = true;
+  audit.bf16_ab_nonowning_model_weights_dependency_bound = true;
+  audit.bf16_ab_projection_owner_identity_retained = true;
+  audit.bf16_ab_natural_layer_order_complete = true;
+  audit.bf16_ab_a_then_b_roles_complete = true;
+  audit.bf16_ab_live_device_ranges_complete = true;
+  audit.bf16_ab_resource_seal_complete = true;
+  audit.bf16_ab_private_capability_retained = true;
+  audit.bf16_ab_raw_pointer_publicly_exposed = false;
   audit.caller_raw_receipts_accepted = false;
   audit.v3_execution_identity_reused = false;
   audit.request_time_repack_jit_autotune_or_fallback_permitted = false;
@@ -910,9 +1643,21 @@ Sm87MacroFeedV4P40StartupPackage::build_from_private_authority(
     return result;
   }
 
+  Bf16AbStartupCapability bf16_ab_capability(
+      &model_weights, std::move(bf16_ab_pairs), bf16_ab,
+      bf16_ab_inventory.catalog_identity, package_identity, plan_identity,
+      owner_identity, allocation_identity, catalog_identity, device_identity,
+      device_ordinal, kBf16AbCapabilityIssuerNonce);
+  if (!bf16_ab_capability.valid(access)) {
+    result.status =
+        failure(Error::kBf16AbDeviceRange, "bf16_ab_capability_revalidation");
+    return result;
+  }
+
   auto package = std::unique_ptr<Package>(new (std::nothrow) Package(
-      std::move(access), std::move(capabilities), std::move(plan),
-      std::move(seals), audit));
+      std::move(access), std::move(capabilities),
+      std::move(bf16_ab_capability), std::move(plan), std::move(seals),
+      audit));
   if (!package) {
     result.status = failure(Error::kAllocationFailure, "package_allocation");
     return result;
@@ -1238,7 +1983,28 @@ bool Sm87MacroFeedV4P40StartupPackage::base_valid() const noexcept {
       plan_identity == 0U ||
       plan_identity != audit_.deployment_plan_identity ||
       !startup_seals_valid(seals_, audit_.package_identity, plan_identity,
-                           audit_.device_ordinal)) {
+                           audit_.device_ordinal) ||
+      !bf16_ab_capability_.valid(projection_access_) ||
+      bf16_ab_capability_.model_weights_ == nullptr ||
+      bf16_ab_capability_.catalog_identity_ !=
+          audit_.bf16_ab_binding_catalog_identity ||
+      bf16_ab_capability_.package_identity_ != audit_.package_identity ||
+      bf16_ab_capability_.deployment_plan_identity_ != plan_identity ||
+      bf16_ab_capability_.projection_owner_identity_ !=
+          audit_.owner_identity ||
+      bf16_ab_capability_.projection_allocation_identity_ !=
+          audit_.allocation_identity ||
+      bf16_ab_capability_.projection_catalog_identity_ !=
+          audit_.catalog_identity ||
+      bf16_ab_capability_.projection_device_identity_ !=
+          audit_.device_identity ||
+      bf16_ab_capability_.device_ordinal_ != audit_.device_ordinal ||
+      seals_.bf16_ab.binding_catalog_identity !=
+          audit_.bf16_ab_binding_catalog_identity ||
+      seals_.bf16_ab.seal_identity !=
+          audit_.bf16_ab_resource_seal_identity ||
+      !bf16_ab_resource_equal(seals_.bf16_ab.resources,
+                              bf16_ab_capability_.resources_)) {
     return false;
   }
 
@@ -1317,7 +2083,37 @@ bool Sm87MacroFeedV4P40StartupPackage::base_valid() const noexcept {
          audit_.package_identity == compute_package_identity(
                                         projection_access_, capabilities_,
                                         plan_, seals_.gate_up.resources,
-                                        seals_.down.resources, sources);
+                                        seals_.down.resources,
+                                        audit_.bf16_ab_binding_catalog_identity,
+                                        seals_.bf16_ab.resources, sources);
+}
+
+bool Sm87MacroFeedV4P40StartupPackage::
+    seal_bf16_ab_execution_catalog_for_execution_package(
+        Bf16AbExecutionBindingCatalog* const catalog) const noexcept {
+  if (catalog == nullptr) {
+    return false;
+  }
+  catalog->fill({});
+  // valid() performs the complete target-AOT, BF16 inventory, live-allocation
+  // and resource revalidation once at execution-package construction.  The
+  // resulting immutable catalog is retained under the same Engine lifetime
+  // root; request execution must not return through this seam.
+  if (!valid()) {
+    return false;
+  }
+  for (std::size_t ordinal = 0U;
+       ordinal < bf16_ab_capability_.pairs_.size(); ++ordinal) {
+    const auto& pair = bf16_ab_capability_.pairs_[ordinal];
+    if (pair.model_layer != gdn_model_layer(ordinal) ||
+        !model_layer_is_gdn(pair.model_layer) || pair.a_weights == nullptr ||
+        pair.b_weights == nullptr || pair.pair_identity == 0U) {
+      catalog->fill({});
+      return false;
+    }
+  }
+  *catalog = bf16_ab_capability_.pairs_;
+  return true;
 }
 
 bool Sm87MacroFeedV4P40StartupPackage::populate_projection_bindings()
@@ -1481,6 +2277,15 @@ bool Sm87MacroFeedV4P40StartupPackage::valid() const noexcept {
 }
 
 bool Sm87MacroFeedV4P40StartupPackage::base_valid() const noexcept {
+  return false;
+}
+
+bool Sm87MacroFeedV4P40StartupPackage::
+    seal_bf16_ab_execution_catalog_for_execution_package(
+        Bf16AbExecutionBindingCatalog* const catalog) const noexcept {
+  if (catalog != nullptr) {
+    catalog->fill({});
+  }
   return false;
 }
 

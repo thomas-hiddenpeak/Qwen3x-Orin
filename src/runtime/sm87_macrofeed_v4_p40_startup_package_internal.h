@@ -1,5 +1,6 @@
 #pragma once
 
+#include "q3x/kernels/sm87_macrofeed_v4_bf16_ab.h"
 #include "q3x/kernels/sm87_macrofeed_v4_nvfp4_down.h"
 #include "q3x/kernels/sm87_macrofeed_v4_nvfp4_gate_up.h"
 #include "q3x/runtime/sm87_macrofeed_v4_panel_wavefront_plan.h"
@@ -13,10 +14,15 @@
 #include <string_view>
 #include <utility>
 
+namespace q3x::runtime::sm87_macrofeed_v4_p40_execution_detail {
+class Sm87MacroFeedV4P40ExecutionPackage;
+}  // namespace q3x::runtime::sm87_macrofeed_v4_p40_execution_detail
+
 namespace q3x::runtime::sm87_macrofeed_v4_p40_startup_package_detail {
 
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) && \
-    defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION)
+    defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
 inline constexpr bool kSm87MacroFeedV4P40StartupPackageCompiled = true;
 #else
 inline constexpr bool kSm87MacroFeedV4P40StartupPackageCompiled = false;
@@ -28,7 +34,7 @@ inline constexpr std::array<std::uint8_t, 8U>
 inline constexpr std::uint16_t kSm87MacroFeedV4P40StartupPackageAbiMajor =
     1U;
 inline constexpr std::uint16_t kSm87MacroFeedV4P40StartupPackageAbiMinor =
-    0U;
+    1U;
 inline constexpr std::size_t kSm87MacroFeedV4P40StartupPackageLayers = 64U;
 inline constexpr std::size_t kSm87MacroFeedV4P40StartupPackageArtifacts =
     256U;
@@ -37,6 +43,10 @@ inline constexpr std::size_t kSm87MacroFeedV4P40StartupPackageGdnLayers =
     48U;
 inline constexpr std::size_t kSm87MacroFeedV4P40StartupPackageFullLayers =
     16U;
+inline constexpr std::size_t kSm87MacroFeedV4P40StartupPackageBf16AbPairs =
+    48U;
+inline constexpr std::size_t kSm87MacroFeedV4P40StartupPackageBf16AbTensors =
+    2U * kSm87MacroFeedV4P40StartupPackageBf16AbPairs;
 inline constexpr std::size_t kSm87MacroFeedV4MaximumTensorScales =
     kernels::kSm87TargetAotFp8CudaMaximumTensorScales;
 
@@ -52,11 +62,66 @@ enum class Sm87MacroFeedV4P40StartupPackageError : std::uint8_t {
   kProjectionInventory,
   kGateUpStartupSeal,
   kDownStartupSeal,
+  kBf16AbModelInventory,
+  kBf16AbResourceSeal,
+  kBf16AbDeviceRange,
   kDeviceMismatch,
   kPackageIdentity,
   kBindingConstruction,
   kAllocationFailure,
 };
+
+enum class Sm87MacroFeedV4Bf16AbWeightRole : std::uint8_t {
+  kInvalid = 0U,
+  kA,
+  kB,
+};
+
+// Caller-fillable T0 input.  It lets host tests exercise the natural layer,
+// dtype, shape, role and range-order rules without pretending that a fake
+// address is a CUDA allocation.  The returned audit below is diagnostic only
+// and can never construct the package's private startup capability.
+struct Sm87MacroFeedV4Bf16AbT0TensorDescriptor final {
+  std::size_t gdn_ordinal =
+      kSm87MacroFeedV4P40StartupPackageBf16AbPairs;
+  std::size_t model_layer = kSm87MacroFeedV4P40StartupPackageLayers;
+  Sm87MacroFeedV4Bf16AbWeightRole role =
+      Sm87MacroFeedV4Bf16AbWeightRole::kInvalid;
+  LinearWeightKind weight_kind = LinearWeightKind::kFp8;
+  const std::uint16_t* weight = nullptr;
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+};
+
+struct Sm87MacroFeedV4Bf16AbT0InventoryAudit final {
+  std::uint64_t catalog_identity = 0U;
+  std::size_t tensors = 0U;
+  std::size_t pairs = 0U;
+  std::size_t failure_index =
+      kSm87MacroFeedV4P40StartupPackageBf16AbTensors;
+  bool canonical_natural_layer_order = false;
+  bool canonical_a_then_b_role_order = false;
+  bool exact_bf16_shapes = false;
+  bool nonnull_16b_aligned_disjoint_ranges = false;
+  bool live_cuda_device_ranges_validated = true;
+  bool execution_capability = true;
+
+  [[nodiscard]] constexpr bool valid_t0() const noexcept {
+    return catalog_identity != 0U &&
+           tensors == kSm87MacroFeedV4P40StartupPackageBf16AbTensors &&
+           pairs == kSm87MacroFeedV4P40StartupPackageBf16AbPairs &&
+           failure_index ==
+               kSm87MacroFeedV4P40StartupPackageBf16AbTensors &&
+           canonical_natural_layer_order && canonical_a_then_b_role_order &&
+           exact_bf16_shapes && nonnull_16b_aligned_disjoint_ranges &&
+           !live_cuda_device_ranges_validated && !execution_capability;
+  }
+};
+
+[[nodiscard]] Sm87MacroFeedV4Bf16AbT0InventoryAudit
+inspect_sm87_macrofeed_v4_bf16_ab_t0_inventory(
+    const Sm87MacroFeedV4Bf16AbT0TensorDescriptor* tensors,
+    std::size_t tensor_count) noexcept;
 
 struct Sm87MacroFeedV4P40StartupPackageStatus final {
   Sm87MacroFeedV4P40StartupPackageError error =
@@ -139,6 +204,43 @@ class Sm87MacroFeedV4DownStartupSeal final {
   friend class Sm87MacroFeedV4P40StartupPackage;
 };
 
+class Sm87MacroFeedV4Bf16AbStartupSeal final {
+ public:
+  Sm87MacroFeedV4Bf16AbStartupSeal(
+      const Sm87MacroFeedV4Bf16AbStartupSeal&) = delete;
+  Sm87MacroFeedV4Bf16AbStartupSeal& operator=(
+      const Sm87MacroFeedV4Bf16AbStartupSeal&) = delete;
+  ~Sm87MacroFeedV4Bf16AbStartupSeal() noexcept { issuer_nonce_ = 0U; }
+
+  std::uint64_t seal_identity = 0U;
+  std::uint64_t package_identity = 0U;
+  std::uint64_t deployment_plan_identity = 0U;
+  std::uint64_t binding_catalog_identity = 0U;
+  std::size_t tensor_count = 0U;
+  std::size_t pair_count = 0U;
+  kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot resources{};
+  bool canonical_natural_layer_order = false;
+  bool canonical_a_then_b_role_order = false;
+  bool complete_live_device_ranges = false;
+  bool issued_by_v4_package = false;
+  bool caller_resource_snapshot_accepted = true;
+  bool raw_pointer_exposed = true;
+  bool launcher_authority = true;
+  bool production_dispatch_eligible = true;
+
+  [[nodiscard]] bool valid() const noexcept;
+
+ private:
+  Sm87MacroFeedV4Bf16AbStartupSeal() = default;
+  Sm87MacroFeedV4Bf16AbStartupSeal(
+      Sm87MacroFeedV4Bf16AbStartupSeal&&) noexcept = default;
+  Sm87MacroFeedV4Bf16AbStartupSeal& operator=(
+      Sm87MacroFeedV4Bf16AbStartupSeal&&) noexcept = default;
+  std::uint64_t issuer_nonce_ = 0U;
+
+  friend class Sm87MacroFeedV4P40StartupPackage;
+};
+
 // Capability-free diagnostic record.  It intentionally makes every missing
 // V4 dependency observable; copying it cannot grant an asset or launch.
 struct Sm87MacroFeedV4P40StartupPackageAudit final {
@@ -162,6 +264,10 @@ struct Sm87MacroFeedV4P40StartupPackageAudit final {
   std::size_t gdn_projection_assets = 0U;
   std::size_t full_projection_assets = 0U;
   std::size_t attention_output_assets = 0U;
+  std::size_t bf16_ab_tensors = 0U;
+  std::size_t bf16_ab_pairs = 0U;
+  std::uint64_t bf16_ab_binding_catalog_identity = 0U;
+  std::uint64_t bf16_ab_resource_seal_identity = 0U;
   bool canonical_plan_generated_internally = false;
   bool caller_plan_accepted = true;
   bool complete_projection_access_retained = false;
@@ -171,6 +277,14 @@ struct Sm87MacroFeedV4P40StartupPackageAudit final {
   bool authenticated_upload_readback_retained = false;
   bool projection_bindings_complete = false;
   bool nvfp4_startup_seals_complete = false;
+  bool bf16_ab_nonowning_model_weights_dependency_bound = false;
+  bool bf16_ab_projection_owner_identity_retained = false;
+  bool bf16_ab_natural_layer_order_complete = false;
+  bool bf16_ab_a_then_b_roles_complete = false;
+  bool bf16_ab_live_device_ranges_complete = false;
+  bool bf16_ab_resource_seal_complete = false;
+  bool bf16_ab_private_capability_retained = false;
+  bool bf16_ab_raw_pointer_publicly_exposed = true;
   bool caller_raw_receipts_accepted = true;
   bool v3_execution_identity_reused = true;
   bool request_time_repack_jit_autotune_or_fallback_permitted = true;
@@ -210,12 +324,26 @@ struct Sm87MacroFeedV4P40StartupPackageAudit final {
                kSm87MacroFeedV4P40StartupPackageFullLayers &&
            attention_output_assets ==
                kSm87MacroFeedV4P40StartupPackageLayers &&
+           bf16_ab_tensors ==
+               kSm87MacroFeedV4P40StartupPackageBf16AbTensors &&
+           bf16_ab_pairs ==
+               kSm87MacroFeedV4P40StartupPackageBf16AbPairs &&
+           bf16_ab_binding_catalog_identity != 0U &&
+           bf16_ab_resource_seal_identity != 0U &&
            canonical_plan_generated_internally && !caller_plan_accepted &&
            complete_projection_access_retained && catalog_revalidated &&
            typed_capabilities_retained &&
            authenticated_source_manifests_retained &&
            authenticated_upload_readback_retained &&
            projection_bindings_complete && nvfp4_startup_seals_complete &&
+           bf16_ab_nonowning_model_weights_dependency_bound &&
+           bf16_ab_projection_owner_identity_retained &&
+           bf16_ab_natural_layer_order_complete &&
+           bf16_ab_a_then_b_roles_complete &&
+           bf16_ab_live_device_ranges_complete &&
+           bf16_ab_resource_seal_complete &&
+           bf16_ab_private_capability_retained &&
+           !bf16_ab_raw_pointer_publicly_exposed &&
            !caller_raw_receipts_accepted && !v3_execution_identity_reused &&
            !request_time_repack_jit_autotune_or_fallback_permitted &&
            !fp8_executor_bound && !gdn_executor_bound &&
@@ -367,6 +495,13 @@ class Sm87MacroFeedV4ProjectionStartupBinding final {
   Snapshot snapshot_{};
 };
 
+// This package is an immutable, non-owning lifetime dependency.  Engine
+// teardown must destroy any future execution package first, this startup
+// package second, and the exact ModelWeights/ResidentWeights root last.  A
+// future execution package must retain this package.  During construction it
+// seals the complete 48-pair catalog into private immutable launch bindings;
+// request execution reuses those bindings without CUDA queries or catalog
+// rescans.  Their pointers never leave the Engine-owned lifetime root.
 class Sm87MacroFeedV4P40StartupPackage final {
  public:
   using ProjectionAccess =
@@ -409,6 +544,10 @@ class Sm87MacroFeedV4P40StartupPackage final {
   down_startup_seal() const noexcept {
     return seals_.down;
   }
+  [[nodiscard]] const Sm87MacroFeedV4Bf16AbStartupSeal&
+  bf16_ab_startup_seal() const noexcept {
+    return seals_.bf16_ab;
+  }
   [[nodiscard]] const Sm87MacroFeedV4ProjectionStartupBinding*
   borrow_projection_startup_binding(
       std::size_t layer_index,
@@ -417,6 +556,70 @@ class Sm87MacroFeedV4P40StartupPackage final {
       ProjectionStartupBindingCatalog* catalog) const noexcept;
 
  private:
+  struct Bf16AbPair final {
+    std::uint32_t model_layer =
+        static_cast<std::uint32_t>(
+            kSm87MacroFeedV4P40StartupPackageLayers);
+    const std::uint16_t* a_weights = nullptr;
+    const std::uint16_t* b_weights = nullptr;
+    std::uint64_t pair_identity = 0U;
+  };
+
+  using Bf16AbExecutionBindingCatalog =
+      std::array<Bf16AbPair,
+                 kSm87MacroFeedV4P40StartupPackageBf16AbPairs>;
+
+  class Bf16AbStartupCapability;
+
+  // Non-owning startup capability.  It is meaningful only while the exact
+  // ModelWeights object and its resident allocation remain alive.  No public
+  // method returns this object or one of its pointers.  The future execution
+  // package may seal the complete canonical catalog once during construction;
+  // it cannot choose a caller role, layer, pointer or offset.
+  class Bf16AbStartupCapability final {
+   public:
+    Bf16AbStartupCapability() = default;
+    Bf16AbStartupCapability(const Bf16AbStartupCapability&) = delete;
+    Bf16AbStartupCapability& operator=(const Bf16AbStartupCapability&) =
+        delete;
+    Bf16AbStartupCapability(Bf16AbStartupCapability&& other) noexcept;
+    Bf16AbStartupCapability& operator=(Bf16AbStartupCapability&&) = delete;
+    ~Bf16AbStartupCapability() noexcept;
+
+   private:
+    Bf16AbStartupCapability(
+        const ModelWeights* model_weights,
+        std::array<Bf16AbPair,
+                   kSm87MacroFeedV4P40StartupPackageBf16AbPairs>
+            pairs,
+        kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot resources,
+        std::uint64_t catalog_identity, std::uint64_t package_identity,
+        std::uint64_t deployment_plan_identity,
+        std::uint64_t projection_owner_identity,
+        std::uint64_t projection_allocation_identity,
+        std::uint64_t projection_catalog_identity,
+        std::uint64_t projection_device_identity,
+        std::int32_t device_ordinal, std::uint64_t issuer_nonce) noexcept;
+
+    [[nodiscard]] bool valid(const ProjectionAccess& access) const noexcept;
+    const ModelWeights* model_weights_ = nullptr;
+    std::array<Bf16AbPair,
+               kSm87MacroFeedV4P40StartupPackageBf16AbPairs>
+        pairs_{};
+    kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot resources_{};
+    std::uint64_t catalog_identity_ = 0U;
+    std::uint64_t package_identity_ = 0U;
+    std::uint64_t deployment_plan_identity_ = 0U;
+    std::uint64_t projection_owner_identity_ = 0U;
+    std::uint64_t projection_allocation_identity_ = 0U;
+    std::uint64_t projection_catalog_identity_ = 0U;
+    std::uint64_t projection_device_identity_ = 0U;
+    std::int32_t device_ordinal_ = -1;
+    std::uint64_t issuer_nonce_ = 0U;
+
+    friend class Sm87MacroFeedV4P40StartupPackage;
+  };
+
   struct AssetCapability final {
     std::optional<ProjectionAsset> asset;
     std::size_t layer_index = kSm87MacroFeedV4P40StartupPackageLayers;
@@ -440,12 +643,15 @@ class Sm87MacroFeedV4P40StartupPackage final {
   struct StartupSeals final {
     Sm87MacroFeedV4GateUpStartupSeal gate_up{};
     Sm87MacroFeedV4DownStartupSeal down{};
+    Sm87MacroFeedV4Bf16AbStartupSeal bf16_ab{};
 
     StartupSeals() = default;
     StartupSeals(const StartupSeals&) = delete;
     StartupSeals& operator=(const StartupSeals&) = delete;
     StartupSeals(StartupSeals&& other) noexcept
-        : gate_up(std::move(other.gate_up)), down(std::move(other.down)) {}
+        : gate_up(std::move(other.gate_up)),
+          down(std::move(other.down)),
+          bf16_ab(std::move(other.bf16_ab)) {}
     StartupSeals& operator=(StartupSeals&&) = delete;
   };
 
@@ -453,6 +659,7 @@ class Sm87MacroFeedV4P40StartupPackage final {
       ProjectionAccess access,
       std::array<AssetCapability,
                  kSm87MacroFeedV4P40StartupPackageArtifacts> capabilities,
+      Bf16AbStartupCapability bf16_ab_capability,
       Sm87MacroFeedV4PanelWavefrontPlan plan, StartupSeals seals,
       Sm87MacroFeedV4P40StartupPackageAudit audit) noexcept;
 
@@ -466,11 +673,17 @@ class Sm87MacroFeedV4P40StartupPackage final {
       const Sm87MacroFeedV4PanelWavefrontPlan& plan,
       const kernels::Sm87MacroFeedV4NvFp4GateUpCudaResources& gate_up,
       const kernels::Sm87MacroFeedV4NvFp4DownCudaResources& down,
+      std::uint64_t bf16_ab_binding_catalog_identity,
+      const kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot&
+          bf16_ab,
       std::size_t sources) noexcept;
   [[nodiscard]] static StartupSeals mint_startup_seals(
       std::uint64_t package_identity, std::uint64_t plan_identity,
       const kernels::Sm87MacroFeedV4NvFp4GateUpCudaResources& gate_up,
-      const kernels::Sm87MacroFeedV4NvFp4DownCudaResources& down) noexcept;
+      const kernels::Sm87MacroFeedV4NvFp4DownCudaResources& down,
+      std::uint64_t bf16_ab_binding_catalog_identity,
+      const kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot&
+          bf16_ab) noexcept;
   [[nodiscard]] static bool startup_seals_valid(
       const StartupSeals& seals, std::uint64_t package_identity,
       std::uint64_t plan_identity, std::int32_t device_ordinal) noexcept;
@@ -478,12 +691,25 @@ class Sm87MacroFeedV4P40StartupPackage final {
   build_from_private_authority(
       ProjectionAccess access, Sm87MacroFeedV4PanelWavefrontPlan plan,
       kernels::Sm87MacroFeedV4NvFp4GateUpCudaResources gate_up,
-      kernels::Sm87MacroFeedV4NvFp4DownCudaResources down) noexcept;
+      kernels::Sm87MacroFeedV4NvFp4DownCudaResources down,
+      kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot bf16_ab,
+      const ModelWeights& model_weights) noexcept;
+  [[nodiscard]] static bool build_bf16_ab_pairs(
+      const ModelWeights& model_weights, std::int32_t device_ordinal,
+      std::array<Bf16AbPair,
+                 kSm87MacroFeedV4P40StartupPackageBf16AbPairs>* pairs,
+      Sm87MacroFeedV4Bf16AbT0InventoryAudit* inventory,
+      int* cuda_error, std::size_t* failure_layer) noexcept;
   [[nodiscard]] const AssetCapability* capability(
       std::size_t layer_index,
       kernels::Sm87TargetAotProjectionRole role) const noexcept;
   [[nodiscard]] bool base_valid() const noexcept;
   [[nodiscard]] bool populate_projection_bindings() noexcept;
+  // Construction-only seam for the future Engine-owned execution package.
+  // It performs the expensive live catalog/resource validation once, then
+  // returns all 48 immutable bindings together.  No request path may call it.
+  [[nodiscard]] bool seal_bf16_ab_execution_catalog_for_execution_package(
+      Bf16AbExecutionBindingCatalog* catalog) const noexcept;
   [[nodiscard]] std::optional<Sm87MacroFeedV4ProjectionStartupBinding>
   make_projection_binding(
       std::size_t layer_index,
@@ -492,12 +718,16 @@ class Sm87MacroFeedV4P40StartupPackage final {
   ProjectionAccess projection_access_;
   std::array<AssetCapability, kSm87MacroFeedV4P40StartupPackageArtifacts>
       capabilities_{};
+  Bf16AbStartupCapability bf16_ab_capability_{};
   Sm87MacroFeedV4PanelWavefrontPlan plan_{};
   StartupSeals seals_{};
   Sm87MacroFeedV4P40StartupPackageAudit audit_{};
   std::array<std::optional<Sm87MacroFeedV4ProjectionStartupBinding>,
              kSm87MacroFeedV4P40StartupPackageArtifacts>
       projection_bindings_{};
+
+  friend class sm87_macrofeed_v4_p40_execution_detail::
+      Sm87MacroFeedV4P40ExecutionPackage;
 };
 
 static_assert(kSm87MacroFeedV4P40StartupPackageLayers ==
@@ -506,5 +736,8 @@ static_assert(kSm87MacroFeedV4P40StartupPackageArtifacts ==
               kSm87TargetAotCompleteProjectionDeviceArtifactCount);
 static_assert(kSm87MacroFeedV4P40StartupPackageSources ==
               kSm87TargetAotCompleteProjectionDeviceSourceCount);
+static_assert(kSm87MacroFeedV4P40StartupPackageBf16AbPairs ==
+              kSm87MacroFeedV4P40StartupPackageGdnLayers);
+static_assert(kSm87MacroFeedV4P40StartupPackageBf16AbTensors == 96U);
 
 }  // namespace q3x::runtime::sm87_macrofeed_v4_p40_startup_package_detail

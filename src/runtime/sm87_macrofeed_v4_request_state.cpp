@@ -401,6 +401,37 @@ Sm87MacroFeedV4RequestState::validate_access(
   return ok();
 }
 
+Sm87MacroFeedV4RequestStateStatus
+Sm87MacroFeedV4RequestState::validate_execution_begin_access(
+    const Sm87MacroFeedV4RequestStateSealedAccess& access,
+    const std::uint64_t expected_engine_owner_identity,
+    std::uint64_t* const allocation_identity,
+    std::uint64_t* const request_epoch) const noexcept {
+  const std::lock_guard<std::mutex> lock(owner_mutex_);
+  const auto capability = validate_access(access);
+  if (!capability) {
+    return capability;
+  }
+  if (expected_engine_owner_identity == 0U ||
+      state_.owner_identity != expected_engine_owner_identity) {
+    return fail(Sm87MacroFeedV4RequestStateError::kCapabilityMismatch,
+                "execution_owner_identity_mismatch");
+  }
+  if (state_.phase !=
+          Sm87MacroFeedV4RequestStatePhase::kAdmittedPrivate ||
+      state_.request_epoch == 0U || state_.allocation_identity == 0U) {
+    return fail(Sm87MacroFeedV4RequestStateError::kInvalidTransition,
+                "execution_begin_requires_admitted_private_request");
+  }
+  if (allocation_identity == nullptr || request_epoch == nullptr) {
+    return fail(Sm87MacroFeedV4RequestStateError::kInvalidTransition,
+                "execution_begin_outputs_required");
+  }
+  *allocation_identity = state_.allocation_identity;
+  *request_epoch = state_.request_epoch;
+  return ok();
+}
+
 Sm87MacroFeedV4RequestEventReceipt
 Sm87MacroFeedV4RequestState::mint_event_receipt(
     const Sm87MacroFeedV4RequestEventKind kind) noexcept {

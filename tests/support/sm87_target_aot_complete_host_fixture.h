@@ -336,6 +336,44 @@ Sm87TargetAotCompleteProjectionExecutionAccess::
 }
 
 bool Sm87TargetAotCompleteProjectionExecutionAccess::
+    install_complete_host_test_bf16_ab_pairs(
+        ModelWeights& model_weights,
+        const Sm87TargetAotCompleteHostTestBf16AbPair* const pairs,
+        const std::size_t pair_count) noexcept {
+  if ((pairs == nullptr && pair_count != 0U) ||
+      pair_count > kQwen36LinearAttentionLayerCount ||
+      model_weights.target_aot_complete_projection_attachment_.owner ==
+          nullptr ||
+      model_weights.target_aot_complete_projection_attachment_.owner
+              ->prepared_model_weights_ != &model_weights) {
+    return false;
+  }
+
+  for (std::size_t model_layer = 0U;
+       model_layer < kQwen36DenseLayerCount; ++model_layer) {
+    model_weights.layers_[model_layer].attention =
+        sm87_target_aot_complete_is_full_layer(model_layer)
+            ? AttentionWeights{FullAttentionWeights{}}
+            : AttentionWeights{LinearAttentionWeights{}};
+  }
+  for (std::size_t ordinal = 0U; ordinal < pair_count; ++ordinal) {
+    const std::size_t model_layer = ordinal + ordinal / 3U;
+    if (model_layer >= kQwen36DenseLayerCount ||
+        sm87_target_aot_complete_is_full_layer(model_layer)) {
+      return false;
+    }
+    auto* const linear = std::get_if<LinearAttentionWeights>(
+        &model_weights.layers_[model_layer].attention);
+    if (linear == nullptr) {
+      return false;
+    }
+    linear->in_proj_a = pairs[ordinal].a;
+    linear->in_proj_b = pairs[ordinal].b;
+  }
+  return true;
+}
+
+bool Sm87TargetAotCompleteProjectionExecutionAccess::
     poison_host_test_fixture_receipt(
         Owner& owner, const std::size_t layer_index,
         const Role role) noexcept {

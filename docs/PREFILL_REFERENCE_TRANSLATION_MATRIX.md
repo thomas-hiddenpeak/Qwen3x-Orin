@@ -566,11 +566,17 @@ two-stage M64N96K64 body, executes one 125-CTA C8000 grid, and writes A/B
 directly to scratch `[16384,16480)`; its M64 compact-versus-strided oracle is
 bitwise equal and it owns no compact bridge, tail, or runtime tactic choice.
 The package's typed bindings and V4-local resource seals are startup ownership
-facts only; they expose no launcher. The 48 real BF16 A/B pairs, device event
-composition, private binding and full-K qualification of FP8, private binding
-and full-C8000 qualification of exact GDN and Attention, whole-model receipt,
-rollback, finalizer, and API launcher must compose before V4 is runnable or
-eligible for a P40 witness.
+facts only; they expose no launcher. It now binds all 48 real BF16 A/B pairs
+and permits the future execution package to seal the complete catalog once at
+construction; request execution may neither rescan `ModelWeights` nor repeat
+CUDA/catalog queries. A separate private owner now owns three nonblocking
+streams and nine events and enforces the five-panel, 48-AB-cycle-per-panel
+dependency graph without per-panel host observation. That owner and the
+startup package are not yet composed, and no admitted kernel body consumes
+their private capabilities. Private binding and full-K qualification of FP8,
+private binding and full-C8000 qualification of BF16 A/B, exact GDN and
+Attention, whole-model receipt, rollback, finalizer, and API launcher must
+compose before V4 is runnable or eligible for a P40 witness.
 
 The fixed Attention handoff now retains the FP8 projection's native
 `[Q256, Gate256]` head interleave. Q preprocessing and exact Attention both
