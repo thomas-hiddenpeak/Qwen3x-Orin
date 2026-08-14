@@ -287,6 +287,13 @@ inline constexpr std::string_view
 // execution chain. It is never inferred from a projection/Attention tactic.
 inline constexpr std::string_view kSm87TargetAotP40DeploymentPlanId =
     "q3x.sm87.target-aot.exact-p40000-one-token.v1";
+// Default-off complete-engine direction witness for the independent V2
+// owner/composition/executor transaction.  This identity deliberately does
+// not assert numerical qualification or production eligibility.
+inline constexpr std::string_view
+    kSm87BulkV2P40DirectionWitnessDeploymentPlanId =
+        "q3x.sm87.bulk-dataflow-v2.exact-p40000-one-token."
+        "direction-witness.v1";
 
 [[nodiscard]] constexpr bool is_valid_reference_prefill_execution_mode(
     const ReferencePrefillExecutionMode mode) noexcept {
@@ -480,6 +487,61 @@ struct ReferenceTraceDigest {
   std::string final_norm_sha256;
 };
 
+// Capability-free copy of the terminal V2 owner receipt.  It is populated
+// only after the independent exact-P40000 executor has completed and the
+// ReferenceEngine has verified the full no-fallback transaction.  These
+// fields are evidence, never dispatch authority; in particular the current
+// direction witness remains accuracy-unqualified and non-production.
+struct ReferenceSm87BulkV2P40ReceiptEvidence final {
+  std::uint16_t abi_major = 0U;
+  std::uint16_t abi_minor = 0U;
+  std::uint64_t request_epoch = 0U;
+  std::uint64_t deployment_identity = 0U;
+  std::uint64_t model_identity = 0U;
+  std::uint64_t allocation_identity = 0U;
+  std::uint64_t stream_event_owner_identity = 0U;
+  std::uint64_t asset_catalog_identity = 0U;
+  std::uint64_t completed_layers = 0U;
+  std::uint64_t completed_gdn_layers = 0U;
+  std::uint64_t completed_full_layers = 0U;
+  std::uint64_t logical_projection_roles = 0U;
+  std::uint64_t fused_outer_operations = 0U;
+  std::uint64_t projection_conventional_operations = 0U;
+  std::uint64_t fp8_whole_role_launches = 0U;
+  std::uint64_t nvfp4_whole_role_launches = 0U;
+  std::uint64_t bf16_ab_physical_launches = 0U;
+  std::uint64_t attention_launches = 0U;
+  std::uint64_t attention_preprocess_panels = 0U;
+  std::uint64_t bf16_ab_launches = 0U;
+  std::uint64_t gdn_producer_chunks = 0U;
+  std::uint64_t gdn_recurrence_chunks = 0U;
+  std::uint64_t gdn_epilogue_chunks = 0U;
+  std::uint64_t gdn_persistent_copies = 0U;
+  std::uint64_t final_norm_launches = 0U;
+  std::uint64_t lm_head_launches = 0U;
+  std::uint64_t argmax_launches = 0U;
+  std::uint64_t handoff_d2h_operations = 0U;
+  std::uint64_t terminal_host_waits = 0U;
+  std::uint64_t terminal_host_drains = 0U;
+  std::uint64_t device_ordering_operations = 0U;
+  std::uint64_t request_hot_static_cuda_queries = 0U;
+  std::uint32_t joined_auxiliary_stream_mask = 0U;
+  std::uint16_t handoff_value_bits = 0U;
+  bool receipt_exact = false;
+  bool lifecycle_completed = false;
+  bool all_streams_drained = false;
+  bool state_committed = false;
+  bool handoff_observed = false;
+  bool owner_bound_capability_used = false;
+  bool direction_witness_identity = false;
+  bool exact_numerical_contract_qualified = false;
+  bool production_dispatch_eligible = false;
+  bool used_fallback = false;
+  bool used_mtp = false;
+  bool used_cublaslt = false;
+  bool used_request_jit_repack_or_autotune = false;
+};
+
 struct ReferenceGeneration {
   std::string rendered_prompt;
   std::vector<std::uint32_t> prompt_token_ids;
@@ -622,6 +684,9 @@ struct ReferenceGeneration {
       prefill_vllm_marlin_parity_layer_completion_receipts{};
   std::size_t
       prefill_vllm_marlin_parity_layer_completion_receipt_count = 0U;
+  // Append-only complete-engine evidence for sm87-bulk-v2-p40.  Legacy and
+  // target-AOT-v1 results retain the all-zero default.
+  ReferenceSm87BulkV2P40ReceiptEvidence bulk_v2_p40_receipt;
 };
 
 struct ReferenceEngineLoadStats {
