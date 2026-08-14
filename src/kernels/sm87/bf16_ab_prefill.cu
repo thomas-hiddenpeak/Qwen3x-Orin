@@ -1,8 +1,13 @@
+#if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_bf16_ab_prefill.h"
 
 #include "q3x/kernels/reference_gemv.h"
 
 #include "sm87_target_aot_bf16_ab_launch_internal.h"
+#endif
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
+#include "q3x/kernels/sm87_macrofeed_v4_bf16_ab.h"
+#endif
 
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -51,6 +56,7 @@ struct alignas(32) PipelineStorage final {
 
 constexpr std::size_t kDynamicSharedBytes = sizeof(PipelineStorage);
 static_assert(kDynamicSharedBytes == 46'080U);
+#if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
 static_assert(kThreads == kSm87Bf16AbPromptWideP40Threads);
 static_assert(kRowsPerProjection ==
               kSm87Bf16AbPromptWideP40RowsPerProjection);
@@ -58,6 +64,17 @@ static_assert(kColumns == kSm87Bf16AbPromptWideP40InputFeatures);
 static_assert(kTokenTile == kSm87Bf16AbPromptWideP40TileTokens);
 static_assert(kDynamicSharedBytes ==
               kSm87Bf16AbPromptWideP40DynamicSharedBytes);
+#endif
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
+static_assert(kThreads == kSm87MacroFeedV4Bf16AbThreads);
+static_assert(kRowsPerProjection ==
+              kSm87MacroFeedV4Bf16AbRowsPerProjection);
+static_assert(kLogicalRows == kSm87MacroFeedV4Bf16AbLogicalRows);
+static_assert(kColumns == kSm87MacroFeedV4Bf16AbInputFeatures);
+static_assert(kTokenTile == kSm87MacroFeedV4Bf16AbTileTokens);
+static_assert(kDynamicSharedBytes ==
+              kSm87MacroFeedV4Bf16AbDynamicSharedBytes);
+#endif
 
 struct InlineM16K16Activation final {
   std::uint32_t x0;
@@ -78,6 +95,7 @@ struct InlineM16N8Accumulator final {
   float x3;
 };
 
+#if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
 [[nodiscard]] bool pointer_is_aligned(const void* const pointer,
                                       const std::size_t alignment) noexcept {
   return pointer != nullptr &&
@@ -108,6 +126,7 @@ struct InlineM16N8Accumulator final {
   return first_begin < second_begin + second_bytes &&
          second_begin < first_begin + first_bytes;
 }
+#endif
 
 __device__ __forceinline__ void cp_async_cg_shared_global_16(
     void* const destination, const void* const source) {
@@ -374,8 +393,499 @@ void bf16_ab_prefill_m64_n96_k64_kernel(
   return static_cast<int>(cudaErrorInvalidValue);
 }
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
+[[nodiscard]] bool macrofeed_v4_bf16_ab_structural_arguments_valid(
+    const std::uint16_t* const a_weights,
+    const std::uint16_t* const b_weights,
+    const std::uint16_t* const input,
+    const std::size_t token_count,
+    std::uint16_t* const scratch,
+    const std::size_t scratch_row_stride,
+    const void* const cuda_stream,
+    const bool production_extent) noexcept {
+  if ((production_extent &&
+       token_count != kSm87MacroFeedV4Bf16AbTokens) ||
+      (!production_extent &&
+       token_count != kSm87MacroFeedV4Bf16AbOracleTokens) ||
+      scratch_row_stride != kSm87MacroFeedV4Bf16AbScratchRowStride ||
+      cuda_stream == nullptr ||
+      !sm87_macrofeed_v4_bf16_ab_pointer_aligned(a_weights) ||
+      !sm87_macrofeed_v4_bf16_ab_pointer_aligned(b_weights) ||
+      !sm87_macrofeed_v4_bf16_ab_pointer_aligned(input) ||
+      !sm87_macrofeed_v4_bf16_ab_pointer_aligned(scratch)) {
+    return false;
+  }
+
+  const std::uint64_t input_bytes =
+      token_count * kSm87MacroFeedV4Bf16AbInputFeatures *
+      sizeof(std::uint16_t);
+  const std::uint64_t scratch_bytes =
+      token_count * scratch_row_stride * sizeof(std::uint16_t);
+  const Sm87MacroFeedV4Bf16AbByteRange ranges[] = {
+      sm87_macrofeed_v4_bf16_ab_byte_range(
+          a_weights, kSm87MacroFeedV4Bf16AbWeightBytes),
+      sm87_macrofeed_v4_bf16_ab_byte_range(
+          b_weights, kSm87MacroFeedV4Bf16AbWeightBytes),
+      sm87_macrofeed_v4_bf16_ab_byte_range(input, input_bytes),
+      sm87_macrofeed_v4_bf16_ab_byte_range(scratch, scratch_bytes),
+  };
+  for (std::size_t left = 0U; left < 4U; ++left) {
+    if (!ranges[left].valid) {
+      return false;
+    }
+    for (std::size_t right = left + 1U; right < 4U; ++right) {
+      if (!sm87_macrofeed_v4_bf16_ab_ranges_disjoint(
+              ranges[left], ranges[right])) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool macrofeed_v4_bf16_ab_compact_structural_arguments_valid(
+    const Sm87MacroFeedV4Bf16AbCompactOracleArguments& arguments) noexcept {
+  if (arguments.token_count != kSm87MacroFeedV4Bf16AbOracleTokens ||
+      arguments.cuda_stream == nullptr ||
+      !sm87_macrofeed_v4_bf16_ab_pointer_aligned(arguments.a_weights) ||
+      !sm87_macrofeed_v4_bf16_ab_pointer_aligned(arguments.b_weights) ||
+      !sm87_macrofeed_v4_bf16_ab_pointer_aligned(arguments.input) ||
+      !sm87_macrofeed_v4_bf16_ab_pointer_aligned(arguments.a_output) ||
+      !sm87_macrofeed_v4_bf16_ab_pointer_aligned(arguments.b_output)) {
+    return false;
+  }
+  constexpr std::uint64_t kInputBytes =
+      kSm87MacroFeedV4Bf16AbOracleTokens *
+      kSm87MacroFeedV4Bf16AbInputFeatures * sizeof(std::uint16_t);
+  constexpr std::uint64_t kOutputBytes =
+      kSm87MacroFeedV4Bf16AbOracleTokens *
+      kSm87MacroFeedV4Bf16AbRowsPerProjection * sizeof(std::uint16_t);
+  const Sm87MacroFeedV4Bf16AbByteRange ranges[] = {
+      sm87_macrofeed_v4_bf16_ab_byte_range(
+          arguments.a_weights, kSm87MacroFeedV4Bf16AbWeightBytes),
+      sm87_macrofeed_v4_bf16_ab_byte_range(
+          arguments.b_weights, kSm87MacroFeedV4Bf16AbWeightBytes),
+      sm87_macrofeed_v4_bf16_ab_byte_range(arguments.input, kInputBytes),
+      sm87_macrofeed_v4_bf16_ab_byte_range(arguments.a_output,
+                                           kOutputBytes),
+      sm87_macrofeed_v4_bf16_ab_byte_range(arguments.b_output,
+                                           kOutputBytes),
+  };
+  for (std::size_t left = 0U; left < 5U; ++left) {
+    if (!ranges[left].valid) {
+      return false;
+    }
+    for (std::size_t right = left + 1U; right < 5U; ++right) {
+      if (!sm87_macrofeed_v4_bf16_ab_ranges_disjoint(
+              ranges[left], ranges[right])) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] cudaError_t macrofeed_v4_bf16_ab_validate_device(
+    int* const device_ordinal, cudaDeviceProp* const properties) noexcept {
+  if (device_ordinal == nullptr || properties == nullptr) {
+    return cudaErrorInvalidValue;
+  }
+  *device_ordinal = -1;
+  *properties = {};
+  cudaError_t status = cudaGetDevice(device_ordinal);
+  if (status != cudaSuccess || *device_ordinal < 0) {
+    return status == cudaSuccess ? cudaErrorInvalidDevice : status;
+  }
+  status = cudaGetDeviceProperties(properties, *device_ordinal);
+  if (status != cudaSuccess) {
+    return status;
+  }
+  return properties->major == 8 && properties->minor == 7 &&
+                 properties->multiProcessorCount ==
+                     static_cast<int>(kSm87MacroFeedV4Bf16AbSmCount)
+             ? cudaSuccess
+             : cudaErrorNotSupported;
+}
+
+[[nodiscard]] bool macrofeed_v4_bf16_ab_device_allocation_range_owned(
+    const Sm87MacroFeedV4Bf16AbByteRange& range,
+    const int device_ordinal) noexcept {
+  if (!range.valid || range.begin == 0U || range.end <= range.begin ||
+      device_ordinal < 0) {
+    return false;
+  }
+  cudaPointerAttributes attributes{};
+  const auto* const pointer = reinterpret_cast<const void*>(range.begin);
+  if (cudaPointerGetAttributes(&attributes, pointer) != cudaSuccess ||
+      attributes.type != cudaMemoryTypeDevice ||
+      attributes.device != device_ordinal) {
+    return false;
+  }
+  CUdeviceptr allocation_base = 0U;
+  std::size_t allocation_bytes = 0U;
+  if (cuMemGetAddressRange(
+          &allocation_base, &allocation_bytes,
+          static_cast<CUdeviceptr>(range.begin)) != CUDA_SUCCESS ||
+      allocation_base == 0U || allocation_bytes == 0U) {
+    return false;
+  }
+  const auto allocation_begin =
+      static_cast<std::uintptr_t>(allocation_base);
+  if (allocation_bytes >
+      std::numeric_limits<std::uintptr_t>::max() - allocation_begin) {
+    return false;
+  }
+  const auto allocation_end = allocation_begin + allocation_bytes;
+  return range.begin >= allocation_begin && range.end <= allocation_end;
+}
+
+template <class Arguments>
+[[nodiscard]] bool macrofeed_v4_bf16_ab_device_ranges_owned(
+    const Arguments& arguments, const int device_ordinal) noexcept {
+  const std::uint64_t input_bytes =
+      arguments.token_count * kSm87MacroFeedV4Bf16AbInputFeatures *
+      sizeof(std::uint16_t);
+  const std::uint64_t scratch_bytes =
+      arguments.token_count * arguments.scratch_row_stride *
+      sizeof(std::uint16_t);
+  const Sm87MacroFeedV4Bf16AbByteRange ranges[] = {
+      sm87_macrofeed_v4_bf16_ab_byte_range(
+          arguments.a_weights, kSm87MacroFeedV4Bf16AbWeightBytes),
+      sm87_macrofeed_v4_bf16_ab_byte_range(
+          arguments.b_weights, kSm87MacroFeedV4Bf16AbWeightBytes),
+      sm87_macrofeed_v4_bf16_ab_byte_range(arguments.input, input_bytes),
+      sm87_macrofeed_v4_bf16_ab_byte_range(arguments.scratch,
+                                           scratch_bytes),
+  };
+  for (const auto& range : ranges) {
+    if (!macrofeed_v4_bf16_ab_device_allocation_range_owned(
+            range, device_ordinal)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool macrofeed_v4_bf16_ab_compact_device_ranges_owned(
+    const Sm87MacroFeedV4Bf16AbCompactOracleArguments& arguments,
+    const int device_ordinal) noexcept {
+  constexpr std::uint64_t kInputBytes =
+      kSm87MacroFeedV4Bf16AbOracleTokens *
+      kSm87MacroFeedV4Bf16AbInputFeatures * sizeof(std::uint16_t);
+  constexpr std::uint64_t kOutputBytes =
+      kSm87MacroFeedV4Bf16AbOracleTokens *
+      kSm87MacroFeedV4Bf16AbRowsPerProjection * sizeof(std::uint16_t);
+  const Sm87MacroFeedV4Bf16AbByteRange ranges[] = {
+      sm87_macrofeed_v4_bf16_ab_byte_range(
+          arguments.a_weights, kSm87MacroFeedV4Bf16AbWeightBytes),
+      sm87_macrofeed_v4_bf16_ab_byte_range(
+          arguments.b_weights, kSm87MacroFeedV4Bf16AbWeightBytes),
+      sm87_macrofeed_v4_bf16_ab_byte_range(arguments.input, kInputBytes),
+      sm87_macrofeed_v4_bf16_ab_byte_range(arguments.a_output,
+                                           kOutputBytes),
+      sm87_macrofeed_v4_bf16_ab_byte_range(arguments.b_output,
+                                           kOutputBytes),
+  };
+  for (const auto& range : ranges) {
+    if (!macrofeed_v4_bf16_ab_device_allocation_range_owned(
+            range, device_ordinal)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] constexpr bool macrofeed_v4_bf16_ab_resource_equal(
+    const Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot& left,
+    const Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot& right) noexcept {
+  return left.identity == right.identity &&
+         left.device_ordinal == right.device_ordinal &&
+         left.compute_major == right.compute_major &&
+         left.compute_minor == right.compute_minor &&
+         left.sm_count == right.sm_count &&
+         left.binary_version == right.binary_version &&
+         left.registers_per_thread == right.registers_per_thread &&
+         left.static_shared_bytes == right.static_shared_bytes &&
+         left.dynamic_shared_bytes == right.dynamic_shared_bytes &&
+         left.local_bytes == right.local_bytes &&
+         left.maximum_threads_per_block == right.maximum_threads_per_block &&
+         left.active_blocks_per_sm == right.active_blocks_per_sm &&
+         left.threads_per_block == right.threads_per_block &&
+         left.physical_grid_ctas == right.physical_grid_ctas &&
+         left.kernel_compiled == right.kernel_compiled &&
+         left.exact_geometry == right.exact_geometry &&
+         left.static_resource_gate_passed ==
+             right.static_resource_gate_passed &&
+         left.numerical_contract_qualified ==
+             right.numerical_contract_qualified &&
+         left.production_dispatch_eligible ==
+             right.production_dispatch_eligible &&
+         left.startup_package_unbound == right.startup_package_unbound &&
+         left.execution_capability == right.execution_capability &&
+         left.caller_snapshot_grants_production_authority ==
+             right.caller_snapshot_grants_production_authority;
+}
+
+[[nodiscard]] cudaError_t macrofeed_v4_bf16_ab_enqueue(
+    const std::uint16_t* const a_weights,
+    const std::uint16_t* const b_weights,
+    const std::uint16_t* const input,
+    std::uint16_t* const scratch,
+    const unsigned int blocks,
+    const cudaStream_t stream) noexcept {
+  bf16_ab_prefill_m64_n96_k64_kernel<<<
+      blocks, kThreads, kDynamicSharedBytes, stream>>>(
+      a_weights, b_weights, input,
+      scratch + kSm87MacroFeedV4Bf16AbAOffset,
+      scratch + kSm87MacroFeedV4Bf16AbBOffset,
+      static_cast<unsigned int>(
+          kSm87MacroFeedV4Bf16AbScratchRowStride));
+  return cudaPeekAtLastError();
+}
+
+[[nodiscard]] cudaError_t macrofeed_v4_bf16_ab_enqueue_compact(
+    const Sm87MacroFeedV4Bf16AbCompactOracleArguments& arguments,
+    const cudaStream_t stream) noexcept {
+  bf16_ab_prefill_m64_n96_k64_kernel<<<
+      1U, kThreads, kDynamicSharedBytes, stream>>>(
+      arguments.a_weights, arguments.b_weights, arguments.input,
+      arguments.a_output, arguments.b_output,
+      static_cast<unsigned int>(
+          kSm87MacroFeedV4Bf16AbRowsPerProjection));
+  return cudaPeekAtLastError();
+}
+#endif
+
 }  // namespace
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
+bool sm87_macrofeed_v4_bf16_ab_arguments_valid(
+    const Sm87MacroFeedV4Bf16AbArguments& arguments) noexcept {
+  return sm87_macrofeed_v4_bf16_ab_plan(
+             arguments.token_count, arguments.scratch_row_stride)
+             .valid() &&
+         macrofeed_v4_bf16_ab_structural_arguments_valid(
+             arguments.a_weights, arguments.b_weights, arguments.input,
+             arguments.token_count, arguments.scratch,
+             arguments.scratch_row_stride, arguments.cuda_stream, true);
+}
+
+int query_sm87_macrofeed_v4_bf16_ab_admission_resource_snapshot_cuda(
+    Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot* const
+        resources) noexcept {
+  if (resources == nullptr) {
+    return invalid_value();
+  }
+  *resources = {};
+
+  int device = -1;
+  cudaDeviceProp properties{};
+  cudaError_t status =
+      macrofeed_v4_bf16_ab_validate_device(&device, &properties);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  status = cudaFuncSetAttribute(
+      bf16_ab_prefill_m64_n96_k64_kernel,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      static_cast<int>(kSm87MacroFeedV4Bf16AbDynamicSharedBytes));
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  cudaFuncAttributes attributes{};
+  status = cudaFuncGetAttributes(
+      &attributes, bf16_ab_prefill_m64_n96_k64_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks, bf16_ab_prefill_m64_n96_k64_kernel,
+      static_cast<int>(kSm87MacroFeedV4Bf16AbThreads),
+      kSm87MacroFeedV4Bf16AbDynamicSharedBytes);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  resources->identity = kSm87MacroFeedV4Bf16AbIdentity;
+  resources->device_ordinal = device;
+  resources->compute_major = properties.major;
+  resources->compute_minor = properties.minor;
+  resources->sm_count = properties.multiProcessorCount;
+  resources->binary_version = attributes.binaryVersion;
+  resources->registers_per_thread = attributes.numRegs;
+  resources->static_shared_bytes = attributes.sharedSizeBytes;
+  resources->dynamic_shared_bytes =
+      kSm87MacroFeedV4Bf16AbDynamicSharedBytes;
+  resources->local_bytes = attributes.localSizeBytes;
+  resources->maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  resources->active_blocks_per_sm = active_blocks;
+  resources->threads_per_block =
+      static_cast<std::int32_t>(kSm87MacroFeedV4Bf16AbThreads);
+  resources->physical_grid_ctas =
+      static_cast<std::int32_t>(kSm87MacroFeedV4Bf16AbGridCtas);
+  resources->kernel_compiled = true;
+  resources->exact_geometry = true;
+  resources->startup_package_unbound = true;
+  resources->execution_capability = false;
+  resources->caller_snapshot_grants_production_authority = false;
+  resources->static_resource_gate_passed = true;
+  resources->static_resource_gate_passed =
+      sm87_macrofeed_v4_bf16_ab_admission_resource_gate(*resources);
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_macrofeed_v4_bf16_ab_admission_cuda(
+    const Sm87MacroFeedV4Bf16AbArguments& arguments,
+    const Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot& resources,
+    Sm87MacroFeedV4Bf16AbAdmissionLaunchReceipt* const receipt) noexcept {
+  if (receipt == nullptr) {
+    return invalid_value();
+  }
+  *receipt = {};
+  if (!sm87_macrofeed_v4_bf16_ab_arguments_valid(arguments)) {
+    return invalid_value();
+  }
+  if (!sm87_macrofeed_v4_bf16_ab_admission_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot observed{};
+  const int query_status =
+      query_sm87_macrofeed_v4_bf16_ab_admission_resource_snapshot_cuda(
+          &observed);
+  if (query_status != static_cast<int>(cudaSuccess)) {
+    return query_status;
+  }
+  if (resources.device_ordinal != observed.device_ordinal) {
+    return static_cast<int>(cudaErrorInvalidDevice);
+  }
+  if (!macrofeed_v4_bf16_ab_resource_equal(resources, observed)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  const auto stream =
+      reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  int stream_device = -1;
+  cudaError_t status = cudaStreamGetDevice(stream, &stream_device);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  if (stream_device != observed.device_ordinal) {
+    return static_cast<int>(cudaErrorInvalidDevice);
+  }
+  if (!macrofeed_v4_bf16_ab_device_ranges_owned(
+          arguments, observed.device_ordinal)) {
+    return static_cast<int>(cudaErrorInvalidDevicePointer);
+  }
+
+  (void)cudaGetLastError();
+  status = macrofeed_v4_bf16_ab_enqueue(
+      arguments.a_weights, arguments.b_weights, arguments.input,
+      arguments.scratch,
+      static_cast<unsigned int>(kSm87MacroFeedV4Bf16AbGridCtas), stream);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  receipt->identity = kSm87MacroFeedV4Bf16AbIdentity;
+  receipt->token_count = arguments.token_count;
+  receipt->scratch_row_stride = arguments.scratch_row_stride;
+  receipt->a_offset = kSm87MacroFeedV4Bf16AbAOffset;
+  receipt->b_offset = kSm87MacroFeedV4Bf16AbBOffset;
+  receipt->physical_kernel_launches = static_cast<std::uint32_t>(
+      kSm87MacroFeedV4Bf16AbPhysicalKernelLaunches);
+  receipt->established_exact_body_reused = true;
+  receipt->shared_input_dual_projection = true;
+  receipt->direct_scratch_scatter = true;
+  receipt->compact_bridge_absent = true;
+  receipt->current_device_revalidated = true;
+  receipt->caller_snapshot_exact_observed_match = true;
+  receipt->caller_supplied_live_stream_required = true;
+  receipt->live_stream_device_observed = true;
+  receipt->device_allocation_ranges_owned = true;
+  receipt->launch_enqueued = true;
+  receipt->completion_observed = false;
+  receipt->numerical_contract_qualified = false;
+  receipt->production_dispatch_eligible = false;
+  receipt->startup_package_unbound = true;
+  receipt->execution_capability = false;
+  receipt->caller_snapshot_grants_production_authority = false;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_macrofeed_v4_bf16_ab_oracle_cuda(
+    const Sm87MacroFeedV4Bf16AbOracleArguments& arguments) noexcept {
+  if (!macrofeed_v4_bf16_ab_structural_arguments_valid(
+          arguments.a_weights, arguments.b_weights, arguments.input,
+          arguments.token_count, arguments.scratch,
+          arguments.scratch_row_stride, arguments.cuda_stream, false)) {
+    return invalid_value();
+  }
+  Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot resources{};
+  const int query_status =
+      query_sm87_macrofeed_v4_bf16_ab_admission_resource_snapshot_cuda(
+          &resources);
+  if (query_status != static_cast<int>(cudaSuccess)) {
+    return query_status;
+  }
+  if (!sm87_macrofeed_v4_bf16_ab_admission_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  const auto stream =
+      reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  int stream_device = -1;
+  cudaError_t status = cudaStreamGetDevice(stream, &stream_device);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  if (stream_device != resources.device_ordinal) {
+    return static_cast<int>(cudaErrorInvalidDevice);
+  }
+  if (!macrofeed_v4_bf16_ab_device_ranges_owned(
+          arguments, resources.device_ordinal)) {
+    return static_cast<int>(cudaErrorInvalidDevicePointer);
+  }
+  (void)cudaGetLastError();
+  return static_cast<int>(macrofeed_v4_bf16_ab_enqueue(
+      arguments.a_weights, arguments.b_weights, arguments.input,
+      arguments.scratch, 1U, stream));
+}
+
+int launch_sm87_macrofeed_v4_bf16_ab_compact_oracle_cuda(
+    const Sm87MacroFeedV4Bf16AbCompactOracleArguments& arguments) noexcept {
+  if (!macrofeed_v4_bf16_ab_compact_structural_arguments_valid(arguments)) {
+    return invalid_value();
+  }
+  Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot resources{};
+  const int query_status =
+      query_sm87_macrofeed_v4_bf16_ab_admission_resource_snapshot_cuda(
+          &resources);
+  if (query_status != static_cast<int>(cudaSuccess)) {
+    return query_status;
+  }
+  if (!sm87_macrofeed_v4_bf16_ab_admission_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  const auto stream =
+      reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  int stream_device = -1;
+  cudaError_t status = cudaStreamGetDevice(stream, &stream_device);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  if (stream_device != resources.device_ordinal) {
+    return static_cast<int>(cudaErrorInvalidDevice);
+  }
+  if (!macrofeed_v4_bf16_ab_compact_device_ranges_owned(
+          arguments, resources.device_ordinal)) {
+    return static_cast<int>(cudaErrorInvalidDevicePointer);
+  }
+  (void)cudaGetLastError();
+  return static_cast<int>(
+      macrofeed_v4_bf16_ab_enqueue_compact(arguments, stream));
+}
+#endif
+
+#if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
 int query_sm87_bf16_ab_prompt_wide_p40_resources_cuda(
     Sm87Bf16AbPromptWideP40Resources* const resources) noexcept {
   if (resources == nullptr) {
@@ -881,5 +1391,6 @@ int query_sm87_bf16_ab_large_m_prefill_resources_cuda(
   *active_blocks_per_sm = active_blocks;
   return static_cast<int>(cudaSuccess);
 }
+#endif
 
 }  // namespace q3x::kernels

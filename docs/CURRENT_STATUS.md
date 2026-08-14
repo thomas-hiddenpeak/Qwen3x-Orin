@@ -597,6 +597,21 @@ negative tests pass independently. These are sparse synthetic T1 admissions;
 no full-K real-checkpoint numerical qualification, private startup binding,
 completion event, or production authority exists.
 
+An independent default-off V4 BF16 A/B admission now reuses the established
+two-stage `M64N96K64` tensor-core body for one fixed C8000 panel. One 125-CTA
+grid reads the normalized C8000 hidden plane once for both 48-row projections
+and writes directly to scratch columns A=`[16384,16432)` and
+B=`[16432,16480)` with row stride 17,408; it has no compact bridge, tail,
+selector, fallback, JIT, repack, or autotune path. The production body compiles
+at 88 registers/thread with 46,080 bytes of dynamic shared memory, zero local
+bytes/spill, and two CTA/SM capacity. A patterned M64 oracle is bitwise equal
+between compact and direct-strided publication for all A/B elements while
+every other scratch slot remains unchanged, and the complete C8000 entry has
+executed once with its enqueue-only receipt. The old and V4 default-off ABIs
+are also symbol-isolated in both build directions. This is still synthetic,
+startup-package-unbound T1 evidence; the 48 real layer pairs, private stream
+and readiness event are not yet bound.
+
 A separate default-off V4 Full-Attention preprocess admission now changes Q
 and K in place for one C8000 panel while leaving the projection-native Gate
 slots, scratch-row gap, V cache, and every K row outside the active panel
@@ -608,9 +623,9 @@ from the complete private `[40000,8,128]` NHD allocation at panel positions
 registers/thread, 516 bytes static shared memory, zero local/spill, and 12
 CTA/SM capacity. C1/C65 bit oracles, nonzero-position, multi-head, sentinel,
 allocation-range, resource, and authority negatives pass. This is still a
-startup-unbound T1 admission: the exact online-Attention body, per-layer
-readiness event, real-checkpoint qualification, and production route are
-absent.
+startup-unbound T1 admission: the fixed Attention body now exists separately,
+but the per-layer readiness event, private composition, real-checkpoint
+qualification, and production route are absent.
 
 An independent default-off V4 exact-GDN admission constituent now covers one
 contiguous C8000 panel without a whole recurrent-epoch copy. It copies only
@@ -628,10 +643,10 @@ only; it does not prove C8000 numerical qualification, bind a private stream,
 commit a recurrent epoch, or authorize production dispatch.
 
 V4 has no selector, whole-model launcher, authenticated device execution
-package, startup-bound FP8/GDN/Attention composition, real-checkpoint oracle,
-API witness, performance result, numerical qualification, release authority,
-or production eligibility. The v10 observation at 392.804397 prompt tok/s
-therefore remains the current whole-product incumbent.
+package, startup-bound BF16 A/B/FP8/GDN/Attention composition, real-checkpoint
+oracle, API witness, performance result, numerical qualification, release
+authority, or production eligibility. The v10 observation at 392.804397
+prompt tok/s therefore remains the current whole-product incumbent.
 
 ## 2. Current capability matrix
 
@@ -647,7 +662,7 @@ therefore remains the current whole-product incumbent.
 | SM87 whole-system AOT Prefill v1 | Default-off real-P40 API composition; performance-rejected after a zero-byte 840.000399-second timeout | Retain only as correctness/diagnostic control; it is not an active performance candidate |
 | SM87 bulk-dataflow v2 Prefill | Complete default-off real-P40 API route; performance-rejected after a zero-byte 680.73-second EvalScope timeout and one bounded causal profile; accuracy remains unqualified | Retain exact constituents and evidence only; no V2 tuning, P60/P130, qualification, or production promotion |
 | SM87 MacroFeed v3 Prefill | Complete default-off, test-only 64-layer source composition with startup-bound target-AOT assets, role-specific macro projections, nine-kernel-per-layer exact GDN, cold rollback, and a V18 physical transaction; integrated build and focused admission tests pass | Frozen executable diagnostic/control; no authoritative P40 timing, numerical, release, or production qualification exists |
-| SM87 MacroFeed v4 Prefill | Active, default-off, non-executable C8000×5 panel-major foundation; host workspace plan, owner/epoch-bound test-only request transaction, authenticated 256-artifact startup foundation package, Gate+Up, Down, asymmetric decoder, half/tail, four layout-specific FP8 admissions (including fixed contiguous GDN-O), exact in-place Q/K preprocess, fixed unsplit Q128/KV32 C8000 online-Attention admission, projection/Attention resource gates, and an independent exact-GDN C1/C65/resource admission pass | Resolve the BF16 A/B feed gap and per-layer physical readiness events; privately bind and qualify all admitted bodies, then add finalizer, whole-model physical receipts and rollback before real-checkpoint/state/API qualification; no selector or performance authority exists |
+| SM87 MacroFeed v4 Prefill | Active, default-off, non-executable C8000×5 panel-major foundation; host workspace plan, owner/epoch-bound test-only request transaction, authenticated 256-artifact startup foundation package, Gate+Up, Down, asymmetric decoder, half/tail, fixed direct-scratch BF16 A/B, four layout-specific FP8 admissions (including fixed contiguous GDN-O), exact in-place Q/K preprocess, fixed unsplit Q128/KV32 C8000 online-Attention admission, projection/Attention resource gates, and an independent exact-GDN C1/C65/resource admission pass | Bind the 48 real BF16 A/B pairs and per-layer physical readiness events under the private package; privately bind and qualify all admitted bodies, then add finalizer, whole-model physical receipts and rollback before real-checkpoint/state/API qualification; no selector or performance authority exists |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

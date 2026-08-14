@@ -227,10 +227,13 @@ The tracked V4 foundation is deliberately non-executable and default-off. It
 contains the host traversal/workspace/state contract, the owner/epoch-bound
 host request transaction, a private authenticated startup foundation package,
 independent C8000 NVFP4 Gate+Up and Down constituents, four layout-specific FP8
-admissions, and an admission-only two-kernel exact-GDN C8000 continuation. The
-FP8 tactics directly publish GDN QKV/Z, interleaved Full Q/G plus private NHD
-K/V, Attention O from interleaved Q slots, and GDN O from the fixed contiguous
-scratch slice `[4096,10240)`; none owns a compact Q/G or GDN-O bridge.
+admissions, a fixed direct-scratch BF16 A/B admission, and an admission-only
+two-kernel exact-GDN C8000 continuation. The FP8 tactics directly publish GDN
+QKV/Z, interleaved Full Q/G plus private NHD K/V, Attention O from interleaved
+Q slots, and GDN O from the fixed contiguous scratch slice `[4096,10240)`;
+none owns a compact Q/G or GDN-O bridge. The BF16 A/B tactic reuses the exact
+two-stage M64N96K64 body in one 125-CTA C8000 grid and publishes both 48-row
+results directly to scratch `[16384,16480)` without a compact bridge or tail.
 An independent in-place Full-Attention preprocess admission preserves the
 established centered RMSNorm/BF16/partial-D64 NeoX order directly on those Q
 slots and the active private-NHD K slice without touching Gate, V, the scratch
@@ -391,9 +394,9 @@ Remaining execution order:
    transaction under an Engine-owned lifetime root, then bind device-owned
    panel/final events while retaining two recurrent epochs, private KV
    valid-end, rollback, reverse destruction order, and no production selector;
-2. add the missing BF16 A/B feed, bind the admitted preprocess → fixed C8000
+2. bind all 48 real BF16 A/B pairs plus the admitted preprocess → fixed C8000
    Attention → O chain with per-layer physical readiness events, then privately
-   bind and qualify the complete C8000 FP8/GDN/Attention bodies,
+   bind and qualify the complete C8000 BF16 A/B/FP8/GDN/Attention bodies,
    residual/layout, finalizer, rollback, and receipt paths;
 3. expose exactly one default-off V4 route through the existing real OpenAI
    P40 API and verify that its receipt reports executed physical work rather

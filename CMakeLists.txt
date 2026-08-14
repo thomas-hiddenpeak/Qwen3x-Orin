@@ -163,6 +163,10 @@ option(Q3X_BUILD_SM87_MACROFEED_V4_GDN_C8000_ADMISSION
   "Build the default-off exact C8000 MacroFeed-v4 GDN admission-only constituent"
   OFF
 )
+option(Q3X_BUILD_SM87_MACROFEED_V4_BF16_AB_ADMISSION
+  "Build the default-off fixed-C8000 MacroFeed-v4 BF16 A/B admission-only constituent"
+  OFF
+)
 option(Q3X_BUILD_SM87_MACROFEED_V4_FP8_ADMISSION
   "Build the default-off C8000 MacroFeed-v4 FP8 admission-only constituents"
   OFF
@@ -523,6 +527,12 @@ if(Q3X_BUILD_SM87_MACROFEED_V4_GDN_C8000_ADMISSION AND
    NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_SM87_MACROFEED_V4_GDN_C8000_ADMISSION is an admission-only T0/T1 constituent and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_BF16_AB_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_MACROFEED_V4_BF16_AB_ADMISSION is an admission-only T0/T1 constituent and requires BUILD_TESTING=ON"
   )
 endif()
 if(Q3X_BUILD_SM87_MACROFEED_V4_FP8_ADMISSION AND NOT BUILD_TESTING)
@@ -1228,7 +1238,8 @@ if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
     Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION=1
   )
 endif()
-if(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION)
+if(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION OR
+   Q3X_BUILD_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/bf16_ab_prefill.cu
   )
@@ -1236,8 +1247,19 @@ if(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION)
   # Keep the static kernel archive link-complete for whole-engine binaries,
   # not only for the constituent CUDA tests that happen to link libcuda.
   target_link_libraries(q3x_kernels PRIVATE CUDA::cuda_driver)
+endif()
+if(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION)
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
+  set_property(SOURCE
+    src/kernels/sm87/bf16_ab_prefill.cu
+    APPEND PROPERTY COMPILE_OPTIONS "-Xptxas=-v"
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
@@ -4105,6 +4127,29 @@ if(BUILD_TESTING)
     )
     set_tests_properties(sm87_macrofeed_v4_gdn_c8000_cuda PROPERTIES
       LABELS "correctness;resource;cuda;sm87;prefill;macrofeed_v4;gdn;c8000;c1;c65;two_epoch;bit_exact;synthetic;t1;admission_only;default_off"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 300
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
+    add_executable(q3x_sm87_macrofeed_v4_bf16_ab_cuda_test
+      tests/sm87_macrofeed_v4_bf16_ab_cuda_test.cu
+    )
+    target_link_libraries(q3x_sm87_macrofeed_v4_bf16_ab_cuda_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    target_compile_options(q3x_sm87_macrofeed_v4_bf16_ab_cuda_test
+      PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+    )
+    q3x_enable_warnings(q3x_sm87_macrofeed_v4_bf16_ab_cuda_test)
+    add_test(NAME sm87_macrofeed_v4_bf16_ab_cuda
+      COMMAND q3x_sm87_macrofeed_v4_bf16_ab_cuda_test
+    )
+    set_tests_properties(sm87_macrofeed_v4_bf16_ab_cuda PROPERTIES
+      LABELS "correctness;resource;cuda;sm87;prefill;macrofeed_v4;projection;bf16;gdn;c8000;direct_scratch;bit_exact;synthetic;t1;admission_only;default_off"
       RESOURCE_LOCK q3x_sm87_gpu
       RUN_SERIAL TRUE
       SKIP_RETURN_CODE 77

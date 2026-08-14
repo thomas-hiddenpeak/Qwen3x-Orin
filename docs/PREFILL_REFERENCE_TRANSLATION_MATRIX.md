@@ -561,13 +561,16 @@ oracles while keeping active/candidate state separate. A fixed unsplit
 Q128/KV32 two-stage online-Attention admission consumes the complete private
 NHD allocation origins, stages each complete Q128 tile before in-place Q
 publication, and is bitwise equal to the established compact Q128-v4 body in a
-nonzero C65 comparison. The package's typed bindings and
-V4-local resource seals are startup ownership facts only; they expose no
-launcher. The missing BF16 A/B feed, device event
+nonzero C65 comparison. A fixed BF16 A/B admission reuses the established
+two-stage M64N96K64 body, executes one 125-CTA C8000 grid, and writes A/B
+directly to scratch `[16384,16480)`; its M64 compact-versus-strided oracle is
+bitwise equal and it owns no compact bridge, tail, or runtime tactic choice.
+The package's typed bindings and V4-local resource seals are startup ownership
+facts only; they expose no launcher. The 48 real BF16 A/B pairs, device event
 composition, private binding and full-K qualification of FP8, private binding
 and full-C8000 qualification of exact GDN and Attention, whole-model receipt,
-rollback, finalizer, and API launcher must compose before
-V4 is runnable or eligible for a P40 witness.
+rollback, finalizer, and API launcher must compose before V4 is runnable or
+eligible for a P40 witness.
 
 The fixed Attention handoff now retains the FP8 projection's native
 `[Q256, Gate256]` head interleave. Q preprocessing and exact Attention both
