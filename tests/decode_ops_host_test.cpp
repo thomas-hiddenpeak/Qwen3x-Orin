@@ -207,6 +207,8 @@ void test_full_attention_preprocess_prompt_wide_p8000_contract(
     TestContext& test) {
   using q3x::runtime::
       can_launch_full_attention_preprocess_prompt_wide_p8000;
+  using q3x::runtime::
+      has_full_attention_preprocess_prompt_wide_p8000_cuda;
   constexpr std::size_t kPanel = q3x::runtime::
       kFullAttentionPreprocessPromptWideP8000Tokens;
 
@@ -234,6 +236,17 @@ void test_full_attention_preprocess_prompt_wide_p8000_contract(
           !can_launch_full_attention_preprocess_prompt_wide_p8000(
               std::numeric_limits<std::size_t>::max(), kPanel),
       "prompt-wide preprocessing rejects append, sixth-panel, and non-M8000 geometry");
+#if defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION) || \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+  test.expect(
+      has_full_attention_preprocess_prompt_wide_p8000_cuda(),
+      "an admitted whole-core or MacroFeed binary owns the exact P8000 "
+      "preprocess launcher");
+#else
+  test.expect(
+      !has_full_attention_preprocess_prompt_wide_p8000_cuda(),
+      "default binaries do not publish the exact P8000 preprocess launcher");
+#endif
 }
 
 void test_embedding(TestContext& test) {

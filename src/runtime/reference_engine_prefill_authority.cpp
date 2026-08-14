@@ -1130,7 +1130,8 @@ complete_flashinfer_whole_prompt_p40_capability() noexcept {
 #if !defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
   return false;
 #else
-  return has_bulk_causal_gqa_flashinfer_exact_panel_cuda() &&
+  return has_full_attention_preprocess_prompt_wide_p8000_cuda() &&
+         has_bulk_causal_gqa_flashinfer_exact_panel_cuda() &&
          can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(
              0U, kLayerMajorPrefillPromptWideP40Tokens);
 #endif

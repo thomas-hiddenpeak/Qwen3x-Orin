@@ -348,6 +348,19 @@ can_launch_full_attention_preprocess_prompt_wide_p8000(
              kFullAttentionPreprocessPromptWideP8000PanelCount;
 }
 
+// Compile-inventory query for the exact P8000 launcher below. Geometry
+// admission alone is insufficient: independently admitted whole-model routes
+// must prove that their binary contains the implementation before binding.
+[[nodiscard]] constexpr bool
+has_full_attention_preprocess_prompt_wide_p8000_cuda() noexcept {
+#if defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION) || \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+  return true;
+#else
+  return false;
+#endif
+}
+
 [[nodiscard]] int
 launch_full_attention_preprocess_24_4_256_64_prompt_wide_p8000_cuda(
     const std::uint16_t* interleaved_q_gate, std::uint16_t* key,
