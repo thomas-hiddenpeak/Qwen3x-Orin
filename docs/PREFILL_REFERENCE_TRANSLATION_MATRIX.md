@@ -551,15 +551,18 @@ transaction, a private startup foundation package authenticating all 256
 artifacts from 400 checkpoint sources, and independent C8000 NVFP4 Gate+Up and
 Down admissions. Three independent FP8 role admissions directly publish GDN
 QKV/Z, interleaved Full Q/G plus private NHD K/V, and Attention O by gathering
-the interleaved Q slots. An independent two-kernel exact-GDN admission
+the interleaved Q slots. A separate in-place preprocess admission applies the
+established exact Q/K norm and partial-D64 NeoX order directly to those Q slots
+and the current private-NHD K slice while preserving Gate, V, the row gap, and
+all out-of-panel K rows. An independent two-kernel exact-GDN admission
 additionally preserves the per-token BF16 recurrence boundary in C1/C65
 oracles while keeping active/candidate state separate. The package's typed bindings and
 V4-local resource seals are startup ownership facts only; they expose no
-launcher. The missing device event composition, private binding and full-K
-qualification of FP8, private binding and full-C8000 qualification of exact
-GDN, in-place/streaming exact Attention, whole-model receipt, rollback,
-finalizer, and API launcher must compose before V4 is runnable or eligible for
-a P40 witness.
+launcher. The missing contiguous GDN-O and BF16 A/B feeds, device event
+composition, private binding and full-K qualification of FP8, private binding
+and full-C8000 qualification of exact GDN, fixed C8000 online-Attention body,
+whole-model receipt, rollback, finalizer, and API launcher must compose before
+V4 is runnable or eligible for a P40 witness.
 
 The fixed Attention handoff now retains the FP8 projection's native
 `[Q256, Gate256]` head interleave. Q preprocessing and exact Attention both

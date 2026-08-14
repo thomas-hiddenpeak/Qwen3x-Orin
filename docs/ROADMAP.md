@@ -230,6 +230,10 @@ independent C8000 NVFP4 Gate+Up and Down constituents, three role-specific FP8
 admissions, and an admission-only two-kernel exact-GDN C8000 continuation. The
 FP8 roles directly publish GDN QKV/Z, interleaved Full Q/G plus private NHD
 K/V, and Attention O from interleaved Q slots; none owns a compact Q/G bridge.
+An independent in-place Full-Attention preprocess admission preserves the
+established centered RMSNorm/BF16/partial-D64 NeoX order directly on those Q
+slots and the active private-NHD K slice without touching Gate, V, the scratch
+gap, or prior/future K rows.
 The GDN body preserves per-token BF16 state and active/candidate ownership in
 bounded C1/C65 bit oracles. Neither family is privately bound or numerically
 qualified at full C8000. The startup package
@@ -379,10 +383,11 @@ Remaining execution order:
    transaction under an Engine-owned lifetime root, then bind device-owned
    panel/final events while retaining two recurrent epochs, private KV
    valid-end, rollback, reverse destruction order, and no production selector;
-2. privately bind and qualify the admitted C8000 FP8 and exact-GDN bodies,
-   implement in-place/streaming exact Attention, add residual/layout,
-   finalizer, rollback, and receipt paths, then close their component and
-   whole-state oracles;
+2. add the missing contiguous-GDN FP8-O and BF16 A/B feeds, then implement the
+   fixed C8000 online-Attention body behind the admitted in-place preprocess;
+   bind per-layer readiness events before privately binding and qualifying the
+   complete C8000 FP8/GDN/Attention bodies, residual/layout, finalizer,
+   rollback, and receipt paths;
 3. expose exactly one default-off V4 route through the existing real OpenAI
    P40 API and verify that its receipt reports executed physical work rather
    than a forecast; and
