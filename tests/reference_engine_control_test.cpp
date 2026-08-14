@@ -2499,6 +2499,44 @@ void test_bulk_v2_route_fails_closed_before_io(TestContext& test) {
   }
 }
 
+void test_macrofeed_request_plan_fails_before_device_and_model_io(
+    TestContext& test) {
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+  runtime::ReferenceEngineOptions options;
+  options.projection_backend = runtime::ProjectionBackend::kSm87WeightOnly;
+  options.prefill_execution_mode =
+      runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+  options.prefill_full_attention_tactic =
+      runtime::LayerMajorPrefillFullAttentionTactic::
+          kNativeFlashInferExactWholePrompt;
+  options.prefill_projection_tactic =
+      runtime::LayerMajorPrefillProjectionTactic::
+          kNativePromptWideP40MacroFeedV3;
+  options.request_options.batch_size = 1U;
+  options.request_options.prefill_chunk_size =
+      runtime::kMaximumRequestPrefillChunkSize;
+  options.request_options.max_sequence_length =
+      runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens;
+  options.request_options.max_arena_bytes =
+      runtime::kMaximumRequestArenaBytes + 1U;
+  options.decode_graph_cache_policy =
+      runtime::ReferenceDecodeGraphCachePolicy::kDisabled;
+
+  const runtime::ReferenceEngineCreateResult result =
+      runtime::create_reference_engine("/path/must/not/be/read", options);
+  test.expect(
+      !result &&
+          result.diagnostic.code ==
+              runtime::ReferenceEngineError::kRequestStateFailure &&
+          result.diagnostic.stage == "request_state" &&
+          result.diagnostic.cuda_error == 0,
+      "MacroFeed-v3 rejects an invalid request byte plan before CUDA device "
+      "inspection, target asset preparation, or model I/O");
+#else
+  (void)test;
+#endif
+}
+
 }  // namespace
 
 int main() {
@@ -2524,6 +2562,7 @@ int main() {
   test_engine_backend_validation(test);
   test_target_aot_device_preparation_fails_closed_before_io(test);
   test_bulk_v2_route_fails_closed_before_io(test);
+  test_macrofeed_request_plan_fails_before_device_and_model_io(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference engine control test(s) failed\n";
     return 1;

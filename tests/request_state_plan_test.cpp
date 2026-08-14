@@ -1433,6 +1433,88 @@ void test_p40_whole_core_request_layout(TestContext& test) {
         "whole-core request layout rejects the panel-local MLP identity");
 }
 
+void test_macrofeed_v3_p40_request_admission(TestContext& test) {
+    runtime::LayerMajorRequestMemoryOptions options;
+    options.max_sequence_length =
+        runtime::kLayerMajorP40WholeCoreRequestCapacityTokens;
+    options.max_arena_bytes =
+        runtime::kLayerMajorPrefillPromptWideP40RequestArenaBytes;
+    options.mlp_layout =
+        runtime::LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan;
+    options.layout =
+        runtime::LayerMajorRequestLayout::kP40WholeCorePromptWide;
+    options.admission =
+        runtime::LayerMajorRequestPlanAdmission::kSm87MacroFeedV3;
+
+    const auto result =
+        runtime::build_layer_major_request_memory_plan(options);
+    if (!runtime::prompt_wide_p40_macrofeed_v3_prefill_plan_enabled()) {
+        test.expect(
+            !result &&
+                result.diagnostic.code ==
+                    runtime::RequestErrorCode::kInvalidOption,
+            "default builds reject the isolated MacroFeed-v3 P40 admission");
+        return;
+    }
+
+    test.expect(
+        result &&
+            result.value->common.profile ==
+                runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
+            result.value->layout ==
+                runtime::LayerMajorRequestLayout::kP40WholeCorePromptWide &&
+            result.value->mlp_layout == runtime::LayerMajorRequestMlpLayout::
+                                            kLayerWideP40PersistentTwoSpan &&
+            result.value->common.arena_bytes ==
+                runtime::kLayerMajorPrefillPromptWideP40RequestArenaBytes,
+        "MacroFeed-v3 independently admits the exact audited P40 byte plan");
+
+    runtime::LayerMajorRequestMemoryOptions unlabeled = options;
+    unlabeled.admission =
+        runtime::LayerMajorRequestPlanAdmission::kDefault;
+    if (!runtime::prompt_wide_p40_whole_core_prefill_plan_enabled()) {
+        test.expect(
+            !runtime::build_layer_major_request_memory_plan(unlabeled),
+            "MacroFeed-only builds do not globally reopen old whole-core "
+            "admission");
+    }
+
+    runtime::LayerMajorRequestMemoryOptions wrong_layout = options;
+    wrong_layout.layout =
+        runtime::LayerMajorRequestLayout::kC8192FamilyOverlay;
+    runtime::LayerMajorRequestMemoryOptions wrong_mlp = options;
+    wrong_mlp.mlp_layout =
+        runtime::LayerMajorRequestMlpLayout::kPanelLocalThreeSpan;
+    runtime::LayerMajorRequestMemoryOptions parity_mlp = options;
+    parity_mlp.mlp_layout = runtime::LayerMajorRequestMlpLayout::
+        kLayerWideP40MarlinParityMergedGateUp;
+    runtime::LayerMajorRequestMemoryOptions wrong_capacity = options;
+    wrong_capacity.max_sequence_length--;
+    runtime::LayerMajorRequestMemoryOptions unknown_admission = options;
+    unknown_admission.admission =
+        static_cast<runtime::LayerMajorRequestPlanAdmission>(0xffU);
+    test.expect(
+        !runtime::build_layer_major_request_memory_plan(wrong_layout) &&
+            !runtime::build_layer_major_request_memory_plan(wrong_mlp) &&
+            !runtime::build_layer_major_request_memory_plan(parity_mlp) &&
+            !runtime::build_layer_major_request_memory_plan(wrong_capacity) &&
+            !runtime::build_layer_major_request_memory_plan(
+                unknown_admission),
+        "MacroFeed-v3 admission cannot authorize another layout, MLP ABI, "
+        "capacity, or unknown tag");
+
+    runtime::LayerMajorRequestMemoryOptions one_byte_short = options;
+    one_byte_short.max_arena_bytes =
+        runtime::kLayerMajorPrefillPromptWideP40RequestArenaBytes - 1U;
+    const auto short_result =
+        runtime::build_layer_major_request_memory_plan(one_byte_short);
+    test.expect(
+        !short_result &&
+            short_result.diagnostic.code ==
+                runtime::RequestErrorCode::kArenaLimitExceeded,
+        "MacroFeed-v3 preserves the exact P40 arena high-water boundary");
+}
+
 void test_p40_marlin_parity_request_layout(TestContext& test) {
     runtime::LayerMajorRequestMemoryOptions options;
     options.max_sequence_length =
@@ -1670,6 +1752,7 @@ int main() {
     test_layer_major_disjoint_legacy_and_ownership(test);
     test_layer_wide_p40_mlp_request_layout(test);
     test_p40_whole_core_request_layout(test);
+    test_macrofeed_v3_p40_request_admission(test);
     test_p40_marlin_parity_request_layout(test);
     test_layer_major_bad_options(test);
     test_sequence_length_publication_validation(test);

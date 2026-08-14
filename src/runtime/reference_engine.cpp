@@ -5091,6 +5091,61 @@ struct ReferenceEngine::Impl {
         options.prefill_projection_tactic ==
         LayerMajorPrefillProjectionTactic::
             kNativePromptWideP40MacroFeedV3;
+    const auto make_layer_major_request_options = [&options,
+                                                   macrofeed_v3_requested]() {
+      LayerMajorRequestMemoryOptions request_options;
+      request_options.batch_size = options.request_options.batch_size;
+      request_options.max_sequence_length =
+          options.request_options.max_sequence_length;
+      request_options.max_arena_bytes =
+          options.request_options.max_arena_bytes;
+      request_options.min_free_bytes_after_create =
+          options.request_options.min_free_bytes_after_create;
+      const LayerMajorPrefillProjectionTactic tactic =
+          options.prefill_projection_tactic;
+      const bool vllm_marlin_parity =
+          tactic == LayerMajorPrefillProjectionTactic::
+                        kNativePromptWideP40VllmMarlinParity;
+      const bool persistent_p40 =
+          tactic == LayerMajorPrefillProjectionTactic::
+                        kNativeNvfp4PersistentP40LayerWideMlp ||
+          macrofeed_v3_requested ||
+          tactic == LayerMajorPrefillProjectionTactic::
+                        kNativePromptWideP40WholeCore ||
+          tactic == LayerMajorPrefillProjectionTactic::
+                        kNativePromptWideP40ProjectionReset ||
+          tactic == LayerMajorPrefillProjectionTactic::
+                        kNativePromptWideP40PackedProjection ||
+          tactic == LayerMajorPrefillProjectionTactic::
+                        kNativePromptWideP40PackedNvfp4V2;
+      const bool whole_core_p40 =
+          macrofeed_v3_requested ||
+          tactic == LayerMajorPrefillProjectionTactic::
+                        kNativePromptWideP40WholeCore ||
+          tactic == LayerMajorPrefillProjectionTactic::
+                        kNativePromptWideP40ProjectionReset ||
+          tactic == LayerMajorPrefillProjectionTactic::
+                        kNativePromptWideP40PackedProjection ||
+          tactic == LayerMajorPrefillProjectionTactic::
+                        kNativePromptWideP40PackedNvfp4V2 ||
+          vllm_marlin_parity;
+      request_options.mlp_layout =
+          vllm_marlin_parity
+              ? LayerMajorRequestMlpLayout::
+                    kLayerWideP40MarlinParityMergedGateUp
+          : persistent_p40
+              ? LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan
+              : LayerMajorRequestMlpLayout::kPanelLocalThreeSpan;
+      request_options.layout =
+          whole_core_p40
+              ? LayerMajorRequestLayout::kP40WholeCorePromptWide
+              : LayerMajorRequestLayout::kC8192FamilyOverlay;
+      request_options.admission =
+          macrofeed_v3_requested
+              ? LayerMajorRequestPlanAdmission::kSm87MacroFeedV3
+              : LayerMajorRequestPlanAdmission::kDefault;
+      return request_options;
+    };
 #if !defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION)
     if (bulk_v2_p40_route) {
       result.diagnostic = engine_diagnostic(
@@ -5533,30 +5588,54 @@ struct ReferenceEngine::Impl {
           "unknown Decode Graph cache policy");
       return result;
     }
-    const Clock::time_point build_begin = Clock::now();
-    if (std::optional<ReferenceEngineDiagnostic> diagnostic =
-            sm87_device_diagnostic(options.projection_backend)) {
-      result.diagnostic = std::move(*diagnostic);
+    if (macrofeed_v3_requested &&
+        options.request_options.min_free_bytes_after_create >
+            std::numeric_limits<std::uint64_t>::max() -
+                kLayerMajorPrefillPromptWideP40RequestArenaBytes) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kArithmeticOverflow,
+          "macrofeed_v3_complete_resource_reserve",
+          "MacroFeed-v3 request arena and retained free-memory reserve "
+          "overflow uint64_t");
       return result;
     }
-#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
-    if (target_aot_p40_route) {
-      const auto static_resources =
-          sm87_target_aot_p40_executor_detail::
-              preflight_sm87_target_aot_p40_static_resources();
-      if (!static_resources) {
-        result.diagnostic = engine_diagnostic(
-            ReferenceEngineError::kRunnerFactoryFailure,
-            "target_aot_static_resource_preflight",
-            static_resources.context);
-        result.diagnostic.context = static_resources.context;
-        result.diagnostic.cuda_error = static_resources.cuda_error;
+    try {
+      std::optional<LayerMajorRequestMemoryOptions>
+          layer_major_request_options;
+      if (options.prefill_execution_mode ==
+          ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
+        layer_major_request_options.emplace(
+            make_layer_major_request_options());
+        const LayerMajorRequestPlanResult request_plan =
+            build_layer_major_request_memory_plan(
+                *layer_major_request_options);
+        if (!request_plan) {
+          result.diagnostic = request_diagnostic(request_plan.diagnostic);
+          return result;
+        }
+      }
+      const Clock::time_point build_begin = Clock::now();
+      if (std::optional<ReferenceEngineDiagnostic> diagnostic =
+              sm87_device_diagnostic(options.projection_backend)) {
+        result.diagnostic = std::move(*diagnostic);
         return result;
       }
-    }
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+      if (target_aot_p40_route) {
+        const auto static_resources =
+            sm87_target_aot_p40_executor_detail::
+                preflight_sm87_target_aot_p40_static_resources();
+        if (!static_resources) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              "target_aot_static_resource_preflight",
+              static_resources.context);
+          result.diagnostic.context = static_resources.context;
+          result.diagnostic.cuda_error = static_resources.cuda_error;
+          return result;
+        }
+      }
 #endif
-
-    try {
       const bool tokenizer_was_prepared = prepared_tokenizer != nullptr;
       const bool resident_was_prepared = prepared_resident.has_value();
       auto impl = std::make_unique<Impl>();
@@ -5661,16 +5740,6 @@ struct ReferenceEngine::Impl {
         // its immutable RoPE suffix) and one complete target-AOT projection
         // owner.  It must not allocate or reuse either legacy target-AOT/V2
         // request owner or their separate Engine RoPE.
-        if (options.request_options.min_free_bytes_after_create >
-            std::numeric_limits<std::uint64_t>::max() -
-                kLayerMajorPrefillPromptWideP40RequestArenaBytes) {
-          result.diagnostic = engine_diagnostic(
-              ReferenceEngineError::kArithmeticOverflow,
-              "macrofeed_v3_complete_resource_reserve",
-              "MacroFeed-v3 request arena and retained free-memory reserve "
-              "overflow uint64_t");
-          return result;
-        }
         const std::uint64_t retained_margin =
             options.request_options.min_free_bytes_after_create +
             kLayerMajorPrefillPromptWideP40RequestArenaBytes;
@@ -6003,63 +6072,16 @@ struct ReferenceEngine::Impl {
         RequestStateResult request;
         if (options.prefill_execution_mode ==
             ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
-          LayerMajorRequestMemoryOptions layer_major_options;
-          layer_major_options.batch_size =
-              options.request_options.batch_size;
-          layer_major_options.max_sequence_length =
-              options.request_options.max_sequence_length;
-          layer_major_options.max_arena_bytes =
-              options.request_options.max_arena_bytes;
-          layer_major_options.min_free_bytes_after_create =
-              options.request_options.min_free_bytes_after_create;
-          layer_major_options.mlp_layout =
-              impl->prefill_mlp_schedule_tactic ==
-                      LayerMajorPrefillMlpScheduleTactic::
-                          kPromptWideP40VllmMarlinParity
-                  ? LayerMajorRequestMlpLayout::
-                        kLayerWideP40MarlinParityMergedGateUp
-              : impl->prefill_mlp_schedule_tactic ==
-                          LayerMajorPrefillMlpScheduleTactic::
-                              kLayerWideP40ExactFullM ||
-                      impl->prefill_mlp_schedule_tactic ==
-                          LayerMajorPrefillMlpScheduleTactic::
-                              kPromptWideP40MacroFeedV3 ||
-                      impl->prefill_mlp_schedule_tactic ==
-                          LayerMajorPrefillMlpScheduleTactic::
-                              kPromptWideP40WholeCore ||
-                      impl->prefill_mlp_schedule_tactic ==
-                          LayerMajorPrefillMlpScheduleTactic::
-                              kPromptWideP40ProjectionReset ||
-                      impl->prefill_mlp_schedule_tactic ==
-                          LayerMajorPrefillMlpScheduleTactic::
-                              kPromptWideP40PackedProjection ||
-                      impl->prefill_mlp_schedule_tactic ==
-                          LayerMajorPrefillMlpScheduleTactic::
-                              kPromptWideP40PackedNvfp4V2
-                  ? LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan
-                  : LayerMajorRequestMlpLayout::kPanelLocalThreeSpan;
-          layer_major_options.layout =
-              impl->prefill_mlp_schedule_tactic ==
-                      LayerMajorPrefillMlpScheduleTactic::
-                          kPromptWideP40MacroFeedV3 ||
-                  impl->prefill_mlp_schedule_tactic ==
-                      LayerMajorPrefillMlpScheduleTactic::
-                          kPromptWideP40WholeCore ||
-                  impl->prefill_mlp_schedule_tactic ==
-                      LayerMajorPrefillMlpScheduleTactic::
-                          kPromptWideP40ProjectionReset ||
-                  impl->prefill_mlp_schedule_tactic ==
-                      LayerMajorPrefillMlpScheduleTactic::
-                          kPromptWideP40PackedProjection ||
-                  impl->prefill_mlp_schedule_tactic ==
-                      LayerMajorPrefillMlpScheduleTactic::
-                          kPromptWideP40PackedNvfp4V2 ||
-                  impl->prefill_mlp_schedule_tactic ==
-                      LayerMajorPrefillMlpScheduleTactic::
-                          kPromptWideP40VllmMarlinParity
-                  ? LayerMajorRequestLayout::kP40WholeCorePromptWide
-                  : LayerMajorRequestLayout::kC8192FamilyOverlay;
-          request = create_layer_major_request_state(layer_major_options);
+          if (!layer_major_request_options.has_value()) {
+            result.diagnostic = engine_diagnostic(
+                ReferenceEngineError::kRequestStateFailure,
+                "request_state_preflight",
+                "whole-request RequestState options were not retained after "
+                "the allocation-free startup preflight");
+            return result;
+          }
+          request = create_layer_major_request_state(
+              *layer_major_request_options);
         } else {
           request = create_request_state(options.request_options);
         }

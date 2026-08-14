@@ -613,7 +613,18 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     const bool layer_wide_p40_mlp =
         persistent_two_span_p40_mlp ||
         marlin_parity_merged_gate_up_p40_mlp;
+    const bool macrofeed_v3_admission =
+        options.admission ==
+        LayerMajorRequestPlanAdmission::kSm87MacroFeedV3;
+    const bool valid_admission =
+        options.admission == LayerMajorRequestPlanAdmission::kDefault ||
+        macrofeed_v3_admission;
+    const bool whole_core_plan_enabled =
+        macrofeed_v3_admission
+            ? prompt_wide_p40_macrofeed_v3_prefill_plan_enabled()
+            : prompt_wide_p40_whole_core_prefill_plan_enabled();
     if (options.batch_size != 1U || options.max_sequence_length == 0U ||
+        !valid_admission ||
         options.max_sequence_length > kAbsoluteRequestMaxSequenceLength ||
         options.max_arena_bytes == 0U ||
         options.max_arena_bytes > kMaximumConfigurableArenaBytes ||
@@ -626,13 +637,15 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
         (marlin_parity_merged_gate_up_p40_mlp && !whole_core_p40) ||
         (marlin_parity_merged_gate_up_p40_mlp &&
          !prompt_wide_p40_vllm_marlin_parity_prefill_plan_enabled()) ||
+        (macrofeed_v3_admission &&
+         (!whole_core_p40 || !persistent_two_span_p40_mlp)) ||
         (layer_wide_p40_mlp &&
-         (!layer_wide_p40_mlp_prefill_plan_enabled() ||
+         ((!macrofeed_v3_admission &&
+           !layer_wide_p40_mlp_prefill_plan_enabled()) ||
           options.max_sequence_length !=
               kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens)) ||
         (whole_core_p40 &&
-         (!prompt_wide_p40_whole_core_prefill_plan_enabled() ||
-          !layer_wide_p40_mlp))) {
+         (!whole_core_plan_enabled || !layer_wide_p40_mlp))) {
         return layer_major_plan_failure(make_diagnostic(
             RequestErrorCode::kInvalidOption,
             "layer-major request options violate batch, explicit sequence, "

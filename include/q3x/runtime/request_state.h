@@ -129,6 +129,16 @@ enum class LayerMajorRequestLayout : std::uint8_t {
     kP40WholeCorePromptWide,
 };
 
+// Construction admission is deliberately separate from the byte layout.
+// MacroFeed-v3 reuses the audited P40 whole-core arena geometry, but it must
+// not acquire that geometry through the retired whole-core-v10 build gate.
+// This tag is consumed only by the pure planner/create transaction; the
+// bound execution plan remains the runtime authority for the selected route.
+enum class LayerMajorRequestPlanAdmission : std::uint8_t {
+    kDefault = 0,
+    kSm87MacroFeedV3,
+};
+
 struct LayerMajorRequestMemoryOptions {
     std::uint32_t batch_size = 1U;
     std::uint64_t max_sequence_length = 0U;
@@ -139,6 +149,8 @@ struct LayerMajorRequestMemoryOptions {
         LayerMajorRequestMlpLayout::kPanelLocalThreeSpan;
     LayerMajorRequestLayout layout =
         LayerMajorRequestLayout::kC8192FamilyOverlay;
+    LayerMajorRequestPlanAdmission admission =
+        LayerMajorRequestPlanAdmission::kDefault;
 };
 
 struct RequestRegion {
