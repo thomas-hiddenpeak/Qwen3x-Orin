@@ -48,6 +48,11 @@ enum class RequestMemoryProfile : std::uint8_t {
     // SM87 target-AOT P40000 route.  It is not a RequestState layout and must
     // never be reported as either legacy C512 or layer-major whole-core.
     kSm87TargetAotP40Owner,
+    // Independent owner identity for the bulk-dataflow-v2 exact-P40000
+    // composition.  Its current byte capacity may equal v1, but its lifetime,
+    // control plane, and terminal receipt are a different ABI and must never
+    // alias the v1 profile in telemetry or admission.
+    kSm87BulkV2P40Owner,
 };
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -61,6 +66,8 @@ enum class RequestMemoryProfile : std::uint8_t {
             return "layer-major-p40-whole-core";
         case RequestMemoryProfile::kSm87TargetAotP40Owner:
             return "sm87-target-aot-p40-request-owner";
+        case RequestMemoryProfile::kSm87BulkV2P40Owner:
+            return "sm87-bulk-v2-p40-request-owner";
     }
     return "invalid";
 }

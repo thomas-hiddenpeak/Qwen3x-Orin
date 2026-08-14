@@ -1040,6 +1040,52 @@ if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_OWNER_ADMISSION)
     Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_ADMISSION=1
     Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_REQUEST_STATE_ADMISSION=1
   )
+  if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_WHOLE_P40_ADMISSION AND
+     Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION AND
+     Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_DOWN_WHOLE_P40_ADMISSION)
+    # Only the complete fixed whole-projection symbol set may compile the
+    # source-private startup query/attribute path.  These hashes authenticate
+    # the six source files only; they deliberately make no claim about the
+    # currently loaded ELF, cubin, or SASS.  The startup issuer separately
+    # queries the actual linked symbols' resource envelopes.  Partial builds
+    # retain the owner but fail closed with kMissingWholeSuccessor before
+    # touching CUDA.
+    set(_q3x_bulk_v2_whole_projection_fixed_sources
+      "include/q3x/kernels/sm87_bulk_dataflow_v2_fp8_whole_p40.h|05c507d8110ad3911dc04b166fed130386ffd0057db5d91ef804aaeacf64f91b"
+      "src/kernels/sm87/sm87_bulk_dataflow_v2_fp8_whole_p40.cu|6cc02aa28614840d32f905db429efd0a9cac594840cd0773b3aa043638a06ea2"
+      "include/q3x/kernels/sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40.h|7adb36af7998e43e9aaf1885db202e56c7c5fc4556a23197f85d5375b3eec200"
+      "src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40.cu|1010a79d8277dd3543be42d41a82b3b284ffe4ed3e2feea53927b54ef606a82f"
+      "include/q3x/kernels/sm87_bulk_dataflow_v2_nvfp4_down_whole_p40.h|ea082e6fe8694e378f95ae280be7c725868d9b3c5a9419b9807e7e7bf9ee5602"
+      "src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_down_whole_p40.cu|2972402b6bc39c9f1ddc9f56f069748b3da96d172139ecf5f1b97a568f191d8c"
+    )
+    foreach(_q3x_bulk_v2_fixed_source_record IN LISTS
+            _q3x_bulk_v2_whole_projection_fixed_sources)
+      string(REPLACE "|" ";" _q3x_bulk_v2_fixed_source_fields
+        "${_q3x_bulk_v2_fixed_source_record}")
+      list(GET _q3x_bulk_v2_fixed_source_fields 0
+        _q3x_bulk_v2_fixed_source_path)
+      list(GET _q3x_bulk_v2_fixed_source_fields 1
+        _q3x_bulk_v2_fixed_source_expected_sha256)
+      file(SHA256
+        "${CMAKE_CURRENT_SOURCE_DIR}/${_q3x_bulk_v2_fixed_source_path}"
+        _q3x_bulk_v2_fixed_source_actual_sha256)
+      if(NOT _q3x_bulk_v2_fixed_source_actual_sha256 STREQUAL
+             _q3x_bulk_v2_fixed_source_expected_sha256)
+        message(FATAL_ERROR
+          "whole-P40 startup seal source identity mismatch: ${_q3x_bulk_v2_fixed_source_path}"
+        )
+      endif()
+    endforeach()
+    unset(_q3x_bulk_v2_fixed_source_record)
+    unset(_q3x_bulk_v2_fixed_source_fields)
+    unset(_q3x_bulk_v2_fixed_source_path)
+    unset(_q3x_bulk_v2_fixed_source_expected_sha256)
+    unset(_q3x_bulk_v2_fixed_source_actual_sha256)
+    unset(_q3x_bulk_v2_whole_projection_fixed_sources)
+    target_compile_definitions(q3x_engine PRIVATE
+      Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_WHOLE_PROJECTION_STARTUP=1
+    )
+  endif()
 endif()
 if(Q3X_BUILD_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
   target_sources(q3x_engine PRIVATE
@@ -3283,6 +3329,7 @@ if(BUILD_TESTING)
       Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_ADMISSION=1
       Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_HOST_FIXTURE=1
       Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_REQUEST_STATE_ADMISSION=1
+      Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_STARTUP_SEAL_HOST_FIXTURE=1
     )
     target_link_libraries(
       q3x_sm87_bulk_dataflow_v2_p40_owner_host_test

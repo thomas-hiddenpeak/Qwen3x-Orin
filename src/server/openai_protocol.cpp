@@ -1320,6 +1320,9 @@ std::string serialize_target_prefill_witness(
               std::to_string(record.prefill_logical_panel_count) +
               ",\"request_memory_profile\":";
     switch (record.request_memory_profile) {
+      case runtime::RequestMemoryProfile::kSm87BulkV2P40Owner:
+        append_json_string(output, "sm87-bulk-v2-p40-request-owner");
+        break;
       case runtime::RequestMemoryProfile::kSm87TargetAotP40Owner:
         append_json_string(output, "sm87-target-aot-p40-request-owner");
         break;

@@ -26,14 +26,6 @@ static_assert(!std::is_copy_constructible_v<
               owner::Sm87BulkV2P40RequestState>);
 static_assert(!std::is_move_constructible_v<
               owner::Sm87BulkV2P40RequestState>);
-using EnqueueHandoffSignature = owner::Sm87BulkV2P40RequestStateStatus (
-    owner::Sm87BulkV2P40RequestState::*)(
-    const owner::Sm87BulkV2P40RequestStateSealedAccess&) noexcept;
-static_assert(std::is_same_v<
-              decltype(&owner::Sm87BulkV2P40RequestState::
-                           enqueue_handoff_d2h),
-              EnqueueHandoffSignature>);
-
 namespace {
 
 struct TestContext final {
@@ -251,7 +243,7 @@ void test_frozen_layout(TestContext& test) {
               "canonical request arena layout validates");
   test.expect(layout.arena_bytes == 5'075'652'608ULL &&
                   layout.cold_reset_bytes == 78'446'592ULL &&
-                  layout.separately_owned_control_bytes == 1'280ULL &&
+                  layout.separately_owned_control_bytes == 1'152ULL &&
                   layout.pinned_handoff_bytes == 8U,
               "data, cold-reset, external-control, and handoff sizes are exact");
   test.expect(layout.bindings[0U].range.offset == 0U &&
@@ -307,7 +299,7 @@ void test_startup_single_allocation_and_partial_clear(TestContext& test) {
                 "startup owns exactly one 5.075-GB device allocation and one 8-byte pinned handoff");
     test.expect(cuda.device_allocation_bytes[0U] !=
                     runtime::kSm87BulkV2P40ControlArenaBytes,
-                "request state does not duplicate the owner-managed 1280-byte control plane");
+                "request state does not duplicate the owner-managed 1152-byte control plane");
     test.expect(cuda.memset_calls.size() == 1U &&
                     cuda.memset_calls[0U].pointer == cuda.device_pointer &&
                     cuda.memset_calls[0U].value == 0 &&
@@ -345,7 +337,9 @@ void test_hot_rearm_and_terminal_handoff(TestContext& test) {
   const auto identity = access.identity();
   const std::size_t startup_queries = cuda.static_query_calls();
 
-  test.expect(static_cast<bool>(state.begin_request(access, 100U)),
+  test.expect(static_cast<bool>(
+                  owner::Sm87BulkV2P40RequestStateHostFixture::begin_request(
+                      state, access, 100U)),
               "first fresh request epoch begins");
   const std::size_t memset_before_active_rearm = cuda.memset_calls.size();
   const auto active_rearm = state.rearm_for_cold_request(access);
@@ -375,11 +369,14 @@ void test_hot_rearm_and_terminal_handoff(TestContext& test) {
                   rearmed.allocation_identity ==
                       identity.allocation_identity,
               "hot rearm enqueues only the local GDN reset with zero static CUDA queries or host wait");
-  test.expect(!state.begin_request(access, 100U) &&
+  test.expect(!owner::Sm87BulkV2P40RequestStateHostFixture::begin_request(
+                  state, access, 100U) &&
                   state.lifecycle() ==
                       owner::Sm87BulkV2P40RequestStateLifecycle::kReady,
               "stale request epoch cannot consume the rearmed state");
-  test.expect(static_cast<bool>(state.begin_request(access, 101U)),
+  test.expect(static_cast<bool>(
+                  owner::Sm87BulkV2P40RequestStateHostFixture::begin_request(
+                      state, access, 101U)),
               "strictly newer owner request epoch begins");
 
   const std::size_t sync_before_missing_d2h = cuda.synchronize_calls;
@@ -393,15 +390,16 @@ void test_hot_rearm_and_terminal_handoff(TestContext& test) {
                   state.lifecycle() ==
                       owner::Sm87BulkV2P40RequestStateLifecycle::kActive,
               "terminal observation fails before sync when no owner-bound D2H was enqueued");
-  test.expect(static_cast<bool>(
-                  state.enqueue_handoff_d2h(access)) &&
+  test.expect(static_cast<bool>(owner::Sm87BulkV2P40RequestStateHostFixture::
+                                    enqueue_handoff_d2h(state, access)) &&
                   cuda.copy_device_to_host_calls == 1U &&
                   cuda.last_copy_device_source == reinterpret_cast<void*>(
                       reinterpret_cast<std::uintptr_t>(cuda.device_pointer) +
                       runtime::kSm87BulkV2P40FamilyArenaOffset +
                       runtime::kSm87BulkV2P40FinalLogitsBytes),
               "executor can enqueue one fixed 8-byte D2H whose source is the frozen final-greedy range");
-  test.expect(!state.enqueue_handoff_d2h(access) &&
+  test.expect(!owner::Sm87BulkV2P40RequestStateHostFixture::
+                  enqueue_handoff_d2h(state, access) &&
                   cuda.copy_device_to_host_calls == 1U,
               "a request cannot enqueue a second handoff into the same pinned slot");
   owner::Sm87BulkV2P40RequestStateHostFixture::
@@ -435,10 +433,12 @@ void test_invalid_handoff_and_sync_failure_poison(TestContext& test) {
     }
     auto& state = *created.state;
     const auto& access = *state.sealed_access();
-    test.expect(static_cast<bool>(state.begin_request(access, 1U)),
-                "invalid handoff fixture begins");
     test.expect(static_cast<bool>(
-                    state.enqueue_handoff_d2h(access)),
+                    owner::Sm87BulkV2P40RequestStateHostFixture::begin_request(
+                        state, access, 1U)),
+                "invalid handoff fixture begins");
+    test.expect(static_cast<bool>(owner::Sm87BulkV2P40RequestStateHostFixture::
+                                      enqueue_handoff_d2h(state, access)),
                 "invalid handoff fixture enqueues fixed D2H");
     owner::Sm87BulkV2P40RequestStateHostFixture::
         emulate_completed_handoff_d2h(state, token, nonfinite);
@@ -465,10 +465,12 @@ void test_invalid_handoff_and_sync_failure_poison(TestContext& test) {
   }
   auto& state = *created.state;
   const auto& access = *state.sealed_access();
-  test.expect(static_cast<bool>(state.begin_request(access, 2U)),
-              "terminal failure fixture begins");
   test.expect(static_cast<bool>(
-                  state.enqueue_handoff_d2h(access)),
+                  owner::Sm87BulkV2P40RequestStateHostFixture::begin_request(
+                      state, access, 2U)),
+              "terminal failure fixture begins");
+  test.expect(static_cast<bool>(owner::Sm87BulkV2P40RequestStateHostFixture::
+                                    enqueue_handoff_d2h(state, access)),
               "terminal failure fixture enqueues fixed D2H");
   owner::Sm87BulkV2P40RequestStateHostFixture::
       emulate_completed_handoff_d2h(state, 2U, 0U);
@@ -496,8 +498,9 @@ void test_foreign_access_and_startup_fail_closed(TestContext& test) {
   test.expect(static_cast<bool>(first) && static_cast<bool>(second),
               "two independent request owners create");
   if (first && second) {
-    const auto status = first.state->begin_request(
-        *second.state->sealed_access(), 1U);
+    const auto status =
+        owner::Sm87BulkV2P40RequestStateHostFixture::begin_request(
+            *first.state, *second.state->sealed_access(), 1U);
     test.expect(!status &&
                     status.error ==
                         owner::Sm87BulkV2P40RequestStateError::kForeignAccess &&
@@ -562,8 +565,9 @@ void test_active_destruction_drains_borrowed_streams(TestContext& test) {
     if (!created) {
       return;
     }
-    test.expect(static_cast<bool>(created.state->begin_request(
-                    *created.state->sealed_access(), 1U)),
+    test.expect(static_cast<bool>(
+                    owner::Sm87BulkV2P40RequestStateHostFixture::begin_request(
+                        *created.state, *created.state->sealed_access(), 1U)),
                 "active destruction fixture begins");
   }
   test.expect(cuda.synchronize_calls ==

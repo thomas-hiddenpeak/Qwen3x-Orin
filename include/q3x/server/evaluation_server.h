@@ -62,9 +62,10 @@ enum class EvaluationServerEngineRouteContractError : std::uint8_t {
   kTargetRequiresExactRequestArenaCapacity,
   kTargetRequiresFixedC512HostChunk,
   kTargetRequiresNeutralLegacyPrefillSelectors,
+  kPrefillPlanUnavailable,
 };
 
-[[nodiscard]] constexpr EvaluationServerEngineRouteContractError
+[[nodiscard]] inline EvaluationServerEngineRouteContractError
 validate_evaluation_server_engine_route_contract(
     const EvaluationServerOptions& options) noexcept {
   if (!runtime::is_valid_reference_generation_route(options.engine_route)) {
@@ -73,6 +74,11 @@ validate_evaluation_server_engine_route_contract(
   if (options.engine_route ==
       runtime::ReferenceGenerationRoute::kReference) {
     return EvaluationServerEngineRouteContractError::kNone;
+  }
+  // Both complete P40 routes own their execution geometry.  Neither may
+  // inherit a legacy layer-major tactic as an implicit implementation choice.
+  if (!runtime::is_exact_p40_generation_route(options.engine_route)) {
+    return EvaluationServerEngineRouteContractError::kInvalidRoute;
   }
   if (options.max_sequence_length !=
       runtime::kSm87TargetAotP40RequestCapacityTokens) {
@@ -107,6 +113,13 @@ validate_evaluation_server_engine_route_contract(
     return EvaluationServerEngineRouteContractError::
         kTargetRequiresNeutralLegacyPrefillSelectors;
   }
+  if (options.engine_route ==
+          runtime::ReferenceGenerationRoute::kSm87BulkV2P40 &&
+      !runtime::is_reference_generation_route_compiled(
+          options.engine_route)) {
+    return EvaluationServerEngineRouteContractError::
+        kPrefillPlanUnavailable;
+  }
   return EvaluationServerEngineRouteContractError::kNone;
 }
 
@@ -119,24 +132,27 @@ validate_evaluation_server_engine_route_contract(
       return "unknown complete-engine route";
     case EvaluationServerEngineRouteContractError::
         kTargetRequiresExactP40001Capacity:
-      return "sm87-target-aot-p40 requires --max-sequence-length 40001";
+      return "complete P40 routes require --max-sequence-length 40001";
     case EvaluationServerEngineRouteContractError::
         kTargetRequiresOneOutputToken:
-      return "sm87-target-aot-p40 requires --max-output-tokens 1";
+      return "complete P40 routes require --max-output-tokens 1";
     case EvaluationServerEngineRouteContractError::
         kTargetRequiresSm87ProjectionBackend:
-      return "sm87-target-aot-p40 requires --projection-backend sm87";
+      return "complete P40 routes require --projection-backend sm87";
     case EvaluationServerEngineRouteContractError::
         kTargetRequiresExactRequestArenaCapacity:
-      return "sm87-target-aot-p40 requires --request-max-arena-bytes of at "
+      return "complete P40 routes require --request-max-arena-bytes of at "
              "least 5075652608";
     case EvaluationServerEngineRouteContractError::
         kTargetRequiresFixedC512HostChunk:
-      return "sm87-target-aot-p40 requires --prefill-chunk-size 512";
+      return "complete P40 routes require --prefill-chunk-size 512";
     case EvaluationServerEngineRouteContractError::
         kTargetRequiresNeutralLegacyPrefillSelectors:
-      return "sm87-target-aot-p40 cannot be combined with layer-major or "
+      return "complete P40 routes cannot be combined with layer-major or "
              "non-default legacy Prefill tactic selectors";
+    case EvaluationServerEngineRouteContractError::kPrefillPlanUnavailable:
+      return "selected complete-engine Prefill plan is unavailable in this "
+             "binary";
   }
   return "unknown complete-engine route contract error";
 }

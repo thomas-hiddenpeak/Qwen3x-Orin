@@ -1,4 +1,5 @@
 #include "sm87_bulk_dataflow_v2_p40_constituent_seal_internal.h"
+#include "sm87_bulk_dataflow_v2_p40_request_state_internal.h"
 
 #include <array>
 #include <cstddef>
@@ -29,12 +30,40 @@ static_assert(!std::is_constructible_v<
 static_assert(!std::is_constructible_v<
               owner::Sm87BulkV2P40ConstituentSealAccess,
               owner::Sm87BulkV2P40DevelopmentAdmissionEvidence>);
+static_assert(!std::is_default_constructible_v<
+              owner::Sm87BulkV2P40WholeProjectionStartupAccess>);
+static_assert(!std::is_copy_constructible_v<
+              owner::Sm87BulkV2P40WholeProjectionStartupAccess>);
+static_assert(!std::is_default_constructible_v<
+              owner::Sm87BulkV2P40WholeProjectionStartupRoot>);
+static_assert(!std::is_constructible_v<
+              owner::Sm87BulkV2P40WholeProjectionStartupAccess,
+              owner::Sm87BulkV2P40WholeProjectionStartupObservations>);
+static_assert(static_cast<std::uint8_t>(
+                  owner::Sm87BulkV2P40ExecutionClass::
+                      kDefaultOffDevelopmentCandidate) == 1U);
+static_assert(static_cast<std::uint8_t>(
+                  owner::Sm87BulkV2P40ExecutionClass::
+                      kSyntheticHostContract) == 2U);
+static_assert(static_cast<std::uint8_t>(
+                  owner::Sm87BulkV2P40ExecutionClass::
+                      kDefaultOffDirectionWitness) == 3U);
 using ProductionCompleteMethod = owner::Sm87BulkV2P40OwnerStatus (
     owner::Sm87BulkV2P40Owner::*)(
         const owner::Sm87BulkV2P40ExecutionAccess&) noexcept;
 static_assert(std::is_same_v<
-              decltype(&owner::Sm87BulkV2P40Owner::complete_request),
+              decltype(static_cast<ProductionCompleteMethod>(
+                  &owner::Sm87BulkV2P40Owner::complete_request)),
               ProductionCompleteMethod>);
+using OwnerBoundCompleteMethod = owner::Sm87BulkV2P40OwnerStatus (
+    owner::Sm87BulkV2P40Owner::*)(
+        const owner::Sm87BulkV2P40ExecutionAccess&,
+        owner::Sm87BulkV2P40RequestState&,
+        const owner::Sm87BulkV2P40RequestStateSealedAccess&) noexcept;
+static_assert(std::is_same_v<
+              decltype(static_cast<OwnerBoundCompleteMethod>(
+                  &owner::Sm87BulkV2P40Owner::complete_request)),
+              OwnerBoundCompleteMethod>);
 
 class TestContext final {
  public:
@@ -314,6 +343,155 @@ class FakeCudaRuntime final : public owner::Sm87BulkV2P40CudaRuntime {
   std::uint32_t* cancellation_host_ = nullptr;
 };
 
+class FakeRequestStateCudaRuntime final
+    : public owner::Sm87BulkV2P40RequestStateCudaRuntime {
+ public:
+  ~FakeRequestStateCudaRuntime() override { delete pinned_handoff_; }
+
+  [[nodiscard]] int get_current_device(
+      std::int32_t* const device_ordinal) noexcept override {
+    ++static_query_calls;
+    if (device_ordinal == nullptr) {
+      return 1;
+    }
+    *device_ordinal = 0;
+    return 0;
+  }
+
+  [[nodiscard]] int get_device_properties(
+      const std::int32_t device_ordinal,
+      owner::Sm87BulkV2P40RequestDeviceProperties* const properties)
+      noexcept override {
+    ++static_query_calls;
+    if (device_ordinal != 0 || properties == nullptr) {
+      return 1;
+    }
+    *properties = {8, 7, 16};
+    return 0;
+  }
+
+  [[nodiscard]] int get_stream_flags(
+      void* const stream, unsigned int* const flags) noexcept override {
+    ++static_query_calls;
+    if (stream == nullptr || flags == nullptr) {
+      return 1;
+    }
+    *flags = owner::kSm87BulkV2P40NonBlockingStreamFlag;
+    return 0;
+  }
+
+  [[nodiscard]] int allocate_device(
+      void** const pointer, const std::size_t bytes) noexcept override {
+    if (pointer == nullptr ||
+        bytes != runtime::kSm87BulkV2P40RequestArenaBytes ||
+        arena_live_) {
+      return 1;
+    }
+    arena_live_ = true;
+    *pointer = arena_pointer();
+    return 0;
+  }
+
+  [[nodiscard]] int free_device(void* const pointer) noexcept override {
+    if (!arena_live_ || pointer != arena_pointer()) {
+      return 1;
+    }
+    arena_live_ = false;
+    return 0;
+  }
+
+  [[nodiscard]] int allocate_pinned_host(
+      void** const pointer, const std::size_t bytes) noexcept override {
+    if (pointer == nullptr ||
+        bytes != sizeof(owner::Sm87BulkV2P40PinnedHandoff) ||
+        pinned_handoff_ != nullptr) {
+      return 1;
+    }
+    pinned_handoff_ =
+        new (std::nothrow) owner::Sm87BulkV2P40PinnedHandoff();
+    if (pinned_handoff_ == nullptr) {
+      return 2;
+    }
+    *pointer = pinned_handoff_;
+    return 0;
+  }
+
+  [[nodiscard]] int free_pinned_host(void* const pointer) noexcept override {
+    if (pointer != pinned_handoff_) {
+      return 1;
+    }
+    delete pinned_handoff_;
+    pinned_handoff_ = nullptr;
+    return 0;
+  }
+
+  [[nodiscard]] int query_pointer(
+      const void* const pointer,
+      owner::Sm87BulkV2P40RequestPointerAttributes* const attributes)
+      noexcept override {
+    ++static_query_calls;
+    if (attributes == nullptr) {
+      return 1;
+    }
+    if (arena_live_ && pointer == arena_pointer()) {
+      *attributes = {owner::Sm87BulkV2P40RequestPointerKind::kDevice,
+                     nullptr, arena_pointer(), 0};
+      return 0;
+    }
+    if (pointer == pinned_handoff_) {
+      *attributes = {owner::Sm87BulkV2P40RequestPointerKind::kHost,
+                     pinned_handoff_, nullptr, 0};
+      return 0;
+    }
+    return 1;
+  }
+
+  [[nodiscard]] int memset_async(void* const pointer, const int value,
+                                 const std::size_t bytes,
+                                 void* const stream) noexcept override {
+    if (!arena_live_ || pointer != arena_pointer() || value != 0 ||
+        bytes != runtime::kSm87BulkV2P40ColdResetBytes || stream == nullptr) {
+      return 1;
+    }
+    ++memset_calls;
+    return 0;
+  }
+
+  [[nodiscard]] int copy_device_to_host_async(
+      void* const host_destination, const void* const device_source,
+      const std::size_t bytes, void* const stream) noexcept override {
+    if (host_destination != pinned_handoff_ || device_source == nullptr ||
+        bytes != sizeof(owner::Sm87BulkV2P40PinnedHandoff) ||
+        stream == nullptr) {
+      return 1;
+    }
+    ++copy_calls;
+    return 0;
+  }
+
+  [[nodiscard]] int synchronize_stream(
+      void* const stream) noexcept override {
+    if (stream == nullptr) {
+      return 1;
+    }
+    ++stream_sync_calls;
+    return 0;
+  }
+
+  std::size_t static_query_calls = 0U;
+  std::size_t memset_calls = 0U;
+  std::size_t copy_calls = 0U;
+  std::size_t stream_sync_calls = 0U;
+
+ private:
+  [[nodiscard]] static void* arena_pointer() noexcept {
+    return reinterpret_cast<void*>(0x1'0000'0000ULL);
+  }
+
+  bool arena_live_ = false;
+  owner::Sm87BulkV2P40PinnedHandoff* pinned_handoff_ = nullptr;
+};
+
 [[nodiscard]] owner::Sm87BulkV2P40OwnerIdentity evidence_identity() noexcept {
   owner::Sm87BulkV2P40OwnerIdentity identity;
   identity.deployment_identity = 101U;
@@ -418,6 +596,188 @@ void test_development_admission_is_not_production_admission(
       "NVFP4, request-arena, and pinned-handoff interface gaps stay explicit and fail closed");
 }
 
+void test_direction_witness_is_disjoint_from_qualified_execution(
+    TestContext& test) {
+  auto identity = evidence_identity();
+  identity.plan_magic = runtime::kSm87BulkV2P40PlanMagic;
+  identity.abi_major = runtime::kSm87BulkV2P40PlanAbiMajor;
+  identity.abi_minor = runtime::kSm87BulkV2P40PlanAbiMinor;
+  identity.owner_identity = 211U;
+  identity.seal_nonce = 212U;
+  identity.device_ordinal = 0;
+  identity.execution_class = owner::Sm87BulkV2P40ExecutionClass::
+      kDefaultOffDirectionWitness;
+  identity.authenticated_real_constituents = true;
+  identity.exact_numerical_contract_qualified = false;
+  identity.development_execution_eligible = true;
+  identity.production_dispatch_eligible = false;
+  test.expect(identity.valid() && identity.direction_witness_valid() &&
+                  !identity.development_candidate_valid() &&
+                  !identity.synthetic_host_contract_valid(),
+              "an authenticated accuracy-unqualified identity is valid only as a default-off direction witness");
+
+  auto exact = identity;
+  exact.exact_numerical_contract_qualified = true;
+  test.expect(!exact.valid() && !exact.direction_witness_valid(),
+              "numerical qualification cannot be asserted while retaining direction-witness identity");
+  auto production = identity;
+  production.production_dispatch_eligible = true;
+  test.expect(!production.valid() && !production.direction_witness_valid(),
+              "a direction witness can never carry production-dispatch eligibility");
+  auto unauthenticated = identity;
+  unauthenticated.authenticated_real_constituents = false;
+  test.expect(!unauthenticated.valid() &&
+                  !unauthenticated.direction_witness_valid(),
+              "caller-shaped untrusted constituents cannot mint a direction witness");
+
+  FakeCudaRuntime cuda;
+  auto created = owner::Sm87BulkV2P40OwnerHostFixture::create(&cuda);
+  test.expect(static_cast<bool>(created),
+              "direction-witness fixture owns startup resources");
+  if (!created) {
+    return;
+  }
+  auto witness = owner::Sm87BulkV2P40OwnerHostFixture::
+      mint_direction_witness_constituent_seal(*created.owner,
+                                              evidence_identity());
+  test.expect(witness != nullptr,
+              "the test-only fixture can form the direction-witness topology");
+  if (witness == nullptr) {
+    return;
+  }
+
+  const auto development = created.owner->
+      seal_for_default_off_development_execution(*witness);
+  test.expect(!development &&
+                  development.error ==
+                      owner::Sm87BulkV2P40OwnerError::
+                          kInvalidConstituentSeal &&
+                  created.owner->state() ==
+                      owner::Sm87BulkV2P40OwnerState::kResourcesReady,
+              "an accuracy-unqualified witness cannot enter the numerically qualified development gate");
+  const auto synthetic =
+      created.owner->seal_synthetic_for_host_contract(*witness);
+  test.expect(!synthetic &&
+                  synthetic.error == owner::Sm87BulkV2P40OwnerError::
+                                         kInvalidConstituentSeal &&
+                  created.owner->state() ==
+                      owner::Sm87BulkV2P40OwnerState::kResourcesReady,
+              "the synthetic host-contract gate rejects a direction witness");
+  const auto admitted =
+      created.owner->seal_for_default_off_direction_witness(*witness);
+  const auto* const access = created.owner->execution_access();
+  test.expect(static_cast<bool>(admitted) && access != nullptr &&
+                  access->identity().direction_witness_valid() &&
+                  !access->identity().development_candidate_valid() &&
+                  !access->identity().exact_numerical_contract_qualified &&
+                  !access->identity().production_dispatch_eligible,
+              "only the explicit default-off direction gate mints the accuracy-unqualified execution capability");
+}
+
+void test_whole_projection_startup_capability(TestContext& test) {
+  FakeCudaRuntime cuda_a;
+  FakeCudaRuntime cuda_b;
+  auto first = owner::Sm87BulkV2P40OwnerHostFixture::create(&cuda_a);
+  auto second = owner::Sm87BulkV2P40OwnerHostFixture::create(&cuda_b);
+  test.expect(static_cast<bool>(first) && static_cast<bool>(second),
+              "two startup resource owners exist for capability isolation");
+  if (!first || !second) {
+    return;
+  }
+
+  const auto passing = owner::
+      Sm87BulkV2P40WholeProjectionStartupHostFixture::passing_observations();
+  auto forged = passing;
+  // These are the authority-looking fields a caller could set in the public
+  // observation records.  They must not help, even when every byte and
+  // resource value otherwise matches the frozen catalog.
+  forged.fp8.admission_capability_issued = true;
+  forged.gate_up.resource_gate_passed = true;
+  forged.down.resource_gate_passed = true;
+  const auto public_attempt = owner::
+      Sm87BulkV2P40WholeProjectionStartupHostFixture::
+          attempt_from_caller_filled_observations(*first.owner, forged);
+  test.expect(
+      !public_attempt && public_attempt.root == nullptr &&
+          public_attempt.status.error ==
+              owner::Sm87BulkV2P40WholeProjectionStartupError::
+                  kCallerFilledObservationIsNotAuthority &&
+          public_attempt.audit
+              .caller_filled_public_observation_used_as_authority,
+      "caller-filled public records cannot mint the private startup access");
+
+  const auto synthetic = owner::
+      Sm87BulkV2P40WholeProjectionStartupHostFixture::
+          mint_from_synthetic_startup_query(*first.owner, passing);
+  test.expect(
+      !synthetic && synthetic.root != nullptr &&
+          synthetic.audit.resource_qualification_valid() &&
+          !synthetic.audit.configured_source_sha256_gate_passed &&
+          synthetic.audit.synthetic_host_query &&
+          owner::Sm87BulkV2P40WholeProjectionStartupHostFixture::
+              synthetic_access_valid(synthetic, *first.owner),
+      "the host fixture exercises resource/catalog checks without impersonating the source-hash-gated fixed-AOT path");
+  if (synthetic.root != nullptr && synthetic.root->access() != nullptr) {
+    const auto* const access = synthetic.root->access();
+    test.expect(
+        access->bound_to(*first.owner) && !access->bound_to(*second.owner) &&
+            !access->default_off_fixed_aot_resource_valid() &&
+            !access->numerical_contract_qualified() &&
+            !access->performance_qualified() &&
+            !access->production_dispatch_eligible(),
+        "startup access is owner-bound and grants no numerical, performance, or production qualification");
+  }
+
+  auto wrong_resources = passing;
+  ++wrong_resources.gate_up.registers_per_thread;
+  const auto wrong_resource_result = owner::
+      Sm87BulkV2P40WholeProjectionStartupHostFixture::
+          mint_from_synthetic_startup_query(*first.owner, wrong_resources);
+  test.expect(
+      !wrong_resource_result && wrong_resource_result.root == nullptr &&
+          wrong_resource_result.status.error ==
+              owner::Sm87BulkV2P40WholeProjectionStartupError::
+                  kResourceMismatch &&
+          wrong_resource_result.status.resource_index == 3U,
+      "one wrong exact resource value fails closed before capability issue");
+
+  auto wrong_catalog = passing;
+  wrong_catalog.fp8.roles[1U].code.sass_identity ^= 1U;
+  const auto wrong_catalog_result = owner::
+      Sm87BulkV2P40WholeProjectionStartupHostFixture::
+          mint_from_synthetic_startup_query(*first.owner, wrong_catalog);
+  test.expect(
+      !wrong_catalog_result && wrong_catalog_result.root == nullptr &&
+          wrong_catalog_result.status.error ==
+              owner::Sm87BulkV2P40WholeProjectionStartupError::
+                  kRetainedEvidenceCatalogMismatch,
+      "one mismatched retained evidence record fails the catalog check without claiming loaded-binary authentication");
+
+  auto missing_successor = passing;
+  missing_successor.down_successor_linked = false;
+  const auto missing_result = owner::
+      Sm87BulkV2P40WholeProjectionStartupHostFixture::
+          mint_from_synthetic_startup_query(*first.owner,
+                                            missing_successor);
+  test.expect(
+      !missing_result && missing_result.root == nullptr &&
+          missing_result.status.error ==
+              owner::Sm87BulkV2P40WholeProjectionStartupError::
+                  kMissingWholeSuccessor &&
+          missing_result.status.resource_index == 4U,
+      "a partial whole-projection successor set fails before execution");
+
+  const auto production_shaped = owner::
+      create_sm87_bulk_dataflow_v2_p40_whole_projection_startup_root(
+          *first.owner);
+  test.expect(
+      !production_shaped && production_shaped.root == nullptr &&
+          production_shaped.status.error ==
+              owner::Sm87BulkV2P40WholeProjectionStartupError::
+                  kMissingWholeSuccessor,
+      "a build without the complete linked CUDA successor set fails closed without using the host fixture");
+}
+
 [[nodiscard]] const owner::Sm87BulkV2P40ExecutionAccess* create_and_seal(
     TestContext& test, owner::Sm87BulkV2P40Owner* const execution_owner) {
   const auto evidence = evidence_identity();
@@ -442,6 +802,174 @@ void test_development_admission_is_not_production_admission(
   return execution_owner->execution_access();
 }
 
+[[nodiscard]] const owner::Sm87BulkV2P40ExecutionAccess*
+create_and_seal_for_request_state(
+    TestContext& test, owner::Sm87BulkV2P40Owner* const execution_owner,
+    const owner::Sm87BulkV2P40RequestStateSealedAccess& request_access) {
+  auto evidence = evidence_identity();
+  evidence.request_allocation_identity =
+      request_access.identity().allocation_identity;
+  evidence.stream_event_owner_identity =
+      request_access.identity().stream_event_owner_identity;
+  auto seal = owner::Sm87BulkV2P40OwnerHostFixture::
+      mint_synthetic_constituent_seal(*execution_owner, evidence);
+  test.expect(seal != nullptr,
+              "request-state completion fixture can bind its exact allocation identity");
+  if (seal == nullptr) {
+    return nullptr;
+  }
+  const auto status =
+      execution_owner->seal_synthetic_for_host_contract(*seal);
+  test.expect(static_cast<bool>(status),
+              "owner seals the request-allocation-bound synthetic capability");
+  return execution_owner->execution_access();
+}
+
+[[nodiscard]] bool submit_layer_work(
+    owner::Sm87BulkV2P40Owner& execution_owner,
+    const owner::Sm87BulkV2P40ExecutionAccess& access,
+    const std::size_t model_layer) {
+  const bool full = runtime::sm87_bulk_v2_p40_is_full_layer(model_layer);
+  const auto note = [&](const runtime::Sm87BulkV2P40Stream stream,
+                        const owner::Sm87BulkV2P40SubmissionCounter counter,
+                        const std::size_t count,
+                        const runtime::Sm87BulkV2P40FamilyPhase family,
+                        const std::size_t constituent) {
+    return static_cast<bool>(execution_owner.note_submission(
+        access, stream, counter, count, model_layer, family, 0U,
+        constituent));
+  };
+  const auto projection =
+      runtime::Sm87BulkV2P40Stream::kProjectionAndGdnProducer;
+  if (full) {
+    if (!note(projection,
+              owner::Sm87BulkV2P40SubmissionCounter::
+                  kFp8FullInputWholeRoleLaunch,
+              1U, runtime::Sm87BulkV2P40FamilyPhase::kFullInput, 0U) ||
+        !note(runtime::Sm87BulkV2P40Stream::kMain,
+              owner::Sm87BulkV2P40SubmissionCounter::
+                  kAttentionPreprocessPanel,
+              5U, runtime::Sm87BulkV2P40FamilyPhase::kFullPreprocess, 1U) ||
+        !note(runtime::Sm87BulkV2P40Stream::kMain,
+              owner::Sm87BulkV2P40SubmissionCounter::kAttentionLaunch,
+              q3x::kernels::kSm87BulkV2AttentionKernelLaunches,
+              runtime::Sm87BulkV2P40FamilyPhase::kFullAttentionCore, 2U)) {
+      return false;
+    }
+  } else {
+    if (!note(projection,
+              owner::Sm87BulkV2P40SubmissionCounter::
+                  kFp8GdnInputWholeRoleLaunch,
+              1U, runtime::Sm87BulkV2P40FamilyPhase::kGdnInput, 0U) ||
+        !note(runtime::Sm87BulkV2P40Stream::kBf16Ab,
+              owner::Sm87BulkV2P40SubmissionCounter::kBf16AbLaunch, 1U,
+              runtime::Sm87BulkV2P40FamilyPhase::kGdnInput, 1U) ||
+        !note(projection,
+              owner::Sm87BulkV2P40SubmissionCounter::kGdnProducerChunk,
+              q3x::kernels::kSm87BulkV2GdnP40Chunks,
+              runtime::Sm87BulkV2P40FamilyPhase::kGdnCore, 2U) ||
+        !note(runtime::Sm87BulkV2P40Stream::kGdnRecurrence,
+              owner::Sm87BulkV2P40SubmissionCounter::kGdnRecurrenceChunk,
+              q3x::kernels::kSm87BulkV2GdnP40Chunks,
+              runtime::Sm87BulkV2P40FamilyPhase::kGdnCore, 3U) ||
+        !note(runtime::Sm87BulkV2P40Stream::kGdnEpilogue,
+              owner::Sm87BulkV2P40SubmissionCounter::kGdnEpilogueChunk,
+              q3x::kernels::kSm87BulkV2GdnP40Chunks,
+              runtime::Sm87BulkV2P40FamilyPhase::kGdnCore, 4U) ||
+        !note(projection,
+              owner::Sm87BulkV2P40SubmissionCounter::kGdnPersistentCopy,
+              2U, runtime::Sm87BulkV2P40FamilyPhase::kGdnStatePublish,
+              5U)) {
+      return false;
+    }
+  }
+  return note(projection,
+              owner::Sm87BulkV2P40SubmissionCounter::
+                  kFp8OutputWholeRoleLaunch,
+              1U,
+              full ? runtime::Sm87BulkV2P40FamilyPhase::kFullOutputProjection
+                   : runtime::Sm87BulkV2P40FamilyPhase::kGdnOutputProjection,
+              6U) &&
+         note(projection,
+              owner::Sm87BulkV2P40SubmissionCounter::
+                  kNvFp4GateUpWholeRoleLaunch,
+              1U, runtime::Sm87BulkV2P40FamilyPhase::kMlp, 7U) &&
+         note(projection,
+              owner::Sm87BulkV2P40SubmissionCounter::
+                  kNvFp4DownWholeRoleLaunch,
+              1U, runtime::Sm87BulkV2P40FamilyPhase::kMlp, 8U);
+}
+
+[[nodiscard]] bool submit_and_close_layer(
+    owner::Sm87BulkV2P40Owner& execution_owner,
+    const owner::Sm87BulkV2P40ExecutionAccess& access,
+    const std::size_t model_layer) {
+  if (!submit_layer_work(execution_owner, access, model_layer)) {
+    return false;
+  }
+  return static_cast<bool>(execution_owner.close_layer(
+      access, model_layer,
+      runtime::sm87_bulk_v2_p40_is_full_layer(model_layer)
+          ? owner::Sm87BulkV2P40LayerKind::kFull
+          : owner::Sm87BulkV2P40LayerKind::kGdn));
+}
+
+[[nodiscard]] bool join_all_latest_auxiliary_generations(
+    owner::Sm87BulkV2P40Owner& execution_owner,
+    const owner::Sm87BulkV2P40ExecutionAccess& access) {
+  for (std::size_t auxiliary = 1U;
+       auxiliary < runtime::kSm87BulkV2P40StreamCount; ++auxiliary) {
+    const auto stream =
+        static_cast<runtime::Sm87BulkV2P40Stream>(auxiliary);
+    const auto event =
+        static_cast<runtime::Sm87BulkV2P40ReusableEvent>(auxiliary - 1U);
+    if (!execution_owner.record_event(access, stream, event) ||
+        !execution_owner.wait_event(
+            access, runtime::Sm87BulkV2P40Stream::kMain, event)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+struct BoundOwnerRequestFixture final {
+  FakeCudaRuntime cuda;
+  FakeRequestStateCudaRuntime request_cuda;
+  owner::Sm87BulkV2P40OwnerCreateResult owner_created;
+  owner::Sm87BulkV2P40RequestStateCreateResult request_created;
+  const owner::Sm87BulkV2P40ExecutionAccess* access = nullptr;
+};
+
+[[nodiscard]] bool initialize_bound_owner_request_fixture(
+    TestContext& test, BoundOwnerRequestFixture* const fixture) {
+  if (fixture == nullptr) {
+    return false;
+  }
+  fixture->owner_created =
+      owner::Sm87BulkV2P40OwnerHostFixture::create(&fixture->cuda);
+  test.expect(static_cast<bool>(fixture->owner_created),
+              "bound fixture creates an exact resource owner");
+  if (!fixture->owner_created) {
+    return false;
+  }
+  const auto borrowed = owner::Sm87BulkV2P40OwnerHostFixture::
+      borrow_streams_for_request_state(*fixture->owner_created.owner);
+  fixture->request_created =
+      owner::Sm87BulkV2P40RequestStateHostFixture::create(
+          &fixture->request_cuda, borrowed,
+          fixture->owner_created.owner->owner_identity(),
+          fixture->owner_created.owner->device_ordinal());
+  test.expect(static_cast<bool>(fixture->request_created),
+              "bound fixture creates an exact request state");
+  if (!fixture->request_created) {
+    return false;
+  }
+  fixture->access = create_and_seal_for_request_state(
+      test, fixture->owner_created.owner.get(),
+      *fixture->request_created.state->sealed_access());
+  return fixture->access != nullptr;
+}
+
 void test_resource_creation_and_private_authority(TestContext& test) {
   FakeCudaRuntime cuda;
   auto created = owner::Sm87BulkV2P40OwnerHostFixture::create(&cuda);
@@ -454,7 +982,7 @@ void test_resource_creation_and_private_authority(TestContext& test) {
                   cuda.event_create_calls == 12U &&
                   cuda.device_allocate_calls == 1U &&
                   cuda.host_allocate_calls == 1U,
-              "startup owns five streams, twelve events, one 1280B control arena, and one mapped word");
+              "startup owns five streams, twelve events, one 1152B control arena, and one mapped word");
   test.expect(created.owner->execution_access() == nullptr &&
                   created.owner->state() ==
                       owner::Sm87BulkV2P40OwnerState::kResourcesReady,
@@ -550,6 +1078,331 @@ void test_foreign_seal_rejected(TestContext& test) {
                                  kForeignConstituentSeal &&
                   second.owner->execution_access() == nullptr,
               "a complete seal cannot cross its physical owner");
+}
+
+void test_natural_layer_close_transaction(TestContext& test) {
+  FakeCudaRuntime cuda;
+  auto created = owner::Sm87BulkV2P40OwnerHostFixture::create(&cuda);
+  test.expect(static_cast<bool>(created),
+              "natural-layer closure fixture owner exists");
+  if (!created) {
+    return;
+  }
+  const auto* const access = create_and_seal(test, created.owner.get());
+  if (access == nullptr || !created.owner->begin_request(*access, 551U)) {
+    test.expect(false, "natural-layer closure request begins");
+    return;
+  }
+
+  const auto early = created.owner->close_layer(
+      *access, 0U, owner::Sm87BulkV2P40LayerKind::kGdn);
+  test.expect(!early && early.error ==
+                            owner::Sm87BulkV2P40OwnerError::
+                                kIncompleteLayerWork,
+              "layer zero cannot close before its exact constituent prefix");
+  const auto wrong_kind = created.owner->close_layer(
+      *access, 0U, owner::Sm87BulkV2P40LayerKind::kFull);
+  test.expect(!wrong_kind &&
+                  wrong_kind.error ==
+                      owner::Sm87BulkV2P40OwnerError::kWrongLayerKind,
+              "caller-declared Full cannot override natural GDN layer zero");
+  test.expect(submit_layer_work(*created.owner, *access, 0U),
+              "layer zero exact constituent work is recorded");
+  const auto skipped = created.owner->close_layer(
+      *access, 1U, owner::Sm87BulkV2P40LayerKind::kGdn);
+  test.expect(!skipped &&
+                  skipped.error ==
+                      owner::Sm87BulkV2P40OwnerError::kInvalidLayerOrder,
+              "a natural layer cannot be skipped");
+  test.expect(static_cast<bool>(created.owner->close_layer(
+                  *access, 0U, owner::Sm87BulkV2P40LayerKind::kGdn)) &&
+                  created.owner->receipt().aggregate.completed_layers == 1U &&
+                  created.owner->receipt().aggregate.completed_gdn_layers ==
+                      1U &&
+                  created.owner->receipt().aggregate
+                          .closed_gdn_state_publications == 1U &&
+                  created.owner->receipt().aggregate
+                          .logical_projection_roles == 8U &&
+                  created.owner->receipt().aggregate.fused_outer_operations ==
+                      5U,
+              "owner derives and commits the complete GDN layer-zero receipt");
+  const auto duplicate = created.owner->close_layer(
+      *access, 0U, owner::Sm87BulkV2P40LayerKind::kGdn);
+  test.expect(!duplicate &&
+                  duplicate.error ==
+                      owner::Sm87BulkV2P40OwnerError::kInvalidLayerOrder,
+              "an already-closed natural layer cannot close twice");
+
+  const auto wrong_counter = created.owner->note_submission(
+      *access,
+      runtime::Sm87BulkV2P40Stream::kProjectionAndGdnProducer,
+      owner::Sm87BulkV2P40SubmissionCounter::
+          kFp8FullInputWholeRoleLaunch,
+      1U, 1U, runtime::Sm87BulkV2P40FamilyPhase::kFullInput, 0U, 0U);
+  test.expect(!wrong_counter &&
+                  wrong_counter.error ==
+                      owner::Sm87BulkV2P40OwnerError::kWrongLayerKind,
+              "a Full-only launch cannot be attributed to natural GDN layer one");
+  test.expect(submit_layer_work(*created.owner, *access, 1U),
+              "layer one exact constituent work is recorded");
+  const auto second_wrong_kind = created.owner->close_layer(
+      *access, 1U, owner::Sm87BulkV2P40LayerKind::kFull);
+  test.expect(!second_wrong_kind &&
+                  second_wrong_kind.error ==
+                      owner::Sm87BulkV2P40OwnerError::kWrongLayerKind,
+              "wrong caller kind cannot close a fully submitted GDN layer");
+  test.expect(static_cast<bool>(created.owner->close_layer(
+                  *access, 1U, owner::Sm87BulkV2P40LayerKind::kGdn)),
+              "the exact next natural GDN layer closes once");
+  test.expect(static_cast<bool>(created.owner->cancel_request(*access)),
+              "partial natural-layer test ends through owner-wide drain");
+}
+
+void test_owner_bound_request_state_completion(TestContext& test) {
+  FakeCudaRuntime cuda;
+  FakeRequestStateCudaRuntime request_cuda;
+  auto created = owner::Sm87BulkV2P40OwnerHostFixture::create(&cuda);
+  test.expect(static_cast<bool>(created),
+              "owner-bound terminal transaction fixture exists");
+  if (!created) {
+    return;
+  }
+  const auto borrowed =
+      owner::Sm87BulkV2P40OwnerHostFixture::borrow_streams_for_request_state(
+          *created.owner);
+  auto request_created = owner::Sm87BulkV2P40RequestStateHostFixture::create(
+      &request_cuda, borrowed, created.owner->owner_identity(),
+      created.owner->device_ordinal());
+  test.expect(static_cast<bool>(request_created),
+              "request state binds the owner's exact five stream handles");
+  if (!request_created) {
+    return;
+  }
+  auto& request_state = *request_created.state;
+  const auto& request_access = *request_state.sealed_access();
+  const auto* const access = create_and_seal_for_request_state(
+      test, created.owner.get(), request_access);
+  if (access == nullptr) {
+    return;
+  }
+  constexpr std::uint64_t request_epoch = 801U;
+  test.expect(static_cast<bool>(
+                  created.owner->begin_request(
+                      *access, request_state, request_access, request_epoch)),
+              "owner and request state begin one identical request epoch");
+  const auto early_handoff =
+      created.owner->enqueue_owner_bound_handoff_d2h(*access);
+  test.expect(!early_handoff &&
+                  early_handoff.error ==
+                      owner::Sm87BulkV2P40OwnerError::kInvalidFinalOrder &&
+                  request_cuda.copy_calls == 0U,
+              "fixed D2H is impossible before all layers and final operators close");
+
+  bool all_layers_closed = true;
+  for (std::size_t layer = 0U; layer < runtime::kSm87BulkV2P40Layers;
+       ++layer) {
+    if (!submit_and_close_layer(*created.owner, *access, layer)) {
+      all_layers_closed = false;
+      break;
+    }
+  }
+  test.expect(all_layers_closed &&
+                  created.owner->receipt().aggregate.completed_layers ==
+                      runtime::kSm87BulkV2P40Layers &&
+                  created.owner->receipt().aggregate.completed_gdn_layers ==
+                      runtime::kSm87BulkV2P40GdnLayers &&
+                  created.owner->receipt().aggregate.completed_full_layers ==
+                      runtime::kSm87BulkV2P40FullLayers,
+              "all 64 layers close only through their natural exact prefixes");
+  if (!all_layers_closed) {
+    return;
+  }
+  test.expect(join_all_latest_auxiliary_generations(
+                  *created.owner, *access),
+              "Main transitively joins every latest auxiliary generation");
+
+  const auto final_note = [&](const owner::Sm87BulkV2P40SubmissionCounter counter,
+                              const std::size_t constituent) {
+    return created.owner->note_submission(
+        *access, runtime::Sm87BulkV2P40Stream::kMain, counter, 1U,
+        runtime::kSm87BulkV2P40Layers - 1U,
+        runtime::Sm87BulkV2P40FamilyPhase::kFinalHandoff, 0U,
+        constituent);
+  };
+  const auto early_lm =
+      final_note(owner::Sm87BulkV2P40SubmissionCounter::kLmHead, 1U);
+  const auto direct_handoff_note =
+      final_note(owner::Sm87BulkV2P40SubmissionCounter::kHandoffD2h, 3U);
+  test.expect(!early_lm &&
+                  early_lm.error ==
+                      owner::Sm87BulkV2P40OwnerError::kInvalidFinalOrder &&
+                  !direct_handoff_note &&
+                  direct_handoff_note.error ==
+                      owner::Sm87BulkV2P40OwnerError::
+                          kMissingOwnerBoundHandoff &&
+                  request_cuda.copy_calls == 0U,
+              "final counters enforce Norm-to-LM-to-Argmax and reject caller-recorded D2H");
+  test.expect(final_note(owner::Sm87BulkV2P40SubmissionCounter::kFinalNorm,
+                         0U) &&
+                  final_note(owner::Sm87BulkV2P40SubmissionCounter::kLmHead,
+                             1U) &&
+                  final_note(owner::Sm87BulkV2P40SubmissionCounter::kArgmax,
+                             2U) &&
+                  static_cast<bool>(
+                      created.owner->enqueue_owner_bound_handoff_d2h(
+                          *access)),
+              "final norm, LM head, argmax, and fixed owner-bound D2H close the exact work receipt");
+  owner::Sm87BulkV2P40RequestStateHostFixture::
+      emulate_completed_handoff_d2h(request_state, 123U, 0U);
+
+  const std::size_t owner_sync_before = cuda.stream_sync_calls;
+  const std::size_t state_sync_before = request_cuda.stream_sync_calls;
+  const auto completed = created.owner->complete_request(
+      *access, request_state, request_access);
+  const auto& receipt = created.owner->receipt().aggregate;
+  test.expect(static_cast<bool>(completed) &&
+                  created.owner->state() ==
+                      owner::Sm87BulkV2P40OwnerState::kCompleted &&
+                  request_state.lifecycle() ==
+                      owner::Sm87BulkV2P40RequestStateLifecycle::kCompleted,
+              "the exact owner-bound terminal transaction commits both owners");
+  test.expect(cuda.stream_sync_calls == owner_sync_before &&
+                  request_cuda.stream_sync_calls == state_sync_before + 1U &&
+                  receipt.terminal_host_waits == 1U &&
+                  receipt.terminal_host_drains == 1U &&
+                  receipt.all_streams_drained,
+              "normal completion performs only RequestState's one transitive Main host sync");
+  test.expect(receipt.lifecycle ==
+                  runtime::Sm87BulkV2P40OwnerLifecycle::kCompleted &&
+                  receipt.state_committed && receipt.handoff_observed &&
+                  receipt.handoff_token_id == 123U &&
+                  receipt.handoff_nonfinite == 0U &&
+                  created.owner->receipt().identity_valid(),
+              "completed receipt publishes only the post-sync private 8-byte handoff observation");
+}
+
+void test_owner_bound_cancel_rearms_request_state(TestContext& test) {
+  BoundOwnerRequestFixture fixture;
+  if (!initialize_bound_owner_request_fixture(test, &fixture)) {
+    return;
+  }
+  auto& execution_owner = *fixture.owner_created.owner;
+  auto& request_state = *fixture.request_created.state;
+  const auto& request_access = *request_state.sealed_access();
+  test.expect(static_cast<bool>(execution_owner.begin_request(
+                  *fixture.access, request_state, request_access, 901U)),
+              "cancel fixture begins through the owner-bound transaction");
+  const std::size_t sync_before = fixture.cuda.stream_sync_calls;
+  const auto cancelled = execution_owner.cancel_request(*fixture.access);
+  test.expect(static_cast<bool>(cancelled) &&
+                  execution_owner.state() ==
+                      owner::Sm87BulkV2P40OwnerState::kCancelled &&
+                  request_state.lifecycle() ==
+                      owner::Sm87BulkV2P40RequestStateLifecycle::kCancelled &&
+                  fixture.cuda.stream_sync_calls == sync_before +
+                      runtime::kSm87BulkV2P40StreamCount,
+              "one owner-wide cancel drain transitions the exact bound request state");
+  const auto rearmed = request_state.rearm_for_cold_request(request_access);
+  test.expect(static_cast<bool>(rearmed) &&
+                  request_state.lifecycle() ==
+                      owner::Sm87BulkV2P40RequestStateLifecycle::kReady,
+              "a request cancelled by its owner can rearm its cold GDN prefix");
+  test.expect(static_cast<bool>(execution_owner.begin_request(
+                  *fixture.access, request_state, request_access, 902U)),
+              "the rearmed allocation can bind a fresh owner epoch");
+  test.expect(static_cast<bool>(execution_owner.cancel_request(
+                  *fixture.access)) &&
+                  request_state.lifecycle() ==
+                      owner::Sm87BulkV2P40RequestStateLifecycle::kCancelled,
+              "the second bound epoch also cancels without a state leak");
+}
+
+void test_owner_bound_partial_failure_poisons_request_state(
+    TestContext& test) {
+  BoundOwnerRequestFixture fixture;
+  if (!initialize_bound_owner_request_fixture(test, &fixture)) {
+    return;
+  }
+  auto& execution_owner = *fixture.owner_created.owner;
+  auto& request_state = *fixture.request_created.state;
+  const auto& request_access = *request_state.sealed_access();
+  test.expect(static_cast<bool>(execution_owner.begin_request(
+                  *fixture.access, request_state, request_access, 911U)),
+              "partial-failure fixture begins with an exact state binding");
+  test.expect(static_cast<bool>(execution_owner.note_submission(
+                  *fixture.access,
+                  runtime::Sm87BulkV2P40Stream::
+                      kProjectionAndGdnProducer,
+                  owner::Sm87BulkV2P40SubmissionCounter::
+                      kFp8GdnInputWholeRoleLaunch,
+                  1U, 0U, runtime::Sm87BulkV2P40FamilyPhase::kGdnInput,
+                  0U, 0U)),
+              "partial-failure fixture records one real submission");
+  const auto failed = execution_owner.poison_after_submission_failure(
+      *fixture.access, FakeCudaRuntime::kInjected, 0U,
+      runtime::Sm87BulkV2P40FamilyPhase::kGdnInput, 0U, 0U);
+  test.expect(!failed &&
+                  failed.error ==
+                      owner::Sm87BulkV2P40OwnerError::kCudaSubmission &&
+                  execution_owner.state() ==
+                      owner::Sm87BulkV2P40OwnerState::kPoisoned &&
+                  request_state.lifecycle() ==
+                      owner::Sm87BulkV2P40RequestStateLifecycle::kPoisoned &&
+                  !request_state.rearm_for_cold_request(request_access),
+              "partial CUDA failure drains once and atomically poisons the bound request state");
+}
+
+void test_foreign_request_state_is_never_polluted(TestContext& test) {
+  BoundOwnerRequestFixture fixture;
+  if (!initialize_bound_owner_request_fixture(test, &fixture)) {
+    return;
+  }
+  FakeRequestStateCudaRuntime foreign_cuda;
+  std::array<void*, runtime::kSm87BulkV2P40StreamCount> foreign_streams{};
+  for (std::size_t index = 0U; index < foreign_streams.size(); ++index) {
+    foreign_streams[index] = reinterpret_cast<void*>(
+        0x8'0000ULL + (index + 1U) * 0x100U);
+  }
+  auto foreign = owner::Sm87BulkV2P40RequestStateHostFixture::create(
+      &foreign_cuda, foreign_streams,
+      fixture.owner_created.owner->owner_identity() + 1000U, 0);
+  test.expect(static_cast<bool>(foreign),
+              "foreign-state isolation fixture creates independently");
+  if (!foreign) {
+    return;
+  }
+  auto& execution_owner = *fixture.owner_created.owner;
+  auto& bound_state = *fixture.request_created.state;
+  const auto& bound_access = *bound_state.sealed_access();
+  auto& foreign_state = *foreign.state;
+  const auto& foreign_access = *foreign_state.sealed_access();
+  const auto foreign_begin = execution_owner.begin_request(
+      *fixture.access, foreign_state, foreign_access, 921U);
+  test.expect(!foreign_begin &&
+                  foreign_begin.error ==
+                      owner::Sm87BulkV2P40OwnerError::kForeignRequestState &&
+                  execution_owner.state() ==
+                      owner::Sm87BulkV2P40OwnerState::kSealed &&
+                  bound_state.lifecycle() ==
+                      owner::Sm87BulkV2P40RequestStateLifecycle::kReady &&
+                  foreign_state.lifecycle() ==
+                      owner::Sm87BulkV2P40RequestStateLifecycle::kReady,
+              "foreign begin fails before either request-state lifecycle mutates");
+  test.expect(static_cast<bool>(execution_owner.begin_request(
+                  *fixture.access, bound_state, bound_access, 921U)),
+              "the exact state still binds after a rejected foreign attempt");
+  const auto foreign_complete = execution_owner.complete_request(
+      *fixture.access, foreign_state, foreign_access);
+  test.expect(!foreign_complete &&
+                  foreign_complete.error ==
+                      owner::Sm87BulkV2P40OwnerError::kForeignRequestState &&
+                  execution_owner.state() ==
+                      owner::Sm87BulkV2P40OwnerState::kPoisoned &&
+                  bound_state.lifecycle() ==
+                      owner::Sm87BulkV2P40RequestStateLifecycle::kPoisoned &&
+                  foreign_state.lifecycle() ==
+                      owner::Sm87BulkV2P40RequestStateLifecycle::kReady,
+              "foreign completion poisons only the owner's exact active state and never the foreign object");
 }
 
 void test_hot_ordering_and_terminal_wait(TestContext& test) {
@@ -791,8 +1644,15 @@ void test_failure_cleanup(TestContext& test) {
 int main() {
   TestContext test;
   test_development_admission_is_not_production_admission(test);
+  test_direction_witness_is_disjoint_from_qualified_execution(test);
+  test_whole_projection_startup_capability(test);
   test_resource_creation_and_private_authority(test);
   test_foreign_seal_rejected(test);
+  test_natural_layer_close_transaction(test);
+  test_owner_bound_request_state_completion(test);
+  test_owner_bound_cancel_rearms_request_state(test);
+  test_owner_bound_partial_failure_poisons_request_state(test);
+  test_foreign_request_state_is_never_polluted(test);
   test_hot_ordering_and_terminal_wait(test);
   test_real_completion_requires_owner_bound_handoff(test);
   test_invalid_synthetic_handoff_poisoned_after_terminal_wait(test);

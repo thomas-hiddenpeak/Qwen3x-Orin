@@ -257,8 +257,9 @@ class Sm87BulkV2P40RequestState;
 
 // Immutable owner-issued capability.  The executor may obtain arena spans,
 // but never the pinned host address; it can request only the fixed 8-byte D2H
-// through RequestState::enqueue_handoff_d2h(). Observation remains a private
-// state transition after terminal Main sync.
+// through the Owner transaction.  Neither executor nor caller can enqueue the
+// fixed D2H directly.  Observation remains a private state transition after
+// terminal Main sync.
 class Sm87BulkV2P40RequestStateSealedAccess final {
  public:
   Sm87BulkV2P40RequestStateSealedAccess(
@@ -371,14 +372,6 @@ class Sm87BulkV2P40RequestState final {
   [[nodiscard]] const Sm87BulkV2P40RequestStateSealedAccess* sealed_access()
       const noexcept;
   [[nodiscard]] std::uint64_t request_epoch() const noexcept;
-  [[nodiscard]] Sm87BulkV2P40RequestStateStatus begin_request(
-      const Sm87BulkV2P40RequestStateSealedAccess& access,
-      std::uint64_t request_epoch) noexcept;
-  // Enqueues exactly one 8-byte D2H on the owner-bound Main stream. Both ends
-  // are fixed: the source is derived from the frozen kFinalGreedyWorkspace
-  // range and the pinned destination is private. A caller can choose neither.
-  [[nodiscard]] Sm87BulkV2P40RequestStateStatus enqueue_handoff_d2h(
-      const Sm87BulkV2P40RequestStateSealedAccess& access) noexcept;
   [[nodiscard]] Sm87BulkV2P40RequestStateRearmResult
   rearm_for_cold_request(
       const Sm87BulkV2P40RequestStateSealedAccess& access) noexcept;
@@ -394,6 +387,30 @@ class Sm87BulkV2P40RequestState final {
 
   [[nodiscard]] bool access_matches(
       const Sm87BulkV2P40RequestStateSealedAccess& access) const noexcept;
+  [[nodiscard]] Sm87BulkV2P40RequestStateStatus begin_request(
+      const Sm87BulkV2P40RequestStateSealedAccess& access,
+      std::uint64_t request_epoch) noexcept;
+  // Enqueues exactly one 8-byte D2H on the owner-bound Main stream. Both ends
+  // are fixed and this method is private: only the bound Owner transaction (or
+  // an explicitly compiled host fixture) may invoke it.
+  [[nodiscard]] Sm87BulkV2P40RequestStateStatus enqueue_handoff_d2h(
+      const Sm87BulkV2P40RequestStateSealedAccess& access) noexcept;
+  [[nodiscard]] bool owner_begin_binding_valid(
+      const Sm87BulkV2P40RequestStateSealedAccess& access,
+      std::uint64_t owner_identity,
+      std::uint64_t request_allocation_identity,
+      std::uint64_t stream_event_owner_identity,
+      std::int32_t device_ordinal) const noexcept;
+  // Owner-only preflight for the terminal transaction.  It proves the exact
+  // capability object, physical owner, request allocation, stream namespace,
+  // device and epoch before the owner records its terminal event.  It exposes
+  // neither the pinned address nor the observed handoff value.
+  [[nodiscard]] bool owner_completion_binding_valid(
+      const Sm87BulkV2P40RequestStateSealedAccess& access,
+      std::uint64_t owner_identity, std::uint64_t request_epoch,
+      std::uint64_t request_allocation_identity,
+      std::uint64_t stream_event_owner_identity,
+      std::int32_t device_ordinal) const noexcept;
   [[nodiscard]] Sm87BulkV2P40RequestStateStatus
   mark_cancelled_after_owner_drain(
       const Sm87BulkV2P40RequestStateSealedAccess& access) noexcept;
@@ -412,7 +429,8 @@ class Sm87BulkV2P40RequestState final {
   create_sm87_bulk_dataflow_v2_p40_request_state(
       Sm87BulkV2P40Owner&) noexcept;
   friend class Sm87BulkV2P40Owner;
-#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_REQUEST_STATE_HOST_FIXTURE)
+#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_REQUEST_STATE_HOST_FIXTURE) || \
+    defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_HOST_FIXTURE)
   friend class Sm87BulkV2P40RequestStateHostFixture;
 #endif
 };
@@ -437,7 +455,8 @@ struct Sm87BulkV2P40RequestStateCreateResult final {
 create_sm87_bulk_dataflow_v2_p40_request_state(
     Sm87BulkV2P40Owner& owner) noexcept;
 
-#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_REQUEST_STATE_HOST_FIXTURE)
+#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_REQUEST_STATE_HOST_FIXTURE) || \
+    defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_HOST_FIXTURE)
 class Sm87BulkV2P40RequestStateHostFixture final {
  public:
   [[nodiscard]] static Sm87BulkV2P40RequestStateCreateResult create(
@@ -445,6 +464,13 @@ class Sm87BulkV2P40RequestStateHostFixture final {
       const std::array<void*, kSm87BulkV2P40StreamCount>& streams,
       std::uint64_t owner_identity = 1U,
       std::int32_t expected_device_ordinal = 0) noexcept;
+  [[nodiscard]] static Sm87BulkV2P40RequestStateStatus begin_request(
+      Sm87BulkV2P40RequestState& state,
+      const Sm87BulkV2P40RequestStateSealedAccess& access,
+      std::uint64_t request_epoch) noexcept;
+  [[nodiscard]] static Sm87BulkV2P40RequestStateStatus enqueue_handoff_d2h(
+      Sm87BulkV2P40RequestState& state,
+      const Sm87BulkV2P40RequestStateSealedAccess& access) noexcept;
   [[nodiscard]] static Sm87BulkV2P40RequestStateStatus
   mark_cancelled_after_owner_drain(
       Sm87BulkV2P40RequestState& state,
@@ -474,6 +500,6 @@ static_assert(sm87_bulk_v2_p40_request_arena_layout_valid(
     kSm87BulkV2P40FrozenRequestArenaLayout));
 static_assert(kSm87BulkV2P40ColdResetBytes == 78'446'592ULL);
 static_assert(kSm87BulkV2P40RequestArenaBytes == 5'075'652'608ULL);
-static_assert(kSm87BulkV2P40ControlArenaBytes == 1'280ULL);
+static_assert(kSm87BulkV2P40ControlArenaBytes == 1'152ULL);
 
 }  // namespace q3x::runtime::sm87_bulk_v2_p40_owner_detail

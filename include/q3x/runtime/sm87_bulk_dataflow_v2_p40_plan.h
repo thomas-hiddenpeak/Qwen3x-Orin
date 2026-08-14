@@ -23,10 +23,14 @@ namespace q3x::runtime {
 // performance, API, or production qualification by itself.
 inline constexpr std::array<std::uint8_t, 8U>
     kSm87BulkV2P40PlanMagic{{'Q', '3', 'X', 'B', 'V', '2', 'P', '1'}};
-// ABI 3 replaces the segmented FP8/NVFP4 counters in the terminal receipt
-// with the versioned whole-P40000 successor receipt.  The old controls remain
-// available to numerical oracles but cannot close this request contract.
-inline constexpr std::uint16_t kSm87BulkV2P40PlanAbiMajor = 3U;
+// ABI 4 binds the versioned whole-P40000 successor receipt to an executable
+// MLP lifetime plan.  ABI 3 accidentally described only the old M256
+// exact-control scratch and placed the full-P40000 normalized input inside the
+// whole Gate+Up H output.  The public whole-kernel alias guards correctly make
+// that graph unlaunchable.  ABI 4 gives H and MLP-normalized input disjoint
+// complete spans; the old exact-control scratch remains oracle-only and
+// cannot close this request contract.
+inline constexpr std::uint16_t kSm87BulkV2P40PlanAbiMajor = 4U;
 inline constexpr std::uint16_t kSm87BulkV2P40PlanAbiMinor = 0U;
 
 [[nodiscard]] constexpr bool sm87_bulk_v2_p40_magic_equal(
@@ -101,6 +105,14 @@ inline constexpr std::uint64_t kSm87BulkV2P40AttentionRawQGateBytes =
     kSm87BulkV2P40Bf16Bytes;
 inline constexpr std::uint64_t kSm87BulkV2P40AttentionQOrGateBytes =
     kSm87BulkV2P40GdnOutputBytes;
+inline constexpr std::uint64_t kSm87BulkV2P40NvFp4HBytes =
+    kSm87BulkV2P40Tokens * kSm87BulkV2P40Intermediate *
+    kSm87BulkV2P40Bf16Bytes;
+inline constexpr std::uint64_t kSm87BulkV2P40MlpNormalizedOffset =
+    kSm87BulkV2P40NvFp4HBytes;
+// Retained only to keep the rejected M256 exact-control geometry auditable.
+// No ABI-4 family binding allocates this scratch or permits it to substitute
+// for the whole-P40000 H tensor.
 inline constexpr std::uint64_t kSm87BulkV2P40NvFp4GroupScratchBytes =
     256ULL * kSm87BulkV2P40Intermediate * kSm87BulkV2P40Bf16Bytes;
 inline constexpr std::uint64_t kSm87BulkV2P40GdnPrivateBytes =
@@ -113,6 +125,9 @@ inline constexpr std::uint64_t kSm87BulkV2P40ColdResetBytes =
     kSm87BulkV2P40GdnLayers *
     (kSm87BulkV2P40GdnStateBytesPerLayer +
      kSm87BulkV2P40GdnHistoryBytesPerLayer);
+inline constexpr std::uint64_t kSm87BulkV2P40KvBytesPerFullLayer =
+    static_cast<std::uint64_t>(kSm87TargetAotP40RequestCapacityTokens) *
+    kSm87TargetAotP40KvWidth * kSm87BulkV2P40Bf16Bytes;
 inline constexpr std::uint64_t kSm87BulkV2P40TokenIdsBytes =
     kSm87BulkV2P40Tokens * sizeof(std::uint32_t);
 inline constexpr std::uint64_t kSm87BulkV2P40FinalLogitsBytes =
@@ -137,6 +152,119 @@ struct Sm87BulkV2P40Range final {
     const Sm87BulkV2P40Range& left,
     const Sm87BulkV2P40Range& right) noexcept {
   return left.offset < right.end() && right.offset < left.end();
+}
+
+// Exact persistent layout reused by the independent v2 owner.  The first
+// 48 history/state pairs are the only cold-reset bytes.  Sixteen K/V pairs
+// retain one extra row for the first handoff token, but whole-P40000 Prefill
+// writes only their first 40,000 rows.  These offsets are frozen here rather
+// than borrowed from a v1 event graph at runtime.
+struct Sm87BulkV2P40PersistentPlan final {
+  std::array<Sm87BulkV2P40Range, kSm87BulkV2P40GdnLayers> conv_history{};
+  std::array<Sm87BulkV2P40Range, kSm87BulkV2P40GdnLayers> recurrent_state{};
+  std::array<Sm87BulkV2P40Range, kSm87BulkV2P40FullLayers> key{};
+  std::array<Sm87BulkV2P40Range, kSm87BulkV2P40FullLayers> value{};
+  std::uint64_t cold_reset_bytes = 0U;
+  std::uint64_t persistent_bytes = 0U;
+};
+
+[[nodiscard]] constexpr Sm87BulkV2P40PersistentPlan
+sm87_bulk_v2_p40_persistent_plan() noexcept {
+  Sm87BulkV2P40PersistentPlan plan;
+  std::uint64_t cursor = 0U;
+  for (std::size_t ordinal = 0U; ordinal < kSm87BulkV2P40GdnLayers;
+       ++ordinal) {
+    plan.conv_history[ordinal] =
+        {cursor, kSm87BulkV2P40GdnHistoryBytesPerLayer};
+    cursor += kSm87BulkV2P40GdnHistoryBytesPerLayer;
+  }
+  for (std::size_t ordinal = 0U; ordinal < kSm87BulkV2P40GdnLayers;
+       ++ordinal) {
+    plan.recurrent_state[ordinal] =
+        {cursor, kSm87BulkV2P40GdnStateBytesPerLayer};
+    cursor += kSm87BulkV2P40GdnStateBytesPerLayer;
+  }
+  plan.cold_reset_bytes = cursor;
+  for (std::size_t ordinal = 0U; ordinal < kSm87BulkV2P40FullLayers;
+       ++ordinal) {
+    plan.key[ordinal] = {cursor, kSm87BulkV2P40KvBytesPerFullLayer};
+    cursor += kSm87BulkV2P40KvBytesPerFullLayer;
+    plan.value[ordinal] = {cursor, kSm87BulkV2P40KvBytesPerFullLayer};
+    cursor += kSm87BulkV2P40KvBytesPerFullLayer;
+  }
+  plan.persistent_bytes = cursor;
+  return plan;
+}
+
+[[nodiscard]] constexpr bool sm87_bulk_v2_p40_persistent_plan_valid(
+    const Sm87BulkV2P40PersistentPlan& plan) noexcept {
+  constexpr auto expected = sm87_bulk_v2_p40_persistent_plan();
+  if (plan.cold_reset_bytes != kSm87BulkV2P40ColdResetBytes ||
+      plan.persistent_bytes != kSm87BulkV2P40PersistentBytes) {
+    return false;
+  }
+  std::uint64_t cursor = 0U;
+  for (std::size_t ordinal = 0U; ordinal < kSm87BulkV2P40GdnLayers;
+       ++ordinal) {
+    if (plan.conv_history[ordinal].offset != cursor ||
+        plan.conv_history[ordinal].bytes !=
+            kSm87BulkV2P40GdnHistoryBytesPerLayer ||
+        plan.conv_history[ordinal].offset !=
+            expected.conv_history[ordinal].offset) {
+      return false;
+    }
+    cursor = plan.conv_history[ordinal].end();
+  }
+  for (std::size_t ordinal = 0U; ordinal < kSm87BulkV2P40GdnLayers;
+       ++ordinal) {
+    if (plan.recurrent_state[ordinal].offset != cursor ||
+        plan.recurrent_state[ordinal].bytes !=
+            kSm87BulkV2P40GdnStateBytesPerLayer ||
+        plan.recurrent_state[ordinal].offset !=
+            expected.recurrent_state[ordinal].offset) {
+      return false;
+    }
+    cursor = plan.recurrent_state[ordinal].end();
+  }
+  if (cursor != plan.cold_reset_bytes) {
+    return false;
+  }
+  for (std::size_t ordinal = 0U; ordinal < kSm87BulkV2P40FullLayers;
+       ++ordinal) {
+    if (plan.key[ordinal].offset != cursor ||
+        plan.key[ordinal].bytes != kSm87BulkV2P40KvBytesPerFullLayer ||
+        plan.key[ordinal].offset != expected.key[ordinal].offset) {
+      return false;
+    }
+    cursor = plan.key[ordinal].end();
+    if (plan.value[ordinal].offset != cursor ||
+        plan.value[ordinal].bytes != kSm87BulkV2P40KvBytesPerFullLayer ||
+        plan.value[ordinal].offset != expected.value[ordinal].offset) {
+      return false;
+    }
+    cursor = plan.value[ordinal].end();
+  }
+  return cursor == plan.persistent_bytes;
+}
+
+[[nodiscard]] constexpr bool sm87_bulk_v2_p40_is_full_layer(
+    const std::size_t model_layer) noexcept {
+  return model_layer < kSm87BulkV2P40Layers && (model_layer + 1U) % 4U == 0U;
+}
+
+[[nodiscard]] constexpr std::size_t sm87_bulk_v2_p40_full_ordinal(
+    const std::size_t model_layer) noexcept {
+  return sm87_bulk_v2_p40_is_full_layer(model_layer)
+             ? model_layer / 4U
+             : kSm87BulkV2P40FullLayers;
+}
+
+[[nodiscard]] constexpr std::size_t sm87_bulk_v2_p40_gdn_ordinal(
+    const std::size_t model_layer) noexcept {
+  return model_layer < kSm87BulkV2P40Layers &&
+                 !sm87_bulk_v2_p40_is_full_layer(model_layer)
+             ? model_layer - model_layer / 4U
+             : kSm87BulkV2P40GdnLayers;
 }
 
 enum class Sm87BulkV2P40FamilyPhase : std::uint8_t {
@@ -169,7 +297,8 @@ enum class Sm87BulkV2P40BufferRole : std::uint8_t {
   kAttentionPreGateOutput,
   kAttentionGatedOutput,
   kAttentionOBranch,
-  kNvFp4GroupScratch,
+  kNvFp4H,
+  kMlpNormalized,
   kFinalLogits,
   kFinalGreedyWorkspace,
 };
@@ -185,7 +314,7 @@ struct Sm87BulkV2P40BufferBinding final {
   return 1U << static_cast<std::uint32_t>(phase);
 }
 
-inline constexpr std::size_t kSm87BulkV2P40BufferBindings = 16U;
+inline constexpr std::size_t kSm87BulkV2P40BufferBindings = 17U;
 
 struct Sm87BulkV2P40FamilyArenaPlan final {
   std::uint64_t family_bytes = 0U;
@@ -222,8 +351,7 @@ sm87_bulk_v2_p40_family_arena_plan() noexcept {
           {Sm87BulkV2P40BufferRole::kNormalized,
            {kTail, kSm87BulkV2P40NormalizedBytes},
            bit(Sm87BulkV2P40FamilyPhase::kGdnInput) |
-               bit(Sm87BulkV2P40FamilyPhase::kFullInput) |
-               bit(Sm87BulkV2P40FamilyPhase::kMlp)},
+               bit(Sm87BulkV2P40FamilyPhase::kFullInput)},
           {Sm87BulkV2P40BufferRole::kGdnRawQkvz,
            {0U, kSm87BulkV2P40GdnRawBytes},
            bit(Sm87BulkV2P40FamilyPhase::kGdnInput) |
@@ -270,8 +398,12 @@ sm87_bulk_v2_p40_family_arena_plan() noexcept {
            {kSm87BulkV2P40AttentionRawQGateBytes,
             kSm87BulkV2P40NormalizedBytes},
            bit(Sm87BulkV2P40FamilyPhase::kFullOutputProjection)},
-          {Sm87BulkV2P40BufferRole::kNvFp4GroupScratch,
-           {0U, kSm87BulkV2P40NvFp4GroupScratchBytes},
+          {Sm87BulkV2P40BufferRole::kNvFp4H,
+           {0U, kSm87BulkV2P40NvFp4HBytes},
+           bit(Sm87BulkV2P40FamilyPhase::kMlp)},
+          {Sm87BulkV2P40BufferRole::kMlpNormalized,
+           {kSm87BulkV2P40MlpNormalizedOffset,
+            kSm87BulkV2P40NormalizedBytes},
            bit(Sm87BulkV2P40FamilyPhase::kMlp)},
           {Sm87BulkV2P40BufferRole::kFinalLogits,
            {0U, kSm87BulkV2P40FinalLogitsBytes},
@@ -285,9 +417,10 @@ sm87_bulk_v2_p40_family_arena_plan() noexcept {
       kPrivate + kSm87BulkV2P40GdnPrivateBytes,
       kSm87BulkV2P40AttentionRawQGateBytes +
           2U * kSm87BulkV2P40AttentionQOrGateBytes,
-      kTail + kSm87BulkV2P40NormalizedBytes,
-      kSm87BulkV2P40NormalizedBytes +
-          kSm87BulkV2P40NvFp4GroupScratchBytes,
+      kSm87BulkV2P40MlpNormalizedOffset +
+          kSm87BulkV2P40NormalizedBytes,
+      kSm87BulkV2P40NvFp4HBytes +
+          kSm87BulkV2P40NormalizedBytes,
       kSm87BulkV2P40FinalLogitsBytes +
           kSm87BulkV2P40FinalGreedyBytes,
       kSm87BulkV2P40ColdResetBytes,
@@ -357,18 +490,24 @@ sm87_bulk_v2_p40_family_arena_plan() noexcept {
                             2U);
 }
 
+[[nodiscard]] constexpr Sm87BulkV2P40Range sm87_bulk_v2_p40_family_range(
+    const Sm87BulkV2P40BufferRole role) noexcept {
+  constexpr auto plan = sm87_bulk_v2_p40_family_arena_plan();
+  for (const auto& binding : plan.bindings) {
+    if (binding.role == role) {
+      return binding.range;
+    }
+  }
+  return {};
+}
+
 // Control-plane storage is independent of the 5.075-GB data allocation. It
 // is startup-owned and re-epochized for each request. The exact host-mapped
 // cancellation pair is deliberately counted separately, so the 78,446,592-B
 // state/history reset is never misreported as the complete request reset.
 enum class Sm87BulkV2P40ControlRole : std::uint8_t {
   kInvalid = 0U,
-  kNvFp4DeviceControl,
-  kRequestProgress,
-  kFp8CancellationSnapshot,
-  kBf16CancellationSnapshot,
-  kAttentionCancellationSnapshot,
-  kNvFp4CancellationSnapshot,
+  kProjectionDeviceControl,
 };
 
 struct Sm87BulkV2P40ControlBinding final {
@@ -380,11 +519,11 @@ struct Sm87BulkV2P40ControlBinding final {
 
 inline constexpr std::uint64_t kSm87BulkV2P40MappedCancellationBytes =
     sizeof(std::uint32_t);
-inline constexpr std::uint64_t kSm87BulkV2P40RequestProgressBytes = 64U;
-inline constexpr std::uint64_t kSm87BulkV2P40NvFp4DeviceControlBytes =
+inline constexpr std::uint64_t kSm87BulkV2P40ProjectionDeviceControlBytes =
     sizeof(q3x::kernels::Sm87BulkV2NvFp4DeviceControl);
-inline constexpr std::uint64_t kSm87BulkV2P40ControlArenaBytes = 1'280U;
-inline constexpr std::size_t kSm87BulkV2P40ControlBindings = 6U;
+inline constexpr std::uint64_t kSm87BulkV2P40ControlArenaBytes =
+    kSm87BulkV2P40ProjectionDeviceControlBytes;
+inline constexpr std::size_t kSm87BulkV2P40ControlBindings = 1U;
 
 struct Sm87BulkV2P40ControlPlanePlan final {
   std::uint64_t device_arena_bytes = 0U;
@@ -393,13 +532,22 @@ struct Sm87BulkV2P40ControlPlanePlan final {
   std::array<Sm87BulkV2P40ControlBinding,
              kSm87BulkV2P40ControlBindings>
       bindings{};
+  // A nonzero boundary is a device-observable polling boundary implemented by
+  // that exact constituent, not a desired cancellation latency.  BF16 A/B and
+  // Attention currently expose no device cancellation input, so zero records
+  // the honest owner-drain-only behavior.  Gate+Up and Down have different M
+  // cohorts and therefore cannot share one NVFP4 number.
   std::size_t gdn_cancel_boundary_tokens = 0U;
   std::size_t fp8_cancel_boundary_tokens = 0U;
   std::size_t bf16_ab_cancel_boundary_tokens = 0U;
   std::size_t attention_cancel_boundary_epochs = 0U;
-  std::size_t nvfp4_cancel_boundary_tokens = 0U;
+  std::size_t nvfp4_gate_up_cancel_boundary_tokens = 0U;
+  std::size_t nvfp4_down_cancel_boundary_tokens = 0U;
   bool exact_mapped_host_device_pair_required = false;
   bool progress_is_request_epoch_scoped = false;
+  // No unified kernel-written progress buffer exists in this ABI.  Individual
+  // projection controls and constituent receipts remain auditable, but they
+  // must not be relabeled as blanket safe-progress publication.
   bool kernels_publish_safe_progress = false;
 };
 
@@ -408,45 +556,28 @@ sm87_bulk_v2_p40_control_plane_plan() noexcept {
   constexpr auto bit = [](const Sm87BulkV2P40FamilyPhase phase) {
     return 1U << static_cast<std::uint32_t>(phase);
   };
-  constexpr std::uint32_t kAllPhases =
-      (1U << static_cast<std::uint32_t>(
-           Sm87BulkV2P40FamilyPhase::kCount)) -
-      1U;
   return {
       kSm87BulkV2P40ControlArenaBytes,
       kSm87BulkV2P40ControlArenaBytes,
       kSm87BulkV2P40MappedCancellationBytes,
       {{
-          {Sm87BulkV2P40ControlRole::kNvFp4DeviceControl,
-           {0U, kSm87BulkV2P40NvFp4DeviceControlBytes}, 64U,
-           bit(Sm87BulkV2P40FamilyPhase::kMlp)},
-          {Sm87BulkV2P40ControlRole::kRequestProgress,
-           {1'152U, kSm87BulkV2P40RequestProgressBytes}, 64U, kAllPhases},
-          {Sm87BulkV2P40ControlRole::kFp8CancellationSnapshot,
-           {1'216U, sizeof(std::uint32_t)}, 16U,
+          {Sm87BulkV2P40ControlRole::kProjectionDeviceControl,
+           {0U, kSm87BulkV2P40ProjectionDeviceControlBytes}, 64U,
            bit(Sm87BulkV2P40FamilyPhase::kGdnInput) |
                bit(Sm87BulkV2P40FamilyPhase::kGdnOutputProjection) |
                bit(Sm87BulkV2P40FamilyPhase::kFullInput) |
-               bit(Sm87BulkV2P40FamilyPhase::kFullOutputProjection)},
-          {Sm87BulkV2P40ControlRole::kBf16CancellationSnapshot,
-           {1'232U, sizeof(std::uint32_t)}, 16U,
-           bit(Sm87BulkV2P40FamilyPhase::kGdnInput)},
-          {Sm87BulkV2P40ControlRole::kAttentionCancellationSnapshot,
-           {1'248U, sizeof(std::uint32_t)}, 16U,
-           bit(Sm87BulkV2P40FamilyPhase::kFullPreprocess) |
-               bit(Sm87BulkV2P40FamilyPhase::kFullAttentionCore)},
-          {Sm87BulkV2P40ControlRole::kNvFp4CancellationSnapshot,
-           {1'264U, sizeof(std::uint32_t)}, 16U,
-           bit(Sm87BulkV2P40FamilyPhase::kMlp)},
+               bit(Sm87BulkV2P40FamilyPhase::kFullOutputProjection) |
+               bit(Sm87BulkV2P40FamilyPhase::kMlp)},
       }},
       64U,
-      1'024U,
-      40'000U,
-      1U,
       256U,
+      0U,
+      0U,
+      256U,
+      512U,
       true,
       true,
-      true,
+      false,
   };
 }
 
@@ -457,13 +588,14 @@ sm87_bulk_v2_p40_control_plane_plan() noexcept {
       plan.device_reset_bytes != expected.device_reset_bytes ||
       plan.mapped_host_reset_bytes != expected.mapped_host_reset_bytes ||
       plan.gdn_cancel_boundary_tokens != 64U ||
-      plan.fp8_cancel_boundary_tokens != 1'024U ||
-      plan.bf16_ab_cancel_boundary_tokens != 40'000U ||
-      plan.attention_cancel_boundary_epochs != 1U ||
-      plan.nvfp4_cancel_boundary_tokens != 256U ||
+      plan.fp8_cancel_boundary_tokens != 256U ||
+      plan.bf16_ab_cancel_boundary_tokens != 0U ||
+      plan.attention_cancel_boundary_epochs != 0U ||
+      plan.nvfp4_gate_up_cancel_boundary_tokens != 256U ||
+      plan.nvfp4_down_cancel_boundary_tokens != 512U ||
       !plan.exact_mapped_host_device_pair_required ||
       !plan.progress_is_request_epoch_scoped ||
-      !plan.kernels_publish_safe_progress) {
+      plan.kernels_publish_safe_progress) {
     return false;
   }
   std::uint32_t roles = 0U;
@@ -494,6 +626,17 @@ sm87_bulk_v2_p40_control_plane_plan() noexcept {
     }
   }
   return roles == ((1U << (kSm87BulkV2P40ControlBindings + 1U)) - 2U);
+}
+
+[[nodiscard]] constexpr Sm87BulkV2P40Range sm87_bulk_v2_p40_control_range(
+    const Sm87BulkV2P40ControlRole role) noexcept {
+  constexpr auto plan = sm87_bulk_v2_p40_control_plane_plan();
+  for (const auto& binding : plan.bindings) {
+    if (binding.role == role) {
+      return binding.range;
+    }
+  }
+  return {};
 }
 
 enum class Sm87BulkV2P40Stream : std::uint8_t {
@@ -880,9 +1023,18 @@ static_assert(kSm87BulkV2P40FullLayers ==
               kSm87TargetAotP40FullLayerCount);
 static_assert(kSm87BulkV2P40NvFp4GroupScratchBytes ==
               q3x::kernels::kSm87BulkV2NvFp4GroupScratchBytes);
-static_assert(kSm87BulkV2P40NvFp4DeviceControlBytes ==
+static_assert(kSm87BulkV2P40ProjectionDeviceControlBytes ==
                   sizeof(q3x::kernels::Sm87BulkV2NvFp4DeviceControl) &&
               alignof(q3x::kernels::Sm87BulkV2NvFp4DeviceControl) == 64U);
+static_assert(kSm87BulkV2P40ProjectionDeviceControlBytes >=
+              sizeof(q3x::kernels::Sm87BulkV2Fp8WholeP40DeviceControl));
+static_assert(kSm87BulkV2P40ProjectionDeviceControlBytes >=
+              sizeof(
+                  q3x::kernels::Sm87BulkV2NvFp4GateUpWholeP40DeviceControl));
+static_assert(kSm87BulkV2P40ProjectionDeviceControlBytes >=
+              sizeof(q3x::kernels::Sm87BulkV2NvFp4DownWholeP40DeviceControl));
+static_assert(sm87_bulk_v2_p40_persistent_plan_valid(
+    sm87_bulk_v2_p40_persistent_plan()));
 static_assert(kSm87BulkV2P40Vocabulary == kReferenceVocabularySize);
 static_assert(kSm87BulkV2P40PersistentBytes ==
                   kSm87TargetAotP40PersistentBytes &&

@@ -83,12 +83,22 @@ enum class ReferenceDecodeGraphCachePolicy : std::uint8_t {
 enum class ReferenceGenerationRoute : std::uint8_t {
   kReference = 0,
   kSm87TargetAotP40,
+  // Default-off whole-P40000 bulk-dataflow-v2 composition.  Keep this
+  // append-only: persisted v1 route identities must retain their values.
+  kSm87BulkV2P40,
 };
 
 [[nodiscard]] constexpr bool is_valid_reference_generation_route(
     const ReferenceGenerationRoute route) noexcept {
   return route == ReferenceGenerationRoute::kReference ||
-         route == ReferenceGenerationRoute::kSm87TargetAotP40;
+         route == ReferenceGenerationRoute::kSm87TargetAotP40 ||
+         route == ReferenceGenerationRoute::kSm87BulkV2P40;
+}
+
+[[nodiscard]] constexpr bool is_exact_p40_generation_route(
+    const ReferenceGenerationRoute route) noexcept {
+  return route == ReferenceGenerationRoute::kSm87TargetAotP40 ||
+         route == ReferenceGenerationRoute::kSm87BulkV2P40;
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -98,6 +108,8 @@ enum class ReferenceGenerationRoute : std::uint8_t {
       return "reference";
     case ReferenceGenerationRoute::kSm87TargetAotP40:
       return "sm87-target-aot-p40";
+    case ReferenceGenerationRoute::kSm87BulkV2P40:
+      return "sm87-bulk-v2-p40";
   }
   return "invalid";
 }
@@ -110,8 +122,18 @@ parse_reference_generation_route(const std::string_view text) noexcept {
   if (text == "sm87-target-aot-p40") {
     return ReferenceGenerationRoute::kSm87TargetAotP40;
   }
+  if (text == "sm87-bulk-v2-p40") {
+    return ReferenceGenerationRoute::kSm87BulkV2P40;
+  }
   return std::nullopt;
 }
+
+// Reports whether this exact complete-engine route was linked into the
+// current binary.  Parsing and compile availability are intentionally
+// separate: a default-off route has a stable API identity even when selection
+// must fail before model I/O.
+[[nodiscard]] bool is_reference_generation_route_compiled(
+    ReferenceGenerationRoute route) noexcept;
 
 // Host-observable Prefill scheduling identity. The legacy value covers the
 // existing public C512-bounded controller (including smaller canonical

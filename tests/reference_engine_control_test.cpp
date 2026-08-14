@@ -2481,6 +2481,24 @@ void test_target_aot_device_preparation_fails_closed_before_io(
 #endif
 }
 
+void test_bulk_v2_route_fails_closed_before_io(TestContext& test) {
+  runtime::ReferenceEngineOptions options;
+  options.generation_route =
+      runtime::ReferenceGenerationRoute::kSm87BulkV2P40;
+  if (!runtime::is_reference_generation_route_compiled(
+          options.generation_route)) {
+    const runtime::ReferenceEngineCreateResult result =
+        runtime::create_reference_engine("/path/must/not/be/read", options);
+    test.expect(
+        !result &&
+            result.diagnostic.code ==
+                runtime::ReferenceEngineError::kPrefillPlanUnavailable &&
+            result.diagnostic.stage == "generation_route",
+        "an uncompiled bulk-v2 engine route fails before tokenizer/model I/O "
+        "without reference or v1 fallback");
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -2505,6 +2523,7 @@ int main() {
   test_committed_token_observer_and_cancellation(test);
   test_engine_backend_validation(test);
   test_target_aot_device_preparation_fails_closed_before_io(test);
+  test_bulk_v2_route_fails_closed_before_io(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference engine control test(s) failed\n";
     return 1;

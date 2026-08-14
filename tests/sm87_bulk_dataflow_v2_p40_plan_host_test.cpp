@@ -51,8 +51,8 @@ void test_plan(TestContext& test) {
   constexpr auto plan = runtime::kSm87BulkV2P40FrozenExecutionPlan;
   test.expect(runtime::sm87_bulk_v2_p40_execution_plan_valid(plan),
               "the frozen whole-request plan validates");
-  test.expect(plan.abi_major == 3U,
-              "ABI 3 binds the versioned whole-projection successor receipt");
+  test.expect(plan.abi_major == 4U,
+              "ABI 4 binds the whole-projection receipt to executable MLP spans");
   test.expect(plan.stream_count == 5U && plan.maximum_host_waits == 1U &&
                   plan.maximum_host_drains == 1U &&
                   plan.hot_cuda_resource_queries == 0U,
@@ -63,13 +63,25 @@ void test_plan(TestContext& test) {
                       plan.family_arena.attention_required_extent_bytes &&
                   plan.family_arena.mlp_required_extent_bytes <
                       plan.family_arena.attention_required_extent_bytes &&
-                  plan.family_arena.mlp_live_bytes == 418'512'896ULL,
+                  plan.family_arena.mlp_live_bytes == 1'802'240'000ULL,
               "Attention remains the exact family-arena capacity peak");
   test.expect(runtime::sm87_bulk_v2_p40_control_plane_plan_valid(
                   plan.control_plane) &&
-                  plan.control_plane.device_arena_bytes == 1'280U &&
-                  plan.control_plane.mapped_host_reset_bytes == 4U,
-              "the separate epoch control plane is frozen exactly");
+                  plan.control_plane.device_arena_bytes == 1'152U &&
+                  plan.control_plane.mapped_host_reset_bytes == 4U &&
+                  plan.control_plane.bindings[0U].role ==
+                      runtime::Sm87BulkV2P40ControlRole::
+                          kProjectionDeviceControl &&
+                  plan.control_plane.bindings[0U].range.bytes == 1'152U &&
+                  plan.control_plane.fp8_cancel_boundary_tokens == 256U &&
+                  plan.control_plane.bf16_ab_cancel_boundary_tokens == 0U &&
+                  plan.control_plane.attention_cancel_boundary_epochs == 0U &&
+                  plan.control_plane
+                          .nvfp4_gate_up_cancel_boundary_tokens == 256U &&
+                  plan.control_plane.nvfp4_down_cancel_boundary_tokens ==
+                      512U &&
+                  !plan.control_plane.kernels_publish_safe_progress,
+              "the control plane contains only executable state and honest cancellation boundaries");
 
   auto wrong = plan;
   wrong.maximum_host_waits = 64U;
@@ -109,6 +121,18 @@ void test_live_aliases(TestContext& test) {
                   arena.cold_initial_state_is_persistent_layer_state &&
                   arena.final_gdn_state_copied_after_epilogue,
               "cold reset touches only GDN persistent state and history");
+  const auto& whole_h = arena.bindings[13U];
+  const auto& mlp_normalized = arena.bindings[14U];
+  test.expect(whole_h.role == runtime::Sm87BulkV2P40BufferRole::kNvFp4H &&
+                  whole_h.range.offset == 0U &&
+                  whole_h.range.bytes == 1'392'640'000ULL &&
+                  mlp_normalized.role ==
+                      runtime::Sm87BulkV2P40BufferRole::kMlpNormalized &&
+                  mlp_normalized.range.offset == whole_h.range.end() &&
+                  mlp_normalized.range.bytes == 409'600'000ULL &&
+                  !runtime::sm87_bulk_v2_p40_ranges_overlap(
+                      whole_h.range, mlp_normalized.range),
+              "whole Gate+Up H and MLP normalized input are complete and disjoint");
 
   auto wrong = arena;
   wrong.bindings[0U].role = wrong.bindings[1U].role;
@@ -122,6 +146,28 @@ void test_live_aliases(TestContext& test) {
   wrong.bindings[6U].live_phase_mask = 1U;
   test.expect(!runtime::sm87_bulk_v2_p40_family_arena_plan_valid(wrong),
               "a shortened GDN private lifetime rejects the plan");
+}
+
+void test_persistent_layout(TestContext& test) {
+  constexpr auto persistent = runtime::sm87_bulk_v2_p40_persistent_plan();
+  test.expect(runtime::sm87_bulk_v2_p40_persistent_plan_valid(persistent),
+              "the v2 persistent layout validates independently of v1 events");
+  test.expect(persistent.conv_history.front().offset == 0U &&
+                  persistent.recurrent_state.front().offset == 2'949'120U &&
+                  persistent.cold_reset_bytes == 78'446'592U &&
+                  persistent.key.front().offset == 78'446'592U &&
+                  persistent.value.back().end() ==
+                      runtime::kSm87BulkV2P40PersistentBytes,
+              "history, state, and complete K/V pairs cover the persistent arena");
+  test.expect(runtime::sm87_bulk_v2_p40_gdn_ordinal(0U) == 0U &&
+                  runtime::sm87_bulk_v2_p40_gdn_ordinal(62U) == 47U &&
+                  runtime::sm87_bulk_v2_p40_full_ordinal(3U) == 0U &&
+                  runtime::sm87_bulk_v2_p40_full_ordinal(63U) == 15U,
+              "natural model layers map bijectively to GDN and Full ordinals");
+  auto wrong = persistent;
+  ++wrong.key[0U].offset;
+  test.expect(!runtime::sm87_bulk_v2_p40_persistent_plan_valid(wrong),
+              "a shifted persistent K span fails closed");
 }
 
 void test_seal_and_receipt(TestContext& test) {
@@ -238,6 +284,7 @@ int main() {
   TestContext test;
   test_plan(test);
   test_live_aliases(test);
+  test_persistent_layout(test);
   test_seal_and_receipt(test);
   if (test.failures() != 0) {
     return 1;

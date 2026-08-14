@@ -592,6 +592,43 @@ bool Sm87BulkV2P40RequestState::access_matches(
          access.pinned_handoff_destination_ == impl_->pinned_handoff;
 }
 
+bool Sm87BulkV2P40RequestState::owner_begin_binding_valid(
+    const Sm87BulkV2P40RequestStateSealedAccess& access,
+    const std::uint64_t owner_identity,
+    const std::uint64_t request_allocation_identity,
+    const std::uint64_t stream_event_owner_identity,
+    const std::int32_t device_ordinal) const noexcept {
+  return access_matches(access) &&
+         impl_->lifecycle == Sm87BulkV2P40RequestStateLifecycle::kReady &&
+         impl_->identity.owner_identity == owner_identity &&
+         impl_->identity.allocation_identity == request_allocation_identity &&
+         impl_->identity.stream_event_owner_identity ==
+             stream_event_owner_identity &&
+         impl_->identity.device_ordinal == device_ordinal;
+}
+
+bool Sm87BulkV2P40RequestState::owner_completion_binding_valid(
+    const Sm87BulkV2P40RequestStateSealedAccess& access,
+    const std::uint64_t owner_identity, const std::uint64_t request_epoch,
+    const std::uint64_t request_allocation_identity,
+    const std::uint64_t stream_event_owner_identity,
+    const std::int32_t device_ordinal) const noexcept {
+  return access_matches(access) &&
+         impl_->lifecycle == Sm87BulkV2P40RequestStateLifecycle::kActive &&
+         impl_->request_epoch != 0U &&
+         impl_->request_epoch == request_epoch &&
+         impl_->identity.owner_identity == owner_identity &&
+         impl_->identity.allocation_identity == request_allocation_identity &&
+         impl_->identity.stream_event_owner_identity ==
+             stream_event_owner_identity &&
+         impl_->identity.device_ordinal == device_ordinal &&
+         access.identity_.owner_identity == owner_identity &&
+         access.identity_.allocation_identity == request_allocation_identity &&
+         access.identity_.stream_event_owner_identity ==
+             stream_event_owner_identity &&
+         access.identity_.device_ordinal == device_ordinal;
+}
+
 Sm87BulkV2P40RequestStateStatus Sm87BulkV2P40RequestState::begin_request(
     const Sm87BulkV2P40RequestStateSealedAccess& access,
     const std::uint64_t request_epoch) noexcept {
@@ -869,7 +906,8 @@ create_sm87_bulk_dataflow_v2_p40_request_state(
 #endif
 }
 
-#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_REQUEST_STATE_HOST_FIXTURE)
+#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_REQUEST_STATE_HOST_FIXTURE) || \
+    defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_HOST_FIXTURE)
 Sm87BulkV2P40RequestStateCreateResult
 Sm87BulkV2P40RequestStateHostFixture::create(
     Sm87BulkV2P40RequestStateCudaRuntime* const cuda,
@@ -879,6 +917,21 @@ Sm87BulkV2P40RequestStateHostFixture::create(
   return Sm87BulkV2P40RequestState::create_bound(
       cuda, streams, owner_identity, expected_device_ordinal,
       Sm87BulkV2P40RequestStateExecutionClass::kSyntheticHostContract);
+}
+
+Sm87BulkV2P40RequestStateStatus
+Sm87BulkV2P40RequestStateHostFixture::begin_request(
+    Sm87BulkV2P40RequestState& state,
+    const Sm87BulkV2P40RequestStateSealedAccess& access,
+    const std::uint64_t request_epoch) noexcept {
+  return state.begin_request(access, request_epoch);
+}
+
+Sm87BulkV2P40RequestStateStatus
+Sm87BulkV2P40RequestStateHostFixture::enqueue_handoff_d2h(
+    Sm87BulkV2P40RequestState& state,
+    const Sm87BulkV2P40RequestStateSealedAccess& access) noexcept {
+  return state.enqueue_handoff_d2h(access);
 }
 
 Sm87BulkV2P40RequestStateStatus

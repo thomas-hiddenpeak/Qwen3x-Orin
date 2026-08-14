@@ -2,6 +2,7 @@
 #include "q3x/server/evaluation_server.h"
 #include "q3x/server/openai_protocol.h"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -1539,10 +1540,20 @@ void test_complete_engine_route_contract(TestContext& test) {
           q3x::runtime::parse_reference_generation_route(
               "sm87-target-aot-p40") ==
               ReferenceGenerationRoute::kSm87TargetAotP40 &&
+          q3x::runtime::parse_reference_generation_route(
+              "sm87-bulk-v2-p40") ==
+              ReferenceGenerationRoute::kSm87BulkV2P40 &&
           !q3x::runtime::parse_reference_generation_route("auto").has_value() &&
           q3x::runtime::to_string(
               ReferenceGenerationRoute::kSm87TargetAotP40) ==
-              "sm87-target-aot-p40",
+              "sm87-target-aot-p40" &&
+          q3x::runtime::to_string(
+              ReferenceGenerationRoute::kSm87BulkV2P40) ==
+              "sm87-bulk-v2-p40" &&
+          static_cast<std::uint8_t>(
+              ReferenceGenerationRoute::kSm87TargetAotP40) == 1U &&
+          static_cast<std::uint8_t>(
+              ReferenceGenerationRoute::kSm87BulkV2P40) == 2U,
       "complete generation routes have exact parse and display identities");
 
   server::EvaluationServerOptions options;
@@ -1604,6 +1615,64 @@ void test_complete_engine_route_contract(TestContext& test) {
           EvaluationServerEngineRouteContractError::
               kTargetRequiresNeutralLegacyPrefillSelectors,
       "the target route cannot be mixed with a legacy layer-major route");
+
+  server::EvaluationServerOptions bulk_v2;
+  bulk_v2.engine_route = ReferenceGenerationRoute::kSm87BulkV2P40;
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(bulk_v2) ==
+          EvaluationServerEngineRouteContractError::
+              kTargetRequiresExactP40001Capacity,
+      "the bulk-v2 route rejects the adapter's default P8192 capacity");
+  bulk_v2.max_sequence_length =
+      q3x::runtime::kSm87TargetAotP40RequestCapacityTokens;
+  bulk_v2.maximum_output_tokens = 1U;
+  bulk_v2.request_max_arena_bytes =
+      q3x::runtime::kSm87TargetAotP40RequestArenaBytes;
+  bulk_v2.prefill_projection_tactic = q3x::runtime::
+      LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore;
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(bulk_v2) ==
+          EvaluationServerEngineRouteContractError::
+              kTargetRequiresNeutralLegacyPrefillSelectors,
+      "the bulk-v2 route rejects every legacy projection tactic mix");
+  bulk_v2.prefill_projection_tactic = q3x::runtime::
+      LayerMajorPrefillProjectionTactic::kExactSegmentedC512;
+  const bool bulk_v2_compiled =
+      q3x::runtime::is_reference_generation_route_compiled(
+          ReferenceGenerationRoute::kSm87BulkV2P40);
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(bulk_v2) ==
+          (bulk_v2_compiled
+               ? EvaluationServerEngineRouteContractError::kNone
+               : EvaluationServerEngineRouteContractError::
+                     kPrefillPlanUnavailable),
+      "the exact bulk-v2 geometry remains distinct from binary availability");
+
+  test.expect(
+      static_cast<std::uint8_t>(
+          q3x::runtime::RequestMemoryProfile::kSm87TargetAotP40Owner) == 3U &&
+          static_cast<std::uint8_t>(
+              q3x::runtime::RequestMemoryProfile::kSm87BulkV2P40Owner) == 4U &&
+          q3x::runtime::to_string(
+              q3x::runtime::RequestMemoryProfile::kSm87BulkV2P40Owner) ==
+              "sm87-bulk-v2-p40-request-owner",
+      "bulk-v2 has an append-only memory-profile identity distinct from v1");
+
+  if (!bulk_v2_compiled) {
+    std::atomic<bool> stop_requested{false};
+    std::string error;
+    bulk_v2.model_directory = "/path/must/not/be/read";
+    bulk_v2.port = 65'534U;
+    const int status = server::run_evaluation_server(
+        bulk_v2, stop_requested, error);
+    test.expect(
+        status == 2 &&
+            error == server::to_string(
+                         EvaluationServerEngineRouteContractError::
+                             kPrefillPlanUnavailable),
+        "an uncompiled bulk-v2 route fails before model load or listener "
+        "creation instead of falling back");
+  }
 }
 
 void test_bounded_prefill_cancellation_closes_without_500(TestContext& test) {

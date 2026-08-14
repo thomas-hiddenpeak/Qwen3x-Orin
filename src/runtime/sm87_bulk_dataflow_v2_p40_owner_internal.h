@@ -86,14 +86,17 @@ enum class Sm87BulkV2P40OwnerState : std::uint8_t {
   kDestroyed,
 };
 
-// Development admission is deliberately not production admission.  A real
-// candidate must run before production qualification can be measured, while
-// the host-contract class is a compile-time-only test seam that can never be
-// presented to the real gate.
+// Development admission is deliberately not production admission.  The
+// direction-witness class is accuracy-unqualified and may only support a
+// default-off, early-stop whole-route screen.  The numerically qualified
+// development candidate remains a distinct class, while the host-contract
+// class is a compile-time-only test seam that can never be presented to either
+// real gate.  Explicit values preserve the pre-existing class ABI.
 enum class Sm87BulkV2P40ExecutionClass : std::uint8_t {
   kInvalid = 0U,
-  kDefaultOffDevelopmentCandidate,
-  kSyntheticHostContract,
+  kDefaultOffDevelopmentCandidate = 1U,
+  kSyntheticHostContract = 2U,
+  kDefaultOffDirectionWitness = 3U,
 };
 
 enum class Sm87BulkV2P40OwnerError : std::uint8_t {
@@ -116,11 +119,17 @@ enum class Sm87BulkV2P40OwnerError : std::uint8_t {
   kInvalidOwnerState,
   kForeignExecutionAccess,
   kInvalidRequestEpoch,
+  kInvalidLayerOrder,
+  kWrongLayerKind,
+  kIncompleteLayerWork,
+  kInvalidFinalOrder,
   kCudaSubmission,
   kEventNotRecorded,
   kIncompleteDeviceJoin,
   kIncompleteWorkReceipt,
   kMissingOwnerBoundHandoff,
+  kMissingOwnerBoundRequestState,
+  kForeignRequestState,
   kInvalidHandoff,
   kDrainFailure,
 };
@@ -164,6 +173,7 @@ struct Sm87BulkV2P40OwnerIdentity final {
   bool production_dispatch_eligible = false;
 
   [[nodiscard]] bool valid() const noexcept;
+  [[nodiscard]] bool direction_witness_valid() const noexcept;
   [[nodiscard]] bool development_candidate_valid() const noexcept;
   [[nodiscard]] bool synthetic_host_contract_valid() const noexcept;
 };
@@ -184,6 +194,7 @@ class Sm87BulkV2P40Owner;
 class Sm87BulkV2P40OwnerHostFixture;
 struct Sm87BulkV2P40OwnerCreateResult;
 class Sm87BulkV2P40RequestState;
+class Sm87BulkV2P40RequestStateSealedAccess;
 struct Sm87BulkV2P40RequestStateCreateResult;
 struct Sm87BulkV2P40RealConstituentSealRequest;
 struct Sm87BulkV2P40RealConstituentSealResult;
@@ -230,6 +241,7 @@ class Sm87BulkV2P40ConstituentSealAccess final {
   bool all_static_resource_checks_complete = false;
   bool authenticated_real_constituents = false;
   bool exact_numerical_contract_qualified = false;
+  bool default_off_direction_witness_eligible = false;
   bool default_off_candidate_eligible = false;
   bool production_dispatch_eligible = false;
   bool synthetic_host_contract_only = false;
@@ -308,6 +320,15 @@ enum class Sm87BulkV2P40SubmissionCounter : std::uint8_t {
   kHandoffD2h,
 };
 
+// The caller states the expected family only so an accidental GDN/Full
+// dispatch mismatch can be rejected at the transaction boundary.  The owner
+// independently derives the authoritative kind from the frozen natural layer
+// map; the enum is never used to choose or advance receipt totals.
+enum class Sm87BulkV2P40LayerKind : std::uint8_t {
+  kGdn = 0U,
+  kFull,
+};
+
 class Sm87BulkV2P40Owner final {
  public:
   Sm87BulkV2P40Owner(const Sm87BulkV2P40Owner&) = delete;
@@ -338,13 +359,31 @@ class Sm87BulkV2P40Owner final {
   [[nodiscard]] Sm87BulkV2P40OwnerStatus
   seal_for_default_off_development_execution(
       const Sm87BulkV2P40ConstituentSealAccess& constituent_seal) noexcept;
+  // Real/authenticated resource admission for an accuracy-unqualified,
+  // default-off T3 direction screen.  This authority is intentionally
+  // disjoint from the numerically qualified development-candidate gate.
+  [[nodiscard]] Sm87BulkV2P40OwnerStatus
+  seal_for_default_off_direction_witness(
+      const Sm87BulkV2P40ConstituentSealAccess& constituent_seal) noexcept;
 #if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_HOST_FIXTURE)
   [[nodiscard]] Sm87BulkV2P40OwnerStatus seal_synthetic_for_host_contract(
       const Sm87BulkV2P40ConstituentSealAccess& constituent_seal) noexcept;
 #endif
+  // The only production-shaped activation transaction.  It binds one exact
+  // RequestState allocation/access/epoch before any request submission can be
+  // accepted, so every terminal or failure transition has a state peer.
+  [[nodiscard]] Sm87BulkV2P40OwnerStatus begin_request(
+      const Sm87BulkV2P40ExecutionAccess& access,
+      Sm87BulkV2P40RequestState& request_state,
+      const Sm87BulkV2P40RequestStateSealedAccess& request_access,
+      std::uint64_t request_epoch) noexcept;
+#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_HOST_FIXTURE)
+  // Test-only no-state seam for the legacy synthetic lifecycle tests.  It is
+  // absent from production compilation and cannot be used by an executor.
   [[nodiscard]] Sm87BulkV2P40OwnerStatus begin_request(
       const Sm87BulkV2P40ExecutionAccess& access,
       std::uint64_t request_epoch) noexcept;
+#endif
   [[nodiscard]] Sm87BulkV2P40OwnerStatus record_event(
       const Sm87BulkV2P40ExecutionAccess& access,
       Sm87BulkV2P40Stream producer,
@@ -359,17 +398,37 @@ class Sm87BulkV2P40Owner final {
       Sm87BulkV2P40SubmissionCounter counter, std::size_t count,
       std::size_t layer, Sm87BulkV2P40FamilyPhase family,
       std::size_t segment, std::size_t constituent) noexcept;
+  // Closes exactly the next natural model layer after proving that every
+  // constituent counter has reached that prefix's exact frozen threshold.
+  // No caller-provided count or receipt total is accepted.
+  [[nodiscard]] Sm87BulkV2P40OwnerStatus close_layer(
+      const Sm87BulkV2P40ExecutionAccess& access,
+      std::size_t model_layer, Sm87BulkV2P40LayerKind expected_kind) noexcept;
+  // The only production D2H submission point.  The owner first proves the
+  // closed 64-layer receipt and FinalNorm -> LmHead -> Argmax order, then asks
+  // its privately bound RequestState to enqueue the fixed-source 8-byte copy
+  // and records the Handoff counter itself.
+  [[nodiscard]] Sm87BulkV2P40OwnerStatus
+  enqueue_owner_bound_handoff_d2h(
+      const Sm87BulkV2P40ExecutionAccess& access) noexcept;
   [[nodiscard]] Sm87BulkV2P40OwnerStatus poison_after_submission_failure(
       const Sm87BulkV2P40ExecutionAccess& access, int cuda_error,
       std::size_t layer, Sm87BulkV2P40FamilyPhase family,
       std::size_t segment, std::size_t constituent) noexcept;
   [[nodiscard]] Sm87BulkV2P40OwnerStatus cancel_request(
       const Sm87BulkV2P40ExecutionAccess& access) noexcept;
-  // Real completion intentionally accepts no caller-provided handoff value.
-  // It remains fail-closed until the owner has an authenticated pinned
-  // handoff capability that can be read only after terminal GPU completion.
+  // Legacy no-state completion intentionally remains fail-closed: execution
+  // access alone carries no pinned handoff authority and no caller-provided
+  // token can substitute for the RequestState-bound transaction below.
   [[nodiscard]] Sm87BulkV2P40OwnerStatus complete_request(
       const Sm87BulkV2P40ExecutionAccess& access) noexcept;
+  // The only successful real completion path.  The state and its exact sealed
+  // access must be owner/allocation/epoch identical to this receipt.  Pinned
+  // contents remain private to RequestState.
+  [[nodiscard]] Sm87BulkV2P40OwnerStatus complete_request(
+      const Sm87BulkV2P40ExecutionAccess& access,
+      Sm87BulkV2P40RequestState& request_state,
+      const Sm87BulkV2P40RequestStateSealedAccess& request_access) noexcept;
 #if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_HOST_FIXTURE)
   // Test-only state-machine seam.  The supplied value is observed only after
   // the terminal event/main-stream wait and is absent from production builds.
@@ -386,7 +445,7 @@ class Sm87BulkV2P40Owner final {
   [[nodiscard]] Sm87BulkV2P40OwnerStatus initialize_resources() noexcept;
   [[nodiscard]] Sm87BulkV2P40OwnerStatus install_execution_access(
       const Sm87BulkV2P40ConstituentSealAccess& constituent_seal,
-      bool require_real_development_qualification) noexcept;
+      Sm87BulkV2P40ExecutionClass required_execution_class) noexcept;
   [[nodiscard]] bool access_matches(
       const Sm87BulkV2P40ExecutionAccess& access) const noexcept;
   [[nodiscard]] Sm87BulkV2P40OwnerStatus cancel_drain_and_transition(
@@ -419,6 +478,9 @@ class Sm87BulkV2P40Owner final {
       event_stream_generations_{};
   std::array<std::size_t, kSm87BulkV2P40StreamCount>
       main_joined_stream_generations_{};
+  Sm87BulkV2P40RequestState* active_request_state_ = nullptr;
+  const Sm87BulkV2P40RequestStateSealedAccess* active_request_access_ =
+      nullptr;
 
   friend struct Sm87BulkV2P40OwnerCreateResult;
   friend class Sm87BulkV2P40OwnerHostFixture;
@@ -452,8 +514,9 @@ create_sm87_bulk_dataflow_v2_p40_owner_resources() noexcept;
 
 // Source-private host fixture.  It exists only in the explicitly test-only
 // owner build to exercise this same state machine with a fake CUDA runtime.
-// Its synthetic constituent token has T0 lifecycle authority only and is not
-// present in a production compilation.
+// Its synthetic token and direction-witness topology token have T0 contract
+// authority only and are not present in a production compilation.  The latter
+// proves class isolation; it does not impersonate a real startup issuer.
 #if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_HOST_FIXTURE)
 class Sm87BulkV2P40OwnerHostFixture final {
  public:
@@ -463,8 +526,15 @@ class Sm87BulkV2P40OwnerHostFixture final {
   mint_synthetic_constituent_seal(
       const Sm87BulkV2P40Owner& owner,
       const Sm87BulkV2P40OwnerIdentity& evidence) noexcept;
+  [[nodiscard]] static std::unique_ptr<Sm87BulkV2P40ConstituentSealAccess>
+  mint_direction_witness_constituent_seal(
+      const Sm87BulkV2P40Owner& owner,
+      const Sm87BulkV2P40OwnerIdentity& evidence) noexcept;
   static void populate_complete_work_receipt(
       Sm87BulkV2P40Owner* owner) noexcept;
+  [[nodiscard]] static std::array<void*, kSm87BulkV2P40StreamCount>
+  borrow_streams_for_request_state(
+      const Sm87BulkV2P40Owner& owner) noexcept;
 };
 #endif
 

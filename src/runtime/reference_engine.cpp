@@ -4898,6 +4898,23 @@ struct ReferenceEngine::Impl {
     const bool target_aot_p40_route =
         options.generation_route ==
         ReferenceGenerationRoute::kSm87TargetAotP40;
+    const bool bulk_v2_p40_route =
+        options.generation_route ==
+        ReferenceGenerationRoute::kSm87BulkV2P40;
+    if (bulk_v2_p40_route) {
+      // The public identity is intentionally introduced before its executor.
+      // Until the complete v2 owner/executor branch replaces this gate, route
+      // selection must stop here, before tokenizer/checkpoint I/O, and must
+      // never fall through into either the reference or v1 construction path.
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kPrefillPlanUnavailable, "generation_route",
+          is_reference_generation_route_compiled(options.generation_route)
+              ? "the bulk-dataflow-v2 P40000 executor is compiled but is not "
+                "bound to the reference engine"
+              : "this binary does not contain the exact-P40000 "
+                "bulk-dataflow-v2 complete executor");
+      return result;
+    }
 #if !defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
     if (target_aot_p40_route) {
       result.diagnostic = engine_diagnostic(
@@ -9866,6 +9883,27 @@ std::string_view to_string(const ReferenceEngineError error) noexcept {
       return "cancelled";
   }
   return "unknown";
+}
+
+bool is_reference_generation_route_compiled(
+    const ReferenceGenerationRoute route) noexcept {
+  switch (route) {
+    case ReferenceGenerationRoute::kReference:
+      return true;
+    case ReferenceGenerationRoute::kSm87TargetAotP40:
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+      return true;
+#else
+      return false;
+#endif
+    case ReferenceGenerationRoute::kSm87BulkV2P40:
+#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION)
+      return true;
+#else
+      return false;
+#endif
+  }
+  return false;
 }
 
 std::string_view to_string(const ReferenceStopReason reason) noexcept {

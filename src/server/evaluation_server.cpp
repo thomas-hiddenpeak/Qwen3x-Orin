@@ -1103,8 +1103,7 @@ void execute_job(runtime::ReferenceEngine& engine,
       options.emit_nvtx_phase_ranges;
   if (options.prefill_execution_mode == runtime::
           ReferencePrefillExecutionMode::kWholeRequestLayerMajor ||
-      options.engine_route ==
-          runtime::ReferenceGenerationRoute::kSm87TargetAotP40) {
+      runtime::is_exact_p40_generation_route(options.engine_route)) {
     generate_options.prefill_cancellation_probe = prefill_cancelled;
     generate_options.prefill_cancellation_context = &observer;
   }

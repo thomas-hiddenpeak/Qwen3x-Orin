@@ -1,5 +1,7 @@
 #include "sm87_bulk_dataflow_v2_p40_owner_internal.h"
 
+#include "sm87_bulk_dataflow_v2_p40_request_state_internal.h"
+
 #include <cuda_runtime_api.h>
 
 #include <atomic>
@@ -106,6 +108,129 @@ std::atomic<std::uint64_t> g_next_v2_owner_identity{1U};
   }
   *destination += count;
   return true;
+}
+
+inline constexpr std::size_t kGdnChunksPerLayer =
+    q3x::kernels::kSm87BulkV2GdnP40Chunks;
+inline constexpr std::size_t kAttentionPreprocessPanelsPerFullLayer = 5U;
+inline constexpr std::size_t kGdnPersistentCopiesPerLayer = 2U;
+inline constexpr std::size_t kGdnLogicalProjectionRolesPerLayer = 8U;
+inline constexpr std::size_t kFullLogicalProjectionRolesPerLayer = 7U;
+inline constexpr std::size_t kGdnFusedOuterOperationsPerLayer = 5U;
+inline constexpr std::size_t kFullFusedOuterOperationsPerLayer = 4U;
+inline constexpr std::uint64_t kNvFp4ConventionalOperationsPerLayer =
+    6ULL * kSm87BulkV2P40Tokens * kSm87BulkV2P40Hidden *
+    kSm87BulkV2P40Intermediate;
+inline constexpr std::uint64_t kFp8OutputConventionalOperationsPerLayer =
+    2ULL * kSm87BulkV2P40Tokens * kSm87BulkV2P40AttentionWidth *
+    kSm87BulkV2P40Hidden;
+inline constexpr std::uint64_t kFp8GdnInputConventionalOperationsPerLayer =
+    2ULL * kSm87BulkV2P40Tokens * kSm87BulkV2P40Hidden *
+    kSm87BulkV2P40GdnRawWidth;
+inline constexpr std::uint64_t kFp8FullInputConventionalOperationsPerLayer =
+    2ULL * kSm87BulkV2P40Tokens * kSm87BulkV2P40Hidden *
+    (kSm87BulkV2P40AttentionQGateWidth +
+     2ULL * kSm87TargetAotP40KvWidth);
+inline constexpr std::uint64_t kBf16AbConventionalOperationsPerLayer =
+    2ULL * kSm87BulkV2P40Tokens * kSm87BulkV2P40Hidden *
+    kSm87BulkV2P40GdnAbWidth;
+inline constexpr std::uint64_t kGdnConventionalOperationsPerLayer =
+    kNvFp4ConventionalOperationsPerLayer +
+    kFp8OutputConventionalOperationsPerLayer +
+    kFp8GdnInputConventionalOperationsPerLayer +
+    kBf16AbConventionalOperationsPerLayer;
+inline constexpr std::uint64_t kFullConventionalOperationsPerLayer =
+    kNvFp4ConventionalOperationsPerLayer +
+    kFp8OutputConventionalOperationsPerLayer +
+    kFp8FullInputConventionalOperationsPerLayer;
+
+static_assert(kGdnChunksPerLayer == 625U);
+static_assert(kSm87BulkV2P40GdnLayers *
+                      kGdnLogicalProjectionRolesPerLayer +
+                  kSm87BulkV2P40FullLayers *
+                      kFullLogicalProjectionRolesPerLayer ==
+              kSm87BulkV2P40LogicalProjectionRoles);
+static_assert(kSm87BulkV2P40GdnLayers *
+                      kGdnFusedOuterOperationsPerLayer +
+                  kSm87BulkV2P40FullLayers *
+                      kFullFusedOuterOperationsPerLayer ==
+              kSm87BulkV2P40FusedOuterOperations);
+static_assert(kSm87BulkV2P40GdnLayers *
+                          kGdnConventionalOperationsPerLayer +
+                      kSm87BulkV2P40FullLayers *
+                          kFullConventionalOperationsPerLayer ==
+                  kSm87BulkV2P40ProjectionConventionalOperations);
+
+struct Sm87BulkV2P40LayerPrefix final {
+  std::size_t layers = 0U;
+  std::size_t gdn_layers = 0U;
+  std::size_t full_layers = 0U;
+};
+
+[[nodiscard]] constexpr Sm87BulkV2P40LayerPrefix layer_prefix(
+    const std::size_t model_layer) noexcept {
+  const std::size_t layers = model_layer + 1U;
+  const std::size_t full_layers = layers / 4U;
+  return {layers, layers - full_layers, full_layers};
+}
+
+[[nodiscard]] bool layer_work_exact(
+    const Sm87BulkV2P40RequestReceipt& receipt,
+    const Sm87BulkV2P40LayerPrefix& prefix) noexcept {
+  const auto& successor = receipt.projection_successor;
+  return successor.fp8_gdn_input_whole_launches == prefix.gdn_layers &&
+         successor.fp8_full_input_whole_launches == prefix.full_layers &&
+         successor.fp8_output_whole_launches == prefix.layers &&
+         successor.fp8_whole_role_launches ==
+             prefix.gdn_layers + prefix.full_layers + prefix.layers &&
+         successor.nvfp4_gate_up_whole_launches == prefix.layers &&
+         successor.nvfp4_down_whole_launches == prefix.layers &&
+         successor.nvfp4_whole_role_launches == 2U * prefix.layers &&
+         successor.bf16_ab_physical_launches == prefix.gdn_layers &&
+         receipt.enqueued_attention_launches ==
+             prefix.full_layers *
+                 q3x::kernels::kSm87BulkV2AttentionKernelLaunches &&
+         receipt.enqueued_attention_preprocess_panels ==
+             prefix.full_layers * kAttentionPreprocessPanelsPerFullLayer &&
+         receipt.enqueued_bf16_ab_launches == prefix.gdn_layers &&
+         receipt.enqueued_gdn_producer_chunks ==
+             prefix.gdn_layers * kGdnChunksPerLayer &&
+         receipt.enqueued_gdn_recurrence_chunks ==
+             prefix.gdn_layers * kGdnChunksPerLayer &&
+         receipt.enqueued_gdn_epilogue_chunks ==
+             prefix.gdn_layers * kGdnChunksPerLayer &&
+         receipt.enqueued_gdn_persistent_copies ==
+             prefix.gdn_layers * kGdnPersistentCopiesPerLayer &&
+         receipt.enqueued_final_norm == 0U && receipt.enqueued_lm_head == 0U &&
+         receipt.enqueued_argmax == 0U && receipt.enqueued_handoff_d2h == 0U;
+}
+
+[[nodiscard]] constexpr bool final_submission_counter(
+    const Sm87BulkV2P40SubmissionCounter counter) noexcept {
+  return counter == Sm87BulkV2P40SubmissionCounter::kFinalNorm ||
+         counter == Sm87BulkV2P40SubmissionCounter::kLmHead ||
+         counter == Sm87BulkV2P40SubmissionCounter::kArgmax ||
+         counter == Sm87BulkV2P40SubmissionCounter::kHandoffD2h;
+}
+
+[[nodiscard]] constexpr bool gdn_only_submission_counter(
+    const Sm87BulkV2P40SubmissionCounter counter) noexcept {
+  return counter ==
+             Sm87BulkV2P40SubmissionCounter::kFp8GdnInputWholeRoleLaunch ||
+         counter == Sm87BulkV2P40SubmissionCounter::kBf16AbLaunch ||
+         counter == Sm87BulkV2P40SubmissionCounter::kGdnProducerChunk ||
+         counter == Sm87BulkV2P40SubmissionCounter::kGdnRecurrenceChunk ||
+         counter == Sm87BulkV2P40SubmissionCounter::kGdnEpilogueChunk ||
+         counter == Sm87BulkV2P40SubmissionCounter::kGdnPersistentCopy;
+}
+
+[[nodiscard]] constexpr bool full_only_submission_counter(
+    const Sm87BulkV2P40SubmissionCounter counter) noexcept {
+  return counter ==
+             Sm87BulkV2P40SubmissionCounter::kFp8FullInputWholeRoleLaunch ||
+         counter == Sm87BulkV2P40SubmissionCounter::kAttentionLaunch ||
+         counter ==
+             Sm87BulkV2P40SubmissionCounter::kAttentionPreprocessPanel;
 }
 
 #if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_ADMISSION)
@@ -294,7 +419,18 @@ bool Sm87BulkV2P40OwnerIdentity::valid() const noexcept {
       gdn_oracle_evidence_identity != 0U &&
       nvfp4_oracle_evidence_identity != 0U && device_ordinal >= 0;
   return common &&
-         (development_candidate_valid() || synthetic_host_contract_valid());
+         (direction_witness_valid() || development_candidate_valid() ||
+          synthetic_host_contract_valid());
+}
+
+bool Sm87BulkV2P40OwnerIdentity::direction_witness_valid()
+    const noexcept {
+  return execution_class ==
+             Sm87BulkV2P40ExecutionClass::kDefaultOffDirectionWitness &&
+         authenticated_real_constituents &&
+         !exact_numerical_contract_qualified &&
+         development_execution_eligible &&
+         !production_dispatch_eligible;
 }
 
 bool Sm87BulkV2P40OwnerIdentity::development_candidate_valid()
@@ -489,20 +625,30 @@ Sm87BulkV2P40OwnerStatus Sm87BulkV2P40Owner::initialize_resources() noexcept {
 Sm87BulkV2P40OwnerStatus
 Sm87BulkV2P40Owner::seal_for_default_off_development_execution(
     const Sm87BulkV2P40ConstituentSealAccess& seal) noexcept {
-  return install_execution_access(seal, true);
+  return install_execution_access(
+      seal,
+      Sm87BulkV2P40ExecutionClass::kDefaultOffDevelopmentCandidate);
+}
+
+Sm87BulkV2P40OwnerStatus
+Sm87BulkV2P40Owner::seal_for_default_off_direction_witness(
+    const Sm87BulkV2P40ConstituentSealAccess& seal) noexcept {
+  return install_execution_access(
+      seal, Sm87BulkV2P40ExecutionClass::kDefaultOffDirectionWitness);
 }
 
 #if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_HOST_FIXTURE)
 Sm87BulkV2P40OwnerStatus
 Sm87BulkV2P40Owner::seal_synthetic_for_host_contract(
     const Sm87BulkV2P40ConstituentSealAccess& seal) noexcept {
-  return install_execution_access(seal, false);
+  return install_execution_access(
+      seal, Sm87BulkV2P40ExecutionClass::kSyntheticHostContract);
 }
 #endif
 
 Sm87BulkV2P40OwnerStatus Sm87BulkV2P40Owner::install_execution_access(
     const Sm87BulkV2P40ConstituentSealAccess& seal,
-    const bool require_real_development_qualification) noexcept {
+    const Sm87BulkV2P40ExecutionClass required_execution_class) noexcept {
   if (state_ != Sm87BulkV2P40OwnerState::kResourcesReady ||
       execution_access_ != nullptr) {
     return error(Sm87BulkV2P40OwnerError::kInvalidOwnerState,
@@ -525,10 +671,24 @@ Sm87BulkV2P40OwnerStatus Sm87BulkV2P40Owner::install_execution_access(
       seal.all_static_resource_checks_complete &&
       seal.authenticated_real_constituents &&
       seal.exact_numerical_contract_qualified &&
+      !seal.default_off_direction_witness_eligible &&
       seal.default_off_candidate_eligible &&
       !seal.production_dispatch_eligible &&
       !seal.synthetic_host_contract_only &&
       seal.identity_.development_candidate_valid();
+  const bool direction_witness_seal =
+      seal.real_fp8_binding_seal && seal.real_attention_binding_seal &&
+      seal.real_bf16_ab_binding_seal && seal.real_gdn_session_seal &&
+      seal.real_nvfp4_binding_seal && seal.real_request_arena_seal &&
+      seal.real_pinned_handoff_seal &&
+      seal.all_static_resource_checks_complete &&
+      seal.authenticated_real_constituents &&
+      !seal.exact_numerical_contract_qualified &&
+      seal.default_off_direction_witness_eligible &&
+      !seal.default_off_candidate_eligible &&
+      !seal.production_dispatch_eligible &&
+      !seal.synthetic_host_contract_only &&
+      seal.identity_.direction_witness_valid();
   const bool synthetic_host_seal =
       !seal.real_fp8_binding_seal && !seal.real_attention_binding_seal &&
       !seal.real_bf16_ab_binding_seal && !seal.real_gdn_session_seal &&
@@ -537,19 +697,32 @@ Sm87BulkV2P40OwnerStatus Sm87BulkV2P40Owner::install_execution_access(
       seal.all_static_resource_checks_complete &&
       !seal.authenticated_real_constituents &&
       !seal.exact_numerical_contract_qualified &&
+      !seal.default_off_direction_witness_eligible &&
       !seal.default_off_candidate_eligible &&
       !seal.production_dispatch_eligible &&
       seal.synthetic_host_contract_only &&
       seal.identity_.synthetic_host_contract_valid();
+  bool required_seal_valid = false;
+  switch (required_execution_class) {
+    case Sm87BulkV2P40ExecutionClass::kDefaultOffDirectionWitness:
+      required_seal_valid = direction_witness_seal;
+      break;
+    case Sm87BulkV2P40ExecutionClass::kDefaultOffDevelopmentCandidate:
+      required_seal_valid = real_development_seal;
+      break;
+    case Sm87BulkV2P40ExecutionClass::kSyntheticHostContract:
+      required_seal_valid = synthetic_host_seal;
+      break;
+    case Sm87BulkV2P40ExecutionClass::kInvalid:
+      break;
+  }
   if (!seal.identity_.valid() ||
       seal.identity_.device_ordinal != device_ordinal_ ||
       seal.streams_ != streams_ || seal.events_ != events_ ||
       seal.device_control_arena_ != device_control_arena_ ||
       seal.cancellation_host_word_ != cancellation_host_word_ ||
       seal.cancellation_device_alias_ != cancellation_device_alias_ ||
-      (require_real_development_qualification
-           ? !real_development_seal
-           : !synthetic_host_seal)) {
+      !required_seal_valid) {
     return error(Sm87BulkV2P40OwnerError::kInvalidConstituentSeal,
                  "constituent_seal_incomplete_or_unbound");
   }
@@ -579,20 +752,91 @@ bool Sm87BulkV2P40Owner::access_matches(
 
 Sm87BulkV2P40OwnerStatus Sm87BulkV2P40Owner::begin_request(
     const Sm87BulkV2P40ExecutionAccess& access,
+    Sm87BulkV2P40RequestState& request_state,
+    const Sm87BulkV2P40RequestStateSealedAccess& request_access,
     const std::uint64_t request_epoch) noexcept {
   if (!access_matches(access)) {
     return error(Sm87BulkV2P40OwnerError::kForeignExecutionAccess,
                  "begin_request_owner_bound_access");
   }
-  if (state_ != Sm87BulkV2P40OwnerState::kSealed &&
-      state_ != Sm87BulkV2P40OwnerState::kCompleted &&
-      state_ != Sm87BulkV2P40OwnerState::kCancelled) {
+  if ((state_ != Sm87BulkV2P40OwnerState::kSealed &&
+       state_ != Sm87BulkV2P40OwnerState::kCompleted &&
+       state_ != Sm87BulkV2P40OwnerState::kCancelled) ||
+      active_request_state_ != nullptr || active_request_access_ != nullptr) {
     return error(Sm87BulkV2P40OwnerError::kInvalidOwnerState,
-                 "begin_request_requires_quiesced_owner");
+                 "begin_request_requires_quiesced_unbound_owner");
   }
   if (request_epoch == 0U || request_epoch <= last_request_epoch_) {
     return error(Sm87BulkV2P40OwnerError::kInvalidRequestEpoch,
                  "begin_request_requires_fresh_nonzero_epoch");
+  }
+
+  bool request_streams_match = true;
+  for (std::size_t index = 0U; index < kSm87BulkV2P40StreamCount; ++index) {
+    if (request_access.cuda_stream(
+            static_cast<Sm87BulkV2P40Stream>(index)) != streams_[index]) {
+      request_streams_match = false;
+      break;
+    }
+  }
+  if (!request_streams_match ||
+      !request_state.owner_begin_binding_valid(
+          request_access, owner_identity_,
+          access.identity_.request_allocation_identity,
+          access.identity_.stream_event_owner_identity, device_ordinal_)) {
+    return error(Sm87BulkV2P40OwnerError::kForeignRequestState,
+                 "begin_requires_exact_owner_allocation_and_stream_binding");
+  }
+  const Sm87BulkV2P40RequestStateStatus state_begin =
+      request_state.begin_request(request_access, request_epoch);
+  if (!state_begin) {
+    return error(Sm87BulkV2P40OwnerError::kInvalidRequestEpoch,
+                 "request_state_rejected_owner_epoch",
+                 state_begin.cuda_error);
+  }
+  active_request_state_ = &request_state;
+  active_request_access_ = &request_access;
+
+  receipt_ = make_active_receipt(access.identity_, request_epoch);
+  event_generations_.fill(0U);
+  event_producers_.fill(Sm87BulkV2P40Stream::kCount);
+  stream_submission_generations_.fill(0U);
+  event_stream_generations_.fill(0U);
+  main_joined_stream_generations_.fill(0U);
+  publish_cancellation(0U);
+  const int cuda_status = cuda_->memset_async(
+      device_control_arena_, 0,
+      static_cast<std::size_t>(kSm87BulkV2P40ControlArenaBytes), streams_[0U]);
+  receipt_.aggregate.submission_started = true;
+  if (cuda_status != 0) {
+    state_ = Sm87BulkV2P40OwnerState::kActive;
+    return cancel_drain_and_transition(
+        Sm87BulkV2P40OwnerLifecycle::kPoisoned, cuda_status);
+  }
+  ++receipt_.device_ordering_operations;
+  last_request_epoch_ = request_epoch;
+  state_ = Sm87BulkV2P40OwnerState::kActive;
+  return ok();
+}
+
+#if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_HOST_FIXTURE)
+Sm87BulkV2P40OwnerStatus Sm87BulkV2P40Owner::begin_request(
+    const Sm87BulkV2P40ExecutionAccess& access,
+    const std::uint64_t request_epoch) noexcept {
+  if (!access_matches(access)) {
+    return error(Sm87BulkV2P40OwnerError::kForeignExecutionAccess,
+                 "synthetic_begin_request_owner_bound_access");
+  }
+  if ((state_ != Sm87BulkV2P40OwnerState::kSealed &&
+       state_ != Sm87BulkV2P40OwnerState::kCompleted &&
+       state_ != Sm87BulkV2P40OwnerState::kCancelled) ||
+      active_request_state_ != nullptr || active_request_access_ != nullptr) {
+    return error(Sm87BulkV2P40OwnerError::kInvalidOwnerState,
+                 "synthetic_begin_requires_quiesced_unbound_owner");
+  }
+  if (request_epoch == 0U || request_epoch <= last_request_epoch_) {
+    return error(Sm87BulkV2P40OwnerError::kInvalidRequestEpoch,
+                 "synthetic_begin_requires_fresh_nonzero_epoch");
   }
 
   receipt_ = make_active_receipt(access.identity_, request_epoch);
@@ -616,6 +860,7 @@ Sm87BulkV2P40OwnerStatus Sm87BulkV2P40Owner::begin_request(
   state_ = Sm87BulkV2P40OwnerState::kActive;
   return ok();
 }
+#endif
 
 Sm87BulkV2P40OwnerStatus Sm87BulkV2P40Owner::record_event(
     const Sm87BulkV2P40ExecutionAccess& access,
@@ -706,6 +951,64 @@ Sm87BulkV2P40OwnerStatus Sm87BulkV2P40Owner::note_submission(
       family == Sm87BulkV2P40FamilyPhase::kCount) {
     return error(Sm87BulkV2P40OwnerError::kInvalidOwnerState,
                  "note_submission_invalid_active_work");
+  }
+
+  const bool final_counter = final_submission_counter(counter);
+  if (final_counter) {
+    if (receipt_.aggregate.completed_layers != kSm87BulkV2P40Layers ||
+        layer != kSm87BulkV2P40Layers - 1U ||
+        family != Sm87BulkV2P40FamilyPhase::kFinalHandoff || count != 1U ||
+        segment != 0U) {
+      return error(Sm87BulkV2P40OwnerError::kInvalidLayerOrder,
+                   "final_work_requires_closed_layers_and_unit_submission");
+    }
+    const auto& final_receipt = receipt_.aggregate;
+    bool final_order_valid = false;
+    switch (counter) {
+      case Sm87BulkV2P40SubmissionCounter::kFinalNorm:
+        final_order_valid =
+            constituent == 0U && final_receipt.enqueued_final_norm == 0U &&
+            final_receipt.enqueued_lm_head == 0U &&
+            final_receipt.enqueued_argmax == 0U &&
+            final_receipt.enqueued_handoff_d2h == 0U;
+        break;
+      case Sm87BulkV2P40SubmissionCounter::kLmHead:
+        final_order_valid =
+            constituent == 1U && final_receipt.enqueued_final_norm == 1U &&
+            final_receipt.enqueued_lm_head == 0U &&
+            final_receipt.enqueued_argmax == 0U &&
+            final_receipt.enqueued_handoff_d2h == 0U;
+        break;
+      case Sm87BulkV2P40SubmissionCounter::kArgmax:
+        final_order_valid =
+            constituent == 2U && final_receipt.enqueued_final_norm == 1U &&
+            final_receipt.enqueued_lm_head == 1U &&
+            final_receipt.enqueued_argmax == 0U &&
+            final_receipt.enqueued_handoff_d2h == 0U;
+        break;
+      case Sm87BulkV2P40SubmissionCounter::kHandoffD2h:
+        return error(
+            Sm87BulkV2P40OwnerError::kMissingOwnerBoundHandoff,
+            "handoff_counter_requires_owner_bound_fixed_d2h_transaction");
+      default:
+        break;
+    }
+    if (!final_order_valid) {
+      return error(Sm87BulkV2P40OwnerError::kInvalidFinalOrder,
+                   "final_submissions_require_norm_lm_head_argmax_order");
+    }
+  } else {
+    if (receipt_.aggregate.completed_layers >= kSm87BulkV2P40Layers ||
+        layer != receipt_.aggregate.completed_layers) {
+      return error(Sm87BulkV2P40OwnerError::kInvalidLayerOrder,
+                   "constituent_work_requires_current_natural_layer");
+    }
+    const bool full_layer = sm87_bulk_v2_p40_is_full_layer(layer);
+    if ((full_layer && gdn_only_submission_counter(counter)) ||
+        (!full_layer && full_only_submission_counter(counter))) {
+      return error(Sm87BulkV2P40OwnerError::kWrongLayerKind,
+                   "constituent_counter_disagrees_with_frozen_layer_kind");
+    }
   }
 
   std::size_t* destination = nullptr;
@@ -803,6 +1106,144 @@ Sm87BulkV2P40OwnerStatus Sm87BulkV2P40Owner::note_submission(
   return ok();
 }
 
+Sm87BulkV2P40OwnerStatus Sm87BulkV2P40Owner::close_layer(
+    const Sm87BulkV2P40ExecutionAccess& access,
+    const std::size_t model_layer,
+    const Sm87BulkV2P40LayerKind expected_kind) noexcept {
+  if (!access_matches(access)) {
+    return error(Sm87BulkV2P40OwnerError::kForeignExecutionAccess,
+                 "close_layer_owner_bound_access");
+  }
+  if (state_ != Sm87BulkV2P40OwnerState::kActive ||
+      model_layer >= kSm87BulkV2P40Layers ||
+      model_layer != receipt_.aggregate.completed_layers) {
+    return error(Sm87BulkV2P40OwnerError::kInvalidLayerOrder,
+                 "close_requires_exact_next_natural_model_layer");
+  }
+
+  const bool is_full = sm87_bulk_v2_p40_is_full_layer(model_layer);
+  const Sm87BulkV2P40LayerKind authoritative_kind =
+      is_full ? Sm87BulkV2P40LayerKind::kFull
+              : Sm87BulkV2P40LayerKind::kGdn;
+  if (expected_kind != authoritative_kind) {
+    return error(Sm87BulkV2P40OwnerError::kWrongLayerKind,
+                 "caller_kind_disagrees_with_frozen_natural_layer_map");
+  }
+
+  auto& receipt = receipt_.aggregate;
+  const Sm87BulkV2P40LayerPrefix prefix = layer_prefix(model_layer);
+  const std::size_t previous_gdn = prefix.gdn_layers - (is_full ? 0U : 1U);
+  const std::size_t previous_full = prefix.full_layers - (is_full ? 1U : 0U);
+  const std::size_t expected_previous_logical =
+      previous_gdn * kGdnLogicalProjectionRolesPerLayer +
+      previous_full * kFullLogicalProjectionRolesPerLayer;
+  const std::size_t expected_previous_fused =
+      previous_gdn * kGdnFusedOuterOperationsPerLayer +
+      previous_full * kFullFusedOuterOperationsPerLayer;
+  const std::uint64_t expected_previous_conventional =
+      previous_gdn * kGdnConventionalOperationsPerLayer +
+      previous_full * kFullConventionalOperationsPerLayer;
+  if (receipt.completed_gdn_layers != previous_gdn ||
+      receipt.completed_full_layers != previous_full ||
+      receipt.closed_layer_residuals != model_layer ||
+      receipt.closed_gdn_state_publications != previous_gdn ||
+      receipt.logical_projection_roles != expected_previous_logical ||
+      receipt.fused_outer_operations != expected_previous_fused ||
+      receipt.projection_conventional_operations !=
+          expected_previous_conventional ||
+      !layer_work_exact(receipt, prefix)) {
+    return error(Sm87BulkV2P40OwnerError::kIncompleteLayerWork,
+                 "layer_close_requires_exact_constituent_prefix_receipt");
+  }
+
+  // Publish the whole layer receipt atomically from owner-derived prefix
+  // values.  No increment depends on caller data and no partial mutation can
+  // occur after the exact-prefix proof above.
+  receipt.completed_layers = prefix.layers;
+  receipt.completed_gdn_layers = prefix.gdn_layers;
+  receipt.completed_full_layers = prefix.full_layers;
+  receipt.closed_layer_residuals = prefix.layers;
+  receipt.closed_gdn_state_publications = prefix.gdn_layers;
+  receipt.logical_projection_roles =
+      prefix.gdn_layers * kGdnLogicalProjectionRolesPerLayer +
+      prefix.full_layers * kFullLogicalProjectionRolesPerLayer;
+  receipt.fused_outer_operations =
+      prefix.gdn_layers * kGdnFusedOuterOperationsPerLayer +
+      prefix.full_layers * kFullFusedOuterOperationsPerLayer;
+  receipt.projection_conventional_operations =
+      prefix.gdn_layers * kGdnConventionalOperationsPerLayer +
+      prefix.full_layers * kFullConventionalOperationsPerLayer;
+  return ok();
+}
+
+Sm87BulkV2P40OwnerStatus
+Sm87BulkV2P40Owner::enqueue_owner_bound_handoff_d2h(
+    const Sm87BulkV2P40ExecutionAccess& access) noexcept {
+  if (!access_matches(access)) {
+    return error(Sm87BulkV2P40OwnerError::kForeignExecutionAccess,
+                 "handoff_d2h_owner_bound_execution_access");
+  }
+  if (state_ != Sm87BulkV2P40OwnerState::kActive ||
+      active_request_state_ == nullptr || active_request_access_ == nullptr) {
+    return error(Sm87BulkV2P40OwnerError::kMissingOwnerBoundRequestState,
+                 "handoff_d2h_requires_active_owner_bound_request_state");
+  }
+  const auto& receipt = receipt_.aggregate;
+  if (receipt.completed_layers != kSm87BulkV2P40Layers ||
+      receipt.completed_gdn_layers != kSm87BulkV2P40GdnLayers ||
+      receipt.completed_full_layers != kSm87BulkV2P40FullLayers ||
+      receipt.enqueued_final_norm != 1U ||
+      receipt.enqueued_lm_head != 1U || receipt.enqueued_argmax != 1U ||
+      receipt.enqueued_handoff_d2h != 0U ||
+      receipt.last_submitted_layer != kSm87BulkV2P40Layers - 1U ||
+      receipt.last_submitted_family !=
+          Sm87BulkV2P40FamilyPhase::kFinalHandoff ||
+      receipt.last_submitted_segment != 0U ||
+      receipt.last_submitted_constituent != 2U) {
+    return error(
+        Sm87BulkV2P40OwnerError::kInvalidFinalOrder,
+        "fixed_d2h_requires_closed_layers_and_norm_lm_head_argmax_prefix");
+  }
+  if (!active_request_state_->owner_completion_binding_valid(
+          *active_request_access_, owner_identity_, receipt.request_epoch,
+          access.identity_.request_allocation_identity,
+          access.identity_.stream_event_owner_identity, device_ordinal_)) {
+    return error(Sm87BulkV2P40OwnerError::kForeignRequestState,
+                 "handoff_d2h_active_request_binding_drift");
+  }
+
+  const Sm87BulkV2P40RequestStateStatus handoff =
+      active_request_state_->enqueue_handoff_d2h(*active_request_access_);
+  if (!handoff) {
+    const int first_error =
+        handoff.cuda_error != 0 ? handoff.cuda_error
+                                : static_cast<int>(cudaErrorInvalidValue);
+    (void)cancel_drain_and_transition(
+        Sm87BulkV2P40OwnerLifecycle::kPoisoned, first_error);
+    return error(Sm87BulkV2P40OwnerError::kCudaSubmission,
+                 "owner_bound_fixed_8_byte_handoff_submission",
+                 first_error);
+  }
+
+  auto& mutable_receipt = receipt_.aggregate;
+  mutable_receipt.enqueued_handoff_d2h = 1U;
+  mutable_receipt.submission_started = true;
+  mutable_receipt.last_submitted_layer = kSm87BulkV2P40Layers - 1U;
+  mutable_receipt.last_submitted_family =
+      Sm87BulkV2P40FamilyPhase::kFinalHandoff;
+  mutable_receipt.last_submitted_segment = 0U;
+  mutable_receipt.last_submitted_constituent = 3U;
+  if (!checked_increment(
+          &stream_submission_generations_[stream_index(
+              Sm87BulkV2P40Stream::kMain)],
+          1U)) {
+    return cancel_drain_and_transition(
+        Sm87BulkV2P40OwnerLifecycle::kPoisoned,
+        static_cast<int>(cudaErrorInvalidValue));
+  }
+  return ok();
+}
+
 Sm87BulkV2P40OwnerStatus
 Sm87BulkV2P40Owner::poison_after_submission_failure(
     const Sm87BulkV2P40ExecutionAccess& access, const int cuda_error,
@@ -852,11 +1293,63 @@ Sm87BulkV2P40Owner::cancel_drain_and_transition(
   receipt_.aggregate.handoff_observed = false;
   receipt_.aggregate.first_error = first_error;
   const Sm87BulkV2P40OwnerStatus drain = drain_all_streams();
-  receipt_.aggregate.lifecycle = terminal_lifecycle;
-  if (terminal_lifecycle == Sm87BulkV2P40OwnerLifecycle::kPoisoned || !drain) {
+  Sm87BulkV2P40OwnerLifecycle actual_lifecycle = terminal_lifecycle;
+  int request_transition_error = 0;
+  if (active_request_state_ != nullptr && active_request_access_ != nullptr) {
+    if (active_request_state_->lifecycle() ==
+        Sm87BulkV2P40RequestStateLifecycle::kActive) {
+      Sm87BulkV2P40RequestStateStatus request_transition;
+      if (terminal_lifecycle == Sm87BulkV2P40OwnerLifecycle::kCancelled &&
+          static_cast<bool>(drain)) {
+        request_transition =
+            active_request_state_->mark_cancelled_after_owner_drain(
+                *active_request_access_);
+      } else {
+        const int poison_error =
+            first_error != 0
+                ? first_error
+                : (drain.cuda_error != 0
+                       ? drain.cuda_error
+                       : static_cast<int>(cudaErrorInvalidResourceHandle));
+        request_transition = active_request_state_->poison_after_owner_drain(
+            *active_request_access_, poison_error);
+      }
+      if (!request_transition) {
+        request_transition_error =
+            request_transition.cuda_error != 0
+                ? request_transition.cuda_error
+                : static_cast<int>(cudaErrorInvalidResourceHandle);
+        actual_lifecycle = Sm87BulkV2P40OwnerLifecycle::kPoisoned;
+      }
+    } else if (active_request_state_->lifecycle() !=
+               Sm87BulkV2P40RequestStateLifecycle::kPoisoned) {
+      request_transition_error =
+          static_cast<int>(cudaErrorInvalidResourceHandle);
+      actual_lifecycle = Sm87BulkV2P40OwnerLifecycle::kPoisoned;
+    }
+    active_request_state_ = nullptr;
+    active_request_access_ = nullptr;
+  }
+  if (!drain) {
+    actual_lifecycle = Sm87BulkV2P40OwnerLifecycle::kPoisoned;
+    if (receipt_.aggregate.first_error == 0) {
+      receipt_.aggregate.first_error =
+          drain.cuda_error != 0
+              ? drain.cuda_error
+              : static_cast<int>(cudaErrorInvalidResourceHandle);
+    }
+  }
+  receipt_.aggregate.lifecycle = actual_lifecycle;
+  if (actual_lifecycle == Sm87BulkV2P40OwnerLifecycle::kPoisoned) {
     state_ = Sm87BulkV2P40OwnerState::kPoisoned;
   } else {
     state_ = Sm87BulkV2P40OwnerState::kCancelled;
+  }
+  if (request_transition_error != 0) {
+    receipt_.aggregate.first_error = request_transition_error;
+    return error(Sm87BulkV2P40OwnerError::kForeignRequestState,
+                 "owner_drain_request_state_transition_failed",
+                 request_transition_error);
   }
   if (first_error != 0) {
     return error(Sm87BulkV2P40OwnerError::kCudaSubmission,
@@ -942,6 +1435,136 @@ Sm87BulkV2P40OwnerStatus Sm87BulkV2P40Owner::complete_request(
       static_cast<int>(cudaErrorInvalidResourceHandle));
   return error(Sm87BulkV2P40OwnerError::kMissingOwnerBoundHandoff,
                "owner_bound_pinned_handoff_capability_required");
+}
+
+Sm87BulkV2P40OwnerStatus Sm87BulkV2P40Owner::complete_request(
+    const Sm87BulkV2P40ExecutionAccess& access,
+    Sm87BulkV2P40RequestState& request_state,
+    const Sm87BulkV2P40RequestStateSealedAccess& request_access) noexcept {
+  if (!access_matches(access)) {
+    return error(Sm87BulkV2P40OwnerError::kForeignExecutionAccess,
+                 "complete_owner_bound_access_and_request_state");
+  }
+  if (state_ != Sm87BulkV2P40OwnerState::kActive) {
+    return error(Sm87BulkV2P40OwnerError::kInvalidOwnerState,
+                 "owner_bound_completion_requires_active_request");
+  }
+
+  const auto poison_bound_request =
+      [&](const Sm87BulkV2P40OwnerError code, const char* const context,
+          const int first_error,
+          const std::size_t resource_index =
+              std::numeric_limits<std::size_t>::max()) noexcept {
+        (void)cancel_drain_and_transition(
+            Sm87BulkV2P40OwnerLifecycle::kPoisoned, first_error);
+        return error(code, context, first_error, resource_index);
+      };
+
+  const auto& identity = access.identity_;
+  bool request_streams_match = true;
+  for (std::size_t index = 0U; index < kSm87BulkV2P40StreamCount; ++index) {
+    if (request_access.cuda_stream(
+            static_cast<Sm87BulkV2P40Stream>(index)) != streams_[index]) {
+      request_streams_match = false;
+      break;
+    }
+  }
+  if (active_request_state_ != &request_state ||
+      active_request_access_ != &request_access || !request_streams_match ||
+      !request_state.owner_completion_binding_valid(
+          request_access, owner_identity_, receipt_.aggregate.request_epoch,
+          identity.request_allocation_identity,
+          identity.stream_event_owner_identity, device_ordinal_)) {
+    return poison_bound_request(
+        Sm87BulkV2P40OwnerError::kForeignRequestState,
+        "completion_requires_exact_owner_allocation_epoch_access_binding",
+        static_cast<int>(cudaErrorInvalidResourceHandle));
+  }
+  if (receipt_.joined_auxiliary_stream_mask != auxiliary_stream_mask()) {
+    return poison_bound_request(
+        Sm87BulkV2P40OwnerError::kIncompleteDeviceJoin,
+        "all_auxiliary_streams_must_join_main_before_real_terminal",
+        static_cast<int>(cudaErrorInvalidResourceHandle));
+  }
+  for (std::size_t index = 1U; index < kSm87BulkV2P40StreamCount; ++index) {
+    if (stream_submission_generations_[index] == 0U ||
+        main_joined_stream_generations_[index] !=
+            stream_submission_generations_[index]) {
+      return poison_bound_request(
+          Sm87BulkV2P40OwnerError::kIncompleteDeviceJoin,
+          "main_must_join_latest_auxiliary_generation_before_real_terminal",
+          static_cast<int>(cudaErrorInvalidResourceHandle), index);
+    }
+  }
+  if (!work_receipt_complete()) {
+    return poison_bound_request(
+        Sm87BulkV2P40OwnerError::kIncompleteWorkReceipt,
+        "real_terminal_requires_complete_exact_work_receipt",
+        static_cast<int>(cudaErrorInvalidValue));
+  }
+
+  const std::size_t terminal =
+      event_index(Sm87BulkV2P40ReusableEvent::kRequestTerminal);
+  const int record_status =
+      cuda_->record_event(events_[terminal], streams_[0U]);
+  if (record_status != 0) {
+    return poison_bound_request(
+        Sm87BulkV2P40OwnerError::kCudaSubmission,
+        "record_owner_terminal_event_before_request_state_observation",
+        record_status);
+  }
+  ++receipt_.device_ordering_operations;
+  ++event_generations_[terminal];
+  event_producers_[terminal] = Sm87BulkV2P40Stream::kMain;
+  event_stream_generations_[terminal] =
+      stream_submission_generations_[0U];
+
+  // This is the sole normal-completion host wait.  RequestState owns both the
+  // fixed 8-byte destination and its observation; this owner receives only the
+  // value after the terminal Main synchronization has completed.
+  const Sm87BulkV2P40RequestStateHandoffResult handoff =
+      request_state.synchronize_terminal_main_and_observe_handoff(
+          request_access);
+  if (!handoff) {
+    if (handoff.terminal_main_synchronized) {
+      receipt_.aggregate.terminal_host_waits = 1U;
+    }
+    const bool missing =
+        handoff.status.error ==
+        Sm87BulkV2P40RequestStateError::kHandoffNotEnqueued;
+    const bool invalid = handoff.status.error ==
+                         Sm87BulkV2P40RequestStateError::kInvalidHandoff;
+    const int first_error =
+        handoff.status.cuda_error != 0
+            ? handoff.status.cuda_error
+            : static_cast<int>(missing ? cudaErrorInvalidResourceHandle
+                                       : cudaErrorInvalidValue);
+    return poison_bound_request(
+        missing ? Sm87BulkV2P40OwnerError::kMissingOwnerBoundHandoff
+                : (invalid ? Sm87BulkV2P40OwnerError::kInvalidHandoff
+                           : Sm87BulkV2P40OwnerError::kCudaSubmission),
+        missing ? "owner_bound_handoff_d2h_must_precede_terminal"
+                : (invalid
+                       ? "owner_bound_terminal_handoff_is_invalid"
+                       : "request_state_terminal_main_observation_failed"),
+        first_error);
+  }
+
+  receipt_.aggregate.lifecycle = Sm87BulkV2P40OwnerLifecycle::kCompleted;
+  receipt_.aggregate.terminal_host_waits = 1U;
+  // One transitive Main drain covers every latest joined auxiliary
+  // generation.  This is a receipt semantic, not five additional host waits.
+  receipt_.aggregate.terminal_host_drains = 1U;
+  receipt_.aggregate.all_streams_drained = true;
+  receipt_.aggregate.state_committed = true;
+  receipt_.aggregate.handoff_observed = true;
+  receipt_.aggregate.handoff_token_id = handoff.token_id;
+  receipt_.aggregate.handoff_nonfinite = handoff.nonfinite;
+  receipt_.aggregate.first_error = 0;
+  active_request_state_ = nullptr;
+  active_request_access_ = nullptr;
+  state_ = Sm87BulkV2P40OwnerState::kCompleted;
+  return ok();
 }
 
 #if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_HOST_FIXTURE)
@@ -1047,6 +1670,11 @@ void Sm87BulkV2P40Owner::release_resources() noexcept {
       }
     }
   }
+  // Non-owning active-request links are never dereferenced during teardown;
+  // RequestState may have been destroyed first after performing its own
+  // borrowed-stream drain.
+  active_request_state_ = nullptr;
+  active_request_access_ = nullptr;
   execution_access_.reset();
   if (cuda_ != nullptr) {
     for (std::size_t index = events_.size(); index > 0U; --index) {
@@ -1161,9 +1789,58 @@ Sm87BulkV2P40OwnerHostFixture::mint_synthetic_constituent_seal(
   seal->all_static_resource_checks_complete = true;
   seal->authenticated_real_constituents = false;
   seal->exact_numerical_contract_qualified = false;
+  seal->default_off_direction_witness_eligible = false;
   seal->default_off_candidate_eligible = false;
   seal->production_dispatch_eligible = false;
   seal->synthetic_host_contract_only = true;
+  return seal;
+}
+
+std::unique_ptr<Sm87BulkV2P40ConstituentSealAccess>
+Sm87BulkV2P40OwnerHostFixture::mint_direction_witness_constituent_seal(
+    const Sm87BulkV2P40Owner& owner,
+    const Sm87BulkV2P40OwnerIdentity& evidence) noexcept {
+  if (owner.state_ != Sm87BulkV2P40OwnerState::kResourcesReady) {
+    return nullptr;
+  }
+  std::unique_ptr<Sm87BulkV2P40ConstituentSealAccess> seal(
+      new (std::nothrow) Sm87BulkV2P40ConstituentSealAccess());
+  if (seal == nullptr) {
+    return nullptr;
+  }
+  seal->identity_ = evidence;
+  seal->identity_.plan_magic = kSm87BulkV2P40PlanMagic;
+  seal->identity_.abi_major = kSm87BulkV2P40PlanAbiMajor;
+  seal->identity_.abi_minor = kSm87BulkV2P40PlanAbiMinor;
+  seal->identity_.owner_identity = owner.owner_identity_;
+  seal->identity_.seal_nonce = next_identity();
+  seal->identity_.device_ordinal = owner.device_ordinal_;
+  seal->identity_.execution_class =
+      Sm87BulkV2P40ExecutionClass::kDefaultOffDirectionWitness;
+  seal->identity_.authenticated_real_constituents = true;
+  seal->identity_.exact_numerical_contract_qualified = false;
+  seal->identity_.development_execution_eligible = true;
+  seal->identity_.production_dispatch_eligible = false;
+  seal->bound_owner_identity_ = owner.owner_identity_;
+  seal->streams_ = owner.streams_;
+  seal->events_ = owner.events_;
+  seal->device_control_arena_ = owner.device_control_arena_;
+  seal->cancellation_host_word_ = owner.cancellation_host_word_;
+  seal->cancellation_device_alias_ = owner.cancellation_device_alias_;
+  seal->real_fp8_binding_seal = true;
+  seal->real_attention_binding_seal = true;
+  seal->real_bf16_ab_binding_seal = true;
+  seal->real_gdn_session_seal = true;
+  seal->real_nvfp4_binding_seal = true;
+  seal->real_request_arena_seal = true;
+  seal->real_pinned_handoff_seal = true;
+  seal->all_static_resource_checks_complete = true;
+  seal->authenticated_real_constituents = true;
+  seal->exact_numerical_contract_qualified = false;
+  seal->default_off_direction_witness_eligible = true;
+  seal->default_off_candidate_eligible = false;
+  seal->production_dispatch_eligible = false;
+  seal->synthetic_host_contract_only = false;
   return seal;
 }
 
@@ -1217,6 +1894,14 @@ void Sm87BulkV2P40OwnerHostFixture::populate_complete_work_receipt(
   receipt.last_submitted_family = Sm87BulkV2P40FamilyPhase::kFinalHandoff;
   receipt.last_submitted_segment = 0U;
   receipt.last_submitted_constituent = 3U;
+}
+
+std::array<void*, kSm87BulkV2P40StreamCount>
+Sm87BulkV2P40OwnerHostFixture::borrow_streams_for_request_state(
+    const Sm87BulkV2P40Owner& owner) noexcept {
+  return owner.state_ == Sm87BulkV2P40OwnerState::kResourcesReady
+             ? owner.streams_
+             : std::array<void*, kSm87BulkV2P40StreamCount>{};
 }
 #endif
 
