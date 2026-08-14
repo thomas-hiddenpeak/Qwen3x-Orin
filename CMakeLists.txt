@@ -199,6 +199,10 @@ option(Q3X_BUILD_SM87_MACROFEED_V4_EXECUTION_EVENTS_ADMISSION
   "Build the default-off MacroFeed-v4 Engine-owned physical stream/event admission"
   OFF
 )
+option(Q3X_BUILD_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION
+  "Build the default-off MacroFeed-v4 P40 Engine-lifetime-anchorable execution-package first slice"
+  OFF
+)
 option(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION
   "Build the default-off whole-P40000 NVFP4 Gate+Up 4Mx8N cohort successor and exact CUDA oracle"
   OFF
@@ -590,6 +594,12 @@ if(Q3X_BUILD_SM87_MACROFEED_V4_EXECUTION_EVENTS_ADMISSION AND
     "Q3X_BUILD_SM87_MACROFEED_V4_EXECUTION_EVENTS_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
 if(Q3X_BUILD_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION AND
    (NOT Q3X_BUILD_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION OR
      NOT Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION OR
@@ -597,6 +607,15 @@ if(Q3X_BUILD_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION AND
      NOT Q3X_BUILD_SM87_MACROFEED_V4_BF16_AB_ADMISSION))
   message(FATAL_ERROR
     "Q3X_BUILD_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION requires authenticated complete target-AOT assets, both V4 C8000 NVFP4 constituents, and the fixed V4 BF16 A/B constituent"
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION AND
+   (NOT Q3X_BUILD_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION OR
+    NOT Q3X_BUILD_SM87_MACROFEED_V4_EXECUTION_EVENTS_ADMISSION OR
+    NOT Q3X_BUILD_SM87_MACROFEED_V4_NORM_RESIDUAL_ADMISSION OR
+    NOT Q3X_BUILD_SM87_MACROFEED_V4_BF16_AB_ADMISSION))
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION requires the authenticated V4 startup package, Engine-owned execution events, exact norm, and fixed BF16 A/B constituents"
   )
 endif()
 if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION AND
@@ -1256,6 +1275,17 @@ if(Q3X_BUILD_SM87_MACROFEED_V4_EXECUTION_EVENTS_ADMISSION)
   )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_SM87_MACROFEED_V4_EXECUTION_EVENTS_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  # First executable composition slice: construction-sealed catalogs, owned
+  # transient/recurrent storage, private streams/events, and exactly one GDN
+  # layer-0 input-norm + BF16 A/B front half. It remains selector/API absent.
+  target_sources(q3x_kernels PRIVATE
+    src/runtime/sm87_macrofeed_v4_p40_execution_package_internal.cpp
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION)
@@ -3399,6 +3429,40 @@ if(BUILD_TESTING)
     set_tests_properties(
       sm87_macrofeed_v4_p40_startup_package_host PROPERTIES
       LABELS "host;correctness;resource;cuda;sm87;prefill;macrofeed_v4;startup_package;target_aot;bf16_ab;ownership;t0;t1;live_cuda;default_off;non_executable"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 300
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+    add_executable(q3x_sm87_macrofeed_v4_p40_execution_package_cuda_test
+      tests/sm87_macrofeed_v4_p40_execution_package_cuda_test.cpp
+    )
+    target_compile_definitions(
+      q3x_sm87_macrofeed_v4_p40_execution_package_cuda_test PRIVATE
+      Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION=1
+      Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION=1
+      Q3X_ENABLE_SM87_MACROFEED_V4_EXECUTION_EVENTS_ADMISSION=1
+      Q3X_ENABLE_SM87_MACROFEED_V4_EXECUTION_EVENTS_TEST_FIXTURE=1
+      Q3X_ENABLE_SM87_MACROFEED_V4_NORM_RESIDUAL_ADMISSION=1
+      Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION=1
+      Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION=1
+    )
+    target_link_libraries(
+      q3x_sm87_macrofeed_v4_p40_execution_package_cuda_test
+      PRIVATE q3x::kernels CUDA::cudart CUDA::cuda_driver
+    )
+    q3x_enable_warnings(
+      q3x_sm87_macrofeed_v4_p40_execution_package_cuda_test
+    )
+    add_test(NAME sm87_macrofeed_v4_p40_execution_package_cuda
+      COMMAND q3x_sm87_macrofeed_v4_p40_execution_package_cuda_test
+    )
+    set_tests_properties(
+      sm87_macrofeed_v4_p40_execution_package_cuda PROPERTIES
+      LABELS "correctness;resource;cuda;sm87;prefill;macrofeed_v4;execution_package;gdn_layer0_front_half;physical_receipt;t1;default_off;non_production"
       RESOURCE_LOCK q3x_sm87_gpu
       RUN_SERIAL TRUE
       SKIP_RETURN_CODE 77

@@ -130,6 +130,65 @@ inline constexpr std::uint64_t kBf16AbCapabilityIssuerNonce =
   return identity == 0U ? 0x5133'4d46'4142'5052ULL : identity;
 }
 
+[[nodiscard, maybe_unused]] std::uint64_t layer_norm_tensor_identity(
+    const std::uint64_t package_identity,
+    const std::uint64_t deployment_plan_identity,
+    const std::uint64_t device_identity,
+    const std::int32_t device_ordinal, const std::size_t model_layer,
+    const bool post_attention, const std::uint16_t* const weight,
+    const std::size_t element_count,
+    const std::uint32_t epsilon_fp32_bits) noexcept {
+  if (package_identity == 0U || deployment_plan_identity == 0U ||
+      device_identity == 0U || device_ordinal < 0 ||
+      model_layer >= kSm87MacroFeedV4P40StartupPackageLayers ||
+      weight == nullptr ||
+      element_count != kernels::kSm87MacroFeedV4NormResidualHidden ||
+      epsilon_fp32_bits !=
+          kernels::kSm87MacroFeedV4NormResidualEpsilonFp32Bits) {
+    return 0U;
+  }
+  std::uint64_t identity = post_attention
+                               ? 0x5133'4d46'4e50'5354ULL
+                               : 0x5133'4d46'4e49'4e50ULL;
+  identity = mix(identity, package_identity);
+  identity = mix(identity, deployment_plan_identity);
+  identity = mix(identity, device_identity);
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(device_ordinal + 1));
+  identity = mix(identity, model_layer + 1U);
+  identity = mix(identity, post_attention ? 2U : 1U);
+  identity = mix(identity, reinterpret_cast<std::uintptr_t>(weight));
+  identity = mix(identity, element_count);
+  identity = mix(
+      identity, kernels::kSm87MacroFeedV4NormResidualWeightBytes);
+  identity = mix(identity, epsilon_fp32_bits);
+  return identity == 0U
+             ? (post_attention ? 0x5133'4d46'4e50'5354ULL
+                               : 0x5133'4d46'4e49'4e50ULL)
+             : identity;
+}
+
+[[nodiscard, maybe_unused]] std::uint64_t layer_norm_pair_identity(
+    const std::size_t model_layer,
+    const std::uint64_t input_layernorm_identity,
+    const std::uint64_t post_attention_layernorm_identity,
+    const std::uint32_t epsilon_fp32_bits) noexcept {
+  if (model_layer >= kSm87MacroFeedV4P40StartupPackageLayers ||
+      input_layernorm_identity == 0U ||
+      post_attention_layernorm_identity == 0U ||
+      input_layernorm_identity == post_attention_layernorm_identity ||
+      epsilon_fp32_bits !=
+          kernels::kSm87MacroFeedV4NormResidualEpsilonFp32Bits) {
+    return 0U;
+  }
+  std::uint64_t identity = 0x5133'4d46'4e50'4149ULL;
+  identity = mix(identity, model_layer + 1U);
+  identity = mix(identity, input_layernorm_identity);
+  identity = mix(identity, post_attention_layernorm_identity);
+  identity = mix(identity, epsilon_fp32_bits);
+  return identity == 0U ? 0x5133'4d46'4e50'4149ULL : identity;
+}
+
 template <typename UploadReceipt>
 [[nodiscard]] bool authenticated_upload_complete(
     const UploadReceipt& upload, const std::uint64_t owner_identity,
@@ -2116,6 +2175,180 @@ bool Sm87MacroFeedV4P40StartupPackage::
   return true;
 }
 
+bool Sm87MacroFeedV4P40StartupPackage::
+    seal_layer_norm_execution_catalog_for_execution_package(
+        LayerNormExecutionBindingCatalog* const catalog,
+        std::uint64_t* const catalog_identity,
+        std::size_t* const failure_layer,
+        bool* const failure_post_attention,
+        int* const cuda_error) const noexcept {
+  if (catalog != nullptr) {
+    catalog->fill({});
+  }
+  if (catalog_identity != nullptr) {
+    *catalog_identity = 0U;
+  }
+  if (failure_layer != nullptr) {
+    *failure_layer = kSm87MacroFeedV4P40StartupPackageLayers;
+  }
+  if (failure_post_attention != nullptr) {
+    *failure_post_attention = false;
+  }
+  if (cuda_error != nullptr) {
+    *cuda_error = 0;
+  }
+  if (catalog == nullptr || catalog_identity == nullptr ||
+      failure_layer == nullptr || failure_post_attention == nullptr ||
+      cuda_error == nullptr) {
+    return false;
+  }
+
+  // This is the sole complete package revalidation.  Everything below is a
+  // construction-time seal over the already-retained ModelWeights root.
+  if (!valid()) {
+    return false;
+  }
+  const ModelWeights* const model_weights =
+      bf16_ab_capability_.model_weights_;
+  if (model_weights == nullptr) {
+    return false;
+  }
+
+  LayerNormExecutionBindingCatalog sealed{};
+  std::array<std::uintptr_t,
+             2U * kSm87MacroFeedV4P40StartupPackageLayers>
+      range_begins{};
+  std::array<std::uintptr_t,
+             2U * kSm87MacroFeedV4P40StartupPackageLayers>
+      range_ends{};
+  std::size_t sealed_ranges = 0U;
+
+  constexpr std::size_t kElements =
+      kernels::kSm87MacroFeedV4NormResidualHidden;
+  constexpr std::uint64_t kBytes =
+      kernels::kSm87MacroFeedV4NormResidualWeightBytes;
+  constexpr std::uintptr_t kAlignment = 256U;
+  constexpr std::uint32_t kEpsilonFp32Bits =
+      kernels::kSm87MacroFeedV4NormResidualEpsilonFp32Bits;
+  static_assert(kElements == 5'120U);
+  static_assert(kBytes == 10'240U);
+  static_assert(kEpsilonFp32Bits == 0x3586'37bdU);
+
+  for (std::size_t model_layer = 0U;
+       model_layer < kSm87MacroFeedV4P40StartupPackageLayers;
+       ++model_layer) {
+    const DecoderLayerWeights& layer = model_weights->layer(model_layer);
+    const std::array<const Bf16VectorWeight*, 2U> weights{{
+        &layer.input_layernorm,
+        &layer.post_attention_layernorm,
+    }};
+    auto& binding = sealed[model_layer];
+    binding.model_layer = static_cast<std::uint32_t>(model_layer);
+    binding.epsilon_fp32_bits = kEpsilonFp32Bits;
+
+    for (std::size_t role_index = 0U; role_index < weights.size();
+         ++role_index) {
+      const bool post_attention = role_index == 1U;
+      const Bf16VectorWeight& weight = *weights[role_index];
+      const std::uintptr_t begin =
+          reinterpret_cast<std::uintptr_t>(weight.data);
+      if (weight.data == nullptr || weight.element_count != kElements ||
+          begin % kAlignment != 0U ||
+          begin > std::numeric_limits<std::uintptr_t>::max() - kBytes) {
+        *failure_layer = model_layer;
+        *failure_post_attention = post_attention;
+        *cuda_error = static_cast<int>(cudaErrorInvalidValue);
+        return false;
+      }
+      const std::uintptr_t end = begin + kBytes;
+      int range_cuda_error = 0;
+      if (!live_current_device_allocation_range(
+              weight.data, kBytes, audit_.device_ordinal,
+              &range_cuda_error)) {
+        *failure_layer = model_layer;
+        *failure_post_attention = post_attention;
+        *cuda_error = range_cuda_error;
+        return false;
+      }
+      for (std::size_t earlier = 0U; earlier < sealed_ranges; ++earlier) {
+        if (!(range_ends[earlier] <= begin ||
+              end <= range_begins[earlier])) {
+          *failure_layer = model_layer;
+          *failure_post_attention = post_attention;
+          *cuda_error = static_cast<int>(cudaErrorInvalidValue);
+          return false;
+        }
+      }
+      range_begins[sealed_ranges] = begin;
+      range_ends[sealed_ranges] = end;
+      ++sealed_ranges;
+
+      const std::uint64_t tensor_identity = layer_norm_tensor_identity(
+          audit_.package_identity, audit_.deployment_plan_identity,
+          audit_.device_identity, audit_.device_ordinal, model_layer,
+          post_attention, weight.data, weight.element_count,
+          kEpsilonFp32Bits);
+      if (tensor_identity == 0U) {
+        *failure_layer = model_layer;
+        *failure_post_attention = post_attention;
+        *cuda_error = static_cast<int>(cudaErrorInvalidValue);
+        return false;
+      }
+      if (post_attention) {
+        binding.post_attention_layernorm = weight.data;
+        binding.post_attention_layernorm_identity = tensor_identity;
+      } else {
+        binding.input_layernorm = weight.data;
+        binding.input_layernorm_identity = tensor_identity;
+      }
+    }
+
+    binding.pair_identity = layer_norm_pair_identity(
+        model_layer, binding.input_layernorm_identity,
+        binding.post_attention_layernorm_identity,
+        binding.epsilon_fp32_bits);
+    if (binding.pair_identity == 0U) {
+      *failure_layer = model_layer;
+      *failure_post_attention = true;
+      *cuda_error = static_cast<int>(cudaErrorInvalidValue);
+      return false;
+    }
+  }
+
+  if (sealed_ranges != 2U * sealed.size()) {
+    return false;
+  }
+  std::uint64_t identity = 0x5133'4d46'4e43'4154ULL;
+  identity = mix(identity, audit_.package_identity);
+  identity = mix(identity, audit_.deployment_plan_identity);
+  identity = mix(identity, audit_.device_identity);
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(audit_.device_ordinal + 1));
+  identity = mix(identity, sealed.size());
+  identity = mix(identity, sealed_ranges);
+  identity = mix(identity, kElements);
+  identity = mix(identity, kBytes);
+  identity = mix(identity, kAlignment);
+  identity = mix(identity, kEpsilonFp32Bits);
+  for (std::size_t model_layer = 0U; model_layer < sealed.size();
+       ++model_layer) {
+    const auto& binding = sealed[model_layer];
+    identity = mix(identity, model_layer + 1U);
+    identity = mix(identity, binding.model_layer + 1U);
+    identity = mix(identity, binding.input_layernorm_identity);
+    identity = mix(identity, binding.post_attention_layernorm_identity);
+    identity = mix(identity, binding.pair_identity);
+    identity = mix(identity, binding.epsilon_fp32_bits);
+  }
+  if (identity == 0U) {
+    return false;
+  }
+
+  *catalog = sealed;
+  *catalog_identity = identity;
+  return true;
+}
+
 bool Sm87MacroFeedV4P40StartupPackage::populate_projection_bindings()
     noexcept {
   if (!base_valid()) {
@@ -2285,6 +2518,31 @@ bool Sm87MacroFeedV4P40StartupPackage::
         Bf16AbExecutionBindingCatalog* const catalog) const noexcept {
   if (catalog != nullptr) {
     catalog->fill({});
+  }
+  return false;
+}
+
+bool Sm87MacroFeedV4P40StartupPackage::
+    seal_layer_norm_execution_catalog_for_execution_package(
+        LayerNormExecutionBindingCatalog* const catalog,
+        std::uint64_t* const catalog_identity,
+        std::size_t* const failure_layer,
+        bool* const failure_post_attention,
+        int* const cuda_error) const noexcept {
+  if (catalog != nullptr) {
+    catalog->fill({});
+  }
+  if (catalog_identity != nullptr) {
+    *catalog_identity = 0U;
+  }
+  if (failure_layer != nullptr) {
+    *failure_layer = kSm87MacroFeedV4P40StartupPackageLayers;
+  }
+  if (failure_post_attention != nullptr) {
+    *failure_post_attention = false;
+  }
+  if (cuda_error != nullptr) {
+    *cuda_error = 0;
   }
   return false;
 }

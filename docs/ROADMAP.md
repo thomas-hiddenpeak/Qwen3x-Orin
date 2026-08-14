@@ -223,16 +223,18 @@ changes:
   published only after panel five, with sequence length as the final
   non-fallible visibility fence.
 
-The tracked V4 foundation is deliberately non-executable and default-off. It
-contains the host traversal/workspace/state contract, the owner/epoch-bound
-host request transaction, a private authenticated startup foundation package,
-independent C8000 NVFP4 Gate+Up and Down constituents, four layout-specific FP8
-admissions, a fixed direct-scratch BF16 A/B admission, and an admission-only
-two-kernel exact-GDN C8000 continuation. It also contains an exact two-plane
-input-norm and fused residual/post-norm admission that reuses the established
+The tracked V4 foundation is default-off and not route-executable. It contains
+the host traversal/workspace/state contract, the owner/epoch-bound host request
+transaction, a private authenticated startup foundation package, independent
+C8000 NVFP4 Gate+Up and Down constituents, four layout-specific FP8 admissions,
+a fixed direct-scratch BF16 A/B admission, and an admission-only two-kernel
+exact-GDN C8000 continuation. It also contains an exact two-plane input-norm
+and fused residual/post-norm admission that reuses the established
 finite-precision bodies without a copy or third hidden plane, plus a private
 three-stream/nine-event owner that enforces the device-ordered five-panel and
-48-cycle-per-panel dependency graph. The FP8 tactics directly publish GDN
+48-cycle-per-panel dependency graph. A first isolated execution package now
+owns the fixed transient and recurrent arenas and executes only the discarded
+layer-0 input-norm→BF16-A/B front half. The FP8 tactics directly publish GDN
 QKV/Z, interleaved Full Q/G plus private NHD K/V, Attention O from interleaved
 Q slots, and GDN O from the fixed contiguous scratch slice `[4096,10240)`;
 none owns a compact Q/G or GDN-O bridge. The BF16 A/B tactic reuses the exact
@@ -250,20 +252,23 @@ public compact Q128-v4 body on nonzero Q/K/V/Gate data; the production instance
 uses 254 registers, 128 KiB shared memory, zero local bytes, and one CTA/SM.
 The GDN body preserves per-token BF16 state and active/candidate ownership in
 bounded C1/C65 bit oracles. The startup package binds all 48 real BF16 A/B
-pairs and exposes only a construction-time private full-catalog seal; the AB
-kernel is not yet connected to that catalog or event owner. The other
-constituents are not privately bound, and none is numerically qualified at
-full C8000. The startup package
+pairs and all 64 real outer-norm pairs and exposes only construction-time
+private full-catalog seals. The isolated package consumes layer-0 input norm
+and A/B through typed owner-locked submissions on Main and AbAux.
+Residual/post-norm, QKVZ, GDN, Attention, O, and the remaining layers are not
+privately composed, and none is numerically qualified at full C8000 with the
+real checkpoint. The startup package
 regenerates the canonical plan, validates the live 256-artifact/400-source
 catalog once, retains typed payload/scale capabilities, and mints V4-local
-resource seals with no launcher authority. Construction of the future
-execution package may perform the expensive BF16/model/CUDA validation once;
-request execution may not rescan it. These ownership facts, bounded bit
+resource seals with no launcher authority. Execution-package construction may
+perform the expensive BF16/model/CUDA validation once; request execution may
+not rescan it. These ownership facts, bounded bit
 oracles, projection resource gates, event graph, and the Attention one-CTA/SM
 gate do not create a whole-product result. There is no V4 selector, whole-model
-launcher, composed authenticated device execution package, real-checkpoint
-oracle, API timing, numerical qualification, or production eligibility yet.
-Those boundaries are blockers, not implied future facts.
+launcher, complete layer/request execution package, real-checkpoint oracle,
+API timing, numerical qualification, or production eligibility yet. The
+isolated front-half receipt explicitly denies layer, panel, model, and dispatch
+completion. Those boundaries are blockers, not implied future facts.
 
 Its P40 allocation remains:
 
@@ -384,9 +389,9 @@ and its current critical path.
 
 The matched work ledger, v10 control, V2 closure, and complete default-off V3
 control are no longer unfinished Roadmap items. The V4 host contract, its
-owner/epoch-bound host-only request transaction, its authenticated startup
-foundation package, and its first two NVFP4 constituents are implementation
-facts only: the shared
+owner/epoch-bound request transaction, its authenticated startup foundation
+package, its isolated execution package, and its first two NVFP4 constituents
+are implementation facts only: the shared
 canonical decoder has an asymmetric nibble/scale bit oracle, both projection
 tests cover the two N128 halves and M64/M37, and both production kernels pass
 their two-CTA/SM resource gate. The request transaction additionally proves
@@ -394,23 +399,25 @@ five atomic panel swaps, private KV valid-end, cancellation/poisoning, and the
 logical final fence. A separate CUDA owner now supplies three nonblocking
 streams and nine private events, enforces 48 AB readiness cycles per panel,
 keeps panel closure device ordered, physically observes only final/safe-drain
-boundaries, and permanently poisons itself after exceptional drain. It still
-launches no model body and issues no production or Decode receipt. The startup
-package retains no execution-owning capability; the two owners are not yet
-composed. None of those tests has real-model or performance authority.
+boundaries, and permanently poisons itself after exceptional drain. Its narrow
+driver now executes exactly one input norm and one BF16 A/B body in the
+layer-0 front-half slice before a physical safe discard. The startup package
+retains no execution-owning capability, and the slice issues no layer, model,
+production, or Decode receipt. None of those tests has real-model or
+performance authority.
 
 Remaining execution order:
 
-1. compose the existing startup package, request state, and event owner under
-   an Engine-owned execution package. Enforce declaration/destruction order
-   `execution → startup → ModelWeights → complete AOT owner → resident`, drain
-   the three streams before teardown, retain two recurrent epochs and private
-   KV valid-end, and expose no production selector;
-2. consume the construction-sealed 48-pair BF16 catalog and bind the admitted
-   norm/residual plus preprocess → fixed C8000 Attention → O chain to the
-   private streams/events. Then qualify the complete C8000 BF16
-   A/B/FP8/GDN/Attention/norm/residual layer body, layout, finalizer, rollback,
-   and receipt paths without request-time catalog/resource queries;
+1. anchor the existing isolated execution package under Engine lifetime while
+   preserving destruction order `execution → startup → ModelWeights →
+   complete AOT owner → resident`. Extend its typed driver with GDN QKVZ on
+   Main before the Main-side `AbReady` wait, so the intended QKVZ/A-B overlap
+   closes without exposing a raw stream or adding request-time validation;
+2. bind exact GDN update/O, residual/post-norm, preprocess → fixed C8000
+   Attention → O, and all remaining natural layers/panels to the same private
+   arenas and event graph. Then qualify the complete C8000
+   BF16-A/B/FP8/GDN/Attention/norm/residual layer body, layout, finalizer,
+   rollback, and receipt paths without request-time catalog/resource queries;
 3. expose exactly one default-off V4 route through the existing real OpenAI
    P40 API and verify that its receipt reports executed physical work rather
    than a forecast; and

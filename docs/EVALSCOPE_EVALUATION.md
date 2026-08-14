@@ -1167,13 +1167,13 @@ invalid rather than slow or fast.
 
 ### MacroFeed V4 measurement eligibility
 
-`AC-PREFILL-SM87-MACROFEED-v4` currently has only a non-executable foundation:
-its authenticated startup package is host-only and issues no execution
-capability, and there is no selector, whole-model launcher, authenticated
-device execution package, complete state oracle, or API receipt. It therefore
-has no valid EvalScope or server-timing command yet. Gate/Up, Down, decoder,
-occupancy, P513, NSys, or NCU results cannot substitute for that missing
-route.
+`AC-PREFILL-SM87-MACROFEED-v4` now has one isolated executable foundation
+slice: an authenticated device package submits layer-0 input norm and BF16 A/B
+on its private streams, physically drains both tails, and discards all state
+without publication. It is deliberately not a complete layer, model, selector,
+or API route and issues no production receipt. V4 therefore still has no valid
+EvalScope or server-timing command. Gate/Up, Down, the isolated front-half,
+occupancy, P513, NSys, or NCU results cannot substitute for that missing route.
 
 The first V4 performance run becomes eligible only after the Roadmap's C8000
 FP8, exact GDN, in-place/streaming exact Attention, dual recurrent epoch,

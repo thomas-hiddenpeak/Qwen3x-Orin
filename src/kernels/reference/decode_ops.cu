@@ -2,6 +2,7 @@
 
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_NORM_RESIDUAL_ADMISSION)
 #include "q3x/kernels/sm87_macrofeed_v4_norm_residual.h"
+#include "../sm87/sm87_macrofeed_v4_bound_launch_internal.h"
 #endif
 
 #include "../sm87/sm87_target_aot_attention_preprocess_launch_internal.h"
@@ -4298,6 +4299,34 @@ int launch_sm87_macrofeed_v4_residual_post_norm_oracle_cuda(
   return static_cast<int>(
       macrofeed_v4_residual_post_norm_enqueue(arguments, stream));
 }
+
+namespace sm87_macrofeed_v4_bound_launch_detail {
+
+int enqueue_input_norm_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4InputNormArguments& arguments,
+    const Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot& resources,
+    std::size_t* const submitted_launches) noexcept {
+  if (submitted_launches == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *submitted_launches = 0U;
+  Sm87MacroFeedV4InputNormArguments bound = arguments;
+  bound.cuda_stream = token.cuda_stream_;
+  if (!sm87_macrofeed_v4_input_norm_arguments_valid(bound) ||
+      !sm87_macrofeed_v4_norm_residual_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const cudaError_t status = macrofeed_v4_input_norm_enqueue(
+      bound, reinterpret_cast<cudaStream_t>(token.cuda_stream_));
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *submitted_launches = 1U;
+  return static_cast<int>(cudaSuccess);
+}
+
+}  // namespace sm87_macrofeed_v4_bound_launch_detail
 
 }  // namespace q3x::kernels
 #endif

@@ -7,6 +7,7 @@
 #endif
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
 #include "q3x/kernels/sm87_macrofeed_v4_bf16_ab.h"
+#include "sm87_macrofeed_v4_bound_launch_internal.h"
 #endif
 
 #include <cuda.h>
@@ -883,6 +884,36 @@ int launch_sm87_macrofeed_v4_bf16_ab_compact_oracle_cuda(
   return static_cast<int>(
       macrofeed_v4_bf16_ab_enqueue_compact(arguments, stream));
 }
+
+namespace sm87_macrofeed_v4_bound_launch_detail {
+
+int enqueue_bf16_ab_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4Bf16AbArguments& arguments,
+    const Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot& resources,
+    std::size_t* const submitted_launches) noexcept {
+  if (submitted_launches == nullptr) {
+    return invalid_value();
+  }
+  *submitted_launches = 0U;
+  Sm87MacroFeedV4Bf16AbArguments bound = arguments;
+  bound.cuda_stream = token.cuda_stream_;
+  if (!sm87_macrofeed_v4_bf16_ab_arguments_valid(bound) ||
+      !sm87_macrofeed_v4_bf16_ab_admission_resource_gate(resources)) {
+    return invalid_value();
+  }
+  const cudaError_t status = macrofeed_v4_bf16_ab_enqueue(
+      bound.a_weights, bound.b_weights, bound.input, bound.scratch,
+      static_cast<unsigned int>(kSm87MacroFeedV4Bf16AbGridCtas),
+      reinterpret_cast<cudaStream_t>(token.cuda_stream_));
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *submitted_launches = 1U;
+  return static_cast<int>(cudaSuccess);
+}
+
+}  // namespace sm87_macrofeed_v4_bound_launch_detail
 #endif
 
 #if defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)

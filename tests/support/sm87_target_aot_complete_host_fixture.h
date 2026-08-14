@@ -374,6 +374,29 @@ bool Sm87TargetAotCompleteProjectionExecutionAccess::
 }
 
 bool Sm87TargetAotCompleteProjectionExecutionAccess::
+    install_complete_host_test_layer_norm_pairs(
+        ModelWeights& model_weights,
+        const Sm87TargetAotCompleteHostTestLayerNormPair* const pairs,
+        const std::size_t pair_count) noexcept {
+  if (pairs == nullptr || pair_count != kQwen36DenseLayerCount ||
+      model_weights.target_aot_complete_projection_attachment_.owner ==
+          nullptr ||
+      model_weights.target_aot_complete_projection_attachment_.owner
+              ->prepared_model_weights_ != &model_weights) {
+    return false;
+  }
+
+  for (std::size_t model_layer = 0U; model_layer < pair_count;
+       ++model_layer) {
+    model_weights.layers_[model_layer].input_layernorm =
+        pairs[model_layer].input_layernorm;
+    model_weights.layers_[model_layer].post_attention_layernorm =
+        pairs[model_layer].post_attention_layernorm;
+  }
+  return true;
+}
+
+bool Sm87TargetAotCompleteProjectionExecutionAccess::
     poison_host_test_fixture_receipt(
         Owner& owner, const std::size_t layer_index,
         const Role role) noexcept {

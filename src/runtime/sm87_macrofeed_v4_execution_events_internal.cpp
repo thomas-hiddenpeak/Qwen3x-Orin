@@ -307,6 +307,9 @@ void Sm87MacroFeedV4ExecutionEventsOwner::reset_request_ledger() noexcept {
   bf16_ab_cycles_completed_ = 0U;
   enqueue_receipts_issued_ = 0U;
   physical_completion_receipts_issued_ = 0U;
+  bound_kernel_submissions_ = 0U;
+  input_norm_submissions_ = 0U;
+  bf16_ab_submissions_ = 0U;
   panel_done_recorded_ = false;
   draining_ = false;
   main_tail_recorded_ = false;
@@ -664,6 +667,15 @@ Sm87MacroFeedV4ExecutionEventsOwner::record_event(
     const Sm87MacroFeedV4ExecutionStream producer,
     const Sm87MacroFeedV4ExecutionEvent event) noexcept {
   std::lock_guard<std::mutex> lock(mutex_);
+  return record_event_locked(access, panel_access, producer, event);
+}
+
+Sm87MacroFeedV4EventEnqueueResult
+Sm87MacroFeedV4ExecutionEventsOwner::record_event_locked(
+    const Sm87MacroFeedV4ExecutionEventsAccess& access,
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const Sm87MacroFeedV4ExecutionStream producer,
+    const Sm87MacroFeedV4ExecutionEvent event) noexcept {
   Sm87MacroFeedV4EventEnqueueResult result;
   result.status = validate_operation_access(access, panel_access);
   if (!result.status) {
@@ -716,6 +728,187 @@ Sm87MacroFeedV4ExecutionEventsOwner::record_event(
   result.status = ok();
   return result;
 }
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+Sm87MacroFeedV4EventEnqueueResult
+Sm87MacroFeedV4ExecutionEventsOwner::submit_input_norm_and_record_ready(
+    const Sm87MacroFeedV4ExecutionEventsAccess& access,
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const kernels::Sm87MacroFeedV4InputNormArguments& arguments,
+    const kernels::Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot&
+        resources) noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  Sm87MacroFeedV4EventEnqueueResult result;
+  result.status = validate_operation_access(access, panel_access);
+  if (!result.status) {
+    return result;
+  }
+  auto bound_arguments = arguments;
+  bound_arguments.cuda_stream =
+      streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kMain)];
+  if (!kernels::sm87_macrofeed_v4_input_norm_arguments_valid(
+          bound_arguments) ||
+      !kernels::sm87_macrofeed_v4_norm_residual_resource_gate(resources) ||
+      arguments.cuda_stream != nullptr ||
+      resources.device_ordinal != device_ordinal_) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
+        "sealed_input_norm_binding_required", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kNormReady, active_panel_,
+        active_panel_generation_);
+    return result;
+  }
+  result.status = validate_record_order(
+      Sm87MacroFeedV4ExecutionStream::kMain,
+      Sm87MacroFeedV4ExecutionEvent::kNormReady);
+  if (!result.status) {
+    return result;
+  }
+  const EventState& norm_state =
+      event_state_[event_index(Sm87MacroFeedV4ExecutionEvent::kNormReady)];
+  if (norm_state.recorded && !norm_state.dependency_observed &&
+      !norm_state.physical_observed) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
+        "norm_ready_generation_must_be_consumed_before_kernel_submit", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kNormReady, active_panel_,
+        active_panel_generation_);
+    return result;
+  }
+
+  const kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4LockedSubmitToken token(
+          streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kMain)]);
+  std::size_t submitted = 0U;
+  const int cuda_status = kernels::sm87_macrofeed_v4_bound_launch_detail::
+      enqueue_input_norm_prevalidated(token, arguments, resources,
+                                      &submitted);
+  if (cuda_status != static_cast<int>(cudaSuccess)) {
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+                         "bound_input_norm_enqueue", cuda_status,
+                         Sm87MacroFeedV4ExecutionStream::kMain,
+                         Sm87MacroFeedV4ExecutionEvent::kNormReady,
+                         active_panel_, active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+  if (submitted != 1U) {
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kReceiptInvalid,
+                         "bound_input_norm_exactly_one_launch_required", 0,
+                         Sm87MacroFeedV4ExecutionStream::kMain,
+                         Sm87MacroFeedV4ExecutionEvent::kNormReady,
+                         active_panel_, active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+  ++bound_kernel_submissions_;
+  ++input_norm_submissions_;
+  result = record_event_locked(
+      access, panel_access, Sm87MacroFeedV4ExecutionStream::kMain,
+      Sm87MacroFeedV4ExecutionEvent::kNormReady);
+  if (!result && state_ != Sm87MacroFeedV4ExecutionOwnerState::kPoisoned) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kReceiptInvalid,
+        "submitted_input_norm_requires_ready_event_receipt", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kNormReady, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+  }
+  return result;
+}
+
+Sm87MacroFeedV4EventEnqueueResult
+Sm87MacroFeedV4ExecutionEventsOwner::submit_bf16_ab_and_record_ready(
+    const Sm87MacroFeedV4ExecutionEventsAccess& access,
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const kernels::Sm87MacroFeedV4Bf16AbArguments& arguments,
+    const kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot&
+        resources) noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  Sm87MacroFeedV4EventEnqueueResult result;
+  result.status = validate_operation_access(access, panel_access);
+  if (!result.status) {
+    return result;
+  }
+  auto bound_arguments = arguments;
+  bound_arguments.cuda_stream =
+      streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kAbAux)];
+  if (!kernels::sm87_macrofeed_v4_bf16_ab_arguments_valid(
+          bound_arguments) ||
+      !kernels::sm87_macrofeed_v4_bf16_ab_admission_resource_gate(resources) ||
+      arguments.cuda_stream != nullptr ||
+      resources.device_ordinal != device_ordinal_) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
+        "sealed_bf16_ab_binding_required", 0,
+        Sm87MacroFeedV4ExecutionStream::kAbAux,
+        Sm87MacroFeedV4ExecutionEvent::kAbReady, active_panel_,
+        active_panel_generation_);
+    return result;
+  }
+  result.status = validate_record_order(
+      Sm87MacroFeedV4ExecutionStream::kAbAux,
+      Sm87MacroFeedV4ExecutionEvent::kAbReady);
+  if (!result.status) {
+    return result;
+  }
+  const EventState& ab_state =
+      event_state_[event_index(Sm87MacroFeedV4ExecutionEvent::kAbReady)];
+  if (ab_state.recorded && !ab_state.dependency_observed &&
+      !ab_state.physical_observed) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
+        "ab_ready_generation_must_be_consumed_before_kernel_submit", 0,
+        Sm87MacroFeedV4ExecutionStream::kAbAux,
+        Sm87MacroFeedV4ExecutionEvent::kAbReady, active_panel_,
+        active_panel_generation_);
+    return result;
+  }
+
+  const kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4LockedSubmitToken token(
+          streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kAbAux)]);
+  std::size_t submitted = 0U;
+  const int cuda_status = kernels::sm87_macrofeed_v4_bound_launch_detail::
+      enqueue_bf16_ab_prevalidated(token, arguments, resources, &submitted);
+  if (cuda_status != static_cast<int>(cudaSuccess)) {
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+                         "bound_bf16_ab_enqueue", cuda_status,
+                         Sm87MacroFeedV4ExecutionStream::kAbAux,
+                         Sm87MacroFeedV4ExecutionEvent::kAbReady,
+                         active_panel_, active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+  if (submitted != 1U) {
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kReceiptInvalid,
+                         "bound_bf16_ab_exactly_one_launch_required", 0,
+                         Sm87MacroFeedV4ExecutionStream::kAbAux,
+                         Sm87MacroFeedV4ExecutionEvent::kAbReady,
+                         active_panel_, active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+  ++bound_kernel_submissions_;
+  ++bf16_ab_submissions_;
+  result = record_event_locked(
+      access, panel_access, Sm87MacroFeedV4ExecutionStream::kAbAux,
+      Sm87MacroFeedV4ExecutionEvent::kAbReady);
+  if (!result && state_ != Sm87MacroFeedV4ExecutionOwnerState::kPoisoned) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kReceiptInvalid,
+        "submitted_bf16_ab_requires_ready_event_receipt", 0,
+        Sm87MacroFeedV4ExecutionStream::kAbAux,
+        Sm87MacroFeedV4ExecutionEvent::kAbReady, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+  }
+  return result;
+}
+#endif
 
 Sm87MacroFeedV4EventEnqueueResult
 Sm87MacroFeedV4ExecutionEventsOwner::wait_event(
@@ -1200,6 +1393,9 @@ Sm87MacroFeedV4ExecutionEventsOwner::snapshot() const noexcept {
   snapshot.enqueue_receipts_issued = enqueue_receipts_issued_;
   snapshot.physical_completion_receipts_issued =
       physical_completion_receipts_issued_;
+  snapshot.bound_kernel_submissions = bound_kernel_submissions_;
+  snapshot.input_norm_submissions = input_norm_submissions_;
+  snapshot.bf16_ab_submissions = bf16_ab_submissions_;
   snapshot.streams_nonblocking = streams_nonblocking_;
   snapshot.panel_done_recorded = panel_done_recorded_;
   snapshot.main_tail_recorded = main_tail_recorded_;
@@ -1222,6 +1418,171 @@ Sm87MacroFeedV4ExecutionEventsOwner::snapshot() const noexcept {
       poisoned_terminal_quiescence_attested_;
   return snapshot;
 }
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+std::uint64_t Sm87MacroFeedV4ExecutionEventsDriver::owner_identity()
+    const noexcept {
+  return owner_ != nullptr && access_ != nullptr ? access_->owner_identity()
+                                                  : 0U;
+}
+
+std::int32_t Sm87MacroFeedV4ExecutionEventsDriver::device_ordinal()
+    const noexcept {
+  return owner_ != nullptr && access_ != nullptr ? access_->device_ordinal()
+                                                  : -1;
+}
+
+Sm87MacroFeedV4ExecutionEventsSnapshot
+Sm87MacroFeedV4ExecutionEventsDriver::snapshot() const noexcept {
+  return owner_ == nullptr ? Sm87MacroFeedV4ExecutionEventsSnapshot{}
+                           : owner_->snapshot();
+}
+
+Sm87MacroFeedV4ExecutionStatus
+Sm87MacroFeedV4ExecutionEventsDriver::begin_request(
+    const Sm87MacroFeedV4RequestState& request_owner,
+    const Sm87MacroFeedV4RequestStateSealedAccess& request_access) noexcept {
+  return owner_ == nullptr || access_ == nullptr
+             ? fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                    "execution_driver_unbound")
+             : owner_->begin_request(*access_, request_owner, request_access);
+}
+
+Sm87MacroFeedV4PanelBeginResult
+Sm87MacroFeedV4ExecutionEventsDriver::begin_panel(
+    const std::size_t panel) noexcept {
+  if (owner_ == nullptr || access_ == nullptr) {
+    Sm87MacroFeedV4PanelBeginResult result;
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                         "execution_driver_unbound");
+    return result;
+  }
+  return owner_->begin_panel(*access_, panel);
+}
+
+Sm87MacroFeedV4EventEnqueueResult
+Sm87MacroFeedV4ExecutionEventsDriver::record_event(
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const Sm87MacroFeedV4ExecutionStream producer,
+    const Sm87MacroFeedV4ExecutionEvent event) noexcept {
+  if (owner_ == nullptr || access_ == nullptr) {
+    Sm87MacroFeedV4EventEnqueueResult result;
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                         "execution_driver_unbound");
+    return result;
+  }
+  return owner_->record_event(*access_, panel_access, producer, event);
+}
+
+Sm87MacroFeedV4EventEnqueueResult
+Sm87MacroFeedV4ExecutionEventsDriver::wait_event(
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const Sm87MacroFeedV4ExecutionStream consumer,
+    const Sm87MacroFeedV4ExecutionEvent event) noexcept {
+  if (owner_ == nullptr || access_ == nullptr) {
+    Sm87MacroFeedV4EventEnqueueResult result;
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                         "execution_driver_unbound");
+    return result;
+  }
+  return owner_->wait_event(*access_, panel_access, consumer, event);
+}
+
+Sm87MacroFeedV4EventEnqueueResult
+Sm87MacroFeedV4ExecutionEventsDriver::submit_input_norm_and_record_ready(
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const kernels::Sm87MacroFeedV4InputNormArguments& arguments,
+    const kernels::Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot&
+        resources) noexcept {
+  if (owner_ == nullptr || access_ == nullptr) {
+    Sm87MacroFeedV4EventEnqueueResult result;
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                         "execution_driver_unbound");
+    return result;
+  }
+  return owner_->submit_input_norm_and_record_ready(
+      *access_, panel_access, arguments, resources);
+}
+
+Sm87MacroFeedV4EventEnqueueResult
+Sm87MacroFeedV4ExecutionEventsDriver::submit_bf16_ab_and_record_ready(
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const kernels::Sm87MacroFeedV4Bf16AbArguments& arguments,
+    const kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot&
+        resources) noexcept {
+  if (owner_ == nullptr || access_ == nullptr) {
+    Sm87MacroFeedV4EventEnqueueResult result;
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                         "execution_driver_unbound");
+    return result;
+  }
+  return owner_->submit_bf16_ab_and_record_ready(
+      *access_, panel_access, arguments, resources);
+}
+
+Sm87MacroFeedV4PhysicalObservationResult
+Sm87MacroFeedV4ExecutionEventsDriver::observe_event_synchronize(
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const Sm87MacroFeedV4ExecutionEvent event) noexcept {
+  if (owner_ == nullptr || access_ == nullptr) {
+    Sm87MacroFeedV4PhysicalObservationResult result;
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                         "execution_driver_unbound");
+    return result;
+  }
+  return owner_->observe_event_synchronize(*access_, panel_access, event);
+}
+
+bool Sm87MacroFeedV4ExecutionEventsDriver::completion_receipt_matches(
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const Sm87MacroFeedV4ExecutionEvent expected_event,
+    const Sm87MacroFeedV4PhysicalCompletionReceipt& receipt) const noexcept {
+  return owner_ != nullptr && access_ != nullptr &&
+         owner_->completion_receipt_matches(*access_, panel_access,
+                                            expected_event, receipt);
+}
+
+Sm87MacroFeedV4ExecutionStatus
+Sm87MacroFeedV4ExecutionEventsDriver::discard_after_drain(
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const Sm87MacroFeedV4PhysicalCompletionReceipt& owner_drained) noexcept {
+  return owner_ == nullptr || access_ == nullptr
+             ? fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                    "execution_driver_unbound")
+             : owner_->discard_after_drain(*access_, panel_access,
+                                           owner_drained);
+}
+
+Sm87MacroFeedV4PoisonDrainResult
+Sm87MacroFeedV4ExecutionEventsDriver::drain_poisoned_request() noexcept {
+  if (owner_ == nullptr || access_ == nullptr) {
+    Sm87MacroFeedV4PoisonDrainResult result;
+    result.drain_status =
+        fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+             "execution_driver_unbound");
+    return result;
+  }
+  return owner_->drain_poisoned_request(*access_);
+}
+
+std::unique_ptr<Sm87MacroFeedV4ExecutionEventsDriver>
+bind_sm87_macrofeed_v4_execution_events_driver(
+    const std::shared_ptr<Sm87MacroFeedV4ExecutionEventsOwner>& owner)
+    noexcept {
+  if (owner == nullptr) {
+    return nullptr;
+  }
+  std::lock_guard<std::mutex> lock(owner->mutex_);
+  if (owner->state_ != Sm87MacroFeedV4ExecutionOwnerState::kReady ||
+      owner->access_ == nullptr ||
+      !owner->owner_access_matches(*owner->access_)) {
+    return nullptr;
+  }
+  return std::unique_ptr<Sm87MacroFeedV4ExecutionEventsDriver>(
+      new (std::nothrow) Sm87MacroFeedV4ExecutionEventsDriver(
+          owner, owner->access_.get()));
+}
+#endif
 
 void Sm87MacroFeedV4ExecutionEventsOwner::release_resources() noexcept {
   std::lock_guard<std::mutex> lock(mutex_);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "q3x/kernels/sm87_macrofeed_v4_bf16_ab.h"
+#include "q3x/kernels/sm87_macrofeed_v4_norm_residual.h"
 #include "q3x/kernels/sm87_macrofeed_v4_nvfp4_down.h"
 #include "q3x/kernels/sm87_macrofeed_v4_nvfp4_gate_up.h"
 #include "q3x/runtime/sm87_macrofeed_v4_panel_wavefront_plan.h"
@@ -498,10 +499,10 @@ class Sm87MacroFeedV4ProjectionStartupBinding final {
 // This package is an immutable, non-owning lifetime dependency.  Engine
 // teardown must destroy any future execution package first, this startup
 // package second, and the exact ModelWeights/ResidentWeights root last.  A
-// future execution package must retain this package.  During construction it
-// seals the complete 48-pair catalog into private immutable launch bindings;
-// request execution reuses those bindings without CUDA queries or catalog
-// rescans.  Their pointers never leave the Engine-owned lifetime root.
+// execution package copies the immutable projection-binding values and seals
+// the complete BF16/norm catalogs during construction; request execution
+// reuses those snapshots without CUDA queries or catalog rescans.  Device
+// payload/weight ownership must remain under the future Engine lifetime root.
 class Sm87MacroFeedV4P40StartupPackage final {
  public:
   using ProjectionAccess =
@@ -568,6 +569,22 @@ class Sm87MacroFeedV4P40StartupPackage final {
   using Bf16AbExecutionBindingCatalog =
       std::array<Bf16AbPair,
                  kSm87MacroFeedV4P40StartupPackageBf16AbPairs>;
+
+  struct LayerNormExecutionBinding final {
+    std::uint32_t model_layer =
+        static_cast<std::uint32_t>(
+            kSm87MacroFeedV4P40StartupPackageLayers);
+    const std::uint16_t* input_layernorm = nullptr;
+    const std::uint16_t* post_attention_layernorm = nullptr;
+    std::uint64_t input_layernorm_identity = 0U;
+    std::uint64_t post_attention_layernorm_identity = 0U;
+    std::uint64_t pair_identity = 0U;
+    std::uint32_t epsilon_fp32_bits = 0U;
+  };
+
+  using LayerNormExecutionBindingCatalog =
+      std::array<LayerNormExecutionBinding,
+                 kSm87MacroFeedV4P40StartupPackageLayers>;
 
   class Bf16AbStartupCapability;
 
@@ -705,11 +722,20 @@ class Sm87MacroFeedV4P40StartupPackage final {
       kernels::Sm87TargetAotProjectionRole role) const noexcept;
   [[nodiscard]] bool base_valid() const noexcept;
   [[nodiscard]] bool populate_projection_bindings() noexcept;
-  // Construction-only seam for the future Engine-owned execution package.
+  // Construction-only seam for the Engine-lifetime execution package.
   // It performs the expensive live catalog/resource validation once, then
   // returns all 48 immutable bindings together.  No request path may call it.
   [[nodiscard]] bool seal_bf16_ab_execution_catalog_for_execution_package(
       Bf16AbExecutionBindingCatalog* catalog) const noexcept;
+  // Construction-only, all-or-nothing seal of the exact outer decoder-layer
+  // RMSNorm weights.  The friend execution package retains this immutable
+  // natural-order catalog under the same Engine lifetime root.  Request
+  // execution must neither call this method nor rediscover CUDA ranges.
+  [[nodiscard]] bool
+  seal_layer_norm_execution_catalog_for_execution_package(
+      LayerNormExecutionBindingCatalog* catalog,
+      std::uint64_t* catalog_identity, std::size_t* failure_layer,
+      bool* failure_post_attention, int* cuda_error) const noexcept;
   [[nodiscard]] std::optional<Sm87MacroFeedV4ProjectionStartupBinding>
   make_projection_binding(
       std::size_t layer_index,

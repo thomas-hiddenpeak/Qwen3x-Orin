@@ -1,6 +1,9 @@
 #pragma once
 
 #include "sm87_macrofeed_v4_request_state_internal.h"
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+#include "../kernels/sm87/sm87_macrofeed_v4_bound_launch_internal.h"
+#endif
 
 #include <array>
 #include <atomic>
@@ -9,10 +12,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
-
-namespace q3x::runtime::sm87_macrofeed_v4_p40_execution_detail {
-class Sm87MacroFeedV4P40ExecutionPackage;
-}
+#include <utility>
 
 namespace q3x::runtime::sm87_macrofeed_v4_execution_events_detail {
 
@@ -74,6 +74,7 @@ enum class Sm87MacroFeedV4ExecutionError : std::uint8_t {
   kPhysicalObservationForbidden,
   kCudaSubmission,
   kCudaObservation,
+  kKernelSubmitContract,
   kReceiptInvalid,
   kPanelIncomplete,
   kDrainIncomplete,
@@ -98,6 +99,7 @@ struct Sm87MacroFeedV4ExecutionStatus final {
 };
 
 class Sm87MacroFeedV4ExecutionEventsOwner;
+class Sm87MacroFeedV4ExecutionEventsDriver;
 class Sm87MacroFeedV4ExecutionEventsCudaTestFixture;
 
 // The only caller-visible owner capability.  It exposes identities but no raw
@@ -339,6 +341,9 @@ struct Sm87MacroFeedV4ExecutionEventsSnapshot final {
       event_generations{};
   std::size_t enqueue_receipts_issued = 0U;
   std::size_t physical_completion_receipts_issued = 0U;
+  std::size_t bound_kernel_submissions = 0U;
+  std::size_t input_norm_submissions = 0U;
+  std::size_t bf16_ab_submissions = 0U;
   bool streams_nonblocking = false;
   bool panel_done_recorded = false;
   bool main_tail_recorded = false;
@@ -413,6 +418,25 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
       const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
       Sm87MacroFeedV4ExecutionStream consumer,
       Sm87MacroFeedV4ExecutionEvent event) noexcept;
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  // The exact body enqueue and its ready-event record are one owner-locked
+  // transaction.  The package never receives or stores a raw CUDA stream.
+  [[nodiscard]] Sm87MacroFeedV4EventEnqueueResult
+  submit_input_norm_and_record_ready(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const kernels::Sm87MacroFeedV4InputNormArguments& arguments,
+      const kernels::Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot&
+          resources) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4EventEnqueueResult
+  submit_bf16_ab_and_record_ready(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const kernels::Sm87MacroFeedV4Bf16AbArguments& arguments,
+      const kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot&
+          resources) noexcept;
+#endif
 
   [[nodiscard]] Sm87MacroFeedV4PhysicalObservationResult
   observe_event_query(
@@ -491,6 +515,11 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
   [[nodiscard]] Sm87MacroFeedV4ExecutionStatus validate_wait_order(
       Sm87MacroFeedV4ExecutionStream consumer,
       Sm87MacroFeedV4ExecutionEvent event) const noexcept;
+  [[nodiscard]] Sm87MacroFeedV4EventEnqueueResult record_event_locked(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      Sm87MacroFeedV4ExecutionStream producer,
+      Sm87MacroFeedV4ExecutionEvent event) noexcept;
   void advance_record_order(Sm87MacroFeedV4ExecutionEvent event) noexcept;
   void advance_wait_order(Sm87MacroFeedV4ExecutionEvent event) noexcept;
   [[nodiscard]] Sm87MacroFeedV4EventEnqueueReceipt mint_enqueue_receipt(
@@ -536,6 +565,9 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
   std::size_t bf16_ab_cycles_completed_ = 0U;
   std::size_t enqueue_receipts_issued_ = 0U;
   std::size_t physical_completion_receipts_issued_ = 0U;
+  std::size_t bound_kernel_submissions_ = 0U;
+  std::size_t input_norm_submissions_ = 0U;
+  std::size_t bf16_ab_submissions_ = 0U;
   bool streams_nonblocking_ = false;
   bool panel_done_recorded_ = false;
   bool draining_ = false;
@@ -558,10 +590,96 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
   friend struct Sm87MacroFeedV4ExecutionEventsCreateResult;
   friend Sm87MacroFeedV4ExecutionEventsCreateResult
   create_sm87_macrofeed_v4_execution_events_owner() noexcept;
-  friend class q3x::runtime::sm87_macrofeed_v4_p40_execution_detail::
-      Sm87MacroFeedV4P40ExecutionPackage;
+  friend class Sm87MacroFeedV4ExecutionEventsDriver;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  friend std::unique_ptr<Sm87MacroFeedV4ExecutionEventsDriver>
+  bind_sm87_macrofeed_v4_execution_events_driver(
+      const std::shared_ptr<Sm87MacroFeedV4ExecutionEventsOwner>& owner)
+      noexcept;
+#endif
   friend class Sm87MacroFeedV4ExecutionEventsCudaTestFixture;
 };
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+// Narrow owner-issued execution capability.  It forwards only the fixed V4
+// state machine and typed kernel submissions; no raw stream/event member or
+// generic callback is reachable from the execution package.
+class Sm87MacroFeedV4ExecutionEventsDriver final {
+ public:
+  Sm87MacroFeedV4ExecutionEventsDriver() = delete;
+  Sm87MacroFeedV4ExecutionEventsDriver(
+      const Sm87MacroFeedV4ExecutionEventsDriver&) = delete;
+  Sm87MacroFeedV4ExecutionEventsDriver& operator=(
+      const Sm87MacroFeedV4ExecutionEventsDriver&) = delete;
+  Sm87MacroFeedV4ExecutionEventsDriver(
+      Sm87MacroFeedV4ExecutionEventsDriver&&) = delete;
+  Sm87MacroFeedV4ExecutionEventsDriver& operator=(
+      Sm87MacroFeedV4ExecutionEventsDriver&&) = delete;
+  ~Sm87MacroFeedV4ExecutionEventsDriver() = default;
+
+  [[nodiscard]] std::uint64_t owner_identity() const noexcept;
+  [[nodiscard]] std::int32_t device_ordinal() const noexcept;
+  [[nodiscard]] Sm87MacroFeedV4ExecutionEventsSnapshot snapshot()
+      const noexcept;
+  [[nodiscard]] Sm87MacroFeedV4ExecutionStatus begin_request(
+      const Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4PanelBeginResult begin_panel(
+      std::size_t panel) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4EventEnqueueResult record_event(
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      Sm87MacroFeedV4ExecutionStream producer,
+      Sm87MacroFeedV4ExecutionEvent event) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4EventEnqueueResult wait_event(
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      Sm87MacroFeedV4ExecutionStream consumer,
+      Sm87MacroFeedV4ExecutionEvent event) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4EventEnqueueResult
+  submit_input_norm_and_record_ready(
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const kernels::Sm87MacroFeedV4InputNormArguments& arguments,
+      const kernels::Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot&
+          resources) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4EventEnqueueResult
+  submit_bf16_ab_and_record_ready(
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const kernels::Sm87MacroFeedV4Bf16AbArguments& arguments,
+      const kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot&
+          resources) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4PhysicalObservationResult
+  observe_event_synchronize(
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      Sm87MacroFeedV4ExecutionEvent event) noexcept;
+  [[nodiscard]] bool completion_receipt_matches(
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      Sm87MacroFeedV4ExecutionEvent expected_event,
+      const Sm87MacroFeedV4PhysicalCompletionReceipt& receipt) const noexcept;
+  [[nodiscard]] Sm87MacroFeedV4ExecutionStatus discard_after_drain(
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const Sm87MacroFeedV4PhysicalCompletionReceipt& owner_drained) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4PoisonDrainResult drain_poisoned_request()
+      noexcept;
+
+ private:
+  explicit Sm87MacroFeedV4ExecutionEventsDriver(
+      std::shared_ptr<Sm87MacroFeedV4ExecutionEventsOwner> owner,
+      const Sm87MacroFeedV4ExecutionEventsAccess* access) noexcept
+      : owner_(std::move(owner)), access_(access) {}
+
+  std::shared_ptr<Sm87MacroFeedV4ExecutionEventsOwner> owner_;
+  const Sm87MacroFeedV4ExecutionEventsAccess* access_ = nullptr;
+
+  friend std::unique_ptr<Sm87MacroFeedV4ExecutionEventsDriver>
+  bind_sm87_macrofeed_v4_execution_events_driver(
+      const std::shared_ptr<Sm87MacroFeedV4ExecutionEventsOwner>& owner)
+      noexcept;
+};
+
+[[nodiscard]] std::unique_ptr<Sm87MacroFeedV4ExecutionEventsDriver>
+bind_sm87_macrofeed_v4_execution_events_driver(
+    const std::shared_ptr<Sm87MacroFeedV4ExecutionEventsOwner>& owner)
+    noexcept;
+#endif
 
 // Default-off admission factory.  No selector, launcher, public CUDA handle,
 // production receipt, JIT, repack, autotune, cuBLASLt, or MTP route is exposed.
@@ -644,6 +762,27 @@ class Sm87MacroFeedV4ExecutionEventsCudaTestFixture final {
       const Sm87MacroFeedV4PhysicalCompletionReceipt& final_publish) noexcept {
     return owner.complete_request(*owner.access_, final_panel_access,
                                   final_publish);
+  }
+  [[nodiscard]] static Sm87MacroFeedV4ExecutionStatus
+  inject_poison_without_drain(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      const Sm87MacroFeedV4ExecutionError poison_error) noexcept {
+    std::lock_guard<std::mutex> lock(owner.mutex_);
+    Sm87MacroFeedV4ExecutionStatus cause;
+    if (owner.state_ !=
+            Sm87MacroFeedV4ExecutionOwnerState::kRequestActive ||
+        (poison_error != Sm87MacroFeedV4ExecutionError::kCudaSubmission &&
+         poison_error != Sm87MacroFeedV4ExecutionError::kCudaObservation)) {
+      cause.error = Sm87MacroFeedV4ExecutionError::kInvalidOwnerState;
+      cause.context =
+          "test_poison_requires_active_request_and_cuda_error";
+      return cause;
+    }
+    cause.error = poison_error;
+    cause.context = "test_only_injected_cuda_failure_without_drain";
+    cause.cuda_error = 1;
+    owner.record_poison_cause(cause);
+    return cause;
   }
   [[nodiscard]] static Sm87MacroFeedV4PoisonDrainResult
   inject_poison_and_drain(

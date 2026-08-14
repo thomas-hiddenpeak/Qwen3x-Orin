@@ -526,14 +526,16 @@ manufacture a non-contiguous pure phase.
 
 The active implementation successor is
 `AC-PREFILL-SM87-MACROFEED-v4`. Its present boundary is narrower and must not
-be confused with an executable route. A default-off host contract fixes exact
-P40000 as five contiguous C8000 panels with the panel loop outside the natural
+be confused with an executable whole-model or API route. A default-off host
+contract fixes exact P40000 as five contiguous C8000 panels with the panel
+loop outside the natural
 64-layer loop, two 81,920,000-byte hidden planes, one 278,528,000-byte
 phase-aliased scratch plane, two explicit 78,446,592-byte private recurrent
 epochs, private KV valid-end, and final-only canonical publication. The
-contract requires in-place/streaming Attention and GDN workspace aliasing;
-the independent admitted bodies exist, but their complete composed executor
-does not.
+contract requires in-place/streaming Attention and GDN workspace aliasing.
+The independent admitted bodies exist, and one isolated execution package now
+composes layer-0 input normalization with its BF16 A/B projection; their
+complete layer/request executor does not.
 
 The Attention lifetime is now frozen more tightly than that allocation-only
 statement. Each scratch row retains the projection-native 24-head
@@ -565,28 +567,47 @@ cycles per panel. `PanelDone` remains device ordered and is never converted
 into a per-panel host synchronization; only final publication, safe discard,
 or exceptional drain may mint a physical completion receipt. A CUDA failure
 physically drains all three streams, preserves its original cause, and leaves
-the owner permanently poisoned. All transition methods are private to the
-future execution package, and production archives contain neither test-fixture
-nor raw-stream-borrow symbols. This owner is not yet composed with the startup
-package or any kernel body, so it is scheduling/lifetime infrastructure rather
-than a whole-model execution path.
+the owner permanently poisoned. A narrow owner-issued driver now permits only
+the fixed state transitions and typed input-norm/BF16-A/B submissions; each
+kernel enqueue and its ready-event record occur atomically under the owner
+lock. The driver shares ownership of its event owner, so it cannot outlive the
+streams it addresses; no caller receives a stream, event, or generic callback.
+Any CUDA failure during tail record, join, physical observation, or discard is
+immediately terminal-drained across all three streams. The isolated execution
+package uses this capability for one layer-0 front-half admission, but the
+owner remains scheduling/lifetime infrastructure rather than a whole-model
+execution path.
 
 A separate default-off, test-only V4 startup foundation package now enters
 through the private `ModelWeights` attachment. It regenerates the canonical
 P40 plan internally, authenticates the complete 256-artifact/400-source live
 target-AOT catalog, preserves each payload, manifest, upload/readback receipt,
 and tensor-scale identity, and mints V4-local Gate+Up, Down, and BF16 A/B
-resource seals. It validates and binds the 96 live BF16 tensors as 48
-canonical natural-layer A/B pairs. The future execution package has one
-construction-only private seam that revalidates this catalog once and seals
-all 48 immutable pair bindings together; no request may query CUDA state or
-rescan the model/catalog per layer. The package is still host-only and
-non-executable: it binds no FP8, GDN, Attention, norm/residual, request-state
-event owner, finalizer, rollback, or physical receipt, and its seals cannot
-authorize a launcher or production dispatch. Its non-owning asset access also
-requires the future Engine composition root to destroy the execution package
-first, this startup package second, `ModelWeights` third, and the complete
-target-AOT owner/resident root last.
+resource seals. It validates and binds the 96 live BF16 projection tensors as
+48 canonical natural-layer A/B pairs and all 128 live BF16 outer-norm vectors
+as 64 input/post-Attention pairs. Construction-only private seams seal both
+catalogs exactly once; no request may query CUDA state or rescan the model or
+catalog per layer. The startup package itself remains host-only and grants no
+launcher or production-dispatch authority. Its non-owning asset access
+requires the eventual Engine composition root to destroy the execution
+package first, this startup package second, `ModelWeights` third, and the
+complete target-AOT owner/resident root last.
+
+A first default-off, test-only V4 execution package now composes those sealed
+catalogs with the request state and event owner. It copies all 256 immutable
+projection bindings by value rather than retaining startup-package addresses;
+its launch operation is private to the CUDA fixture and future Engine
+composition root, so an independently escaped package cannot launch against
+expired weight ownership. It owns exactly
+442,368,000 bytes of transient ping/pong/scratch storage and 156,893,184 bytes
+of dual-epoch recurrent storage. Its only executable operation is a one-shot
+GDN layer-0 front half: input normalization on Main records `NormReady`, AbAux
+waits and submits the canonical layer-0 BF16 A/B pair, then records `AbReady`.
+Because QKVZ is not yet bound, Main deliberately does not wait on `AbReady`;
+the package instead joins both stream tails on Control, physically observes
+`OwnerDrained`, and discards the unpublished request state. This proves one
+real CUDA composition seam and teardown order, not a complete layer, panel,
+model, selector, API route, real-checkpoint result, or performance result.
 
 Two independent V4 NVFP4 constituents also exist. Gate+Up binds
 M8000/K5120/N17408 to M64N128K64, 256 threads, two stages, and 32 persistent
@@ -627,11 +648,12 @@ bytes/spill, and two CTA/SM capacity. A patterned M64 oracle is bitwise equal
 between compact and direct-strided publication for all A/B elements while
 every other scratch slot remains unchanged, and the complete C8000 entry has
 executed once with its enqueue-only receipt. The old and V4 default-off ABIs
-are also symbol-isolated in both build directions. The startup package now
-binds the 48 real layer pairs and can seal them once into the future execution
-package, but the kernel is not yet connected to that catalog, the private AB
-stream, or its `NormReady`/`AbReady` event cycle. Its numerical evidence
-therefore remains synthetic T1 rather than a runnable layer or request path.
+are also symbol-isolated in both build directions. The startup package binds
+all 48 real layer pairs, and the isolated execution package now consumes
+ordinal zero on the private AB stream between `NormReady` and `AbReady`. The
+complete C8000 device test uses live CUDA allocations but zero-valued
+synthetic weights; it is execution/lifetime evidence, not a real-checkpoint
+numerical result or a runnable complete layer or request path.
 
 A separate default-off V4 norm/residual admission now closes the fixed
 two-hidden-plane arithmetic seam without adding a copy or third activation
@@ -643,10 +665,11 @@ to the left plane. The bodies compile at 22/30 registers per thread with
 1,024/11,264 bytes of static shared memory, zero local bytes, and 6/3 CTA/SM
 capacity respectively. Independent C1 and special-value C65 executions are
 bitwise equal to the established norm and residual-add-then-norm bodies, and
-both complete C8000 entry points execute with enqueue-only receipts. This is
-still startup-unbound synthetic T1 evidence; it owns no private stream,
-layer-order capability, completion event, numerical qualification, or
-production dispatch.
+both complete C8000 entry points execute with enqueue-only receipts. All 64
+real input/post-Attention norm pairs are now construction-sealed, and layer-0
+input norm is connected to Main and `NormReady` in the isolated execution
+package. Residual/post-norm and the remaining 63 layers are still unbound;
+there is no full-layer numerical qualification or production dispatch.
 
 A separate default-off V4 Full-Attention preprocess admission now changes Q
 and K in place for one C8000 panel while leaving the projection-native Gate
@@ -678,11 +701,12 @@ This public seam is caller-live-stream, startup-package-unbound T1 admission
 only; it does not prove C8000 numerical qualification, bind a private stream,
 commit a recurrent epoch, or authorize production dispatch.
 
-V4 has no selector, whole-model launcher, composed authenticated device
-execution package, startup/event-bound BF16 A/B/FP8/GDN/Attention/norm/residual
-layer executor, real-checkpoint oracle, API witness, performance result,
-numerical qualification, release authority, or production eligibility. The
-v10 observation at 392.804397 prompt tok/s therefore remains the current
+V4 has no selector, whole-model launcher, complete startup/event-bound
+BF16-A/B/FP8/GDN/Attention/norm/residual layer executor, real-checkpoint
+oracle, API witness, performance result, numerical qualification, release
+authority, or production eligibility. Its first authenticated device package
+is intentionally limited to the discarded layer-0 norm-to-A/B slice. The v10
+observation at 392.804397 prompt tok/s therefore remains the current
 whole-product incumbent.
 
 ## 2. Current capability matrix
@@ -699,7 +723,7 @@ whole-product incumbent.
 | SM87 whole-system AOT Prefill v1 | Default-off real-P40 API composition; performance-rejected after a zero-byte 840.000399-second timeout | Retain only as correctness/diagnostic control; it is not an active performance candidate |
 | SM87 bulk-dataflow v2 Prefill | Complete default-off real-P40 API route; performance-rejected after a zero-byte 680.73-second EvalScope timeout and one bounded causal profile; accuracy remains unqualified | Retain exact constituents and evidence only; no V2 tuning, P60/P130, qualification, or production promotion |
 | SM87 MacroFeed v3 Prefill | Complete default-off, test-only 64-layer source composition with startup-bound target-AOT assets, role-specific macro projections, nine-kernel-per-layer exact GDN, cold rollback, and a V18 physical transaction; integrated build and focused admission tests pass | Frozen executable diagnostic/control; no authoritative P40 timing, numerical, release, or production qualification exists |
-| SM87 MacroFeed v4 Prefill | Active, default-off, non-executable C8000×5 panel-major foundation; host workspace/request-state contracts, authenticated 256-artifact plus 48-real-BF16-pair startup package, private three-stream/nine-event owner, Gate+Up, Down, fixed direct-scratch BF16 A/B, four layout-specific FP8 admissions, exact two-plane norm/residual, exact in-place Q/K preprocess, fixed unsplit Q128/KV32 C8000 online Attention, and independent exact-GDN admission | Compose startup, event, request-state, immutable launch catalogs, and all admitted bodies into one Engine-owned layer/request executor; then add finalizer, whole-model physical receipts and rollback before real-checkpoint/state/API qualification; no selector or performance authority exists |
+| SM87 MacroFeed v4 Prefill | Active, default-off C8000×5 panel-major foundation with one isolated executable layer-0 norm→BF16-A/B slice; host workspace/request-state contracts, authenticated 256-artifact plus 48-real-BF16-pair and 64-real-norm-pair startup seals, private three-stream/nine-event owner, Gate+Up, Down, fixed direct-scratch BF16 A/B, four layout-specific FP8 admissions, exact two-plane norm/residual, exact in-place Q/K preprocess, fixed unsplit Q128/KV32 C8000 online Attention, and independent exact-GDN admission | Anchor the first slice under Engine lifetime, bind QKVZ and close the intended A/B overlap, then compose the remaining exact layer/request bodies, finalizer, rollback, and whole-model physical receipts before real-checkpoint/state/API qualification; no selector or performance authority exists |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
