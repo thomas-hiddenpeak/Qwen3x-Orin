@@ -6,7 +6,7 @@ q3x_document:
   owner: evaluation-maintainers
   authority: external API evaluation protocol, metric semantics, and artifact requirements
   effective: 2026-08-09
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-08-14
   supersedes: []
   superseded_by: []
   ssot_for: EvalScope and target-length external evaluation procedure
@@ -981,6 +981,173 @@ non-production. There is no V2 repetition, P60/P130, numerical qualification,
 or local parameter scan. Exact protocol, hashes, profile attribution, and
 claim boundaries are frozen in the
 [`Bulk V2 P40 rejection record`](metadata/qwen36-27b-sm87-bulk-v2-p40-rejection-2026-08-14.json).
+
+### Frozen MacroFeed V3 first-P40 protocol on the V18 route
+
+`AC-PREFILL-SM87-MACROFEED-v3` is a default-off, test-only architecture
+candidate. Its distinct deployment identity is
+`q3x.sm87.ac-prefill-sm87-macrofeed-v3.native-p40-target-aot-whole-model.v1`,
+and a complete request serializes as `target-prefill-witness-v18`. V18 has
+`receipt_authority=physical-execution-only`,
+`numerical_qualification=false`, and
+`production_dispatch_eligible=false`. It replaces the earlier ambiguous
+`t0_t1_only` spelling: the receipt can attest that the declared CUDA work
+physically executed, but it cannot attest full-model numerical equivalence,
+accuracy, release readiness, or production dispatch.
+
+The current V3 controller physically orders the first-token finalizer before
+the whole-request state commit. Its continuous engine-local prompt interval
+therefore includes LM-head/argmax finalization and is not a qualified pure
+Prefill boundary. V18 must emit `pure_prefill_promotion_eligible=false` with
+reason `macrofeed_v3_interval_includes_first_token_finalization`; the
+`pure_prefill` phase remains unavailable. `package_complete=true` is
+independent physical-execution evidence and does not override this timing
+boundary. This first P40 gate consequently selects direction from EvalScope's
+external TTFT/New Prompt Throughput and retains engine component timing only
+as diagnostic evidence. A promotable pure-Prefill metric requires a later
+physical phase-boundary correction, not subtraction of the finalizer duration
+from a non-contiguous interval.
+
+V18 is complete only after the real runner has consumed all 40,000 prompt
+tokens, committed one greedy output token, completed all 64 layers, and sealed
+the private ABI-major-1 transaction. The transaction must record 128 FP8
+launches, 64 Gate+Up launches, 64 Down launches, 48 BF16 A/B launches, 432 GDN
+launches, 16 whole-prompt Attention calls, and 80 Attention-preprocess
+operations. Its 256 physical projection artifacts from 400 checkpoint
+sources, immutable package/owner/allocation/catalog identities, CUDA device
+ordinal and physical-device identity must all be present. Fallback, MTP,
+cuBLASLt, request-time JIT, repack, and autotune must all be false. A route
+label, submitted layer count, caller forecast, partial receipt, or incomplete
+stream cannot synthesize V18 completeness.
+
+No MacroFeed V3 real-model P40 timing exists at the time of this protocol
+freeze. The following commands are the first measurement procedure, not a
+record of a completed run. Run them from the repository root. The pinned
+checkpoint is read-only; every build, log, cache, temporary file, preflight,
+and result remains below `.q3x-work/`.
+
+Configure and build the complete V3 admission binary and its tests:
+
+```bash
+Q3X_WORK="$PWD/.q3x-work"
+Q3X_BUILD="$Q3X_WORK/build/p40-macrofeed-v3"
+MODEL_DIR="/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4"
+mkdir -p "$Q3X_WORK/cache/uv" "$Q3X_WORK/tmp" \
+  "$Q3X_WORK/evalscope/corpora" "$Q3X_WORK/evalscope/results"
+
+cmake -S . -B "$Q3X_BUILD" -DCMAKE_BUILD_TYPE=Release \
+  -DQ3X_CUDA_ARCHITECTURES=87 \
+  -DBUILD_TESTING=ON \
+  -DQ3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION=ON \
+  -DQ3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION=ON \
+  -DQ3X_BUILD_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION=ON \
+  -DQ3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION=ON \
+  -DQ3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION=ON \
+  -DQ3X_BUILD_SM87_MACROFEED_V3_ADMISSION=ON \
+  -DQ3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION=ON
+cmake --build "$Q3X_BUILD" -j
+ctest --test-dir "$Q3X_BUILD" --output-on-failure \
+  -R '^(openai_protocol|prefill_execution_plan|sm87_macrofeed_v3_receipt|sm87_macrofeed_v3_p40_execution_package_host)$'
+```
+
+Start the exact P40 server in the same shell that will retain its PID. Startup
+prepares and authenticates the development-only target-AOT package before the
+listener becomes ready; startup time is excluded from request TTFT and grants
+no release authority.
+
+```bash
+Q3X_RUN="$Q3X_WORK/evalscope/results/p40-macrofeed-v3-r1"
+mkdir -p "$Q3X_RUN"
+
+"$Q3X_BUILD/qwen3x-eval-server" "$MODEL_DIR" \
+  --host 127.0.0.1 --port 18094 \
+  --model qwen3.6-27b-nvfp4 \
+  --max-sequence-length 40001 --max-output-tokens 1 \
+  --prefill-chunk-size 512 --prefill-execution-mode layer-major \
+  --prefill-attention-tactic native-flashinfer-exact-whole-prompt \
+  --prefill-projection-tactic native-prompt-wide-p40-macrofeed-v3 \
+  --projection-backend sm87 \
+  --request-max-arena-bytes 8640542976 \
+  --min-free-bytes 4294967296 \
+  --queue-capacity 1 --ingress-threads 3 \
+  >"$Q3X_RUN/server.log" 2>&1 &
+Q3X_SERVER_PID=$!
+printf '%s\n' "$Q3X_SERVER_PID" >"$Q3X_RUN/server.pid"
+cleanup_macrofeed_v3_server() {
+  if kill -0 "$Q3X_SERVER_PID" 2>/dev/null; then
+    kill -TERM "$Q3X_SERVER_PID"
+  fi
+  wait "$Q3X_SERVER_PID" 2>/dev/null || true
+}
+trap cleanup_macrofeed_v3_server EXIT INT TERM
+
+until curl --silent --show-error --fail \
+  http://127.0.0.1:18094/healthz >"$Q3X_RUN/healthz.json"; do
+  if ! kill -0 "$Q3X_SERVER_PID" 2>/dev/null; then
+    wait "$Q3X_SERVER_PID"
+    exit 1
+  fi
+  sleep 1
+done
+```
+
+The frozen corpus is the existing flat token-ID P40000 request. Verify its
+hash, then run the fail-closed Jetson resource preflight immediately before
+EvalScope. The server PID and its descendants are the only expected GPU
+holders. The 5%-of-one-core CPU ceiling is the strict retained gate. Do not
+use the Jetson `nvidia-smi` implementation at any point.
+
+```bash
+Q3X_P40_CORPUS="$Q3X_WORK/evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl"
+printf '%s  %s\n' \
+  '8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844' \
+  "$Q3X_P40_CORPUS" | sha256sum --check -
+
+python3 tools/evaluation/orin_perf_preflight.py \
+  --output "$Q3X_RUN/preflight.json" \
+  --samples 5 --interval-ms 200 \
+  --max-gr3d-percent 0 \
+  --max-unexpected-cpu-percent 5 \
+  --allow-pid "$Q3X_SERVER_PID"
+```
+
+Only an accepted preflight permits the one cold/no-cache EvalScope 1.9.1
+request. `uvx` uses the pinned version and redirects its environment/cache and
+temporary state into the existing workspace-owned paths:
+
+```bash
+TMPDIR="$Q3X_WORK/tmp" XDG_CACHE_HOME="$Q3X_WORK/cache" \
+UV_CACHE_DIR="$Q3X_WORK/cache/uv" \
+uvx --from 'evalscope[perf]==1.9.1' evalscope perf \
+  --model qwen3.6-27b-nvfp4 --api openai \
+  --url http://127.0.0.1:18094/v1/completions \
+  --tokenizer-path "$MODEL_DIR" \
+  --dataset line_by_line --data-source local \
+  --dataset-path "$Q3X_P40_CORPUS" \
+  --number 1 --parallel 1 --warmup-num 0 --num-workers 1 \
+  --max-prompt-length 131072 \
+  --max-tokens 1 --temperature 0 --seed 42 \
+  --stream --tokenize-prompt --no-test-connection \
+  --total-timeout 680 \
+  --outputs-dir "$Q3X_RUN" \
+  --name macrofeed-v3-r1 --no-timestamp
+
+cleanup_macrofeed_v3_server
+trap - EXIT INT TERM
+```
+
+The single request is an early-stop V3 direction gate only. It is valid only
+when EvalScope reports 1/1 success with exactly 40,000 input tokens and one
+output token, the server emits a complete V18 physical receipt, and the
+preflight owns an exclusive resource lane. V18's pure-Prefill phase must be
+unavailable for this revision; only external TTFT/New Prompt Throughput has
+architecture-selection authority. A material positive whole-API result first
+requires the pure-Prefill phase-boundary correction, then unlocks full
+real-checkpoint numerical and statistical qualification; it does not pass
+either gate. A negative, timeout, incomplete receipt, wrong route, or merely
+small result closes or redesigns V3 rather than starting a tile/stage/cache
+scan. P60 and P130 remain locked. V10 remains the frozen P40 incumbent until
+this procedure produces a valid result.
 
 The first WP-V2-C1-v3 direction reused the exact v10 host schedule and route
 counters through a binary-pinned, default-off overlay; the binary hash, not a

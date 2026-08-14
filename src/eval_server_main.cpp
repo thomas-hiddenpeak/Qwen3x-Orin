@@ -53,7 +53,8 @@ void PrintUsage(std::ostream& output) {
       << "                              native-prompt-wide-p40-projection-reset|\n"
       << "                              native-prompt-wide-p40-packed-projection|\n"
       << "                              native-prompt-wide-p40-packed-nvfp4-v2|\n"
-      << "                              native-prompt-wide-p40-vllm-marlin-parity\n"
+      << "                              native-prompt-wide-p40-vllm-marlin-parity|\n"
+      << "                              native-prompt-wide-p40-macrofeed-v3\n"
       << "  --nvtx-phase-ranges        Emit generation/Prefill/Decode ranges\n"
       << "  --queue-capacity N          Bounded inference queue, max 62 (default 8)\n"
       << "  --ingress-threads N         Fixed HTTP threads, queue+2 min (default 10)\n"
@@ -236,6 +237,11 @@ template <typename T>
         options.prefill_projection_tactic = q3x::runtime::
             LayerMajorPrefillProjectionTactic::
                 kNativePromptWideP40VllmMarlinParity;
+      } else if (value ==
+                 "native-prompt-wide-p40-macrofeed-v3") {
+        options.prefill_projection_tactic = q3x::runtime::
+            LayerMajorPrefillProjectionTactic::
+                kNativePromptWideP40MacroFeedV3;
       } else {
         error = "--prefill-projection-tactic must be exact-segmented or "
                 "segmented-marlin-operator-panel or "
@@ -247,7 +253,8 @@ template <typename T>
                 "native-prompt-wide-p40-projection-reset or "
                 "native-prompt-wide-p40-packed-projection or "
                 "native-prompt-wide-p40-packed-nvfp4-v2 or "
-                "native-prompt-wide-p40-vllm-marlin-parity";
+                "native-prompt-wide-p40-vllm-marlin-parity or "
+                "native-prompt-wide-p40-macrofeed-v3";
         return false;
       }
     } else if (argument == "--queue-capacity") {

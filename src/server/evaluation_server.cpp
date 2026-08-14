@@ -860,7 +860,12 @@ void emit_target_prefill_witness(
                              generation.timing.prompt_prefill_milliseconds)
             : unavailable_phase(
                   "engine_prompt_prefill",
-                  "target_aot_interval_includes_first_token_finalization");
+                  generation.prefill_macrofeed_v3_transaction_receipt
+                          .has_value()
+                      ? "macrofeed_v3_interval_includes_first_token_"
+                        "finalization"
+                      : "target_aot_interval_includes_first_token_"
+                        "finalization");
     record.finalize = measured_phase(
         "engine_finish_prefill",
         generation.timing.finish_prefill_milliseconds);
@@ -1001,6 +1006,8 @@ void emit_target_prefill_witness(
         generation.prefill_vllm_marlin_parity_layer_completion_receipts;
     record.vllm_marlin_parity_layer_completion_receipt_count =
         generation.prefill_vllm_marlin_parity_layer_completion_receipt_count;
+    record.macrofeed_v3_transaction_receipt =
+        generation.prefill_macrofeed_v3_transaction_receipt;
     record.deployment_plan_id = generation.prefill_deployment_plan_id;
     record.target_aot_complete_projection_artifacts =
         engine.load_stats().target_aot_complete_projection_artifacts;
@@ -1756,11 +1763,16 @@ int run_evaluation_server(const EvaluationServerOptions& options,
       options.request_max_arena_bytes;
   engine_options.request_options.min_free_bytes_after_create =
       options.request_min_free_bytes_after_create;
+  const bool macrofeed_v3 =
+      options.prefill_projection_tactic ==
+      runtime::LayerMajorPrefillProjectionTactic::
+          kNativePromptWideP40MacroFeedV3;
   engine_options.decode_graph_cache_policy =
       options.engine_route ==
               runtime::ReferenceGenerationRoute::kReference &&
           options.projection_backend ==
-              runtime::ProjectionBackend::kSm87WeightOnly
+              runtime::ProjectionBackend::kSm87WeightOnly &&
+          !macrofeed_v3
           ? runtime::ReferenceDecodeGraphCachePolicy::kSm87ShortPositions
           : runtime::ReferenceDecodeGraphCachePolicy::kDisabled;
 

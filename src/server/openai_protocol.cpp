@@ -807,6 +807,9 @@ std::string serialize_target_prefill_witness(
   const bool bulk_v2_p40_candidate_v17 =
       record.deployment_plan_id ==
       runtime::kSm87BulkV2P40DirectionWitnessDeploymentPlanId;
+  const bool macrofeed_v3_p40_candidate_v18 =
+      record.deployment_plan_id == runtime::
+          kLayerMajorNativePromptWideP40MacroFeedV3DeploymentPlanId;
   bool target_aot_has_no_legacy_route_evidence =
       !record.prefill_route_evidence.valid &&
       !record.prefill_route_evidence.complete &&
@@ -1274,6 +1277,72 @@ std::string serialize_target_prefill_witness(
       !bulk_v2.used_mtp && !bulk_v2.used_cublaslt &&
       !bulk_v2.used_request_jit_repack_or_autotune &&
       !record.pure_prefill_phase_qualified;
+  const runtime::Sm87MacroFeedV3TransactionReceipt
+      empty_macrofeed_v3_transaction{};
+  const runtime::Sm87MacroFeedV3TransactionReceipt& macrofeed_v3 =
+      record.macrofeed_v3_transaction_receipt.has_value()
+          ? *record.macrofeed_v3_transaction_receipt
+          : empty_macrofeed_v3_transaction;
+  const bool macrofeed_v3_p40_package_counts_complete =
+      macrofeed_v3_p40_candidate_v18 &&
+      record.generation_route == runtime::ReferenceGenerationRoute::kReference &&
+      record.projection_backend == runtime::ProjectionBackend::kSm87WeightOnly &&
+      record.request_memory_profile ==
+          runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
+      record.prefill_execution_mode == runtime::
+          ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
+      prompt_wide_p40_common_package_counts_complete &&
+      record.prompt_tokens == runtime::kLayerMajorPrefillPromptWideP40Tokens &&
+      record.consumed_prompt_tokens == record.prompt_tokens &&
+      record.full_prompt_consumed && record.completion_tokens == 1U &&
+      record.prefix_execution_count == 1U &&
+      record.mlp_schedule_tactic == runtime::
+          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40MacroFeedV3 &&
+      record.prompt_wide_p40_fp8_projection_hits ==
+          runtime::kLayerMajorPrefillMacroFeedV3Fp8PhysicalLaunchesPerRequest &&
+      record.prompt_wide_p40_fp8_projection_physical_launches ==
+          runtime::kLayerMajorPrefillMacroFeedV3Fp8PhysicalLaunchesPerRequest &&
+      record.target_aot_complete_projection_artifacts == 256U &&
+      record.target_aot_complete_projection_sources == 400U &&
+      record.target_aot_complete_projection_catalog_sha256.size() == 64U &&
+      record.macrofeed_v3_transaction_receipt.has_value() &&
+      runtime::sm87_macrofeed_v3_transaction_complete(macrofeed_v3) &&
+      macrofeed_v3.aggregate.completed_layers ==
+          runtime::kSm87MacroFeedV3ReceiptLayerCount &&
+      macrofeed_v3.aggregate.completed_gdn_layers ==
+          runtime::kSm87MacroFeedV3ReceiptGdnLayerCount &&
+      macrofeed_v3.aggregate.completed_attention_layers ==
+          runtime::kSm87MacroFeedV3ReceiptAttentionLayerCount &&
+      macrofeed_v3.aggregate.fp8 ==
+          runtime::kSm87MacroFeedV3ReceiptFp8Launches &&
+      macrofeed_v3.aggregate.nvfp4_gate_up ==
+          runtime::kSm87MacroFeedV3ReceiptGateUpLaunches &&
+      macrofeed_v3.aggregate.nvfp4_down ==
+          runtime::kSm87MacroFeedV3ReceiptDownLaunches &&
+      macrofeed_v3.aggregate.bf16_ab ==
+          runtime::kSm87MacroFeedV3ReceiptBf16AbLaunches &&
+      macrofeed_v3.aggregate.gdn ==
+          runtime::kSm87MacroFeedV3ReceiptGdnLaunches &&
+      macrofeed_v3.aggregate.attention_calls ==
+          runtime::kSm87MacroFeedV3ReceiptAttentionCalls &&
+      macrofeed_v3.aggregate.attention_preprocess == runtime::
+          kSm87MacroFeedV3ReceiptAttentionPreprocessPerRequest &&
+      macrofeed_v3.physical_identity.package_identity != 0U &&
+      macrofeed_v3.physical_identity.owner_identity != 0U &&
+      macrofeed_v3.physical_identity.allocation_identity != 0U &&
+      macrofeed_v3.physical_identity.catalog_identity != 0U &&
+      macrofeed_v3.physical_identity.device_identity != 0U &&
+      macrofeed_v3.physical_identity.device_ordinal >= 0 &&
+      !macrofeed_v3.aggregate.used_fallback &&
+      !macrofeed_v3.aggregate.used_mtp &&
+      !macrofeed_v3.aggregate.used_cublaslt &&
+      !macrofeed_v3.aggregate.used_request_jit &&
+      !macrofeed_v3.aggregate.used_request_repack &&
+      !macrofeed_v3.aggregate.used_request_autotune &&
+      record.vllm_marlin_parity_layer_completion_receipt_count == 0U &&
+      record.packed_nvfp4_v2_physical_launches == 0U &&
+      record.target_aot_transaction_epoch == 0U &&
+      bulk_v2.request_epoch == 0U;
   const bool accuracy_unqualified_candidate =
       candidate_v3 || projection_candidate_v4 ||
       native_large_m_candidate_v5 || flashinfer_exact_candidate_v6 ||
@@ -1284,9 +1353,13 @@ std::string serialize_target_prefill_witness(
       p40_packed_projection_candidate_v13 ||
       p40_packed_nvfp4_v2_candidate_v14 ||
       p40_vllm_marlin_parity_candidate_v15 ||
-      target_aot_p40_candidate_v16 || bulk_v2_p40_candidate_v17;
+      target_aot_p40_candidate_v16 || bulk_v2_p40_candidate_v17 ||
+      macrofeed_v3_p40_candidate_v18;
   std::string output =
-      bulk_v2_p40_candidate_v17
+      macrofeed_v3_p40_candidate_v18
+          ? "{\"record\":\"target-prefill-witness-v18\","
+            "\"schema_version\":18,\"request\":{\"id\":"
+      : bulk_v2_p40_candidate_v17
           ? "{\"record\":\"target-prefill-witness-v17\","
             "\"schema_version\":17,\"request\":{\"id\":"
       : target_aot_p40_candidate_v16
@@ -1422,7 +1495,137 @@ std::string serialize_target_prefill_witness(
     output += record.bounded_submission_window ? "true" : "false";
     output += ",\"submission_window_retirements\":" +
               std::to_string(record.submission_window_retirements);
-    if (bulk_v2_p40_candidate_v17) {
+    if (macrofeed_v3_p40_candidate_v18) {
+      output += ",\"complete_engine_route\":";
+      append_json_string(output, "sm87-macrofeed-v3-p40");
+      output += ",\"projection_tactic\":";
+      append_json_string(output, "native-p40-target-aot-macrofeed-v3");
+      output += ",\"mlp_schedule\":";
+      append_json_string(output, "prompt-wide-p40-macrofeed-v3");
+      output += ",\"attention_tactic\":";
+      append_json_string(output, "native-flashinfer-exact-whole-prompt");
+      output += ",\"package_complete\":";
+      output += macrofeed_v3_p40_package_counts_complete ? "true" : "false";
+      const bool server_response_timing_available =
+          record.ttft.milliseconds.has_value() &&
+          std::isfinite(*record.ttft.milliseconds) &&
+          *record.ttft.milliseconds >= 0.0 &&
+          record.total.milliseconds.has_value() &&
+          std::isfinite(*record.total.milliseconds) &&
+          *record.total.milliseconds >= 0.0;
+      output +=
+          ",\"phase_qualification\":{\"pure_prefill_promotion_eligible\":";
+      output += record.pure_prefill_phase_qualified ? "true" : "false";
+      output += ",\"server_response_timing_available\":";
+      output += server_response_timing_available ? "true" : "false";
+      output +=
+          ",\"external_api_e2e_measurement_eligible\":true,"
+          "\"external_api_e2e_source\":\"external_framework_transaction\"";
+      output += ",\"reason\":";
+      append_json_string(
+          output, record.pure_prefill_phase_qualified
+                      ? "qualified_phase_boundary"
+                      : "macrofeed_v3_interval_includes_first_token_"
+                        "finalization");
+      output += "}";
+      output +=
+          ",\"authenticated_projection_owner\":{\"artifacts\":" +
+          std::to_string(record.target_aot_complete_projection_artifacts) +
+          ",\"sources\":" +
+          std::to_string(record.target_aot_complete_projection_sources) +
+          ",\"catalog_sha256\":";
+      append_json_string(
+          output, record.target_aot_complete_projection_catalog_sha256);
+      output += "},\"topology\":{\"completed_layers\":" +
+                std::to_string(
+                    macrofeed_v3.aggregate.completed_layers) +
+                ",\"completed_gdn_layers\":" +
+                std::to_string(
+                    macrofeed_v3.aggregate.completed_gdn_layers) +
+                ",\"completed_attention_layers\":" +
+                std::to_string(
+                    macrofeed_v3.aggregate.completed_attention_layers) +
+                ",\"fill_completed_layers\":" +
+                std::to_string(
+                    macrofeed_v3.aggregate.fill_completed_layers) +
+                ",\"drain_completed_layers\":" +
+                std::to_string(
+                    macrofeed_v3.aggregate.drain_completed_layers) +
+                ",\"completion_observed_layers\":" +
+                std::to_string(
+                    macrofeed_v3.aggregate.completion_observed_layers) +
+                "},\"physical_launches\":{\"fp8_input\":" +
+                std::to_string(macrofeed_v3.aggregate.fp8_input) +
+                ",\"fp8_output\":" +
+                std::to_string(macrofeed_v3.aggregate.fp8_output) +
+                ",\"fp8_total\":" +
+                std::to_string(macrofeed_v3.aggregate.fp8) +
+                ",\"nvfp4_gate_up\":" +
+                std::to_string(macrofeed_v3.aggregate.nvfp4_gate_up) +
+                ",\"nvfp4_down\":" +
+                std::to_string(macrofeed_v3.aggregate.nvfp4_down) +
+                ",\"bf16_ab\":" +
+                std::to_string(macrofeed_v3.aggregate.bf16_ab) +
+                ",\"gdn\":" +
+                std::to_string(macrofeed_v3.aggregate.gdn) +
+                ",\"attention_calls\":" +
+                std::to_string(macrofeed_v3.aggregate.attention_calls) +
+                ",\"attention_preprocess\":" +
+                std::to_string(
+                    macrofeed_v3.aggregate.attention_preprocess) +
+                "},\"executor_receipt\":{\"abi_major\":" +
+                std::to_string(macrofeed_v3.abi_major) +
+                ",\"abi_minor\":" +
+                std::to_string(macrofeed_v3.abi_minor) +
+                ",\"receipt_identity\":" +
+                std::to_string(macrofeed_v3.receipt_identity) +
+                ",\"request_identity\":" +
+                std::to_string(macrofeed_v3.request_identity) +
+                ",\"package_identity\":" +
+                std::to_string(
+                    macrofeed_v3.physical_identity.package_identity) +
+                ",\"owner_identity\":" +
+                std::to_string(
+                    macrofeed_v3.physical_identity.owner_identity) +
+                ",\"allocation_identity\":" +
+                std::to_string(
+                    macrofeed_v3.physical_identity.allocation_identity) +
+                ",\"catalog_identity\":" +
+                std::to_string(
+                    macrofeed_v3.physical_identity.catalog_identity) +
+                ",\"device_identity\":" +
+                std::to_string(
+                    macrofeed_v3.physical_identity.device_identity) +
+                ",\"device_ordinal\":" +
+                std::to_string(
+                    macrofeed_v3.physical_identity.device_ordinal) +
+                ",\"layer_receipt_count\":" +
+                std::to_string(macrofeed_v3.layer_receipt_count) +
+                ",\"request_completion_observed\":";
+      output +=
+          macrofeed_v3.request_completion_observed ? "true" : "false";
+      output += ",\"complete\":";
+      output += macrofeed_v3.complete ? "true" : "false";
+      output +=
+          ",\"receipt_authority\":\"physical-execution-only\","
+          "\"numerical_qualification\":false,"
+          "\"production_dispatch_eligible\":false,"
+          "\"used_fallback\":";
+      output += macrofeed_v3.aggregate.used_fallback ? "true" : "false";
+      output += ",\"used_mtp\":";
+      output += macrofeed_v3.aggregate.used_mtp ? "true" : "false";
+      output += ",\"used_cublaslt\":";
+      output += macrofeed_v3.aggregate.used_cublaslt ? "true" : "false";
+      output += ",\"used_request_jit\":";
+      output += macrofeed_v3.aggregate.used_request_jit ? "true" : "false";
+      output += ",\"used_request_repack\":";
+      output +=
+          macrofeed_v3.aggregate.used_request_repack ? "true" : "false";
+      output += ",\"used_request_autotune\":";
+      output +=
+          macrofeed_v3.aggregate.used_request_autotune ? "true" : "false";
+      output += "}";
+    } else if (bulk_v2_p40_candidate_v17) {
       output += ",\"complete_engine_route\":";
       append_json_string(output, "sm87-bulk-v2-p40");
       output += ",\"package_complete\":";

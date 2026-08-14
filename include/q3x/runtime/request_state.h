@@ -172,6 +172,7 @@ enum class RequestAccessError : std::uint8_t {
     kMemoryProfileMismatch,
     kSequenceLengthMismatch,
     kSequenceLengthRegression,
+    kInvalidResetScope,
 };
 
 struct RequestLayerSlotResult {
@@ -600,6 +601,23 @@ struct RequestOperationStatus {
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
+// Reset scope is selected by the owning request transaction, never by an
+// individual kernel.  Ordinary decode/prefill reuse only needs persistent
+// conv/GDN/KV state cleared.  A cancelled whole-request architecture may
+// have partially published request-local workspace and therefore requires a
+// cold mutable-arena reset before the slot can be reused.  RoPE remains an
+// immutable engine-prepared suffix in both cases.
+enum class RequestResetScope : std::uint8_t {
+    kPersistentState = 0,
+    kColdMutableArena,
+};
+
+[[nodiscard]] constexpr bool is_valid_request_reset_scope(
+    const RequestResetScope scope) noexcept {
+    return scope == RequestResetScope::kPersistentState ||
+           scope == RequestResetScope::kColdMutableArena;
+}
+
 struct RequestStateResult;
 
 class RequestState {
@@ -691,11 +709,14 @@ class RequestState {
     [[nodiscard]] RequestConstViewResult current_rope_cos() const noexcept;
     [[nodiscard]] RequestConstViewResult current_rope_sin() const noexcept;
 
-    // Enqueues zeroing of all persistent conv/GDN/KV storage and immediately
-    // resets host logical length. The caller must order subsequent use on the
-    // same stream (or synchronize explicitly). Workspace and RoPE are untouched.
+    // Enqueues the selected reset and immediately resets host logical length.
+    // kPersistentState clears conv/GDN/KV only. kColdMutableArena clears the
+    // complete persistent+workspace prefix and preserves the immutable RoPE
+    // suffix. The caller must order subsequent use on the same stream (or
+    // synchronize explicitly).
     [[nodiscard]] RequestOperationStatus reset_async(
-        void* cuda_stream = nullptr) noexcept;
+        void* cuda_stream = nullptr,
+        RequestResetScope scope = RequestResetScope::kPersistentState) noexcept;
 
   private:
     friend RequestStateResult create_request_state(

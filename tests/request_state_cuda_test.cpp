@@ -327,6 +327,55 @@ void test_create_views_rope_and_reset(TestContext& test) {
         }
         test.expect(workspace_untouched,
                     "reset leaves reusable workspace untouched");
+
+        auto* const arena_bytes =
+            static_cast<std::uint8_t*>(state.arena_data());
+        auto* const rope_bytes = arena_bytes +
+            static_cast<std::size_t>(state.plan().rope_offset);
+        (void)cudaMemsetAsync(conv0.value->device_data, 0xA1, 64U, stream);
+        (void)cudaMemsetAsync(hidden0.value->device_data, 0xD1, 64U, stream);
+        (void)cudaMemsetAsync(rope_bytes, 0xE2, 64U, stream);
+        test.expect(static_cast<bool>(state.set_sequence_length(2U)),
+                    "cold-reset fixture advances logical length");
+        const runtime::RequestOperationStatus invalid_scope =
+            state.reset_async(
+                reinterpret_cast<void*>(stream),
+                static_cast<runtime::RequestResetScope>(0xFFU));
+        test.expect(
+            !invalid_scope &&
+                invalid_scope.error ==
+                    runtime::RequestAccessError::kInvalidResetScope &&
+                state.sequence_length() == 2U,
+            "invalid reset scope fails closed without changing logical length");
+
+        const runtime::RequestOperationStatus cold_reset =
+            state.reset_async(
+                reinterpret_cast<void*>(stream),
+                runtime::RequestResetScope::kColdMutableArena);
+        test.expect(cold_reset && state.sequence_length() == 0U,
+                    "cold reset enqueues and immediately resets logical length");
+        const cudaError_t cold_sync_status = cudaStreamSynchronize(stream);
+        std::array<std::uint8_t, 64U> cold_workspace_bytes{};
+        std::array<std::uint8_t, 64U> rope_sentinel_bytes{};
+        const cudaError_t cold_workspace_status = cudaMemcpy(
+            cold_workspace_bytes.data(), hidden0.value->device_data,
+            cold_workspace_bytes.size(), cudaMemcpyDeviceToHost);
+        const cudaError_t rope_sentinel_status = cudaMemcpy(
+            rope_sentinel_bytes.data(), rope_bytes,
+            rope_sentinel_bytes.size(), cudaMemcpyDeviceToHost);
+        bool cold_workspace_zero = cold_workspace_status == cudaSuccess;
+        bool rope_preserved = rope_sentinel_status == cudaSuccess;
+        for (const std::uint8_t byte : cold_workspace_bytes) {
+            cold_workspace_zero = cold_workspace_zero && byte == 0U;
+        }
+        for (const std::uint8_t byte : rope_sentinel_bytes) {
+            rope_preserved = rope_preserved && byte == 0xE2U;
+        }
+        test.expect(cold_sync_status == cudaSuccess &&
+                        sample_zero(*conv0.value) && cold_workspace_zero &&
+                        rope_preserved,
+                    "cold reset clears persistent and workspace spans while "
+                    "preserving immutable RoPE");
         (void)cudaStreamDestroy(stream);
     }
 
@@ -489,6 +538,115 @@ void test_layer_major_create_views_and_profile_gate(TestContext& test) {
         "move transfers complete layer-major ownership and empties the source");
 }
 
+void test_p40_cold_reset_boundary(TestContext& test) {
+    const char* const enabled =
+        std::getenv("Q3X_RUN_P40_REQUEST_STATE_CUDA");
+    if (enabled == nullptr || std::strcmp(enabled, "1") != 0) {
+        std::cout << "SKIP: exact P40 RequestState cold-reset boundary is "
+                     "opt-in (~8.64 GiB)\n";
+        return;
+    }
+
+    runtime::LayerMajorRequestMemoryOptions options;
+    options.max_sequence_length = 40'001U;
+    options.max_arena_bytes = 9ULL * 1024ULL * 1024ULL * 1024ULL;
+    options.min_free_bytes_after_create = 256U * 1024U * 1024U;
+    options.layout =
+        runtime::LayerMajorRequestLayout::kP40WholeCorePromptWide;
+    options.mlp_layout =
+        runtime::LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan;
+    const runtime::LayerMajorRequestPlanResult expected =
+        runtime::build_layer_major_request_memory_plan(options);
+    test.expect(expected &&
+                    expected.value->common.profile ==
+                        runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
+                    expected.value->common.rope_offset >
+                        expected.value->common.persistent_offset &&
+                    expected.value->common.rope_bytes != 0U &&
+                    expected.value->common.rope_offset +
+                            expected.value->common.rope_bytes ==
+                        expected.value->common.arena_bytes,
+                "exact P40 plan has a mutable prefix and terminal RoPE suffix");
+    if (!expected) {
+        return;
+    }
+
+    std::size_t free_bytes = 0U;
+    std::size_t total_bytes = 0U;
+    const cudaError_t memory_status =
+        cudaMemGetInfo(&free_bytes, &total_bytes);
+    (void)total_bytes;
+    if (memory_status != cudaSuccess ||
+        expected.value->common.arena_bytes > free_bytes ||
+        options.min_free_bytes_after_create >
+            free_bytes - expected.value->common.arena_bytes) {
+        std::cout << "SKIP: insufficient free device memory for exact P40 "
+                     "RequestState allocation\n";
+        (void)cudaGetLastError();
+        return;
+    }
+
+    runtime::RequestStateResult created =
+        runtime::create_layer_major_request_state(options);
+    if (!created && created.diagnostic.code ==
+                        runtime::RequestErrorCode::kInsufficientDeviceMemory) {
+        std::cout << "SKIP: exact P40 RequestState lost its free-memory "
+                     "reservation before allocation\n";
+        return;
+    }
+    if (!created) {
+        print_diagnostic(created.diagnostic);
+    }
+    test.expect(created.ok(), "exact P40 RequestState creates for opt-in test");
+    if (!created) {
+        return;
+    }
+
+    runtime::RequestState& state = *created.value;
+    const runtime::RequestMemoryPlan& plan = state.plan();
+    auto* const arena = static_cast<std::uint8_t*>(state.arena_data());
+    auto* const persistent_first =
+        arena + static_cast<std::size_t>(plan.persistent_offset);
+    auto* const mutable_last =
+        arena + static_cast<std::size_t>(plan.rope_offset - 1U);
+    auto* const rope_first =
+        arena + static_cast<std::size_t>(plan.rope_offset);
+    auto* const rope_last =
+        arena + static_cast<std::size_t>(plan.arena_bytes - 1U);
+    cudaStream_t stream = nullptr;
+    test.expect(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) ==
+                    cudaSuccess,
+                "exact P40 cold-reset stream creates");
+    if (stream == nullptr) {
+        return;
+    }
+    (void)cudaMemsetAsync(persistent_first, 0xA1, 1U, stream);
+    (void)cudaMemsetAsync(mutable_last, 0xB2, 1U, stream);
+    (void)cudaMemsetAsync(rope_first, 0xC3, 1U, stream);
+    (void)cudaMemsetAsync(rope_last, 0xD4, 1U, stream);
+    const runtime::RequestOperationStatus reset = state.reset_async(
+        reinterpret_cast<void*>(stream),
+        runtime::RequestResetScope::kColdMutableArena);
+    const cudaError_t sync_status = cudaStreamSynchronize(stream);
+    std::array<std::uint8_t, 4U> observed{};
+    const cudaError_t copy0 = cudaMemcpy(
+        &observed[0U], persistent_first, 1U, cudaMemcpyDeviceToHost);
+    const cudaError_t copy1 = cudaMemcpy(
+        &observed[1U], mutable_last, 1U, cudaMemcpyDeviceToHost);
+    const cudaError_t copy2 = cudaMemcpy(
+        &observed[2U], rope_first, 1U, cudaMemcpyDeviceToHost);
+    const cudaError_t copy3 = cudaMemcpy(
+        &observed[3U], rope_last, 1U, cudaMemcpyDeviceToHost);
+    test.expect(reset && sync_status == cudaSuccess && copy0 == cudaSuccess &&
+                    copy1 == cudaSuccess && copy2 == cudaSuccess &&
+                    copy3 == cudaSuccess && observed[0U] == 0U &&
+                    observed[1U] == 0U && observed[2U] == 0xC3U &&
+                    observed[3U] == 0xD4U,
+                "exact P40 cold reset clears both mutable boundaries and "
+                "preserves both RoPE boundaries");
+    (void)cudaStreamDestroy(stream);
+}
+
 }  // namespace
 
 int main() {
@@ -504,6 +662,7 @@ int main() {
     test_create_views_rope_and_reset(test);
     test_memory_gate(test);
     test_layer_major_create_views_and_profile_gate(test);
+    test_p40_cold_reset_boundary(test);
     if (test.failures() != 0) {
         std::cerr << test.failures() << " request-state CUDA test(s) failed\n";
         return 1;

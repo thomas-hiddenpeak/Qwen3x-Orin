@@ -18,6 +18,9 @@
 #include "q3x/text/tokenizer.h"
 #include "reference_engine_prefill_authority.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+#include "sm87_macrofeed_v3_p40_execution_package_internal.h"
+#endif
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION) || \
     defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION)
 #include "sm87_target_aot_engine_rope_internal.h"
@@ -1678,6 +1681,8 @@ struct EngineStepContext {
       prefill_vllm_marlin_parity_layer_completion_receipts{};
   std::size_t
       prefill_vllm_marlin_parity_layer_completion_receipt_count = 0U;
+  std::optional<Sm87MacroFeedV3TransactionReceipt>
+      prefill_macrofeed_v3_transaction_receipt;
   // Armed before the first whole-request CUDA call and cleared only after
   // the sealed commit succeeds. EngineWholeRequestTransactionGuard owns the
   // rollback of every failure window in between.
@@ -1807,11 +1812,14 @@ prefill_whole_request_layer_major(
   const bool p40_vllm_marlin_parity =
       immutable_topology.mlp_schedule.tactic ==
       LayerMajorPrefillMlpScheduleTactic::kPromptWideP40VllmMarlinParity;
+  const bool p40_macrofeed_v3 =
+      immutable_topology.mlp_schedule.tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40MacroFeedV3;
   const bool prompt_wide_p40_whole_core =
       immutable_topology.mlp_schedule.tactic ==
           LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore ||
       p40_projection_reset || p40_packed_projection || p40_packed_nvfp4_v2 ||
-      p40_vllm_marlin_parity;
+      p40_vllm_marlin_parity || p40_macrofeed_v3;
   const std::size_t expected_submissions_per_layer =
       prompt_wide_p40_whole_core
           ? p40_projection_reset
@@ -1838,6 +1846,8 @@ prefill_whole_request_layer_major(
                           .prompt_core_phase_count_per_layer +
                       immutable_topology.vllm_marlin_parity_schedule
                           .segmented_mlp_phase_count_per_layer
+            : p40_macrofeed_v3
+                ? 2U * immutable_topology.panel_count + 2U
                 : immutable_topology.whole_core_schedule
                           .fill_panel_phase_count_per_layer +
                       immutable_topology.whole_core_schedule
@@ -1891,6 +1901,9 @@ prefill_whole_request_layer_major(
       : p40_vllm_marlin_parity
           ? immutable_topology.vllm_marlin_parity_schedule
                 .fp8_tensor_role_hits_per_request
+      : p40_macrofeed_v3
+          ? immutable_topology.macrofeed_v3_schedule
+                .fp8_physical_launches_per_request
           : kP40Fp8ProjectionsPerPanel * immutable_topology.panel_count;
   const std::size_t expected_prompt_wide_fp8_physical_launches =
       p40_projection_reset
@@ -1904,6 +1917,9 @@ prefill_whole_request_layer_major(
                 .fp8_physical_launches_per_request
       : p40_vllm_marlin_parity
           ? immutable_topology.vllm_marlin_parity_schedule
+                .fp8_physical_launches_per_request
+      : p40_macrofeed_v3
+          ? immutable_topology.macrofeed_v3_schedule
                 .fp8_physical_launches_per_request
           : expected_prompt_wide_fp8_hits;
   const std::size_t bulk_panel_count = [&immutable_topology]() noexcept {
@@ -2017,6 +2033,12 @@ prefill_whole_request_layer_major(
                 executed.value
                         ->vllm_marlin_parity_layer_completion_receipt_count ==
                     0U;
+  const bool macrofeed_v3_witness_valid =
+      p40_macrofeed_v3
+          ? executed.value->macrofeed_v3_transaction_receipt.has_value() &&
+                sm87_macrofeed_v3_transaction_complete(
+                    *executed.value->macrofeed_v3_transaction_receipt)
+          : !executed.value->macrofeed_v3_transaction_receipt.has_value();
   const bool valid_p40_witness =
       prompt_wide_p40_whole_core
           ? executed.value->operator_panel_executor_hits == 0U &&
@@ -2069,7 +2091,8 @@ prefill_whole_request_layer_major(
                     kLayerMajorPrefillLinearLayerCount &&
                 executed.value->native_flashinfer_exact_whole_prompt_hits ==
                     kLayerMajorPrefillFullLayerCount &&
-                packed_nvfp4_v2_witness_valid && parity_witness_valid
+                packed_nvfp4_v2_witness_valid && parity_witness_valid &&
+                macrofeed_v3_witness_valid
       : layer_wide_p40_mlp
           ? whole_core_witness_zero &&
                 executed.value->layer_wide_p40_mlp_layer_hits ==
@@ -2089,9 +2112,11 @@ prefill_whole_request_layer_major(
                         ->persistent_p40_fp8_projection_oracle_partial_hits ==
                     kP40Fp8ProjectionsPerPanel *
                         (immutable_topology.panel_count - bulk_panel_count) &&
-                packed_nvfp4_v2_witness_valid && parity_witness_valid
+                packed_nvfp4_v2_witness_valid && parity_witness_valid &&
+                macrofeed_v3_witness_valid
           : persistent_p40_witness_zero && whole_core_witness_zero &&
-                packed_nvfp4_v2_witness_valid && parity_witness_valid;
+                packed_nvfp4_v2_witness_valid && parity_witness_valid &&
+                macrofeed_v3_witness_valid;
   if (!valid_p40_witness) {
     result.status = whole_request_adapter_status(
         ReferenceRunnerError::kInvalidStepOptions,
@@ -2202,6 +2227,8 @@ prefill_whole_request_layer_major(
       executed.value->vllm_marlin_parity_layer_completion_receipts;
   context.prefill_vllm_marlin_parity_layer_completion_receipt_count =
       executed.value->vllm_marlin_parity_layer_completion_receipt_count;
+  context.prefill_macrofeed_v3_transaction_receipt =
+      executed.value->macrofeed_v3_transaction_receipt;
   result.value.emplace(std::move(transcript));
   return result;
 }
@@ -4981,6 +5008,11 @@ struct ReferenceEngine::Impl {
   Sm87NvFp4DownConsumerOrderSidecars
       nvfp4_down_consumer_order_sidecars;
   std::optional<ModelWeights> model_weights;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+  std::unique_ptr<sm87_macrofeed_v3_p40_execution_package_detail::
+                      Sm87MacroFeedV3P40ExecutionPackage>
+      macrofeed_v3_p40_execution_package;
+#endif
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION) || \
     defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION)
   std::unique_ptr<sm87_target_aot_p40_executor_detail::
@@ -5055,6 +5087,10 @@ struct ReferenceEngine::Impl {
     const bool bulk_v2_p40_route =
         options.generation_route ==
         ReferenceGenerationRoute::kSm87BulkV2P40;
+    const bool macrofeed_v3_requested =
+        options.prefill_projection_tactic ==
+        LayerMajorPrefillProjectionTactic::
+            kNativePromptWideP40MacroFeedV3;
 #if !defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION)
     if (bulk_v2_p40_route) {
       result.diagnostic = engine_diagnostic(
@@ -5168,12 +5204,48 @@ struct ReferenceEngine::Impl {
     !defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION) || \
     !defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
     if (options.prefill_execution_mode ==
-        ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
+            ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
+        !macrofeed_v3_requested) {
       result.diagnostic = engine_diagnostic(
           ReferenceEngineError::kPrefillPlanUnavailable,
           "prefill_execution_mode",
           "this binary does not contain the FP8, NVFP4, and exact native "
           "GDN inventories required by the sealed layer-major plan");
+      return result;
+    }
+#endif
+#if !defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+    if (macrofeed_v3_requested) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kPrefillPlanUnavailable,
+          "prefill_projection_tactic",
+          "this binary does not contain the complete default-off P40000 "
+          "MacroFeed-v3 executor package");
+      return result;
+    }
+#else
+    if (macrofeed_v3_requested &&
+        (options.generation_route != ReferenceGenerationRoute::kReference ||
+         options.prefill_execution_mode !=
+             ReferencePrefillExecutionMode::kWholeRequestLayerMajor ||
+         options.projection_backend != ProjectionBackend::kSm87WeightOnly ||
+         options.request_options.batch_size != 1U ||
+         options.request_options.max_sequence_length !=
+             kLayerMajorPrefillPromptWideP40RequestCapacityTokens ||
+         options.request_options.max_arena_bytes <
+             kLayerMajorPrefillPromptWideP40RequestArenaBytes ||
+         options.prefill_full_attention_tactic !=
+             LayerMajorPrefillFullAttentionTactic::
+                 kNativeFlashInferExactWholePrompt ||
+         options.decode_graph_cache_policy !=
+             ReferenceDecodeGraphCachePolicy::kDisabled ||
+         options.enable_trace)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "prefill_projection_tactic",
+          "MacroFeed-v3 admits only the reference-route, batch-one cold "
+          "P40000 whole-request SM87 engine with whole-prompt FlashInfer, "
+          "trace disabled, and no Decode Graph cache");
       return result;
     }
 #endif
@@ -5493,6 +5565,11 @@ struct ReferenceEngine::Impl {
       impl->prefill_mlp_schedule_tactic =
           options.prefill_projection_tactic ==
                   LayerMajorPrefillProjectionTactic::
+                      kNativePromptWideP40MacroFeedV3
+              ? LayerMajorPrefillMlpScheduleTactic::
+                    kPromptWideP40MacroFeedV3
+          : options.prefill_projection_tactic ==
+                  LayerMajorPrefillProjectionTactic::
                       kNativePromptWideP40VllmMarlinParity
               ? LayerMajorPrefillMlpScheduleTactic::
                     kPromptWideP40VllmMarlinParity
@@ -5577,6 +5654,117 @@ struct ReferenceEngine::Impl {
         impl->model_weights.emplace(std::move(*weights.value));
         impl->load.binding = impl->model_weights->stats();
       }
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+      if (macrofeed_v3_requested) {
+        // MacroFeed-v3 keeps one ordinary layer-major RequestState (including
+        // its immutable RoPE suffix) and one complete target-AOT projection
+        // owner.  It must not allocate or reuse either legacy target-AOT/V2
+        // request owner or their separate Engine RoPE.
+        if (options.request_options.min_free_bytes_after_create >
+            std::numeric_limits<std::uint64_t>::max() -
+                kLayerMajorPrefillPromptWideP40RequestArenaBytes) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kArithmeticOverflow,
+              "macrofeed_v3_complete_resource_reserve",
+              "MacroFeed-v3 request arena and retained free-memory reserve "
+              "overflow uint64_t");
+          return result;
+        }
+        const std::uint64_t retained_margin =
+            options.request_options.min_free_bytes_after_create +
+            kLayerMajorPrefillPromptWideP40RequestArenaBytes;
+        const Clock::time_point asset_begin = Clock::now();
+        const Sm87TargetAotCompleteDevicePreparationStats preparation =
+            ReferenceEngine::
+                prepare_target_aot_complete_projection_device_assets(
+                    *impl->resident_weights, *impl->model_weights,
+                    retained_margin,
+                    impl->target_aot_complete_projection_device_assets);
+        impl->load.target_aot_complete_projection_device_asset_milliseconds =
+            elapsed_milliseconds(asset_begin);
+        if (preparation.hard_failure || !preparation.enabled ||
+            preparation.artifacts !=
+                kSm87TargetAotCompleteProjectionDeviceArtifactCount ||
+            preparation.sources !=
+                kSm87TargetAotCompleteProjectionDeviceSourceCount ||
+            preparation.arena_bytes !=
+                kSm87TargetAotCompleteProjectionDeviceArenaBytes ||
+            preparation.source_d2h_bytes !=
+                kSm87TargetAotCompleteProjectionCanonicalSourceD2hBytes ||
+            preparation.payload_h2d_bytes !=
+                kSm87TargetAotCompleteProjectionDeviceArenaBytes ||
+            preparation.verification_d2h_bytes !=
+                kSm87TargetAotCompleteProjectionDeviceArenaBytes ||
+            preparation.verified_payload_catalog_sha256.size() != 64U ||
+            preparation.owner_identity == 0U ||
+            preparation.allocation_identity == 0U ||
+            preparation.device_ordinal < 0) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              "macrofeed_v3_target_aot_complete_prepare",
+              preparation.message.empty()
+                  ? "MacroFeed-v3 did not receive its exact authenticated "
+                    "256-artifact/400-source target-AOT inventory"
+                  : preparation.message);
+          result.diagnostic.cuda_error = preparation.cuda_error;
+          return result;
+        }
+        if (!ReferenceEngine::
+                attach_target_aot_complete_projection_device_assets(
+                    *impl->model_weights,
+                    impl->target_aot_complete_projection_device_assets)) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              "macrofeed_v3_target_aot_complete_attach",
+              "MacroFeed-v3 complete target-AOT owner failed its private "
+              "ModelWeights attachment transaction");
+          return result;
+        }
+        impl->load.target_aot_complete_projection_device_assets_enabled =
+            true;
+        impl->load.target_aot_complete_projection_device_assets_attached =
+            true;
+        impl->load.target_aot_complete_projection_artifacts =
+            preparation.artifacts;
+        impl->load.target_aot_complete_projection_sources =
+            preparation.sources;
+        impl->load.target_aot_complete_projection_bytes =
+            preparation.arena_bytes;
+        impl->load.target_aot_complete_projection_source_d2h_bytes =
+            preparation.source_d2h_bytes;
+        impl->load.target_aot_complete_projection_payload_h2d_bytes =
+            preparation.payload_h2d_bytes;
+        impl->load.target_aot_complete_projection_verification_d2h_bytes =
+            preparation.verification_d2h_bytes;
+        impl->load.target_aot_complete_projection_catalog_sha256 =
+            preparation.verified_payload_catalog_sha256;
+        impl->load.target_aot_complete_projection_owner_identity =
+            preparation.owner_identity;
+        impl->load.target_aot_complete_projection_allocation_identity =
+            preparation.allocation_identity;
+        impl->load.target_aot_complete_projection_device_ordinal =
+            preparation.device_ordinal;
+
+        auto package = sm87_macrofeed_v3_p40_execution_package_detail::
+            Sm87MacroFeedV3P40ExecutionPackage::create(
+                *impl->model_weights);
+        if (!package || package.package == nullptr ||
+            !package.audit.valid()) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              "macrofeed_v3_execution_package",
+              package.status.context == nullptr
+                  ? "MacroFeed-v3 startup package failed closed"
+                  : package.status.context);
+          result.diagnostic.cuda_error = package.status.cuda_error;
+          result.diagnostic.layer = package.status.layer;
+          return result;
+        }
+        impl->macrofeed_v3_p40_execution_package =
+            std::move(package.package);
+      }
+#endif
 
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION) || \
     defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION)
@@ -5835,6 +6023,9 @@ struct ReferenceEngine::Impl {
                               kLayerWideP40ExactFullM ||
                       impl->prefill_mlp_schedule_tactic ==
                           LayerMajorPrefillMlpScheduleTactic::
+                              kPromptWideP40MacroFeedV3 ||
+                      impl->prefill_mlp_schedule_tactic ==
+                          LayerMajorPrefillMlpScheduleTactic::
                               kPromptWideP40WholeCore ||
                       impl->prefill_mlp_schedule_tactic ==
                           LayerMajorPrefillMlpScheduleTactic::
@@ -5849,6 +6040,9 @@ struct ReferenceEngine::Impl {
                   : LayerMajorRequestMlpLayout::kPanelLocalThreeSpan;
           layer_major_options.layout =
               impl->prefill_mlp_schedule_tactic ==
+                      LayerMajorPrefillMlpScheduleTactic::
+                          kPromptWideP40MacroFeedV3 ||
+                  impl->prefill_mlp_schedule_tactic ==
                       LayerMajorPrefillMlpScheduleTactic::
                           kPromptWideP40WholeCore ||
                   impl->prefill_mlp_schedule_tactic ==
@@ -5997,16 +6191,17 @@ struct ReferenceEngine::Impl {
           } else {
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
           const bool prepare_fp8_supermatrix =
-              !target_aot_assets_requested &&
+              !target_aot_assets_requested && !macrofeed_v3_requested &&
               options.prefill_projection_tactic ==
               LayerMajorPrefillProjectionTactic::
                   kNativePromptWideP40ProjectionReset;
 #else
           const bool prepare_fp8_supermatrix =
-              !target_aot_assets_requested;
+              !target_aot_assets_requested && !macrofeed_v3_requested;
 #endif
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
           if (!target_aot_assets_requested &&
+              !macrofeed_v3_requested &&
               !prepare_fp8_supermatrix) {
             const Clock::time_point fp8_marlin_begin = Clock::now();
             const Sm87Fp8MarlinPrefillPreparation fp8_marlin_preparation =
@@ -6070,6 +6265,7 @@ struct ReferenceEngine::Impl {
           }
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
           if (!target_aot_assets_requested &&
+              !macrofeed_v3_requested &&
               !prepare_p40_packed_nvfp4_v2 &&
               !prepare_p40_vllm_marlin_parity) {
             const Clock::time_point marlin_begin = Clock::now();
@@ -6697,11 +6893,19 @@ struct ReferenceEngine::Impl {
 
       if (options.prefill_execution_mode ==
           ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
+        const sm87_macrofeed_v3_p40_execution_package_detail::
+            Sm87MacroFeedV3P40ExecutionPackage* macrofeed_v3_package =
+                nullptr;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+        macrofeed_v3_package =
+            impl->macrofeed_v3_p40_execution_package.get();
+#endif
         reference_engine_detail::BoundPrefillPlanResult bound =
             reference_engine_detail::ReferenceEnginePrefillPlanFactory::bind(
                 &*impl->model_weights, &*impl->request_state,
                 &*impl->runner, options.prefill_projection_tactic,
-                options.prefill_full_attention_tactic);
+                options.prefill_full_attention_tactic,
+                macrofeed_v3_package);
         if (!bound) {
           result.diagnostic = runner_diagnostic(
               ReferenceEngineError::kRunnerFactoryFailure,
@@ -6841,6 +7045,15 @@ ReferenceEngine::operator bool() const noexcept {
       !impl_->request_state.has_value() || !impl_->runner.has_value()) {
     return false;
   }
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+  if (impl_->prefill_mlp_schedule_tactic ==
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40MacroFeedV3) {
+    return impl_->macrofeed_v3_p40_execution_package != nullptr &&
+           impl_->macrofeed_v3_p40_execution_package->valid() &&
+           impl_->macrofeed_v3_p40_execution_package->audit().valid() &&
+           impl_->bound_prefill_plan != nullptr;
+  }
+#endif
   const RequestMemoryProfile memory_profile =
       impl_->request_state->memory_profile();
   const bool layer_major_memory_profile =
@@ -8758,11 +8971,22 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.prefill_vllm_marlin_parity_layer_completion_receipt_count =
         step_context
             .prefill_vllm_marlin_parity_layer_completion_receipt_count;
+    generation.prefill_macrofeed_v3_transaction_receipt =
+        step_context.prefill_macrofeed_v3_transaction_receipt;
     generation.all_prompt_tokens_prefilled_by_tiles =
         control_options.prefill_all_prompt_tokens;
     generation.single_arbitrary_prefill_tiles =
         control_options.prefill_single_arbitrary_tile;
     generation.timing = std::move(control.value->timing);
+    if (generation.prefill_macrofeed_v3_transaction_receipt.has_value()) {
+      // The current controller commits whole-request state after the
+      // logits/LM-head/argmax finalizer.  Its continuous prompt interval is
+      // therefore a valid engine-local TTFT component, but not the pure
+      // Prefill boundary that ends at PrefillStateCommitted and excludes
+      // first-token finalization.  Keep the physical V3 transaction receipt
+      // independent while failing closed on pure-Prefill promotion.
+      generation.timing.prompt_prefill_phase_qualified = false;
+    }
     generation.prefill_route_evidence =
         impl_->runner->finalize_prefill_route_evidence(
             control.value->prefill_route_layer_pass_count);

@@ -44,6 +44,8 @@ constexpr std::string_view kOwnerIdentityDomain =
     "q3x.sm87.target-aot.complete-assets.owner.v2";
 constexpr std::string_view kAllocationIdentityDomain =
     "q3x.sm87.target-aot.complete-assets.allocation.v2";
+constexpr std::string_view kPhysicalDeviceIdentityDomain =
+    "q3x.sm87.target-aot.complete-assets.physical-device.v2";
 constexpr std::string_view kStreamIdentityDomain =
     "q3x.sm87.target-aot.complete-assets.stream.v2";
 constexpr std::string_view kEventIdentityDomain =
@@ -322,6 +324,27 @@ template <typename Unsigned>
                   hash_unsigned(hasher, first) &&
                   hash_unsigned(hasher, second) &&
                   hash_unsigned(hasher, third);
+  const std::uint64_t result = finish_identity(hasher);
+  return ok ? result : 0U;
+}
+
+[[nodiscard]] std::uint64_t make_physical_device_identity(
+    const std::int32_t device_ordinal, cudaError_t& status) noexcept {
+  cudaDeviceProp properties{};
+  status = cudaGetDeviceProperties(&properties, device_ordinal);
+  if (status != cudaSuccess) {
+    return 0U;
+  }
+  const bool uuid_present = std::any_of(
+      std::begin(properties.uuid.bytes), std::end(properties.uuid.bytes),
+      [](const char byte) noexcept { return byte != 0; });
+  if (!uuid_present) {
+    return 0U;
+  }
+  core::Sha256 hasher;
+  const bool ok = hash_string(hasher, kPhysicalDeviceIdentityDomain) &&
+                  hasher.update(properties.uuid.bytes,
+                                sizeof(properties.uuid.bytes));
   const std::uint64_t result = finish_identity(hasher);
   return ok ? result : 0U;
 }
@@ -1076,9 +1099,10 @@ Sm87TargetAotCompleteProjectionDeviceAssets::
         const_cast<ModelWeights*>(prepared_model_weights_);
     auto& attachment =
         model_weights->target_aot_complete_projection_attachment_;
-    if (attachment.owner == this &&
-        attachment.owner_identity == owner_identity_ &&
-        attachment.allocation_identity == allocation_identity_) {
+    // Pointer ownership, not a possibly poisoned identity snapshot, controls
+    // teardown.  Always clear a reverse attachment to this dying owner so a
+    // later ModelWeights destructor can never dereference a stale owner.
+    if (attachment.owner == this) {
       attachment = {};
     }
     execution_bound_ = false;
@@ -1105,6 +1129,7 @@ void Sm87TargetAotCompleteProjectionDeviceAssets::
   bytes_ = 0U;
   allocation_identity_ = 0U;
   owner_identity_ = 0U;
+  device_identity_ = 0U;
   device_ordinal_ = -1;
   descriptors_ = {};
   descriptor_count_ = 0U;
@@ -1191,6 +1216,15 @@ Sm87TargetAotCompleteProjectionDeviceAssets::prepare_online(
     result.hard_failure = true;
     result.cuda_error = static_cast<int>(status);
     result.message = "cudaGetDevice failed before complete target-AOT prepare";
+    return result;
+  }
+  const std::uint64_t device_identity =
+      make_physical_device_identity(device_ordinal, status);
+  if (status != cudaSuccess || device_identity == 0U) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "failed to authenticate the current CUDA physical device identity";
     return result;
   }
   cudaPointerAttributes resident_attributes{};
@@ -1295,11 +1329,11 @@ Sm87TargetAotCompleteProjectionDeviceAssets::prepare_online(
                                                      std::memory_order_relaxed);
   const std::uint64_t owner_identity = make_runtime_identity(
       kOwnerIdentityDomain, checkpoint_digest, transaction_serial,
-      static_cast<std::uint64_t>(device_ordinal), pending.bytes);
+      device_identity, pending.bytes);
   const std::uint64_t allocation_identity = make_runtime_identity(
       kAllocationIdentityDomain, checkpoint_digest, transaction_serial,
       owner_identity, pending.bytes,
-      static_cast<std::uint64_t>(device_ordinal));
+      device_identity);
   const std::uint64_t stream_identity = make_runtime_identity(
       kStreamIdentityDomain, checkpoint_digest, transaction_serial,
       owner_identity, 1U);
@@ -1501,6 +1535,7 @@ Sm87TargetAotCompleteProjectionDeviceAssets::prepare_online(
   descriptor_count_ = descriptors_.size();
   allocation_identity_ = allocation_identity;
   owner_identity_ = owner_identity;
+  device_identity_ = device_identity;
   device_ordinal_ = device_ordinal;
   prepared_resident_ = &resident;
   prepared_model_weights_ = &model_weights;
@@ -1512,6 +1547,7 @@ Sm87TargetAotCompleteProjectionDeviceAssets::prepare_online(
   result.arena_bytes = bytes_;
   result.owner_identity = owner_identity_;
   result.allocation_identity = allocation_identity_;
+  result.device_identity = device_identity_;
   result.device_ordinal = device_ordinal_;
   result.message =
       "prepared complete target-AOT v2 online owner; bundle operations remain disabled";

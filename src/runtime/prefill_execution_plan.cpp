@@ -88,8 +88,7 @@ prompt_wide_p40_vllm_marlin_parity_build_enabled() noexcept {
 
 [[nodiscard]] constexpr bool prompt_wide_p40_macrofeed_v3_build_enabled()
     noexcept {
-#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_ADMISSION) || \
-    defined(Q3X_BUILD_SM87_MACROFEED_V3_ADMISSION)
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
   return true;
 #else
   return false;
@@ -184,6 +183,12 @@ prompt_wide_p40_vllm_marlin_parity_build_enabled() noexcept {
     return !schedule.enabled &&
            schedule.request_memory_profile ==
                static_cast<RequestMemoryProfile>(0xffU) &&
+           schedule.fp8_gdn_input_physical_launches_per_request == 0U &&
+           schedule.fp8_full_input_physical_launches_per_request == 0U &&
+           schedule.fp8_output_physical_launches_per_request == 0U &&
+           schedule.fp8_physical_launches_per_request == 0U &&
+           schedule.bf16_ab_physical_launches_per_request == 0U &&
+           schedule.attention_whole_prompt_calls_per_request == 0U &&
            schedule.gate_up_physical_launches_per_request == 0U &&
            schedule.down_physical_launches_per_request == 0U &&
            schedule.gdn_layer_count == 0U &&
@@ -211,6 +216,18 @@ prompt_wide_p40_vllm_marlin_parity_build_enabled() noexcept {
          plan.panel_count == kLayerMajorPrefillPromptWideP40PanelCount &&
          schedule.request_memory_profile ==
              RequestMemoryProfile::kLayerMajorP40WholeCore &&
+         schedule.fp8_gdn_input_physical_launches_per_request ==
+             kLayerMajorPrefillMacroFeedV3Fp8GdnInputPhysicalLaunchesPerRequest &&
+         schedule.fp8_full_input_physical_launches_per_request ==
+             kLayerMajorPrefillMacroFeedV3Fp8FullInputPhysicalLaunchesPerRequest &&
+         schedule.fp8_output_physical_launches_per_request ==
+             kLayerMajorPrefillMacroFeedV3Fp8OutputPhysicalLaunchesPerRequest &&
+         schedule.fp8_physical_launches_per_request ==
+             kLayerMajorPrefillMacroFeedV3Fp8PhysicalLaunchesPerRequest &&
+         schedule.bf16_ab_physical_launches_per_request ==
+             kLayerMajorPrefillMacroFeedV3Bf16AbPhysicalLaunchesPerRequest &&
+         schedule.attention_whole_prompt_calls_per_request ==
+             kLayerMajorPrefillMacroFeedV3AttentionWholePromptCallsPerRequest &&
          schedule.gate_up_physical_launches_per_request ==
              kLayerMajorPrefillMacroFeedV3GateUpPhysicalLaunchesPerRequest &&
          schedule.down_physical_launches_per_request ==
@@ -1073,6 +1090,18 @@ PrefillExecutionPlanResult build_unbound_layer_major_prefill_execution_plan(
     schedule.enabled = true;
     schedule.request_memory_profile =
         RequestMemoryProfile::kLayerMajorP40WholeCore;
+    schedule.fp8_gdn_input_physical_launches_per_request =
+        kLayerMajorPrefillMacroFeedV3Fp8GdnInputPhysicalLaunchesPerRequest;
+    schedule.fp8_full_input_physical_launches_per_request =
+        kLayerMajorPrefillMacroFeedV3Fp8FullInputPhysicalLaunchesPerRequest;
+    schedule.fp8_output_physical_launches_per_request =
+        kLayerMajorPrefillMacroFeedV3Fp8OutputPhysicalLaunchesPerRequest;
+    schedule.fp8_physical_launches_per_request =
+        kLayerMajorPrefillMacroFeedV3Fp8PhysicalLaunchesPerRequest;
+    schedule.bf16_ab_physical_launches_per_request =
+        kLayerMajorPrefillMacroFeedV3Bf16AbPhysicalLaunchesPerRequest;
+    schedule.attention_whole_prompt_calls_per_request =
+        kLayerMajorPrefillMacroFeedV3AttentionWholePromptCallsPerRequest;
     schedule.gate_up_physical_launches_per_request =
         kLayerMajorPrefillMacroFeedV3GateUpPhysicalLaunchesPerRequest;
     schedule.down_physical_launches_per_request =

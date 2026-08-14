@@ -4,11 +4,16 @@
 #include "q3x/runtime/reference_runner.h"
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string_view>
+
+namespace q3x::runtime::sm87_macrofeed_v3_p40_execution_package_detail {
+class Sm87MacroFeedV3P40ExecutionPackage;
+}
 
 namespace q3x::runtime::reference_engine_detail {
 
@@ -71,6 +76,10 @@ enum class NativePrefillTactic : std::uint8_t {
   // kResidualOperatorPanel role and may not be reported as fused here.
   kNvfp4GateUpP40VllmMarlinParity,
   kNvfp4DownBranchP40VllmMarlinParity,
+  kNvfp4GateUpP40MacroFeedV3,
+  kNvfp4DownResidualP40MacroFeedV3,
+  kFp8P40MacroFeedV3RoleSpecialized,
+  kExactGdnP40MacroFeedV3,
 };
 
 // Compile-inventory fact only; device resources are still queried by bind().
@@ -125,7 +134,10 @@ class BoundPrefillExecutionPlan final {
           submission_events,
       std::array<NativePrefillRoleReceipt,
                  kLayerMajorPrefillRequiredOperatorRoleCount>
-          roles) noexcept;
+          roles,
+      const sm87_macrofeed_v3_p40_execution_package_detail::
+          Sm87MacroFeedV3P40ExecutionPackage* macrofeed_v3_package = nullptr,
+      std::uint64_t macrofeed_v3_package_identity = 0U) noexcept;
 
   const ModelWeights* weights_ = nullptr;
   RequestState* state_ = nullptr;
@@ -152,6 +164,12 @@ class BoundPrefillExecutionPlan final {
   std::array<NativePrefillRoleReceipt,
              kLayerMajorPrefillRequiredOperatorRoleCount>
       roles_{};
+  const sm87_macrofeed_v3_p40_execution_package_detail::
+      Sm87MacroFeedV3P40ExecutionPackage* macrofeed_v3_package_ = nullptr;
+  std::uint64_t macrofeed_v3_package_identity_ = 0U;
+  // One Engine-bound monotonic request serial. It is consumed only by V3 and
+  // never reset or inferred from caller-visible request data.
+  mutable std::atomic<std::uint64_t> macrofeed_v3_next_request_identity_{1U};
 
   friend class ReferenceEnginePrefillPlanFactory;
   friend class ReferenceEnginePrefillExecutor;
@@ -190,12 +208,16 @@ class BoundPrefillRequestReceipt final {
   BoundPrefillRequestReceipt(
       const BoundPrefillExecutionPlan* plan,
       ReferenceRunner* runner,
-      const PrefillExecutionPlan& geometry) noexcept;
+      const PrefillExecutionPlan& geometry,
+      std::uint64_t macrofeed_v3_request_identity = 0U) noexcept;
 
   const BoundPrefillExecutionPlan* plan_ = nullptr;
   ReferenceRunner* runner_ = nullptr;
   PrefillExecutionPlan geometry_{};
   Phase phase_ = Phase::kAwaitingExecution;
+  std::uint64_t macrofeed_v3_request_identity_ = 0U;
+  std::optional<Sm87MacroFeedV3TransactionReceipt>
+      macrofeed_v3_transaction_receipt_;
 
   friend class ReferenceEnginePrefillExecutor;
 };
@@ -206,7 +228,10 @@ class ReferenceEnginePrefillPlanFactory final {
       const ModelWeights* weights, RequestState* state,
       ReferenceRunner* runner,
       LayerMajorPrefillProjectionTactic projection_tactic,
-      LayerMajorPrefillFullAttentionTactic full_attention_tactic) noexcept;
+      LayerMajorPrefillFullAttentionTactic full_attention_tactic,
+      const sm87_macrofeed_v3_p40_execution_package_detail::
+          Sm87MacroFeedV3P40ExecutionPackage* macrofeed_v3_package = nullptr)
+      noexcept;
 };
 
 // Same-ELF, thread-local correctness oracle selector. Production execution
@@ -246,6 +271,9 @@ class ReferenceEnginePrefillExecutor final {
   [[nodiscard]] static bool plan_matches_runner(
       const BoundPrefillExecutionPlan& plan,
       const ReferenceRunner& runner) noexcept;
+  [[nodiscard]] static bool macrofeed_v3_receipt_matches_plan(
+      const BoundPrefillExecutionPlan& plan,
+      const BoundPrefillRequestReceipt& receipt) noexcept;
 };
 
 }  // namespace q3x::runtime::reference_engine_detail

@@ -52,6 +52,8 @@ inline constexpr std::uint32_t
 inline constexpr std::uint32_t
     kLayerMajorPrefillPromptWideP40RequestCapacityTokens =
         kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens;
+inline constexpr std::uint64_t
+    kLayerMajorPrefillPromptWideP40RequestArenaBytes = 8'640'542'976ULL;
 // The projection-reset candidate preserves the same exact P40000 request
 // boundary, but replaces the old five-panel FP8 physical inventory with one
 // grouped full-prompt input launch and one full-prompt O launch per layer.
@@ -154,9 +156,25 @@ inline constexpr std::size_t
 inline constexpr std::size_t
     kLayerMajorPrefillVllmMarlinParityAuthenticatedSourceCount = 192U;
 // AC-PREFILL-SM87-MACROFEED-v3 is a complete-route overlay on the retained
-// v10 P40 control topology. These are physical full-request counts, not
-// logical role forecasts: one Gate+Up and one Down macro launch per layer,
-// plus nine exact large-macrochunk launches for each of the 48 GDN layers.
+// v10 P40 control topology. These are exact full-request execution counts,
+// not logical role forecasts. FP8 records the 48 GDN inputs, 16 Full inputs,
+// and 64 output projections independently; BF16 A/B is one fused launch for
+// each GDN layer; Attention is one whole-prompt backend call per Full layer.
+inline constexpr std::size_t
+    kLayerMajorPrefillMacroFeedV3Fp8GdnInputPhysicalLaunchesPerRequest = 48U;
+inline constexpr std::size_t
+    kLayerMajorPrefillMacroFeedV3Fp8FullInputPhysicalLaunchesPerRequest = 16U;
+inline constexpr std::size_t
+    kLayerMajorPrefillMacroFeedV3Fp8OutputPhysicalLaunchesPerRequest = 64U;
+inline constexpr std::size_t
+    kLayerMajorPrefillMacroFeedV3Fp8PhysicalLaunchesPerRequest =
+        kLayerMajorPrefillMacroFeedV3Fp8GdnInputPhysicalLaunchesPerRequest +
+        kLayerMajorPrefillMacroFeedV3Fp8FullInputPhysicalLaunchesPerRequest +
+        kLayerMajorPrefillMacroFeedV3Fp8OutputPhysicalLaunchesPerRequest;
+inline constexpr std::size_t
+    kLayerMajorPrefillMacroFeedV3Bf16AbPhysicalLaunchesPerRequest = 48U;
+inline constexpr std::size_t
+    kLayerMajorPrefillMacroFeedV3AttentionWholePromptCallsPerRequest = 16U;
 inline constexpr std::size_t
     kLayerMajorPrefillMacroFeedV3GateUpPhysicalLaunchesPerRequest = 64U;
 inline constexpr std::size_t
@@ -267,6 +285,22 @@ static_assert(kLayerMajorPrefillVllmMarlinParityArtifactCount ==
               kLayerMajorPrefillPackedNvfp4V2ArtifactCount);
 static_assert(kLayerMajorPrefillVllmMarlinParityAuthenticatedSourceCount ==
               kLayerMajorPrefillPackedNvfp4V2AuthenticatedSourceCount);
+static_assert(
+    kLayerMajorPrefillMacroFeedV3Fp8GdnInputPhysicalLaunchesPerRequest ==
+    kLayerMajorPrefillLinearLayerCount);
+static_assert(
+    kLayerMajorPrefillMacroFeedV3Fp8FullInputPhysicalLaunchesPerRequest ==
+    kLayerMajorPrefillFullLayerCount);
+static_assert(
+    kLayerMajorPrefillMacroFeedV3Fp8OutputPhysicalLaunchesPerRequest ==
+    kLayerMajorPrefillLayerCount);
+static_assert(kLayerMajorPrefillMacroFeedV3Fp8PhysicalLaunchesPerRequest ==
+              128U);
+static_assert(kLayerMajorPrefillMacroFeedV3Bf16AbPhysicalLaunchesPerRequest ==
+              kLayerMajorPrefillLinearLayerCount);
+static_assert(
+    kLayerMajorPrefillMacroFeedV3AttentionWholePromptCallsPerRequest ==
+    kLayerMajorPrefillFullLayerCount);
 static_assert(kLayerMajorPrefillMacroFeedV3GateUpPhysicalLaunchesPerRequest ==
               kLayerMajorPrefillLayerCount);
 static_assert(kLayerMajorPrefillMacroFeedV3DownPhysicalLaunchesPerRequest ==
@@ -634,6 +668,7 @@ enum class PrefillFp8ArithmeticTactic : std::uint8_t {
   kP8000FillDrainSingleBulk,
   kP40000GroupedInputAndOutputSingleBulk,
   kP40000PackedRoleSpecialized,
+  kP40000MacroFeedV3RoleSpecialized,
 };
 
 enum class PrefillNvFp4ArithmeticTactic : std::uint8_t {
@@ -645,11 +680,13 @@ enum class PrefillNvFp4ArithmeticTactic : std::uint8_t {
   kP40000PackedGateUpSiluDownResidual,
   kP40000PackedShapeSpecificV2GateUpSiluDownResidual,
   kP40000VllmMarlinProjectionHostDispatchGateThenUpSiluDownResidual,
+  kP40000MacroFeedV3GateUpSiluDownResidual,
 };
 
 enum class PrefillGdnArithmeticTactic : std::uint8_t {
   kOracleSpanWholeRawQkv = 0,
   kPromptWideP40ChunkGraph,
+  kPromptWideP40MacroFeedV3Exact,
 };
 
 enum class PrefillAttentionPreprocessArithmeticTactic : std::uint8_t {
@@ -972,6 +1009,41 @@ inline constexpr LayerMajorPrefillArithmeticContract
         true,
         true};
 
+// MacroFeed-v3 keeps the exact whole-prompt BF16 A/B and FlashInfer
+// boundaries, but replaces every quantized projection family and the GDN
+// graph with its own authenticated P40000 target-AOT constituent. A distinct
+// arithmetic version prevents any earlier whole-core receipt from being
+// relabelled as the complete V3 package.
+inline constexpr LayerMajorPrefillArithmeticContract
+    kLayerMajorPrefillPromptWideP40MacroFeedV3ArithmeticContract{
+        11U,
+        PrefillBf16AbArithmeticTactic::kPromptWideP40SingleGrid,
+        PrefillFp8ArithmeticTactic::kP40000MacroFeedV3RoleSpecialized,
+        PrefillNvFp4ArithmeticTactic::
+            kP40000MacroFeedV3GateUpSiluDownResidual,
+        PrefillGdnArithmeticTactic::kPromptWideP40MacroFeedV3Exact,
+        PrefillAttentionPreprocessArithmeticTactic::
+            kP8000FillWholePromptFlashInferDrain,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+        true,
+        true,
+        true};
+
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_arithmetic_contract(
     const LayerMajorPrefillArithmeticContract& contract) noexcept {
   const bool common =
@@ -1233,6 +1305,37 @@ inline constexpr LayerMajorPrefillArithmeticContract
       contract.p40000_bf16_ab_prompt_wide &&
       contract.p40000_gdn_prompt_wide &&
       contract.p40000_flashinfer_whole_prompt;
+  const bool prompt_wide_p40_macrofeed_v3 =
+      contract.version == 11U &&
+      contract.bf16_ab ==
+          PrefillBf16AbArithmeticTactic::kPromptWideP40SingleGrid &&
+      contract.fp8 ==
+          PrefillFp8ArithmeticTactic::kP40000MacroFeedV3RoleSpecialized &&
+      contract.nvfp4 == PrefillNvFp4ArithmeticTactic::
+                             kP40000MacroFeedV3GateUpSiluDownResidual &&
+      contract.gdn ==
+          PrefillGdnArithmeticTactic::kPromptWideP40MacroFeedV3Exact &&
+      contract.attention_preprocess ==
+          PrefillAttentionPreprocessArithmeticTactic::
+              kP8000FillWholePromptFlashInferDrain &&
+      !contract.reset_fp8_locks_per_projection_span &&
+      !contract.nvfp4_interleaves_gate_silu_down_per_span &&
+      !contract.nvfp4_down_reuses_gate_up_locks &&
+      !contract.nvfp4_residual_follows_down_per_span &&
+      !contract.m8192_single_bulk_projection &&
+      !contract.m8192_fp8_resets_locks_once &&
+      !contract.m8192_nvfp4_uses_independent_down_workspace &&
+      !contract.m8192_nvfp4_residual_once_after_bulk &&
+      !contract.nvfp4_true_large_m_m8192 &&
+      !contract.nvfp4_true_large_m_m7712 &&
+      contract.nvfp4_gate_up_down_coupled &&
+      contract.p40000_post_attention_norm_prompt_wide &&
+      contract.p40000_persistent_gate_up_silu &&
+      contract.p40000_persistent_down_residual &&
+      !contract.p8000_fp8_fill_drain_single_bulk &&
+      contract.p40000_bf16_ab_prompt_wide &&
+      contract.p40000_gdn_prompt_wide &&
+      contract.p40000_flashinfer_whole_prompt;
   return common &&
          ((legacy_common &&
            (exact || exact_marlin_m8192 || segmented_marlin ||
@@ -1241,7 +1344,8 @@ inline constexpr LayerMajorPrefillArithmeticContract
           prompt_wide_p40_projection_reset ||
           prompt_wide_p40_packed_projection ||
           prompt_wide_p40_packed_nvfp4_v2 ||
-          prompt_wide_p40_vllm_marlin_parity);
+          prompt_wide_p40_vllm_marlin_parity ||
+          prompt_wide_p40_macrofeed_v3);
 }
 
 static_assert(kLayerMajorPrefillMaximumArithmeticSpanCount == 16U);
@@ -1265,6 +1369,8 @@ static_assert(is_valid_layer_major_prefill_arithmetic_contract(
     kLayerMajorPrefillPromptWideP40PackedNvfp4V2ArithmeticContract));
 static_assert(is_valid_layer_major_prefill_arithmetic_contract(
     kLayerMajorPrefillPromptWideP40VllmMarlinParityArithmeticContract));
+static_assert(is_valid_layer_major_prefill_arithmetic_contract(
+    kLayerMajorPrefillPromptWideP40MacroFeedV3ArithmeticContract));
 static_assert(is_valid_layer_major_prefill_arithmetic_span_ledger(
     make_layer_major_prefill_arithmetic_span_ledger(513U)));
 
@@ -1472,11 +1578,20 @@ struct PrefillP40MacroFeedV3SchedulePlan {
   bool enabled = false;
   RequestMemoryProfile request_memory_profile =
       static_cast<RequestMemoryProfile>(0xffU);
+  std::size_t fp8_gdn_input_physical_launches_per_request = 0U;
+  std::size_t fp8_full_input_physical_launches_per_request = 0U;
+  std::size_t fp8_output_physical_launches_per_request = 0U;
+  std::size_t fp8_physical_launches_per_request = 0U;
+  std::size_t bf16_ab_physical_launches_per_request = 0U;
+  std::size_t attention_whole_prompt_calls_per_request = 0U;
   std::size_t gate_up_physical_launches_per_request = 0U;
   std::size_t down_physical_launches_per_request = 0U;
   std::size_t gdn_layer_count = 0U;
   std::size_t gdn_physical_launches_per_layer = 0U;
   std::size_t gdn_physical_launches_per_request = 0U;
+  // This legacy-named subtotal intentionally covers the three changed
+  // physical macro families only: GateUp, Down, and GDN. FP8, BF16 A/B, and
+  // the whole-prompt Attention calls remain independently receipted above.
   std::size_t tracked_physical_launches_per_request = 0U;
   bool v10_whole_core_topology_required = false;
   bool v10_request_memory_profile_required = false;

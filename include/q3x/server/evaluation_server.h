@@ -62,6 +62,8 @@ enum class EvaluationServerEngineRouteContractError : std::uint8_t {
   kTargetRequiresExactRequestArenaCapacity,
   kTargetRequiresFixedC512HostChunk,
   kTargetRequiresNeutralLegacyPrefillSelectors,
+  kMacroFeedRequiresExactRequestArenaCapacity,
+  kMacroFeedRequiresExactPrefillSelectors,
   kPrefillPlanUnavailable,
 };
 
@@ -71,8 +73,53 @@ validate_evaluation_server_engine_route_contract(
   if (!runtime::is_valid_reference_generation_route(options.engine_route)) {
     return EvaluationServerEngineRouteContractError::kInvalidRoute;
   }
-  if (options.engine_route ==
-      runtime::ReferenceGenerationRoute::kReference) {
+  const bool macrofeed_v3 =
+      options.prefill_projection_tactic ==
+      runtime::LayerMajorPrefillProjectionTactic::
+          kNativePromptWideP40MacroFeedV3;
+  if (options.engine_route == runtime::ReferenceGenerationRoute::kReference &&
+      !macrofeed_v3) {
+    return EvaluationServerEngineRouteContractError::kNone;
+  }
+  if (macrofeed_v3) {
+    if (options.engine_route !=
+            runtime::ReferenceGenerationRoute::kReference ||
+        options.prefill_execution_mode != runtime::
+            ReferencePrefillExecutionMode::kWholeRequestLayerMajor ||
+        options.prefill_full_attention_tactic != runtime::
+            LayerMajorPrefillFullAttentionTactic::
+                kNativeFlashInferExactWholePrompt) {
+      return EvaluationServerEngineRouteContractError::
+          kMacroFeedRequiresExactPrefillSelectors;
+    }
+    if (options.max_sequence_length != runtime::
+            kLayerMajorPrefillPromptWideP40RequestCapacityTokens) {
+      return EvaluationServerEngineRouteContractError::
+          kTargetRequiresExactP40001Capacity;
+    }
+    if (options.maximum_output_tokens != 1U) {
+      return EvaluationServerEngineRouteContractError::
+          kTargetRequiresOneOutputToken;
+    }
+    if (options.projection_backend !=
+        runtime::ProjectionBackend::kSm87WeightOnly) {
+      return EvaluationServerEngineRouteContractError::
+          kTargetRequiresSm87ProjectionBackend;
+    }
+    if (options.request_max_arena_bytes < runtime::
+            kLayerMajorPrefillPromptWideP40RequestArenaBytes) {
+      return EvaluationServerEngineRouteContractError::
+          kMacroFeedRequiresExactRequestArenaCapacity;
+    }
+    if (options.prefill_chunk_size !=
+        runtime::kMaximumRequestPrefillChunkSize) {
+      return EvaluationServerEngineRouteContractError::
+          kTargetRequiresFixedC512HostChunk;
+    }
+    if (!runtime::prompt_wide_p40_macrofeed_v3_prefill_plan_enabled()) {
+      return EvaluationServerEngineRouteContractError::
+          kPrefillPlanUnavailable;
+    }
     return EvaluationServerEngineRouteContractError::kNone;
   }
   // Both complete P40 routes own their execution geometry.  Neither may
@@ -150,6 +197,14 @@ validate_evaluation_server_engine_route_contract(
         kTargetRequiresNeutralLegacyPrefillSelectors:
       return "complete P40 routes cannot be combined with layer-major or "
              "non-default legacy Prefill tactic selectors";
+    case EvaluationServerEngineRouteContractError::
+        kMacroFeedRequiresExactRequestArenaCapacity:
+      return "MacroFeed V3 requires --request-max-arena-bytes of at least "
+             "8640542976";
+    case EvaluationServerEngineRouteContractError::
+        kMacroFeedRequiresExactPrefillSelectors:
+      return "MacroFeed V3 requires the reference route, layer-major "
+             "Prefill, and whole-prompt FlashInfer Attention";
     case EvaluationServerEngineRouteContractError::kPrefillPlanUnavailable:
       return "selected complete-engine Prefill plan is unavailable in this "
              "binary";

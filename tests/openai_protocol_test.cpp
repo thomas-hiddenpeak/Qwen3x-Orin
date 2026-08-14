@@ -1,7 +1,9 @@
 #include "q3x/io/json.h"
 #include "q3x/server/evaluation_server.h"
 #include "q3x/server/openai_protocol.h"
+#include "../src/runtime/sm87_macrofeed_v3_receipt_internal.h"
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -14,6 +16,55 @@
 namespace {
 
 namespace server = q3x::server;
+namespace runtime = q3x::runtime;
+namespace macrofeed_v3_issuer =
+    q3x::runtime::macrofeed_v3_receipt_detail;
+
+[[nodiscard]] runtime::Sm87MacroFeedV3TransactionReceipt
+make_macrofeed_v3_t0_transaction() {
+  constexpr std::uint64_t kRequestIdentity =
+      0x5133'584d'4633'5034ULL;
+  std::array<runtime::Sm87MacroFeedV3LayerReceipt,
+             runtime::kSm87MacroFeedV3ReceiptLayerCount>
+      layers{};
+  for (std::size_t layer = 0U; layer < layers.size(); ++layer) {
+    runtime::Sm87MacroFeedV3LayerReceipt observed;
+    observed.request_identity = kRequestIdentity;
+    observed.layer_index = layer;
+    observed.layer_type = runtime::sm87_macrofeed_v3_expected_layer_type(layer);
+    const std::uint64_t first_artifact = 1'000U + layer * 4U;
+    observed.artifacts = {first_artifact, first_artifact + 1U,
+                          first_artifact + 2U, first_artifact + 3U};
+    observed.physical_identity = {101U, 102U, 103U, 104U, 105U, 0};
+    observed.physical_counts.fp8_input = 1U;
+    observed.physical_counts.fp8_output = 1U;
+    observed.physical_counts.nvfp4_gate_up = 1U;
+    observed.physical_counts.nvfp4_down = 1U;
+    if (observed.layer_type == runtime::Sm87MacroFeedV3LayerType::kGdn) {
+      observed.physical_counts.bf16_ab = 1U;
+      observed.physical_counts.gdn = 9U;
+    } else {
+      observed.physical_counts.attention_calls = 1U;
+      observed.physical_counts.attention_preprocess =
+          runtime::kSm87MacroFeedV3ReceiptAttentionPreprocessPerLayer;
+      observed.attention_preprocess_count_observed = true;
+    }
+    observed.fill_completed = true;
+    observed.drain_completed = true;
+    observed.completion_observed = true;
+    layers[layer] = macrofeed_v3_issuer::seal_layer_receipt(observed);
+  }
+
+  runtime::Sm87MacroFeedV3TransactionReceipt transaction;
+  // A test-only T0 issuer fixture proves protocol fail-closed serialization;
+  // it is not evidence that CUDA work ran or that V3 is production-qualified.
+  if (!macrofeed_v3_issuer::build_transaction_receipt(
+          kRequestIdentity, layers.data(), layers.size(), true,
+          &transaction)) {
+    return {};
+  }
+  return transaction;
+}
 
 class TestContext {
  public:
@@ -1537,6 +1588,83 @@ void test_target_prefill_witness_evidence(TestContext& test) {
       "v17 fails closed when one authenticated executor layer receipt is "
       "missing");
 
+  server::TargetPrefillWitnessRecord macrofeed_v3_p40_record =
+      whole_core_p40_record;
+  macrofeed_v3_p40_record.projection_backend =
+      runtime::ProjectionBackend::kSm87WeightOnly;
+  macrofeed_v3_p40_record.mlp_schedule_tactic = runtime::
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40MacroFeedV3;
+  macrofeed_v3_p40_record.prompt_wide_p40_fp8_projection_hits =
+      runtime::kLayerMajorPrefillMacroFeedV3Fp8PhysicalLaunchesPerRequest;
+  macrofeed_v3_p40_record
+      .prompt_wide_p40_fp8_projection_physical_launches =
+      runtime::kLayerMajorPrefillMacroFeedV3Fp8PhysicalLaunchesPerRequest;
+  macrofeed_v3_p40_record.target_aot_complete_projection_artifacts = 256U;
+  macrofeed_v3_p40_record.target_aot_complete_projection_sources = 400U;
+  macrofeed_v3_p40_record
+      .target_aot_complete_projection_catalog_sha256 = std::string(64U, 'c');
+  macrofeed_v3_p40_record.macrofeed_v3_transaction_receipt =
+      make_macrofeed_v3_t0_transaction();
+  macrofeed_v3_p40_record.deployment_plan_id = runtime::
+      kLayerMajorNativePromptWideP40MacroFeedV3DeploymentPlanId;
+  macrofeed_v3_p40_record.pure_prefill = {
+      "engine_prompt_prefill", std::nullopt,
+      "macrofeed_v3_interval_includes_first_token_finalization"};
+  macrofeed_v3_p40_record.pure_prefill_phase_qualified = false;
+  const std::string macrofeed_v3_p40_serialized =
+      server::serialize_target_prefill_witness(macrofeed_v3_p40_record);
+  test.expect(
+      valid_json(macrofeed_v3_p40_serialized) &&
+          macrofeed_v3_p40_serialized.find(
+              R"("record":"target-prefill-witness-v18","schema_version":18)") !=
+              std::string::npos &&
+          macrofeed_v3_p40_serialized.find(
+              R"("complete_engine_route":"sm87-macrofeed-v3-p40","projection_tactic":"native-p40-target-aot-macrofeed-v3","mlp_schedule":"prompt-wide-p40-macrofeed-v3","attention_tactic":"native-flashinfer-exact-whole-prompt","package_complete":true)") !=
+              std::string::npos &&
+          macrofeed_v3_p40_serialized.find(
+              R"("pure_prefill":{"available":false,"scope":"engine_prompt_prefill","milliseconds":null,"unavailable_reason":"macrofeed_v3_interval_includes_first_token_finalization"})") !=
+              std::string::npos &&
+          macrofeed_v3_p40_serialized.find(
+              R"("phase_qualification":{"pure_prefill_promotion_eligible":false,"server_response_timing_available":true,"external_api_e2e_measurement_eligible":true,"external_api_e2e_source":"external_framework_transaction","reason":"macrofeed_v3_interval_includes_first_token_finalization"})") !=
+              std::string::npos &&
+          macrofeed_v3_p40_serialized.find(
+              R"("physical_launches":{"fp8_input":64,"fp8_output":64,"fp8_total":128,"nvfp4_gate_up":64,"nvfp4_down":64,"bf16_ab":48,"gdn":432,"attention_calls":16,"attention_preprocess":80})") !=
+              std::string::npos &&
+          macrofeed_v3_p40_serialized.find(
+              R"("layer_receipt_count":64,"request_completion_observed":true,"complete":true,"receipt_authority":"physical-execution-only","numerical_qualification":false,"production_dispatch_eligible":false,"used_fallback":false,"used_mtp":false,"used_cublaslt":false,"used_request_jit":false,"used_request_repack":false,"used_request_autotune":false)") !=
+              std::string::npos &&
+          macrofeed_v3_p40_serialized.find(
+              R"("qualification":"accuracy-unqualified-architecture-candidate")") !=
+              std::string::npos,
+      "v18 exposes only a complete 64-layer physical V3 transaction without "
+      "claiming numerical or production qualification");
+
+  server::TargetPrefillWitnessRecord macrofeed_v3_missing_transaction =
+      macrofeed_v3_p40_record;
+  macrofeed_v3_missing_transaction.macrofeed_v3_transaction_receipt.reset();
+  server::TargetPrefillWitnessRecord macrofeed_v3_tampered_transaction =
+      macrofeed_v3_p40_record;
+  --macrofeed_v3_tampered_transaction.macrofeed_v3_transaction_receipt
+        ->aggregate.fp8;
+  const auto macrofeed_v3_fails_closed = [](const auto& value) {
+    const std::string serialized =
+        server::serialize_target_prefill_witness(value);
+    return valid_json(serialized) &&
+           serialized.find(R"("package_complete":false)") !=
+               std::string::npos;
+  };
+  test.expect(
+      macrofeed_v3_fails_closed(macrofeed_v3_missing_transaction) &&
+          macrofeed_v3_fails_closed(macrofeed_v3_tampered_transaction),
+      "v18 fails closed when its transaction is absent or post-seal counts "
+      "are tampered");
+  server::TargetPrefillWitnessRecord macrofeed_v3_two_outputs =
+      macrofeed_v3_p40_record;
+  macrofeed_v3_two_outputs.completion_tokens = 2U;
+  test.expect(
+      macrofeed_v3_fails_closed(macrofeed_v3_two_outputs),
+      "v18 physical package completeness requires exactly one output token");
+
   server::TargetPrefillWitnessRecord v14_with_v15_only_fields =
       packed_nvfp4_v2_p40_record;
   v14_with_v15_only_fields.vllm_marlin_parity_gate_up_hits = 64U;
@@ -1709,6 +1837,58 @@ void test_complete_engine_route_contract(TestContext& test) {
       server::validate_evaluation_server_engine_route_contract(options) ==
           EvaluationServerEngineRouteContractError::kNone,
       "the existing reference route remains the valid default");
+
+  server::EvaluationServerOptions macrofeed_v3;
+  macrofeed_v3.prefill_projection_tactic = q3x::runtime::
+      LayerMajorPrefillProjectionTactic::
+          kNativePromptWideP40MacroFeedV3;
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(
+          macrofeed_v3) == EvaluationServerEngineRouteContractError::
+                              kMacroFeedRequiresExactPrefillSelectors,
+      "MacroFeed V3 rejects the legacy execution and Attention selectors");
+  macrofeed_v3.prefill_execution_mode = q3x::runtime::
+      ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+  macrofeed_v3.prefill_full_attention_tactic = q3x::runtime::
+      LayerMajorPrefillFullAttentionTactic::
+          kNativeFlashInferExactWholePrompt;
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(
+          macrofeed_v3) == EvaluationServerEngineRouteContractError::
+                              kTargetRequiresExactP40001Capacity,
+      "MacroFeed V3 rejects the adapter's default P8192 capacity");
+  macrofeed_v3.max_sequence_length = q3x::runtime::
+      kLayerMajorPrefillPromptWideP40RequestCapacityTokens;
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(
+          macrofeed_v3) == EvaluationServerEngineRouteContractError::
+                              kTargetRequiresOneOutputToken,
+      "MacroFeed V3 rejects a multi-token output contract");
+  macrofeed_v3.maximum_output_tokens = 1U;
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(
+          macrofeed_v3) == EvaluationServerEngineRouteContractError::
+                              kMacroFeedRequiresExactRequestArenaCapacity,
+      "MacroFeed V3 rejects the legacy two-GiB arena ceiling");
+  macrofeed_v3.request_max_arena_bytes = q3x::runtime::
+      kLayerMajorPrefillPromptWideP40RequestArenaBytes;
+  const bool macrofeed_v3_compiled = q3x::runtime::
+      prompt_wide_p40_macrofeed_v3_prefill_plan_enabled();
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(
+          macrofeed_v3) ==
+          (macrofeed_v3_compiled
+               ? EvaluationServerEngineRouteContractError::kNone
+               : EvaluationServerEngineRouteContractError::
+                     kPrefillPlanUnavailable),
+      "MacroFeed V3 exact API geometry remains distinct from binary "
+      "availability");
+  macrofeed_v3.maximum_output_tokens = 2U;
+  test.expect(
+      server::validate_evaluation_server_engine_route_contract(
+          macrofeed_v3) == EvaluationServerEngineRouteContractError::
+                              kTargetRequiresOneOutputToken,
+      "MacroFeed V3 cannot widen the frozen one-token API witness");
 
   options.engine_route = ReferenceGenerationRoute::kSm87TargetAotP40;
   test.expect(

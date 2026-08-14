@@ -494,28 +494,67 @@ infrastructure only because the request did not complete and the architecture
 is performance-rejected.
 
 The selected translation successor is
-`AC-PREFILL-SM87-MACROFEED-v3`. It preserves the completed v10 API/control and
-FlashInfer Attention substrate. Projection changes to role-specific,
-non-cooperative macro GEMMs beginning at an M128/N256/K64-class CTA geometry;
-Gate+Up, K-heavy Down, and FP8 retain separate feeds. Exact GDN retains the 48
-value-head ownership and BF16 per-token recurrence/publication semantics, but
-moves from 30,000 C64 producer/recurrence/epilogue submissions to a
-layer-persistent or large-macrochunk graph targeting O(10) kernels per GDN
-layer. A V3 receipt must report physical launches actually executed across the
-full model. V3 returns to P40 first; none of these requirements is an
-implemented performance claim.
+`AC-PREFILL-SM87-MACROFEED-v3`. Its complete default-off, test-only P40000
+source composition is now present. It preserves the completed v10 five-panel
+API/control and whole-prompt FlashInfer Attention substrate, while Gate+Up,
+K-heavy Down, and FP8 use separate non-cooperative M128/N256/K64, three-stage,
+16-persistent-CTA feeds. Each role keeps its own authenticated payload and
+scale semantics; Gate and Up retain independent reductions/publications
+through their same-CTA SiLU-times-Up consumer, and Down retains its two BF16
+publication boundaries around residual addition.
 
-The build admission for the descriptor remains default-off and test-only. A
-separate default-off admission contains a real-byte host transformation and
-compile-only NVFP4 Gate+Up/Down CUDA bodies, while a further default-off,
-test-only slice implements an engine-lifetime NVFP4 device owner and an
+Exact GDN retains 48 value-head owners, pre-round same-token output use, and
+the per-token BF16 recurrence/publication semantics. One whole-P40 convolution
+launch is followed by eight ordered M5000 recurrence/RMSNorm/SiLU-gate
+macrochunks, reducing each of the 48 GDN layers to nine physical kernels
+without using WY/KKT/SSD, associative scan, or FP32 authoritative chunk state.
+Cancellation polling remains bounded and failure or cancellation cold-resets
+the mutable request-arena prefix without altering the immutable RoPE suffix.
+
+The private startup package authenticates 256 physical projection artifacts
+from 400 checkpoint sources and seals 256 immutable layer-role launch bindings
+against their real payload/scale ranges, CUDA resource facts, owner/allocation
+catalog, device ordinal, and physical CUDA-device identity. The request hot
+path borrows those bindings; it performs no CUDA resource/device query, JIT,
+repack, autotune, or tactic discovery. The actual executor runs all 64 layers
+in natural order and can seal its ABI-major-1 transaction only after observing
+128 FP8, 64 Gate+Up, 64 Down, 48 BF16 A/B, 432 GDN, 16 whole-prompt Attention,
+and 80 Attention-preprocess physical operations, complete fill/drain, and
+request completion. A caller-filled forecast or partial layer receipt cannot
+manufacture that transaction.
+
+The complete route identifies itself as
+`q3x.sm87.ac-prefill-sm87-macrofeed-v3.native-p40-target-aot-whole-model.v1`
+and reserves `target-prefill-witness-v18`. Its receipt authority is only
+`physical-execution-only`; numerical qualification and production dispatch
+are both false. V3 returns to P40 first. No real P40 request has yet measured
+this composition, so none of these implementation facts is a performance,
+full-model accuracy, release, or production claim.
+
+The current controller orders the first-token finalizer before the V3 state
+commit. Consequently its continuous prompt interval includes LM-head/argmax
+and cannot qualify as the pure-Prefill interval defined by the subsystem SDD.
+V18 fails closed on pure-Prefill promotion while keeping the authenticated
+64-layer transaction independently complete; the first P40 direction gate
+uses external EvalScope TTFT/New Prompt Throughput. Subtracting the finalizer
+duration would produce non-contiguous active time and is not an admissible
+metric. A positive architecture must later move or independently instrument
+the physical `PrefillStateCommitted` boundary before performance promotion.
+
+The earlier default-off target-AOT admissions supplied the byte-authenticated
+asset and lifetime prerequisites now consumed by V3. One admission contains a
+real-byte host transformation and NVFP4 Gate+Up/Down CUDA bodies, while a
+further test-only slice implements an engine-lifetime device owner and an
 all-or-nothing real-checkpoint uploader. That uploader audits the exact
 64-layer resident source inventory, transforms one bounded artifact at a time,
 and issues a receipt only after an independent device readback matches the
-host payload SHA-256. A default-off Engine startup trigger performs the upload
-and then attaches the retained owner to `ModelWeights` through one private
-all-or-nothing lifetime capability; it skips mutually exclusive old Prefill
-projection sidecars, exposes no naked view, and grants no execution authority.
+host payload SHA-256. The Engine startup trigger performs the upload and then
+attaches the retained owner to `ModelWeights` through one private all-or-
+nothing lifetime capability; it skips mutually exclusive old Prefill
+projection sidecars and exposes no naked view. Those prerequisite milestones
+had no execution authority by themselves; the separately sealed V3 package,
+runner transaction, and V18 API contract now supply the default-off execution
+boundary without granting production dispatch.
 A provenance-frozen Release/SM87 probe at `855a7cb` has run that online loader
 against the pinned real checkpoint: 192 source tensors produced 128 artifacts
 in one 9,625,927,680-byte device arena, independent readback closed the payload
@@ -840,9 +879,9 @@ workload.
 This package closes only when all of the following are true:
 
 1. source pins and invariant/ISA/SM87 translations are complete;
-2. the first valid P40 witness selects or rejects the whole-prompt target under the
-   matched reference protocol; explanatory smaller macrochunks are considered
-   only after that result exists;
+2. the V3 composition reaches one valid clean-host native P40 API witness and
+   is selected or rejected against the current native incumbent; explanatory
+   smaller prompts or component cells cannot delay or replace that result;
 3. projection, Attention, GDN, buffer, state, and handoff plans form one
    authenticated AOT candidate with no undeclared fallback;
 4. each added-compute-for-movement trade has an equivalence/resource ledger;
@@ -851,4 +890,8 @@ This package closes only when all of the following are true:
 6. Roadmap names the next implementation package or records architecture
    closure.
 
-Until then, source review and local code inspection change no default route.
+The thermally invalid stock-vLLM P40 attempt remains route and metric-semantics
+feedback only. Reconstructing the unknown optimized reference route does not
+block the native V3 return point and cannot lower the owner-established 4.3K
+starting line. Until the native P40 result is recorded, source review and the
+present implementation change no default route.

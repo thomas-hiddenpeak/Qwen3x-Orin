@@ -155,6 +155,10 @@ option(Q3X_BUILD_SM87_MACROFEED_V3_ADMISSION
   "Build the independent default-off P40000 MacroFeed-v3 constituent T0/T1 slices"
   OFF
 )
+option(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION
+  "Build the test-only complete P40000 MacroFeed-v3 execution-plan admission"
+  OFF
+)
 option(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION
   "Build the default-off whole-P40000 NVFP4 Gate+Up 4Mx8N cohort successor and exact CUDA oracle"
   OFF
@@ -481,6 +485,21 @@ if(Q3X_BUILD_SM87_MACROFEED_V3_ADMISSION AND NOT BUILD_TESTING)
     "Q3X_BUILD_SM87_MACROFEED_V3_ADMISSION is an independent T0/T1 architecture slice and requires BUILD_TESTING=ON"
   )
 endif()
+if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION AND
+   (NOT Q3X_BUILD_SM87_MACROFEED_V3_ADMISSION OR
+    NOT Q3X_BUILD_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION OR
+    NOT Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION))
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION requires the complete MacroFeed-v3 constituent set, authenticated complete target-AOT assets, BF16 A/B, and FlashInfer Prefill Attention"
+  )
+endif()
 if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION AND
    NOT BUILD_TESTING)
   message(FATAL_ERROR
@@ -592,6 +611,7 @@ add_library(q3x_core STATIC
   src/runtime/reference_oracle.cpp
   src/runtime/resident_weights.cpp
   src/runtime/request_state.cpp
+  src/runtime/sm87_macrofeed_v3_receipt.cpp
   src/kernels/reference/gemv_reference.cpp
   src/runtime/reference/decode_ops.cpp
   src/runtime/reference/gdn_decode.cpp
@@ -733,6 +753,15 @@ if(Q3X_BUILD_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION)
   # frozen NVFP4-only persistence-v1 ABI and grants no runner authority.
   target_compile_definitions(q3x_core PUBLIC
     Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+  # Constituent T0/T1 kernels deliberately do not make the V3 plan
+  # selectable. Propagate only this complete-package bit through the public
+  # core interface so planner, engine, gateway, and tests cannot disagree on
+  # whether the route exists.
+  target_compile_definitions(q3x_core PUBLIC
+    Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_SM87_TARGET_AOT_REQUEST_STATE_V1_ADMISSION)
@@ -1017,6 +1046,14 @@ if(Q3X_BUILD_SM87_MACROFEED_V3_ADMISSION)
     Q3X_ENABLE_SM87_MACROFEED_V3_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+  # Keep the private startup package beside its V3 launcher consumers.  The
+  # Engine owns the resulting object, while q3x_kernels remains link-complete
+  # for runner/tests that consume its typed, owner-backed launch bindings.
+  target_sources(q3x_kernels PRIVATE
+    src/runtime/sm87_macrofeed_v3_p40_execution_package_internal.cpp
+  )
+endif()
 if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/sm87_bulk_dataflow_v2_nvfp4_gate_up_whole_p40.cu
@@ -1047,6 +1084,10 @@ if(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/bf16_ab_prefill.cu
   )
+  # The startup-only physical allocation validation uses the CUDA Driver API.
+  # Keep the static kernel archive link-complete for whole-engine binaries,
+  # not only for the constituent CUDA tests that happen to link libcuda.
+  target_link_libraries(q3x_kernels PRIVATE CUDA::cuda_driver)
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION=1
   )
@@ -1222,6 +1263,11 @@ endif()
 if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
@@ -3030,10 +3076,52 @@ if(BUILD_TESTING)
     tests/prefill_execution_plan_test.cpp
   )
   target_link_libraries(q3x_prefill_execution_plan_test PRIVATE q3x::core)
+  if(Q3X_BUILD_SM87_MACROFEED_V3_ADMISSION)
+    target_compile_definitions(q3x_prefill_execution_plan_test PRIVATE
+      Q3X_EXPECT_SM87_MACROFEED_V3_CONSTITUENT_ADMISSION=1
+    )
+  endif()
+  if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+    target_compile_definitions(q3x_prefill_execution_plan_test PRIVATE
+      Q3X_EXPECT_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION=1
+    )
+  endif()
   q3x_enable_warnings(q3x_prefill_execution_plan_test)
   add_test(NAME prefill_execution_plan
     COMMAND q3x_prefill_execution_plan_test
   )
+
+  add_executable(q3x_sm87_macrofeed_v3_receipt_test
+    tests/sm87_macrofeed_v3_receipt_test.cpp
+  )
+  target_link_libraries(q3x_sm87_macrofeed_v3_receipt_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_sm87_macrofeed_v3_receipt_test)
+  add_test(NAME sm87_macrofeed_v3_receipt
+    COMMAND q3x_sm87_macrofeed_v3_receipt_test
+  )
+  set_tests_properties(sm87_macrofeed_v3_receipt PROPERTIES
+    LABELS "host;sm87;prefill;macrofeed_v3;receipt;t0;default_off"
+  )
+
+  if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+    add_executable(q3x_sm87_macrofeed_v3_p40_execution_package_host_test
+      tests/sm87_macrofeed_v3_p40_execution_package_host_test.cpp
+    )
+    target_link_libraries(
+      q3x_sm87_macrofeed_v3_p40_execution_package_host_test
+      PRIVATE q3x::engine
+    )
+    q3x_enable_warnings(
+      q3x_sm87_macrofeed_v3_p40_execution_package_host_test
+    )
+    add_test(NAME sm87_macrofeed_v3_p40_execution_package_host
+      COMMAND q3x_sm87_macrofeed_v3_p40_execution_package_host_test
+    )
+    set_tests_properties(
+      sm87_macrofeed_v3_p40_execution_package_host PROPERTIES
+      LABELS "host;sm87;prefill;macrofeed_v3;package;target_aot;t0;default_off"
+    )
+  endif()
   set_tests_properties(prefill_execution_plan PROPERTIES
     LABELS "host;prefill;architecture;plan"
   )

@@ -169,6 +169,8 @@ struct TargetPrefillWitnessRecord {
              runtime::kReferenceDecoderLayerCount>
       vllm_marlin_parity_layer_completion_receipts{};
   std::uint64_t vllm_marlin_parity_layer_completion_receipt_count = 0U;
+  std::optional<runtime::Sm87MacroFeedV3TransactionReceipt>
+      macrofeed_v3_transaction_receipt;
   // Complete target-AOT engine evidence. These fields are populated only
   // from a committed executor receipt and its engine-lifetime authenticated
   // 256-artifact owner; configured selectors cannot synthesize them.

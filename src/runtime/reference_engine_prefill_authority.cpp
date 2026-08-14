@@ -1,4 +1,8 @@
 #include "reference_engine_prefill_authority.h"
+#include "q3x/runtime/sm87_macrofeed_v3_receipt.h"
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+#include "sm87_macrofeed_v3_p40_execution_package_internal.h"
+#endif
 
 #include "q3x/kernels/gdn_prefill_prompt_wide_chunk_graph_abi.h"
 #include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
@@ -1647,6 +1651,52 @@ complete_exact_gdn_chunk64_native_inventory(
 #undef Q3X_SAME_PARITY_FIELD
 }
 
+[[nodiscard]] constexpr bool same_macrofeed_v3_schedule(
+    const PrefillP40MacroFeedV3SchedulePlan& left,
+    const PrefillP40MacroFeedV3SchedulePlan& right) noexcept {
+#define Q3X_SAME_MACROFEED_V3_FIELD(field) (left.field == right.field)
+  return Q3X_SAME_MACROFEED_V3_FIELD(enabled) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(request_memory_profile) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(
+             fp8_gdn_input_physical_launches_per_request) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(
+             fp8_full_input_physical_launches_per_request) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(
+             fp8_output_physical_launches_per_request) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(fp8_physical_launches_per_request) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(
+             bf16_ab_physical_launches_per_request) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(
+             attention_whole_prompt_calls_per_request) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(
+             gate_up_physical_launches_per_request) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(down_physical_launches_per_request) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(gdn_layer_count) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(gdn_physical_launches_per_layer) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(gdn_physical_launches_per_request) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(
+             tracked_physical_launches_per_request) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(v10_whole_core_topology_required) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(
+             v10_request_memory_profile_required) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(
+             role_specific_noncooperative_macro_projections_required) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(
+             exact_per_token_bf16_gdn_state_required) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(
+             full_model_physical_receipt_required) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(request_time_jit_forbidden) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(request_time_repack_forbidden) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(fallback_forbidden) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(mtp_forbidden) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(cublaslt_forbidden) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(production_accuracy_required) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(approximate_numerics_forbidden) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(development_only) &&
+         Q3X_SAME_MACROFEED_V3_FIELD(production_dispatch_forbidden);
+#undef Q3X_SAME_MACROFEED_V3_FIELD
+}
+
 [[nodiscard]] bool same_geometry(
     const PrefillExecutionPlan& left,
     const PrefillExecutionPlan& right) noexcept {
@@ -1812,7 +1862,9 @@ complete_exact_gdn_chunk64_native_inventory(
                                      right.packed_nvfp4_v2_schedule) ||
       !same_vllm_marlin_parity_schedule(
           left.vllm_marlin_parity_schedule,
-          right.vllm_marlin_parity_schedule)) {
+          right.vllm_marlin_parity_schedule) ||
+      !same_macrofeed_v3_schedule(left.macrofeed_v3_schedule,
+                                  right.macrofeed_v3_schedule)) {
     return false;
   }
   for (std::size_t panel = 0U; panel < left.panel_count; ++panel) {
@@ -1942,6 +1994,20 @@ complete_exact_gdn_chunk64_native_inventory(
   return expected && same_geometry(geometry, *expected.value);
 }
 
+[[nodiscard]] bool complete_macrofeed_v3_geometry(
+    const PrefillExecutionPlan& geometry) noexcept {
+  PrefillExecutionPlanOptions options{};
+  options.first_position = 0U;
+  options.prompt_token_count = kLayerMajorPrefillPromptWideP40Tokens;
+  options.max_sequence_length =
+      kLayerMajorPrefillPromptWideP40RequestCapacityTokens;
+  options.mlp_schedule_tactic =
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40MacroFeedV3;
+  const PrefillExecutionPlanResult expected =
+      build_unbound_layer_major_prefill_execution_plan(options);
+  return expected && same_geometry(geometry, *expected.value);
+}
+
 [[nodiscard]] bool complete_projection_reset_geometry(
     const PrefillExecutionPlan& geometry) noexcept {
   const PrefillP40ProjectionResetSchedulePlan& schedule =
@@ -2026,6 +2092,9 @@ complete_exact_gdn_chunk64_native_inventory(
 projection_arithmetic_contract(
     const LayerMajorPrefillProjectionTactic tactic) noexcept {
   return tactic == LayerMajorPrefillProjectionTactic::
+                       kNativePromptWideP40MacroFeedV3
+             ? &kLayerMajorPrefillPromptWideP40MacroFeedV3ArithmeticContract
+         : tactic == LayerMajorPrefillProjectionTactic::
                        kNativePromptWideP40VllmMarlinParity
              ? &kLayerMajorPrefillPromptWideP40VllmMarlinParityArithmeticContract
          : tactic == LayerMajorPrefillProjectionTactic::
@@ -2063,6 +2132,11 @@ projection_arithmetic_contract(
 static_assert(
     projection_arithmetic_contract(
         LayerMajorPrefillProjectionTactic::
+            kNativePromptWideP40MacroFeedV3) ==
+    &kLayerMajorPrefillPromptWideP40MacroFeedV3ArithmeticContract);
+static_assert(
+    projection_arithmetic_contract(
+        LayerMajorPrefillProjectionTactic::
             kNativePromptWideP40VllmMarlinParity) ==
     &kLayerMajorPrefillPromptWideP40VllmMarlinParityArithmeticContract);
 static_assert(
@@ -2086,7 +2160,7 @@ static_assert(
     &kLayerMajorPrefillPromptWideP40PackedNvfp4V2ArithmeticContract);
 
 inline constexpr std::uint64_t kPromptWideP40WholeCoreArenaBytes =
-    8'640'542'976U;
+    kLayerMajorPrefillPromptWideP40RequestArenaBytes;
 
 [[nodiscard]] bool exact_matrix_view(
     const DeviceMatrixView& view, const std::uint32_t rows,
@@ -2274,7 +2348,10 @@ BoundPrefillExecutionPlan::BoundPrefillExecutionPlan(
         submission_events,
     std::array<NativePrefillRoleReceipt,
                kLayerMajorPrefillRequiredOperatorRoleCount>
-        roles) noexcept
+        roles,
+    const sm87_macrofeed_v3_p40_execution_package_detail::
+        Sm87MacroFeedV3P40ExecutionPackage* const macrofeed_v3_package,
+    const std::uint64_t macrofeed_v3_package_identity) noexcept
     : weights_(weights),
       state_(state),
       runner_(runner),
@@ -2290,24 +2367,36 @@ BoundPrefillExecutionPlan::BoundPrefillExecutionPlan(
       main_stream_(main_stream),
       auxiliary_stream_(auxiliary_stream),
       submission_events_(std::move(submission_events)),
-      roles_(std::move(roles)) {}
+      roles_(std::move(roles)),
+      macrofeed_v3_package_(macrofeed_v3_package),
+      macrofeed_v3_package_identity_(macrofeed_v3_package_identity) {}
 
 BoundPrefillRequestReceipt::BoundPrefillRequestReceipt(
     const BoundPrefillExecutionPlan* const plan,
     ReferenceRunner* const runner,
-    const PrefillExecutionPlan& geometry) noexcept
-    : plan_(plan), runner_(runner), geometry_(geometry) {}
+    const PrefillExecutionPlan& geometry,
+    const std::uint64_t macrofeed_v3_request_identity) noexcept
+    : plan_(plan),
+      runner_(runner),
+      geometry_(geometry),
+      macrofeed_v3_request_identity_(macrofeed_v3_request_identity) {}
 
 BoundPrefillRequestReceipt::BoundPrefillRequestReceipt(
     BoundPrefillRequestReceipt&& other) noexcept
     : plan_(other.plan_),
       runner_(other.runner_),
       geometry_(other.geometry_),
-      phase_(other.phase_) {
+      phase_(other.phase_),
+      macrofeed_v3_request_identity_(
+          other.macrofeed_v3_request_identity_),
+      macrofeed_v3_transaction_receipt_(
+          std::move(other.macrofeed_v3_transaction_receipt_)) {
   other.plan_ = nullptr;
   other.runner_ = nullptr;
   other.geometry_ = {};
   other.phase_ = Phase::kPoisoned;
+  other.macrofeed_v3_request_identity_ = 0U;
+  other.macrofeed_v3_transaction_receipt_.reset();
 }
 
 BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
@@ -2315,7 +2404,10 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     ReferenceRunner* const runner,
     const LayerMajorPrefillProjectionTactic projection_tactic,
     const LayerMajorPrefillFullAttentionTactic
-        full_attention_tactic) noexcept {
+        full_attention_tactic,
+    const sm87_macrofeed_v3_p40_execution_package_detail::
+        Sm87MacroFeedV3P40ExecutionPackage* const
+            macrofeed_v3_package) noexcept {
   static_assert(kBoundPrefillSubmissionEventCount ==
                 ReferenceRunner::kWholeRequestSubmissionWindowSlots);
   const LayerMajorPrefillArithmeticContract* const arithmetic_contract =
@@ -2338,11 +2430,14 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
   const bool vllm_marlin_parity =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40VllmMarlinParity;
+  const bool macrofeed_v3 =
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativePromptWideP40MacroFeedV3;
   const bool any_packed_projection =
       packed_projection || packed_nvfp4_v2;
   const bool prompt_wide_p40_projection =
       whole_core_projection || projection_reset || any_packed_projection ||
-      vllm_marlin_parity;
+      vllm_marlin_parity || macrofeed_v3;
   const bool persistent_nvfp4_kernel_projection =
       layer_wide_p40_projection || whole_core_projection;
   const bool interleaved_p40_projection =
@@ -2350,12 +2445,14 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
   const bool persistent_p40_projection =
       interleaved_p40_projection || any_packed_projection;
   const bool layer_wide_p40_memory =
-      persistent_p40_projection || vllm_marlin_parity;
+      persistent_p40_projection || vllm_marlin_parity || macrofeed_v3;
   const bool whole_prompt_attention =
       full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
                                    kNativeFlashInferExactWholePrompt;
   const LayerMajorPrefillMlpScheduleTactic mlp_schedule_tactic =
-      vllm_marlin_parity
+      macrofeed_v3
+          ? LayerMajorPrefillMlpScheduleTactic::kPromptWideP40MacroFeedV3
+      : vllm_marlin_parity
           ? LayerMajorPrefillMlpScheduleTactic::
                 kPromptWideP40VllmMarlinParity
       : packed_nvfp4_v2
@@ -2389,6 +2486,61 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                         ReferenceRunnerError::kInvalidDependency,
                         "bound_prefill_dependencies");
   }
+  bool macrofeed_v3_package_valid = false;
+  std::uint64_t macrofeed_v3_package_identity = 0U;
+#if !defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+  if (macrofeed_v3 || macrofeed_v3_package != nullptr) {
+    return plan_failure(BoundPrefillPlanError::kUnsupportedBinary,
+                        ReferenceRunnerError::kInvalidDependency,
+                        "bound_prefill_macrofeed_v3_binary");
+  }
+#else
+  if (macrofeed_v3 != (macrofeed_v3_package != nullptr) ||
+      (macrofeed_v3 &&
+       (!macrofeed_v3_package->valid() ||
+        !macrofeed_v3_package->audit().valid()))) {
+    return plan_failure(BoundPrefillPlanError::kInvalidDependency,
+                        ReferenceRunnerError::kInvalidDependency,
+                        "bound_prefill_macrofeed_v3_package");
+  }
+  macrofeed_v3_package_valid =
+      macrofeed_v3 && macrofeed_v3_package != nullptr;
+  macrofeed_v3_package_identity =
+      macrofeed_v3_package_valid
+          ? macrofeed_v3_package->audit().package_identity
+          : 0U;
+  if (macrofeed_v3) {
+    constexpr std::array<kernels::Sm87TargetAotProjectionRole, 4U>
+        kLayerRoles{{
+            kernels::Sm87TargetAotProjectionRole::kNvFp4GateUp,
+            kernels::Sm87TargetAotProjectionRole::kNvFp4Down,
+            kernels::Sm87TargetAotProjectionRole::kFp8AttentionOutput,
+            kernels::Sm87TargetAotProjectionRole::kInvalid}};
+    for (std::size_t layer = 0U;
+         layer < kSm87MacroFeedV3ReceiptLayerCount; ++layer) {
+      auto roles = kLayerRoles;
+      roles[3U] =
+          sm87_macrofeed_v3_expected_layer_type(layer) ==
+                  Sm87MacroFeedV3LayerType::kFullAttention
+              ? kernels::Sm87TargetAotProjectionRole::kFp8FullQkv
+              : kernels::Sm87TargetAotProjectionRole::kFp8GdnQkvZ;
+      for (const kernels::Sm87TargetAotProjectionRole role : roles) {
+        const auto* const binding =
+            macrofeed_v3_package->borrow_projection_startup_binding(
+                layer, role);
+        if (binding == nullptr ||
+            !binding->valid_for(layer, role,
+                                macrofeed_v3_package->audit()
+                                    .package_identity)) {
+          return plan_failure(
+              BoundPrefillPlanError::kIncompleteNativeRole,
+              ReferenceRunnerError::kInvalidDependency,
+              "bound_prefill_macrofeed_v3_startup_binding");
+        }
+      }
+    }
+  }
+#endif
   const RequestMemoryProfile expected_memory_profile =
       prompt_wide_p40_projection
           ? RequestMemoryProfile::kLayerMajorP40WholeCore
@@ -2432,7 +2584,7 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
           (vllm_marlin_parity
                ? LayerMajorRequestMlpLayout::
                      kLayerWideP40MarlinParityMergedGateUp
-           : persistent_p40_projection
+           : persistent_p40_projection || macrofeed_v3
                ? LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan
                : LayerMajorRequestMlpLayout::kPanelLocalThreeSpan) ||
       (layer_wide_p40_memory &&
@@ -2577,14 +2729,16 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
         "bound_prefill_bf16_ab_prompt_wide_p40_capability");
   }
   if (prompt_wide_p40_projection &&
-      !complete_gdn_prompt_wide_p40_capability()) {
+      !macrofeed_v3 && !complete_gdn_prompt_wide_p40_capability()) {
     return plan_failure(
         BoundPrefillPlanError::kUnsupportedBinary,
         ReferenceRunnerError::kInvalidDependency,
         "bound_prefill_gdn_prompt_wide_p40_capability");
   }
   const bool projection_inventory_complete =
-      packed_projection
+      macrofeed_v3
+          ? macrofeed_v3_package_valid
+      : packed_projection
           ? complete_p40_packed_projection_inventory(*weights)
           : complete_installed_projection_inventory(
                 *weights, expected_gate_up_layout, projection_reset,
@@ -2684,14 +2838,15 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                              : std::get_if<Fp8LinearWeight>(&attention->o_proj);
     if (linear == nullptr || attention == nullptr || gate == nullptr ||
         up == nullptr || down == nullptr ||
-        (!any_packed_projection && !vllm_marlin_parity &&
+        (!any_packed_projection && !vllm_marlin_parity && !macrofeed_v3 &&
          (gate->prefill_marlin_gate_up_layout != expected_gate_up_layout ||
           up->prefill_marlin_gate_up_layout !=
               gate->prefill_marlin_gate_up_layout)) ||
         linear_qkv == nullptr || linear_z == nullptr || linear_o == nullptr ||
         linear_a == nullptr || linear_b == nullptr || full_q == nullptr ||
         full_k == nullptr || full_v == nullptr || full_o == nullptr ||
-        !complete_exact_gdn_chunk64_native_inventory(*weights)) {
+        (!macrofeed_v3 &&
+         !complete_exact_gdn_chunk64_native_inventory(*weights))) {
       return plan_failure(BoundPrefillPlanError::kIncompleteNativeRole,
                           ReferenceRunnerError::kInvalidModelWeights,
                           "bound_prefill_prompt_wide_p40_role_inventory");
@@ -2729,7 +2884,27 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     constexpr std::uint64_t kDownScaleBytes =
         static_cast<std::uint64_t>(kReferenceIntermediateSize) *
         kReferenceHiddenSize / 16U;
-    if (vllm_marlin_parity) {
+    const LayerMajorP40WholeCoreViews& whole = views.p40_whole_core;
+    if (macrofeed_v3) {
+      roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4GateUp)] =
+          receipt(
+              PrefillBindingRole::kNvfp4GateUp,
+              NativePrefillTactic::kNvfp4GateUpP40MacroFeedV3,
+              macrofeed_v3_package,
+              views.mlp.activated_bf16.storage.device_data,
+              views.mlp.activated_bf16.storage.byte_size,
+              kLayerMajorPrefillPromptWideP40Tokens,
+              kLayerMajorPrefillPromptWideP40Tokens);
+      roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4Down)] =
+          receipt(
+              PrefillBindingRole::kNvfp4Down,
+              NativePrefillTactic::kNvfp4DownResidualP40MacroFeedV3,
+              macrofeed_v3_package,
+              views.prompt_residual_bf16.storage.device_data,
+              views.prompt_residual_bf16.storage.byte_size,
+              kLayerMajorPrefillPromptWideP40Tokens,
+              kLayerMajorPrefillPromptWideP40Tokens);
+    } else if (vllm_marlin_parity) {
       const NvFp4MarlinP40ParityDeviceView& gate_up_view =
           gate->prefill_p40_vllm_marlin_parity;
       const NvFp4MarlinP40ParityDeviceView& down_view =
@@ -2808,9 +2983,47 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     const DeviceBufferView& fp8_locks =
         views.legacy_c512.projection_bf16[3U].storage;
     const auto fp8_receipt = [&receipt, &fp8_reduction, &fp8_locks,
-                              projection_reset, packed_projection](
+                              &views, &whole, macrofeed_v3,
+                              macrofeed_v3_package, projection_reset,
+                              packed_projection](
                                  const PrefillBindingRole role,
                                  const Fp8LinearWeight& weight) noexcept {
+      if (macrofeed_v3) {
+        const DeviceBufferView* workspace = nullptr;
+        switch (role) {
+          case PrefillBindingRole::kLinearFp8Qkv:
+            workspace = &whole.linear.raw_qkv_bf16.storage;
+            break;
+          case PrefillBindingRole::kLinearFp8Z:
+            workspace = &whole.linear.z_bf16.storage;
+            break;
+          case PrefillBindingRole::kLinearFp8O:
+            workspace = &whole.linear.branch_output_bf16.storage;
+            break;
+          case PrefillBindingRole::kFullFp8Q:
+            workspace = &whole.full_attention.raw_q_gate_bf16.storage;
+            break;
+          case PrefillBindingRole::kFullFp8K:
+            workspace = &views.persistent.key_cache_bf16[0U];
+            break;
+          case PrefillBindingRole::kFullFp8V:
+            workspace = &views.persistent.value_cache_bf16[0U];
+            break;
+          case PrefillBindingRole::kFullFp8O:
+            workspace = &whole.full_attention.branch_output_bf16.storage;
+            break;
+          default:
+            break;
+        }
+        return receipt(
+            role, NativePrefillTactic::kFp8P40MacroFeedV3RoleSpecialized,
+            macrofeed_v3_package,
+            workspace == nullptr ? nullptr : workspace->device_data,
+            workspace == nullptr ? 0U : workspace->byte_size,
+            kLayerMajorPrefillPromptWideP40Tokens,
+            kLayerMajorPrefillPromptWideP40Tokens, nullptr, 0U,
+            kLayerMajorPrefillPromptWideP40Tokens);
+      }
       if (packed_projection) {
         return receipt(
             role, NativePrefillTactic::kFp8P40PackedProjection,
@@ -2851,7 +3064,6 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     roles[static_cast<std::size_t>(PrefillBindingRole::kFullFp8O)] =
         fp8_receipt(PrefillBindingRole::kFullFp8O, *full_o);
 
-    const LayerMajorP40WholeCoreViews& whole = views.p40_whole_core;
     roles[static_cast<std::size_t>(PrefillBindingRole::kLinearBf16A)] =
         receipt(PrefillBindingRole::kLinearBf16A,
                 NativePrefillTactic::kBf16AbPromptWideP40,
@@ -2870,10 +3082,17 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                 kLayerMajorPrefillPromptWideP40Tokens);
     roles[static_cast<std::size_t>(PrefillBindingRole::kExactGdn)] =
         receipt(PrefillBindingRole::kExactGdn,
-                NativePrefillTactic::kExactGdnPromptWideP40ChunkGraph,
-                linear->conv1d.data,
-                whole.linear.prompt_wide_workspace.device_data,
-                kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes,
+                macrofeed_v3
+                    ? NativePrefillTactic::kExactGdnP40MacroFeedV3
+                    : NativePrefillTactic::kExactGdnPromptWideP40ChunkGraph,
+                macrofeed_v3 ? static_cast<const void*>(macrofeed_v3_package)
+                             : linear->conv1d.data,
+                macrofeed_v3
+                    ? whole.linear.conv_qkv_bf16.storage.device_data
+                    : whole.linear.prompt_wide_workspace.device_data,
+                macrofeed_v3
+                    ? whole.linear.conv_qkv_bf16.storage.byte_size
+                    : kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes,
                 kLayerMajorPrefillPromptWideP40Tokens,
                 kLayerMajorPrefillPromptWideP40Tokens);
     roles[static_cast<std::size_t>(
@@ -2939,7 +3158,8 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
           role.maximum_logical_panel_m !=
               prompt_wide_p40_role_maximum_logical_m(role_identity,
                                                      projection_reset ||
-                                                         packed_projection) ||
+                                                         packed_projection ||
+                                                         macrofeed_v3) ||
           role.minimum_physical_m == 0U ||
           role.minimum_physical_m > role.maximum_physical_m ||
           role.maximum_physical_m > role.maximum_logical_panel_m ||
@@ -2961,7 +3181,8 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
         exact_c512_arithmetic_workspace_bound, projection_tactic,
         full_attention_tactic, mlp_schedule_tactic, runner->stream_,
         runner->prefill_auxiliary_stream_, submission_events,
-        std::move(roles));
+        std::move(roles), macrofeed_v3_package,
+        macrofeed_v3_package_identity);
     if (allocation == nullptr) {
       return plan_failure(BoundPrefillPlanError::kInvalidDependency,
                           ReferenceRunnerError::kAllocationFailure,
@@ -3568,6 +3789,96 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
 bool ReferenceEnginePrefillExecutor::plan_matches_runner(
     const BoundPrefillExecutionPlan& plan,
     const ReferenceRunner& runner) noexcept {
+  if (plan.projection_tactic_ ==
+      LayerMajorPrefillProjectionTactic::
+          kNativePromptWideP40MacroFeedV3) {
+#if !defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+    (void)runner;
+    return false;
+#else
+    const auto* const package = plan.macrofeed_v3_package_;
+    const LayerMajorPrefillArithmeticContract* const expected_contract =
+        projection_arithmetic_contract(plan.projection_tactic_);
+    if (package == nullptr || !package->valid() ||
+        !package->audit().valid() ||
+        plan.macrofeed_v3_package_identity_ == 0U ||
+        plan.macrofeed_v3_package_identity_ !=
+            package->audit().package_identity ||
+        plan.runner_ != &runner || plan.weights_ != runner.weights_ ||
+        plan.state_ != runner.state_ || plan.state_ == nullptr ||
+        plan.arena_base_ != plan.state_->arena_data() ||
+        plan.arena_bytes_ != plan.state_->arena_bytes() ||
+        plan.arena_bytes_ != kPromptWideP40WholeCoreArenaBytes ||
+        plan.memory_plan_ != plan.state_->layer_major_plan() ||
+        plan.state_->memory_profile() !=
+            RequestMemoryProfile::kLayerMajorP40WholeCore ||
+        plan.memory_plan_ == nullptr ||
+        plan.memory_plan_->layout !=
+            LayerMajorRequestLayout::kP40WholeCorePromptWide ||
+        expected_contract == nullptr ||
+        plan.arithmetic_contract_ != expected_contract ||
+        !is_valid_layer_major_prefill_arithmetic_contract(
+            *plan.arithmetic_contract_) ||
+        !plan.exact_c512_arithmetic_workspace_bound_ ||
+        plan.full_attention_tactic_ !=
+            LayerMajorPrefillFullAttentionTactic::
+                kNativeFlashInferExactWholePrompt ||
+        plan.mlp_schedule_tactic_ !=
+            LayerMajorPrefillMlpScheduleTactic::
+                kPromptWideP40MacroFeedV3 ||
+        plan.main_stream_ != runner.stream_ ||
+        plan.auxiliary_stream_ != runner.prefill_auxiliary_stream_ ||
+        plan.submission_events_[0U] !=
+            runner.whole_request_submission_events_[0U] ||
+        plan.submission_events_[1U] !=
+            runner.whole_request_submission_events_[1U] ||
+        !runner.layer_major_request_views_.has_value() ||
+        runner.projection_backend_ != ProjectionBackend::kSm87WeightOnly ||
+        !complete_prompt_wide_p40_whole_core_views(
+            *runner.layer_major_request_views_)) {
+      return false;
+    }
+    const auto role_matches = [&plan, package](
+                                  const PrefillBindingRole role,
+                                  const NativePrefillTactic tactic) noexcept {
+      const NativePrefillRoleReceipt& bound =
+          plan.roles_[static_cast<std::size_t>(role)];
+      return bound.role == role && bound.tactic == tactic &&
+             bound.artifact_owner == package &&
+             bound.completion ==
+                 NativePrefillCompletionDomain::kMainStreamBarrier;
+    };
+    return role_matches(
+               PrefillBindingRole::kNvfp4GateUp,
+               NativePrefillTactic::kNvfp4GateUpP40MacroFeedV3) &&
+           role_matches(
+               PrefillBindingRole::kNvfp4Down,
+               NativePrefillTactic::kNvfp4DownResidualP40MacroFeedV3) &&
+           role_matches(
+               PrefillBindingRole::kLinearFp8Qkv,
+               NativePrefillTactic::kFp8P40MacroFeedV3RoleSpecialized) &&
+           role_matches(
+               PrefillBindingRole::kLinearFp8Z,
+               NativePrefillTactic::kFp8P40MacroFeedV3RoleSpecialized) &&
+           role_matches(
+               PrefillBindingRole::kLinearFp8O,
+               NativePrefillTactic::kFp8P40MacroFeedV3RoleSpecialized) &&
+           role_matches(
+               PrefillBindingRole::kFullFp8Q,
+               NativePrefillTactic::kFp8P40MacroFeedV3RoleSpecialized) &&
+           role_matches(
+               PrefillBindingRole::kFullFp8K,
+               NativePrefillTactic::kFp8P40MacroFeedV3RoleSpecialized) &&
+           role_matches(
+               PrefillBindingRole::kFullFp8V,
+               NativePrefillTactic::kFp8P40MacroFeedV3RoleSpecialized) &&
+           role_matches(
+               PrefillBindingRole::kFullFp8O,
+               NativePrefillTactic::kFp8P40MacroFeedV3RoleSpecialized) &&
+           role_matches(PrefillBindingRole::kExactGdn,
+                        NativePrefillTactic::kExactGdnP40MacroFeedV3);
+#endif
+  }
 #if !defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION) || \
     !defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION) || \
     !defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
@@ -4423,10 +4734,69 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
 #endif
 }
 
+bool ReferenceEnginePrefillExecutor::macrofeed_v3_receipt_matches_plan(
+    const BoundPrefillExecutionPlan& plan,
+    const BoundPrefillRequestReceipt& receipt) noexcept {
+  const bool macrofeed_v3 =
+      plan.projection_tactic_ ==
+      LayerMajorPrefillProjectionTactic::
+          kNativePromptWideP40MacroFeedV3;
+  if (!macrofeed_v3) {
+    return receipt.macrofeed_v3_request_identity_ == 0U &&
+           !receipt.macrofeed_v3_transaction_receipt_.has_value();
+  }
+#if !defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+  return false;
+#else
+  if (plan.macrofeed_v3_package_ == nullptr ||
+      !plan.macrofeed_v3_package_->valid() ||
+      !plan.macrofeed_v3_package_->audit().valid() ||
+      receipt.macrofeed_v3_request_identity_ == 0U ||
+      !receipt.macrofeed_v3_transaction_receipt_.has_value()) {
+    return false;
+  }
+  const auto& transaction =
+      *receipt.macrofeed_v3_transaction_receipt_;
+  const auto& audit = plan.macrofeed_v3_package_->audit();
+  return sm87_macrofeed_v3_transaction_complete(transaction) &&
+         transaction.request_identity ==
+             receipt.macrofeed_v3_request_identity_ &&
+         transaction.physical_identity.package_identity ==
+             plan.macrofeed_v3_package_identity_ &&
+         transaction.physical_identity.owner_identity ==
+             audit.owner_identity &&
+         transaction.physical_identity.allocation_identity ==
+             audit.allocation_identity &&
+         transaction.physical_identity.catalog_identity ==
+             audit.catalog_identity &&
+         transaction.physical_identity.device_identity ==
+             audit.device_identity &&
+         transaction.physical_identity.device_ordinal ==
+             audit.device_ordinal;
+#endif
+}
+
 std::string_view ReferenceEnginePrefillExecutor::deployment_plan_id(
     const BoundPrefillExecutionPlan& plan) noexcept {
   if (!plan.exact_c512_arithmetic_workspace_bound_) {
     return {};
+  }
+  if (plan.projection_tactic_ ==
+      LayerMajorPrefillProjectionTactic::
+          kNativePromptWideP40MacroFeedV3) {
+    return plan.full_attention_tactic_ ==
+                       LayerMajorPrefillFullAttentionTactic::
+                           kNativeFlashInferExactWholePrompt &&
+                   plan.macrofeed_v3_package_ != nullptr &&
+                   plan.macrofeed_v3_package_identity_ != 0U
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+                   && plan.macrofeed_v3_package_->valid() &&
+                   plan.macrofeed_v3_package_->audit().valid() &&
+                   plan.macrofeed_v3_package_identity_ ==
+                       plan.macrofeed_v3_package_->audit().package_identity
+#endif
+               ? kLayerMajorNativePromptWideP40MacroFeedV3DeploymentPlanId
+               : std::string_view{};
   }
   if (plan.projection_tactic_ ==
       LayerMajorPrefillProjectionTactic::
@@ -4587,6 +4957,10 @@ ReferenceWholeRequestPrefillOutcome ReferenceEnginePrefillExecutor::execute(
            LayerMajorPrefillProjectionTactic::
                kNativePromptWideP40VllmMarlinParity &&
        !complete_vllm_marlin_parity_geometry(geometry)) ||
+      (plan.projection_tactic_ ==
+           LayerMajorPrefillProjectionTactic::
+               kNativePromptWideP40MacroFeedV3 &&
+       !complete_macrofeed_v3_geometry(geometry)) ||
       ((plan.mlp_schedule_tactic_ ==
             LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore ||
         plan.mlp_schedule_tactic_ ==
@@ -4600,19 +4974,83 @@ ReferenceWholeRequestPrefillOutcome ReferenceEnginePrefillExecutor::execute(
                 kPromptWideP40PackedNvfp4V2 ||
         plan.mlp_schedule_tactic_ ==
             LayerMajorPrefillMlpScheduleTactic::
-                kPromptWideP40VllmMarlinParity) &&
-       g_reference_engine_prefill_compatibility_oracle_for_test)) {
+                kPromptWideP40VllmMarlinParity ||
+        plan.mlp_schedule_tactic_ ==
+            LayerMajorPrefillMlpScheduleTactic::
+                kPromptWideP40MacroFeedV3) &&
+      g_reference_engine_prefill_compatibility_oracle_for_test)) {
     return execution_failure("bound_prefill_execute_authority");
   }
-  receipt.emplace(BoundPrefillRequestReceipt(&plan, &runner, geometry));
+  const bool macrofeed_v3 =
+      plan.projection_tactic_ ==
+      LayerMajorPrefillProjectionTactic::
+          kNativePromptWideP40MacroFeedV3;
+  std::uint64_t macrofeed_v3_request_identity = 0U;
+  if (macrofeed_v3) {
+    std::uint64_t next = plan.macrofeed_v3_next_request_identity_.load(
+        std::memory_order_relaxed);
+    while (next != 0U &&
+           next != std::numeric_limits<std::uint64_t>::max() &&
+           !plan.macrofeed_v3_next_request_identity_.compare_exchange_weak(
+               next, next + 1U, std::memory_order_relaxed,
+               std::memory_order_relaxed)) {
+    }
+    if (next == 0U || next == std::numeric_limits<std::uint64_t>::max()) {
+      return execution_failure(
+          "bound_prefill_macrofeed_v3_request_identity_exhausted");
+    }
+    macrofeed_v3_request_identity = next;
+  }
+  receipt.emplace(BoundPrefillRequestReceipt(
+      &plan, &runner, geometry, macrofeed_v3_request_identity));
   ReferenceWholeRequestPrefillOutcome outcome =
       g_reference_engine_prefill_compatibility_oracle_for_test
           ? runner.prefill_whole_request_layer_major_compatibility_core(
                 input_token_ids, token_count, geometry, options)
+      : macrofeed_v3
+          ? runner.prefill_whole_request_layer_major_panel_core(
+                input_token_ids, token_count, geometry,
+                plan.projection_tactic_, plan.full_attention_tactic_, options,
+                plan.macrofeed_v3_package_,
+                macrofeed_v3_request_identity)
           : runner.prefill_whole_request_layer_major_panel_core(
                 input_token_ids, token_count, geometry,
-                plan.projection_tactic_,
-                plan.full_attention_tactic_, options);
+                plan.projection_tactic_, plan.full_attention_tactic_,
+                options);
+  if (macrofeed_v3 && outcome) {
+#if !defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+    outcome = execution_failure("bound_prefill_macrofeed_v3_binary");
+#else
+    const auto& transaction =
+        outcome.value->macrofeed_v3_transaction_receipt;
+    const auto& audit = plan.macrofeed_v3_package_->audit();
+    const bool physical_identity_matches =
+        transaction.has_value() &&
+        transaction->request_identity == macrofeed_v3_request_identity &&
+        transaction->physical_identity.package_identity ==
+            plan.macrofeed_v3_package_identity_ &&
+        transaction->physical_identity.owner_identity ==
+            audit.owner_identity &&
+        transaction->physical_identity.allocation_identity ==
+            audit.allocation_identity &&
+        transaction->physical_identity.catalog_identity ==
+            audit.catalog_identity &&
+        transaction->physical_identity.device_identity ==
+            audit.device_identity &&
+        transaction->physical_identity.device_ordinal ==
+            audit.device_ordinal;
+    if (!physical_identity_matches ||
+        !sm87_macrofeed_v3_transaction_complete(*transaction)) {
+      const ReferenceRunnerStatus failure =
+          runner.fail_whole_request_status(status_failure(
+              "bound_prefill_macrofeed_v3_transaction"));
+      outcome = {};
+      outcome.status = failure;
+    } else {
+      receipt->macrofeed_v3_transaction_receipt_ = transaction;
+    }
+#endif
+  }
   receipt->phase_ = outcome
                         ? BoundPrefillRequestReceipt::Phase::kAwaitingLogits
                         : BoundPrefillRequestReceipt::Phase::kPoisoned;
@@ -4626,6 +5064,7 @@ ReferenceStepOutcome ReferenceEnginePrefillExecutor::finish(
     const ReferenceStepOptions& options) noexcept {
   if (!plan_matches_runner(plan, runner) || receipt.plan_ != &plan ||
       receipt.runner_ != &runner ||
+      !macrofeed_v3_receipt_matches_plan(plan, receipt) ||
       receipt.phase_ !=
           BoundPrefillRequestReceipt::Phase::kAwaitingLogits) {
     receipt.phase_ = BoundPrefillRequestReceipt::Phase::kPoisoned;
@@ -4648,6 +5087,7 @@ ReferenceRunnerStatus ReferenceEnginePrefillExecutor::commit(
     const PrefillExecutionProgress& progress) noexcept {
   if (!plan_matches_runner(plan, runner) || receipt.plan_ != &plan ||
       receipt.runner_ != &runner ||
+      !macrofeed_v3_receipt_matches_plan(plan, receipt) ||
       receipt.phase_ !=
           BoundPrefillRequestReceipt::Phase::kAwaitingCommit ||
       !same_geometry(receipt.geometry_, geometry)) {

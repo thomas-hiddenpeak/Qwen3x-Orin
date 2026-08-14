@@ -21,6 +21,10 @@
 #if defined(Q3X_ENABLE_P40_VLLM_MARLIN_PARITY_ADMISSION)
 #include "q3x/kernels/sm87_nvfp4_marlin_p40_parity.h"
 #endif
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+#include "sm87_macrofeed_v3_p40_execution_package_internal.h"
+#include "sm87_macrofeed_v3_receipt_internal.h"
+#endif
 #if defined(Q3X_ENABLE_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_nvfp4_prefill_large_m.h"
 #endif
@@ -2644,6 +2648,28 @@ launch_p40_projection_reset_fp8_group(
 
 }  // namespace
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+// Request-local evidence accumulator. It records only facts returned by a
+// successful fixed-geometry enqueue API (or the number of successful fixed
+// host submissions for APIs without a constituent receipt). The public layer
+// and transaction receipts are not sealed until the final main-stream barrier
+// has observed completion of every constituent.
+struct ReferenceRunner::MacroFeedV3LayerEnqueueEvidence final {
+  kernels::Sm87TargetAotProjectionRole fp8_input_role =
+      kernels::Sm87TargetAotProjectionRole::kInvalid;
+  kernels::Sm87MacroFeedV3Fp8LaunchReceipt fp8_input{};
+  kernels::Sm87MacroFeedV3Fp8LaunchReceipt fp8_output{};
+  kernels::Sm87MacroFeedV3NvFp4GateUpLaunchReceipt gate_up{};
+  kernels::Sm87MacroFeedV3NvFp4DownLaunchReceipt down{};
+  std::uint32_t fill_panels_enqueued = 0U;
+  std::uint32_t drain_panels_enqueued = 0U;
+  std::uint32_t bf16_ab_launches_enqueued = 0U;
+  std::uint32_t gdn_launches_enqueued = 0U;
+  std::uint32_t attention_calls_enqueued = 0U;
+  std::uint32_t attention_preprocess_enqueued = 0U;
+};
+#endif
+
 ReferenceRunner::~ReferenceRunner() { release(); }
 
 ReferenceRunner::ReferenceRunner(ReferenceRunner&& other) noexcept
@@ -2698,6 +2724,8 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
   trace_enabled_ = std::exchange(other.trace_enabled_, false);
   trace_valid_ = std::exchange(other.trace_valid_, false);
   poisoned_ = std::exchange(other.poisoned_, false);
+  macrofeed_v3_cold_reset_required_ =
+      std::exchange(other.macrofeed_v3_cold_reset_required_, false);
   retained_prefill_hidden_valid_ =
       std::exchange(other.retained_prefill_hidden_valid_, false);
   retained_prefill_position_ =
@@ -2744,7 +2772,8 @@ void ReferenceRunner::release() noexcept {
   // leaving the host sequence length unpublished. The Engine owns the normal
   // rollback guard; this is the final best-effort backstop for an active or
   // poisoned runner that is destroyed or overwritten by move-assignment.
-  if ((whole_request_prefill_active() || poisoned_) &&
+  if ((whole_request_prefill_active() || poisoned_ ||
+       macrofeed_v3_cold_reset_required_) &&
       static_cast<bool>(*this)) {
     (void)reset();
   }
@@ -2818,6 +2847,7 @@ void ReferenceRunner::release() noexcept {
   trace_enabled_ = false;
   trace_valid_ = false;
   poisoned_ = false;
+  macrofeed_v3_cold_reset_required_ = false;
   retained_prefill_hidden_valid_ = false;
   retained_prefill_position_ = 0U;
   retained_prefill_input_token_ = 0U;
@@ -2996,7 +3026,12 @@ ReferenceRunnerStatus ReferenceRunner::reset() noexcept {
                            static_cast<int>(auxiliary_sync_status));
     }
   }
-  const RequestOperationStatus reset_status = state_->reset_async(stream_);
+  const RequestResetScope reset_scope =
+      macrofeed_v3_cold_reset_required_
+          ? RequestResetScope::kColdMutableArena
+          : RequestResetScope::kPersistentState;
+  const RequestOperationStatus reset_status =
+      state_->reset_async(stream_, reset_scope);
   if (!reset_status) {
     poisoned_ = true;
     trace_valid_ = false;
@@ -3014,6 +3049,7 @@ ReferenceRunnerStatus ReferenceRunner::reset() noexcept {
                          static_cast<int>(sync_status));
   }
   poisoned_ = false;
+  macrofeed_v3_cold_reset_required_ = false;
   trace_valid_ = false;
   retained_prefill_hidden_valid_ = false;
   retained_prefill_position_ = 0U;
@@ -4705,15 +4741,20 @@ bool ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
   const bool use_vllm_marlin_parity =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40VllmMarlinParity;
+  const bool use_macrofeed_v3 =
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativePromptWideP40MacroFeedV3;
   const bool use_any_packed_projection =
       use_packed_projection || use_packed_nvfp4_v2;
   const bool use_legacy_whole_core =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40WholeCore;
   if ((!use_projection_reset && !use_any_packed_projection &&
-       !use_vllm_marlin_parity &&
+       !use_vllm_marlin_parity && !use_macrofeed_v3 &&
        !use_legacy_whole_core) ||
-      (use_projection_reset
+      (use_macrofeed_v3
+           ? !prompt_wide_p40_macrofeed_v3_prefill_plan_enabled()
+       : use_projection_reset
            ? !prompt_wide_p40_projection_reset_prefill_plan_enabled()
        : use_packed_projection
            ? !prompt_wide_p40_packed_projection_prefill_plan_enabled()
@@ -4738,7 +4779,10 @@ bool ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
       immutable_topology.panel_count !=
           kLayerMajorPrefillPromptWideP40PanelCount ||
       immutable_topology.mlp_schedule.tactic !=
-          (use_projection_reset
+          (use_macrofeed_v3
+               ? LayerMajorPrefillMlpScheduleTactic::
+                     kPromptWideP40MacroFeedV3
+           : use_projection_reset
                ? LayerMajorPrefillMlpScheduleTactic::
                      kPromptWideP40ProjectionReset
            : use_packed_projection
@@ -4945,6 +4989,51 @@ bool ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
       return false;
     }
   }
+  if (use_macrofeed_v3) {
+    const PrefillP40MacroFeedV3SchedulePlan& schedule =
+        immutable_topology.macrofeed_v3_schedule;
+    if (!schedule.enabled ||
+        schedule.request_memory_profile !=
+            RequestMemoryProfile::kLayerMajorP40WholeCore ||
+        schedule.fp8_gdn_input_physical_launches_per_request !=
+            kLayerMajorPrefillMacroFeedV3Fp8GdnInputPhysicalLaunchesPerRequest ||
+        schedule.fp8_full_input_physical_launches_per_request !=
+            kLayerMajorPrefillMacroFeedV3Fp8FullInputPhysicalLaunchesPerRequest ||
+        schedule.fp8_output_physical_launches_per_request !=
+            kLayerMajorPrefillMacroFeedV3Fp8OutputPhysicalLaunchesPerRequest ||
+        schedule.fp8_physical_launches_per_request !=
+            kLayerMajorPrefillMacroFeedV3Fp8PhysicalLaunchesPerRequest ||
+        schedule.bf16_ab_physical_launches_per_request !=
+            kLayerMajorPrefillMacroFeedV3Bf16AbPhysicalLaunchesPerRequest ||
+        schedule.attention_whole_prompt_calls_per_request !=
+            kLayerMajorPrefillMacroFeedV3AttentionWholePromptCallsPerRequest ||
+        schedule.gate_up_physical_launches_per_request !=
+            kLayerMajorPrefillMacroFeedV3GateUpPhysicalLaunchesPerRequest ||
+        schedule.down_physical_launches_per_request !=
+            kLayerMajorPrefillMacroFeedV3DownPhysicalLaunchesPerRequest ||
+        schedule.gdn_layer_count !=
+            kLayerMajorPrefillMacroFeedV3GdnLayerCount ||
+        schedule.gdn_physical_launches_per_layer !=
+            kLayerMajorPrefillMacroFeedV3GdnPhysicalLaunchesPerLayer ||
+        schedule.gdn_physical_launches_per_request !=
+            kLayerMajorPrefillMacroFeedV3GdnPhysicalLaunchesPerRequest ||
+        schedule.tracked_physical_launches_per_request !=
+            kLayerMajorPrefillMacroFeedV3TrackedPhysicalLaunchesPerRequest ||
+        !schedule.v10_whole_core_topology_required ||
+        !schedule.v10_request_memory_profile_required ||
+        !schedule.role_specific_noncooperative_macro_projections_required ||
+        !schedule.exact_per_token_bf16_gdn_state_required ||
+        !schedule.full_model_physical_receipt_required ||
+        !schedule.production_accuracy_required ||
+        !schedule.approximate_numerics_forbidden ||
+        !schedule.fallback_forbidden || !schedule.mtp_forbidden ||
+        !schedule.cublaslt_forbidden ||
+        !schedule.request_time_jit_forbidden ||
+        !schedule.request_time_repack_forbidden || !schedule.development_only ||
+        !schedule.production_dispatch_forbidden) {
+      return false;
+    }
+  }
   const PrefillWholeCoreSchedulePlan& schedule =
       immutable_topology.whole_core_schedule;
   if (!use_projection_reset && !use_any_packed_projection &&
@@ -4983,6 +5072,118 @@ bool ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
   }
   return true;
 }
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+ReferenceRunnerStatus
+ReferenceRunner::enqueue_prompt_wide_p40_macrofeed_v3_fill_panel(
+    const std::size_t layer, const PrefillOperatorPanel& panel,
+    const ReferenceLayerMajorRequestViews& request_views,
+    MacroFeedV3LayerEnqueueEvidence& evidence) noexcept {
+  const auto exact_bf16_matrix = [](const DeviceMatrixView& view,
+                                    const std::size_t rows,
+                                    const std::size_t columns) noexcept {
+    return view.storage.device_data != nullptr &&
+           view.storage.element_size_bytes == sizeof(std::uint16_t) &&
+           view.row_capacity == rows && view.columns == columns &&
+           view.row_stride_elements == columns &&
+           view.storage.element_capacity == rows * columns;
+  };
+  if (layer >= kReferenceDecoderLayerCount ||
+      panel.ordinal != evidence.fill_panels_enqueued ||
+      panel.ordinal >= kPromptWideP40WholeCorePanelCount ||
+      panel.first_position !=
+          panel.ordinal * kPromptWideP40WholeCorePanelTokens ||
+      panel.token_count != kPromptWideP40WholeCorePanelTokens ||
+      request_views.descriptor.profile !=
+          RequestMemoryProfile::kLayerMajorP40WholeCore ||
+      request_views.descriptor.layout !=
+          LayerMajorRequestLayout::kP40WholeCorePromptWide ||
+      !exact_bf16_matrix(request_views.prompt_residual_bf16,
+                         kPromptWideP40WholeCoreRequestCapacityTokens,
+                         kReferenceHiddenSize)) {
+    return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                         "prefill_macrofeed_v3_fill_contract", layer);
+  }
+
+  const DecoderLayerWeights& layer_weights = weights_->layer(layer);
+  const std::size_t offset = panel.first_position;
+  auto* const residual = static_cast<std::uint16_t*>(
+      request_views.prompt_residual_bf16.storage.device_data) +
+      offset * kReferenceHiddenSize;
+  const auto check = [layer](const int status,
+                             const char* const operation) noexcept {
+    return status == static_cast<int>(cudaSuccess)
+               ? ReferenceRunnerStatus{}
+               : runner_status(ReferenceRunnerError::kCudaFailure,
+                               operation, layer, status);
+  };
+
+  if (layer == 0U) {
+    const DeviceMatrixView& token_ids =
+        request_views.p40_whole_core.prompt_token_ids_u32;
+    if (token_ids.storage.device_data == nullptr ||
+        token_ids.storage.element_size_bytes != sizeof(std::uint32_t) ||
+        token_ids.row_capacity != kPromptWideP40WholeCorePromptTokens ||
+        token_ids.columns != 1U || token_ids.row_stride_elements != 1U) {
+      return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                           "prefill_macrofeed_v3_token_ids", layer);
+    }
+    const auto* const panel_token_ids =
+        static_cast<const std::uint32_t*>(token_ids.storage.device_data) +
+        offset;
+    const ReferenceRunnerStatus embedding = check(
+        launch_embedding_gather_prompt_reference_cuda(
+            weights_->embed_tokens().weight, kReferenceVocabularySize,
+            kReferenceHiddenSize, panel_token_ids, panel.token_count, residual,
+            stream_),
+        "prefill_macrofeed_v3_embedding");
+    if (!embedding) {
+      return embedding;
+    }
+  }
+
+  DeviceMatrixView normalized_view{};
+  const model::LayerType expected =
+      reference_runner_detail::expected_reference_layer_type(layer);
+  if (expected == model::LayerType::kLinearAttention) {
+    if (std::get_if<LinearAttentionWeights>(&layer_weights.attention) ==
+        nullptr) {
+      return runner_status(ReferenceRunnerError::kInvalidModelWeights,
+                           "prefill_macrofeed_v3_linear_fill_weights", layer);
+    }
+    normalized_view =
+        request_views.p40_whole_core.linear.normalized_input_bf16;
+  } else if (expected == model::LayerType::kFullAttention) {
+    if (std::get_if<FullAttentionWeights>(&layer_weights.attention) == nullptr) {
+      return runner_status(ReferenceRunnerError::kInvalidModelWeights,
+                           "prefill_macrofeed_v3_full_fill_weights", layer);
+    }
+    normalized_view =
+        request_views.p40_whole_core.full_attention.normalized_input_bf16;
+  } else {
+    return runner_status(ReferenceRunnerError::kInvalidLayerSchedule,
+                         "prefill_macrofeed_v3_fill_layer_type", layer);
+  }
+  if (!exact_bf16_matrix(normalized_view,
+                         kPromptWideP40WholeCorePromptTokens,
+                         kReferenceHiddenSize)) {
+    return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                         "prefill_macrofeed_v3_fill_normalized", layer);
+  }
+  auto* const normalized = static_cast<std::uint16_t*>(
+      normalized_view.storage.device_data) + offset * kReferenceHiddenSize;
+  const ReferenceRunnerStatus norm = check(
+      launch_headwise_centered_rms_norm_reference_cuda(
+          residual, layer_weights.input_layernorm.data, panel.token_count,
+          kReferenceHiddenSize, kRmsEpsilon, normalized, stream_),
+      "prefill_macrofeed_v3_fill_norm");
+  if (!norm) {
+    return norm;
+  }
+  ++evidence.fill_panels_enqueued;
+  return {};
+}
+#endif
 
 ReferenceRunnerStatus
 ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
@@ -5244,6 +5445,317 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
 #endif
 }
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+ReferenceRunnerStatus
+ReferenceRunner::enqueue_prompt_wide_p40_macrofeed_v3_prompt_core(
+    const std::size_t layer,
+    const ReferenceLayerMajorRequestViews& request_views,
+    const sm87_macrofeed_v3_p40_execution_package_detail::
+        Sm87MacroFeedV3P40ExecutionPackage& package,
+    MacroFeedV3LayerEnqueueEvidence& evidence,
+    std::size_t& fp8_projection_hits,
+    std::size_t& fp8_physical_launches) noexcept {
+  using Binding = sm87_macrofeed_v3_p40_execution_package_detail::
+      Sm87MacroFeedV3P40ProjectionStartupBinding;
+  using Role = kernels::Sm87TargetAotProjectionRole;
+
+  if (layer >= kReferenceDecoderLayerCount || !package.valid() ||
+      !package.audit().valid() ||
+      evidence.fill_panels_enqueued !=
+          kPromptWideP40WholeCorePanelCount ||
+      evidence.fp8_input_role != Role::kInvalid ||
+      evidence.fp8_input.launch_enqueued ||
+      evidence.fp8_output.launch_enqueued || evidence.gate_up.launch_enqueued ||
+      evidence.down.launch_enqueued ||
+      evidence.bf16_ab_launches_enqueued != 0U ||
+      evidence.gdn_launches_enqueued != 0U ||
+      evidence.attention_calls_enqueued != 0U ||
+      evidence.attention_preprocess_enqueued != 0U) {
+    return runner_status(ReferenceRunnerError::kInvalidDependency,
+                         "prefill_macrofeed_v3_prompt_core_contract", layer);
+  }
+
+  const auto launch_fp8 = [&](const Role role,
+                              const std::uint16_t* const input,
+                              const std::array<std::uint16_t*, 3U>& outputs,
+                              kernels::Sm87MacroFeedV3Fp8LaunchReceipt& receipt,
+                              const char* const operation) noexcept {
+    const Binding* const binding =
+        package.borrow_projection_startup_binding(layer, role);
+    const kernels::Sm87TargetAotFp8CudaAssetView* const asset =
+        binding == nullptr ? nullptr : binding->borrow_fp8_asset();
+    const kernels::Sm87MacroFeedV3Fp8StartupSeal* const seal =
+        package.fp8_startup_seal(role);
+    if (binding == nullptr ||
+        !binding->valid_for(layer, role, package.audit().package_identity) ||
+        asset == nullptr || seal == nullptr ||
+        asset->artifact_identity != binding->artifact_identity() ||
+        !kernels::sm87_macrofeed_v3_fp8_startup_seal_valid(*seal)) {
+      return runner_status(ReferenceRunnerError::kInvalidDependency,
+                           operation, layer);
+    }
+    kernels::Sm87MacroFeedV3Fp8Arguments arguments;
+    arguments.role = role;
+    arguments.input = input;
+    arguments.asset = *asset;
+    arguments.token_count = kPromptWideP40WholeCorePromptTokens;
+    arguments.partition_outputs = outputs;
+    arguments.cuda_stream = stream_;
+    const int status = kernels::launch_sm87_macrofeed_v3_fp8_sealed_cuda(
+        arguments, *seal, &receipt);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return runner_status(ReferenceRunnerError::kCudaFailure, operation,
+                           layer, status);
+    }
+    if (!receipt.valid_enqueue_receipt(role) ||
+        receipt.artifact_identity != binding->artifact_identity()) {
+      return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                           operation, layer);
+    }
+    // The common whole-core counter records one completed native projection
+    // submission.  Partition multiplicity is authenticated by the retained
+    // constituent receipt; it must not be relabelled as extra launches.
+    ++fp8_projection_hits;
+    fp8_physical_launches += receipt.physical_kernel_launches;
+    return ReferenceRunnerStatus{};
+  };
+
+  const DecoderLayerWeights& layer_weights = weights_->layer(layer);
+  const model::LayerType expected =
+      reference_runner_detail::expected_reference_layer_type(layer);
+  const std::uint16_t* output_projection_input = nullptr;
+  std::uint16_t* output_projection_output = nullptr;
+
+  if (expected == model::LayerType::kLinearAttention) {
+#if !defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
+    return runner_status(ReferenceRunnerError::kInvalidDependency,
+                         "prefill_macrofeed_v3_bf16_ab_binary", layer);
+#else
+    const auto* const attention =
+        std::get_if<LinearAttentionWeights>(&layer_weights.attention);
+    const auto* const first = attention == nullptr
+                                  ? nullptr
+                                  : std::get_if<Bf16LinearWeight>(
+                                        &attention->in_proj_a);
+    const auto* const second = attention == nullptr
+                                   ? nullptr
+                                   : std::get_if<Bf16LinearWeight>(
+                                         &attention->in_proj_b);
+    const RequestLayerSlot& slot = request_views.descriptor.layers[layer];
+    const LayerMajorP40WholeCoreLinearPhaseViews& phase =
+        request_views.p40_whole_core.linear;
+    if (attention == nullptr || first == nullptr || second == nullptr ||
+        first->weight == nullptr || second->weight == nullptr ||
+        first->input_size != kReferenceHiddenSize ||
+        second->input_size != kReferenceHiddenSize ||
+        first->output_size != kLinearScalarElements ||
+        second->output_size != kLinearScalarElements ||
+        slot.slot >= kRequestLinearLayerCount ||
+        phase.normalized_input_bf16.storage.device_data == nullptr ||
+        phase.raw_qkv_bf16.storage.device_data == nullptr ||
+        phase.z_bf16.storage.device_data == nullptr ||
+        phase.a_bf16.storage.device_data == nullptr ||
+        phase.b_bf16.storage.device_data == nullptr ||
+        phase.conv_qkv_bf16.storage.device_data == nullptr ||
+        phase.output_bf16.storage.device_data == nullptr ||
+        phase.branch_output_bf16.storage.device_data == nullptr ||
+        request_views.persistent.conv_state_bf16[slot.slot].device_data ==
+            nullptr ||
+        request_views.persistent.gdn_state_bf16[slot.slot].device_data ==
+            nullptr) {
+      return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                           "prefill_macrofeed_v3_linear_views", layer);
+    }
+
+    evidence.fp8_input_role = Role::kFp8GdnQkvZ;
+    ReferenceRunnerStatus status = launch_fp8(
+        evidence.fp8_input_role,
+        static_cast<const std::uint16_t*>(
+            phase.normalized_input_bf16.storage.device_data),
+        {static_cast<std::uint16_t*>(phase.raw_qkv_bf16.storage.device_data),
+         static_cast<std::uint16_t*>(phase.z_bf16.storage.device_data),
+         nullptr},
+        evidence.fp8_input, "prefill_macrofeed_v3_fp8_gdn_qkv_z");
+    if (!status) {
+      return status;
+    }
+
+    const int ab_status = kernels::launch_sm87_bf16_ab_prompt_wide_p40_cuda(
+        first->weight, second->weight,
+        static_cast<const std::uint16_t*>(
+            phase.normalized_input_bf16.storage.device_data),
+        kPromptWideP40WholeCorePromptTokens,
+        static_cast<std::uint16_t*>(phase.a_bf16.storage.device_data),
+        static_cast<std::uint16_t*>(phase.b_bf16.storage.device_data), stream_);
+    if (ab_status != static_cast<int>(cudaSuccess)) {
+      return runner_status(ReferenceRunnerError::kCudaFailure,
+                           "prefill_macrofeed_v3_bf16_ab", layer, ab_status);
+    }
+    evidence.bf16_ab_launches_enqueued = 1U;
+
+    kernels::Sm87MacrofeedV3GdnP40Arguments gdn_arguments;
+    gdn_arguments.raw_qkv = static_cast<const std::uint16_t*>(
+        phase.raw_qkv_bf16.storage.device_data);
+    gdn_arguments.a = static_cast<const std::uint16_t*>(
+        phase.a_bf16.storage.device_data);
+    gdn_arguments.b = static_cast<const std::uint16_t*>(
+        phase.b_bf16.storage.device_data);
+    gdn_arguments.conv_weight = attention->conv1d.data;
+    gdn_arguments.a_log = attention->a_log.data;
+    gdn_arguments.dt_bias = attention->dt_bias.data;
+    gdn_arguments.norm_weight = attention->norm.data;
+    gdn_arguments.z = static_cast<const std::uint16_t*>(
+        phase.z_bf16.storage.device_data);
+    gdn_arguments.conv_history = static_cast<std::uint16_t*>(
+        request_views.persistent.conv_state_bf16[slot.slot].device_data);
+    gdn_arguments.recurrent_state = static_cast<std::uint16_t*>(
+        request_views.persistent.gdn_state_bf16[slot.slot].device_data);
+    gdn_arguments.conv_qkv = static_cast<std::uint16_t*>(
+        phase.conv_qkv_bf16.storage.device_data);
+    gdn_arguments.output = static_cast<std::uint16_t*>(
+        phase.output_bf16.storage.device_data);
+    gdn_arguments.cancellation_signal = nullptr;
+    gdn_arguments.l2_epsilon_fp32_bits =
+        kernels::kSm87TargetAotGdnEpsilonFp32Bits;
+    gdn_arguments.norm_epsilon_fp32_bits =
+        kernels::kSm87TargetAotGdnEpsilonFp32Bits;
+    gdn_arguments.cuda_stream = stream_;
+    const kernels::Sm87MacrofeedV3GdnResources& gdn_seal =
+        package.gdn_startup_seal();
+    if (!kernels::sm87_macrofeed_v3_gdn_resources_valid(gdn_seal) ||
+        !kernels::sm87_macrofeed_v3_gdn_p40_arguments_valid(gdn_arguments)) {
+      return runner_status(ReferenceRunnerError::kInvalidDependency,
+                           "prefill_macrofeed_v3_gdn_binding", layer);
+    }
+    const int gdn_status =
+        kernels::launch_sm87_macrofeed_v3_gdn_p40_sealed_cuda(gdn_arguments,
+                                                               gdn_seal);
+    if (gdn_status != static_cast<int>(cudaSuccess)) {
+      return runner_status(ReferenceRunnerError::kCudaFailure,
+                           "prefill_macrofeed_v3_gdn", layer, gdn_status);
+    }
+    evidence.gdn_launches_enqueued = static_cast<std::uint32_t>(
+        kernels::kSm87MacrofeedV3GdnPhysicalKernels);
+    output_projection_input = static_cast<const std::uint16_t*>(
+        phase.output_bf16.storage.device_data);
+    output_projection_output = static_cast<std::uint16_t*>(
+        phase.branch_output_bf16.storage.device_data);
+#endif
+  } else if (expected == model::LayerType::kFullAttention) {
+    const auto* const attention =
+        std::get_if<FullAttentionWeights>(&layer_weights.attention);
+    const RequestLayerSlot& slot = request_views.descriptor.layers[layer];
+    const LayerMajorP40WholeCoreFullAttentionPhaseViews& phase =
+        request_views.p40_whole_core.full_attention;
+    if (attention == nullptr || slot.slot >= kRequestFullLayerCount ||
+        phase.normalized_input_bf16.storage.device_data == nullptr ||
+        phase.raw_q_gate_bf16.storage.device_data == nullptr ||
+        phase.processed_q_bf16.storage.device_data == nullptr ||
+        phase.packed_gate_bf16.storage.device_data == nullptr ||
+        phase.core_output_bf16.storage.device_data == nullptr ||
+        phase.branch_output_bf16.storage.device_data == nullptr ||
+        request_views.persistent.key_cache_bf16[slot.slot].device_data ==
+            nullptr ||
+        request_views.persistent.value_cache_bf16[slot.slot].device_data ==
+            nullptr ||
+        request_views.persistent.rope_cos_fp32.device_data == nullptr ||
+        request_views.persistent.rope_sin_fp32.device_data == nullptr ||
+        !can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(
+            0U, kPromptWideP40WholeCorePromptTokens)) {
+      return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                           "prefill_macrofeed_v3_full_views", layer);
+    }
+
+    evidence.fp8_input_role = Role::kFp8FullQkv;
+    ReferenceRunnerStatus status = launch_fp8(
+        evidence.fp8_input_role,
+        static_cast<const std::uint16_t*>(
+            phase.normalized_input_bf16.storage.device_data),
+        {static_cast<std::uint16_t*>(
+             phase.raw_q_gate_bf16.storage.device_data),
+         static_cast<std::uint16_t*>(
+             request_views.persistent.key_cache_bf16[slot.slot].device_data),
+         static_cast<std::uint16_t*>(
+             request_views.persistent.value_cache_bf16[slot.slot].device_data)},
+        evidence.fp8_input, "prefill_macrofeed_v3_fp8_full_qkv");
+    if (!status) {
+      return status;
+    }
+    for (std::size_t panel_index = 0U;
+         panel_index < kPromptWideP40WholeCorePanelCount; ++panel_index) {
+      const std::size_t offset =
+          panel_index * kPromptWideP40WholeCorePanelTokens;
+      const int preprocess_status =
+          launch_full_attention_preprocess_24_4_256_64_prompt_wide_p8000_cuda(
+              static_cast<const std::uint16_t*>(
+                  phase.raw_q_gate_bf16.storage.device_data) +
+                  offset * kFullQGateElements,
+              static_cast<std::uint16_t*>(
+                  request_views.persistent.key_cache_bf16[slot.slot]
+                      .device_data) +
+                  offset * kFullKvElements,
+              attention->q_norm.data, attention->k_norm.data, kRmsEpsilon,
+              static_cast<std::uint16_t*>(
+                  phase.processed_q_bf16.storage.device_data) +
+                  offset * kFullQueryElements,
+              static_cast<std::uint16_t*>(
+                  phase.packed_gate_bf16.storage.device_data) +
+                  offset * kFullQueryElements,
+              static_cast<const float*>(
+                  request_views.persistent.rope_cos_fp32.device_data),
+              static_cast<const float*>(
+                  request_views.persistent.rope_sin_fp32.device_data),
+              offset, kPromptWideP40WholeCorePanelTokens, stream_);
+      if (preprocess_status != static_cast<int>(cudaSuccess)) {
+        return runner_status(ReferenceRunnerError::kCudaFailure,
+                             "prefill_macrofeed_v3_attention_preprocess",
+                             layer, preprocess_status);
+      }
+      ++evidence.attention_preprocess_enqueued;
+    }
+    const int attention_status =
+        launch_bulk_causal_gqa_sigmoid_gate_24_4_256_flashinfer_exact_whole_prompt_fixed_cuda(
+            static_cast<const std::uint16_t*>(
+                phase.processed_q_bf16.storage.device_data),
+            static_cast<const std::uint16_t*>(
+                request_views.persistent.key_cache_bf16[slot.slot]
+                    .device_data),
+            static_cast<const std::uint16_t*>(
+                request_views.persistent.value_cache_bf16[slot.slot]
+                    .device_data),
+            static_cast<const std::uint16_t*>(
+                phase.packed_gate_bf16.storage.device_data),
+            0U, kPromptWideP40WholeCorePromptTokens,
+            static_cast<std::uint16_t*>(
+                phase.core_output_bf16.storage.device_data),
+            stream_);
+    if (attention_status != static_cast<int>(cudaSuccess)) {
+      return runner_status(ReferenceRunnerError::kCudaFailure,
+                           "prefill_macrofeed_v3_attention", layer,
+                           attention_status);
+    }
+    evidence.attention_calls_enqueued = 1U;
+    output_projection_input = static_cast<const std::uint16_t*>(
+        phase.core_output_bf16.storage.device_data);
+    output_projection_output = static_cast<std::uint16_t*>(
+        phase.branch_output_bf16.storage.device_data);
+  } else {
+    return runner_status(ReferenceRunnerError::kInvalidLayerSchedule,
+                         "prefill_macrofeed_v3_prompt_core_layer_type", layer);
+  }
+
+  if (output_projection_input == nullptr ||
+      output_projection_output == nullptr) {
+    return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                         "prefill_macrofeed_v3_output_views", layer);
+  }
+  return launch_fp8(
+      Role::kFp8AttentionOutput, output_projection_input,
+      {output_projection_output, nullptr, nullptr}, evidence.fp8_output,
+      "prefill_macrofeed_v3_fp8_output");
+}
+#endif
+
 ReferenceRunnerStatus
 ReferenceRunner::enqueue_prompt_wide_p40_whole_core_prompt_core(
     const std::size_t layer,
@@ -5477,6 +5989,61 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_prompt_core(
                        "prefill_whole_core_prompt_core_schedule", layer);
 #endif
 }
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+ReferenceRunnerStatus
+ReferenceRunner::enqueue_prompt_wide_p40_macrofeed_v3_drain_panel(
+    const std::size_t layer, const PrefillOperatorPanel& panel,
+    const ReferenceLayerMajorRequestViews& request_views,
+    MacroFeedV3LayerEnqueueEvidence& evidence) noexcept {
+  if (layer >= kReferenceDecoderLayerCount ||
+      panel.ordinal != evidence.drain_panels_enqueued ||
+      panel.ordinal >= kPromptWideP40WholeCorePanelCount ||
+      panel.first_position !=
+          panel.ordinal * kPromptWideP40WholeCorePanelTokens ||
+      panel.token_count != kPromptWideP40WholeCorePanelTokens ||
+      !evidence.fp8_input.valid_enqueue_receipt(evidence.fp8_input_role) ||
+      !evidence.fp8_output.valid_enqueue_receipt(
+          kernels::Sm87TargetAotProjectionRole::kFp8AttentionOutput)) {
+    return runner_status(ReferenceRunnerError::kInvalidStepOptions,
+                         "prefill_macrofeed_v3_drain_contract", layer);
+  }
+
+  const std::size_t offset = panel.first_position;
+  const std::uint16_t* branch_output_base = nullptr;
+  const model::LayerType expected =
+      reference_runner_detail::expected_reference_layer_type(layer);
+  if (expected == model::LayerType::kLinearAttention) {
+    branch_output_base = static_cast<const std::uint16_t*>(
+        request_views.p40_whole_core.linear.branch_output_bf16.storage
+            .device_data);
+  } else if (expected == model::LayerType::kFullAttention) {
+    branch_output_base = static_cast<const std::uint16_t*>(
+        request_views.p40_whole_core.full_attention.branch_output_bf16.storage
+            .device_data);
+  }
+  auto* const residual_base = static_cast<std::uint16_t*>(
+      request_views.prompt_residual_bf16.storage.device_data);
+  if (branch_output_base == nullptr || residual_base == nullptr) {
+    return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                         "prefill_macrofeed_v3_drain_views", layer);
+  }
+  const std::uint16_t* const branch_output =
+      branch_output_base + offset * kReferenceHiddenSize;
+  std::uint16_t* const residual =
+      residual_base + offset * kReferenceHiddenSize;
+  const int status = launch_residual_add_reference_cuda(
+      residual, branch_output,
+      panel.token_count * kReferenceHiddenSize, residual, stream_);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return runner_status(ReferenceRunnerError::kCudaFailure,
+                         "prefill_macrofeed_v3_drain_residual", layer,
+                         status);
+  }
+  ++evidence.drain_panels_enqueued;
+  return {};
+}
+#endif
 
 ReferenceRunnerStatus
 ReferenceRunner::enqueue_prompt_wide_p40_whole_core_drain_panel(
@@ -5790,7 +6357,8 @@ ReferenceRunner::prefill_whole_request_layer_major_compatibility_core(
       input_token_ids, token_count, immutable_topology,
       LayerMajorLayerExecutor::kCompatibilitySegments,
       LayerMajorPrefillProjectionTactic::kExactSegmentedC512,
-      LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512, options);
+      LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512, options,
+      nullptr, 0U);
 }
 
 ReferenceWholeRequestPrefillOutcome
@@ -5800,11 +6368,15 @@ ReferenceRunner::prefill_whole_request_layer_major_panel_core(
     const PrefillExecutionPlan& immutable_topology,
     const LayerMajorPrefillProjectionTactic projection_tactic,
     const LayerMajorPrefillFullAttentionTactic full_attention_tactic,
-    const ReferenceWholeRequestPrefillOptions& options) noexcept {
+    const ReferenceWholeRequestPrefillOptions& options,
+    const sm87_macrofeed_v3_p40_execution_package_detail::
+        Sm87MacroFeedV3P40ExecutionPackage* const macrofeed_v3_package,
+    const std::uint64_t macrofeed_v3_request_identity) noexcept {
   return prefill_whole_request_layer_major_core(
       input_token_ids, token_count, immutable_topology,
       LayerMajorLayerExecutor::kOperatorPanel, projection_tactic,
-      full_attention_tactic, options);
+      full_attention_tactic, options, macrofeed_v3_package,
+      macrofeed_v3_request_identity);
 }
 
 ReferenceWholeRequestPrefillOutcome
@@ -5815,7 +6387,10 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
     const LayerMajorLayerExecutor executor,
     const LayerMajorPrefillProjectionTactic projection_tactic,
     const LayerMajorPrefillFullAttentionTactic full_attention_tactic,
-    const ReferenceWholeRequestPrefillOptions& options) noexcept {
+    const ReferenceWholeRequestPrefillOptions& options,
+    const sm87_macrofeed_v3_p40_execution_package_detail::
+        Sm87MacroFeedV3P40ExecutionPackage* const macrofeed_v3_package,
+    const std::uint64_t macrofeed_v3_request_identity) noexcept {
   using Clock = std::chrono::steady_clock;
   Clock::time_point started{};
   if (options.measure_timing) {
@@ -5852,6 +6427,8 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
                                kNativePromptWideP40PackedNvfp4V2 ||
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40VllmMarlinParity ||
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativePromptWideP40MacroFeedV3 ||
       full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
                                    kNativeFlashInferExactWholePrompt ||
       immutable_topology.mlp_schedule.tactic ==
@@ -5864,7 +6441,9 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
           LayerMajorPrefillMlpScheduleTactic::kPromptWideP40PackedNvfp4V2 ||
       immutable_topology.mlp_schedule.tactic ==
           LayerMajorPrefillMlpScheduleTactic::
-              kPromptWideP40VllmMarlinParity;
+              kPromptWideP40VllmMarlinParity ||
+      immutable_topology.mlp_schedule.tactic ==
+          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40MacroFeedV3;
   const bool prompt_wide_p40_whole_core =
       valid_prompt_wide_p40_whole_core_runner_contract(
           immutable_topology, state_->memory_profile(),
@@ -5882,8 +6461,13 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   const bool use_vllm_marlin_parity =
       projection_tactic == LayerMajorPrefillProjectionTactic::
                                kNativePromptWideP40VllmMarlinParity;
+  const bool use_macrofeed_v3 =
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativePromptWideP40MacroFeedV3;
   const PromptWideP40ProjectionPackage projection_package =
-      use_projection_reset
+      use_macrofeed_v3
+          ? PromptWideP40ProjectionPackage::kMacroFeedV3
+      : use_projection_reset
           ? PromptWideP40ProjectionPackage::kProjectionResetV11
       : use_packed_projection
           ? PromptWideP40ProjectionPackage::kPackedV1
@@ -5892,6 +6476,27 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
       : use_vllm_marlin_parity
           ? PromptWideP40ProjectionPackage::kVllmMarlinParityV1
           : PromptWideP40ProjectionPackage::kWholeCoreV10;
+#if !defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+  if (use_macrofeed_v3 || macrofeed_v3_package != nullptr ||
+      macrofeed_v3_request_identity != 0U) {
+    return fail_whole_request_prefill(runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "whole_request_prefill_macrofeed_v3_binary"));
+  }
+#else
+  if (use_macrofeed_v3 != (macrofeed_v3_package != nullptr) ||
+      use_macrofeed_v3 != (macrofeed_v3_request_identity != 0U) ||
+      (!use_macrofeed_v3 &&
+       (macrofeed_v3_package != nullptr ||
+        macrofeed_v3_request_identity != 0U)) ||
+      (use_macrofeed_v3 &&
+       (!macrofeed_v3_package->valid() ||
+        !macrofeed_v3_package->audit().valid()))) {
+    return fail_whole_request_prefill(runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "whole_request_prefill_macrofeed_v3_package"));
+  }
+#endif
   if (!layer_major_request_views_.has_value() ||
       any_prompt_wide_p40_whole_core_identity !=
           prompt_wide_p40_whole_core ||
@@ -6037,6 +6642,28 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         "whole_request_prefill_cancelled"));
   }
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+  std::array<MacroFeedV3LayerEnqueueEvidence,
+             kReferenceDecoderLayerCount>
+      macrofeed_v3_layer_evidence{};
+  Sm87MacroFeedV3PhysicalIdentity macrofeed_v3_physical_identity{};
+  if (use_macrofeed_v3) {
+    const auto& audit = macrofeed_v3_package->audit();
+    macrofeed_v3_physical_identity.package_identity = audit.package_identity;
+    macrofeed_v3_physical_identity.owner_identity = audit.owner_identity;
+    macrofeed_v3_physical_identity.allocation_identity =
+        audit.allocation_identity;
+    macrofeed_v3_physical_identity.catalog_identity = audit.catalog_identity;
+    macrofeed_v3_physical_identity.device_identity = audit.device_identity;
+    macrofeed_v3_physical_identity.device_ordinal = audit.device_ordinal;
+    // Set before the first V3 enqueue. From this point every failure and
+    // cancellation must retain the latch until reset() clears the complete
+    // mutable arena, because exact GDN may have advanced canonical state.
+    macrofeed_v3_cold_reset_required_ = true;
+  }
+#endif
+  std::optional<Sm87MacroFeedV3TransactionReceipt>
+      macrofeed_v3_transaction_receipt;
   whole_request_prefill_stage_.phase =
       WholeRequestPrefillStagePhase::kExecuting;
   std::array<PrefillRouteEvidence,
@@ -6267,11 +6894,19 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         if (!status) {
           return fail_whole_request_prefill(status);
         }
-        status = enqueue_prompt_wide_p40_whole_core_fill_panel(
-            layer, immutable_topology.panels[panel_index], layer_major,
-            projection_package,
-            prompt_wide_p40_fp8_projection_hits,
-            prompt_wide_p40_fp8_projection_physical_launches);
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+        if (use_macrofeed_v3) {
+          status = enqueue_prompt_wide_p40_macrofeed_v3_fill_panel(
+              layer, immutable_topology.panels[panel_index], layer_major,
+              macrofeed_v3_layer_evidence[layer]);
+        } else
+#endif
+        {
+          status = enqueue_prompt_wide_p40_whole_core_fill_panel(
+              layer, immutable_topology.panels[panel_index], layer_major,
+              projection_package, prompt_wide_p40_fp8_projection_hits,
+              prompt_wide_p40_fp8_projection_physical_launches);
+        }
         if (!status) {
           return fail_whole_request_prefill(status);
         }
@@ -6286,10 +6921,21 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
       if (!status) {
         return fail_whole_request_prefill(status);
       }
-      status = enqueue_prompt_wide_p40_whole_core_prompt_core(
-          layer, layer_major, projection_package,
-          prompt_wide_p40_fp8_projection_hits,
-          prompt_wide_p40_fp8_projection_physical_launches);
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+      if (use_macrofeed_v3) {
+        status = enqueue_prompt_wide_p40_macrofeed_v3_prompt_core(
+            layer, layer_major, *macrofeed_v3_package,
+            macrofeed_v3_layer_evidence[layer],
+            prompt_wide_p40_fp8_projection_hits,
+            prompt_wide_p40_fp8_projection_physical_launches);
+      } else
+#endif
+      {
+        status = enqueue_prompt_wide_p40_whole_core_prompt_core(
+            layer, layer_major, projection_package,
+            prompt_wide_p40_fp8_projection_hits,
+            prompt_wide_p40_fp8_projection_physical_launches);
+      }
       if (!status) {
         return fail_whole_request_prefill(status);
       }
@@ -6313,11 +6959,19 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         if (!status) {
           return fail_whole_request_prefill(status);
         }
-        status = enqueue_prompt_wide_p40_whole_core_drain_panel(
-            layer, immutable_topology.panels[panel_index], layer_major,
-            projection_package,
-            prompt_wide_p40_fp8_projection_hits,
-            prompt_wide_p40_fp8_projection_physical_launches);
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+        if (use_macrofeed_v3) {
+          status = enqueue_prompt_wide_p40_macrofeed_v3_drain_panel(
+              layer, immutable_topology.panels[panel_index], layer_major,
+              macrofeed_v3_layer_evidence[layer]);
+        } else
+#endif
+        {
+          status = enqueue_prompt_wide_p40_whole_core_drain_panel(
+              layer, immutable_topology.panels[panel_index], layer_major,
+              projection_package, prompt_wide_p40_fp8_projection_hits,
+              prompt_wide_p40_fp8_projection_physical_launches);
+        }
         if (!status) {
           return fail_whole_request_prefill(status);
         }
@@ -6340,7 +6994,15 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
             &vllm_marlin_parity_layer_completion_receipts[layer];
         status = enqueue_prompt_wide_p40_vllm_marlin_parity_mlp(
             layer, layer_major, *parity_receipt);
-      } else {
+      }
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+      else if (use_macrofeed_v3) {
+        status = enqueue_prompt_wide_p40_macrofeed_v3_mlp(
+            layer, layer_major, *macrofeed_v3_package,
+            macrofeed_v3_layer_evidence[layer]);
+      }
+#endif
+      else {
         status = enqueue_layer_wide_p40_mlp(layer, layer_major,
                                             projection_package);
       }
@@ -6813,6 +7475,151 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         static_cast<std::uint64_t>(submission_window_retirements)));
   }
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+  if (use_macrofeed_v3) {
+    const auto& audit = macrofeed_v3_package->audit();
+    const bool same_physical_identity =
+        macrofeed_v3_package->valid() && audit.valid() &&
+        audit.package_identity ==
+            macrofeed_v3_physical_identity.package_identity &&
+        audit.owner_identity == macrofeed_v3_physical_identity.owner_identity &&
+        audit.allocation_identity ==
+            macrofeed_v3_physical_identity.allocation_identity &&
+        audit.catalog_identity ==
+            macrofeed_v3_physical_identity.catalog_identity &&
+        audit.device_identity ==
+            macrofeed_v3_physical_identity.device_identity &&
+        audit.device_ordinal == macrofeed_v3_physical_identity.device_ordinal;
+    if (!same_physical_identity) {
+      return fail_whole_request_prefill(runner_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "whole_request_prefill_macrofeed_v3_identity"));
+    }
+
+    std::array<Sm87MacroFeedV3LayerReceipt,
+               kSm87MacroFeedV3ReceiptLayerCount>
+        layer_receipts{};
+    for (std::size_t layer = 0U; layer < layer_receipts.size(); ++layer) {
+      const MacroFeedV3LayerEnqueueEvidence& evidence =
+          macrofeed_v3_layer_evidence[layer];
+      const model::LayerType expected =
+          reference_runner_detail::expected_reference_layer_type(layer);
+      const bool constituent_receipts_valid =
+          evidence.fp8_input.valid_enqueue_receipt(
+              evidence.fp8_input_role) &&
+          evidence.fp8_output.valid_enqueue_receipt(
+              kernels::Sm87TargetAotProjectionRole::
+                  kFp8AttentionOutput) &&
+          evidence.gate_up.valid_enqueue_receipt() &&
+          evidence.down.valid_enqueue_receipt();
+      if (!constituent_receipts_valid) {
+        return fail_whole_request_prefill(runner_status(
+            ReferenceRunnerError::kRouteEvidenceFailure,
+            "whole_request_prefill_macrofeed_v3_constituent_receipt",
+            layer));
+      }
+
+      Sm87MacroFeedV3LayerReceipt observed;
+      observed.request_identity = macrofeed_v3_request_identity;
+      observed.layer_index = layer;
+      observed.layer_type =
+          expected == model::LayerType::kLinearAttention
+              ? Sm87MacroFeedV3LayerType::kGdn
+              : Sm87MacroFeedV3LayerType::kFullAttention;
+      observed.artifacts.fp8_input = evidence.fp8_input.artifact_identity;
+      observed.artifacts.fp8_output = evidence.fp8_output.artifact_identity;
+      observed.artifacts.nvfp4_gate_up = evidence.gate_up.payload_identity;
+      observed.artifacts.nvfp4_down = evidence.down.payload_identity;
+      observed.physical_identity = macrofeed_v3_physical_identity;
+      observed.physical_counts.fp8_input =
+          evidence.fp8_input.physical_kernel_launches;
+      observed.physical_counts.fp8_output =
+          evidence.fp8_output.physical_kernel_launches;
+      observed.physical_counts.nvfp4_gate_up =
+          evidence.gate_up.physical_kernel_launches;
+      observed.physical_counts.nvfp4_down =
+          evidence.down.physical_kernel_launches;
+      observed.physical_counts.bf16_ab =
+          evidence.bf16_ab_launches_enqueued;
+      observed.physical_counts.gdn = evidence.gdn_launches_enqueued;
+      observed.physical_counts.attention_calls =
+          evidence.attention_calls_enqueued;
+      observed.physical_counts.attention_preprocess =
+          evidence.attention_preprocess_enqueued;
+      observed.fill_completed =
+          evidence.fill_panels_enqueued ==
+          kPromptWideP40WholeCorePanelCount;
+      observed.drain_completed =
+          evidence.drain_panels_enqueued ==
+          kPromptWideP40WholeCorePanelCount;
+      // The single final main-stream barrier above is the completion witness
+      // for every fixed submission recorded in this layer.
+      observed.completion_observed = true;
+      observed.attention_preprocess_count_observed =
+          expected == model::LayerType::kFullAttention;
+
+      layer_receipts[layer] =
+          macrofeed_v3_receipt_detail::seal_layer_receipt(observed);
+      if (!sm87_macrofeed_v3_layer_receipt_valid(layer_receipts[layer])) {
+        return fail_whole_request_prefill(runner_status(
+            ReferenceRunnerError::kRouteEvidenceFailure,
+            "whole_request_prefill_macrofeed_v3_layer_receipt", layer));
+      }
+    }
+
+    Sm87MacroFeedV3TransactionReceipt transaction;
+    if (!macrofeed_v3_receipt_detail::build_transaction_receipt(
+            macrofeed_v3_request_identity, layer_receipts.data(),
+            layer_receipts.size(), true, &transaction) ||
+        !sm87_macrofeed_v3_transaction_complete(transaction) ||
+        transaction.aggregate.fp8 !=
+            kSm87MacroFeedV3ReceiptFp8Launches ||
+        transaction.aggregate.nvfp4_gate_up !=
+            kSm87MacroFeedV3ReceiptGateUpLaunches ||
+        transaction.aggregate.nvfp4_down !=
+            kSm87MacroFeedV3ReceiptDownLaunches ||
+        transaction.aggregate.bf16_ab !=
+            kSm87MacroFeedV3ReceiptBf16AbLaunches ||
+        transaction.aggregate.gdn !=
+            kSm87MacroFeedV3ReceiptGdnLaunches ||
+        transaction.aggregate.attention_calls !=
+            kSm87MacroFeedV3ReceiptAttentionCalls ||
+        transaction.aggregate.attention_preprocess !=
+            kSm87MacroFeedV3ReceiptAttentionPreprocessPerRequest ||
+        prompt_wide_p40_whole_core_layer_hits !=
+            kReferenceDecoderLayerCount ||
+        prompt_wide_p40_fill_panel_hits !=
+            kReferenceDecoderLayerCount *
+                kPromptWideP40WholeCorePanelCount ||
+        prompt_wide_p40_prompt_core_hits !=
+            kReferenceDecoderLayerCount ||
+        prompt_wide_p40_drain_panel_hits !=
+            kReferenceDecoderLayerCount *
+                kPromptWideP40WholeCorePanelCount ||
+        prompt_wide_p40_bf16_ab_hits !=
+            kLayerMajorPrefillLinearLayerCount ||
+        prompt_wide_p40_gdn_hits != kLayerMajorPrefillLinearLayerCount ||
+        native_flashinfer_exact_whole_prompt_hits !=
+            kLayerMajorPrefillFullLayerCount ||
+        layer_wide_p40_mlp_layer_hits != kReferenceDecoderLayerCount ||
+        persistent_p40_nvfp4_gate_up_hits !=
+            kReferenceDecoderLayerCount ||
+        persistent_p40_nvfp4_down_residual_hits !=
+            kReferenceDecoderLayerCount ||
+        persistent_p40_nvfp4_physical_launches !=
+            2U * kReferenceDecoderLayerCount ||
+        prompt_wide_p40_fp8_projection_hits !=
+            kSm87MacroFeedV3ReceiptFp8Launches ||
+        prompt_wide_p40_fp8_projection_physical_launches !=
+            kSm87MacroFeedV3ReceiptFp8Launches) {
+      return fail_whole_request_prefill(runner_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "whole_request_prefill_macrofeed_v3_transaction_receipt"));
+    }
+    macrofeed_v3_transaction_receipt.emplace(std::move(transaction));
+  }
+#endif
+
   if (use_vllm_marlin_parity) {
     const PrefillP40VllmMarlinParitySchedulePlan& parity_schedule =
         immutable_topology.vllm_marlin_parity_schedule;
@@ -7000,6 +7807,8 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   stage.final_normalized_hidden = final_hidden;
   stage.completed_uncommitted_progress = progress;
   stage.route_evidence_after_commit = staged_route;
+  stage.macrofeed_v3_transaction_receipt =
+      macrofeed_v3_transaction_receipt;
   whole_request_prefill_stage_ = stage;
 
   ReferenceWholeRequestPrefillResult result;
@@ -7101,6 +7910,8 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         ReferenceP40VllmMarlinParityLayerCompletionReceipt::from_validated(
             source);
   }
+  result.macrofeed_v3_transaction_receipt =
+      macrofeed_v3_transaction_receipt;
   result.progress = progress;
   if (options.measure_timing) {
     const std::chrono::duration<double, std::milli> elapsed =
@@ -8568,6 +9379,209 @@ ReferenceRunner::enqueue_prompt_wide_p40_vllm_marlin_parity_mlp(
   return {};
 #endif
 }
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+ReferenceRunnerStatus
+ReferenceRunner::enqueue_prompt_wide_p40_macrofeed_v3_mlp(
+    const std::size_t layer,
+    const ReferenceLayerMajorRequestViews& request_views,
+    const sm87_macrofeed_v3_p40_execution_package_detail::
+        Sm87MacroFeedV3P40ExecutionPackage& package,
+    MacroFeedV3LayerEnqueueEvidence& evidence) noexcept {
+  using Binding = sm87_macrofeed_v3_p40_execution_package_detail::
+      Sm87MacroFeedV3P40ProjectionStartupBinding;
+  using Role = kernels::Sm87TargetAotProjectionRole;
+  if (layer >= kReferenceDecoderLayerCount || !package.valid() ||
+      !package.audit().valid() ||
+      evidence.fill_panels_enqueued !=
+          kPromptWideP40WholeCorePanelCount ||
+      evidence.drain_panels_enqueued !=
+          kPromptWideP40WholeCorePanelCount ||
+      !evidence.fp8_input.valid_enqueue_receipt(evidence.fp8_input_role) ||
+      !evidence.fp8_output.valid_enqueue_receipt(
+          Role::kFp8AttentionOutput) ||
+      evidence.gate_up.launch_enqueued || evidence.down.launch_enqueued) {
+    return runner_status(ReferenceRunnerError::kInvalidDependency,
+                         "prefill_macrofeed_v3_mlp_contract", layer);
+  }
+
+  const model::LayerType expected =
+      reference_runner_detail::expected_reference_layer_type(layer);
+  if ((expected == model::LayerType::kLinearAttention &&
+       (evidence.bf16_ab_launches_enqueued != 1U ||
+        evidence.gdn_launches_enqueued !=
+            kernels::kSm87MacrofeedV3GdnPhysicalKernels ||
+        evidence.attention_calls_enqueued != 0U ||
+        evidence.attention_preprocess_enqueued != 0U)) ||
+      (expected == model::LayerType::kFullAttention &&
+       (evidence.bf16_ab_launches_enqueued != 0U ||
+        evidence.gdn_launches_enqueued != 0U ||
+        evidence.attention_calls_enqueued != 1U ||
+        evidence.attention_preprocess_enqueued !=
+            kPromptWideP40WholeCorePanelCount))) {
+    return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                         "prefill_macrofeed_v3_core_evidence", layer);
+  }
+
+  const LayerMajorMlpPhaseViews& mlp = request_views.mlp;
+  const DeviceMatrixView& residual_view = request_views.prompt_residual_bf16;
+  const auto exact_bf16_matrix = [](const DeviceMatrixView& view,
+                                    const std::uint32_t rows,
+                                    const std::uint32_t columns) noexcept {
+    return view.storage.device_data != nullptr &&
+           view.storage.element_size_bytes == sizeof(std::uint16_t) &&
+           view.row_capacity == rows && view.columns == columns &&
+           view.row_stride_elements == columns &&
+           view.storage.element_capacity ==
+               static_cast<std::uint64_t>(rows) * columns;
+  };
+  if (request_views.descriptor.mlp_layout !=
+          LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan ||
+      request_views.descriptor.mlp_capacity_tokens !=
+          kLayerMajorPrefillLayerWideMlpP40Tokens ||
+      request_views.descriptor.max_sequence_length !=
+          kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens ||
+      !exact_bf16_matrix(
+          mlp.normalized_input_bf16,
+          kLayerMajorPrefillLayerWideMlpP40Tokens, kReferenceHiddenSize) ||
+      !exact_bf16_matrix(
+          mlp.activated_bf16,
+          kLayerMajorPrefillLayerWideMlpP40Tokens,
+          kReferenceIntermediateSize) ||
+      residual_view.storage.device_data == nullptr ||
+      residual_view.storage.element_size_bytes != sizeof(std::uint16_t) ||
+      residual_view.row_capacity !=
+          kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens ||
+      residual_view.columns != kReferenceHiddenSize ||
+      residual_view.row_stride_elements != kReferenceHiddenSize) {
+    return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                         "prefill_macrofeed_v3_mlp_views", layer);
+  }
+
+  auto* const residual = static_cast<std::uint16_t*>(
+      residual_view.storage.device_data);
+  auto* const normalized = static_cast<std::uint16_t*>(
+      mlp.normalized_input_bf16.storage.device_data);
+  auto* const activated = static_cast<std::uint16_t*>(
+      mlp.activated_bf16.storage.device_data);
+  constexpr std::size_t kResidualBytes =
+      static_cast<std::size_t>(kLayerMajorPrefillLayerWideMlpP40Tokens) *
+      kReferenceHiddenSize * sizeof(std::uint16_t);
+  constexpr std::size_t kActivatedBytes =
+      static_cast<std::size_t>(kLayerMajorPrefillLayerWideMlpP40Tokens) *
+      kReferenceIntermediateSize * sizeof(std::uint16_t);
+  if (!byte_ranges_are_pairwise_disjoint(
+          std::array<ByteSpan, 3U>{{{residual, kResidualBytes},
+                                   {normalized, kResidualBytes},
+                                   {activated, kActivatedBytes}}})) {
+    return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                         "prefill_macrofeed_v3_mlp_alias", layer);
+  }
+
+  const DecoderLayerWeights& layer_weights = weights_->layer(layer);
+  const int norm_status = launch_headwise_centered_rms_norm_reference_cuda(
+      residual, layer_weights.post_attention_layernorm.data,
+      kLayerMajorPrefillLayerWideMlpP40Tokens, kReferenceHiddenSize,
+      kRmsEpsilon, normalized, stream_);
+  if (norm_status != static_cast<int>(cudaSuccess)) {
+    return runner_status(ReferenceRunnerError::kCudaFailure,
+                         "prefill_macrofeed_v3_post_attention_norm", layer,
+                         norm_status);
+  }
+
+  const Binding* const gate_up_binding =
+      package.borrow_projection_startup_binding(layer, Role::kNvFp4GateUp);
+  const Binding* const down_binding =
+      package.borrow_projection_startup_binding(layer, Role::kNvFp4Down);
+  const kernels::Sm87TargetAotNvFp4CudaAssetView* const gate_up_asset =
+      gate_up_binding == nullptr ? nullptr
+                                 : gate_up_binding->borrow_nvfp4_asset();
+  const kernels::Sm87TargetAotNvFp4CudaAssetView* const down_asset =
+      down_binding == nullptr ? nullptr : down_binding->borrow_nvfp4_asset();
+  const kernels::Sm87MacroFeedV3NvFp4GateUpPayloadReceipt*
+      gate_up_payload_receipt =
+          gate_up_binding == nullptr
+              ? nullptr
+              : gate_up_binding->gate_up_payload_receipt();
+  const kernels::Sm87MacroFeedV3NvFp4DownPayloadReceipt*
+      down_payload_receipt =
+          down_binding == nullptr ? nullptr
+                                  : down_binding->down_payload_receipt();
+  if (gate_up_binding == nullptr || down_binding == nullptr ||
+      !gate_up_binding->valid_for(layer, Role::kNvFp4GateUp,
+                                  package.audit().package_identity) ||
+      !down_binding->valid_for(layer, Role::kNvFp4Down,
+                               package.audit().package_identity) ||
+      gate_up_asset == nullptr || down_asset == nullptr ||
+      gate_up_payload_receipt == nullptr || down_payload_receipt == nullptr ||
+      gate_up_binding->payload_bytes() >
+          std::numeric_limits<std::size_t>::max() ||
+      down_binding->payload_bytes() >
+          std::numeric_limits<std::size_t>::max() ||
+      gate_up_asset->artifact_identity != gate_up_binding->artifact_identity() ||
+      down_asset->artifact_identity != down_binding->artifact_identity() ||
+      !kernels::sm87_macrofeed_v3_nvfp4_gate_up_payload_receipt_valid(
+          *gate_up_payload_receipt) ||
+      !kernels::sm87_macrofeed_v3_nvfp4_down_payload_receipt_valid(
+          *down_payload_receipt)) {
+    return runner_status(ReferenceRunnerError::kInvalidDependency,
+                         "prefill_macrofeed_v3_mlp_bindings", layer);
+  }
+
+  kernels::Sm87MacroFeedV3NvFp4GateUpArguments gate_up_arguments;
+  gate_up_arguments.input = normalized;
+  gate_up_arguments.payload = reinterpret_cast<const std::uint8_t*>(
+      gate_up_binding->payload_begin());
+  gate_up_arguments.payload_bytes =
+      static_cast<std::size_t>(gate_up_binding->payload_bytes());
+  gate_up_arguments.gate_tensor_scale = gate_up_binding->tensor_scale(0U);
+  gate_up_arguments.up_tensor_scale = gate_up_binding->tensor_scale(1U);
+  gate_up_arguments.token_count = kPromptWideP40WholeCorePromptTokens;
+  gate_up_arguments.output = activated;
+  gate_up_arguments.cuda_stream = stream_;
+  gate_up_arguments.payload_receipt = *gate_up_payload_receipt;
+  const int gate_up_status =
+      kernels::launch_sm87_macrofeed_v3_nvfp4_gate_up_sealed_cuda(
+          gate_up_arguments, package.gate_up_startup_seal(),
+          &evidence.gate_up);
+  if (gate_up_status != static_cast<int>(cudaSuccess)) {
+    return runner_status(ReferenceRunnerError::kCudaFailure,
+                         "prefill_macrofeed_v3_gate_up", layer,
+                         gate_up_status);
+  }
+  if (!evidence.gate_up.valid_enqueue_receipt() ||
+      evidence.gate_up.payload_identity !=
+          gate_up_binding->artifact_identity()) {
+    return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                         "prefill_macrofeed_v3_gate_up_receipt", layer);
+  }
+
+  kernels::Sm87MacroFeedV3NvFp4DownArguments down_arguments;
+  down_arguments.input = activated;
+  down_arguments.payload = reinterpret_cast<const std::uint8_t*>(
+      down_binding->payload_begin());
+  down_arguments.payload_bytes =
+      static_cast<std::size_t>(down_binding->payload_bytes());
+  down_arguments.tensor_scale = down_binding->tensor_scale(0U);
+  down_arguments.token_count = kPromptWideP40WholeCorePromptTokens;
+  down_arguments.residual = residual;
+  down_arguments.cuda_stream = stream_;
+  down_arguments.payload_receipt = *down_payload_receipt;
+  const int down_status =
+      kernels::launch_sm87_macrofeed_v3_nvfp4_down_sealed_cuda(
+          down_arguments, package.down_startup_seal(), &evidence.down);
+  if (down_status != static_cast<int>(cudaSuccess)) {
+    return runner_status(ReferenceRunnerError::kCudaFailure,
+                         "prefill_macrofeed_v3_down", layer, down_status);
+  }
+  if (!evidence.down.valid_enqueue_receipt() ||
+      evidence.down.payload_identity != down_binding->artifact_identity()) {
+    return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                         "prefill_macrofeed_v3_down_receipt", layer);
+  }
+  return {};
+}
+#endif
 
 ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
     const std::size_t layer,
@@ -10532,6 +11546,16 @@ ReferenceRunner::finish_whole_request_compatibility_core(
   WholeRequestPrefillStage stage = whole_request_prefill_stage_;
   whole_request_prefill_stage_.phase =
       WholeRequestPrefillStagePhase::kExecuting;
+  const bool has_macrofeed_v3_receipt =
+      stage.macrofeed_v3_transaction_receipt.has_value();
+  if (has_macrofeed_v3_receipt != macrofeed_v3_cold_reset_required_ ||
+      (has_macrofeed_v3_receipt &&
+       !sm87_macrofeed_v3_transaction_complete(
+           *stage.macrofeed_v3_transaction_receipt))) {
+    return fail_step(runner_status(
+        ReferenceRunnerError::kRouteEvidenceFailure,
+        "whole_request_prefill_macrofeed_v3_finalizer_receipt"));
+  }
   if (!static_cast<bool>(*this)) {
     return fail_step(runner_status(
         ReferenceRunnerError::kInvalidRunner,
@@ -10758,7 +11782,9 @@ ReferenceRunner::whole_request_commit_memory_profile(
              mlp_schedule_tactic == LayerMajorPrefillMlpScheduleTactic::
                                         kPromptWideP40PackedNvfp4V2 ||
              mlp_schedule_tactic == LayerMajorPrefillMlpScheduleTactic::
-                                        kPromptWideP40VllmMarlinParity
+                                        kPromptWideP40VllmMarlinParity ||
+             mlp_schedule_tactic == LayerMajorPrefillMlpScheduleTactic::
+                                        kPromptWideP40MacroFeedV3
          ? RequestMemoryProfile::kLayerMajorP40WholeCore
          : RequestMemoryProfile::kLayerMajorC8192;
 }
@@ -10776,6 +11802,16 @@ ReferenceRunner::commit_whole_request_layer_major_compatibility_core(
   }
   const WholeRequestPrefillStage stage =
       whole_request_prefill_stage_;
+  const bool has_macrofeed_v3_receipt =
+      stage.macrofeed_v3_transaction_receipt.has_value();
+  if (has_macrofeed_v3_receipt != macrofeed_v3_cold_reset_required_ ||
+      (has_macrofeed_v3_receipt &&
+       !sm87_macrofeed_v3_transaction_complete(
+           *stage.macrofeed_v3_transaction_receipt))) {
+    return fail_whole_request_status(runner_status(
+        ReferenceRunnerError::kRouteEvidenceFailure,
+        "whole_request_prefill_macrofeed_v3_commit_receipt"));
+  }
   if (!static_cast<bool>(*this)) {
     return fail_whole_request_status(runner_status(
         ReferenceRunnerError::kInvalidRunner,
@@ -10885,6 +11921,11 @@ ReferenceRunner::commit_whole_request_layer_major_compatibility_core(
   // No fallible operation may follow the sole host-state publication.
   prefill_route_evidence_ = staged_route;
   whole_request_prefill_stage_ = {};
+  if (has_macrofeed_v3_receipt) {
+    // A successful publication is the only non-reset transition that may
+    // release the cold-reset obligation.
+    macrofeed_v3_cold_reset_required_ = false;
+  }
   return {};
 }
 

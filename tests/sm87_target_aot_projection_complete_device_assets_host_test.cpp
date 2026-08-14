@@ -29,6 +29,8 @@ inline constexpr std::uint64_t kHostTestOwnerIdentity =
     0x7133'7843'4f4d'504fULL;
 inline constexpr std::uint64_t kHostTestAllocationIdentity =
     0x7133'7843'4f4d'5041ULL;
+inline constexpr std::uint64_t kHostTestDeviceIdentity =
+    0x7133'7843'5058'4f52ULL;
 
 [[nodiscard]] kernels::Sm87TargetAotProjectionSha256Digest host_test_digest(
     const std::uint64_t seed) noexcept {
@@ -267,6 +269,7 @@ Sm87TargetAotCompleteProjectionExecutionAccess::
   owner.bytes_ = kSm87TargetAotCompleteProjectionDeviceArenaBytes;
   owner.allocation_identity_ = kHostTestAllocationIdentity;
   owner.owner_identity_ = kHostTestOwnerIdentity;
+  owner.device_identity_ = kHostTestDeviceIdentity;
   owner.device_ordinal_ = 0;
   std::uint64_t offset = 0U;
   for (std::size_t layer_index = 0U;
@@ -290,6 +293,7 @@ Sm87TargetAotCompleteProjectionExecutionAccess::
         owner.bytes_ = 0U;
         owner.allocation_identity_ = 0U;
         owner.owner_identity_ = 0U;
+        owner.device_identity_ = 0U;
         owner.device_ordinal_ = -1;
         owner.descriptors_ = {};
         owner.descriptor_count_ = 0U;
@@ -305,6 +309,7 @@ Sm87TargetAotCompleteProjectionExecutionAccess::
     owner.bytes_ = 0U;
     owner.allocation_identity_ = 0U;
     owner.owner_identity_ = 0U;
+    owner.device_identity_ = 0U;
     owner.device_ordinal_ = -1;
     owner.descriptors_ = {};
     owner.descriptor_count_ = 0U;
@@ -319,6 +324,8 @@ Sm87TargetAotCompleteProjectionExecutionAccess::
       owner.owner_identity_;
   model_weights.target_aot_complete_projection_attachment_.allocation_identity =
       owner.allocation_identity_;
+  model_weights.target_aot_complete_projection_attachment_.device_identity =
+      owner.device_identity_;
   model_weights.target_aot_complete_projection_attachment_.arena_begin =
       kHostTestArenaBegin;
   model_weights.target_aot_complete_projection_attachment_.arena_bytes =
@@ -367,6 +374,7 @@ bool Sm87TargetAotCompleteProjectionExecutionAccess::clear_host_test_fixture(
   owner.bytes_ = 0U;
   owner.allocation_identity_ = 0U;
   owner.owner_identity_ = 0U;
+  owner.device_identity_ = 0U;
   owner.device_ordinal_ = -1;
   owner.descriptors_ = {};
   owner.descriptor_count_ = 0U;

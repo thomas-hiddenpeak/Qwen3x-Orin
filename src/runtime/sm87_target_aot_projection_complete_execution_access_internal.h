@@ -7,6 +7,11 @@
 #include <cstdint>
 #include <optional>
 
+namespace q3x::runtime::sm87_macrofeed_v3_p40_execution_package_detail {
+class Sm87MacroFeedV3P40ExecutionPackage;
+class Sm87MacroFeedV3P40ProjectionStartupBinding;
+}  // namespace q3x::runtime::sm87_macrofeed_v3_p40_execution_package_detail
+
 namespace q3x::runtime::target_aot_complete_execution_detail {
 
 // Source-private immutable borrow of one artifact from the complete 256-entry
@@ -46,12 +51,17 @@ class Sm87TargetAotCompleteProjectionExecutionAsset final {
 
  private:
   friend class Sm87TargetAotCompleteProjectionExecutionAccess;
+  friend class sm87_macrofeed_v3_p40_execution_package_detail::
+      Sm87MacroFeedV3P40ExecutionPackage;
+  friend class sm87_macrofeed_v3_p40_execution_package_detail::
+      Sm87MacroFeedV3P40ProjectionStartupBinding;
 
   Sm87TargetAotCompleteProjectionExecutionAsset(
       const ModelWeights* model_weights,
       const Sm87TargetAotCompleteProjectionDeviceAssets* owner,
       const Sm87TargetAotCompleteDeviceAssetDescriptor* descriptor,
       std::uint64_t owner_identity, std::uint64_t allocation_identity,
+      std::uint64_t device_identity,
       std::uintptr_t arena_begin, std::uint64_t arena_bytes,
       std::int32_t device_ordinal, std::size_t layer_index,
       kernels::Sm87TargetAotProjectionRole role,
@@ -64,6 +74,7 @@ class Sm87TargetAotCompleteProjectionExecutionAsset final {
         descriptor_(descriptor),
         owner_identity_(owner_identity),
         allocation_identity_(allocation_identity),
+        device_identity_(device_identity),
         arena_begin_(arena_begin),
         arena_bytes_(arena_bytes),
         device_ordinal_(device_ordinal),
@@ -79,6 +90,7 @@ class Sm87TargetAotCompleteProjectionExecutionAsset final {
   const Sm87TargetAotCompleteDeviceAssetDescriptor* descriptor_ = nullptr;
   std::uint64_t owner_identity_ = 0U;
   std::uint64_t allocation_identity_ = 0U;
+  std::uint64_t device_identity_ = 0U;
   std::uintptr_t arena_begin_ = 0U;
   std::uint64_t arena_bytes_ = 0U;
   std::int32_t device_ordinal_ = -1;
@@ -125,6 +137,9 @@ class Sm87TargetAotCompleteProjectionExecutionAccess final {
   [[nodiscard]] std::uint64_t allocation_identity() const noexcept {
     return attached() ? allocation_identity_ : 0U;
   }
+  [[nodiscard]] std::uint64_t device_identity() const noexcept {
+    return attached() ? device_identity_ : 0U;
+  }
   [[nodiscard]] std::int32_t device_ordinal() const noexcept {
     return attached() ? device_ordinal_ : -1;
   }
@@ -144,6 +159,18 @@ class Sm87TargetAotCompleteProjectionExecutionAccess final {
       Sm87TargetAotCompleteProjectionDeviceAssets& owner,
       std::size_t layer_index,
       kernels::Sm87TargetAotProjectionRole role) noexcept;
+  [[nodiscard]] static bool tamper_host_test_fixture_source_identity(
+      Sm87TargetAotCompleteProjectionDeviceAssets& owner,
+      std::size_t layer_index,
+      kernels::Sm87TargetAotProjectionRole role,
+      std::size_t source_index) noexcept;
+  [[nodiscard]] static bool tamper_host_test_fixture_scale_bits(
+      Sm87TargetAotCompleteProjectionDeviceAssets& owner,
+      std::size_t layer_index,
+      kernels::Sm87TargetAotProjectionRole role,
+      std::size_t source_index) noexcept;
+  [[nodiscard]] static bool tamper_host_test_fixture_device_identity(
+      Sm87TargetAotCompleteProjectionDeviceAssets& owner) noexcept;
   [[nodiscard]] static bool clear_host_test_fixture(
       Sm87TargetAotCompleteProjectionDeviceAssets& owner) noexcept;
 
@@ -154,6 +181,7 @@ class Sm87TargetAotCompleteProjectionExecutionAccess final {
       const ModelWeights* model_weights,
       const Sm87TargetAotCompleteProjectionDeviceAssets* owner,
       std::uint64_t owner_identity, std::uint64_t allocation_identity,
+      std::uint64_t device_identity,
       std::uintptr_t arena_begin, std::uint64_t arena_bytes,
       std::int32_t device_ordinal,
       const std::array<
@@ -164,6 +192,7 @@ class Sm87TargetAotCompleteProjectionExecutionAccess final {
         owner_(owner),
         owner_identity_(owner_identity),
         allocation_identity_(allocation_identity),
+        device_identity_(device_identity),
         arena_begin_(arena_begin),
         arena_bytes_(arena_bytes),
         device_ordinal_(device_ordinal),
@@ -173,6 +202,7 @@ class Sm87TargetAotCompleteProjectionExecutionAccess final {
       const ModelWeights* model_weights,
       const Sm87TargetAotCompleteProjectionDeviceAssets* owner,
       std::uint64_t owner_identity, std::uint64_t allocation_identity,
+      std::uint64_t device_identity,
       std::uintptr_t arena_begin, std::uint64_t arena_bytes,
       std::int32_t device_ordinal) noexcept;
   [[nodiscard]] static bool descriptor_matches(
@@ -186,6 +216,7 @@ class Sm87TargetAotCompleteProjectionExecutionAccess final {
   const Sm87TargetAotCompleteProjectionDeviceAssets* owner_ = nullptr;
   std::uint64_t owner_identity_ = 0U;
   std::uint64_t allocation_identity_ = 0U;
+  std::uint64_t device_identity_ = 0U;
   std::uintptr_t arena_begin_ = 0U;
   std::uint64_t arena_bytes_ = 0U;
   std::int32_t device_ordinal_ = -1;

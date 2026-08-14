@@ -45,6 +45,30 @@ static_assert(static_cast<std::uint8_t>(
                   runtime::PrefillNvFp4ArithmeticTactic::
                       kP40000VllmMarlinProjectionHostDispatchGateThenUpSiluDownResidual) ==
               7U);
+static_assert(static_cast<std::uint8_t>(
+                  runtime::PrefillFp8ArithmeticTactic::
+                      kP40000MacroFeedV3RoleSpecialized) == 6U);
+static_assert(static_cast<std::uint8_t>(
+                  runtime::PrefillNvFp4ArithmeticTactic::
+                      kP40000MacroFeedV3GateUpSiluDownResidual) == 8U);
+static_assert(static_cast<std::uint8_t>(
+                  runtime::PrefillGdnArithmeticTactic::
+                      kPromptWideP40MacroFeedV3Exact) == 2U);
+
+#if defined(Q3X_EXPECT_SM87_MACROFEED_V3_CONSTITUENT_ADMISSION)
+inline constexpr bool kMacroFeedV3ConstituentsExpected = true;
+#else
+inline constexpr bool kMacroFeedV3ConstituentsExpected = false;
+#endif
+
+#if defined(Q3X_EXPECT_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+inline constexpr bool kMacroFeedV3CompleteRouteExpected = true;
+#else
+inline constexpr bool kMacroFeedV3CompleteRouteExpected = false;
+#endif
+
+static_assert(!kMacroFeedV3CompleteRouteExpected ||
+              kMacroFeedV3ConstituentsExpected);
 
 class TestContext {
  public:
@@ -403,6 +427,18 @@ void test_prompt_wide_p40_macrofeed_v3_schedule(TestContext& test) {
   constexpr auto kMacroFeedV3 = MlpSchedule::kPromptWideP40MacroFeedV3;
   constexpr auto kMacroFeedV3Projection =
       Projection::kNativePromptWideP40MacroFeedV3;
+  const bool complete_route_enabled =
+      runtime::prompt_wide_p40_macrofeed_v3_prefill_plan_enabled();
+  test.expect(
+      complete_route_enabled == kMacroFeedV3CompleteRouteExpected,
+      "MacroFeed-v3 plan admission follows only the complete executor bit");
+  test.expect(
+      !kMacroFeedV3ConstituentsExpected ||
+          kMacroFeedV3CompleteRouteExpected || !complete_route_enabled,
+      "MacroFeed-v3 constituent-only builds cannot expose the complete plan");
+
+  constexpr const auto& kMacroFeedV3Arithmetic =
+      runtime::kLayerMajorPrefillPromptWideP40MacroFeedV3ArithmeticContract;
   test.expect(
       runtime::is_valid_layer_major_prefill_projection_tactic(
           kMacroFeedV3Projection) &&
@@ -413,6 +449,30 @@ void test_prompt_wide_p40_macrofeed_v3_schedule(TestContext& test) {
           runtime::to_string(kMacroFeedV3) ==
               "prompt-wide-p40-macrofeed-v3" &&
           runtime::prefill_route_layer_pass_count(5U, kMacroFeedV3) == 1U &&
+          runtime::is_valid_layer_major_prefill_arithmetic_contract(
+              kMacroFeedV3Arithmetic) &&
+          kMacroFeedV3Arithmetic.version == 11U &&
+          kMacroFeedV3Arithmetic.fp8 ==
+              runtime::PrefillFp8ArithmeticTactic::
+                  kP40000MacroFeedV3RoleSpecialized &&
+          kMacroFeedV3Arithmetic.nvfp4 ==
+              runtime::PrefillNvFp4ArithmeticTactic::
+                  kP40000MacroFeedV3GateUpSiluDownResidual &&
+          kMacroFeedV3Arithmetic.gdn ==
+              runtime::PrefillGdnArithmeticTactic::
+                  kPromptWideP40MacroFeedV3Exact &&
+          runtime::kLayerMajorPrefillMacroFeedV3Fp8GdnInputPhysicalLaunchesPerRequest ==
+              48U &&
+          runtime::kLayerMajorPrefillMacroFeedV3Fp8FullInputPhysicalLaunchesPerRequest ==
+              16U &&
+          runtime::kLayerMajorPrefillMacroFeedV3Fp8OutputPhysicalLaunchesPerRequest ==
+              64U &&
+          runtime::kLayerMajorPrefillMacroFeedV3Fp8PhysicalLaunchesPerRequest ==
+              128U &&
+          runtime::kLayerMajorPrefillMacroFeedV3Bf16AbPhysicalLaunchesPerRequest ==
+              48U &&
+          runtime::kLayerMajorPrefillMacroFeedV3AttentionWholePromptCallsPerRequest ==
+              16U &&
           runtime::kLayerMajorPrefillMacroFeedV3GateUpPhysicalLaunchesPerRequest ==
               64U &&
           runtime::kLayerMajorPrefillMacroFeedV3DownPhysicalLaunchesPerRequest ==
@@ -425,18 +485,26 @@ void test_prompt_wide_p40_macrofeed_v3_schedule(TestContext& test) {
           runtime::kLayerMajorPrefillMacroFeedV3TrackedPhysicalLaunchesPerRequest ==
               560U,
       "MacroFeed-v3 has append-only projection/MLP identities and exact "
-      "GateUp64, Down64, and GDN48x9 physical schedule counts");
+      "FP8, BF16 A/B, Attention, GateUp, Down, and GDN route counts");
+
+  runtime::LayerMajorPrefillArithmeticContract relabelled_arithmetic =
+      kMacroFeedV3Arithmetic;
+  relabelled_arithmetic.version = 6U;
+  test.expect(
+      !runtime::is_valid_layer_major_prefill_arithmetic_contract(
+          relabelled_arithmetic),
+      "MacroFeed-v3 arithmetic cannot be relabelled as the v10 contract");
 
   const auto candidate = build_plan(
       runtime::kLayerMajorPrefillPromptWideP40Tokens, 0U,
       runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
       kMacroFeedV3);
-  if (!runtime::prompt_wide_p40_macrofeed_v3_prefill_plan_enabled()) {
+  if (!complete_route_enabled) {
     test.expect(
         !candidate &&
             candidate.error ==
                 runtime::PrefillExecutionPlanError::kInvalidArgument,
-        "default builds fail closed on the MacroFeed-v3 overlay");
+        "builds without complete executor admission fail closed on V3");
     return;
   }
 
@@ -466,6 +534,12 @@ void test_prompt_wide_p40_macrofeed_v3_schedule(TestContext& test) {
           schedule != nullptr && schedule->enabled &&
           schedule->request_memory_profile ==
               runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
+          schedule->fp8_gdn_input_physical_launches_per_request == 48U &&
+          schedule->fp8_full_input_physical_launches_per_request == 16U &&
+          schedule->fp8_output_physical_launches_per_request == 64U &&
+          schedule->fp8_physical_launches_per_request == 128U &&
+          schedule->bf16_ab_physical_launches_per_request == 48U &&
+          schedule->attention_whole_prompt_calls_per_request == 16U &&
           schedule->gate_up_physical_launches_per_request == 64U &&
           schedule->down_physical_launches_per_request == 64U &&
           schedule->gdn_layer_count == 48U &&
@@ -519,6 +593,39 @@ void test_prompt_wide_p40_macrofeed_v3_schedule(TestContext& test) {
   test.expect(
       !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
       "MacroFeed-v3 cannot acquire the retired V2 request owner");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule.fp8_gdn_input_physical_launches_per_request =
+      47U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 rejects incomplete GDN-input FP8 coverage");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule.fp8_full_input_physical_launches_per_request =
+      15U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 rejects incomplete Full-input FP8 coverage");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule.fp8_output_physical_launches_per_request = 63U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 rejects incomplete FP8 output coverage");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule.fp8_physical_launches_per_request = 127U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 rejects an incomplete FP8 route subtotal");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule.bf16_ab_physical_launches_per_request = 47U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 rejects incomplete BF16 A/B layer coverage");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule.attention_whole_prompt_calls_per_request =
+      15U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 rejects incomplete whole-prompt Attention coverage");
   mutated = *plan;
   mutated.macrofeed_v3_schedule.gate_up_physical_launches_per_request = 63U;
   test.expect(

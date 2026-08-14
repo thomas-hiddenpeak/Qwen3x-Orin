@@ -692,6 +692,7 @@ class ModelWeights {
     const Sm87TargetAotCompleteProjectionDeviceAssets* owner = nullptr;
     std::uint64_t owner_identity = 0U;
     std::uint64_t allocation_identity = 0U;
+    std::uint64_t device_identity = 0U;
     std::uintptr_t arena_begin = 0U;
     std::uint64_t arena_bytes = 0U;
     std::int32_t device_ordinal = -1;

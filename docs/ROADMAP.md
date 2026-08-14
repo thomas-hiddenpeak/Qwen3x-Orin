@@ -188,9 +188,11 @@ production promotion. Exact API and profile evidence is frozen in the
 
 The active successor is **`AC-PREFILL-SM87-MACROFEED-v3`**. It is one complete
 Prefill composition, not a projection-first sequence of independently
-selected kernels. It retains the v10 real-API transaction/control and
-FlashInfer Attention substrate, then changes the two profile-proven structural
-failures together:
+selected kernels. Its default-off, test-only source composition is now present
+on the active development line; [Current Status](CURRENT_STATUS.md) owns the
+exact implementation boundary. It retains the v10 real-API
+transaction/control and FlashInfer Attention substrate, then changes the two
+profile-proven structural failures together:
 
 - role-specific non-cooperative macro GEMMs begin from an
   M128/N256/K64-class CTA geometry rather than the V2 32-CTA cooperative
@@ -203,6 +205,12 @@ failures together:
 - the full-model receipt records real physical launches produced by the
   executable route, not nominal outer calls or a caller-filled forecast.
 
+That implementation fact is not a measurement. V3 has no real P40 result,
+numerical qualification, release authority, or production dispatch. The
+remaining active delivery step is to finish its integrated build/host
+admission and return the complete composition directly to the clean-host real
+P40 API gate frozen below.
+
 Its P40 allocation remains:
 
 - no more than 5.0 s for all NVFP4 and FP8 projections;
@@ -214,9 +222,11 @@ Its P40 allocation remains:
 
 The v1 diagnostic control exposes host-visible per-layer progress and
 propagates client cancellation through bounded device-safe points. Its 64
-host waits are diagnostic serialization, not the V3 schedule. The complete V3
-must retain bounded progress/cancellation through device-ordered epochs and
-must not restore an unobservable whole-request execution interval.
+host waits are diagnostic serialization, not the V3 schedule. V3 retains
+bounded progress/cancellation through its device-ordered work and uses a cold
+mutable-arena rollback on failure or cancellation; the pre-P40 admission must
+still prove that the integrated route does not restore an unobservable
+whole-request execution interval.
 
 These are planning allocations derived from the owner-set target, not
 hardware-bound claims. The candidate must cover Gate/Up, Down, FP8 QKV/Z/O,
@@ -255,25 +265,19 @@ reconstructing the ledger after timing.
 The first bounded package is
 **[`WP-PREFILL-REFERENCE-TRANSLATION-v1`](PREFILL_REFERENCE_TRANSLATION_MATRIX.md)**:
 
-1. read the relevant vLLM, FlashInfer SM8x, Humming/Triton, FLA, and Mamba
-   source paths and separate invariant mathematics, dataflow, ownership,
-   scheduling, specialization, and tuning from their ISA/resource shell;
-2. map TMA/WGMMA/cluster/TMEM/native-FP4 or other unavailable mechanisms to an
-   explicit SM87 load, buffering, synchronization, MMA, residency, and AOT
-   plan instead of excluding the reference;
-3. after source analysis, run one clean-host, real-weight, cold/no-cache P40
-   API geometry witness for the proven reference route at the target-first
-   whole-prompt scheduler budget `40000`, after its JIT/autotune warmup;
-4. treat any invalid witness as control feedback rather than a performance
-   result: keep the gate fixed, do not repeat an unchanged route, and reconcile
-   its startup/JIT cache, Humming/backend identity, execution geometry, and
-   physical power/thermal lane against the known optimized reference first;
-5. use `8192`, `4096`, or `2048` budgets only after a valid target witness and
-   only to answer a predeclared explanatory question; they cannot delay or
-   replace the target gate;
-6. freeze the selected macrochunk geometry and role-specific plans into a
-   Q3X-only AOT candidate covering the complete family set above; and
-7. return the first executable composition directly to the incumbent P40 API
+1. retain the completed vLLM, FlashInfer SM8x, Humming/Triton, FLA, and Mamba
+   source translation and the explicit SM87 load, buffering,
+   synchronization, MMA, residency, and AOT map;
+2. retain the thermally invalid stock-vLLM P40 attempt as route and metric-
+   semantics feedback only. It has no performance result and does not replace
+   the owner-established 4.3K starting line;
+3. do not repeat the unchanged stock reference or let reconstruction of the
+   unknown optimized reference route delay the native V3 gate. A future
+   reference run requires a materially different, hash-bound configuration;
+4. retain the selected role-specific macro feeds and exact-GDN macrochunk
+   geometry in one Q3X-only AOT candidate covering the complete family set;
+   and
+5. return the first executable composition directly to the incumbent P40 API
    gate. A material whole-path step advances qualification; a small complete
    result reopens the global dataflow instead of starting a parameter scan.
 
@@ -322,32 +326,24 @@ They are not independent active scans. The architecture may compose them only
 when the source/dataflow matrix shows that they serve the complete candidate
 and its current critical path.
 
-Execution order:
+The matched work ledger, v10 control, V2 closure, three V3 projection feeds,
+nine-kernel-per-layer exact GDN, natural-order composition, private physical
+transaction, cold rollback, and distinct default-off OpenAI API route are no
+longer unfinished Roadmap items. The complete admission build and focused
+V3/authority/asset tests now pass; these facts still have no measured
+performance authority.
 
-1. retain the completed matched vLLM/Q3X production-work ledger, including
-   model roles, arithmetic backend, cache state, scheduler token accounting,
-   liveness, outer operations, and physical launches; no unchanged reference
-   timing run follows;
-2. retain v10 as the completed API/control/FlashInfer Attention performance
-   control and retain V2 only for exact constituent and cancellation oracles;
-3. freeze the V2 P40 timeout and its one bounded NSys attribution as the final
-   evidence for that version. Do not run V2 again or tune its cooperative
-   32-CTA small-cell feed;
-4. implement three V3 role-specific, non-cooperative macro projection feeds.
-   The starting class is M128/N256/K64, but Gate+Up, K-heavy Down, and FP8 must
-   own distinct shapes, schedules, and authenticated payload/scale semantics;
-5. implement the V3 exact-GDN layer-persistent or large-macrochunk graph with
-   48 value-head ownership, BF16 per-token state/publication semantics, and an
-   O(10)-kernels-per-layer submission target;
-6. compose projections and GDN with v10 Attention/control in natural model
-   order, preserve bounded cancellation, and issue a physical full-model
-   launch receipt from the actual executor;
-7. expose only that complete composition through a distinct default-off
-   OpenAI API route, with no production selector or release claim;
-8. return immediately to one clean-host real P40 API direction witness after
+Remaining execution order:
+
+1. return immediately to one clean-host, real-checkpoint, cold/no-cache P40
+   OpenAI API/EvalScope direction witness after
    `tegrastats`/process/device-handle preflight; and
-9. qualify a positive composition or close and redesign V3. Do not convert a
-   negative result into a local parameter scan.
+2. for a material positive composition, correct the physical
+   finalizer/`PrefillStateCommitted` boundary before pure-Prefill promotion
+   and numerical/statistical qualification; otherwise close and redesign V3.
+   Do not convert a negative, incomplete, or merely small result into a local
+   parameter scan. P60 and P130 remain locked until the policy's competitive,
+   accuracy-admissible P40 gate passes.
 
 ### Promotion and stop gates
 

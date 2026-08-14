@@ -283,6 +283,13 @@ inline constexpr std::string_view
     kLayerMajorNativePromptWideP40VllmMarlinParityDeploymentPlanId =
         "q3x.sm87.ac-prefill-p40-vllm-marlin-parity."
         "native-p40-canonical-nvfp4-legacy-stripe.v1";
+// Default-off whole-model candidate identity.  It is emitted only after the
+// private V3 package and its exact 64-layer physical transaction validate;
+// constituent admission alone can never select this deployment.
+inline constexpr std::string_view
+    kLayerMajorNativePromptWideP40MacroFeedV3DeploymentPlanId =
+        "q3x.sm87.ac-prefill-sm87-macrofeed-v3."
+        "native-p40-target-aot-whole-model.v1";
 // Independent complete-engine identity for the exact-P40000 target-AOT
 // execution chain. It is never inferred from a projection/Attention tactic.
 inline constexpr std::string_view kSm87TargetAotP40DeploymentPlanId =
@@ -684,6 +691,10 @@ struct ReferenceGeneration {
       prefill_vllm_marlin_parity_layer_completion_receipts{};
   std::size_t
       prefill_vllm_marlin_parity_layer_completion_receipt_count = 0U;
+  // Capability-free, completion-observed physical receipt for the
+  // default-off MacroFeed-v3 route. It remains empty for every other route.
+  std::optional<Sm87MacroFeedV3TransactionReceipt>
+      prefill_macrofeed_v3_transaction_receipt;
   // Append-only complete-engine evidence for sm87-bulk-v2-p40.  Legacy and
   // target-AOT-v1 results retain the all-zero default.
   ReferenceSm87BulkV2P40ReceiptEvidence bulk_v2_p40_receipt;

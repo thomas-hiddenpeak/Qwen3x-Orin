@@ -212,10 +212,36 @@ ModelWeights::ModelWeights(ModelWeights&& other) noexcept
       const_cast<Sm87TargetAotCompleteProjectionDeviceAssets*>(
           target_aot_complete_projection_attachment_.owner);
   if (complete_owner != nullptr) {
-    if (complete_owner->prepared_model_weights_ == &other &&
+    const auto& attachment = target_aot_complete_projection_attachment_;
+    const bool snapshot_matches =
+        attachment.owner_identity != 0U &&
+        attachment.owner_identity == complete_owner->owner_identity_ &&
+        attachment.allocation_identity != 0U &&
+        attachment.allocation_identity ==
+            complete_owner->allocation_identity_ &&
+        attachment.device_identity != 0U &&
+        attachment.device_identity == complete_owner->device_identity_ &&
+        attachment.arena_begin != 0U &&
+        attachment.arena_begin ==
+            reinterpret_cast<std::uintptr_t>(complete_owner->arena_) &&
+        attachment.arena_bytes ==
+            kSm87TargetAotCompleteProjectionDeviceArenaBytes &&
+        attachment.arena_bytes == complete_owner->bytes_ &&
+        attachment.device_ordinal >= 0 &&
+        attachment.device_ordinal == complete_owner->device_ordinal_ &&
+        attachment.artifact_count ==
+            kSm87TargetAotCompleteProjectionDeviceArtifactCount &&
+        attachment.artifact_count == complete_owner->descriptor_count_ &&
+        complete_owner->prepared_resident_ != nullptr;
+    if (snapshot_matches &&
+        complete_owner->prepared_model_weights_ == &other &&
         complete_owner->execution_bound_) {
       complete_owner->prepared_model_weights_ = this;
     } else {
+      if (complete_owner->prepared_model_weights_ == &other) {
+        complete_owner->execution_bound_ = false;
+        complete_owner->prepared_model_weights_ = nullptr;
+      }
       target_aot_complete_projection_attachment_ = {};
     }
   }
@@ -257,10 +283,36 @@ ModelWeights& ModelWeights::operator=(ModelWeights&& other) noexcept {
         const_cast<Sm87TargetAotCompleteProjectionDeviceAssets*>(
             target_aot_complete_projection_attachment_.owner);
     if (complete_owner != nullptr) {
-      if (complete_owner->prepared_model_weights_ == &other &&
+      const auto& attachment = target_aot_complete_projection_attachment_;
+      const bool snapshot_matches =
+          attachment.owner_identity != 0U &&
+          attachment.owner_identity == complete_owner->owner_identity_ &&
+          attachment.allocation_identity != 0U &&
+          attachment.allocation_identity ==
+              complete_owner->allocation_identity_ &&
+          attachment.device_identity != 0U &&
+          attachment.device_identity == complete_owner->device_identity_ &&
+          attachment.arena_begin != 0U &&
+          attachment.arena_begin ==
+              reinterpret_cast<std::uintptr_t>(complete_owner->arena_) &&
+          attachment.arena_bytes ==
+              kSm87TargetAotCompleteProjectionDeviceArenaBytes &&
+          attachment.arena_bytes == complete_owner->bytes_ &&
+          attachment.device_ordinal >= 0 &&
+          attachment.device_ordinal == complete_owner->device_ordinal_ &&
+          attachment.artifact_count ==
+              kSm87TargetAotCompleteProjectionDeviceArtifactCount &&
+          attachment.artifact_count == complete_owner->descriptor_count_ &&
+          complete_owner->prepared_resident_ != nullptr;
+      if (snapshot_matches &&
+          complete_owner->prepared_model_weights_ == &other &&
           complete_owner->execution_bound_) {
         complete_owner->prepared_model_weights_ = this;
       } else {
+        if (complete_owner->prepared_model_weights_ == &other) {
+          complete_owner->execution_bound_ = false;
+          complete_owner->prepared_model_weights_ = nullptr;
+        }
         target_aot_complete_projection_attachment_ = {};
       }
     }
@@ -306,7 +358,7 @@ bool ModelWeights::attach_sm87_target_aot_complete_projection_assets(
       owner.arena_ == nullptr ||
       owner.bytes_ != kSm87TargetAotCompleteProjectionDeviceArenaBytes ||
       owner.owner_identity_ == 0U || owner.allocation_identity_ == 0U ||
-      owner.device_ordinal_ < 0 ||
+      owner.device_identity_ == 0U || owner.device_ordinal_ < 0 ||
       owner.descriptor_count_ !=
           kSm87TargetAotCompleteProjectionDeviceArtifactCount) {
     return false;
@@ -433,6 +485,7 @@ bool ModelWeights::attach_sm87_target_aot_complete_projection_assets(
   attachment.owner = &owner;
   attachment.owner_identity = owner.owner_identity_;
   attachment.allocation_identity = owner.allocation_identity_;
+  attachment.device_identity = owner.device_identity_;
   attachment.arena_begin = arena_begin;
   attachment.arena_bytes = owner.bytes_;
   attachment.device_ordinal = owner.device_ordinal_;
@@ -695,10 +748,11 @@ bool Sm87TargetAotCompleteProjectionExecutionAccess::attachment_matches(
     const ModelWeights* const model_weights, const Owner* const owner,
     const std::uint64_t owner_identity,
     const std::uint64_t allocation_identity,
+    const std::uint64_t device_identity,
     const std::uintptr_t arena_begin, const std::uint64_t arena_bytes,
     const std::int32_t device_ordinal) noexcept {
   if (model_weights == nullptr || owner == nullptr || owner_identity == 0U ||
-      allocation_identity == 0U || arena_begin == 0U ||
+      allocation_identity == 0U || device_identity == 0U || arena_begin == 0U ||
       arena_bytes != kSm87TargetAotCompleteProjectionDeviceArenaBytes ||
       device_ordinal < 0 ||
       arena_bytes > std::numeric_limits<std::uintptr_t>::max() - arena_begin ||
@@ -706,6 +760,7 @@ bool Sm87TargetAotCompleteProjectionExecutionAccess::attachment_matches(
       reinterpret_cast<std::uintptr_t>(owner->arena_) != arena_begin ||
       owner->bytes_ != arena_bytes || owner->owner_identity_ != owner_identity ||
       owner->allocation_identity_ != allocation_identity ||
+      owner->device_identity_ != device_identity ||
       owner->device_ordinal_ != device_ordinal ||
       owner->descriptor_count_ !=
           kSm87TargetAotCompleteProjectionDeviceArtifactCount ||
@@ -720,6 +775,7 @@ bool Sm87TargetAotCompleteProjectionExecutionAccess::attachment_matches(
   return attachment.owner == owner &&
          attachment.owner_identity == owner_identity &&
          attachment.allocation_identity == allocation_identity &&
+         attachment.device_identity == device_identity &&
          attachment.arena_begin == arena_begin &&
          attachment.arena_bytes == arena_bytes &&
          attachment.device_ordinal == device_ordinal &&
@@ -780,7 +836,8 @@ Sm87TargetAotCompleteProjectionExecutionAccess::bind(
   const Owner* const owner = attachment.owner;
   if (!attachment_matches(
           &model_weights, owner, attachment.owner_identity,
-          attachment.allocation_identity, attachment.arena_begin,
+          attachment.allocation_identity, attachment.device_identity,
+          attachment.arena_begin,
           attachment.arena_bytes, attachment.device_ordinal)) {
     return std::nullopt;
   }
@@ -852,14 +909,16 @@ Sm87TargetAotCompleteProjectionExecutionAccess::bind(
   }
   return Sm87TargetAotCompleteProjectionExecutionAccess(
       &model_weights, owner, attachment.owner_identity,
-      attachment.allocation_identity, attachment.arena_begin,
+      attachment.allocation_identity, attachment.device_identity,
+      attachment.arena_begin,
       attachment.arena_bytes, attachment.device_ordinal, descriptors);
 }
 
 bool Sm87TargetAotCompleteProjectionExecutionAccess::attached()
     const noexcept {
   return attachment_matches(model_weights_, owner_, owner_identity_,
-                            allocation_identity_, arena_begin_, arena_bytes_,
+                            allocation_identity_, device_identity_,
+                            arena_begin_, arena_bytes_,
                             device_ordinal_);
 }
 
@@ -878,6 +937,7 @@ Sm87TargetAotCompleteProjectionExecutionAccess::catalog_identity()
   std::uint64_t identity = 0x5133'5856'3250'4341ULL;
   identity = mix(identity, owner_identity_);
   identity = mix(identity, allocation_identity_);
+  identity = mix(identity, device_identity_);
   identity = mix(identity, arena_bytes_);
   identity = mix(identity, static_cast<std::uint64_t>(device_ordinal_ + 1));
   std::uint64_t expected_offset = 0U;
@@ -930,7 +990,8 @@ Sm87TargetAotCompleteProjectionExecutionAccess::resolve(
   }
   return Sm87TargetAotCompleteProjectionExecutionAsset(
       model_weights_, owner_, descriptor, owner_identity_,
-      allocation_identity_, arena_begin_, arena_bytes_, device_ordinal_,
+      allocation_identity_, device_identity_, arena_begin_, arena_bytes_,
+      device_ordinal_,
       layer_index, role, descriptor->encoding,
       descriptor->manifest.artifact_identity,
       descriptor->source_inventory.identity,
@@ -944,7 +1005,7 @@ Sm87TargetAotCompleteProjectionExecutionAsset::borrow_nvfp4_cuda_asset()
       encoding_ != Encoding::kNvFp4E2M1Block16E4M3FnScale ||
       !Sm87TargetAotCompleteProjectionExecutionAccess::attachment_matches(
           model_weights_, owner_, owner_identity_, allocation_identity_,
-          arena_begin_, arena_bytes_, device_ordinal_)) {
+          device_identity_, arena_begin_, arena_bytes_, device_ordinal_)) {
     return nullptr;
   }
   const std::uint64_t expected_offset =
@@ -968,7 +1029,7 @@ Sm87TargetAotCompleteProjectionExecutionAsset::borrow_fp8_cuda_asset()
       encoding_ != Encoding::kFp8E4M3FnTensorScale ||
       !Sm87TargetAotCompleteProjectionExecutionAccess::attachment_matches(
           model_weights_, owner_, owner_identity_, allocation_identity_,
-          arena_begin_, arena_bytes_, device_ordinal_)) {
+          device_identity_, arena_begin_, arena_bytes_, device_ordinal_)) {
     return nullptr;
   }
   const std::uint64_t expected_offset =

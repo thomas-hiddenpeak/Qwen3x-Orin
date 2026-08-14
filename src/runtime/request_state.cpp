@@ -1911,17 +1911,32 @@ RequestConstViewResult RequestState::current_rope_sin() const noexcept {
     return rope_sin(sequence_length_);
 }
 
-RequestOperationStatus RequestState::reset_async(void* const cuda_stream) noexcept {
+RequestOperationStatus RequestState::reset_async(
+    void* const cuda_stream, const RequestResetScope scope) noexcept {
     if (arena_ == nullptr) {
         return {RequestAccessError::kEmptyState, 0};
     }
+    if (!is_valid_request_reset_scope(scope)) {
+        return {RequestAccessError::kInvalidResetScope, 0};
+    }
     (void)cudaGetLastError();
     const RequestMemoryPlan& active_plan = common_plan();
+    std::uint64_t reset_bytes = active_plan.persistent_bytes;
+    if (scope == RequestResetScope::kColdMutableArena) {
+        if (active_plan.rope_offset < active_plan.persistent_offset) {
+            return {RequestAccessError::kInvalidResetScope, 0};
+        }
+        reset_bytes = active_plan.rope_offset - active_plan.persistent_offset;
+    }
+    if (reset_bytes >
+        static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+        return {RequestAccessError::kInvalidResetScope, 0};
+    }
     const cudaError_t status = cudaMemsetAsync(
         static_cast<std::uint8_t*>(arena_) +
             static_cast<std::size_t>(active_plan.persistent_offset),
         0,
-        static_cast<std::size_t>(active_plan.persistent_bytes),
+        static_cast<std::size_t>(reset_bytes),
         reinterpret_cast<cudaStream_t>(cuda_stream));
     if (status != cudaSuccess) {
         return {RequestAccessError::kNone, static_cast<int>(status)};
@@ -2244,6 +2259,8 @@ std::string_view to_string(RequestAccessError error) noexcept {
             return "sequence_length_mismatch";
         case RequestAccessError::kSequenceLengthRegression:
             return "sequence_length_regression";
+        case RequestAccessError::kInvalidResetScope:
+            return "invalid_reset_scope";
         case RequestAccessError::kEmptyState:
             return "empty_state";
     }

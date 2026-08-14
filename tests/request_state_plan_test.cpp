@@ -1594,6 +1594,22 @@ void test_sequence_length_publication_validation(TestContext& test) {
         0U, 0U, 0U, 0U)));
     static_assert(noexcept(std::declval<runtime::RequestState&>()
                                .publish_sequence_length(0U, 0U)));
+    static_assert(noexcept(runtime::is_valid_request_reset_scope(
+        runtime::RequestResetScope::kPersistentState)));
+    static_assert(noexcept(std::declval<runtime::RequestState&>().reset_async(
+        nullptr, runtime::RequestResetScope::kColdMutableArena)));
+
+    test.expect(
+        runtime::is_valid_request_reset_scope(
+            runtime::RequestResetScope::kPersistentState) &&
+            runtime::is_valid_request_reset_scope(
+                runtime::RequestResetScope::kColdMutableArena) &&
+            !runtime::is_valid_request_reset_scope(
+                static_cast<runtime::RequestResetScope>(0xFFU)) &&
+            runtime::to_string(
+                runtime::RequestAccessError::kInvalidResetScope) ==
+                "invalid_reset_scope",
+        "request reset scopes and diagnostic string are stable and fail closed");
 
     test.expect(
         runtime::validate_sequence_length_publication(7U, 7U, 8U, 8U) ==

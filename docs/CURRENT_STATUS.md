@@ -485,14 +485,44 @@ answers the single predeclared causal question: collapsing a role into a
 did not create a competitive feed. It does not prove an L2 hit rate or grant
 NCU, numerical, or production authority.
 
-The active successor is now `AC-PREFILL-SM87-MACROFEED-v3`. It preserves the
-v10 API/control and FlashInfer Attention substrate while replacing the V2
-projection feed with role-specific, non-cooperative macro GEMMs at an
-M128/N256/K64-class starting geometry, and replacing the 30,000-chunk GDN
-submission pattern with a layer-persistent or large-macrochunk exact graph
-whose target is O(10) kernels per GDN layer. The complete route must publish
-physical full-model launch receipts and return to P40 first; these are frozen
-design requirements, not implemented performance claims.
+The active successor is now `AC-PREFILL-SM87-MACROFEED-v3`. The current
+development tree contains its complete default-off, test-only P40000 execution
+composition. It preserves the v10 five-panel API/control and whole-prompt
+FlashInfer Attention substrate, but binds role-specific non-cooperative
+M128/N256/K64-class Gate+Up, K-heavy Down, and FP8 macro feeds to one private
+startup package. Exact GDN uses one prompt-wide convolution launch plus eight
+M5000 recurrence/norm/gate macrochunks per linear layer, retaining 48
+value-head owners, pre-round same-token output use, and the per-token BF16
+state publication boundary.
+
+Engine startup authenticates 256 physical projection artifacts from 400
+checkpoint sources, binds their 256 immutable layer-role launch bindings to
+the actual CUDA-device identity, and seals the resource facts before requests
+are admitted. The runner executes all 64 layers in natural order, observes
+their completion, and can issue a private ABI-major-1 physical transaction
+only after recording 128 FP8, 64 Gate+Up, 64 Down, 48 BF16 A/B, 432 GDN, 16
+whole-prompt Attention, and 80 Attention-preprocess physical operations. A
+failed or cancelled request cold-resets the complete mutable request-arena
+prefix while preserving the immutable RoPE suffix and publishes no partial
+state.
+
+The distinct API identity is
+`q3x.sm87.ac-prefill-sm87-macrofeed-v3.native-p40-target-aot-whole-model.v1`
+and its append-only external schema is `target-prefill-witness-v18`. The
+physical receipt has `physical-execution-only` authority with numerical and
+production qualification both false. No real-model P40 request has yet
+measured this route, so it has no performance, full-model accuracy, release,
+or production authority. The v10 observation at 392.804397 prompt tok/s
+remains the incumbent.
+
+The complete admission binary and the focused 20-test V3/authority/asset
+suite now pass. One timing limitation remains explicit: the controller
+commits V3 state after its first-token finalizer, so the continuous internal
+prompt interval includes LM-head/argmax and is not qualified pure Prefill.
+V18 keeps physical `package_complete` independent, reports the pure phase as
+unavailable, and leaves the first P40 direction decision to external
+EvalScope TTFT/New Prompt Throughput. No duration subtraction is permitted to
+manufacture a non-contiguous pure phase.
 
 ## 2. Current capability matrix
 
@@ -507,7 +537,7 @@ design requirements, not implemented performance claims.
 | Target-length Prefill | P40 development route exercised | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
 | SM87 whole-system AOT Prefill v1 | Default-off real-P40 API composition; performance-rejected after a zero-byte 840.000399-second timeout | Retain only as correctness/diagnostic control; it is not an active performance candidate |
 | SM87 bulk-dataflow v2 Prefill | Complete default-off real-P40 API route; performance-rejected after a zero-byte 680.73-second EvalScope timeout and one bounded causal profile; accuracy remains unqualified | Retain exact constituents and evidence only; no V2 tuning, P60/P130, qualification, or production promotion |
-| SM87 MacroFeed v3 Prefill | Architecture frozen, not yet implemented: v10 API/control/FlashInfer substrate, role-specific non-cooperative macro projections, and layer-persistent/large-macrochunk exact GDN | Implement one complete receipt-authenticated route and return directly to the clean-host real-P40 API gate |
+| SM87 MacroFeed v3 Prefill | Complete default-off, test-only 64-layer source composition with startup-bound target-AOT assets, role-specific macro projections, nine-kernel-per-layer exact GDN, cold rollback, and a V18 physical transaction; integrated build and focused admission tests pass | Return directly to one clean-host real-P40 API direction gate, then correct the pure-Prefill commit/finalizer boundary before promotion; no performance, numerical, release, or production qualification exists yet |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

@@ -514,6 +514,7 @@ struct Sm87TargetAotCompleteDevicePreparationStats final {
   std::string verified_payload_catalog_sha256;
   std::uint64_t owner_identity = 0U;
   std::uint64_t allocation_identity = 0U;
+  std::uint64_t device_identity = 0U;
   std::int32_t device_ordinal = -1;
   int cuda_error = 0;
   std::string message;
@@ -542,6 +543,7 @@ class Sm87TargetAotCompleteProjectionDeviceAssets final {
   [[nodiscard]] bool empty() const noexcept {
     return arena_ == nullptr && bytes_ == 0U && descriptor_count_ == 0U &&
            allocation_identity_ == 0U && owner_identity_ == 0U &&
+           device_identity_ == 0U && device_ordinal_ == -1 &&
            prepared_resident_ == nullptr && prepared_model_weights_ == nullptr &&
            !execution_bound_;
   }
@@ -572,6 +574,7 @@ class Sm87TargetAotCompleteProjectionDeviceAssets final {
   std::uint64_t bytes_ = 0U;
   std::uint64_t allocation_identity_ = 0U;
   std::uint64_t owner_identity_ = 0U;
+  std::uint64_t device_identity_ = 0U;
   std::int32_t device_ordinal_ = -1;
   std::array<Sm87TargetAotCompleteDeviceAssetDescriptor,
              kSm87TargetAotCompleteProjectionDeviceArtifactCount>

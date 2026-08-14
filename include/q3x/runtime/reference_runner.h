@@ -5,6 +5,7 @@
 #include "q3x/runtime/prefill_execution_plan.h"
 #include "q3x/runtime/prefill_route_evidence.h"
 #include "q3x/runtime/request_state.h"
+#include "q3x/runtime/sm87_macrofeed_v3_receipt.h"
 
 #include <array>
 #include <cstddef>
@@ -17,6 +18,10 @@ namespace reference_engine_detail {
 class ReferenceEnginePrefillPlanFactory;
 class ReferenceEnginePrefillExecutor;
 }  // namespace reference_engine_detail
+
+namespace sm87_macrofeed_v3_p40_execution_package_detail {
+class Sm87MacroFeedV3P40ExecutionPackage;
+}  // namespace sm87_macrofeed_v3_p40_execution_package_detail
 
 inline constexpr std::size_t kReferenceVocabularySize = 248'320U;
 inline constexpr std::size_t kReferenceHiddenSize = 5'120U;
@@ -433,6 +438,11 @@ struct ReferenceWholeRequestPrefillResult {
              kReferenceDecoderLayerCount>
       vllm_marlin_parity_layer_completion_receipts{};
   std::size_t vllm_marlin_parity_layer_completion_receipt_count = 0U;
+  // Present only for the default-off MacroFeed-v3 route and only after the
+  // final main-stream completion barrier has authenticated all 64 layer-local
+  // constituent enqueue receipts. This record is capability-free.
+  std::optional<Sm87MacroFeedV3TransactionReceipt>
+      macrofeed_v3_transaction_receipt;
   PrefillExecutionProgress progress;
   std::optional<ReferenceStepTiming> timing;
 };
@@ -949,6 +959,8 @@ class ReferenceRunner {
     const std::uint16_t* final_normalized_hidden = nullptr;
     PrefillExecutionProgress completed_uncommitted_progress{};
     PrefillRouteEvidence route_evidence_after_commit{};
+    std::optional<Sm87MacroFeedV3TransactionReceipt>
+        macrofeed_v3_transaction_receipt;
   };
 
   // Internal exact compatibility core reached only through the Engine's
@@ -966,7 +978,10 @@ class ReferenceRunner {
       const PrefillExecutionPlan& immutable_topology,
       LayerMajorPrefillProjectionTactic projection_tactic,
       LayerMajorPrefillFullAttentionTactic full_attention_tactic,
-      const ReferenceWholeRequestPrefillOptions& options = {}) noexcept;
+      const ReferenceWholeRequestPrefillOptions& options = {},
+      const sm87_macrofeed_v3_p40_execution_package_detail::
+          Sm87MacroFeedV3P40ExecutionPackage* macrofeed_v3_package = nullptr,
+      std::uint64_t macrofeed_v3_request_identity = 0U) noexcept;
   [[nodiscard]] ReferenceWholeRequestPrefillOutcome
   prefill_whole_request_layer_major_core(
       const std::uint32_t* input_token_ids, std::size_t token_count,
@@ -974,7 +989,10 @@ class ReferenceRunner {
       LayerMajorLayerExecutor executor,
       LayerMajorPrefillProjectionTactic projection_tactic,
       LayerMajorPrefillFullAttentionTactic full_attention_tactic,
-      const ReferenceWholeRequestPrefillOptions& options) noexcept;
+      const ReferenceWholeRequestPrefillOptions& options,
+      const sm87_macrofeed_v3_p40_execution_package_detail::
+          Sm87MacroFeedV3P40ExecutionPackage* macrofeed_v3_package,
+      std::uint64_t macrofeed_v3_request_identity) noexcept;
   [[nodiscard]] ReferenceStepOutcome
   finish_whole_request_compatibility_core(
       std::uint32_t input_token_id,
@@ -1164,7 +1182,10 @@ class ReferenceRunner {
     kPackedV1,
     kPackedNvfp4V2,
     kVllmMarlinParityV1,
+    kMacroFeedV3,
   };
+
+  struct MacroFeedV3LayerEnqueueEvidence;
   [[nodiscard]] ReferenceRunnerStatus enqueue_layer_wide_p40_mlp(
       std::size_t layer,
       const ReferenceLayerMajorRequestViews& request_views,
@@ -1204,6 +1225,34 @@ class ReferenceRunner {
       PromptWideP40ProjectionPackage projection_package,
       std::size_t& fp8_projection_hits,
       std::size_t& fp8_physical_launches) noexcept;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
+  [[nodiscard]] ReferenceRunnerStatus
+  enqueue_prompt_wide_p40_macrofeed_v3_fill_panel(
+      std::size_t layer, const PrefillOperatorPanel& panel,
+      const ReferenceLayerMajorRequestViews& request_views,
+      MacroFeedV3LayerEnqueueEvidence& evidence) noexcept;
+  [[nodiscard]] ReferenceRunnerStatus
+  enqueue_prompt_wide_p40_macrofeed_v3_prompt_core(
+      std::size_t layer,
+      const ReferenceLayerMajorRequestViews& request_views,
+      const sm87_macrofeed_v3_p40_execution_package_detail::
+          Sm87MacroFeedV3P40ExecutionPackage& package,
+      MacroFeedV3LayerEnqueueEvidence& evidence,
+      std::size_t& fp8_projection_hits,
+      std::size_t& fp8_physical_launches) noexcept;
+  [[nodiscard]] ReferenceRunnerStatus
+  enqueue_prompt_wide_p40_macrofeed_v3_drain_panel(
+      std::size_t layer, const PrefillOperatorPanel& panel,
+      const ReferenceLayerMajorRequestViews& request_views,
+      MacroFeedV3LayerEnqueueEvidence& evidence) noexcept;
+  [[nodiscard]] ReferenceRunnerStatus
+  enqueue_prompt_wide_p40_macrofeed_v3_mlp(
+      std::size_t layer,
+      const ReferenceLayerMajorRequestViews& request_views,
+      const sm87_macrofeed_v3_p40_execution_package_detail::
+          Sm87MacroFeedV3P40ExecutionPackage& package,
+      MacroFeedV3LayerEnqueueEvidence& evidence) noexcept;
+#endif
   [[nodiscard]] static bool same_prefill_execution_progress(
       const PrefillExecutionProgress& left,
       const PrefillExecutionProgress& right) noexcept;
@@ -1307,6 +1356,10 @@ class ReferenceRunner {
   bool trace_enabled_ = false;
   bool trace_valid_ = false;
   bool poisoned_ = false;
+  // V3 exact GDN may have advanced persistent state before a cancellation or
+  // later failure becomes observable. While set, ordinary persistent-only
+  // reset is insufficient; reset() must clear the complete mutable arena.
+  bool macrofeed_v3_cold_reset_required_ = false;
   bool retained_prefill_hidden_valid_ = false;
   std::uint32_t retained_prefill_position_ = 0U;
   std::uint32_t retained_prefill_input_token_ = 0U;

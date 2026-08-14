@@ -5,8 +5,8 @@ q3x_document:
   status: active
   owner: runtime-maintainers
   authority: per-request state, workspace, memory-plan, and lifecycle ownership contract
-  effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  effective: 2026-08-13
+  last_reviewed: 2026-08-13
   supersedes: []
   superseded_by: []
   ssot_for: RequestState persistent state, workspace, RoPE, allocation, and lifecycle behavior
@@ -165,9 +165,16 @@ remains available to reset or restore logical length where its callers already
 own that lifecycle. Conditional publication is supported identically by the
 legacy C512 and layer-major C8192 memory profiles and never launches CUDA work.
 
-`reset_async(stream)` enqueues one reset of the complete persistent Conv,
-GDN, K, and V span and sets host logical length to zero after successful
-enqueue. Workspace and immutable RoPE tables are not reset. Subsequent use
+`reset_async(stream, scope)` has two explicit transaction-owner scopes. The
+default `kPersistentState` scope preserves the established reuse behavior: it
+clears the complete persistent Conv, GDN, K, and V span, leaves reusable
+workspace and immutable RoPE untouched, and resets host logical length only
+after a successful enqueue. `kColdMutableArena` is reserved for a failed or
+cancelled whole-request transaction that may already have published partial
+request-local workspace. It clears the exact contiguous
+`[persistent_offset, rope_offset)` prefix--persistent state and all mutable
+workspace--while preserving the immutable RoPE suffix. Unknown scope values
+fail closed without enqueueing work or changing logical length. Subsequent use
 must be ordered on the same stream or explicitly synchronized by the caller.
 
 Move construction and assignment transfer sole arena ownership and leave the
@@ -188,11 +195,13 @@ unrelated stale CUDA last-error state before reporting their own CUDA result.
 
 Host tests cover the exact schedule, region sizes, alignment, non-overlap,
 capacity limits, arithmetic overflow, bad options, all target-bucket totals,
-typed temporal aliases, and profile gates. CUDA tests cover real allocation,
-initialization, view ranges, BF16-rounded RoPE values, lifecycle, reset
-ordering, memory gating, and move ownership. The approximately 1 GiB minimum
-layer-major allocation case is opt-in and may skip explicitly when its
-free-memory reservation cannot be met. Performance measurements
+typed temporal aliases, reset-scope validation, and profile gates. CUDA tests
+cover real allocation, initialization, view ranges, BF16-rounded RoPE values,
+lifecycle, persistent-only and cold mutable-arena reset ordering, memory
+gating, and move ownership. The approximately 1 GiB minimum layer-major
+allocation case and the exact 8.64 GiB P40 cold-reset boundary sentinel are
+separate opt-in cases and may skip explicitly when their free-memory
+reservations cannot be met. Performance measurements
 and historical plan examples are retained in
 [`PERFORMANCE_BASELINE.md`](PERFORMANCE_BASELINE.md) and the
 [`metadata/`](metadata/) evidence index; they do not amend this contract.
