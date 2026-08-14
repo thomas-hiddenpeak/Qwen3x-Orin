@@ -1523,6 +1523,38 @@ if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
     Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION)
+  # Keep internal inline admission identities ODR-consistent with the V4
+  # startup package compiled into q3x_kernels.
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_EXECUTION_EVENTS_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_SM87_MACROFEED_V4_EXECUTION_EVENTS_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_NORM_RESIDUAL_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_SM87_MACROFEED_V4_NORM_RESIDUAL_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_FP8_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_SM87_MACROFEED_V4_FP8_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION=1
@@ -3476,6 +3508,41 @@ if(BUILD_TESTING)
       RUN_SERIAL TRUE
       SKIP_RETURN_CODE 77
       TIMEOUT 300
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION AND
+     Q3X_BUILD_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+    # Explicit real-checkpoint lifecycle probe.  It is deliberately excluded
+    # from the default build and never registered with ctest: execution needs
+    # an owner-supplied checkpoint, an admitted clean Jetson resource lane,
+    # and a repository-local create-only evidence path.  It constructs no V4
+    # selector or API route and performs no generation or timing.
+    add_executable(
+      q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe
+      EXCLUDE_FROM_ALL
+      tests/sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe.cpp
+    )
+    target_include_directories(
+      q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+    )
+    target_compile_definitions(
+      q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe PRIVATE
+      Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION=1
+      Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION=1
+      Q3X_MACROFEED_V4_LIFETIME_PROBE_BUILD_TESTING=$<BOOL:${BUILD_TESTING}>
+      "Q3X_MACROFEED_V4_LIFETIME_PROBE_BUILD_TYPE=\"${CMAKE_BUILD_TYPE}\""
+      "Q3X_MACROFEED_V4_LIFETIME_PROBE_Q3X_CUDA_ARCHITECTURES=\"${Q3X_CUDA_ARCHITECTURES}\""
+      "Q3X_MACROFEED_V4_LIFETIME_PROBE_EFFECTIVE_CUDA_ARCHITECTURES=\"${CMAKE_CUDA_ARCHITECTURES}\""
+      "Q3X_MACROFEED_V4_LIFETIME_PROBE_REPOSITORY_ROOT=\"${CMAKE_CURRENT_SOURCE_DIR}\""
+    )
+    target_link_libraries(
+      q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe
+      PRIVATE q3x::engine q3x::core CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe
     )
   endif()
 

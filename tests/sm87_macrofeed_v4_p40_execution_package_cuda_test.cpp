@@ -12,7 +12,20 @@
 #include <optional>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 #include <vector>
+
+namespace q3x::runtime::sm87_macrofeed_v4_p40_startup_package_detail {
+
+class Sm87MacroFeedV4P40StartupPackageHostTestFixture final {
+ public:
+  [[nodiscard]] static Sm87MacroFeedV4P40StartupPackageCreateResult create(
+      const ModelWeights& model_weights) noexcept {
+    return Sm87MacroFeedV4P40StartupPackage::create(model_weights);
+  }
+};
+
+}  // namespace q3x::runtime::sm87_macrofeed_v4_p40_startup_package_detail
 
 namespace q3x::runtime::sm87_macrofeed_v4_p40_execution_detail {
 
@@ -40,11 +53,17 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
   }
 
   [[nodiscard]] static Sm87MacroFeedV4P40ExecutionPackageCreateResult
+  create(
+      const Sm87MacroFeedV4P40ExecutionPackage::StartupPackage& startup)
+      noexcept {
+    return Sm87MacroFeedV4P40ExecutionPackage::create(startup);
+  }
+
+  [[nodiscard]] static Sm87MacroFeedV4P40ExecutionPackageCreateResult
   create_with_synthetic_t1_gdn_layer0(
       const Sm87MacroFeedV4P40ExecutionPackage::StartupPackage& startup,
       const kernels::Sm87TargetAotFp8CudaAssetView& asset) noexcept {
-    return Sm87MacroFeedV4P40ExecutionPackage::
-        create_with_synthetic_t1_gdn_layer0_for_cuda_test(startup, asset);
+    return Sm87MacroFeedV4P40ExecutionPackage::create_impl(startup, &asset);
   }
 
   [[nodiscard]] static bool exercise_terminal_poison_drain(
@@ -213,6 +232,18 @@ using Owner = q3x::runtime::Sm87TargetAotCompleteProjectionDeviceAssets;
 using q3x::runtime::Bf16LinearWeight;
 using q3x::runtime::Bf16VectorWeight;
 using q3x::runtime::ModelWeights;
+
+template <typename T, typename = void>
+struct HasPublicExecutionCreate : std::false_type {};
+
+template <typename T>
+struct HasPublicExecutionCreate<
+    T, std::void_t<decltype(T::create(
+           std::declval<const typename T::StartupPackage&>()))>>
+    : std::true_type {};
+
+static_assert(!HasPublicExecutionCreate<
+              execution::Sm87MacroFeedV4P40ExecutionPackage>::value);
 
 void require_test(const bool condition, const std::string_view message) {
   if (!condition) {
@@ -423,7 +454,8 @@ void test_real_cuda_front_half() {
       live_weights.install_one_past_final_post_norm(*model_weights),
       "could not install one-past LayerNorm negative fixture");
   auto invalid_startup =
-      startup::Sm87MacroFeedV4P40StartupPackage::create(*model_weights);
+      startup::Sm87MacroFeedV4P40StartupPackageHostTestFixture::create(
+          *model_weights);
   if (!invalid_startup) {
     std::cerr << "negative startup error="
               << static_cast<unsigned>(invalid_startup.status.error)
@@ -434,7 +466,7 @@ void test_real_cuda_front_half() {
   require_test(static_cast<bool>(invalid_startup),
                "negative fixture could not create its startup package");
   auto invalid_execution =
-      execution::Sm87MacroFeedV4P40ExecutionPackage::create(
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::create(
           *invalid_startup.package);
   require_test(
       !invalid_execution && invalid_execution.package == nullptr &&
@@ -451,7 +483,8 @@ void test_real_cuda_front_half() {
                "could not restore final LayerNorm binding");
 
   auto startup_created =
-      startup::Sm87MacroFeedV4P40StartupPackage::create(*model_weights);
+      startup::Sm87MacroFeedV4P40StartupPackageHostTestFixture::create(
+          *model_weights);
   if (!startup_created) {
     std::cerr << "startup package error="
               << static_cast<unsigned>(startup_created.status.error)
@@ -462,7 +495,7 @@ void test_real_cuda_front_half() {
                "actual-kernel startup package creation failed");
 
   auto fake_catalog_execution =
-      execution::Sm87MacroFeedV4P40ExecutionPackage::create(
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::create(
           *startup_created.package);
   require_test(
       !fake_catalog_execution && fake_catalog_execution.package == nullptr &&

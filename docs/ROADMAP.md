@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-08-14
+  last_reviewed: 2026-08-15
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -256,8 +256,18 @@ bounded C1/C65 bit oracles. The startup package binds all 48 real BF16 A/B
 pairs and all 64 real outer-norm pairs and exposes only construction-time
 private full-catalog seals. It also implements an all-or-nothing natural-order
 48-GDN-QKVZ execution-catalog seal with exact live CUDA allocation/upload
-receipt matching; the fake host catalog fails closed at ordinal zero, while a
-positive real-owner 48-binding witness remains open. The isolated package
+receipt matching; the fake host catalog fails closed at ordinal zero. Its
+normal startup and execution factories are private, the core static library
+contains no named synthetic-T1 construction wrapper, and the remaining
+private synthetic branch is confined to the BUILD_TESTING-only CUDA fixture
+without production authority. One Engine-private
+composition root now wires their normal 48-binding chain into the existing
+default-off V3 real-owner harness. The root enforces `execution → startup →
+ModelWeights → complete target-AOT owner → resident` teardown and adds the
+442,368,000-byte transient plus 156,893,184-byte recurrent arenas, exactly
+599,261,184 bytes, to retained-memory admission. That source/build integration
+has not yet run through the pinned real checkpoint, so the positive real-owner
+48-binding witness remains open. The isolated package
 consumes layer-0 input norm and A/B through typed owner-locked submissions on
 Main and AbAux, then privately submits one fixed QKVZ body on Main before the
 owner-locked `AbReady` wait. Raw ready-event records and caller-filled QKVZ
@@ -417,12 +427,11 @@ performance authority.
 
 Remaining execution order:
 
-1. anchor the existing isolated execution package under Engine lifetime while
-   preserving destruction order `execution → startup → ModelWeights →
-   complete AOT owner → resident`, and exercise the normal factory's complete
-   real-owner 48-GDN-QKVZ seal. The layer-0 QKVZ/A-B dependency closure is
-   already implemented only in the synthetic-T1 CUDA lane; it must not be
-   promoted from that evidence alone;
+1. run the pinned real-checkpoint Engine-lifetime probe through the already
+   wired, private normal startup/execution factories and obtain the still-open
+   complete real-owner 48-GDN-QKVZ seal. The layer-0 QKVZ/A-B dependency
+   closure remains implemented only in the synthetic-T1 CUDA lane; neither the
+   new lifetime anchor nor compilation may promote it from that evidence alone;
 2. bind exact GDN update/O, residual/post-norm, preprocess → fixed C8000
    Attention → O, and all remaining natural layers/panels to the same private
    arenas and event graph. Then qualify the complete C8000

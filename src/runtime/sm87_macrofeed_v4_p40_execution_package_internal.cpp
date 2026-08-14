@@ -227,14 +227,6 @@ Sm87MacroFeedV4P40ExecutionPackage::create(
 }
 
 Sm87MacroFeedV4P40ExecutionPackageCreateResult
-Sm87MacroFeedV4P40ExecutionPackage::
-    create_with_synthetic_t1_gdn_layer0_for_cuda_test(
-        const StartupPackage& startup_package,
-        const kernels::Sm87TargetAotFp8CudaAssetView& asset) noexcept {
-  return create_impl(startup_package, &asset);
-}
-
-Sm87MacroFeedV4P40ExecutionPackageCreateResult
 Sm87MacroFeedV4P40ExecutionPackage::create_impl(
     const StartupPackage& startup_package,
     const kernels::Sm87TargetAotFp8CudaAssetView* const

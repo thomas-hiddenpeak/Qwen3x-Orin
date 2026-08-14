@@ -6,7 +6,7 @@ q3x_document:
   owner: evaluation-maintainers
   authority: external API evaluation protocol, metric semantics, and artifact requirements
   effective: 2026-08-09
-  last_reviewed: 2026-08-14
+  last_reviewed: 2026-08-15
   supersedes: []
   superseded_by: []
   ssot_for: EvalScope and target-length external evaluation procedure
@@ -1172,10 +1172,19 @@ slice: a test-only device package submits layer-0 input norm and BF16 A/B
 on its private streams while Main submits one fixed GDN-QKVZ body and then
 waits on `AbReady`; it physically drains both tails and discards all state
 without publication. The only positive witness is explicitly synthetic-T1,
-not a positive real-owner 48-layer catalog or real-checkpoint result. It is
-deliberately not a complete layer, model, selector, or API route and issues no
-production receipt. V4 therefore still has no valid
-EvalScope or server-timing command. Gate/Up, Down, the isolated front-half,
+not a positive real-owner 48-layer catalog or real-checkpoint result. The
+private normal startup-to-execution construction chain is now anchored under
+the existing default-off V3 real-owner Engine harness, with exact
+`execution → startup → ModelWeights → complete target-AOT owner → resident`
+teardown and 599,261,184 bytes of additional retained-memory accounting. The
+normal factories are not public, and the core static library contains no named
+synthetic-T1 construction wrapper. Its private synthetic branch still exists
+inside the BUILD_TESTING-only archive for the CUDA fixture and grants no
+production authority. No pinned real-checkpoint Engine-lifetime
+probe has executed that root, so this source/build integration supplies no
+new real-model witness. It is deliberately not a complete layer, model,
+selector, or API route and issues no production receipt. V4 therefore still
+has no valid EvalScope or server-timing command. Gate/Up, Down, the isolated front-half,
 occupancy, P513, NSys, or NCU results cannot substitute for that missing route.
 
 The first V4 performance run becomes eligible only after the Roadmap's C8000

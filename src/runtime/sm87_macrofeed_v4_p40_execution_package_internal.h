@@ -224,9 +224,6 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
       Sm87MacroFeedV4P40ExecutionPackage&&) = delete;
   ~Sm87MacroFeedV4P40ExecutionPackage() noexcept;
 
-  [[nodiscard]] static Sm87MacroFeedV4P40ExecutionPackageCreateResult create(
-      const StartupPackage& startup_package) noexcept;
-
   // Construction/lifetime diagnostic only.  It performs the complete sealed
   // catalog postcondition scan and must never be called from request execution.
   [[nodiscard]] bool valid() const noexcept;
@@ -236,6 +233,13 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
   }
 
  private:
+  // Only the Engine composition root and the named CUDA fixture may mint an
+  // execution package.  Keeping this normal factory private prevents a
+  // caller from detaching stream/transient ownership from the complete
+  // ModelWeights -> StartupPackage -> ExecutionPackage lifetime root.
+  [[nodiscard]] static Sm87MacroFeedV4P40ExecutionPackageCreateResult create(
+      const StartupPackage& startup_package) noexcept;
+
   using ProjectionBinding = sm87_macrofeed_v4_p40_startup_package_detail::
       Sm87MacroFeedV4ProjectionStartupBinding;
   using ProjectionCatalog =
@@ -278,16 +282,6 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
       const StartupPackage& startup_package,
       const kernels::Sm87TargetAotFp8CudaAssetView*
           synthetic_t1_gdn_layer0_asset) noexcept;
-
-  // CUDA-fixture-only composition seam.  It cannot grant authority to the
-  // fake complete-catalog fixture: the supplied typed asset must own one
-  // honest live CUDA allocation, the resulting package is explicitly marked
-  // synthetic/non-production, and the normal create() path still requires
-  // all 48 construction-sealed real-model bindings.
-  [[nodiscard]] static Sm87MacroFeedV4P40ExecutionPackageCreateResult
-  create_with_synthetic_t1_gdn_layer0_for_cuda_test(
-      const StartupPackage& startup_package,
-      const kernels::Sm87TargetAotFp8CudaAssetView& asset) noexcept;
 
   // This is deliberately a one-shot admission slice, not a model executor.
   // Only the future Engine composition root and the CUDA fixture may invoke it;

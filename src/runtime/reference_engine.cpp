@@ -21,6 +21,11 @@
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
 #include "sm87_macrofeed_v3_p40_execution_package_internal.h"
 #endif
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+#include "sm87_macrofeed_v4_engine_lifetime_probe_internal.h"
+#include "sm87_macrofeed_v4_p40_execution_package_internal.h"
+#endif
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION) || \
     defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION)
 #include "sm87_target_aot_engine_rope_internal.h"
@@ -62,6 +67,228 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+namespace q3x::runtime::sm87_macrofeed_v4_engine_lifetime_probe_detail {
+namespace {
+
+thread_local Sm87MacroFeedV4EngineLifetimeConstructionSnapshotHook
+    g_construction_snapshot_hook{};
+
+}  // namespace
+
+Sm87MacroFeedV4EngineLifetimeConstructionSnapshotHook
+exchange_sm87_macrofeed_v4_engine_lifetime_construction_snapshot_hook(
+    Sm87MacroFeedV4EngineLifetimeConstructionSnapshotHook hook) noexcept {
+  return std::exchange(g_construction_snapshot_hook, hook);
+}
+
+static void publish_sm87_macrofeed_v4_engine_lifetime_construction_snapshot(
+    const Sm87MacroFeedV4EngineLifetimeConstructionSnapshot& snapshot)
+    noexcept {
+  const Sm87MacroFeedV4EngineLifetimeConstructionSnapshotHook hook =
+      g_construction_snapshot_hook;
+  if (hook.callback != nullptr) {
+    hook.callback(hook.context, snapshot);
+  }
+}
+
+}  // namespace q3x::runtime::sm87_macrofeed_v4_engine_lifetime_probe_detail
+
+namespace q3x::runtime::sm87_macrofeed_v4_p40_execution_detail {
+
+namespace lifetime_probe =
+    q3x::runtime::sm87_macrofeed_v4_engine_lifetime_probe_detail;
+
+inline constexpr std::uint64_t
+    kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes =
+        kSm87MacroFeedV4P40ExecutionTransientBytes +
+        kSm87MacroFeedV4RecurrentStorageBytes;
+static_assert(kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes ==
+              599'261'184U);
+static_assert(kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes ==
+              lifetime_probe::
+                  kSm87MacroFeedV4EngineLifetimeExpectedOwnedBytes);
+static_assert(kSm87MacroFeedV4RecurrentStorageBytes ==
+              lifetime_probe::
+                  kSm87MacroFeedV4EngineLifetimeMinimumOwnedArenaBytes);
+
+class Sm87MacroFeedV4P40ExecutionCompositionRoot;
+
+struct Sm87MacroFeedV4P40ExecutionCompositionRootCreateResult final {
+  std::unique_ptr<Sm87MacroFeedV4P40ExecutionCompositionRoot> root;
+  const char* context = "none";
+  int cuda_error = 0;
+  std::size_t layer = kSm87MacroFeedV4LayerCount;
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return root != nullptr;
+  }
+};
+
+// Engine-private lifetime anchor.  Member declaration and explicit teardown
+// both enforce execution -> startup.  The enclosing Engine declares this
+// root after ModelWeights, so its reverse destruction continues with
+// ModelWeights -> complete target-AOT owner -> ResidentWeights.
+class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
+ public:
+  using StartupPackage = sm87_macrofeed_v4_p40_startup_package_detail::
+      Sm87MacroFeedV4P40StartupPackage;
+  using ExecutionPackage = Sm87MacroFeedV4P40ExecutionPackage;
+
+  Sm87MacroFeedV4P40ExecutionCompositionRoot(
+      const Sm87MacroFeedV4P40ExecutionCompositionRoot&) = delete;
+  Sm87MacroFeedV4P40ExecutionCompositionRoot& operator=(
+      const Sm87MacroFeedV4P40ExecutionCompositionRoot&) = delete;
+  Sm87MacroFeedV4P40ExecutionCompositionRoot(
+      Sm87MacroFeedV4P40ExecutionCompositionRoot&&) = delete;
+  Sm87MacroFeedV4P40ExecutionCompositionRoot& operator=(
+      Sm87MacroFeedV4P40ExecutionCompositionRoot&&) = delete;
+
+  ~Sm87MacroFeedV4P40ExecutionCompositionRoot() noexcept {
+    construction_sealed_ = false;
+    execution_.reset();
+    startup_.reset();
+  }
+
+  [[nodiscard]] bool valid() const noexcept {
+    // Both package factories performed their complete catalog/resource scans
+    // before this root was constructed.  Runtime Engine health checks compare
+    // only immutable sealed identities; they must not repeat those scans.
+    return construction_sealed_ && startup_ != nullptr &&
+           execution_ != nullptr && startup_package_identity_ != 0U &&
+           execution_package_identity_ != 0U &&
+           gdn_qkvz_catalog_identity_ != 0U &&
+           startup_->audit().package_identity == startup_package_identity_ &&
+           execution_->audit().package_identity ==
+               execution_package_identity_ &&
+           execution_->audit().startup_package_identity ==
+               startup_package_identity_ &&
+           execution_->audit().gdn_qkvz_catalog_identity ==
+               gdn_qkvz_catalog_identity_ &&
+           construction_snapshot().valid();
+  }
+
+  [[nodiscard]] lifetime_probe::
+      Sm87MacroFeedV4EngineLifetimeConstructionSnapshot
+      construction_snapshot() const noexcept {
+    lifetime_probe::Sm87MacroFeedV4EngineLifetimeConstructionSnapshot
+        snapshot;
+    snapshot.owned_bytes =
+        kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes;
+    if (startup_ != nullptr) {
+      const auto& startup = startup_->audit();
+      snapshot.startup_package_identity = startup.package_identity;
+      snapshot.startup_owner_identity = startup.owner_identity;
+      snapshot.startup_allocation_identity = startup.allocation_identity;
+      snapshot.startup_device_identity = startup.device_identity;
+      snapshot.startup_device_ordinal = startup.device_ordinal;
+      snapshot.startup_gdn_qkvz_catalog_identity =
+          startup.gdn_qkvz_binding_catalog_identity;
+      snapshot.startup_gdn_qkvz_binding_count =
+          startup.gdn_qkvz_bindings;
+    }
+    if (execution_ != nullptr) {
+      const auto& execution = execution_->audit();
+      snapshot.execution_package_identity = execution.package_identity;
+      snapshot.execution_startup_package_identity =
+          execution.startup_package_identity;
+      snapshot.execution_device_ordinal = execution.device_ordinal;
+      snapshot.execution_gdn_qkvz_catalog_identity =
+          execution.gdn_qkvz_catalog_identity;
+      snapshot.execution_gdn_qkvz_binding_count =
+          execution.gdn_qkvz_bindings;
+      snapshot.synthetic_t1_gdn_layer0_source =
+          execution.synthetic_t1_gdn_layer0_source;
+    }
+    return snapshot;
+  }
+
+  [[nodiscard]] static
+      Sm87MacroFeedV4P40ExecutionCompositionRootCreateResult
+      create(const ModelWeights& model_weights) noexcept {
+    Sm87MacroFeedV4P40ExecutionCompositionRootCreateResult result;
+    auto startup = StartupPackage::create(model_weights);
+    if (!startup || startup.package == nullptr || !startup.audit.valid() ||
+        startup.audit.gdn_qkvz_bindings !=
+            kSm87MacroFeedV4StateLayerCount ||
+        startup.audit.gdn_qkvz_binding_catalog_identity == 0U) {
+      result.context = startup.status.context == nullptr
+                           ? "MacroFeed-v4 startup package failed closed"
+                           : startup.status.context;
+      result.cuda_error = startup.status.cuda_error;
+      result.layer = startup.status.layer;
+      return result;
+    }
+
+    auto execution = ExecutionPackage::create(*startup.package);
+    if (!execution || execution.package == nullptr ||
+        !execution.audit.valid() ||
+        execution.audit.synthetic_t1_gdn_layer0_source ||
+        execution.audit.gdn_qkvz_bindings !=
+            kSm87MacroFeedV4StateLayerCount ||
+        execution.audit.gdn_qkvz_catalog_identity == 0U) {
+      result.context = execution.status.context == nullptr
+                           ? "MacroFeed-v4 execution package failed closed"
+                           : execution.status.context;
+      result.cuda_error = execution.status.cuda_error;
+      result.layer = execution.status.layer;
+      return result;
+    }
+
+    result.root.reset(new (std::nothrow)
+                          Sm87MacroFeedV4P40ExecutionCompositionRoot(
+                              std::move(startup.package),
+                              std::move(execution.package)));
+    if (result.root == nullptr) {
+      result.context = "MacroFeed-v4 Engine composition allocation failed";
+      return result;
+    }
+    if (!result.root->valid()) {
+      result.root.reset();
+      result.context =
+          "MacroFeed-v4 Engine composition postcondition failed";
+      return result;
+    }
+    return result;
+  }
+
+ private:
+  Sm87MacroFeedV4P40ExecutionCompositionRoot(
+      std::unique_ptr<StartupPackage> startup,
+      std::unique_ptr<ExecutionPackage> execution) noexcept
+      : startup_(std::move(startup)), execution_(std::move(execution)),
+        startup_package_identity_(
+            startup_ == nullptr ? 0U : startup_->audit().package_identity),
+        execution_package_identity_(
+            execution_ == nullptr ? 0U : execution_->audit().package_identity),
+        gdn_qkvz_catalog_identity_(
+            execution_ == nullptr
+                ? 0U
+                : execution_->audit().gdn_qkvz_catalog_identity),
+        construction_sealed_(
+            startup_ != nullptr && execution_ != nullptr &&
+            startup_package_identity_ != 0U &&
+            execution_package_identity_ != 0U &&
+            gdn_qkvz_catalog_identity_ != 0U &&
+            execution_->audit().startup_package_identity ==
+                startup_package_identity_ &&
+            !execution_->audit().synthetic_t1_gdn_layer0_source &&
+            execution_->audit().gdn_qkvz_bindings ==
+                kSm87MacroFeedV4StateLayerCount) {}
+
+  // Reverse declaration destruction is execution_ then startup_.
+  std::unique_ptr<StartupPackage> startup_;
+  std::unique_ptr<ExecutionPackage> execution_;
+  std::uint64_t startup_package_identity_ = 0U;
+  std::uint64_t execution_package_identity_ = 0U;
+  std::uint64_t gdn_qkvz_catalog_identity_ = 0U;
+  bool construction_sealed_ = false;
+};
+
+}  // namespace q3x::runtime::sm87_macrofeed_v4_p40_execution_detail
+#endif
 
 namespace q3x::runtime {
 namespace {
@@ -4979,9 +5206,9 @@ exchange_reference_engine_generate_return_snapshot_hook(
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
   // bound Prefill plan -> legacy runner/state -> V2 executor -> target-v1
-  // executor/request -> shared Engine RoPE -> model_weights -> Decode Down
-  // consumer-order sidecars -> complete and independent target-AOT/parity/
-  // packed/Marlin owners -> Prefill
+  // executor/request -> shared Engine RoPE -> V3 package -> V4 execution then
+  // startup root -> model_weights -> Decode Down consumer-order sidecars ->
+  // complete and independent target-AOT/parity/packed/Marlin owners -> Prefill
   // supermatrix/QKV and down-scale sidecars -> output sidecars ->
   // resident_weights -> tokenizer.
   std::unique_ptr<text::Tokenizer> tokenizer;
@@ -5008,6 +5235,12 @@ struct ReferenceEngine::Impl {
   Sm87NvFp4DownConsumerOrderSidecars
       nvfp4_down_consumer_order_sidecars;
   std::optional<ModelWeights> model_weights;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  std::unique_ptr<sm87_macrofeed_v4_p40_execution_detail::
+                      Sm87MacroFeedV4P40ExecutionCompositionRoot>
+      macrofeed_v4_p40_execution_composition_root;
+#endif
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
   std::unique_ptr<sm87_macrofeed_v3_p40_execution_package_detail::
                       Sm87MacroFeedV3P40ExecutionPackage>
@@ -5740,9 +5973,37 @@ struct ReferenceEngine::Impl {
         // its immutable RoPE suffix) and one complete target-AOT projection
         // owner.  It must not allocate or reuse either legacy target-AOT/V2
         // request owner or their separate Engine RoPE.
+        std::uint64_t retained_execution_bytes =
+            kLayerMajorPrefillPromptWideP40RequestArenaBytes;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+        if (retained_execution_bytes >
+            std::numeric_limits<std::uint64_t>::max() -
+                sm87_macrofeed_v4_p40_execution_detail::
+                    kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kArithmeticOverflow,
+              "macrofeed_v4_execution_resource_reserve",
+              "MacroFeed-v3 request arena plus V4 transient/recurrent "
+              "ownership overflows uint64_t");
+          return result;
+        }
+        retained_execution_bytes +=
+            sm87_macrofeed_v4_p40_execution_detail::
+                kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes;
+#endif
+        if (options.request_options.min_free_bytes_after_create >
+            std::numeric_limits<std::uint64_t>::max() -
+                retained_execution_bytes) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kArithmeticOverflow,
+              "macrofeed_v3_target_aot_complete_resource_reserve",
+              "MacroFeed retained execution ownership and free-memory "
+              "reserve overflow uint64_t");
+          return result;
+        }
         const std::uint64_t retained_margin =
             options.request_options.min_free_bytes_after_create +
-            kLayerMajorPrefillPromptWideP40RequestArenaBytes;
+            retained_execution_bytes;
         const Clock::time_point asset_begin = Clock::now();
         const Sm87TargetAotCompleteDevicePreparationStats preparation =
             ReferenceEngine::
@@ -5832,6 +6093,43 @@ struct ReferenceEngine::Impl {
         }
         impl->macrofeed_v3_p40_execution_package =
             std::move(package.package);
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+        // This construction deliberately has no selector or API effect.  It
+        // exercises only the normal real-owner factories and anchors the
+        // complete 48-GDN-QKVZ seal under the same target-AOT lifetime that
+        // already backs the default-off V3 harness.
+        auto v4_root = sm87_macrofeed_v4_p40_execution_detail::
+            Sm87MacroFeedV4P40ExecutionCompositionRoot::create(
+                *impl->model_weights);
+        if (!v4_root || v4_root.root == nullptr) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              "macrofeed_v4_execution_composition_root",
+              v4_root.context == nullptr
+                  ? "MacroFeed-v4 Engine composition failed closed"
+                  : v4_root.context);
+          result.diagnostic.cuda_error = v4_root.cuda_error;
+          result.diagnostic.layer = v4_root.layer;
+          return result;
+        }
+        impl->macrofeed_v4_p40_execution_composition_root =
+            std::move(v4_root.root);
+        const auto v4_construction_snapshot =
+            impl->macrofeed_v4_p40_execution_composition_root
+                ->construction_snapshot();
+        if (!v4_construction_snapshot.valid()) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              "macrofeed_v4_execution_composition_root",
+              "MacroFeed-v4 Engine construction snapshot failed closed");
+          impl->macrofeed_v4_p40_execution_composition_root.reset();
+          return result;
+        }
+        sm87_macrofeed_v4_engine_lifetime_probe_detail::
+            publish_sm87_macrofeed_v4_engine_lifetime_construction_snapshot(
+                v4_construction_snapshot);
+#endif
       }
 #endif
 
@@ -7070,10 +7368,18 @@ ReferenceEngine::operator bool() const noexcept {
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
   if (impl_->prefill_mlp_schedule_tactic ==
       LayerMajorPrefillMlpScheduleTactic::kPromptWideP40MacroFeedV3) {
-    return impl_->macrofeed_v3_p40_execution_package != nullptr &&
-           impl_->macrofeed_v3_p40_execution_package->valid() &&
-           impl_->macrofeed_v3_p40_execution_package->audit().valid() &&
-           impl_->bound_prefill_plan != nullptr;
+    const bool v3_valid =
+        impl_->macrofeed_v3_p40_execution_package != nullptr &&
+        impl_->macrofeed_v3_p40_execution_package->valid() &&
+        impl_->macrofeed_v3_p40_execution_package->audit().valid() &&
+        impl_->bound_prefill_plan != nullptr;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+    return v3_valid &&
+           impl_->macrofeed_v4_p40_execution_composition_root != nullptr &&
+           impl_->macrofeed_v4_p40_execution_composition_root->valid();
+#else
+    return v3_valid;
+#endif
   }
 #endif
   const RequestMemoryProfile memory_profile =

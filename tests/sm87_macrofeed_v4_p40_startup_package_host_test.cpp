@@ -194,6 +194,18 @@ int query_sm87_macrofeed_v4_fp8_cuda_resources(
 
 }  // namespace q3x::kernels
 
+namespace q3x::runtime::sm87_macrofeed_v4_p40_startup_package_detail {
+
+class Sm87MacroFeedV4P40StartupPackageHostTestFixture final {
+ public:
+  [[nodiscard]] static Sm87MacroFeedV4P40StartupPackageCreateResult create(
+      const ModelWeights& model_weights) noexcept {
+    return Sm87MacroFeedV4P40StartupPackage::create(model_weights);
+  }
+};
+
+}  // namespace q3x::runtime::sm87_macrofeed_v4_p40_startup_package_detail
+
 namespace {
 
 namespace package =
@@ -201,6 +213,8 @@ namespace package =
 namespace execution =
     q3x::runtime::target_aot_complete_execution_detail;
 using Package = package::Sm87MacroFeedV4P40StartupPackage;
+using PackageFactory =
+    package::Sm87MacroFeedV4P40StartupPackageHostTestFixture;
 using Binding = package::Sm87MacroFeedV4ProjectionStartupBinding;
 using PackageError = package::Sm87MacroFeedV4P40StartupPackageError;
 using Access = execution::Sm87TargetAotCompleteProjectionExecutionAccess;
@@ -211,6 +225,16 @@ using Role = q3x::kernels::Sm87TargetAotProjectionRole;
 using q3x::runtime::Bf16LinearWeight;
 using q3x::runtime::Fp8LinearWeight;
 using q3x::runtime::ModelWeights;
+
+template <typename T, typename = void>
+struct HasPublicStartupCreate : std::false_type {};
+
+template <typename T>
+struct HasPublicStartupCreate<
+    T, std::void_t<decltype(T::create(
+           std::declval<const ModelWeights&>()))>> : std::true_type {};
+
+static_assert(!HasPublicStartupCreate<Package>::value);
 
 void require_package(const bool condition, const std::string_view message) {
   if (!condition) {
@@ -473,7 +497,7 @@ void test_complete_v4_foundation_package() {
   require_package(bf16_ab.install(*model_weights),
                   "could not install live BF16 A/B fixture");
 
-  auto first = Package::create(*model_weights);
+  auto first = PackageFactory::create(*model_weights);
   if (!first) {
     std::cerr << "V4 startup create error="
               << static_cast<unsigned>(first.status.error)
@@ -628,7 +652,7 @@ void test_complete_v4_foundation_package() {
           !gdn_qkvz_seal.production_dispatch_eligible,
       "V4 C8000 startup resource seals are not independently closed");
 
-  auto second = Package::create(*model_weights);
+  auto second = PackageFactory::create(*model_weights);
   require_package(static_cast<bool>(second) &&
                       second.audit.package_identity ==
                           first.audit.package_identity &&
@@ -758,7 +782,7 @@ void test_source_scale_and_device_tamper_fail_closed() {
     require_package(weights.has_value(), "source fixture construction failed");
     require_package(bf16_ab.install(*weights),
                     "source BF16 fixture installation failed");
-    auto result = Package::create(*weights);
+    auto result = PackageFactory::create(*weights);
     require_package(static_cast<bool>(result), "source package creation failed");
     const Binding* const binding =
         result.package->borrow_projection_startup_binding(
@@ -782,7 +806,7 @@ void test_source_scale_and_device_tamper_fail_closed() {
     require_package(weights.has_value(), "scale fixture construction failed");
     require_package(bf16_ab.install(*weights),
                     "scale BF16 fixture installation failed");
-    auto result = Package::create(*weights);
+    auto result = PackageFactory::create(*weights);
     require_package(static_cast<bool>(result), "scale package creation failed");
     const Binding* const binding =
         result.package->borrow_projection_startup_binding(
@@ -806,7 +830,7 @@ void test_source_scale_and_device_tamper_fail_closed() {
     require_package(weights.has_value(), "device fixture construction failed");
     require_package(bf16_ab.install(*weights),
                     "device BF16 fixture installation failed");
-    auto result = Package::create(*weights);
+    auto result = PackageFactory::create(*weights);
     require_package(static_cast<bool>(result), "device package creation failed");
     const Binding* const binding =
         result.package->borrow_projection_startup_binding(
@@ -835,7 +859,7 @@ void test_bf16_ab_model_and_range_failures() {
         Access::make_complete_host_test_fixture(owner);
     require_package(weights.has_value() && bf16_ab.install(*weights, 47U),
                     "missing BF16 fixture setup failed");
-    auto result = Package::create(*weights);
+    auto result = PackageFactory::create(*weights);
     require_package(
         !result && result.status.error ==
                        PackageError::kBf16AbModelInventory &&
@@ -855,7 +879,7 @@ void test_bf16_ab_model_and_range_failures() {
         Access::make_complete_host_test_fixture(owner);
     require_package(weights.has_value() && bf16_ab.install(*weights),
                     "shape BF16 fixture setup failed");
-    auto result = Package::create(*weights);
+    auto result = PackageFactory::create(*weights);
     require_package(
         !result && result.status.error ==
                        PackageError::kBf16AbModelInventory &&
@@ -882,7 +906,7 @@ void test_bf16_ab_model_and_range_failures() {
         Access::make_complete_host_test_fixture(owner);
     require_package(weights.has_value() && bf16_ab.install(*weights),
                     "dtype BF16 fixture setup failed");
-    auto result = Package::create(*weights);
+    auto result = PackageFactory::create(*weights);
     require_package(
         !result && result.status.error ==
                        PackageError::kBf16AbModelInventory &&
@@ -903,7 +927,7 @@ void test_bf16_ab_model_and_range_failures() {
         Access::make_complete_host_test_fixture(owner);
     require_package(weights.has_value() && bf16_ab.install(*weights),
                     "range BF16 fixture setup failed");
-    auto result = Package::create(*weights);
+    auto result = PackageFactory::create(*weights);
     require_package(
         !result && result.status.error == PackageError::kBf16AbDeviceRange &&
             result.status.layer == 62U && result.status.cuda_error != 0,
@@ -921,7 +945,7 @@ void test_model_weights_lifetime_order_fail_closed() {
       Access::make_complete_host_test_fixture(owner);
   require_package(weights.has_value() && bf16_ab.install(*weights),
                   "lifetime BF16 fixture setup failed");
-  auto result = Package::create(*weights);
+  auto result = PackageFactory::create(*weights);
   require_package(static_cast<bool>(result),
                   "lifetime startup package creation failed");
 
@@ -946,7 +970,7 @@ void test_resource_failures_fail_closed() {
                   "resource BF16 fixture installation failed");
 
   q3x::kernels::g_fail_v4_gate_up_resource_query = true;
-  auto gate_failure = Package::create(*weights);
+  auto gate_failure = PackageFactory::create(*weights);
   q3x::kernels::g_fail_v4_gate_up_resource_query = false;
   require_package(
       !gate_failure && gate_failure.package == nullptr &&
@@ -955,7 +979,7 @@ void test_resource_failures_fail_closed() {
       "V4 Gate+Up resource query failure did not fail closed");
 
   q3x::kernels::g_fail_v4_bf16_ab_resource_query = true;
-  auto bf16_query_failure = Package::create(*weights);
+  auto bf16_query_failure = PackageFactory::create(*weights);
   q3x::kernels::g_fail_v4_bf16_ab_resource_query = false;
   require_package(
       !bf16_query_failure && bf16_query_failure.package == nullptr &&
@@ -965,7 +989,7 @@ void test_resource_failures_fail_closed() {
       "V4 BF16 A/B resource query failure did not fail closed");
 
   q3x::kernels::g_poison_v4_bf16_ab_resource_identity = true;
-  auto bf16_identity_failure = Package::create(*weights);
+  auto bf16_identity_failure = PackageFactory::create(*weights);
   q3x::kernels::g_poison_v4_bf16_ab_resource_identity = false;
   require_package(
       !bf16_identity_failure && bf16_identity_failure.package == nullptr &&
@@ -974,7 +998,7 @@ void test_resource_failures_fail_closed() {
       "caller-forgeable BF16 A/B resource identity was accepted");
 
   q3x::kernels::g_fail_v4_gdn_qkvz_resource_query = true;
-  auto gdn_query_failure = Package::create(*weights);
+  auto gdn_query_failure = PackageFactory::create(*weights);
   q3x::kernels::g_fail_v4_gdn_qkvz_resource_query = false;
   require_package(
       !gdn_query_failure && gdn_query_failure.package == nullptr &&
@@ -984,7 +1008,7 @@ void test_resource_failures_fail_closed() {
       "V4 GDN-QKVZ resource query failure did not fail closed");
 
   q3x::kernels::g_poison_v4_gdn_qkvz_resource_identity = true;
-  auto gdn_identity_failure = Package::create(*weights);
+  auto gdn_identity_failure = PackageFactory::create(*weights);
   q3x::kernels::g_poison_v4_gdn_qkvz_resource_identity = false;
   require_package(
       !gdn_identity_failure && gdn_identity_failure.package == nullptr &&
@@ -993,7 +1017,7 @@ void test_resource_failures_fail_closed() {
       "changed GDN-QKVZ role/layout/tactic resource was accepted");
 
   q3x::kernels::g_v4_down_device_ordinal = 1;
-  auto device_failure = Package::create(*weights);
+  auto device_failure = PackageFactory::create(*weights);
   q3x::kernels::g_v4_down_device_ordinal = 0;
   require_package(
       !device_failure && device_failure.package == nullptr &&
@@ -1001,7 +1025,7 @@ void test_resource_failures_fail_closed() {
       "V4 cross-device startup resource set did not fail closed");
 
   q3x::kernels::g_v4_bf16_ab_device_ordinal = 1;
-  auto bf16_device_failure = Package::create(*weights);
+  auto bf16_device_failure = PackageFactory::create(*weights);
   q3x::kernels::g_v4_bf16_ab_device_ordinal = 0;
   require_package(
       !bf16_device_failure && bf16_device_failure.package == nullptr &&
@@ -1009,7 +1033,7 @@ void test_resource_failures_fail_closed() {
       "V4 BF16 A/B resource seal accepted another device");
 
   q3x::kernels::g_v4_gdn_qkvz_device_ordinal = 1;
-  auto gdn_device_failure = Package::create(*weights);
+  auto gdn_device_failure = PackageFactory::create(*weights);
   q3x::kernels::g_v4_gdn_qkvz_device_ordinal = 0;
   require_package(
       !gdn_device_failure && gdn_device_failure.package == nullptr &&
@@ -1028,7 +1052,7 @@ void test_default_off_package_is_closed() {
       Access::make_complete_host_test_fixture(owner);
   require_package(weights.has_value(),
                   "could not construct default-off V4 fixture");
-  auto result = Package::create(*weights);
+  auto result = PackageFactory::create(*weights);
   require_package(
       !result && result.package == nullptr &&
           result.status.error == PackageError::kAdmissionDisabled,

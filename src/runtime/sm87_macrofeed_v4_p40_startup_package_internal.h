@@ -18,9 +18,12 @@
 
 namespace q3x::runtime::sm87_macrofeed_v4_p40_execution_detail {
 class Sm87MacroFeedV4P40ExecutionPackage;
+class Sm87MacroFeedV4P40ExecutionCompositionRoot;
 }  // namespace q3x::runtime::sm87_macrofeed_v4_p40_execution_detail
 
 namespace q3x::runtime::sm87_macrofeed_v4_p40_startup_package_detail {
+
+class Sm87MacroFeedV4P40StartupPackageHostTestFixture;
 
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) && \
@@ -591,9 +594,6 @@ class Sm87MacroFeedV4P40StartupPackage final {
       Sm87MacroFeedV4P40StartupPackage&&) = delete;
   ~Sm87MacroFeedV4P40StartupPackage() = default;
 
-  [[nodiscard]] static Sm87MacroFeedV4P40StartupPackageCreateResult create(
-      const ModelWeights& model_weights) noexcept;
-
   [[nodiscard]] bool valid() const noexcept;
   [[nodiscard]] const Sm87MacroFeedV4P40StartupPackageAudit& audit()
       const noexcept {
@@ -627,6 +627,13 @@ class Sm87MacroFeedV4P40StartupPackage final {
       ProjectionStartupBindingCatalog* catalog) const noexcept;
 
  private:
+  // Engine-lifetime construction authority is intentionally closed over the
+  // future composition root.  Tests receive the same normal factory only
+  // through the named friend fixture; no runtime caller can independently
+  // mint a startup capability detached from its ModelWeights owner.
+  [[nodiscard]] static Sm87MacroFeedV4P40StartupPackageCreateResult create(
+      const ModelWeights& model_weights) noexcept;
+
   struct Bf16AbPair final {
     std::uint32_t model_layer =
         static_cast<std::uint32_t>(
@@ -892,6 +899,9 @@ class Sm87MacroFeedV4P40StartupPackage final {
 
   friend class sm87_macrofeed_v4_p40_execution_detail::
       Sm87MacroFeedV4P40ExecutionPackage;
+  friend class sm87_macrofeed_v4_p40_execution_detail::
+      Sm87MacroFeedV4P40ExecutionCompositionRoot;
+  friend class Sm87MacroFeedV4P40StartupPackageHostTestFixture;
 };
 
 static_assert(kSm87MacroFeedV4P40StartupPackageLayers ==

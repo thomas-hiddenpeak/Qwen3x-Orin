@@ -6,7 +6,7 @@ q3x_document:
   owner: prefill-maintainers
   authority: source-to-SM87 translation and selection record for WP-PREFILL-REFERENCE-TRANSLATION-v1
   effective: 2026-08-12
-  last_reviewed: 2026-08-14
+  last_reviewed: 2026-08-15
   supersedes: []
   superseded_by: []
   ssot_for: the active Prefill reference-translation work package only
@@ -572,10 +572,20 @@ construction; request execution may neither rescan `ModelWeights` nor repeat
 CUDA/catalog queries. The startup package also provides an all-or-nothing
 construction seal for the 48 natural GDN-QKVZ bindings with exact live CUDA
 allocation/upload-receipt agreement. The fake host catalog fails closed;
-positive execution of that complete catalog under the real owner is still
-open. A separate private owner now owns three nonblocking
-streams and nine events and enforces the five-panel, 48-AB-cycle-per-panel
-dependency graph without per-panel host observation. That owner and the
+the normal startup and execution factories are now private, and the core
+static library no longer contains the named synthetic-T1 construction
+wrapper. The private synthetic branch remains confined to the
+BUILD_TESTING-only archive for the CUDA fixture and grants no production
+authority. An Engine-private composition root wires only the normal 48-binding
+startup-to-execution chain into the existing default-off V3 real-owner
+harness, enforces `execution → startup → ModelWeights → complete target-AOT
+owner → resident` teardown, and adds exactly 599,261,184 bytes of
+transient/recurrent ownership to retained-memory admission. No pinned
+real-checkpoint Engine probe has executed that root yet, so positive execution
+of the complete catalog under the real owner is still open. A separate private
+owner now owns three nonblocking streams and nine events and enforces the
+five-panel, 48-AB-cycle-per-panel dependency graph without per-panel host
+observation. That owner and the
 startup package now compose only in an isolated synthetic-T1 layer-0 slice:
 Main executes InputNorm then fixed GDN-QKVZ, AbAux executes BF16 A/B after
 `NormReady`, Main waits on `AbReady`, and Control physically drains/discards
