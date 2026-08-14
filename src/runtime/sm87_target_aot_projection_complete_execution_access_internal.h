@@ -114,6 +114,21 @@ class Sm87TargetAotCompleteProjectionExecutionAccess final {
   [[nodiscard]] constexpr std::size_t artifact_count() const noexcept {
     return descriptors_.size();
   }
+  // Source-private identity snapshot for a higher-level composition root.
+  // These values come from the live, authenticated ModelWeights attachment;
+  // they are not caller-provided deployment claims.  catalog_identity()
+  // folds every one of the 256 descriptor artifact/source identities after
+  // revalidating the complete attachment.
+  [[nodiscard]] std::uint64_t owner_identity() const noexcept {
+    return attached() ? owner_identity_ : 0U;
+  }
+  [[nodiscard]] std::uint64_t allocation_identity() const noexcept {
+    return attached() ? allocation_identity_ : 0U;
+  }
+  [[nodiscard]] std::int32_t device_ordinal() const noexcept {
+    return attached() ? device_ordinal_ : -1;
+  }
+  [[nodiscard]] std::uint64_t catalog_identity() const noexcept;
   [[nodiscard]] std::optional<Sm87TargetAotCompleteProjectionExecutionAsset>
   resolve(std::size_t layer_index,
           kernels::Sm87TargetAotProjectionRole role) const noexcept;

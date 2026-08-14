@@ -598,6 +598,43 @@ void test_p40_session_contract(TestContext& test) {
   test.expect(kernels::sm87_bulk_v2_gdn_p40_session_state_valid(session),
               "all 48 bridged epochs await one request-retirement drain");
 
+  auto* const receipt =
+      session.sealed_plan.layers[0U].submission_receipt;
+  *receipt = kernels::sm87_bulk_v2_gdn_p40_submission_receipt();
+  receipt->lifecycle =
+      kernels::Sm87BulkV2GdnP40OwnerLifecycle::kSubmitted;
+  receipt->generation = 1U;
+  receipt->successful_submission_calls = 90'000U;
+  receipt->submission_started = true;
+  receipt->reusable = false;
+  test.expect(
+      kernels::sm87_bulk_v2_gdn_p40_session_hot_rearm_candidate(session),
+      "only a healthy 48-of-48 bridged submitted generation can seek the Owner's terminal-sync authority");
+
+  invalid_state = session;
+  invalid_state.bridged_epochs -= 1U;
+  test.expect(
+      !kernels::sm87_bulk_v2_gdn_p40_session_hot_rearm_candidate(
+          invalid_state),
+      "an incomplete final Main bridge cannot seek hot rearm");
+  receipt->drain_attempted = true;
+  receipt->drain_completed = true;
+  test.expect(
+      !kernels::sm87_bulk_v2_gdn_p40_session_hot_rearm_candidate(session),
+      "an independently drained receipt is not the zero-query Owner transition");
+  receipt->drain_attempted = false;
+  receipt->drain_completed = false;
+  receipt->first_error = 719;
+  test.expect(
+      !kernels::sm87_bulk_v2_gdn_p40_session_hot_rearm_candidate(session),
+      "a submitted receipt with any recorded failure can never hot rearm");
+  receipt->first_error = 0;
+  receipt->lifecycle =
+      kernels::Sm87BulkV2GdnP40OwnerLifecycle::kPoisoned;
+  test.expect(
+      !kernels::sm87_bulk_v2_gdn_p40_session_hot_rearm_candidate(session),
+      "a poisoned GDN owner is permanently excluded from hot rearm");
+
   session.lifecycle =
       kernels::Sm87BulkV2GdnP40SessionLifecycle::kDrained;
   test.expect(kernels::sm87_bulk_v2_gdn_p40_session_state_valid(session),

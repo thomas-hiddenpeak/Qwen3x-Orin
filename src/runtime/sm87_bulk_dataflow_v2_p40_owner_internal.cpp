@@ -1567,6 +1567,114 @@ Sm87BulkV2P40OwnerStatus Sm87BulkV2P40Owner::complete_request(
   return ok();
 }
 
+Sm87BulkV2P40OwnerStatus
+Sm87BulkV2P40Owner::hot_rearm_gdn_session_after_completed_request(
+    const Sm87BulkV2P40ExecutionAccess& access,
+    q3x::kernels::Sm87BulkV2GdnP40Session& session) noexcept {
+  if (!access_matches(access)) {
+    return error(Sm87BulkV2P40OwnerError::kForeignExecutionAccess,
+                 "gdn_hot_rearm_owner_bound_access");
+  }
+
+  // kCompleted is reached only after RequestState synchronizes this Owner's
+  // Main stream.  Completion itself proves that every latest auxiliary
+  // generation joined Main and that the fixed D2H handoff was observed.  Do
+  // not accept the public aggregate, a caller boolean, cancellation, or the
+  // five-stream error drain as a substitute for that exact transition.
+  const auto& terminal = receipt_.aggregate;
+  if (state_ != Sm87BulkV2P40OwnerState::kCompleted ||
+      terminal.lifecycle != Sm87BulkV2P40OwnerLifecycle::kCompleted ||
+      terminal.terminal_host_waits != 1U ||
+      terminal.terminal_host_drains != 1U ||
+      !terminal.all_streams_drained || !terminal.state_committed ||
+      !terminal.handoff_observed || terminal.first_error != 0 ||
+      terminal.cancellation_published || !receipt_.identity_valid() ||
+      !work_receipt_complete()) {
+    return error(Sm87BulkV2P40OwnerError::kInvalidOwnerState,
+                 "gdn_hot_rearm_requires_exact_completed_terminal_sync");
+  }
+
+  if (!q3x::kernels::
+          sm87_bulk_v2_gdn_p40_session_hot_rearm_candidate(session)) {
+    return error(Sm87BulkV2P40OwnerError::kGdnSessionNotRearmable,
+                 "gdn_hot_rearm_requires_48_bridged_healthy_epochs");
+  }
+
+  const auto& plan = session.sealed_plan;
+  const auto& gdn_owner = plan.layers[0U];
+  const std::array<void*, q3x::kernels::kSm87BulkV2GdnP40StreamCount>
+      expected_streams{{
+          streams_[stream_index(
+              Sm87BulkV2P40Stream::kProjectionAndGdnProducer)],
+          streams_[stream_index(Sm87BulkV2P40Stream::kGdnRecurrence)],
+          streams_[stream_index(Sm87BulkV2P40Stream::kGdnEpilogue)],
+      }};
+  const std::array<void*, q3x::kernels::kSm87BulkV2GdnP40SlotCount>
+      expected_prepared{{
+          events_[event_index(Sm87BulkV2P40ReusableEvent::kGdnPrepared0)],
+          events_[event_index(Sm87BulkV2P40ReusableEvent::kGdnPrepared1)],
+      }};
+  const std::array<void*, q3x::kernels::kSm87BulkV2GdnP40SlotCount>
+      expected_recurrence{{
+          events_[event_index(Sm87BulkV2P40ReusableEvent::kGdnRecurrence0)],
+          events_[event_index(Sm87BulkV2P40ReusableEvent::kGdnRecurrence1)],
+      }};
+  const std::array<void*, q3x::kernels::kSm87BulkV2GdnP40SlotCount>
+      expected_epilogue{{
+          events_[event_index(Sm87BulkV2P40ReusableEvent::kGdnEpilogue0)],
+          events_[event_index(Sm87BulkV2P40ReusableEvent::kGdnEpilogue1)],
+      }};
+  if (plan.main_stream != streams_[stream_index(Sm87BulkV2P40Stream::kMain)] ||
+      plan.ingress_ready_event !=
+          events_[event_index(
+              Sm87BulkV2P40ReusableEvent::kProjectionInputReady)] ||
+      !q3x::kernels::sm87_bulk_v2_gdn_p40_same_identities(
+          gdn_owner.streams, expected_streams) ||
+      !q3x::kernels::sm87_bulk_v2_gdn_p40_same_identities(
+          gdn_owner.prepared_ready_events, expected_prepared) ||
+      !q3x::kernels::sm87_bulk_v2_gdn_p40_same_identities(
+          gdn_owner.recurrence_done_events, expected_recurrence) ||
+      !q3x::kernels::sm87_bulk_v2_gdn_p40_same_identities(
+          gdn_owner.epilogue_done_events, expected_epilogue) ||
+      gdn_owner.cancellation_host_word != cancellation_host_word_ ||
+      gdn_owner.cancellation_device_alias != cancellation_device_alias_) {
+    return error(Sm87BulkV2P40OwnerError::kForeignGdnSession,
+                 "gdn_hot_rearm_requires_exact_owner_stream_event_binding");
+  }
+
+  auto* const gdn_receipt = gdn_owner.submission_receipt;
+  // The sole terminal Main wait is a transitive completion proof for these
+  // exact streams and events.  Retire the GDN generation in host state only;
+  // no cudaEventQuery, cudaStreamQuery, cudaStreamSynchronize, or other CUDA
+  // call is made here.  The next epoch-zero enqueue increments generation and
+  // clears the retained audit fields through begin_p40_submission().
+  gdn_receipt->drain_attempted = true;
+  gdn_receipt->drain_completed = true;
+  gdn_receipt->lifecycle =
+      q3x::kernels::Sm87BulkV2GdnP40OwnerLifecycle::kReady;
+  gdn_receipt->reusable = true;
+  session.next_epoch = 0U;
+  session.bridged_epochs = 0U;
+  session.bridge_pending = false;
+  session.lifecycle =
+      q3x::kernels::Sm87BulkV2GdnP40SessionLifecycle::kReady;
+
+  if (!q3x::kernels::sm87_bulk_v2_gdn_p40_submission_receipt_valid(
+          *gdn_receipt) ||
+      !q3x::kernels::sm87_bulk_v2_gdn_p40_session_state_valid(session)) {
+    // This branch is unreachable for a valid admitted session and does not
+    // attempt to make an inconsistent owner reusable.
+    gdn_receipt->lifecycle =
+        q3x::kernels::Sm87BulkV2GdnP40OwnerLifecycle::kPoisoned;
+    gdn_receipt->reusable = false;
+    session.lifecycle =
+        q3x::kernels::Sm87BulkV2GdnP40SessionLifecycle::kPoisoned;
+    return error(Sm87BulkV2P40OwnerError::kGdnSessionNotRearmable,
+                 "gdn_hot_rearm_postcondition_failed");
+  }
+  return ok();
+}
+
 #if defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_OWNER_HOST_FIXTURE)
 Sm87BulkV2P40OwnerStatus
 Sm87BulkV2P40Owner::complete_synthetic_for_host_contract(
@@ -1902,6 +2010,64 @@ Sm87BulkV2P40OwnerHostFixture::borrow_streams_for_request_state(
   return owner.state_ == Sm87BulkV2P40OwnerState::kResourcesReady
              ? owner.streams_
              : std::array<void*, kSm87BulkV2P40StreamCount>{};
+}
+
+void Sm87BulkV2P40OwnerHostFixture::
+    bind_gdn_owner_handles_for_host_contract(
+        const Sm87BulkV2P40Owner& owner,
+        q3x::kernels::Sm87BulkV2GdnP40SessionPlan* const plan) noexcept {
+  if (plan == nullptr || owner.state_ == Sm87BulkV2P40OwnerState::kEmpty ||
+      owner.state_ == Sm87BulkV2P40OwnerState::kDestroyed) {
+    return;
+  }
+  const std::array<void*, q3x::kernels::kSm87BulkV2GdnP40StreamCount>
+      streams{{
+          owner.streams_[stream_index(
+              Sm87BulkV2P40Stream::kProjectionAndGdnProducer)],
+          owner.streams_[stream_index(Sm87BulkV2P40Stream::kGdnRecurrence)],
+          owner.streams_[stream_index(Sm87BulkV2P40Stream::kGdnEpilogue)],
+      }};
+  const std::array<void*, q3x::kernels::kSm87BulkV2GdnP40SlotCount>
+      prepared{{
+          owner.events_[event_index(
+              Sm87BulkV2P40ReusableEvent::kGdnPrepared0)],
+          owner.events_[event_index(
+              Sm87BulkV2P40ReusableEvent::kGdnPrepared1)],
+      }};
+  const std::array<void*, q3x::kernels::kSm87BulkV2GdnP40SlotCount>
+      recurrence{{
+          owner.events_[event_index(
+              Sm87BulkV2P40ReusableEvent::kGdnRecurrence0)],
+          owner.events_[event_index(
+              Sm87BulkV2P40ReusableEvent::kGdnRecurrence1)],
+      }};
+  const std::array<void*, q3x::kernels::kSm87BulkV2GdnP40SlotCount>
+      epilogue{{
+          owner.events_[event_index(
+              Sm87BulkV2P40ReusableEvent::kGdnEpilogue0)],
+          owner.events_[event_index(
+              Sm87BulkV2P40ReusableEvent::kGdnEpilogue1)],
+      }};
+  for (auto& layer : plan->layers) {
+    layer.streams = streams;
+    layer.prepared_ready_events = prepared;
+    layer.recurrence_done_events = recurrence;
+    layer.epilogue_done_events = epilogue;
+    layer.cancellation_host_word = owner.cancellation_host_word_;
+    layer.cancellation_device_alias = owner.cancellation_device_alias_;
+  }
+  plan->main_stream =
+      owner.streams_[stream_index(Sm87BulkV2P40Stream::kMain)];
+  plan->ingress_ready_event = owner.events_[event_index(
+      Sm87BulkV2P40ReusableEvent::kProjectionInputReady)];
+}
+
+Sm87BulkV2P40OwnerStatus Sm87BulkV2P40OwnerHostFixture::
+    hot_rearm_gdn_session_after_completed_request(
+        Sm87BulkV2P40Owner& owner,
+        const Sm87BulkV2P40ExecutionAccess& access,
+        q3x::kernels::Sm87BulkV2GdnP40Session& session) noexcept {
+  return owner.hot_rearm_gdn_session_after_completed_request(access, session);
 }
 #endif
 

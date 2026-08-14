@@ -622,6 +622,35 @@ struct Sm87BulkV2GdnP40Session final {
   return false;
 }
 
+// Host-only predicate for the one zero-query session-reuse transition.  It
+// deliberately does not perform the transition or grant retirement
+// authority: only the whole-request Owner can prove that its sole terminal
+// Main-stream synchronization has completed.  The predicate freezes the GDN
+// side of that proof so an incomplete, cancelled, explicitly drained, or
+// poisoned generation can never be made reusable by a caller-provided bool.
+[[nodiscard]] constexpr bool
+sm87_bulk_v2_gdn_p40_session_hot_rearm_candidate(
+    const Sm87BulkV2GdnP40Session& session) noexcept {
+  if (!sm87_bulk_v2_gdn_p40_session_state_valid(session) ||
+      session.lifecycle !=
+          Sm87BulkV2GdnP40SessionLifecycle::kAwaitingDrain ||
+      session.next_epoch != kSm87BulkV2GdnP40SessionLayerCount ||
+      session.bridged_epochs != kSm87BulkV2GdnP40SessionLayerCount ||
+      session.bridge_pending) {
+    return false;
+  }
+  const Sm87BulkV2GdnP40SubmissionReceipt* const receipt =
+      session.sealed_plan.layers[0U].submission_receipt;
+  return receipt != nullptr &&
+         sm87_bulk_v2_gdn_p40_submission_receipt_valid(*receipt) &&
+         receipt->lifecycle == Sm87BulkV2GdnP40OwnerLifecycle::kSubmitted &&
+         receipt->generation != 0U &&
+         receipt->successful_submission_calls != 0U &&
+         receipt->first_error == 0 && receipt->submission_started &&
+         !receipt->drain_attempted && !receipt->drain_completed &&
+         !receipt->reusable;
+}
+
 [[nodiscard]] constexpr auto sm87_bulk_v2_gdn_p40_argument_ranges(
     const Sm87BulkV2GdnP40Arguments& arguments) noexcept {
   return std::array<Sm87BulkV2GdnByteRange,

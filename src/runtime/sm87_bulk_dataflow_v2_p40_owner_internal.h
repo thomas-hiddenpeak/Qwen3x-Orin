@@ -8,6 +8,10 @@
 #include <limits>
 #include <memory>
 
+namespace q3x::runtime::sm87_bulk_v2_p40_composition_detail {
+class Sm87BulkV2P40CompositionRoot;
+}
+
 namespace q3x::runtime::sm87_bulk_v2_p40_owner_detail {
 
 inline constexpr unsigned int kSm87BulkV2P40NonBlockingStreamFlag = 1U;
@@ -130,6 +134,8 @@ enum class Sm87BulkV2P40OwnerError : std::uint8_t {
   kMissingOwnerBoundHandoff,
   kMissingOwnerBoundRequestState,
   kForeignRequestState,
+  kForeignGdnSession,
+  kGdnSessionNotRearmable,
   kInvalidHandoff,
   kDrainFailure,
 };
@@ -247,6 +253,8 @@ class Sm87BulkV2P40ConstituentSealAccess final {
   bool synthetic_host_contract_only = false;
 
   friend class Sm87BulkV2P40Owner;
+  friend class q3x::runtime::sm87_bulk_v2_p40_composition_detail::
+      Sm87BulkV2P40CompositionRoot;
   friend class Sm87BulkV2P40OwnerHostFixture;
   friend Sm87BulkV2P40RealConstituentSealResult
   seal_sm87_bulk_dataflow_v2_p40_real_constituents(
@@ -453,6 +461,16 @@ class Sm87BulkV2P40Owner final {
       int first_error) noexcept;
   [[nodiscard]] Sm87BulkV2P40OwnerStatus drain_all_streams() noexcept;
   [[nodiscard]] bool work_receipt_complete() const noexcept;
+  // Source-private cross-request transition.  The existing composition-root
+  // friendship is the only production caller.  No boolean or public receipt
+  // is accepted as retirement authority: this Owner proves its own exact
+  // completed transaction and that the supplied GDN session uses its Main,
+  // three GDN streams, six GDN events and cancellation owner before changing
+  // host state.  The transition makes no CUDA call.
+  [[nodiscard]] Sm87BulkV2P40OwnerStatus
+  hot_rearm_gdn_session_after_completed_request(
+      const Sm87BulkV2P40ExecutionAccess& access,
+      q3x::kernels::Sm87BulkV2GdnP40Session& session) noexcept;
   void publish_cancellation(std::uint32_t value) noexcept;
   void release_resources() noexcept;
 
@@ -483,6 +501,8 @@ class Sm87BulkV2P40Owner final {
       nullptr;
 
   friend struct Sm87BulkV2P40OwnerCreateResult;
+  friend class q3x::runtime::sm87_bulk_v2_p40_composition_detail::
+      Sm87BulkV2P40CompositionRoot;
   friend class Sm87BulkV2P40OwnerHostFixture;
   friend Sm87BulkV2P40OwnerCreateResult
   create_sm87_bulk_dataflow_v2_p40_owner_resources() noexcept;
@@ -535,6 +555,14 @@ class Sm87BulkV2P40OwnerHostFixture final {
   [[nodiscard]] static std::array<void*, kSm87BulkV2P40StreamCount>
   borrow_streams_for_request_state(
       const Sm87BulkV2P40Owner& owner) noexcept;
+  static void bind_gdn_owner_handles_for_host_contract(
+      const Sm87BulkV2P40Owner& owner,
+      q3x::kernels::Sm87BulkV2GdnP40SessionPlan* plan) noexcept;
+  [[nodiscard]] static Sm87BulkV2P40OwnerStatus
+  hot_rearm_gdn_session_after_completed_request(
+      Sm87BulkV2P40Owner& owner,
+      const Sm87BulkV2P40ExecutionAccess& access,
+      q3x::kernels::Sm87BulkV2GdnP40Session& session) noexcept;
 };
 #endif
 

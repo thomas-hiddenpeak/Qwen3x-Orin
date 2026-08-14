@@ -863,6 +863,55 @@ bool Sm87TargetAotCompleteProjectionExecutionAccess::attached()
                             device_ordinal_);
 }
 
+std::uint64_t
+Sm87TargetAotCompleteProjectionExecutionAccess::catalog_identity()
+    const noexcept {
+  if (!attached()) {
+    return 0U;
+  }
+  auto mix = [](std::uint64_t value,
+                const std::uint64_t input) noexcept {
+    value ^= input + 0x9e37'79b9'7f4a'7c15ULL + (value << 6U) +
+             (value >> 2U);
+    return value;
+  };
+  std::uint64_t identity = 0x5133'5856'3250'4341ULL;
+  identity = mix(identity, owner_identity_);
+  identity = mix(identity, allocation_identity_);
+  identity = mix(identity, arena_bytes_);
+  identity = mix(identity, static_cast<std::uint64_t>(device_ordinal_ + 1));
+  std::uint64_t expected_offset = 0U;
+  std::size_t observed = 0U;
+  for (std::size_t layer_index = 0U;
+       layer_index < kSm87TargetAotCompleteProjectionDeviceLayerCount;
+       ++layer_index) {
+    for (const Role role : layer_roles(layer_index)) {
+      const std::size_t index =
+          sm87_target_aot_complete_descriptor_ordinal(layer_index, role);
+      if (index != observed || index >= descriptors_.size()) {
+        return 0U;
+      }
+      const Descriptor* const descriptor = descriptors_[index];
+      if (descriptor == nullptr ||
+          !descriptor_matches(*owner_, *descriptor, layer_index, role,
+                              expected_offset)) {
+        return 0U;
+      }
+      identity = mix(identity, static_cast<std::uint64_t>(layer_index + 1U));
+      identity = mix(identity, static_cast<std::uint64_t>(role));
+      identity = mix(identity, descriptor->manifest.artifact_identity);
+      identity = mix(identity, descriptor->source_inventory.identity);
+      identity = mix(identity, descriptor->manifest.payload_bytes);
+      expected_offset += descriptor->manifest.payload_bytes;
+      ++observed;
+    }
+  }
+  if (observed != descriptors_.size() || expected_offset != arena_bytes_) {
+    return 0U;
+  }
+  return identity == 0U ? 0x5133'5856'3250'4341ULL : identity;
+}
+
 std::optional<Sm87TargetAotCompleteProjectionExecutionAsset>
 Sm87TargetAotCompleteProjectionExecutionAccess::resolve(
     const std::size_t layer_index, const Role role) const noexcept {

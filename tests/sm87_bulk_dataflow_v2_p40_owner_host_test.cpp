@@ -13,6 +13,7 @@
 namespace owner =
     q3x::runtime::sm87_bulk_v2_p40_owner_detail;
 namespace runtime = q3x::runtime;
+namespace kernels = q3x::kernels;
 
 namespace {
 
@@ -491,6 +492,123 @@ class FakeRequestStateCudaRuntime final
   bool arena_live_ = false;
   owner::Sm87BulkV2P40PinnedHandoff* pinned_handoff_ = nullptr;
 };
+
+template <class T>
+[[nodiscard]] T* fake_pointer(const std::uintptr_t address) noexcept {
+  return reinterpret_cast<T*>(address);
+}
+
+[[nodiscard]] kernels::Sm87BulkV2GdnKernelResources passing_gdn_kernel(
+    const int threads, const int grid) noexcept {
+  kernels::Sm87BulkV2GdnKernelResources resources;
+  resources.registers_per_thread = 64;
+  resources.static_shared_bytes = 34'056U;
+  resources.local_bytes = 0U;
+  resources.maximum_threads_per_block = 1'024;
+  resources.active_blocks_per_sm = 4;
+  resources.threads_per_block = threads;
+  resources.physical_grid_ctas = grid;
+  return resources;
+}
+
+[[nodiscard]] kernels::Sm87BulkV2GdnC64Resources
+passing_gdn_resources() noexcept {
+  kernels::Sm87BulkV2GdnC64Resources resources;
+  resources.binary_version = 87;
+  resources.producer = passing_gdn_kernel(
+      static_cast<int>(kernels::kSm87BulkV2GdnProducerThreads),
+      static_cast<int>(kernels::kSm87BulkV2GdnProducerCtas));
+  resources.recurrence = passing_gdn_kernel(
+      static_cast<int>(kernels::kSm87BulkV2GdnRecurrenceThreads),
+      static_cast<int>(kernels::kSm87BulkV2GdnRecurrenceCtas));
+  resources.epilogue = passing_gdn_kernel(
+      static_cast<int>(kernels::kSm87BulkV2GdnEpilogueThreads),
+      static_cast<int>(kernels::kSm87BulkV2GdnEpilogueCtas));
+  resources.kernels_compiled = true;
+  resources.exact_geometry = true;
+  resources.resource_gate_passed = true;
+  return resources;
+}
+
+[[nodiscard]] kernels::Sm87BulkV2GdnP40Arguments
+make_gdn_arguments_for_owner_contract(
+    kernels::Sm87BulkV2GdnP40SubmissionReceipt* const receipt) noexcept {
+  kernels::Sm87BulkV2GdnP40Arguments arguments;
+  arguments.raw_qkvz =
+      fake_pointer<const std::uint16_t>(0x0000'0010'0000'0000ULL);
+  arguments.interleaved_ab =
+      fake_pointer<const std::uint16_t>(0x0000'0010'6000'0000ULL);
+  arguments.conv_weight =
+      fake_pointer<const std::uint16_t>(0x0000'0010'7000'0000ULL);
+  arguments.initial_conv_history =
+      fake_pointer<const std::uint16_t>(0x0000'0010'7020'0000ULL);
+  arguments.a_log =
+      fake_pointer<const std::uint16_t>(0x0000'0010'7040'0000ULL);
+  arguments.dt_bias =
+      fake_pointer<const std::uint16_t>(0x0000'0010'7040'1000ULL);
+  arguments.norm_weight =
+      fake_pointer<const std::uint16_t>(0x0000'0010'7040'2000ULL);
+  arguments.initial_recurrent_state =
+      fake_pointer<const std::uint16_t>(0x0000'0010'8000'0000ULL);
+  arguments.l2_epsilon_fp32_bits =
+      kernels::kSm87TargetAotGdnEpsilonFp32Bits;
+  arguments.norm_epsilon_fp32_bits =
+      kernels::kSm87TargetAotGdnEpsilonFp32Bits;
+  arguments.normalized_q = {
+      fake_pointer<float>(0x0000'0010'9000'0000ULL),
+      fake_pointer<float>(0x0000'0010'9010'0000ULL)};
+  arguments.normalized_k = {
+      fake_pointer<float>(0x0000'0010'9020'0000ULL),
+      fake_pointer<float>(0x0000'0010'9030'0000ULL)};
+  arguments.prepared_v = {
+      fake_pointer<std::uint16_t>(0x0000'0010'9040'0000ULL),
+      fake_pointer<std::uint16_t>(0x0000'0010'9050'0000ULL)};
+  arguments.alpha = {
+      fake_pointer<float>(0x0000'0010'9060'0000ULL),
+      fake_pointer<float>(0x0000'0010'9061'0000ULL)};
+  arguments.beta = {
+      fake_pointer<float>(0x0000'0010'9062'0000ULL),
+      fake_pointer<float>(0x0000'0010'9063'0000ULL)};
+  arguments.raw_output = {
+      fake_pointer<std::uint16_t>(0x0000'0010'9070'0000ULL),
+      fake_pointer<std::uint16_t>(0x0000'0010'9080'0000ULL)};
+  arguments.output =
+      fake_pointer<std::uint16_t>(0x0000'0011'0000'0000ULL);
+  arguments.conv_history = {
+      fake_pointer<std::uint16_t>(0x0000'0011'3000'0000ULL),
+      fake_pointer<std::uint16_t>(0x0000'0011'3020'0000ULL)};
+  arguments.transactional_recurrent_state =
+      fake_pointer<std::uint16_t>(0x0000'0011'4000'0000ULL);
+  arguments.cancellation_snapshot = {
+      fake_pointer<std::uint32_t>(0x0000'0011'4020'0000ULL),
+      fake_pointer<std::uint32_t>(0x0000'0011'4020'1000ULL)};
+  arguments.submission_receipt = receipt;
+  return arguments;
+}
+
+[[nodiscard]] kernels::Sm87BulkV2GdnP40Session
+make_terminal_gdn_session_for_owner_contract(
+    const owner::Sm87BulkV2P40Owner& execution_owner,
+    kernels::Sm87BulkV2GdnP40SubmissionReceipt* const receipt) noexcept {
+  kernels::Sm87BulkV2GdnP40SessionPlan plan;
+  const auto arguments = make_gdn_arguments_for_owner_contract(receipt);
+  for (auto& layer : plan.layers) {
+    layer = arguments;
+  }
+  owner::Sm87BulkV2P40OwnerHostFixture::
+      bind_gdn_owner_handles_for_host_contract(execution_owner, &plan);
+
+  kernels::Sm87BulkV2GdnP40Session session;
+  session.sealed_plan = plan;
+  session.sealed_resources = passing_gdn_resources();
+  session.sealed_device = execution_owner.device_ordinal();
+  session.lifecycle =
+      kernels::Sm87BulkV2GdnP40SessionLifecycle::kAwaitingDrain;
+  session.next_epoch = kernels::kSm87BulkV2GdnP40SessionLayerCount;
+  session.bridged_epochs = kernels::kSm87BulkV2GdnP40SessionLayerCount;
+  session.bridge_pending = false;
+  return session;
+}
 
 [[nodiscard]] owner::Sm87BulkV2P40OwnerIdentity evidence_identity() noexcept {
   owner::Sm87BulkV2P40OwnerIdentity identity;
@@ -1255,6 +1373,33 @@ void test_owner_bound_request_state_completion(TestContext& test) {
   owner::Sm87BulkV2P40RequestStateHostFixture::
       emulate_completed_handoff_d2h(request_state, 123U, 0U);
 
+  auto gdn_receipt = kernels::sm87_bulk_v2_gdn_p40_submission_receipt();
+  gdn_receipt.lifecycle =
+      kernels::Sm87BulkV2GdnP40OwnerLifecycle::kSubmitted;
+  gdn_receipt.generation = 7U;
+  gdn_receipt.successful_submission_calls = 90'000U;
+  gdn_receipt.submission_started = true;
+  gdn_receipt.reusable = false;
+  auto gdn_session = make_terminal_gdn_session_for_owner_contract(
+      *created.owner, &gdn_receipt);
+  test.expect(
+      kernels::sm87_bulk_v2_gdn_p40_session_hot_rearm_candidate(
+          gdn_session),
+      "the completed 48-layer GDN generation awaits whole-Owner retirement authority");
+  const auto premature_rearm =
+      owner::Sm87BulkV2P40OwnerHostFixture::
+          hot_rearm_gdn_session_after_completed_request(
+              *created.owner, *access, gdn_session);
+  test.expect(!premature_rearm &&
+                  premature_rearm.error ==
+                      owner::Sm87BulkV2P40OwnerError::kInvalidOwnerState &&
+                  gdn_session.lifecycle ==
+                      kernels::Sm87BulkV2GdnP40SessionLifecycle::
+                          kAwaitingDrain &&
+                  gdn_receipt.lifecycle ==
+                      kernels::Sm87BulkV2GdnP40OwnerLifecycle::kSubmitted,
+              "a complete submission cannot hot rearm before the sole terminal Main sync");
+
   const std::size_t owner_sync_before = cuda.stream_sync_calls;
   const std::size_t state_sync_before = request_cuda.stream_sync_calls;
   const auto completed = created.owner->complete_request(
@@ -1279,6 +1424,81 @@ void test_owner_bound_request_state_completion(TestContext& test) {
                   receipt.handoff_nonfinite == 0U &&
                   created.owner->receipt().identity_valid(),
               "completed receipt publishes only the post-sync private 8-byte handoff observation");
+
+  const std::size_t queries_before_rearm = cuda.static_query_calls;
+  const std::size_t owner_syncs_before_rearm = cuda.stream_sync_calls;
+  const std::size_t state_syncs_before_rearm =
+      request_cuda.stream_sync_calls;
+  const std::size_t event_records_before_rearm = cuda.event_record_calls;
+  const std::size_t event_waits_before_rearm = cuda.event_wait_calls;
+  auto foreign_gdn_session = gdn_session;
+  for (auto& layer : foreign_gdn_session.sealed_plan.layers) {
+    layer.streams[0U] =
+        fake_pointer<void>(0x0000'0000'ffff'1000ULL);
+  }
+  test.expect(
+      kernels::sm87_bulk_v2_gdn_p40_session_hot_rearm_candidate(
+          foreign_gdn_session),
+      "a structurally valid foreign session is distinguishable from this Owner's physical binding");
+  const auto foreign_rearm =
+      owner::Sm87BulkV2P40OwnerHostFixture::
+          hot_rearm_gdn_session_after_completed_request(
+              *created.owner, *access, foreign_gdn_session);
+  test.expect(!foreign_rearm &&
+                  foreign_rearm.error ==
+                      owner::Sm87BulkV2P40OwnerError::kForeignGdnSession &&
+                  gdn_receipt.lifecycle ==
+                      kernels::Sm87BulkV2GdnP40OwnerLifecycle::kSubmitted,
+              "a completed Owner cannot retire another session's CUDA owner");
+  const auto rearmed =
+      owner::Sm87BulkV2P40OwnerHostFixture::
+          hot_rearm_gdn_session_after_completed_request(
+              *created.owner, *access, gdn_session);
+  test.expect(static_cast<bool>(rearmed) &&
+                  gdn_session.lifecycle ==
+                      kernels::Sm87BulkV2GdnP40SessionLifecycle::kReady &&
+                  gdn_session.next_epoch == 0U &&
+                  gdn_session.bridged_epochs == 0U &&
+                  !gdn_session.bridge_pending &&
+                  gdn_receipt.lifecycle ==
+                      kernels::Sm87BulkV2GdnP40OwnerLifecycle::kReady &&
+                  gdn_receipt.generation == 7U &&
+                  gdn_receipt.drain_attempted &&
+                  gdn_receipt.drain_completed && gdn_receipt.reusable,
+              "the exact terminal proof rearms only host session/receipt state for the next request");
+  test.expect(cuda.static_query_calls == queries_before_rearm &&
+                  cuda.stream_sync_calls == owner_syncs_before_rearm &&
+                  request_cuda.stream_sync_calls ==
+                      state_syncs_before_rearm &&
+                  cuda.event_record_calls == event_records_before_rearm &&
+                  cuda.event_wait_calls == event_waits_before_rearm,
+              "hot rearm performs no CUDA query, submission, event operation, or host wait");
+  const auto duplicate_rearm =
+      owner::Sm87BulkV2P40OwnerHostFixture::
+          hot_rearm_gdn_session_after_completed_request(
+              *created.owner, *access, gdn_session);
+  test.expect(!duplicate_rearm &&
+                  duplicate_rearm.error ==
+                      owner::Sm87BulkV2P40OwnerError::
+                          kGdnSessionNotRearmable,
+              "one terminal proof cannot rearm the same GDN generation twice");
+  const auto state_rearmed =
+      request_state.rearm_for_cold_request(request_access);
+  const auto second_begin = created.owner->begin_request(
+      *access, request_state, request_access, request_epoch + 1U);
+  test.expect(static_cast<bool>(state_rearmed) &&
+                  static_cast<bool>(second_begin) &&
+                  created.owner->state() ==
+                      owner::Sm87BulkV2P40OwnerState::kActive &&
+                  request_state.lifecycle() ==
+                      owner::Sm87BulkV2P40RequestStateLifecycle::kActive &&
+                  gdn_session.lifecycle ==
+                      kernels::Sm87BulkV2GdnP40SessionLifecycle::kReady &&
+                  gdn_receipt.lifecycle ==
+                      kernels::Sm87BulkV2GdnP40OwnerLifecycle::kReady,
+              "the same sealed Owner, RequestState allocation, and GDN CUDA owner admit a second request epoch");
+  test.expect(static_cast<bool>(created.owner->cancel_request(*access)),
+              "the second-request admission fixture retires through the exact owner drain");
 }
 
 void test_owner_bound_cancel_rearms_request_state(TestContext& test) {
