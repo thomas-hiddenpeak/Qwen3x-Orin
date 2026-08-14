@@ -304,6 +304,17 @@ and the ABI-major 3 successor receipt. The record explicitly grants no
 real-weight/activation, complete P40000 execution, API, performance, NCU, L2
 residency, release, or production authority.
 
+The complete real-API Bulk V2 P40 rejection and its one bounded causal NSys
+capture are frozen in
+[`qwen36-27b-sm87-bulk-v2-p40-rejection-2026-08-14.json`](qwen36-27b-sm87-bulk-v2-p40-rejection-2026-08-14.json).
+EvalScope 1.9.1 received zero bytes and recorded 0/1 success after 680.73
+seconds, so the record contains no TTFT or throughput result and no terminal
+V17 witness. The valid 120.002145-second profile attributes 84.2735% of
+aggregate kernel time to Gate+Up plus Down and 87.3325% to all projections.
+It closes `AC-PREFILL-SM87-BULK-DATAFLOW-v2` as performance-rejected while
+retaining it default-off, accuracy-unqualified, and non-production. V10 remains
+the control; the active successor is `AC-PREFILL-SM87-MACROFEED-v3`.
+
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in
 [`qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json`](qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json).

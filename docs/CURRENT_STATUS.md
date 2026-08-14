@@ -65,6 +65,21 @@ positive direction against the incumbent, so that skeleton is closed and
 remains default-off and accuracy-unqualified. See the
 [`v15` rejection record](metadata/qwen36-27b-prefill-p40k-vllm-marlin-parity-rejection-2026-08-11.json).
 
+The complete `AC-PREFILL-SM87-BULK-DATAFLOW-v2` route has now also reached
+the real cold/no-cache P40000 OpenAI API boundary. The EvalScope 1.9.1 request
+received zero bytes and timed out after 680.73 seconds with 0/1 success, so it
+has no TTFT, prompt-throughput, or generated-output result. The server drained
+the cancelled private transaction without a CUDA or dependency error. Its
+`retired_prefill_quanta=38`, `layer=37` line records host submission progress,
+not 38 GPU-completed layers and not a basis for extrapolated throughput. One
+subsequent 120.002145-second bounded NSys request window attributes 84.2735%
+of aggregate kernel time to the whole-role Gate+Up and Down kernels and
+87.3325% to all projection kernels. V2 is therefore performance-rejected,
+default-off, accuracy-unqualified, and non-production; no P60/P130,
+qualification, repetition, or local V2 parameter scan follows. The incumbent
+above remains unchanged. Exact negative evidence is frozen in the
+[`Bulk V2 P40 rejection record`](metadata/qwen36-27b-sm87-bulk-v2-p40-rejection-2026-08-14.json).
+
 The incumbent is still 10.95x below the owner-established 4.3K tok/s useful
 vLLM starting line. Pure Prefill alone consumes 50.92x the complete two-second
 TTFT budget, while the measured TTFT is 50.94x the target. These are active
@@ -400,9 +415,9 @@ oracle, final resources, byte formulas, authority limits, and topology decision
 are frozen in the
 [`NVFP4 exact-control closure`](metadata/qwen36-27b-sm87-bulk-v2-nvfp4-exact-control-closure-2026-08-14.json).
 
-The three role-specific whole-P40000 projection successors are now present as
-default-off CUDA admissions, but they are not connected to a real generation
-or API route. Gate+Up uses one 32-CTA cooperative launch with an
+The three role-specific whole-P40000 projection constituents are present as
+default-off CUDA admissions and were later connected to the rejected V2 real
+generation/API route. Gate+Up uses one 32-CTA cooperative launch with an
 M64/N64/K64, 4M-by-8N schedule; it shares each BF16 A stage while preserving
 independent Gate and Up packed operands, scales, FP32 accumulations, BF16-RNE
 publications, and the SiLU-times-Up boundary. K-heavy Down uses a separate
@@ -413,8 +428,9 @@ Attention-output outer roles, one whole-role launch each. All three use 32
 persistent CTAs, three `cp.async.cg` stages, two register-feed stages, full-K
 FP32 accumulation, and no split-K/global partial C.
 
-The current T0 resource observations are Gate+Up at 107 registers/thread and
-38,400 bytes dynamic shared memory, Down at 111 registers/thread and 52,224
+Their precomposition T0 resource observations are Gate+Up at 107
+registers/thread and 38,400 bytes dynamic shared memory, Down at 111
+registers/thread and 52,224
 bytes, and FP8 GDN-QKVZ/full-QKV/Attention-output at 90/93/89 registers and
 49,152 bytes. All recorded variants have zero stack, spill, and local bytes
 and a static two-CTA/SM capacity on the 16-SM target. Down additionally needs
@@ -426,7 +442,7 @@ cancellation, guards, and input/payload immutability; they are not a P40000
 execution, real-weight/activation qualification, or proof that the intended
 A/B service cohorts remain resident in L2.
 
-A whole-P40 v2 host contract now freezes the actual composition boundary:
+A whole-P40 v2 host contract froze the actual composition boundary:
 five streams, 12 reusable events, exact family-arena live phases, the separate
 1,280-byte device control plane, one mapped cancellation word, request-epoch
 progress, no request-time static CUDA queries, no whole 5.075-GB arena reset,
@@ -435,23 +451,48 @@ to 78,446,592 bytes of persistent GDN state/history; control state has a
 separate explicit reset. Attention preprocess/core, GDN state publication,
 embedding, final norm/LM-head/argmax/D2H, all 496 logical roles, 304 fused outer
 operations, and the complete 1.948-Pop projection ledger are part of the
-terminal receipt. Its ABI-major 3 terminal contract replaces the segmented
+terminal receipt. Its ABI-major 3 projection contract replaces the segmented
 projection counters with one versioned successor receipt: exactly 128 FP8
 whole-role launches, 128 NVFP4 whole-role launches, and 48 BF16 A/B launches
 cover the same 496 logical roles and 304 fused outer operations. A receipt
 containing any of the old 5,120 FP8 or 2,560 NVFP4 exact-control launches
 fails closed; the controls remain oracle-only.
 
-The independent default-off `RequestState` lifecycle now owns exactly one
+The independent default-off `RequestState` lifecycle owns exactly one
 5,075,652,608-byte device data-plane allocation, borrows the v2 owner's five
 streams, keeps the 1,280-byte device control plane externally owned, and owns
 only a private eight-byte pinned `{token, nonfinite}` handoff. Request rearm
 clears 78,446,592 bytes of persistent GDN state/history rather than the whole
 arena, and the only D2H seam has a fixed internal source and private
-destination. Its host lifecycle tests attest allocation, ownership, reset,
-failure, cancellation, and no-hot-static-query contracts only. The composite
-owner/executor, final GDN state/history publication, real API route, complete
-P40000 numerical result, and performance selection remain open.
+destination. The composite owner/executor, final GDN state/history
+publication, final norm, LM-head, argmax, and fixed D2H handoff are now bound
+to the distinct `sm87-bulk-v2-p40` route and a success-only ABI-major 4/V17
+terminal receipt. No terminal receipt was emitted because the real P40 request
+did not complete.
+
+The bounded causal profile contains 15,080 kernel instances and
+147.337288416 seconds of aggregate GPU-kernel time inside a 120.002145-second
+client window; the sum may exceed wall time because streams overlap. Gate+Up
+accounts for 86.781391584 seconds (58.8998%), Down 37.384968352 seconds
+(25.3737%), Attention 11.114187328 seconds (7.5434%), FP8 projections
+4.507008224 seconds (3.0590%), the four GDN families 6.833257472 seconds
+(4.6378%), and all other kernels 0.716475456 seconds. CUDA API attribution
+records 16,760 `cudaLaunchKernel` calls with 150.840949824 seconds of
+aggregate API duration and a 39.174362368-second maximum; small GDN
+prepare/cancellation launches block behind already queued work. This evidence
+answers the single predeclared causal question: collapsing a role into a
+32-CTA cooperative whole-prompt launch reduced nominal launch boundaries but
+did not create a competitive feed. It does not prove an L2 hit rate or grant
+NCU, numerical, or production authority.
+
+The active successor is now `AC-PREFILL-SM87-MACROFEED-v3`. It preserves the
+v10 API/control and FlashInfer Attention substrate while replacing the V2
+projection feed with role-specific, non-cooperative macro GEMMs at an
+M128/N256/K64-class starting geometry, and replacing the 30,000-chunk GDN
+submission pattern with a layer-persistent or large-macrochunk exact graph
+whose target is O(10) kernels per GDN layer. The complete route must publish
+physical full-model launch receipts and return to P40 first; these are frozen
+design requirements, not implemented performance claims.
 
 ## 2. Current capability matrix
 
@@ -464,8 +505,9 @@ P40000 numerical result, and performance selection remain open.
 | Final product API | Designed | No installed production server/profile or release attestation exists |
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
 | Target-length Prefill | P40 development route exercised | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
-| SM87 whole-system AOT Prefill candidate | Default-off v1 is executable through the real P40 API but rejected as a performance composition after a zero-byte 840.000399-second failed smoke; diagnostic per-layer progress and bounded cancellation are now implemented, with no production or timing authority | Replace serial v1 ownership with the complete bulk-dataflow v2 successor, preserve bounded cancellation without diagnostic host serialization, then require a successful clean-host real-P40 API return before EvalScope or qualification |
-| SM87 bulk-dataflow v2 Prefill successor | Whole-P40000 Gate+Up, Down, and FP8 CUDA constituents, an ABI-3 projection receipt, and the exact request data owner exist only behind default-off test admissions; current evidence is T0 resources plus reduced-domain synthetic correctness/host contracts | Bind unforgeable startup capabilities in one composite executor, execute the complete exact model/state path, expose a distinct default-off API route, then let the clean-host real-P40 API direction gate decide value |
+| SM87 whole-system AOT Prefill v1 | Default-off real-P40 API composition; performance-rejected after a zero-byte 840.000399-second timeout | Retain only as correctness/diagnostic control; it is not an active performance candidate |
+| SM87 bulk-dataflow v2 Prefill | Complete default-off real-P40 API route; performance-rejected after a zero-byte 680.73-second EvalScope timeout and one bounded causal profile; accuracy remains unqualified | Retain exact constituents and evidence only; no V2 tuning, P60/P130, qualification, or production promotion |
+| SM87 MacroFeed v3 Prefill | Architecture frozen, not yet implemented: v10 API/control/FlashInfer substrate, role-specific non-cooperative macro projections, and layer-persistent/large-macrochunk exact GDN | Implement one complete receipt-authenticated route and return directly to the clean-host real-P40 API gate |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
@@ -547,6 +589,22 @@ These four roles account for about 92.37% of the request, and the current P40
 path is kernel-dominated. Architecture selection, composition scope, and the
 real-API return point are owned only by [`ROADMAP.md`](ROADMAP.md).
 
+The rejected V2 profile is a different, censored request window and must not
+be numerically merged with the completed v10 request above:
+
+| V2 family | Instances | Aggregate kernel time | Profile share |
+| --- | ---: | ---: | ---: |
+| Whole-role NVFP4 Gate+Up | 8 | 86.781391584 s | 58.8998% |
+| Whole-role NVFP4 Down | 7 | 37.384968352 s | 25.3737% |
+| Attention | 8 | 11.114187328 s | 7.5434% |
+| FP8 projections | 16 | 4.507008224 s | 3.0590% |
+| GDN prepare/recurrence/epilogue/cancellation sample | 15,000 | 6.833257472 s | 4.6378% |
+| Other | 41 | 0.716475456 s | 0.4863% |
+
+Gate+Down is 84.2735% of the captured aggregate kernel time; Gate+Down+FP8 is
+87.3325%. These are attribution shares from overlapping streams, not elapsed
+TTFT shares and not a throughput measurement.
+
 ## 5. Retained and rejected Prefill code
 
 The following selected routes are the minimum set needed to interpret the
@@ -563,6 +621,7 @@ None below is a production path or an active parameter scan.
 | v13 AOT packed projection v1 | 247.814694 tok/s | Rejected |
 | v14 packed NVFP4 v2 | 311.300103 tok/s | Rejected |
 | v15 stock-Marlin parity reference | 392.705493 tok/s | Rejected; no positive direction |
+| Bulk-dataflow V2 | No valid result | Rejected after zero-byte 680.73-second timeout; one bounded causal profile only |
 
 Exact negative observations and route limitations are frozen in the
 [`shape-wide v3`](metadata/qwen36-27b-prefill-p40k-nvfp4-shape-wide-v3-rejection-2026-08-10.json),
@@ -627,8 +686,8 @@ Use the following language until this snapshot changes:
   development direction is 392.804397 pure prompt tok/s and is
   accuracy-unqualified.
 - **Not current:** production server, production-default 40K--130K support,
-  lossless Factorized-R1 Prefill, vLLM parity, or a fully qualified
-  10-token/s Decode release.
+  lossless Factorized-R1 Prefill, vLLM parity, a valid Bulk V2 Prefill timing,
+  or a fully qualified 10-token/s Decode release.
 - **Target:** the accuracy-preserving, non-MTP, OpenAI-compatible runner and
   performance region locked by the Constitution.
 

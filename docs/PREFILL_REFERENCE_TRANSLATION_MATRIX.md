@@ -17,9 +17,9 @@ q3x_document:
 
 This document is the bounded working record for
 `WP-PREFILL-REFERENCE-TRANSLATION-v1` under
-`AC-PREFILL-SM87-BULK-DATAFLOW-v2`. The predecessor
-`AC-PREFILL-SM87-AOT-SYSTEM-v1` is retained only as the closed diagnostic
-control described by Current Status. This document does not amend the product
+`AC-PREFILL-SM87-MACROFEED-v3`. The V1 and V2 predecessors are retained only
+as the closed diagnostic controls described by Current Status. This document
+does not amend the product
 target, stable SDD boundary, current implementation status, numerical
 contract, or production route. Those authorities remain with the
 Constitution, system and Prefill SDDs, Current Status, and numerical ledger.
@@ -35,7 +35,7 @@ stable system boundary returns to the SDD.
 | Field | Binding |
 | --- | --- |
 | Product symptom | Cold/no-cache, single-request 40K--60K and approximately 130K Prefill remains below the owner-set API target and useful vLLM starting line |
-| Parent candidate | `AC-PREFILL-SM87-BULK-DATAFLOW-v2` |
+| Parent candidate | `AC-PREFILL-SM87-MACROFEED-v3` |
 | Active package | `WP-PREFILL-REFERENCE-TRANSLATION-v1` |
 | Incumbent | The P40 development route identified by [Current Status](CURRENT_STATUS.md), not restated here |
 | Numerical boundary | [Prefill mathematical-equivalence ledger](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md) |
@@ -416,16 +416,30 @@ publication; Down retains its two BF16-RNE boundaries around residual add;
 FP8 retains the original raw E4M3 bytes and the distinct QKV/Z/O output
 partitions.
 
-Their present evidence stops at T0 compiler/resource observations and T1
-reduced-domain synthetic exactness. Gate+Up/Down/FP8 compile at respectively
-107/111 and 89--93 registers/thread, zero stack/spill/local bytes, and
-38,400/52,224/49,152 bytes of dynamic shared memory with a static two-CTA/SM
+Their precomposition evidence stopped at T0 compiler/resource observations
+and T1 reduced-domain synthetic exactness. Gate+Up/Down/FP8 compile at
+respectively 107/111 and 89--93 registers/thread, zero stack/spill/local
+bytes, and 38,400/52,224/49,152 bytes of dynamic shared memory with a static two-CTA/SM
 capacity; Down's exact symbol requires startup dynamic-shared opt-in. The
 oracles exercise M64 correctness cells, not the full P40000 dataflow. No NCU
 counter, real-payload timing, scheduler co-residency, DRAM reduction, or L2
-residency has been measured. The three same-kernel reduced-domain synthetic
-exact oracles pass, but the cohort mapping remains a falsifiable
-service-order hypothesis until a complete real-API composition is positive.
+residency had been measured. The three same-kernel reduced-domain synthetic
+exact oracles pass, but that evidence did not validate the cohort mapping.
+
+The complete V2 composition has now falsified the service-order hypothesis at
+the product boundary. Its cold/no-cache EvalScope 1.9.1 P40000-plus-one request
+received zero bytes and timed out after 680.73 seconds with 0/1 success. It
+therefore has no TTFT or throughput result. The server cancellation line's
+layer 37 / quantum 38 values are host submission progress rather than
+GPU-completed-layer timing. The only permitted causal NSys follow-up captured
+120.002145 seconds of the same real route and 147.337288416 seconds of
+overlapped aggregate kernel time: Gate+Up is 58.8998%, Down 25.3737%,
+Attention 7.5434%, FP8 3.0590%, the four GDN families 4.6378%, and other work
+0.4863%. Gate+Down is 84.2735%; all projections are 87.3325%. This closes V2
+as a performance architecture without claiming a cache-hit rate, completed
+generation, accuracy, or production authority. Exact evidence is frozen in
+the
+[`Bulk V2 P40 rejection record`](metadata/qwen36-27b-sm87-bulk-v2-p40-rejection-2026-08-14.json).
 
 The canonical system contract contains 39 typed resource edges and 13 typed
 event edges. Gate and Up are paired inside one CTA while retaining independent
@@ -456,25 +470,40 @@ yet. The DAG permits GDN
 QKVZ and A/B to overlap after input normalization, but stream assignment,
 simultaneous resource fit, and any performance benefit remain unqualified.
 
-The composition contract has consequently advanced to ABI-major 3 without
-claiming execution. Its projection-successor manifest keeps the 496 logical
+The precomposition projection contract advanced to ABI-major 3. Its
+projection-successor manifest keeps the 496 logical
 checkpoint roles and 304 fused outer operations distinct from physical work:
 48 GDN-QKVZ, 16 full-QKV, and 64 Attention-output launches form the 128 FP8
 whole-role receipts; 64 Gate+Up and 64 Down launches form the 128 NVFP4
 receipts; 48 BF16 A/B launches complete the projection ledger. The old 5,120
 FP8 and 2,560 NVFP4 control launch counts must both be zero in a complete v2
 receipt. Caller-filled receipts are terminal observations, not launch
-capabilities.
+capabilities. The completed executor later binds those fields into a
+success-only ABI-major 4 `target-prefill-witness-v17`; the timed-out request
+emitted no V17 terminal receipt.
 
 The separate v2 `RequestState` now realizes the data-plane lifetime side of
 this host contract: one exact 5,075,652,608-byte device allocation, only
 78,446,592 cold-reset bytes for GDN persistent state/history, the owner's five
 borrowed streams, an externally owned 1,280-byte device control plane, and a
 private eight-byte pinned greedy handoff. Its fixed D2H source prevents an
-executor from redirecting the handoff. This is a host-tested ownership and
-lifecycle boundary only; the private startup capability that binds every
-constituent, the executable natural-layer chain, terminal state publication,
-and default-off API route remain to be composed.
+executor from redirecting the handoff. The private startup capability,
+executable natural-layer chain, terminal state publication, and distinct
+default-off `sm87-bulk-v2-p40` route are now composed. They remain development
+infrastructure only because the request did not complete and the architecture
+is performance-rejected.
+
+The selected translation successor is
+`AC-PREFILL-SM87-MACROFEED-v3`. It preserves the completed v10 API/control and
+FlashInfer Attention substrate. Projection changes to role-specific,
+non-cooperative macro GEMMs beginning at an M128/N256/K64-class CTA geometry;
+Gate+Up, K-heavy Down, and FP8 retain separate feeds. Exact GDN retains the 48
+value-head ownership and BF16 per-token recurrence/publication semantics, but
+moves from 30,000 C64 producer/recurrence/epilogue submissions to a
+layer-persistent or large-macrochunk graph targeting O(10) kernels per GDN
+layer. A V3 receipt must report physical launches actually executed across the
+full model. V3 returns to P40 first; none of these requirements is an
+implemented performance claim.
 
 The build admission for the descriptor remains default-off and test-only. A
 separate default-off admission contains a real-byte host transformation and
@@ -774,7 +803,7 @@ pretending that the invalid run is a reference score:
 
 | Comparison surface | Current observable difference | Causal interpretation and next discriminator |
 | --- | --- | --- |
-| Request geometry | The matched audit closes vLLM's batch-one/no-cache P40 as one scheduler work unit; Q3X v10 executes five M8000 fill panels and five M8000 drain panels around each whole-P40 core | Scheduler grain and kernel grain remain distinct: pinned Marlin internally splits every relevant P40 outer call into 40 row chunks. The v2 candidate removes Q3X panel-major traversal only as part of the complete role-specific feed, not because one outer call is assumed to be one kernel. |
+| Request geometry | The matched audit closes vLLM's batch-one/no-cache P40 as one scheduler work unit; Q3X v10 executes five M8000 fill panels and five M8000 drain panels around each whole-P40 core | Scheduler grain and kernel grain remain distinct: pinned Marlin internally splits every relevant P40 outer call into 40 row chunks. V2 proved that replacing those boundaries with a 32-CTA cooperative monolith is not sufficient; V3 instead composes role-specific non-cooperative macro feeds. |
 | Projection route | vLLM logged Marlin FP8 and source-pinned ModelOpt NVFP4 Marlin; Q3X spends about 79% of request time in Gate/Up, Down, and FP8 projection families | The matched ledger finds 128 fused outer calls but source-derives 5,120 Marlin kernels per quantized family, versus Q3X v10's 1,040 FP8 and 128 NVFP4 receipt counts. Launch count is not the gap; packed layout, scale partitions, CTA work, decode/MMA utilization, and useful data residence remain the discriminators. Same-shape NCU/NSys follows a real-API direction. |
 | Attention route | Both observed paths name FlashInfer, while Q3X still spends 13.35% in whole-prompt Attention | Backend selection alone cannot explain parity. Preprocess layout, Q/K/V publication, cache format, selected tactic, and request-shape specialization must be compared on the joined request interval. |
 | GDN route | vLLM selected Triton/FLA; Q3X retains its own exact per-token-BF16 recurrence path | This is a genuine architecture difference, but FLA's algebra cannot be assumed numerically equivalent. The native layer-long fused candidate must preserve Q3X's exact recurrence boundary and prove accuracy before performance promotion. |

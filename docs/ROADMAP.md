@@ -171,9 +171,39 @@ serialization rather than an admissible local tuning gap. The v1 chain is now
 a default-off correctness/diagnostic control and cannot receive an unchanged
 rerun or parameter scan.
 
-The active successor is **`AC-PREFILL-SM87-BULK-DATAFLOW-v2`**. It is one
-complete Prefill composition, not a projection-first sequence of independently
-selected kernels. Its P40 allocation is:
+`AC-PREFILL-SM87-BULK-DATAFLOW-v2` subsequently reached the same real P40 API
+boundary and is also closed. EvalScope 1.9.1 received zero bytes and recorded
+0/1 success after its 680.73-second timeout, so V2 has no TTFT or throughput
+result. The cancellation line's layer 37 / quantum 38 values are host
+submission progress, not completed-layer timing. The one permitted bounded
+causal profile then captured a valid 120.002145-second request window:
+Gate+Up plus Down account for 84.2735% of aggregate kernel time, all
+projections account for 87.3325%, and 16,760 `cudaLaunchKernel` calls contain
+long host-blocking intervals behind queued work. The profile selects a new
+dataflow; it does not authorize V2 tile, stage, cache, or launch scanning. V2
+remains a default-off, accuracy-unqualified, non-production exact/diagnostic
+control. It receives no repetition, P60/P130, NCU tuning campaign, or
+production promotion. Exact API and profile evidence is frozen in the
+[`Bulk V2 P40 rejection record`](metadata/qwen36-27b-sm87-bulk-v2-p40-rejection-2026-08-14.json).
+
+The active successor is **`AC-PREFILL-SM87-MACROFEED-v3`**. It is one complete
+Prefill composition, not a projection-first sequence of independently
+selected kernels. It retains the v10 real-API transaction/control and
+FlashInfer Attention substrate, then changes the two profile-proven structural
+failures together:
+
+- role-specific non-cooperative macro GEMMs begin from an
+  M128/N256/K64-class CTA geometry rather than the V2 32-CTA cooperative
+  small-cell monolith;
+- Gate+Up, K-heavy Down, and FP8 keep separate shape-specific feeds and
+  physical receipts;
+- exact GDN becomes layer-persistent or uses large macrochunks so each GDN
+  layer targets O(10) physical kernels rather than 625 three-kernel C64 cells
+  plus cancellation samples; and
+- the full-model receipt records real physical launches produced by the
+  executable route, not nominal outer calls or a caller-filled forecast.
+
+Its P40 allocation remains:
 
 - no more than 5.0 s for all NVFP4 and FP8 projections;
 - no more than 1.8 s for exact full Attention;
@@ -182,9 +212,9 @@ selected kernels. Its P40 allocation is:
 - no more than 9.302326 s total, equivalent to the 4,300 prompt tok/s starting
   line on exactly 40,000 consumed prompt tokens.
 
-The v1 diagnostic control now exposes host-visible per-layer progress and
+The v1 diagnostic control exposes host-visible per-layer progress and
 propagates client cancellation through bounded device-safe points. Its 64
-host waits are diagnostic serialization, not the v2 schedule. The complete v2
+host waits are diagnostic serialization, not the V3 schedule. The complete V3
 must retain bounded progress/cancellation through device-ordered epochs and
 must not restore an unobservable whole-request execution interval.
 
@@ -199,9 +229,9 @@ fallback, or request-time tactic discovery.
 Two candidate classes are now closed before implementation. An impossible
 one-pass dense INT4 mapping of the listed P40 projection work still exceeds
 the 5.0-second projection allocation, so exact dense integer limb/bit-plane
-re-expression is not a v2 CUDA path. A real-checkpoint early/middle/terminal
-screen also found zero repeated packed E2M1 K16 keys in more than fifty
-million Gate/Up/Down role-block instances, including the optimistic
+re-expression is not an active successor. A real-checkpoint
+early/middle/terminal screen also found zero repeated packed E2M1 K16 keys in
+more than fifty million Gate/Up/Down role-block instances, including the optimistic
 scale-ignored form, so dictionary and identical/proportional-code cross-role
 reuse are not successors. These results preserve rather than lower the 4.3K
 target. They made matched route and executed-work reconciliation the P0 for
@@ -218,7 +248,7 @@ therefore not the missing architecture. The exact closure and remaining route
 unknowns are frozen in the
 [matched-work evidence](metadata/qwen36-27b-prefill-p40-matched-work-ledger-2026-08-14.json).
 Its default-off executable checker binds every exact role/shape/scale
-partition to outer-operation and physical-launch identities, so subsequent v2
+partition to outer-operation and physical-launch identities, so subsequent V3
 API receipts can fail closed on missing or substituted work instead of
 reconstructing the ledger after timing.
 
@@ -272,12 +302,15 @@ implementation is selected:
 - **`WP-P40-EXACT-GDN-v1`:** one prompt-span recurrent work graph with
   chunk-local parallel work, only the mathematical boundary-state dependency
   serialized, exact BF16 state/publication semantics, and panel-wide BF16 A/B
-  tactics. The selected v2 topology uses 48 independent value-head owners and
-  C64 preparation/recurrence/consumer stages with two bounded slots. Every
-  token still publishes BF16 state for the next token and uses its pre-round
-  update for same-token output; WY/KKT/SSD and FP32 authoritative chunk state
-  remain forbidden. FLA and Mamba selective-scan supply organization
-  mechanisms only; the provisional GDN plus BF16 A/B allocation is 1.5 s.
+  tactics. V2 proved the 48 independent value-head ownership and exact C64
+  arithmetic, but its 30,000 prepare/recurrence/epilogue chunks plus
+  cancellation samples are rejected as a production submission topology. V3
+  retains every token's BF16 state publication and pre-round same-token output
+  use while moving to a layer-persistent or large-macrochunk graph targeting
+  O(10) physical kernels per GDN layer. WY/KKT/SSD and FP32 authoritative
+  chunk state remain forbidden. FLA and Mamba selective-scan supply
+  organization mechanisms only; the provisional GDN plus BF16 A/B allocation
+  is 1.5 s.
 - **Handoff and composition plan:** one final exact Prefill state publication,
   bounded arena/control-state lifetimes, no illegal aliasing, and explicit
   overlap only where the dependency graph permits it.
@@ -295,35 +328,26 @@ Execution order:
    model roles, arithmetic backend, cache state, scheduler token accounting,
    liveness, outer operations, and physical launches; no unchanged reference
    timing run follows;
-2. retain the frozen and bitwise-oracled Q128 persistent-L2-cohort Attention,
-   the first 128-role/5,120-launch FP8 numerical control, and the exact
-   48-layer GDN double-slot/three-stream request session;
-3. retain the closed M64/M1024 joint NVFP4 same-ELF oracle only as a
-   default-off exact control. Its four serial M256 epochs do not provide
-   cross-group residency, and its traffic floor fails the whole-P40
-   projection allocation before timing;
-4. retain the implemented, default-off whole-P40000 Gate+Up, K-heavy Down,
-   and FP8 QKVZ/QKV/O constituents as the three shape-specific projection
-   successors. Their current gates are T0 compiler/resources and
-   reduced-domain synthetic exact oracles only; no L2 residency, real-P40,
-   API, performance, or production claim follows. Each quantized outer role
-   has one whole-M launch boundary and a 32-CTA SM87 scheduler. The former
-   5,120 FP8 and 2,560 NVFP4 exact-control launches remain oracle-only and
-   cannot satisfy the successor receipt;
-5. retain the frozen whole-P40 five-stream/12-event arena, control-plane,
-   exact 5,075,652,608-byte `RequestState`, and ABI-major 3 projection receipt.
-   Complete the private startup owner and unforgeable prevalidated
-   constituent access capabilities; then integrate final GDN state/history
-   publication, final norm, LM-head, argmax, fixed-source D2H, and the
-   terminal receipt in one v2 executor;
-6. expose that executor only through a distinct default-off OpenAI API route,
-   with no production selector or release claim;
-7. return immediately to one clean-host real P40 API direction witness after
-   `tegrastats`/process/device-handle preflight;
-8. use a bounded profile only to answer a predeclared causal question that can
-   select a materially different complete dataflow; and
-9. qualify a positive composition or close and redesign the architecture
-   version. Do not convert a negative result into a local parameter scan.
+2. retain v10 as the completed API/control/FlashInfer Attention performance
+   control and retain V2 only for exact constituent and cancellation oracles;
+3. freeze the V2 P40 timeout and its one bounded NSys attribution as the final
+   evidence for that version. Do not run V2 again or tune its cooperative
+   32-CTA small-cell feed;
+4. implement three V3 role-specific, non-cooperative macro projection feeds.
+   The starting class is M128/N256/K64, but Gate+Up, K-heavy Down, and FP8 must
+   own distinct shapes, schedules, and authenticated payload/scale semantics;
+5. implement the V3 exact-GDN layer-persistent or large-macrochunk graph with
+   48 value-head ownership, BF16 per-token state/publication semantics, and an
+   O(10)-kernels-per-layer submission target;
+6. compose projections and GDN with v10 Attention/control in natural model
+   order, preserve bounded cancellation, and issue a physical full-model
+   launch receipt from the actual executor;
+7. expose only that complete composition through a distinct default-off
+   OpenAI API route, with no production selector or release claim;
+8. return immediately to one clean-host real P40 API direction witness after
+   `tegrastats`/process/device-handle preflight; and
+9. qualify a positive composition or close and redesign V3. Do not convert a
+   negative result into a local parameter scan.
 
 ### Promotion and stop gates
 

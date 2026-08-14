@@ -1,0 +1,267 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-sm87-bulk-v2-p40-rejection-2026-08-14",
+  "measured_at": "2026-08-14T13:11:12+08:00",
+  "profiled_at": "2026-08-14T14:06:28+08:00",
+  "recorded_at": "2026-08-14T14:27:27+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "performance_rejected_default_off_accuracy_unqualified_nonproduction",
+  "decision_unit": "complete_real_api_bulk_v2_p40000_plus_one_and_one_bounded_causal_profile",
+  "architecture_candidate_id": "AC-PREFILL-SM87-BULK-DATAFLOW-v2",
+  "authority": {
+    "evidence_tier": "T4_NEGATIVE_TIMEOUT_PLUS_CAUSAL_PROFILE",
+    "real_model_api_route_reachability_authority": true,
+    "bounded_cancellation_authority": true,
+    "architecture_rejection_authority": true,
+    "kernel_family_attribution_authority": true,
+    "completed_request_authority": false,
+    "ttft_authority": false,
+    "throughput_authority": false,
+    "generated_output_authority": false,
+    "complete_v17_receipt_authority": false,
+    "numerical_qualification_authority": false,
+    "ncu_or_cache_counter_authority": false,
+    "release_authority": false,
+    "production_authority": false
+  },
+  "policy": {
+    "real_model_production_api_first": true,
+    "single_bounded_causal_profile_after_negative_composition": true,
+    "default_route_changed": false,
+    "production_eligible": false,
+    "numerical_contract_qualified": false,
+    "mtp_used": false,
+    "cublaslt_used": false,
+    "request_time_jit_repack_or_autotune_used": false,
+    "prefix_cache_used": false,
+    "synthetic_matrix_used_for_performance_decision": false,
+    "v2_parameter_scan_authorized": false
+  },
+  "source": {
+    "branch": "codex/prefill-target-path",
+    "measurement_commit": "3ed684e7c4afce29e9e28c94737165bc7cf7ef9d",
+    "measurement_tree_clean": true,
+    "binary": {
+      "path": ".q3x-work/validation/v2-executor-full-admission/qwen3x-eval-server",
+      "bytes": 10548032,
+      "sha256": "36ae53eb3b43346e1218994beafc3110cd4bbf0f2255fbf949d80d3f7cfe31cc",
+      "elf_build_id": "7904f50007e03642a6ad2ffcbade52b21f0bc948",
+      "build_type": "Release",
+      "build_testing": true,
+      "cuda_architecture": "sm_87",
+      "bulk_v2_full_admission": true
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "local_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "access": "read_only"
+  },
+  "workload": {
+    "framework": "EvalScope",
+    "framework_version": "1.9.1",
+    "api": "openai",
+    "endpoint": "http://127.0.0.1:18094/v1/completions",
+    "corpus_path": ".q3x-work/evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl",
+    "corpus_sha256": "8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844",
+    "prompt_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "prompt_kind": "flat_token_ids",
+    "requested_prompt_tokens": 40000,
+    "consumed_prompt_tokens_proven": false,
+    "requested_output_tokens": 1,
+    "parallel": 1,
+    "warmup_requests": 0,
+    "temperature": 0.0,
+    "seed": 42,
+    "stream": true,
+    "total_timeout_seconds": 680,
+    "max_prompt_length": 131072
+  },
+  "server_configuration": {
+    "complete_engine_route": "sm87-bulk-v2-p40",
+    "request_memory_profile": "sm87-bulk-v2-p40-request-owner",
+    "deployment_plan_id": "q3x.sm87.bulk-dataflow-v2.exact-p40000-one-token.direction-witness.v1",
+    "terminal_witness": "success_only_target_prefill_witness_v17",
+    "maximum_sequence_length": 40001,
+    "maximum_output_tokens": 1,
+    "requested_prefill_chunk_size": 512,
+    "projection_backend": "sm87",
+    "default_route": false,
+    "accuracy_qualified": false,
+    "production_dispatch_eligible": false
+  },
+  "real_api_result": {
+    "total_requests": 1,
+    "successful_requests": 0,
+    "failed_requests": 1,
+    "client_observed_wait_seconds": 680.73,
+    "response_bytes": 0,
+    "generated_tokens": 0,
+    "evalscope_ttft_ms": null,
+    "evalscope_request_latency_ms": null,
+    "evalscope_prompt_throughput_tok_s": null,
+    "server_pure_prefill_ms": null,
+    "server_pure_prefill_tok_s": null,
+    "failure": "aiohttp TimeoutError before any response bytes",
+    "evalscope_negative_sentinels_are_measurements": false,
+    "terminal_v17_witness_emitted": false
+  },
+  "server_cancellation": {
+    "log_line": "evaluation request cmpl-q3x-1 cancelled at bounded Prefill safe point code=cancelled retired_prefill_quanta=38 layer=37 stage=bulk_v2_p40_execute operation= dependency_error=0 cuda_error=0",
+    "stage": "bulk_v2_p40_execute",
+    "retired_prefill_quanta": 38,
+    "reported_layer": 37,
+    "progress_semantics": "host_submission_progress_not_gpu_completed_layers",
+    "dependency_error": 0,
+    "cuda_error": 0,
+    "private_transaction_drained": true,
+    "partial_state_committed": false
+  },
+  "bounded_nsys": {
+    "valid_capture": true,
+    "request_window_seconds": 120.002145,
+    "client_timeout_seconds": 120,
+    "server_safe_cancellation": true,
+    "submitted_layer_progress": "8/9",
+    "cuda_or_dependency_error": false,
+    "kernel_instances": 15080,
+    "aggregate_gpu_kernel_seconds": 147.337288416,
+    "aggregate_time_can_exceed_wall_due_to_overlap": true,
+    "families": [
+      {
+        "role": "nvfp4_gate_up_whole_role",
+        "instances": 8,
+        "seconds": 86.781391584,
+        "percent": 58.8998
+      },
+      {
+        "role": "nvfp4_down_whole_role",
+        "instances": 7,
+        "seconds": 37.384968352,
+        "percent": 25.3737
+      },
+      {
+        "role": "attention",
+        "instances": 8,
+        "seconds": 11.114187328,
+        "percent": 7.5434
+      },
+      {
+        "role": "fp8_projections",
+        "instances": 16,
+        "seconds": 4.507008224,
+        "percent": 3.0590
+      },
+      {
+        "role": "gdn_prepare_recurrence_epilogue_cancellation_sample",
+        "instances": 15000,
+        "seconds": 6.833257472,
+        "percent": 4.6378
+      },
+      {
+        "role": "other",
+        "instances": 41,
+        "seconds": 0.716475456,
+        "percent": 0.4863
+      }
+    ],
+    "gate_plus_down_percent": 84.2735,
+    "all_projection_percent": 87.3325,
+    "cuda_api": {
+      "cuda_launch_kernel_calls": 16760,
+      "cuda_launch_kernel_aggregate_seconds": 150.840949824,
+      "cuda_launch_kernel_max_seconds": 39.174362368,
+      "interpretation": "Small GDN prepare and cancellation launches can block behind already queued work; aggregate API duration is not host wall time."
+    },
+    "discarded_nvtx_attempt": {
+      "kernel_instances": 0,
+      "reason": "The direct Bulk V2 route bypasses the reference_engine_control NVTX range.",
+      "profile_authority": false
+    },
+    "causal_conclusion": "The cooperative 32-CTA small-cell whole-role projection feed is not competitive; fewer outer launches did not produce a high-throughput macro feed. Exact L2/DRAM behavior remains unmeasured."
+  },
+  "comparison_control": {
+    "control": "qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10",
+    "server_pure_prefill_ms": 101831.853876,
+    "server_pure_prefill_tok_s": 392.804397,
+    "evalscope_ttft_ms": 101870.53,
+    "control_unchanged": true,
+    "bulk_v2_relative_speedup": null,
+    "reason_no_ratio": "Bulk V2 did not complete and has no timing result."
+  },
+  "decision": {
+    "result": "REJECT_AC_PREFILL_SM87_BULK_DATAFLOW_V2",
+    "reason": "The complete real API route failed to return within 680 seconds, and its single bounded causal profile assigns 84.2735% of aggregate kernel time to Gate+Up plus Down under the cooperative small-cell feed.",
+    "retain_v10_as_control": true,
+    "retain_v2_default_off_diagnostic_only": true,
+    "v2_local_tuning": false,
+    "v2_repetition": false,
+    "v2_ncu_campaign": false,
+    "full_accuracy_harness_run": false,
+    "p60_run": false,
+    "p130_run": false,
+    "successor_architecture_candidate_id": "AC-PREFILL-SM87-MACROFEED-v3",
+    "successor_freeze": {
+      "base_substrate": "v10 API/control plus FlashInfer Attention",
+      "projection": "role-specific non-cooperative macro GEMM beginning at an M128N256K64-class CTA geometry",
+      "gdn": "layer-persistent or large-macrochunk exact graph targeting O(10) kernels per GDN layer while preserving per-token BF16 state/publication semantics",
+      "receipt": "real physical full-model launch counts from the executable route",
+      "first_return_point": "clean-host cold/no-cache real P40 OpenAI API witness"
+    }
+  },
+  "clean_host_preflight": {
+    "authority": "tegrastats plus CPU/process and GPU-device-handle inspection",
+    "nvidia_smi_used_for_idle_decision": false,
+    "real_api_server_start": {
+      "decision": "pass",
+      "sha256": "bc6403f6da4d41116251b4c6aedea5b75d219f547a4e8870e8089aeb4e980cf3"
+    },
+    "real_api_request": {
+      "decision": "pass",
+      "sha256": "c0017d9049a31333550cbf4214534ed42c89b28f72e7bc8f5a05270d9d61ae5a"
+    },
+    "real_api_post_run": {
+      "decision": "pass",
+      "sha256": "ea9ff1c923f302f8924220f2ca66beedbeedee4e1d4da3f21b739ccde78c9cc0"
+    },
+    "profile_server_start": {
+      "decision": "pass",
+      "sha256": "ea9281139cde1bee1e200b71e181b3dfe41d8bcc809512291122f4301e9259bd"
+    },
+    "profile_request": {
+      "decision": "pass",
+      "sha256": "aeb2d0f158d04f5e59c89db184e6d79bb5d9086c99f609fa033beed2a42d17bb"
+    },
+    "profile_post_run": {
+      "decision": "pass",
+      "sha256": "032a9a59e7573ab7fc4d91a31dcc3ca035caf3267b735892606185b2e5790819"
+    }
+  },
+  "artifacts": {
+    "real_api_evidence_dir": ".q3x-work/evidence/prefill-target-path/bulk-v2-p40-r1",
+    "evalscope_dir": ".q3x-work/evalscope/results/p40-bulk-v2/bulk-v2-r1",
+    "profile_dir": ".q3x-work/profiles/p40-bulk-v2-causal-r1",
+    "server_log_sha256": "f4280058cd196f571e3c48bed87bd78c7561dcae955b773ff6eaae504b364a08",
+    "evalscope_client_log_sha256": "921e341841e3fddbd1d01db1935b5c148bab563431088bcd5f44bf0c903ef354",
+    "evalscope_args_sha256": "743b054add866e3caaf854f7517834ecd143742b290b95b2b7dfcb00907a80ae",
+    "evalscope_db_sha256": "e8b6ac6877ac60a9134e1aa14c580ac3f0c017b8fe3c19db3ab188320ffd4588",
+    "evalscope_summary_sha256": "841718d8e0bbf3a7677a449225ec9f2e576fefdfd4df216f3f97d269eb1af2c0",
+    "evalscope_percentile_sha256": "fb91f1e623d7b8547426396e2be0ee978a41b0e35aab9ef3db4089e7f1156a4d",
+    "evalscope_performance_summary_sha256": "7421ef5ad37b6269c9ec0fd68480245859612325f2107304ded2883e62b775ca",
+    "nsys_report_sha256": "2644d4ed59a0e107a863c603dd9a21d90d25a975ad82839b1b783bbf3c1f1faf",
+    "nsys_sqlite_sha256": "816ec78b1a9215cc3ae7dbb0f0f8d070ee278c1b155253263357cd4a5c6cde48",
+    "nsys_kernel_summary_sha256": "f05f23cc3d931f6e252fd5019ffaae811d09b16a58088d361e162c40f05e5da6",
+    "nsys_cuda_api_summary_sha256": "3686580eb4e2e77d72f24179c3e888c5608bb06adfcb16f6c9df8fe7dfa52af0",
+    "nsys_gpu_trace_sha256": "5c5fcb36f763e85aa76f7e4761099434b9f72b3713128bfd63b978de0b560dfb",
+    "nsys_cuda_api_trace_sha256": "f0de88f52ad8469800724e419880f078bf845014f4147f6190c6291ef7379226"
+  },
+  "honesty_notes": [
+    "The 680.73-second wait is a censored failure observation, not TTFT or pure Prefill latency.",
+    "No tokens-per-second value is derived from submitted-layer progress.",
+    "The valid NSys capture is causal attribution only; its overlapping aggregate kernel and CUDA API durations are not request wall time.",
+    "The empty automatic-NVTX attempt is not counted as a profile.",
+    "The request never emitted a complete V17 receipt, output token, or numerical result.",
+    "All generated artifacts remain inside the ignored repository .q3x-work tree; the checkpoint and user environments were read-only."
+  ]
+}

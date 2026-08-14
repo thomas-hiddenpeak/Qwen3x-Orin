@@ -919,6 +919,69 @@ off, accuracy-unqualified, and non-production. Exact hashes, preflights,
 counters, metrics, and cleanup facts are frozen in the
 [v15 rejection record](metadata/qwen36-27b-prefill-p40k-vllm-marlin-parity-rejection-2026-08-11.json).
 
+### Completed Bulk V2 P40 timeout rejection on the V17 route
+
+The distinct default-off `sm87-bulk-v2-p40` route reserves the append-only
+`target-prefill-witness-v17` identity. Version 17 is emitted only after the
+complete private transaction succeeds: all 40,000 prompt tokens are consumed,
+the 64-layer/48-GDN/16-Attention route and 496-role/304-outer-operation ledger
+complete, the ABI-major 4 receipt is exact, all streams drain, state commits,
+and the greedy handoff is observed. It also records actual whole-role FP8,
+NVFP4, BF16 A/B, Attention, and GDN physical work and attests zero fallback,
+MTP, cuBLASLt, or request-time JIT/repack/autotune. A route label, submitted
+layer count, or partial receipt cannot synthesize V17 completeness.
+
+The first real V2 selection request used EvalScope 1.9.1, the hash-frozen flat
+P40000 token-ID corpus, one greedy output token, concurrency one, no warmup,
+streaming OpenAI completions, and a 680-second total timeout after an accepted
+Jetson clean-host preflight. It received zero bytes and ended after 680.73
+seconds with 0/1 success and zero generated tokens. Consequently:
+
+- no V17 terminal witness exists;
+- no EvalScope TTFT, latency, prompt throughput, or output result exists;
+- the framework's `-1`/`-1000` placeholders are failure sentinels and must
+  never be reported as measurements; and
+- the server's cancellation observation at quantum 38 / layer 37 is host
+  submission progress, not GPU-completed work and not a throughput numerator.
+
+The server reached `bulk_v2_p40_execute`, then safely cancelled and drained
+with `dependency_error=0` and `cuda_error=0`. This proves route reachability
+and bounded cancellation only. It does not prove full prompt consumption,
+generation correctness, or complete execution. V10 therefore remains the
+P40 incumbent at 101,831.853876 ms / 392.804397 prompt tok/s and 101,870.53
+ms EvalScope TTFT.
+
+One bounded NSys capture then answered the predeclared causal question. The
+first automatic NVTX attempt captured no kernels because this direct route
+bypasses the `reference_engine_control` range; it is explicitly discarded and
+is not a profile. The valid follow-up covered 120.002145 seconds of the real
+P40 request before client cancellation, observed safe submitted-layer progress
+at layer 8/9, and retained 15,080 kernel instances with 147.337288416 seconds
+of aggregate kernel time. Aggregate time can exceed wall time because streams
+overlap.
+
+| Captured V2 family | Instances | Aggregate time | Share |
+| --- | ---: | ---: | ---: |
+| Whole-role Gate+Up | 8 | 86.781391584 s | 58.8998% |
+| Whole-role Down | 7 | 37.384968352 s | 25.3737% |
+| Attention | 8 | 11.114187328 s | 7.5434% |
+| FP8 projections | 16 | 4.507008224 s | 3.0590% |
+| Four GDN families | 15,000 | 6.833257472 s | 4.6378% |
+| Other | 41 | 0.716475456 s | 0.4863% |
+
+Gate+Down accounts for 84.2735% and all projections for 87.3325% of aggregate
+kernel time. CUDA API attribution records 16,760 `cudaLaunchKernel` calls,
+150.840949824 seconds of aggregate API duration, and a 39.174362368-second
+maximum. Small GDN prepare/cancellation launches block behind queued work.
+These observations reject the 32-CTA cooperative small-cell whole-role feed;
+they do not measure cache hit rate or authorize a V2 NCU/tile/stage scan.
+
+V2 is closed as performance-rejected, default-off, accuracy-unqualified, and
+non-production. There is no V2 repetition, P60/P130, numerical qualification,
+or local parameter scan. Exact protocol, hashes, profile attribution, and
+claim boundaries are frozen in the
+[`Bulk V2 P40 rejection record`](metadata/qwen36-27b-sm87-bulk-v2-p40-rejection-2026-08-14.json).
+
 The first WP-V2-C1-v3 direction reused the exact v10 host schedule and route
 counters through a binary-pinned, default-off overlay; the binary hash, not a
 new witness name, distinguishes its substituted shape-wide NVFP4 body. It
