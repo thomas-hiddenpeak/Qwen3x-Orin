@@ -10,6 +10,11 @@
 
 namespace q3x::runtime {
 
+// Defined by request_state.h. The V3 overlay binds the existing P40
+// whole-core profile without making this topology header include RequestState
+// or invent a new request owner.
+enum class RequestMemoryProfile : std::uint8_t;
+
 // AC-PREFILL-LAYERMAJOR-8K-v1 keeps the existing public C512 runner tile
 // contract separate from its internal operator-panel capacity. This header is
 // currently a pure-host, unbound topology contract: it contains no launcher,
@@ -148,6 +153,27 @@ inline constexpr std::size_t
     kLayerMajorPrefillVllmMarlinParityArtifactCount = 128U;
 inline constexpr std::size_t
     kLayerMajorPrefillVllmMarlinParityAuthenticatedSourceCount = 192U;
+// AC-PREFILL-SM87-MACROFEED-v3 is a complete-route overlay on the retained
+// v10 P40 control topology. These are physical full-request counts, not
+// logical role forecasts: one Gate+Up and one Down macro launch per layer,
+// plus nine exact large-macrochunk launches for each of the 48 GDN layers.
+inline constexpr std::size_t
+    kLayerMajorPrefillMacroFeedV3GateUpPhysicalLaunchesPerRequest = 64U;
+inline constexpr std::size_t
+    kLayerMajorPrefillMacroFeedV3DownPhysicalLaunchesPerRequest = 64U;
+inline constexpr std::size_t
+    kLayerMajorPrefillMacroFeedV3GdnLayerCount = 48U;
+inline constexpr std::size_t
+    kLayerMajorPrefillMacroFeedV3GdnPhysicalLaunchesPerLayer = 9U;
+inline constexpr std::size_t
+    kLayerMajorPrefillMacroFeedV3GdnPhysicalLaunchesPerRequest =
+        kLayerMajorPrefillMacroFeedV3GdnLayerCount *
+        kLayerMajorPrefillMacroFeedV3GdnPhysicalLaunchesPerLayer;
+inline constexpr std::size_t
+    kLayerMajorPrefillMacroFeedV3TrackedPhysicalLaunchesPerRequest =
+        kLayerMajorPrefillMacroFeedV3GateUpPhysicalLaunchesPerRequest +
+        kLayerMajorPrefillMacroFeedV3DownPhysicalLaunchesPerRequest +
+        kLayerMajorPrefillMacroFeedV3GdnPhysicalLaunchesPerRequest;
 inline constexpr std::uint32_t
     kLayerMajorPrefillVllmMarlinParityHiddenFeatures = 5'120U;
 inline constexpr std::uint32_t
@@ -241,6 +267,16 @@ static_assert(kLayerMajorPrefillVllmMarlinParityArtifactCount ==
               kLayerMajorPrefillPackedNvfp4V2ArtifactCount);
 static_assert(kLayerMajorPrefillVllmMarlinParityAuthenticatedSourceCount ==
               kLayerMajorPrefillPackedNvfp4V2AuthenticatedSourceCount);
+static_assert(kLayerMajorPrefillMacroFeedV3GateUpPhysicalLaunchesPerRequest ==
+              kLayerMajorPrefillLayerCount);
+static_assert(kLayerMajorPrefillMacroFeedV3DownPhysicalLaunchesPerRequest ==
+              kLayerMajorPrefillLayerCount);
+static_assert(kLayerMajorPrefillMacroFeedV3GdnLayerCount ==
+              kLayerMajorPrefillLinearLayerCount);
+static_assert(kLayerMajorPrefillMacroFeedV3GdnPhysicalLaunchesPerRequest ==
+              432U);
+static_assert(kLayerMajorPrefillMacroFeedV3TrackedPhysicalLaunchesPerRequest ==
+              560U);
 static_assert(kLayerMajorPrefillVllmMarlinParityMergedGateUpFeatures ==
               2U *
                   kLayerMajorPrefillVllmMarlinParityIntermediateFeatures);
@@ -353,6 +389,11 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
   // LegacyStripe M64 split tail under the canonical GateThenUp publication
   // contract. This is a sealed, default-off topology and never aliases v2.
   kNativePromptWideP40VllmMarlinParity,
+  // AC-PREFILL-SM87-MACROFEED-v3. This append-only development identity
+  // overlays role-specific non-cooperative macro projections and the exact
+  // large-macrochunk GDN graph on the retained v10 five-panel control,
+  // Attention, and request-memory substrate. It has no production selector.
+  kNativePromptWideP40MacroFeedV3,
 };
 
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_projection_tactic(
@@ -378,7 +419,9 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
          tactic == LayerMajorPrefillProjectionTactic::
                        kNativePromptWideP40PackedNvfp4V2 ||
          tactic == LayerMajorPrefillProjectionTactic::
-                       kNativePromptWideP40VllmMarlinParity;
+                       kNativePromptWideP40VllmMarlinParity ||
+         tactic == LayerMajorPrefillProjectionTactic::
+                       kNativePromptWideP40MacroFeedV3;
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -414,6 +457,9 @@ enum class LayerMajorPrefillProjectionTactic : std::uint8_t {
     case LayerMajorPrefillProjectionTactic::
         kNativePromptWideP40VllmMarlinParity:
       return "native-prompt-wide-p40-vllm-marlin-parity";
+    case LayerMajorPrefillProjectionTactic::
+        kNativePromptWideP40MacroFeedV3:
+      return "native-prompt-wide-p40-macrofeed-v3";
   }
   return "unknown";
 }
@@ -1244,6 +1290,7 @@ enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
   kPromptWideP40PackedProjection,
   kPromptWideP40PackedNvfp4V2,
   kPromptWideP40VllmMarlinParity,
+  kPromptWideP40MacroFeedV3,
 };
 
 [[nodiscard]] constexpr bool is_valid_layer_major_prefill_mlp_schedule_tactic(
@@ -1261,7 +1308,9 @@ enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
          tactic == LayerMajorPrefillMlpScheduleTactic::
                        kPromptWideP40PackedNvfp4V2 ||
          tactic == LayerMajorPrefillMlpScheduleTactic::
-                       kPromptWideP40VllmMarlinParity;
+                       kPromptWideP40VllmMarlinParity ||
+         tactic == LayerMajorPrefillMlpScheduleTactic::
+                       kPromptWideP40MacroFeedV3;
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -1281,6 +1330,8 @@ enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
       return "prompt-wide-p40-packed-nvfp4-v2";
     case LayerMajorPrefillMlpScheduleTactic::kPromptWideP40VllmMarlinParity:
       return "prompt-wide-p40-vllm-marlin-parity";
+    case LayerMajorPrefillMlpScheduleTactic::kPromptWideP40MacroFeedV3:
+      return "prompt-wide-p40-macrofeed-v3";
   }
   return "unknown";
 }
@@ -1327,6 +1378,12 @@ enum class LayerMajorPrefillMlpScheduleTactic : std::uint8_t {
 // Q3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION explicitly; no older P40
 // admission enables it by implication.
 [[nodiscard]] bool prompt_wide_p40_vllm_marlin_parity_prefill_plan_enabled()
+    noexcept;
+
+// Independent default-OFF host admission for the complete MacroFeed-v3 plan
+// overlay. Constituent CUDA T0/T1 slices do not enable this plan by
+// implication, and production builds must never expose it.
+[[nodiscard]] bool prompt_wide_p40_macrofeed_v3_prefill_plan_enabled()
     noexcept;
 
 enum class PrefillExecutionPlanError : std::uint8_t {
@@ -1404,6 +1461,37 @@ struct PrefillWholeCoreSchedulePlan {
   bool bf16_ab_prompt_wide_required = false;
   bool gdn_prompt_wide_required = false;
   bool flashinfer_whole_prompt_required = false;
+};
+
+// Default-off V3 overlay contract. The retained whole_core_schedule owns the
+// exact five M8000 control topology; this record seals only the changed
+// physical families and the development-route exclusions. The typed memory
+// binding must remain RequestMemoryProfile::kLayerMajorP40WholeCore, so V3
+// cannot acquire a V1/V2 private request owner by count coincidence.
+struct PrefillP40MacroFeedV3SchedulePlan {
+  bool enabled = false;
+  RequestMemoryProfile request_memory_profile =
+      static_cast<RequestMemoryProfile>(0xffU);
+  std::size_t gate_up_physical_launches_per_request = 0U;
+  std::size_t down_physical_launches_per_request = 0U;
+  std::size_t gdn_layer_count = 0U;
+  std::size_t gdn_physical_launches_per_layer = 0U;
+  std::size_t gdn_physical_launches_per_request = 0U;
+  std::size_t tracked_physical_launches_per_request = 0U;
+  bool v10_whole_core_topology_required = false;
+  bool v10_request_memory_profile_required = false;
+  bool role_specific_noncooperative_macro_projections_required = false;
+  bool exact_per_token_bf16_gdn_state_required = false;
+  bool full_model_physical_receipt_required = false;
+  bool production_accuracy_required = false;
+  bool approximate_numerics_forbidden = false;
+  bool fallback_forbidden = false;
+  bool mtp_forbidden = false;
+  bool cublaslt_forbidden = false;
+  bool request_time_jit_forbidden = false;
+  bool request_time_repack_forbidden = false;
+  bool development_only = false;
+  bool production_dispatch_forbidden = false;
 };
 
 // Exact-P40000 projection ownership for the reset architecture. The five
@@ -1608,6 +1696,7 @@ struct PrefillExecutionPlan {
   std::array<PrefillLayerExecution, kLayerMajorPrefillLayerCount> layers{};
   PrefillMlpSchedulePlan mlp_schedule;
   PrefillWholeCoreSchedulePlan whole_core_schedule;
+  PrefillP40MacroFeedV3SchedulePlan macrofeed_v3_schedule;
   PrefillP40ProjectionResetSchedulePlan projection_reset_schedule;
   PrefillP40PackedProjectionSchedulePlan packed_projection_schedule;
   PrefillP40PackedNvfp4V2SchedulePlan packed_nvfp4_v2_schedule;

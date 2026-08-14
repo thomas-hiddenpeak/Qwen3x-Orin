@@ -617,7 +617,6 @@ int launch_sm87_macrofeed_v3_gdn_p40_sealed_cuda(
   }
 
   const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
-  (void)cudaGetLastError();
   causal_conv1d_silu_p40_kernel<<<
       kSm87MacrofeedV3GdnConvCtas, kSm87MacrofeedV3GdnConvThreads, 0U,
       stream>>>(arguments.raw_qkv, arguments.conv_weight,

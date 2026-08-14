@@ -1,4 +1,4 @@
-#include "q3x/kernels/sm87_macrofeed_v3_nvfp4_down.h"
+#include "q3x/kernels/sm87_macrofeed_v3_nvfp4_gate_up.h"
 
 #include "q3x/kernels/sm87_target_aot_projection_layout.h"
 
@@ -7,43 +7,46 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 namespace q3x::kernels {
 namespace {
 
 constexpr unsigned int kThreads =
-    static_cast<unsigned int>(kSm87MacroFeedV3NvFp4DownThreads);
+    static_cast<unsigned int>(kSm87MacroFeedV3NvFp4GateUpThreads);
 constexpr unsigned int kWarpSize = 32U;
 constexpr unsigned int kTileM =
-    static_cast<unsigned int>(kSm87MacroFeedV3NvFp4DownBlockM);
+    static_cast<unsigned int>(kSm87MacroFeedV3NvFp4GateUpBlockM);
 constexpr unsigned int kTileN =
-    static_cast<unsigned int>(kSm87MacroFeedV3NvFp4DownBlockN);
+    static_cast<unsigned int>(kSm87MacroFeedV3NvFp4GateUpBlockN);
 constexpr unsigned int kTileK =
-    static_cast<unsigned int>(kSm87MacroFeedV3NvFp4DownBlockK);
+    static_cast<unsigned int>(kSm87MacroFeedV3NvFp4GateUpBlockK);
 constexpr unsigned int kStages =
-    static_cast<unsigned int>(kSm87MacroFeedV3NvFp4DownPipelineStages);
+    static_cast<unsigned int>(kSm87MacroFeedV3NvFp4GateUpPipelineStages);
 constexpr unsigned int kPersistentCtas =
-    static_cast<unsigned int>(kSm87MacroFeedV3NvFp4DownPersistentCtas);
+    static_cast<unsigned int>(kSm87MacroFeedV3NvFp4GateUpPersistentCtas);
 constexpr unsigned int kM16Panels = 8U;
 constexpr unsigned int kN8PanelsPerWarp = 4U;
 constexpr unsigned int kN8PanelsPerN64 = 8U;
 constexpr unsigned int kK16Panels = 4U;
 constexpr unsigned int kActivationVectors = kTileM * kTileK / 8U;
+// Each branch stages one N128 half from its independent canonical N256 cell.
+constexpr unsigned int kBranchWeightBytes = kTileN * kTileK / 4U;
 constexpr unsigned int kBranchWeightVectors =
-    static_cast<unsigned int>(
-        kSm87MacroFeedV3NvFp4DownWeightBytesPerCell / 2U /
-        sizeof(uint4));
+    kBranchWeightBytes / sizeof(uint4);
+constexpr unsigned int kBranchScaleBytes =
+    kTileN * (kTileK / 16U) / 2U;
 constexpr unsigned int kBranchScaleVectors =
-    static_cast<unsigned int>(
-        kSm87MacroFeedV3NvFp4DownScaleBytesPerCell / 2U /
-        sizeof(uint4));
+    kBranchScaleBytes / sizeof(uint4);
 
 static_assert(kThreads == 8U * kWarpSize);
 static_assert(kTileM == 128U && kTileN == 256U && kTileK == 64U);
 static_assert(kStages == 3U && kPersistentCtas == 16U);
 static_assert(kM16Panels == 8U && kN8PanelsPerWarp == 4U);
 static_assert(kActivationVectors == 1'024U);
+static_assert(kBranchWeightBytes == 4'096U);
 static_assert(kBranchWeightVectors == 256U);
+static_assert(kBranchScaleBytes == 512U);
 static_assert(kBranchScaleVectors == 32U);
 
 struct alignas(32) PipelineStorage final {
@@ -53,7 +56,7 @@ struct alignas(32) PipelineStorage final {
 };
 
 static_assert(sizeof(PipelineStorage) ==
-              kSm87MacroFeedV3NvFp4DownDynamicSharedBytes);
+              kSm87MacroFeedV3NvFp4GateUpDynamicSharedBytes);
 
 struct M16K16Activation final {
   std::uint32_t x0;
@@ -283,12 +286,14 @@ __device__ __forceinline__ void clear_accumulators(
   }
 }
 
-template <unsigned int kInputFeatures, unsigned int kKTiles>
+template <unsigned int kInputFeatures, unsigned int kKTiles,
+          std::uint64_t kPartitionBytes>
 __device__ __forceinline__ void issue_pipeline_stage(
     PipelineStorage* const storage, const unsigned int slot,
     const std::uint16_t* const input, const std::uint8_t* const payload,
     const unsigned int rows, const unsigned int first_m,
-    const unsigned int n_tile, const unsigned int k_tile) noexcept {
+    const unsigned int n_tile, const unsigned int n_half,
+    const unsigned int k_tile) noexcept {
 #pragma unroll
   for (unsigned int pass = 0U; pass < 4U; ++pass) {
     const unsigned int vector_index = threadIdx.x + pass * kThreads;
@@ -317,10 +322,12 @@ __device__ __forceinline__ void issue_pipeline_stage(
     const unsigned int outer = fragment / kN8PanelsPerN64;
     const unsigned int local_n_warp = outer & 1U;
     const unsigned int k16 = outer >> 1U;
-    const unsigned int global_n_warp = branch * 2U + local_n_warp;
+    const unsigned int global_n_warp =
+        n_half * 2U + local_n_warp;
     const std::uint64_t cell =
+        static_cast<std::uint64_t>(branch) * kPartitionBytes +
         (static_cast<std::uint64_t>(n_tile) * kKTiles + k_tile) *
-        kSm87MacroFeedV3NvFp4DownCellBytes;
+            kSm87MacroFeedV3NvFp4GateUpCellBytes;
     const std::uint64_t global_fragment =
         (static_cast<std::uint64_t>(k16) * 4U + global_n_warp) *
             kN8PanelsPerN64 +
@@ -339,28 +346,31 @@ __device__ __forceinline__ void issue_pipeline_stage(
     const unsigned int outer = local_vector >> 2U;
     const unsigned int local_n_warp = outer & 1U;
     const unsigned int k16 = outer >> 1U;
-    const unsigned int global_n_warp = branch * 2U + local_n_warp;
+    const unsigned int global_n_warp =
+        n_half * 2U + local_n_warp;
     const std::uint64_t cell =
+        static_cast<std::uint64_t>(branch) * kPartitionBytes +
         (static_cast<std::uint64_t>(n_tile) * kKTiles + k_tile) *
-        kSm87MacroFeedV3NvFp4DownCellBytes;
+            kSm87MacroFeedV3NvFp4GateUpCellBytes;
     const std::uint64_t scale_byte =
         (static_cast<std::uint64_t>(k16) * 4U + global_n_warp) * 64U +
         n8_pair * 16U;
     const auto* const source = reinterpret_cast<const uint4*>(
-        payload + cell + kSm87MacroFeedV3NvFp4DownWeightBytesPerCell +
-        scale_byte);
+        payload + cell +
+        kSm87MacroFeedV3NvFp4GateUpWeightBytesPerCell + scale_byte);
     cp_async_cg_16<false>(
         &storage->scales[slot][branch][local_vector], source);
   }
   cp_async_commit_group();
 }
 
-template <unsigned int kInputFeatures, unsigned int kKTiles>
+template <unsigned int kInputFeatures, unsigned int kKTiles,
+          std::uint64_t kPartitionBytes>
 __device__ __forceinline__ void run_full_k(
     PipelineStorage* const storage, const std::uint16_t* const input,
     const std::uint8_t* const payload, const unsigned int rows,
     const unsigned int first_m, const unsigned int n_tile,
-    WarpAccumulator& accumulators) noexcept {
+    const unsigned int n_half, WarpAccumulator& accumulators) noexcept {
   static_assert(kKTiles >= kStages);
   const unsigned int warp = threadIdx.x / kWarpSize;
   const unsigned int lane = threadIdx.x % kWarpSize;
@@ -371,12 +381,12 @@ __device__ __forceinline__ void run_full_k(
       (branch_quarter % 2U) * kN8PanelsPerWarp;
 
   clear_accumulators(accumulators);
-  issue_pipeline_stage<kInputFeatures, kKTiles>(
-      storage, 0U, input, payload, rows, first_m, n_tile, 0U);
-  issue_pipeline_stage<kInputFeatures, kKTiles>(
-      storage, 1U, input, payload, rows, first_m, n_tile, 1U);
-  issue_pipeline_stage<kInputFeatures, kKTiles>(
-      storage, 2U, input, payload, rows, first_m, n_tile, 2U);
+  issue_pipeline_stage<kInputFeatures, kKTiles, kPartitionBytes>(
+      storage, 0U, input, payload, rows, first_m, n_tile, n_half, 0U);
+  issue_pipeline_stage<kInputFeatures, kKTiles, kPartitionBytes>(
+      storage, 1U, input, payload, rows, first_m, n_tile, n_half, 1U);
+  issue_pipeline_stage<kInputFeatures, kKTiles, kPartitionBytes>(
+      storage, 2U, input, payload, rows, first_m, n_tile, n_half, 2U);
 
 #pragma unroll 1
   for (unsigned int k_tile = 0U; k_tile < kKTiles; ++k_tile) {
@@ -402,8 +412,8 @@ __device__ __forceinline__ void run_full_k(
 #pragma unroll
     for (unsigned int n8 = 0U; n8 < kN8PanelsPerWarp; ++n8) {
       decoded[0U][n8] = decode_weight_fragment(
-          shared_weight, shared_scale, 0U, local_n_warp, first_n8 + n8,
-          lane);
+          shared_weight, shared_scale, 0U, local_n_warp,
+          first_n8 + n8, lane);
     }
 
 #pragma unroll
@@ -426,11 +436,13 @@ __device__ __forceinline__ void run_full_k(
                                  k16, lane);
       }
 
+      // Once all warps hold the final K16 operands, the shared slot can be
+      // refilled while the final MMA consumes only registers.
       if (k16 + 1U == kK16Panels) {
         __syncthreads();
         if (k_tile + kStages < kKTiles) {
-          issue_pipeline_stage<kInputFeatures, kKTiles>(
-              storage, slot, input, payload, rows, first_m, n_tile,
+          issue_pipeline_stage<kInputFeatures, kKTiles, kPartitionBytes>(
+              storage, slot, input, payload, rows, first_m, n_tile, n_half,
               k_tile + kStages);
         }
       }
@@ -458,30 +470,50 @@ pack_scaled_bf16_pair(const float low, const float high,
           << 16U);
 }
 
-[[nodiscard]] __device__ __forceinline__ std::uint32_t add_residual_pair(
-    const std::uint32_t branch_bits,
-    const std::uint32_t residual_bits) noexcept {
-  const float branch0 =
-      decode_bf16(static_cast<std::uint16_t>(branch_bits));
-  const float branch1 =
-      decode_bf16(static_cast<std::uint16_t>(branch_bits >> 16U));
-  const float residual0 =
-      decode_bf16(static_cast<std::uint16_t>(residual_bits));
-  const float residual1 =
-      decode_bf16(static_cast<std::uint16_t>(residual_bits >> 16U));
-  return static_cast<std::uint32_t>(
-             encode_bf16_rne(branch0 + residual0)) |
-         (static_cast<std::uint32_t>(
-              encode_bf16_rne(branch1 + residual1))
-          << 16U);
+__device__ __forceinline__ void publish_branch_to_shared(
+    std::uint16_t* const temporary, const WarpAccumulator& accumulators,
+    const unsigned int branch, const unsigned int branch_quarter,
+    const unsigned int lane, const float tensor_scale) noexcept {
+  const unsigned int lane_group = lane / 4U;
+  const unsigned int lane_in_group = lane % 4U;
+#pragma unroll
+  for (unsigned int m16 = 0U; m16 < kM16Panels; ++m16) {
+    const unsigned int row0 = m16 * 16U + lane_group;
+    const unsigned int row1 = row0 + 8U;
+#pragma unroll
+    for (unsigned int n8 = 0U; n8 < kN8PanelsPerWarp; ++n8) {
+      const unsigned int column =
+          branch_quarter * kSm87MacroFeedV3NvFp4GateUpWarpN +
+          n8 * 8U + lane_in_group * 2U;
+      const auto& value = accumulators[m16][n8];
+      *reinterpret_cast<std::uint32_t*>(
+          temporary + branch * kTileM * (kTileN / 2U) +
+          row0 * (kTileN / 2U) + column) =
+          pack_scaled_bf16_pair(value.x0, value.x1, tensor_scale);
+      *reinterpret_cast<std::uint32_t*>(
+          temporary + branch * kTileM * (kTileN / 2U) +
+          row1 * (kTileN / 2U) + column) =
+          pack_scaled_bf16_pair(value.x2, value.x3, tensor_scale);
+    }
+  }
+}
+
+[[nodiscard]] __device__ __forceinline__ std::uint16_t silu_times_up(
+    const std::uint16_t gate_bits, const std::uint16_t up_bits) noexcept {
+  const float gate = decode_bf16(gate_bits);
+  const float up = decode_bf16(up_bits);
+  return encode_bf16_rne(gate / (1.0F + expf(-gate)) * up);
 }
 
 template <unsigned int kOutputFeatures>
-__device__ __forceinline__ void publish_down_residual(
-    const WarpAccumulator& accumulators, const unsigned int rows,
+__device__ __forceinline__ void consume_gate_up_shared(
+    const std::uint16_t* const temporary, const unsigned int rows,
     const unsigned int first_m, const unsigned int first_n,
     const unsigned int warp, const unsigned int lane,
-    const float tensor_scale, std::uint16_t* const residual) noexcept {
+    std::uint16_t* const output) noexcept {
+  if (warp >= 4U) {
+    return;
+  }
   const unsigned int lane_group = lane / 4U;
   const unsigned int lane_in_group = lane % 4U;
 #pragma unroll
@@ -492,91 +524,161 @@ __device__ __forceinline__ void publish_down_residual(
     const unsigned int global_row1 = first_m + local_row1;
 #pragma unroll
     for (unsigned int n8 = 0U; n8 < kN8PanelsPerWarp; ++n8) {
-      const unsigned int column =
-          first_n + warp * kSm87MacroFeedV3NvFp4DownWarpN + n8 * 8U +
+      const unsigned int local_column =
+          warp * kSm87MacroFeedV3NvFp4GateUpWarpN + n8 * 8U +
           lane_in_group * 2U;
-      const auto& value = accumulators[m16][n8];
+      const unsigned int global_column = first_n + local_column;
+      const std::uint32_t gate0 = *reinterpret_cast<const std::uint32_t*>(
+          temporary + local_row0 * (kTileN / 2U) + local_column);
+      const std::uint32_t up0 = *reinterpret_cast<const std::uint32_t*>(
+          temporary + kTileM * (kTileN / 2U) +
+          local_row0 * (kTileN / 2U) + local_column);
       if (global_row0 < rows) {
-        auto* const destination = reinterpret_cast<std::uint32_t*>(
-            residual + static_cast<std::size_t>(global_row0) *
-                           kOutputFeatures +
-            column);
-        *destination = add_residual_pair(
-            pack_scaled_bf16_pair(value.x0, value.x1, tensor_scale),
-            *destination);
+        const std::uint32_t result =
+            static_cast<std::uint32_t>(silu_times_up(
+                static_cast<std::uint16_t>(gate0),
+                static_cast<std::uint16_t>(up0))) |
+            (static_cast<std::uint32_t>(silu_times_up(
+                 static_cast<std::uint16_t>(gate0 >> 16U),
+                 static_cast<std::uint16_t>(up0 >> 16U)))
+             << 16U);
+        *reinterpret_cast<std::uint32_t*>(
+            output + static_cast<std::size_t>(global_row0) *
+                         kOutputFeatures +
+            global_column) = result;
       }
+      const std::uint32_t gate1 = *reinterpret_cast<const std::uint32_t*>(
+          temporary + local_row1 * (kTileN / 2U) + local_column);
+      const std::uint32_t up1 = *reinterpret_cast<const std::uint32_t*>(
+          temporary + kTileM * (kTileN / 2U) +
+          local_row1 * (kTileN / 2U) + local_column);
       if (global_row1 < rows) {
-        auto* const destination = reinterpret_cast<std::uint32_t*>(
-            residual + static_cast<std::size_t>(global_row1) *
-                           kOutputFeatures +
-            column);
-        *destination = add_residual_pair(
-            pack_scaled_bf16_pair(value.x2, value.x3, tensor_scale),
-            *destination);
+        const std::uint32_t result =
+            static_cast<std::uint32_t>(silu_times_up(
+                static_cast<std::uint16_t>(gate1),
+                static_cast<std::uint16_t>(up1))) |
+            (static_cast<std::uint32_t>(silu_times_up(
+                 static_cast<std::uint16_t>(gate1 >> 16U),
+                 static_cast<std::uint16_t>(up1 >> 16U)))
+             << 16U);
+        *reinterpret_cast<std::uint32_t*>(
+            output + static_cast<std::size_t>(global_row1) *
+                         kOutputFeatures +
+            global_column) = result;
       }
     }
   }
 }
 
+__device__ __forceinline__ void projection_task(
+    const unsigned int linear_task, const unsigned int grid_m,
+    const unsigned int grid_n, unsigned int& m_tile,
+    unsigned int& n_tile) noexcept {
+  constexpr unsigned int kRasterGroupM =
+      static_cast<unsigned int>(kSm87MacroFeedV3NvFp4GateUpRasterGroupM);
+  const unsigned int group_span = kRasterGroupM * grid_n;
+  const unsigned int group = linear_task / group_span;
+  const unsigned int first_m = group * kRasterGroupM;
+  const unsigned int remaining_m = grid_m - first_m;
+  const unsigned int active_m =
+      remaining_m < kRasterGroupM ? remaining_m : kRasterGroupM;
+  const unsigned int group_offset = linear_task % group_span;
+  n_tile = group_offset / active_m;
+  m_tile = first_m + group_offset % active_m;
+}
+
 __global__ __launch_bounds__(kThreads, 1)
-void sm87_macrofeed_v3_nvfp4_down_kernel(
+void sm87_macrofeed_v3_nvfp4_gate_up_kernel(
     const std::uint16_t* __restrict__ input,
-    const std::uint8_t* __restrict__ payload, const float tensor_scale,
-    std::uint16_t* __restrict__ residual) {
+    const std::uint8_t* __restrict__ payload, const float gate_tensor_scale,
+    const float up_tensor_scale, std::uint16_t* __restrict__ output) {
   extern __shared__ __align__(32) std::uint8_t dynamic_storage[];
   auto* const storage = reinterpret_cast<PipelineStorage*>(dynamic_storage);
   const unsigned int warp = threadIdx.x / kWarpSize;
   const unsigned int lane = threadIdx.x % kWarpSize;
+  const unsigned int branch = warp / 4U;
+  const unsigned int branch_quarter = warp % 4U;
 
   for (unsigned int linear_task = blockIdx.x;
-       linear_task < kSm87MacroFeedV3NvFp4DownLogicalTasks;
+       linear_task < kSm87MacroFeedV3NvFp4GateUpLogicalTasks;
        linear_task += kPersistentCtas) {
-    const unsigned int m_tile =
-        linear_task % kSm87MacroFeedV3NvFp4DownGridM;
-    const unsigned int n_tile =
-        linear_task / kSm87MacroFeedV3NvFp4DownGridM;
+    unsigned int m_tile = 0U;
+    unsigned int n_tile = 0U;
+    projection_task(linear_task, kSm87MacroFeedV3NvFp4GateUpGridM,
+                    kSm87MacroFeedV3NvFp4GateUpGridN, m_tile, n_tile);
     const unsigned int first_m = m_tile * kTileM;
+
+#pragma unroll
+    for (unsigned int n_half = 0U; n_half < 2U; ++n_half) {
+      WarpAccumulator accumulators;
+      run_full_k<kSm87MacroFeedV3NvFp4GateUpInputFeatures,
+                 kSm87MacroFeedV3NvFp4GateUpKTiles,
+                 kSm87MacroFeedV3NvFp4GateUpPartitionBytes>(
+          storage, input, payload, kSm87MacroFeedV3NvFp4GateUpTokens,
+          first_m, n_tile, n_half, accumulators);
+
+      // The drained pipeline becomes two CTA-private M128xN128 BF16 branch
+      // publications. Gate remains first and Up second in canonical order.
+      auto* const temporary =
+          reinterpret_cast<std::uint16_t*>(dynamic_storage);
+      publish_branch_to_shared(
+          temporary, accumulators, branch, branch_quarter, lane,
+          branch == 0U ? gate_tensor_scale : up_tensor_scale);
+      __syncthreads();
+      consume_gate_up_shared<kSm87MacroFeedV3NvFp4GateUpOutputFeatures>(
+          temporary, kSm87MacroFeedV3NvFp4GateUpTokens, first_m,
+          n_tile * kTileN + n_half * (kTileN / 2U), warp, lane, output);
+      __syncthreads();
+    }
+  }
+}
+
+__global__ __launch_bounds__(kThreads, 1)
+void sm87_macrofeed_v3_nvfp4_gate_up_tile_test_kernel(
+    const std::uint16_t* __restrict__ input,
+    const std::uint8_t* __restrict__ payload, const unsigned int valid_rows,
+    const float gate_tensor_scale, const float up_tensor_scale,
+    std::uint16_t* __restrict__ output) {
+  extern __shared__ __align__(32) std::uint8_t dynamic_storage[];
+  auto* const storage = reinterpret_cast<PipelineStorage*>(dynamic_storage);
+  const unsigned int warp = threadIdx.x / kWarpSize;
+  const unsigned int lane = threadIdx.x % kWarpSize;
+  const unsigned int branch = warp / 4U;
+  const unsigned int branch_quarter = warp % 4U;
+
+#pragma unroll
+  for (unsigned int n_half = 0U; n_half < 2U; ++n_half) {
     WarpAccumulator accumulators;
-    run_full_k<kSm87MacroFeedV3NvFp4DownInputFeatures,
-               kSm87MacroFeedV3NvFp4DownKTiles>(
-        storage, input, payload, kSm87MacroFeedV3NvFp4DownTokens, first_m,
-        n_tile, accumulators);
-    publish_down_residual<kSm87MacroFeedV3NvFp4DownOutputFeatures>(
-        accumulators, kSm87MacroFeedV3NvFp4DownTokens, first_m,
-        n_tile * kTileN, warp, lane, tensor_scale, residual);
+    run_full_k<kSm87MacroFeedV3NvFp4GateUpTestInputFeatures,
+               kSm87MacroFeedV3NvFp4GateUpTestKTiles,
+               kSm87MacroFeedV3NvFp4GateUpTestPartitionBytes>(
+        storage, input, payload, valid_rows, 0U, 0U, n_half,
+        accumulators);
+    auto* const temporary =
+        reinterpret_cast<std::uint16_t*>(dynamic_storage);
+    publish_branch_to_shared(
+        temporary, accumulators, branch, branch_quarter, lane,
+        branch == 0U ? gate_tensor_scale : up_tensor_scale);
+    __syncthreads();
+    consume_gate_up_shared<kTileN>(
+        temporary, valid_rows, 0U, n_half * (kTileN / 2U), warp, lane,
+        output);
     __syncthreads();
   }
 }
 
-__global__ __launch_bounds__(kThreads, 1)
-void sm87_macrofeed_v3_nvfp4_down_tile_test_kernel(
-    const std::uint16_t* __restrict__ input,
-    const std::uint8_t* __restrict__ payload, const unsigned int valid_rows,
-    const float tensor_scale, std::uint16_t* __restrict__ residual) {
-  extern __shared__ __align__(32) std::uint8_t dynamic_storage[];
-  auto* const storage = reinterpret_cast<PipelineStorage*>(dynamic_storage);
-  const unsigned int warp = threadIdx.x / kWarpSize;
-  const unsigned int lane = threadIdx.x % kWarpSize;
-  WarpAccumulator accumulators;
-  run_full_k<kSm87MacroFeedV3NvFp4DownTestInputFeatures,
-             kSm87MacroFeedV3NvFp4DownTestKTiles>(
-      storage, input, payload, valid_rows, 0U, 0U, accumulators);
-  publish_down_residual<kTileN>(accumulators, valid_rows, 0U, 0U, warp,
-                                lane, tensor_scale, residual);
-}
-
 [[nodiscard]] cudaError_t set_dynamic_shared_attribute() noexcept {
   cudaError_t status = cudaFuncSetAttribute(
-      sm87_macrofeed_v3_nvfp4_down_kernel,
+      sm87_macrofeed_v3_nvfp4_gate_up_kernel,
       cudaFuncAttributeMaxDynamicSharedMemorySize,
-      static_cast<int>(kSm87MacroFeedV3NvFp4DownDynamicSharedBytes));
+      static_cast<int>(kSm87MacroFeedV3NvFp4GateUpDynamicSharedBytes));
   if (status != cudaSuccess) {
     return status;
   }
   return cudaFuncSetAttribute(
-      sm87_macrofeed_v3_nvfp4_down_tile_test_kernel,
+      sm87_macrofeed_v3_nvfp4_gate_up_tile_test_kernel,
       cudaFuncAttributeMaxDynamicSharedMemorySize,
-      static_cast<int>(kSm87MacroFeedV3NvFp4DownDynamicSharedBytes));
+      static_cast<int>(kSm87MacroFeedV3NvFp4GateUpDynamicSharedBytes));
 }
 
 [[nodiscard]] cudaError_t validate_device(int* const device_ordinal,
@@ -595,9 +697,10 @@ void sm87_macrofeed_v3_nvfp4_down_tile_test_kernel(
   }
   return properties->major == 8 && properties->minor == 7 &&
                  properties->multiProcessorCount ==
-                     static_cast<int>(kSm87MacroFeedV3NvFp4DownSmCount) &&
+                     static_cast<int>(
+                         kSm87MacroFeedV3NvFp4GateUpSmCount) &&
                  properties->sharedMemPerBlockOptin >=
-                     kSm87MacroFeedV3NvFp4DownDynamicSharedBytes
+                     kSm87MacroFeedV3NvFp4GateUpDynamicSharedBytes
              ? cudaSuccess
              : cudaErrorNotSupported;
 }
@@ -633,7 +736,7 @@ struct PointerRange final {
 }
 
 [[nodiscard]] cudaError_t query_resources_body(
-    Sm87MacroFeedV3NvFp4DownCudaResources* const resources) noexcept {
+    Sm87MacroFeedV3NvFp4GateUpCudaResources* const resources) noexcept {
   int device = -1;
   cudaDeviceProp properties{};
   cudaError_t status = validate_device(&device, &properties);
@@ -646,19 +749,19 @@ struct PointerRange final {
   }
   cudaFuncAttributes attributes{};
   status = cudaFuncGetAttributes(&attributes,
-                                 sm87_macrofeed_v3_nvfp4_down_kernel);
+                                 sm87_macrofeed_v3_nvfp4_gate_up_kernel);
   if (status != cudaSuccess) {
     return status;
   }
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-      &active_blocks, sm87_macrofeed_v3_nvfp4_down_kernel, kThreads,
-      kSm87MacroFeedV3NvFp4DownDynamicSharedBytes);
+      &active_blocks, sm87_macrofeed_v3_nvfp4_gate_up_kernel, kThreads,
+      kSm87MacroFeedV3NvFp4GateUpDynamicSharedBytes);
   if (status != cudaSuccess) {
     return status;
   }
 
-  resources->identity = kSm87MacroFeedV3NvFp4DownIdentity;
+  resources->identity = kSm87MacroFeedV3NvFp4GateUpIdentity;
   resources->device_ordinal = device;
   resources->compute_major = properties.major;
   resources->compute_minor = properties.minor;
@@ -667,7 +770,7 @@ struct PointerRange final {
   resources->registers_per_thread = attributes.numRegs;
   resources->static_shared_bytes = attributes.sharedSizeBytes;
   resources->dynamic_shared_bytes =
-      kSm87MacroFeedV3NvFp4DownDynamicSharedBytes;
+      kSm87MacroFeedV3NvFp4GateUpDynamicSharedBytes;
   resources->local_bytes = attributes.localSizeBytes;
   resources->maximum_threads_per_block = attributes.maxThreadsPerBlock;
   resources->active_blocks_per_sm = active_blocks;
@@ -677,30 +780,68 @@ struct PointerRange final {
   resources->numerical_contract_qualified = false;
   resources->production_dispatch_eligible = false;
   resources->static_resource_gate_passed =
-      sm87_macrofeed_v3_nvfp4_down_resource_gate(*resources);
+      sm87_macrofeed_v3_nvfp4_gate_up_resource_gate(*resources);
+  return cudaSuccess;
+}
+
+// Request-hot body: no device, pointer-attribute, function-attribute, dynamic
+// shared, or occupancy query is permitted here. Startup owns those checks and
+// the caller supplies either its validated startup seal or, for the ordinary
+// T1 path, the immediately preceding query result.
+[[nodiscard]] cudaError_t enqueue_gate_up_body(
+    const Sm87MacroFeedV3NvFp4GateUpArguments& arguments,
+    Sm87MacroFeedV3NvFp4GateUpLaunchReceipt* const receipt) noexcept {
+  const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  sm87_macrofeed_v3_nvfp4_gate_up_kernel
+      <<<kPersistentCtas, kThreads,
+         kSm87MacroFeedV3NvFp4GateUpDynamicSharedBytes, stream>>>(
+          arguments.input, arguments.payload, arguments.gate_tensor_scale,
+          arguments.up_tensor_scale, arguments.output);
+  const cudaError_t launch_status = cudaPeekAtLastError();
+  if (launch_status != cudaSuccess) {
+    return launch_status;
+  }
+  *receipt = {kSm87MacroFeedV3NvFp4GateUpIdentity,
+              arguments.payload_receipt.payload_identity,
+              arguments.payload_receipt.gate_source_identity,
+              arguments.payload_receipt.up_source_identity,
+              arguments.token_count,
+              kSm87MacroFeedV3NvFp4GateUpLogicalTasks,
+              kSm87MacroFeedV3NvFp4GateUpTailRows,
+              1U,
+              0U,
+              true,
+              true,
+              true,
+              true,
+              false,
+              true,
+              false};
   return cudaSuccess;
 }
 
 }  // namespace
 
-bool sm87_macrofeed_v3_nvfp4_down_arguments_valid(
-    const Sm87MacroFeedV3NvFp4DownArguments& arguments) noexcept {
+bool sm87_macrofeed_v3_nvfp4_gate_up_arguments_valid(
+    const Sm87MacroFeedV3NvFp4GateUpArguments& arguments) noexcept {
   const auto plan =
-      sm87_macrofeed_v3_nvfp4_down_plan(arguments.token_count);
+      sm87_macrofeed_v3_nvfp4_gate_up_plan(arguments.token_count);
   if (!plan.valid() || arguments.input == nullptr ||
-      arguments.payload == nullptr || arguments.residual == nullptr ||
+      arguments.payload == nullptr || arguments.output == nullptr ||
       arguments.payload_bytes != plan.payload_bytes ||
-      !std::isfinite(arguments.tensor_scale) ||
-      arguments.tensor_scale <= 0.0F ||
+      !std::isfinite(arguments.gate_tensor_scale) ||
+      arguments.gate_tensor_scale <= 0.0F ||
+      !std::isfinite(arguments.up_tensor_scale) ||
+      arguments.up_tensor_scale <= 0.0F ||
       reinterpret_cast<std::uintptr_t>(arguments.input) % alignof(uint4) !=
           0U ||
       reinterpret_cast<std::uintptr_t>(arguments.payload) %
-              kSm87MacroFeedV3NvFp4DownPayloadAlignment !=
+              kSm87MacroFeedV3NvFp4GateUpPayloadAlignment !=
           0U ||
-      reinterpret_cast<std::uintptr_t>(arguments.residual) %
+      reinterpret_cast<std::uintptr_t>(arguments.output) %
               alignof(std::uint32_t) !=
           0U ||
-      !sm87_macrofeed_v3_nvfp4_down_payload_receipt_valid(
+      !sm87_macrofeed_v3_nvfp4_gate_up_payload_receipt_valid(
           arguments.payload_receipt) ||
       arguments.payload_receipt.payload_begin !=
           reinterpret_cast<std::uintptr_t>(arguments.payload) ||
@@ -709,20 +850,21 @@ bool sm87_macrofeed_v3_nvfp4_down_arguments_valid(
   }
 
   constexpr std::size_t kInputBytes =
-      kSm87MacroFeedV3NvFp4DownTokens *
-      kSm87MacroFeedV3NvFp4DownInputFeatures * sizeof(std::uint16_t);
-  constexpr std::size_t kResidualBytes =
-      kSm87MacroFeedV3NvFp4DownTokens *
-      kSm87MacroFeedV3NvFp4DownOutputFeatures * sizeof(std::uint16_t);
+      kSm87MacroFeedV3NvFp4GateUpTokens *
+      kSm87MacroFeedV3NvFp4GateUpInputFeatures * sizeof(std::uint16_t);
+  constexpr std::size_t kOutputBytes =
+      kSm87MacroFeedV3NvFp4GateUpTokens *
+      kSm87MacroFeedV3NvFp4GateUpOutputFeatures * sizeof(std::uint16_t);
   const auto input = pointer_range(arguments.input, kInputBytes);
-  const auto payload = pointer_range(arguments.payload, arguments.payload_bytes);
-  const auto residual = pointer_range(arguments.residual, kResidualBytes);
-  return disjoint(input, payload) && disjoint(input, residual) &&
-         disjoint(payload, residual);
+  const auto payload =
+      pointer_range(arguments.payload, arguments.payload_bytes);
+  const auto output = pointer_range(arguments.output, kOutputBytes);
+  return disjoint(input, payload) && disjoint(input, output) &&
+         disjoint(payload, output);
 }
 
-int query_sm87_macrofeed_v3_nvfp4_down_cuda_resources(
-    Sm87MacroFeedV3NvFp4DownCudaResources* const resources) noexcept {
+int query_sm87_macrofeed_v3_nvfp4_gate_up_cuda_resources(
+    Sm87MacroFeedV3NvFp4GateUpCudaResources* const resources) noexcept {
   if (resources == nullptr) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
@@ -730,118 +872,139 @@ int query_sm87_macrofeed_v3_nvfp4_down_cuda_resources(
   return static_cast<int>(query_resources_body(resources));
 }
 
-int launch_sm87_macrofeed_v3_nvfp4_down_cuda(
-    const Sm87MacroFeedV3NvFp4DownArguments& arguments,
-    Sm87MacroFeedV3NvFp4DownLaunchReceipt* const receipt) noexcept {
+int seal_sm87_macrofeed_v3_nvfp4_gate_up_startup(
+    Sm87MacroFeedV3NvFp4GateUpStartupSeal* const seal) noexcept {
+  if (seal == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *seal = {};
+  Sm87MacroFeedV3NvFp4GateUpCudaResources resources{};
+  const cudaError_t status = query_resources_body(&resources);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  if (!resources.static_resource_gate_passed ||
+      !sm87_macrofeed_v3_nvfp4_gate_up_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorNotSupported);
+  }
+  seal->plan_identity = kSm87MacroFeedV3NvFp4GateUpIdentity;
+  seal->kernel_symbol_identity =
+      kSm87MacroFeedV3NvFp4GateUpKernelSymbolIdentity;
+  seal->device_ordinal = resources.device_ordinal;
+  seal->compute_major = resources.compute_major;
+  seal->compute_minor = resources.compute_minor;
+  seal->sm_count = resources.sm_count;
+  seal->binary_version = resources.binary_version;
+  seal->registers_per_thread = resources.registers_per_thread;
+  seal->static_shared_bytes = resources.static_shared_bytes;
+  seal->dynamic_shared_bytes = resources.dynamic_shared_bytes;
+  seal->local_bytes = resources.local_bytes;
+  seal->maximum_threads_per_block = resources.maximum_threads_per_block;
+  seal->active_blocks_per_sm = resources.active_blocks_per_sm;
+  seal->optin_shared_bytes_per_block =
+      resources.optin_shared_bytes_per_block;
+  seal->dynamic_shared_attribute_configured = true;
+  seal->static_resource_gate_passed = true;
+  seal->request_hot_static_queries_forbidden = true;
+  seal->t0_t1_only = true;
+  seal->production_dispatch_eligible = false;
+  seal->seal_identity =
+      sm87_macrofeed_v3_nvfp4_gate_up_compute_startup_seal_identity(*seal);
+  return sm87_macrofeed_v3_nvfp4_gate_up_startup_seal_valid(*seal)
+             ? static_cast<int>(cudaSuccess)
+             : static_cast<int>(cudaErrorNotSupported);
+}
+
+int launch_sm87_macrofeed_v3_nvfp4_gate_up_cuda(
+    const Sm87MacroFeedV3NvFp4GateUpArguments& arguments,
+    Sm87MacroFeedV3NvFp4GateUpLaunchReceipt* const receipt) noexcept {
   if (receipt == nullptr) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   *receipt = {};
-  if (!sm87_macrofeed_v3_nvfp4_down_arguments_valid(arguments)) {
+  if (!sm87_macrofeed_v3_nvfp4_gate_up_arguments_valid(arguments)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
 
-  Sm87MacroFeedV3NvFp4DownCudaResources resources{};
+  Sm87MacroFeedV3NvFp4GateUpCudaResources resources{};
   const cudaError_t resource_status = query_resources_body(&resources);
   if (resource_status != cudaSuccess) {
     return static_cast<int>(resource_status);
   }
   if (!resources.static_resource_gate_passed ||
-      !sm87_macrofeed_v3_nvfp4_down_resource_gate(resources)) {
+      !sm87_macrofeed_v3_nvfp4_gate_up_resource_gate(resources)) {
     return static_cast<int>(cudaErrorNotSupported);
   }
   if (resources.device_ordinal != arguments.payload_receipt.device_ordinal ||
       !device_pointer(arguments.input, resources.device_ordinal) ||
       !device_pointer(arguments.payload, resources.device_ordinal) ||
-      !device_pointer(arguments.residual, resources.device_ordinal)) {
+      !device_pointer(arguments.output, resources.device_ordinal)) {
     return static_cast<int>(cudaErrorInvalidDevicePointer);
   }
-  return launch_sm87_macrofeed_v3_nvfp4_down_sealed_cuda(
-      arguments, resources, receipt);
+  return static_cast<int>(enqueue_gate_up_body(arguments, receipt));
 }
 
-int launch_sm87_macrofeed_v3_nvfp4_down_sealed_cuda(
-    const Sm87MacroFeedV3NvFp4DownArguments& arguments,
-    const Sm87MacroFeedV3NvFp4DownCudaResources& sealed_resources,
-    Sm87MacroFeedV3NvFp4DownLaunchReceipt* const receipt) noexcept {
+int launch_sm87_macrofeed_v3_nvfp4_gate_up_sealed_cuda(
+    const Sm87MacroFeedV3NvFp4GateUpArguments& arguments,
+    const Sm87MacroFeedV3NvFp4GateUpStartupSeal& startup_seal,
+    Sm87MacroFeedV3NvFp4GateUpLaunchReceipt* const receipt) noexcept {
   if (receipt == nullptr) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   *receipt = {};
-  if (!sm87_macrofeed_v3_nvfp4_down_arguments_valid(arguments) ||
-      !sealed_resources.static_resource_gate_passed ||
-      !sm87_macrofeed_v3_nvfp4_down_resource_gate(sealed_resources) ||
-      sealed_resources.device_ordinal !=
+  if (!sm87_macrofeed_v3_nvfp4_gate_up_arguments_valid(arguments) ||
+      !sm87_macrofeed_v3_nvfp4_gate_up_startup_seal_valid(startup_seal) ||
+      startup_seal.device_ordinal !=
           arguments.payload_receipt.device_ordinal) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
-
-  const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
-  sm87_macrofeed_v3_nvfp4_down_kernel
-      <<<kPersistentCtas, kThreads,
-         kSm87MacroFeedV3NvFp4DownDynamicSharedBytes, stream>>>(
-          arguments.input, arguments.payload, arguments.tensor_scale,
-          arguments.residual);
-  const cudaError_t launch_status = cudaPeekAtLastError();
-  if (launch_status != cudaSuccess) {
-    return static_cast<int>(launch_status);
-  }
-  *receipt = {kSm87MacroFeedV3NvFp4DownIdentity,
-              arguments.payload_receipt.payload_identity,
-              arguments.token_count,
-              kSm87MacroFeedV3NvFp4DownLogicalTasks,
-              kSm87MacroFeedV3NvFp4DownTailRows,
-              1U,
-              0U,
-              true,
-              false,
-              true,
-              false};
-  return static_cast<int>(cudaSuccess);
+  return static_cast<int>(enqueue_gate_up_body(arguments, receipt));
 }
 
-int launch_sm87_macrofeed_v3_nvfp4_down_tile_test_cuda(
+int launch_sm87_macrofeed_v3_nvfp4_gate_up_tile_test_cuda(
     const std::uint16_t* const input_m128_k256,
-    const std::uint8_t* const canonical_payload_four_cells,
-    const float tensor_scale, const std::size_t valid_rows,
-    std::uint16_t* const residual_m128_n256,
+    const std::uint8_t* const canonical_gate_then_up_payload,
+    const float gate_tensor_scale, const float up_tensor_scale,
+    const std::size_t valid_rows, std::uint16_t* const output_m128_n256,
     void* const cuda_stream) noexcept {
   if (input_m128_k256 == nullptr ||
-      canonical_payload_four_cells == nullptr ||
-      residual_m128_n256 == nullptr ||
+      canonical_gate_then_up_payload == nullptr ||
+      output_m128_n256 == nullptr ||
       (valid_rows != 64U && valid_rows != 128U) ||
-      !std::isfinite(tensor_scale) || tensor_scale <= 0.0F ||
+      !std::isfinite(gate_tensor_scale) || gate_tensor_scale <= 0.0F ||
+      !std::isfinite(up_tensor_scale) || up_tensor_scale <= 0.0F ||
       reinterpret_cast<std::uintptr_t>(input_m128_k256) % alignof(uint4) !=
           0U ||
-      reinterpret_cast<std::uintptr_t>(canonical_payload_four_cells) %
+      reinterpret_cast<std::uintptr_t>(canonical_gate_then_up_payload) %
               alignof(uint4) !=
           0U ||
-      reinterpret_cast<std::uintptr_t>(residual_m128_n256) %
+      reinterpret_cast<std::uintptr_t>(output_m128_n256) %
               alignof(std::uint32_t) !=
           0U) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
 
-  Sm87MacroFeedV3NvFp4DownCudaResources resources{};
+  Sm87MacroFeedV3NvFp4GateUpCudaResources resources{};
   const cudaError_t resource_status = query_resources_body(&resources);
   if (resource_status != cudaSuccess) {
     return static_cast<int>(resource_status);
   }
   if (!resources.static_resource_gate_passed ||
       !device_pointer(input_m128_k256, resources.device_ordinal) ||
-      !device_pointer(canonical_payload_four_cells,
+      !device_pointer(canonical_gate_then_up_payload,
                       resources.device_ordinal) ||
-      !device_pointer(residual_m128_n256, resources.device_ordinal)) {
+      !device_pointer(output_m128_n256, resources.device_ordinal)) {
     return static_cast<int>(cudaErrorNotSupported);
   }
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  sm87_macrofeed_v3_nvfp4_down_tile_test_kernel
-      <<<1U, kThreads, kSm87MacroFeedV3NvFp4DownDynamicSharedBytes,
-         stream>>>(input_m128_k256, canonical_payload_four_cells,
-                   static_cast<unsigned int>(valid_rows), tensor_scale,
-                   residual_m128_n256);
+  sm87_macrofeed_v3_nvfp4_gate_up_tile_test_kernel
+      <<<1U, kThreads,
+         kSm87MacroFeedV3NvFp4GateUpDynamicSharedBytes, stream>>>(
+          input_m128_k256, canonical_gate_then_up_payload,
+          static_cast<unsigned int>(valid_rows), gate_tensor_scale,
+          up_tensor_scale, output_m128_n256);
   return static_cast<int>(cudaPeekAtLastError());
 }
 

@@ -27,6 +27,9 @@ static_assert(static_cast<std::uint8_t>(
                   runtime::LayerMajorPrefillProjectionTactic::
                       kNativePromptWideP40VllmMarlinParity) == 10U);
 static_assert(static_cast<std::uint8_t>(
+                  runtime::LayerMajorPrefillProjectionTactic::
+                      kNativePromptWideP40MacroFeedV3) == 11U);
+static_assert(static_cast<std::uint8_t>(
                   runtime::LayerMajorPrefillMlpScheduleTactic::
                       kPromptWideP40PackedProjection) == 4U);
 static_assert(static_cast<std::uint8_t>(
@@ -35,6 +38,9 @@ static_assert(static_cast<std::uint8_t>(
 static_assert(static_cast<std::uint8_t>(
                   runtime::LayerMajorPrefillMlpScheduleTactic::
                       kPromptWideP40VllmMarlinParity) == 6U);
+static_assert(static_cast<std::uint8_t>(
+                  runtime::LayerMajorPrefillMlpScheduleTactic::
+                      kPromptWideP40MacroFeedV3) == 7U);
 static_assert(static_cast<std::uint8_t>(
                   runtime::PrefillNvFp4ArithmeticTactic::
                       kP40000VllmMarlinProjectionHostDispatchGateThenUpSiluDownResidual) ==
@@ -182,6 +188,9 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::is_valid_layer_major_prefill_projection_tactic(
               runtime::LayerMajorPrefillProjectionTactic::
                   kNativePromptWideP40VllmMarlinParity) &&
+          runtime::is_valid_layer_major_prefill_projection_tactic(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40MacroFeedV3) &&
           !runtime::is_valid_layer_major_prefill_projection_tactic(
               static_cast<runtime::LayerMajorPrefillProjectionTactic>(
                   0xffU)),
@@ -229,7 +238,11 @@ void test_public_tile_and_operator_panel_are_independent(TestContext& test) {
           runtime::to_string(
               runtime::LayerMajorPrefillProjectionTactic::
                   kNativePromptWideP40VllmMarlinParity) ==
-              "native-prompt-wide-p40-vllm-marlin-parity",
+              "native-prompt-wide-p40-vllm-marlin-parity" &&
+          runtime::to_string(
+              runtime::LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40MacroFeedV3) ==
+              "native-prompt-wide-p40-macrofeed-v3",
       "projection tactic names preserve exact, segmented, native large-M, "
       "true-large-M, and G2/D2 NVFP4 route identity");
   const runtime::PrefillExecutionPlanResult result = build_plan(513U);
@@ -382,6 +395,227 @@ void test_prompt_wide_p40_whole_core_schedule(TestContext& test) {
   test.expect(
       !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
       "whole-core authority rejects incumbent 8192/7712 geometry relabeling");
+}
+
+void test_prompt_wide_p40_macrofeed_v3_schedule(TestContext& test) {
+  using MlpSchedule = runtime::LayerMajorPrefillMlpScheduleTactic;
+  using Projection = runtime::LayerMajorPrefillProjectionTactic;
+  constexpr auto kMacroFeedV3 = MlpSchedule::kPromptWideP40MacroFeedV3;
+  constexpr auto kMacroFeedV3Projection =
+      Projection::kNativePromptWideP40MacroFeedV3;
+  test.expect(
+      runtime::is_valid_layer_major_prefill_projection_tactic(
+          kMacroFeedV3Projection) &&
+          runtime::to_string(kMacroFeedV3Projection) ==
+              "native-prompt-wide-p40-macrofeed-v3" &&
+          runtime::is_valid_layer_major_prefill_mlp_schedule_tactic(
+              kMacroFeedV3) &&
+          runtime::to_string(kMacroFeedV3) ==
+              "prompt-wide-p40-macrofeed-v3" &&
+          runtime::prefill_route_layer_pass_count(5U, kMacroFeedV3) == 1U &&
+          runtime::kLayerMajorPrefillMacroFeedV3GateUpPhysicalLaunchesPerRequest ==
+              64U &&
+          runtime::kLayerMajorPrefillMacroFeedV3DownPhysicalLaunchesPerRequest ==
+              64U &&
+          runtime::kLayerMajorPrefillMacroFeedV3GdnLayerCount == 48U &&
+          runtime::kLayerMajorPrefillMacroFeedV3GdnPhysicalLaunchesPerLayer ==
+              9U &&
+          runtime::kLayerMajorPrefillMacroFeedV3GdnPhysicalLaunchesPerRequest ==
+              432U &&
+          runtime::kLayerMajorPrefillMacroFeedV3TrackedPhysicalLaunchesPerRequest ==
+              560U,
+      "MacroFeed-v3 has append-only projection/MLP identities and exact "
+      "GateUp64, Down64, and GDN48x9 physical schedule counts");
+
+  const auto candidate = build_plan(
+      runtime::kLayerMajorPrefillPromptWideP40Tokens, 0U,
+      runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
+      kMacroFeedV3);
+  if (!runtime::prompt_wide_p40_macrofeed_v3_prefill_plan_enabled()) {
+    test.expect(
+        !candidate &&
+            candidate.error ==
+                runtime::PrefillExecutionPlanError::kInvalidArgument,
+        "default builds fail closed on the MacroFeed-v3 overlay");
+    return;
+  }
+
+  const runtime::PrefillExecutionPlan* plan =
+      candidate ? &*candidate.value : nullptr;
+  const runtime::PrefillWholeCoreSchedulePlan* whole_core =
+      plan != nullptr ? &plan->whole_core_schedule : nullptr;
+  const runtime::PrefillP40MacroFeedV3SchedulePlan* schedule =
+      plan != nullptr ? &plan->macrofeed_v3_schedule : nullptr;
+  bool panels_exact = plan != nullptr && plan->panel_count == 5U;
+  for (std::size_t panel = 0U; panels_exact && panel < 5U; ++panel) {
+    const runtime::PrefillOperatorPanel& geometry = plan->panels[panel];
+    panels_exact = geometry.ordinal == panel &&
+                   geometry.first_position == panel * 8'000U &&
+                   geometry.token_count == 8'000U &&
+                   geometry.end_position == (panel + 1U) * 8'000U;
+  }
+  test.expect(
+      panels_exact && whole_core != nullptr && whole_core->enabled &&
+          whole_core->fill_panel_phase_count_per_layer == 5U &&
+          whole_core->prompt_core_phase_count_per_layer == 1U &&
+          whole_core->drain_panel_phase_count_per_layer == 5U &&
+          whole_core->persistent_mlp_phase_count_per_layer == 1U &&
+          whole_core->panel_token_count == 8'000U &&
+          whole_core->prompt_core_token_count == 40'000U &&
+          whole_core->request_capacity_tokens == 40'001U &&
+          schedule != nullptr && schedule->enabled &&
+          schedule->request_memory_profile ==
+              runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
+          schedule->gate_up_physical_launches_per_request == 64U &&
+          schedule->down_physical_launches_per_request == 64U &&
+          schedule->gdn_layer_count == 48U &&
+          schedule->gdn_physical_launches_per_layer == 9U &&
+          schedule->gdn_physical_launches_per_request == 432U &&
+          schedule->tracked_physical_launches_per_request == 560U &&
+          schedule->v10_whole_core_topology_required &&
+          schedule->v10_request_memory_profile_required &&
+          schedule->role_specific_noncooperative_macro_projections_required &&
+          schedule->exact_per_token_bf16_gdn_state_required &&
+          schedule->full_model_physical_receipt_required &&
+          schedule->production_accuracy_required &&
+          schedule->approximate_numerics_forbidden &&
+          schedule->fallback_forbidden && schedule->mtp_forbidden &&
+          schedule->cublaslt_forbidden &&
+          schedule->request_time_jit_forbidden &&
+          schedule->request_time_repack_forbidden &&
+          schedule->development_only &&
+          schedule->production_dispatch_forbidden &&
+          !plan->projection_reset_schedule.enabled &&
+          !plan->packed_projection_schedule.enabled &&
+          !plan->packed_nvfp4_v2_schedule.enabled &&
+          !plan->vllm_marlin_parity_schedule.enabled &&
+          plan->mlp_schedule.required_gate_up_projection_launches_per_layer ==
+              1U &&
+          plan->mlp_schedule.required_down_projection_launches_per_layer ==
+              1U &&
+          plan->mlp_schedule.minimum_total_kernel_launches_per_layer == 2U &&
+          plan->mlp_schedule.maximum_total_kernel_launches_per_layer == 2U &&
+          !plan->operator_bindings_complete && !plan->executable() &&
+          runtime::is_valid_unbound_layer_major_prefill_execution_plan(*plan),
+      "MacroFeed-v3 reuses the exact v10 five-panel/P40 memory substrate "
+      "while sealing a distinct default-off physical overlay");
+
+  test.expect(
+      !build_plan(runtime::kLayerMajorPrefillPromptWideP40Tokens, 0U,
+                  runtime::kLayerMajorPrefillMaximumSequenceTokens,
+                  kMacroFeedV3) &&
+          !build_plan(39'936U, 0U,
+                      runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
+                      kMacroFeedV3) &&
+          !build_plan(runtime::kLayerMajorPrefillPromptWideP40Tokens, 64U,
+                      runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
+                      kMacroFeedV3),
+      "MacroFeed-v3 refuses generalized capacity, M, and warm-position "
+      "relabeling");
+
+  runtime::PrefillExecutionPlan mutated = *plan;
+  mutated.macrofeed_v3_schedule.request_memory_profile =
+      runtime::RequestMemoryProfile::kSm87BulkV2P40Owner;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 cannot acquire the retired V2 request owner");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule.gate_up_physical_launches_per_request = 63U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 rejects one missing Gate+Up physical launch");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule.down_physical_launches_per_request = 63U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 rejects one missing Down physical launch");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule.gdn_layer_count = 47U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 rejects incomplete GDN layer coverage");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule.gdn_physical_launches_per_layer = 8U;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 rejects an incomplete nine-kernel GDN layer graph");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule.fallback_forbidden = false;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 cannot weaken the no-fallback boundary");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule.mtp_forbidden = false;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 cannot weaken the non-MTP boundary");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule.cublaslt_forbidden = false;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 cannot acquire a cuBLASLt path");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule.request_time_jit_forbidden = false;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 cannot acquire request-time JIT");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule.request_time_repack_forbidden = false;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 cannot acquire request-time repack");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule.development_only = false;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "the unbound MacroFeed-v3 slice cannot claim release status");
+  mutated = *plan;
+  mutated.whole_core_schedule.enabled = false;
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "MacroFeed-v3 cannot detach from the retained whole-core topology");
+  mutated = *plan;
+  mutated.macrofeed_v3_schedule = {};
+  test.expect(
+      !runtime::is_valid_unbound_layer_major_prefill_execution_plan(mutated),
+      "the v10 topology alone cannot be relabeled as MacroFeed-v3");
+
+  runtime::PrefillExecutionProgress progress =
+      runtime::make_prefill_execution_progress(*plan);
+  test.expect(
+      runtime::advance_prefill_progress_after_completion(
+          *plan, progress, 0U, 0U) ==
+          runtime::PrefillExecutionProgressError::kOutOfOrder,
+      "MacroFeed-v3 cannot bypass its retained whole-core phase order");
+  bool ordered = true;
+  for (std::size_t layer = 0U; ordered && layer < plan->layers.size();
+       ++layer) {
+    for (std::size_t panel = 0U; ordered && panel < 5U; ++panel) {
+      ordered = runtime::advance_prompt_wide_p40_fill_progress_after_completion(
+                    *plan, progress, layer, panel) ==
+                runtime::PrefillExecutionProgressError::kNone;
+    }
+    ordered = ordered &&
+              runtime::advance_prompt_wide_p40_prompt_core_progress_after_completion(
+                  *plan, progress, layer) ==
+                  runtime::PrefillExecutionProgressError::kNone;
+    for (std::size_t panel = 0U; ordered && panel < 5U; ++panel) {
+      ordered =
+          runtime::advance_prompt_wide_p40_drain_progress_after_completion(
+              *plan, progress, layer, panel) ==
+          runtime::PrefillExecutionProgressError::kNone;
+    }
+    ordered = ordered &&
+              runtime::advance_prompt_wide_p40_persistent_mlp_progress_after_completion(
+                  *plan, progress, layer) ==
+                  runtime::PrefillExecutionProgressError::kNone;
+  }
+  test.expect(
+      ordered && progress.next_layer == plan->layers.size() &&
+          runtime::mark_prefill_final_hidden_ready(*plan, progress) ==
+              runtime::PrefillExecutionProgressError::kNone &&
+          runtime::prefill_final_commit_ready(*plan, progress),
+      "MacroFeed-v3 retains v10 ordered progress and one final state commit");
 }
 
 void test_prompt_wide_p40_projection_reset_schedule(TestContext& test) {
@@ -1745,6 +1979,7 @@ int main() {
   test_strict_layer_major_progress(test);
   test_layer_wide_p40_mlp_schedule(test);
   test_prompt_wide_p40_whole_core_schedule(test);
+  test_prompt_wide_p40_macrofeed_v3_schedule(test);
   test_prompt_wide_p40_projection_reset_schedule(test);
   test_prompt_wide_p40_packed_projection_schedule(test);
   test_prompt_wide_p40_packed_nvfp4_v2_schedule(test);
