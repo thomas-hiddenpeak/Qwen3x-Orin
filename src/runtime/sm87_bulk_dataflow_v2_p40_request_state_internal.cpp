@@ -855,6 +855,7 @@ Sm87BulkV2P40RequestState::synchronize_terminal_main_and_observe_handoff(
   const Sm87BulkV2P40PinnedHandoff observed = *impl_->pinned_handoff;
   impl_->handoff_observed = true;
   result.token_id = observed.token_id;
+  result.value_bits = observed.value_bits;
   result.nonfinite = observed.nonfinite;
   result.terminal_main_synchronized = true;
   result.handoff_observed = true;
@@ -959,12 +960,14 @@ Sm87BulkV2P40RequestStateHostFixture::
 
 void Sm87BulkV2P40RequestStateHostFixture::emulate_completed_handoff_d2h(
     Sm87BulkV2P40RequestState& state, const std::uint32_t token_id,
-    const std::uint32_t nonfinite) noexcept {
+    const std::uint32_t nonfinite, const std::uint16_t value_bits) noexcept {
   if (state.impl_ != nullptr && state.impl_->pinned_handoff != nullptr &&
       state.impl_->lifecycle ==
           Sm87BulkV2P40RequestStateLifecycle::kActive) {
     state.impl_->pinned_handoff->token_id = token_id;
-    state.impl_->pinned_handoff->nonfinite = nonfinite;
+    state.impl_->pinned_handoff->value_bits = value_bits;
+    state.impl_->pinned_handoff->nonfinite =
+        static_cast<std::uint16_t>(nonfinite);
     state.impl_->handoff_d2h_enqueued = true;
   }
 }

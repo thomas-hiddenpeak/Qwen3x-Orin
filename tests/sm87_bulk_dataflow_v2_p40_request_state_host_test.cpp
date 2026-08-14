@@ -403,11 +403,12 @@ void test_hot_rearm_and_terminal_handoff(TestContext& test) {
                   cuda.copy_device_to_host_calls == 1U,
               "a request cannot enqueue a second handoff into the same pinned slot");
   owner::Sm87BulkV2P40RequestStateHostFixture::
-      emulate_completed_handoff_d2h(state, 42U, 0U);
+      emulate_completed_handoff_d2h(state, 42U, 0U, 0x3f80U);
   const std::size_t sync_before_handoff = cuda.synchronize_calls;
   const auto handoff = owner::Sm87BulkV2P40RequestStateHostFixture::
       synchronize_terminal_main_and_observe_handoff(state, access);
   test.expect(static_cast<bool>(handoff) && handoff.token_id == 42U &&
+                  handoff.value_bits == 0x3f80U &&
                   handoff.nonfinite == 0U &&
                   handoff.terminal_main_synchronized &&
                   handoff.handoff_observed && handoff.state_committed &&

@@ -18,11 +18,19 @@ namespace q3x::runtime::sm87_bulk_v2_p40_owner_detail {
 
 struct alignas(8) Sm87BulkV2P40PinnedHandoff final {
   std::uint32_t token_id = std::numeric_limits<std::uint32_t>::max();
-  std::uint32_t nonfinite = 1U;
+  // Byte-identical to Bf16GreedyArgmaxResult.  The fixed D2H source is the
+  // device greedy workspace, whose upper dword is {value_bits:u16,
+  // has_nonfinite:u16}; treating that complete dword as a nonfinite flag
+  // rejects every ordinary non-zero logit value.
+  std::uint16_t value_bits = 0U;
+  std::uint16_t nonfinite = 1U;
 };
 
 static_assert(sizeof(Sm87BulkV2P40PinnedHandoff) == 8U);
 static_assert(alignof(Sm87BulkV2P40PinnedHandoff) == 8U);
+static_assert(offsetof(Sm87BulkV2P40PinnedHandoff, token_id) == 0U);
+static_assert(offsetof(Sm87BulkV2P40PinnedHandoff, value_bits) == 4U);
+static_assert(offsetof(Sm87BulkV2P40PinnedHandoff, nonfinite) == 6U);
 
 enum class Sm87BulkV2P40RequestArenaRole : std::uint8_t {
   kInvalid = 0U,
@@ -344,7 +352,8 @@ struct Sm87BulkV2P40RequestStateHandoffResult final {
   Sm87BulkV2P40RequestStateStatus status{};
   std::uint64_t request_epoch = 0U;
   std::uint32_t token_id = std::numeric_limits<std::uint32_t>::max();
-  std::uint32_t nonfinite = 1U;
+  std::uint16_t value_bits = 0U;
+  std::uint16_t nonfinite = 1U;
   bool terminal_main_synchronized = false;
   bool handoff_observed = false;
   bool state_committed = false;
@@ -486,7 +495,7 @@ class Sm87BulkV2P40RequestStateHostFixture final {
       const Sm87BulkV2P40RequestStateSealedAccess& access) noexcept;
   static void emulate_completed_handoff_d2h(
       Sm87BulkV2P40RequestState& state, std::uint32_t token_id,
-      std::uint32_t nonfinite) noexcept;
+      std::uint32_t nonfinite, std::uint16_t value_bits = 0U) noexcept;
 };
 #endif
 
