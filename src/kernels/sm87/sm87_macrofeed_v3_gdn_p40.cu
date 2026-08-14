@@ -597,16 +597,22 @@ int query_sm87_macrofeed_v3_gdn_p40_resources_cuda(
 
 int launch_sm87_macrofeed_v3_gdn_p40_cuda(
     const Sm87MacrofeedV3GdnP40Arguments& arguments) noexcept {
-  if (!sm87_macrofeed_v3_gdn_p40_arguments_valid(arguments)) {
-    return static_cast<int>(cudaErrorInvalidValue);
-  }
   Sm87MacrofeedV3GdnResources resources{};
   const int query =
       query_sm87_macrofeed_v3_gdn_p40_resources_cuda(&resources);
   if (query != static_cast<int>(cudaSuccess)) {
     return query;
   }
-  if (!sm87_macrofeed_v3_gdn_resources_valid(resources)) {
+  return launch_sm87_macrofeed_v3_gdn_p40_sealed_cuda(arguments, resources);
+}
+
+int launch_sm87_macrofeed_v3_gdn_p40_sealed_cuda(
+    const Sm87MacrofeedV3GdnP40Arguments& arguments,
+    const Sm87MacrofeedV3GdnResources& sealed_resources) noexcept {
+  if (!sm87_macrofeed_v3_gdn_p40_arguments_valid(arguments)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if (!sm87_macrofeed_v3_gdn_resources_valid(sealed_resources)) {
     return static_cast<int>(cudaErrorLaunchOutOfResources);
   }
 
@@ -699,6 +705,69 @@ int launch_sm87_macrofeed_v3_gdn_c64_oracle_cuda(
       arguments.l2_epsilon_fp32_bits, arguments.norm_epsilon_fp32_bits,
       nullptr);
   return static_cast<int>(cudaPeekAtLastError());
+}
+
+int launch_sm87_macrofeed_v3_gdn_c128_two_epoch_oracle_cuda(
+    const Sm87MacrofeedV3GdnC64OracleArguments& arguments) noexcept {
+  const void* const pointers[] = {
+      arguments.raw_qkv,      arguments.a,
+      arguments.b,            arguments.conv_weight,
+      arguments.a_log,        arguments.dt_bias,
+      arguments.norm_weight,  arguments.z,
+      arguments.conv_history, arguments.recurrent_state,
+      arguments.conv_qkv,     arguments.output,
+      arguments.cuda_stream,
+  };
+  for (const void* const pointer : pointers) {
+    if (pointer == nullptr) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+  }
+  if (arguments.l2_epsilon_fp32_bits !=
+          kSm87TargetAotGdnEpsilonFp32Bits ||
+      arguments.norm_epsilon_fp32_bits !=
+          kSm87TargetAotGdnEpsilonFp32Bits) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  Sm87MacrofeedV3GdnResources resources{};
+  const int query =
+      query_sm87_macrofeed_v3_gdn_p40_resources_cuda(&resources);
+  if (query != static_cast<int>(cudaSuccess)) {
+    return query;
+  }
+  if (!sm87_macrofeed_v3_gdn_resources_valid(resources)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+
+  constexpr unsigned int kOracleTokens = 128U;
+  constexpr unsigned int kOracleEpochTokens = 64U;
+  const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
+  (void)cudaGetLastError();
+  causal_conv1d_silu_p40_kernel<<<
+      kSm87MacrofeedV3GdnConvCtas, kSm87MacrofeedV3GdnConvThreads, 0U,
+      stream>>>(arguments.raw_qkv, arguments.conv_weight,
+                arguments.conv_history, arguments.conv_qkv, kOracleTokens,
+                nullptr);
+  cudaError_t status = cudaPeekAtLastError();
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  for (unsigned int first_token = 0U; first_token < kOracleTokens;
+       first_token += kOracleEpochTokens) {
+    exact_gdn_norm_gate_macrochunk_kernel<<<
+        kSm87MacrofeedV3GdnRecurrenceCtas,
+        kSm87MacrofeedV3GdnRecurrenceThreads, 0U, stream>>>(
+        arguments.conv_qkv, arguments.a, arguments.b, arguments.a_log,
+        arguments.dt_bias, arguments.norm_weight, arguments.z,
+        arguments.recurrent_state, arguments.output, first_token,
+        kOracleEpochTokens, arguments.l2_epsilon_fp32_bits,
+        arguments.norm_epsilon_fp32_bits, nullptr);
+    status = cudaPeekAtLastError();
+    if (status != cudaSuccess) {
+      return static_cast<int>(status);
+    }
+  }
+  return static_cast<int>(cudaSuccess);
 }
 
 }  // namespace q3x::kernels

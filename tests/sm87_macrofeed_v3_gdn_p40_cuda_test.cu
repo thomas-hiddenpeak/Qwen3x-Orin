@@ -18,7 +18,7 @@ namespace {
 namespace kernels = q3x::kernels;
 namespace runtime = q3x::runtime;
 
-constexpr std::size_t kTokens = 64U;
+constexpr std::size_t kTokens = 128U;
 constexpr std::size_t kQkvElements =
     kTokens * kernels::kSm87TargetAotGdnTotalConvChannels;
 constexpr std::size_t kScalarElements =
@@ -230,9 +230,10 @@ struct Outputs final {
       kernels::kSm87TargetAotGdnEpsilonFp32Bits;
   arguments.cuda_stream = stream;
   return cuda_ok(static_cast<cudaError_t>(
-                     kernels::launch_sm87_macrofeed_v3_gdn_c64_oracle_cuda(
-                         arguments)),
-                 "launch MacroFeed-v3 GDN C64 oracle");
+                     kernels::
+                         launch_sm87_macrofeed_v3_gdn_c128_two_epoch_oracle_cuda(
+                             arguments)),
+                 "launch MacroFeed-v3 GDN C128 two-epoch oracle");
 }
 
 [[nodiscard]] bool run_reference(const Inputs& inputs,
@@ -280,7 +281,7 @@ struct Outputs final {
               kTokens * runtime::kGdnValueHeadCount,
               runtime::kGdnHeadDimension, epsilon(), outputs.output.data(),
               stream)),
-      "launch exact C64 norm/gate reference");
+      "launch exact C128 norm/gate reference");
 }
 
 [[nodiscard]] bool compare(const char* const label,
@@ -377,7 +378,7 @@ int main() {
   if (!passed) {
     return 1;
   }
-  std::cout << "SM87 MacroFeed-v3 GDN C64 bitwise CUDA oracle passed "
+  std::cout << "SM87 MacroFeed-v3 GDN C128 two-epoch bitwise CUDA oracle passed "
                "(correctness only; no performance or production authority)\n";
   return 0;
 }

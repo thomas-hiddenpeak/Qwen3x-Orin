@@ -283,6 +283,15 @@ struct Sm87MacroFeedV3NvFp4DownLaunchReceipt final {
     const Sm87MacroFeedV3NvFp4DownArguments& arguments,
     Sm87MacroFeedV3NvFp4DownLaunchReceipt* receipt) noexcept;
 
+// Request-hot form. The caller supplies the immutable startup resource seal;
+// no device, function-attribute, occupancy, or pointer-attribute query occurs
+// before enqueue. The v10 typed workspace and authenticated payload owner are
+// therefore part of the caller's retained capability contract.
+[[nodiscard]] int launch_sm87_macrofeed_v3_nvfp4_down_sealed_cuda(
+    const Sm87MacroFeedV3NvFp4DownArguments& arguments,
+    const Sm87MacroFeedV3NvFp4DownCudaResources& sealed_resources,
+    Sm87MacroFeedV3NvFp4DownLaunchReceipt* receipt) noexcept;
+
 // Numerical admission helper. It launches exactly one M128N256 tile over
 // four canonical K64 cells and is not a production/fallback interface.
 [[nodiscard]] int launch_sm87_macrofeed_v3_nvfp4_down_tile_test_cuda(

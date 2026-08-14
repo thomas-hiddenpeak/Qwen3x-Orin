@@ -108,6 +108,11 @@ int main() {
   test.expect(!sm87_macrofeed_v3_gdn_p40_arguments_valid(changed),
               "a misaligned cancellation signal is rejected");
   changed = baseline;
+  changed.cancellation_signal = reinterpret_cast<const std::uint32_t*>(
+      baseline.raw_qkv);
+  test.expect(!sm87_macrofeed_v3_gdn_p40_arguments_valid(changed),
+              "the cancellation word cannot alias a numerical operand");
+  changed = baseline;
   changed.l2_epsilon_fp32_bits = 0U;
   test.expect(!sm87_macrofeed_v3_gdn_p40_arguments_valid(changed),
               "the exact L2 epsilon identity is mandatory");

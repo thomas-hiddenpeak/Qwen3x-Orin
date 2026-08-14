@@ -193,6 +193,18 @@ sm87_macrofeed_v3_gdn_byte_range(const void* const pointer,
       }
     }
   }
+  if (arguments.cancellation_signal != nullptr) {
+    const auto cancellation = sm87_macrofeed_v3_gdn_byte_range(
+        arguments.cancellation_signal, sizeof(std::uint32_t));
+    if (!cancellation.valid) {
+      return false;
+    }
+    for (const auto& range : ranges) {
+      if (sm87_macrofeed_v3_gdn_ranges_overlap(cancellation, range)) {
+        return false;
+      }
+    }
+  }
   return true;
 }
 
@@ -247,10 +259,20 @@ struct Sm87MacrofeedV3GdnResources final {
 // Enqueues exactly one convolution kernel followed by eight ordered
 // recurrence+epilogue macrochunks. It allocates, copies, and synchronizes
 // nothing. A non-null cancellation signal is sampled at bounded C256 points;
-// an observed non-zero value suppresses the next persistent-state/history
-// publication and leaves partial request-local output uncommitted.
+// an observed non-zero value suppresses publication by the currently running
+// convolution or recurrence epoch and leaves partial request-local output
+// uncommitted. Earlier completed epochs may already have advanced canonical
+// request state, so the owning v10 transaction must reset the complete cold
+// request arena before any failed/cancelled request can be reused.
 [[nodiscard]] int launch_sm87_macrofeed_v3_gdn_p40_cuda(
     const Sm87MacrofeedV3GdnP40Arguments& arguments) noexcept;
+
+// Request-hot form. The engine must query, authenticate, and retain the exact
+// resource seal during startup; this call revalidates that immutable host
+// receipt but performs no device/function/occupancy query before enqueue.
+[[nodiscard]] int launch_sm87_macrofeed_v3_gdn_p40_sealed_cuda(
+    const Sm87MacrofeedV3GdnP40Arguments& arguments,
+    const Sm87MacrofeedV3GdnResources& sealed_resources) noexcept;
 
 // Correctness-only C64 seam. It launches the identical convolution and
 // recurrence+epilogue kernels with a shorter loop extent so the complete
@@ -276,6 +298,12 @@ struct Sm87MacrofeedV3GdnC64OracleArguments final {
 };
 
 [[nodiscard]] int launch_sm87_macrofeed_v3_gdn_c64_oracle_cuda(
+    const Sm87MacrofeedV3GdnC64OracleArguments& arguments) noexcept;
+
+// Two ordered C64 epochs over C128. This specifically proves that the state
+// store/reload boundary and non-zero first-token addressing remain bitwise
+// equivalent to eight consecutive exact C16 reference calls.
+[[nodiscard]] int launch_sm87_macrofeed_v3_gdn_c128_two_epoch_oracle_cuda(
     const Sm87MacrofeedV3GdnC64OracleArguments& arguments) noexcept;
 
 static_assert(kSm87MacrofeedV3GdnP40Tokens %

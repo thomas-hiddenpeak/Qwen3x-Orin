@@ -756,6 +756,25 @@ int launch_sm87_macrofeed_v3_nvfp4_down_cuda(
       !device_pointer(arguments.residual, resources.device_ordinal)) {
     return static_cast<int>(cudaErrorInvalidDevicePointer);
   }
+  return launch_sm87_macrofeed_v3_nvfp4_down_sealed_cuda(
+      arguments, resources, receipt);
+}
+
+int launch_sm87_macrofeed_v3_nvfp4_down_sealed_cuda(
+    const Sm87MacroFeedV3NvFp4DownArguments& arguments,
+    const Sm87MacroFeedV3NvFp4DownCudaResources& sealed_resources,
+    Sm87MacroFeedV3NvFp4DownLaunchReceipt* const receipt) noexcept {
+  if (receipt == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *receipt = {};
+  if (!sm87_macrofeed_v3_nvfp4_down_arguments_valid(arguments) ||
+      !sealed_resources.static_resource_gate_passed ||
+      !sm87_macrofeed_v3_nvfp4_down_resource_gate(sealed_resources) ||
+      sealed_resources.device_ordinal !=
+          arguments.payload_receipt.device_ordinal) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
 
   const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
   (void)cudaGetLastError();

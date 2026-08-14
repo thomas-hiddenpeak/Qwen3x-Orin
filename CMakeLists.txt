@@ -3655,7 +3655,7 @@ if(BUILD_TESTING)
       COMMAND q3x_sm87_macrofeed_v3_gdn_p40_cuda_test
     )
     set_tests_properties(sm87_macrofeed_v3_gdn_p40_cuda PROPERTIES
-      LABELS "correctness;cuda;sm87;prefill;macrofeed_v3;gdn;c64;bit_exact;synthetic;t1;default_off"
+      LABELS "correctness;cuda;sm87;prefill;macrofeed_v3;gdn;c128;two_epoch;bit_exact;synthetic;t1;default_off"
       RESOURCE_LOCK q3x_sm87_gpu
       RUN_SERIAL TRUE
       SKIP_RETURN_CODE 77
