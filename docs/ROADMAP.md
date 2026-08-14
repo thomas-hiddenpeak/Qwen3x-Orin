@@ -226,7 +226,10 @@ changes:
 The tracked V4 foundation is deliberately non-executable and default-off. It
 contains the host traversal/workspace/state contract, the owner/epoch-bound
 host request transaction, a private authenticated startup foundation package,
-and independent C8000 NVFP4 Gate+Up and Down constituents. The startup package
+independent C8000 NVFP4 Gate+Up and Down constituents, and an admission-only
+two-kernel exact-GDN C8000 continuation. The GDN body preserves per-token BF16
+state and active/candidate ownership in bounded C1/C65 bit oracles, but it is
+not yet privately bound or numerically qualified at C8000. The startup package
 regenerates the canonical plan, validates the live 256-artifact/400-source
 catalog once, retains typed payload/scale capabilities, and mints V4-local
 resource seals with no launcher authority. These ownership facts, synthetic
@@ -373,9 +376,10 @@ Remaining execution order:
    transaction under an Engine-owned lifetime root, then bind device-owned
    panel/final events while retaining two recurrent epochs, private KV
    valid-end, rollback, reverse destruction order, and no production selector;
-2. implement the missing C8000 FP8, exact GDN, in-place/streaming exact
-   Attention, residual/layout, finalizer, rollback, and receipt paths, then
-   close their component and whole-state oracles;
+2. implement the missing C8000 FP8 and in-place/streaming exact Attention,
+   privately bind and qualify the admitted exact-GDN body, add
+   residual/layout, finalizer, rollback, and receipt paths, then close their
+   component and whole-state oracles;
 3. expose exactly one default-off V4 route through the existing real OpenAI
    P40 API and verify that its receipt reports executed physical work rather
    than a forecast; and

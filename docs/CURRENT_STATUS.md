@@ -581,11 +581,26 @@ non-uniform words; the Gate/Up and Down tile oracles cover both canonical
 N128 halves and M64/M37. These are synthetic correctness/resource admissions,
 not real-model accuracy or performance results.
 
+An independent default-off V4 exact-GDN admission constituent now covers one
+contiguous C8000 panel without a whole recurrent-epoch copy. It copies only
+the 61,440-byte convolution history into the candidate bank, runs one
+in-place causal-convolution/SiLU kernel, then one exact ordered recurrence +
+RMSNorm + SiLU-gate kernel. Active recurrent state remains const, every token
+consumes the preceding BF16-rounded state, same-token output consumes the
+pre-round FP32 update, and publication targets only the discardable candidate
+bank. Independent C1/C65 bit oracles, pre-cancellation, resource tampering,
+current-device/resource re-observation, and complete CUDA-allocation-range
+negative tests pass. The kernels compile at 27 and 80 registers/thread with
+4 and 34,316 bytes of static shared memory respectively and zero local/spill.
+This public seam is caller-live-stream, startup-package-unbound T1 admission
+only; it does not prove C8000 numerical qualification, bind a private stream,
+commit a recurrent epoch, or authorize production dispatch.
+
 V4 has no selector, whole-model launcher, authenticated device execution
-package, FP8/GDN/Attention integration, real-checkpoint oracle, API witness,
-performance result, numerical qualification, release authority, or production
-eligibility. The v10 observation at 392.804397 prompt tok/s therefore remains
-the current whole-product incumbent.
+package, startup-bound FP8/GDN/Attention composition, real-checkpoint oracle,
+API witness, performance result, numerical qualification, release authority,
+or production eligibility. The v10 observation at 392.804397 prompt tok/s
+therefore remains the current whole-product incumbent.
 
 ## 2. Current capability matrix
 
@@ -601,7 +616,7 @@ the current whole-product incumbent.
 | SM87 whole-system AOT Prefill v1 | Default-off real-P40 API composition; performance-rejected after a zero-byte 840.000399-second timeout | Retain only as correctness/diagnostic control; it is not an active performance candidate |
 | SM87 bulk-dataflow v2 Prefill | Complete default-off real-P40 API route; performance-rejected after a zero-byte 680.73-second EvalScope timeout and one bounded causal profile; accuracy remains unqualified | Retain exact constituents and evidence only; no V2 tuning, P60/P130, qualification, or production promotion |
 | SM87 MacroFeed v3 Prefill | Complete default-off, test-only 64-layer source composition with startup-bound target-AOT assets, role-specific macro projections, nine-kernel-per-layer exact GDN, cold rollback, and a V18 physical transaction; integrated build and focused admission tests pass | Frozen executable diagnostic/control; no authoritative P40 timing, numerical, release, or production qualification exists |
-| SM87 MacroFeed v4 Prefill | Active, default-off, non-executable C8000×5 panel-major foundation; host workspace plan, owner/epoch-bound test-only request transaction, authenticated 256-artifact startup foundation package, Gate+Up, Down, asymmetric decoder, half/tail, and two-CTA/SM admissions pass | Compose startup ownership and request state with device-owned events; implement C8000 FP8/GDN/in-place exact Attention, finalizer, whole-model physical receipts and rollback, then real-checkpoint/state/API qualification; no selector or performance authority exists |
+| SM87 MacroFeed v4 Prefill | Active, default-off, non-executable C8000×5 panel-major foundation; host workspace plan, owner/epoch-bound test-only request transaction, authenticated 256-artifact startup foundation package, Gate+Up, Down, asymmetric decoder, half/tail, two-CTA/SM projection admissions, and an independent exact-GDN C1/C65/resource admission pass | Compose startup ownership and request state with device-owned events; implement C8000 FP8 and in-place exact Attention, privately bind the GDN constituent, then add finalizer, whole-model physical receipts and rollback before real-checkpoint/state/API qualification; no selector or performance authority exists |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

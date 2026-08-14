@@ -549,9 +549,12 @@ panels outside the natural layer loop. Its current implementation boundary is
 the host workspace/state contract, an owner/epoch-bound host request
 transaction, a private startup foundation package authenticating all 256
 artifacts from 400 checkpoint sources, and independent C8000 NVFP4 Gate+Up and
-Down admissions. The package's typed bindings and V4-local resource seals are
-startup ownership facts only; they expose no launcher. The missing device
-event composition, FP8, exact GDN, in-place/streaming exact Attention,
+Down admissions. An independent two-kernel exact-GDN admission additionally
+preserves the per-token BF16 recurrence boundary in C1/C65 oracles while
+keeping active/candidate state separate. The package's typed bindings and
+V4-local resource seals are startup ownership facts only; they expose no
+launcher. The missing device event composition, FP8, private binding and
+full-C8000 qualification of exact GDN, in-place/streaming exact Attention,
 whole-model receipt, rollback, finalizer, and API launcher must compose before
 V4 is runnable or eligible for a P40 witness.
 

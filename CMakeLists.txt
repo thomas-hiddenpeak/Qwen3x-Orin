@@ -159,6 +159,10 @@ option(Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION
   "Build the independent default-off M8000 MacroFeed-v4 NVFP4 Gate+Up T0/T1 constituent"
   OFF
 )
+option(Q3X_BUILD_SM87_MACROFEED_V4_GDN_C8000_ADMISSION
+  "Build the default-off exact C8000 MacroFeed-v4 GDN admission-only constituent"
+  OFF
+)
 option(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION
   "Build the test-only complete P40000 MacroFeed-v3 execution-plan admission"
   OFF
@@ -501,6 +505,12 @@ if(Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION AND
    NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION is an independent T0/T1 architecture slice and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_GDN_C8000_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_MACROFEED_V4_GDN_C8000_ADMISSION is an admission-only T0/T1 constituent and requires BUILD_TESTING=ON"
   )
 endif()
 if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION AND
@@ -1101,6 +1111,16 @@ if(Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION)
   )
   set_property(SOURCE
     src/kernels/sm87/sm87_macrofeed_v4_nvfp4_gate_up.cu
+    APPEND PROPERTY COMPILE_OPTIONS "-Xptxas=-v"
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_GDN_C8000_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/sm87/sm87_macrofeed_v4_gdn_c8000.cu
+  )
+  target_link_libraries(q3x_kernels PRIVATE CUDA::cuda_driver)
+  set_property(SOURCE
+    src/kernels/sm87/sm87_macrofeed_v4_gdn_c8000.cu
     APPEND PROPERTY COMPILE_OPTIONS "-Xptxas=-v"
   )
 endif()
@@ -4003,6 +4023,29 @@ if(BUILD_TESTING)
     )
     set_tests_properties(sm87_macrofeed_v4_nvfp4_gate_up_cuda PROPERTIES
       LABELS "correctness;cuda;sm87;prefill;macrofeed_v4;projection;nvfp4;gate_up;c8000;m64;m37_tail;bit_exact;synthetic;t1;default_off"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 300
+    )
+  endif()
+
+  if(Q3X_BUILD_SM87_MACROFEED_V4_GDN_C8000_ADMISSION)
+    add_executable(q3x_sm87_macrofeed_v4_gdn_c8000_cuda_test
+      tests/sm87_macrofeed_v4_gdn_c8000_cuda_test.cu
+    )
+    target_link_libraries(q3x_sm87_macrofeed_v4_gdn_c8000_cuda_test
+      PRIVATE q3x::kernels CUDA::cudart
+    )
+    target_compile_options(q3x_sm87_macrofeed_v4_gdn_c8000_cuda_test
+      PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+    )
+    q3x_enable_warnings(q3x_sm87_macrofeed_v4_gdn_c8000_cuda_test)
+    add_test(NAME sm87_macrofeed_v4_gdn_c8000_cuda
+      COMMAND q3x_sm87_macrofeed_v4_gdn_c8000_cuda_test
+    )
+    set_tests_properties(sm87_macrofeed_v4_gdn_c8000_cuda PROPERTIES
+      LABELS "correctness;resource;cuda;sm87;prefill;macrofeed_v4;gdn;c8000;c1;c65;two_epoch;bit_exact;synthetic;t1;admission_only;default_off"
       RESOURCE_LOCK q3x_sm87_gpu
       RUN_SERIAL TRUE
       SKIP_RETURN_CODE 77
