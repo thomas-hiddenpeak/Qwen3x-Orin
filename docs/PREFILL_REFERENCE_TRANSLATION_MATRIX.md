@@ -546,10 +546,14 @@ the physical `PrefillStateCommitted` boundary before performance promotion.
 The active V4 foundation reuses these source translations and authenticated
 canonical payloads, but replaces the whole-request traversal with five C8000
 panels outside the natural layer loop. Its current implementation boundary is
-only the host workspace/state contract and independent C8000 NVFP4 Gate+Up and
-Down admissions. The missing FP8, exact GDN, in-place/streaming exact
-Attention, dual-epoch request state, whole-model receipt, rollback, and API
-launcher must compose before V4 is runnable or eligible for a P40 witness.
+the host workspace/state contract, an owner/epoch-bound host request
+transaction, a private startup foundation package authenticating all 256
+artifacts from 400 checkpoint sources, and independent C8000 NVFP4 Gate+Up and
+Down admissions. The package's typed bindings and V4-local resource seals are
+startup ownership facts only; they expose no launcher. The missing device
+event composition, FP8, exact GDN, in-place/streaming exact Attention,
+whole-model receipt, rollback, finalizer, and API launcher must compose before
+V4 is runnable or eligible for a P40 witness.
 
 The earlier default-off target-AOT admissions supplied the byte-authenticated
 asset and lifetime prerequisites now consumed by V3. One admission contains a

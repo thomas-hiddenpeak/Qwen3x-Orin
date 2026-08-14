@@ -167,6 +167,10 @@ option(Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_DOWN_ADMISSION
   "Build the default-off C8000 M64N128 two-CTA/SM MacroFeed-v4 NVFP4 Down constituent"
   OFF
 )
+option(Q3X_BUILD_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION
+  "Build the test-only authenticated MacroFeed-v4 P40 startup foundation package"
+  OFF
+)
 option(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION
   "Build the default-off whole-P40000 NVFP4 Gate+Up 4Mx8N cohort successor and exact CUDA oracle"
   OFF
@@ -509,6 +513,20 @@ if(Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_DOWN_ADMISSION AND
    NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_DOWN_ADMISSION is an independent CUDA admission constituent and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION AND
+   (NOT Q3X_BUILD_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION OR
+    NOT Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION OR
+    NOT Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_DOWN_ADMISSION))
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION requires authenticated complete target-AOT assets and both V4 C8000 NVFP4 constituents"
   )
 endif()
 if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION AND
@@ -1092,6 +1110,17 @@ if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
   # for runner/tests that consume its typed, owner-backed launch bindings.
   target_sources(q3x_kernels PRIVATE
     src/runtime/sm87_macrofeed_v3_p40_execution_package_internal.cpp
+  )
+endif()
+if(Q3X_BUILD_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION)
+  # This is an authenticated T0 ownership package only. It retains the
+  # complete target-AOT catalog and mints V4-local Gate/Up and Down startup
+  # seals, but exposes no launcher, selector, request state, or receipt.
+  target_sources(q3x_kernels PRIVATE
+    src/runtime/sm87_macrofeed_v4_p40_startup_package_internal.cpp
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION=1
   )
 endif()
 if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION)
@@ -3172,6 +3201,31 @@ if(BUILD_TESTING)
     sm87_macrofeed_v4_request_state PROPERTIES
     LABELS "host;sm87;prefill;macrofeed_v4;request_state;ownership;t0;default_off;non_executable"
   )
+
+  if(Q3X_BUILD_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION)
+    add_executable(q3x_sm87_macrofeed_v4_p40_startup_package_host_test
+      tests/sm87_macrofeed_v4_p40_startup_package_host_test.cpp
+    )
+    target_compile_definitions(
+      q3x_sm87_macrofeed_v4_p40_startup_package_host_test PRIVATE
+      Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION=1
+      Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION=1
+    )
+    target_link_libraries(
+      q3x_sm87_macrofeed_v4_p40_startup_package_host_test
+      PRIVATE q3x::kernels
+    )
+    q3x_enable_warnings(
+      q3x_sm87_macrofeed_v4_p40_startup_package_host_test
+    )
+    add_test(NAME sm87_macrofeed_v4_p40_startup_package_host
+      COMMAND q3x_sm87_macrofeed_v4_p40_startup_package_host_test
+    )
+    set_tests_properties(
+      sm87_macrofeed_v4_p40_startup_package_host PROPERTIES
+      LABELS "host;sm87;prefill;macrofeed_v4;startup_package;target_aot;ownership;t0;default_off;non_executable"
+    )
+  endif()
 
   if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
     add_executable(q3x_sm87_macrofeed_v3_p40_execution_package_host_test

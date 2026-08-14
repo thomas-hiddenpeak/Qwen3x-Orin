@@ -546,6 +546,19 @@ state writes active-to-candidate directly. Its completion records are named
 and marked test-only; it owns no CUDA event, produces no physical execution or
 Decode receipt, and remains default-off/non-executable.
 
+A separate default-off, test-only V4 startup foundation package now enters
+through the private `ModelWeights` attachment. It regenerates the canonical
+P40 plan internally, authenticates the complete 256-artifact/400-source live
+target-AOT catalog, preserves each payload, manifest, upload/readback receipt,
+and tensor-scale identity, and mints V4-local Gate+Up and Down resource seals.
+Its full-catalog borrow performs one live catalog validation followed by a
+linear binding pass; no per-layer catalog rescan is part of the intended hot
+path. The package is still host-only and non-executable: it binds no FP8, GDN,
+Attention, request-state event, finalizer, rollback, or physical receipt, and
+its seals cannot authorize a launcher or production dispatch. Its non-owning
+asset access also requires the future Engine composition root to destroy the
+startup package before `ModelWeights` and the complete target-AOT owner.
+
 Two independent V4 NVFP4 constituents also exist. Gate+Up binds
 M8000/K5120/N17408 to M64N128K64, 256 threads, two stages, and 32 persistent
 CTAs; its production kernel compiles at 128 registers/thread with zero spill
@@ -578,7 +591,7 @@ the current whole-product incumbent.
 | SM87 whole-system AOT Prefill v1 | Default-off real-P40 API composition; performance-rejected after a zero-byte 840.000399-second timeout | Retain only as correctness/diagnostic control; it is not an active performance candidate |
 | SM87 bulk-dataflow v2 Prefill | Complete default-off real-P40 API route; performance-rejected after a zero-byte 680.73-second EvalScope timeout and one bounded causal profile; accuracy remains unqualified | Retain exact constituents and evidence only; no V2 tuning, P60/P130, qualification, or production promotion |
 | SM87 MacroFeed v3 Prefill | Complete default-off, test-only 64-layer source composition with startup-bound target-AOT assets, role-specific macro projections, nine-kernel-per-layer exact GDN, cold rollback, and a V18 physical transaction; integrated build and focused admission tests pass | Frozen executable diagnostic/control; no authoritative P40 timing, numerical, release, or production qualification exists |
-| SM87 MacroFeed v4 Prefill | Active, default-off, non-executable C8000×5 panel-major foundation; host workspace plan, owner/epoch-bound test-only request transaction, Gate+Up, Down, asymmetric decoder, half/tail, and two-CTA/SM admissions pass | Bind the request transaction to device-owned events and an authenticated startup package; implement C8000 FP8/GDN/in-place exact Attention, whole-model physical receipts and rollback, then real-checkpoint/state/API qualification; no selector or performance authority exists |
+| SM87 MacroFeed v4 Prefill | Active, default-off, non-executable C8000×5 panel-major foundation; host workspace plan, owner/epoch-bound test-only request transaction, authenticated 256-artifact startup foundation package, Gate+Up, Down, asymmetric decoder, half/tail, and two-CTA/SM admissions pass | Compose startup ownership and request state with device-owned events; implement C8000 FP8/GDN/in-place exact Attention, finalizer, whole-model physical receipts and rollback, then real-checkpoint/state/API qualification; no selector or performance authority exists |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

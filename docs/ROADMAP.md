@@ -221,12 +221,17 @@ changes:
   non-fallible visibility fence.
 
 The tracked V4 foundation is deliberately non-executable and default-off. It
-contains the host traversal/workspace/state contract plus independent C8000
-NVFP4 Gate+Up and Down constituents; their synthetic bit oracles and hard
-two-CTA/SM resource gates do not create a whole-product result. There is no V4
-selector, launcher, authenticated execution package, real-checkpoint oracle,
-API timing, numerical qualification, or production eligibility yet. Those
-boundaries are blockers, not implied future facts.
+contains the host traversal/workspace/state contract, the owner/epoch-bound
+host request transaction, a private authenticated startup foundation package,
+and independent C8000 NVFP4 Gate+Up and Down constituents. The startup package
+regenerates the canonical plan, validates the live 256-artifact/400-source
+catalog once, retains typed payload/scale capabilities, and mints V4-local
+resource seals with no launcher authority. These ownership facts, synthetic
+bit oracles, and hard two-CTA/SM resource gates do not create a whole-product
+result. There is no V4 selector, launcher, authenticated device execution
+package, real-checkpoint oracle, API timing, numerical qualification, or
+production eligibility yet. Those boundaries are blockers, not implied future
+facts.
 
 Its P40 allocation remains:
 
@@ -347,22 +352,24 @@ and its current critical path.
 
 The matched work ledger, v10 control, V2 closure, and complete default-off V3
 control are no longer unfinished Roadmap items. The V4 host contract, its
-owner/epoch-bound host-only request transaction, and its first two NVFP4
-constituents are implementation facts only: the shared
+owner/epoch-bound host-only request transaction, its authenticated startup
+foundation package, and its first two NVFP4 constituents are implementation
+facts only: the shared
 canonical decoder has an asymmetric nibble/scale bit oracle, both projection
 tests cover the two N128 halves and M64/M37, and both production kernels pass
 their two-CTA/SM resource gate. The request transaction additionally proves
 five atomic panel swaps, private KV valid-end, cancellation/poisoning, and the
 logical final fence, but its event completions are explicitly test-only and it
-issues neither a CUDA execution receipt nor Decode access. None of those tests
-has real-model or performance authority.
+issues neither a CUDA execution receipt nor Decode access. The startup package
+retains no execution-owning capability and binds no device event or missing
+executor. None of those tests has real-model or performance authority.
 
 Remaining execution order:
 
-1. bind the existing host request transaction to a private, authenticated
-   startup package and device-owned panel/final events while retaining two
-   recurrent epochs, private KV valid-end, rollback, and no production
-   selector;
+1. compose the existing private startup foundation package and host request
+   transaction under an Engine-owned lifetime root, then bind device-owned
+   panel/final events while retaining two recurrent epochs, private KV
+   valid-end, rollback, reverse destruction order, and no production selector;
 2. implement the missing C8000 FP8, exact GDN, in-place/streaming exact
    Attention, residual/layout, finalizer, rollback, and receipt paths, then
    close their component and whole-state oracles;
