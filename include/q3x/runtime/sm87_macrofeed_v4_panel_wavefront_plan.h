@@ -16,7 +16,7 @@ inline constexpr std::array<std::uint8_t, 8U>
     kSm87MacroFeedV4PanelWavefrontMagic{{'Q', '3', 'X', 'M', 'F', '4', 'P',
                                          '1'}};
 inline constexpr std::uint16_t kSm87MacroFeedV4PanelWavefrontAbiMajor = 1U;
-inline constexpr std::uint16_t kSm87MacroFeedV4PanelWavefrontAbiMinor = 0U;
+inline constexpr std::uint16_t kSm87MacroFeedV4PanelWavefrontAbiMinor = 1U;
 
 inline constexpr std::string_view kSm87MacroFeedV4CandidateId =
     "AC-PREFILL-SM87-MACROFEED-v4";
@@ -41,6 +41,16 @@ inline constexpr std::size_t kSm87MacroFeedV4Hidden = 5'120U;
 inline constexpr std::size_t kSm87MacroFeedV4Intermediate = 17'408U;
 inline constexpr std::size_t kSm87MacroFeedV4AttentionQuery = 6'144U;
 inline constexpr std::size_t kSm87MacroFeedV4AttentionRawQGate = 12'288U;
+inline constexpr std::size_t kSm87MacroFeedV4AttentionHeads = 24U;
+inline constexpr std::size_t kSm87MacroFeedV4AttentionHeadDimension = 256U;
+inline constexpr std::size_t kSm87MacroFeedV4AttentionInterleavedHeadStride =
+    2U * kSm87MacroFeedV4AttentionHeadDimension;
+inline constexpr std::size_t kSm87MacroFeedV4AttentionQSlotOffset = 0U;
+inline constexpr std::size_t kSm87MacroFeedV4AttentionGateSlotOffset =
+    kSm87MacroFeedV4AttentionHeadDimension;
+inline constexpr std::size_t kSm87MacroFeedV4AttentionLogicalQColumns =
+    kSm87MacroFeedV4AttentionHeads *
+    kSm87MacroFeedV4AttentionHeadDimension;
 inline constexpr std::size_t kSm87MacroFeedV4AttentionLegacyLiveColumns =
     kSm87MacroFeedV4AttentionRawQGate +
     2U * kSm87MacroFeedV4AttentionQuery;
@@ -83,6 +93,10 @@ static_assert(kSm87MacroFeedV4Intermediate >=
               kSm87MacroFeedV4AttentionRawQGate);
 static_assert(kSm87MacroFeedV4Intermediate >=
               kSm87MacroFeedV4GdnAliasedLiveColumns);
+static_assert(kSm87MacroFeedV4AttentionRawQGate ==
+              kSm87MacroFeedV4AttentionHeads *
+                  kSm87MacroFeedV4AttentionInterleavedHeadStride);
+static_assert(kSm87MacroFeedV4AttentionLogicalQColumns == 6'144U);
 static_assert(kSm87MacroFeedV4RecurrentEpochBytes == 78'446'592U);
 static_assert(kSm87MacroFeedV4RecurrentStorageBytes == 156'893'184U);
 
@@ -164,11 +178,17 @@ struct Sm87MacroFeedV4WorkspacePlan final {
 
 // The single C8000 scratch plane is intentionally smaller than the incumbent
 // Full-Attention live set.  These aliases are therefore required execution
-// semantics, not optional memory optimizations.  An executor that materializes
-// raw Q+gate, processed Q, and packed gate concurrently is not V4.
+// semantics, not optional memory optimizations.  The projection-native
+// [Q256,Gate256] head interleave stays in place: preprocess and Attention
+// overwrite Q slots, Gate slots remain live, and FP8 O gathers Q slots
+// directly.  A compact Q/G or separate Attention-output plane is not V4.
 struct Sm87MacroFeedV4PhaseAliasingPlan final {
-  bool attention_q_preprocess_overwrites_raw_q_gate = false;
+  bool attention_q_preprocess_overwrites_raw_q_slots = false;
   bool attention_online_core_reuses_processed_q = false;
+  bool attention_interleaved_q_gate_layout_retained = false;
+  bool attention_result_overwrites_q_slots_in_place = false;
+  bool attention_gate_slots_remain_in_place = false;
+  bool attention_output_projection_gathers_interleaved_q_slots = false;
   bool gdn_recurrent_reuses_consumed_qkv = false;
   bool gate_up_activation_owns_panel_scratch = false;
   bool every_phase_fits_one_panel_scratch = false;

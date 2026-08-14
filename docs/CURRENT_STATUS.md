@@ -534,6 +534,16 @@ epochs, private KV valid-end, and final-only canonical publication. The
 contract requires in-place/streaming Attention and GDN workspace aliasing;
 those executors do not yet exist.
 
+The Attention lifetime is now frozen more tightly than that allocation-only
+statement. Each scratch row retains the projection-native 24-head
+`[Q256, Gate256]` interleave. Preprocessing overwrites only each raw Q slot,
+the exact online Attention result overwrites that processed Q slot in place,
+and every Gate slot stays at its original address. The FP8 Attention-output
+projection must gather the logical 6,144-wide K axis directly from those Q
+slots; compacting Q/G or materializing a separate Attention-output plane is
+not a V4 implementation. This removes the corresponding C8000×6144 repack and
+copy from the candidate dataflow before any kernel is selected.
+
 A host-only V4 request-state admission now makes the private transaction
 explicit without granting execution authority. It binds two non-overlapping
 recurrent banks to one owner/allocation and a fresh request epoch, requires all

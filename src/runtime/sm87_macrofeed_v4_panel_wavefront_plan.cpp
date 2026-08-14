@@ -152,8 +152,13 @@ make_sm87_macrofeed_v4_p40_panel_wavefront_plan() noexcept {
   plan.workspace.persistent_kv_is_outside_transient_arena = true;
   plan.workspace.persistent_conv_gdn_state_is_outside_transient_arena = true;
 
-  plan.phase_aliasing.attention_q_preprocess_overwrites_raw_q_gate = true;
+  plan.phase_aliasing.attention_q_preprocess_overwrites_raw_q_slots = true;
   plan.phase_aliasing.attention_online_core_reuses_processed_q = true;
+  plan.phase_aliasing.attention_interleaved_q_gate_layout_retained = true;
+  plan.phase_aliasing.attention_result_overwrites_q_slots_in_place = true;
+  plan.phase_aliasing.attention_gate_slots_remain_in_place = true;
+  plan.phase_aliasing
+      .attention_output_projection_gathers_interleaved_q_slots = true;
   plan.phase_aliasing.gdn_recurrent_reuses_consumed_qkv = true;
   plan.phase_aliasing.gate_up_activation_owns_panel_scratch = true;
   plan.phase_aliasing.every_phase_fits_one_panel_scratch = true;
@@ -357,8 +362,13 @@ validate_sm87_macrofeed_v4_p40_panel_wavefront_plan(
   }
 
   const auto& phase_aliasing = plan.phase_aliasing;
-  if (!phase_aliasing.attention_q_preprocess_overwrites_raw_q_gate ||
+  if (!phase_aliasing.attention_q_preprocess_overwrites_raw_q_slots ||
       !phase_aliasing.attention_online_core_reuses_processed_q ||
+      !phase_aliasing.attention_interleaved_q_gate_layout_retained ||
+      !phase_aliasing.attention_result_overwrites_q_slots_in_place ||
+      !phase_aliasing.attention_gate_slots_remain_in_place ||
+      !phase_aliasing
+           .attention_output_projection_gathers_interleaved_q_slots ||
       !phase_aliasing.gdn_recurrent_reuses_consumed_qkv ||
       !phase_aliasing.gate_up_activation_owns_panel_scratch ||
       !phase_aliasing.every_phase_fits_one_panel_scratch) {

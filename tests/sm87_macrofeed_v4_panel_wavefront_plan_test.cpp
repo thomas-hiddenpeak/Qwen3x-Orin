@@ -99,8 +99,13 @@ int main() {
           runtime::kSm87MacroFeedV4AttentionLegacyLiveColumns >
               runtime::kSm87MacroFeedV4Intermediate &&
           runtime::kSm87MacroFeedV4GdnAliasedLiveColumns == 16'480U &&
-          plan.phase_aliasing.attention_q_preprocess_overwrites_raw_q_gate &&
+          plan.phase_aliasing.attention_q_preprocess_overwrites_raw_q_slots &&
           plan.phase_aliasing.attention_online_core_reuses_processed_q &&
+          plan.phase_aliasing.attention_interleaved_q_gate_layout_retained &&
+          plan.phase_aliasing.attention_result_overwrites_q_slots_in_place &&
+          plan.phase_aliasing.attention_gate_slots_remain_in_place &&
+          plan.phase_aliasing
+              .attention_output_projection_gathers_interleaved_q_slots &&
           plan.phase_aliasing.gdn_recurrent_reuses_consumed_qkv &&
           plan.phase_aliasing.gate_up_activation_owns_panel_scratch &&
           plan.phase_aliasing.every_phase_fits_one_panel_scratch,
@@ -301,13 +306,22 @@ int main() {
               "ping/pong alias is rejected");
 
   malformed = plan;
-  malformed.phase_aliasing.attention_q_preprocess_overwrites_raw_q_gate =
+  malformed.phase_aliasing.attention_q_preprocess_overwrites_raw_q_slots =
       false;
   rejected =
       runtime::validate_sm87_macrofeed_v4_p40_panel_wavefront_plan(malformed);
   test.expect(has_issue(rejected,
                         runtime::Sm87MacroFeedV4PlanIssue::kPhaseAliasing),
               "an unfused incumbent Attention live set is rejected");
+
+  malformed = plan;
+  malformed.phase_aliasing
+      .attention_output_projection_gathers_interleaved_q_slots = false;
+  rejected =
+      runtime::validate_sm87_macrofeed_v4_p40_panel_wavefront_plan(malformed);
+  test.expect(has_issue(rejected,
+                        runtime::Sm87MacroFeedV4PlanIssue::kPhaseAliasing),
+              "an Attention repack between in-place Q slots and O is rejected");
 
   malformed = plan;
   malformed.state_ownership.recurrent_epoch_bank_count = 1U;

@@ -336,10 +336,22 @@ std::uint64_t Sm87MacroFeedV4P40StartupPackage::
       plan.workspace.persistent_conv_gdn_state_is_outside_transient_arena);
   identity = mix(
       identity,
-      plan.phase_aliasing.attention_q_preprocess_overwrites_raw_q_gate);
+      plan.phase_aliasing.attention_q_preprocess_overwrites_raw_q_slots);
   identity = mix(
       identity,
       plan.phase_aliasing.attention_online_core_reuses_processed_q);
+  identity = mix(
+      identity,
+      plan.phase_aliasing.attention_interleaved_q_gate_layout_retained);
+  identity = mix(
+      identity,
+      plan.phase_aliasing.attention_result_overwrites_q_slots_in_place);
+  identity = mix(
+      identity, plan.phase_aliasing.attention_gate_slots_remain_in_place);
+  identity = mix(
+      identity,
+      plan.phase_aliasing
+          .attention_output_projection_gathers_interleaved_q_slots);
   identity = mix(identity,
                  plan.phase_aliasing.gdn_recurrent_reuses_consumed_qkv);
   identity = mix(identity,

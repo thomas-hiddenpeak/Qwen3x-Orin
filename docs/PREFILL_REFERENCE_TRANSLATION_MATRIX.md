@@ -555,6 +555,14 @@ event composition, FP8, exact GDN, in-place/streaming exact Attention,
 whole-model receipt, rollback, finalizer, and API launcher must compose before
 V4 is runnable or eligible for a P40 witness.
 
+The fixed Attention handoff now retains the FP8 projection's native
+`[Q256, Gate256]` head interleave. Q preprocessing and exact Attention both
+overwrite only Q slots, Gate slots remain live in place, and the FP8 O feed
+gathers the 6,144 logical input columns directly from those slots. This is the
+SM87 translation of FlashInfer's strided-Q/output ownership, not a FlashInfer
+runtime dependency, and it forbids a compact-Q staging plane or a post-
+Attention repack.
+
 The earlier default-off target-AOT admissions supplied the byte-authenticated
 asset and lifetime prerequisites now consumed by V3. One admission contains a
 real-byte host transformation and NVFP4 Gate+Up/Down CUDA bodies, while a

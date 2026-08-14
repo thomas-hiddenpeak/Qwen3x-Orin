@@ -210,9 +210,12 @@ changes:
 - C8000 shape-specific Gate+Up, K-heavy Down, and FP8 feeds consume
   authenticated canonical AOT payloads without request-time repack, JIT,
   autotune, fallback, cuBLASLt, MTP, or approximate arithmetic;
-- full Attention must preprocess Q in place and stream/reuse the processed-Q
-  owner because the incumbent raw-Q/gate plus processed-Q live set cannot fit
-  the single scratch plane;
+- full Attention retains the projection-native per-head `[Q256, Gate256]`
+  interleave, preprocesses Q in place, overwrites those Q slots with the exact
+  online-Attention result, leaves Gate slots in place, and lets the FP8 O
+  projection gather the logical 6,144-wide input directly; a compact Q/G
+  repack or separate Attention-output plane is forbidden because the incumbent
+  live set cannot fit the single scratch plane;
 - GDN must alias consumed QKV/Z workspace while preserving every per-token
   BF16 state boundary; and
 - convolution/GDN recurrent state uses two explicit 78,446,592-byte private
