@@ -159,6 +159,10 @@ option(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_OWNER_ADMISSION
   "Build the default-off whole-P40 v2 resource owner and host lifecycle contract"
   OFF
 )
+option(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION
+  "Build the default-off complete whole-P40 v2 execution composition"
+  OFF
+)
 option(Q3X_BUILD_P40_PROJECTION_WORK_MANIFEST_DIAGNOSTIC
   "Build the host-only three-level P40 v10 projection work checker"
   OFF
@@ -484,6 +488,27 @@ if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_OWNER_ADMISSION AND
    NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_OWNER_ADMISSION is an incomplete default-off architecture slice and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION is an incomplete default-off architecture candidate and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION AND
+   (NOT Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION OR
+    NOT Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION OR
+    NOT Q3X_BUILD_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION OR
+    NOT Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_SM87_BULK_DATAFLOW_V2_GDN_C64_ADMISSION OR
+    NOT Q3X_BUILD_SM87_BULK_DATAFLOW_V2_ATTENTION_L2_COHORT_ADMISSION OR
+    NOT Q3X_BUILD_SM87_BULK_DATAFLOW_V2_FP8_WHOLE_P40_ADMISSION OR
+    NOT Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION OR
+    NOT Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_DOWN_WHOLE_P40_ADMISSION OR
+    NOT Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_OWNER_ADMISSION))
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION requires the host AOT contract, authenticated complete projection assets, BF16 A/B execution inventory, every whole-P40 v2 GDN/Attention/FP8/NVFP4 constituent, and the v2 P40 resource owner"
   )
 endif()
 if(Q3X_BUILD_P40_PROJECTION_WORK_MANIFEST_DIAGNOSTIC AND
@@ -975,6 +1000,11 @@ if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_NVFP4_GATE_UP_WHOLE_P40_ADMISSION)
     Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_NVFP4_PROJECTION_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION)
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION=1
+  )
+endif()
 if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION)
   target_sources(q3x_kernels PRIVATE
     src/kernels/sm87/fp8_marlin_w8a16.cu
@@ -1087,13 +1117,27 @@ if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_OWNER_ADMISSION)
     )
   endif()
 endif()
-if(Q3X_BUILD_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+if(Q3X_BUILD_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION OR
+   Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION)
   target_sources(q3x_engine PRIVATE
     src/runtime/sm87_target_aot_engine_rope_internal.cpp
+  )
+endif()
+if(Q3X_BUILD_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+  target_sources(q3x_engine PRIVATE
     src/runtime/sm87_target_aot_p40_executor_internal.cpp
   )
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION)
+  target_sources(q3x_engine PRIVATE
+    src/runtime/sm87_bulk_dataflow_v2_p40_composition_internal.cpp
+    src/runtime/sm87_bulk_dataflow_v2_p40_executor_internal.cpp
+  )
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION=1
   )
 endif()
 add_library(q3x::engine ALIAS q3x_engine)

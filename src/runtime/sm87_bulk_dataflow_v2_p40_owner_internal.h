@@ -190,6 +190,9 @@ struct Sm87BulkV2P40OwnerReceipt final {
   std::size_t device_ordering_operations = 0U;
   std::size_t request_hot_static_cuda_queries = 0U;
   std::uint32_t joined_auxiliary_stream_mask = 0U;
+  // Kept outside the frozen public aggregate ABI. Only the private
+  // RequestState terminal observation may publish the selected BF16 value.
+  std::uint16_t handoff_value_bits = 0U;
   bool owner_bound_capability_used = false;
   bool public_aggregate_used_as_authority = true;
 

@@ -1560,6 +1560,7 @@ Sm87BulkV2P40OwnerStatus Sm87BulkV2P40Owner::complete_request(
   receipt_.aggregate.handoff_observed = true;
   receipt_.aggregate.handoff_token_id = handoff.token_id;
   receipt_.aggregate.handoff_nonfinite = handoff.nonfinite;
+  receipt_.handoff_value_bits = handoff.value_bits;
   receipt_.aggregate.first_error = 0;
   active_request_state_ = nullptr;
   active_request_access_ = nullptr;

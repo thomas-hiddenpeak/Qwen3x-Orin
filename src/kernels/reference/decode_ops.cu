@@ -3349,7 +3349,8 @@ int launch_p8000(
     const std::size_t first_position,
     const std::size_t token_count,
     void* const cuda_stream) noexcept {
-#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION) || \
+    defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION)
   return launch_full_attention_preprocess_24_4_256_64_impl(
       interleaved_q_gate, key, q_weight, k_weight, epsilon, query_output,
       gate_output, cosines, sines, first_position, token_count,

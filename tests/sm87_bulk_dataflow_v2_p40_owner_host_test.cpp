@@ -1371,7 +1371,7 @@ void test_owner_bound_request_state_completion(TestContext& test) {
                           *access)),
               "final norm, LM head, argmax, and fixed owner-bound D2H close the exact work receipt");
   owner::Sm87BulkV2P40RequestStateHostFixture::
-      emulate_completed_handoff_d2h(request_state, 123U, 0U);
+      emulate_completed_handoff_d2h(request_state, 123U, 0U, 0x3f80U);
 
   auto gdn_receipt = kernels::sm87_bulk_v2_gdn_p40_submission_receipt();
   gdn_receipt.lifecycle =
@@ -1422,6 +1422,7 @@ void test_owner_bound_request_state_completion(TestContext& test) {
                   receipt.state_committed && receipt.handoff_observed &&
                   receipt.handoff_token_id == 123U &&
                   receipt.handoff_nonfinite == 0U &&
+                  created.owner->receipt().handoff_value_bits == 0x3f80U &&
                   created.owner->receipt().identity_valid(),
               "completed receipt publishes only the post-sync private 8-byte handoff observation");
 
