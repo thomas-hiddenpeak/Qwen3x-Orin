@@ -534,6 +534,18 @@ epochs, private KV valid-end, and final-only canonical publication. The
 contract requires in-place/streaming Attention and GDN workspace aliasing;
 those executors do not yet exist.
 
+A host-only V4 request-state admission now makes the private transaction
+explicit without granting execution authority. It binds two non-overlapping
+recurrent banks to one owner/allocation and a fresh request epoch, requires all
+48 Conv/GDN writers plus all 16 KV writers before each panel swap, rejects
+stale panel/event generations, and models cancellation, poisoning, exact
+epoch-five B-to-A canonical copy, and the final logical sequence-length fence.
+It deliberately forbids a whole 78,446,592-byte pre-panel copy: each GDN layer
+copies only its 61,440-byte convolution history while the 1,572,864-byte GDN
+state writes active-to-candidate directly. Its completion records are named
+and marked test-only; it owns no CUDA event, produces no physical execution or
+Decode receipt, and remains default-off/non-executable.
+
 Two independent V4 NVFP4 constituents also exist. Gate+Up binds
 M8000/K5120/N17408 to M64N128K64, 256 threads, two stages, and 32 persistent
 CTAs; its production kernel compiles at 128 registers/thread with zero spill
@@ -546,8 +558,8 @@ non-uniform words; the Gate/Up and Down tile oracles cover both canonical
 N128 halves and M64/M37. These are synthetic correctness/resource admissions,
 not real-model accuracy or performance results.
 
-V4 has no selector, whole-model launcher, authenticated execution package,
-FP8/GDN/Attention integration, real-checkpoint oracle, API witness,
+V4 has no selector, whole-model launcher, authenticated device execution
+package, FP8/GDN/Attention integration, real-checkpoint oracle, API witness,
 performance result, numerical qualification, release authority, or production
 eligibility. The v10 observation at 392.804397 prompt tok/s therefore remains
 the current whole-product incumbent.
@@ -566,7 +578,7 @@ the current whole-product incumbent.
 | SM87 whole-system AOT Prefill v1 | Default-off real-P40 API composition; performance-rejected after a zero-byte 840.000399-second timeout | Retain only as correctness/diagnostic control; it is not an active performance candidate |
 | SM87 bulk-dataflow v2 Prefill | Complete default-off real-P40 API route; performance-rejected after a zero-byte 680.73-second EvalScope timeout and one bounded causal profile; accuracy remains unqualified | Retain exact constituents and evidence only; no V2 tuning, P60/P130, qualification, or production promotion |
 | SM87 MacroFeed v3 Prefill | Complete default-off, test-only 64-layer source composition with startup-bound target-AOT assets, role-specific macro projections, nine-kernel-per-layer exact GDN, cold rollback, and a V18 physical transaction; integrated build and focused admission tests pass | Frozen executable diagnostic/control; no authoritative P40 timing, numerical, release, or production qualification exists |
-| SM87 MacroFeed v4 Prefill | Active, default-off, non-executable C8000×5 panel-major foundation; host workspace/state contract plus Gate+Up, Down, asymmetric decoder, half/tail, and two-CTA/SM admissions pass | Implement authenticated dual-epoch request state, C8000 FP8/GDN/in-place exact Attention, whole-model receipts and rollback, then real-checkpoint/state/API qualification; no selector or performance authority exists |
+| SM87 MacroFeed v4 Prefill | Active, default-off, non-executable C8000×5 panel-major foundation; host workspace plan, owner/epoch-bound test-only request transaction, Gate+Up, Down, asymmetric decoder, half/tail, and two-CTA/SM admissions pass | Bind the request transaction to device-owned events and an authenticated startup package; implement C8000 FP8/GDN/in-place exact Attention, whole-model physical receipts and rollback, then real-checkpoint/state/API qualification; no selector or performance authority exists |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

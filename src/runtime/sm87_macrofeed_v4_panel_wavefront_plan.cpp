@@ -174,7 +174,12 @@ make_sm87_macrofeed_v4_p40_panel_wavefront_plan() noexcept {
   plan.state_ownership.final_publish_event_identity =
       kFinalPublishEventIdentity;
   plan.state_ownership.private_kv_valid_end = true;
-  plan.state_ownership.candidate_epoch_copies_active_before_panel = true;
+  plan.state_ownership.conv_history_copies_active_to_candidate_per_layer =
+      true;
+  plan.state_ownership.gdn_state_writes_active_to_candidate_per_layer = true;
+  plan.state_ownership.candidate_epoch_fully_assigned_before_swap = true;
+  plan.state_ownership.whole_recurrent_epoch_copy_before_panel_allowed =
+      false;
   plan.state_ownership.active_candidate_swap_after_layer_63 = true;
   plan.state_ownership.panel_failure_discards_candidate_epoch = true;
   plan.state_ownership.canonical_recurrent_publish_after_final_panel = true;
@@ -379,9 +384,13 @@ validate_sm87_macrofeed_v4_p40_panel_wavefront_plan(
       state_ownership.final_publish_event_identity !=
           expected.state_ownership.final_publish_event_identity ||
       state_ownership.panel_commit_event_identity ==
-          state_ownership.final_publish_event_identity ||
+      state_ownership.final_publish_event_identity ||
       !state_ownership.private_kv_valid_end ||
-      !state_ownership.candidate_epoch_copies_active_before_panel ||
+      !state_ownership
+           .conv_history_copies_active_to_candidate_per_layer ||
+      !state_ownership.gdn_state_writes_active_to_candidate_per_layer ||
+      !state_ownership.candidate_epoch_fully_assigned_before_swap ||
+      state_ownership.whole_recurrent_epoch_copy_before_panel_allowed ||
       !state_ownership.active_candidate_swap_after_layer_63 ||
       !state_ownership.panel_failure_discards_candidate_epoch ||
       !state_ownership.canonical_recurrent_publish_after_final_panel ||

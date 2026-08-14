@@ -187,7 +187,10 @@ struct Sm87MacroFeedV4StateOwnershipPlan final {
   std::uint64_t panel_commit_event_identity = 0U;
   std::uint64_t final_publish_event_identity = 0U;
   bool private_kv_valid_end = false;
-  bool candidate_epoch_copies_active_before_panel = false;
+  bool conv_history_copies_active_to_candidate_per_layer = false;
+  bool gdn_state_writes_active_to_candidate_per_layer = false;
+  bool candidate_epoch_fully_assigned_before_swap = false;
+  bool whole_recurrent_epoch_copy_before_panel_allowed = true;
   bool active_candidate_swap_after_layer_63 = false;
   bool panel_failure_discards_candidate_epoch = false;
   bool canonical_recurrent_publish_after_final_panel = false;

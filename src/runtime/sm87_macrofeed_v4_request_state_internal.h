@@ -1,0 +1,407 @@
+#pragma once
+
+#include "q3x/runtime/sm87_macrofeed_v4_panel_wavefront_plan.h"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <memory>
+#include <mutex>
+#include <string_view>
+
+namespace q3x::runtime {
+
+// Internal host-only admission and ownership ledger for the default-off
+// MacroFeed-v4
+// request transaction.  It owns no CUDA pointer, stream, event, launcher, or
+// selector and grants no production authority.
+inline constexpr std::array<std::uint8_t, 8U>
+    kSm87MacroFeedV4RequestStateMagic{{'Q', '3', 'X', 'M', '4', 'S', 'T',
+                                       '1'}};
+inline constexpr std::uint16_t kSm87MacroFeedV4RequestStateAbiMajor = 1U;
+inline constexpr std::uint16_t kSm87MacroFeedV4RequestStateAbiMinor = 0U;
+inline constexpr std::size_t kSm87MacroFeedV4StateLayerCount = 48U;
+inline constexpr std::uint64_t kSm87MacroFeedV4ConvLayerBytes =
+    kSm87MacroFeedV4ConvEpochBytes / kSm87MacroFeedV4StateLayerCount;
+inline constexpr std::uint64_t kSm87MacroFeedV4GdnStateLayerBytes =
+    kSm87MacroFeedV4GdnEpochBytes / kSm87MacroFeedV4StateLayerCount;
+
+static_assert(kSm87MacroFeedV4ConvLayerBytes == 61'440U);
+static_assert(kSm87MacroFeedV4GdnStateLayerBytes == 1'572'864U);
+static_assert(kSm87MacroFeedV4StateLayerCount *
+                      kSm87MacroFeedV4ConvLayerBytes ==
+                  kSm87MacroFeedV4ConvEpochBytes);
+static_assert(kSm87MacroFeedV4StateLayerCount *
+                      kSm87MacroFeedV4GdnStateLayerBytes ==
+                  kSm87MacroFeedV4GdnEpochBytes);
+
+struct Sm87MacroFeedV4RecurrentBankBinding final {
+  std::uint64_t storage_identity = 0U;
+  std::uint64_t owner_identity = 0U;
+  std::uint64_t allocation_identity = 0U;
+  std::uint64_t allocation_offset = 0U;
+  std::uint64_t bytes = 0U;
+};
+
+struct Sm87MacroFeedV4RecurrentLayerSlice final {
+  std::size_t state_layer_ordinal = kSm87MacroFeedV4StateLayerCount;
+  std::size_t model_layer = kSm87MacroFeedV4LayerCount;
+  std::uint64_t conv_offset = 0U;
+  std::uint64_t conv_bytes = 0U;
+  std::uint64_t gdn_state_offset = 0U;
+  std::uint64_t gdn_state_bytes = 0U;
+};
+
+struct Sm87MacroFeedV4RequestStateAdmission final {
+  std::array<std::uint8_t, 8U> magic{};
+  std::uint16_t abi_major = 0U;
+  std::uint16_t abi_minor = 0U;
+  std::string_view candidate_id{};
+  std::string_view deployment_plan_id{};
+  std::string_view api_route_id{};
+  std::uint64_t owner_identity = 0U;
+  std::uint64_t allocation_identity = 0U;
+  std::uint64_t allocation_bytes = 0U;
+  std::array<Sm87MacroFeedV4RecurrentBankBinding, 2U> recurrent_banks{};
+  std::array<Sm87MacroFeedV4RecurrentLayerSlice,
+             kSm87MacroFeedV4StateLayerCount>
+      recurrent_layers{};
+  std::uint64_t private_kv_valid_end_identity = 0U;
+  std::uint64_t panel_commit_event_identity = 0U;
+  std::uint64_t final_publish_event_identity = 0U;
+  std::uint64_t owner_drain_event_identity = 0U;
+  std::uint64_t canonical_state_publication_identity = 0U;
+  std::uint64_t sequence_length_fence_identity = 0U;
+  bool conv_history_copies_active_to_candidate_per_layer = false;
+  bool gdn_first_update_reads_active_and_writes_candidate = false;
+  bool gdn_continuation_reads_and_writes_candidate = false;
+  bool candidate_epoch_fully_assigned_before_swap = false;
+  bool whole_epoch_copy_forbidden = false;
+  bool private_kv_valid_end = false;
+  bool canonical_state_publishes_after_final_panel = false;
+  bool sequence_length_is_final_nonfallible_fence = false;
+  bool host_only = false;
+  bool default_off = false;
+  bool test_only = false;
+  bool cuda_handles_present = true;
+  bool selector_bound = true;
+  bool launcher_present = true;
+  bool production_dispatch_eligible = true;
+};
+
+enum class Sm87MacroFeedV4RequestAdmissionIssue : std::uint32_t {
+  kNone = 0U,
+  kIdentity = 1U << 0U,
+  kBankOwnership = 1U << 1U,
+  kLayerLayout = 1U << 2U,
+  kTransitionContract = 1U << 3U,
+  kVisibilityOwnership = 1U << 4U,
+  kDispatchBoundary = 1U << 5U,
+};
+
+struct Sm87MacroFeedV4RequestAdmissionValidation final {
+  std::uint32_t issue_mask = 0U;
+  std::size_t first_bad_state_layer = kSm87MacroFeedV4StateLayerCount;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return issue_mask == 0U;
+  }
+};
+
+[[nodiscard]] constexpr bool has_sm87_macrofeed_v4_request_admission_issue(
+    const Sm87MacroFeedV4RequestAdmissionValidation& validation,
+    const Sm87MacroFeedV4RequestAdmissionIssue issue) noexcept {
+  return (validation.issue_mask & static_cast<std::uint32_t>(issue)) != 0U;
+}
+
+[[nodiscard]] Sm87MacroFeedV4RequestStateAdmission
+make_sm87_macrofeed_v4_request_state_admission(
+    std::uint64_t owner_identity, std::uint64_t allocation_identity,
+    std::uint64_t bank_a_storage_identity,
+    std::uint64_t bank_b_storage_identity) noexcept;
+
+[[nodiscard]] Sm87MacroFeedV4RequestAdmissionValidation
+validate_sm87_macrofeed_v4_request_state_admission(
+    const Sm87MacroFeedV4RequestStateAdmission& admission) noexcept;
+
+enum class Sm87MacroFeedV4RequestStatePhase : std::uint8_t {
+  kInvalid = 0U,
+  kAdmittedPrivate,
+  kPanelActive,
+  kPanelReady,
+  kBetweenPanelsPrivate,
+  kAllPanelsPrivate,
+  kFinalPublicationArmed,
+  kCanonicalStatePublished,
+  kSequenceLengthPublished,
+  kCancelled,
+  kFailed,
+};
+
+enum class Sm87MacroFeedV4RequestDiscardReason : std::uint8_t {
+  kInvalid = 0U,
+  kCancelled,
+  kFailed,
+};
+
+enum class Sm87MacroFeedV4RequestStateError : std::uint8_t {
+  kNone = 0U,
+  kAdmissionInvalid,
+  kAllocationFailure,
+  kInvalidTransition,
+  kPanelMismatch,
+  kLayerMismatch,
+  kLayerKindMismatch,
+  kDuplicateCompletion,
+  kCandidateIncomplete,
+  kKvValidEndMismatch,
+  kInvalidDiscardReason,
+  kFinalPublicationIncomplete,
+  kCapabilityMismatch,
+  kEventReceiptMissing,
+  kEventReceiptMismatch,
+};
+
+struct Sm87MacroFeedV4RequestStateStatus final {
+  Sm87MacroFeedV4RequestStateError error =
+      Sm87MacroFeedV4RequestStateError::kNone;
+  const char* context = "none";
+  std::size_t panel = kSm87MacroFeedV4PanelCount;
+  std::size_t layer = kSm87MacroFeedV4LayerCount;
+
+  [[nodiscard]] constexpr explicit operator bool() const noexcept {
+    return error == Sm87MacroFeedV4RequestStateError::kNone;
+  }
+};
+
+struct Sm87MacroFeedV4RequestStateSnapshot final {
+  Sm87MacroFeedV4RequestStatePhase phase =
+      Sm87MacroFeedV4RequestStatePhase::kInvalid;
+  std::size_t active_bank_index = 2U;
+  std::size_t candidate_bank_index = 2U;
+  std::uint64_t active_bank_identity = 0U;
+  std::uint64_t candidate_bank_identity = 0U;
+  std::uint64_t owner_identity = 0U;
+  std::uint64_t allocation_identity = 0U;
+  std::uint64_t request_epoch = 0U;
+  std::uint64_t state_epoch = 0U;
+  std::uint64_t pending_event_receipt_identity = 0U;
+  std::size_t completed_panels = 0U;
+  std::size_t active_panel = kSm87MacroFeedV4PanelCount;
+  std::size_t next_model_layer = 0U;
+  std::size_t panel_conv_layers_prepared = 0U;
+  std::size_t panel_gdn_layers_assigned = 0U;
+  std::size_t panel_kv_layers_staged = 0U;
+  std::uint64_t panel_conv_copy_bytes = 0U;
+  std::uint64_t panel_gdn_assignment_bytes = 0U;
+  std::uint64_t total_conv_copy_bytes = 0U;
+  std::uint64_t total_gdn_assignment_bytes = 0U;
+  std::uint64_t whole_epoch_copy_bytes = 0U;
+  std::size_t private_kv_valid_end = 0U;
+  std::size_t candidate_kv_valid_end = 0U;
+  std::size_t canonical_kv_valid_end = 0U;
+  std::size_t canonical_sequence_length = 0U;
+  std::uint64_t canonical_recurrent_source_identity = 0U;
+  std::uint64_t canonical_recurrent_target_identity = 0U;
+  std::uint64_t canonical_recurrent_copy_bytes = 0U;
+  std::size_t panel_swap_count = 0U;
+  std::size_t candidate_discard_count = 0U;
+  std::uint64_t last_discarded_candidate_identity = 0U;
+  bool current_conv_layer_prepared = false;
+  bool candidate_epoch_complete = false;
+  bool fallible_work_closed = false;
+  bool canonical_state_published = false;
+  // This is a host-ledger ordering bit only.  This slice never issues a
+  // Decode view and never attests physical device execution.
+  bool logical_sequence_fence_published = false;
+  bool decode_access_issued = false;
+  bool physical_execution_receipt_issued = false;
+  bool default_off = false;
+  bool host_only = false;
+  bool production_dispatch_eligible = true;
+};
+
+class Sm87MacroFeedV4RequestState;
+
+// Copyable owner-issued capability.  Its constructor and bound owner are
+// private, so callers cannot synthesize another request epoch or redirect it
+// to another state owner.  It carries identities only and exposes no raw
+// allocation, CUDA handle, or executable view.
+class Sm87MacroFeedV4RequestStateSealedAccess final {
+ public:
+  Sm87MacroFeedV4RequestStateSealedAccess() = delete;
+  Sm87MacroFeedV4RequestStateSealedAccess(
+      const Sm87MacroFeedV4RequestStateSealedAccess&) = default;
+  Sm87MacroFeedV4RequestStateSealedAccess& operator=(
+      const Sm87MacroFeedV4RequestStateSealedAccess&) = default;
+
+  [[nodiscard]] std::uint64_t owner_identity() const noexcept {
+    return owner_identity_;
+  }
+  [[nodiscard]] std::uint64_t allocation_identity() const noexcept {
+    return allocation_identity_;
+  }
+  [[nodiscard]] std::uint64_t request_epoch() const noexcept {
+    return request_epoch_;
+  }
+
+ private:
+  Sm87MacroFeedV4RequestStateSealedAccess(
+      const Sm87MacroFeedV4RequestState* owner,
+      std::uint64_t owner_identity, std::uint64_t allocation_identity,
+      std::uint64_t request_epoch) noexcept;
+
+  const Sm87MacroFeedV4RequestState* owner_ = nullptr;
+  std::uint64_t owner_identity_ = 0U;
+  std::uint64_t allocation_identity_ = 0U;
+  std::uint64_t request_epoch_ = 0U;
+
+  friend class Sm87MacroFeedV4RequestState;
+};
+
+enum class Sm87MacroFeedV4RequestEventKind : std::uint8_t {
+  kInvalid = 0U,
+  kPanelCommit,
+  kOwnerDrain,
+  kFinalCanonicalPublish,
+};
+
+// These receipts exist only to test request-state ordering.  Recording one
+// does not observe a CUDA event or certify device completion; a future device
+// issuer must remain a separate production authority.
+struct Sm87MacroFeedV4RequestEventReceipt final {
+  std::uint64_t receipt_identity = 0U;
+  std::uint64_t event_identity = 0U;
+  std::uint64_t owner_identity = 0U;
+  std::uint64_t allocation_identity = 0U;
+  std::uint64_t request_epoch = 0U;
+  std::uint64_t state_epoch = 0U;
+  std::size_t panel = kSm87MacroFeedV4PanelCount;
+  std::size_t completed_model_layer = kSm87MacroFeedV4LayerCount;
+  std::size_t conv_layers = 0U;
+  std::size_t gdn_layers = 0U;
+  std::size_t kv_layers = 0U;
+  std::uint64_t conv_copy_bytes = 0U;
+  std::uint64_t gdn_assignment_bytes = 0U;
+  std::size_t private_kv_valid_end = 0U;
+  std::uint64_t source_bank_identity = 0U;
+  std::uint64_t target_bank_identity = 0U;
+  std::uint64_t copy_bytes = 0U;
+  Sm87MacroFeedV4RequestEventKind kind =
+      Sm87MacroFeedV4RequestEventKind::kInvalid;
+  bool test_only_host_ledger_completed = false;
+  bool physical_device_completion_attested = true;
+  bool production_receipt_eligible = true;
+};
+
+struct Sm87MacroFeedV4RequestEventResult final {
+  Sm87MacroFeedV4RequestStateStatus status{};
+  Sm87MacroFeedV4RequestEventReceipt receipt{};
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return static_cast<bool>(status) && receipt.receipt_identity != 0U &&
+           receipt.test_only_host_ledger_completed &&
+           !receipt.physical_device_completion_attested &&
+           !receipt.production_receipt_eligible;
+  }
+};
+
+struct Sm87MacroFeedV4RequestStateCreateResult final {
+  std::unique_ptr<Sm87MacroFeedV4RequestState> state;
+  Sm87MacroFeedV4RequestStateStatus status{};
+
+  [[nodiscard]] explicit operator bool() const noexcept;
+};
+
+class Sm87MacroFeedV4RequestState final {
+ public:
+  Sm87MacroFeedV4RequestState() = delete;
+  ~Sm87MacroFeedV4RequestState() = default;
+  Sm87MacroFeedV4RequestState(const Sm87MacroFeedV4RequestState&) = delete;
+  Sm87MacroFeedV4RequestState& operator=(
+      const Sm87MacroFeedV4RequestState&) = delete;
+  Sm87MacroFeedV4RequestState(Sm87MacroFeedV4RequestState&&) = delete;
+  Sm87MacroFeedV4RequestState& operator=(
+      Sm87MacroFeedV4RequestState&&) = delete;
+
+  [[nodiscard]] static Sm87MacroFeedV4RequestStateCreateResult create(
+      const Sm87MacroFeedV4RequestStateAdmission& admission) noexcept;
+
+  [[nodiscard]] const Sm87MacroFeedV4RequestStateAdmission& admission()
+      const noexcept {
+    return admission_;
+  }
+  [[nodiscard]] Sm87MacroFeedV4RequestStateSnapshot snapshot() const noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestStateSealedAccess issue_sealed_access()
+      const noexcept;
+
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus begin_panel(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      std::size_t panel) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus
+  prepare_conv_layer_candidate(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      std::size_t panel, std::size_t model_layer) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus
+  assign_gdn_layer_candidate(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      std::size_t panel, std::size_t model_layer) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus
+  stage_attention_kv_layer(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      std::size_t panel, std::size_t model_layer,
+      std::size_t candidate_valid_end) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestEventResult
+  record_test_only_panel_completion(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus commit_panel(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      const Sm87MacroFeedV4RequestEventReceipt& receipt) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestEventResult
+  record_test_only_owner_drain_completion(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus discard_active_panel(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      const Sm87MacroFeedV4RequestEventReceipt& drain_receipt,
+      Sm87MacroFeedV4RequestDiscardReason reason) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus abort_unpublished_request(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      Sm87MacroFeedV4RequestDiscardReason reason) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus begin_final_canonical_copy(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestEventResult
+  record_test_only_final_copy_completion(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus
+  discard_unpublished_final_copy(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      const Sm87MacroFeedV4RequestEventReceipt& quiescence_receipt,
+      Sm87MacroFeedV4RequestDiscardReason reason) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus
+  publish_canonical_state(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      const Sm87MacroFeedV4RequestEventReceipt& receipt) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus
+  publish_sequence_length_fence(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access) noexcept;
+
+ private:
+  explicit Sm87MacroFeedV4RequestState(
+      const Sm87MacroFeedV4RequestStateAdmission& admission,
+      std::uint64_t request_epoch) noexcept;
+
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus validate_access(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access) const noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestEventReceipt mint_event_receipt(
+      Sm87MacroFeedV4RequestEventKind kind) noexcept;
+  [[nodiscard]] bool event_receipt_matches(
+      const Sm87MacroFeedV4RequestEventReceipt& receipt,
+      Sm87MacroFeedV4RequestEventKind kind) const noexcept;
+
+  Sm87MacroFeedV4RequestStateAdmission admission_{};
+  mutable std::mutex owner_mutex_;
+  Sm87MacroFeedV4RequestStateSnapshot state_{};
+};
+
+}  // namespace q3x::runtime

@@ -121,7 +121,13 @@ int main() {
           plan.state_ownership.panel_commit_event_identity !=
               plan.state_ownership.final_publish_event_identity &&
           plan.state_ownership.private_kv_valid_end &&
-          plan.state_ownership.candidate_epoch_copies_active_before_panel &&
+          plan.state_ownership
+              .conv_history_copies_active_to_candidate_per_layer &&
+          plan.state_ownership
+              .gdn_state_writes_active_to_candidate_per_layer &&
+          plan.state_ownership.candidate_epoch_fully_assigned_before_swap &&
+          !plan.state_ownership
+               .whole_recurrent_epoch_copy_before_panel_allowed &&
           plan.state_ownership.active_candidate_swap_after_layer_63 &&
           plan.state_ownership.panel_failure_discards_candidate_epoch &&
           plan.state_ownership.canonical_recurrent_publish_after_final_panel &&
@@ -314,6 +320,15 @@ int main() {
   test.expect(has_issue(rejected,
                         runtime::Sm87MacroFeedV4PlanIssue::kStateOwnership),
               "single-bank recurrent mutation or post-publication failure is rejected");
+
+  malformed = plan;
+  malformed.state_ownership.whole_recurrent_epoch_copy_before_panel_allowed =
+      true;
+  rejected =
+      runtime::validate_sm87_macrofeed_v4_p40_panel_wavefront_plan(malformed);
+  test.expect(has_issue(rejected,
+                        runtime::Sm87MacroFeedV4PlanIssue::kStateOwnership),
+              "whole recurrent epoch pre-copy is rejected as excess traffic");
 
   malformed = plan;
   malformed.panels[3U]

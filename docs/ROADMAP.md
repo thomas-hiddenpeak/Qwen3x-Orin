@@ -346,18 +346,23 @@ when the source/dataflow matrix shows that they serve the complete candidate
 and its current critical path.
 
 The matched work ledger, v10 control, V2 closure, and complete default-off V3
-control are no longer unfinished Roadmap items. The V4 host contract and its
-first two NVFP4 constituents are implementation facts only: the shared
+control are no longer unfinished Roadmap items. The V4 host contract, its
+owner/epoch-bound host-only request transaction, and its first two NVFP4
+constituents are implementation facts only: the shared
 canonical decoder has an asymmetric nibble/scale bit oracle, both projection
 tests cover the two N128 halves and M64/M37, and both production kernels pass
-their two-CTA/SM resource gate. None of those tests has real-model or
-performance authority.
+their two-CTA/SM resource gate. The request transaction additionally proves
+five atomic panel swaps, private KV valid-end, cancellation/poisoning, and the
+logical final fence, but its event completions are explicitly test-only and it
+issues neither a CUDA execution receipt nor Decode access. None of those tests
+has real-model or performance authority.
 
 Remaining execution order:
 
-1. bind the V4 contract to a private, authenticated startup package with two
-   recurrent epochs, private KV valid-end, panel commit/final publish events,
-   and no production selector;
+1. bind the existing host request transaction to a private, authenticated
+   startup package and device-owned panel/final events while retaining two
+   recurrent epochs, private KV valid-end, rollback, and no production
+   selector;
 2. implement the missing C8000 FP8, exact GDN, in-place/streaming exact
    Attention, residual/layout, finalizer, rollback, and receipt paths, then
    close their component and whole-state oracles;

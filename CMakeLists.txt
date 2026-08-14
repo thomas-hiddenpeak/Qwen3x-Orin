@@ -633,6 +633,7 @@ add_library(q3x_core STATIC
   src/runtime/request_state.cpp
   src/runtime/sm87_macrofeed_v3_receipt.cpp
   src/runtime/sm87_macrofeed_v4_panel_wavefront_plan.cpp
+  src/runtime/sm87_macrofeed_v4_request_state.cpp
   src/kernels/reference/gemv_reference.cpp
   src/runtime/reference/decode_ops.cpp
   src/runtime/reference/gdn_decode.cpp
@@ -3155,6 +3156,21 @@ if(BUILD_TESTING)
   set_tests_properties(
     sm87_macrofeed_v4_panel_wavefront_plan PROPERTIES
     LABELS "host;sm87;prefill;macrofeed_v4;panel_wavefront;plan;t0;default_off;non_executable"
+  )
+
+  add_executable(q3x_sm87_macrofeed_v4_request_state_test
+    tests/sm87_macrofeed_v4_request_state_test.cpp
+  )
+  target_link_libraries(
+    q3x_sm87_macrofeed_v4_request_state_test PRIVATE q3x::core
+  )
+  q3x_enable_warnings(q3x_sm87_macrofeed_v4_request_state_test)
+  add_test(NAME sm87_macrofeed_v4_request_state
+    COMMAND q3x_sm87_macrofeed_v4_request_state_test
+  )
+  set_tests_properties(
+    sm87_macrofeed_v4_request_state PROPERTIES
+    LABELS "host;sm87;prefill;macrofeed_v4;request_state;ownership;t0;default_off;non_executable"
   )
 
   if(Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
