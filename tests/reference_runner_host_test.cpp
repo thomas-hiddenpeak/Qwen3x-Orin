@@ -284,17 +284,25 @@ struct ReferenceRunnerPrefillControlTestPeer {
   }
 
   [[nodiscard]] static ReferenceRunnerStatus validate_layer_wide_p40_route(
-      const LayerRouteFragment& fragment) noexcept {
+      const LayerRouteFragment& fragment,
+      const runtime::LayerMajorPrefillProjectionTactic projection_tactic =
+          runtime::LayerMajorPrefillProjectionTactic::
+              kNativeNvfp4PersistentP40LayerWideMlp) noexcept {
     return ReferenceRunner::
-        validate_layer_wide_p40_prefill_layer_route_fragment(fragment);
+        validate_layer_wide_p40_prefill_layer_route_fragment(
+            fragment, projection_tactic);
   }
 
   [[nodiscard]] static ReferenceRunnerStatus collapse_layer_wide_p40_route(
       const LayerRouteFragment& fragment,
-      PrefillRouteEvidence& request_pass) noexcept {
+      PrefillRouteEvidence& request_pass,
+      const runtime::LayerMajorPrefillProjectionTactic projection_tactic =
+          runtime::LayerMajorPrefillProjectionTactic::
+              kNativeNvfp4PersistentP40LayerWideMlp) noexcept {
     return ReferenceRunner::
         collapse_layer_wide_p40_prefill_layer_route_fragment(fragment,
-                                                              request_pass);
+                                                              request_pass,
+                                                              projection_tactic);
   }
 
   [[nodiscard]] static bool valid_prompt_wide_p40_whole_core_contract(
@@ -2204,6 +2212,39 @@ void test_prefill_layer_route_reducer(TestContext& test) {
         "default-off build rejects the P40000 request-wide route");
   }
 
+  if (runtime::prompt_wide_p40_macrofeed_v3_prefill_plan_enabled()) {
+    const Peer::LayerRouteFragment macrofeed_p40000 =
+        Peer::production_layer_route(
+            0U, 0U,
+            runtime::kLayerMajorPrefillLayerWideMlpP40Tokens);
+    runtime::PrefillRouteEvidence macrofeed_pass;
+    const runtime::ReferenceRunnerStatus macrofeed_validate =
+        Peer::validate_layer_wide_p40_route(
+            macrofeed_p40000,
+            runtime::LayerMajorPrefillProjectionTactic::
+                kNativePromptWideP40MacroFeedV3);
+    const runtime::ReferenceRunnerStatus macrofeed_collapse =
+        Peer::collapse_layer_wide_p40_route(
+            macrofeed_p40000, macrofeed_pass,
+            runtime::LayerMajorPrefillProjectionTactic::
+                kNativePromptWideP40MacroFeedV3);
+    const runtime::ReferenceRunnerStatus unlabeled_macrofeed =
+        Peer::validate_layer_wide_p40_route(
+            macrofeed_p40000,
+            runtime::LayerMajorPrefillProjectionTactic::
+                kExactSegmentedC512);
+    test.expect(
+        macrofeed_validate.ok() && macrofeed_collapse.ok() &&
+            macrofeed_pass.operators[static_cast<std::size_t>(
+                runtime::PrefillOperatorRole::kNvFp4GateUp)]
+                    .production_hits == 1U &&
+            !unlabeled_macrofeed &&
+            operation_is(unlabeled_macrofeed,
+                         "prefill_layer_wide_p40_route_geometry"),
+        "MacroFeed-v3 route evidence uses its own explicit admission without "
+        "reopening unlabeled layer-wide P40 geometry");
+  }
+
   Peer::LayerRouteReducer malformed;
   Peer::LayerRouteFragment bad_slots =
       Peer::production_layer_route(0U, 0U, 32U);
@@ -2603,10 +2644,14 @@ void test_whole_request_prefill_staging_contract(TestContext& test) {
   using Peer = runtime::ReferenceRunnerPrefillControlTestPeer;
 
   test.expect(
-      Peer::whole_request_outcome_bytes() < 4U * 1'024U &&
-          Peer::whole_request_outcome_bytes() * 8U <
+      Peer::whole_request_outcome_bytes() <
+              4U * 1'024U +
+                  sizeof(std::optional<
+                         runtime::Sm87MacroFeedV3TransactionReceipt>) &&
+          Peer::whole_request_outcome_bytes() * 2U <
               Peer::legacy_tile_outcome_bytes(),
-      "whole-request runner result remains fixed-size and transcript-free");
+      "whole-request runner result remains fixed-size and transcript-free "
+      "after its bounded MacroFeed transaction receipt");
 
   runtime::PrefillExecutionPlanOptions plan_options;
   plan_options.first_position = 17U;

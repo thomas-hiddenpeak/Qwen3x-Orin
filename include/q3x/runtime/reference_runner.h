@@ -1149,7 +1149,8 @@ class ReferenceRunner {
       const PrefillLayerSegmentRouteFragment& fragment) noexcept;
   [[nodiscard]] static ReferenceRunnerStatus
   validate_layer_wide_p40_prefill_layer_route_fragment(
-      const PrefillLayerSegmentRouteFragment& fragment) noexcept;
+      const PrefillLayerSegmentRouteFragment& fragment,
+      LayerMajorPrefillProjectionTactic projection_tactic) noexcept;
   [[nodiscard]] static ReferenceRunnerStatus
   collapse_prefill_layer_route_fragment(
       const PrefillLayerSegmentRouteFragment& layer_fragment,
@@ -1157,7 +1158,8 @@ class ReferenceRunner {
   [[nodiscard]] static ReferenceRunnerStatus
   collapse_layer_wide_p40_prefill_layer_route_fragment(
       const PrefillLayerSegmentRouteFragment& layer_fragment,
-      PrefillRouteEvidence& request_pass) noexcept;
+      PrefillRouteEvidence& request_pass,
+      LayerMajorPrefillProjectionTactic projection_tactic) noexcept;
   [[nodiscard]] static ReferenceRunnerStatus
   collapse_validated_prefill_layer_route_fragment(
       const PrefillLayerSegmentRouteFragment& layer_fragment,

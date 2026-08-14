@@ -4511,8 +4511,32 @@ ReferenceRunnerStatus ReferenceRunner::validate_prefill_layer_route_fragment(
 
 ReferenceRunnerStatus
 ReferenceRunner::validate_layer_wide_p40_prefill_layer_route_fragment(
-    const PrefillLayerSegmentRouteFragment& fragment) noexcept {
-  if (!layer_wide_p40_mlp_prefill_plan_enabled() ||
+    const PrefillLayerSegmentRouteFragment& fragment,
+    const LayerMajorPrefillProjectionTactic projection_tactic) noexcept {
+  const bool route_admitted =
+      projection_tactic == LayerMajorPrefillProjectionTactic::
+                               kNativeNvfp4PersistentP40LayerWideMlp
+          ? layer_wide_p40_mlp_prefill_plan_enabled()
+      : projection_tactic == LayerMajorPrefillProjectionTactic::
+                                  kNativePromptWideP40WholeCore
+          ? prompt_wide_p40_whole_core_prefill_plan_enabled()
+      : projection_tactic == LayerMajorPrefillProjectionTactic::
+                                  kNativePromptWideP40ProjectionReset
+          ? prompt_wide_p40_projection_reset_prefill_plan_enabled()
+      : projection_tactic == LayerMajorPrefillProjectionTactic::
+                                  kNativePromptWideP40PackedProjection
+          ? prompt_wide_p40_packed_projection_prefill_plan_enabled()
+      : projection_tactic == LayerMajorPrefillProjectionTactic::
+                                  kNativePromptWideP40PackedNvfp4V2
+          ? prompt_wide_p40_packed_nvfp4_v2_prefill_plan_enabled()
+      : projection_tactic == LayerMajorPrefillProjectionTactic::
+                                  kNativePromptWideP40VllmMarlinParity
+          ? prompt_wide_p40_vllm_marlin_parity_prefill_plan_enabled()
+      : projection_tactic == LayerMajorPrefillProjectionTactic::
+                                  kNativePromptWideP40MacroFeedV3
+          ? prompt_wide_p40_macrofeed_v3_prefill_plan_enabled()
+          : false;
+  if (!route_admitted ||
       fragment.layer >= kReferenceDecoderLayerCount ||
       fragment.first_position != 0U ||
       fragment.token_count != kLayerMajorPrefillLayerWideMlpP40Tokens) {
@@ -4623,9 +4647,11 @@ ReferenceRunnerStatus ReferenceRunner::collapse_prefill_layer_route_fragment(
 ReferenceRunnerStatus
 ReferenceRunner::collapse_layer_wide_p40_prefill_layer_route_fragment(
     const PrefillLayerSegmentRouteFragment& layer_fragment,
-    PrefillRouteEvidence& request_pass) noexcept {
+    PrefillRouteEvidence& request_pass,
+    const LayerMajorPrefillProjectionTactic projection_tactic) noexcept {
   const ReferenceRunnerStatus fragment_status =
-      validate_layer_wide_p40_prefill_layer_route_fragment(layer_fragment);
+      validate_layer_wide_p40_prefill_layer_route_fragment(
+          layer_fragment, projection_tactic);
   if (!fragment_status) {
     return fragment_status;
   }
@@ -7052,7 +7078,8 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         }
       }
       status = collapse_layer_wide_p40_prefill_layer_route_fragment(
-          full_layer_fragment, layer_wide_p40_request_pass);
+          full_layer_fragment, layer_wide_p40_request_pass,
+          projection_tactic);
       if (!status) {
         return fail_whole_request_prefill(status);
       }
@@ -7423,7 +7450,8 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
       }
       const ReferenceRunnerStatus collapse_status =
           collapse_layer_wide_p40_prefill_layer_route_fragment(
-              full_layer_fragment, layer_wide_p40_request_pass);
+              full_layer_fragment, layer_wide_p40_request_pass,
+              projection_tactic);
       if (!collapse_status) {
         return fail_whole_request_prefill(collapse_status);
       }
