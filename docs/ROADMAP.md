@@ -234,7 +234,8 @@ finite-precision bodies without a copy or third hidden plane, plus a private
 three-stream/nine-event owner that enforces the device-ordered five-panel and
 48-cycle-per-panel dependency graph. A first isolated execution package now
 owns the fixed transient and recurrent arenas and executes only the discarded
-layer-0 input-norm→BF16-A/B front half. The FP8 tactics directly publish GDN
+synthetic-T1 layer-0 `Norm → (QKVZ || A/B) → Main waits AbReady` front half.
+The FP8 tactics directly publish GDN
 QKV/Z, interleaved Full Q/G plus private NHD K/V, Attention O from interleaved
 Q slots, and GDN O from the fixed contiguous scratch slice `[4096,10240)`;
 none owns a compact Q/G or GDN-O bridge. The BF16 A/B tactic reuses the exact
@@ -253,11 +254,17 @@ uses 254 registers, 128 KiB shared memory, zero local bytes, and one CTA/SM.
 The GDN body preserves per-token BF16 state and active/candidate ownership in
 bounded C1/C65 bit oracles. The startup package binds all 48 real BF16 A/B
 pairs and all 64 real outer-norm pairs and exposes only construction-time
-private full-catalog seals. The isolated package consumes layer-0 input norm
-and A/B through typed owner-locked submissions on Main and AbAux.
-Residual/post-norm, QKVZ, GDN, Attention, O, and the remaining layers are not
-privately composed, and none is numerically qualified at full C8000 with the
-real checkpoint. The startup package
+private full-catalog seals. It also implements an all-or-nothing natural-order
+48-GDN-QKVZ execution-catalog seal with exact live CUDA allocation/upload
+receipt matching; the fake host catalog fails closed at ordinal zero, while a
+positive real-owner 48-binding witness remains open. The isolated package
+consumes layer-0 input norm and A/B through typed owner-locked submissions on
+Main and AbAux, then privately submits one fixed QKVZ body on Main before the
+owner-locked `AbReady` wait. Raw ready-event records and caller-filled QKVZ
+submissions are not exposed by the execution driver.
+Residual/post-norm, the rest of GDN, Attention, O, and the remaining layers
+are not privately composed, and none is numerically qualified at full C8000
+with the real checkpoint. The startup package
 regenerates the canonical plan, validates the live 256-artifact/400-source
 catalog once, retains typed payload/scale capabilities, and mints V4-local
 resource seals with no launcher authority. Execution-package construction may
@@ -400,8 +407,10 @@ logical final fence. A separate CUDA owner now supplies three nonblocking
 streams and nine private events, enforces 48 AB readiness cycles per panel,
 keeps panel closure device ordered, physically observes only final/safe-drain
 boundaries, and permanently poisons itself after exceptional drain. Its narrow
-driver now executes exactly one input norm and one BF16 A/B body in the
-layer-0 front-half slice before a physical safe discard. The startup package
+driver now executes exactly one input norm, one fixed GDN-QKVZ body, and one
+BF16 A/B body in the layer-0 front-half slice before a physical safe discard.
+The QKVZ and A/B write sets are disjoint and their dependency graph permits
+physical overlap; no performance overlap is claimed. The startup package
 retains no execution-owning capability, and the slice issues no layer, model,
 production, or Decode receipt. None of those tests has real-model or
 performance authority.
@@ -410,9 +419,10 @@ Remaining execution order:
 
 1. anchor the existing isolated execution package under Engine lifetime while
    preserving destruction order `execution → startup → ModelWeights →
-   complete AOT owner → resident`. Extend its typed driver with GDN QKVZ on
-   Main before the Main-side `AbReady` wait, so the intended QKVZ/A-B overlap
-   closes without exposing a raw stream or adding request-time validation;
+   complete AOT owner → resident`, and exercise the normal factory's complete
+   real-owner 48-GDN-QKVZ seal. The layer-0 QKVZ/A-B dependency closure is
+   already implemented only in the synthetic-T1 CUDA lane; it must not be
+   promoted from that evidence alone;
 2. bind exact GDN update/O, residual/post-norm, preprocess → fixed C8000
    Attention → O, and all remaining natural layers/panels to the same private
    arenas and event graph. Then qualify the complete C8000

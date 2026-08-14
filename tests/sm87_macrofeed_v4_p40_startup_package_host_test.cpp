@@ -11,7 +11,8 @@
 
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) && \
-    defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_FP8_ADMISSION)
 #include <cuda_runtime_api.h>
 #endif
 
@@ -23,6 +24,9 @@ std::int32_t g_v4_down_device_ordinal = 0;
 bool g_fail_v4_bf16_ab_resource_query = false;
 std::int32_t g_v4_bf16_ab_device_ordinal = 0;
 bool g_poison_v4_bf16_ab_resource_identity = false;
+bool g_fail_v4_gdn_qkvz_resource_query = false;
+std::int32_t g_v4_gdn_qkvz_device_ordinal = 0;
+bool g_poison_v4_gdn_qkvz_resource_identity = false;
 
 [[nodiscard]] Sm87MacroFeedV4NvFp4GateUpCudaResources
 host_test_v4_gate_up_resources() noexcept {
@@ -105,6 +109,36 @@ host_test_v4_bf16_ab_resources() noexcept {
   return resources;
 }
 
+[[nodiscard]] Sm87MacroFeedV4Fp8CudaResources
+host_test_v4_gdn_qkvz_resources() noexcept {
+  Sm87MacroFeedV4Fp8CudaResources resources;
+  resources.identity = g_poison_v4_gdn_qkvz_resource_identity
+                           ? Sm87MacroFeedV4Fp8Identity::kInvalid
+                           : Sm87MacroFeedV4Fp8Identity::
+                                 kGdnQkvZM64N128K64OrdinaryGridV1;
+  resources.role = Sm87TargetAotProjectionRole::kFp8GdnQkvZ;
+  resources.input_layout =
+      Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1;
+  resources.device_ordinal = g_v4_gdn_qkvz_device_ordinal;
+  resources.compute_major = 8;
+  resources.compute_minor = 7;
+  resources.sm_count = 16;
+  resources.binary_version = 87;
+  resources.registers_per_thread = 96;
+  resources.static_shared_bytes = 0U;
+  resources.dynamic_shared_bytes = kSm87MacroFeedV4Fp8DynamicSharedBytes;
+  resources.local_bytes = 0U;
+  resources.maximum_threads_per_block = 1'024;
+  resources.active_blocks_per_sm = 2;
+  resources.shared_bytes_per_sm = 102'400U;
+  resources.optin_shared_bytes_per_block = 102'400U;
+  resources.kernel_compiled = true;
+  resources.static_resource_gate_passed = true;
+  resources.numerical_contract_qualified = false;
+  resources.production_dispatch_eligible = false;
+  return resources;
+}
+
 }  // namespace
 
 int query_sm87_macrofeed_v4_nvfp4_gate_up_cuda_resources(
@@ -138,6 +172,23 @@ int query_sm87_macrofeed_v4_bf16_ab_admission_resource_snapshot_cuda(
     return 1;
   }
   *resources = host_test_v4_bf16_ab_resources();
+  return 0;
+}
+
+int query_sm87_macrofeed_v4_fp8_cuda_resources(
+    const Sm87TargetAotProjectionRole role,
+    const Sm87MacroFeedV4Fp8InputLayout input_layout,
+    Sm87MacroFeedV4Fp8CudaResources* const resources) noexcept {
+  if (resources == nullptr || g_fail_v4_gdn_qkvz_resource_query ||
+      role != Sm87TargetAotProjectionRole::kFp8GdnQkvZ ||
+      input_layout !=
+          Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1) {
+    if (resources != nullptr) {
+      *resources = {};
+    }
+    return 1;
+  }
+  *resources = host_test_v4_gdn_qkvz_resources();
   return 0;
 }
 
@@ -289,7 +340,8 @@ void test_bf16_ab_t0_inventory_contract() {
 
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) && \
-    defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_FP8_ADMISSION)
 
 class LiveBf16AbHostFixture final {
  public:
@@ -401,6 +453,14 @@ void test_complete_v4_foundation_package() {
                 package::Sm87MacroFeedV4Bf16AbStartupSeal>);
   static_assert(!std::is_move_constructible_v<
                 package::Sm87MacroFeedV4Bf16AbStartupSeal>);
+  static_assert(!std::is_default_constructible_v<
+                package::Sm87MacroFeedV4GdnQkvZStartupSeal>);
+  static_assert(!std::is_copy_constructible_v<
+                package::Sm87MacroFeedV4GdnQkvZStartupSeal>);
+  static_assert(!std::is_move_constructible_v<
+                package::Sm87MacroFeedV4GdnQkvZStartupSeal>);
+  static_assert(!std::is_trivially_copyable_v<
+                package::Sm87MacroFeedV4GdnQkvZStartupSeal>);
 
   Owner owner;
   LiveBf16AbHostFixture bf16_ab;
@@ -446,7 +506,10 @@ void test_complete_v4_foundation_package() {
           first.audit.bf16_ab_tensors == 96U &&
           first.audit.bf16_ab_pairs == 48U &&
           first.audit.bf16_ab_binding_catalog_identity != 0U &&
-          first.audit.bf16_ab_resource_seal_identity != 0U,
+          first.audit.bf16_ab_resource_seal_identity != 0U &&
+          first.audit.gdn_qkvz_bindings == 48U &&
+          first.audit.gdn_qkvz_binding_catalog_identity != 0U &&
+          first.audit.gdn_qkvz_resource_seal_identity != 0U,
       "V4 startup identity or complete asset cardinality drifted");
   require_package(
       first.audit.canonical_plan_generated_internally &&
@@ -466,6 +529,11 @@ void test_complete_v4_foundation_package() {
           first.audit.bf16_ab_resource_seal_complete &&
           first.audit.bf16_ab_private_capability_retained &&
           !first.audit.bf16_ab_raw_pointer_publicly_exposed &&
+          first.audit.gdn_qkvz_natural_layer_order_complete &&
+          first.audit.gdn_qkvz_role_layout_tactic_fixed &&
+          first.audit.gdn_qkvz_asset_value_snapshots_private &&
+          first.audit.gdn_qkvz_resource_seal_complete &&
+          !first.audit.gdn_qkvz_raw_pointer_publicly_exposed &&
           !first.audit.caller_raw_receipts_accepted &&
           !first.audit.v3_execution_identity_reused &&
           !first.audit
@@ -496,24 +564,35 @@ void test_complete_v4_foundation_package() {
   const auto& gate_seal = first.package->gate_up_startup_seal();
   const auto& down_seal = first.package->down_startup_seal();
   const auto& bf16_ab_seal = first.package->bf16_ab_startup_seal();
+  const auto& gdn_qkvz_seal = first.package->gdn_qkvz_startup_seal();
   require_package(
       gate_seal.valid() && down_seal.valid() && bf16_ab_seal.valid() &&
+          gdn_qkvz_seal.valid() &&
           gate_seal.seal_identity != down_seal.seal_identity &&
           bf16_ab_seal.seal_identity != gate_seal.seal_identity &&
           bf16_ab_seal.seal_identity != down_seal.seal_identity &&
+          gdn_qkvz_seal.seal_identity != gate_seal.seal_identity &&
+          gdn_qkvz_seal.seal_identity != down_seal.seal_identity &&
+          gdn_qkvz_seal.seal_identity != bf16_ab_seal.seal_identity &&
           gate_seal.package_identity == first.audit.package_identity &&
           down_seal.package_identity == first.audit.package_identity &&
           bf16_ab_seal.package_identity == first.audit.package_identity &&
+          gdn_qkvz_seal.package_identity == first.audit.package_identity &&
           gate_seal.deployment_plan_identity ==
               first.audit.deployment_plan_identity &&
           down_seal.deployment_plan_identity ==
               first.audit.deployment_plan_identity &&
           bf16_ab_seal.deployment_plan_identity ==
               first.audit.deployment_plan_identity &&
+          gdn_qkvz_seal.deployment_plan_identity ==
+              first.audit.deployment_plan_identity &&
           bf16_ab_seal.binding_catalog_identity ==
               first.audit.bf16_ab_binding_catalog_identity &&
+          gdn_qkvz_seal.binding_catalog_identity ==
+              first.audit.gdn_qkvz_binding_catalog_identity &&
           bf16_ab_seal.tensor_count == 96U &&
           bf16_ab_seal.pair_count == 48U &&
+          gdn_qkvz_seal.binding_count == 48U &&
           q3x::kernels::sm87_macrofeed_v4_nvfp4_gate_up_resource_gate(
               gate_seal.resources) &&
           q3x::kernels::sm87_macrofeed_v4_nvfp4_down_resource_gate(
@@ -521,16 +600,32 @@ void test_complete_v4_foundation_package() {
           q3x::kernels::
               sm87_macrofeed_v4_bf16_ab_admission_resource_gate(
                   bf16_ab_seal.resources) &&
+          q3x::kernels::sm87_macrofeed_v4_fp8_resource_gate(
+              gdn_qkvz_seal.resources) &&
+          gdn_qkvz_seal.role == Role::kFp8GdnQkvZ &&
+          gdn_qkvz_seal.input_layout ==
+              q3x::kernels::Sm87MacroFeedV4Fp8InputLayout::
+                  kHiddenContiguousH5120V1 &&
+          gdn_qkvz_seal.tactic_identity ==
+              q3x::kernels::Sm87MacroFeedV4Fp8Identity::
+                  kGdnQkvZM64N128K64OrdinaryGridV1 &&
           bf16_ab_seal.canonical_natural_layer_order &&
           bf16_ab_seal.canonical_a_then_b_role_order &&
           bf16_ab_seal.complete_live_device_ranges &&
           !bf16_ab_seal.raw_pointer_exposed &&
+          gdn_qkvz_seal.canonical_natural_gdn_layer_order &&
+          gdn_qkvz_seal.role_layout_and_tactic_fixed &&
+          gdn_qkvz_seal.typed_asset_values_private &&
+          !gdn_qkvz_seal.raw_pointer_exposed &&
           !gate_seal.launcher_authority && !down_seal.launcher_authority &&
           !bf16_ab_seal.launcher_authority &&
+          !gdn_qkvz_seal.launcher_authority &&
           !gate_seal.caller_receipt_accepted &&
           !down_seal.caller_receipt_accepted &&
           !bf16_ab_seal.caller_resource_snapshot_accepted &&
-          !bf16_ab_seal.production_dispatch_eligible,
+          !gdn_qkvz_seal.caller_resource_snapshot_accepted &&
+          !bf16_ab_seal.production_dispatch_eligible &&
+          !gdn_qkvz_seal.production_dispatch_eligible,
       "V4 C8000 startup resource seals are not independently closed");
 
   auto second = Package::create(*model_weights);
@@ -589,7 +684,11 @@ void test_complete_v4_foundation_package() {
               : (role == Role::kNvFp4Down
                      ? static_cast<std::uint64_t>(
                            q3x::kernels::kSm87MacroFeedV4NvFp4DownIdentity)
-                     : 0U);
+                     : (role == Role::kFp8GdnQkvZ
+                            ? static_cast<std::uint64_t>(
+                                  q3x::kernels::Sm87MacroFeedV4Fp8Identity::
+                                      kGdnQkvZM64N128K64OrdinaryGridV1)
+                            : 0U));
       require_package(binding->consumer_tactic_identity() == expected_tactic,
                       "V4 binding reused another execution tactic identity");
 
@@ -874,6 +973,25 @@ void test_resource_failures_fail_closed() {
               PackageError::kBf16AbResourceSeal,
       "caller-forgeable BF16 A/B resource identity was accepted");
 
+  q3x::kernels::g_fail_v4_gdn_qkvz_resource_query = true;
+  auto gdn_query_failure = Package::create(*weights);
+  q3x::kernels::g_fail_v4_gdn_qkvz_resource_query = false;
+  require_package(
+      !gdn_query_failure && gdn_query_failure.package == nullptr &&
+          gdn_query_failure.status.error ==
+              PackageError::kGdnQkvZResourceSeal &&
+          gdn_query_failure.status.cuda_error == 1,
+      "V4 GDN-QKVZ resource query failure did not fail closed");
+
+  q3x::kernels::g_poison_v4_gdn_qkvz_resource_identity = true;
+  auto gdn_identity_failure = Package::create(*weights);
+  q3x::kernels::g_poison_v4_gdn_qkvz_resource_identity = false;
+  require_package(
+      !gdn_identity_failure && gdn_identity_failure.package == nullptr &&
+          gdn_identity_failure.status.error ==
+              PackageError::kGdnQkvZResourceSeal,
+      "changed GDN-QKVZ role/layout/tactic resource was accepted");
+
   q3x::kernels::g_v4_down_device_ordinal = 1;
   auto device_failure = Package::create(*weights);
   q3x::kernels::g_v4_down_device_ordinal = 0;
@@ -889,6 +1007,14 @@ void test_resource_failures_fail_closed() {
       !bf16_device_failure && bf16_device_failure.package == nullptr &&
           bf16_device_failure.status.error == PackageError::kDeviceMismatch,
       "V4 BF16 A/B resource seal accepted another device");
+
+  q3x::kernels::g_v4_gdn_qkvz_device_ordinal = 1;
+  auto gdn_device_failure = Package::create(*weights);
+  q3x::kernels::g_v4_gdn_qkvz_device_ordinal = 0;
+  require_package(
+      !gdn_device_failure && gdn_device_failure.package == nullptr &&
+          gdn_device_failure.status.error == PackageError::kDeviceMismatch,
+      "V4 GDN-QKVZ resource seal accepted another device");
   require_package(clear_fixture(weights, owner),
                   "resource fixture cleanup failed");
 }
@@ -928,7 +1054,8 @@ int main() {
   test_bf16_ab_t0_inventory_contract();
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) && \
-    defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_FP8_ADMISSION)
   if (!live_sm87_test_device_available()) {
     std::cout << "sm87_macrofeed_v4_p40_startup_package_host_test: "
                  "SKIP (T0 PASS; live SM87 T1 unavailable)\n";

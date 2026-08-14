@@ -1,5 +1,6 @@
 #include "sm87_macrofeed_v4_p40_execution_package_internal.h"
 
+#include <cuda.h>
 #include <cuda_runtime_api.h>
 
 #include <atomic>
@@ -68,11 +69,112 @@ std::atomic<std::uint64_t> g_next_front_half_receipt_identity{1U};
          reinterpret_cast<std::uintptr_t>(pointer) % alignment == 0U;
 }
 
+[[nodiscard]] bool exact_live_synthetic_gdn_qkvz_asset(
+    const kernels::Sm87TargetAotFp8CudaAssetView& asset,
+    const std::int32_t expected_device, int* const cuda_error) noexcept {
+  if (cuda_error != nullptr) {
+    *cuda_error = 0;
+  }
+  constexpr auto kRole = kernels::Sm87TargetAotProjectionRole::kFp8GdnQkvZ;
+  const auto layout =
+      kernels::sm87_target_aot_projection_packed_layout(kRole);
+  const auto& upload = asset.device_upload_receipt;
+  if (cuda_error == nullptr || expected_device < 0 || !layout.valid() ||
+      !kernels::sm87_target_aot_fp8_cuda_asset_valid(asset) ||
+      asset.payload.role != kRole ||
+      asset.payload.bytes != layout.payload_bytes ||
+      asset.payload.begin == 0U || asset.payload.end <= asset.payload.begin ||
+      asset.payload.end - asset.payload.begin != asset.payload.bytes ||
+      upload.role != kRole || upload.device_ordinal != expected_device ||
+      upload.device_payload_begin != asset.payload.begin ||
+      upload.device_payload_end != asset.payload.end ||
+      upload.device_payload_bytes != asset.payload.bytes ||
+      upload.device_allocation_begin == 0U ||
+      upload.device_allocation_end <= upload.device_allocation_begin ||
+      upload.device_allocation_end - upload.device_allocation_begin !=
+          upload.device_allocation_bytes ||
+      upload.device_allocation_owner_identity == 0U ||
+      upload.device_allocation_identity == 0U) {
+    if (cuda_error != nullptr) {
+      *cuda_error = static_cast<int>(cudaErrorInvalidValue);
+    }
+    return false;
+  }
+
+  int current_device = -1;
+  cudaError_t runtime_status = cudaGetDevice(&current_device);
+  if (runtime_status != cudaSuccess || current_device != expected_device) {
+    *cuda_error = runtime_status == cudaSuccess
+                      ? static_cast<int>(cudaErrorInvalidDevice)
+                      : static_cast<int>(runtime_status);
+    return false;
+  }
+
+  const void* const begin =
+      reinterpret_cast<const void*>(asset.payload.begin);
+  const void* const end =
+      reinterpret_cast<const void*>(asset.payload.end - 1U);
+  cudaPointerAttributes begin_attributes{};
+  cudaPointerAttributes end_attributes{};
+  runtime_status = cudaPointerGetAttributes(&begin_attributes, begin);
+  if (runtime_status != cudaSuccess) {
+    *cuda_error = static_cast<int>(runtime_status);
+    return false;
+  }
+  runtime_status = cudaPointerGetAttributes(&end_attributes, end);
+  if (runtime_status != cudaSuccess ||
+      begin_attributes.type != cudaMemoryTypeDevice ||
+      end_attributes.type != cudaMemoryTypeDevice ||
+      begin_attributes.device != expected_device ||
+      end_attributes.device != expected_device) {
+    *cuda_error = runtime_status == cudaSuccess
+                      ? static_cast<int>(cudaErrorInvalidDevicePointer)
+                      : static_cast<int>(runtime_status);
+    return false;
+  }
+
+  CUdeviceptr allocation_begin = 0U;
+  CUdeviceptr end_allocation_begin = 0U;
+  std::size_t allocation_bytes = 0U;
+  std::size_t end_allocation_bytes = 0U;
+  const CUresult driver_status = cuMemGetAddressRange(
+      &allocation_begin, &allocation_bytes,
+      static_cast<CUdeviceptr>(asset.payload.begin));
+  const CUresult end_driver_status = cuMemGetAddressRange(
+      &end_allocation_begin, &end_allocation_bytes,
+      static_cast<CUdeviceptr>(asset.payload.end - 1U));
+  const bool overflows =
+      allocation_bytes > std::numeric_limits<std::uintptr_t>::max() -
+                             static_cast<std::uintptr_t>(allocation_begin);
+  const std::uintptr_t allocation_end =
+      overflows ? 0U
+                : static_cast<std::uintptr_t>(allocation_begin) +
+                      allocation_bytes;
+  if (driver_status != CUDA_SUCCESS || end_driver_status != CUDA_SUCCESS ||
+      allocation_begin == 0U || allocation_bytes == 0U || overflows ||
+      end_allocation_begin != allocation_begin ||
+      end_allocation_bytes != allocation_bytes ||
+      static_cast<std::uintptr_t>(allocation_begin) !=
+          upload.device_allocation_begin ||
+      allocation_bytes != upload.device_allocation_bytes ||
+      allocation_end != upload.device_allocation_end) {
+    *cuda_error =
+        driver_status != CUDA_SUCCESS
+            ? static_cast<int>(driver_status)
+            : (end_driver_status != CUDA_SUCCESS
+                   ? static_cast<int>(end_driver_status)
+                   : static_cast<int>(cudaErrorInvalidDevicePointer));
+    return false;
+  }
+  return true;
+}
+
 }  // namespace
 
 Sm87MacroFeedV4P40ExecutionPackage::Sm87MacroFeedV4P40ExecutionPackage(
     ProjectionCatalog projection_catalog, Bf16AbCatalog bf16_ab_catalog,
-    LayerNormCatalog layer_norm_catalog,
+    LayerNormCatalog layer_norm_catalog, GdnQkvZCatalog gdn_qkvz_catalog,
+    GdnLayer0ExecutionSource gdn_layer0_source,
     kernels::Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot
         norm_resources,
     kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot
@@ -85,6 +187,8 @@ Sm87MacroFeedV4P40ExecutionPackage::Sm87MacroFeedV4P40ExecutionPackage(
     : projection_catalog_(std::move(projection_catalog)),
       bf16_ab_catalog_(std::move(bf16_ab_catalog)),
       layer_norm_catalog_(std::move(layer_norm_catalog)),
+      gdn_qkvz_catalog_(std::move(gdn_qkvz_catalog)),
+      gdn_layer0_source_(gdn_layer0_source),
       norm_resources_(norm_resources),
       bf16_ab_resources_(bf16_ab_resources),
       transient_allocation_(transient_allocation),
@@ -119,13 +223,31 @@ Sm87MacroFeedV4P40ExecutionPackageCreateResult::operator bool()
 Sm87MacroFeedV4P40ExecutionPackageCreateResult
 Sm87MacroFeedV4P40ExecutionPackage::create(
     const StartupPackage& startup_package) noexcept {
+  return create_impl(startup_package, nullptr);
+}
+
+Sm87MacroFeedV4P40ExecutionPackageCreateResult
+Sm87MacroFeedV4P40ExecutionPackage::
+    create_with_synthetic_t1_gdn_layer0_for_cuda_test(
+        const StartupPackage& startup_package,
+        const kernels::Sm87TargetAotFp8CudaAssetView& asset) noexcept {
+  return create_impl(startup_package, &asset);
+}
+
+Sm87MacroFeedV4P40ExecutionPackageCreateResult
+Sm87MacroFeedV4P40ExecutionPackage::create_impl(
+    const StartupPackage& startup_package,
+    const kernels::Sm87TargetAotFp8CudaAssetView* const
+        synthetic_t1_gdn_layer0_asset) noexcept {
   Sm87MacroFeedV4P40ExecutionPackageCreateResult result;
 #if !defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION) || \
     !defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) || \
     !defined(Q3X_ENABLE_SM87_MACROFEED_V4_EXECUTION_EVENTS_ADMISSION) || \
     !defined(Q3X_ENABLE_SM87_MACROFEED_V4_NORM_RESIDUAL_ADMISSION) || \
-    !defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION)
+    !defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION) || \
+    !defined(Q3X_ENABLE_SM87_MACROFEED_V4_FP8_ADMISSION)
   (void)startup_package;
+  (void)synthetic_t1_gdn_layer0_asset;
   result.status = failure(Error::kAdmissionDisabled, "admission_disabled");
   return result;
 #else
@@ -173,6 +295,94 @@ Sm87MacroFeedV4P40ExecutionPackage::create(
                             norm_cuda_error, norm_failure_layer,
                             norm_failure_post_attention);
     return result;
+  }
+
+  // Production construction is all-or-nothing over the 48 natural GDN
+  // layers.  The only exception is the private synthetic-T1 seam used to
+  // exercise this one-layer composition against an honest live allocation;
+  // it may proceed only when the known non-executable host catalog fails on
+  // ordinal zero and it remains explicitly distinguishable in the audit.
+  GdnQkvZCatalog gdn_qkvz_catalog{};
+  std::uint64_t gdn_qkvz_catalog_identity = 0U;
+  std::size_t gdn_failure_ordinal = kSm87MacroFeedV4StateLayerCount;
+  int gdn_cuda_error = 0;
+  const bool real_gdn_catalog =
+      startup_package
+          .seal_gdn_qkvz_execution_catalog_for_execution_package(
+              &gdn_qkvz_catalog, &gdn_qkvz_catalog_identity,
+              &gdn_failure_ordinal, &gdn_cuda_error);
+  GdnLayer0ExecutionSource gdn_layer0_source;
+  if (synthetic_t1_gdn_layer0_asset == nullptr) {
+    if (!real_gdn_catalog || gdn_qkvz_catalog_identity == 0U ||
+        gdn_failure_ordinal != gdn_qkvz_catalog.size()) {
+      const std::size_t failure_layer =
+          gdn_failure_ordinal < gdn_qkvz_catalog.size()
+              ? gdn_failure_ordinal + gdn_failure_ordinal / 3U
+              : kSm87MacroFeedV4LayerCount;
+      result.status = failure(Error::kGdnQkvZCatalog,
+                              "complete_gdn_qkvz_catalog_seal",
+                              gdn_cuda_error, failure_layer);
+      return result;
+    }
+    const auto& binding = gdn_qkvz_catalog[0U];
+    gdn_layer0_source.asset = binding.asset;
+    gdn_layer0_source.resources = binding.resources;
+    gdn_layer0_source.identity = binding.binding_identity;
+    gdn_layer0_source.synthetic_t1 = false;
+  } else {
+    if (real_gdn_catalog || gdn_failure_ordinal != 0U ||
+        gdn_cuda_error == 0) {
+      result.status = failure(
+          Error::kGdnQkvZCatalog,
+          "synthetic_t1_requires_ordinal0_nonexecutable_catalog_failure",
+          gdn_cuda_error);
+      return result;
+    }
+    // cudaPointerGetAttributes intentionally failed on the fake catalog.
+    // Clear only that host-thread diagnostic before inspecting the honest
+    // synthetic allocation; no device work has been submitted at this point.
+    (void)cudaGetLastError();
+
+    const kernels::Sm87MacroFeedV4Fp8CudaResources resources =
+        startup_package.gdn_qkvz_startup_seal().resources;
+    constexpr auto kRole =
+        kernels::Sm87TargetAotProjectionRole::kFp8GdnQkvZ;
+    constexpr auto kLayout =
+        kernels::Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1;
+    int synthetic_cuda_error = 0;
+    const std::uint64_t asset_identity =
+        StartupPackage::compute_gdn_qkvz_asset_value_identity(
+            *synthetic_t1_gdn_layer0_asset);
+    if (!resources.static_resource_gate_passed ||
+        !kernels::sm87_macrofeed_v4_fp8_resource_gate(resources) ||
+        resources.role != kRole || resources.input_layout != kLayout ||
+        resources.identity !=
+            kernels::Sm87MacroFeedV4Fp8Identity::
+                kGdnQkvZM64N128K64OrdinaryGridV1 ||
+        resources.device_ordinal != startup_package.audit().device_ordinal ||
+        asset_identity == 0U ||
+        !exact_live_synthetic_gdn_qkvz_asset(
+            *synthetic_t1_gdn_layer0_asset,
+            startup_package.audit().device_ordinal,
+            &synthetic_cuda_error)) {
+      result.status = failure(
+          Error::kGdnQkvZCatalog,
+          "synthetic_t1_live_gdn_qkvz_source_required",
+          synthetic_cuda_error);
+      return result;
+    }
+    gdn_layer0_source.asset = *synthetic_t1_gdn_layer0_asset;
+    gdn_layer0_source.resources = resources;
+    std::uint64_t source_identity =
+        mix64(0x5133'4d46'5634'5431ULL ^ asset_identity);
+    source_identity = mix64(
+        source_identity ^ static_cast<std::uint64_t>(resources.identity));
+    source_identity = mix64(
+        source_identity ^ resources.static_resource_gate_passed);
+    gdn_layer0_source.identity = source_identity == 0U ? 1U : source_identity;
+    gdn_layer0_source.synthetic_t1 = true;
+    gdn_qkvz_catalog.fill({});
+    gdn_qkvz_catalog_identity = 0U;
   }
 
   kernels::Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot
@@ -286,6 +496,8 @@ Sm87MacroFeedV4P40ExecutionPackage::create(
   audit.bf16_ab_catalog_identity =
       startup_package.audit().bf16_ab_binding_catalog_identity;
   audit.layer_norm_catalog_identity = layer_norm_catalog_identity;
+  audit.gdn_qkvz_catalog_identity = gdn_qkvz_catalog_identity;
+  audit.gdn_layer0_source_identity = gdn_layer0_source.identity;
   audit.transient_allocation_identity = transient_identity;
   audit.recurrent_allocation_identity = recurrent_identity;
   audit.execution_events_owner_identity = events_owner_identity;
@@ -293,9 +505,13 @@ Sm87MacroFeedV4P40ExecutionPackage::create(
   audit.projection_bindings = projection_catalog.size();
   audit.bf16_ab_pairs = bf16_ab_catalog.size();
   audit.layer_norm_pairs = layer_norm_catalog.size();
+  audit.gdn_qkvz_bindings =
+      gdn_layer0_source.synthetic_t1 ? 1U : gdn_qkvz_catalog.size();
   audit.transient_bytes = kSm87MacroFeedV4P40ExecutionTransientBytes;
   audit.recurrent_bytes = kSm87MacroFeedV4RecurrentStorageBytes;
   audit.fixed_gdn_layer0_front_half_bound = true;
+  audit.qkvz_ab_ready_transaction_bound = true;
+  audit.synthetic_t1_gdn_layer0_source = gdn_layer0_source.synthetic_t1;
   audit.whole_layer_executor_bound = false;
   audit.whole_model_executor_bound = false;
   audit.selector_bound = false;
@@ -313,6 +529,8 @@ Sm87MacroFeedV4P40ExecutionPackage::create(
   package_identity = mix64(package_identity ^ audit.projection_catalog_identity);
   package_identity = mix64(package_identity ^ audit.bf16_ab_catalog_identity);
   package_identity = mix64(package_identity ^ audit.layer_norm_catalog_identity);
+  package_identity = mix64(package_identity ^ audit.gdn_qkvz_catalog_identity);
+  package_identity = mix64(package_identity ^ audit.gdn_layer0_source_identity);
   package_identity = mix64(package_identity ^ audit.transient_allocation_identity);
   package_identity = mix64(package_identity ^ audit.recurrent_allocation_identity);
   package_identity =
@@ -328,9 +546,10 @@ Sm87MacroFeedV4P40ExecutionPackage::create(
 
   result.package.reset(new (std::nothrow) Sm87MacroFeedV4P40ExecutionPackage(
       std::move(projection_catalog), std::move(bf16_ab_catalog),
-      std::move(layer_norm_catalog), norm_resources, bf16_ab_resources,
-      transient, recurrent, std::move(request_created.state),
-      std::move(events_owner), std::move(events_driver), audit));
+      std::move(layer_norm_catalog), std::move(gdn_qkvz_catalog),
+      gdn_layer0_source, norm_resources, bf16_ab_resources, transient,
+      recurrent, std::move(request_created.state), std::move(events_owner),
+      std::move(events_driver), audit));
   if (result.package == nullptr) {
     (void)cudaFree(recurrent);
     (void)cudaFree(transient);
@@ -353,11 +572,27 @@ Sm87MacroFeedV4P40ExecutionPackage::create(
 bool Sm87MacroFeedV4P40ExecutionPackage::front_half_bindings_valid()
     const noexcept {
   if (ping_ == nullptr || pong_ == nullptr || scratch_ == nullptr ||
-      bf16_ab_catalog_.empty() || layer_norm_catalog_.empty()) {
+      bf16_ab_catalog_.empty() || layer_norm_catalog_.empty() ||
+      gdn_layer0_source_.identity == 0U) {
     return false;
   }
+  constexpr std::size_t kQkvzRowBegin = 0U;
+  constexpr std::size_t kQkvzRowEnd =
+      kernels::kSm87MacroFeedV4Fp8GdnZOffset +
+      kernels::kSm87MacroFeedV4Fp8GdnZFeatures;
+  constexpr std::size_t kAbRowBegin =
+      kernels::kSm87MacroFeedV4Bf16AbAOffset;
+  constexpr std::size_t kAbRowEnd =
+      kernels::kSm87MacroFeedV4Bf16AbBOffset +
+      kernels::kSm87MacroFeedV4Bf16AbRowsPerProjection;
+  static_assert(kQkvzRowBegin == 0U && kQkvzRowEnd == 16'384U);
+  static_assert(kAbRowBegin == 16'384U && kAbRowEnd == 16'480U);
+  static_assert(kQkvzRowEnd <= kAbRowBegin);
+  static_assert(kAbRowEnd <= kernels::kSm87MacroFeedV4Fp8ScratchRowStride);
+
   const auto& norm = layer_norm_catalog_[0U];
   const auto& ab = bf16_ab_catalog_[0U];
+  const auto& gdn = gdn_layer0_source_;
   const auto ping_range = kernels::sm87_macrofeed_v4_norm_residual_byte_range(
       ping_, kernels::kSm87MacroFeedV4NormResidualHiddenBytes);
   const auto pong_range = kernels::sm87_macrofeed_v4_norm_residual_byte_range(
@@ -370,6 +605,20 @@ bool Sm87MacroFeedV4P40ExecutionPackage::front_half_bindings_valid()
              kernels::kSm87MacroFeedV4NormResidualEpsilonFp32Bits &&
          ab.model_layer == 0U && ab.a_weights != nullptr &&
          ab.b_weights != nullptr && ab.pair_identity != 0U &&
+         kernels::sm87_target_aot_fp8_cuda_asset_valid(gdn.asset) &&
+         gdn.asset.payload.role ==
+             kernels::Sm87TargetAotProjectionRole::kFp8GdnQkvZ &&
+         kernels::sm87_macrofeed_v4_fp8_resource_gate(gdn.resources) &&
+         gdn.resources.role ==
+             kernels::Sm87TargetAotProjectionRole::kFp8GdnQkvZ &&
+         gdn.resources.input_layout ==
+             kernels::Sm87MacroFeedV4Fp8InputLayout::
+                 kHiddenContiguousH5120V1 &&
+         gdn.resources.identity ==
+             kernels::Sm87MacroFeedV4Fp8Identity::
+                 kGdnQkvZM64N128K64OrdinaryGridV1 &&
+         gdn.resources.device_ordinal == audit_.device_ordinal &&
+         gdn.synthetic_t1 == audit_.synthetic_t1_gdn_layer0_source &&
          pointer_aligned(ping_,
                          kernels::kSm87MacroFeedV4NormResidualPointerAlignment) &&
          pointer_aligned(pong_,
@@ -416,7 +665,42 @@ bool Sm87MacroFeedV4P40ExecutionPackage::valid() const noexcept {
       return false;
     }
   }
-  return true;
+  if (audit_.synthetic_t1_gdn_layer0_source) {
+    for (const auto& binding : gdn_qkvz_catalog_) {
+      if (binding.binding_identity != 0U) {
+        return false;
+      }
+    }
+    return true;
+  }
+  for (std::size_t ordinal = 0U; ordinal < gdn_qkvz_catalog_.size();
+       ++ordinal) {
+    const auto& binding = gdn_qkvz_catalog_[ordinal];
+    if (binding.gdn_ordinal != ordinal ||
+        binding.model_layer != ordinal + ordinal / 3U ||
+        binding.role !=
+            kernels::Sm87TargetAotProjectionRole::kFp8GdnQkvZ ||
+        binding.input_layout !=
+            kernels::Sm87MacroFeedV4Fp8InputLayout::
+                kHiddenContiguousH5120V1 ||
+        binding.tactic_identity !=
+            kernels::Sm87MacroFeedV4Fp8Identity::
+                kGdnQkvZM64N128K64OrdinaryGridV1 ||
+        binding.package_identity != audit_.startup_package_identity ||
+        binding.projection_catalog_identity !=
+            audit_.projection_catalog_identity ||
+        binding.binding_identity == 0U ||
+        !binding.live_cuda_payload_range_validated ||
+        binding.request_selectable || binding.launcher_authority ||
+        binding.production_dispatch_eligible) {
+      return false;
+    }
+  }
+  const auto& first = gdn_qkvz_catalog_[0U];
+  return gdn_layer0_source_.identity == first.binding_identity &&
+         gdn_layer0_source_.asset.payload.begin == first.asset.payload.begin &&
+         gdn_layer0_source_.asset.payload.end == first.asset.payload.end &&
+         !gdn_layer0_source_.synthetic_t1;
 }
 
 Sm87MacroFeedV4P40ExecutionPackageStatus
@@ -627,10 +911,29 @@ Sm87MacroFeedV4P40ExecutionPackage::execute_gdn_layer0_front_half_once()
     return result;
   }
 
-  // Main's AbReady wait is intentionally absent: no QKVZ projection has been
-  // admitted in this slice, so closing the cycle would falsely attest the
-  // QKVZ/A-B overlap point.  The dual-tail Control drain still proves both
-  // submitted kernels are physically quiescent before discard.
+  // Main already contains InputNorm.  This owner-locked transaction appends
+  // exactly one fixed QKVZ body followed immediately by Main<-AbReady.  AbAux
+  // has independently queued A/B after NormReady, so the two projections may
+  // overlap physically without exposing either stream or permitting a caller
+  // to interleave work between QKVZ and the wait.
+  kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4GdnQkvzC8000Arguments gdn_arguments;
+  gdn_arguments.hidden_input = pong_;
+  gdn_arguments.asset = gdn_layer0_source_.asset;
+  gdn_arguments.phase_scratch = scratch_;
+  enqueue = events_driver_->submit_gdn_qkvz_c8000_then_wait_ab_ready(
+      *panel.panel_access, gdn_arguments, gdn_layer0_source_.resources);
+  if (!enqueue) {
+    result.status = event_failure(
+        "gdn_qkvz_submit_then_ab_ready_wait", enqueue.status);
+    const auto drain = drain_and_discard_active_panel(*panel.panel_access);
+    if (drain.error == Error::kPhysicalDrain) {
+      result.status = drain;
+    }
+    (void)abort_request_state();
+    return result;
+  }
+
   result.status = drain_and_discard_active_panel(*panel.panel_access);
   if (!result.status) {
     (void)abort_request_state();
@@ -647,10 +950,13 @@ Sm87MacroFeedV4P40ExecutionPackage::execute_gdn_layer0_front_half_once()
   receipt.receipt_identity =
       next_nonzero(&g_next_front_half_receipt_identity);
   receipt.package_identity = audit_.package_identity;
+  receipt.gdn_layer0_source_identity = audit_.gdn_layer0_source_identity;
+  receipt.gdn_qkvz_catalog_identity = audit_.gdn_qkvz_catalog_identity;
   receipt.request_epoch = request_access.request_epoch();
   receipt.panel = 0U;
   receipt.model_layer = 0U;
   receipt.input_norm_launches = event_snapshot.input_norm_submissions;
+  receipt.gdn_qkvz_launches = event_snapshot.gdn_qkvz_c8000_submissions;
   receipt.bf16_ab_launches = event_snapshot.bf16_ab_submissions;
   receipt.bound_kernel_submissions =
       event_snapshot.bound_kernel_submissions;
@@ -663,7 +969,8 @@ Sm87MacroFeedV4P40ExecutionPackage::execute_gdn_layer0_front_half_once()
   receipt.ab_ready_recorded =
       event_snapshot.event_generations[static_cast<std::size_t>(
           events::Sm87MacroFeedV4ExecutionEvent::kAbReady)] == 1U;
-  receipt.ab_ready_waited_by_main = false;
+  receipt.ab_ready_waited_by_main =
+      event_snapshot.gdn_qkvz_ab_ready_wait_transactions == 1U;
   receipt.owner_drained_physically =
       event_snapshot.state ==
           events::Sm87MacroFeedV4ExecutionOwnerState::kRequestDiscarded &&
@@ -674,6 +981,8 @@ Sm87MacroFeedV4P40ExecutionPackage::execute_gdn_layer0_front_half_once()
       !request_snapshot.logical_sequence_fence_published &&
       !request_snapshot.decode_access_issued;
   receipt.gdn_layer0_front_half_only = true;
+  receipt.synthetic_t1_gdn_layer0_source =
+      audit_.synthetic_t1_gdn_layer0_source;
   receipt.layer_complete = false;
   receipt.panel_complete = false;
   receipt.model_complete = false;
@@ -709,6 +1018,8 @@ void Sm87MacroFeedV4P40ExecutionPackage::release() noexcept {
   }
   bf16_ab_catalog_.fill({});
   layer_norm_catalog_.fill({});
+  gdn_qkvz_catalog_.fill({});
+  gdn_layer0_source_ = {};
   norm_resources_ = {};
   bf16_ab_resources_ = {};
   audit_ = {};

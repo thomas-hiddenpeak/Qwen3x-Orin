@@ -310,6 +310,8 @@ void Sm87MacroFeedV4ExecutionEventsOwner::reset_request_ledger() noexcept {
   bound_kernel_submissions_ = 0U;
   input_norm_submissions_ = 0U;
   bf16_ab_submissions_ = 0U;
+  gdn_qkvz_c8000_submissions_ = 0U;
+  gdn_qkvz_ab_ready_wait_transactions_ = 0U;
   panel_done_recorded_ = false;
   draining_ = false;
   main_tail_recorded_ = false;
@@ -326,6 +328,7 @@ void Sm87MacroFeedV4ExecutionEventsOwner::reset_request_ledger() noexcept {
   poison_drain_stream_cuda_status_.fill(0);
   poison_drain_all_stream_synchronizations_attempted_ = false;
   poisoned_terminal_quiescence_attested_ = false;
+  test_fail_next_bound_ab_wait_ = false;
 }
 
 void Sm87MacroFeedV4ExecutionEventsOwner::record_poison_cause(
@@ -908,6 +911,151 @@ Sm87MacroFeedV4ExecutionEventsOwner::submit_bf16_ab_and_record_ready(
   }
   return result;
 }
+
+Sm87MacroFeedV4EventEnqueueResult
+Sm87MacroFeedV4ExecutionEventsOwner::
+    submit_gdn_qkvz_c8000_then_wait_ab_ready(
+        const Sm87MacroFeedV4ExecutionEventsAccess& access,
+        const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+        const kernels::sm87_macrofeed_v4_bound_launch_detail::
+            Sm87MacroFeedV4GdnQkvzC8000Arguments& arguments,
+        const kernels::Sm87MacroFeedV4Fp8CudaResources& resources) noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  Sm87MacroFeedV4EventEnqueueResult result;
+  result.status = validate_operation_access(access, panel_access);
+  if (!result.status) {
+    // Once a request is active, a stale/forged panel capability is a
+    // transaction failure, not a harmless pre-admission rejection: earlier
+    // Main/AbAux work may already be in flight.  Preserve the first cause and
+    // force the caller through the terminal three-stream poison drain.  A
+    // foreign owner capability is the only case known to be outside this
+    // owner's submission boundary.
+    if (result.status.error !=
+            Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess &&
+        owner_access_matches(access) &&
+        state_ == Sm87MacroFeedV4ExecutionOwnerState::kRequestActive) {
+      record_poison_cause(result.status);
+    }
+    return result;
+  }
+  constexpr auto kRole = kernels::Sm87TargetAotProjectionRole::kFp8GdnQkvZ;
+  constexpr auto kLayout =
+      kernels::Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1;
+  const kernels::Sm87MacroFeedV4Fp8Arguments fixed{
+      kRole,
+      arguments.hidden_input,
+      kernels::kSm87MacroFeedV4Fp8HiddenRowStride,
+      arguments.asset,
+      kernels::kSm87MacroFeedV4Fp8Tokens,
+      arguments.phase_scratch,
+      kernels::kSm87MacroFeedV4Fp8ScratchRowStride,
+      nullptr,
+      0U,
+      nullptr,
+      0U,
+      streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kMain)],
+      kLayout};
+  if (!kernels::sm87_macrofeed_v4_fp8_arguments_valid(fixed) ||
+      !resources.static_resource_gate_passed ||
+      !kernels::sm87_macrofeed_v4_fp8_resource_gate(resources) ||
+      resources.role != kRole || resources.input_layout != kLayout ||
+      resources.identity !=
+          kernels::sm87_macrofeed_v4_fp8_identity(kRole, kLayout) ||
+      resources.device_ordinal != device_ordinal_) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
+        "sealed_gdn_qkvz_c8000_binding_required", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kAbReady, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+
+  EventState& ab_state =
+      event_state_[event_index(Sm87MacroFeedV4ExecutionEvent::kAbReady)];
+  if (!ab_state.recorded || ab_state.request_epoch != request_epoch_ ||
+      ab_state.panel != active_panel_ ||
+      ab_state.panel_generation != active_panel_generation_ ||
+      ab_state.dependency_observed || ab_state.physical_observed) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kEventNotRecorded,
+        "gdn_qkvz_requires_current_unobserved_ab_ready_generation", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kAbReady, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+  result.status = validate_wait_order(
+      Sm87MacroFeedV4ExecutionStream::kMain,
+      Sm87MacroFeedV4ExecutionEvent::kAbReady);
+  if (!result.status) {
+    record_poison_cause(result.status);
+    return result;
+  }
+
+  const kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4LockedSubmitToken token(
+          streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kMain)]);
+  std::size_t submitted = 0U;
+  const int enqueue_status =
+      kernels::sm87_macrofeed_v4_bound_launch_detail::
+          enqueue_gdn_qkvz_c8000_prevalidated(token, arguments, resources,
+                                               &submitted);
+  if (enqueue_status != static_cast<int>(cudaSuccess)) {
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+                         "bound_gdn_qkvz_c8000_enqueue", enqueue_status,
+                         Sm87MacroFeedV4ExecutionStream::kMain,
+                         Sm87MacroFeedV4ExecutionEvent::kAbReady,
+                         active_panel_, active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+  if (submitted != 1U) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kReceiptInvalid,
+        "bound_gdn_qkvz_c8000_exactly_one_launch_required", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kAbReady, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+  ++bound_kernel_submissions_;
+  ++gdn_qkvz_c8000_submissions_;
+
+  void* wait_event_handle =
+      events_[event_index(Sm87MacroFeedV4ExecutionEvent::kAbReady)];
+  if (test_fail_next_bound_ab_wait_) {
+    test_fail_next_bound_ab_wait_ = false;
+    wait_event_handle = nullptr;
+  }
+  const cudaError_t wait_status = cudaStreamWaitEvent(
+      reinterpret_cast<cudaStream_t>(
+          streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kMain)]),
+      reinterpret_cast<cudaEvent_t>(wait_event_handle), 0U);
+  if (wait_status != cudaSuccess) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+        "bound_gdn_qkvz_c8000_cudaStreamWaitEvent",
+        static_cast<int>(wait_status), Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kAbReady, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+
+  ab_state.dependency_observed = true;
+  advance_wait_order(Sm87MacroFeedV4ExecutionEvent::kAbReady);
+  ++gdn_qkvz_ab_ready_wait_transactions_;
+  result.receipt = mint_enqueue_receipt(
+      Sm87MacroFeedV4EnqueueOperation::kWait,
+      Sm87MacroFeedV4ExecutionStream::kMain,
+      Sm87MacroFeedV4ExecutionEvent::kAbReady, ab_state.generation);
+  result.status = ok();
+  return result;
+}
 #endif
 
 Sm87MacroFeedV4EventEnqueueResult
@@ -1396,6 +1544,9 @@ Sm87MacroFeedV4ExecutionEventsOwner::snapshot() const noexcept {
   snapshot.bound_kernel_submissions = bound_kernel_submissions_;
   snapshot.input_norm_submissions = input_norm_submissions_;
   snapshot.bf16_ab_submissions = bf16_ab_submissions_;
+  snapshot.gdn_qkvz_c8000_submissions = gdn_qkvz_c8000_submissions_;
+  snapshot.gdn_qkvz_ab_ready_wait_transactions =
+      gdn_qkvz_ab_ready_wait_transactions_;
   snapshot.streams_nonblocking = streams_nonblocking_;
   snapshot.panel_done_recorded = panel_done_recorded_;
   snapshot.main_tail_recorded = main_tail_recorded_;
@@ -1471,6 +1622,15 @@ Sm87MacroFeedV4ExecutionEventsDriver::record_event(
                          "execution_driver_unbound");
     return result;
   }
+  if (event == Sm87MacroFeedV4ExecutionEvent::kNormReady ||
+      event == Sm87MacroFeedV4ExecutionEvent::kAbReady) {
+    Sm87MacroFeedV4EventEnqueueResult result;
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
+        "driver_ready_event_requires_bound_kernel_transaction", 0,
+        producer, event);
+    return result;
+  }
   return owner_->record_event(*access_, panel_access, producer, event);
 }
 
@@ -1483,6 +1643,15 @@ Sm87MacroFeedV4ExecutionEventsDriver::wait_event(
     Sm87MacroFeedV4EventEnqueueResult result;
     result.status = fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
                          "execution_driver_unbound");
+    return result;
+  }
+  if (consumer == Sm87MacroFeedV4ExecutionStream::kMain &&
+      event == Sm87MacroFeedV4ExecutionEvent::kAbReady) {
+    Sm87MacroFeedV4EventEnqueueResult result;
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
+        "driver_ab_ready_wait_requires_fixed_gdn_qkvz_transaction", 0,
+        consumer, event);
     return result;
   }
   return owner_->wait_event(*access_, panel_access, consumer, event);
@@ -1517,6 +1686,23 @@ Sm87MacroFeedV4ExecutionEventsDriver::submit_bf16_ab_and_record_ready(
     return result;
   }
   return owner_->submit_bf16_ab_and_record_ready(
+      *access_, panel_access, arguments, resources);
+}
+
+Sm87MacroFeedV4EventEnqueueResult
+Sm87MacroFeedV4ExecutionEventsDriver::
+    submit_gdn_qkvz_c8000_then_wait_ab_ready(
+        const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+        const kernels::sm87_macrofeed_v4_bound_launch_detail::
+            Sm87MacroFeedV4GdnQkvzC8000Arguments& arguments,
+        const kernels::Sm87MacroFeedV4Fp8CudaResources& resources) noexcept {
+  if (owner_ == nullptr || access_ == nullptr) {
+    Sm87MacroFeedV4EventEnqueueResult result;
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                         "execution_driver_unbound");
+    return result;
+  }
+  return owner_->submit_gdn_qkvz_c8000_then_wait_ab_ready(
       *access_, panel_access, arguments, resources);
 }
 

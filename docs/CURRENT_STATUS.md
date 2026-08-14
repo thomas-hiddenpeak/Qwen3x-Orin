@@ -572,6 +572,9 @@ the fixed state transitions and typed input-norm/BF16-A/B submissions; each
 kernel enqueue and its ready-event record occur atomically under the owner
 lock. The driver shares ownership of its event owner, so it cannot outlive the
 streams it addresses; no caller receives a stream, event, or generic callback.
+The caller-visible driver rejects raw `NormReady` and `AbReady` records, and
+the fixed QKVZ-plus-`AbReady` wait transaction is private to the execution
+package; CUDA fixtures use a separately compiled test-only bypass.
 Any CUDA failure during tail record, join, physical observation, or discard is
 immediately terminal-drained across all three streams. The isolated execution
 package uses this capability for one layer-0 front-half admission, but the
@@ -582,16 +585,23 @@ A separate default-off, test-only V4 startup foundation package now enters
 through the private `ModelWeights` attachment. It regenerates the canonical
 P40 plan internally, authenticates the complete 256-artifact/400-source live
 target-AOT catalog, preserves each payload, manifest, upload/readback receipt,
-and tensor-scale identity, and mints V4-local Gate+Up, Down, and BF16 A/B
-resource seals. It validates and binds the 96 live BF16 projection tensors as
+and tensor-scale identity, and mints V4-local Gate+Up, Down, BF16 A/B, and
+fixed GDN-QKVZ FP8 resource seals. It validates and binds the 96 live BF16
+projection tensors as
 48 canonical natural-layer A/B pairs and all 128 live BF16 outer-norm vectors
-as 64 input/post-Attention pairs. Construction-only private seams seal both
-catalogs exactly once; no request may query CUDA state or rescan the model or
-catalog per layer. The startup package itself remains host-only and grants no
-launcher or production-dispatch authority. Its non-owning asset access
-requires the eventual Engine composition root to destroy the execution
-package first, this startup package second, `ModelWeights` third, and the
-complete target-AOT owner/resident root last.
+as 64 input/post-Attention pairs. Construction-only private seams seal those
+catalogs exactly once. Another all-or-nothing seam walks the 48 natural GDN
+layers, fixes role/layout/tactic, and accepts each FP8 asset only when its
+current CUDA allocation exactly matches the authenticated upload receipt. The
+normal execution-package factory requires that entire catalog before creating
+streams or transient state. The fake host catalog fails at ordinal zero; a
+positive real-owner/real-checkpoint 48-binding execution-seal witness remains
+absent. No request may query CUDA state or rescan the model or catalog per
+layer. The startup package itself remains host-only and grants no launcher or
+production-dispatch authority. Its non-owning asset access requires the
+eventual Engine composition root to destroy the execution package first, this
+startup package second, `ModelWeights` third, and the complete target-AOT
+owner/resident root last.
 
 A first default-off, test-only V4 execution package now composes those sealed
 catalogs with the request state and event owner. It copies all 256 immutable
@@ -603,11 +613,18 @@ expired weight ownership. It owns exactly
 of dual-epoch recurrent storage. Its only executable operation is a one-shot
 GDN layer-0 front half: input normalization on Main records `NormReady`, AbAux
 waits and submits the canonical layer-0 BF16 A/B pair, then records `AbReady`.
-Because QKVZ is not yet bound, Main deliberately does not wait on `AbReady`;
-the package instead joins both stream tails on Control, physically observes
-`OwnerDrained`, and discards the unpublished request state. This proves one
-real CUDA composition seam and teardown order, not a complete layer, panel,
-model, selector, API route, real-checkpoint result, or performance result.
+After its own input-norm dependency, Main independently submits one fixed
+C8000 GDN-QKVZ body into scratch rows `[0,16384)` and immediately waits on the
+current `AbReady` generation; A/B owns `[16384,16480)`, and the entire
+`[16480,17408)` row gap is verified untouched. Control then joins both stream
+tails, physically observes `OwnerDrained`, and discards the unpublished
+request state. The positive CUDA witness deliberately uses one live
+83,886,080-byte synthetic-T1 FP8 allocation and zero-valued synthetic weights;
+its receipt carries that synthetic source identity. The normal factory rejects
+the fake 48-layer catalog. This proves the fixed dependency, write-set,
+failure-drain, and teardown seam, not a complete layer, positive real-owner
+48-layer execution seal, real-checkpoint numerical result, panel, model,
+selector, API route, or performance result.
 
 Two independent V4 NVFP4 constituents also exist. Gate+Up binds
 M8000/K5120/N17408 to M64N128K64, 256 threads, two stages, and 32 persistent
@@ -704,8 +721,9 @@ commit a recurrent epoch, or authorize production dispatch.
 V4 has no selector, whole-model launcher, complete startup/event-bound
 BF16-A/B/FP8/GDN/Attention/norm/residual layer executor, real-checkpoint
 oracle, API witness, performance result, numerical qualification, release
-authority, or production eligibility. Its first authenticated device package
-is intentionally limited to the discarded layer-0 norm-to-A/B slice. The v10
+authority, or production eligibility. Its first executable CUDA package is
+intentionally limited to the discarded synthetic-T1 layer-0
+`Norm → (QKVZ || A/B) → Main waits AbReady` slice. The v10
 observation at 392.804397 prompt tok/s therefore remains the current
 whole-product incumbent.
 
@@ -723,7 +741,7 @@ whole-product incumbent.
 | SM87 whole-system AOT Prefill v1 | Default-off real-P40 API composition; performance-rejected after a zero-byte 840.000399-second timeout | Retain only as correctness/diagnostic control; it is not an active performance candidate |
 | SM87 bulk-dataflow v2 Prefill | Complete default-off real-P40 API route; performance-rejected after a zero-byte 680.73-second EvalScope timeout and one bounded causal profile; accuracy remains unqualified | Retain exact constituents and evidence only; no V2 tuning, P60/P130, qualification, or production promotion |
 | SM87 MacroFeed v3 Prefill | Complete default-off, test-only 64-layer source composition with startup-bound target-AOT assets, role-specific macro projections, nine-kernel-per-layer exact GDN, cold rollback, and a V18 physical transaction; integrated build and focused admission tests pass | Frozen executable diagnostic/control; no authoritative P40 timing, numerical, release, or production qualification exists |
-| SM87 MacroFeed v4 Prefill | Active, default-off C8000×5 panel-major foundation with one isolated executable layer-0 norm→BF16-A/B slice; host workspace/request-state contracts, authenticated 256-artifact plus 48-real-BF16-pair and 64-real-norm-pair startup seals, private three-stream/nine-event owner, Gate+Up, Down, fixed direct-scratch BF16 A/B, four layout-specific FP8 admissions, exact two-plane norm/residual, exact in-place Q/K preprocess, fixed unsplit Q128/KV32 C8000 online Attention, and independent exact-GDN admission | Anchor the first slice under Engine lifetime, bind QKVZ and close the intended A/B overlap, then compose the remaining exact layer/request bodies, finalizer, rollback, and whole-model physical receipts before real-checkpoint/state/API qualification; no selector or performance authority exists |
+| SM87 MacroFeed v4 Prefill | Active, default-off C8000×5 panel-major foundation with one isolated synthetic-T1 executable layer-0 `Norm → (QKVZ || A/B) → Main waits AbReady` slice; host workspace/request-state contracts, authenticated 256-artifact plus 48-real-BF16-pair and 64-real-norm-pair startup seals, construction-only 48-GDN-QKVZ catalog sealing logic, private three-stream/nine-event owner, Gate+Up, Down, fixed direct-scratch BF16 A/B, four layout-specific FP8 admissions, exact two-plane norm/residual, exact in-place Q/K preprocess, fixed unsplit Q128/KV32 C8000 online Attention, and independent exact-GDN admission | Anchor startup and execution under the real Engine weight lifetime and obtain the positive real-owner 48-QKVZ catalog witness, then compose the remaining exact layer/request bodies, finalizer, rollback, and whole-model physical receipts before real-checkpoint/state/API qualification; no selector or performance authority exists |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

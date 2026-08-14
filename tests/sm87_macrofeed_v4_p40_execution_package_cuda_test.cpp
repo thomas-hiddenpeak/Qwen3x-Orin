@@ -1,4 +1,5 @@
 #include "../src/runtime/sm87_macrofeed_v4_p40_execution_package_internal.h"
+#include "support/sm87_macrofeed_v4_live_fp8_asset_fixture.h"
 #include "support/sm87_target_aot_complete_host_fixture.h"
 
 #include <cuda_runtime_api.h>
@@ -11,6 +12,7 @@
 #include <optional>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 namespace q3x::runtime::sm87_macrofeed_v4_p40_execution_detail {
 
@@ -18,8 +20,10 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
  public:
   struct Samples final {
     std::uint16_t normalized = 0U;
+    std::uint16_t gdn_qkvz = 0U;
     std::uint16_t projection_a = 0U;
     std::uint16_t projection_b = 0U;
+    std::uint16_t scratch_gap = 0U;
   };
 
   struct RequestOutcome final {
@@ -33,6 +37,14 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
   [[nodiscard]] static Sm87MacroFeedV4GdnLayer0FrontHalfResult execute_once(
       Sm87MacroFeedV4P40ExecutionPackage& package) noexcept {
     return package.execute_gdn_layer0_front_half_once();
+  }
+
+  [[nodiscard]] static Sm87MacroFeedV4P40ExecutionPackageCreateResult
+  create_with_synthetic_t1_gdn_layer0(
+      const Sm87MacroFeedV4P40ExecutionPackage::StartupPackage& startup,
+      const kernels::Sm87TargetAotFp8CudaAssetView& asset) noexcept {
+    return Sm87MacroFeedV4P40ExecutionPackage::
+        create_with_synthetic_t1_gdn_layer0_for_cuda_test(startup, asset);
   }
 
   [[nodiscard]] static bool exercise_terminal_poison_drain(
@@ -91,7 +103,7 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
         cudaMemset(package.pong_, 0,
                    kernels::kSm87MacroFeedV4NormResidualHiddenBytes) !=
             cudaSuccess ||
-        cudaMemset(package.scratch_, 0,
+        cudaMemset(package.scratch_, 0x5a,
                    kernels::kSm87MacroFeedV4Bf16AbScratchBytes) !=
             cudaSuccess) {
       return false;
@@ -113,6 +125,9 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
     return cudaMemcpy(&samples->normalized, package.pong_,
                       sizeof(samples->normalized),
                       cudaMemcpyDeviceToHost) == cudaSuccess &&
+           cudaMemcpy(&samples->gdn_qkvz, package.scratch_,
+                      sizeof(samples->gdn_qkvz),
+                      cudaMemcpyDeviceToHost) == cudaSuccess &&
            cudaMemcpy(&samples->projection_a,
                       package.scratch_ +
                           kernels::kSm87MacroFeedV4Bf16AbAOffset,
@@ -122,6 +137,10 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
                       package.scratch_ +
                           kernels::kSm87MacroFeedV4Bf16AbBOffset,
                       sizeof(samples->projection_b),
+                      cudaMemcpyDeviceToHost) == cudaSuccess &&
+           cudaMemcpy(&samples->scratch_gap,
+                      package.scratch_ + 16'480U,
+                      sizeof(samples->scratch_gap),
                       cudaMemcpyDeviceToHost) == cudaSuccess;
   }
 
@@ -138,6 +157,34 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
     outcome->logical_sequence_fence_published =
         snapshot.logical_sequence_fence_published;
     outcome->decode_access_issued = snapshot.decode_access_issued;
+    return true;
+  }
+
+  [[nodiscard]] static bool scratch_gap_untouched(
+      const Sm87MacroFeedV4P40ExecutionPackage& package) {
+    if (package.scratch_ == nullptr) {
+      return false;
+    }
+    constexpr std::size_t kGapBegin = 16'480U;
+    constexpr std::size_t kGapWidth =
+        kernels::kSm87MacroFeedV4Fp8ScratchRowStride - kGapBegin;
+    constexpr std::size_t kRows = kernels::kSm87MacroFeedV4Fp8Tokens;
+    static_assert(kGapWidth == 928U);
+    std::vector<std::uint16_t> gap(kGapWidth * kRows, 0U);
+    if (cudaMemcpy2D(
+            gap.data(), kGapWidth * sizeof(std::uint16_t),
+            package.scratch_ + kGapBegin,
+            kernels::kSm87MacroFeedV4Fp8ScratchRowStride *
+                sizeof(std::uint16_t),
+            kGapWidth * sizeof(std::uint16_t), kRows,
+            cudaMemcpyDeviceToHost) != cudaSuccess) {
+      return false;
+    }
+    for (const std::uint16_t value : gap) {
+      if (value != 0x5a5aU) {
+        return false;
+      }
+    }
     return true;
   }
 };
@@ -354,8 +401,17 @@ void test_real_cuda_front_half() {
 
   Owner owner;
   LiveExecutionWeights live_weights;
+  q3x::tests::support::Sm87MacroFeedV4LiveFp8AssetFixture
+      live_gdn_qkvz;
   require_test(live_weights.allocate(),
                "could not allocate real BF16/LayerNorm CUDA fixtures");
+  require_test(
+      live_gdn_qkvz.initialize(
+          kernels::Sm87TargetAotProjectionRole::kFp8GdnQkvZ, 0),
+      "could not allocate honest synthetic-T1 GDN-QKVZ CUDA asset");
+  require_test(
+      live_gdn_qkvz.payload_allocation.bytes() == 83'886'080U,
+      "synthetic-T1 GDN-QKVZ payload did not use the exact real shape");
   std::optional<ModelWeights> model_weights =
       Access::make_complete_host_test_fixture(owner);
   require_test(model_weights.has_value(),
@@ -368,6 +424,13 @@ void test_real_cuda_front_half() {
       "could not install one-past LayerNorm negative fixture");
   auto invalid_startup =
       startup::Sm87MacroFeedV4P40StartupPackage::create(*model_weights);
+  if (!invalid_startup) {
+    std::cerr << "negative startup error="
+              << static_cast<unsigned>(invalid_startup.status.error)
+              << " context=" << invalid_startup.status.context
+              << " layer=" << invalid_startup.status.layer
+              << " cuda=" << invalid_startup.status.cuda_error << '\n';
+  }
   require_test(static_cast<bool>(invalid_startup),
                "negative fixture could not create its startup package");
   auto invalid_execution =
@@ -398,9 +461,22 @@ void test_real_cuda_front_half() {
   require_test(static_cast<bool>(startup_created),
                "actual-kernel startup package creation failed");
 
-  auto terminal_drain_created =
+  auto fake_catalog_execution =
       execution::Sm87MacroFeedV4P40ExecutionPackage::create(
           *startup_created.package);
+  require_test(
+      !fake_catalog_execution && fake_catalog_execution.package == nullptr &&
+          fake_catalog_execution.status.error ==
+              execution::Sm87MacroFeedV4P40ExecutionPackageError::
+                  kGdnQkvZCatalog &&
+          fake_catalog_execution.status.layer == 0U &&
+          fake_catalog_execution.status.cuda_error != 0,
+      "fake target-AOT catalog acquired executable QKVZ authority");
+
+  auto terminal_drain_created =
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          create_with_synthetic_t1_gdn_layer0(
+              *startup_created.package, live_gdn_qkvz.asset);
   require_test(static_cast<bool>(terminal_drain_created),
                "terminal-drain execution package creation failed");
   require_test(
@@ -410,8 +486,9 @@ void test_real_cuda_front_half() {
   terminal_drain_created.package.reset();
 
   auto execution_created =
-      execution::Sm87MacroFeedV4P40ExecutionPackage::create(
-          *startup_created.package);
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          create_with_synthetic_t1_gdn_layer0(
+              *startup_created.package, live_gdn_qkvz.asset);
   if (!execution_created) {
     std::cerr << "execution package error="
               << static_cast<unsigned>(execution_created.status.error)
@@ -427,6 +504,11 @@ void test_real_cuda_front_half() {
   const auto& audit = execution_created.audit;
   require_test(
       audit.valid() && audit.fixed_gdn_layer0_front_half_bound &&
+          audit.qkvz_ab_ready_transaction_bound &&
+          audit.synthetic_t1_gdn_layer0_source &&
+          audit.gdn_qkvz_catalog_identity == 0U &&
+          audit.gdn_layer0_source_identity != 0U &&
+          audit.gdn_qkvz_bindings == 1U &&
           !audit.whole_layer_executor_bound &&
           !audit.whole_model_executor_bound && !audit.selector_bound &&
           !audit.api_route_bound && audit.default_off &&
@@ -452,14 +534,19 @@ void test_real_cuda_front_half() {
   require_test(static_cast<bool>(front_half) && front_half.receipt.valid(),
                "real CUDA front-half execution did not close its receipt");
   require_test(
-      front_half.receipt.input_norm_launches == 1U &&
+      front_half.receipt.gdn_layer0_source_identity ==
+              audit.gdn_layer0_source_identity &&
+          front_half.receipt.gdn_qkvz_catalog_identity == 0U &&
+          front_half.receipt.synthetic_t1_gdn_layer0_source &&
+          front_half.receipt.input_norm_launches == 1U &&
+          front_half.receipt.gdn_qkvz_launches == 1U &&
           front_half.receipt.bf16_ab_launches == 1U &&
-          front_half.receipt.bound_kernel_submissions == 2U &&
+          front_half.receipt.bound_kernel_submissions == 3U &&
           front_half.receipt.physical_completion_receipts == 1U &&
           front_half.receipt.norm_ready_recorded &&
           front_half.receipt.norm_ready_waited_by_ab &&
           front_half.receipt.ab_ready_recorded &&
-          !front_half.receipt.ab_ready_waited_by_main &&
+          front_half.receipt.ab_ready_waited_by_main &&
           front_half.receipt.owner_drained_physically &&
           front_half.receipt.request_discarded_without_publication &&
           front_half.receipt.gdn_layer0_front_half_only &&
@@ -477,8 +564,16 @@ void test_real_cuda_front_half() {
       "could not read physically drained CUDA samples");
   require_test(samples.normalized != 0U,
                "input normalization did not publish a nonzero sample");
-  require_test(samples.projection_a == 0U && samples.projection_b == 0U,
-               "zero BF16 A/B weights produced a nonzero projection");
+  require_test(
+      samples.gdn_qkvz == 0U && samples.projection_a == 0U &&
+          samples.projection_b == 0U,
+      "zero QKVZ/A/B weights produced a nonzero projection");
+  require_test(samples.scratch_gap == 0x5a5aU,
+               "QKVZ or A/B wrote outside its row-local scratch interval");
+  require_test(
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          scratch_gap_untouched(*execution_created.package),
+      "QKVZ or A/B modified an element in the 8000-row scratch gap");
 
   execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
       RequestOutcome request_outcome{};
@@ -508,8 +603,9 @@ void test_real_cuda_front_half() {
 
   execution_created.package.reset();
   auto startup_independent_snapshot =
-      execution::Sm87MacroFeedV4P40ExecutionPackage::create(
-          *startup_created.package);
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          create_with_synthetic_t1_gdn_layer0(
+              *startup_created.package, live_gdn_qkvz.asset);
   require_test(static_cast<bool>(startup_independent_snapshot),
                "startup-independent projection snapshot creation failed");
   startup_created.package.reset();

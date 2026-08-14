@@ -1,6 +1,7 @@
 #pragma once
 
 #include "q3x/kernels/sm87_macrofeed_v4_bf16_ab.h"
+#include "q3x/kernels/sm87_macrofeed_v4_fp8.h"
 #include "q3x/kernels/sm87_macrofeed_v4_norm_residual.h"
 
 #include <cstddef>
@@ -10,6 +11,16 @@ class Sm87MacroFeedV4ExecutionEventsOwner;
 }
 
 namespace q3x::kernels::sm87_macrofeed_v4_bound_launch_detail {
+
+// Fixed GDN-QKVZ C8000 binding.  There is intentionally no caller-selected
+// role, layout, token count, row stride, K/V output, or CUDA stream in this
+// schema.  The bound body always consumes contiguous H5120 and publishes the
+// 16,384 projected values into the canonical 17,408-wide phase scratch.
+struct Sm87MacroFeedV4GdnQkvzC8000Arguments final {
+  const std::uint16_t* hidden_input = nullptr;
+  Sm87TargetAotFp8CudaAssetView asset{};
+  std::uint16_t* phase_scratch = nullptr;
+};
 
 // The CUDA stream exists only inside an EventsOwner-locked submission.  The
 // execution package cannot construct, copy, move, inspect, or retain this
@@ -45,6 +56,11 @@ class Sm87MacroFeedV4LockedSubmitToken final {
       const Sm87MacroFeedV4Bf16AbArguments&,
       const Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot&,
       std::size_t*) noexcept;
+  friend int enqueue_gdn_qkvz_c8000_prevalidated(
+      const Sm87MacroFeedV4LockedSubmitToken&,
+      const Sm87MacroFeedV4GdnQkvzC8000Arguments&,
+      const Sm87MacroFeedV4Fp8CudaResources&,
+      std::size_t*) noexcept;
 };
 
 // Construction-prevalidated V4 launch seams.  These functions intentionally
@@ -63,6 +79,12 @@ class Sm87MacroFeedV4LockedSubmitToken final {
     const Sm87MacroFeedV4LockedSubmitToken& token,
     const Sm87MacroFeedV4Bf16AbArguments& arguments,
     const Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot& resources,
+    std::size_t* submitted_launches) noexcept;
+
+[[nodiscard]] int enqueue_gdn_qkvz_c8000_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4GdnQkvzC8000Arguments& arguments,
+    const Sm87MacroFeedV4Fp8CudaResources& resources,
     std::size_t* submitted_launches) noexcept;
 
 }  // namespace q3x::kernels::sm87_macrofeed_v4_bound_launch_detail

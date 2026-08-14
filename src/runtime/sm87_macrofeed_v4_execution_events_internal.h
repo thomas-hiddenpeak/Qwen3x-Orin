@@ -14,6 +14,10 @@
 #include <mutex>
 #include <utility>
 
+namespace q3x::runtime::sm87_macrofeed_v4_p40_execution_detail {
+class Sm87MacroFeedV4P40ExecutionPackage;
+}
+
 namespace q3x::runtime::sm87_macrofeed_v4_execution_events_detail {
 
 inline constexpr std::size_t kSm87MacroFeedV4ExecutionStreamCount = 3U;
@@ -344,6 +348,8 @@ struct Sm87MacroFeedV4ExecutionEventsSnapshot final {
   std::size_t bound_kernel_submissions = 0U;
   std::size_t input_norm_submissions = 0U;
   std::size_t bf16_ab_submissions = 0U;
+  std::size_t gdn_qkvz_c8000_submissions = 0U;
+  std::size_t gdn_qkvz_ab_ready_wait_transactions = 0U;
   bool streams_nonblocking = false;
   bool panel_done_recorded = false;
   bool main_tail_recorded = false;
@@ -436,6 +442,16 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
       const kernels::Sm87MacroFeedV4Bf16AbArguments& arguments,
       const kernels::Sm87MacroFeedV4Bf16AbAdmissionResourceSnapshot&
           resources) noexcept;
+  // At ExpectAbWait, Main submits exactly one fixed GDN-QKVZ C8000 kernel and
+  // then waits on the current AbReady generation under this same owner lock.
+  // No caller can interleave stream work between those two CUDA submissions.
+  [[nodiscard]] Sm87MacroFeedV4EventEnqueueResult
+  submit_gdn_qkvz_c8000_then_wait_ab_ready(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4GdnQkvzC8000Arguments& arguments,
+      const kernels::Sm87MacroFeedV4Fp8CudaResources& resources) noexcept;
 #endif
 
   [[nodiscard]] Sm87MacroFeedV4PhysicalObservationResult
@@ -568,6 +584,8 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
   std::size_t bound_kernel_submissions_ = 0U;
   std::size_t input_norm_submissions_ = 0U;
   std::size_t bf16_ab_submissions_ = 0U;
+  std::size_t gdn_qkvz_c8000_submissions_ = 0U;
+  std::size_t gdn_qkvz_ab_ready_wait_transactions_ = 0U;
   bool streams_nonblocking_ = false;
   bool panel_done_recorded_ = false;
   bool draining_ = false;
@@ -586,6 +604,9 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
       poison_drain_stream_cuda_status_{};
   bool poison_drain_all_stream_synchronizations_attempted_ = false;
   bool poisoned_terminal_quiescence_attested_ = false;
+  // Test fixture fault injection only.  It is unreachable without the
+  // header-only test capability and never changes a production route.
+  bool test_fail_next_bound_ab_wait_ = false;
 
   friend struct Sm87MacroFeedV4ExecutionEventsCreateResult;
   friend Sm87MacroFeedV4ExecutionEventsCreateResult
@@ -661,6 +682,16 @@ class Sm87MacroFeedV4ExecutionEventsDriver final {
       noexcept;
 
  private:
+  // Package-authority-only transaction.  Raw asset/resource values cannot be
+  // submitted through the caller-visible driver surface: the sole non-test
+  // friend copies them from the construction-sealed 48-layer catalog.
+  [[nodiscard]] Sm87MacroFeedV4EventEnqueueResult
+  submit_gdn_qkvz_c8000_then_wait_ab_ready(
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4GdnQkvzC8000Arguments& arguments,
+      const kernels::Sm87MacroFeedV4Fp8CudaResources& resources) noexcept;
+
   explicit Sm87MacroFeedV4ExecutionEventsDriver(
       std::shared_ptr<Sm87MacroFeedV4ExecutionEventsOwner> owner,
       const Sm87MacroFeedV4ExecutionEventsAccess* access) noexcept
@@ -673,6 +704,8 @@ class Sm87MacroFeedV4ExecutionEventsDriver final {
   bind_sm87_macrofeed_v4_execution_events_driver(
       const std::shared_ptr<Sm87MacroFeedV4ExecutionEventsOwner>& owner)
       noexcept;
+  friend class ::q3x::runtime::sm87_macrofeed_v4_p40_execution_detail::
+      Sm87MacroFeedV4P40ExecutionPackage;
 };
 
 [[nodiscard]] std::unique_ptr<Sm87MacroFeedV4ExecutionEventsDriver>
@@ -721,6 +754,20 @@ class Sm87MacroFeedV4ExecutionEventsCudaTestFixture final {
       Sm87MacroFeedV4ExecutionEvent event) noexcept {
     return owner.wait_event(*owner.access_, panel_access, consumer, event);
   }
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  // Explicit test-only bypass for exercising transaction failures.  This is
+  // deliberately absent from the execution driver and from non-test builds.
+  [[nodiscard]] static Sm87MacroFeedV4EventEnqueueResult
+  submit_gdn_qkvz_c8000_then_wait_ab_ready(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4GdnQkvzC8000Arguments& arguments,
+      const kernels::Sm87MacroFeedV4Fp8CudaResources& resources) noexcept {
+    return owner.submit_gdn_qkvz_c8000_then_wait_ab_ready(
+        *owner.access_, panel_access, arguments, resources);
+  }
+#endif
   [[nodiscard]] static Sm87MacroFeedV4PhysicalObservationResult
   observe_event_query(
       Sm87MacroFeedV4ExecutionEventsOwner& owner,
@@ -810,6 +857,19 @@ class Sm87MacroFeedV4ExecutionEventsCudaTestFixture final {
     }
     return owner.drain_poisoned_request(*owner.access_);
   }
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  [[nodiscard]] static bool fail_next_bound_ab_wait(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner) noexcept {
+    std::lock_guard<std::mutex> lock(owner.mutex_);
+    if (owner.state_ !=
+            Sm87MacroFeedV4ExecutionOwnerState::kRequestActive ||
+        owner.test_fail_next_bound_ab_wait_) {
+      return false;
+    }
+    owner.test_fail_next_bound_ab_wait_ = true;
+    return true;
+  }
+#endif
 };
 #endif
 

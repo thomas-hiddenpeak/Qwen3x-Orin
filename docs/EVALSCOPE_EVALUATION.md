@@ -1168,10 +1168,13 @@ invalid rather than slow or fast.
 ### MacroFeed V4 measurement eligibility
 
 `AC-PREFILL-SM87-MACROFEED-v4` now has one isolated executable foundation
-slice: an authenticated device package submits layer-0 input norm and BF16 A/B
-on its private streams, physically drains both tails, and discards all state
-without publication. It is deliberately not a complete layer, model, selector,
-or API route and issues no production receipt. V4 therefore still has no valid
+slice: a test-only device package submits layer-0 input norm and BF16 A/B
+on its private streams while Main submits one fixed GDN-QKVZ body and then
+waits on `AbReady`; it physically drains both tails and discards all state
+without publication. The only positive witness is explicitly synthetic-T1,
+not a positive real-owner 48-layer catalog or real-checkpoint result. It is
+deliberately not a complete layer, model, selector, or API route and issues no
+production receipt. V4 therefore still has no valid
 EvalScope or server-timing command. Gate/Up, Down, the isolated front-half,
 occupancy, P513, NSys, or NCU results cannot substitute for that missing route.
 

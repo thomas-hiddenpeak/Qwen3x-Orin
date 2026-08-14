@@ -1,5 +1,9 @@
 #include "q3x/kernels/sm87_macrofeed_v4_fp8.h"
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+#include "../src/runtime/sm87_macrofeed_v4_execution_events_internal.h"
+#endif
+
 #include <cuda_runtime.h>
 
 #include <algorithm>
@@ -8,7 +12,10 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -16,6 +23,62 @@ namespace {
 namespace kernels = q3x::kernels;
 using Role = kernels::Sm87TargetAotProjectionRole;
 using InputLayout = kernels::Sm87MacroFeedV4Fp8InputLayout;
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+namespace events =
+    q3x::runtime::sm87_macrofeed_v4_execution_events_detail;
+namespace runtime = q3x::runtime;
+namespace bound_launch =
+    q3x::kernels::sm87_macrofeed_v4_bound_launch_detail;
+using EventFixture = events::Sm87MacroFeedV4ExecutionEventsCudaTestFixture;
+
+template <typename T, typename = void>
+struct HasCudaStreamMember : std::false_type {};
+
+template <typename T>
+struct HasCudaStreamMember<
+    T, std::void_t<decltype(std::declval<T&>().cuda_stream)>>
+    : std::true_type {};
+
+template <typename T, typename = void>
+struct HasRoleMember : std::false_type {};
+
+template <typename T>
+struct HasRoleMember<T, std::void_t<decltype(std::declval<T&>().role)>>
+    : std::true_type {};
+
+template <typename T, typename = void>
+struct HasInputLayoutMember : std::false_type {};
+
+template <typename T>
+struct HasInputLayoutMember<
+    T, std::void_t<decltype(std::declval<T&>().input_layout)>>
+    : std::true_type {};
+
+template <typename T, typename = void>
+struct HasKeyOutputMember : std::false_type {};
+
+template <typename T>
+struct HasKeyOutputMember<
+    T, std::void_t<decltype(std::declval<T&>().key_output)>>
+    : std::true_type {};
+
+template <typename T, typename = void>
+struct HasValueOutputMember : std::false_type {};
+
+template <typename T>
+struct HasValueOutputMember<
+    T, std::void_t<decltype(std::declval<T&>().value_output)>>
+    : std::true_type {};
+
+using BoundGdnQkvzArguments =
+    bound_launch::Sm87MacroFeedV4GdnQkvzC8000Arguments;
+static_assert(!HasCudaStreamMember<BoundGdnQkvzArguments>::value);
+static_assert(!HasRoleMember<BoundGdnQkvzArguments>::value);
+static_assert(!HasInputLayoutMember<BoundGdnQkvzArguments>::value);
+static_assert(!HasKeyOutputMember<BoundGdnQkvzArguments>::value);
+static_assert(!HasValueOutputMember<BoundGdnQkvzArguments>::value);
+#endif
 
 constexpr std::size_t kRows = kernels::kSm87MacroFeedV4Fp8BlockM;
 constexpr std::size_t kColumns = kernels::kSm87MacroFeedV4Fp8BlockN;
@@ -1382,6 +1445,389 @@ struct DeviceOutputs final {
   return ok;
 }
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+struct BoundGdnQkvzEventOwner final {
+  std::shared_ptr<events::Sm87MacroFeedV4ExecutionEventsOwner> owner;
+  std::unique_ptr<events::Sm87MacroFeedV4ExecutionEventsDriver> driver;
+  runtime::Sm87MacroFeedV4RequestStateCreateResult request;
+  runtime::Sm87MacroFeedV4RequestStateSealedAccess request_access;
+  std::unique_ptr<events::Sm87MacroFeedV4ExecutionPanelAccess> panel_access;
+
+  BoundGdnQkvzEventOwner(
+      std::shared_ptr<events::Sm87MacroFeedV4ExecutionEventsOwner> owner_in,
+      std::unique_ptr<events::Sm87MacroFeedV4ExecutionEventsDriver> driver_in,
+      runtime::Sm87MacroFeedV4RequestStateCreateResult request_in,
+      runtime::Sm87MacroFeedV4RequestStateSealedAccess request_access_in,
+      std::unique_ptr<events::Sm87MacroFeedV4ExecutionPanelAccess>
+          panel_access_in) noexcept
+      : owner(std::move(owner_in)),
+        driver(std::move(driver_in)),
+        request(std::move(request_in)),
+        request_access(request_access_in),
+        panel_access(std::move(panel_access_in)) {}
+};
+
+[[nodiscard]] std::unique_ptr<BoundGdnQkvzEventOwner>
+make_bound_gdn_qkvz_event_owner(const std::uint64_t allocation_identity,
+                                bool* const ok) {
+  auto created = events::create_sm87_macrofeed_v4_execution_events_owner();
+  *ok &= expect(static_cast<bool>(created),
+                "bound QKVZ event owner creation failed");
+  if (!created) {
+    return nullptr;
+  }
+  std::shared_ptr<events::Sm87MacroFeedV4ExecutionEventsOwner> owner(
+      std::move(created.owner));
+  auto driver = events::bind_sm87_macrofeed_v4_execution_events_driver(owner);
+  *ok &= expect(driver != nullptr && driver->owner_identity() != 0U,
+                "bound QKVZ event driver binding failed");
+  if (driver == nullptr || driver->owner_identity() == 0U) {
+    return nullptr;
+  }
+
+  const auto admission = runtime::make_sm87_macrofeed_v4_request_state_admission(
+      driver->owner_identity(), allocation_identity,
+      allocation_identity + 1U, allocation_identity + 2U);
+  auto request = runtime::Sm87MacroFeedV4RequestState::create(admission);
+  *ok &= expect(static_cast<bool>(request),
+                "bound QKVZ RequestState creation failed");
+  if (!request) {
+    return nullptr;
+  }
+  const auto request_access = request.state->issue_sealed_access();
+  const auto begin = driver->begin_request(*request.state, request_access);
+  *ok &= expect(static_cast<bool>(begin),
+                "bound QKVZ request admission failed");
+  if (!begin) {
+    return nullptr;
+  }
+  auto panel = driver->begin_panel(0U);
+  *ok &= expect(static_cast<bool>(panel),
+                "bound QKVZ panel admission failed");
+  if (!panel) {
+    return nullptr;
+  }
+  return std::make_unique<BoundGdnQkvzEventOwner>(
+      std::move(owner), std::move(driver), std::move(request), request_access,
+      std::move(panel.panel_access));
+}
+
+[[nodiscard]] bool prepare_bound_gdn_qkvz_ab_ready(
+    BoundGdnQkvzEventOwner& bound) {
+  bool ok = true;
+  const auto forbidden_norm_record = bound.driver->record_event(
+      *bound.panel_access, events::Sm87MacroFeedV4ExecutionStream::kMain,
+      events::Sm87MacroFeedV4ExecutionEvent::kNormReady);
+  const auto forbidden_ab_record = bound.driver->record_event(
+      *bound.panel_access, events::Sm87MacroFeedV4ExecutionStream::kAbAux,
+      events::Sm87MacroFeedV4ExecutionEvent::kAbReady);
+  ok &= expect(!forbidden_norm_record && !forbidden_ab_record &&
+                   forbidden_norm_record.status.error ==
+                       events::Sm87MacroFeedV4ExecutionError::
+                           kKernelSubmitContract &&
+                   forbidden_ab_record.status.error ==
+                       events::Sm87MacroFeedV4ExecutionError::
+                           kKernelSubmitContract,
+               "execution driver must reject raw ready-event records");
+  const auto norm_record = EventFixture::record_event(
+      *bound.owner, *bound.panel_access,
+      events::Sm87MacroFeedV4ExecutionStream::kMain,
+      events::Sm87MacroFeedV4ExecutionEvent::kNormReady);
+  const auto norm_wait = EventFixture::wait_event(
+      *bound.owner, *bound.panel_access,
+      events::Sm87MacroFeedV4ExecutionStream::kAbAux,
+      events::Sm87MacroFeedV4ExecutionEvent::kNormReady);
+  const auto ab_record = EventFixture::record_event(
+      *bound.owner, *bound.panel_access,
+      events::Sm87MacroFeedV4ExecutionStream::kAbAux,
+      events::Sm87MacroFeedV4ExecutionEvent::kAbReady);
+  ok &= expect(static_cast<bool>(norm_record) &&
+                   static_cast<bool>(norm_wait) &&
+                   static_cast<bool>(ab_record),
+               "bound QKVZ fixture could not reach ExpectAbWait");
+  return ok;
+}
+
+[[nodiscard]] bool physically_drain_bound_gdn_qkvz_success(
+    BoundGdnQkvzEventOwner& bound) {
+  bool ok = true;
+  const auto main_tail = bound.driver->record_event(
+      *bound.panel_access, events::Sm87MacroFeedV4ExecutionStream::kMain,
+      events::Sm87MacroFeedV4ExecutionEvent::kMainTail);
+  const auto ab_tail = bound.driver->record_event(
+      *bound.panel_access, events::Sm87MacroFeedV4ExecutionStream::kAbAux,
+      events::Sm87MacroFeedV4ExecutionEvent::kAbTail);
+  const auto main_join = bound.driver->wait_event(
+      *bound.panel_access, events::Sm87MacroFeedV4ExecutionStream::kControl,
+      events::Sm87MacroFeedV4ExecutionEvent::kMainTail);
+  const auto ab_join = bound.driver->wait_event(
+      *bound.panel_access, events::Sm87MacroFeedV4ExecutionStream::kControl,
+      events::Sm87MacroFeedV4ExecutionEvent::kAbTail);
+  const auto drained_record = bound.driver->record_event(
+      *bound.panel_access, events::Sm87MacroFeedV4ExecutionStream::kControl,
+      events::Sm87MacroFeedV4ExecutionEvent::kOwnerDrained);
+  ok &= expect(static_cast<bool>(main_tail) && static_cast<bool>(ab_tail) &&
+                   static_cast<bool>(main_join) &&
+                   static_cast<bool>(ab_join) &&
+                   static_cast<bool>(drained_record),
+               "bound QKVZ dual-stream drain enqueue failed");
+  if (!ok) {
+    return false;
+  }
+  const auto observed = bound.driver->observe_event_synchronize(
+      *bound.panel_access,
+      events::Sm87MacroFeedV4ExecutionEvent::kOwnerDrained);
+  ok &= expect(static_cast<bool>(observed),
+               "bound QKVZ OwnerDrained was not physically observed");
+  if (!observed) {
+    return false;
+  }
+  ok &= expect(static_cast<bool>(bound.driver->discard_after_drain(
+                   *bound.panel_access, observed.receipt)) &&
+                   bound.driver->snapshot().state ==
+                       events::Sm87MacroFeedV4ExecutionOwnerState::
+                           kRequestDiscarded,
+               "bound QKVZ request was not discarded after physical drain");
+  return ok;
+}
+
+[[nodiscard]] bool physically_drain_bound_gdn_qkvz_poison(
+    BoundGdnQkvzEventOwner& bound,
+    const events::Sm87MacroFeedV4ExecutionError expected_cause,
+    const char* const label) {
+  const auto drained = bound.driver->drain_poisoned_request();
+  const auto snapshot = bound.driver->snapshot();
+  const bool all_three_streams_clean =
+      std::all_of(drained.stream_cuda_status.begin(),
+                  drained.stream_cuda_status.end(), [](const int status) {
+                    return status == static_cast<int>(cudaSuccess);
+                  });
+  bool ok = expect(static_cast<bool>(drained) &&
+                       drained.poison_cause.error == expected_cause &&
+                       drained.all_stream_synchronizations_attempted &&
+                       drained.physical_quiescence_attested &&
+                       drained.discard_required && all_three_streams_clean &&
+                       snapshot.state ==
+                           events::Sm87MacroFeedV4ExecutionOwnerState::
+                               kPoisoned &&
+                       snapshot.poison_cause.error == expected_cause &&
+                       snapshot.poisoned_terminal_quiescence_attested &&
+                       snapshot
+                           .poison_drain_all_stream_synchronizations_attempted,
+                   std::string(label) +
+                       " must physically drain all three streams and retain "
+                       "the original permanent poison");
+  const auto forbidden_reentry = bound.driver->begin_request(
+      *bound.request.state, bound.request_access);
+  ok &= expect(!forbidden_reentry &&
+                   forbidden_reentry.error ==
+                       events::Sm87MacroFeedV4ExecutionError::
+                           kInvalidOwnerState,
+               std::string(label) +
+                   " physically drained owner must never admit again");
+  return ok;
+}
+
+[[nodiscard]] bool bound_gdn_qkvz_event_transaction_test(
+    const int device_ordinal) {
+  constexpr std::size_t kExpectedPayloadBytes = 83'886'080U;
+  constexpr std::size_t kInputBytes =
+      kernels::kSm87MacroFeedV4Fp8Tokens *
+      kernels::kSm87MacroFeedV4Fp8HiddenRowStride *
+      sizeof(std::uint16_t);
+  constexpr std::size_t kScratchBytes =
+      kernels::kSm87MacroFeedV4Fp8Tokens *
+      kernels::kSm87MacroFeedV4Fp8ScratchRowStride *
+      sizeof(std::uint16_t);
+  static_assert(kInputBytes == 81'920'000U);
+  static_assert(kScratchBytes == 278'528'000U);
+
+  bool ok = true;
+  LiveFp8AssetFixture fixture;
+  RawDeviceAllocation input;
+  RawDeviceAllocation scratch;
+  ok &= expect(fixture.initialize(Role::kFp8GdnQkvZ, device_ordinal) &&
+                   fixture.payload_allocation.bytes() ==
+                       kExpectedPayloadBytes &&
+                   fixture.asset.payload.begin == reinterpret_cast<std::uintptr_t>(
+                       fixture.payload_allocation.data()) &&
+                   fixture.asset.payload.bytes == kExpectedPayloadBytes,
+               "bound QKVZ must use the real 83,886,080-byte cudaMalloc "
+               "payload");
+  ok &= expect(input.allocate(kInputBytes) && scratch.allocate(kScratchBytes),
+               "bound QKVZ C8000 input/scratch cudaMalloc failed");
+  if (!ok) {
+    return false;
+  }
+  ok &= expect(
+      cudaMemset(fixture.payload_allocation.data(), 0,
+                 fixture.payload_allocation.bytes()) == cudaSuccess &&
+          cudaMemset(input.data(), 0, input.bytes()) == cudaSuccess &&
+          cudaMemset(scratch.data(), 0, scratch.bytes()) == cudaSuccess &&
+          cudaDeviceSynchronize() == cudaSuccess,
+      "bound QKVZ real CUDA fixtures could not be initialized");
+  if (!ok) {
+    return false;
+  }
+
+  kernels::Sm87MacroFeedV4Fp8CudaResources resources{};
+  const int resource_status =
+      kernels::query_sm87_macrofeed_v4_fp8_cuda_resources(
+          Role::kFp8GdnQkvZ, &resources);
+  resources.static_resource_gate_passed =
+      resource_status == static_cast<int>(cudaSuccess) &&
+      kernels::sm87_macrofeed_v4_fp8_resource_gate(resources);
+  ok &= expect(resources.static_resource_gate_passed,
+               "bound QKVZ startup resource snapshot failed");
+  if (!ok) {
+    return false;
+  }
+
+  const BoundGdnQkvzArguments arguments{
+      reinterpret_cast<const std::uint16_t*>(input.data()), fixture.asset,
+      reinterpret_cast<std::uint16_t*>(scratch.data())};
+
+  auto wrong_phase = make_bound_gdn_qkvz_event_owner(0x5134'0000U, &ok);
+  if (wrong_phase == nullptr) {
+    return false;
+  }
+  const auto wrong_phase_result =
+      EventFixture::submit_gdn_qkvz_c8000_then_wait_ab_ready(
+          *wrong_phase->owner, *wrong_phase->panel_access, arguments,
+          resources);
+  auto snapshot = wrong_phase->driver->snapshot();
+  ok &= expect(!wrong_phase_result &&
+                   wrong_phase_result.status.error ==
+                       events::Sm87MacroFeedV4ExecutionError::
+                           kEventNotRecorded &&
+                   snapshot.state ==
+                       events::Sm87MacroFeedV4ExecutionOwnerState::kPoisoned &&
+                   snapshot.bound_kernel_submissions == 0U &&
+                   snapshot.gdn_qkvz_c8000_submissions == 0U &&
+                   snapshot.gdn_qkvz_ab_ready_wait_transactions == 0U,
+               "active wrong-phase QKVZ transaction must poison before "
+               "enqueue");
+  ok &= physically_drain_bound_gdn_qkvz_poison(
+      *wrong_phase, events::Sm87MacroFeedV4ExecutionError::kEventNotRecorded,
+      "wrong-phase QKVZ transaction");
+  wrong_phase.reset();
+  if (!ok) {
+    return false;
+  }
+
+  auto positive = make_bound_gdn_qkvz_event_owner(0x5135'0000U, &ok);
+  if (positive == nullptr) {
+    return false;
+  }
+  ok &= prepare_bound_gdn_qkvz_ab_ready(*positive);
+  if (!ok) {
+    return false;
+  }
+
+  const auto generic_wait = positive->driver->wait_event(
+      *positive->panel_access,
+      events::Sm87MacroFeedV4ExecutionStream::kMain,
+      events::Sm87MacroFeedV4ExecutionEvent::kAbReady);
+  snapshot = positive->driver->snapshot();
+  ok &= expect(!generic_wait &&
+                   generic_wait.status.error ==
+                       events::Sm87MacroFeedV4ExecutionError::
+                           kKernelSubmitContract &&
+                   snapshot.bf16_ab_cycles_completed == 0U &&
+                   snapshot.gdn_qkvz_c8000_submissions == 0U,
+               "driver raw AbReady wait must be isolated from production");
+
+  const auto submitted =
+      EventFixture::submit_gdn_qkvz_c8000_then_wait_ab_ready(
+          *positive->owner, *positive->panel_access, arguments, resources);
+  snapshot = positive->driver->snapshot();
+  ok &= expect(static_cast<bool>(submitted) &&
+                   submitted.receipt.operation ==
+                       events::Sm87MacroFeedV4EnqueueOperation::kWait &&
+                   submitted.receipt.stream ==
+                       events::Sm87MacroFeedV4ExecutionStream::kMain &&
+                   submitted.receipt.event ==
+                       events::Sm87MacroFeedV4ExecutionEvent::kAbReady &&
+                   snapshot.bound_kernel_submissions == 1U &&
+                   snapshot.gdn_qkvz_c8000_submissions == 1U &&
+                   snapshot.gdn_qkvz_ab_ready_wait_transactions == 1U &&
+                   snapshot.bf16_ab_cycles_completed == 1U,
+               "one owner-locked QKVZ + AbReady wait transaction required");
+  ok &= physically_drain_bound_gdn_qkvz_success(*positive);
+  positive.reset();
+  if (!ok) {
+    return false;
+  }
+
+  auto forged = make_bound_gdn_qkvz_event_owner(0x5136'0000U, &ok);
+  if (forged == nullptr || !prepare_bound_gdn_qkvz_ab_ready(*forged)) {
+    return false;
+  }
+  auto forged_arguments = arguments;
+  forged_arguments.phase_scratch = nullptr;
+  const auto forged_binding =
+      EventFixture::submit_gdn_qkvz_c8000_then_wait_ab_ready(
+          *forged->owner, *forged->panel_access, forged_arguments, resources);
+  snapshot = forged->driver->snapshot();
+  ok &= expect(!forged_binding &&
+                   forged_binding.status.error ==
+                       events::Sm87MacroFeedV4ExecutionError::
+                           kKernelSubmitContract &&
+                   snapshot.state ==
+                       events::Sm87MacroFeedV4ExecutionOwnerState::kPoisoned &&
+                   snapshot.poison_cause.error ==
+                       events::Sm87MacroFeedV4ExecutionError::
+                           kKernelSubmitContract &&
+                   snapshot.bound_kernel_submissions == 0U &&
+                   snapshot.gdn_qkvz_c8000_submissions == 0U &&
+                   snapshot.gdn_qkvz_ab_ready_wait_transactions == 0U,
+               "forged fixed QKVZ binding must poison before enqueue");
+  ok &= physically_drain_bound_gdn_qkvz_poison(
+      *forged,
+      events::Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
+      "forged fixed QKVZ binding");
+  forged.reset();
+  if (!ok) {
+    return false;
+  }
+
+  auto poisoned = make_bound_gdn_qkvz_event_owner(0x5137'0000U, &ok);
+  if (poisoned == nullptr || !prepare_bound_gdn_qkvz_ab_ready(*poisoned)) {
+    return false;
+  }
+  ok &= expect(EventFixture::fail_next_bound_ab_wait(*poisoned->owner),
+               "bound QKVZ wait failure injection was not armed");
+  const auto wait_failed =
+      EventFixture::submit_gdn_qkvz_c8000_then_wait_ab_ready(
+          *poisoned->owner, *poisoned->panel_access, arguments, resources);
+  snapshot = poisoned->driver->snapshot();
+  ok &= expect(!wait_failed &&
+                   wait_failed.status.error ==
+                       events::Sm87MacroFeedV4ExecutionError::
+                           kCudaSubmission &&
+                   snapshot.state ==
+                       events::Sm87MacroFeedV4ExecutionOwnerState::kPoisoned &&
+                   snapshot.poison_cause.error ==
+                       events::Sm87MacroFeedV4ExecutionError::
+                           kCudaSubmission &&
+                   snapshot.bound_kernel_submissions == 1U &&
+                   snapshot.gdn_qkvz_c8000_submissions == 1U &&
+                   snapshot.gdn_qkvz_ab_ready_wait_transactions == 0U &&
+                   snapshot.bf16_ab_cycles_completed == 0U,
+               "wait failure must retain one QKVZ launch and permanently "
+               "poison before phase advance");
+  ok &= physically_drain_bound_gdn_qkvz_poison(
+      *poisoned, events::Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+      "wait-failed QKVZ transaction");
+  snapshot = poisoned->driver->snapshot();
+  ok &= expect(snapshot.bound_kernel_submissions == 1U &&
+                   snapshot.gdn_qkvz_c8000_submissions == 1U &&
+                   snapshot.gdn_qkvz_ab_ready_wait_transactions == 0U,
+               "wait-failed QKVZ drain must preserve submission counters");
+  return ok;
+}
+#endif
+
 }  // namespace
 
 int main() {
@@ -1503,6 +1949,10 @@ int main() {
                             stream);
     }
   }
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  ok &= bound_gdn_qkvz_event_transaction_test(0);
+#endif
 
   constexpr InputLayout kGdnOLayout =
       InputLayout::kGdnContiguousVScratchV1;

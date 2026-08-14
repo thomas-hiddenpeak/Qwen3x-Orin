@@ -569,11 +569,20 @@ The package's typed bindings and V4-local resource seals are startup ownership
 facts only; they expose no launcher. It now binds all 48 real BF16 A/B pairs
 and permits the future execution package to seal the complete catalog once at
 construction; request execution may neither rescan `ModelWeights` nor repeat
-CUDA/catalog queries. A separate private owner now owns three nonblocking
+CUDA/catalog queries. The startup package also provides an all-or-nothing
+construction seal for the 48 natural GDN-QKVZ bindings with exact live CUDA
+allocation/upload-receipt agreement. The fake host catalog fails closed;
+positive execution of that complete catalog under the real owner is still
+open. A separate private owner now owns three nonblocking
 streams and nine events and enforces the five-panel, 48-AB-cycle-per-panel
 dependency graph without per-panel host observation. That owner and the
-startup package are not yet composed, and no admitted kernel body consumes
-their private capabilities. Private binding and full-K qualification of FP8,
+startup package now compose only in an isolated synthetic-T1 layer-0 slice:
+Main executes InputNorm then fixed GDN-QKVZ, AbAux executes BF16 A/B after
+`NormReady`, Main waits on `AbReady`, and Control physically drains/discards
+without publication. The driver exposes neither raw ready-event recording nor
+caller-filled QKVZ submission. This establishes scheduling/write-set evidence,
+not real-checkpoint, complete-layer, or performance evidence. Full-K
+qualification of FP8,
 private binding and full-C8000 qualification of BF16 A/B, exact GDN and
 Attention, whole-model receipt, rollback, finalizer, and API launcher must
 compose before V4 is runnable or eligible for a P40 witness.

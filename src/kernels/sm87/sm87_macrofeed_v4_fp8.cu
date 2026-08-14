@@ -1,5 +1,9 @@
 #include "q3x/kernels/sm87_macrofeed_v4_fp8.h"
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+#include "sm87_macrofeed_v4_bound_launch_internal.h"
+#endif
+
 #include <cuda.h>
 #include <cuda_runtime.h>
 
@@ -715,6 +719,70 @@ template <typename Kernel>
   return std::isfinite(scale) && scale > 0.0F;
 }
 
+// Pure fixed-geometry enqueue body shared by the public T1 probe and the
+// owner-locked execution seam.  Every device/resource/range observation is a
+// construction/admission responsibility; this body only rechecks the fixed
+// structural contract, decodes already-authenticated scale bits, and submits
+// exactly one GDN-QKVZ kernel.
+[[nodiscard]] cudaError_t enqueue_gdn_qkvz_c8000_body(
+    const std::uint16_t* const hidden_input,
+    const Sm87TargetAotFp8CudaAssetView& asset,
+    std::uint16_t* const phase_scratch,
+    const cudaStream_t stream) noexcept {
+  constexpr auto plan = sm87_macrofeed_v4_fp8_plan(
+      Sm87TargetAotProjectionRole::kFp8GdnQkvZ,
+      kSm87MacroFeedV4Fp8Tokens,
+      Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1);
+  static_assert(plan.valid() && plan.input_features == 5'120U &&
+                plan.input_row_stride == 5'120U &&
+                plan.primary_output_row_stride == 17'408U &&
+                plan.key_output_features == 0U &&
+                plan.value_output_features == 0U);
+  const Sm87MacroFeedV4Fp8Arguments fixed{
+      Sm87TargetAotProjectionRole::kFp8GdnQkvZ,
+      hidden_input,
+      kSm87MacroFeedV4Fp8HiddenRowStride,
+      asset,
+      kSm87MacroFeedV4Fp8Tokens,
+      phase_scratch,
+      kSm87MacroFeedV4Fp8ScratchRowStride,
+      nullptr,
+      0U,
+      nullptr,
+      0U,
+      reinterpret_cast<void*>(stream),
+      Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1};
+  if (stream == nullptr || !sm87_macrofeed_v4_fp8_arguments_valid(fixed)) {
+    return cudaErrorInvalidValue;
+  }
+
+  std::array<float, 3U> scales{};
+  for (std::size_t index = 0U; index < plan.partition_count; ++index) {
+    scales[index] =
+        bf16_to_float(asset.compensated_tensor_scale_bf16_bits[index]);
+    if (!scale_valid(scales[index])) {
+      return cudaErrorInvalidValue;
+    }
+  }
+  const auto* const payload = reinterpret_cast<const std::uint8_t*>(
+      asset.payload.begin);
+  // Do not clear this host thread's prior CUDA error.  In the composed path a
+  // stale failure is evidence, not launch hygiene: cudaPeekAtLastError below
+  // must surface it so the EventsOwner poisons and physically drains all
+  // streams instead of erasing the first observable cause.
+  sm87_macrofeed_v4_fp8_kernel<
+      Sm87TargetAotProjectionRole::kFp8GdnQkvZ, 5'120U, 80U,
+      Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1>
+      <<<static_cast<unsigned int>(plan.logical_tasks),
+         static_cast<unsigned int>(kSm87MacroFeedV4Fp8Threads),
+         kSm87MacroFeedV4Fp8DynamicSharedBytes, stream>>>(
+          hidden_input, kSm87MacroFeedV4Fp8HiddenRowStride, payload,
+          scales[0U], scales[1U], scales[2U], phase_scratch,
+          kSm87MacroFeedV4Fp8ScratchRowStride, nullptr, 0U, nullptr, 0U,
+          static_cast<unsigned int>(plan.grid_n));
+  return cudaPeekAtLastError();
+}
+
 [[nodiscard]] bool tile_test_arguments_valid(
     const Sm87MacroFeedV4Fp8TileTestArguments& arguments) noexcept {
   const auto input_layout = sm87_macrofeed_v4_fp8_resolve_input_layout(
@@ -1111,16 +1179,11 @@ int launch_sm87_macrofeed_v4_fp8_t1_admission_cuda(
   const auto* const payload = reinterpret_cast<const std::uint8_t*>(
       arguments.asset.payload.begin);
   if (arguments.role == Sm87TargetAotProjectionRole::kFp8GdnQkvZ) {
-    sm87_macrofeed_v4_fp8_kernel<
-        Sm87TargetAotProjectionRole::kFp8GdnQkvZ, 5'120U, 80U,
-        Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1>
-        <<<grid, block, kSm87MacroFeedV4Fp8DynamicSharedBytes, stream>>>(
-            arguments.input, arguments.input_row_stride, payload, scales[0U],
-            scales[1U], scales[2U], arguments.primary_output,
-            arguments.primary_output_row_stride, arguments.key_output,
-            arguments.key_output_row_stride, arguments.value_output,
-            arguments.value_output_row_stride,
-            static_cast<unsigned int>(plan.grid_n));
+    const cudaError_t enqueue_status = enqueue_gdn_qkvz_c8000_body(
+        arguments.input, arguments.asset, arguments.primary_output, stream);
+    if (enqueue_status != cudaSuccess) {
+      return static_cast<int>(enqueue_status);
+    }
   } else if (arguments.role ==
              Sm87TargetAotProjectionRole::kFp8FullQkv) {
     sm87_macrofeed_v4_fp8_kernel<
@@ -1190,6 +1253,55 @@ int launch_sm87_macrofeed_v4_fp8_t1_admission_cuda(
   receipt->production_dispatch_eligible = false;
   return static_cast<int>(cudaSuccess);
 }
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+namespace sm87_macrofeed_v4_bound_launch_detail {
+
+int enqueue_gdn_qkvz_c8000_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4GdnQkvzC8000Arguments& arguments,
+    const Sm87MacroFeedV4Fp8CudaResources& resources,
+    std::size_t* const submitted_launches) noexcept {
+  if (submitted_launches == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *submitted_launches = 0U;
+  constexpr auto kRole = Sm87TargetAotProjectionRole::kFp8GdnQkvZ;
+  constexpr auto kLayout =
+      Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1;
+  const Sm87MacroFeedV4Fp8Arguments fixed{
+      kRole,
+      arguments.hidden_input,
+      kSm87MacroFeedV4Fp8HiddenRowStride,
+      arguments.asset,
+      kSm87MacroFeedV4Fp8Tokens,
+      arguments.phase_scratch,
+      kSm87MacroFeedV4Fp8ScratchRowStride,
+      nullptr,
+      0U,
+      nullptr,
+      0U,
+      token.cuda_stream_,
+      kLayout};
+  if (!sm87_macrofeed_v4_fp8_arguments_valid(fixed) ||
+      !resources.static_resource_gate_passed ||
+      !sm87_macrofeed_v4_fp8_resource_gate(resources) ||
+      resources.role != kRole || resources.input_layout != kLayout ||
+      resources.identity != sm87_macrofeed_v4_fp8_identity(kRole, kLayout)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const cudaError_t status = enqueue_gdn_qkvz_c8000_body(
+      arguments.hidden_input, arguments.asset, arguments.phase_scratch,
+      reinterpret_cast<cudaStream_t>(token.cuda_stream_));
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *submitted_launches = 1U;
+  return static_cast<int>(cudaSuccess);
+}
+
+}  // namespace sm87_macrofeed_v4_bound_launch_detail
+#endif
 
 int launch_sm87_macrofeed_v4_fp8_tile_test_cuda(
     const Sm87MacroFeedV4Fp8TileTestArguments& arguments) noexcept {
