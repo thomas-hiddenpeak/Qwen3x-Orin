@@ -780,8 +780,8 @@ bool observe_gateway_token(
 
 [[nodiscard]] std::uint64_t consumed_prompt_tokens(
     const runtime::ReferenceGeneration& generation) noexcept {
-  if (generation.generation_route ==
-          runtime::ReferenceGenerationRoute::kSm87TargetAotP40 &&
+  if (runtime::is_exact_p40_generation_route(
+          generation.generation_route) &&
       generation.full_prompt_consumed &&
       generation.consumed_prompt_tokens ==
           generation.prompt_token_ids.size()) {
@@ -894,8 +894,7 @@ void emit_target_prefill_witness(
     record.prefill_logical_panel_count =
         generation.prefill_logical_panel_count;
     record.request_memory_profile =
-        generation.generation_route ==
-                runtime::ReferenceGenerationRoute::kSm87TargetAotP40
+        runtime::is_exact_p40_generation_route(generation.generation_route)
             ? generation.request_memory_profile
             : engine.load_stats().request_memory_profile;
     record.bounded_submission_window =
@@ -1035,6 +1034,7 @@ void emit_target_prefill_witness(
     record.target_aot_used_mtp = generation.target_aot_used_mtp;
     record.target_aot_used_cublaslt = generation.target_aot_used_cublaslt;
     record.target_aot_used_jit = generation.target_aot_used_jit;
+    record.bulk_v2_p40_receipt = generation.bulk_v2_p40_receipt;
     record.pure_prefill_phase_qualified =
         generation.timing.prompt_prefill_phase_qualified;
     std::cerr << serialize_target_prefill_witness(record) << '\n';

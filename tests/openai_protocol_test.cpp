@@ -1389,6 +1389,154 @@ void test_target_prefill_witness_evidence(TestContext& test) {
       "the independent target owner has an append-only stable memory-profile "
       "identity");
 
+  server::TargetPrefillWitnessRecord bulk_v2_p40_record;
+  bulk_v2_p40_record.request_id = record.request_id;
+  bulk_v2_p40_record.request_body_sha256 = record.request_body_sha256;
+  bulk_v2_p40_record.model = record.model;
+  bulk_v2_p40_record.endpoint = record.endpoint;
+  bulk_v2_p40_record.prompt_kind = record.prompt_kind;
+  bulk_v2_p40_record.prompt_token_ids_u32le_sha256 =
+      record.prompt_token_ids_u32le_sha256;
+  bulk_v2_p40_record.queue = record.queue;
+  bulk_v2_p40_record.admission = record.admission;
+  bulk_v2_p40_record.generation = record.generation;
+  bulk_v2_p40_record.pure_prefill = record.pure_prefill;
+  bulk_v2_p40_record.finalize = record.finalize;
+  bulk_v2_p40_record.ttft = record.ttft;
+  bulk_v2_p40_record.first_byte = record.first_byte;
+  bulk_v2_p40_record.decode = record.decode;
+  bulk_v2_p40_record.total = record.total;
+  bulk_v2_p40_record.requested_prefill_chunk_size = 512U;
+  bulk_v2_p40_record.prompt_tokens = 40'000U;
+  bulk_v2_p40_record.consumed_prompt_tokens = 40'000U;
+  bulk_v2_p40_record.full_prompt_consumed = true;
+  bulk_v2_p40_record.completion_tokens = 1U;
+  bulk_v2_p40_record.effective_prefill_chunk_size = 40'000U;
+  bulk_v2_p40_record.prefix_execution_count = 1U;
+  bulk_v2_p40_record.projection_backend =
+      q3x::runtime::ProjectionBackend::kSm87WeightOnly;
+  bulk_v2_p40_record.generation_route =
+      q3x::runtime::ReferenceGenerationRoute::kSm87BulkV2P40;
+  bulk_v2_p40_record.prefill_execution_mode = q3x::runtime::
+      ReferencePrefillExecutionMode::kLegacyC512Tiled;
+  bulk_v2_p40_record.prefill_logical_panel_count = 1U;
+  bulk_v2_p40_record.request_memory_profile =
+      q3x::runtime::RequestMemoryProfile::kSm87BulkV2P40Owner;
+  bulk_v2_p40_record.target_aot_complete_projection_artifacts = 256U;
+  bulk_v2_p40_record.target_aot_complete_projection_sources = 400U;
+  bulk_v2_p40_record.target_aot_complete_projection_catalog_sha256 =
+      std::string(64U, 'b');
+  bulk_v2_p40_record.pure_prefill_phase_qualified = false;
+  bulk_v2_p40_record.deployment_plan_id =
+      q3x::runtime::kSm87BulkV2P40DirectionWitnessDeploymentPlanId;
+
+  auto& bulk_v2_receipt = bulk_v2_p40_record.bulk_v2_p40_receipt;
+  bulk_v2_receipt.abi_major = 4U;
+  bulk_v2_receipt.abi_minor = 0U;
+  bulk_v2_receipt.request_epoch = 19U;
+  bulk_v2_receipt.deployment_identity = 101U;
+  bulk_v2_receipt.model_identity = 102U;
+  bulk_v2_receipt.allocation_identity = 103U;
+  bulk_v2_receipt.stream_event_owner_identity = 104U;
+  bulk_v2_receipt.asset_catalog_identity = 105U;
+  bulk_v2_receipt.completed_layers = 64U;
+  bulk_v2_receipt.completed_gdn_layers = 48U;
+  bulk_v2_receipt.completed_full_layers = 16U;
+  bulk_v2_receipt.logical_projection_roles = 496U;
+  bulk_v2_receipt.fused_outer_operations = 304U;
+  bulk_v2_receipt.projection_conventional_operations =
+      1'948'044'492'800'000ULL;
+  bulk_v2_receipt.fp8_whole_role_launches = 128U;
+  bulk_v2_receipt.nvfp4_whole_role_launches = 128U;
+  bulk_v2_receipt.bf16_ab_physical_launches = 48U;
+  bulk_v2_receipt.attention_launches = 64U;
+  bulk_v2_receipt.attention_preprocess_panels = 80U;
+  bulk_v2_receipt.bf16_ab_launches = 48U;
+  bulk_v2_receipt.gdn_producer_chunks = 30'000U;
+  bulk_v2_receipt.gdn_recurrence_chunks = 30'000U;
+  bulk_v2_receipt.gdn_epilogue_chunks = 30'000U;
+  bulk_v2_receipt.gdn_persistent_copies = 96U;
+  bulk_v2_receipt.final_norm_launches = 1U;
+  bulk_v2_receipt.lm_head_launches = 1U;
+  bulk_v2_receipt.argmax_launches = 1U;
+  bulk_v2_receipt.handoff_d2h_operations = 1U;
+  bulk_v2_receipt.terminal_host_waits = 1U;
+  bulk_v2_receipt.terminal_host_drains = 1U;
+  bulk_v2_receipt.device_ordering_operations = 777U;
+  bulk_v2_receipt.request_hot_static_cuda_queries = 0U;
+  bulk_v2_receipt.joined_auxiliary_stream_mask = 0x1eU;
+  bulk_v2_receipt.handoff_value_bits = 0x3f80U;
+  bulk_v2_receipt.receipt_exact = true;
+  bulk_v2_receipt.lifecycle_completed = true;
+  bulk_v2_receipt.all_streams_drained = true;
+  bulk_v2_receipt.state_committed = true;
+  bulk_v2_receipt.handoff_observed = true;
+  bulk_v2_receipt.owner_bound_capability_used = true;
+  bulk_v2_receipt.direction_witness_identity = true;
+  bulk_v2_receipt.exact_numerical_contract_qualified = false;
+  bulk_v2_receipt.production_dispatch_eligible = false;
+  bulk_v2_receipt.used_fallback = false;
+  bulk_v2_receipt.used_mtp = false;
+  bulk_v2_receipt.used_cublaslt = false;
+  bulk_v2_receipt.used_request_jit_repack_or_autotune = false;
+
+  const std::string bulk_v2_p40_serialized =
+      server::serialize_target_prefill_witness(bulk_v2_p40_record);
+  test.expect(
+      valid_json(bulk_v2_p40_serialized) &&
+          bulk_v2_p40_serialized.find(
+              R"("record":"target-prefill-witness-v17","schema_version":17)") !=
+              std::string::npos &&
+          bulk_v2_p40_serialized.find(
+              R"("consumed_tokens":40000,"fully_consumed":true)") !=
+              std::string::npos &&
+          bulk_v2_p40_serialized.find(
+              R"("complete_engine_route":"sm87-bulk-v2-p40","package_complete":true)") !=
+              std::string::npos &&
+          bulk_v2_p40_serialized.find(
+              R"("authenticated_projection_owner":{"artifacts":256,"sources":400,"catalog_sha256":")") !=
+              std::string::npos &&
+          bulk_v2_p40_serialized.find(
+              R"("completed_layers":64,"completed_gdn_layers":48,"completed_full_layers":16,"logical_projection_roles":496,"fused_outer_operations":304,"projection_conventional_operations":1948044492800000)") !=
+              std::string::npos &&
+          bulk_v2_p40_serialized.find(
+              R"("fp8_whole_role_launches":128,"nvfp4_whole_role_launches":128,"bf16_ab_physical_launches":48,"attention_launches":64,"attention_preprocess_panels":80,"bf16_ab_launches":48)") !=
+              std::string::npos &&
+          bulk_v2_p40_serialized.find(
+              R"("gdn_producer_chunks":30000,"gdn_recurrence_chunks":30000,"gdn_epilogue_chunks":30000,"gdn_persistent_copies":96)") !=
+              std::string::npos &&
+          bulk_v2_p40_serialized.find(
+              R"("handoff_value_bits":16256)") != std::string::npos &&
+          bulk_v2_p40_serialized.find(
+              R"("receipt_exact":true,"lifecycle_completed":true,"all_streams_drained":true,"state_committed":true,"handoff_observed":true,"owner_bound_capability_used":true,"direction_witness_identity":true,"exact_numerical_contract_qualified":false,"production_dispatch_eligible":false,"used_fallback":false,"used_mtp":false,"used_cublaslt":false,"used_request_jit_repack_or_autotune":false)") !=
+              std::string::npos &&
+          bulk_v2_p40_serialized.find(
+              R"("qualification":"accuracy-unqualified-architecture-candidate")") !=
+              std::string::npos &&
+          bulk_v2_p40_serialized.find(
+              R"("numerical_contract":{"qualified":false)") !=
+              std::string::npos &&
+          bulk_v2_p40_serialized.find(
+              R"("disabled_boundaries":{"scope":"architecture_candidate_unqualified")") !=
+              std::string::npos,
+      "v17 seals the independent bulk-dataflow-v2 complete direction witness "
+      "without claiming numerical qualification or production eligibility");
+
+  server::TargetPrefillWitnessRecord bulk_v2_p40_missing_layer =
+      bulk_v2_p40_record;
+  --bulk_v2_p40_missing_layer.bulk_v2_p40_receipt.completed_layers;
+  const std::string bulk_v2_p40_incomplete =
+      server::serialize_target_prefill_witness(bulk_v2_p40_missing_layer);
+  test.expect(
+      valid_json(bulk_v2_p40_incomplete) &&
+          bulk_v2_p40_incomplete.find(
+              R"("record":"target-prefill-witness-v17","schema_version":17)") !=
+              std::string::npos &&
+          bulk_v2_p40_incomplete.find(R"("package_complete":false)") !=
+              std::string::npos,
+      "v17 fails closed when one authenticated executor layer receipt is "
+      "missing");
+
   server::TargetPrefillWitnessRecord v14_with_v15_only_fields =
       packed_nvfp4_v2_p40_record;
   v14_with_v15_only_fields.vllm_marlin_parity_gate_up_hits = 64U;

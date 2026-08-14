@@ -190,6 +190,11 @@ struct TargetPrefillWitnessRecord {
   bool target_aot_used_mtp = false;
   bool target_aot_used_cublaslt = false;
   bool target_aot_used_jit = false;
+  // Independent bulk-dataflow-v2 terminal evidence. This remains a copied,
+  // capability-free direction-witness receipt: it can prove which complete
+  // engine path returned, but can never make that path accuracy-qualified or
+  // production-eligible.
+  runtime::ReferenceSm87BulkV2P40ReceiptEvidence bulk_v2_p40_receipt;
   // Append-only phase authority.  A false value means a retained diagnostic
   // duration must not be promoted as pure Prefill; external API TTFT/total
   // evidence remains independently observable.

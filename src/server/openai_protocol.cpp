@@ -2,6 +2,7 @@
 
 #include "q3x/core/sha256.h"
 #include "q3x/io/json.h"
+#include "q3x/runtime/sm87_bulk_dataflow_v2_p40_plan.h"
 
 #include <algorithm>
 #include <array>
@@ -803,6 +804,9 @@ std::string serialize_target_prefill_witness(
           kLayerMajorNativePromptWideP40VllmMarlinParityDeploymentPlanId;
   const bool target_aot_p40_candidate_v16 =
       record.deployment_plan_id == runtime::kSm87TargetAotP40DeploymentPlanId;
+  const bool bulk_v2_p40_candidate_v17 =
+      record.deployment_plan_id ==
+      runtime::kSm87BulkV2P40DirectionWitnessDeploymentPlanId;
   bool target_aot_has_no_legacy_route_evidence =
       !record.prefill_route_evidence.valid &&
       !record.prefill_route_evidence.complete &&
@@ -1203,6 +1207,73 @@ std::string serialize_target_prefill_witness(
       !record.target_aot_used_fallback && !record.target_aot_used_mtp &&
       !record.target_aot_used_cublaslt && !record.target_aot_used_jit &&
       !record.pure_prefill_phase_qualified;
+  const auto& bulk_v2 = record.bulk_v2_p40_receipt;
+  constexpr std::uint32_t kBulkV2AuxiliaryStreamMask = 0x1eU;
+  const bool bulk_v2_p40_package_counts_complete =
+      bulk_v2_p40_candidate_v17 &&
+      record.generation_route ==
+          runtime::ReferenceGenerationRoute::kSm87BulkV2P40 &&
+      record.projection_backend ==
+          runtime::ProjectionBackend::kSm87WeightOnly &&
+      record.request_memory_profile ==
+          runtime::RequestMemoryProfile::kSm87BulkV2P40Owner &&
+      record.prefill_execution_mode ==
+          runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled &&
+      record.prefill_logical_panel_count == 1U &&
+      !record.bounded_submission_window &&
+      record.submission_window_retirements == 0U &&
+      target_aot_has_no_legacy_route_evidence &&
+      record.prompt_tokens == runtime::kSm87BulkV2P40Tokens &&
+      record.consumed_prompt_tokens == record.prompt_tokens &&
+      record.full_prompt_consumed && record.completion_tokens == 1U &&
+      record.prefix_execution_count == 1U &&
+      record.target_aot_complete_projection_artifacts == 256U &&
+      record.target_aot_complete_projection_sources == 400U &&
+      record.target_aot_complete_projection_catalog_sha256.size() == 64U &&
+      bulk_v2.abi_major == runtime::kSm87BulkV2P40PlanAbiMajor &&
+      bulk_v2.abi_minor == runtime::kSm87BulkV2P40PlanAbiMinor &&
+      bulk_v2.request_epoch != 0U &&
+      bulk_v2.deployment_identity != 0U &&
+      bulk_v2.model_identity != 0U &&
+      bulk_v2.allocation_identity != 0U &&
+      bulk_v2.stream_event_owner_identity != 0U &&
+      bulk_v2.asset_catalog_identity != 0U &&
+      bulk_v2.completed_layers == runtime::kSm87BulkV2P40Layers &&
+      bulk_v2.completed_gdn_layers == runtime::kSm87BulkV2P40GdnLayers &&
+      bulk_v2.completed_full_layers == runtime::kSm87BulkV2P40FullLayers &&
+      bulk_v2.logical_projection_roles ==
+          runtime::kSm87BulkV2P40LogicalProjectionRoles &&
+      bulk_v2.fused_outer_operations ==
+          runtime::kSm87BulkV2P40FusedOuterOperations &&
+      bulk_v2.projection_conventional_operations ==
+          runtime::kSm87BulkV2P40ProjectionConventionalOperations &&
+      bulk_v2.fp8_whole_role_launches == 128U &&
+      bulk_v2.nvfp4_whole_role_launches == 128U &&
+      bulk_v2.bf16_ab_physical_launches == 48U &&
+      bulk_v2.attention_launches == 64U &&
+      bulk_v2.attention_preprocess_panels == 80U &&
+      bulk_v2.bf16_ab_launches == 48U &&
+      bulk_v2.gdn_producer_chunks == 30'000U &&
+      bulk_v2.gdn_recurrence_chunks == 30'000U &&
+      bulk_v2.gdn_epilogue_chunks == 30'000U &&
+      bulk_v2.gdn_persistent_copies == 96U &&
+      bulk_v2.final_norm_launches == 1U && bulk_v2.lm_head_launches == 1U &&
+      bulk_v2.argmax_launches == 1U &&
+      bulk_v2.handoff_d2h_operations == 1U &&
+      bulk_v2.terminal_host_waits == 1U &&
+      bulk_v2.terminal_host_drains == 1U &&
+      bulk_v2.device_ordering_operations != 0U &&
+      bulk_v2.request_hot_static_cuda_queries == 0U &&
+      bulk_v2.joined_auxiliary_stream_mask == kBulkV2AuxiliaryStreamMask &&
+      bulk_v2.receipt_exact && bulk_v2.lifecycle_completed &&
+      bulk_v2.all_streams_drained && bulk_v2.state_committed &&
+      bulk_v2.handoff_observed && bulk_v2.owner_bound_capability_used &&
+      bulk_v2.direction_witness_identity &&
+      !bulk_v2.exact_numerical_contract_qualified &&
+      !bulk_v2.production_dispatch_eligible && !bulk_v2.used_fallback &&
+      !bulk_v2.used_mtp && !bulk_v2.used_cublaslt &&
+      !bulk_v2.used_request_jit_repack_or_autotune &&
+      !record.pure_prefill_phase_qualified;
   const bool accuracy_unqualified_candidate =
       candidate_v3 || projection_candidate_v4 ||
       native_large_m_candidate_v5 || flashinfer_exact_candidate_v6 ||
@@ -1213,9 +1284,12 @@ std::string serialize_target_prefill_witness(
       p40_packed_projection_candidate_v13 ||
       p40_packed_nvfp4_v2_candidate_v14 ||
       p40_vllm_marlin_parity_candidate_v15 ||
-      target_aot_p40_candidate_v16;
+      target_aot_p40_candidate_v16 || bulk_v2_p40_candidate_v17;
   std::string output =
-      target_aot_p40_candidate_v16
+      bulk_v2_p40_candidate_v17
+          ? "{\"record\":\"target-prefill-witness-v17\","
+            "\"schema_version\":17,\"request\":{\"id\":"
+      : target_aot_p40_candidate_v16
           ? "{\"record\":\"target-prefill-witness-v16\","
             "\"schema_version\":16,\"request\":{\"id\":"
       : p40_vllm_marlin_parity_candidate_v15
@@ -1283,7 +1357,13 @@ std::string serialize_target_prefill_witness(
   output += ',';
   append_phase_evidence(output, "generation", record.generation);
   output += ',';
-  if (target_aot_p40_candidate_v16) {
+  if (bulk_v2_p40_candidate_v17) {
+    RequestPhaseEvidence unqualified_pure_prefill;
+    unqualified_pure_prefill.scope = "engine_prompt_prefill";
+    unqualified_pure_prefill.unavailable_reason =
+        "bulk_v2_interval_includes_first_token_finalization";
+    append_phase_evidence(output, "pure_prefill", unqualified_pure_prefill);
+  } else if (target_aot_p40_candidate_v16) {
     RequestPhaseEvidence unqualified_pure_prefill;
     unqualified_pure_prefill.scope = "engine_prompt_prefill";
     unqualified_pure_prefill.unavailable_reason =
@@ -1342,7 +1422,137 @@ std::string serialize_target_prefill_witness(
     output += record.bounded_submission_window ? "true" : "false";
     output += ",\"submission_window_retirements\":" +
               std::to_string(record.submission_window_retirements);
-    if (target_aot_p40_candidate_v16) {
+    if (bulk_v2_p40_candidate_v17) {
+      output += ",\"complete_engine_route\":";
+      append_json_string(output, "sm87-bulk-v2-p40");
+      output += ",\"package_complete\":";
+      output += bulk_v2_p40_package_counts_complete ? "true" : "false";
+      const bool server_response_timing_available =
+          record.ttft.milliseconds.has_value() &&
+          std::isfinite(*record.ttft.milliseconds) &&
+          *record.ttft.milliseconds >= 0.0 &&
+          record.total.milliseconds.has_value() &&
+          std::isfinite(*record.total.milliseconds) &&
+          *record.total.milliseconds >= 0.0;
+      output +=
+          ",\"phase_qualification\":{\"pure_prefill_promotion_eligible\":";
+      output += record.pure_prefill_phase_qualified ? "true" : "false";
+      output += ",\"server_response_timing_available\":";
+      output += server_response_timing_available ? "true" : "false";
+      output +=
+          ",\"external_api_e2e_measurement_eligible\":true,"
+          "\"external_api_e2e_source\":\"external_framework_transaction\"";
+      output += ",\"reason\":";
+      append_json_string(
+          output, record.pure_prefill_phase_qualified
+                      ? "qualified_phase_boundary"
+                      : "bulk_v2_interval_includes_first_token_finalization");
+      output += "}";
+      output +=
+          ",\"authenticated_projection_owner\":{\"artifacts\":" +
+          std::to_string(record.target_aot_complete_projection_artifacts) +
+          ",\"sources\":" +
+          std::to_string(record.target_aot_complete_projection_sources) +
+          ",\"catalog_sha256\":";
+      append_json_string(
+          output, record.target_aot_complete_projection_catalog_sha256);
+      output += "},\"executor_receipt\":{\"abi_major\":" +
+                std::to_string(bulk_v2.abi_major) +
+                ",\"abi_minor\":" + std::to_string(bulk_v2.abi_minor) +
+                ",\"request_epoch\":" +
+                std::to_string(bulk_v2.request_epoch) +
+                ",\"deployment_identity\":" +
+                std::to_string(bulk_v2.deployment_identity) +
+                ",\"model_identity\":" +
+                std::to_string(bulk_v2.model_identity) +
+                ",\"allocation_identity\":" +
+                std::to_string(bulk_v2.allocation_identity) +
+                ",\"stream_event_owner_identity\":" +
+                std::to_string(bulk_v2.stream_event_owner_identity) +
+                ",\"asset_catalog_identity\":" +
+                std::to_string(bulk_v2.asset_catalog_identity) +
+                ",\"completed_layers\":" +
+                std::to_string(bulk_v2.completed_layers) +
+                ",\"completed_gdn_layers\":" +
+                std::to_string(bulk_v2.completed_gdn_layers) +
+                ",\"completed_full_layers\":" +
+                std::to_string(bulk_v2.completed_full_layers) +
+                ",\"logical_projection_roles\":" +
+                std::to_string(bulk_v2.logical_projection_roles) +
+                ",\"fused_outer_operations\":" +
+                std::to_string(bulk_v2.fused_outer_operations) +
+                ",\"projection_conventional_operations\":" +
+                std::to_string(bulk_v2.projection_conventional_operations) +
+                ",\"fp8_whole_role_launches\":" +
+                std::to_string(bulk_v2.fp8_whole_role_launches) +
+                ",\"nvfp4_whole_role_launches\":" +
+                std::to_string(bulk_v2.nvfp4_whole_role_launches) +
+                ",\"bf16_ab_physical_launches\":" +
+                std::to_string(bulk_v2.bf16_ab_physical_launches) +
+                ",\"attention_launches\":" +
+                std::to_string(bulk_v2.attention_launches) +
+                ",\"attention_preprocess_panels\":" +
+                std::to_string(bulk_v2.attention_preprocess_panels) +
+                ",\"bf16_ab_launches\":" +
+                std::to_string(bulk_v2.bf16_ab_launches) +
+                ",\"gdn_producer_chunks\":" +
+                std::to_string(bulk_v2.gdn_producer_chunks) +
+                ",\"gdn_recurrence_chunks\":" +
+                std::to_string(bulk_v2.gdn_recurrence_chunks) +
+                ",\"gdn_epilogue_chunks\":" +
+                std::to_string(bulk_v2.gdn_epilogue_chunks) +
+                ",\"gdn_persistent_copies\":" +
+                std::to_string(bulk_v2.gdn_persistent_copies) +
+                ",\"final_norm_launches\":" +
+                std::to_string(bulk_v2.final_norm_launches) +
+                ",\"lm_head_launches\":" +
+                std::to_string(bulk_v2.lm_head_launches) +
+                ",\"argmax_launches\":" +
+                std::to_string(bulk_v2.argmax_launches) +
+                ",\"handoff_d2h_operations\":" +
+                std::to_string(bulk_v2.handoff_d2h_operations) +
+                ",\"terminal_host_waits\":" +
+                std::to_string(bulk_v2.terminal_host_waits) +
+                ",\"terminal_host_drains\":" +
+                std::to_string(bulk_v2.terminal_host_drains) +
+                ",\"device_ordering_operations\":" +
+                std::to_string(bulk_v2.device_ordering_operations) +
+                ",\"request_hot_static_cuda_queries\":" +
+                std::to_string(bulk_v2.request_hot_static_cuda_queries) +
+                ",\"joined_auxiliary_stream_mask\":" +
+                std::to_string(bulk_v2.joined_auxiliary_stream_mask) +
+                ",\"handoff_value_bits\":" +
+                std::to_string(bulk_v2.handoff_value_bits) +
+                ",\"receipt_exact\":";
+      output += bulk_v2.receipt_exact ? "true" : "false";
+      output += ",\"lifecycle_completed\":";
+      output += bulk_v2.lifecycle_completed ? "true" : "false";
+      output += ",\"all_streams_drained\":";
+      output += bulk_v2.all_streams_drained ? "true" : "false";
+      output += ",\"state_committed\":";
+      output += bulk_v2.state_committed ? "true" : "false";
+      output += ",\"handoff_observed\":";
+      output += bulk_v2.handoff_observed ? "true" : "false";
+      output += ",\"owner_bound_capability_used\":";
+      output += bulk_v2.owner_bound_capability_used ? "true" : "false";
+      output += ",\"direction_witness_identity\":";
+      output += bulk_v2.direction_witness_identity ? "true" : "false";
+      output += ",\"exact_numerical_contract_qualified\":";
+      output +=
+          bulk_v2.exact_numerical_contract_qualified ? "true" : "false";
+      output += ",\"production_dispatch_eligible\":";
+      output += bulk_v2.production_dispatch_eligible ? "true" : "false";
+      output += ",\"used_fallback\":";
+      output += bulk_v2.used_fallback ? "true" : "false";
+      output += ",\"used_mtp\":";
+      output += bulk_v2.used_mtp ? "true" : "false";
+      output += ",\"used_cublaslt\":";
+      output += bulk_v2.used_cublaslt ? "true" : "false";
+      output += ",\"used_request_jit_repack_or_autotune\":";
+      output += bulk_v2.used_request_jit_repack_or_autotune ? "true"
+                                                            : "false";
+      output += "}";
+    } else if (target_aot_p40_candidate_v16) {
       output += ",\"complete_engine_route\":";
       append_json_string(output, "sm87-target-aot-p40");
       output += ",\"package_complete\":";
