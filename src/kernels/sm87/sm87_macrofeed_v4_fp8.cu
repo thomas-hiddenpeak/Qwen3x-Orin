@@ -216,7 +216,8 @@ __device__ __forceinline__ void clear_accumulators(
 }
 
 template <unsigned int kInputFeatures, unsigned int kKTiles,
-          bool kPredicatedRows, bool kInterleavedQInput>
+          bool kPredicatedRows,
+          Sm87MacroFeedV4Fp8InputLayout kInputLayout>
 __device__ __forceinline__ void issue_pipeline_stage(
     Fp8Pipeline* const pipeline, const unsigned int slot,
     const std::uint16_t* const input, const std::size_t input_row_stride,
@@ -228,17 +229,26 @@ __device__ __forceinline__ void issue_pipeline_stage(
   static_assert(kInputFeatures == kKTiles * kTileK);
   const unsigned int logical_first_k =
       (input_first_k_tile + k_tile) * kTileK;
-  const unsigned int physical_first_k =
-      kInterleavedQInput
-          ? (logical_first_k /
-                 static_cast<unsigned int>(
-                     kSm87MacroFeedV4Fp8AttentionHeadFeatures)) *
-                    static_cast<unsigned int>(
-                        kSm87MacroFeedV4Fp8QGateHeadStride) +
-                logical_first_k %
-                    static_cast<unsigned int>(
-                        kSm87MacroFeedV4Fp8AttentionHeadFeatures)
-          : logical_first_k;
+  unsigned int physical_first_k = logical_first_k;
+  if constexpr (kInputLayout ==
+                Sm87MacroFeedV4Fp8InputLayout::
+                    kFullAttentionInterleavedQScratchV1) {
+    physical_first_k =
+        (logical_first_k /
+         static_cast<unsigned int>(
+             kSm87MacroFeedV4Fp8AttentionHeadFeatures)) *
+            static_cast<unsigned int>(kSm87MacroFeedV4Fp8QGateHeadStride) +
+        logical_first_k %
+            static_cast<unsigned int>(
+                kSm87MacroFeedV4Fp8AttentionHeadFeatures);
+  } else if constexpr (kInputLayout ==
+                       Sm87MacroFeedV4Fp8InputLayout::
+                           kGdnContiguousVScratchV1) {
+    physical_first_k =
+        static_cast<unsigned int>(
+            kSm87MacroFeedV4Fp8GdnAttentionOutputPhysicalOffset) +
+        logical_first_k;
+  }
 #pragma unroll
   for (unsigned int pass = 0U; pass < 2U; ++pass) {
     const unsigned int vector_index = threadIdx.x + pass * kThreads;
@@ -277,7 +287,8 @@ __device__ __forceinline__ void issue_pipeline_stage(
 }
 
 template <unsigned int kInputFeatures, unsigned int kKTiles,
-          bool kPredicatedRows, bool kInterleavedQInput>
+          bool kPredicatedRows,
+          Sm87MacroFeedV4Fp8InputLayout kInputLayout>
 __device__ __forceinline__ void run_full_k(
     Fp8Pipeline* const pipeline, const std::uint16_t* const input,
     const std::size_t input_row_stride, const std::uint8_t* const payload,
@@ -295,7 +306,7 @@ __device__ __forceinline__ void run_full_k(
 #pragma unroll
   for (unsigned int stage = 0U; stage < kStages; ++stage) {
     issue_pipeline_stage<kInputFeatures, kKTiles, kPredicatedRows,
-                         kInterleavedQInput>(
+                         kInputLayout>(
         pipeline, stage, input, input_row_stride, payload, rows, first_m,
         partition_offset, partition_n128_tile, input_first_k_tile, stage);
   }
@@ -347,7 +358,7 @@ __device__ __forceinline__ void run_full_k(
         __syncthreads();
         if (k_tile + kStages < kKTiles) {
           issue_pipeline_stage<kInputFeatures, kKTiles, kPredicatedRows,
-                               kInterleavedQInput>(
+                               kInputLayout>(
               pipeline, slot, input, input_row_stride, payload, rows,
               first_m, partition_offset, partition_n128_tile,
               input_first_k_tile, k_tile + kStages);
@@ -419,7 +430,8 @@ __device__ __forceinline__ void publish_output(
 }
 
 template <Sm87TargetAotProjectionRole kRole,
-          unsigned int kInputFeatures, unsigned int kKTiles>
+          unsigned int kInputFeatures, unsigned int kKTiles,
+          Sm87MacroFeedV4Fp8InputLayout kInputLayout>
 __global__ __launch_bounds__(256, 2)
 void sm87_macrofeed_v4_fp8_kernel(
     const std::uint16_t* const input, const std::size_t input_row_stride,
@@ -464,8 +476,7 @@ void sm87_macrofeed_v4_fp8_kernel(
   }
 
   WarpAccumulator accumulators;
-  run_full_k<kInputFeatures, kKTiles, false,
-             kRole == Sm87TargetAotProjectionRole::kFp8AttentionOutput>(
+  run_full_k<kInputFeatures, kKTiles, false, kInputLayout>(
       pipeline, input, input_row_stride, payload,
       static_cast<unsigned int>(kSm87MacroFeedV4Fp8Tokens),
       m_tile * kTileM, partition_offset,
@@ -513,7 +524,8 @@ void sm87_macrofeed_v4_fp8_kernel(
                  destination_row_stride, compensated_scale, destination);
 }
 
-template <Sm87TargetAotProjectionRole kRole>
+template <Sm87TargetAotProjectionRole kRole,
+          Sm87MacroFeedV4Fp8InputLayout kInputLayout>
 __global__ __launch_bounds__(256, 2)
 void sm87_macrofeed_v4_fp8_tile_test_kernel(
     const std::uint16_t* const input, const std::size_t input_row_stride,
@@ -534,7 +546,7 @@ void sm87_macrofeed_v4_fp8_tile_test_kernel(
   run_full_k<static_cast<unsigned int>(
                  kSm87MacroFeedV4Fp8TestInputFeatures),
              static_cast<unsigned int>(kSm87MacroFeedV4Fp8TestKTiles), true,
-             kRole == Sm87TargetAotProjectionRole::kFp8AttentionOutput>(
+             kInputLayout>(
       pipeline, input, input_row_stride, payload, valid_rows, 0U, 0U,
       canonical_n128_half, logical_input_first_k / kTileK, accumulators);
 
@@ -594,6 +606,7 @@ template <typename Kernel>
 template <typename Kernel>
 [[nodiscard]] cudaError_t query_kernel_resources(
     Kernel kernel, const Sm87TargetAotProjectionRole role,
+    const Sm87MacroFeedV4Fp8InputLayout input_layout,
     const int device_ordinal, const cudaDeviceProp& properties,
     Sm87MacroFeedV4Fp8CudaResources* const resources) noexcept {
   cudaError_t status = set_dynamic_shared(kernel);
@@ -612,8 +625,9 @@ template <typename Kernel>
   if (status != cudaSuccess) {
     return status;
   }
-  resources->identity = sm87_macrofeed_v4_fp8_identity(role);
+  resources->identity = sm87_macrofeed_v4_fp8_identity(role, input_layout);
   resources->role = role;
+  resources->input_layout = input_layout;
   resources->device_ordinal = device_ordinal;
   resources->compute_major = properties.major;
   resources->compute_minor = properties.minor;
@@ -637,6 +651,7 @@ template <typename Kernel>
 
 [[nodiscard]] cudaError_t query_resources(
     const Sm87TargetAotProjectionRole role,
+    const Sm87MacroFeedV4Fp8InputLayout input_layout,
     Sm87MacroFeedV4Fp8CudaResources* const resources) noexcept {
   int device = -1;
   cudaError_t status = cudaGetDevice(&device);
@@ -653,23 +668,38 @@ template <typename Kernel>
           static_cast<int>(kSm87MacroFeedV4Fp8SmCount)) {
     return cudaErrorNotSupported;
   }
+  if (!sm87_macrofeed_v4_fp8_input_layout(role, input_layout)) {
+    return cudaErrorInvalidValue;
+  }
   if (role == Sm87TargetAotProjectionRole::kFp8GdnQkvZ) {
     return query_kernel_resources(
         sm87_macrofeed_v4_fp8_kernel<
-            Sm87TargetAotProjectionRole::kFp8GdnQkvZ, 5'120U, 80U>,
-        role, device, properties, resources);
+            Sm87TargetAotProjectionRole::kFp8GdnQkvZ, 5'120U, 80U,
+            Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1>,
+        role, input_layout, device, properties, resources);
   }
   if (role == Sm87TargetAotProjectionRole::kFp8FullQkv) {
     return query_kernel_resources(
         sm87_macrofeed_v4_fp8_kernel<
-            Sm87TargetAotProjectionRole::kFp8FullQkv, 5'120U, 80U>,
-        role, device, properties, resources);
+            Sm87TargetAotProjectionRole::kFp8FullQkv, 5'120U, 80U,
+            Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1>,
+        role, input_layout, device, properties, resources);
   }
   if (role == Sm87TargetAotProjectionRole::kFp8AttentionOutput) {
+    if (input_layout == Sm87MacroFeedV4Fp8InputLayout::
+                            kGdnContiguousVScratchV1) {
+      return query_kernel_resources(
+          sm87_macrofeed_v4_fp8_kernel<
+              Sm87TargetAotProjectionRole::kFp8AttentionOutput, 6'144U, 96U,
+              Sm87MacroFeedV4Fp8InputLayout::kGdnContiguousVScratchV1>,
+          role, input_layout, device, properties, resources);
+    }
     return query_kernel_resources(
         sm87_macrofeed_v4_fp8_kernel<
-            Sm87TargetAotProjectionRole::kFp8AttentionOutput, 6'144U, 96U>,
-        role, device, properties, resources);
+            Sm87TargetAotProjectionRole::kFp8AttentionOutput, 6'144U, 96U,
+            Sm87MacroFeedV4Fp8InputLayout::
+                kFullAttentionInterleavedQScratchV1>,
+        role, input_layout, device, properties, resources);
   }
   return cudaErrorInvalidValue;
 }
@@ -687,8 +717,10 @@ template <typename Kernel>
 
 [[nodiscard]] bool tile_test_arguments_valid(
     const Sm87MacroFeedV4Fp8TileTestArguments& arguments) noexcept {
+  const auto input_layout = sm87_macrofeed_v4_fp8_resolve_input_layout(
+      arguments.role, arguments.input_layout);
   const auto plan = sm87_macrofeed_v4_fp8_plan(
-      arguments.role, kSm87MacroFeedV4Fp8Tokens);
+      arguments.role, kSm87MacroFeedV4Fp8Tokens, input_layout);
   if (!plan.valid() || arguments.partition_index >= plan.partition_count ||
       arguments.partition_n256_tile >=
           plan.partition_features[arguments.partition_index] / 256U ||
@@ -719,9 +751,19 @@ template <typename Kernel>
   if (arguments.role ==
       Sm87TargetAotProjectionRole::kFp8AttentionOutput) {
     if (arguments.input_row_stride !=
-            kSm87MacroFeedV4Fp8ScratchRowStride ||
-        arguments.logical_input_first_k !=
-            kSm87MacroFeedV4Fp8TestAttentionOutputLogicalFirstK) {
+        kSm87MacroFeedV4Fp8ScratchRowStride) {
+      return false;
+    }
+    if (input_layout == Sm87MacroFeedV4Fp8InputLayout::
+                            kGdnContiguousVScratchV1) {
+      if (arguments.logical_input_first_k !=
+              kSm87MacroFeedV4Fp8TestGdnAttentionOutputLogicalFirstK &&
+          arguments.logical_input_first_k !=
+              kSm87MacroFeedV4Fp8TestGdnAttentionOutputLogicalTailFirstK) {
+        return false;
+      }
+    } else if (arguments.logical_input_first_k !=
+               kSm87MacroFeedV4Fp8TestAttentionOutputLogicalFirstK) {
       return false;
     }
   } else if (arguments.logical_input_first_k != 0U) {
@@ -814,6 +856,7 @@ template <typename Kernel>
     const Sm87MacroFeedV4Fp8CudaResources& observed) noexcept {
   return expected.identity == observed.identity &&
          expected.role == observed.role &&
+         expected.input_layout == observed.input_layout &&
          expected.device_ordinal == observed.device_ordinal &&
          expected.compute_major == observed.compute_major &&
          expected.compute_minor == observed.compute_minor &&
@@ -856,9 +899,9 @@ template <typename Kernel>
 
   std::array<Sm87MacroFeedV4Fp8ByteRange, 4U> ranges{};
   std::size_t count = 0U;
-  ranges[count++] = sm87_macrofeed_v4_fp8_strided_range(
+  ranges[count++] = sm87_macrofeed_v4_fp8_strided_subrange(
       arguments.input, arguments.token_count, arguments.input_row_stride,
-      plan.input_physical_span);
+      plan.input_physical_offset, plan.input_physical_span);
   ranges[count++] = sm87_macrofeed_v4_fp8_strided_range(
       arguments.primary_output, arguments.token_count,
       arguments.primary_output_row_stride, plan.primary_output_features);
@@ -902,8 +945,10 @@ template <typename Kernel>
 
 bool sm87_macrofeed_v4_fp8_arguments_valid(
     const Sm87MacroFeedV4Fp8Arguments& arguments) noexcept {
-  const auto plan = sm87_macrofeed_v4_fp8_plan(arguments.role,
-                                               arguments.token_count);
+  const auto input_layout = sm87_macrofeed_v4_fp8_resolve_input_layout(
+      arguments.role, arguments.input_layout);
+  const auto plan = sm87_macrofeed_v4_fp8_plan(
+      arguments.role, arguments.token_count, input_layout);
   const Sm87MacroFeedV4Fp8LayoutBinding binding{
       arguments.role,
       arguments.token_count,
@@ -914,7 +959,8 @@ bool sm87_macrofeed_v4_fp8_arguments_valid(
       arguments.key_output,
       arguments.key_output_row_stride,
       arguments.value_output,
-      arguments.value_output_row_stride};
+      arguments.value_output_row_stride,
+      input_layout};
   if (!plan.valid() || arguments.cuda_stream == nullptr ||
       !sm87_macrofeed_v4_fp8_layout_valid(binding) ||
       !sm87_target_aot_fp8_cuda_asset_valid(arguments.asset) ||
@@ -927,9 +973,9 @@ bool sm87_macrofeed_v4_fp8_arguments_valid(
       arguments.asset.payload.valid};
   std::array<Sm87MacroFeedV4Fp8ByteRange, 4U> ranges{};
   std::size_t count = 0U;
-  ranges[count++] = sm87_macrofeed_v4_fp8_strided_range(
+  ranges[count++] = sm87_macrofeed_v4_fp8_strided_subrange(
       arguments.input, arguments.token_count, arguments.input_row_stride,
-      plan.input_physical_span);
+      plan.input_physical_offset, plan.input_physical_span);
   ranges[count++] = sm87_macrofeed_v4_fp8_strided_range(
       arguments.primary_output, arguments.token_count,
       arguments.primary_output_row_stride, plan.primary_output_features);
@@ -956,22 +1002,38 @@ bool sm87_macrofeed_v4_fp8_arguments_valid(
 int query_sm87_macrofeed_v4_fp8_cuda_resources(
     const Sm87TargetAotProjectionRole role,
     Sm87MacroFeedV4Fp8CudaResources* const resources) noexcept {
+  return query_sm87_macrofeed_v4_fp8_cuda_resources(
+      role, sm87_macrofeed_v4_fp8_default_input_layout(role), resources);
+}
+
+int query_sm87_macrofeed_v4_fp8_cuda_resources(
+    const Sm87TargetAotProjectionRole role,
+    const Sm87MacroFeedV4Fp8InputLayout input_layout,
+    Sm87MacroFeedV4Fp8CudaResources* const resources) noexcept {
   if (resources == nullptr || !sm87_macrofeed_v4_fp8_role(role)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   *resources = {};
-  return static_cast<int>(query_resources(role, resources));
+  return static_cast<int>(query_resources(role, input_layout, resources));
 }
 
 int capture_sm87_macrofeed_v4_fp8_t1_admission_snapshot_cuda(
     const Sm87TargetAotProjectionRole role,
+    Sm87MacroFeedV4Fp8T1AdmissionSnapshot* const snapshot) noexcept {
+  return capture_sm87_macrofeed_v4_fp8_t1_admission_snapshot_cuda(
+      role, sm87_macrofeed_v4_fp8_default_input_layout(role), snapshot);
+}
+
+int capture_sm87_macrofeed_v4_fp8_t1_admission_snapshot_cuda(
+    const Sm87TargetAotProjectionRole role,
+    const Sm87MacroFeedV4Fp8InputLayout input_layout,
     Sm87MacroFeedV4Fp8T1AdmissionSnapshot* const snapshot) noexcept {
   if (snapshot == nullptr || !sm87_macrofeed_v4_fp8_role(role)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   *snapshot = {};
   const int status = query_sm87_macrofeed_v4_fp8_cuda_resources(
-      role, &snapshot->resources);
+      role, input_layout, &snapshot->resources);
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
   }
@@ -1005,17 +1067,20 @@ int launch_sm87_macrofeed_v4_fp8_t1_admission_cuda(
     return static_cast<int>(cudaErrorInvalidValue);
   }
   *receipt = {};
-  const auto plan = sm87_macrofeed_v4_fp8_plan(arguments.role,
-                                               arguments.token_count);
+  const auto input_layout = sm87_macrofeed_v4_fp8_resolve_input_layout(
+      arguments.role, arguments.input_layout);
+  const auto plan = sm87_macrofeed_v4_fp8_plan(
+      arguments.role, arguments.token_count, input_layout);
   if (!plan.valid() || !sm87_macrofeed_v4_fp8_arguments_valid(arguments) ||
       !sm87_macrofeed_v4_fp8_t1_admission_snapshot_valid(snapshot) ||
       snapshot.resources.role != arguments.role ||
+      snapshot.resources.input_layout != input_layout ||
       snapshot.resources.identity != plan.identity) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   Sm87MacroFeedV4Fp8CudaResources observed_resources{};
   const int resource_status = query_sm87_macrofeed_v4_fp8_cuda_resources(
-      arguments.role, &observed_resources);
+      arguments.role, input_layout, &observed_resources);
   if (resource_status != static_cast<int>(cudaSuccess)) {
     return resource_status;
   }
@@ -1047,7 +1112,8 @@ int launch_sm87_macrofeed_v4_fp8_t1_admission_cuda(
       arguments.asset.payload.begin);
   if (arguments.role == Sm87TargetAotProjectionRole::kFp8GdnQkvZ) {
     sm87_macrofeed_v4_fp8_kernel<
-        Sm87TargetAotProjectionRole::kFp8GdnQkvZ, 5'120U, 80U>
+        Sm87TargetAotProjectionRole::kFp8GdnQkvZ, 5'120U, 80U,
+        Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1>
         <<<grid, block, kSm87MacroFeedV4Fp8DynamicSharedBytes, stream>>>(
             arguments.input, arguments.input_row_stride, payload, scales[0U],
             scales[1U], scales[2U], arguments.primary_output,
@@ -1058,7 +1124,20 @@ int launch_sm87_macrofeed_v4_fp8_t1_admission_cuda(
   } else if (arguments.role ==
              Sm87TargetAotProjectionRole::kFp8FullQkv) {
     sm87_macrofeed_v4_fp8_kernel<
-        Sm87TargetAotProjectionRole::kFp8FullQkv, 5'120U, 80U>
+        Sm87TargetAotProjectionRole::kFp8FullQkv, 5'120U, 80U,
+        Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1>
+        <<<grid, block, kSm87MacroFeedV4Fp8DynamicSharedBytes, stream>>>(
+            arguments.input, arguments.input_row_stride, payload, scales[0U],
+            scales[1U], scales[2U], arguments.primary_output,
+            arguments.primary_output_row_stride, arguments.key_output,
+            arguments.key_output_row_stride, arguments.value_output,
+            arguments.value_output_row_stride,
+            static_cast<unsigned int>(plan.grid_n));
+  } else if (input_layout == Sm87MacroFeedV4Fp8InputLayout::
+                                 kGdnContiguousVScratchV1) {
+    sm87_macrofeed_v4_fp8_kernel<
+        Sm87TargetAotProjectionRole::kFp8AttentionOutput, 6'144U, 96U,
+        Sm87MacroFeedV4Fp8InputLayout::kGdnContiguousVScratchV1>
         <<<grid, block, kSm87MacroFeedV4Fp8DynamicSharedBytes, stream>>>(
             arguments.input, arguments.input_row_stride, payload, scales[0U],
             scales[1U], scales[2U], arguments.primary_output,
@@ -1068,7 +1147,9 @@ int launch_sm87_macrofeed_v4_fp8_t1_admission_cuda(
             static_cast<unsigned int>(plan.grid_n));
   } else {
     sm87_macrofeed_v4_fp8_kernel<
-        Sm87TargetAotProjectionRole::kFp8AttentionOutput, 6'144U, 96U>
+        Sm87TargetAotProjectionRole::kFp8AttentionOutput, 6'144U, 96U,
+        Sm87MacroFeedV4Fp8InputLayout::
+            kFullAttentionInterleavedQScratchV1>
         <<<grid, block, kSm87MacroFeedV4Fp8DynamicSharedBytes, stream>>>(
             arguments.input, arguments.input_row_stride, payload, scales[0U],
             scales[1U], scales[2U], arguments.primary_output,
@@ -1083,6 +1164,7 @@ int launch_sm87_macrofeed_v4_fp8_t1_admission_cuda(
   }
   receipt->identity = plan.identity;
   receipt->role = arguments.role;
+  receipt->input_layout = input_layout;
   receipt->artifact_identity = arguments.asset.artifact_identity;
   receipt->device_ordinal = current_device_ordinal;
   receipt->token_count = arguments.token_count;
@@ -1115,17 +1197,28 @@ int launch_sm87_macrofeed_v4_fp8_tile_test_cuda(
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const float scale = bf16_to_float(arguments.compensated_scale_bf16_bits);
+  const auto input_layout = sm87_macrofeed_v4_fp8_resolve_input_layout(
+      arguments.role, arguments.input_layout);
   cudaError_t status = cudaSuccess;
   if (arguments.role == Sm87TargetAotProjectionRole::kFp8GdnQkvZ) {
     status = set_dynamic_shared(sm87_macrofeed_v4_fp8_tile_test_kernel<
-                                Sm87TargetAotProjectionRole::kFp8GdnQkvZ>);
+        Sm87TargetAotProjectionRole::kFp8GdnQkvZ,
+        Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1>);
   } else if (arguments.role ==
              Sm87TargetAotProjectionRole::kFp8FullQkv) {
     status = set_dynamic_shared(sm87_macrofeed_v4_fp8_tile_test_kernel<
-                                Sm87TargetAotProjectionRole::kFp8FullQkv>);
+        Sm87TargetAotProjectionRole::kFp8FullQkv,
+        Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1>);
+  } else if (input_layout == Sm87MacroFeedV4Fp8InputLayout::
+                                 kGdnContiguousVScratchV1) {
+    status = set_dynamic_shared(sm87_macrofeed_v4_fp8_tile_test_kernel<
+        Sm87TargetAotProjectionRole::kFp8AttentionOutput,
+        Sm87MacroFeedV4Fp8InputLayout::kGdnContiguousVScratchV1>);
   } else {
     status = set_dynamic_shared(sm87_macrofeed_v4_fp8_tile_test_kernel<
-        Sm87TargetAotProjectionRole::kFp8AttentionOutput>);
+        Sm87TargetAotProjectionRole::kFp8AttentionOutput,
+        Sm87MacroFeedV4Fp8InputLayout::
+            kFullAttentionInterleavedQScratchV1>);
   }
   if (status != cudaSuccess) {
     return static_cast<int>(status);
@@ -1133,7 +1226,8 @@ int launch_sm87_macrofeed_v4_fp8_tile_test_cuda(
   const auto stream = reinterpret_cast<cudaStream_t>(arguments.cuda_stream);
   if (arguments.role == Sm87TargetAotProjectionRole::kFp8GdnQkvZ) {
     sm87_macrofeed_v4_fp8_tile_test_kernel<
-        Sm87TargetAotProjectionRole::kFp8GdnQkvZ>
+        Sm87TargetAotProjectionRole::kFp8GdnQkvZ,
+        Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1>
         <<<1U, kThreads, kSm87MacroFeedV4Fp8DynamicSharedBytes, stream>>>(
             arguments.input, arguments.input_row_stride,
             arguments.canonical_payload_four_k64_cells, scale,
@@ -1148,7 +1242,24 @@ int launch_sm87_macrofeed_v4_fp8_tile_test_cuda(
   } else if (arguments.role ==
              Sm87TargetAotProjectionRole::kFp8FullQkv) {
     sm87_macrofeed_v4_fp8_tile_test_kernel<
-        Sm87TargetAotProjectionRole::kFp8FullQkv>
+        Sm87TargetAotProjectionRole::kFp8FullQkv,
+        Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1>
+        <<<1U, kThreads, kSm87MacroFeedV4Fp8DynamicSharedBytes, stream>>>(
+            arguments.input, arguments.input_row_stride,
+            arguments.canonical_payload_four_k64_cells, scale,
+            static_cast<unsigned int>(arguments.valid_rows),
+            static_cast<unsigned int>(arguments.partition_index),
+            static_cast<unsigned int>(arguments.partition_n256_tile),
+            static_cast<unsigned int>(arguments.canonical_n128_half),
+            static_cast<unsigned int>(arguments.logical_input_first_k),
+            arguments.primary_output, arguments.primary_output_row_stride,
+            arguments.key_output, arguments.key_output_row_stride,
+            arguments.value_output, arguments.value_output_row_stride);
+  } else if (input_layout == Sm87MacroFeedV4Fp8InputLayout::
+                                 kGdnContiguousVScratchV1) {
+    sm87_macrofeed_v4_fp8_tile_test_kernel<
+        Sm87TargetAotProjectionRole::kFp8AttentionOutput,
+        Sm87MacroFeedV4Fp8InputLayout::kGdnContiguousVScratchV1>
         <<<1U, kThreads, kSm87MacroFeedV4Fp8DynamicSharedBytes, stream>>>(
             arguments.input, arguments.input_row_stride,
             arguments.canonical_payload_four_k64_cells, scale,
@@ -1162,7 +1273,9 @@ int launch_sm87_macrofeed_v4_fp8_tile_test_cuda(
             arguments.value_output, arguments.value_output_row_stride);
   } else {
     sm87_macrofeed_v4_fp8_tile_test_kernel<
-        Sm87TargetAotProjectionRole::kFp8AttentionOutput>
+        Sm87TargetAotProjectionRole::kFp8AttentionOutput,
+        Sm87MacroFeedV4Fp8InputLayout::
+            kFullAttentionInterleavedQScratchV1>
         <<<1U, kThreads, kSm87MacroFeedV4Fp8DynamicSharedBytes, stream>>>(
             arguments.input, arguments.input_row_stride,
             arguments.canonical_payload_four_k64_cells, scale,

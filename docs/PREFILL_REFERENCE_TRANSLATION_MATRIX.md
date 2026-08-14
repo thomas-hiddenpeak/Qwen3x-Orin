@@ -549,19 +549,24 @@ panels outside the natural layer loop. Its current implementation boundary is
 the host workspace/state contract, an owner/epoch-bound host request
 transaction, a private startup foundation package authenticating all 256
 artifacts from 400 checkpoint sources, and independent C8000 NVFP4 Gate+Up and
-Down admissions. Three independent FP8 role admissions directly publish GDN
-QKV/Z, interleaved Full Q/G plus private NHD K/V, and Attention O by gathering
-the interleaved Q slots. A separate in-place preprocess admission applies the
+Down admissions. Four independent FP8 layout admissions directly publish GDN
+QKV/Z, interleaved Full Q/G plus private NHD K/V, Attention O by gathering the
+interleaved Q slots, and GDN O from the fixed contiguous scratch slice
+`[4096,10240)`. A separate in-place preprocess admission applies the
 established exact Q/K norm and partial-D64 NeoX order directly to those Q slots
 and the current private-NHD K slice while preserving Gate, V, the row gap, and
 all out-of-panel K rows. An independent two-kernel exact-GDN admission
 additionally preserves the per-token BF16 recurrence boundary in C1/C65
-oracles while keeping active/candidate state separate. The package's typed bindings and
+oracles while keeping active/candidate state separate. A fixed unsplit
+Q128/KV32 two-stage online-Attention admission consumes the complete private
+NHD allocation origins, stages each complete Q128 tile before in-place Q
+publication, and is bitwise equal to the established compact Q128-v4 body in a
+nonzero C65 comparison. The package's typed bindings and
 V4-local resource seals are startup ownership facts only; they expose no
-launcher. The missing contiguous GDN-O and BF16 A/B feeds, device event
+launcher. The missing BF16 A/B feed, device event
 composition, private binding and full-K qualification of FP8, private binding
-and full-C8000 qualification of exact GDN, fixed C8000 online-Attention body,
-whole-model receipt, rollback, finalizer, and API launcher must compose before
+and full-C8000 qualification of exact GDN and Attention, whole-model receipt,
+rollback, finalizer, and API launcher must compose before
 V4 is runnable or eligible for a P40 witness.
 
 The fixed Attention handoff now retains the FP8 projection's native

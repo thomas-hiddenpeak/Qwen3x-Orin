@@ -20,6 +20,19 @@ enum class Sm87MacroFeedV4Fp8Identity : std::uint64_t {
   kFullQkvM64N128K64OrdinaryGridV1 = 0x5133'4d46'5634'4602ULL,
   kAttentionOutputM64N128K64OrdinaryGridV1 =
       0x5133'4d46'5634'4603ULL,
+  kGdnAttentionOutputM64N128K64OrdinaryGridV1 =
+      0x5133'4d46'5634'4604ULL,
+};
+
+// Input placement is part of the kernel identity. The two Attention-O
+// tactics authenticate the same checkpoint payload, but may not be
+// substituted: Full Attention gathers interleaved Q, while GDN consumes the
+// fixed contiguous V slice in phase scratch.
+enum class Sm87MacroFeedV4Fp8InputLayout : std::uint64_t {
+  kInvalid = 0U,
+  kHiddenContiguousH5120V1 = 0x5133'4d46'5634'4c01ULL,
+  kFullAttentionInterleavedQScratchV1 = 0x5133'4d46'5634'4c02ULL,
+  kGdnContiguousVScratchV1 = 0x5133'4d46'5634'4c03ULL,
 };
 
 inline constexpr std::size_t kSm87MacroFeedV4Fp8Tokens = 8'000U;
@@ -56,6 +69,8 @@ inline constexpr std::size_t kSm87MacroFeedV4Fp8FullGateFeatures = 6'144U;
 inline constexpr std::size_t kSm87MacroFeedV4Fp8FullQGateFeatures = 12'288U;
 inline constexpr std::size_t kSm87MacroFeedV4Fp8AttentionOutputInputFeatures =
     6'144U;
+inline constexpr std::size_t
+    kSm87MacroFeedV4Fp8GdnAttentionOutputPhysicalOffset = 4'096U;
 inline constexpr std::size_t kSm87MacroFeedV4Fp8AttentionHeads = 24U;
 inline constexpr std::size_t kSm87MacroFeedV4Fp8AttentionHeadFeatures = 256U;
 inline constexpr std::size_t kSm87MacroFeedV4Fp8QGateHeadStride = 512U;
@@ -65,6 +80,10 @@ inline constexpr std::size_t kSm87MacroFeedV4Fp8TestKTiles = 4U;
 inline constexpr std::size_t kSm87MacroFeedV4Fp8TestPayloadBytes = 65'536U;
 inline constexpr std::size_t
     kSm87MacroFeedV4Fp8TestAttentionOutputLogicalFirstK = 192U;
+inline constexpr std::size_t
+    kSm87MacroFeedV4Fp8TestGdnAttentionOutputLogicalFirstK = 0U;
+inline constexpr std::size_t
+    kSm87MacroFeedV4Fp8TestGdnAttentionOutputLogicalTailFirstK = 5'888U;
 
 // Scratch preserves the model-native [24 heads, Q/G, 256 features] row.
 // Attention overwrites Q in place and leaves Gate intact.  O consumes the Q
@@ -95,22 +114,72 @@ sm87_macrofeed_v4_fp8_interleaved_q_gate_physical_offset(
          role == Sm87TargetAotProjectionRole::kFp8AttentionOutput;
 }
 
+[[nodiscard]] constexpr Sm87MacroFeedV4Fp8InputLayout
+sm87_macrofeed_v4_fp8_default_input_layout(
+    const Sm87TargetAotProjectionRole role) noexcept {
+  if (role == Sm87TargetAotProjectionRole::kFp8GdnQkvZ ||
+      role == Sm87TargetAotProjectionRole::kFp8FullQkv) {
+    return Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1;
+  }
+  if (role == Sm87TargetAotProjectionRole::kFp8AttentionOutput) {
+    return Sm87MacroFeedV4Fp8InputLayout::
+        kFullAttentionInterleavedQScratchV1;
+  }
+  return Sm87MacroFeedV4Fp8InputLayout::kInvalid;
+}
+
+[[nodiscard]] constexpr Sm87MacroFeedV4Fp8InputLayout
+sm87_macrofeed_v4_fp8_resolve_input_layout(
+    const Sm87TargetAotProjectionRole role,
+    const Sm87MacroFeedV4Fp8InputLayout requested) noexcept {
+  return requested == Sm87MacroFeedV4Fp8InputLayout::kInvalid
+             ? sm87_macrofeed_v4_fp8_default_input_layout(role)
+             : requested;
+}
+
+[[nodiscard]] constexpr bool sm87_macrofeed_v4_fp8_input_layout(
+    const Sm87TargetAotProjectionRole role,
+    const Sm87MacroFeedV4Fp8InputLayout layout) noexcept {
+  if (role == Sm87TargetAotProjectionRole::kFp8GdnQkvZ ||
+      role == Sm87TargetAotProjectionRole::kFp8FullQkv) {
+    return layout ==
+           Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1;
+  }
+  return role == Sm87TargetAotProjectionRole::kFp8AttentionOutput &&
+         (layout == Sm87MacroFeedV4Fp8InputLayout::
+                        kFullAttentionInterleavedQScratchV1 ||
+          layout == Sm87MacroFeedV4Fp8InputLayout::
+                        kGdnContiguousVScratchV1);
+}
+
+[[nodiscard]] constexpr Sm87MacroFeedV4Fp8Identity
+sm87_macrofeed_v4_fp8_identity(
+    const Sm87TargetAotProjectionRole role,
+    const Sm87MacroFeedV4Fp8InputLayout input_layout) noexcept {
+  if (!sm87_macrofeed_v4_fp8_input_layout(role, input_layout)) {
+    return Sm87MacroFeedV4Fp8Identity::kInvalid;
+  }
+  if (role == Sm87TargetAotProjectionRole::kFp8GdnQkvZ) {
+    return Sm87MacroFeedV4Fp8Identity::
+        kGdnQkvZM64N128K64OrdinaryGridV1;
+  }
+  if (role == Sm87TargetAotProjectionRole::kFp8FullQkv) {
+    return Sm87MacroFeedV4Fp8Identity::
+        kFullQkvM64N128K64OrdinaryGridV1;
+  }
+  return input_layout == Sm87MacroFeedV4Fp8InputLayout::
+                             kGdnContiguousVScratchV1
+             ? Sm87MacroFeedV4Fp8Identity::
+                   kGdnAttentionOutputM64N128K64OrdinaryGridV1
+             : Sm87MacroFeedV4Fp8Identity::
+                   kAttentionOutputM64N128K64OrdinaryGridV1;
+}
+
 [[nodiscard]] constexpr Sm87MacroFeedV4Fp8Identity
 sm87_macrofeed_v4_fp8_identity(
     const Sm87TargetAotProjectionRole role) noexcept {
-  switch (role) {
-    case Sm87TargetAotProjectionRole::kFp8GdnQkvZ:
-      return Sm87MacroFeedV4Fp8Identity::
-          kGdnQkvZM64N128K64OrdinaryGridV1;
-    case Sm87TargetAotProjectionRole::kFp8FullQkv:
-      return Sm87MacroFeedV4Fp8Identity::
-          kFullQkvM64N128K64OrdinaryGridV1;
-    case Sm87TargetAotProjectionRole::kFp8AttentionOutput:
-      return Sm87MacroFeedV4Fp8Identity::
-          kAttentionOutputM64N128K64OrdinaryGridV1;
-    default:
-      return Sm87MacroFeedV4Fp8Identity::kInvalid;
-  }
+  return sm87_macrofeed_v4_fp8_identity(
+      role, sm87_macrofeed_v4_fp8_default_input_layout(role));
 }
 
 [[nodiscard]] constexpr std::uint16_t
@@ -125,8 +194,11 @@ struct Sm87MacroFeedV4Fp8Plan final {
   Sm87MacroFeedV4Fp8Identity identity = Sm87MacroFeedV4Fp8Identity::kInvalid;
   Sm87TargetAotProjectionRole role =
       Sm87TargetAotProjectionRole::kInvalid;
+  Sm87MacroFeedV4Fp8InputLayout input_layout =
+      Sm87MacroFeedV4Fp8InputLayout::kInvalid;
   std::size_t token_count = 0U;
   std::size_t input_features = 0U;
+  std::size_t input_physical_offset = 0U;
   std::size_t input_physical_span = 0U;
   std::size_t input_row_stride = 0U;
   std::size_t projected_output_features = 0U;
@@ -153,6 +225,7 @@ struct Sm87MacroFeedV4Fp8Plan final {
   bool input_base_offset_permitted = false;
   bool full_q_gate_head_interleaved = false;
   bool attention_output_gathers_interleaved_q = false;
+  bool attention_output_reads_gdn_contiguous_v = false;
   bool attention_gate_and_gap_preserved = false;
   bool exact_fp8_marlin_semantics = false;
   bool authenticated_asset_zero_copy = false;
@@ -166,15 +239,18 @@ struct Sm87MacroFeedV4Fp8Plan final {
 };
 
 [[nodiscard]] constexpr Sm87MacroFeedV4Fp8Plan
-sm87_macrofeed_v4_fp8_plan(const Sm87TargetAotProjectionRole role,
-                           const std::size_t token_count) noexcept {
+sm87_macrofeed_v4_fp8_plan(
+    const Sm87TargetAotProjectionRole role, const std::size_t token_count,
+    const Sm87MacroFeedV4Fp8InputLayout input_layout) noexcept {
   if (!sm87_macrofeed_v4_fp8_role(role) ||
+      !sm87_macrofeed_v4_fp8_input_layout(role, input_layout) ||
       token_count != kSm87MacroFeedV4Fp8Tokens) {
     return {};
   }
   Sm87MacroFeedV4Fp8Plan plan;
-  plan.identity = sm87_macrofeed_v4_fp8_identity(role);
+  plan.identity = sm87_macrofeed_v4_fp8_identity(role, input_layout);
   plan.role = role;
+  plan.input_layout = input_layout;
   plan.token_count = token_count;
   plan.grid_m = kSm87MacroFeedV4Fp8GridM;
   plan.dynamic_shared_bytes = kSm87MacroFeedV4Fp8DynamicSharedBytes;
@@ -222,7 +298,18 @@ sm87_macrofeed_v4_fp8_plan(const Sm87TargetAotProjectionRole role,
     plan.full_q_gate_head_interleaved = true;
   } else {
     plan.input_features = 6'144U;
-    plan.input_physical_span = kSm87MacroFeedV4Fp8FullQGateFeatures;
+    if (input_layout == Sm87MacroFeedV4Fp8InputLayout::
+                            kGdnContiguousVScratchV1) {
+      plan.input_physical_offset =
+          kSm87MacroFeedV4Fp8GdnAttentionOutputPhysicalOffset;
+      plan.input_physical_span =
+          kSm87MacroFeedV4Fp8AttentionOutputInputFeatures;
+      plan.attention_output_reads_gdn_contiguous_v = true;
+    } else {
+      plan.input_physical_span = kSm87MacroFeedV4Fp8FullQGateFeatures;
+      plan.attention_output_gathers_interleaved_q = true;
+      plan.attention_gate_and_gap_preserved = true;
+    }
     plan.input_row_stride = kSm87MacroFeedV4Fp8ScratchRowStride;
     plan.projected_output_features = 5'120U;
     plan.primary_output_features = 5'120U;
@@ -233,8 +320,6 @@ sm87_macrofeed_v4_fp8_plan(const Sm87TargetAotProjectionRole role,
     plan.partition_payload_offsets = {0U, 0U, 0U};
     plan.grid_n = 40U;
     plan.k_tiles = 96U;
-    plan.attention_output_gathers_interleaved_q = true;
-    plan.attention_gate_and_gap_preserved = true;
   }
   plan.logical_tasks = plan.grid_m * plan.grid_n;
   const auto layout = sm87_target_aot_projection_packed_layout(role);
@@ -242,11 +327,23 @@ sm87_macrofeed_v4_fp8_plan(const Sm87TargetAotProjectionRole role,
   return plan;
 }
 
+// Source-compatible default: the historical Attention-O overload remains the
+// Full-Attention interleaved-Q tactic. GDN must opt in with the explicit
+// three-argument overload; no caller-provided base offset exists.
+[[nodiscard]] constexpr Sm87MacroFeedV4Fp8Plan
+sm87_macrofeed_v4_fp8_plan(const Sm87TargetAotProjectionRole role,
+                           const std::size_t token_count) noexcept {
+  return sm87_macrofeed_v4_fp8_plan(
+      role, token_count, sm87_macrofeed_v4_fp8_default_input_layout(role));
+}
+
 constexpr bool Sm87MacroFeedV4Fp8Plan::valid() const noexcept {
-  if (identity != sm87_macrofeed_v4_fp8_identity(role) ||
+  if (identity != sm87_macrofeed_v4_fp8_identity(role, input_layout) ||
+      !sm87_macrofeed_v4_fp8_input_layout(role, input_layout) ||
       token_count != kSm87MacroFeedV4Fp8Tokens ||
       grid_m != kSm87MacroFeedV4Fp8GridM ||
-      input_physical_span == 0U || input_row_stride < input_physical_span ||
+      input_physical_span == 0U ||
+      input_row_stride < input_physical_offset + input_physical_span ||
       input_features != k_tiles * kSm87MacroFeedV4Fp8BlockK ||
       projected_output_features != grid_n * kSm87MacroFeedV4Fp8BlockN ||
       logical_tasks != grid_m * grid_n ||
@@ -274,7 +371,8 @@ constexpr bool Sm87MacroFeedV4Fp8Plan::valid() const noexcept {
     }
   }
   if (role == Sm87TargetAotProjectionRole::kFp8GdnQkvZ) {
-    return input_physical_span == kSm87MacroFeedV4Fp8HiddenRowStride &&
+    return input_physical_offset == 0U &&
+           input_physical_span == kSm87MacroFeedV4Fp8HiddenRowStride &&
            input_row_stride == kSm87MacroFeedV4Fp8HiddenRowStride &&
            primary_output_features == 16'384U &&
            primary_output_row_stride ==
@@ -283,10 +381,12 @@ constexpr bool Sm87MacroFeedV4Fp8Plan::valid() const noexcept {
            !private_nhd_kv && !input_base_offset_permitted &&
            !full_q_gate_head_interleaved &&
            !attention_output_gathers_interleaved_q &&
+           !attention_output_reads_gdn_contiguous_v &&
            !attention_gate_and_gap_preserved;
   }
   if (role == Sm87TargetAotProjectionRole::kFp8FullQkv) {
-    return input_physical_span == kSm87MacroFeedV4Fp8HiddenRowStride &&
+    return input_physical_offset == 0U &&
+           input_physical_span == kSm87MacroFeedV4Fp8HiddenRowStride &&
            input_row_stride == kSm87MacroFeedV4Fp8HiddenRowStride &&
            primary_output_features == kSm87MacroFeedV4Fp8FullQGateFeatures &&
            primary_output_row_stride ==
@@ -298,17 +398,33 @@ constexpr bool Sm87MacroFeedV4Fp8Plan::valid() const noexcept {
            private_nhd_kv && !input_base_offset_permitted &&
            full_q_gate_head_interleaved &&
            !attention_output_gathers_interleaved_q &&
+           !attention_output_reads_gdn_contiguous_v &&
            !attention_gate_and_gap_preserved;
   }
-  return input_physical_span == kSm87MacroFeedV4Fp8FullQGateFeatures &&
-         input_row_stride == kSm87MacroFeedV4Fp8ScratchRowStride &&
-         primary_output_features == kSm87MacroFeedV4Fp8HiddenRowStride &&
-         primary_output_row_stride ==
-             kSm87MacroFeedV4Fp8HiddenRowStride &&
-         key_output_features == 0U && value_output_features == 0U &&
-         !private_nhd_kv && !input_base_offset_permitted &&
-         !full_q_gate_head_interleaved &&
+  const bool common_output =
+      input_row_stride == kSm87MacroFeedV4Fp8ScratchRowStride &&
+      primary_output_features == kSm87MacroFeedV4Fp8HiddenRowStride &&
+      primary_output_row_stride == kSm87MacroFeedV4Fp8HiddenRowStride &&
+      key_output_features == 0U && value_output_features == 0U &&
+      !private_nhd_kv && !input_base_offset_permitted &&
+      !full_q_gate_head_interleaved;
+  if (!common_output) {
+    return false;
+  }
+  if (input_layout == Sm87MacroFeedV4Fp8InputLayout::
+                          kGdnContiguousVScratchV1) {
+    return input_physical_offset ==
+               kSm87MacroFeedV4Fp8GdnAttentionOutputPhysicalOffset &&
+           input_physical_span ==
+               kSm87MacroFeedV4Fp8AttentionOutputInputFeatures &&
+           !attention_output_gathers_interleaved_q &&
+           attention_output_reads_gdn_contiguous_v &&
+           !attention_gate_and_gap_preserved;
+  }
+  return input_physical_offset == 0U &&
+         input_physical_span == kSm87MacroFeedV4Fp8FullQGateFeatures &&
          attention_output_gathers_interleaved_q &&
+         !attention_output_reads_gdn_contiguous_v &&
          attention_gate_and_gap_preserved;
 }
 
@@ -324,6 +440,9 @@ struct Sm87MacroFeedV4Fp8LayoutBinding final {
   std::size_t key_output_row_stride = 0U;
   std::uint16_t* value_output = nullptr;
   std::size_t value_output_row_stride = 0U;
+  // kInvalid retains the historical role-native layout for old callers.
+  Sm87MacroFeedV4Fp8InputLayout input_layout =
+      Sm87MacroFeedV4Fp8InputLayout::kInvalid;
 };
 
 struct Sm87MacroFeedV4Fp8ByteRange final {
@@ -358,6 +477,38 @@ sm87_macrofeed_v4_fp8_strided_range(
   return {begin, begin + elements * sizeof(std::uint16_t), true};
 }
 
+[[nodiscard]] constexpr Sm87MacroFeedV4Fp8ByteRange
+sm87_macrofeed_v4_fp8_strided_subrange(
+    const void* const pointer, const std::size_t rows,
+    const std::size_t row_stride, const std::size_t row_offset,
+    const std::size_t row_width) noexcept {
+  if (pointer == nullptr || rows == 0U || row_width == 0U ||
+      row_stride < row_offset || row_stride - row_offset < row_width ||
+      row_stride > std::numeric_limits<std::uintptr_t>::max() /
+                       sizeof(std::uint16_t)) {
+    return {};
+  }
+  const std::uintptr_t base = reinterpret_cast<std::uintptr_t>(pointer);
+  const std::size_t last_row = rows - 1U;
+  const std::uintptr_t maximum_elements =
+      std::numeric_limits<std::uintptr_t>::max() / sizeof(std::uint16_t);
+  if (last_row != 0U &&
+      row_stride >
+          (maximum_elements - row_offset - row_width) / last_row) {
+    return {};
+  }
+  const std::uintptr_t first_bytes =
+      static_cast<std::uintptr_t>(row_offset) * sizeof(std::uint16_t);
+  const std::uintptr_t end_elements =
+      last_row * row_stride + row_offset + row_width;
+  const std::uintptr_t end_bytes =
+      end_elements * sizeof(std::uint16_t);
+  if (base > std::numeric_limits<std::uintptr_t>::max() - end_bytes) {
+    return {};
+  }
+  return {base + first_bytes, base + end_bytes, true};
+}
+
 [[nodiscard]] constexpr bool sm87_macrofeed_v4_fp8_ranges_overlap(
     const Sm87MacroFeedV4Fp8ByteRange& left,
     const Sm87MacroFeedV4Fp8ByteRange& right) noexcept {
@@ -367,8 +518,10 @@ sm87_macrofeed_v4_fp8_strided_range(
 
 [[nodiscard]] constexpr bool sm87_macrofeed_v4_fp8_layout_valid(
     const Sm87MacroFeedV4Fp8LayoutBinding& binding) noexcept {
-  const auto plan = sm87_macrofeed_v4_fp8_plan(binding.role,
-                                               binding.token_count);
+  const auto input_layout = sm87_macrofeed_v4_fp8_resolve_input_layout(
+      binding.role, binding.input_layout);
+  const auto plan = sm87_macrofeed_v4_fp8_plan(
+      binding.role, binding.token_count, input_layout);
   if (!plan.valid() || binding.input == nullptr ||
       binding.primary_output == nullptr ||
       binding.input_row_stride != plan.input_row_stride ||
@@ -397,9 +550,9 @@ sm87_macrofeed_v4_fp8_strided_range(
 
   std::array<Sm87MacroFeedV4Fp8ByteRange, 4U> ranges{};
   std::size_t count = 0U;
-  ranges[count++] = sm87_macrofeed_v4_fp8_strided_range(
+  ranges[count++] = sm87_macrofeed_v4_fp8_strided_subrange(
       binding.input, binding.token_count, binding.input_row_stride,
-      plan.input_physical_span);
+      plan.input_physical_offset, plan.input_physical_span);
   ranges[count++] = sm87_macrofeed_v4_fp8_strided_range(
       binding.primary_output, binding.token_count,
       binding.primary_output_row_stride, plan.primary_output_features);
@@ -429,6 +582,8 @@ struct Sm87MacroFeedV4Fp8CudaResources final {
   Sm87MacroFeedV4Fp8Identity identity = Sm87MacroFeedV4Fp8Identity::kInvalid;
   Sm87TargetAotProjectionRole role =
       Sm87TargetAotProjectionRole::kInvalid;
+  Sm87MacroFeedV4Fp8InputLayout input_layout =
+      Sm87MacroFeedV4Fp8InputLayout::kInvalid;
   std::int32_t device_ordinal = -1;
   std::int32_t compute_major = 0;
   std::int32_t compute_minor = 0;
@@ -450,7 +605,9 @@ struct Sm87MacroFeedV4Fp8CudaResources final {
 
 [[nodiscard]] constexpr bool sm87_macrofeed_v4_fp8_resource_gate(
     const Sm87MacroFeedV4Fp8CudaResources& resources) noexcept {
-  return resources.identity == sm87_macrofeed_v4_fp8_identity(resources.role) &&
+  return resources.identity == sm87_macrofeed_v4_fp8_identity(
+                                   resources.role,
+                                   resources.input_layout) &&
          resources.device_ordinal >= 0 && resources.compute_major == 8 &&
          resources.compute_minor == 7 &&
          resources.sm_count ==
@@ -514,6 +671,8 @@ sm87_macrofeed_v4_fp8_compute_t1_admission_snapshot_identity(
   hash = sm87_macrofeed_v4_fp8_hash_u64(
       hash, static_cast<std::uint64_t>(snapshot.resources.role));
   hash = sm87_macrofeed_v4_fp8_hash_u64(
+      hash, static_cast<std::uint64_t>(snapshot.resources.input_layout));
+  hash = sm87_macrofeed_v4_fp8_hash_u64(
       hash, static_cast<std::uint32_t>(snapshot.resources.device_ordinal));
   hash = sm87_macrofeed_v4_fp8_hash_u64(
       hash,
@@ -573,12 +732,17 @@ struct Sm87MacroFeedV4Fp8Arguments final {
   std::uint16_t* value_output = nullptr;
   std::size_t value_output_row_stride = 0U;
   void* cuda_stream = nullptr;
+  // kInvalid retains the historical role-native layout for old callers.
+  Sm87MacroFeedV4Fp8InputLayout input_layout =
+      Sm87MacroFeedV4Fp8InputLayout::kInvalid;
 };
 
 struct Sm87MacroFeedV4Fp8T1AdmissionLaunchReceipt final {
   Sm87MacroFeedV4Fp8Identity identity = Sm87MacroFeedV4Fp8Identity::kInvalid;
   Sm87TargetAotProjectionRole role =
       Sm87TargetAotProjectionRole::kInvalid;
+  Sm87MacroFeedV4Fp8InputLayout input_layout =
+      Sm87MacroFeedV4Fp8InputLayout::kInvalid;
   std::uint64_t artifact_identity = 0U;
   std::int32_t device_ordinal = -1;
   std::size_t token_count = 0U;
@@ -605,7 +769,8 @@ struct Sm87MacroFeedV4Fp8T1AdmissionLaunchReceipt final {
 
   [[nodiscard]] constexpr bool valid_t1_admission_enqueue_receipt()
       const noexcept {
-    const auto plan = sm87_macrofeed_v4_fp8_plan(role, token_count);
+    const auto plan = sm87_macrofeed_v4_fp8_plan(role, token_count,
+                                                 input_layout);
     return plan.valid() && identity == plan.identity &&
            artifact_identity != 0U && device_ordinal >= 0 &&
            logical_tasks == plan.logical_tasks &&
@@ -643,6 +808,9 @@ struct Sm87MacroFeedV4Fp8TileTestArguments final {
   std::uint16_t* value_output = nullptr;
   std::size_t value_output_row_stride = 0U;
   void* cuda_stream = nullptr;
+  // kInvalid retains the historical role-native layout for old callers.
+  Sm87MacroFeedV4Fp8InputLayout input_layout =
+      Sm87MacroFeedV4Fp8InputLayout::kInvalid;
 };
 
 [[nodiscard]] bool sm87_macrofeed_v4_fp8_arguments_valid(
@@ -652,8 +820,18 @@ struct Sm87MacroFeedV4Fp8TileTestArguments final {
     Sm87TargetAotProjectionRole role,
     Sm87MacroFeedV4Fp8CudaResources* resources) noexcept;
 
+[[nodiscard]] int query_sm87_macrofeed_v4_fp8_cuda_resources(
+    Sm87TargetAotProjectionRole role,
+    Sm87MacroFeedV4Fp8InputLayout input_layout,
+    Sm87MacroFeedV4Fp8CudaResources* resources) noexcept;
+
 [[nodiscard]] int capture_sm87_macrofeed_v4_fp8_t1_admission_snapshot_cuda(
     Sm87TargetAotProjectionRole role,
+    Sm87MacroFeedV4Fp8T1AdmissionSnapshot* snapshot) noexcept;
+
+[[nodiscard]] int capture_sm87_macrofeed_v4_fp8_t1_admission_snapshot_cuda(
+    Sm87TargetAotProjectionRole role,
+    Sm87MacroFeedV4Fp8InputLayout input_layout,
     Sm87MacroFeedV4Fp8T1AdmissionSnapshot* snapshot) noexcept;
 
 // Explicit default-off T1 admission launch.  Its public snapshot is caller
@@ -670,8 +848,9 @@ struct Sm87MacroFeedV4Fp8TileTestArguments final {
 // pipeline slots and the ring turnover. valid_rows admits M64 or a predicated
 // tail in [1,63]; canonical_n128_half selects either half of each unchanged
 // N256 payload cell. partition_n256_tile controls only the logical publication
-// site.  O fixes logical_input_first_k=192 so four K64 cells cross a Q/G head
-// boundary and prove the interleaved Q gather.  This helper has no real-model
+// site. Full-Attention O fixes logical_input_first_k=192 so four K64 cells
+// cross a Q/G head boundary; GDN O admits the first and last K256 windows,
+// reading scratch [4096,4352) or [9984,10240). This helper has no real-model
 // or performance authority.
 [[nodiscard]] int launch_sm87_macrofeed_v4_fp8_tile_test_cuda(
     const Sm87MacroFeedV4Fp8TileTestArguments& arguments) noexcept;
@@ -679,6 +858,15 @@ struct Sm87MacroFeedV4Fp8TileTestArguments final {
 static_assert(kSm87MacroFeedV4Fp8GridM * kSm87MacroFeedV4Fp8BlockM ==
               kSm87MacroFeedV4Fp8Tokens);
 static_assert(kSm87MacroFeedV4Fp8DynamicSharedBytes == 49'152U);
+static_assert(
+    kSm87MacroFeedV4Fp8TestGdnAttentionOutputLogicalTailFirstK +
+            kSm87MacroFeedV4Fp8TestInputFeatures ==
+        kSm87MacroFeedV4Fp8AttentionOutputInputFeatures);
+static_assert(
+    kSm87MacroFeedV4Fp8GdnAttentionOutputPhysicalOffset +
+            kSm87MacroFeedV4Fp8TestGdnAttentionOutputLogicalTailFirstK +
+            kSm87MacroFeedV4Fp8TestInputFeatures ==
+        kSm87MacroFeedV4Fp8GdnQkvFeatures);
 static_assert(kSm87MacroFeedV4Fp8AttentionHeads *
                       kSm87MacroFeedV4Fp8AttentionHeadFeatures ==
                   kSm87MacroFeedV4Fp8FullQFeatures &&
@@ -701,6 +889,10 @@ static_assert(sm87_macrofeed_v4_fp8_plan(
                   .valid());
 static_assert(sm87_macrofeed_v4_fp8_plan(
                   Sm87TargetAotProjectionRole::kFp8AttentionOutput, 8'000U)
+                  .valid());
+static_assert(sm87_macrofeed_v4_fp8_plan(
+                  Sm87TargetAotProjectionRole::kFp8AttentionOutput, 8'000U,
+                  Sm87MacroFeedV4Fp8InputLayout::kGdnContiguousVScratchV1)
                   .valid());
 static_assert(!sm87_macrofeed_v4_fp8_plan(
                    Sm87TargetAotProjectionRole::kFp8FullQkv, 7'999U)

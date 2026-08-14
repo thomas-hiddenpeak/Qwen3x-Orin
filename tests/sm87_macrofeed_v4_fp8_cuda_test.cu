@@ -15,6 +15,7 @@ namespace {
 
 namespace kernels = q3x::kernels;
 using Role = kernels::Sm87TargetAotProjectionRole;
+using InputLayout = kernels::Sm87MacroFeedV4Fp8InputLayout;
 
 constexpr std::size_t kRows = kernels::kSm87MacroFeedV4Fp8BlockM;
 constexpr std::size_t kColumns = kernels::kSm87MacroFeedV4Fp8BlockN;
@@ -354,7 +355,8 @@ struct LiveFp8AssetFixture final {
 }
 
 [[nodiscard]] __device__ __forceinline__ float reference_dot(
-    const Role role, const std::uint16_t* const input,
+    const Role role, const InputLayout input_layout,
+    const std::uint16_t* const input,
     const std::size_t input_row_stride, const std::uint8_t* const payload,
     const unsigned int row, const unsigned int column,
     const unsigned int n128_half,
@@ -368,10 +370,15 @@ struct LiveFp8AssetFixture final {
         (static_cast<std::uint16_t>(code & 0x80U) << 8U) |
         (static_cast<std::uint16_t>(code & 0x7fU) << 4U));
     const unsigned int logical_k = logical_input_first_k + k;
-    const unsigned int physical_k =
-        role == Role::kFp8AttentionOutput
-            ? (logical_k / 256U) * 512U + logical_k % 256U
-            : logical_k;
+    unsigned int physical_k = logical_k;
+    if (input_layout == InputLayout::kFullAttentionInterleavedQScratchV1) {
+      physical_k = (logical_k / 256U) * 512U + logical_k % 256U;
+    } else if (input_layout == InputLayout::kGdnContiguousVScratchV1) {
+      physical_k = static_cast<unsigned int>(
+                       kernels::
+                           kSm87MacroFeedV4Fp8GdnAttentionOutputPhysicalOffset) +
+                   logical_k;
+    }
     accumulator = fmaf(
         decode_bf16(input[static_cast<std::size_t>(row) * input_row_stride +
                           physical_k]),
@@ -381,7 +388,8 @@ struct LiveFp8AssetFixture final {
 }
 
 __global__ void fp8_reference_kernel(
-    const Role role, const unsigned int partition,
+    const Role role, const InputLayout input_layout,
+    const unsigned int partition,
     const unsigned int partition_n256_tile,
     const std::uint16_t* const input, const std::size_t input_row_stride,
     const std::uint8_t* const payload,
@@ -404,8 +412,8 @@ __global__ void fp8_reference_kernel(
     return;
   }
   const float accumulator =
-      reference_dot(role, input, input_row_stride, payload, row, column,
-                    n128_half, logical_input_first_k);
+      reference_dot(role, input_layout, input, input_row_stride, payload, row,
+                    column, n128_half, logical_input_first_k);
   // MMA starts from +0 and produces +0 for an exactly zero accumulated dot
   // under round-to-nearest. Scalar fmaf can retain a negative underflow zero
   // from the final isolated product, so model the pinned MMA zero sign here.
@@ -447,12 +455,13 @@ __global__ void fp8_reference_kernel(
 }
 
 void build_input(std::vector<std::uint16_t>& input, const Role role,
+                 const InputLayout input_layout,
                  const std::size_t row_stride,
                  const std::size_t logical_input_first_k) {
   std::fill(input.begin(), input.end(),
             role == Role::kFp8AttentionOutput ? kScratchGapSentinelBits : 0U);
   for (std::size_t row = 0U; row < kRows; ++row) {
-    if (role == Role::kFp8AttentionOutput) {
+    if (input_layout == InputLayout::kFullAttentionInterleavedQScratchV1) {
       for (std::size_t head = 0U;
            head < kernels::kSm87MacroFeedV4Fp8AttentionHeads; ++head) {
         const std::size_t head_base =
@@ -467,20 +476,31 @@ void build_input(std::vector<std::uint16_t>& input, const Role role,
             kernels::kSm87MacroFeedV4Fp8AttentionHeadFeatures,
             kGateSentinelBits);
       }
+    } else if (input_layout == InputLayout::kGdnContiguousVScratchV1) {
+      const std::size_t v_begin =
+          row * row_stride +
+          kernels::kSm87MacroFeedV4Fp8GdnAttentionOutputPhysicalOffset;
+      std::fill_n(
+          input.begin() + static_cast<std::ptrdiff_t>(v_begin),
+          kernels::kSm87MacroFeedV4Fp8AttentionOutputInputFeatures, 0U);
     }
     // One nonzero BF16 operand makes the independent scalar oracle immune to
     // a different zero-sign or reassociation choice while rows collectively
     // cover every K64 pipeline stage and all K16 fragments.
     const std::size_t k = (row * 37U + 11U) % kInputFeatures;
     const std::size_t logical_k = logical_input_first_k + k;
-    const std::size_t physical_k =
-        role == Role::kFp8AttentionOutput
-            ? (logical_k /
-               kernels::kSm87MacroFeedV4Fp8AttentionHeadFeatures) *
-                      kernels::kSm87MacroFeedV4Fp8QGateHeadStride +
-                  logical_k %
-                      kernels::kSm87MacroFeedV4Fp8AttentionHeadFeatures
-            : logical_k;
+    std::size_t physical_k = logical_k;
+    if (input_layout == InputLayout::kFullAttentionInterleavedQScratchV1) {
+      physical_k =
+          (logical_k /
+           kernels::kSm87MacroFeedV4Fp8AttentionHeadFeatures) *
+              kernels::kSm87MacroFeedV4Fp8QGateHeadStride +
+          logical_k % kernels::kSm87MacroFeedV4Fp8AttentionHeadFeatures;
+    } else if (input_layout == InputLayout::kGdnContiguousVScratchV1) {
+      physical_k =
+          kernels::kSm87MacroFeedV4Fp8GdnAttentionOutputPhysicalOffset +
+          logical_k;
+    }
     const float sign = (row & 1U) == 0U ? 1.0F : -1.0F;
     input[row * row_stride + physical_k] = encode_bf16_rne(sign);
   }
@@ -509,6 +529,30 @@ void build_input(std::vector<std::uint16_t>& input, const Role role,
     for (std::size_t physical =
              kernels::kSm87MacroFeedV4Fp8FullQGateFeatures;
          physical < row_stride; ++physical) {
+      const std::size_t index = row_base + physical;
+      if (before[index] != kScratchGapSentinelBits ||
+          after[index] != before[index]) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool gdn_non_v_scratch_unchanged(
+    const std::vector<std::uint16_t>& before,
+    const std::vector<std::uint16_t>& after,
+    const std::size_t row_stride) {
+  const std::size_t v_begin =
+      kernels::kSm87MacroFeedV4Fp8GdnAttentionOutputPhysicalOffset;
+  const std::size_t v_end =
+      v_begin + kernels::kSm87MacroFeedV4Fp8AttentionOutputInputFeatures;
+  for (std::size_t row = 0U; row < kRows; ++row) {
+    const std::size_t row_base = row * row_stride;
+    for (std::size_t physical = 0U; physical < row_stride; ++physical) {
+      if (physical >= v_begin && physical < v_end) {
+        continue;
+      }
       const std::size_t index = row_base + physical;
       if (before[index] != kScratchGapSentinelBits ||
           after[index] != before[index]) {
@@ -626,13 +670,16 @@ struct DeviceOutputs final {
 }
 
 [[nodiscard]] bool run_oracle_case(const Role role,
+                                   const InputLayout input_layout,
                                    const std::size_t partition,
                                    const std::size_t partition_n256_tile,
                                    const std::size_t n128_half,
                                    const std::size_t valid_rows,
-                                   const cudaStream_t stream) {
+                                   const cudaStream_t stream,
+                                   const std::size_t logical_input_first_k_override =
+                                       static_cast<std::size_t>(-1)) {
   const auto plan = kernels::sm87_macrofeed_v4_fp8_plan(
-      role, kernels::kSm87MacroFeedV4Fp8Tokens);
+      role, kernels::kSm87MacroFeedV4Fp8Tokens, input_layout);
   if (!plan.valid() || partition >= plan.partition_count || n128_half > 1U ||
       partition_n256_tile >= plan.partition_features[partition] / 256U ||
       valid_rows == 0U || valid_rows > kRows) {
@@ -642,16 +689,25 @@ struct DeviceOutputs final {
       role == Role::kFp8AttentionOutput
           ? kernels::kSm87MacroFeedV4Fp8ScratchRowStride
           : kernels::kSm87MacroFeedV4Fp8HiddenRowStride;
-  const std::size_t logical_input_first_k =
+  const std::size_t default_logical_input_first_k =
       role == Role::kFp8AttentionOutput
-          ? kernels::kSm87MacroFeedV4Fp8TestAttentionOutputLogicalFirstK
+          ? (input_layout == InputLayout::kGdnContiguousVScratchV1
+                 ? kernels::
+                       kSm87MacroFeedV4Fp8TestGdnAttentionOutputLogicalFirstK
+                 : kernels::
+                       kSm87MacroFeedV4Fp8TestAttentionOutputLogicalFirstK)
           : 0U;
+  const std::size_t logical_input_first_k =
+      logical_input_first_k_override == static_cast<std::size_t>(-1)
+          ? default_logical_input_first_k
+          : logical_input_first_k_override;
   std::vector<std::uint16_t> input(kRows * input_stride, 0U);
   std::vector<std::uint16_t> input_after(input.size(), 0U);
   std::vector<std::uint8_t> payload(
       kernels::kSm87MacroFeedV4Fp8TestPayloadBytes, 0U);
   std::vector<std::uint8_t> payload_after(payload.size(), 0U);
-  build_input(input, role, input_stride, logical_input_first_k);
+  build_input(input, role, input_layout, input_stride,
+              logical_input_first_k);
   build_payload(payload);
 
   GuardedDeviceBuffer device_input;
@@ -700,6 +756,7 @@ struct DeviceOutputs final {
                                             role == Role::kFp8FullQkv);
   arguments.value_output_row_stride = arguments.key_output_row_stride;
   arguments.cuda_stream = reinterpret_cast<void*>(stream);
+  arguments.input_layout = input_layout;
 
   const int candidate_status =
       kernels::launch_sm87_macrofeed_v4_fp8_tile_test_cuda(arguments);
@@ -708,7 +765,7 @@ struct DeviceOutputs final {
       static_cast<unsigned int>((kRows * kColumns + kReferenceThreads - 1U) /
                                 kReferenceThreads);
   fp8_reference_kernel<<<kReferenceBlocks, kReferenceThreads, 0U, stream>>>(
-      role, static_cast<unsigned int>(partition),
+      role, input_layout, static_cast<unsigned int>(partition),
       static_cast<unsigned int>(partition_n256_tile), arguments.input,
       input_stride, device_payload.data(), kScaleBits,
       static_cast<unsigned int>(valid_rows),
@@ -738,11 +795,12 @@ struct DeviceOutputs final {
     return false;
   }
 
-  const std::string label = std::string(role_name(role)) + " p=" +
-                            std::to_string(partition) + " n256=" +
-                            std::to_string(partition_n256_tile) + " half=" +
-                            std::to_string(n128_half) + " rows=" +
-                            std::to_string(valid_rows);
+  const std::string label =
+      std::string(role_name(role)) + " p=" + std::to_string(partition) +
+      " n256=" + std::to_string(partition_n256_tile) +
+      " half=" + std::to_string(n128_half) +
+      " rows=" + std::to_string(valid_rows) +
+      " k=" + std::to_string(logical_input_first_k);
   bool ok = compare_outputs(candidate, reference, label);
   if (input_after != input) {
     const auto mismatch =
@@ -754,9 +812,15 @@ struct DeviceOutputs final {
   }
   ok &= expect(input_after == input, label + " input mutated");
   if (role == Role::kFp8AttentionOutput) {
-    ok &= expect(attention_gate_and_gap_unchanged(input, input_after,
-                                                   input_stride),
-                 label + " Gate/gap storage changed");
+    if (input_layout == InputLayout::kGdnContiguousVScratchV1) {
+      ok &= expect(gdn_non_v_scratch_unchanged(input, input_after,
+                                                input_stride),
+                   label + " non-V scratch sentinel changed");
+    } else {
+      ok &= expect(attention_gate_and_gap_unchanged(input, input_after,
+                                                     input_stride),
+                   label + " Gate/gap storage changed");
+    }
   }
   ok &= expect(payload_after == payload, label + " payload mutated");
   ok &= expect(device_input.guards_unchanged(),
@@ -808,14 +872,23 @@ struct DeviceOutputs final {
 
 [[nodiscard]] bool host_contract_test() {
   bool ok = true;
-  constexpr std::array<Role, 3U> kRoles{{
-      Role::kFp8GdnQkvZ,
-      Role::kFp8FullQkv,
-      Role::kFp8AttentionOutput,
+  struct PlanCase final {
+    Role role;
+    InputLayout input_layout;
+  };
+  constexpr std::array<PlanCase, 4U> kCases{{
+      {Role::kFp8GdnQkvZ, InputLayout::kHiddenContiguousH5120V1},
+      {Role::kFp8FullQkv, InputLayout::kHiddenContiguousH5120V1},
+      {Role::kFp8AttentionOutput,
+       InputLayout::kFullAttentionInterleavedQScratchV1},
+      {Role::kFp8AttentionOutput,
+       InputLayout::kGdnContiguousVScratchV1},
   }};
-  for (const Role role : kRoles) {
+  for (const auto& test_case : kCases) {
+    const Role role = test_case.role;
     const auto plan = kernels::sm87_macrofeed_v4_fp8_plan(
-        role, kernels::kSm87MacroFeedV4Fp8Tokens);
+        role, kernels::kSm87MacroFeedV4Fp8Tokens,
+        test_case.input_layout);
     ok &= expect(plan.valid(), std::string(role_name(role)) +
                                   " C8000 plan must validate");
     ok &= expect(plan.grid_m == 125U &&
@@ -834,20 +907,35 @@ struct DeviceOutputs final {
       ok &= expect(plan.full_q_gate_head_interleaved &&
                        !plan.attention_output_gathers_interleaved_q,
                    "Full Q/G must publish [24,2,256] interleaved scratch");
-    } else if (role == Role::kFp8AttentionOutput) {
+    } else if (role == Role::kFp8AttentionOutput &&
+               test_case.input_layout ==
+                   InputLayout::kFullAttentionInterleavedQScratchV1) {
       ok &= expect(
           plan.input_features == 6'144U &&
+              plan.input_physical_offset == 0U &&
               plan.input_physical_span == 12'288U &&
               plan.input_row_stride == 17'408U &&
               plan.attention_output_gathers_interleaved_q &&
               plan.attention_gate_and_gap_preserved &&
               !plan.input_base_offset_permitted,
           "O must gather Q slots while preserving Gate/gap storage");
+    } else if (role == Role::kFp8AttentionOutput) {
+      ok &= expect(
+          plan.identity == kernels::Sm87MacroFeedV4Fp8Identity::
+                               kGdnAttentionOutputM64N128K64OrdinaryGridV1 &&
+              plan.input_physical_offset == 4'096U &&
+              plan.input_physical_span == 6'144U &&
+              plan.input_row_stride == 17'408U &&
+              plan.attention_output_reads_gdn_contiguous_v &&
+              !plan.attention_output_gathers_interleaved_q &&
+              !plan.input_base_offset_permitted,
+          "GDN O must read only fixed scratch V[4096,10240)");
     }
 
     kernels::Sm87MacroFeedV4Fp8T1AdmissionLaunchReceipt receipt{};
     receipt.identity = plan.identity;
     receipt.role = role;
+    receipt.input_layout = test_case.input_layout;
     receipt.artifact_identity = 1U;
     receipt.device_ordinal = 0;
     receipt.token_count = plan.token_count;
@@ -894,6 +982,14 @@ struct DeviceOutputs final {
     ok &= expect(!elevated_receipt.valid_t1_admission_enqueue_receipt(),
                  std::string(role_name(role)) +
                      " unverified live-resource receipt must fail closed");
+    elevated_receipt = receipt;
+    elevated_receipt.input_layout =
+        test_case.input_layout == InputLayout::kGdnContiguousVScratchV1
+            ? InputLayout::kFullAttentionInterleavedQScratchV1
+            : InputLayout::kGdnContiguousVScratchV1;
+    ok &= expect(!elevated_receipt.valid_t1_admission_enqueue_receipt(),
+                 std::string(role_name(role)) +
+                     " layout-mismatched receipt must fail closed");
   }
   ok &= expect(!kernels::sm87_macrofeed_v4_fp8_plan(
                     Role::kFp8FullQkv, 7'999U)
@@ -959,6 +1055,8 @@ struct DeviceOutputs final {
       0U,
       nullptr,
       0U};
+  output.input_layout =
+      InputLayout::kFullAttentionInterleavedQScratchV1;
   ok &= expect(kernels::sm87_macrofeed_v4_fp8_layout_valid(output),
                "O logical-K6144 interleaved-Q scratch binding must pass");
   auto invalid_output = output;
@@ -966,6 +1064,19 @@ struct DeviceOutputs final {
       kernels::kSm87MacroFeedV4Fp8AttentionOutputInputFeatures;
   ok &= expect(!kernels::sm87_macrofeed_v4_fp8_layout_valid(invalid_output),
                "compact O input must not impersonate V4 scratch layout");
+  auto gdn_output = output;
+  gdn_output.input_layout = InputLayout::kGdnContiguousVScratchV1;
+  ok &= expect(kernels::sm87_macrofeed_v4_fp8_layout_valid(gdn_output),
+               "GDN O fixed contiguous V scratch binding must pass");
+  invalid_output = gdn_output;
+  invalid_output.input_row_stride =
+      kernels::kSm87MacroFeedV4Fp8AttentionOutputInputFeatures;
+  ok &= expect(!kernels::sm87_macrofeed_v4_fp8_layout_valid(invalid_output),
+               "compact GDN V pointer must not impersonate scratch base");
+  invalid_output = gdn_output;
+  invalid_output.input_layout = InputLayout::kHiddenContiguousH5120V1;
+  ok &= expect(!kernels::sm87_macrofeed_v4_fp8_layout_valid(invalid_output),
+               "unsupported O input layout must fail closed");
   ok &= expect(
       kernels::sm87_macrofeed_v4_fp8_interleaved_q_physical_offset(255U) ==
               255U &&
@@ -979,10 +1090,11 @@ struct DeviceOutputs final {
 
 [[nodiscard]] bool live_t1_device_binding_negative_test(
     const kernels::Sm87MacroFeedV4Fp8T1AdmissionSnapshot& snapshot,
+    const InputLayout input_layout,
     const cudaStream_t stream) {
   constexpr Role kRole = Role::kFp8AttentionOutput;
   const auto plan = kernels::sm87_macrofeed_v4_fp8_plan(
-      kRole, kernels::kSm87MacroFeedV4Fp8Tokens);
+      kRole, kernels::kSm87MacroFeedV4Fp8Tokens, input_layout);
   int current_device = -1;
   bool ok = expect(plan.valid() && stream != nullptr &&
                        cudaGetDevice(&current_device) == cudaSuccess &&
@@ -997,15 +1109,23 @@ struct DeviceOutputs final {
   RawDeviceAllocation output;
   RawDeviceAllocation undersized_input;
   RawDeviceAllocation undersized_output;
+  // The production binding is the phase-scratch base, not a compact pointer
+  // to either logical input surface.
   const std::size_t input_elements =
-      (plan.token_count - 1U) * plan.input_row_stride +
-      plan.input_physical_span;
+      plan.token_count * plan.input_row_stride;
   const std::size_t output_elements =
       (plan.token_count - 1U) * plan.primary_output_row_stride +
       plan.primary_output_features;
+  constexpr std::size_t kPointerAlignmentElements =
+      16U / sizeof(std::uint16_t);
+  const std::size_t output_padding_elements =
+      input_layout == InputLayout::kGdnContiguousVScratchV1
+          ? kPointerAlignmentElements
+          : 0U;
   if (!fixture.initialize(kRole, current_device) ||
       !input.allocate(input_elements * sizeof(std::uint16_t)) ||
-      !output.allocate(output_elements * sizeof(std::uint16_t)) ||
+      !output.allocate((output_elements + output_padding_elements) *
+                       sizeof(std::uint16_t)) ||
       !undersized_input.allocate(256U) ||
       !undersized_output.allocate(256U)) {
     return expect(false,
@@ -1024,7 +1144,8 @@ struct DeviceOutputs final {
       0U,
       nullptr,
       0U,
-      stream};
+      stream,
+      input_layout};
   ok &= expect(kernels::sm87_macrofeed_v4_fp8_arguments_valid(base),
                "live T1 rejection base arguments must be structurally valid");
   if (!ok) {
@@ -1050,6 +1171,31 @@ struct DeviceOutputs final {
                                " must fail before kernel enqueue");
     (void)cudaGetLastError();
   };
+
+  const InputLayout other_output_layout =
+      input_layout == InputLayout::kGdnContiguousVScratchV1
+          ? InputLayout::kFullAttentionInterleavedQScratchV1
+          : InputLayout::kGdnContiguousVScratchV1;
+  auto wrong_layout_snapshot = snapshot;
+  wrong_layout_snapshot.resources.input_layout = other_output_layout;
+  wrong_layout_snapshot.resources.identity =
+      kernels::sm87_macrofeed_v4_fp8_identity(kRole, other_output_layout);
+  wrong_layout_snapshot.snapshot_identity = kernels::
+      sm87_macrofeed_v4_fp8_compute_t1_admission_snapshot_identity(
+          wrong_layout_snapshot);
+  ok &= expect(
+      kernels::sm87_macrofeed_v4_fp8_t1_admission_snapshot_valid(
+          wrong_layout_snapshot),
+      "alternate O-layout snapshot must remain structurally coherent");
+  expect_rejected("snapshot with the other O input layout", base,
+                  wrong_layout_snapshot);
+  auto wrong_layout_arguments = base;
+  wrong_layout_arguments.input_layout = other_output_layout;
+  ok &= expect(
+      kernels::sm87_macrofeed_v4_fp8_arguments_valid(wrong_layout_arguments),
+      "alternate O-layout arguments must remain structurally coherent");
+  expect_rejected("arguments with the other O input layout",
+                  wrong_layout_arguments, snapshot);
 
   alignas(256) std::array<std::uint16_t, 128U> host_input{};
   alignas(256) std::array<std::uint16_t, 128U> host_output{};
@@ -1095,6 +1241,39 @@ struct DeviceOutputs final {
                "undersized-device-input negative must reach live range validation");
   expect_rejected("device input allocation shorter than declared C8000 span",
                   candidate, snapshot);
+
+  if (input_layout == InputLayout::kGdnContiguousVScratchV1) {
+    // Shift the input view so an incorrectly offset-free live range still
+    // ends inside the existing allocation, while the real +4096-element V
+    // offset ends 16 bytes beyond it. The output's 16-byte padding keeps its
+    // shifted exact range adjacent and structurally disjoint, without another
+    // large allocation.
+    const std::size_t internal_shift =
+        plan.input_row_stride - plan.input_physical_span -
+        plan.input_physical_offset + kPointerAlignmentElements;
+    const std::size_t end_without_physical_offset =
+        internal_shift + (plan.token_count - 1U) * plan.input_row_stride +
+        plan.input_physical_span;
+    const std::size_t end_with_physical_offset =
+        end_without_physical_offset + plan.input_physical_offset;
+    ok &= expect(
+        internal_shift % 8U == 0U &&
+            end_without_physical_offset <= input_elements &&
+            end_with_physical_offset ==
+                input_elements + kPointerAlignmentElements,
+        "GDN O offset-sensitive input range fixture must straddle allocation end");
+    candidate = base;
+    candidate.input =
+        reinterpret_cast<const std::uint16_t*>(input.data()) + internal_shift;
+    candidate.primary_output =
+        reinterpret_cast<std::uint16_t*>(output.data()) +
+        kPointerAlignmentElements;
+    ok &= expect(
+        kernels::sm87_macrofeed_v4_fp8_arguments_valid(candidate),
+        "GDN O offset-sensitive input must reach live range validation");
+    expect_rejected("GDN O input whose range fits only when 4096 offset is omitted",
+                    candidate, snapshot);
+  }
 
   candidate = base;
   candidate.primary_output =
@@ -1297,22 +1476,76 @@ int main() {
               << resources.active_blocks_per_sm << '\n';
 
     if (role == Role::kFp8AttentionOutput) {
-      ok &= live_t1_device_binding_negative_test(snapshot, stream);
+      ok &= live_t1_device_binding_negative_test(
+          snapshot, InputLayout::kFullAttentionInterleavedQScratchV1,
+          stream);
     }
 
+    const auto input_layout =
+        kernels::sm87_macrofeed_v4_fp8_default_input_layout(role);
     const auto plan = kernels::sm87_macrofeed_v4_fp8_plan(
-        role, kernels::kSm87MacroFeedV4Fp8Tokens);
+        role, kernels::kSm87MacroFeedV4Fp8Tokens, input_layout);
     for (std::size_t partition = 0U; partition < plan.partition_count;
          ++partition) {
-      ok &= run_oracle_case(role, partition, 0U, 0U, kRows, stream);
-      ok &= run_oracle_case(role, partition, 0U, 1U, 37U, stream);
+      ok &= run_oracle_case(role, input_layout, partition, 0U, 0U, kRows,
+                            stream);
+      ok &= run_oracle_case(role, input_layout, partition, 0U, 1U, 37U,
+                            stream);
     }
     if (role == Role::kFp8FullQkv) {
       // Partition 0 is logically Q[0,6144),Gate[6144,12288).  These probes
       // hit Q head 1 and both ends of the physically interleaved Gate plane.
-      ok &= run_oracle_case(role, 0U, 1U, 0U, kRows, stream);
-      ok &= run_oracle_case(role, 0U, 24U, 0U, kRows, stream);
-      ok &= run_oracle_case(role, 0U, 47U, 1U, 37U, stream);
+      ok &= run_oracle_case(role, input_layout, 0U, 1U, 0U, kRows,
+                            stream);
+      ok &= run_oracle_case(role, input_layout, 0U, 24U, 0U, kRows,
+                            stream);
+      ok &= run_oracle_case(role, input_layout, 0U, 47U, 1U, 37U,
+                            stream);
+    }
+  }
+
+  constexpr InputLayout kGdnOLayout =
+      InputLayout::kGdnContiguousVScratchV1;
+  kernels::Sm87MacroFeedV4Fp8CudaResources gdn_o_resources{};
+  kernels::Sm87MacroFeedV4Fp8T1AdmissionSnapshot gdn_o_snapshot{};
+  const int gdn_o_query_status =
+      kernels::query_sm87_macrofeed_v4_fp8_cuda_resources(
+          Role::kFp8AttentionOutput, kGdnOLayout, &gdn_o_resources);
+  const int gdn_o_snapshot_status =
+      kernels::capture_sm87_macrofeed_v4_fp8_t1_admission_snapshot_cuda(
+          Role::kFp8AttentionOutput, kGdnOLayout, &gdn_o_snapshot);
+  ok &= expect(
+      gdn_o_query_status == static_cast<int>(cudaSuccess) &&
+          kernels::sm87_macrofeed_v4_fp8_resource_gate(gdn_o_resources) &&
+          gdn_o_resources.input_layout == kGdnOLayout &&
+          gdn_o_resources.identity ==
+              kernels::Sm87MacroFeedV4Fp8Identity::
+                  kGdnAttentionOutputM64N128K64OrdinaryGridV1,
+      "GDN-contiguous O resource identity/admission failed");
+  ok &= expect(
+      gdn_o_snapshot_status == static_cast<int>(cudaSuccess) &&
+          kernels::sm87_macrofeed_v4_fp8_t1_admission_snapshot_valid(
+              gdn_o_snapshot),
+      "GDN-contiguous O T1 snapshot failed");
+  std::cout << "GDN-contiguous Attention-O resources: regs="
+            << gdn_o_resources.registers_per_thread << " shared="
+            << gdn_o_resources.dynamic_shared_bytes << " local="
+            << gdn_o_resources.local_bytes << " active_cta_per_sm="
+            << gdn_o_resources.active_blocks_per_sm << '\n';
+  ok &= live_t1_device_binding_negative_test(gdn_o_snapshot, kGdnOLayout,
+                                              stream);
+  constexpr std::array<std::size_t, 2U> kGdnORows{{kRows, 37U}};
+  constexpr std::array<std::size_t, 2U> kGdnON128Halves{{0U, 1U}};
+  constexpr std::array<std::size_t, 2U> kGdnOLogicalFirstKs{{
+      kernels::kSm87MacroFeedV4Fp8TestGdnAttentionOutputLogicalFirstK,
+      kernels::kSm87MacroFeedV4Fp8TestGdnAttentionOutputLogicalTailFirstK,
+  }};
+  for (const std::size_t logical_first_k : kGdnOLogicalFirstKs) {
+    for (const std::size_t rows : kGdnORows) {
+      for (const std::size_t half : kGdnON128Halves) {
+        ok &= run_oracle_case(Role::kFp8AttentionOutput, kGdnOLayout, 0U,
+                              0U, half, rows, stream, logical_first_k);
+      }
     }
   }
   ok &= expect(cudaStreamDestroy(stream) == cudaSuccess,
