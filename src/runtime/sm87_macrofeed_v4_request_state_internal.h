@@ -25,7 +25,7 @@ inline constexpr std::array<std::uint8_t, 8U>
     kSm87MacroFeedV4RequestStateMagic{{'Q', '3', 'X', 'M', '4', 'S', 'T',
                                        '1'}};
 inline constexpr std::uint16_t kSm87MacroFeedV4RequestStateAbiMajor = 1U;
-inline constexpr std::uint16_t kSm87MacroFeedV4RequestStateAbiMinor = 0U;
+inline constexpr std::uint16_t kSm87MacroFeedV4RequestStateAbiMinor = 1U;
 inline constexpr std::size_t kSm87MacroFeedV4StateLayerCount = 48U;
 inline constexpr std::uint64_t kSm87MacroFeedV4ConvLayerBytes =
     kSm87MacroFeedV4ConvEpochBytes / kSm87MacroFeedV4StateLayerCount;
@@ -58,6 +58,20 @@ struct Sm87MacroFeedV4RecurrentLayerSlice final {
   std::uint64_t gdn_state_bytes = 0U;
 };
 
+// One request owns one contiguous BF16 KV allocation.  Each natural
+// Full-Attention layer (3, 7, ..., 63) receives one adjacent full-capacity K
+// plane and V plane.  These are allocation-relative byte offsets only; this
+// host ledger intentionally exposes no pointer or executable allocation view.
+struct Sm87MacroFeedV4FullAttentionKvLayerSlice final {
+  std::size_t attention_layer_ordinal =
+      kSm87MacroFeedV4FullAttentionLayerCount;
+  std::size_t model_layer = kSm87MacroFeedV4LayerCount;
+  std::uint64_t key_full_allocation_origin = 0U;
+  std::uint64_t value_full_allocation_origin = 0U;
+  std::uint64_t key_bytes = 0U;
+  std::uint64_t value_bytes = 0U;
+};
+
 struct Sm87MacroFeedV4RequestStateAdmission final {
   std::array<std::uint8_t, 8U> magic{};
   std::uint16_t abi_major = 0U;
@@ -72,6 +86,15 @@ struct Sm87MacroFeedV4RequestStateAdmission final {
   std::array<Sm87MacroFeedV4RecurrentLayerSlice,
              kSm87MacroFeedV4StateLayerCount>
       recurrent_layers{};
+  std::uint64_t kv_allocation_identity = 0U;
+  std::uint64_t kv_allocation_bytes = 0U;
+  std::array<Sm87MacroFeedV4FullAttentionKvLayerSlice,
+             kSm87MacroFeedV4FullAttentionLayerCount>
+      full_attention_kv_layers{};
+  // True only for the explicit five-argument maker.  A derived four-argument
+  // identity keeps old host/GDN fixtures source-compatible but cannot mint a
+  // Full-Attention KV write grant.
+  bool kv_physical_owner_bound = false;
   std::uint64_t private_kv_valid_end_identity = 0U;
   std::uint64_t panel_commit_event_identity = 0U;
   std::uint64_t final_publish_event_identity = 0U;
@@ -103,6 +126,7 @@ enum class Sm87MacroFeedV4RequestAdmissionIssue : std::uint32_t {
   kTransitionContract = 1U << 3U,
   kVisibilityOwnership = 1U << 4U,
   kDispatchBoundary = 1U << 5U,
+  kKvArenaOwnership = 1U << 6U,
 };
 
 struct Sm87MacroFeedV4RequestAdmissionValidation final {
@@ -125,6 +149,16 @@ make_sm87_macrofeed_v4_request_state_admission(
     std::uint64_t owner_identity, std::uint64_t allocation_identity,
     std::uint64_t bank_a_storage_identity,
     std::uint64_t bank_b_storage_identity) noexcept;
+
+// Normal owners use this overload to bind the identity of the one physical KV
+// allocation retained by the request.  The four-argument maker remains a
+// host-only T0 convenience and derives a deterministic nonzero KV identity.
+[[nodiscard]] Sm87MacroFeedV4RequestStateAdmission
+make_sm87_macrofeed_v4_request_state_admission(
+    std::uint64_t owner_identity, std::uint64_t allocation_identity,
+    std::uint64_t bank_a_storage_identity,
+    std::uint64_t bank_b_storage_identity,
+    std::uint64_t kv_allocation_identity) noexcept;
 
 [[nodiscard]] Sm87MacroFeedV4RequestAdmissionValidation
 validate_sm87_macrofeed_v4_request_state_admission(
@@ -168,6 +202,8 @@ enum class Sm87MacroFeedV4RequestStateError : std::uint8_t {
   kEventReceiptMismatch,
   kGdnLayerGrantPending,
   kGdnLayerGrantMismatch,
+  kFullAttentionKvGrantPending,
+  kFullAttentionKvGrantMismatch,
 };
 
 struct Sm87MacroFeedV4RequestStateStatus final {
@@ -195,6 +231,7 @@ struct Sm87MacroFeedV4RequestStateSnapshot final {
   std::uint64_t state_epoch = 0U;
   std::uint64_t pending_event_receipt_identity = 0U;
   std::uint64_t pending_gdn_layer_grant_identity = 0U;
+  std::uint64_t pending_full_attention_kv_grant_identity = 0U;
   std::size_t completed_panels = 0U;
   std::size_t active_panel = kSm87MacroFeedV4PanelCount;
   std::size_t next_model_layer = 0U;
@@ -217,6 +254,7 @@ struct Sm87MacroFeedV4RequestStateSnapshot final {
   std::size_t candidate_discard_count = 0U;
   std::uint64_t last_discarded_candidate_identity = 0U;
   std::uint64_t last_invalidated_gdn_layer_grant_identity = 0U;
+  std::uint64_t last_invalidated_full_attention_kv_grant_identity = 0U;
   std::uint64_t physical_owner_drain_receipt_identity = 0U;
   std::uint64_t physical_owner_drain_panel_generation = 0U;
   bool current_conv_layer_prepared = false;
@@ -386,6 +424,116 @@ struct Sm87MacroFeedV4GdnLayerStateAuthorizationResult final {
   }
 };
 
+// Move-only, owner-minted authority for the exact K/V write span of one
+// natural-order Full-Attention layer in one C8000 panel.  Full allocation
+// origins are retained because Attention reads the complete causal prefix;
+// panel offsets identify the only rows that Full-QKV and preprocess may write
+// for this grant.  It contains identities and byte offsets only.
+class Sm87MacroFeedV4FullAttentionKvGrant final {
+ public:
+  Sm87MacroFeedV4FullAttentionKvGrant() = delete;
+  Sm87MacroFeedV4FullAttentionKvGrant(
+      const Sm87MacroFeedV4FullAttentionKvGrant&) = delete;
+  Sm87MacroFeedV4FullAttentionKvGrant& operator=(
+      const Sm87MacroFeedV4FullAttentionKvGrant&) = delete;
+  Sm87MacroFeedV4FullAttentionKvGrant(
+      Sm87MacroFeedV4FullAttentionKvGrant&& other) noexcept;
+  Sm87MacroFeedV4FullAttentionKvGrant& operator=(
+      Sm87MacroFeedV4FullAttentionKvGrant&&) = delete;
+
+  [[nodiscard]] std::uint64_t grant_identity() const noexcept {
+    return grant_identity_;
+  }
+  [[nodiscard]] std::uint64_t owner_identity() const noexcept {
+    return owner_identity_;
+  }
+  [[nodiscard]] std::uint64_t request_epoch() const noexcept {
+    return request_epoch_;
+  }
+  [[nodiscard]] std::uint64_t state_epoch() const noexcept {
+    return state_epoch_;
+  }
+  [[nodiscard]] std::uint64_t kv_allocation_identity() const noexcept {
+    return kv_allocation_identity_;
+  }
+  [[nodiscard]] std::size_t panel() const noexcept { return panel_; }
+  [[nodiscard]] std::size_t attention_layer_ordinal() const noexcept {
+    return attention_layer_ordinal_;
+  }
+  [[nodiscard]] std::size_t model_layer() const noexcept {
+    return model_layer_;
+  }
+  [[nodiscard]] std::uint64_t key_full_allocation_origin() const noexcept {
+    return key_full_allocation_origin_;
+  }
+  [[nodiscard]] std::uint64_t value_full_allocation_origin() const noexcept {
+    return value_full_allocation_origin_;
+  }
+  [[nodiscard]] std::uint64_t key_panel_allocation_offset() const noexcept {
+    return key_panel_allocation_offset_;
+  }
+  [[nodiscard]] std::uint64_t value_panel_allocation_offset() const noexcept {
+    return value_panel_allocation_offset_;
+  }
+  [[nodiscard]] std::uint64_t panel_bytes() const noexcept {
+    return panel_bytes_;
+  }
+  [[nodiscard]] std::size_t first_position() const noexcept {
+    return first_position_;
+  }
+  [[nodiscard]] std::size_t previous_valid_end() const noexcept {
+    return previous_valid_end_;
+  }
+  [[nodiscard]] std::size_t candidate_end() const noexcept {
+    return candidate_end_;
+  }
+
+ private:
+  Sm87MacroFeedV4FullAttentionKvGrant(
+      std::uint64_t grant_identity, std::uint64_t owner_identity,
+      std::uint64_t request_epoch, std::uint64_t state_epoch,
+      std::uint64_t kv_allocation_identity, std::size_t panel,
+      std::size_t attention_layer_ordinal, std::size_t model_layer,
+      std::uint64_t key_full_allocation_origin,
+      std::uint64_t value_full_allocation_origin,
+      std::uint64_t key_panel_allocation_offset,
+      std::uint64_t value_panel_allocation_offset, std::uint64_t panel_bytes,
+      std::size_t first_position, std::size_t previous_valid_end,
+      std::size_t candidate_end) noexcept;
+
+  void invalidate() noexcept;
+
+  std::uint64_t grant_identity_ = 0U;
+  std::uint64_t owner_identity_ = 0U;
+  std::uint64_t request_epoch_ = 0U;
+  std::uint64_t state_epoch_ = 0U;
+  std::uint64_t kv_allocation_identity_ = 0U;
+  std::size_t panel_ = kSm87MacroFeedV4PanelCount;
+  std::size_t attention_layer_ordinal_ =
+      kSm87MacroFeedV4FullAttentionLayerCount;
+  std::size_t model_layer_ = kSm87MacroFeedV4LayerCount;
+  std::uint64_t key_full_allocation_origin_ = 0U;
+  std::uint64_t value_full_allocation_origin_ = 0U;
+  std::uint64_t key_panel_allocation_offset_ = 0U;
+  std::uint64_t value_panel_allocation_offset_ = 0U;
+  std::uint64_t panel_bytes_ = 0U;
+  std::size_t first_position_ = kSm87MacroFeedV4P40Tokens;
+  std::size_t previous_valid_end_ = kSm87MacroFeedV4P40Tokens;
+  std::size_t candidate_end_ = kSm87MacroFeedV4P40Tokens;
+
+  friend class Sm87MacroFeedV4RequestState;
+};
+
+struct Sm87MacroFeedV4FullAttentionKvAuthorizationResult final {
+  Sm87MacroFeedV4RequestStateStatus status{};
+  std::optional<Sm87MacroFeedV4FullAttentionKvGrant> grant{};
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return static_cast<bool>(status) && grant.has_value() &&
+           grant->grant_identity() != 0U;
+  }
+};
+
 enum class Sm87MacroFeedV4RequestEventKind : std::uint8_t {
   kInvalid = 0U,
   kPanelCommit,
@@ -473,6 +621,18 @@ class Sm87MacroFeedV4RequestState final {
   commit_gdn_layer_candidate_enqueued(
       const Sm87MacroFeedV4RequestStateSealedAccess& access,
       Sm87MacroFeedV4GdnLayerStateGrant&& grant) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4FullAttentionKvAuthorizationResult
+  authorize_full_attention_kv(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      std::size_t panel, std::size_t model_layer) noexcept;
+  // Consume only after the complete Full-QKV -> preprocess -> Attention -> O
+  // -> residual/post-norm -> MLP layer DAG has been enqueued.  Advancing the
+  // natural layer cursor on a K/V producer alone would permit unsafe scratch
+  // reuse and is outside this authority.
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus
+  commit_full_attention_layer_enqueued(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      Sm87MacroFeedV4FullAttentionKvGrant&& grant) noexcept;
 
   // Legacy host-ledger split retained only for old T0 fixtures.  A package
   // must use the atomic authorize/whole-layer-enqueue/commit grant path above.
@@ -486,6 +646,9 @@ class Sm87MacroFeedV4RequestState final {
   assign_gdn_layer_candidate(
       const Sm87MacroFeedV4RequestStateSealedAccess& access,
       std::size_t panel, std::size_t model_layer) noexcept;
+  // Retained as an ABI-negative seam only.  It always fails after sealed
+  // access validation and cannot advance K/V or layer state.
+  [[deprecated("disabled; use authorize_full_attention_kv")]]
   [[nodiscard]] Sm87MacroFeedV4RequestStateStatus
   stage_attention_kv_layer(
       const Sm87MacroFeedV4RequestStateSealedAccess& access,

@@ -51,6 +51,9 @@ inline constexpr std::size_t kSm87MacroFeedV4AttentionGateSlotOffset =
 inline constexpr std::size_t kSm87MacroFeedV4AttentionLogicalQColumns =
     kSm87MacroFeedV4AttentionHeads *
     kSm87MacroFeedV4AttentionHeadDimension;
+inline constexpr std::size_t kSm87MacroFeedV4AttentionKvRowStride = 1'024U;
+inline constexpr std::size_t kSm87MacroFeedV4AttentionKvPositionCapacity =
+    kSm87MacroFeedV4P40Tokens;
 inline constexpr std::size_t kSm87MacroFeedV4AttentionLegacyLiveColumns =
     kSm87MacroFeedV4AttentionRawQGate +
     2U * kSm87MacroFeedV4AttentionQuery;
@@ -81,6 +84,18 @@ inline constexpr std::uint64_t kSm87MacroFeedV4RecurrentEpochBytes =
     kSm87MacroFeedV4ConvEpochBytes + kSm87MacroFeedV4GdnEpochBytes;
 inline constexpr std::uint64_t kSm87MacroFeedV4RecurrentStorageBytes =
     2U * kSm87MacroFeedV4RecurrentEpochBytes;
+inline constexpr std::uint64_t kSm87MacroFeedV4AttentionKvPlaneBytes =
+    static_cast<std::uint64_t>(
+        kSm87MacroFeedV4AttentionKvPositionCapacity) *
+    kSm87MacroFeedV4AttentionKvRowStride * kSm87MacroFeedV4Bf16Bytes;
+inline constexpr std::uint64_t kSm87MacroFeedV4AttentionKvLayerBytes =
+    2U * kSm87MacroFeedV4AttentionKvPlaneBytes;
+inline constexpr std::uint64_t kSm87MacroFeedV4AttentionKvArenaBytes =
+    kSm87MacroFeedV4FullAttentionLayerCount *
+    kSm87MacroFeedV4AttentionKvLayerBytes;
+inline constexpr std::uint64_t kSm87MacroFeedV4AttentionKvPanelBytes =
+    static_cast<std::uint64_t>(kSm87MacroFeedV4PanelTokens) *
+    kSm87MacroFeedV4AttentionKvRowStride * kSm87MacroFeedV4Bf16Bytes;
 
 static_assert(kSm87MacroFeedV4P40Tokens ==
               kSm87MacroFeedV4PanelCount * kSm87MacroFeedV4PanelTokens);
@@ -99,6 +114,10 @@ static_assert(kSm87MacroFeedV4AttentionRawQGate ==
 static_assert(kSm87MacroFeedV4AttentionLogicalQColumns == 6'144U);
 static_assert(kSm87MacroFeedV4RecurrentEpochBytes == 78'446'592U);
 static_assert(kSm87MacroFeedV4RecurrentStorageBytes == 156'893'184U);
+static_assert(kSm87MacroFeedV4AttentionKvPlaneBytes == 81'920'000U);
+static_assert(kSm87MacroFeedV4AttentionKvLayerBytes == 163'840'000U);
+static_assert(kSm87MacroFeedV4AttentionKvArenaBytes == 2'621'440'000U);
+static_assert(kSm87MacroFeedV4AttentionKvPanelBytes == 16'384'000U);
 
 enum class Sm87MacroFeedV4LayerKind : std::uint8_t {
   kInvalid = 0U,
