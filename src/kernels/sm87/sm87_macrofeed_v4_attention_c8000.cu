@@ -9,6 +9,10 @@
  */
 #include "q3x/kernels/sm87_macrofeed_v4_attention_c8000.h"
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+#include "sm87_macrofeed_v4_bound_launch_internal.h"
+#endif
+
 #include <cuda.h>
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
@@ -964,5 +968,63 @@ int launch_sm87_macrofeed_v4_attention_c8000_oracle_cuda(
                 static_cast<unsigned int>(arguments.token_count));
   return static_cast<int>(cudaPeekAtLastError());
 }
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+namespace sm87_macrofeed_v4_bound_launch_detail {
+
+int enqueue_attention_c8000_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4AttentionCoreC8000Arguments& arguments,
+    const Sm87MacroFeedV4AttentionC8000AdmissionResourceSnapshot& resources,
+    std::size_t* const submitted_launches) noexcept {
+  if (submitted_launches == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *submitted_launches = 0U;
+  const Sm87MacroFeedV4AttentionC8000Arguments fixed{
+      arguments.q_gate_scratch,
+      kSm87MacroFeedV4AttentionC8000Tokens,
+      kSm87MacroFeedV4AttentionC8000ScratchRowStride,
+      arguments.key_cache_origin,
+      arguments.value_cache_origin,
+      kSm87MacroFeedV4AttentionC8000MaximumPositions,
+      kSm87MacroFeedV4AttentionC8000KvRowStride,
+      arguments.first_position,
+      token.cuda_stream_};
+  const auto plan = sm87_macrofeed_v4_attention_c8000_plan(
+      arguments.first_position, kSm87MacroFeedV4AttentionC8000Tokens);
+  if (!plan.valid() ||
+      !sm87_macrofeed_v4_attention_c8000_arguments_valid(fixed) ||
+      !resources.static_resource_gate_passed ||
+      !sm87_macrofeed_v4_attention_c8000_admission_resource_gate(resources) ||
+      resources.identity != kSm87MacroFeedV4AttentionC8000Identity) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const cudaError_t prior_status = cudaPeekAtLastError();
+  if (prior_status != cudaSuccess) {
+    return static_cast<int>(prior_status);
+  }
+
+  const dim3 grid(
+      static_cast<unsigned int>(kSm87MacroFeedV4AttentionC8000GridX),
+      static_cast<unsigned int>(kSm87MacroFeedV4AttentionC8000GridY),
+      static_cast<unsigned int>(kSm87MacroFeedV4AttentionC8000GridZ));
+  attention_c8000_kernel<<<
+      grid, static_cast<unsigned int>(kSm87MacroFeedV4AttentionC8000Threads),
+      kSm87MacroFeedV4AttentionC8000DynamicSharedBytes,
+      reinterpret_cast<cudaStream_t>(token.cuda_stream_)>>>(
+      arguments.q_gate_scratch, arguments.key_cache_origin,
+      arguments.value_cache_origin,
+      static_cast<unsigned int>(arguments.first_position));
+  const cudaError_t launch_status = cudaPeekAtLastError();
+  if (launch_status != cudaSuccess) {
+    return static_cast<int>(launch_status);
+  }
+  *submitted_launches = 1U;
+  return static_cast<int>(cudaSuccess);
+}
+
+}  // namespace sm87_macrofeed_v4_bound_launch_detail
+#endif
 
 }  // namespace q3x::kernels

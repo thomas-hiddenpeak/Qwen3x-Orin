@@ -1,5 +1,9 @@
 #include "q3x/kernels/sm87_macrofeed_v4_full_attention_preprocess.h"
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+#include "sm87_macrofeed_v4_bound_launch_internal.h"
+#endif
+
 #include <cuda.h>
 #include <cuda_runtime.h>
 
@@ -612,5 +616,79 @@ int launch_sm87_macrofeed_v4_full_attention_preprocess_reference_256_oracle_cuda
     noexcept {
   return launch_oracle(arguments, true);
 }
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+namespace sm87_macrofeed_v4_bound_launch_detail {
+
+int enqueue_full_attention_preprocess_c8000_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4FullAttentionPreprocessC8000Arguments& arguments,
+    const Sm87MacroFeedV4FullAttentionPreprocessAdmissionResourceSnapshot&
+        resources,
+    std::size_t* const submitted_launches) noexcept {
+  if (submitted_launches == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *submitted_launches = 0U;
+  const Sm87MacroFeedV4FullAttentionPreprocessArguments fixed{
+      arguments.q_gate_scratch,
+      kSm87MacroFeedV4FullAttentionPreprocessTokens,
+      kSm87MacroFeedV4FullAttentionPreprocessScratchRowStride,
+      arguments.key_cache_origin,
+      kSm87MacroFeedV4FullAttentionPreprocessMaximumPositions,
+      kSm87MacroFeedV4FullAttentionPreprocessKeyRowStride,
+      arguments.q_norm_weight,
+      arguments.k_norm_weight,
+      arguments.cosines,
+      arguments.sines,
+      kSm87MacroFeedV4FullAttentionPreprocessMaximumPositions,
+      kSm87MacroFeedV4FullAttentionPreprocessRotaryHalf,
+      arguments.first_position,
+      kSm87MacroFeedV4FullAttentionPreprocessEpsilonFp32Bits,
+      token.cuda_stream_};
+  const auto plan = sm87_macrofeed_v4_full_attention_preprocess_plan(
+      arguments.first_position,
+      kSm87MacroFeedV4FullAttentionPreprocessTokens);
+  if (!plan.valid() ||
+      !sm87_macrofeed_v4_full_attention_preprocess_arguments_valid(fixed) ||
+      !resources.static_resource_gate_passed ||
+      !sm87_macrofeed_v4_full_attention_preprocess_admission_resource_gate(
+          resources) ||
+      resources.identity !=
+          kSm87MacroFeedV4FullAttentionPreprocessIdentity) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const cudaError_t prior_status = cudaPeekAtLastError();
+  if (prior_status != cudaSuccess) {
+    return static_cast<int>(prior_status);
+  }
+
+  const dim3 grid(
+      static_cast<unsigned int>(
+          kSm87MacroFeedV4FullAttentionPreprocessTokens),
+      static_cast<unsigned int>(
+          kSm87MacroFeedV4FullAttentionPreprocessCombinedHeads));
+  sm87_macrofeed_v4_full_attention_preprocess_prompt_wide_128_kernel
+      <<<grid, kSm87MacroFeedV4FullAttentionPreprocessThreads, 0U,
+         reinterpret_cast<cudaStream_t>(token.cuda_stream_)>>>(
+          arguments.q_gate_scratch,
+          kSm87MacroFeedV4FullAttentionPreprocessScratchRowStride,
+          arguments.key_cache_origin,
+          kSm87MacroFeedV4FullAttentionPreprocessKeyRowStride,
+          arguments.q_norm_weight, arguments.k_norm_weight,
+          arguments.cosines, arguments.sines,
+          kSm87MacroFeedV4FullAttentionPreprocessRotaryHalf,
+          arguments.first_position,
+          kSm87MacroFeedV4FullAttentionPreprocessEpsilonFp32Bits);
+  const cudaError_t launch_status = cudaPeekAtLastError();
+  if (launch_status != cudaSuccess) {
+    return static_cast<int>(launch_status);
+  }
+  *submitted_launches = 1U;
+  return static_cast<int>(cudaSuccess);
+}
+
+}  // namespace sm87_macrofeed_v4_bound_launch_detail
+#endif
 
 }  // namespace q3x::kernels

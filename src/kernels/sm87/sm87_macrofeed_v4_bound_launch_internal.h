@@ -1,7 +1,9 @@
 #pragma once
 
 #include "q3x/kernels/sm87_macrofeed_v4_bf16_ab.h"
+#include "q3x/kernels/sm87_macrofeed_v4_attention_c8000.h"
 #include "q3x/kernels/sm87_macrofeed_v4_fp8.h"
+#include "q3x/kernels/sm87_macrofeed_v4_full_attention_preprocess.h"
 #include "q3x/kernels/sm87_macrofeed_v4_gdn_c8000.h"
 #include "q3x/kernels/sm87_macrofeed_v4_norm_residual.h"
 #include "q3x/kernels/sm87_macrofeed_v4_nvfp4_down.h"
@@ -57,6 +59,47 @@ struct Sm87MacroFeedV4GdnContinuationSubmitLedger final {
 // role, layout, tactic, row stride, token count, or stream is present.
 struct Sm87MacroFeedV4GdnOC8000Arguments final {
   const std::uint16_t* phase_scratch = nullptr;
+  Sm87TargetAotFp8CudaAssetView asset{};
+  std::uint16_t* branch_output = nullptr;
+};
+
+// Fixed Full-QKV binding.  K/V are the authenticated active-panel slices;
+// the public kernel writes exactly 8,000 local rows and therefore must not be
+// given either full-allocation origin by this seam.
+struct Sm87MacroFeedV4FullQkvC8000Arguments final {
+  const std::uint16_t* hidden_input = nullptr;
+  Sm87TargetAotFp8CudaAssetView asset{};
+  std::uint16_t* q_gate_scratch = nullptr;
+  std::uint16_t* key_panel_output = nullptr;
+  std::uint16_t* value_panel_output = nullptr;
+};
+
+// Fixed exact in-place Q/K preprocessing binding.  Unlike Full-QKV, the key
+// pointer is the complete private allocation origin because first_position is
+// applied inside the kernel.  V is deliberately unaddressable here.
+struct Sm87MacroFeedV4FullAttentionPreprocessC8000Arguments final {
+  std::uint16_t* q_gate_scratch = nullptr;
+  std::uint16_t* key_cache_origin = nullptr;
+  const std::uint16_t* q_norm_weight = nullptr;
+  const std::uint16_t* k_norm_weight = nullptr;
+  const float* cosines = nullptr;
+  const float* sines = nullptr;
+  std::size_t first_position = 0U;
+};
+
+// Fixed exact causal Attention binding.  Both K/V pointers are complete
+// private allocation origins so the core can consume [0, first+8000).
+struct Sm87MacroFeedV4AttentionCoreC8000Arguments final {
+  std::uint16_t* q_gate_scratch = nullptr;
+  const std::uint16_t* key_cache_origin = nullptr;
+  const std::uint16_t* value_cache_origin = nullptr;
+  std::size_t first_position = 0U;
+};
+
+// Fixed Full-Attention O binding.  Tactic 4603 gathers only the interleaved Q
+// slots; the Gate slots and row gap are not caller-selectable inputs.
+struct Sm87MacroFeedV4FullAttentionOC8000Arguments final {
+  const std::uint16_t* q_gate_scratch = nullptr;
   Sm87TargetAotFp8CudaAssetView asset{};
   std::uint16_t* branch_output = nullptr;
 };
@@ -136,6 +179,26 @@ class Sm87MacroFeedV4LockedSubmitToken final {
       const Sm87MacroFeedV4GdnOC8000Arguments&,
       const Sm87MacroFeedV4Fp8CudaResources&,
       std::size_t*) noexcept;
+  friend int enqueue_full_qkv_c8000_prevalidated(
+      const Sm87MacroFeedV4LockedSubmitToken&,
+      const Sm87MacroFeedV4FullQkvC8000Arguments&,
+      const Sm87MacroFeedV4Fp8CudaResources&,
+      std::size_t*) noexcept;
+  friend int enqueue_full_attention_preprocess_c8000_prevalidated(
+      const Sm87MacroFeedV4LockedSubmitToken&,
+      const Sm87MacroFeedV4FullAttentionPreprocessC8000Arguments&,
+      const Sm87MacroFeedV4FullAttentionPreprocessAdmissionResourceSnapshot&,
+      std::size_t*) noexcept;
+  friend int enqueue_attention_c8000_prevalidated(
+      const Sm87MacroFeedV4LockedSubmitToken&,
+      const Sm87MacroFeedV4AttentionCoreC8000Arguments&,
+      const Sm87MacroFeedV4AttentionC8000AdmissionResourceSnapshot&,
+      std::size_t*) noexcept;
+  friend int enqueue_full_attention_o_c8000_prevalidated(
+      const Sm87MacroFeedV4LockedSubmitToken&,
+      const Sm87MacroFeedV4FullAttentionOC8000Arguments&,
+      const Sm87MacroFeedV4Fp8CudaResources&,
+      std::size_t*) noexcept;
   friend int enqueue_residual_post_norm_prevalidated(
       const Sm87MacroFeedV4LockedSubmitToken&,
       const Sm87MacroFeedV4ResidualPostNormC8000Arguments&,
@@ -186,6 +249,31 @@ class Sm87MacroFeedV4LockedSubmitToken final {
 [[nodiscard]] int enqueue_gdn_o_c8000_prevalidated(
     const Sm87MacroFeedV4LockedSubmitToken& token,
     const Sm87MacroFeedV4GdnOC8000Arguments& arguments,
+    const Sm87MacroFeedV4Fp8CudaResources& resources,
+    std::size_t* submitted_launches) noexcept;
+
+[[nodiscard]] int enqueue_full_qkv_c8000_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4FullQkvC8000Arguments& arguments,
+    const Sm87MacroFeedV4Fp8CudaResources& resources,
+    std::size_t* submitted_launches) noexcept;
+
+[[nodiscard]] int enqueue_full_attention_preprocess_c8000_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4FullAttentionPreprocessC8000Arguments& arguments,
+    const Sm87MacroFeedV4FullAttentionPreprocessAdmissionResourceSnapshot&
+        resources,
+    std::size_t* submitted_launches) noexcept;
+
+[[nodiscard]] int enqueue_attention_c8000_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4AttentionCoreC8000Arguments& arguments,
+    const Sm87MacroFeedV4AttentionC8000AdmissionResourceSnapshot& resources,
+    std::size_t* submitted_launches) noexcept;
+
+[[nodiscard]] int enqueue_full_attention_o_c8000_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4FullAttentionOC8000Arguments& arguments,
     const Sm87MacroFeedV4Fp8CudaResources& resources,
     std::size_t* submitted_launches) noexcept;
 
