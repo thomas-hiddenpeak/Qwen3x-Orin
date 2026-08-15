@@ -62,7 +62,9 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
   create(
       const Sm87MacroFeedV4P40ExecutionPackage::StartupPackage& startup)
       noexcept {
-    return Sm87MacroFeedV4P40ExecutionPackage::create(startup);
+    // Negative-catalog fixture only: it fails before normal Full/RoPE owner
+    // admission and therefore must not fabricate an Engine binding.
+    return Sm87MacroFeedV4P40ExecutionPackage::create(startup, {}, 0U);
   }
 
   [[nodiscard]] static Sm87MacroFeedV4P40ExecutionPackageCreateResult
@@ -70,7 +72,7 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
       const Sm87MacroFeedV4P40ExecutionPackage::StartupPackage& startup,
       const kernels::Sm87TargetAotFp8CudaAssetView& asset) noexcept {
     return Sm87MacroFeedV4P40ExecutionPackage::create_impl(
-        startup, &asset, nullptr);
+        startup, nullptr, 0U, &asset, nullptr);
   }
 
   [[nodiscard]] static Sm87MacroFeedV4P40ExecutionPackageCreateResult
@@ -101,7 +103,7 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
     source.gate_up_receipt = gate_up_receipt;
     source.down_receipt = down_receipt;
     return Sm87MacroFeedV4P40ExecutionPackage::create_impl(
-        startup, nullptr, &source);
+        startup, nullptr, 0U, nullptr, &source);
   }
 
   [[nodiscard]] static bool exercise_terminal_poison_drain(
@@ -321,6 +323,8 @@ using Access = target_aot::Sm87TargetAotCompleteProjectionExecutionAccess;
 using Bf16AbPair = target_aot::Sm87TargetAotCompleteHostTestBf16AbPair;
 using LayerNormPair =
     target_aot::Sm87TargetAotCompleteHostTestLayerNormPair;
+using FullQkNormPair =
+    target_aot::Sm87TargetAotCompleteHostTestFullQkNormPair;
 using Owner = q3x::runtime::Sm87TargetAotCompleteProjectionDeviceAssets;
 using q3x::runtime::Bf16LinearWeight;
 using q3x::runtime::Bf16VectorWeight;
@@ -332,7 +336,10 @@ struct HasPublicExecutionCreate : std::false_type {};
 template <typename T>
 struct HasPublicExecutionCreate<
     T, std::void_t<decltype(T::create(
-           std::declval<const typename T::StartupPackage&>()))>>
+           std::declval<const typename T::StartupPackage&>(),
+           std::declval<
+               const execution::Sm87MacroFeedV4P40EngineRopeBinding&>(),
+           std::declval<std::uint64_t>()))>>
     : std::true_type {};
 
 static_assert(!HasPublicExecutionCreate<
@@ -352,6 +359,10 @@ class LiveExecutionWeights final {
   LiveExecutionWeights& operator=(const LiveExecutionWeights&) = delete;
 
   ~LiveExecutionWeights() {
+    if (full_qk_norm_allocation_ != nullptr) {
+      (void)cudaFree(full_qk_norm_allocation_);
+      full_qk_norm_allocation_ = nullptr;
+    }
     if (layer_norm_allocation_ != nullptr) {
       (void)cudaFree(layer_norm_allocation_);
       layer_norm_allocation_ = nullptr;
@@ -364,7 +375,8 @@ class LiveExecutionWeights final {
 
   [[nodiscard]] bool allocate() noexcept {
     if (bf16_ab_allocation_ != nullptr ||
-        layer_norm_allocation_ != nullptr) {
+        layer_norm_allocation_ != nullptr ||
+        full_qk_norm_allocation_ != nullptr) {
       return false;
     }
     if (cudaMalloc(&bf16_ab_allocation_, kBf16AbAllocationBytes) !=
@@ -377,6 +389,15 @@ class LiveExecutionWeights final {
         cudaSuccess) {
       return false;
     }
+    if (cudaMalloc(&full_qk_norm_allocation_,
+                   kFullQkNormAllocationBytes) != cudaSuccess ||
+        full_qk_norm_allocation_ == nullptr ||
+        cudaMemset(full_qk_norm_allocation_, 0,
+                   kFullQkNormAllocationBytes) != cudaSuccess) {
+      return false;
+    }
+    // Keep LayerNorm last: the one-past-final-post-norm negative below must
+    // not alias the beginning of a later live fixture allocation.
     if (cudaMalloc(&layer_norm_allocation_, kLayerNormAllocationBytes) !=
             cudaSuccess ||
         layer_norm_allocation_ == nullptr) {
@@ -416,18 +437,36 @@ class LiveExecutionWeights final {
               norm_bytes + (2U * layer + 1U) * kLayerNormWeightBytes),
           kernels::kSm87MacroFeedV4NormResidualHidden};
     }
+    auto* const full_norm_bytes =
+        static_cast<std::uint8_t*>(full_qk_norm_allocation_);
+    for (std::size_t ordinal = 0U; ordinal < full_qk_norm_pairs_.size();
+         ++ordinal) {
+      full_qk_norm_pairs_[ordinal].q_norm = Bf16VectorWeight{
+          reinterpret_cast<const std::uint16_t*>(
+              full_norm_bytes + (2U * ordinal) * kFullQkNormWeightBytes),
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessHeadDimension};
+      full_qk_norm_pairs_[ordinal].k_norm = Bf16VectorWeight{
+          reinterpret_cast<const std::uint16_t*>(
+              full_norm_bytes +
+              (2U * ordinal + 1U) * kFullQkNormWeightBytes),
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessHeadDimension};
+    }
     return true;
   }
 
   [[nodiscard]] bool install(ModelWeights& model_weights) const noexcept {
     return bf16_ab_allocation_ != nullptr &&
            layer_norm_allocation_ != nullptr &&
+           full_qk_norm_allocation_ != nullptr &&
            Access::install_complete_host_test_bf16_ab_pairs(
                model_weights, bf16_ab_pairs_.data(),
                bf16_ab_pairs_.size()) &&
            Access::install_complete_host_test_layer_norm_pairs(
                model_weights, layer_norm_pairs_.data(),
-               layer_norm_pairs_.size());
+               layer_norm_pairs_.size()) &&
+           Access::install_complete_host_test_full_qk_norm_pairs(
+               model_weights, full_qk_norm_pairs_.data(),
+               full_qk_norm_pairs_.size());
   }
 
   [[nodiscard]] bool install_one_past_final_post_norm(
@@ -469,18 +508,28 @@ class LiveExecutionWeights final {
   static constexpr std::size_t kLayerNormAllocationBytes =
       2U * q3x::runtime::kQwen36DenseLayerCount *
       kLayerNormWeightBytes;
+  static constexpr std::size_t kFullQkNormWeightBytes =
+      kernels::kSm87MacroFeedV4FullAttentionPreprocessNormWeightBytes;
+  static constexpr std::size_t kFullQkNormAllocationBytes =
+      2U * q3x::runtime::kQwen36FullAttentionLayerCount *
+      kFullQkNormWeightBytes;
 
   static_assert(kBf16AbAllocationBytes == 47'185'920U);
   static_assert(kLayerNormAllocationBytes == 1'310'720U);
+  static_assert(kFullQkNormAllocationBytes == 16'384U);
   static_assert(kBf16AbWeightBytes % 256U == 0U);
   static_assert(kLayerNormWeightBytes % 256U == 0U);
 
   void* bf16_ab_allocation_ = nullptr;
   void* layer_norm_allocation_ = nullptr;
+  void* full_qk_norm_allocation_ = nullptr;
   std::array<Bf16AbPair, q3x::runtime::kQwen36LinearAttentionLayerCount>
       bf16_ab_pairs_{};
   std::array<LayerNormPair, q3x::runtime::kQwen36DenseLayerCount>
       layer_norm_pairs_{};
+  std::array<FullQkNormPair,
+             q3x::runtime::kQwen36FullAttentionLayerCount>
+      full_qk_norm_pairs_{};
   Bf16VectorWeight saved_final_post_norm_{};
   bool final_post_norm_poisoned_ = false;
 };

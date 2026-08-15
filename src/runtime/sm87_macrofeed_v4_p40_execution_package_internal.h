@@ -18,6 +18,8 @@ namespace q3x::runtime::sm87_macrofeed_v4_p40_execution_detail {
     defined(Q3X_ENABLE_SM87_MACROFEED_V4_NORM_RESIDUAL_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_MACROFEED_V4_FP8_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_FULL_ATTENTION_PREPROCESS_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_ATTENTION_C8000_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_MACROFEED_V4_GDN_C8000_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_MACROFEED_V4_NVFP4_DOWN_ADMISSION)
@@ -35,9 +37,42 @@ inline constexpr std::uint64_t kSm87MacroFeedV4P40ExecutionPongOffset =
     kernels::kSm87MacroFeedV4NormResidualHiddenBytes;
 inline constexpr std::uint64_t kSm87MacroFeedV4P40ExecutionScratchOffset =
     2U * kernels::kSm87MacroFeedV4NormResidualHiddenBytes;
+inline constexpr std::uint64_t kSm87MacroFeedV4P40ExecutionOwnedBytes =
+    kSm87MacroFeedV4P40ExecutionTransientBytes +
+    kSm87MacroFeedV4RecurrentStorageBytes +
+    kSm87MacroFeedV4AttentionKvArenaBytes;
+inline constexpr std::size_t kSm87MacroFeedV4P40EngineRopePositions =
+    262'144U;
+inline constexpr std::size_t kSm87MacroFeedV4P40EngineRopePairs = 32U;
+inline constexpr std::uint64_t kSm87MacroFeedV4P40EngineRopeTableBytes =
+    static_cast<std::uint64_t>(kSm87MacroFeedV4P40EngineRopePositions) *
+    kSm87MacroFeedV4P40EngineRopePairs * sizeof(float);
+inline constexpr std::uint64_t kSm87MacroFeedV4P40EngineRopeAllocationBytes =
+    2U * kSm87MacroFeedV4P40EngineRopeTableBytes;
 
 static_assert(kSm87MacroFeedV4P40ExecutionTransientBytes == 442'368'000U);
 static_assert(kSm87MacroFeedV4P40ExecutionScratchOffset == 163'840'000U);
+static_assert(kSm87MacroFeedV4P40ExecutionOwnedBytes == 3'220'701'184U);
+static_assert(kSm87MacroFeedV4P40EngineRopeTableBytes == 33'554'432U);
+static_assert(kSm87MacroFeedV4P40EngineRopeAllocationBytes == 67'108'864U);
+static_assert(kSm87MacroFeedV4P40EngineRopePositions >=
+              kSm87MacroFeedV4P40Tokens);
+
+// V4-private, non-owning view of the Engine RoPE owner.  The normal factory
+// accepts this value only from its Engine composition-root friend, validates
+// the complete live contiguous owner allocation, and then retains the sealed
+// value for Full-Attention execution.  Copying this POD grants no ownership,
+// launch authority, selector, or API route.
+struct Sm87MacroFeedV4P40EngineRopeBinding final {
+  const float* cosines = nullptr;
+  const float* sines = nullptr;
+  std::size_t position_count = 0U;
+  std::size_t rotary_pairs = 0U;
+  std::uint64_t owner_identity = 0U;
+  std::uintptr_t allocation_begin = 0U;
+  std::uint64_t allocation_bytes = 0U;
+  std::int32_t device_ordinal = -1;
+};
 
 enum class Sm87MacroFeedV4P40ExecutionPackageError : std::uint8_t {
   kNone = 0U,
@@ -48,11 +83,16 @@ enum class Sm87MacroFeedV4P40ExecutionPackageError : std::uint8_t {
   kLayerNormCatalog,
   kGdnQkvZCatalog,
   kMlpPairCatalog,
+  kFullAttentionResources,
+  kFullAttentionCatalog,
   kNormResources,
   kGdnResources,
   kGateUpResources,
   kDownResources,
   kExecutionEvents,
+  kEngineRope,
+  kMemoryReserve,
+  kKvAllocation,
   kTransientAllocation,
   kRecurrentAllocation,
   kColdRecurrentInitialization,
@@ -90,22 +130,44 @@ struct Sm87MacroFeedV4P40ExecutionPackageAudit final {
   std::uint64_t layer_norm_catalog_identity = 0U;
   std::uint64_t gdn_qkvz_catalog_identity = 0U;
   std::uint64_t mlp_pair_catalog_identity = 0U;
+  std::uint64_t full_attention_catalog_identity = 0U;
   std::uint64_t retained_gdn_layer_catalog_fold_identity = 0U;
   std::uint64_t retained_mlp_pair_catalog_fold_identity = 0U;
+  std::uint64_t retained_full_attention_catalog_fold_identity = 0U;
+  std::uint64_t full_attention_resource_bundle_identity = 0U;
   std::uint64_t gdn_layer0_source_identity = 0U;
   std::uint64_t transient_allocation_identity = 0U;
   std::uint64_t recurrent_allocation_identity = 0U;
+  std::uint64_t kv_allocation_identity = 0U;
+  std::uint64_t request_state_kv_allocation_identity = 0U;
+  std::uint64_t engine_rope_owner_identity = 0U;
+  std::uint64_t engine_rope_binding_identity = 0U;
   std::uint64_t execution_events_owner_identity = 0U;
+  std::uintptr_t kv_allocation_begin = 0U;
+  std::uintptr_t engine_rope_allocation_begin = 0U;
   std::int32_t device_ordinal = -1;
   std::size_t projection_bindings = 0U;
   std::size_t bf16_ab_pairs = 0U;
   std::size_t layer_norm_pairs = 0U;
   std::size_t gdn_qkvz_bindings = 0U;
   std::size_t mlp_pair_bindings = 0U;
+  std::size_t full_attention_bindings = 0U;
+  std::size_t engine_rope_positions = 0U;
+  std::size_t engine_rope_pairs = 0U;
   std::uint64_t transient_bytes = 0U;
   std::uint64_t recurrent_bytes = 0U;
+  std::uint64_t kv_allocation_bytes = 0U;
+  std::uint64_t request_state_kv_allocation_bytes = 0U;
+  std::uint64_t engine_rope_allocation_bytes = 0U;
+  std::uint64_t execution_owned_bytes = 0U;
+  std::uint64_t required_device_allocation_bytes = 0U;
+  std::uint64_t minimum_free_bytes_after_create = 0U;
+  std::uint64_t device_free_bytes_before_allocations = 0U;
+  std::uint64_t device_free_bytes_after_allocations = 0U;
   std::uint64_t cold_recurrent_zero_bytes = 0U;
   std::size_t cold_recurrent_initializations = 0U;
+  bool request_state_kv_physical_owner_bound = false;
+  bool aggregate_memory_gate_passed = false;
   bool fixed_gdn_layer0_front_half_bound = false;
   bool fixed_gdn_layer0_complete_bound = false;
   bool qkvz_ab_ready_transaction_bound = false;
@@ -133,6 +195,57 @@ struct Sm87MacroFeedV4P40ExecutionPackageAudit final {
         retained_mlp_pair_catalog_fold_identity != 0U &&
         mlp_pair_bindings == kSm87MacroFeedV4LayerCount &&
         fixed_gdn_layer0_complete_bound;
+    const bool real_full_attention_owner =
+        !synthetic_t1_gdn_layer0_source &&
+        full_attention_catalog_identity != 0U &&
+        retained_full_attention_catalog_fold_identity != 0U &&
+        full_attention_resource_bundle_identity != 0U &&
+        full_attention_bindings == kSm87MacroFeedV4FullAttentionLayerCount &&
+        kv_allocation_identity != 0U && kv_allocation_begin != 0U &&
+        kv_allocation_bytes == kSm87MacroFeedV4AttentionKvArenaBytes &&
+        request_state_kv_allocation_identity == kv_allocation_identity &&
+        request_state_kv_allocation_bytes == kv_allocation_bytes &&
+        request_state_kv_physical_owner_bound &&
+        engine_rope_owner_identity != 0U &&
+        engine_rope_binding_identity != 0U &&
+        engine_rope_allocation_begin != 0U &&
+        engine_rope_positions == kSm87MacroFeedV4P40EngineRopePositions &&
+        engine_rope_pairs == kSm87MacroFeedV4P40EngineRopePairs &&
+        engine_rope_allocation_bytes ==
+            kSm87MacroFeedV4P40EngineRopeAllocationBytes &&
+        execution_owned_bytes == kSm87MacroFeedV4P40ExecutionOwnedBytes &&
+        required_device_allocation_bytes == execution_owned_bytes &&
+        aggregate_memory_gate_passed &&
+        device_free_bytes_before_allocations >=
+            required_device_allocation_bytes &&
+        minimum_free_bytes_after_create <=
+            device_free_bytes_before_allocations -
+                required_device_allocation_bytes &&
+        device_free_bytes_after_allocations >=
+            minimum_free_bytes_after_create;
+    const bool synthetic_no_full_attention_owner =
+        synthetic_t1_gdn_layer0_source &&
+        full_attention_catalog_identity == 0U &&
+        retained_full_attention_catalog_fold_identity == 0U &&
+        full_attention_resource_bundle_identity == 0U &&
+        full_attention_bindings == 0U && kv_allocation_identity == 0U &&
+        kv_allocation_begin == 0U && kv_allocation_bytes == 0U &&
+        request_state_kv_allocation_identity != 0U &&
+        request_state_kv_allocation_bytes ==
+            kSm87MacroFeedV4AttentionKvArenaBytes &&
+        !request_state_kv_physical_owner_bound &&
+        engine_rope_owner_identity == 0U &&
+        engine_rope_binding_identity == 0U &&
+        engine_rope_allocation_begin == 0U && engine_rope_positions == 0U &&
+        engine_rope_pairs == 0U && engine_rope_allocation_bytes == 0U &&
+        execution_owned_bytes ==
+            kSm87MacroFeedV4P40ExecutionTransientBytes +
+                kSm87MacroFeedV4RecurrentStorageBytes &&
+        required_device_allocation_bytes == 0U &&
+        minimum_free_bytes_after_create == 0U &&
+        device_free_bytes_before_allocations == 0U &&
+        device_free_bytes_after_allocations == 0U &&
+        !aggregate_memory_gate_passed;
     const bool synthetic_front_half_source =
         synthetic_t1_gdn_layer0_source &&
         gdn_qkvz_catalog_identity == 0U && gdn_qkvz_bindings == 1U &&
@@ -156,6 +269,8 @@ struct Sm87MacroFeedV4P40ExecutionPackageAudit final {
            gdn_layer0_source_identity != 0U &&
            (real_complete_catalogs || synthetic_front_half_source ||
             synthetic_complete_source) &&
+           (real_full_attention_owner ||
+            synthetic_no_full_attention_owner) &&
            transient_allocation_identity != 0U &&
            recurrent_allocation_identity != 0U &&
            execution_events_owner_identity != 0U && device_ordinal >= 0 &&
@@ -366,7 +481,9 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
   // caller from detaching stream/transient ownership from the complete
   // ModelWeights -> StartupPackage -> ExecutionPackage lifetime root.
   [[nodiscard]] static Sm87MacroFeedV4P40ExecutionPackageCreateResult create(
-      const StartupPackage& startup_package) noexcept;
+      const StartupPackage& startup_package,
+      const Sm87MacroFeedV4P40EngineRopeBinding& engine_rope,
+      std::uint64_t minimum_free_bytes_after_create) noexcept;
 
   using ProjectionBinding = sm87_macrofeed_v4_p40_startup_package_detail::
       Sm87MacroFeedV4ProjectionStartupBinding;
@@ -378,6 +495,8 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
   using LayerNormCatalog = StartupPackage::LayerNormExecutionBindingCatalog;
   using GdnQkvZCatalog = StartupPackage::GdnQkvZExecutionBindingCatalog;
   using MlpPairCatalog = StartupPackage::MlpPairExecutionBindingCatalog;
+  using FullAttentionCatalog =
+      StartupPackage::FullAttentionLayerExecutionBindingCatalog;
   using EventsOwner = sm87_macrofeed_v4_execution_events_detail::
       Sm87MacroFeedV4ExecutionEventsOwner;
   using EventsDriver = sm87_macrofeed_v4_execution_events_detail::
@@ -421,6 +540,7 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
       ProjectionCatalog projection_catalog, Bf16AbCatalog bf16_ab_catalog,
       LayerNormCatalog layer_norm_catalog, GdnQkvZCatalog gdn_qkvz_catalog,
       MlpPairCatalog mlp_pair_catalog,
+      FullAttentionCatalog full_attention_catalog,
       GdnLayer0ExecutionSource gdn_layer0_source,
       std::optional<CompleteGdnLayer0ExecutionSource>
           complete_gdn_layer0_source,
@@ -432,7 +552,9 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
           gdn_resources,
       kernels::Sm87MacroFeedV4NvFp4GateUpCudaResources gate_up_resources,
       kernels::Sm87MacroFeedV4NvFp4DownCudaResources down_resources,
-      void* transient_allocation, void* recurrent_allocation,
+      Sm87MacroFeedV4P40EngineRopeBinding engine_rope,
+      void* kv_allocation, void* transient_allocation,
+      void* recurrent_allocation,
       std::unique_ptr<Sm87MacroFeedV4RequestState> request_state,
       std::shared_ptr<EventsOwner> events_owner,
       std::unique_ptr<EventsDriver> events_driver,
@@ -441,6 +563,8 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
   [[nodiscard]] static Sm87MacroFeedV4P40ExecutionPackageCreateResult
   create_impl(
       const StartupPackage& startup_package,
+      const Sm87MacroFeedV4P40EngineRopeBinding* engine_rope,
+      std::uint64_t minimum_free_bytes_after_create,
       const kernels::Sm87TargetAotFp8CudaAssetView*
           synthetic_t1_gdn_layer0_asset,
       const SyntheticCompleteGdnLayer0Source*
@@ -459,6 +583,9 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
       const GdnQkvZCatalog& catalog) noexcept;
   [[nodiscard]] static std::uint64_t compute_mlp_pair_catalog_fold_identity(
       const MlpPairCatalog& catalog) noexcept;
+  [[nodiscard]] static std::uint64_t
+  compute_full_attention_catalog_fold_identity(
+      const FullAttentionCatalog& catalog) noexcept;
   [[nodiscard]] static std::uint64_t compute_complete_layer0_source_identity(
       const CompleteGdnLayer0ExecutionSource& source) noexcept;
   [[nodiscard]] Sm87MacroFeedV4P40ExecutionPackageStatus
@@ -483,6 +610,7 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
   LayerNormCatalog layer_norm_catalog_{};
   GdnQkvZCatalog gdn_qkvz_catalog_{};
   MlpPairCatalog mlp_pair_catalog_{};
+  FullAttentionCatalog full_attention_catalog_{};
   GdnLayer0ExecutionSource gdn_layer0_source_{};
   std::optional<CompleteGdnLayer0ExecutionSource>
       complete_gdn_layer0_source_{};
@@ -494,6 +622,8 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
       gdn_resources_{};
   kernels::Sm87MacroFeedV4NvFp4GateUpCudaResources gate_up_resources_{};
   kernels::Sm87MacroFeedV4NvFp4DownCudaResources down_resources_{};
+  Sm87MacroFeedV4P40EngineRopeBinding engine_rope_{};
+  void* kv_allocation_ = nullptr;
   void* transient_allocation_ = nullptr;
   void* recurrent_allocation_ = nullptr;
   std::uint16_t* ping_ = nullptr;

@@ -261,6 +261,56 @@ std::atomic<std::uint64_t> g_next_complete_layer_receipt_identity{1U};
   return true;
 }
 
+[[nodiscard]] std::uint64_t engine_rope_binding_identity(
+    const Sm87MacroFeedV4P40EngineRopeBinding& binding) noexcept {
+  if (binding.cosines == nullptr || binding.sines == nullptr ||
+      binding.position_count != kSm87MacroFeedV4P40EngineRopePositions ||
+      binding.rotary_pairs != kSm87MacroFeedV4P40EngineRopePairs ||
+      binding.owner_identity == 0U || binding.allocation_begin == 0U ||
+      binding.allocation_bytes !=
+          kSm87MacroFeedV4P40EngineRopeAllocationBytes ||
+      binding.device_ordinal < 0 ||
+      reinterpret_cast<std::uintptr_t>(binding.cosines) !=
+          binding.allocation_begin ||
+      reinterpret_cast<std::uintptr_t>(binding.sines) !=
+          binding.allocation_begin +
+              kSm87MacroFeedV4P40EngineRopeTableBytes) {
+    return 0U;
+  }
+  std::uint64_t identity = 0x5133'4d46'5634'5250ULL;
+  identity = mix64(identity ^ binding.owner_identity);
+  identity = mix64(identity ^ binding.allocation_begin);
+  identity = mix64(identity ^ binding.allocation_bytes);
+  identity = mix64(identity ^ binding.position_count);
+  identity = mix64(identity ^ binding.rotary_pairs);
+  identity = mix64(
+      identity ^ static_cast<std::uint64_t>(binding.device_ordinal + 1));
+  return identity == 0U ? 1U : identity;
+}
+
+[[nodiscard]] bool exact_live_engine_rope_binding(
+    const Sm87MacroFeedV4P40EngineRopeBinding& binding,
+    const std::int32_t expected_device, int* const cuda_error) noexcept {
+  if (cuda_error != nullptr) {
+    *cuda_error = 0;
+  }
+  if (cuda_error == nullptr || binding.device_ordinal != expected_device ||
+      engine_rope_binding_identity(binding) == 0U ||
+      binding.allocation_begin >
+          std::numeric_limits<std::uintptr_t>::max() -
+              binding.allocation_bytes ||
+      !pointer_aligned(binding.cosines, 16U) ||
+      !pointer_aligned(binding.sines, 16U)) {
+    if (cuda_error != nullptr) {
+      *cuda_error = static_cast<int>(cudaErrorInvalidValue);
+    }
+    return false;
+  }
+  return exact_live_device_range(
+      binding.cosines, binding.allocation_bytes, expected_device,
+      binding.allocation_begin, binding.allocation_bytes, cuda_error);
+}
+
 [[nodiscard]] bool exact_live_synthetic_nvfp4_asset(
     const kernels::Sm87TargetAotNvFp4CudaAssetView& asset,
     const kernels::Sm87TargetAotProjectionRole expected_role,
@@ -295,6 +345,7 @@ Sm87MacroFeedV4P40ExecutionPackage::Sm87MacroFeedV4P40ExecutionPackage(
     ProjectionCatalog projection_catalog, Bf16AbCatalog bf16_ab_catalog,
     LayerNormCatalog layer_norm_catalog, GdnQkvZCatalog gdn_qkvz_catalog,
     MlpPairCatalog mlp_pair_catalog,
+    FullAttentionCatalog full_attention_catalog,
     GdnLayer0ExecutionSource gdn_layer0_source,
     std::optional<CompleteGdnLayer0ExecutionSource>
         complete_gdn_layer0_source,
@@ -305,7 +356,9 @@ Sm87MacroFeedV4P40ExecutionPackage::Sm87MacroFeedV4P40ExecutionPackage(
     kernels::Sm87MacroFeedV4GdnC8000AdmissionResourceSnapshot gdn_resources,
     kernels::Sm87MacroFeedV4NvFp4GateUpCudaResources gate_up_resources,
     kernels::Sm87MacroFeedV4NvFp4DownCudaResources down_resources,
-    void* const transient_allocation, void* const recurrent_allocation,
+    Sm87MacroFeedV4P40EngineRopeBinding engine_rope,
+    void* const kv_allocation, void* const transient_allocation,
+    void* const recurrent_allocation,
     std::unique_ptr<Sm87MacroFeedV4RequestState> request_state,
     std::shared_ptr<EventsOwner> events_owner,
     std::unique_ptr<EventsDriver> events_driver,
@@ -315,6 +368,7 @@ Sm87MacroFeedV4P40ExecutionPackage::Sm87MacroFeedV4P40ExecutionPackage(
       layer_norm_catalog_(std::move(layer_norm_catalog)),
       gdn_qkvz_catalog_(std::move(gdn_qkvz_catalog)),
       mlp_pair_catalog_(std::move(mlp_pair_catalog)),
+      full_attention_catalog_(std::move(full_attention_catalog)),
       gdn_layer0_source_(gdn_layer0_source),
       complete_gdn_layer0_source_(std::move(complete_gdn_layer0_source)),
       norm_resources_(norm_resources),
@@ -322,6 +376,8 @@ Sm87MacroFeedV4P40ExecutionPackage::Sm87MacroFeedV4P40ExecutionPackage(
       gdn_resources_(gdn_resources),
       gate_up_resources_(gate_up_resources),
       down_resources_(down_resources),
+      engine_rope_(engine_rope),
+      kv_allocation_(kv_allocation),
       transient_allocation_(transient_allocation),
       recurrent_allocation_(recurrent_allocation),
       ping_(reinterpret_cast<std::uint16_t*>(
@@ -377,6 +433,25 @@ std::uint64_t Sm87MacroFeedV4P40ExecutionPackage::
       return 0U;
     }
     identity = mix64(identity ^ (layer + 1U));
+    identity = mix64(identity ^ binding_identity);
+  }
+  return identity == 0U ? 1U : identity;
+}
+
+std::uint64_t Sm87MacroFeedV4P40ExecutionPackage::
+    compute_full_attention_catalog_fold_identity(
+        const FullAttentionCatalog& catalog) noexcept {
+  std::uint64_t identity = 0x5133'4d46'5634'4643ULL;
+  identity = mix64(identity ^ catalog.size());
+  for (std::size_t ordinal = 0U; ordinal < catalog.size(); ++ordinal) {
+    const std::uint64_t binding_identity =
+        StartupPackage::compute_full_attention_execution_binding_identity(
+            catalog[ordinal]);
+    if (binding_identity == 0U ||
+        binding_identity != catalog[ordinal].binding_identity) {
+      return 0U;
+    }
+    identity = mix64(identity ^ (ordinal + 1U));
     identity = mix64(identity ^ binding_identity);
   }
   return identity == 0U ? 1U : identity;
@@ -450,13 +525,18 @@ Sm87MacroFeedV4P40ExecutionPackageCreateResult::operator bool()
 
 Sm87MacroFeedV4P40ExecutionPackageCreateResult
 Sm87MacroFeedV4P40ExecutionPackage::create(
-    const StartupPackage& startup_package) noexcept {
-  return create_impl(startup_package, nullptr, nullptr);
+    const StartupPackage& startup_package,
+    const Sm87MacroFeedV4P40EngineRopeBinding& engine_rope,
+    const std::uint64_t minimum_free_bytes_after_create) noexcept {
+  return create_impl(startup_package, &engine_rope,
+                     minimum_free_bytes_after_create, nullptr, nullptr);
 }
 
 Sm87MacroFeedV4P40ExecutionPackageCreateResult
 Sm87MacroFeedV4P40ExecutionPackage::create_impl(
     const StartupPackage& startup_package,
+    const Sm87MacroFeedV4P40EngineRopeBinding* const engine_rope,
+    const std::uint64_t minimum_free_bytes_after_create,
     const kernels::Sm87TargetAotFp8CudaAssetView* const
         synthetic_t1_gdn_layer0_asset,
     const SyntheticCompleteGdnLayer0Source* const
@@ -468,10 +548,14 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
     !defined(Q3X_ENABLE_SM87_MACROFEED_V4_NORM_RESIDUAL_ADMISSION) || \
     !defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION) || \
     !defined(Q3X_ENABLE_SM87_MACROFEED_V4_FP8_ADMISSION) || \
+    !defined(Q3X_ENABLE_SM87_MACROFEED_V4_FULL_ATTENTION_PREPROCESS_ADMISSION) || \
+    !defined(Q3X_ENABLE_SM87_MACROFEED_V4_ATTENTION_C8000_ADMISSION) || \
     !defined(Q3X_ENABLE_SM87_MACROFEED_V4_GDN_C8000_ADMISSION) || \
     !defined(Q3X_ENABLE_SM87_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION) || \
     !defined(Q3X_ENABLE_SM87_MACROFEED_V4_NVFP4_DOWN_ADMISSION)
   (void)startup_package;
+  (void)engine_rope;
+  (void)minimum_free_bytes_after_create;
   (void)synthetic_t1_gdn_layer0_asset;
   (void)synthetic_complete_gdn_layer0_source;
   result.status = failure(Error::kAdmissionDisabled, "admission_disabled");
@@ -483,9 +567,10 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
     return result;
   }
 
-  // Copy every immutable binding by value.  The execution package never
-  // retains a pointer into StartupPackage storage and remains destruction-safe
-  // if it escapes the Engine composition root's ownership chain.
+  // Copy each immutable binding container by value so package validity never
+  // depends on StartupPackage object storage.  The copied bindings still
+  // borrow ModelWeights/target-AOT/RoPE device owners: the private Engine
+  // composition root must anchor them and the package must never escape it.
   ProjectionCatalog projection_catalog = startup_package.projection_bindings_;
   for (const auto& binding : projection_catalog) {
     if (!binding.has_value() || binding->binding_identity() == 0U ||
@@ -879,6 +964,130 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
     return result;
   }
 
+  FullAttentionCatalog full_attention_catalog{};
+  std::uint64_t full_attention_catalog_identity = 0U;
+  std::uint64_t retained_full_attention_catalog_fold_identity = 0U;
+  std::uint64_t full_attention_resource_bundle_identity = 0U;
+  Sm87MacroFeedV4P40EngineRopeBinding sealed_engine_rope{};
+  std::uint64_t sealed_engine_rope_binding_identity = 0U;
+  if (!synthetic_requested) {
+    StartupPackage::FullAttentionExecutionResourceObservations observations{};
+    int full_resource_status =
+        kernels::query_sm87_macrofeed_v4_fp8_cuda_resources(
+            kernels::Sm87TargetAotProjectionRole::kFp8FullQkv,
+            kernels::Sm87MacroFeedV4Fp8InputLayout::
+                kHiddenContiguousH5120V1,
+            &observations.qkv);
+    if (full_resource_status != static_cast<int>(cudaSuccess)) {
+      result.status = failure(Error::kFullAttentionResources,
+                              "full_qkv_resource_query",
+                              full_resource_status);
+      return result;
+    }
+    observations.qkv.static_resource_gate_passed =
+        kernels::sm87_macrofeed_v4_fp8_resource_gate(observations.qkv);
+    if (!observations.qkv.static_resource_gate_passed) {
+      result.status = failure(Error::kFullAttentionResources,
+                              "full_qkv_static_resource_gate");
+      return result;
+    }
+    full_resource_status =
+        kernels::query_sm87_macrofeed_v4_fp8_cuda_resources(
+            kernels::Sm87TargetAotProjectionRole::kFp8AttentionOutput,
+            kernels::Sm87MacroFeedV4Fp8InputLayout::
+                kFullAttentionInterleavedQScratchV1,
+            &observations.output);
+    if (full_resource_status != static_cast<int>(cudaSuccess)) {
+      result.status = failure(Error::kFullAttentionResources,
+                              "full_output_resource_query",
+                              full_resource_status);
+      return result;
+    }
+    observations.output.static_resource_gate_passed =
+        kernels::sm87_macrofeed_v4_fp8_resource_gate(observations.output);
+    if (!observations.output.static_resource_gate_passed) {
+      result.status = failure(Error::kFullAttentionResources,
+                              "full_output_static_resource_gate");
+      return result;
+    }
+    full_resource_status = kernels::
+        query_sm87_macrofeed_v4_full_attention_preprocess_admission_resources_cuda(
+            &observations.preprocess);
+    if (full_resource_status != static_cast<int>(cudaSuccess)) {
+      result.status = failure(Error::kFullAttentionResources,
+                              "full_preprocess_resource_query",
+                              full_resource_status);
+      return result;
+    }
+    full_resource_status = kernels::
+        query_sm87_macrofeed_v4_attention_c8000_admission_resources_cuda(
+            &observations.attention);
+    if (full_resource_status != static_cast<int>(cudaSuccess)) {
+      result.status = failure(Error::kFullAttentionResources,
+                              "full_attention_resource_query",
+                              full_resource_status);
+      return result;
+    }
+    observations.source_private_queries_completed = true;
+    observations.caller_resource_snapshot_accepted = false;
+    std::size_t full_failure_ordinal =
+        startup::kSm87MacroFeedV4P40StartupPackageFullLayers;
+    int full_cuda_error = 0;
+    if (!startup_package
+             .seal_full_attention_execution_catalog_for_execution_package(
+                 observations, &full_attention_catalog,
+                 &full_attention_catalog_identity, &full_failure_ordinal,
+                 &full_cuda_error)) {
+      const std::size_t failure_layer =
+          full_failure_ordinal < full_attention_catalog.size()
+              ? 4U * full_failure_ordinal + 3U
+              : kSm87MacroFeedV4LayerCount;
+      result.status = failure(Error::kFullAttentionCatalog,
+                              "complete_full_attention_catalog_seal",
+                              full_cuda_error, failure_layer);
+      return result;
+    }
+    retained_full_attention_catalog_fold_identity =
+        compute_full_attention_catalog_fold_identity(full_attention_catalog);
+    if (full_attention_catalog_identity == 0U ||
+        retained_full_attention_catalog_fold_identity == 0U ||
+        full_attention_catalog.empty()) {
+      result.status = failure(Error::kFullAttentionCatalog,
+                              "retained_full_attention_catalog_identity");
+      return result;
+    }
+    full_attention_resource_bundle_identity =
+        full_attention_catalog[0U].resource_bundle_identity;
+    for (const auto& binding : full_attention_catalog) {
+      if (binding.resource_bundle_identity !=
+          full_attention_resource_bundle_identity) {
+        result.status = failure(Error::kFullAttentionCatalog,
+                                "full_attention_resource_bundle_identity");
+        return result;
+      }
+    }
+    int rope_cuda_error = 0;
+    if (engine_rope == nullptr ||
+        !exact_live_engine_rope_binding(
+            engine_rope == nullptr
+                ? Sm87MacroFeedV4P40EngineRopeBinding{}
+                : *engine_rope,
+            startup_package.audit().device_ordinal, &rope_cuda_error)) {
+      result.status = failure(Error::kEngineRope,
+                              "live_contiguous_engine_rope_binding",
+                              rope_cuda_error);
+      return result;
+    }
+    sealed_engine_rope = *engine_rope;
+    sealed_engine_rope_binding_identity =
+        engine_rope_binding_identity(sealed_engine_rope);
+  } else if (engine_rope != nullptr ||
+             minimum_free_bytes_after_create != 0U) {
+    result.status = failure(Error::kEngineRope,
+                            "synthetic_execution_must_not_bind_engine_rope");
+    return result;
+  }
+
   auto events_created =
       events::create_sm87_macrofeed_v4_execution_events_owner();
   if (!events_created) {
@@ -914,24 +1123,89 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
     return result;
   }
 
+  std::uint64_t required_device_allocation_bytes = 0U;
+  std::uint64_t device_free_bytes_before_allocations = 0U;
+  std::uint64_t device_free_bytes_after_allocations = 0U;
+  bool aggregate_memory_gate_passed = false;
+  if (!synthetic_requested) {
+    std::size_t free_bytes = 0U;
+    std::size_t total_bytes = 0U;
+    const cudaError_t info_status = cudaMemGetInfo(&free_bytes, &total_bytes);
+    (void)total_bytes;
+    required_device_allocation_bytes =
+        kSm87MacroFeedV4P40ExecutionOwnedBytes;
+    device_free_bytes_before_allocations = free_bytes;
+    if (info_status != cudaSuccess ||
+        required_device_allocation_bytes > free_bytes ||
+        minimum_free_bytes_after_create >
+            static_cast<std::uint64_t>(free_bytes) -
+                required_device_allocation_bytes) {
+      result.status = failure(Error::kMemoryReserve,
+                              "aggregate_device_memory_reserve_gate",
+                              static_cast<int>(info_status));
+      return result;
+    }
+    aggregate_memory_gate_passed = true;
+  }
+
+  void* kv = nullptr;
   void* transient = nullptr;
-  cudaError_t cuda_status = cudaMalloc(
+  void* recurrent = nullptr;
+  const auto rollback_storage = [&]() noexcept {
+    events_driver.reset();
+    events_owner.reset();
+    if (kv != nullptr) {
+      (void)cudaFree(kv);
+      kv = nullptr;
+    }
+    if (recurrent != nullptr) {
+      (void)cudaFree(recurrent);
+      recurrent = nullptr;
+    }
+    if (transient != nullptr) {
+      (void)cudaFree(transient);
+      transient = nullptr;
+    }
+  };
+
+  cudaError_t cuda_status = cudaSuccess;
+  if (!synthetic_requested) {
+    cuda_status = cudaMalloc(
+        &kv, static_cast<std::size_t>(
+                 kSm87MacroFeedV4AttentionKvArenaBytes));
+    int kv_cuda_error = 0;
+    if (cuda_status != cudaSuccess || kv == nullptr ||
+        !exact_live_device_range(
+            kv, kSm87MacroFeedV4AttentionKvArenaBytes,
+            startup_package.audit().device_ordinal,
+            reinterpret_cast<std::uintptr_t>(kv),
+            kSm87MacroFeedV4AttentionKvArenaBytes, &kv_cuda_error)) {
+      rollback_storage();
+      result.status = failure(
+          Error::kKvAllocation, "exact_full_attention_kv_allocation",
+          cuda_status != cudaSuccess ? static_cast<int>(cuda_status)
+                                     : kv_cuda_error);
+      return result;
+    }
+  }
+
+  cuda_status = cudaMalloc(
       &transient,
       static_cast<std::size_t>(
           kSm87MacroFeedV4P40ExecutionTransientBytes));
   if (cuda_status != cudaSuccess || transient == nullptr) {
+    rollback_storage();
     result.status = failure(Error::kTransientAllocation,
                             "transient_allocation",
                             static_cast<int>(cuda_status));
     return result;
   }
 
-  void* recurrent = nullptr;
   cuda_status = cudaMalloc(
       &recurrent,
       static_cast<std::size_t>(kSm87MacroFeedV4RecurrentStorageBytes));
   if (cuda_status != cudaSuccess || recurrent == nullptr) {
-    (void)cudaFree(transient);
+    rollback_storage();
     result.status = failure(Error::kRecurrentAllocation,
                             "recurrent_allocation",
                             static_cast<int>(cuda_status));
@@ -942,6 +1216,8 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
       next_nonzero(&g_next_execution_identity);
   const std::uint64_t recurrent_identity =
       next_nonzero(&g_next_execution_identity);
+  const std::uint64_t kv_identity =
+      synthetic_requested ? 0U : next_nonzero(&g_next_execution_identity);
   const std::uint64_t bank_a_identity =
       next_nonzero(&g_next_execution_identity);
   const std::uint64_t bank_b_identity =
@@ -951,10 +1227,7 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
       static_cast<std::size_t>(kSm87MacroFeedV4RecurrentStorageBytes),
       recurrent_identity);
   if (!cold_initialized) {
-    events_driver.reset();
-    events_owner.reset();
-    (void)cudaFree(recurrent);
-    (void)cudaFree(transient);
+    rollback_storage();
     result.status = failure(Error::kColdRecurrentInitialization,
                             "cold_recurrent_storage_zero_and_seal",
                             cold_initialized.cuda_error,
@@ -970,21 +1243,43 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
           reinterpret_cast<std::uintptr_t>(recurrent) ||
       cold_snapshot.cold_recurrent_zero_bytes !=
           kSm87MacroFeedV4RecurrentStorageBytes) {
-    events_driver.reset();
-    events_owner.reset();
-    (void)cudaFree(recurrent);
-    (void)cudaFree(transient);
+    rollback_storage();
     result.status = failure(Error::kColdRecurrentInitialization,
                             "cold_recurrent_storage_seal_postcondition");
     return result;
   }
-  const auto admission = make_sm87_macrofeed_v4_request_state_admission(
-      events_owner_identity, recurrent_identity, bank_a_identity,
-      bank_b_identity);
+  // Sample the retained reserve only after the cold-initialization launch has
+  // exercised the package's first CUDA module/resource path.  Measuring
+  // immediately after cudaMalloc would miss any device memory retained by
+  // that construction-only initialization and would overstate the true
+  // post-create reserve available to the later legacy request arena.
+  if (!synthetic_requested) {
+    std::size_t free_bytes = 0U;
+    std::size_t total_bytes = 0U;
+    const cudaError_t info_status = cudaMemGetInfo(&free_bytes, &total_bytes);
+    (void)total_bytes;
+    device_free_bytes_after_allocations = free_bytes;
+    if (info_status != cudaSuccess ||
+        device_free_bytes_after_allocations <
+            minimum_free_bytes_after_create) {
+      rollback_storage();
+      result.status = failure(Error::kMemoryReserve,
+                              "post_initialization_device_memory_reserve_gate",
+                              static_cast<int>(info_status));
+      return result;
+    }
+  }
+  const auto admission =
+      synthetic_requested
+          ? make_sm87_macrofeed_v4_request_state_admission(
+                events_owner_identity, recurrent_identity, bank_a_identity,
+                bank_b_identity)
+          : make_sm87_macrofeed_v4_request_state_admission(
+                events_owner_identity, recurrent_identity, bank_a_identity,
+                bank_b_identity, kv_identity);
   auto request_created = Sm87MacroFeedV4RequestState::create(admission);
   if (!request_created) {
-    (void)cudaFree(recurrent);
-    (void)cudaFree(transient);
+    rollback_storage();
     result.status = failure(Error::kRequestState,
                             "request_state_owner_binding");
     return result;
@@ -998,17 +1293,31 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
   audit.layer_norm_catalog_identity = layer_norm_catalog_identity;
   audit.gdn_qkvz_catalog_identity = gdn_qkvz_catalog_identity;
   audit.mlp_pair_catalog_identity = mlp_pair_catalog_identity;
+  audit.full_attention_catalog_identity = full_attention_catalog_identity;
   audit.retained_gdn_layer_catalog_fold_identity =
       retained_gdn_layer_catalog_fold_identity;
   audit.retained_mlp_pair_catalog_fold_identity =
       retained_mlp_pair_catalog_fold_identity;
+  audit.retained_full_attention_catalog_fold_identity =
+      retained_full_attention_catalog_fold_identity;
+  audit.full_attention_resource_bundle_identity =
+      full_attention_resource_bundle_identity;
   audit.gdn_layer0_source_identity =
       complete_gdn_layer0_source.has_value()
           ? complete_gdn_layer0_source->identity
           : gdn_layer0_source.identity;
   audit.transient_allocation_identity = transient_identity;
   audit.recurrent_allocation_identity = recurrent_identity;
+  audit.kv_allocation_identity = kv_identity;
+  audit.request_state_kv_allocation_identity =
+      request_created.state->admission().kv_allocation_identity;
+  audit.engine_rope_owner_identity = sealed_engine_rope.owner_identity;
+  audit.engine_rope_binding_identity =
+      sealed_engine_rope_binding_identity;
   audit.execution_events_owner_identity = events_owner_identity;
+  audit.kv_allocation_begin = reinterpret_cast<std::uintptr_t>(kv);
+  audit.engine_rope_allocation_begin =
+      sealed_engine_rope.allocation_begin;
   audit.device_ordinal = startup_package.audit().device_ordinal;
   audit.projection_bindings = projection_catalog.size();
   audit.bf16_ab_pairs = bf16_ab_catalog.size();
@@ -1019,11 +1328,36 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
       gdn_layer0_source.synthetic_t1
           ? (complete_gdn_layer0_source.has_value() ? 1U : 0U)
           : mlp_pair_catalog.size();
+  audit.full_attention_bindings =
+      synthetic_requested ? 0U : full_attention_catalog.size();
+  audit.engine_rope_positions = sealed_engine_rope.position_count;
+  audit.engine_rope_pairs = sealed_engine_rope.rotary_pairs;
   audit.transient_bytes = kSm87MacroFeedV4P40ExecutionTransientBytes;
   audit.recurrent_bytes = kSm87MacroFeedV4RecurrentStorageBytes;
+  audit.kv_allocation_bytes =
+      synthetic_requested ? 0U : kSm87MacroFeedV4AttentionKvArenaBytes;
+  audit.request_state_kv_allocation_bytes =
+      request_created.state->admission().kv_allocation_bytes;
+  audit.engine_rope_allocation_bytes = sealed_engine_rope.allocation_bytes;
+  audit.execution_owned_bytes =
+      synthetic_requested
+          ? kSm87MacroFeedV4P40ExecutionTransientBytes +
+                kSm87MacroFeedV4RecurrentStorageBytes
+          : kSm87MacroFeedV4P40ExecutionOwnedBytes;
+  audit.required_device_allocation_bytes =
+      required_device_allocation_bytes;
+  audit.minimum_free_bytes_after_create =
+      synthetic_requested ? 0U : minimum_free_bytes_after_create;
+  audit.device_free_bytes_before_allocations =
+      device_free_bytes_before_allocations;
+  audit.device_free_bytes_after_allocations =
+      device_free_bytes_after_allocations;
   audit.cold_recurrent_zero_bytes = cold_snapshot.cold_recurrent_zero_bytes;
   audit.cold_recurrent_initializations =
       cold_snapshot.cold_recurrent_initializations;
+  audit.request_state_kv_physical_owner_bound =
+      request_created.state->admission().kv_physical_owner_bound;
+  audit.aggregate_memory_gate_passed = aggregate_memory_gate_passed;
   audit.fixed_gdn_layer0_front_half_bound = true;
   audit.fixed_gdn_layer0_complete_bound =
       complete_gdn_layer0_source.has_value();
@@ -1049,20 +1383,34 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
   package_identity = mix64(package_identity ^ audit.layer_norm_catalog_identity);
   package_identity = mix64(package_identity ^ audit.gdn_qkvz_catalog_identity);
   package_identity = mix64(package_identity ^ audit.mlp_pair_catalog_identity);
+  package_identity =
+      mix64(package_identity ^ audit.full_attention_catalog_identity);
   package_identity = mix64(
       package_identity ^ audit.retained_gdn_layer_catalog_fold_identity);
   package_identity = mix64(
       package_identity ^ audit.retained_mlp_pair_catalog_fold_identity);
+  package_identity = mix64(
+      package_identity ^
+      audit.retained_full_attention_catalog_fold_identity);
+  package_identity = mix64(
+      package_identity ^ audit.full_attention_resource_bundle_identity);
   package_identity = mix64(package_identity ^ audit.gdn_layer0_source_identity);
   package_identity = mix64(package_identity ^ audit.transient_allocation_identity);
   package_identity = mix64(package_identity ^ audit.recurrent_allocation_identity);
+  package_identity = mix64(package_identity ^ audit.kv_allocation_identity);
+  package_identity =
+      mix64(package_identity ^ audit.engine_rope_owner_identity);
+  package_identity =
+      mix64(package_identity ^ audit.engine_rope_binding_identity);
+  package_identity =
+      mix64(package_identity ^ audit.minimum_free_bytes_after_create);
   package_identity = mix64(package_identity ^ audit.cold_recurrent_zero_bytes);
   package_identity =
       mix64(package_identity ^ audit.execution_events_owner_identity);
   audit.package_identity = package_identity == 0U ? 1U : package_identity;
   if (!audit.valid()) {
-    (void)cudaFree(recurrent);
-    (void)cudaFree(transient);
+    request_created.state.reset();
+    rollback_storage();
     result.status = failure(Error::kPackageAllocation,
                             "execution_package_audit");
     return result;
@@ -1071,14 +1419,15 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
   result.package.reset(new (std::nothrow) Sm87MacroFeedV4P40ExecutionPackage(
       std::move(projection_catalog), std::move(bf16_ab_catalog),
       std::move(layer_norm_catalog), std::move(gdn_qkvz_catalog),
-      std::move(mlp_pair_catalog), gdn_layer0_source,
+      std::move(mlp_pair_catalog), std::move(full_attention_catalog),
+      gdn_layer0_source,
       std::move(complete_gdn_layer0_source), norm_resources,
       bf16_ab_resources, gdn_resources, gate_up_resources, down_resources,
-      transient, recurrent, std::move(request_created.state),
+      sealed_engine_rope, kv, transient, recurrent,
+      std::move(request_created.state),
       std::move(events_owner), std::move(events_driver), audit));
   if (result.package == nullptr) {
-    (void)cudaFree(recurrent);
-    (void)cudaFree(transient);
+    rollback_storage();
     result.status = failure(Error::kPackageAllocation,
                             "execution_package_host_allocation");
     return result;
@@ -1311,6 +1660,12 @@ bool Sm87MacroFeedV4P40ExecutionPackage::valid() const noexcept {
           audit_.recurrent_allocation_identity ||
       request_state_->admission().allocation_bytes !=
           kSm87MacroFeedV4RecurrentStorageBytes ||
+      request_state_->admission().kv_allocation_identity !=
+          audit_.request_state_kv_allocation_identity ||
+      request_state_->admission().kv_allocation_bytes !=
+          audit_.request_state_kv_allocation_bytes ||
+      request_state_->admission().kv_physical_owner_bound !=
+          audit_.request_state_kv_physical_owner_bound ||
       projection_catalog_.size() != audit_.projection_bindings ||
       bf16_ab_catalog_.size() != audit_.bf16_ab_pairs ||
       layer_norm_catalog_.size() != audit_.layer_norm_pairs ||
@@ -1326,6 +1681,10 @@ bool Sm87MacroFeedV4P40ExecutionPackage::valid() const noexcept {
     }
   }
   if (audit_.synthetic_t1_gdn_layer0_source) {
+    if (kv_allocation_ != nullptr ||
+        engine_rope_binding_identity(engine_rope_) != 0U) {
+      return false;
+    }
     for (const auto& binding : gdn_qkvz_catalog_) {
       if (binding.binding_identity != 0U) {
         return false;
@@ -1336,8 +1695,46 @@ bool Sm87MacroFeedV4P40ExecutionPackage::valid() const noexcept {
         return false;
       }
     }
+    for (const auto& binding : full_attention_catalog_) {
+      if (binding.binding_identity != 0U) {
+        return false;
+      }
+    }
     return !audit_.fixed_gdn_layer0_complete_bound ||
            complete_layer_bindings_valid();
+  }
+  int owner_cuda_error = 0;
+  if (kv_allocation_ == nullptr ||
+      !exact_live_device_range(
+          kv_allocation_, kSm87MacroFeedV4AttentionKvArenaBytes,
+          audit_.device_ordinal, audit_.kv_allocation_begin,
+          audit_.kv_allocation_bytes, &owner_cuda_error) ||
+      engine_rope_binding_identity(engine_rope_) !=
+          audit_.engine_rope_binding_identity ||
+      !exact_live_engine_rope_binding(engine_rope_, audit_.device_ordinal,
+                                      &owner_cuda_error) ||
+      compute_full_attention_catalog_fold_identity(
+          full_attention_catalog_) !=
+          audit_.retained_full_attention_catalog_fold_identity) {
+    return false;
+  }
+  for (std::size_t ordinal = 0U;
+       ordinal < full_attention_catalog_.size(); ++ordinal) {
+    const auto& binding = full_attention_catalog_[ordinal];
+    if (binding.full_ordinal != ordinal ||
+        binding.model_layer != 4U * ordinal + 3U ||
+        binding.package_identity != audit_.startup_package_identity ||
+        binding.projection_catalog_identity !=
+            audit_.projection_catalog_identity ||
+        binding.resource_bundle_identity !=
+            audit_.full_attention_resource_bundle_identity ||
+        binding.binding_identity == 0U ||
+        !binding.live_cuda_ranges_validated ||
+        !binding.source_private_resource_queries ||
+        binding.request_selectable || binding.launcher_authority ||
+        binding.production_dispatch_eligible) {
+      return false;
+    }
   }
   if (compute_gdn_layer_catalog_fold_identity(gdn_qkvz_catalog_) !=
           audit_.retained_gdn_layer_catalog_fold_identity ||
@@ -2023,6 +2420,10 @@ void Sm87MacroFeedV4P40ExecutionPackage::release() noexcept {
   events_driver_.reset();
   events_owner_.reset();
   request_state_.reset();
+  if (kv_allocation_ != nullptr) {
+    (void)cudaFree(kv_allocation_);
+    kv_allocation_ = nullptr;
+  }
   if (recurrent_allocation_ != nullptr) {
     (void)cudaFree(recurrent_allocation_);
     recurrent_allocation_ = nullptr;
@@ -2041,6 +2442,7 @@ void Sm87MacroFeedV4P40ExecutionPackage::release() noexcept {
   layer_norm_catalog_.fill({});
   gdn_qkvz_catalog_.fill({});
   mlp_pair_catalog_.fill({});
+  full_attention_catalog_.fill({});
   gdn_layer0_source_ = {};
   complete_gdn_layer0_source_.reset();
   norm_resources_ = {};
@@ -2048,6 +2450,7 @@ void Sm87MacroFeedV4P40ExecutionPackage::release() noexcept {
   gdn_resources_ = {};
   gate_up_resources_ = {};
   down_resources_ = {};
+  engine_rope_ = {};
   audit_ = {};
   construction_postconditions_sealed_ = false;
 }

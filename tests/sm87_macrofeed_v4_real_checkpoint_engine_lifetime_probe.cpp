@@ -39,7 +39,7 @@ namespace provenance =
 namespace {
 
 constexpr std::uint64_t kDestroyRecoveryToleranceBytes =
-    64ULL * 1024ULL * 1024ULL;
+    32ULL * 1024ULL * 1024ULL;
 constexpr std::uint64_t kRetainedFreeBytes =
     4ULL * 1024ULL * 1024ULL * 1024ULL;
 constexpr std::string_view kPinnedModelIdentity =
@@ -87,6 +87,8 @@ struct ProbeEvidence final {
       Q3X_MACROFEED_V4_LIFETIME_PROBE_BUILD_TESTING != 0;
   bool macrofeed_v3_admission = false;
   bool macrofeed_v4_admission = false;
+  bool macrofeed_v4_full_attention_preprocess_admission = false;
+  bool macrofeed_v4_attention_c8000_admission = false;
   bool ndebug = false;
   bool build_configuration_exact = false;
   int device_ordinal = -1;
@@ -113,6 +115,8 @@ struct ProbeEvidence final {
   bool construction_snapshot_hook_exact = false;
   bool construction_snapshot_valid = false;
   bool normal_catalogs_exact = false;
+  bool full_attention_ownership_exact = false;
+  bool reserve_chain_exact = false;
   bool owner_allocation_device_lifetime_chain_exact = false;
   bool snapshot_matches_complete_aot_load_stats = false;
   bool live_engine_reduced_free_memory = false;
@@ -395,13 +399,21 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
   evidence.macrofeed_v4_admission = true;
 #endif
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_FULL_ATTENTION_PREPROCESS_ADMISSION)
+  evidence.macrofeed_v4_full_attention_preprocess_admission = true;
+#endif
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_ATTENTION_C8000_ADMISSION)
+  evidence.macrofeed_v4_attention_c8000_admission = true;
+#endif
 #if defined(NDEBUG)
   evidence.ndebug = true;
 #endif
   evidence.build_configuration_exact =
       evidence.source_build_provenance_valid &&
       evidence.build_testing && evidence.macrofeed_v3_admission &&
-      evidence.macrofeed_v4_admission && evidence.ndebug &&
+      evidence.macrofeed_v4_admission &&
+      evidence.macrofeed_v4_full_attention_preprocess_admission &&
+      evidence.macrofeed_v4_attention_c8000_admission && evidence.ndebug &&
       evidence.build_type == "Release" &&
       evidence.q3x_cuda_architectures == "87" &&
       evidence.effective_cuda_architectures == "87" &&
@@ -418,6 +430,8 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
       provenance::kMacroFeedV4NormResidualAdmission &&
       provenance::kMacroFeedV4Bf16AbAdmission &&
       provenance::kMacroFeedV4Fp8Admission &&
+      provenance::kMacroFeedV4FullAttentionPreprocessAdmission &&
+      provenance::kMacroFeedV4AttentionC8000Admission &&
       provenance::kMacroFeedV4GdnC8000Admission &&
       provenance::kMacroFeedV4NvFp4GateUpAdmission &&
       provenance::kMacroFeedV4NvFp4DownAdmission &&
@@ -478,7 +492,7 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
 [[nodiscard]] bool write_evidence(const std::filesystem::path& path,
                                   const ProbeEvidence& evidence) {
   std::ostringstream output;
-  output << "{\n  \"schema_version\": 3,\n"
+  output << "{\n  \"schema_version\": 4,\n"
             "  \"artifact\": "
             "\"q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime\",\n"
             "  \"status\": \""
@@ -487,10 +501,12 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
   write_json_string(
       output,
       "pinned-metadata and three-resident-shard real-checkpoint Engine "
-      "construction, normal 48-complete-GDN and 64-MLP-pair catalog "
-      "identities/folds, target-AOT owner/allocation/device lifetime chain, "
+      "construction, normal 48-complete-GDN, 64-MLP-pair, and 16-Full-"
+      "Attention catalog identities/folds, exact V4 KV and shared Engine "
+      "RoPE ownership, staged aggregate reserve arguments, target-AOT "
+      "owner/allocation/device lifetime chain, "
       "CUDA quiescence, destruction, and free-memory "
-      "recovery within the declared 64 MiB tolerance only; the recovery gate "
+      "recovery within the declared 32 MiB tolerance only; the recovery gate "
       "does not exclude smaller retained resources and grants no generation, "
       "numerical, performance, selector, API-route, or production authority");
   output << ",\n  \"model_directory\": ";
@@ -621,6 +637,11 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
   write_boolean(output, evidence.macrofeed_v3_admission);
   output << ",\n    \"macrofeed_v4_admission\": ";
   write_boolean(output, evidence.macrofeed_v4_admission);
+  output << ",\n    \"macrofeed_v4_full_attention_preprocess_admission\": ";
+  write_boolean(
+      output, evidence.macrofeed_v4_full_attention_preprocess_admission);
+  output << ",\n    \"macrofeed_v4_attention_c8000_admission\": ";
+  write_boolean(output, evidence.macrofeed_v4_attention_c8000_admission);
   output << ",\n    \"required_admissions_exact\": ";
   write_boolean(
       output,
@@ -631,6 +652,8 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
           provenance::kMacroFeedV4NormResidualAdmission &&
           provenance::kMacroFeedV4Bf16AbAdmission &&
           provenance::kMacroFeedV4Fp8Admission &&
+          provenance::kMacroFeedV4FullAttentionPreprocessAdmission &&
+          provenance::kMacroFeedV4AttentionC8000Admission &&
           provenance::kMacroFeedV4GdnC8000Admission &&
           provenance::kMacroFeedV4NvFp4GateUpAdmission &&
           provenance::kMacroFeedV4NvFp4DownAdmission &&
@@ -650,6 +673,11 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
   write_boolean(output, provenance::kMacroFeedV4Bf16AbAdmission);
   output << ",\n      \"macrofeed_v4_fp8\": ";
   write_boolean(output, provenance::kMacroFeedV4Fp8Admission);
+  output << ",\n      \"macrofeed_v4_full_attention_preprocess\": ";
+  write_boolean(
+      output, provenance::kMacroFeedV4FullAttentionPreprocessAdmission);
+  output << ",\n      \"macrofeed_v4_attention_c8000\": ";
+  write_boolean(output, provenance::kMacroFeedV4AttentionC8000Admission);
   output << ",\n      \"macrofeed_v4_gdn_c8000\": ";
   write_boolean(output, provenance::kMacroFeedV4GdnC8000Admission);
   output << ",\n      \"macrofeed_v4_nvfp4_gate_up\": ";
@@ -709,7 +737,10 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
          << "\n  },\n  \"macrofeed_v4_normal_catalogs\": {\n"
          << "    \"normal_factory_branch\": ";
   write_boolean(output, evidence.construction_snapshot.normal_factory_branch);
-  output << ",\n    \"complete_gdn_catalog_identity\": "
+  output << ",\n    \"startup_full_attention_source_catalog_identity\": "
+         << evidence.construction_snapshot
+                .startup_full_attention_source_catalog_identity
+         << ",\n    \"complete_gdn_catalog_identity\": "
          << evidence.construction_snapshot
                 .execution_complete_gdn_catalog_identity
          << ",\n    \"complete_gdn_binding_count\": "
@@ -719,14 +750,101 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
          << evidence.construction_snapshot.execution_mlp_pair_catalog_identity
          << ",\n    \"mlp_pair_binding_count\": "
          << evidence.construction_snapshot.execution_mlp_pair_binding_count
+         << ",\n    \"full_attention_catalog_identity\": "
+         << evidence.construction_snapshot
+                .execution_full_attention_catalog_identity
+         << ",\n    \"full_attention_binding_count\": "
+         << evidence.construction_snapshot
+                .execution_full_attention_binding_count
          << ",\n    \"retained_complete_gdn_catalog_fold_identity\": "
          << evidence.construction_snapshot
                 .retained_complete_gdn_catalog_fold_identity
          << ",\n    \"retained_mlp_pair_catalog_fold_identity\": "
          << evidence.construction_snapshot
                 .retained_mlp_pair_catalog_fold_identity
+         << ",\n    \"retained_full_attention_catalog_fold_identity\": "
+         << evidence.construction_snapshot
+                .retained_full_attention_catalog_fold_identity
+         << ",\n    \"full_attention_resource_bundle_identity\": "
+         << evidence.construction_snapshot
+                .full_attention_resource_bundle_identity
          << ",\n    \"exact\": ";
   write_boolean(output, evidence.normal_catalogs_exact);
+  output << "\n  },\n  \"full_attention_owner\": {\n"
+         << "    \"kv_allocation_identity\": "
+         << evidence.construction_snapshot.kv_allocation_identity
+         << ",\n    \"request_state_kv_allocation_identity\": "
+         << evidence.construction_snapshot
+                .request_state_kv_allocation_identity
+         << ",\n    \"kv_allocation_begin\": "
+         << evidence.construction_snapshot.kv_allocation_begin
+         << ",\n    \"kv_allocation_bytes\": "
+         << evidence.construction_snapshot.kv_allocation_bytes
+         << ",\n    \"request_state_kv_allocation_bytes\": "
+         << evidence.construction_snapshot
+                .request_state_kv_allocation_bytes
+         << ",\n    \"request_state_kv_physical_owner_bound\": ";
+  write_boolean(
+      output,
+      evidence.construction_snapshot.request_state_kv_physical_owner_bound);
+  output << ",\n    \"engine_rope_owner_identity\": "
+         << evidence.construction_snapshot.engine_rope_owner_identity
+         << ",\n    \"engine_rope_binding_identity\": "
+         << evidence.construction_snapshot.engine_rope_binding_identity
+         << ",\n    \"engine_rope_allocation_begin\": "
+         << evidence.construction_snapshot.engine_rope_allocation_begin
+         << ",\n    \"engine_rope_device_ordinal\": "
+         << evidence.construction_snapshot.engine_rope_device_ordinal
+         << ",\n    \"engine_rope_positions\": "
+         << evidence.construction_snapshot.engine_rope_positions
+         << ",\n    \"engine_rope_pairs\": "
+         << evidence.construction_snapshot.engine_rope_pairs
+         << ",\n    \"engine_rope_allocation_bytes\": "
+         << evidence.construction_snapshot.engine_rope_allocation_bytes
+         << ",\n    \"execution_owned_bytes\": "
+         << evidence.construction_snapshot.owned_bytes
+         << ",\n    \"rope_anchored_bytes\": "
+         << evidence.construction_snapshot.anchored_bytes
+         << ",\n    \"exact\": ";
+  write_boolean(output, evidence.full_attention_ownership_exact);
+  output << "\n  },\n  \"aggregate_reserve_chain\": {\n"
+         << "    \"legacy_request_arena_bytes\": "
+         << evidence.construction_snapshot.legacy_request_arena_bytes
+         << ",\n    \"minimum_free_bytes_after_legacy_create\": "
+         << evidence.construction_snapshot
+                .minimum_free_bytes_after_legacy_create
+         << ",\n    \"minimum_free_bytes_after_execution_create\": "
+         << evidence.construction_snapshot
+                .execution_minimum_free_bytes_after_create
+         << ",\n    \"minimum_free_bytes_after_rope_create\": "
+         << evidence.construction_snapshot
+                .minimum_free_bytes_after_rope_create
+         << ",\n    \"minimum_free_bytes_after_complete_aot_create\": "
+         << evidence.construction_snapshot
+                .minimum_free_bytes_after_complete_aot_create
+         << ",\n    \"execution_required_device_allocation_bytes\": "
+         << evidence.construction_snapshot
+                .execution_required_device_allocation_bytes
+         << ",\n    \"execution_free_bytes_before_allocations\": "
+         << evidence.construction_snapshot
+                .execution_free_bytes_before_allocations
+         << ",\n    \"execution_free_bytes_after_allocations\": "
+         << evidence.construction_snapshot
+                .execution_free_bytes_after_allocations
+         << ",\n    \"execution_aggregate_memory_gate_passed\": ";
+  write_boolean(
+      output,
+      evidence.construction_snapshot.execution_aggregate_memory_gate_passed);
+  output << ",\n    \"future_bytes_after_execution_create\": "
+         << lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeFutureAfterExecutionBytes
+         << ",\n    \"future_bytes_after_rope_create\": "
+         << lifetime_probe::kSm87MacroFeedV4EngineLifetimeFutureAfterRopeBytes
+         << ",\n    \"future_bytes_after_complete_aot_create\": "
+         << lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeFutureAfterCompleteAotBytes
+         << ",\n    \"exact\": ";
+  write_boolean(output, evidence.reserve_chain_exact);
   output << "\n  },\n  \"owner_allocation_device_lifetime_chain\": {\n"
          << "    \"lifetime_root_identity\": "
          << evidence.construction_snapshot.lifetime_root_identity
@@ -878,13 +996,29 @@ int main(const int argc, char** argv) {
   static_assert(
       lifetime_probe::
           kSm87MacroFeedV4EngineLifetimeExpectedMlpPairBindings == 64U);
+  static_assert(
+      lifetime_probe::
+          kSm87MacroFeedV4EngineLifetimeExpectedFullAttentionBindings == 16U);
   static_assert(runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens ==
                 40'001U);
   static_assert(runtime::kLayerMajorPrefillPromptWideP40RequestArenaBytes ==
                 8'640'542'976ULL);
   static_assert(
+      lifetime_probe::kSm87MacroFeedV4EngineLifetimeExpectedOwnedBytes ==
+      3'220'701'184ULL);
+  static_assert(
+      lifetime_probe::kSm87MacroFeedV4EngineLifetimeExpectedRopeBytes ==
+      67'108'864ULL);
+  static_assert(
+      lifetime_probe::kSm87MacroFeedV4EngineLifetimeExpectedAnchoredBytes ==
+      3'287'810'048ULL);
+  static_assert(
+      lifetime_probe::
+          kSm87MacroFeedV4EngineLifetimeFutureAfterCompleteAotBytes ==
+      11'928'353'024ULL);
+  static_assert(
       kDestroyRecoveryToleranceBytes <
-      lifetime_probe::kSm87MacroFeedV4EngineLifetimeMinimumOwnedArenaBytes);
+      lifetime_probe::kSm87MacroFeedV4EngineLifetimeExpectedRopeBytes);
 
   ProbeEvidence evidence;
   evidence.model_directory = argv[1];
@@ -926,8 +1060,12 @@ int main(const int argc, char** argv) {
     const auto previous_hook = lifetime_probe::
         exchange_sm87_macrofeed_v4_engine_lifetime_construction_snapshot_hook(
             requested_hook);
-    created = runtime::create_reference_engine(evidence.model_directory,
-                                               make_engine_options());
+    // Metadata and the Engine must consume the same canonical checkpoint
+    // path.  Do not re-resolve the caller spelling after the pinned metadata
+    // gate, because an owner-local symlink substitution between those two
+    // operations would otherwise weaken the evidence snapshot.
+    created = runtime::create_reference_engine(
+        evidence.canonical_model_directory, make_engine_options());
     const auto installed_hook = lifetime_probe::
         exchange_sm87_macrofeed_v4_engine_lifetime_construction_snapshot_hook(
             previous_hook);
@@ -958,7 +1096,81 @@ int main(const int argc, char** argv) {
         evidence.construction_snapshot
                 .retained_complete_gdn_catalog_fold_identity != 0U &&
         evidence.construction_snapshot
-                .retained_mlp_pair_catalog_fold_identity != 0U;
+                .retained_mlp_pair_catalog_fold_identity != 0U &&
+        evidence.construction_snapshot
+                .startup_full_attention_source_catalog_identity != 0U &&
+        evidence.construction_snapshot
+                .execution_full_attention_catalog_identity != 0U &&
+        evidence.construction_snapshot.execution_full_attention_binding_count ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedFullAttentionBindings &&
+        evidence.construction_snapshot
+                .retained_full_attention_catalog_fold_identity != 0U &&
+        evidence.construction_snapshot
+                .full_attention_resource_bundle_identity != 0U;
+    evidence.full_attention_ownership_exact =
+        evidence.construction_snapshot_valid &&
+        evidence.construction_snapshot.kv_allocation_identity != 0U &&
+        evidence.construction_snapshot.kv_allocation_begin != 0U &&
+        evidence.construction_snapshot.request_state_kv_allocation_identity ==
+            evidence.construction_snapshot.kv_allocation_identity &&
+        evidence.construction_snapshot.kv_allocation_bytes ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedKvArenaBytes &&
+        evidence.construction_snapshot.request_state_kv_allocation_bytes ==
+            evidence.construction_snapshot.kv_allocation_bytes &&
+        evidence.construction_snapshot.request_state_kv_physical_owner_bound &&
+        evidence.construction_snapshot.engine_rope_owner_identity != 0U &&
+        evidence.construction_snapshot.engine_rope_binding_identity != 0U &&
+        evidence.construction_snapshot.engine_rope_allocation_begin != 0U &&
+        evidence.construction_snapshot.engine_rope_device_ordinal ==
+            evidence.device_ordinal &&
+        evidence.construction_snapshot.engine_rope_positions ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedRopePositions &&
+        evidence.construction_snapshot.engine_rope_pairs ==
+            lifetime_probe::kSm87MacroFeedV4EngineLifetimeExpectedRopePairs &&
+        evidence.construction_snapshot.engine_rope_allocation_bytes ==
+            lifetime_probe::kSm87MacroFeedV4EngineLifetimeExpectedRopeBytes &&
+        evidence.construction_snapshot.owned_bytes ==
+            lifetime_probe::kSm87MacroFeedV4EngineLifetimeExpectedOwnedBytes &&
+        evidence.construction_snapshot.anchored_bytes ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedAnchoredBytes;
+    evidence.reserve_chain_exact =
+        evidence.construction_snapshot_valid &&
+        evidence.construction_snapshot.legacy_request_arena_bytes ==
+            runtime::kLayerMajorPrefillPromptWideP40RequestArenaBytes &&
+        evidence.construction_snapshot.minimum_free_bytes_after_legacy_create ==
+            kRetainedFreeBytes &&
+        evidence.construction_snapshot
+                .execution_minimum_free_bytes_after_create ==
+            kRetainedFreeBytes +
+                runtime::kLayerMajorPrefillPromptWideP40RequestArenaBytes &&
+        evidence.construction_snapshot.minimum_free_bytes_after_rope_create ==
+            kRetainedFreeBytes +
+                lifetime_probe::
+                    kSm87MacroFeedV4EngineLifetimeFutureAfterRopeBytes &&
+        evidence.construction_snapshot
+                .minimum_free_bytes_after_complete_aot_create ==
+            kRetainedFreeBytes +
+                lifetime_probe::
+                    kSm87MacroFeedV4EngineLifetimeFutureAfterCompleteAotBytes &&
+        evidence.construction_snapshot
+                .execution_required_device_allocation_bytes ==
+            lifetime_probe::kSm87MacroFeedV4EngineLifetimeExpectedOwnedBytes &&
+        evidence.construction_snapshot.execution_aggregate_memory_gate_passed &&
+        evidence.construction_snapshot.execution_free_bytes_before_allocations >=
+            evidence.construction_snapshot
+                .execution_required_device_allocation_bytes &&
+        evidence.construction_snapshot
+                .execution_minimum_free_bytes_after_create <=
+            evidence.construction_snapshot.execution_free_bytes_before_allocations -
+                evidence.construction_snapshot
+                    .execution_required_device_allocation_bytes &&
+        evidence.construction_snapshot.execution_free_bytes_after_allocations >=
+            evidence.construction_snapshot
+                .execution_minimum_free_bytes_after_create;
     evidence.diagnostic = created.diagnostic;
     evidence.engine_created = static_cast<bool>(created);
     if (created) {
@@ -1008,6 +1220,10 @@ int main(const int argc, char** argv) {
           !load.target_aot_projection_device_assets_attached;
       evidence.snapshot_matches_complete_aot_load_stats =
           evidence.construction_snapshot_valid &&
+          load.target_aot_engine_rope_ready &&
+          load.target_aot_engine_rope_bytes ==
+              lifetime_probe::
+                  kSm87MacroFeedV4EngineLifetimeExpectedRopeBytes &&
           evidence.construction_snapshot.startup_owner_identity ==
               load.target_aot_complete_projection_owner_identity &&
           evidence.construction_snapshot.startup_allocation_identity ==
@@ -1021,6 +1237,9 @@ int main(const int argc, char** argv) {
               evidence.device_ordinal;
       evidence.owner_allocation_device_lifetime_chain_exact =
           evidence.snapshot_matches_complete_aot_load_stats &&
+          evidence.normal_catalogs_exact &&
+          evidence.full_attention_ownership_exact &&
+          evidence.reserve_chain_exact &&
           evidence.construction_snapshot.lifetime_root_identity ==
               evidence.construction_snapshot
                   .compute_lifetime_root_identity() &&
@@ -1095,6 +1314,8 @@ int main(const int argc, char** argv) {
       evidence.construction_snapshot_count == 1U &&
       evidence.construction_snapshot_valid &&
       evidence.normal_catalogs_exact &&
+      evidence.full_attention_ownership_exact &&
+      evidence.reserve_chain_exact &&
       evidence.snapshot_matches_complete_aot_load_stats &&
       evidence.owner_allocation_device_lifetime_chain_exact &&
       evidence.during_mem_info_cuda_error == 0 &&

@@ -259,27 +259,49 @@ pairs and all 64 real outer-norm pairs and exposes only construction-time
 private full-catalog seals. It also implements an all-or-nothing natural-order
 48-complete-GDN execution catalog (QKVZ, GDN-O, and four continuation weights)
 and a 64-layer Gate+Up/Down catalog with exact live CUDA
-allocation/upload-receipt matching; the fake host catalog fails closed at
-ordinal zero. Its
+allocation/upload-receipt matching. The normal path now also seals all 16
+natural Full layers `3,7,...,63`: Full-QKV, interleaved-Q Full-O, exact Q/K
+norm pairs, and one common four-resource bundle covering Full-QKV, Full-O,
+in-place preprocess, and fixed C8000 online Attention. The fake host catalog
+fails closed at ordinal zero. Its
 normal startup and execution factories are private, the core static library
 contains no named synthetic-T1 construction wrapper, and the remaining
 private synthetic branch is confined to the BUILD_TESTING-only CUDA fixture
 without production authority. One Engine-private
 composition root now wires those normal catalogs into the existing
-default-off V3 real-owner harness. The root enforces `execution → startup →
-ModelWeights → complete target-AOT owner → resident` teardown and adds the
-442,368,000-byte transient plus 156,893,184-byte recurrent arenas, exactly
-599,261,184 bytes, to retained-memory admission. That source/build integration
-has not yet run through the pinned real checkpoint, so the positive real-owner
-catalog witness remains open and the normal factory/Engine lifecycle has
-construction/build authority only. The isolated package consumes layer-0
+default-off V3 real-owner harness. The normal ExecutionPackage owns the exact
+442,368,000-byte transient, 156,893,184-byte recurrent, and
+2,621,440,000-byte private Full-KV arenas, exactly 3,220,701,184 bytes. It
+borrows an exact 67,108,864-byte, 262,144-position × 32-pair cosine/sine table
+from one shared Engine RoPE owner. The build-time reserve chain preserves the
+8,640,542,976-byte legacy P40 request arena and caller reserve at every
+preceding allocation: complete target-AOT leaves 11,928,353,024 bytes plus
+the caller reserve, RoPE creation leaves 11,861,244,160 bytes plus it, and V4
+creation leaves the legacy arena plus it. Teardown is `execution → startup →
+Engine RoPE → ModelWeights → complete target-AOT owner → resident`. That
+source/build integration has not run through the pinned real checkpoint, so
+the positive real-owner catalog witness remains open and the normal factory,
+KV/RoPE/reserve, and Engine lifetime have construction/build authority only.
+The isolated package consumes layer-0
 input norm, QKVZ, A/B, the two-kernel continuation plus one asynchronous
 61,440-byte convolution-history D2D copy, GDN-O, residual/post-norm, Gate+Up,
 and Down through typed owner-locked submissions. Its complete layer receipt
 counts exactly nine kernels plus that copy. Raw ready-event records and
 caller-filled QKVZ submissions are not exposed by the execution driver.
-Attention and the remaining layers are not privately composed, and none is
-numerically qualified at full C8000 with the real checkpoint. The startup
+Separately, the private Events T1 fixture submits one complete Full DAG on
+Main as exactly eight kernels and zero copies. It consumes a move-only KV
+grant, authenticates a semantic digest of its arguments/assets/resources,
+enforces request-scoped at-most-once use, records every accepted prefix 0--8,
+and drains all streams plus discards RequestState after an accepted-prefix or
+replay failure. It leaves the GDN BF16 A/B event/cycle state unchanged. This
+enqueue receipt has no device-completion, panel, production, or preceding-
+layer authority. In particular, its host RequestState progression to layer 4
+is not a physical execution of GDN layers 0--2. The ExecutionPackage still
+lacks the composer that derives this eight-step Full submission from its
+sealed catalog, arenas, grant, and shared RoPE binding; the physical natural
+layers-0--3 cohort of 35 kernels and three D2D copies is therefore absent.
+No complete layer is numerically qualified at full C8000 with the real
+checkpoint. The startup
 package regenerates the canonical plan, validates the live
 256-artifact/400-source catalog once, retains typed payload/scale capabilities,
 and mints V4-local resource seals with no launcher authority.
@@ -288,15 +310,17 @@ perform the expensive BF16/model/CUDA validation once; request execution may
 not rescan it. These ownership facts, bounded bit
 oracles, projection resource gates, event graph, and the Attention one-CTA/SM
 gate do not create a whole-product result. There is no V4 selector, whole-model
-launcher, complete Attention-layer or 64-layer/request execution package,
-real-checkpoint oracle, API timing, numerical qualification, or production
-eligibility yet. The isolated synthetic receipt proves layer completion while
+launcher, ExecutionPackage complete-Full-layer composer, physical first
+four-layer cohort, 64-layer/request execution package, real-checkpoint oracle,
+API timing, numerical qualification, or production eligibility yet. The
+isolated synthetic GDN receipt proves layer completion while
 explicitly denying panel, model, and dispatch completion. Its combined
 Events/RequestState drain discards the candidate without a bank swap or state
 publication; RequestState consumes the owner-mediated physical-drain identity,
 and that identity plus `physical_execution_receipt_issued` are strong receipt
 gates. The poison-path test invalidates a pending GDN grant after physical
-quiescence. Those boundaries are blockers, not implied future facts.
+quiescence. The Full Events receipt is likewise T1 enqueue evidence only.
+Those boundaries are blockers, not implied future facts.
 
 Its P40 allocation remains:
 
@@ -418,8 +442,9 @@ and its current critical path.
 The matched work ledger, v10 control, V2 closure, and complete default-off V3
 control are no longer unfinished Roadmap items. The V4 host contract, its
 owner/epoch-bound request transaction, its authenticated startup foundation
-package, its isolated execution package, and its first two NVFP4 constituents
-are implementation facts only: the shared
+package, its isolated execution package, its normal 16-Full catalog/KV/RoPE
+lifetime foundation, and its admitted constituents are implementation facts
+only: the shared
 canonical decoder has an asymmetric nibble/scale bit oracle, both projection
 tests cover the two N128 halves and M64/M37, and both production kernels pass
 their two-CTA/SM resource gate. The request transaction additionally proves
@@ -442,32 +467,52 @@ layer completion only—not panel, model, production, or Decode authority. The
 fixture uses zero-valued synthetic weights; none of these tests has real-model,
 numerical, or performance authority.
 
+The private Events T1 Full transaction independently submits
+`InputNorm → FullQKV → preprocess → Attention → FullO → ResidualPostNorm →`
+`GateUp → Down` as eight Main kernels and zero copies. Its move-only KV grant,
+semantic submission digest, request-scoped at-most-once ledger, exact 0--8
+accepted-prefix failures, terminal drain/discard, and unchanged BF16 A/B
+boundary pass synthetic CUDA tests. The normal source/build path separately
+seals 16 Full bindings plus the four Full resource observations, owns the exact
+2,621,440,000-byte KV arena, and borrows the exact 67,108,864-byte shared
+Engine RoPE owner under the closed reserve/lifetime chain. These two facts do
+not compose themselves: the ExecutionPackage Full-layer composer and the
+physical natural-layers-0--3 35-kernel/3-copy cohort remain missing. The
+real-checkpoint Engine-lifetime probe has not run, and neither branch has
+whole-model, API, or performance authority.
+
 Remaining execution order:
 
-1. run the pinned real-checkpoint Engine-lifetime probe through the already
-   wired private normal factories and obtain the still-open positive real-owner
-   48-complete-GDN/64-MLP catalog witness. Construction and compilation alone
-   cannot promote the synthetic-T1 layer receipt;
-2. compose the complete Attention layer (`InputNorm → Full-QKV → preprocess →`
-   `Attention → O → ResidualPostNorm → GateUp → Down`) and then bind both layer
-   kinds across all 64 natural layers and five panels to the same private arenas
-   and event graph. Qualify the complete C8000 layer bodies, layout, finalizer,
-   rollback, and receipts without request-time catalog/resource queries;
-3. expose exactly one default-off V4 route through the existing real OpenAI
-   P40 API and verify that its receipt reports executed physical work rather
-   than a forecast; and
-4. only then run one clean-host, real-checkpoint, cold/no-cache P40
-   OpenAI/EvalScope direction witness after
-   `tegrastats`/process/device-handle preflight. A negative or merely small
-   whole-path result reopens the V4 global dataflow; it does not authorize a
-   local parameter scan. P60 and P130 remain locked until the competitive,
-   accuracy-admissible P40 gate passes.
+1. implement the private ExecutionPackage complete-Full-layer composer. It
+   must derive the fixed eight-step submission from the normal 16-Full
+   catalog, owned KV, shared Engine RoPE binding, current panel grant, MLP/norm
+   bindings, and sealed resources without request-time queries or caller-
+   supplied authority;
+2. physically execute the first natural cohort—GDN layers 0, 1, and 2 followed
+   by Full layer 3—as exactly 35 kernels and three 61,440-byte D2D copies on
+   the common owner/event graph. Its receipt must distinguish actual execution
+   from the existing RequestState-only progression to layer 4 and must preserve
+   rollback, accepted-prefix, at-most-once, and no-publication boundaries;
+3. in the first accepted clean-host window, run the still-pending pinned
+   real-checkpoint Engine-lifetime/catalog probe and the proportional
+   real-checkpoint numerical gates for the complete C8000 GDN/Full bodies and
+   cohort. Source/build and synthetic T1 evidence cannot substitute for these
+   results, and these correctness/lifetime probes themselves have no
+   performance authority; and
+4. only after those gates pass, compose all 64 natural layers across all five
+   panels, finalizer, rollback, final publication, and physical receipts;
+   expose exactly one default-off V4 route through the existing real OpenAI
+   P40 API, then run one clean-host cold/no-cache EvalScope direction witness.
+   A negative or merely small whole-path result reopens the V4 global
+   dataflow; it does not authorize a local parameter scan. P60 and P130 remain
+   locked until the competitive, accuracy-admissible P40 gate passes.
 
 The latest clean-host admission stopped before execution because Xorg, GNOME,
-and Mutter held GPU-device handles. It produced no timing. Performance work
-remains fail-closed until the same `tegrastats`/process/device-handle preflight
-passes; no result from a contaminated host may enter an experiment or
-promotion decision.
+and Mutter held GPU-device handles. It produced no timing and the pending
+real-checkpoint Engine-lifetime probe was not run. Performance work and this
+real-owner probe remain fail-closed until the same
+`tegrastats`/process/device-handle inspection passes; no result from a
+contaminated host may enter an experiment or promotion decision.
 
 ### Promotion and stop gates
 

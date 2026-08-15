@@ -535,8 +535,10 @@ epochs, private KV valid-end, and final-only canonical publication. The
 contract requires in-place/streaming Attention and GDN workspace aliasing.
 The independent admitted bodies exist, and one isolated default-off
 synthetic-T1 execution package now composes and physically closes one complete
-GDN layer 0. It is a layer-scoped CUDA witness, not an executable whole-model
-or API route.
+GDN layer 0. A separate private Events T1 transaction enqueues one complete
+Full-layer DAG, but it is not yet composed by the ExecutionPackage and is not
+the physical natural-layers-0--3 cohort. Both are layer-scoped CUDA witnesses,
+not an executable whole-model or API route.
 
 The Attention lifetime is now frozen more tightly than that allocation-only
 statement. Each scratch row retains the projection-native 24-head
@@ -585,6 +587,23 @@ state. The isolated execution package uses this capability for one complete
 GDN layer-0 admission, but the owner remains scheduling/lifetime
 infrastructure rather than a whole-model execution path.
 
+The same private Events owner now also has a BUILD_TESTING-only Full-Attention
+T1 transaction. It validates the live panel, a move-only request/KV grant,
+all eight typed submissions, seven launch-resource snapshots, pointer and
+alias geometry, and the sealed package/catalog/binding/RoPE/resource
+identities before the first enqueue. One accepted transaction submits exactly
+eight Main-stream kernels and zero copies:
+`InputNorm → FullQKV → preprocess → Attention → FullO → ResidualPostNorm →`
+`GateUp → Down`. Its owner-authenticated receipt binds a semantic digest of
+the actual arguments, assets, and resource geometry rather than only scalar
+identities. A request-scoped at-most-once ledger rejects replay with zero new
+kernels, and the accepted-prefix ledger records every failure point from 0
+through 8 before a terminal three-stream drain and RequestState discard. The
+transaction neither records the GDN `NormReady`/`AbReady` events nor changes
+the BF16 A/B cycle state. Its positive receipt attests enqueue only, not
+device completion, panel completion, production eligibility, or execution of
+the preceding natural GDN layers 0--2.
+
 A separate default-off, test-only V4 startup foundation package now enters
 through the private `ModelWeights` attachment. It regenerates the canonical
 P40 plan internally, authenticates the complete 256-artifact/400-source live
@@ -606,17 +625,33 @@ The private synthetic branch remains compiled into this BUILD_TESTING-only
 archive for the CUDA fixture; removing its named wrapper does not make that
 fixture branch production authority or claim that it is absent from the test
 binary.
+The normal path now additionally construction-seals an all-or-nothing
+16-entry Full-Attention catalog in natural layers `3,7,...,63`. Each entry
+binds its Full-QKV and interleaved-Q Full-O payloads, the exact Q/K BF16 norm
+pair, and one common bundle of four current-device resource observations:
+Full-QKV, Full-O, in-place preprocess, and fixed C8000 online Attention. Those
+queries occur once inside normal execution-package construction; the request
+path cannot supply or repeat them.
+
 That composition root is wired into the existing default-off V3 real-owner
-Engine harness and constructs the normal 48-complete-GDN plus 64-MLP
-startup-to-execution chain.
-Its declaration and explicit teardown preserve `execution → startup →
-ModelWeights → complete target-AOT owner → resident`, while the harness's
-retained-memory admission now counts the exact 442,368,000-byte transient plus
-156,893,184-byte recurrent ownership, or 599,261,184 additional bytes. No
-pinned real-checkpoint Engine-lifetime probe has executed this path yet, so
-these normal-factory and lifecycle facts have construction/build authority
-only; a positive real-owner/real-checkpoint catalog witness remains absent. No
-request may query CUDA state or rescan the model or catalog per layer. The
+Engine harness and constructs the normal 48-complete-GDN, 64-MLP, and 16-Full
+startup-to-execution chain. The normal ExecutionPackage now owns exactly
+2,621,440,000 bytes of private Full-Attention KV in addition to the
+442,368,000-byte transient and 156,893,184-byte recurrent arenas, for exactly
+3,220,701,184 owned bytes. It borrows a sealed non-owning binding from one
+shared Engine RoPE owner containing 262,144 positions by 32 pairs of cosine
+and sine tables, exactly 67,108,864 bytes. The build-time reserve chain keeps
+the existing 8,640,542,976-byte legacy P40 request arena and the caller's
+minimum-free reserve available: complete-target-AOT creation leaves
+11,928,353,024 bytes plus that caller reserve for RoPE, V4 execution, and the
+legacy arena; RoPE creation leaves 11,861,244,160 bytes plus the caller
+reserve; and V4 creation itself leaves the legacy arena plus the caller
+reserve. Declaration order and explicit teardown enforce `execution → startup
+→ Engine RoPE → ModelWeights → complete target-AOT owner → resident`.
+These KV, RoPE, reserve, catalog, and lifetime facts have source/build
+authority only. No pinned real-checkpoint Engine-lifetime probe has executed
+this root, so a positive real-owner/real-checkpoint witness remains absent.
+No request may query CUDA state or rescan the model or catalog per layer. The
 startup package itself remains host-only and grants no launcher or
 production-dispatch authority.
 
@@ -627,7 +662,9 @@ its launch operation is private to the CUDA fixture and future Engine
 composition root, so an independently escaped package cannot launch against
 expired weight ownership. It owns exactly
 442,368,000 bytes of transient ping/pong/scratch storage and 156,893,184 bytes
-of dual-epoch recurrent storage. Its one-shot synthetic-T1 operation executes
+of dual-epoch recurrent storage in both branches; the normal branch also owns
+the exact KV arena described above, while the synthetic fixture deliberately
+does not allocate it. Its one-shot synthetic-T1 operation executes
 `InputNorm → (GDN-QKVZ || BF16 A/B) → GDN continuation → GDN-O →`
 `ResidualPostNorm → GateUp → Down` for layer 0. The continuation is exactly
 two kernels plus one asynchronous 61,440-byte device-to-device convolution-
@@ -723,10 +760,12 @@ from the complete private `[40000,8,128]` NHD allocation at panel positions
 0/8000/16000/24000/32000. The admitted kernel compiles at 19
 registers/thread, 516 bytes static shared memory, zero local/spill, and 12
 CTA/SM capacity. C1/C65 bit oracles, nonzero-position, multi-head, sentinel,
-allocation-range, resource, and authority negatives pass. This is still a
-startup-unbound T1 admission: the fixed Attention body now exists separately,
-but the per-layer readiness event, private composition, real-checkpoint
-qualification, and production route are absent.
+allocation-range, resource, and authority negatives pass. The normal 16-Full
+catalog now binds this constituent and the fixed Attention body, and the
+private Events T1 transaction can enqueue both. The ExecutionPackage still
+has no complete-Full-layer composer that derives the eight-step submission
+from its owned catalog, arenas, move-only KV grant, and shared RoPE binding;
+real-checkpoint qualification and a production route therefore remain absent.
 
 An independent default-off V4 exact-GDN admission constituent now covers one
 contiguous C8000 panel without a whole recurrent-epoch copy. It copies only
@@ -746,16 +785,21 @@ separate synthetic-T1 layer-0 composition binds it privately, commits only the
 candidate-enqueued grant, then physically drains and discards that candidate
 without swapping banks or publishing state.
 
-V4 has no selector, whole-model launcher, complete Attention-layer or
-64-layer/panel executor, real-checkpoint oracle, API witness, performance
-result, numerical qualification, release authority, or production eligibility.
-Its Engine composition root and normal real-asset catalogs remain
-construction/build evidence only; they do not execute a layer or alter route
-selection. The executable CUDA package remains intentionally limited to one
-discarded synthetic-T1 complete GDN layer 0: nine kernels plus one 61,440-byte
-device-to-device copy, with no bank swap or publication. The v10
-observation at 392.804397 prompt tok/s therefore remains the current
-whole-product incumbent.
+V4 has no selector, whole-model launcher, ExecutionPackage complete-Full-layer
+composer, physical natural-layers-0--3 cohort, 64-layer/five-panel executor,
+real-checkpoint oracle, API witness, performance result, numerical
+qualification, release authority, or production eligibility. The missing
+first physical cohort is exactly three complete GDN layers followed by one
+Full layer: 35 kernels and three 61,440-byte D2D copies in natural order.
+The present Events Full fixture advances the host RequestState to layer 4 only
+after its isolated eight-kernel enqueue; it is not evidence that those first
+three GDN layers physically ran. The Engine composition root and normal real-
+asset catalogs remain source/build evidence only and do not alter route
+selection. Current live CUDA evidence consists of the separately discarded
+synthetic-T1 complete GDN layer 0 (nine kernels plus one copy) and the private
+Full Events transaction (eight Main kernels, zero copies), neither of which
+is a complete cohort or real-model result. The v10 observation at 392.804397
+prompt tok/s therefore remains the current whole-product incumbent.
 The V4 boundary remains exact and non-MTP; cuBLASLt is reference-only and has
 no production-path eligibility.
 
@@ -773,7 +817,7 @@ no production-path eligibility.
 | SM87 whole-system AOT Prefill v1 | Default-off real-P40 API composition; performance-rejected after a zero-byte 840.000399-second timeout | Retain only as correctness/diagnostic control; it is not an active performance candidate |
 | SM87 bulk-dataflow v2 Prefill | Complete default-off real-P40 API route; performance-rejected after a zero-byte 680.73-second EvalScope timeout and one bounded causal profile; accuracy remains unqualified | Retain exact constituents and evidence only; no V2 tuning, P60/P130, qualification, or production promotion |
 | SM87 MacroFeed v3 Prefill | Complete default-off, test-only 64-layer source composition with startup-bound target-AOT assets, role-specific macro projections, nine-kernel-per-layer exact GDN, cold rollback, and a V18 physical transaction; integrated build and focused admission tests pass | Frozen executable diagnostic/control; no authoritative P40 timing, numerical, release, or production qualification exists |
-| SM87 MacroFeed v4 Prefill | Active, default-off C8000×5 panel-major foundation with one isolated synthetic-T1 complete GDN layer-0 execution: `InputNorm → (QKVZ || A/B) → continuation → GDN-O → ResidualPostNorm → GateUp → Down`, exactly nine kernels plus one 61,440-byte D2D copy, combined Events/RequestState drain, pending-grant poison invalidation, and no bank swap/publication; the private normal 48-complete-GDN/64-MLP catalogs and Engine lifecycle anchor currently have construction/build authority only | Run the pinned real-checkpoint Engine-lifetime/catalog probe, then compose the complete Attention layer, all 64 layers/five panels, finalizer, rollback, and whole-model physical receipts before real-checkpoint/state/API qualification; no selector or performance authority exists |
+| SM87 MacroFeed v4 Prefill | Active, default-off C8000×5 panel-major foundation: the normal source/build path seals 48-complete-GDN, 64-MLP, and 16-Full catalogs plus four Full resource observations, owns exact 2,621,440,000-byte KV inside a 3,220,701,184-byte ExecutionPackage, and borrows one exact 67,108,864-byte Engine RoPE owner under a closed reserve/lifetime chain. T1 separately executes one discarded nine-kernel/one-copy GDN layer and one private eight-Main-kernel/zero-copy Full Events transaction with move-only grant, semantic digest, at-most-once and prefix/drain-discard guards | Implement the ExecutionPackage Full-layer composer, prove the physical natural-layers-0--3 35-kernel/3-copy cohort, then use a clean host for the real-checkpoint lifetime/numerical gates before composing 64 layers × 5 panels and returning to the real API; no selector, whole-model, numerical, API, performance, release, or production authority exists |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
@@ -962,5 +1006,6 @@ pass using `tegrastats`, CPU/process inspection, and GPU-device-handle
 ownership. Jetson `nvidia-smi` is not an idle or attribution authority.
 The latest attempted V4 measurement admission failed closed because Xorg,
 GNOME, and Mutter still held GPU-device handles. No performance request or
-profiler capture was launched, and no V4 timing may be reported from that
-attempt.
+profiler capture was launched, and the pending real-checkpoint Engine-lifetime
+probe was not run in that contaminated window. No V4 timing or positive
+real-checkpoint probe result may be reported from that attempt.

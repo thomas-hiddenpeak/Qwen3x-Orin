@@ -18,9 +18,10 @@ q3x_document:
 This document is the bounded working record for
 `WP-PREFILL-REFERENCE-TRANSLATION-v1` under the reserved successor lineage
 `AC-PREFILL-SM87-MACROFEED-v4`. V4 remains a non-route-executable foundation
-with one BUILD_TESTING-only complete synthetic GDN layer fixture; it does not
-become a Constitution-defined `architecture_candidate` until the complete
-dataflow is runnable. V1/V2 and the complete V3 composition are
+with separate BUILD_TESTING-only complete synthetic GDN-layer and private
+Full-Events transactions; neither is the missing physical first four-layer
+cohort. V4 does not become a Constitution-defined `architecture_candidate`
+until the complete dataflow is runnable. V1/V2 and the complete V3 composition are
 retained only as the diagnostic controls described by Current Status. This
 document does not amend the product
 target, stable SDD boundary, current implementation status, numerical
@@ -569,24 +570,33 @@ bitwise equal and it owns no compact bridge, tail, or runtime tactic choice.
 The package's typed bindings and V4-local resource seals are startup ownership
 facts only; they expose no launcher. It binds all 48 real BF16 A/B pairs, all
 64 real norm pairs, a 48-entry complete GDN catalog (QKVZ, dedicated GDN-O,
-and four continuation weights per natural GDN layer), and all 64 Gate+Up/Down
-pairs. Request execution may neither rescan `ModelWeights` nor repeat
-CUDA/catalog queries. The all-or-nothing construction seals require exact live
-CUDA allocation/upload-receipt, role, layout, and device agreement. The fake
-host catalog fails closed;
+and four continuation weights per natural GDN layer), all 64 Gate+Up/Down
+pairs, and all 16 natural Full layers `3,7,...,63`. Each Full binding couples
+Full-QKV, interleaved-Q Full-O, exact Q/K norm vectors, and the common four-
+resource observation bundle for Full-QKV, Full-O, in-place preprocess, and
+fixed C8000 online Attention. Request execution may neither rescan
+`ModelWeights` nor repeat CUDA/catalog/resource queries. The all-or-nothing
+construction seals require exact live CUDA allocation/upload-receipt, role,
+layout, resource, and device agreement. The fake host catalog fails closed;
 the normal startup and execution factories are now private, and the core
 static library no longer contains the named synthetic-T1 construction
 wrapper. The private synthetic branch remains confined to the
 BUILD_TESTING-only archive for the CUDA fixture and grants no production
 authority. An Engine-private composition root wires only those normal catalogs
 into the existing default-off V3 real-owner
-harness, enforces `execution → startup → ModelWeights → complete target-AOT
-owner → resident` teardown, and adds exactly 599,261,184 bytes of
-transient/recurrent ownership to retained-memory admission. No pinned
-real-checkpoint Engine probe has executed that root yet, so the normal factory
-and lifecycle currently have construction/build authority only; positive
-execution of the complete catalogs under the real owner is still open. A
-separate private owner now owns three nonblocking streams and nine events and
+harness. The normal ExecutionPackage owns exactly 442,368,000 transient plus
+156,893,184 recurrent plus 2,621,440,000 private Full-KV bytes, or
+3,220,701,184 bytes. It borrows an exact 67,108,864-byte shared Engine RoPE
+owner containing 262,144 positions × 32 cosine/sine pairs. The reserve chain
+also preserves the 8,640,542,976-byte legacy P40 arena: complete target-AOT
+creation leaves 11,928,353,024 bytes plus the caller reserve, RoPE creation
+leaves 11,861,244,160 bytes plus it, and V4 creation leaves the legacy arena
+plus it. Teardown is `execution → startup → Engine RoPE → ModelWeights →
+complete target-AOT owner → resident`. No pinned real-checkpoint Engine probe
+has executed that root yet, so the normal factory, KV/RoPE/reserve chain, and
+lifetime currently have source/build authority only; positive execution of
+the complete catalogs under the real owner is still open. A separate private
+owner now owns three nonblocking streams and nine events and
 enforces the five-panel, 48-AB-cycle-per-panel dependency graph without
 per-panel host observation. That owner and the startup package now compose one
 isolated synthetic-T1 complete GDN layer 0:
@@ -600,12 +610,24 @@ complete-layer receipt requires the matching identity plus
 `physical_execution_receipt_issued=true`; the poison fixture separately proves
 that a pending GDN grant is invalidated at that physical boundary. The driver
 exposes neither raw ready-event recording nor caller-filled QKVZ submission.
-The live fixture uses zero-valued synthetic weights. This establishes complete
-synthetic-layer scheduling/lifetime evidence, not a real-checkpoint numerical,
-real-owner, whole-model, API, or performance result. Complete Attention-layer
-composition, all layers/panels, whole-model receipt, rollback, finalizer, and
-API launcher must still compose before V4 is runnable or eligible for a P40
-witness.
+The live fixture uses zero-valued synthetic weights.
+
+The same private Events owner independently executes a Full-Attention T1 DAG
+as exactly eight Main-stream kernels and zero copies:
+`InputNorm → FullQKV → preprocess → Attention → FullO → ResidualPostNorm →`
+`GateUp → Down`. Its move-only KV grant, semantic argument/asset/resource
+digest, owner-authenticated receipt, request-scoped at-most-once ledger, exact
+accepted-prefix 0--8 failure coverage, and terminal three-stream
+drain/RequestState discard are executable. It does not record GDN A/B events
+or change the BF16 A/B cycle state, and its receipt explicitly denies device,
+panel, and production completion. Advancing the host RequestState to layer 4
+after that isolated enqueue is not a physical execution of natural GDN layers
+0--2. These fixtures establish synthetic scheduling/lifetime evidence, not a
+real-checkpoint numerical, real-owner, whole-model, API, or performance
+result. The ExecutionPackage complete-Full-layer composer and the physical
+natural-layers-0--3 cohort (35 kernels plus three 61,440-byte copies) are still
+absent. They, all layers/panels, whole-model receipt, rollback, finalizer, and
+API launcher must compose before V4 is runnable or eligible for a P40 witness.
 
 The fixed Attention handoff now retains the FP8 projection's native
 `[Q256, Gate256]` head interleave. Q preprocessing and exact Attention both
@@ -832,7 +854,9 @@ admission; every measured sample must still remain strictly below `70C`.
 
 The latest V4 performance admission stopped before execution because Xorg,
 GNOME, and Mutter held GPU-device handles. It produced no timing or profiler
-evidence. This does not relax the gate or authorize a contaminated result.
+evidence, and the pending real-checkpoint Engine-lifetime probe was not run in
+that contaminated window. This does not relax the gate or authorize a
+contaminated result or positive real-owner claim.
 
 ### 9.1 First target-first execution feedback
 
@@ -953,6 +977,13 @@ budgets remain explanatory tools rather than substitutes for the product
 workload.
 
 ## 10. Package closure
+
+The active Roadmap owns the current dependency sequence:
+`ExecutionPackage Full composer → physical natural-layers-0--3 cohort →`
+`clean-host real-checkpoint lifetime/numerical gates → 64×5 composition and`
+`real API`. This work package may explain or falsify those translations, but
+it cannot skip that sequence with the Events-only host progression or a local
+constituent result.
 
 This package closes only when all of the following are true:
 

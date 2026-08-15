@@ -83,7 +83,8 @@ Sm87TargetAotEngineRopeCreateResult create_sm87_target_aot_engine_rope(
     const std::uint64_t minimum_free_bytes_after_create) noexcept {
   Sm87TargetAotEngineRopeCreateResult result;
 #if !defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION) && \
-    !defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION)
+    !defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION) && \
+    !defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
   (void)minimum_free_bytes_after_create;
   result.status = failure(Sm87TargetAotEngineRopeError::kAdmissionDisabled,
                           "target_aot_p40_executor_admission");

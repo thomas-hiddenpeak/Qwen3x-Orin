@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <new>
 
@@ -16,6 +17,8 @@ std::atomic<std::uint64_t> g_next_seal_nonce{1U};
 std::atomic<std::uint64_t> g_next_enqueue_identity{1U};
 std::atomic<std::uint64_t> g_next_completion_identity{1U};
 std::atomic<std::uint64_t> g_next_gdn_layer_transaction_identity{1U};
+std::atomic<std::uint64_t> g_next_full_attention_layer_transaction_identity{
+    1U};
 std::atomic<std::uint64_t> g_next_poison_quiescence_identity{1U};
 
 [[nodiscard]] std::uint64_t next_nonzero(
@@ -143,6 +146,47 @@ std::atomic<std::uint64_t> g_next_poison_quiescence_identity{1U};
   value = (value ^ (value >> 30U)) * 0xbf58'476d'1ce4'e5b9ULL;
   value = (value ^ (value >> 27U)) * 0x94d0'49bb'1331'11ebULL;
   return value ^ (value >> 31U);
+}
+
+struct ByteRange final {
+  std::uintptr_t begin = 0U;
+  std::uintptr_t end = 0U;
+  bool valid = false;
+};
+
+[[nodiscard]] constexpr ByteRange byte_range(
+    const std::uintptr_t begin, const std::uint64_t bytes) noexcept {
+  if (begin == 0U || bytes == 0U ||
+      bytes > std::numeric_limits<std::uintptr_t>::max()) {
+    return {};
+  }
+  const auto width = static_cast<std::uintptr_t>(bytes);
+  if (begin > std::numeric_limits<std::uintptr_t>::max() - width) {
+    return {};
+  }
+  return {begin, begin + width, true};
+}
+
+[[nodiscard]] constexpr ByteRange byte_range(
+    const void* const begin, const std::uint64_t bytes) noexcept {
+  return byte_range(reinterpret_cast<std::uintptr_t>(begin), bytes);
+}
+
+template <std::size_t kCount>
+[[nodiscard]] constexpr bool pairwise_disjoint(
+    const std::array<ByteRange, kCount>& ranges) noexcept {
+  for (std::size_t first = 0U; first < kCount; ++first) {
+    if (!ranges[first].valid) {
+      return false;
+    }
+    for (std::size_t second = first + 1U; second < kCount; ++second) {
+      if (!(ranges[first].end <= ranges[second].begin ||
+            ranges[second].end <= ranges[first].begin)) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 }  // namespace
@@ -318,10 +362,22 @@ void Sm87MacroFeedV4ExecutionEventsOwner::reset_request_ledger() noexcept {
   gdn_history_d2d_copies_ = 0U;
   gdn_history_d2d_bytes_ = 0U;
   gdn_output_c8000_submissions_ = 0U;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  full_qkv_c8000_submissions_ = 0U;
+  full_attention_preprocess_c8000_submissions_ = 0U;
+  attention_c8000_submissions_ = 0U;
+  full_attention_output_c8000_submissions_ = 0U;
+#endif
   residual_post_norm_submissions_ = 0U;
   gate_up_c8000_submissions_ = 0U;
   down_c8000_submissions_ = 0U;
   complete_gdn_layers_submitted_ = 0U;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  complete_full_attention_layers_submitted_ = 0U;
+  accepted_full_attention_grant_identities_.fill(0U);
+  accepted_full_attention_grant_count_ = 0U;
+  last_full_attention_accepted_prefix_ = {};
+#endif
   panel_done_recorded_ = false;
   draining_ = false;
   main_tail_recorded_ = false;
@@ -340,6 +396,10 @@ void Sm87MacroFeedV4ExecutionEventsOwner::reset_request_ledger() noexcept {
   poisoned_terminal_quiescence_attested_ = false;
   poisoned_terminal_quiescence_identity_ = 0U;
   test_fail_next_bound_ab_wait_ = false;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  test_fail_full_after_accepted_prefix_ =
+      std::numeric_limits<std::size_t>::max();
+#endif
 }
 
 void Sm87MacroFeedV4ExecutionEventsOwner::record_poison_cause(
@@ -1112,62 +1172,6 @@ Sm87MacroFeedV4ExecutionEventsOwner::
   return result;
 }
 
-Sm87MacroFeedV4ExecutionStatus
-Sm87MacroFeedV4ExecutionEventsOwner::initialize_cold_recurrent_storage(
-    const Sm87MacroFeedV4ExecutionEventsAccess& access,
-    void* const recurrent_allocation,
-    const std::size_t recurrent_bytes,
-    const std::uint64_t recurrent_allocation_identity) noexcept {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (!owner_access_matches(access)) {
-    return fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
-                "cold_recurrent_zero_owner_issued_access");
-  }
-  if (state_ != Sm87MacroFeedV4ExecutionOwnerState::kReady ||
-      recurrent_allocation == nullptr ||
-      reinterpret_cast<std::uintptr_t>(recurrent_allocation) % 256U != 0U ||
-      recurrent_bytes != kSm87MacroFeedV4RecurrentStorageBytes ||
-      recurrent_allocation_identity == 0U ||
-      cold_recurrent_initializations_ != 0U ||
-      cold_recurrent_allocation_identity_ != 0U ||
-      cold_recurrent_allocation_begin_ != 0U ||
-      cold_recurrent_zero_bytes_ != 0U) {
-    return fail(Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
-                "cold_recurrent_zero_exact_once_before_request");
-  }
-
-  const auto control = reinterpret_cast<cudaStream_t>(
-      streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kControl)]);
-  cudaError_t cuda_status =
-      cudaMemsetAsync(recurrent_allocation, 0, recurrent_bytes, control);
-  if (cuda_status != cudaSuccess) {
-    const auto status = fail(
-        Sm87MacroFeedV4ExecutionError::kCudaSubmission,
-        "cold_recurrent_zero_memset_enqueue", static_cast<int>(cuda_status),
-        Sm87MacroFeedV4ExecutionStream::kControl);
-    record_poison_cause(status);
-    return status;
-  }
-  // Construction-only physical fence.  No request or panel is active and no
-  // request-hot path may repeat this whole-arena operation.
-  cuda_status = cudaStreamSynchronize(control);
-  if (cuda_status != cudaSuccess) {
-    const auto status = fail(
-        Sm87MacroFeedV4ExecutionError::kCudaObservation,
-        "cold_recurrent_zero_control_observation",
-        static_cast<int>(cuda_status),
-        Sm87MacroFeedV4ExecutionStream::kControl);
-    record_poison_cause(status);
-    return status;
-  }
-  cold_recurrent_initializations_ = 1U;
-  cold_recurrent_allocation_identity_ = recurrent_allocation_identity;
-  cold_recurrent_allocation_begin_ =
-      reinterpret_cast<std::uintptr_t>(recurrent_allocation);
-  cold_recurrent_zero_bytes_ = recurrent_bytes;
-  return ok();
-}
-
 Sm87MacroFeedV4CompleteGdnLayerEnqueueResult
 Sm87MacroFeedV4ExecutionEventsOwner::
     submit_complete_gdn_layer_c8000_prevalidated(
@@ -1498,7 +1502,667 @@ Sm87MacroFeedV4ExecutionEventsOwner::
   }
   return result;
 }
+
+Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueResult
+Sm87MacroFeedV4ExecutionEventsOwner::
+    submit_complete_full_attention_layer_c8000_prevalidated(
+        const Sm87MacroFeedV4ExecutionEventsAccess& access,
+        const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+        const Sm87MacroFeedV4FullAttentionKvGrant& kv_grant,
+        const Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission&
+            submission) noexcept {
+  namespace bound =
+      kernels::sm87_macrofeed_v4_bound_launch_detail;
+  std::lock_guard<std::mutex> lock(mutex_);
+  Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueResult result;
+  result.status = validate_operation_access(access, panel_access);
+  if (!result.status) {
+    return result;
+  }
+
+  Sm87MacroFeedV4FullAttentionAcceptedPrefixLedger ledger;
+  ledger.transaction_identity =
+      next_nonzero(&g_next_full_attention_layer_transaction_identity);
+  ledger.owner_identity = owner_identity_;
+  ledger.request_epoch = request_epoch_;
+  ledger.panel = active_panel_;
+  ledger.panel_generation = active_panel_generation_;
+  ledger.first_position =
+      active_panel_ * kernels::kSm87MacroFeedV4Fp8Tokens;
+  ledger.grant_identity = kv_grant.grant_identity();
+  ledger.grant_state_epoch = kv_grant.state_epoch();
+  ledger.kv_allocation_identity = kv_grant.kv_allocation_identity();
+  ledger.full_attention_ordinal = kv_grant.attention_layer_ordinal();
+  ledger.model_layer = kv_grant.model_layer();
+  last_full_attention_accepted_prefix_ = ledger;
+
+  static_assert(
+      std::tuple_size<
+          decltype(accepted_full_attention_grant_identities_)>::value ==
+      kSm87MacroFeedV4PanelCount *
+          kSm87MacroFeedV4FullAttentionLayerCount);
+  if (accepted_full_attention_grant_count_ >=
+      accepted_full_attention_grant_identities_.size()) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kReceiptInvalid,
+        "complete_full_attention_accepted_grant_ledger_capacity", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kCount, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+  bool grant_replayed = false;
+  for (std::size_t index = 0U;
+       index < accepted_full_attention_grant_count_; ++index) {
+    grant_replayed =
+        grant_replayed ||
+        accepted_full_attention_grant_identities_[index] ==
+            kv_grant.grant_identity();
+  }
+  if (grant_replayed) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
+        "complete_full_attention_grant_at_most_once", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kCount, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+
+  const void* const main_stream =
+      streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kMain)];
+  auto checked_input_norm = submission.input_norm;
+  checked_input_norm.cuda_stream = const_cast<void*>(main_stream);
+  const kernels::Sm87MacroFeedV4Fp8Arguments checked_full_qkv{
+      kernels::Sm87TargetAotProjectionRole::kFp8FullQkv,
+      submission.full_qkv.hidden_input,
+      kernels::kSm87MacroFeedV4Fp8HiddenRowStride,
+      submission.full_qkv.asset,
+      kernels::kSm87MacroFeedV4Fp8Tokens,
+      submission.full_qkv.q_gate_scratch,
+      kernels::kSm87MacroFeedV4Fp8ScratchRowStride,
+      submission.full_qkv.key_panel_output,
+      kernels::kSm87MacroFeedV4Fp8KvNhdRowStride,
+      submission.full_qkv.value_panel_output,
+      kernels::kSm87MacroFeedV4Fp8KvNhdRowStride,
+      const_cast<void*>(main_stream),
+      kernels::Sm87MacroFeedV4Fp8InputLayout::kHiddenContiguousH5120V1};
+  const kernels::Sm87MacroFeedV4FullAttentionPreprocessArguments
+      checked_preprocess{
+          submission.preprocess.q_gate_scratch,
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessTokens,
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessScratchRowStride,
+          submission.preprocess.key_cache_origin,
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessMaximumPositions,
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessKeyRowStride,
+          submission.preprocess.q_norm_weight,
+          submission.preprocess.k_norm_weight,
+          submission.preprocess.cosines,
+          submission.preprocess.sines,
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessMaximumPositions,
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessRotaryHalf,
+          submission.preprocess.first_position,
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessEpsilonFp32Bits,
+          const_cast<void*>(main_stream)};
+  const kernels::Sm87MacroFeedV4AttentionC8000Arguments checked_attention{
+      submission.attention.q_gate_scratch,
+      kernels::kSm87MacroFeedV4AttentionC8000Tokens,
+      kernels::kSm87MacroFeedV4AttentionC8000ScratchRowStride,
+      submission.attention.key_cache_origin,
+      submission.attention.value_cache_origin,
+      kernels::kSm87MacroFeedV4AttentionC8000MaximumPositions,
+      kernels::kSm87MacroFeedV4AttentionC8000KvRowStride,
+      submission.attention.first_position,
+      const_cast<void*>(main_stream)};
+  const kernels::Sm87MacroFeedV4Fp8Arguments checked_full_output{
+      kernels::Sm87TargetAotProjectionRole::kFp8AttentionOutput,
+      submission.full_output.q_gate_scratch,
+      kernels::kSm87MacroFeedV4Fp8ScratchRowStride,
+      submission.full_output.asset,
+      kernels::kSm87MacroFeedV4Fp8Tokens,
+      submission.full_output.branch_output,
+      kernels::kSm87MacroFeedV4Fp8HiddenRowStride,
+      nullptr,
+      0U,
+      nullptr,
+      0U,
+      const_cast<void*>(main_stream),
+      kernels::Sm87MacroFeedV4Fp8InputLayout::
+          kFullAttentionInterleavedQScratchV1};
+  const kernels::Sm87MacroFeedV4ResidualPostNormArguments
+      checked_residual_post_norm{
+          submission.residual_post_norm.left_residual_then_normalized,
+          submission.residual_post_norm.right_branch_then_residual,
+          submission.residual_post_norm.centered_weight,
+          kernels::kSm87MacroFeedV4NormResidualTokens,
+          kernels::kSm87MacroFeedV4NormResidualHidden,
+          kernels::kSm87MacroFeedV4NormResidualEpsilonFp32Bits,
+          const_cast<void*>(main_stream)};
+  const kernels::Sm87MacroFeedV4NvFp4GateUpArguments checked_gate_up{
+      submission.gate_up.normalized_input,
+      submission.gate_up.payload,
+      submission.gate_up.payload_bytes,
+      submission.gate_up.gate_tensor_scale,
+      submission.gate_up.up_tensor_scale,
+      kernels::kSm87MacroFeedV4NvFp4GateUpTokens,
+      submission.gate_up.intermediate_output,
+      const_cast<void*>(main_stream),
+      submission.gate_up.canonical_v3_payload_receipt};
+  const kernels::Sm87MacroFeedV4NvFp4DownArguments checked_down{
+      submission.down.intermediate_input,
+      submission.down.payload,
+      submission.down.payload_bytes,
+      submission.down.tensor_scale,
+      kernels::kSm87MacroFeedV4NvFp4DownTokens,
+      submission.down.residual_output,
+      const_cast<void*>(main_stream),
+      submission.down.payload_receipt};
+
+  constexpr auto kFullQkvIdentity =
+      kernels::Sm87MacroFeedV4Fp8Identity::
+          kFullQkvM64N128K64OrdinaryGridV1;
+  constexpr auto kFullOutputIdentity =
+      kernels::Sm87MacroFeedV4Fp8Identity::
+          kAttentionOutputM64N128K64OrdinaryGridV1;
+  static_assert(static_cast<std::uint64_t>(kFullQkvIdentity) ==
+                0x5133'4d46'5634'4602ULL);
+  static_assert(static_cast<std::uint64_t>(kFullOutputIdentity) ==
+                0x5133'4d46'5634'4603ULL);
+
+  const auto address = [](const void* const pointer) noexcept {
+    return reinterpret_cast<std::uintptr_t>(pointer);
+  };
+  constexpr std::uint64_t kHiddenBytes =
+      kernels::kSm87MacroFeedV4Fp8Tokens *
+      kernels::kSm87MacroFeedV4Fp8HiddenRowStride *
+      sizeof(std::uint16_t);
+  constexpr std::uint64_t kScratchBytes =
+      kernels::kSm87MacroFeedV4Fp8Tokens *
+      kernels::kSm87MacroFeedV4Fp8ScratchRowStride *
+      sizeof(std::uint16_t);
+  constexpr std::uint64_t kKvBytes =
+      kernels::kSm87MacroFeedV4AttentionC8000MaximumPositions *
+      kernels::kSm87MacroFeedV4AttentionC8000KvRowStride *
+      sizeof(std::uint16_t);
+  constexpr std::uint64_t kNormWeightBytes =
+      kernels::kSm87MacroFeedV4NormResidualHidden * sizeof(std::uint16_t);
+  constexpr std::uint64_t kQkNormWeightBytes =
+      kernels::kSm87MacroFeedV4FullAttentionPreprocessHeadDimension *
+      sizeof(std::uint16_t);
+  constexpr std::uint64_t kRopeBytes =
+      kernels::kSm87MacroFeedV4FullAttentionPreprocessMaximumPositions *
+      kernels::kSm87MacroFeedV4FullAttentionPreprocessRotaryHalf *
+      sizeof(float);
+  const std::array<ByteRange, 15U> non_aliasing_ranges{{
+      byte_range(submission.input_norm.input_hidden, kHiddenBytes),
+      byte_range(submission.input_norm.output_hidden, kHiddenBytes),
+      byte_range(submission.full_qkv.q_gate_scratch, kScratchBytes),
+      byte_range(submission.preprocess.key_cache_origin, kKvBytes),
+      byte_range(submission.attention.value_cache_origin, kKvBytes),
+      byte_range(submission.input_norm.centered_weight, kNormWeightBytes),
+      byte_range(submission.residual_post_norm.centered_weight,
+                 kNormWeightBytes),
+      byte_range(submission.preprocess.q_norm_weight, kQkNormWeightBytes),
+      byte_range(submission.preprocess.k_norm_weight, kQkNormWeightBytes),
+      byte_range(submission.preprocess.cosines, kRopeBytes),
+      byte_range(submission.preprocess.sines, kRopeBytes),
+      byte_range(submission.full_qkv.asset.payload.begin,
+                 submission.full_qkv.asset.payload.bytes),
+      byte_range(submission.full_output.asset.payload.begin,
+                 submission.full_output.asset.payload.bytes),
+      byte_range(submission.gate_up.payload, submission.gate_up.payload_bytes),
+      byte_range(submission.down.payload, submission.down.payload_bytes),
+  }};
+  const std::uintptr_t key_full_pointer =
+      address(submission.preprocess.key_cache_origin);
+  const std::uintptr_t value_full_pointer =
+      address(submission.attention.value_cache_origin);
+  const bool grant_offsets_fit_pointer =
+      kv_grant.key_full_allocation_origin() <=
+          std::numeric_limits<std::uintptr_t>::max() &&
+      kv_grant.value_full_allocation_origin() <=
+          std::numeric_limits<std::uintptr_t>::max() &&
+      kv_grant.key_panel_allocation_offset() <=
+          std::numeric_limits<std::uintptr_t>::max() &&
+      kv_grant.value_panel_allocation_offset() <=
+          std::numeric_limits<std::uintptr_t>::max() &&
+      key_full_pointer >= kv_grant.key_full_allocation_origin();
+  const std::uintptr_t kv_arena_pointer =
+      grant_offsets_fit_pointer
+          ? key_full_pointer - static_cast<std::uintptr_t>(
+                                   kv_grant.key_full_allocation_origin())
+          : 0U;
+  const auto arena_offset_fits =
+      [&](const std::uint64_t offset) noexcept {
+        return offset <= std::numeric_limits<std::uintptr_t>::max() -
+                             kv_arena_pointer;
+      };
+  const bool grant_pointer_arithmetic_valid =
+      grant_offsets_fit_pointer &&
+      arena_offset_fits(kv_grant.key_full_allocation_origin()) &&
+      arena_offset_fits(kv_grant.value_full_allocation_origin()) &&
+      arena_offset_fits(kv_grant.key_panel_allocation_offset()) &&
+      arena_offset_fits(kv_grant.value_panel_allocation_offset());
+  const bool exact_grant =
+      kv_grant.grant_identity() != 0U &&
+      kv_grant.owner_identity() == owner_identity_ &&
+      kv_grant.request_epoch() == request_epoch_ &&
+      kv_grant.kv_allocation_identity() != 0U &&
+      kv_grant.panel() == active_panel_ &&
+      kv_grant.attention_layer_ordinal() ==
+          submission.full_attention_ordinal &&
+      kv_grant.model_layer() == submission.model_layer &&
+      submission.full_attention_ordinal <
+          kSm87MacroFeedV4FullAttentionLayerCount &&
+      submission.model_layer ==
+          4U * submission.full_attention_ordinal + 3U &&
+      kv_grant.key_full_allocation_origin() ==
+          submission.full_attention_ordinal *
+              kSm87MacroFeedV4AttentionKvLayerBytes &&
+      kv_grant.value_full_allocation_origin() ==
+          kv_grant.key_full_allocation_origin() +
+              kSm87MacroFeedV4AttentionKvPlaneBytes &&
+      kv_grant.key_panel_allocation_offset() ==
+          kv_grant.key_full_allocation_origin() +
+              active_panel_ * kSm87MacroFeedV4AttentionKvPanelBytes &&
+      kv_grant.value_panel_allocation_offset() ==
+          kv_grant.value_full_allocation_origin() +
+              active_panel_ * kSm87MacroFeedV4AttentionKvPanelBytes &&
+      kv_grant.panel_bytes() == kSm87MacroFeedV4AttentionKvPanelBytes &&
+      kv_grant.first_position() == ledger.first_position &&
+      kv_grant.previous_valid_end() == ledger.first_position &&
+      kv_grant.candidate_end() ==
+          ledger.first_position + kSm87MacroFeedV4PanelTokens;
+  const bool exact_submission_identities =
+      submission.execution_package_identity != 0U &&
+      submission.full_attention_catalog_identity != 0U &&
+      submission.full_attention_binding_identity != 0U &&
+      submission.mlp_binding_identity != 0U &&
+      submission.input_norm_binding_identity != 0U &&
+      submission.post_norm_binding_identity != 0U &&
+      submission.rope_binding_identity != 0U &&
+      submission.resource_bundle_identity != 0U;
+  const bool exact_alias_graph =
+      submission.input_norm.input_hidden ==
+          submission.residual_post_norm.left_residual_then_normalized &&
+      submission.input_norm.output_hidden ==
+          submission.full_qkv.hidden_input &&
+      submission.input_norm.output_hidden ==
+          submission.full_output.branch_output &&
+      submission.input_norm.output_hidden ==
+          submission.residual_post_norm.right_branch_then_residual &&
+      submission.full_qkv.q_gate_scratch ==
+          submission.preprocess.q_gate_scratch &&
+      submission.full_qkv.q_gate_scratch ==
+          submission.attention.q_gate_scratch &&
+      submission.full_qkv.q_gate_scratch ==
+          submission.full_output.q_gate_scratch &&
+      address(submission.preprocess.key_cache_origin) ==
+          address(submission.attention.key_cache_origin) &&
+      submission.preprocess.first_position ==
+          submission.attention.first_position &&
+      submission.preprocess.first_position == ledger.first_position &&
+      grant_pointer_arithmetic_valid &&
+      key_full_pointer ==
+          kv_arena_pointer + static_cast<std::uintptr_t>(
+                                 kv_grant.key_full_allocation_origin()) &&
+      value_full_pointer ==
+          kv_arena_pointer + static_cast<std::uintptr_t>(
+                                 kv_grant.value_full_allocation_origin()) &&
+      address(submission.full_qkv.key_panel_output) ==
+          kv_arena_pointer + static_cast<std::uintptr_t>(
+                                 kv_grant.key_panel_allocation_offset()) &&
+      address(submission.full_qkv.value_panel_output) ==
+          kv_arena_pointer + static_cast<std::uintptr_t>(
+                                 kv_grant.value_panel_allocation_offset()) &&
+      submission.gate_up.normalized_input ==
+          submission.residual_post_norm.left_residual_then_normalized &&
+      submission.gate_up.intermediate_output ==
+          submission.down.intermediate_input &&
+      submission.gate_up.intermediate_output ==
+          submission.full_qkv.q_gate_scratch &&
+      submission.down.residual_output ==
+          submission.residual_post_norm.right_branch_then_residual &&
+      pairwise_disjoint(non_aliasing_ranges);
+
+  const bool all_resources_and_arguments_valid =
+      !draining_ && ab_cycle_phase_ == AbCyclePhase::kExpectNormRecord &&
+      submission.input_norm.cuda_stream == nullptr &&
+      kernels::sm87_macrofeed_v4_input_norm_arguments_valid(
+          checked_input_norm) &&
+      kernels::sm87_macrofeed_v4_fp8_arguments_valid(checked_full_qkv) &&
+      kernels::sm87_macrofeed_v4_full_attention_preprocess_arguments_valid(
+          checked_preprocess) &&
+      kernels::sm87_macrofeed_v4_attention_c8000_arguments_valid(
+          checked_attention) &&
+      kernels::sm87_macrofeed_v4_fp8_arguments_valid(checked_full_output) &&
+      kernels::sm87_macrofeed_v4_residual_post_norm_arguments_valid(
+          checked_residual_post_norm) &&
+      kernels::sm87_macrofeed_v4_nvfp4_gate_up_arguments_valid(
+          checked_gate_up) &&
+      kernels::sm87_macrofeed_v4_nvfp4_down_arguments_valid(checked_down) &&
+      kernels::sm87_macrofeed_v4_norm_residual_resource_gate(
+          submission.norm_resources) &&
+      submission.norm_resources.static_resource_gate_passed &&
+      kernels::sm87_macrofeed_v4_fp8_resource_gate(
+          submission.full_qkv_resources) &&
+      submission.full_qkv_resources.static_resource_gate_passed &&
+      submission.full_qkv_resources.identity == kFullQkvIdentity &&
+      submission.full_qkv_resources.role ==
+          kernels::Sm87TargetAotProjectionRole::kFp8FullQkv &&
+      submission.full_qkv_resources.input_layout ==
+          kernels::Sm87MacroFeedV4Fp8InputLayout::
+              kHiddenContiguousH5120V1 &&
+      kernels::
+          sm87_macrofeed_v4_full_attention_preprocess_admission_resource_gate(
+              submission.preprocess_resources) &&
+      submission.preprocess_resources.static_resource_gate_passed &&
+      kernels::sm87_macrofeed_v4_attention_c8000_admission_resource_gate(
+          submission.attention_resources) &&
+      submission.attention_resources.static_resource_gate_passed &&
+      kernels::sm87_macrofeed_v4_fp8_resource_gate(
+          submission.full_output_resources) &&
+      submission.full_output_resources.static_resource_gate_passed &&
+      submission.full_output_resources.identity == kFullOutputIdentity &&
+      submission.full_output_resources.role ==
+          kernels::Sm87TargetAotProjectionRole::kFp8AttentionOutput &&
+      submission.full_output_resources.input_layout ==
+          kernels::Sm87MacroFeedV4Fp8InputLayout::
+              kFullAttentionInterleavedQScratchV1 &&
+      kernels::sm87_macrofeed_v4_nvfp4_gate_up_resource_gate(
+          submission.gate_up_resources) &&
+      submission.gate_up_resources.static_resource_gate_passed &&
+      kernels::sm87_macrofeed_v4_nvfp4_down_resource_gate(
+          submission.down_resources) &&
+      submission.down_resources.static_resource_gate_passed &&
+      submission.norm_resources.device_ordinal == device_ordinal_ &&
+      submission.full_qkv_resources.device_ordinal == device_ordinal_ &&
+      submission.preprocess_resources.device_ordinal == device_ordinal_ &&
+      submission.attention_resources.device_ordinal == device_ordinal_ &&
+      submission.full_output_resources.device_ordinal == device_ordinal_ &&
+      submission.gate_up_resources.device_ordinal == device_ordinal_ &&
+      submission.down_resources.device_ordinal == device_ordinal_ &&
+      exact_grant && exact_submission_identities && exact_alias_graph;
+  if (!all_resources_and_arguments_valid) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
+        "complete_full_attention_all_bindings_prevalidated_before_enqueue",
+        0, Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kCount, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+
+  if (test_fail_full_after_accepted_prefix_ == 0U) {
+    test_fail_full_after_accepted_prefix_ =
+        std::numeric_limits<std::size_t>::max();
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+        "test_full_attention_failure_after_zero_accepted", 1,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kCount, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+
+  const bound::Sm87MacroFeedV4LockedSubmitToken main_token(
+      streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kMain)]);
+  const auto retain_step =
+      [&](const int cuda_status, const std::size_t submitted,
+          std::size_t* const operation_ledger,
+          std::size_t* const global_operation_ledger,
+          const char* const context) noexcept {
+        *operation_ledger += submitted;
+        ledger.accepted_kernel_launches += submitted;
+        bound_kernel_submissions_ += submitted;
+        *global_operation_ledger += submitted;
+        last_full_attention_accepted_prefix_ = ledger;
+        if (cuda_status != static_cast<int>(cudaSuccess) || submitted != 1U) {
+          result.status = fail(
+              cuda_status == static_cast<int>(cudaSuccess)
+                  ? Sm87MacroFeedV4ExecutionError::kReceiptInvalid
+                  : Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+              context, cuda_status, Sm87MacroFeedV4ExecutionStream::kMain,
+              Sm87MacroFeedV4ExecutionEvent::kCount, active_panel_,
+              active_panel_generation_);
+          record_poison_cause(result.status);
+          return false;
+        }
+        if (test_fail_full_after_accepted_prefix_ ==
+            ledger.accepted_kernel_launches) {
+          test_fail_full_after_accepted_prefix_ =
+              std::numeric_limits<std::size_t>::max();
+          result.status = fail(
+              Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+              "test_full_attention_failure_after_accepted_prefix", 1,
+              Sm87MacroFeedV4ExecutionStream::kMain,
+              Sm87MacroFeedV4ExecutionEvent::kCount, active_panel_,
+              active_panel_generation_);
+          record_poison_cause(result.status);
+          return false;
+        }
+        return true;
+      };
+
+  std::size_t submitted = 0U;
+  int cuda_status = bound::enqueue_input_norm_prevalidated(
+      main_token, submission.input_norm, submission.norm_resources,
+      &submitted);
+  if (!retain_step(cuda_status, submitted, &ledger.input_norm_launches,
+                   &input_norm_submissions_,
+                   "complete_full_attention_input_norm_exact_one_launch")) {
+    return result;
+  }
+
+  submitted = 0U;
+  cuda_status = bound::enqueue_full_qkv_c8000_prevalidated(
+      main_token, submission.full_qkv, submission.full_qkv_resources,
+      &submitted);
+  if (!retain_step(cuda_status, submitted, &ledger.full_qkv_launches,
+                   &full_qkv_c8000_submissions_,
+                   "complete_full_attention_qkv_exact_one_launch")) {
+    return result;
+  }
+
+  submitted = 0U;
+  cuda_status = bound::enqueue_full_attention_preprocess_c8000_prevalidated(
+      main_token, submission.preprocess, submission.preprocess_resources,
+      &submitted);
+  if (!retain_step(
+          cuda_status, submitted, &ledger.preprocess_launches,
+          &full_attention_preprocess_c8000_submissions_,
+          "complete_full_attention_preprocess_exact_one_launch")) {
+    return result;
+  }
+
+  submitted = 0U;
+  cuda_status = bound::enqueue_attention_c8000_prevalidated(
+      main_token, submission.attention, submission.attention_resources,
+      &submitted);
+  if (!retain_step(cuda_status, submitted, &ledger.attention_launches,
+                   &attention_c8000_submissions_,
+                   "complete_full_attention_core_exact_one_launch")) {
+    return result;
+  }
+
+  submitted = 0U;
+  cuda_status = bound::enqueue_full_attention_o_c8000_prevalidated(
+      main_token, submission.full_output, submission.full_output_resources,
+      &submitted);
+  if (!retain_step(
+          cuda_status, submitted, &ledger.full_output_launches,
+          &full_attention_output_c8000_submissions_,
+          "complete_full_attention_output_exact_one_launch")) {
+    return result;
+  }
+
+  submitted = 0U;
+  cuda_status = bound::enqueue_residual_post_norm_prevalidated(
+      main_token, submission.residual_post_norm, submission.norm_resources,
+      &submitted);
+  if (!retain_step(
+          cuda_status, submitted, &ledger.residual_post_norm_launches,
+          &residual_post_norm_submissions_,
+          "complete_full_attention_residual_post_norm_exact_one_launch")) {
+    return result;
+  }
+
+  submitted = 0U;
+  cuda_status = bound::enqueue_gate_up_c8000_prevalidated(
+      main_token, submission.gate_up, submission.gate_up_resources,
+      &submitted);
+  if (!retain_step(cuda_status, submitted, &ledger.gate_up_launches,
+                   &gate_up_c8000_submissions_,
+                   "complete_full_attention_gate_up_exact_one_launch")) {
+    return result;
+  }
+
+  submitted = 0U;
+  cuda_status = bound::enqueue_down_c8000_prevalidated(
+      main_token, submission.down, submission.down_resources, &submitted);
+  if (!retain_step(cuda_status, submitted, &ledger.down_launches,
+                   &down_c8000_submissions_,
+                   "complete_full_attention_down_exact_one_launch")) {
+    return result;
+  }
+
+  accepted_full_attention_grant_identities_
+      [accepted_full_attention_grant_count_] = kv_grant.grant_identity();
+  ++accepted_full_attention_grant_count_;
+  ledger.complete = true;
+  last_full_attention_accepted_prefix_ = ledger;
+  Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt receipt;
+  receipt.transaction_identity_ = ledger.transaction_identity;
+  receipt.owner_identity_ = owner_identity_;
+  receipt.request_epoch_ = request_epoch_;
+  receipt.panel_ = active_panel_;
+  receipt.panel_generation_ = active_panel_generation_;
+  receipt.first_position_ = ledger.first_position;
+  receipt.grant_identity_ = kv_grant.grant_identity();
+  receipt.grant_state_epoch_ = kv_grant.state_epoch();
+  receipt.kv_allocation_identity_ = kv_grant.kv_allocation_identity();
+  receipt.key_full_allocation_origin_ =
+      kv_grant.key_full_allocation_origin();
+  receipt.value_full_allocation_origin_ =
+      kv_grant.value_full_allocation_origin();
+  receipt.key_panel_allocation_offset_ =
+      kv_grant.key_panel_allocation_offset();
+  receipt.value_panel_allocation_offset_ =
+      kv_grant.value_panel_allocation_offset();
+  receipt.kv_panel_bytes_ = kv_grant.panel_bytes();
+  receipt.previous_valid_end_ = kv_grant.previous_valid_end();
+  receipt.candidate_end_ = kv_grant.candidate_end();
+  receipt.full_attention_ordinal_ = submission.full_attention_ordinal;
+  receipt.model_layer_ = submission.model_layer;
+  receipt.execution_package_identity_ =
+      submission.execution_package_identity;
+  receipt.full_attention_catalog_identity_ =
+      submission.full_attention_catalog_identity;
+  receipt.full_attention_binding_identity_ =
+      submission.full_attention_binding_identity;
+  receipt.mlp_binding_identity_ = submission.mlp_binding_identity;
+  receipt.input_norm_binding_identity_ =
+      submission.input_norm_binding_identity;
+  receipt.post_norm_binding_identity_ =
+      submission.post_norm_binding_identity;
+  receipt.rope_binding_identity_ = submission.rope_binding_identity;
+  receipt.resource_bundle_identity_ = submission.resource_bundle_identity;
+  receipt.submission_digest_ = full_attention_submission_digest(submission);
+  receipt.input_norm_launches_ = ledger.input_norm_launches;
+  receipt.full_qkv_launches_ = ledger.full_qkv_launches;
+  receipt.preprocess_launches_ = ledger.preprocess_launches;
+  receipt.attention_launches_ = ledger.attention_launches;
+  receipt.full_output_launches_ = ledger.full_output_launches;
+  receipt.residual_post_norm_launches_ =
+      ledger.residual_post_norm_launches;
+  receipt.gate_up_launches_ = ledger.gate_up_launches;
+  receipt.down_launches_ = ledger.down_launches;
+  receipt.bound_kernel_submissions_ = ledger.accepted_kernel_launches;
+  receipt.asynchronous_d2d_copies_ = ledger.asynchronous_d2d_copies;
+  receipt.asynchronous_d2d_copy_bytes_ =
+      ledger.asynchronous_d2d_copy_bytes;
+  receipt.complete_layer_enqueued_ = true;
+  receipt.physical_device_completion_attested_ = false;
+  receipt.panel_complete_ = false;
+  receipt.production_receipt_eligible_ = false;
+  receipt.authenticator_ = full_attention_receipt_authenticator(receipt);
+  if (!full_attention_receipt_matches_locked(panel_access, kv_grant,
+                                             submission, receipt)) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kReceiptInvalid,
+        "complete_full_attention_owner_authenticated_receipt", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kCount, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+  ++complete_full_attention_layers_submitted_;
+  result.receipt = receipt;
+  result.status = ok();
+  return result;
+}
 #endif
+
+Sm87MacroFeedV4ExecutionStatus
+Sm87MacroFeedV4ExecutionEventsOwner::initialize_cold_recurrent_storage(
+    const Sm87MacroFeedV4ExecutionEventsAccess& access,
+    void* const recurrent_allocation,
+    const std::size_t recurrent_bytes,
+    const std::uint64_t recurrent_allocation_identity) noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!owner_access_matches(access)) {
+    return fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                "cold_recurrent_zero_owner_issued_access");
+  }
+  if (state_ != Sm87MacroFeedV4ExecutionOwnerState::kReady ||
+      recurrent_allocation == nullptr ||
+      reinterpret_cast<std::uintptr_t>(recurrent_allocation) % 256U != 0U ||
+      recurrent_bytes != kSm87MacroFeedV4RecurrentStorageBytes ||
+      recurrent_allocation_identity == 0U ||
+      cold_recurrent_initializations_ != 0U ||
+      cold_recurrent_allocation_identity_ != 0U ||
+      cold_recurrent_allocation_begin_ != 0U ||
+      cold_recurrent_zero_bytes_ != 0U) {
+    return fail(Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
+                "cold_recurrent_zero_exact_once_before_request");
+  }
+
+  const auto control = reinterpret_cast<cudaStream_t>(
+      streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kControl)]);
+  cudaError_t cuda_status =
+      cudaMemsetAsync(recurrent_allocation, 0, recurrent_bytes, control);
+  if (cuda_status != cudaSuccess) {
+    const auto status = fail(
+        Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+        "cold_recurrent_zero_memset_enqueue", static_cast<int>(cuda_status),
+        Sm87MacroFeedV4ExecutionStream::kControl);
+    record_poison_cause(status);
+    return status;
+  }
+  // Construction-only physical fence.  No request or panel is active and no
+  // request-hot path may repeat this whole-arena operation.
+  cuda_status = cudaStreamSynchronize(control);
+  if (cuda_status != cudaSuccess) {
+    const auto status = fail(
+        Sm87MacroFeedV4ExecutionError::kCudaObservation,
+        "cold_recurrent_zero_control_observation",
+        static_cast<int>(cuda_status),
+        Sm87MacroFeedV4ExecutionStream::kControl);
+    record_poison_cause(status);
+    return status;
+  }
+  cold_recurrent_initializations_ = 1U;
+  cold_recurrent_allocation_identity_ = recurrent_allocation_identity;
+  cold_recurrent_allocation_begin_ =
+      reinterpret_cast<std::uintptr_t>(recurrent_allocation);
+  cold_recurrent_zero_bytes_ = recurrent_bytes;
+  return ok();
+}
 
 Sm87MacroFeedV4EventEnqueueResult
 Sm87MacroFeedV4ExecutionEventsOwner::wait_event(
@@ -1581,6 +2245,478 @@ std::uint64_t Sm87MacroFeedV4ExecutionEventsOwner::completion_authenticator(
                             receipt.observed_by_synchronize_));
   return value;
 }
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+std::uint64_t
+Sm87MacroFeedV4ExecutionEventsOwner::full_attention_submission_digest(
+    const Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission&
+        submission) const noexcept {
+  // Every fact is mixed explicitly.  In particular, no object representation
+  // or struct padding is read, so the digest is stable across compilers while
+  // still binding the exact package-to-owner submission.
+  std::uint64_t value = mix64(0x5133'4d46'5634'5344ULL);
+  const auto add = [&value](const std::uint64_t fact) noexcept {
+    value = mix64(value ^ fact);
+  };
+  const auto add_size = [&add](const std::size_t fact) noexcept {
+    add(static_cast<std::uint64_t>(fact));
+  };
+  const auto add_i32 = [&add](const std::int32_t fact) noexcept {
+    add(static_cast<std::uint64_t>(static_cast<std::int64_t>(fact)));
+  };
+  const auto add_bool = [&add](const bool fact) noexcept {
+    add(static_cast<std::uint64_t>(fact));
+  };
+  const auto add_pointer = [&add](const void* const pointer) noexcept {
+    add(static_cast<std::uint64_t>(
+        reinterpret_cast<std::uintptr_t>(pointer)));
+  };
+  const auto add_float = [&add](const float fact) noexcept {
+    std::uint32_t bits = 0U;
+    static_assert(sizeof(bits) == sizeof(fact));
+    std::memcpy(&bits, &fact, sizeof(bits));
+    add(bits);
+  };
+  const auto add_fp8_asset = [&](const auto& asset) noexcept {
+    add(static_cast<std::uint64_t>(asset.payload.role));
+    add(static_cast<std::uint64_t>(asset.payload.plan_identity));
+    add(static_cast<std::uint64_t>(asset.payload.layout_identity));
+    add(asset.payload.begin);
+    add(asset.payload.end);
+    add(asset.payload.bytes);
+    add_bool(asset.payload.valid);
+    add(asset.artifact_identity);
+    add(asset.source_inventory_identity);
+    add(static_cast<std::uint64_t>(asset.transform_identity));
+    for (const std::uint8_t byte : asset.host_payload_digest.bytes) {
+      add(byte);
+    }
+    add(asset.host_manifest_seal.value);
+    const auto& upload = asset.device_upload_receipt;
+    add(upload.receipt_identity);
+    add(upload.artifact_identity);
+    add(upload.source_inventory_identity);
+    add(static_cast<std::uint64_t>(upload.role));
+    add(static_cast<std::uint64_t>(upload.plan_identity));
+    add(static_cast<std::uint64_t>(upload.layout_identity));
+    add(static_cast<std::uint64_t>(upload.transform_identity));
+    add(upload.device_allocation_identity);
+    add(upload.device_allocation_owner_identity);
+    add_i32(upload.device_ordinal);
+    add(upload.device_allocation_begin);
+    add(upload.device_allocation_end);
+    add(upload.device_allocation_bytes);
+    add(upload.device_payload_begin);
+    add(upload.device_payload_end);
+    add(upload.device_payload_bytes);
+    for (const std::uint32_t bits : asset.tensor_scale_bits) {
+      add(bits);
+    }
+    for (const std::uint16_t bits :
+         asset.compensated_tensor_scale_bf16_bits) {
+      add(bits);
+    }
+    add(asset.tensor_scale_count);
+    add_bool(asset.no_request_time_repacking);
+    add_bool(asset.no_request_time_scale_conversion);
+    add_bool(asset.valid);
+  };
+  const auto add_gate_up_receipt = [&](const auto& receipt) noexcept {
+    add(receipt.receipt_identity);
+    add(static_cast<std::uint64_t>(receipt.plan_identity));
+    add(receipt.payload_identity);
+    add(receipt.gate_source_identity);
+    add(receipt.up_source_identity);
+    add_i32(receipt.device_ordinal);
+    add(receipt.payload_begin);
+    add(receipt.payload_end);
+    add(receipt.payload_bytes);
+    add(receipt.gate_partition_bytes);
+    add(receipt.up_partition_bytes);
+    add_bool(receipt.canonical_consumer_n64_k16_lane_component_v1);
+    add_bool(receipt.canonical_gate_then_up_partition_order);
+    add_bool(receipt.independent_tensor_scales);
+    add_bool(receipt.host_bytes_authenticated_before_copy);
+    add_bool(receipt.device_readback_authenticated);
+    add_bool(receipt.allocation_retained_for_launch);
+  };
+  const auto add_down_receipt = [&](const auto& receipt) noexcept {
+    add(receipt.receipt_identity);
+    add(static_cast<std::uint64_t>(receipt.plan_identity));
+    add(receipt.payload_identity);
+    add_i32(receipt.device_ordinal);
+    add(receipt.payload_begin);
+    add(receipt.payload_end);
+    add(receipt.payload_bytes);
+    add_bool(receipt.canonical_consumer_n64_k16_lane_component_v1);
+    add_bool(receipt.host_bytes_authenticated_before_copy);
+    add_bool(receipt.device_readback_authenticated);
+    add_bool(receipt.allocation_retained_for_launch);
+  };
+  const auto add_norm_kernel = [&](const auto& kernel) noexcept {
+    add_i32(kernel.registers_per_thread);
+    add_size(kernel.static_shared_bytes);
+    add_size(kernel.local_bytes);
+    add_i32(kernel.maximum_threads_per_block);
+    add_i32(kernel.active_blocks_per_sm);
+    add_i32(kernel.threads_per_block);
+    add_i32(kernel.physical_grid_ctas);
+  };
+  const auto add_norm_resources = [&](const auto& resources) noexcept {
+    add(static_cast<std::uint64_t>(resources.identity));
+    add_i32(resources.device_ordinal);
+    add_i32(resources.compute_major);
+    add_i32(resources.compute_minor);
+    add_i32(resources.sm_count);
+    add_i32(resources.binary_version);
+    add_norm_kernel(resources.input_norm);
+    add_norm_kernel(resources.fused_residual_norm);
+    add_bool(resources.kernels_compiled);
+    add_bool(resources.exact_geometry);
+    add_bool(resources.static_resource_gate_passed);
+    add_bool(resources.numerical_contract_qualified);
+    add_bool(resources.production_dispatch_eligible);
+    add_bool(resources.startup_package_unbound);
+    add_bool(resources.execution_capability);
+    add_bool(resources.caller_snapshot_grants_production_authority);
+  };
+  const auto add_fp8_resources = [&](const auto& resources) noexcept {
+    add(static_cast<std::uint64_t>(resources.identity));
+    add(static_cast<std::uint64_t>(resources.role));
+    add(static_cast<std::uint64_t>(resources.input_layout));
+    add_i32(resources.device_ordinal);
+    add_i32(resources.compute_major);
+    add_i32(resources.compute_minor);
+    add_i32(resources.sm_count);
+    add_i32(resources.binary_version);
+    add_i32(resources.registers_per_thread);
+    add_size(resources.static_shared_bytes);
+    add_size(resources.dynamic_shared_bytes);
+    add_size(resources.local_bytes);
+    add_i32(resources.maximum_threads_per_block);
+    add_i32(resources.active_blocks_per_sm);
+    add_size(resources.shared_bytes_per_sm);
+    add_size(resources.optin_shared_bytes_per_block);
+    add_bool(resources.kernel_compiled);
+    add_bool(resources.static_resource_gate_passed);
+    add_bool(resources.numerical_contract_qualified);
+    add_bool(resources.production_dispatch_eligible);
+  };
+  const auto add_preprocess_resources = [&](const auto& resources) noexcept {
+    add(static_cast<std::uint64_t>(resources.identity));
+    add_i32(resources.device_ordinal);
+    add_i32(resources.compute_major);
+    add_i32(resources.compute_minor);
+    add_i32(resources.sm_count);
+    add_i32(resources.binary_version);
+    add_i32(resources.kernel.registers_per_thread);
+    add_size(resources.kernel.static_shared_bytes);
+    add_size(resources.kernel.local_bytes);
+    add_i32(resources.kernel.maximum_threads_per_block);
+    add_i32(resources.kernel.active_blocks_per_sm);
+    add_i32(resources.kernel.threads_per_block);
+    add_i32(resources.kernel.grid_x);
+    add_i32(resources.kernel.grid_y);
+    add_i32(resources.kernel.physical_grid_ctas);
+    add_bool(resources.kernel_compiled);
+    add_bool(resources.exact_geometry);
+    add_bool(resources.static_resource_gate_passed);
+    add_bool(resources.numerical_contract_qualified);
+    add_bool(resources.production_dispatch_eligible);
+    add_bool(resources.startup_package_unbound);
+    add_bool(resources.execution_capability);
+    add_bool(resources.caller_snapshot_grants_production_authority);
+  };
+  const auto add_attention_resources = [&](const auto& resources) noexcept {
+    add(static_cast<std::uint64_t>(resources.identity));
+    add_i32(resources.device_ordinal);
+    add_i32(resources.compute_major);
+    add_i32(resources.compute_minor);
+    add_i32(resources.sm_count);
+    add_i32(resources.binary_version);
+    add_i32(resources.kernel.registers_per_thread);
+    add_size(resources.kernel.static_shared_bytes);
+    add_size(resources.kernel.dynamic_shared_bytes);
+    add_size(resources.kernel.local_bytes);
+    add_i32(resources.kernel.maximum_threads_per_block);
+    add_i32(resources.kernel.active_blocks_per_sm);
+    add_i32(resources.kernel.threads_per_block);
+    add_i32(resources.kernel.grid_x);
+    add_i32(resources.kernel.grid_y);
+    add_i32(resources.kernel.grid_z);
+    add_i32(resources.kernel.physical_grid_ctas);
+    add_bool(resources.kernel_compiled);
+    add_bool(resources.exact_geometry);
+    add_bool(resources.static_resource_gate_passed);
+    add_bool(resources.numerical_contract_qualified);
+    add_bool(resources.production_dispatch_eligible);
+    add_bool(resources.startup_package_unbound);
+    add_bool(resources.execution_capability);
+    add_bool(resources.caller_snapshot_grants_production_authority);
+  };
+  const auto add_gate_up_resources = [&](const auto& resources) noexcept {
+    add(static_cast<std::uint64_t>(resources.identity));
+    add_i32(resources.device_ordinal);
+    add_i32(resources.compute_major);
+    add_i32(resources.compute_minor);
+    add_i32(resources.sm_count);
+    add_i32(resources.binary_version);
+    add_i32(resources.registers_per_thread);
+    add_size(resources.static_shared_bytes);
+    add_size(resources.dynamic_shared_bytes);
+    add_size(resources.local_bytes);
+    add_i32(resources.maximum_threads_per_block);
+    add_i32(resources.active_blocks_per_sm);
+    add_bool(resources.kernel_compiled);
+    add_bool(resources.static_resource_gate_passed);
+    add_bool(resources.numerical_contract_qualified);
+    add_bool(resources.production_dispatch_eligible);
+  };
+  const auto add_down_resources = [&](const auto& resources) noexcept {
+    add(static_cast<std::uint64_t>(resources.identity));
+    add_i32(resources.device_ordinal);
+    add_i32(resources.compute_major);
+    add_i32(resources.compute_minor);
+    add_i32(resources.sm_count);
+    add_i32(resources.binary_version);
+    add_i32(resources.registers_per_thread);
+    add_size(resources.static_shared_bytes);
+    add_size(resources.dynamic_shared_bytes);
+    add_size(resources.local_bytes);
+    add_i32(resources.maximum_threads_per_block);
+    add_i32(resources.active_blocks_per_sm);
+    add_size(resources.shared_bytes_per_sm);
+    add_size(resources.optin_shared_bytes_per_block);
+    add_bool(resources.kernel_compiled);
+    add_bool(resources.static_resource_gate_passed);
+    add_bool(resources.numerical_contract_qualified);
+    add_bool(resources.production_dispatch_eligible);
+  };
+
+  add(submission.execution_package_identity);
+  add(submission.full_attention_catalog_identity);
+  add(submission.full_attention_binding_identity);
+  add(submission.mlp_binding_identity);
+  add(submission.input_norm_binding_identity);
+  add(submission.post_norm_binding_identity);
+  add(submission.rope_binding_identity);
+  add(submission.resource_bundle_identity);
+  add_size(submission.full_attention_ordinal);
+  add_size(submission.model_layer);
+
+  add(1U);
+  add_pointer(submission.input_norm.input_hidden);
+  add_pointer(submission.input_norm.centered_weight);
+  add_pointer(submission.input_norm.output_hidden);
+  add_size(submission.input_norm.token_count);
+  add_size(submission.input_norm.hidden_size);
+  add(submission.input_norm.epsilon_fp32_bits);
+  add_pointer(submission.input_norm.cuda_stream);
+
+  add(2U);
+  add_pointer(submission.full_qkv.hidden_input);
+  add_fp8_asset(submission.full_qkv.asset);
+  add_pointer(submission.full_qkv.q_gate_scratch);
+  add_pointer(submission.full_qkv.key_panel_output);
+  add_pointer(submission.full_qkv.value_panel_output);
+
+  add(3U);
+  add_pointer(submission.preprocess.q_gate_scratch);
+  add_pointer(submission.preprocess.key_cache_origin);
+  add_pointer(submission.preprocess.q_norm_weight);
+  add_pointer(submission.preprocess.k_norm_weight);
+  add_pointer(submission.preprocess.cosines);
+  add_pointer(submission.preprocess.sines);
+  add_size(submission.preprocess.first_position);
+
+  add(4U);
+  add_pointer(submission.attention.q_gate_scratch);
+  add_pointer(submission.attention.key_cache_origin);
+  add_pointer(submission.attention.value_cache_origin);
+  add_size(submission.attention.first_position);
+
+  add(5U);
+  add_pointer(submission.full_output.q_gate_scratch);
+  add_fp8_asset(submission.full_output.asset);
+  add_pointer(submission.full_output.branch_output);
+
+  add(6U);
+  add_pointer(submission.residual_post_norm.left_residual_then_normalized);
+  add_pointer(submission.residual_post_norm.right_branch_then_residual);
+  add_pointer(submission.residual_post_norm.centered_weight);
+
+  add(7U);
+  add_pointer(submission.gate_up.normalized_input);
+  add_pointer(submission.gate_up.payload);
+  add_size(submission.gate_up.payload_bytes);
+  add_float(submission.gate_up.gate_tensor_scale);
+  add_float(submission.gate_up.up_tensor_scale);
+  add_pointer(submission.gate_up.intermediate_output);
+  add_gate_up_receipt(submission.gate_up.canonical_v3_payload_receipt);
+
+  add(8U);
+  add_pointer(submission.down.intermediate_input);
+  add_pointer(submission.down.payload);
+  add_size(submission.down.payload_bytes);
+  add_float(submission.down.tensor_scale);
+  add_pointer(submission.down.residual_output);
+  add_down_receipt(submission.down.payload_receipt);
+
+  add(9U);
+  add_norm_resources(submission.norm_resources);
+  add_fp8_resources(submission.full_qkv_resources);
+  add_preprocess_resources(submission.preprocess_resources);
+  add_attention_resources(submission.attention_resources);
+  add_fp8_resources(submission.full_output_resources);
+  add_gate_up_resources(submission.gate_up_resources);
+  add_down_resources(submission.down_resources);
+  return value == 0U ? 0x5133'4d46'5634'5344ULL : value;
+}
+
+std::uint64_t
+Sm87MacroFeedV4ExecutionEventsOwner::full_attention_receipt_authenticator(
+    const Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt& receipt)
+    const noexcept {
+  std::uint64_t value =
+      mix64(receipt_secret_ ^ 0x5133'4d46'5634'4641ULL);
+  value = mix64(value ^ receipt.transaction_identity_);
+  value = mix64(value ^ receipt.owner_identity_);
+  value = mix64(value ^ receipt.request_epoch_);
+  value = mix64(value ^ static_cast<std::uint64_t>(receipt.panel_));
+  value = mix64(value ^ receipt.panel_generation_);
+  value = mix64(value ^ static_cast<std::uint64_t>(receipt.first_position_));
+  value = mix64(value ^ receipt.grant_identity_);
+  value = mix64(value ^ receipt.grant_state_epoch_);
+  value = mix64(value ^ receipt.kv_allocation_identity_);
+  value = mix64(value ^ receipt.key_full_allocation_origin_);
+  value = mix64(value ^ receipt.value_full_allocation_origin_);
+  value = mix64(value ^ receipt.key_panel_allocation_offset_);
+  value = mix64(value ^ receipt.value_panel_allocation_offset_);
+  value = mix64(value ^ receipt.kv_panel_bytes_);
+  value = mix64(
+      value ^ static_cast<std::uint64_t>(receipt.previous_valid_end_));
+  value =
+      mix64(value ^ static_cast<std::uint64_t>(receipt.candidate_end_));
+  value = mix64(value ^
+                static_cast<std::uint64_t>(receipt.full_attention_ordinal_));
+  value =
+      mix64(value ^ static_cast<std::uint64_t>(receipt.model_layer_));
+  value = mix64(value ^ receipt.execution_package_identity_);
+  value = mix64(value ^ receipt.full_attention_catalog_identity_);
+  value = mix64(value ^ receipt.full_attention_binding_identity_);
+  value = mix64(value ^ receipt.mlp_binding_identity_);
+  value = mix64(value ^ receipt.input_norm_binding_identity_);
+  value = mix64(value ^ receipt.post_norm_binding_identity_);
+  value = mix64(value ^ receipt.rope_binding_identity_);
+  value = mix64(value ^ receipt.resource_bundle_identity_);
+  value = mix64(value ^ receipt.submission_digest_);
+  value = mix64(
+      value ^ static_cast<std::uint64_t>(receipt.input_norm_launches_));
+  value = mix64(
+      value ^ static_cast<std::uint64_t>(receipt.full_qkv_launches_));
+  value = mix64(
+      value ^ static_cast<std::uint64_t>(receipt.preprocess_launches_));
+  value = mix64(
+      value ^ static_cast<std::uint64_t>(receipt.attention_launches_));
+  value = mix64(
+      value ^ static_cast<std::uint64_t>(receipt.full_output_launches_));
+  value = mix64(value ^ static_cast<std::uint64_t>(
+                            receipt.residual_post_norm_launches_));
+  value = mix64(
+      value ^ static_cast<std::uint64_t>(receipt.gate_up_launches_));
+  value = mix64(
+      value ^ static_cast<std::uint64_t>(receipt.down_launches_));
+  value = mix64(value ^ static_cast<std::uint64_t>(
+                            receipt.bound_kernel_submissions_));
+  value = mix64(value ^ static_cast<std::uint64_t>(
+                            receipt.asynchronous_d2d_copies_));
+  value = mix64(value ^ receipt.asynchronous_d2d_copy_bytes_);
+  value = mix64(value ^ static_cast<std::uint64_t>(
+                            receipt.complete_layer_enqueued_));
+  value = mix64(value ^ static_cast<std::uint64_t>(
+                            receipt.physical_device_completion_attested_));
+  value = mix64(
+      value ^ static_cast<std::uint64_t>(receipt.panel_complete_));
+  return mix64(value ^ static_cast<std::uint64_t>(
+                           receipt.production_receipt_eligible_));
+}
+
+bool Sm87MacroFeedV4ExecutionEventsOwner::
+    full_attention_receipt_matches_locked(
+        const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+        const Sm87MacroFeedV4FullAttentionKvGrant& kv_grant,
+        const Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission&
+            expected_submission,
+        const Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt&
+            receipt) const noexcept {
+  return panel_access_matches(panel_access) && receipt.valid_shape() &&
+         receipt.owner_identity_ == owner_identity_ &&
+         receipt.request_epoch_ == request_epoch_ &&
+         receipt.panel_ == active_panel_ &&
+         receipt.panel_generation_ == active_panel_generation_ &&
+         kv_grant.owner_identity() == owner_identity_ &&
+         kv_grant.request_epoch() == request_epoch_ &&
+         kv_grant.panel() == active_panel_ &&
+         receipt.grant_identity_ == kv_grant.grant_identity() &&
+         receipt.grant_state_epoch_ == kv_grant.state_epoch() &&
+         receipt.kv_allocation_identity_ ==
+             kv_grant.kv_allocation_identity() &&
+         receipt.key_full_allocation_origin_ ==
+             kv_grant.key_full_allocation_origin() &&
+         receipt.value_full_allocation_origin_ ==
+             kv_grant.value_full_allocation_origin() &&
+         receipt.key_panel_allocation_offset_ ==
+             kv_grant.key_panel_allocation_offset() &&
+         receipt.value_panel_allocation_offset_ ==
+             kv_grant.value_panel_allocation_offset() &&
+         receipt.kv_panel_bytes_ == kv_grant.panel_bytes() &&
+         receipt.first_position_ == kv_grant.first_position() &&
+         receipt.previous_valid_end_ == kv_grant.previous_valid_end() &&
+         receipt.candidate_end_ == kv_grant.candidate_end() &&
+         receipt.full_attention_ordinal_ ==
+             kv_grant.attention_layer_ordinal() &&
+         receipt.model_layer_ == kv_grant.model_layer() &&
+         receipt.full_attention_ordinal_ ==
+             expected_submission.full_attention_ordinal &&
+         receipt.model_layer_ == expected_submission.model_layer &&
+         receipt.execution_package_identity_ ==
+             expected_submission.execution_package_identity &&
+         receipt.full_attention_catalog_identity_ ==
+             expected_submission.full_attention_catalog_identity &&
+         receipt.full_attention_binding_identity_ ==
+             expected_submission.full_attention_binding_identity &&
+         receipt.mlp_binding_identity_ ==
+             expected_submission.mlp_binding_identity &&
+         receipt.input_norm_binding_identity_ ==
+             expected_submission.input_norm_binding_identity &&
+         receipt.post_norm_binding_identity_ ==
+             expected_submission.post_norm_binding_identity &&
+         receipt.rope_binding_identity_ ==
+             expected_submission.rope_binding_identity &&
+         receipt.resource_bundle_identity_ ==
+             expected_submission.resource_bundle_identity &&
+         receipt.submission_digest_ ==
+             full_attention_submission_digest(expected_submission) &&
+         receipt.authenticator_ != 0U &&
+         receipt.authenticator_ ==
+             full_attention_receipt_authenticator(receipt);
+}
+
+bool Sm87MacroFeedV4ExecutionEventsOwner::full_attention_receipt_matches(
+    const Sm87MacroFeedV4ExecutionEventsAccess& access,
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const Sm87MacroFeedV4FullAttentionKvGrant& kv_grant,
+    const Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission&
+        expected_submission,
+    const Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt& receipt)
+    const noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return owner_access_matches(access) &&
+         state_ == Sm87MacroFeedV4ExecutionOwnerState::kRequestActive &&
+         full_attention_receipt_matches_locked(
+             panel_access, kv_grant, expected_submission, receipt);
+}
+#endif
 
 Sm87MacroFeedV4PhysicalCompletionReceipt
 Sm87MacroFeedV4ExecutionEventsOwner::mint_completion_receipt(
@@ -2147,11 +3283,27 @@ Sm87MacroFeedV4ExecutionEventsOwner::snapshot() const noexcept {
   snapshot.gdn_history_d2d_copies = gdn_history_d2d_copies_;
   snapshot.gdn_history_d2d_bytes = gdn_history_d2d_bytes_;
   snapshot.gdn_output_c8000_submissions = gdn_output_c8000_submissions_;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  snapshot.full_qkv_c8000_submissions = full_qkv_c8000_submissions_;
+  snapshot.full_attention_preprocess_c8000_submissions =
+      full_attention_preprocess_c8000_submissions_;
+  snapshot.attention_c8000_submissions = attention_c8000_submissions_;
+  snapshot.full_attention_output_c8000_submissions =
+      full_attention_output_c8000_submissions_;
+#endif
   snapshot.residual_post_norm_submissions =
       residual_post_norm_submissions_;
   snapshot.gate_up_c8000_submissions = gate_up_c8000_submissions_;
   snapshot.down_c8000_submissions = down_c8000_submissions_;
   snapshot.complete_gdn_layers_submitted = complete_gdn_layers_submitted_;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  snapshot.complete_full_attention_layers_submitted =
+      complete_full_attention_layers_submitted_;
+  snapshot.accepted_full_attention_grants =
+      accepted_full_attention_grant_count_;
+  snapshot.last_full_attention_accepted_prefix =
+      last_full_attention_accepted_prefix_;
+#endif
   snapshot.cold_recurrent_initializations = cold_recurrent_initializations_;
   snapshot.cold_recurrent_allocation_identity =
       cold_recurrent_allocation_identity_;
@@ -2159,6 +3311,8 @@ Sm87MacroFeedV4ExecutionEventsOwner::snapshot() const noexcept {
       cold_recurrent_allocation_begin_;
   snapshot.cold_recurrent_zero_bytes = cold_recurrent_zero_bytes_;
   snapshot.streams_nonblocking = streams_nonblocking_;
+  snapshot.bf16_ab_cycle_at_norm_boundary =
+      ab_cycle_phase_ == AbCyclePhase::kExpectNormRecord;
   snapshot.panel_done_recorded = panel_done_recorded_;
   snapshot.main_tail_recorded = main_tail_recorded_;
   snapshot.ab_tail_recorded = ab_tail_recorded_;
@@ -2334,6 +3488,38 @@ Sm87MacroFeedV4ExecutionEventsDriver::
   }
   return owner_->submit_complete_gdn_layer_c8000_prevalidated(
       *access_, panel_access, submission);
+}
+
+Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueResult
+Sm87MacroFeedV4ExecutionEventsDriver::
+    submit_complete_full_attention_layer_c8000_prevalidated(
+        const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+        const Sm87MacroFeedV4FullAttentionKvGrant& kv_grant,
+        const Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission&
+            submission) noexcept {
+  if (owner_ == nullptr || access_ == nullptr) {
+    Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueResult result;
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+        "execution_driver_unbound");
+    return result;
+  }
+  return owner_->submit_complete_full_attention_layer_c8000_prevalidated(
+      *access_, panel_access, kv_grant, submission);
+}
+
+bool Sm87MacroFeedV4ExecutionEventsDriver::full_attention_receipt_matches(
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const Sm87MacroFeedV4FullAttentionKvGrant& kv_grant,
+    const Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission&
+        expected_submission,
+    const Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt& receipt)
+    const noexcept {
+  return owner_ != nullptr && access_ != nullptr &&
+         owner_->full_attention_receipt_matches(*access_, panel_access,
+                                                kv_grant,
+                                                expected_submission,
+                                                receipt);
 }
 
 Sm87MacroFeedV4ExecutionStatus

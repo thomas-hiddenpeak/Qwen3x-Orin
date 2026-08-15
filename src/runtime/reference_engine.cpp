@@ -27,7 +27,8 @@
 #include "sm87_macrofeed_v4_p40_execution_package_internal.h"
 #endif
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION) || \
-    defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION)
+    defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION) || \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
 #include "sm87_target_aot_engine_rope_internal.h"
 #endif
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
@@ -103,16 +104,66 @@ namespace lifetime_probe =
 
 inline constexpr std::uint64_t
     kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes =
-        kSm87MacroFeedV4P40ExecutionTransientBytes +
-        kSm87MacroFeedV4RecurrentStorageBytes;
+        kSm87MacroFeedV4P40ExecutionOwnedBytes;
+inline constexpr std::uint64_t
+    kSm87MacroFeedV4P40ExecutionCompositionAnchoredBytes =
+        kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes +
+        kSm87MacroFeedV4P40EngineRopeAllocationBytes;
 static_assert(kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes ==
-              599'261'184U);
+              3'220'701'184U);
 static_assert(kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes ==
               lifetime_probe::
                   kSm87MacroFeedV4EngineLifetimeExpectedOwnedBytes);
+static_assert(kSm87MacroFeedV4P40ExecutionCompositionAnchoredBytes ==
+              3'287'810'048U);
+static_assert(kSm87MacroFeedV4P40ExecutionCompositionAnchoredBytes ==
+              lifetime_probe::
+                  kSm87MacroFeedV4EngineLifetimeExpectedAnchoredBytes);
 static_assert(kSm87MacroFeedV4RecurrentStorageBytes ==
               lifetime_probe::
                   kSm87MacroFeedV4EngineLifetimeMinimumOwnedArenaBytes);
+static_assert(kSm87MacroFeedV4AttentionKvArenaBytes ==
+              lifetime_probe::
+                  kSm87MacroFeedV4EngineLifetimeExpectedKvArenaBytes);
+static_assert(kSm87MacroFeedV4P40EngineRopeAllocationBytes ==
+              lifetime_probe::kSm87MacroFeedV4EngineLifetimeExpectedRopeBytes);
+static_assert(kSm87MacroFeedV4P40EngineRopePositions ==
+              sm87_target_aot_p40_executor_detail::
+                  kSm87TargetAotEngineRopePositions);
+static_assert(kSm87MacroFeedV4P40EngineRopePairs ==
+              sm87_target_aot_p40_executor_detail::
+                  kSm87TargetAotEngineRopePairs);
+static_assert(kSm87MacroFeedV4P40EngineRopeAllocationBytes ==
+              sm87_target_aot_p40_executor_detail::
+                  kSm87TargetAotEngineRopeAllocationBytes);
+
+struct Sm87MacroFeedV4P40EngineMemoryReserveChain final {
+  std::uint64_t minimum_free_bytes_after_legacy_create = 0U;
+  std::uint64_t minimum_free_bytes_after_execution_create = 0U;
+  std::uint64_t minimum_free_bytes_after_rope_create = 0U;
+  std::uint64_t minimum_free_bytes_after_complete_aot_create = 0U;
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return minimum_free_bytes_after_legacy_create <=
+               std::numeric_limits<std::uint64_t>::max() -
+                   kLayerMajorPrefillPromptWideP40RequestArenaBytes &&
+           minimum_free_bytes_after_execution_create ==
+               minimum_free_bytes_after_legacy_create +
+                   kLayerMajorPrefillPromptWideP40RequestArenaBytes &&
+           minimum_free_bytes_after_execution_create <=
+               std::numeric_limits<std::uint64_t>::max() -
+                   kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes &&
+           minimum_free_bytes_after_rope_create ==
+               minimum_free_bytes_after_execution_create +
+                   kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes &&
+           minimum_free_bytes_after_rope_create <=
+               std::numeric_limits<std::uint64_t>::max() -
+                   kSm87MacroFeedV4P40EngineRopeAllocationBytes &&
+           minimum_free_bytes_after_complete_aot_create ==
+               minimum_free_bytes_after_rope_create +
+                   kSm87MacroFeedV4P40EngineRopeAllocationBytes;
+  }
+};
 
 class Sm87MacroFeedV4P40ExecutionCompositionRoot;
 
@@ -128,9 +179,9 @@ struct Sm87MacroFeedV4P40ExecutionCompositionRootCreateResult final {
 };
 
 // Engine-private lifetime anchor.  Member declaration and explicit teardown
-// both enforce execution -> startup.  The enclosing Engine declares this
-// root after ModelWeights, so its reverse destruction continues with
-// ModelWeights -> complete target-AOT owner -> ResidentWeights.
+// both enforce execution -> startup.  The enclosing Engine declares its RoPE
+// owner immediately before this root, so reverse destruction is V4 execution
+// -> V4 startup -> Engine RoPE -> ModelWeights -> complete target-AOT owner.
 class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
  public:
   using StartupPackage = sm87_macrofeed_v4_p40_startup_package_detail::
@@ -161,8 +212,14 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
            execution_package_identity_ != 0U &&
            gdn_qkvz_catalog_identity_ != 0U &&
            mlp_pair_catalog_identity_ != 0U &&
+           full_attention_catalog_identity_ != 0U &&
            retained_gdn_layer_catalog_fold_identity_ != 0U &&
            retained_mlp_pair_catalog_fold_identity_ != 0U &&
+           retained_full_attention_catalog_fold_identity_ != 0U &&
+           full_attention_resource_bundle_identity_ != 0U &&
+           kv_allocation_identity_ != 0U &&
+           engine_rope_binding_identity_ != 0U &&
+           engine_rope_device_ordinal_ >= 0 && reserve_chain_.valid() &&
            startup_->audit().package_identity == startup_package_identity_ &&
            execution_->audit().package_identity ==
                execution_package_identity_ &&
@@ -172,10 +229,24 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
                gdn_qkvz_catalog_identity_ &&
            execution_->audit().mlp_pair_catalog_identity ==
                mlp_pair_catalog_identity_ &&
+           execution_->audit().full_attention_catalog_identity ==
+               full_attention_catalog_identity_ &&
            execution_->audit().retained_gdn_layer_catalog_fold_identity ==
                retained_gdn_layer_catalog_fold_identity_ &&
            execution_->audit().retained_mlp_pair_catalog_fold_identity ==
                retained_mlp_pair_catalog_fold_identity_ &&
+           execution_->audit()
+                   .retained_full_attention_catalog_fold_identity ==
+               retained_full_attention_catalog_fold_identity_ &&
+           execution_->audit().full_attention_resource_bundle_identity ==
+               full_attention_resource_bundle_identity_ &&
+           execution_->audit().kv_allocation_identity ==
+               kv_allocation_identity_ &&
+           execution_->audit().engine_rope_binding_identity ==
+               engine_rope_binding_identity_ &&
+           execution_->audit().device_ordinal == engine_rope_device_ordinal_ &&
+           execution_->audit().minimum_free_bytes_after_create ==
+               reserve_chain_.minimum_free_bytes_after_execution_create &&
            construction_snapshot().valid();
   }
 
@@ -184,10 +255,15 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
       construction_snapshot() const noexcept {
     lifetime_probe::Sm87MacroFeedV4EngineLifetimeConstructionSnapshot
         snapshot;
-    snapshot.owned_bytes =
-        kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes;
-    snapshot.transient_bytes = kSm87MacroFeedV4P40ExecutionTransientBytes;
-    snapshot.recurrent_bytes = kSm87MacroFeedV4RecurrentStorageBytes;
+    snapshot.legacy_request_arena_bytes =
+        kLayerMajorPrefillPromptWideP40RequestArenaBytes;
+    snapshot.minimum_free_bytes_after_legacy_create =
+        reserve_chain_.minimum_free_bytes_after_legacy_create;
+    snapshot.minimum_free_bytes_after_rope_create =
+        reserve_chain_.minimum_free_bytes_after_rope_create;
+    snapshot.minimum_free_bytes_after_complete_aot_create =
+        reserve_chain_.minimum_free_bytes_after_complete_aot_create;
+    snapshot.engine_rope_device_ordinal = engine_rope_device_ordinal_;
     snapshot.lifetime_chain_sealed = construction_sealed_;
     if (startup_ != nullptr) {
       const auto& startup = startup_->audit();
@@ -200,6 +276,8 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
           startup.gdn_qkvz_binding_catalog_identity;
       snapshot.startup_mlp_source_catalog_identity =
           startup_->gate_up_startup_seal().binding_catalog_identity;
+      snapshot.startup_full_attention_source_catalog_identity =
+          startup.full_attention_source_catalog_identity;
     }
     if (execution_ != nullptr) {
       const auto& execution = execution_->audit();
@@ -215,21 +293,68 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
           execution.mlp_pair_catalog_identity;
       snapshot.execution_mlp_pair_binding_count =
           execution.mlp_pair_bindings;
+      snapshot.execution_full_attention_catalog_identity =
+          execution.full_attention_catalog_identity;
+      snapshot.execution_full_attention_binding_count =
+          execution.full_attention_bindings;
       snapshot.retained_complete_gdn_catalog_fold_identity =
           execution.retained_gdn_layer_catalog_fold_identity;
       snapshot.retained_mlp_pair_catalog_fold_identity =
           execution.retained_mlp_pair_catalog_fold_identity;
+      snapshot.retained_full_attention_catalog_fold_identity =
+          execution.retained_full_attention_catalog_fold_identity;
+      snapshot.full_attention_resource_bundle_identity =
+          execution.full_attention_resource_bundle_identity;
       snapshot.transient_allocation_identity =
           execution.transient_allocation_identity;
       snapshot.recurrent_allocation_identity =
           execution.recurrent_allocation_identity;
+      snapshot.kv_allocation_identity = execution.kv_allocation_identity;
+      snapshot.request_state_kv_allocation_identity =
+          execution.request_state_kv_allocation_identity;
+      snapshot.kv_allocation_begin = execution.kv_allocation_begin;
+      snapshot.engine_rope_owner_identity =
+          execution.engine_rope_owner_identity;
+      snapshot.engine_rope_binding_identity =
+          execution.engine_rope_binding_identity;
+      snapshot.engine_rope_allocation_begin =
+          execution.engine_rope_allocation_begin;
+      snapshot.engine_rope_positions = execution.engine_rope_positions;
+      snapshot.engine_rope_pairs = execution.engine_rope_pairs;
       snapshot.execution_events_owner_identity =
           execution.execution_events_owner_identity;
+      snapshot.transient_bytes = execution.transient_bytes;
+      snapshot.recurrent_bytes = execution.recurrent_bytes;
+      snapshot.kv_allocation_bytes = execution.kv_allocation_bytes;
+      snapshot.request_state_kv_allocation_bytes =
+          execution.request_state_kv_allocation_bytes;
+      snapshot.engine_rope_allocation_bytes =
+          execution.engine_rope_allocation_bytes;
+      snapshot.execution_required_device_allocation_bytes =
+          execution.required_device_allocation_bytes;
+      snapshot.execution_minimum_free_bytes_after_create =
+          execution.minimum_free_bytes_after_create;
+      snapshot.execution_free_bytes_before_allocations =
+          execution.device_free_bytes_before_allocations;
+      snapshot.execution_free_bytes_after_allocations =
+          execution.device_free_bytes_after_allocations;
+      snapshot.owned_bytes = execution.execution_owned_bytes;
+      snapshot.anchored_bytes =
+          execution.execution_owned_bytes +
+          execution.engine_rope_allocation_bytes;
+      snapshot.request_state_kv_physical_owner_bound =
+          execution.request_state_kv_physical_owner_bound;
+      snapshot.execution_aggregate_memory_gate_passed =
+          execution.aggregate_memory_gate_passed;
       snapshot.normal_factory_branch =
           !execution.synthetic_t1_gdn_layer0_source &&
           execution.gdn_qkvz_bindings ==
               kSm87MacroFeedV4StateLayerCount &&
-          execution.mlp_pair_bindings == kSm87MacroFeedV4LayerCount;
+          execution.mlp_pair_bindings == kSm87MacroFeedV4LayerCount &&
+          execution.full_attention_bindings ==
+              kSm87MacroFeedV4FullAttentionLayerCount &&
+          execution.request_state_kv_physical_owner_bound &&
+          execution.engine_rope_binding_identity != 0U;
       snapshot.synthetic_t1_gdn_layer0_source =
           execution.synthetic_t1_gdn_layer0_source;
       snapshot.complete_gdn_layer0_bound =
@@ -249,13 +374,37 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
 
   [[nodiscard]] static
       Sm87MacroFeedV4P40ExecutionCompositionRootCreateResult
-      create(const ModelWeights& model_weights) noexcept {
+      create(
+          const ModelWeights& model_weights,
+          const Sm87MacroFeedV4P40EngineRopeBinding& engine_rope,
+          const Sm87MacroFeedV4P40EngineMemoryReserveChain& reserve_chain)
+          noexcept {
     Sm87MacroFeedV4P40ExecutionCompositionRootCreateResult result;
+    if (!reserve_chain.valid()) {
+      result.context = "MacroFeed-v4 Engine reserve chain failed closed";
+      return result;
+    }
+    if (engine_rope.cosines == nullptr || engine_rope.sines == nullptr ||
+        engine_rope.position_count !=
+            kSm87MacroFeedV4P40EngineRopePositions ||
+        engine_rope.rotary_pairs != kSm87MacroFeedV4P40EngineRopePairs ||
+        engine_rope.owner_identity == 0U ||
+        engine_rope.allocation_begin !=
+            reinterpret_cast<std::uintptr_t>(engine_rope.cosines) ||
+        engine_rope.allocation_bytes !=
+            kSm87MacroFeedV4P40EngineRopeAllocationBytes ||
+        engine_rope.device_ordinal < 0) {
+      result.context = "MacroFeed-v4 Engine RoPE binding failed closed";
+      return result;
+    }
     auto startup = StartupPackage::create(model_weights);
     if (!startup || startup.package == nullptr || !startup.audit.valid() ||
         startup.audit.gdn_qkvz_bindings !=
             kSm87MacroFeedV4StateLayerCount ||
-        startup.audit.gdn_qkvz_binding_catalog_identity == 0U) {
+        startup.audit.gdn_qkvz_binding_catalog_identity == 0U ||
+        startup.audit.full_attention_source_bindings !=
+            kSm87MacroFeedV4FullAttentionLayerCount ||
+        startup.audit.full_attention_source_catalog_identity == 0U) {
       result.context = startup.status.context == nullptr
                            ? "MacroFeed-v4 startup package failed closed"
                            : startup.status.context;
@@ -264,7 +413,9 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
       return result;
     }
 
-    auto execution = ExecutionPackage::create(*startup.package);
+    auto execution = ExecutionPackage::create(
+        *startup.package, engine_rope,
+        reserve_chain.minimum_free_bytes_after_execution_create);
     if (!execution || execution.package == nullptr ||
         !execution.audit.valid() ||
         execution.audit.synthetic_t1_gdn_layer0_source ||
@@ -273,6 +424,18 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
         execution.audit.gdn_qkvz_catalog_identity == 0U ||
         execution.audit.mlp_pair_bindings != kSm87MacroFeedV4LayerCount ||
         execution.audit.mlp_pair_catalog_identity == 0U ||
+        execution.audit.full_attention_bindings !=
+            kSm87MacroFeedV4FullAttentionLayerCount ||
+        execution.audit.full_attention_catalog_identity == 0U ||
+        execution.audit.retained_full_attention_catalog_fold_identity == 0U ||
+        execution.audit.full_attention_resource_bundle_identity == 0U ||
+        execution.audit.kv_allocation_identity == 0U ||
+        !execution.audit.request_state_kv_physical_owner_bound ||
+        execution.audit.engine_rope_binding_identity == 0U ||
+        execution.audit.execution_owned_bytes !=
+            kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes ||
+        execution.audit.minimum_free_bytes_after_create !=
+            reserve_chain.minimum_free_bytes_after_execution_create ||
         execution.audit.retained_gdn_layer_catalog_fold_identity == 0U ||
         execution.audit.retained_mlp_pair_catalog_fold_identity == 0U) {
       result.context = execution.status.context == nullptr
@@ -286,7 +449,8 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
     result.root.reset(new (std::nothrow)
                           Sm87MacroFeedV4P40ExecutionCompositionRoot(
                               std::move(startup.package),
-                              std::move(execution.package)));
+                              std::move(execution.package),
+                              engine_rope.device_ordinal, reserve_chain));
     if (result.root == nullptr) {
       result.context = "MacroFeed-v4 Engine composition allocation failed";
       return result;
@@ -303,7 +467,9 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
  private:
   Sm87MacroFeedV4P40ExecutionCompositionRoot(
       std::unique_ptr<StartupPackage> startup,
-      std::unique_ptr<ExecutionPackage> execution) noexcept
+      std::unique_ptr<ExecutionPackage> execution,
+      const std::int32_t engine_rope_device_ordinal,
+      const Sm87MacroFeedV4P40EngineMemoryReserveChain reserve_chain) noexcept
       : startup_(std::move(startup)), execution_(std::move(execution)),
         startup_package_identity_(
             startup_ == nullptr ? 0U : startup_->audit().package_identity),
@@ -317,6 +483,10 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
             execution_ == nullptr
                 ? 0U
                 : execution_->audit().mlp_pair_catalog_identity),
+        full_attention_catalog_identity_(
+            execution_ == nullptr
+                ? 0U
+                : execution_->audit().full_attention_catalog_identity),
         retained_gdn_layer_catalog_fold_identity_(
             execution_ == nullptr
                 ? 0U
@@ -327,21 +497,56 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
                 ? 0U
                 : execution_->audit()
                       .retained_mlp_pair_catalog_fold_identity),
+        retained_full_attention_catalog_fold_identity_(
+            execution_ == nullptr
+                ? 0U
+                : execution_->audit()
+                      .retained_full_attention_catalog_fold_identity),
+        full_attention_resource_bundle_identity_(
+            execution_ == nullptr
+                ? 0U
+                : execution_->audit().full_attention_resource_bundle_identity),
+        kv_allocation_identity_(
+            execution_ == nullptr
+                ? 0U
+                : execution_->audit().kv_allocation_identity),
+        engine_rope_binding_identity_(
+            execution_ == nullptr
+                ? 0U
+                : execution_->audit().engine_rope_binding_identity),
+        engine_rope_device_ordinal_(engine_rope_device_ordinal),
+        reserve_chain_(reserve_chain),
         construction_sealed_(
             startup_ != nullptr && execution_ != nullptr &&
             startup_package_identity_ != 0U &&
             execution_package_identity_ != 0U &&
             gdn_qkvz_catalog_identity_ != 0U &&
             mlp_pair_catalog_identity_ != 0U &&
+            full_attention_catalog_identity_ != 0U &&
             retained_gdn_layer_catalog_fold_identity_ != 0U &&
             retained_mlp_pair_catalog_fold_identity_ != 0U &&
+            retained_full_attention_catalog_fold_identity_ != 0U &&
+            full_attention_resource_bundle_identity_ != 0U &&
+            kv_allocation_identity_ != 0U &&
+            engine_rope_binding_identity_ != 0U &&
+            engine_rope_device_ordinal_ >= 0 && reserve_chain_.valid() &&
+            execution_->audit().valid() &&
             execution_->audit().startup_package_identity ==
                 startup_package_identity_ &&
             !execution_->audit().synthetic_t1_gdn_layer0_source &&
             execution_->audit().gdn_qkvz_bindings ==
                 kSm87MacroFeedV4StateLayerCount &&
             execution_->audit().mlp_pair_bindings ==
-                kSm87MacroFeedV4LayerCount) {}
+                kSm87MacroFeedV4LayerCount &&
+            execution_->audit().full_attention_bindings ==
+                kSm87MacroFeedV4FullAttentionLayerCount &&
+            execution_->audit().request_state_kv_physical_owner_bound &&
+            execution_->audit().execution_owned_bytes ==
+                kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes &&
+            execution_->audit().device_ordinal ==
+                engine_rope_device_ordinal_ &&
+            execution_->audit().minimum_free_bytes_after_create ==
+                reserve_chain_.minimum_free_bytes_after_execution_create) {}
 
   // Reverse declaration destruction is execution_ then startup_.
   std::unique_ptr<StartupPackage> startup_;
@@ -350,8 +555,15 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
   std::uint64_t execution_package_identity_ = 0U;
   std::uint64_t gdn_qkvz_catalog_identity_ = 0U;
   std::uint64_t mlp_pair_catalog_identity_ = 0U;
+  std::uint64_t full_attention_catalog_identity_ = 0U;
   std::uint64_t retained_gdn_layer_catalog_fold_identity_ = 0U;
   std::uint64_t retained_mlp_pair_catalog_fold_identity_ = 0U;
+  std::uint64_t retained_full_attention_catalog_fold_identity_ = 0U;
+  std::uint64_t full_attention_resource_bundle_identity_ = 0U;
+  std::uint64_t kv_allocation_identity_ = 0U;
+  std::uint64_t engine_rope_binding_identity_ = 0U;
+  std::int32_t engine_rope_device_ordinal_ = -1;
+  Sm87MacroFeedV4P40EngineMemoryReserveChain reserve_chain_{};
   bool construction_sealed_ = false;
 };
 
@@ -5274,8 +5486,8 @@ exchange_reference_engine_generate_return_snapshot_hook(
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
   // bound Prefill plan -> legacy runner/state -> V2 executor -> target-v1
-  // executor/request -> shared Engine RoPE -> V3 package -> V4 execution then
-  // startup root -> model_weights -> Decode Down consumer-order sidecars ->
+  // executor/request -> V3 package -> V4 execution then startup root ->
+  // shared Engine RoPE -> model_weights -> Decode Down consumer-order sidecars ->
   // complete and independent target-AOT/parity/packed/Marlin owners -> Prefill
   // supermatrix/QKV and down-scale sidecars -> output sidecars ->
   // resident_weights -> tokenizer.
@@ -5303,6 +5515,13 @@ struct ReferenceEngine::Impl {
   Sm87NvFp4DownConsumerOrderSidecars
       nvfp4_down_consumer_order_sidecars;
   std::optional<ModelWeights> model_weights;
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION) || \
+    defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION) || \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  std::unique_ptr<sm87_target_aot_p40_executor_detail::
+                      Sm87TargetAotEngineRopeOwner>
+      target_aot_engine_rope;
+#endif
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
   std::unique_ptr<sm87_macrofeed_v4_p40_execution_detail::
@@ -5313,12 +5532,6 @@ struct ReferenceEngine::Impl {
   std::unique_ptr<sm87_macrofeed_v3_p40_execution_package_detail::
                       Sm87MacroFeedV3P40ExecutionPackage>
       macrofeed_v3_p40_execution_package;
-#endif
-#if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION) || \
-    defined(Q3X_ENABLE_SM87_BULK_DATAFLOW_V2_P40_EXECUTOR_ADMISSION)
-  std::unique_ptr<sm87_target_aot_p40_executor_detail::
-                      Sm87TargetAotEngineRopeOwner>
-      target_aot_engine_rope;
 #endif
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_P40_EXECUTOR_V1_ADMISSION)
   std::unique_ptr<Sm87TargetAotP40RequestState>
@@ -5889,6 +6102,62 @@ struct ReferenceEngine::Impl {
           "unknown Decode Graph cache policy");
       return result;
     }
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+    std::optional<sm87_macrofeed_v4_p40_execution_detail::
+                      Sm87MacroFeedV4P40EngineMemoryReserveChain>
+        macrofeed_v4_reserve_chain;
+    if (macrofeed_v3_requested) {
+      namespace v4 = sm87_macrofeed_v4_p40_execution_detail;
+      static_assert(
+          v4::kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes ==
+          3'220'701'184U);
+      static_assert(v4::kSm87MacroFeedV4P40EngineRopeAllocationBytes ==
+                    67'108'864U);
+      static_assert(kLayerMajorPrefillPromptWideP40RequestArenaBytes ==
+                    8'640'542'976U);
+      static_assert(
+          v4::kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes +
+                  v4::kSm87MacroFeedV4P40EngineRopeAllocationBytes +
+                  kLayerMajorPrefillPromptWideP40RequestArenaBytes ==
+              11'928'353'024U);
+      constexpr std::uint64_t kFutureAfterCompleteAot =
+          v4::kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes +
+          v4::kSm87MacroFeedV4P40EngineRopeAllocationBytes +
+          kLayerMajorPrefillPromptWideP40RequestArenaBytes;
+      const std::uint64_t minimum_free =
+          options.request_options.min_free_bytes_after_create;
+      if (minimum_free >
+          std::numeric_limits<std::uint64_t>::max() -
+              kFutureAfterCompleteAot) {
+        result.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kArithmeticOverflow,
+            "macrofeed_v4_complete_resource_reserve",
+            "MacroFeed complete-AOT, RoPE, V4 execution, legacy request "
+            "arena, and retained free-memory reserve overflow uint64_t");
+        return result;
+      }
+      v4::Sm87MacroFeedV4P40EngineMemoryReserveChain reserve_chain;
+      reserve_chain.minimum_free_bytes_after_legacy_create = minimum_free;
+      reserve_chain.minimum_free_bytes_after_execution_create =
+          minimum_free + kLayerMajorPrefillPromptWideP40RequestArenaBytes;
+      reserve_chain.minimum_free_bytes_after_rope_create =
+          reserve_chain.minimum_free_bytes_after_execution_create +
+          v4::kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes;
+      reserve_chain.minimum_free_bytes_after_complete_aot_create =
+          reserve_chain.minimum_free_bytes_after_rope_create +
+          v4::kSm87MacroFeedV4P40EngineRopeAllocationBytes;
+      if (!reserve_chain.valid()) {
+        result.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kArithmeticOverflow,
+            "macrofeed_v4_resource_reserve_chain",
+            "MacroFeed staged retained free-memory reserve chain failed "
+            "closed");
+        return result;
+      }
+      macrofeed_v4_reserve_chain.emplace(reserve_chain);
+    }
+#else
     if (macrofeed_v3_requested &&
         options.request_options.min_free_bytes_after_create >
             std::numeric_limits<std::uint64_t>::max() -
@@ -5900,6 +6169,7 @@ struct ReferenceEngine::Impl {
           "overflow uint64_t");
       return result;
     }
+#endif
     try {
       std::optional<LayerMajorRequestMemoryOptions>
           layer_major_request_options;
@@ -6037,41 +6307,38 @@ struct ReferenceEngine::Impl {
 
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
       if (macrofeed_v3_requested) {
-        // MacroFeed-v3 keeps one ordinary layer-major RequestState (including
-        // its immutable RoPE suffix) and one complete target-AOT projection
-        // owner.  It must not allocate or reuse either legacy target-AOT/V2
-        // request owner or their separate Engine RoPE.
-        std::uint64_t retained_execution_bytes =
-            kLayerMajorPrefillPromptWideP40RequestArenaBytes;
+        // Construction is intentionally staged: complete target-AOT owner,
+        // allocation-free V3 package, shared Engine RoPE, V4 execution owner,
+        // then the legacy request arena below.  Each owner receives the exact
+        // remaining suffix plus the caller's retained free-memory floor.
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
-        if (retained_execution_bytes >
-            std::numeric_limits<std::uint64_t>::max() -
-                sm87_macrofeed_v4_p40_execution_detail::
-                    kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes) {
+        if (!macrofeed_v4_reserve_chain.has_value() ||
+            !macrofeed_v4_reserve_chain->valid()) {
           result.diagnostic = engine_diagnostic(
               ReferenceEngineError::kArithmeticOverflow,
-              "macrofeed_v4_execution_resource_reserve",
-              "MacroFeed-v3 request arena plus V4 transient/recurrent "
-              "ownership overflows uint64_t");
+              "macrofeed_v4_resource_reserve_chain",
+              "MacroFeed V4 retained free-memory reserve chain was not "
+              "sealed before allocation");
           return result;
         }
-        retained_execution_bytes +=
-            sm87_macrofeed_v4_p40_execution_detail::
-                kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes;
-#endif
+        const std::uint64_t retained_margin =
+            macrofeed_v4_reserve_chain
+                ->minimum_free_bytes_after_complete_aot_create;
+#else
         if (options.request_options.min_free_bytes_after_create >
             std::numeric_limits<std::uint64_t>::max() -
-                retained_execution_bytes) {
+                kLayerMajorPrefillPromptWideP40RequestArenaBytes) {
           result.diagnostic = engine_diagnostic(
               ReferenceEngineError::kArithmeticOverflow,
               "macrofeed_v3_target_aot_complete_resource_reserve",
-              "MacroFeed retained execution ownership and free-memory "
+              "MacroFeed request arena and retained free-memory "
               "reserve overflow uint64_t");
           return result;
         }
         const std::uint64_t retained_margin =
             options.request_options.min_free_bytes_after_create +
-            retained_execution_bytes;
+            kLayerMajorPrefillPromptWideP40RequestArenaBytes;
+#endif
         const Clock::time_point asset_begin = Clock::now();
         const Sm87TargetAotCompleteDevicePreparationStats preparation =
             ReferenceEngine::
@@ -6164,12 +6431,46 @@ struct ReferenceEngine::Impl {
 
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
         // This construction deliberately has no selector or API effect.  It
-        // exercises only the normal real-owner factories and anchors the
-        // complete 48-GDN-layer plus 64-MLP-pair seals under the same
-        // target-AOT lifetime that already backs the default-off V3 harness.
+        // exercises only the normal real-owner factories and anchors the 48
+        // GDN, 64 MLP, and 16 Full-Attention seals plus V4-owned KV under the
+        // same complete target-AOT lifetime as the default-off V3 harness.
+        const Clock::time_point rope_begin = Clock::now();
+        auto rope = sm87_target_aot_p40_executor_detail::
+            create_sm87_target_aot_engine_rope(
+                macrofeed_v4_reserve_chain
+                    ->minimum_free_bytes_after_rope_create);
+        impl->load.target_aot_engine_rope_milliseconds =
+            elapsed_milliseconds(rope_begin);
+        if (!rope || rope.owner == nullptr) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              "macrofeed_v4_engine_rope",
+              sm87_target_aot_p40_executor_detail::to_string(
+                  rope.status.code));
+          result.diagnostic.context = rope.status.context;
+          result.diagnostic.cuda_error = rope.status.cuda_error;
+          return result;
+        }
+        impl->target_aot_engine_rope = std::move(rope.owner);
+        impl->load.target_aot_engine_rope_ready = true;
+        impl->load.target_aot_engine_rope_bytes =
+            impl->target_aot_engine_rope->bytes();
+        const auto rope_view = impl->target_aot_engine_rope->view();
+        const sm87_macrofeed_v4_p40_execution_detail::
+            Sm87MacroFeedV4P40EngineRopeBinding v4_rope_binding{
+                rope_view.cosines,
+                rope_view.sines,
+                rope_view.position_count,
+                rope_view.rotary_pairs,
+                rope_view.identity,
+                reinterpret_cast<std::uintptr_t>(rope_view.cosines),
+                impl->target_aot_engine_rope->bytes(),
+                impl->target_aot_engine_rope->device_ordinal(),
+            };
         auto v4_root = sm87_macrofeed_v4_p40_execution_detail::
             Sm87MacroFeedV4P40ExecutionCompositionRoot::create(
-                *impl->model_weights);
+                *impl->model_weights, v4_rope_binding,
+                *macrofeed_v4_reserve_chain);
         if (!v4_root || v4_root.root == nullptr) {
           result.diagnostic = engine_diagnostic(
               ReferenceEngineError::kRunnerFactoryFailure,
@@ -7443,6 +7744,10 @@ ReferenceEngine::operator bool() const noexcept {
         impl_->bound_prefill_plan != nullptr;
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
     return v3_valid &&
+           impl_->target_aot_engine_rope != nullptr &&
+           impl_->target_aot_engine_rope->bytes() ==
+               sm87_macrofeed_v4_p40_execution_detail::
+                   kSm87MacroFeedV4P40EngineRopeAllocationBytes &&
            impl_->macrofeed_v4_p40_execution_composition_root != nullptr &&
            impl_->macrofeed_v4_p40_execution_composition_root->valid();
 #else

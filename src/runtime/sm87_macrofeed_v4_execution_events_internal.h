@@ -419,6 +419,280 @@ struct Sm87MacroFeedV4CompleteGdnLayerEnqueueResult final {
     return static_cast<bool>(status) && receipt.valid();
   }
 };
+
+// One package-bound Full-Attention layer.  Geometry, role, layout, tactic,
+// stream and K/V capacity never cross this boundary as caller choices: the
+// EventsOwner reconstructs and validates all public argument forms before it
+// permits the first enqueue.
+struct Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission final {
+  std::uint64_t execution_package_identity = 0U;
+  std::uint64_t full_attention_catalog_identity = 0U;
+  std::uint64_t full_attention_binding_identity = 0U;
+  std::uint64_t mlp_binding_identity = 0U;
+  std::uint64_t input_norm_binding_identity = 0U;
+  std::uint64_t post_norm_binding_identity = 0U;
+  std::uint64_t rope_binding_identity = 0U;
+  std::uint64_t resource_bundle_identity = 0U;
+  std::size_t full_attention_ordinal =
+      kSm87MacroFeedV4FullAttentionLayerCount;
+  std::size_t model_layer = kSm87MacroFeedV4LayerCount;
+  kernels::Sm87MacroFeedV4InputNormArguments input_norm{};
+  kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4FullQkvC8000Arguments full_qkv{};
+  kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4FullAttentionPreprocessC8000Arguments preprocess{};
+  kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4AttentionCoreC8000Arguments attention{};
+  kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4FullAttentionOC8000Arguments full_output{};
+  kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4ResidualPostNormC8000Arguments residual_post_norm{};
+  kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4GateUpC8000Arguments gate_up{};
+  kernels::sm87_macrofeed_v4_bound_launch_detail::
+      Sm87MacroFeedV4DownC8000Arguments down{};
+  kernels::Sm87MacroFeedV4NormResidualAdmissionResourceSnapshot
+      norm_resources{};
+  kernels::Sm87MacroFeedV4Fp8CudaResources full_qkv_resources{};
+  kernels::Sm87MacroFeedV4FullAttentionPreprocessAdmissionResourceSnapshot
+      preprocess_resources{};
+  kernels::Sm87MacroFeedV4AttentionC8000AdmissionResourceSnapshot
+      attention_resources{};
+  kernels::Sm87MacroFeedV4Fp8CudaResources full_output_resources{};
+  kernels::Sm87MacroFeedV4NvFp4GateUpCudaResources gate_up_resources{};
+  kernels::Sm87MacroFeedV4NvFp4DownCudaResources down_resources{};
+};
+
+// Owner-retained physical acceptance evidence.  The ledger is updated with
+// each seam's submitted count before that seam's CUDA status is interpreted,
+// so a later failure cannot erase the exact prefix that must be drained.
+struct Sm87MacroFeedV4FullAttentionAcceptedPrefixLedger final {
+  std::uint64_t transaction_identity = 0U;
+  std::uint64_t owner_identity = 0U;
+  std::uint64_t request_epoch = 0U;
+  std::size_t panel = kSm87MacroFeedV4PanelCount;
+  std::uint64_t panel_generation = 0U;
+  std::size_t first_position = kSm87MacroFeedV4P40Tokens;
+  std::uint64_t grant_identity = 0U;
+  std::uint64_t grant_state_epoch = 0U;
+  std::uint64_t kv_allocation_identity = 0U;
+  std::size_t full_attention_ordinal =
+      kSm87MacroFeedV4FullAttentionLayerCount;
+  std::size_t model_layer = kSm87MacroFeedV4LayerCount;
+  std::size_t input_norm_launches = 0U;
+  std::size_t full_qkv_launches = 0U;
+  std::size_t preprocess_launches = 0U;
+  std::size_t attention_launches = 0U;
+  std::size_t full_output_launches = 0U;
+  std::size_t residual_post_norm_launches = 0U;
+  std::size_t gate_up_launches = 0U;
+  std::size_t down_launches = 0U;
+  std::size_t accepted_kernel_launches = 0U;
+  std::size_t asynchronous_d2d_copies = 0U;
+  std::uint64_t asynchronous_d2d_copy_bytes = 0U;
+  bool complete = false;
+
+  [[nodiscard]] constexpr bool valid_prefix() const noexcept {
+    return transaction_identity != 0U && owner_identity != 0U &&
+           request_epoch != 0U && panel < kSm87MacroFeedV4PanelCount &&
+           panel_generation != 0U &&
+           first_position == panel * kernels::kSm87MacroFeedV4Fp8Tokens &&
+           grant_identity != 0U &&
+           kv_allocation_identity != 0U &&
+           full_attention_ordinal < kSm87MacroFeedV4FullAttentionLayerCount &&
+           model_layer == 4U * full_attention_ordinal + 3U &&
+           input_norm_launches <= 1U && full_qkv_launches <= 1U &&
+           preprocess_launches <= 1U && attention_launches <= 1U &&
+           full_output_launches <= 1U &&
+           residual_post_norm_launches <= 1U &&
+           gate_up_launches <= 1U && down_launches <= 1U &&
+           accepted_kernel_launches ==
+               input_norm_launches + full_qkv_launches +
+                   preprocess_launches + attention_launches +
+                   full_output_launches + residual_post_norm_launches +
+                   gate_up_launches + down_launches &&
+           accepted_kernel_launches <= 8U &&
+           asynchronous_d2d_copies == 0U &&
+           asynchronous_d2d_copy_bytes == 0U &&
+           (!complete || accepted_kernel_launches == 8U);
+  }
+};
+
+// Copyable but opaque enqueue evidence.  Shape validation is intentionally
+// weaker than authority validation: only the issuing owner can recompute the
+// private authenticator and bind it to the live request/panel generation.
+class Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt final {
+ public:
+  Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt() = default;
+  Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt(
+      const Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt&) =
+      default;
+  Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt& operator=(
+      const Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt&) =
+      default;
+
+  [[nodiscard]] std::uint64_t transaction_identity() const noexcept {
+    return transaction_identity_;
+  }
+  [[nodiscard]] std::uint64_t owner_identity() const noexcept {
+    return owner_identity_;
+  }
+  [[nodiscard]] std::uint64_t request_epoch() const noexcept {
+    return request_epoch_;
+  }
+  [[nodiscard]] std::size_t panel() const noexcept { return panel_; }
+  [[nodiscard]] std::uint64_t panel_generation() const noexcept {
+    return panel_generation_;
+  }
+  [[nodiscard]] std::size_t first_position() const noexcept {
+    return first_position_;
+  }
+  [[nodiscard]] std::uint64_t grant_identity() const noexcept {
+    return grant_identity_;
+  }
+  [[nodiscard]] std::uint64_t kv_allocation_identity() const noexcept {
+    return kv_allocation_identity_;
+  }
+  [[nodiscard]] std::size_t full_attention_ordinal() const noexcept {
+    return full_attention_ordinal_;
+  }
+  [[nodiscard]] std::size_t model_layer() const noexcept {
+    return model_layer_;
+  }
+  [[nodiscard]] std::uint64_t full_attention_catalog_identity()
+      const noexcept {
+    return full_attention_catalog_identity_;
+  }
+  [[nodiscard]] std::uint64_t resource_bundle_identity() const noexcept {
+    return resource_bundle_identity_;
+  }
+  [[nodiscard]] std::size_t bound_kernel_submissions() const noexcept {
+    return bound_kernel_submissions_;
+  }
+  [[nodiscard]] std::size_t asynchronous_d2d_copies() const noexcept {
+    return asynchronous_d2d_copies_;
+  }
+  [[nodiscard]] std::uint64_t asynchronous_d2d_copy_bytes() const noexcept {
+    return asynchronous_d2d_copy_bytes_;
+  }
+  [[nodiscard]] bool complete_layer_enqueued() const noexcept {
+    return complete_layer_enqueued_;
+  }
+  [[nodiscard]] bool physical_device_completion_attested() const noexcept {
+    return physical_device_completion_attested_;
+  }
+  [[nodiscard]] bool panel_complete() const noexcept {
+    return panel_complete_;
+  }
+  [[nodiscard]] bool production_receipt_eligible() const noexcept {
+    return production_receipt_eligible_;
+  }
+  [[nodiscard]] constexpr bool valid_shape() const noexcept {
+    return transaction_identity_ != 0U && owner_identity_ != 0U &&
+           request_epoch_ != 0U && panel_ < kSm87MacroFeedV4PanelCount &&
+           panel_generation_ != 0U &&
+           first_position_ ==
+               panel_ * kernels::kSm87MacroFeedV4Fp8Tokens &&
+           grant_identity_ != 0U &&
+           kv_allocation_identity_ != 0U &&
+           full_attention_ordinal_ <
+               kSm87MacroFeedV4FullAttentionLayerCount &&
+           model_layer_ == 4U * full_attention_ordinal_ + 3U &&
+           key_full_allocation_origin_ ==
+               full_attention_ordinal_ *
+                   kSm87MacroFeedV4AttentionKvLayerBytes &&
+           value_full_allocation_origin_ ==
+               key_full_allocation_origin_ +
+                   kSm87MacroFeedV4AttentionKvPlaneBytes &&
+           key_panel_allocation_offset_ ==
+               key_full_allocation_origin_ +
+                   panel_ * kSm87MacroFeedV4AttentionKvPanelBytes &&
+           value_panel_allocation_offset_ ==
+               value_full_allocation_origin_ +
+                   panel_ * kSm87MacroFeedV4AttentionKvPanelBytes &&
+           kv_panel_bytes_ == kSm87MacroFeedV4AttentionKvPanelBytes &&
+           previous_valid_end_ == first_position_ &&
+           candidate_end_ ==
+               first_position_ + kSm87MacroFeedV4PanelTokens &&
+           execution_package_identity_ != 0U &&
+           full_attention_catalog_identity_ != 0U &&
+           full_attention_binding_identity_ != 0U &&
+           mlp_binding_identity_ != 0U &&
+           input_norm_binding_identity_ != 0U &&
+           post_norm_binding_identity_ != 0U &&
+           rope_binding_identity_ != 0U &&
+           resource_bundle_identity_ != 0U &&
+           submission_digest_ != 0U &&
+           input_norm_launches_ == 1U && full_qkv_launches_ == 1U &&
+           preprocess_launches_ == 1U && attention_launches_ == 1U &&
+           full_output_launches_ == 1U &&
+           residual_post_norm_launches_ == 1U &&
+           gate_up_launches_ == 1U && down_launches_ == 1U &&
+           bound_kernel_submissions_ == 8U &&
+           asynchronous_d2d_copies_ == 0U &&
+           asynchronous_d2d_copy_bytes_ == 0U &&
+           complete_layer_enqueued_ &&
+           !physical_device_completion_attested_ && !panel_complete_ &&
+           !production_receipt_eligible_;
+  }
+
+ private:
+  std::uint64_t transaction_identity_ = 0U;
+  std::uint64_t owner_identity_ = 0U;
+  std::uint64_t request_epoch_ = 0U;
+  std::size_t panel_ = kSm87MacroFeedV4PanelCount;
+  std::uint64_t panel_generation_ = 0U;
+  std::size_t first_position_ = kSm87MacroFeedV4P40Tokens;
+  std::uint64_t grant_identity_ = 0U;
+  std::uint64_t grant_state_epoch_ = 0U;
+  std::uint64_t kv_allocation_identity_ = 0U;
+  std::uint64_t key_full_allocation_origin_ = 0U;
+  std::uint64_t value_full_allocation_origin_ = 0U;
+  std::uint64_t key_panel_allocation_offset_ = 0U;
+  std::uint64_t value_panel_allocation_offset_ = 0U;
+  std::uint64_t kv_panel_bytes_ = 0U;
+  std::size_t previous_valid_end_ = kSm87MacroFeedV4P40Tokens;
+  std::size_t candidate_end_ = kSm87MacroFeedV4P40Tokens;
+  std::size_t full_attention_ordinal_ =
+      kSm87MacroFeedV4FullAttentionLayerCount;
+  std::size_t model_layer_ = kSm87MacroFeedV4LayerCount;
+  std::uint64_t execution_package_identity_ = 0U;
+  std::uint64_t full_attention_catalog_identity_ = 0U;
+  std::uint64_t full_attention_binding_identity_ = 0U;
+  std::uint64_t mlp_binding_identity_ = 0U;
+  std::uint64_t input_norm_binding_identity_ = 0U;
+  std::uint64_t post_norm_binding_identity_ = 0U;
+  std::uint64_t rope_binding_identity_ = 0U;
+  std::uint64_t resource_bundle_identity_ = 0U;
+  std::uint64_t submission_digest_ = 0U;
+  std::size_t input_norm_launches_ = 0U;
+  std::size_t full_qkv_launches_ = 0U;
+  std::size_t preprocess_launches_ = 0U;
+  std::size_t attention_launches_ = 0U;
+  std::size_t full_output_launches_ = 0U;
+  std::size_t residual_post_norm_launches_ = 0U;
+  std::size_t gate_up_launches_ = 0U;
+  std::size_t down_launches_ = 0U;
+  std::size_t bound_kernel_submissions_ = 0U;
+  std::size_t asynchronous_d2d_copies_ = 0U;
+  std::uint64_t asynchronous_d2d_copy_bytes_ = 0U;
+  std::uint64_t authenticator_ = 0U;
+  bool complete_layer_enqueued_ = false;
+  bool physical_device_completion_attested_ = false;
+  bool panel_complete_ = false;
+  bool production_receipt_eligible_ = false;
+
+  friend class Sm87MacroFeedV4ExecutionEventsOwner;
+};
+
+struct Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueResult final {
+  Sm87MacroFeedV4ExecutionStatus status{};
+  Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt receipt{};
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return static_cast<bool>(status) && receipt.valid_shape();
+  }
+};
 #endif
 
 struct Sm87MacroFeedV4ExecutionEventsSnapshot final {
@@ -446,15 +720,28 @@ struct Sm87MacroFeedV4ExecutionEventsSnapshot final {
   std::size_t gdn_history_d2d_copies = 0U;
   std::uint64_t gdn_history_d2d_bytes = 0U;
   std::size_t gdn_output_c8000_submissions = 0U;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  std::size_t full_qkv_c8000_submissions = 0U;
+  std::size_t full_attention_preprocess_c8000_submissions = 0U;
+  std::size_t attention_c8000_submissions = 0U;
+  std::size_t full_attention_output_c8000_submissions = 0U;
+#endif
   std::size_t residual_post_norm_submissions = 0U;
   std::size_t gate_up_c8000_submissions = 0U;
   std::size_t down_c8000_submissions = 0U;
   std::size_t complete_gdn_layers_submitted = 0U;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  std::size_t complete_full_attention_layers_submitted = 0U;
+  std::size_t accepted_full_attention_grants = 0U;
+  Sm87MacroFeedV4FullAttentionAcceptedPrefixLedger
+      last_full_attention_accepted_prefix{};
+#endif
   std::size_t cold_recurrent_initializations = 0U;
   std::uint64_t cold_recurrent_allocation_identity = 0U;
   std::uintptr_t cold_recurrent_allocation_begin = 0U;
   std::uint64_t cold_recurrent_zero_bytes = 0U;
   bool streams_nonblocking = false;
+  bool bf16_ab_cycle_at_norm_boundary = true;
   bool panel_done_recorded = false;
   bool main_tail_recorded = false;
   bool ab_tail_recorded = false;
@@ -529,6 +816,11 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
       const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
       Sm87MacroFeedV4ExecutionStream consumer,
       Sm87MacroFeedV4ExecutionEvent event) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4ExecutionStatus
+  initialize_cold_recurrent_storage(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      void* recurrent_allocation, std::size_t recurrent_bytes,
+      std::uint64_t recurrent_allocation_identity) noexcept;
 
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
   // The exact body enqueue and its ready-event record are one owner-locked
@@ -563,11 +855,21 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
       const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
       const Sm87MacroFeedV4CompleteGdnLayerC8000Submission& submission)
       noexcept;
-  [[nodiscard]] Sm87MacroFeedV4ExecutionStatus
-  initialize_cold_recurrent_storage(
+  [[nodiscard]] Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueResult
+  submit_complete_full_attention_layer_c8000_prevalidated(
       const Sm87MacroFeedV4ExecutionEventsAccess& access,
-      void* recurrent_allocation, std::size_t recurrent_bytes,
-      std::uint64_t recurrent_allocation_identity) noexcept;
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const Sm87MacroFeedV4FullAttentionKvGrant& kv_grant,
+      const Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission&
+          submission) noexcept;
+  [[nodiscard]] bool full_attention_receipt_matches(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const Sm87MacroFeedV4FullAttentionKvGrant& kv_grant,
+      const Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission&
+          expected_submission,
+      const Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt& receipt)
+      const noexcept;
 #endif
 
   [[nodiscard]] Sm87MacroFeedV4PhysicalObservationResult
@@ -716,6 +1018,21 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
       const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
       Sm87MacroFeedV4ExecutionEvent expected_event,
       const Sm87MacroFeedV4PhysicalCompletionReceipt& receipt) const noexcept;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  [[nodiscard]] std::uint64_t full_attention_submission_digest(
+      const Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission&
+          submission) const noexcept;
+  [[nodiscard]] std::uint64_t full_attention_receipt_authenticator(
+      const Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt& receipt)
+      const noexcept;
+  [[nodiscard]] bool full_attention_receipt_matches_locked(
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const Sm87MacroFeedV4FullAttentionKvGrant& kv_grant,
+      const Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission&
+          expected_submission,
+      const Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt& receipt)
+      const noexcept;
+#endif
   void record_poison_cause(
       const Sm87MacroFeedV4ExecutionStatus& cause) noexcept;
   [[nodiscard]] Sm87MacroFeedV4PoisonDrainResult
@@ -759,10 +1076,26 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
   std::size_t gdn_history_d2d_copies_ = 0U;
   std::uint64_t gdn_history_d2d_bytes_ = 0U;
   std::size_t gdn_output_c8000_submissions_ = 0U;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  std::size_t full_qkv_c8000_submissions_ = 0U;
+  std::size_t full_attention_preprocess_c8000_submissions_ = 0U;
+  std::size_t attention_c8000_submissions_ = 0U;
+  std::size_t full_attention_output_c8000_submissions_ = 0U;
+#endif
   std::size_t residual_post_norm_submissions_ = 0U;
   std::size_t gate_up_c8000_submissions_ = 0U;
   std::size_t down_c8000_submissions_ = 0U;
   std::size_t complete_gdn_layers_submitted_ = 0U;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  std::size_t complete_full_attention_layers_submitted_ = 0U;
+  std::array<std::uint64_t,
+             kSm87MacroFeedV4PanelCount *
+                 kSm87MacroFeedV4FullAttentionLayerCount>
+      accepted_full_attention_grant_identities_{};
+  std::size_t accepted_full_attention_grant_count_ = 0U;
+  Sm87MacroFeedV4FullAttentionAcceptedPrefixLedger
+      last_full_attention_accepted_prefix_{};
+#endif
   std::size_t cold_recurrent_initializations_ = 0U;
   std::uint64_t cold_recurrent_allocation_identity_ = 0U;
   std::uintptr_t cold_recurrent_allocation_begin_ = 0U;
@@ -789,6 +1122,10 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
   // Test fixture fault injection only.  It is unreachable without the
   // header-only test capability and never changes a production route.
   bool test_fail_next_bound_ab_wait_ = false;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  std::size_t test_fail_full_after_accepted_prefix_ =
+      std::numeric_limits<std::size_t>::max();
+#endif
 
   friend struct Sm87MacroFeedV4ExecutionEventsCreateResult;
   friend Sm87MacroFeedV4ExecutionEventsCreateResult
@@ -878,6 +1215,19 @@ class Sm87MacroFeedV4ExecutionEventsDriver final {
       const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
       const Sm87MacroFeedV4CompleteGdnLayerC8000Submission& submission)
       noexcept;
+  [[nodiscard]] Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueResult
+  submit_complete_full_attention_layer_c8000_prevalidated(
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const Sm87MacroFeedV4FullAttentionKvGrant& kv_grant,
+      const Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission&
+          submission) noexcept;
+  [[nodiscard]] bool full_attention_receipt_matches(
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const Sm87MacroFeedV4FullAttentionKvGrant& kv_grant,
+      const Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission&
+          expected_submission,
+      const Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt& receipt)
+      const noexcept;
   [[nodiscard]] Sm87MacroFeedV4ExecutionStatus
   initialize_cold_recurrent_storage(
       void* recurrent_allocation, std::size_t recurrent_bytes,
@@ -957,7 +1307,6 @@ class Sm87MacroFeedV4ExecutionEventsCudaTestFixture final {
       Sm87MacroFeedV4ExecutionEvent event) noexcept {
     return owner.wait_event(*owner.access_, panel_access, consumer, event);
   }
-#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
   [[nodiscard]] static Sm87MacroFeedV4ExecutionStatus
   initialize_cold_recurrent_storage(
       Sm87MacroFeedV4ExecutionEventsOwner& owner,
@@ -967,6 +1316,7 @@ class Sm87MacroFeedV4ExecutionEventsCudaTestFixture final {
         *owner.access_, recurrent_allocation, recurrent_bytes,
         recurrent_allocation_identity);
   }
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
   // Explicit test-only bypass for exercising transaction failures.  This is
   // deliberately absent from the execution driver and from non-test builds.
   [[nodiscard]] static Sm87MacroFeedV4EventEnqueueResult
@@ -978,6 +1328,28 @@ class Sm87MacroFeedV4ExecutionEventsCudaTestFixture final {
       const kernels::Sm87MacroFeedV4Fp8CudaResources& resources) noexcept {
     return owner.submit_gdn_qkvz_c8000_then_wait_ab_ready(
         *owner.access_, panel_access, arguments, resources);
+  }
+  [[nodiscard]] static
+      Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueResult
+  submit_complete_full_attention_layer_c8000_prevalidated(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const Sm87MacroFeedV4FullAttentionKvGrant& kv_grant,
+      const Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission&
+          submission) noexcept {
+    return owner.submit_complete_full_attention_layer_c8000_prevalidated(
+        *owner.access_, panel_access, kv_grant, submission);
+  }
+  [[nodiscard]] static bool full_attention_receipt_matches(
+      const Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const Sm87MacroFeedV4FullAttentionKvGrant& kv_grant,
+      const Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission&
+          expected_submission,
+      const Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt& receipt)
+      noexcept {
+    return owner.full_attention_receipt_matches(
+        *owner.access_, panel_access, kv_grant, expected_submission, receipt);
   }
 #endif
   [[nodiscard]] static Sm87MacroFeedV4PhysicalObservationResult
@@ -1080,6 +1452,34 @@ class Sm87MacroFeedV4ExecutionEventsCudaTestFixture final {
     }
     owner.test_fail_next_bound_ab_wait_ = true;
     return true;
+  }
+  [[nodiscard]] static bool fail_full_after_accepted_prefix(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      const std::size_t accepted_prefix) noexcept {
+    std::lock_guard<std::mutex> lock(owner.mutex_);
+    if (owner.state_ !=
+            Sm87MacroFeedV4ExecutionOwnerState::kRequestActive ||
+        accepted_prefix > 8U ||
+        owner.test_fail_full_after_accepted_prefix_ !=
+            std::numeric_limits<std::size_t>::max()) {
+      return false;
+    }
+    owner.test_fail_full_after_accepted_prefix_ = accepted_prefix;
+    return true;
+  }
+  [[nodiscard]] static Sm87MacroFeedV4PoisonDrainResult
+  drain_poisoned_request(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner) noexcept {
+    return owner.drain_poisoned_request(*owner.access_);
+  }
+  [[nodiscard]] static Sm87MacroFeedV4PoisonDrainResult
+  drain_poisoned_request_and_discard(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access) noexcept {
+    return owner.drain_poisoned_request_and_discard(
+        *owner.access_, request_owner, request_access,
+        Sm87MacroFeedV4RequestDiscardReason::kFailed);
   }
 #endif
 };

@@ -14,12 +14,14 @@ string(RANDOM LENGTH 32 ALPHABET 0123456789abcdef contract_nonce)
 
 file(STRINGS "${Q3X_PROBE}" contract_strings
   REGEX
-    "schema_version|claim_boundary|checkpoint_identity|resident_shards_exact|complete-GDN|MLP-pair|macrofeed_v4_normal_catalogs|complete_gdn_catalog_identity|complete_gdn_binding_count|mlp_pair_catalog_identity|mlp_pair_binding_count|retained_complete_gdn_catalog_fold_identity|retained_mlp_pair_catalog_fold_identity|owner_allocation_device_lifetime_chain|lifetime_root_identity|receipt_schema|receipt_sha256|self_sha256|flags|admissions|selector_bound|api_route_bound")
+    "schema_version|claim_boundary|checkpoint_identity|resident_shards_exact|complete-GDN|MLP-pair|Full-Attention|macrofeed_v4_normal_catalogs|complete_gdn_catalog_identity|complete_gdn_binding_count|mlp_pair_catalog_identity|mlp_pair_binding_count|full_attention_catalog_identity|full_attention_binding_count|retained_complete_gdn_catalog_fold_identity|retained_mlp_pair_catalog_fold_identity|retained_full_attention_catalog_fold_identity|full_attention_resource_bundle_identity|full_attention_owner|kv_allocation_identity|request_state_kv_allocation_identity|kv_allocation_bytes|engine_rope_owner_identity|engine_rope_binding_identity|engine_rope_allocation_bytes|execution_owned_bytes|rope_anchored_bytes|aggregate_reserve_chain|minimum_free_bytes_after_|execution_required_device_allocation_bytes|execution_aggregate_memory_gate_passed|owner_allocation_device_lifetime_chain|lifetime_root_identity|receipt_schema|receipt_sha256|self_sha256|flags|admissions|macrofeed_v4_full_attention_preprocess|macrofeed_v4_attention_c8000|selector_bound|api_route_bound")
 string(JOIN "\n" contract_surface ${contract_strings})
 foreach(required_text IN ITEMS
-    "\"schema_version\": 3"
-    "normal 48-complete-GDN and "
-    "64-MLP-pair catalog identities/folds"
+    "\"schema_version\": 4"
+    "normal 48-complete-GDN, 64-MLP-pair, and 16-Full-Attention"
+    "exact V4 KV and shared Engine RoPE ownership"
+    "staged aggregate reserve arguments"
+    "32 MiB tolerance"
     "checkpoint_identity"
     "resident_shards_exact"
     "macrofeed_v4_normal_catalogs"
@@ -27,8 +29,28 @@ foreach(required_text IN ITEMS
     "complete_gdn_binding_count"
     "mlp_pair_catalog_identity"
     "mlp_pair_binding_count"
+    "full_attention_catalog_identity"
+    "full_attention_binding_count"
     "retained_complete_gdn_catalog_fold_identity"
     "retained_mlp_pair_catalog_fold_identity"
+    "retained_full_attention_catalog_fold_identity"
+    "full_attention_resource_bundle_identity"
+    "full_attention_owner"
+    "kv_allocation_identity"
+    "request_state_kv_allocation_identity"
+    "kv_allocation_bytes"
+    "engine_rope_owner_identity"
+    "engine_rope_binding_identity"
+    "engine_rope_allocation_bytes"
+    "execution_owned_bytes"
+    "rope_anchored_bytes"
+    "aggregate_reserve_chain"
+    "minimum_free_bytes_after_legacy_create"
+    "minimum_free_bytes_after_execution_create"
+    "minimum_free_bytes_after_rope_create"
+    "minimum_free_bytes_after_complete_aot_create"
+    "execution_required_device_allocation_bytes"
+    "execution_aggregate_memory_gate_passed"
     "owner_allocation_device_lifetime_chain"
     "lifetime_root_identity"
     "receipt_schema"
@@ -36,12 +58,55 @@ foreach(required_text IN ITEMS
     "self_sha256"
     "flags"
     "admissions"
+    "macrofeed_v4_full_attention_preprocess"
+    "macrofeed_v4_attention_c8000"
     "selector_bound"
     "api_route_bound")
   string(FIND "${contract_surface}" "${required_text}" found)
   if(found EQUAL -1)
     message(FATAL_ERROR
       "Lifetime probe is missing fail-closed JSON field: ${required_text}")
+  endif()
+endforeach()
+
+# The executable surface proves that evidence is emitted.  The private source
+# contract additionally pins the arithmetic values which are encoded as
+# machine immediates rather than necessarily surviving as binary strings.
+set(snapshot_header
+  "${Q3X_SOURCE_DIR}/src/runtime/sm87_macrofeed_v4_engine_lifetime_probe_internal.h")
+set(probe_source
+  "${Q3X_SOURCE_DIR}/tests/sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe.cpp")
+foreach(required_source IN ITEMS "${snapshot_header}" "${probe_source}")
+  if(NOT EXISTS "${required_source}")
+    message(FATAL_ERROR
+      "Lifetime probe private contract source is missing: ${required_source}")
+  endif()
+endforeach()
+file(READ "${snapshot_header}" snapshot_contract_source)
+file(READ "${probe_source}" probe_contract_source)
+foreach(required_text IN ITEMS
+    "kSm87MacroFeedV4EngineLifetimeExpectedFullAttentionBindings = 16U"
+    "kSm87MacroFeedV4EngineLifetimeExpectedOwnedBytes = 3'220'701'184U"
+    "kSm87MacroFeedV4EngineLifetimeExpectedKvArenaBytes = 2'621'440'000U"
+    "kSm87MacroFeedV4EngineLifetimeExpectedRopeBytes = 67'108'864U"
+    "kSm87MacroFeedV4EngineLifetimeExpectedAnchoredBytes = 3'287'810'048U"
+    "kSm87MacroFeedV4EngineLifetimeLegacyRequestArenaBytes = 8'640'542'976U"
+    "11'928'353'024U")
+  string(FIND "${snapshot_contract_source}" "${required_text}" found)
+  if(found EQUAL -1)
+    message(FATAL_ERROR
+      "Lifetime probe private snapshot contract is missing: ${required_text}")
+  endif()
+endforeach()
+foreach(required_text IN ITEMS
+    "32ULL * 1024ULL * 1024ULL"
+    "kDestroyRecoveryToleranceBytes <"
+    "evidence.full_attention_ownership_exact"
+    "evidence.reserve_chain_exact")
+  string(FIND "${probe_contract_source}" "${required_text}" found)
+  if(found EQUAL -1)
+    message(FATAL_ERROR
+      "Lifetime probe implementation contract is missing: ${required_text}")
   endif()
 endforeach()
 
