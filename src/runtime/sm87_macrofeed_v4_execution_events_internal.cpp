@@ -1895,41 +1895,6 @@ Sm87MacroFeedV4ExecutionEventsOwner::
   ledger.model_layer = kv_grant.model_layer();
   last_full_attention_accepted_prefix_ = ledger;
 
-  static_assert(
-      std::tuple_size<
-          decltype(accepted_full_attention_grant_identities_)>::value ==
-      kSm87MacroFeedV4PanelCount *
-          kSm87MacroFeedV4FullAttentionLayerCount);
-  if (accepted_full_attention_grant_count_ >=
-      accepted_full_attention_grant_identities_.size()) {
-    result.status = fail(
-        Sm87MacroFeedV4ExecutionError::kReceiptInvalid,
-        "complete_full_attention_accepted_grant_ledger_capacity", 0,
-        Sm87MacroFeedV4ExecutionStream::kMain,
-        Sm87MacroFeedV4ExecutionEvent::kCount, active_panel_,
-        active_panel_generation_);
-    record_poison_cause(result.status);
-    return result;
-  }
-  bool grant_replayed = false;
-  for (std::size_t index = 0U;
-       index < accepted_full_attention_grant_count_; ++index) {
-    grant_replayed =
-        grant_replayed ||
-        accepted_full_attention_grant_identities_[index] ==
-            kv_grant.grant_identity();
-  }
-  if (grant_replayed) {
-    result.status = fail(
-        Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
-        "complete_full_attention_grant_at_most_once", 0,
-        Sm87MacroFeedV4ExecutionStream::kMain,
-        Sm87MacroFeedV4ExecutionEvent::kCount, active_panel_,
-        active_panel_generation_);
-    record_poison_cause(result.status);
-    return result;
-  }
-
   const void* const main_stream =
       streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kMain)];
   auto checked_input_norm = submission.input_norm;
@@ -2134,7 +2099,10 @@ Sm87MacroFeedV4ExecutionEventsOwner::
       kv_grant.previous_valid_end() == ledger.first_position &&
       kv_grant.candidate_end() ==
           ledger.first_position + kSm87MacroFeedV4PanelTokens;
-  const bool exact_submission_identities =
+  const bool normal_authority =
+      submission.authority_domain ==
+          Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::
+              kNormalSealedCatalog &&
       submission.execution_package_identity != 0U &&
       submission.full_attention_catalog_identity != 0U &&
       submission.full_attention_binding_identity != 0U &&
@@ -2142,7 +2110,23 @@ Sm87MacroFeedV4ExecutionEventsOwner::
       submission.input_norm_binding_identity != 0U &&
       submission.post_norm_binding_identity != 0U &&
       submission.rope_binding_identity != 0U &&
-      submission.resource_bundle_identity != 0U;
+      submission.resource_bundle_identity != 0U &&
+      submission.synthetic_source_identity == 0U;
+  const bool synthetic_authority =
+      submission.authority_domain ==
+          Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::
+              kSyntheticT1 &&
+      submission.execution_package_identity == 0U &&
+      submission.full_attention_catalog_identity == 0U &&
+      submission.full_attention_binding_identity == 0U &&
+      submission.mlp_binding_identity == 0U &&
+      submission.input_norm_binding_identity == 0U &&
+      submission.post_norm_binding_identity == 0U &&
+      submission.rope_binding_identity == 0U &&
+      submission.resource_bundle_identity == 0U &&
+      submission.synthetic_source_identity != 0U;
+  const bool exact_submission_identities =
+      normal_authority || synthetic_authority;
   const bool exact_alias_graph =
       submission.input_norm.input_hidden ==
           submission.residual_post_norm.left_residual_then_normalized &&
@@ -2254,6 +2238,28 @@ Sm87MacroFeedV4ExecutionEventsOwner::
     record_poison_cause(result.status);
     return result;
   }
+
+  static_assert(
+      std::tuple_size<
+          decltype(accepted_full_attention_grant_identities_)>::value ==
+      kSm87MacroFeedV4PanelCount *
+          kSm87MacroFeedV4FullAttentionLayerCount);
+  const std::size_t grant_slot =
+      active_panel_ * kSm87MacroFeedV4FullAttentionLayerCount +
+      submission.full_attention_ordinal;
+  if (accepted_full_attention_grant_identities_[grant_slot] != 0U) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
+        "complete_full_attention_grant_at_most_once", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kCount, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+  accepted_full_attention_grant_identities_[grant_slot] =
+      kv_grant.grant_identity();
+  ++accepted_full_attention_grant_count_;
 
   if (test_fail_full_after_accepted_prefix_ == 0U) {
     test_fail_full_after_accepted_prefix_ =
@@ -2389,9 +2395,6 @@ Sm87MacroFeedV4ExecutionEventsOwner::
     return result;
   }
 
-  accepted_full_attention_grant_identities_
-      [accepted_full_attention_grant_count_] = kv_grant.grant_identity();
-  ++accepted_full_attention_grant_count_;
   ledger.complete = true;
   last_full_attention_accepted_prefix_ = ledger;
   Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt receipt;
@@ -2417,6 +2420,7 @@ Sm87MacroFeedV4ExecutionEventsOwner::
   receipt.candidate_end_ = kv_grant.candidate_end();
   receipt.full_attention_ordinal_ = submission.full_attention_ordinal;
   receipt.model_layer_ = submission.model_layer;
+  receipt.authority_domain_ = submission.authority_domain;
   receipt.execution_package_identity_ =
       submission.execution_package_identity;
   receipt.full_attention_catalog_identity_ =
@@ -2430,6 +2434,8 @@ Sm87MacroFeedV4ExecutionEventsOwner::
       submission.post_norm_binding_identity;
   receipt.rope_binding_identity_ = submission.rope_binding_identity;
   receipt.resource_bundle_identity_ = submission.resource_bundle_identity;
+  receipt.synthetic_source_identity_ =
+      submission.synthetic_source_identity;
   receipt.submission_digest_ = full_attention_submission_digest(submission);
   receipt.input_norm_launches_ = ledger.input_norm_launches;
   receipt.full_qkv_launches_ = ledger.full_qkv_launches;
@@ -3333,6 +3339,7 @@ Sm87MacroFeedV4ExecutionEventsOwner::full_attention_submission_digest(
     add_bool(resources.production_dispatch_eligible);
   };
 
+  add(static_cast<std::uint64_t>(submission.authority_domain));
   add(submission.execution_package_identity);
   add(submission.full_attention_catalog_identity);
   add(submission.full_attention_binding_identity);
@@ -3341,6 +3348,7 @@ Sm87MacroFeedV4ExecutionEventsOwner::full_attention_submission_digest(
   add(submission.post_norm_binding_identity);
   add(submission.rope_binding_identity);
   add(submission.resource_bundle_identity);
+  add(submission.synthetic_source_identity);
   add_size(submission.full_attention_ordinal);
   add_size(submission.model_layer);
 
@@ -3441,6 +3449,8 @@ Sm87MacroFeedV4ExecutionEventsOwner::full_attention_receipt_authenticator(
                 static_cast<std::uint64_t>(receipt.full_attention_ordinal_));
   value =
       mix64(value ^ static_cast<std::uint64_t>(receipt.model_layer_));
+  value = mix64(value ^
+                static_cast<std::uint64_t>(receipt.authority_domain_));
   value = mix64(value ^ receipt.execution_package_identity_);
   value = mix64(value ^ receipt.full_attention_catalog_identity_);
   value = mix64(value ^ receipt.full_attention_binding_identity_);
@@ -3449,6 +3459,7 @@ Sm87MacroFeedV4ExecutionEventsOwner::full_attention_receipt_authenticator(
   value = mix64(value ^ receipt.post_norm_binding_identity_);
   value = mix64(value ^ receipt.rope_binding_identity_);
   value = mix64(value ^ receipt.resource_bundle_identity_);
+  value = mix64(value ^ receipt.synthetic_source_identity_);
   value = mix64(value ^ receipt.submission_digest_);
   value = mix64(
       value ^ static_cast<std::uint64_t>(receipt.input_norm_launches_));
@@ -3489,7 +3500,19 @@ bool Sm87MacroFeedV4ExecutionEventsOwner::
             expected_submission,
         const Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt&
             receipt) const noexcept {
-  return panel_access_matches(panel_access) && receipt.valid_shape() &&
+  const bool valid_grant_slot =
+      active_panel_ < kSm87MacroFeedV4PanelCount &&
+      expected_submission.full_attention_ordinal <
+          kSm87MacroFeedV4FullAttentionLayerCount;
+  const std::size_t grant_slot =
+      valid_grant_slot
+          ? active_panel_ * kSm87MacroFeedV4FullAttentionLayerCount +
+                expected_submission.full_attention_ordinal
+          : accepted_full_attention_grant_identities_.size();
+  return valid_grant_slot &&
+         accepted_full_attention_grant_identities_[grant_slot] ==
+             kv_grant.grant_identity() &&
+         panel_access_matches(panel_access) && receipt.valid_shape() &&
          receipt.owner_identity_ == owner_identity_ &&
          receipt.request_epoch_ == request_epoch_ &&
          receipt.panel_ == active_panel_ &&
@@ -3519,6 +3542,7 @@ bool Sm87MacroFeedV4ExecutionEventsOwner::
          receipt.full_attention_ordinal_ ==
              expected_submission.full_attention_ordinal &&
          receipt.model_layer_ == expected_submission.model_layer &&
+         receipt.authority_domain_ == expected_submission.authority_domain &&
          receipt.execution_package_identity_ ==
              expected_submission.execution_package_identity &&
          receipt.full_attention_catalog_identity_ ==
@@ -3535,6 +3559,8 @@ bool Sm87MacroFeedV4ExecutionEventsOwner::
              expected_submission.rope_binding_identity &&
          receipt.resource_bundle_identity_ ==
              expected_submission.resource_bundle_identity &&
+         receipt.synthetic_source_identity_ ==
+             expected_submission.synthetic_source_identity &&
          receipt.submission_digest_ ==
              full_attention_submission_digest(expected_submission) &&
          receipt.authenticator_ != 0U &&
@@ -4511,6 +4537,11 @@ void Sm87MacroFeedV4ExecutionEventsOwner::release_resources() noexcept {
   accepted_gdn_grant_count_ = 0U;
   last_gdn_accepted_prefix_ = {};
   test_fail_gdn_after_accepted_operation_ =
+      std::numeric_limits<std::size_t>::max();
+  accepted_full_attention_grant_identities_.fill(0U);
+  accepted_full_attention_grant_count_ = 0U;
+  last_full_attention_accepted_prefix_ = {};
+  test_fail_full_after_accepted_prefix_ =
       std::numeric_limits<std::size_t>::max();
 #endif
   access_.reset();

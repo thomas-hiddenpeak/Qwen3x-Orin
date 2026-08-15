@@ -343,6 +343,13 @@ enum class Sm87MacroFeedV4GdnSubmissionAuthorityDomain : std::uint8_t {
   kSyntheticT1,
 };
 
+enum class Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain
+    : std::uint8_t {
+  kInvalid = 0U,
+  kNormalSealedCatalog,
+  kSyntheticT1,
+};
+
 // One package-bound whole-GDN-layer submission.  Every constituent is fixed
 // to C8000 and all CUDA resources were sealed during package construction.
 // This type crosses only the private package -> EventsOwner boundary; it is
@@ -758,6 +765,8 @@ struct Sm87MacroFeedV4CompleteGdnLayerEnqueueResult final {
 // EventsOwner reconstructs and validates all public argument forms before it
 // permits the first enqueue.
 struct Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission final {
+  Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain authority_domain =
+      Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::kInvalid;
   std::uint64_t execution_package_identity = 0U;
   std::uint64_t full_attention_catalog_identity = 0U;
   std::uint64_t full_attention_binding_identity = 0U;
@@ -766,6 +775,7 @@ struct Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission final {
   std::uint64_t post_norm_binding_identity = 0U;
   std::uint64_t rope_binding_identity = 0U;
   std::uint64_t resource_bundle_identity = 0U;
+  std::uint64_t synthetic_source_identity = 0U;
   std::size_t full_attention_ordinal =
       kSm87MacroFeedV4FullAttentionLayerCount;
   std::size_t model_layer = kSm87MacroFeedV4LayerCount;
@@ -883,8 +893,32 @@ class Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt final {
   [[nodiscard]] std::uint64_t grant_identity() const noexcept {
     return grant_identity_;
   }
+  [[nodiscard]] std::uint64_t grant_state_epoch() const noexcept {
+    return grant_state_epoch_;
+  }
   [[nodiscard]] std::uint64_t kv_allocation_identity() const noexcept {
     return kv_allocation_identity_;
+  }
+  [[nodiscard]] std::uint64_t key_full_allocation_origin() const noexcept {
+    return key_full_allocation_origin_;
+  }
+  [[nodiscard]] std::uint64_t value_full_allocation_origin() const noexcept {
+    return value_full_allocation_origin_;
+  }
+  [[nodiscard]] std::uint64_t key_panel_allocation_offset() const noexcept {
+    return key_panel_allocation_offset_;
+  }
+  [[nodiscard]] std::uint64_t value_panel_allocation_offset() const noexcept {
+    return value_panel_allocation_offset_;
+  }
+  [[nodiscard]] std::uint64_t kv_panel_bytes() const noexcept {
+    return kv_panel_bytes_;
+  }
+  [[nodiscard]] std::size_t previous_valid_end() const noexcept {
+    return previous_valid_end_;
+  }
+  [[nodiscard]] std::size_t candidate_end() const noexcept {
+    return candidate_end_;
   }
   [[nodiscard]] std::size_t full_attention_ordinal() const noexcept {
     return full_attention_ordinal_;
@@ -892,12 +926,65 @@ class Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt final {
   [[nodiscard]] std::size_t model_layer() const noexcept {
     return model_layer_;
   }
+  [[nodiscard]] Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain
+  authority_domain() const noexcept {
+    return authority_domain_;
+  }
+  [[nodiscard]] std::uint64_t execution_package_identity() const noexcept {
+    return execution_package_identity_;
+  }
   [[nodiscard]] std::uint64_t full_attention_catalog_identity()
       const noexcept {
     return full_attention_catalog_identity_;
   }
+  [[nodiscard]] std::uint64_t full_attention_binding_identity()
+      const noexcept {
+    return full_attention_binding_identity_;
+  }
+  [[nodiscard]] std::uint64_t mlp_binding_identity() const noexcept {
+    return mlp_binding_identity_;
+  }
+  [[nodiscard]] std::uint64_t input_norm_binding_identity() const noexcept {
+    return input_norm_binding_identity_;
+  }
+  [[nodiscard]] std::uint64_t post_norm_binding_identity() const noexcept {
+    return post_norm_binding_identity_;
+  }
+  [[nodiscard]] std::uint64_t rope_binding_identity() const noexcept {
+    return rope_binding_identity_;
+  }
   [[nodiscard]] std::uint64_t resource_bundle_identity() const noexcept {
     return resource_bundle_identity_;
+  }
+  [[nodiscard]] std::uint64_t synthetic_source_identity() const noexcept {
+    return synthetic_source_identity_;
+  }
+  [[nodiscard]] std::uint64_t submission_digest() const noexcept {
+    return submission_digest_;
+  }
+  [[nodiscard]] std::size_t input_norm_launches() const noexcept {
+    return input_norm_launches_;
+  }
+  [[nodiscard]] std::size_t full_qkv_launches() const noexcept {
+    return full_qkv_launches_;
+  }
+  [[nodiscard]] std::size_t preprocess_launches() const noexcept {
+    return preprocess_launches_;
+  }
+  [[nodiscard]] std::size_t attention_launches() const noexcept {
+    return attention_launches_;
+  }
+  [[nodiscard]] std::size_t full_output_launches() const noexcept {
+    return full_output_launches_;
+  }
+  [[nodiscard]] std::size_t residual_post_norm_launches() const noexcept {
+    return residual_post_norm_launches_;
+  }
+  [[nodiscard]] std::size_t gate_up_launches() const noexcept {
+    return gate_up_launches_;
+  }
+  [[nodiscard]] std::size_t down_launches() const noexcept {
+    return down_launches_;
   }
   [[nodiscard]] std::size_t bound_kernel_submissions() const noexcept {
     return bound_kernel_submissions_;
@@ -921,6 +1008,26 @@ class Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt final {
     return production_receipt_eligible_;
   }
   [[nodiscard]] constexpr bool valid_shape() const noexcept {
+    const bool normal_authority =
+        authority_domain_ ==
+            Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::
+                kNormalSealedCatalog &&
+        execution_package_identity_ != 0U &&
+        full_attention_catalog_identity_ != 0U &&
+        full_attention_binding_identity_ != 0U &&
+        mlp_binding_identity_ != 0U && input_norm_binding_identity_ != 0U &&
+        post_norm_binding_identity_ != 0U && rope_binding_identity_ != 0U &&
+        resource_bundle_identity_ != 0U && synthetic_source_identity_ == 0U;
+    const bool synthetic_authority =
+        authority_domain_ ==
+            Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::
+                kSyntheticT1 &&
+        execution_package_identity_ == 0U &&
+        full_attention_catalog_identity_ == 0U &&
+        full_attention_binding_identity_ == 0U &&
+        mlp_binding_identity_ == 0U && input_norm_binding_identity_ == 0U &&
+        post_norm_binding_identity_ == 0U && rope_binding_identity_ == 0U &&
+        resource_bundle_identity_ == 0U && synthetic_source_identity_ != 0U;
     return transaction_identity_ != 0U && owner_identity_ != 0U &&
            request_epoch_ != 0U && panel_ < kSm87MacroFeedV4PanelCount &&
            panel_generation_ != 0U &&
@@ -947,14 +1054,7 @@ class Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt final {
            previous_valid_end_ == first_position_ &&
            candidate_end_ ==
                first_position_ + kSm87MacroFeedV4PanelTokens &&
-           execution_package_identity_ != 0U &&
-           full_attention_catalog_identity_ != 0U &&
-           full_attention_binding_identity_ != 0U &&
-           mlp_binding_identity_ != 0U &&
-           input_norm_binding_identity_ != 0U &&
-           post_norm_binding_identity_ != 0U &&
-           rope_binding_identity_ != 0U &&
-           resource_bundle_identity_ != 0U &&
+           (normal_authority || synthetic_authority) &&
            submission_digest_ != 0U &&
            input_norm_launches_ == 1U && full_qkv_launches_ == 1U &&
            preprocess_launches_ == 1U && attention_launches_ == 1U &&
@@ -989,6 +1089,8 @@ class Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt final {
   std::size_t full_attention_ordinal_ =
       kSm87MacroFeedV4FullAttentionLayerCount;
   std::size_t model_layer_ = kSm87MacroFeedV4LayerCount;
+  Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain authority_domain_ =
+      Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::kInvalid;
   std::uint64_t execution_package_identity_ = 0U;
   std::uint64_t full_attention_catalog_identity_ = 0U;
   std::uint64_t full_attention_binding_identity_ = 0U;
@@ -997,6 +1099,7 @@ class Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt final {
   std::uint64_t post_norm_binding_identity_ = 0U;
   std::uint64_t rope_binding_identity_ = 0U;
   std::uint64_t resource_bundle_identity_ = 0U;
+  std::uint64_t synthetic_source_identity_ = 0U;
   std::uint64_t submission_digest_ = 0U;
   std::size_t input_norm_launches_ = 0U;
   std::size_t full_qkv_launches_ = 0U;
@@ -1064,9 +1167,10 @@ struct Sm87MacroFeedV4ExecutionEventsSnapshot final {
   std::size_t down_c8000_submissions = 0U;
   std::size_t complete_gdn_layers_submitted = 0U;
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
-  // Number of per-panel/layer grant slots reserved before first enqueue.
-  // A failed transaction retains its reservation because the request is then
-  // terminally poisoned; this is at-most-once authority, not success count.
+  // Numbers of per-panel/layer GDN and Full grant slots reserved before each
+  // transaction's first enqueue.  A failed transaction retains its reservation
+  // because the request is then terminally poisoned; these are at-most-once
+  // authority counts, not success counts.
   std::size_t accepted_gdn_grants = 0U;
   Sm87MacroFeedV4GdnAcceptedPrefixLedger last_gdn_accepted_prefix{};
   std::size_t complete_full_attention_layers_submitted = 0U;
@@ -1781,6 +1885,18 @@ class Sm87MacroFeedV4ExecutionEventsCudaTestFixture final {
       const Sm87MacroFeedV4PhysicalCompletionReceipt& owner_drained) noexcept {
     return owner.discard_after_drain(*owner.access_, panel_access,
                                      owner_drained);
+  }
+  [[nodiscard]] static Sm87MacroFeedV4ExecutionStatus
+  discard_request_state_after_drain(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const Sm87MacroFeedV4PhysicalCompletionReceipt& owner_drained,
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+      const Sm87MacroFeedV4RequestDiscardReason reason) noexcept {
+    return owner.discard_request_state_after_drain(
+        *owner.access_, panel_access, owner_drained, request_owner,
+        request_access, reason);
   }
   [[nodiscard]] static Sm87MacroFeedV4ExecutionStatus complete_request(
       Sm87MacroFeedV4ExecutionEventsOwner& owner,

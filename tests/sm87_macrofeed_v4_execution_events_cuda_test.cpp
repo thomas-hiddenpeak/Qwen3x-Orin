@@ -524,6 +524,8 @@ struct GdnTransactionFixture final {
 struct FullAttentionTransactionFixture final {
   static constexpr std::uint64_t kKvAllocationIdentity =
       0x5133'4655'4c4c'4b56ULL;
+  static constexpr std::uint64_t kSyntheticSourceIdentity =
+      0x5133'4655'4c4c'5431ULL;
   support::Sm87MacroFeedV4LiveFp8AssetFixture full_qkv_asset;
   support::Sm87MacroFeedV4LiveFp8AssetFixture full_output_asset;
   support::Sm87MacroFeedV4LiveNvFp4AssetFixture gate_up_asset;
@@ -593,14 +595,21 @@ struct FullAttentionTransactionFixture final {
       return false;
     }
 
-    submission.execution_package_identity = 0x5100U;
-    submission.full_attention_catalog_identity = 0x5101U;
-    submission.full_attention_binding_identity = 0x5102U;
-    submission.mlp_binding_identity = 0x5103U;
-    submission.input_norm_binding_identity = 0x5104U;
-    submission.post_norm_binding_identity = 0x5105U;
-    submission.rope_binding_identity = 0x5106U;
-    submission.resource_bundle_identity = 0x5107U;
+    // This fixture owns honest live assets and resource observations, but no
+    // startup-composed production package/catalog/binding seals.  Its only
+    // authority is therefore an explicit synthetic T1 source; it must never
+    // invent production identities or masquerade as a normal package.
+    submission.authority_domain = events::
+        Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::kSyntheticT1;
+    submission.execution_package_identity = 0U;
+    submission.full_attention_catalog_identity = 0U;
+    submission.full_attention_binding_identity = 0U;
+    submission.mlp_binding_identity = 0U;
+    submission.input_norm_binding_identity = 0U;
+    submission.post_norm_binding_identity = 0U;
+    submission.rope_binding_identity = 0U;
+    submission.resource_bundle_identity = 0U;
+    submission.synthetic_source_identity = kSyntheticSourceIdentity;
     submission.full_attention_ordinal = 0U;
     submission.model_layer = 3U;
     submission.input_norm = {
@@ -703,6 +712,267 @@ struct FullAttentionTransactionFixture final {
     // Clear only this construction-time test residue before the owner starts;
     // production transaction code never swallows a prior CUDA error.
     return cudaGetLastError() == cudaSuccess;
+  }
+};
+
+// One physical SyntheticT1 cohort spanning the natural GDN0/GDN1/GDN2 ->
+// Full3 boundary.  The Full layer deliberately borrows every compatible live
+// GDN allocation and asset.  Only the Full-QKV payload, Q/K norm weights,
+// complete RoPE tables, and the complete 16-layer KV arena are additionally
+// owned here; the isolated Full fixture's private hidden/scratch/single-layer
+// KV path is never initialized by this cohort.
+struct JoinedFullAttentionTransactionFixture final {
+  static constexpr std::uint64_t kKvAllocationIdentity =
+      0x5133'4a4f'494e'4b56ULL;
+  static constexpr std::uint64_t kSyntheticSourceIdentity =
+      0x5133'4a4f'494e'5431ULL;
+  static constexpr std::uint64_t kCompleteRopeTableBytes = 33'554'432U;
+  static constexpr std::uint64_t kOwnedAllocationBytes =
+      73'400'320U + 2U * 512U + 2U * kCompleteRopeTableBytes +
+      runtime::kSm87MacroFeedV4AttentionKvArenaBytes;
+  static_assert(kOwnedAllocationBytes == 2'761'950'208U);
+  static_assert(kCompleteRopeTableBytes >=
+                kernels::
+                    kSm87MacroFeedV4FullAttentionPreprocessRopeTableBytes);
+
+  support::Sm87MacroFeedV4LiveFp8AssetFixture full_qkv_asset;
+  support::Sm87MacroFeedV4LiveFp8Allocation q_norm_weight;
+  support::Sm87MacroFeedV4LiveFp8Allocation k_norm_weight;
+  support::Sm87MacroFeedV4LiveFp8Allocation cosines;
+  support::Sm87MacroFeedV4LiveFp8Allocation sines;
+  support::Sm87MacroFeedV4LiveFp8Allocation kv_arena;
+  const char* initialization_failure = "none";
+  events::Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission
+      submission{};
+
+  template <typename T>
+  [[nodiscard]] static T* as(
+      support::Sm87MacroFeedV4LiveFp8Allocation& allocation) noexcept {
+    return static_cast<T*>(allocation.data());
+  }
+
+  template <typename T>
+  [[nodiscard]] static T* at(
+      support::Sm87MacroFeedV4LiveFp8Allocation& allocation,
+      const std::uint64_t byte_offset) noexcept {
+    return reinterpret_cast<T*>(
+        static_cast<std::uint8_t*>(allocation.data()) + byte_offset);
+  }
+
+  [[nodiscard]] std::uint64_t owned_allocation_bytes() const noexcept {
+    return full_qkv_asset.payload_allocation.bytes() + q_norm_weight.bytes() +
+           k_norm_weight.bytes() + cosines.bytes() + sines.bytes() +
+           kv_arena.bytes();
+  }
+
+  [[nodiscard]] bool initialize(const int device_ordinal,
+                                GdnTransactionFixture& gdn) noexcept {
+    if (!full_qkv_asset.initialize(
+            kernels::Sm87TargetAotProjectionRole::kFp8FullQkv,
+            device_ordinal)) {
+      initialization_failure = "full_qkv_asset";
+      return false;
+    }
+    if (!q_norm_weight.allocate_zeroed(
+            kernels::kSm87MacroFeedV4FullAttentionPreprocessNormWeightBytes) ||
+        !k_norm_weight.allocate_zeroed(
+            kernels::kSm87MacroFeedV4FullAttentionPreprocessNormWeightBytes)) {
+      initialization_failure = "qk_norm_weights";
+      return false;
+    }
+    if (!cosines.allocate_zeroed(kCompleteRopeTableBytes) ||
+        !sines.allocate_zeroed(kCompleteRopeTableBytes)) {
+      initialization_failure = "rope_tables";
+      return false;
+    }
+    if (!kv_arena.allocate_zeroed(
+            runtime::kSm87MacroFeedV4AttentionKvArenaBytes)) {
+      initialization_failure = "complete_kv_arena";
+      return false;
+    }
+    if (owned_allocation_bytes() != kOwnedAllocationBytes) {
+      initialization_failure = "owned_allocation_byte_ledger";
+      return false;
+    }
+    if (gdn.hidden_a.bytes() !=
+            kernels::kSm87MacroFeedV4NormResidualHiddenBytes ||
+        gdn.hidden_b.bytes() !=
+            kernels::kSm87MacroFeedV4NormResidualHiddenBytes ||
+        gdn.scratch.bytes() != kernels::kSm87MacroFeedV4GdnScratchBytes) {
+      initialization_failure = "borrowed_gdn_storage_shape";
+      return false;
+    }
+    static_assert(kernels::kSm87MacroFeedV4GdnScratchBytes ==
+                  kernels::kSm87MacroFeedV4AttentionC8000ScratchBytes);
+
+    submission.authority_domain = events::
+        Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::kSyntheticT1;
+    submission.execution_package_identity = 0U;
+    submission.full_attention_catalog_identity = 0U;
+    submission.full_attention_binding_identity = 0U;
+    submission.mlp_binding_identity = 0U;
+    submission.input_norm_binding_identity = 0U;
+    submission.post_norm_binding_identity = 0U;
+    submission.rope_binding_identity = 0U;
+    submission.resource_bundle_identity = 0U;
+    submission.synthetic_source_identity = kSyntheticSourceIdentity;
+    submission.full_attention_ordinal = 0U;
+    submission.model_layer = 3U;
+
+    // GDN2 leaves model layer 3 on the odd residual plane: hidden_b is the
+    // residual/input plane and hidden_a is the branch/output plane.
+    submission.input_norm = {
+        GdnTransactionFixture::as<std::uint16_t>(gdn.hidden_b),
+        GdnTransactionFixture::as<std::uint16_t>(gdn.input_norm_weight),
+        GdnTransactionFixture::as<std::uint16_t>(gdn.hidden_a),
+        kernels::kSm87MacroFeedV4NormResidualTokens,
+        kernels::kSm87MacroFeedV4NormResidualHidden,
+        kernels::kSm87MacroFeedV4NormResidualEpsilonFp32Bits,
+        nullptr};
+    submission.full_qkv = {
+        GdnTransactionFixture::as<std::uint16_t>(gdn.hidden_a),
+        full_qkv_asset.asset,
+        GdnTransactionFixture::as<std::uint16_t>(gdn.scratch),
+        as<std::uint16_t>(kv_arena),
+        at<std::uint16_t>(
+            kv_arena, runtime::kSm87MacroFeedV4AttentionKvPlaneBytes)};
+    submission.preprocess = {
+        GdnTransactionFixture::as<std::uint16_t>(gdn.scratch),
+        as<std::uint16_t>(kv_arena),
+        as<std::uint16_t>(q_norm_weight),
+        as<std::uint16_t>(k_norm_weight),
+        as<float>(cosines),
+        as<float>(sines),
+        0U};
+    submission.attention = {
+        GdnTransactionFixture::as<std::uint16_t>(gdn.scratch),
+        as<std::uint16_t>(kv_arena),
+        at<std::uint16_t>(
+            kv_arena, runtime::kSm87MacroFeedV4AttentionKvPlaneBytes),
+        0U};
+    submission.full_output = {
+        GdnTransactionFixture::as<std::uint16_t>(gdn.scratch),
+        gdn.gdn_output_asset.asset,
+        GdnTransactionFixture::as<std::uint16_t>(gdn.hidden_a)};
+    submission.residual_post_norm = {
+        GdnTransactionFixture::as<std::uint16_t>(gdn.hidden_b),
+        GdnTransactionFixture::as<std::uint16_t>(gdn.hidden_a),
+        GdnTransactionFixture::as<std::uint16_t>(gdn.post_norm_weight)};
+    submission.gate_up.normalized_input =
+        GdnTransactionFixture::as<std::uint16_t>(gdn.hidden_b);
+    submission.gate_up.payload = reinterpret_cast<const std::uint8_t*>(
+        gdn.gate_up_asset.asset.payload.begin);
+    submission.gate_up.payload_bytes =
+        gdn.gate_up_asset.asset.payload.bytes;
+    submission.gate_up.gate_tensor_scale =
+        fp32_from_bits(gdn.gate_up_asset.asset.tensor_scale_bits[0U]);
+    submission.gate_up.up_tensor_scale =
+        fp32_from_bits(gdn.gate_up_asset.asset.tensor_scale_bits[1U]);
+    submission.gate_up.intermediate_output =
+        GdnTransactionFixture::as<std::uint16_t>(gdn.scratch);
+    submission.gate_up.canonical_v3_payload_receipt =
+        make_gate_up_payload_receipt(gdn.gate_up_asset);
+    submission.down.intermediate_input =
+        GdnTransactionFixture::as<std::uint16_t>(gdn.scratch);
+    submission.down.payload = reinterpret_cast<const std::uint8_t*>(
+        gdn.down_asset.asset.payload.begin);
+    submission.down.payload_bytes = gdn.down_asset.asset.payload.bytes;
+    submission.down.tensor_scale =
+        fp32_from_bits(gdn.down_asset.asset.tensor_scale_bits[0U]);
+    submission.down.residual_output =
+        GdnTransactionFixture::as<std::uint16_t>(gdn.hidden_a);
+    submission.down.payload_receipt = make_down_payload_receipt(gdn.down_asset);
+
+    submission.norm_resources = gdn.submission.norm_resources;
+    submission.gate_up_resources = gdn.submission.gate_up_resources;
+    submission.down_resources = gdn.submission.down_resources;
+    if (kernels::query_sm87_macrofeed_v4_fp8_cuda_resources(
+            kernels::Sm87TargetAotProjectionRole::kFp8FullQkv,
+            kernels::Sm87MacroFeedV4Fp8InputLayout::
+                kHiddenContiguousH5120V1,
+            &submission.full_qkv_resources) !=
+            static_cast<int>(cudaSuccess) ||
+        kernels::
+                query_sm87_macrofeed_v4_full_attention_preprocess_admission_resources_cuda(
+                    &submission.preprocess_resources) !=
+            static_cast<int>(cudaSuccess) ||
+        kernels::query_sm87_macrofeed_v4_attention_c8000_admission_resources_cuda(
+            &submission.attention_resources) !=
+            static_cast<int>(cudaSuccess) ||
+        kernels::query_sm87_macrofeed_v4_fp8_cuda_resources(
+            kernels::Sm87TargetAotProjectionRole::kFp8AttentionOutput,
+            kernels::Sm87MacroFeedV4Fp8InputLayout::
+                kFullAttentionInterleavedQScratchV1,
+            &submission.full_output_resources) !=
+            static_cast<int>(cudaSuccess)) {
+      initialization_failure = "full_resource_snapshots";
+      return false;
+    }
+    submission.full_qkv_resources.static_resource_gate_passed =
+        kernels::sm87_macrofeed_v4_fp8_resource_gate(
+            submission.full_qkv_resources);
+    submission.full_output_resources.static_resource_gate_passed =
+        kernels::sm87_macrofeed_v4_fp8_resource_gate(
+            submission.full_output_resources);
+    if (!kernels::sm87_macrofeed_v3_nvfp4_gate_up_payload_receipt_valid(
+            submission.gate_up.canonical_v3_payload_receipt) ||
+        !kernels::sm87_macrofeed_v3_nvfp4_down_payload_receipt_valid(
+            submission.down.payload_receipt)) {
+      initialization_failure = "borrowed_mlp_payload_receipts";
+      return false;
+    }
+    if (cudaDeviceSynchronize() != cudaSuccess) {
+      initialization_failure = "initialization_device_synchronize";
+      return false;
+    }
+    if (cudaGetLastError() != cudaSuccess) {
+      initialization_failure = "initialization_cuda_error_residue";
+      return false;
+    }
+    return true;
+  }
+
+  [[nodiscard]] bool bind_grant(
+      events::Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission*
+          const bound_submission,
+      const runtime::Sm87MacroFeedV4FullAttentionKvGrant& grant) noexcept {
+    if (bound_submission == nullptr ||
+        kv_arena.bytes() != runtime::kSm87MacroFeedV4AttentionKvArenaBytes) {
+      return false;
+    }
+    const auto range_fits = [](const std::uint64_t offset,
+                               const std::uint64_t bytes) noexcept {
+      return offset <= runtime::kSm87MacroFeedV4AttentionKvArenaBytes &&
+             bytes <=
+                 runtime::kSm87MacroFeedV4AttentionKvArenaBytes - offset;
+    };
+    if (!range_fits(grant.key_full_allocation_origin(),
+                    runtime::kSm87MacroFeedV4AttentionKvPlaneBytes) ||
+        !range_fits(grant.value_full_allocation_origin(),
+                    runtime::kSm87MacroFeedV4AttentionKvPlaneBytes) ||
+        !range_fits(grant.key_panel_allocation_offset(),
+                    grant.panel_bytes()) ||
+        !range_fits(grant.value_panel_allocation_offset(),
+                    grant.panel_bytes())) {
+      return false;
+    }
+    *bound_submission = submission;
+    bound_submission->full_attention_ordinal =
+        grant.attention_layer_ordinal();
+    bound_submission->model_layer = grant.model_layer();
+    bound_submission->full_qkv.key_panel_output = at<std::uint16_t>(
+        kv_arena, grant.key_panel_allocation_offset());
+    bound_submission->full_qkv.value_panel_output = at<std::uint16_t>(
+        kv_arena, grant.value_panel_allocation_offset());
+    bound_submission->preprocess.key_cache_origin = at<std::uint16_t>(
+        kv_arena, grant.key_full_allocation_origin());
+    bound_submission->preprocess.first_position = grant.first_position();
+    bound_submission->attention.key_cache_origin = at<std::uint16_t>(
+        kv_arena, grant.key_full_allocation_origin());
+    bound_submission->attention.value_cache_origin = at<std::uint16_t>(
+        kv_arena, grant.value_full_allocation_origin());
+    bound_submission->attention.first_position = grant.first_position();
+    return true;
   }
 };
 
@@ -1779,6 +2049,8 @@ void expect_full_attention_prevalidation_rejection(
           after.state ==
               events::Sm87MacroFeedV4ExecutionOwnerState::kPoisoned &&
           after.bound_kernel_submissions == before.bound_kernel_submissions &&
+          after.accepted_full_attention_grants ==
+              before.accepted_full_attention_grants &&
           after.last_full_attention_accepted_prefix.valid_prefix() &&
           after.last_full_attention_accepted_prefix
                   .accepted_kernel_launches == 0U &&
@@ -2045,14 +2317,48 @@ void test_complete_full_attention_transaction(Test& test) {
             enqueued.receipt.first_position() == 0U &&
             enqueued.receipt.grant_identity() ==
                 authorization.grant->grant_identity() &&
+            enqueued.receipt.grant_state_epoch() ==
+                authorization.grant->state_epoch() &&
             enqueued.receipt.kv_allocation_identity() ==
                 full.kKvAllocationIdentity &&
+            enqueued.receipt.key_full_allocation_origin() ==
+                authorization.grant->key_full_allocation_origin() &&
+            enqueued.receipt.value_full_allocation_origin() ==
+                authorization.grant->value_full_allocation_origin() &&
+            enqueued.receipt.key_panel_allocation_offset() ==
+                authorization.grant->key_panel_allocation_offset() &&
+            enqueued.receipt.value_panel_allocation_offset() ==
+                authorization.grant->value_panel_allocation_offset() &&
+            enqueued.receipt.kv_panel_bytes() ==
+                authorization.grant->panel_bytes() &&
+            enqueued.receipt.previous_valid_end() ==
+                authorization.grant->previous_valid_end() &&
+            enqueued.receipt.candidate_end() ==
+                authorization.grant->candidate_end() &&
             enqueued.receipt.full_attention_ordinal() == 0U &&
             enqueued.receipt.model_layer() == 3U &&
-            enqueued.receipt.full_attention_catalog_identity() ==
-                full.submission.full_attention_catalog_identity &&
-            enqueued.receipt.resource_bundle_identity() ==
-                full.submission.resource_bundle_identity &&
+            enqueued.receipt.authority_domain() ==
+                events::Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::
+                    kSyntheticT1 &&
+            enqueued.receipt.execution_package_identity() == 0U &&
+            enqueued.receipt.full_attention_catalog_identity() == 0U &&
+            enqueued.receipt.full_attention_binding_identity() == 0U &&
+            enqueued.receipt.mlp_binding_identity() == 0U &&
+            enqueued.receipt.input_norm_binding_identity() == 0U &&
+            enqueued.receipt.post_norm_binding_identity() == 0U &&
+            enqueued.receipt.rope_binding_identity() == 0U &&
+            enqueued.receipt.resource_bundle_identity() == 0U &&
+            enqueued.receipt.synthetic_source_identity() ==
+                FullAttentionTransactionFixture::kSyntheticSourceIdentity &&
+            enqueued.receipt.submission_digest() != 0U &&
+            enqueued.receipt.input_norm_launches() == 1U &&
+            enqueued.receipt.full_qkv_launches() == 1U &&
+            enqueued.receipt.preprocess_launches() == 1U &&
+            enqueued.receipt.attention_launches() == 1U &&
+            enqueued.receipt.full_output_launches() == 1U &&
+            enqueued.receipt.residual_post_norm_launches() == 1U &&
+            enqueued.receipt.gate_up_launches() == 1U &&
+            enqueued.receipt.down_launches() == 1U &&
             enqueued.receipt.bound_kernel_submissions() == 8U &&
             enqueued.receipt.asynchronous_d2d_copies() == 0U &&
             enqueued.receipt.asynchronous_d2d_copy_bytes() == 0U &&
@@ -2060,41 +2366,61 @@ void test_complete_full_attention_transaction(Test& test) {
             !enqueued.receipt.physical_device_completion_attested() &&
             !enqueued.receipt.panel_complete() &&
             !enqueued.receipt.production_receipt_eligible(),
-        "one Main token accepts exact Full DAG of eight kernels and zero "
-        "copies");
+        "one explicit SyntheticT1 Main token exposes every opaque Full "
+        "receipt fact for the exact eight-kernel/zero-copy DAG");
     test.expect(
         Fixture::full_attention_receipt_matches(
             owner, *panel.panel_access, *authorization.grant,
             full.submission, enqueued.receipt),
         "issuing owner authenticates private Full enqueue receipt");
     auto substituted_submission = full.submission;
+    substituted_submission.authority_domain = events::
+        Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::
+            kNormalSealedCatalog;
+    test.expect(
+        !Fixture::full_attention_receipt_matches(
+            owner, *panel.panel_access, *authorization.grant,
+            substituted_submission, enqueued.receipt),
+        "receipt rejects SyntheticT1-to-normal authority-domain relabeling");
+    substituted_submission = full.submission;
+    ++substituted_submission.synthetic_source_identity;
+    test.expect(
+        !Fixture::full_attention_receipt_matches(
+            owner, *panel.panel_access, *authorization.grant,
+            substituted_submission, enqueued.receipt),
+        "receipt rejects a synthetic-source authority substitution");
+    substituted_submission = full.submission;
     ++substituted_submission.resource_bundle_identity;
     test.expect(
         !Fixture::full_attention_receipt_matches(
             owner, *panel.panel_access, *authorization.grant,
             substituted_submission, enqueued.receipt),
-        "receipt rejects a nonzero sealed resource-bundle substitution");
+        "receipt rejects a production resource identity injected into the "
+        "synthetic authority domain");
     substituted_submission = full.submission;
     ++substituted_submission.full_attention_catalog_identity;
     test.expect(
         !Fixture::full_attention_receipt_matches(
             owner, *panel.panel_access, *authorization.grant,
             substituted_submission, enqueued.receipt),
-        "receipt rejects a nonzero sealed Full-catalog substitution");
+        "receipt rejects a production Full-catalog identity injected into the "
+        "synthetic authority domain");
     substituted_submission = full.submission;
     ++substituted_submission.mlp_binding_identity;
     test.expect(
         !Fixture::full_attention_receipt_matches(
             owner, *panel.panel_access, *authorization.grant,
             substituted_submission, enqueued.receipt),
-        "receipt rejects a nonzero sealed MLP-binding substitution");
+        "receipt rejects a production MLP identity injected into the "
+        "synthetic authority domain");
     substituted_submission = full.submission;
     ++substituted_submission.rope_binding_identity;
     test.expect(
         !Fixture::full_attention_receipt_matches(
             owner, *panel.panel_access, *authorization.grant,
             substituted_submission, enqueued.receipt),
-        "receipt rejects a nonzero sealed RoPE-binding substitution");
+        "receipt rejects a production RoPE identity injected into the "
+        "synthetic authority domain");
     substituted_submission = full.submission;
     ++substituted_submission.attention.value_cache_origin;
     test.expect(
@@ -2225,15 +2551,79 @@ void test_complete_full_attention_transaction(Test& test) {
 
   std::uint64_t negative_identity = 0x9000U;
   auto negative = full.submission;
-  negative.full_attention_catalog_identity = 0U;
+  negative.synthetic_source_identity = 0U;
   expect_full_attention_prevalidation_rejection(
       test, full, negative, negative_identity++,
-      "zero Full catalog identity fails before first enqueue");
+      "SyntheticT1 requires one nonzero synthetic-source identity");
   negative = full.submission;
-  negative.resource_bundle_identity = 0U;
+  negative.authority_domain = events::
+      Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::kInvalid;
   expect_full_attention_prevalidation_rejection(
       test, full, negative, negative_identity++,
-      "zero resource-bundle identity fails before first enqueue");
+      "invalid Full authority domain fails before first enqueue");
+  negative = full.submission;
+  negative.authority_domain = events::
+      Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::
+          kNormalSealedCatalog;
+  expect_full_attention_prevalidation_rejection(
+      test, full, negative, negative_identity++,
+      "SyntheticT1 cannot masquerade as normal by relabeling its domain");
+  negative = full.submission;
+  negative.authority_domain = events::
+      Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::
+          kNormalSealedCatalog;
+  negative.execution_package_identity = 1U;
+  negative.full_attention_catalog_identity = 2U;
+  negative.full_attention_binding_identity = 3U;
+  negative.mlp_binding_identity = 4U;
+  negative.input_norm_binding_identity = 5U;
+  negative.post_norm_binding_identity = 6U;
+  negative.rope_binding_identity = 7U;
+  negative.resource_bundle_identity = 0U;
+  negative.synthetic_source_identity = 0U;
+  expect_full_attention_prevalidation_rejection(
+      test, full, negative, negative_identity++,
+      "normal Full authority requires every production identity nonzero");
+  negative = full.submission;
+  negative.execution_package_identity = 1U;
+  expect_full_attention_prevalidation_rejection(
+      test, full, negative, negative_identity++,
+      "SyntheticT1 forbids a production package identity");
+  negative = full.submission;
+  negative.full_attention_catalog_identity = 1U;
+  expect_full_attention_prevalidation_rejection(
+      test, full, negative, negative_identity++,
+      "SyntheticT1 forbids a production Full catalog identity");
+  negative = full.submission;
+  negative.full_attention_binding_identity = 1U;
+  expect_full_attention_prevalidation_rejection(
+      test, full, negative, negative_identity++,
+      "SyntheticT1 forbids a production Full binding identity");
+  negative = full.submission;
+  negative.mlp_binding_identity = 1U;
+  expect_full_attention_prevalidation_rejection(
+      test, full, negative, negative_identity++,
+      "SyntheticT1 forbids a production MLP binding identity");
+  negative = full.submission;
+  negative.input_norm_binding_identity = 1U;
+  expect_full_attention_prevalidation_rejection(
+      test, full, negative, negative_identity++,
+      "SyntheticT1 forbids a production InputNorm binding identity");
+  negative = full.submission;
+  negative.post_norm_binding_identity = 1U;
+  expect_full_attention_prevalidation_rejection(
+      test, full, negative, negative_identity++,
+      "SyntheticT1 forbids a production PostNorm binding identity");
+  negative = full.submission;
+  negative.rope_binding_identity = 1U;
+  expect_full_attention_prevalidation_rejection(
+      test, full, negative, negative_identity++,
+      "SyntheticT1 forbids a production RoPE binding identity");
+  negative = full.submission;
+  negative.resource_bundle_identity = 1U;
+  expect_full_attention_prevalidation_rejection(
+      test, full, negative, negative_identity++,
+      "SyntheticT1 forbids a production resource-bundle identity");
   negative = full.submission;
   negative.model_layer = 7U;
   expect_full_attention_prevalidation_rejection(
@@ -2359,6 +2749,7 @@ void test_complete_full_attention_transaction(Test& test) {
             ledger.asynchronous_d2d_copy_bytes == 0U &&
             after.bound_kernel_submissions ==
                 before.bound_kernel_submissions + prefix &&
+            after.accepted_full_attention_grants == 1U &&
             after.complete_full_attention_layers_submitted == 0U &&
             after.event_generations == before.event_generations &&
             after.bf16_ab_cycles_completed ==
@@ -2383,6 +2774,503 @@ void test_complete_full_attention_transaction(Test& test) {
                             .pending_full_attention_kv_grant_identity == 0U,
                 "partial Full failure drains Main, AbAux, and Control and "
                 "discards the exact RequestState candidate");
+  }
+}
+
+[[nodiscard]] bool enqueue_joined_gdn0_to_gdn2(
+    Test& test, GdnTransactionFixture& gdn, BoundOwner& bound,
+    events::Sm87MacroFeedV4ExecutionEventsOwner& owner,
+    const events::Sm87MacroFeedV4ExecutionPanelAccess& panel_access) {
+  for (std::size_t ordinal = 0U; ordinal < 3U; ++ordinal) {
+    auto authorization = bound.request.state->authorize_gdn_layer_state(
+        bound.request_access, 0U, ordinal);
+    if (!authorization) {
+      test.expect(false,
+                  "joined cohort authorizes each natural GDN grant");
+      return false;
+    }
+    const std::uint64_t grant_identity =
+        authorization.grant->grant_identity();
+    auto submission = gdn.for_ordinal(ordinal);
+    if (!bind_gdn_recurrent_grant(&submission, bound,
+                                  *authorization.grant)) {
+      test.expect(false,
+                  "joined cohort binds each exact recurrent grant slice");
+      return false;
+    }
+    const auto enqueued =
+        Fixture::submit_complete_gdn_layer_c8000_prevalidated(
+            owner, panel_access, *authorization.grant, submission);
+    if (!enqueued) {
+      std::cerr << "joined GDN ordinal=" << ordinal << " error="
+                << static_cast<unsigned>(enqueued.status.error)
+                << " context=" << enqueued.status.context
+                << " cuda=" << enqueued.status.cuda_error << '\n';
+      test.expect(false,
+                  "joined cohort physically enqueues each complete GDN");
+      return false;
+    }
+    if (!Fixture::gdn_receipt_matches(
+            owner, panel_access, *authorization.grant, submission,
+            enqueued.receipt)) {
+      test.expect(false,
+                  "joined cohort owner authenticates each GDN receipt");
+      return false;
+    }
+    const auto committed =
+        bound.request.state->commit_gdn_layer_candidate_enqueued(
+            bound.request_access, std::move(*authorization.grant));
+    const auto owner_after = owner.snapshot();
+    const auto request_after = bound.request.state->snapshot();
+    test.expect(
+        static_cast<bool>(committed) &&
+            enqueued.receipt.grant_identity() == grant_identity &&
+            enqueued.receipt.bound_kernel_submissions() == 9U &&
+            enqueued.receipt.asynchronous_d2d_copies() == 1U &&
+            owner_after.bound_kernel_submissions == 9U * (ordinal + 1U) &&
+            owner_after.gdn_history_d2d_copies == ordinal + 1U &&
+            owner_after.gdn_history_d2d_bytes ==
+                kernels::kSm87MacroFeedV4GdnConvHistoryBytes *
+                    (ordinal + 1U) &&
+            owner_after.accepted_gdn_grants == ordinal + 1U &&
+            owner_after.complete_gdn_layers_submitted == ordinal + 1U &&
+            request_after.next_model_layer == ordinal + 1U &&
+            request_after.panel_conv_layers_prepared == ordinal + 1U &&
+            request_after.panel_gdn_layers_assigned == ordinal + 1U &&
+            request_after.pending_gdn_layer_grant_identity == 0U,
+        "joined cohort owner-matches then move-commits each physical GDN");
+    if (!committed) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool begin_joined_request_panel(
+    Test& test, BoundOwner& bound,
+    events::Sm87MacroFeedV4ExecutionEventsOwner& owner,
+    events::Sm87MacroFeedV4PanelBeginResult* const panel) {
+  if (panel == nullptr ||
+      !Fixture::begin_request(owner, *bound.request.state,
+                              bound.request_access)) {
+    test.expect(false, "joined cohort begins its Events request");
+    return false;
+  }
+  *panel = Fixture::begin_panel(owner, 0U);
+  if (!*panel ||
+      !bound.request.state->begin_panel(bound.request_access, 0U)) {
+    test.expect(false,
+                "joined cohort begins the same panel in both owners");
+    return false;
+  }
+  return true;
+}
+
+void test_joined_synthetic_t1_gdn0_to_full3(Test& test) {
+  int device = -1;
+  if (cudaGetDevice(&device) != cudaSuccess) {
+    test.expect(false, "joined cohort observes current CUDA device");
+    return;
+  }
+  GdnTransactionFixture gdn;
+  if (!gdn.initialize(device)) {
+    test.expect(false,
+                "joined cohort initializes the reusable physical GDN assets");
+    return;
+  }
+  JoinedFullAttentionTransactionFixture full;
+  if (!full.initialize(device, gdn)) {
+    std::cerr << "joined Full initialization failure="
+              << full.initialization_failure
+              << " full_qkv="
+              << full.full_qkv_asset.payload_allocation.bytes()
+              << " q_norm=" << full.q_norm_weight.bytes()
+              << " k_norm=" << full.k_norm_weight.bytes()
+              << " cos=" << full.cosines.bytes()
+              << " sin=" << full.sines.bytes()
+              << " kv=" << full.kv_arena.bytes()
+              << " total=" << full.owned_allocation_bytes() << '\n';
+    test.expect(false,
+                "joined cohort initializes only its Full-specific live "
+                "allocations and complete KV arena");
+    return;
+  }
+  test.expect(
+      full.owned_allocation_bytes() ==
+              JoinedFullAttentionTransactionFixture::kOwnedAllocationBytes &&
+          full.kv_arena.bytes() ==
+              runtime::kSm87MacroFeedV4AttentionKvArenaBytes &&
+          full.submission.input_norm.input_hidden ==
+              GdnTransactionFixture::as<std::uint16_t>(gdn.hidden_b) &&
+          full.submission.input_norm.output_hidden ==
+              GdnTransactionFixture::as<std::uint16_t>(gdn.hidden_a) &&
+          full.submission.full_qkv.q_gate_scratch ==
+              GdnTransactionFixture::as<std::uint16_t>(gdn.scratch) &&
+          full.submission.full_output.asset.payload.begin ==
+              gdn.gdn_output_asset.asset.payload.begin &&
+          full.submission.gate_up.payload ==
+              reinterpret_cast<const std::uint8_t*>(
+                  gdn.gate_up_asset.asset.payload.begin) &&
+          full.submission.down.payload ==
+              reinterpret_cast<const std::uint8_t*>(
+                  gdn.down_asset.asset.payload.begin),
+      "joined Full owns exactly 2,761,950,208 bytes and reuses the natural "
+      "GDN parity/scratch/O/Gate/Down cohort");
+
+  // Success: four natural layers share one request and one panel.  No event
+  // observation or publication occurs until the single terminal drain.
+  {
+    auto bound = make_bound_owner(test, 0xb000U, full.kKvAllocationIdentity);
+    if (bound == nullptr) {
+      return;
+    }
+    auto& owner = *bound->execution.owner;
+    events::Sm87MacroFeedV4PanelBeginResult panel;
+    if (!begin_joined_request_panel(test, *bound, owner, &panel) ||
+        !enqueue_joined_gdn0_to_gdn2(test, gdn, *bound, owner,
+                                     *panel.panel_access)) {
+      return;
+    }
+
+    auto authorization =
+        bound->request.state->authorize_full_attention_kv(
+            bound->request_access, 0U, 3U);
+    if (!authorization) {
+      test.expect(false,
+                  "joined success authorizes the natural Full3 KV grant");
+      return;
+    }
+    const std::uint64_t full_grant_identity =
+        authorization.grant->grant_identity();
+    events::Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission
+        submission;
+    if (!full.bind_grant(&submission, *authorization.grant)) {
+      test.expect(false,
+                  "joined success binds Full3 to the exact complete KV arena");
+      return;
+    }
+    const auto enqueued =
+        Fixture::submit_complete_full_attention_layer_c8000_prevalidated(
+            owner, *panel.panel_access, *authorization.grant, submission);
+    if (!enqueued) {
+      const auto after = owner.snapshot();
+      std::cerr << "joined Full3 error="
+                << static_cast<unsigned>(enqueued.status.error)
+                << " context=" << enqueued.status.context
+                << " cuda=" << enqueued.status.cuda_error
+                << " accepted="
+                << after.last_full_attention_accepted_prefix
+                       .accepted_kernel_launches
+                << '\n';
+      test.expect(false,
+                  "joined success physically enqueues complete Full3");
+      return;
+    }
+    test.expect(
+        enqueued.receipt.valid_shape() &&
+            enqueued.receipt.grant_identity() == full_grant_identity &&
+            enqueued.receipt.authority_domain() ==
+                events::
+                    Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::
+                        kSyntheticT1 &&
+            enqueued.receipt.synthetic_source_identity() ==
+                JoinedFullAttentionTransactionFixture::
+                    kSyntheticSourceIdentity &&
+            enqueued.receipt.bound_kernel_submissions() == 8U &&
+            enqueued.receipt.asynchronous_d2d_copies() == 0U &&
+            Fixture::full_attention_receipt_matches(
+                owner, *panel.panel_access, *authorization.grant, submission,
+                enqueued.receipt),
+        "joined owner authenticates the exact strict-SyntheticT1 Full3 "
+        "receipt before commit");
+    const auto committed =
+        bound->request.state->commit_full_attention_layer_enqueued(
+            bound->request_access, std::move(*authorization.grant));
+    if (!committed) {
+      test.expect(false,
+                  "joined success move-commits the authenticated Full3 grant");
+      return;
+    }
+
+    const auto owner_before_drain = owner.snapshot();
+    const auto request_before_drain = bound->request.state->snapshot();
+    const std::uint64_t candidate_identity =
+        request_before_drain.candidate_bank_identity;
+    const std::uint64_t panel_generation =
+        panel.panel_access->panel_generation();
+    test.expect(
+        owner_before_drain.state ==
+                events::Sm87MacroFeedV4ExecutionOwnerState::kRequestActive &&
+            owner_before_drain.bound_kernel_submissions == 35U &&
+            owner_before_drain.gdn_history_d2d_copies == 3U &&
+            owner_before_drain.gdn_history_d2d_bytes == 184'320U &&
+            owner_before_drain.accepted_gdn_grants == 3U &&
+            owner_before_drain.complete_gdn_layers_submitted == 3U &&
+            owner_before_drain.accepted_full_attention_grants == 1U &&
+            owner_before_drain.complete_full_attention_layers_submitted ==
+                1U &&
+            owner_before_drain.input_norm_submissions == 4U &&
+            owner_before_drain.bf16_ab_submissions == 3U &&
+            owner_before_drain.gdn_qkvz_c8000_submissions == 3U &&
+            owner_before_drain.gdn_continuation_c8000_submissions == 6U &&
+            owner_before_drain.gdn_output_c8000_submissions == 3U &&
+            owner_before_drain.full_qkv_c8000_submissions == 1U &&
+            owner_before_drain
+                    .full_attention_preprocess_c8000_submissions == 1U &&
+            owner_before_drain.attention_c8000_submissions == 1U &&
+            owner_before_drain.full_attention_output_c8000_submissions ==
+                1U &&
+            owner_before_drain.residual_post_norm_submissions == 4U &&
+            owner_before_drain.gate_up_c8000_submissions == 4U &&
+            owner_before_drain.down_c8000_submissions == 4U &&
+            owner_before_drain.bf16_ab_cycles_completed == 3U &&
+            owner_before_drain.bf16_ab_cycle_at_norm_boundary &&
+            owner_before_drain.physical_completion_receipts_issued == 0U &&
+            !owner_before_drain.main_tail_recorded &&
+            !owner_before_drain.ab_tail_recorded &&
+            !owner_before_drain.owner_drained_recorded,
+        "joined success reaches exact 35-kernel/3-copy pre-drain owner "
+        "ledger without observation or publication");
+    test.expect(
+        request_before_drain.phase ==
+                runtime::Sm87MacroFeedV4RequestStatePhase::kPanelActive &&
+            request_before_drain.active_bank_index == 0U &&
+            request_before_drain.candidate_bank_index == 1U &&
+            request_before_drain.state_epoch == 0U &&
+            request_before_drain.next_model_layer == 4U &&
+            request_before_drain.panel_conv_layers_prepared == 3U &&
+            request_before_drain.panel_gdn_layers_assigned == 3U &&
+            request_before_drain.panel_kv_layers_staged == 1U &&
+            request_before_drain.panel_conv_copy_bytes == 184'320U &&
+            request_before_drain.panel_gdn_assignment_bytes == 4'718'592U &&
+            request_before_drain.total_conv_copy_bytes == 184'320U &&
+            request_before_drain.total_gdn_assignment_bytes == 4'718'592U &&
+            request_before_drain.whole_epoch_copy_bytes == 0U &&
+            request_before_drain.private_kv_valid_end == 0U &&
+            request_before_drain.candidate_kv_valid_end == 0U &&
+            request_before_drain.canonical_kv_valid_end == 0U &&
+            request_before_drain.pending_gdn_layer_grant_identity == 0U &&
+            request_before_drain
+                    .pending_full_attention_kv_grant_identity == 0U &&
+            !request_before_drain.candidate_epoch_complete &&
+            request_before_drain.candidate_discard_count == 0U &&
+            !request_before_drain.canonical_state_published &&
+            !request_before_drain.logical_sequence_fence_published &&
+            !request_before_drain.decode_access_issued &&
+            !request_before_drain.physical_execution_receipt_issued,
+        "joined success commits four private layers but no candidate epoch, "
+        "KV visibility, or publication");
+
+    const auto main_tail = Fixture::record_event(
+        owner, *panel.panel_access,
+        events::Sm87MacroFeedV4ExecutionStream::kMain,
+        events::Sm87MacroFeedV4ExecutionEvent::kMainTail);
+    const auto ab_tail = Fixture::record_event(
+        owner, *panel.panel_access,
+        events::Sm87MacroFeedV4ExecutionStream::kAbAux,
+        events::Sm87MacroFeedV4ExecutionEvent::kAbTail);
+    const auto main_join = Fixture::wait_event(
+        owner, *panel.panel_access,
+        events::Sm87MacroFeedV4ExecutionStream::kControl,
+        events::Sm87MacroFeedV4ExecutionEvent::kMainTail);
+    const auto ab_join = Fixture::wait_event(
+        owner, *panel.panel_access,
+        events::Sm87MacroFeedV4ExecutionStream::kControl,
+        events::Sm87MacroFeedV4ExecutionEvent::kAbTail);
+    const auto owner_drained = Fixture::record_event(
+        owner, *panel.panel_access,
+        events::Sm87MacroFeedV4ExecutionStream::kControl,
+        events::Sm87MacroFeedV4ExecutionEvent::kOwnerDrained);
+    if (!main_tail || !ab_tail || !main_join || !ab_join || !owner_drained) {
+      test.expect(false,
+                  "joined success enqueues its unique dual-tail Control join");
+      return;
+    }
+    const auto observed = Fixture::observe_event_synchronize(
+        owner, *panel.panel_access,
+        events::Sm87MacroFeedV4ExecutionEvent::kOwnerDrained);
+    if (!observed ||
+        !Fixture::completion_receipt_matches(
+            owner, *panel.panel_access,
+            events::Sm87MacroFeedV4ExecutionEvent::kOwnerDrained,
+            observed.receipt)) {
+      test.expect(false,
+                  "joined success synchronizes and authenticates OwnerDrained "
+                  "exactly once");
+      return;
+    }
+    const auto discarded = Fixture::discard_request_state_after_drain(
+        owner, *panel.panel_access, observed.receipt, *bound->request.state,
+        bound->request_access,
+        runtime::Sm87MacroFeedV4RequestDiscardReason::kFailed);
+    const auto owner_after_discard = owner.snapshot();
+    const auto request_after_discard = bound->request.state->snapshot();
+    test.expect(
+        static_cast<bool>(discarded) &&
+            owner_after_discard.state ==
+                events::Sm87MacroFeedV4ExecutionOwnerState::
+                    kRequestDiscarded &&
+            owner_after_discard.active_panel ==
+                runtime::kSm87MacroFeedV4PanelCount &&
+            owner_after_discard.request_epoch == 0U &&
+            owner_after_discard.bound_kernel_submissions == 35U &&
+            owner_after_discard.gdn_history_d2d_copies == 3U &&
+            owner_after_discard.physical_completion_receipts_issued == 1U &&
+            request_after_discard.phase ==
+                runtime::Sm87MacroFeedV4RequestStatePhase::kFailed &&
+            request_after_discard.active_bank_index == 0U &&
+            request_after_discard.candidate_bank_index == 1U &&
+            request_after_discard.next_model_layer == 4U &&
+            request_after_discard.panel_conv_layers_prepared == 3U &&
+            request_after_discard.panel_gdn_layers_assigned == 3U &&
+            request_after_discard.panel_kv_layers_staged == 1U &&
+            request_after_discard.candidate_discard_count == 1U &&
+            request_after_discard.last_discarded_candidate_identity ==
+                candidate_identity &&
+            request_after_discard.active_panel ==
+                runtime::kSm87MacroFeedV4PanelCount &&
+            request_after_discard.pending_gdn_layer_grant_identity == 0U &&
+            request_after_discard
+                    .pending_full_attention_kv_grant_identity == 0U &&
+            request_after_discard
+                    .last_invalidated_gdn_layer_grant_identity == 0U &&
+            request_after_discard
+                    .last_invalidated_full_attention_kv_grant_identity ==
+                0U &&
+            request_after_discard.physical_owner_drain_receipt_identity ==
+                observed.receipt.receipt_identity() &&
+            request_after_discard.physical_owner_drain_panel_generation ==
+                panel_generation &&
+            request_after_discard.physical_execution_receipt_issued &&
+            !request_after_discard
+                 .physical_owner_drain_was_poison_terminal &&
+            !request_after_discard.canonical_state_published &&
+            !request_after_discard.logical_sequence_fence_published &&
+            !request_after_discard.decode_access_issued,
+        "one combined normal discard retires both owners while preserving "
+        "the exact joined private ledgers and publishing nothing");
+  }
+
+  // Minimal cohort failure: all three physical GDN layers are authenticated
+  // and committed, then an absent SyntheticT1 source rejects Full3 before its
+  // first enqueue.  The terminal poison drain must invalidate that live grant.
+  {
+    auto bound = make_bound_owner(test, 0xb100U, full.kKvAllocationIdentity);
+    if (bound == nullptr) {
+      return;
+    }
+    auto& owner = *bound->execution.owner;
+    events::Sm87MacroFeedV4PanelBeginResult panel;
+    if (!begin_joined_request_panel(test, *bound, owner, &panel) ||
+        !enqueue_joined_gdn0_to_gdn2(test, gdn, *bound, owner,
+                                     *panel.panel_access)) {
+      return;
+    }
+    auto authorization =
+        bound->request.state->authorize_full_attention_kv(
+            bound->request_access, 0U, 3U);
+    if (!authorization) {
+      test.expect(false,
+                  "joined failure authorizes the natural Full3 KV grant");
+      return;
+    }
+    const std::uint64_t grant_identity =
+        authorization.grant->grant_identity();
+    const std::uint64_t panel_generation =
+        panel.panel_access->panel_generation();
+    events::Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission
+        rejected_submission;
+    if (!full.bind_grant(&rejected_submission, *authorization.grant)) {
+      test.expect(false,
+                  "joined failure first constructs an otherwise-valid Full3");
+      return;
+    }
+    rejected_submission.synthetic_source_identity = 0U;
+    const auto rejected =
+        Fixture::submit_complete_full_attention_layer_c8000_prevalidated(
+            owner, *panel.panel_access, *authorization.grant,
+            rejected_submission);
+    const auto owner_before_drain = owner.snapshot();
+    const auto request_before_drain = bound->request.state->snapshot();
+    test.expect(
+        !rejected &&
+            rejected.status.error ==
+                events::Sm87MacroFeedV4ExecutionError::
+                    kKernelSubmitContract &&
+            !rejected.receipt.valid_shape() &&
+            owner_before_drain.state ==
+                events::Sm87MacroFeedV4ExecutionOwnerState::kPoisoned &&
+            owner_before_drain.bound_kernel_submissions == 27U &&
+            owner_before_drain.gdn_history_d2d_copies == 3U &&
+            owner_before_drain.gdn_history_d2d_bytes == 184'320U &&
+            owner_before_drain.accepted_gdn_grants == 3U &&
+            owner_before_drain.complete_gdn_layers_submitted == 3U &&
+            owner_before_drain.accepted_full_attention_grants == 0U &&
+            owner_before_drain.complete_full_attention_layers_submitted ==
+                0U &&
+            owner_before_drain.last_full_attention_accepted_prefix
+                .valid_prefix() &&
+            owner_before_drain.last_full_attention_accepted_prefix
+                    .grant_identity == grant_identity &&
+            owner_before_drain.last_full_attention_accepted_prefix
+                    .accepted_kernel_launches == 0U &&
+            request_before_drain.phase ==
+                runtime::Sm87MacroFeedV4RequestStatePhase::kPanelActive &&
+            request_before_drain.next_model_layer == 3U &&
+            request_before_drain.panel_gdn_layers_assigned == 3U &&
+            request_before_drain.panel_kv_layers_staged == 0U &&
+            request_before_drain.pending_gdn_layer_grant_identity == 0U &&
+            request_before_drain
+                    .pending_full_attention_kv_grant_identity ==
+                grant_identity &&
+            !request_before_drain.canonical_state_published &&
+            !request_before_drain.logical_sequence_fence_published &&
+            !request_before_drain.decode_access_issued,
+        "missing SyntheticT1 source poisons Full3 before enqueue while "
+        "retaining exactly the committed 27-kernel/3-copy GDN prefix");
+
+    const auto drained = Fixture::drain_poisoned_request_and_discard(
+        owner, *bound->request.state, bound->request_access);
+    const auto owner_after_drain = owner.snapshot();
+    const auto request_after_drain = bound->request.state->snapshot();
+    test.expect(
+        static_cast<bool>(drained) &&
+            drained.all_stream_synchronizations_attempted &&
+            drained.physical_quiescence_attested &&
+            drained.request_state_discarded &&
+            static_cast<bool>(drained.request_state_status) &&
+            owner_after_drain.state ==
+                events::Sm87MacroFeedV4ExecutionOwnerState::kPoisoned &&
+            owner_after_drain.active_panel ==
+                runtime::kSm87MacroFeedV4PanelCount &&
+            owner_after_drain.request_epoch == 0U &&
+            owner_after_drain.bound_kernel_submissions == 27U &&
+            owner_after_drain.gdn_history_d2d_copies == 3U &&
+            request_after_drain.phase ==
+                runtime::Sm87MacroFeedV4RequestStatePhase::kFailed &&
+            request_after_drain.next_model_layer == 3U &&
+            request_after_drain.panel_gdn_layers_assigned == 3U &&
+            request_after_drain.panel_kv_layers_staged == 0U &&
+            request_after_drain.candidate_discard_count == 1U &&
+            request_after_drain.pending_gdn_layer_grant_identity == 0U &&
+            request_after_drain
+                    .pending_full_attention_kv_grant_identity == 0U &&
+            request_after_drain
+                    .last_invalidated_gdn_layer_grant_identity == 0U &&
+            request_after_drain
+                    .last_invalidated_full_attention_kv_grant_identity ==
+                grant_identity &&
+            request_after_drain.physical_owner_drain_receipt_identity ==
+                drained.quiescence_identity &&
+            request_after_drain.physical_owner_drain_panel_generation ==
+                panel_generation &&
+            request_after_drain.physical_execution_receipt_issued &&
+            request_after_drain.physical_owner_drain_was_poison_terminal &&
+            !request_after_drain.canonical_state_published &&
+            !request_after_drain.logical_sequence_fence_published &&
+            !request_after_drain.decode_access_issued,
+        "one poison-terminal drain invalidates the pending Full3 grant and "
+        "publishes no joined cohort state");
   }
 }
 #endif
@@ -2416,6 +3304,7 @@ int main() {
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
   test_complete_gdn_transaction(test);
   test_complete_full_attention_transaction(test);
+  test_joined_synthetic_t1_gdn0_to_full3(test);
 #endif
   if (test.failures != 0) {
     std::cerr << "sm87_macrofeed_v4_execution_events_cuda_test: "

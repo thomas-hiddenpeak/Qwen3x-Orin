@@ -680,11 +680,19 @@ struct Sm87MacroFeedV4GdnLayerCommitResult final {
 // They do not attest device completion, panel publication, model completion,
 // or a production route.
 struct Sm87MacroFeedV4FullAttentionLayerCommitReceipt final {
+  sm87_macrofeed_v4_execution_events_detail::
+      Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain authority_domain =
+          sm87_macrofeed_v4_execution_events_detail::
+              Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::kInvalid;
   std::uint64_t package_identity = 0U;
   std::uint64_t full_attention_catalog_identity = 0U;
   std::uint64_t full_attention_binding_identity = 0U;
   std::uint64_t mlp_binding_identity = 0U;
+  std::uint64_t input_norm_binding_identity = 0U;
+  std::uint64_t post_norm_binding_identity = 0U;
+  std::uint64_t rope_binding_identity = 0U;
   std::uint64_t resource_bundle_identity = 0U;
+  std::uint64_t synthetic_source_identity = 0U;
   std::uint64_t request_epoch = 0U;
   std::uint64_t grant_identity = 0U;
   std::uint64_t grant_state_epoch = 0U;
@@ -708,10 +716,17 @@ struct Sm87MacroFeedV4FullAttentionLayerCommitReceipt final {
   bool production_dispatch_eligible = true;
 
   [[nodiscard]] bool valid() const noexcept {
-    return package_identity != 0U &&
+    return authority_domain ==
+               sm87_macrofeed_v4_execution_events_detail::
+                   Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::
+                       kNormalSealedCatalog &&
+           package_identity != 0U &&
            full_attention_catalog_identity != 0U &&
            full_attention_binding_identity != 0U &&
-           mlp_binding_identity != 0U && resource_bundle_identity != 0U &&
+           mlp_binding_identity != 0U &&
+           input_norm_binding_identity != 0U &&
+           post_norm_binding_identity != 0U && rope_binding_identity != 0U &&
+           resource_bundle_identity != 0U && synthetic_source_identity == 0U &&
            request_epoch != 0U && grant_identity != 0U &&
            kv_allocation_identity != 0U &&
            panel < kSm87MacroFeedV4PanelCount &&
@@ -726,18 +741,35 @@ struct Sm87MacroFeedV4FullAttentionLayerCommitReceipt final {
            panel_kv_layers_staged_after_commit ==
                full_attention_ordinal + 1U &&
            enqueue_receipt.valid_shape() &&
+           enqueue_receipt.authority_domain() == authority_domain &&
+           enqueue_receipt.execution_package_identity() == package_identity &&
            enqueue_receipt.request_epoch() == request_epoch &&
            enqueue_receipt.panel() == panel &&
            enqueue_receipt.grant_identity() == grant_identity &&
+           enqueue_receipt.grant_state_epoch() == grant_state_epoch &&
            enqueue_receipt.kv_allocation_identity() ==
                kv_allocation_identity &&
+           enqueue_receipt.first_position() == previous_valid_end &&
+           enqueue_receipt.previous_valid_end() == previous_valid_end &&
+           enqueue_receipt.candidate_end() == candidate_end &&
            enqueue_receipt.full_attention_ordinal() ==
                full_attention_ordinal &&
            enqueue_receipt.model_layer() == model_layer &&
            enqueue_receipt.full_attention_catalog_identity() ==
                full_attention_catalog_identity &&
+           enqueue_receipt.full_attention_binding_identity() ==
+               full_attention_binding_identity &&
+           enqueue_receipt.mlp_binding_identity() == mlp_binding_identity &&
+           enqueue_receipt.input_norm_binding_identity() ==
+               input_norm_binding_identity &&
+           enqueue_receipt.post_norm_binding_identity() ==
+               post_norm_binding_identity &&
+           enqueue_receipt.rope_binding_identity() ==
+               rope_binding_identity &&
            enqueue_receipt.resource_bundle_identity() ==
                resource_bundle_identity &&
+           enqueue_receipt.synthetic_source_identity() ==
+               synthetic_source_identity &&
            enqueue_receipt.bound_kernel_submissions() == 8U &&
            enqueue_receipt.asynchronous_d2d_copies() == 0U &&
            enqueue_receipt.asynchronous_d2d_copy_bytes() == 0U &&

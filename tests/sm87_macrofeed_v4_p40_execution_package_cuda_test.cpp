@@ -210,7 +210,14 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
       Sm87MacroFeedV4P40ExecutionPackage& package) noexcept {
     if (package.request_state_ == nullptr || package.events_owner_ == nullptr ||
         package.events_driver_ == nullptr ||
-        package.full_attention_composer_authority_sealed()) {
+        package.full_attention_composer_authority_sealed() ||
+        !package.audit_.synthetic_t1_gdn_layer0_source ||
+        package.audit_.full_attention_catalog_identity != 0U ||
+        package.audit_.retained_full_attention_catalog_fold_identity != 0U ||
+        package.audit_.full_attention_resource_bundle_identity != 0U ||
+        package.audit_.full_attention_bindings != 0U ||
+        package.audit_.kv_allocation_identity != 0U ||
+        package.audit_.engine_rope_binding_identity != 0U) {
       return false;
     }
     const auto request_access = package.request_state_->issue_sealed_access();
@@ -229,6 +236,39 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
     const auto events_after = package.events_driver_->snapshot();
     const auto request_after = package.request_state_->snapshot();
     return !attempted && !attempted.receipt.valid() &&
+           attempted.receipt.authority_domain ==
+               sm87_macrofeed_v4_execution_events_detail::
+                   Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::
+                       kInvalid &&
+           attempted.receipt.package_identity == 0U &&
+           attempted.receipt.full_attention_catalog_identity == 0U &&
+           attempted.receipt.full_attention_binding_identity == 0U &&
+           attempted.receipt.mlp_binding_identity == 0U &&
+           attempted.receipt.input_norm_binding_identity == 0U &&
+           attempted.receipt.post_norm_binding_identity == 0U &&
+           attempted.receipt.rope_binding_identity == 0U &&
+           attempted.receipt.resource_bundle_identity == 0U &&
+           attempted.receipt.synthetic_source_identity == 0U &&
+           attempted.receipt.enqueue_receipt.authority_domain() ==
+               sm87_macrofeed_v4_execution_events_detail::
+                   Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::
+                       kInvalid &&
+           attempted.receipt.enqueue_receipt.execution_package_identity() ==
+               0U &&
+           attempted.receipt.enqueue_receipt
+                   .full_attention_catalog_identity() == 0U &&
+           attempted.receipt.enqueue_receipt
+                   .full_attention_binding_identity() == 0U &&
+           attempted.receipt.enqueue_receipt.mlp_binding_identity() == 0U &&
+           attempted.receipt.enqueue_receipt
+                   .input_norm_binding_identity() == 0U &&
+           attempted.receipt.enqueue_receipt
+                   .post_norm_binding_identity() == 0U &&
+           attempted.receipt.enqueue_receipt.rope_binding_identity() == 0U &&
+           attempted.receipt.enqueue_receipt.resource_bundle_identity() ==
+               0U &&
+           attempted.receipt.enqueue_receipt.synthetic_source_identity() ==
+               0U &&
            attempted.status.error ==
                Sm87MacroFeedV4P40ExecutionPackageError::
                    kFullAttentionCatalog &&

@@ -2247,6 +2247,9 @@ bool Sm87MacroFeedV4P40ExecutionPackage::
   std::uint16_t* const branch_and_output =
       model_layer % 2U == 0U ? pong_ : ping_;
 
+  submission->authority_domain =
+      events::Sm87MacroFeedV4FullAttentionSubmissionAuthorityDomain::
+          kNormalSealedCatalog;
   submission->execution_package_identity = audit_.package_identity;
   submission->full_attention_catalog_identity =
       audit_.full_attention_catalog_identity;
@@ -2258,6 +2261,7 @@ bool Sm87MacroFeedV4P40ExecutionPackage::
       norm.post_attention_layernorm_identity;
   submission->rope_binding_identity = audit_.engine_rope_binding_identity;
   submission->resource_bundle_identity = full.resource_bundle_identity;
+  submission->synthetic_source_identity = 0U;
   submission->full_attention_ordinal = ordinal;
   submission->model_layer = model_layer;
 
@@ -2410,13 +2414,20 @@ Sm87MacroFeedV4P40ExecutionPackage::
   const std::size_t expected_staged = full_attention_ordinal + 1U;
 
   Sm87MacroFeedV4FullAttentionLayerCommitReceipt receipt;
+  receipt.authority_domain = submission.authority_domain;
   receipt.package_identity = audit_.package_identity;
   receipt.full_attention_catalog_identity =
       audit_.full_attention_catalog_identity;
   receipt.full_attention_binding_identity =
       submission.full_attention_binding_identity;
   receipt.mlp_binding_identity = submission.mlp_binding_identity;
+  receipt.input_norm_binding_identity =
+      submission.input_norm_binding_identity;
+  receipt.post_norm_binding_identity =
+      submission.post_norm_binding_identity;
+  receipt.rope_binding_identity = submission.rope_binding_identity;
   receipt.resource_bundle_identity = submission.resource_bundle_identity;
+  receipt.synthetic_source_identity = submission.synthetic_source_identity;
   receipt.request_epoch = request_access.request_epoch();
   receipt.grant_identity = grant_identity;
   receipt.grant_state_epoch = grant_state_epoch;
