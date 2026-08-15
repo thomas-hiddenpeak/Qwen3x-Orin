@@ -8,6 +8,7 @@
 #include "q3x/kernels/sm87_macrofeed_v4_norm_residual.h"
 #include "q3x/kernels/sm87_macrofeed_v4_nvfp4_down.h"
 #include "q3x/kernels/sm87_macrofeed_v4_nvfp4_gate_up.h"
+#include "q3x/runtime/decode_ops.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -130,6 +131,151 @@ struct Sm87MacroFeedV4DownC8000Arguments final {
   Sm87MacroFeedV3NvFp4DownPayloadReceipt payload_receipt{};
 };
 
+// These four boundary bodies are the fixed outer edges of the C8000 request:
+// prompt ingestion, final hidden normalization, vocabulary projection, and
+// greedy selection.  Shape and numerical facts are deliberately absent from
+// the caller-fillable argument records.  The constants below are the complete
+// ABI and byte-range contract used by construction and by the locked hot
+// seams.
+inline constexpr std::size_t kSm87MacroFeedV4EmbeddingTokenCount = 8'000U;
+inline constexpr std::size_t kSm87MacroFeedV4EmbeddingVocabulary = 248'320U;
+inline constexpr std::size_t kSm87MacroFeedV4Hidden = 5'120U;
+inline constexpr std::size_t kSm87MacroFeedV4EmbeddingTableBytes =
+    kSm87MacroFeedV4EmbeddingVocabulary * kSm87MacroFeedV4Hidden *
+    sizeof(std::uint16_t);
+inline constexpr std::size_t kSm87MacroFeedV4EmbeddingTokenIdBytes =
+    kSm87MacroFeedV4EmbeddingTokenCount * sizeof(std::uint32_t);
+inline constexpr std::size_t kSm87MacroFeedV4EmbeddingOutputBytes =
+    kSm87MacroFeedV4EmbeddingTokenCount * kSm87MacroFeedV4Hidden *
+    sizeof(std::uint16_t);
+
+inline constexpr std::uint32_t kSm87MacroFeedV4FinalNormEpsilonFp32Bits =
+    0x3586'37bdU;
+inline constexpr std::size_t kSm87MacroFeedV4FinalNormBytes =
+    kSm87MacroFeedV4Hidden * sizeof(std::uint16_t);
+
+inline constexpr std::size_t kSm87MacroFeedV4Vocabulary = 248'320U;
+inline constexpr std::size_t kSm87MacroFeedV4VocabularyBf16Bytes =
+    kSm87MacroFeedV4Vocabulary * sizeof(std::uint16_t);
+inline constexpr std::size_t kSm87MacroFeedV4GreedyWorkspaceResults =
+    q3x::runtime::kBf16GreedyArgmaxWorkspaceResults;
+inline constexpr std::size_t kSm87MacroFeedV4GreedyWorkspaceBytes =
+    kSm87MacroFeedV4GreedyWorkspaceResults *
+    sizeof(q3x::runtime::Bf16GreedyArgmaxResult);
+
+inline constexpr std::size_t kSm87MacroFeedV4LmHeadRows = 248'320U;
+inline constexpr std::size_t kSm87MacroFeedV4LmHeadColumns = 5'120U;
+inline constexpr std::size_t kSm87MacroFeedV4LmHeadPackedWeightBytes =
+    kSm87MacroFeedV4LmHeadRows * kSm87MacroFeedV4LmHeadColumns / 2U;
+inline constexpr std::size_t kSm87MacroFeedV4LmHeadBlockScaleBytes =
+    kSm87MacroFeedV4LmHeadRows * kSm87MacroFeedV4LmHeadColumns / 16U;
+inline constexpr std::size_t kSm87MacroFeedV4LmHeadActivationBytes =
+    kSm87MacroFeedV4LmHeadColumns * sizeof(std::uint16_t);
+inline constexpr std::size_t kSm87MacroFeedV4LmHeadOutputBytes =
+    kSm87MacroFeedV4LmHeadRows * sizeof(std::uint16_t);
+
+static_assert(kSm87MacroFeedV4EmbeddingTableBytes == 2'542'796'800U);
+static_assert(kSm87MacroFeedV4EmbeddingTokenIdBytes == 32'000U);
+static_assert(kSm87MacroFeedV4EmbeddingOutputBytes == 81'920'000U);
+static_assert(kSm87MacroFeedV4FinalNormBytes == 10'240U);
+static_assert(kSm87MacroFeedV4GreedyWorkspaceResults == 33U);
+static_assert(kSm87MacroFeedV4GreedyWorkspaceBytes == 264U);
+static_assert(kSm87MacroFeedV4LmHeadPackedWeightBytes == 635'699'200U);
+static_assert(kSm87MacroFeedV4LmHeadBlockScaleBytes == 79'462'400U);
+static_assert(kSm87MacroFeedV4LmHeadActivationBytes == 10'240U);
+static_assert(kSm87MacroFeedV4LmHeadOutputBytes == 496'640U);
+
+struct Sm87MacroFeedV4EmbeddingC8000Arguments final {
+  const std::uint16_t* embedding_table = nullptr;
+  const std::uint32_t* token_ids = nullptr;
+  std::uint16_t* hidden_output = nullptr;
+};
+
+struct Sm87MacroFeedV4FinalNormM1Arguments final {
+  const std::uint16_t* hidden_input = nullptr;
+  const std::uint16_t* centered_weight = nullptr;
+  std::uint16_t* normalized_output = nullptr;
+};
+
+struct Sm87MacroFeedV4GreedyArgmaxM1Arguments final {
+  const std::uint16_t* logits = nullptr;
+  // Exactly 33 externally owned results: [0,32) partials and [32] final.
+  q3x::runtime::Bf16GreedyArgmaxResult* result_workspace = nullptr;
+};
+
+struct Sm87MacroFeedV4LmHeadM1Arguments final {
+  const std::uint8_t* packed_weights = nullptr;
+  const std::uint8_t* block_scales = nullptr;
+  // The exact leaf applies this weight-side scale once.  No input scale is
+  // present in this ABI and the seam must never synthesize or multiply one.
+  float weight_scale_2 = 0.0F;
+  const std::uint16_t* activation = nullptr;
+  std::uint16_t* logits_output = nullptr;
+};
+
+struct Sm87MacroFeedV4FixedKernelResource final {
+  std::int32_t registers_per_thread = 0;
+  std::size_t static_shared_bytes = 0U;
+  std::size_t local_bytes = 0U;
+  std::int32_t maximum_threads_per_block = 0;
+  std::int32_t active_blocks_per_sm = 0;
+  std::int32_t binary_version = 0;
+  std::int32_t threads = 0;
+  std::int32_t grid_ctas = 0;
+};
+
+struct Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot final {
+  std::uint64_t identity = 0U;
+  std::int32_t device_ordinal = -1;
+  std::int32_t compute_major = 0;
+  std::int32_t compute_minor = 0;
+  std::int32_t sm_count = 0;
+  Sm87MacroFeedV4FixedKernelResource gather{};
+  bool exact_geometry = false;
+  bool static_resource_gate_passed = false;
+};
+
+struct Sm87MacroFeedV4FinalNormM1ResourceSnapshot final {
+  std::uint64_t identity = 0U;
+  std::int32_t device_ordinal = -1;
+  std::int32_t compute_major = 0;
+  std::int32_t compute_minor = 0;
+  std::int32_t sm_count = 0;
+  Sm87MacroFeedV4FixedKernelResource centered_rms_norm{};
+  bool exact_geometry = false;
+  bool static_resource_gate_passed = false;
+};
+
+struct Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot final {
+  std::uint64_t identity = 0U;
+  std::int32_t device_ordinal = -1;
+  std::int32_t compute_major = 0;
+  std::int32_t compute_minor = 0;
+  std::int32_t sm_count = 0;
+  Sm87MacroFeedV4FixedKernelResource partial{};
+  Sm87MacroFeedV4FixedKernelResource finalize{};
+  bool exact_geometry = false;
+  bool static_resource_gate_passed = false;
+};
+
+struct Sm87MacroFeedV4LmHeadM1ResourceSnapshot final {
+  std::uint64_t identity = 0U;
+  std::int32_t device_ordinal = -1;
+  std::int32_t compute_major = 0;
+  std::int32_t compute_minor = 0;
+  std::int32_t sm_count = 0;
+  Sm87MacroFeedV4FixedKernelResource activation_staged{};
+  bool exact_geometry = false;
+  bool static_resource_gate_passed = false;
+};
+
+// Accepted-prefix evidence is intentionally physical rather than a success
+// receipt.  A later launch failure leaves the number of prior accepted CUDA
+// operations intact for poison/drain accounting.
+struct Sm87MacroFeedV4FixedSubmitLedger final {
+  std::size_t accepted_kernel_launches = 0U;
+};
+
 // The CUDA stream exists only inside an EventsOwner-locked submission.  The
 // execution package cannot construct, copy, move, inspect, or retain this
 // capability, so a raw handle never crosses the owner boundary.
@@ -214,6 +360,26 @@ class Sm87MacroFeedV4LockedSubmitToken final {
       const Sm87MacroFeedV4DownC8000Arguments&,
       const Sm87MacroFeedV4NvFp4DownCudaResources&,
       std::size_t*) noexcept;
+  friend int enqueue_embedding_c8000_prevalidated(
+      const Sm87MacroFeedV4LockedSubmitToken&,
+      const Sm87MacroFeedV4EmbeddingC8000Arguments&,
+      const Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot&,
+      Sm87MacroFeedV4FixedSubmitLedger*) noexcept;
+  friend int enqueue_final_norm_m1_prevalidated(
+      const Sm87MacroFeedV4LockedSubmitToken&,
+      const Sm87MacroFeedV4FinalNormM1Arguments&,
+      const Sm87MacroFeedV4FinalNormM1ResourceSnapshot&,
+      Sm87MacroFeedV4FixedSubmitLedger*) noexcept;
+  friend int enqueue_greedy_argmax_m1_prevalidated(
+      const Sm87MacroFeedV4LockedSubmitToken&,
+      const Sm87MacroFeedV4GreedyArgmaxM1Arguments&,
+      const Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot&,
+      Sm87MacroFeedV4FixedSubmitLedger*) noexcept;
+  friend int enqueue_lm_head_m1_prevalidated(
+      const Sm87MacroFeedV4LockedSubmitToken&,
+      const Sm87MacroFeedV4LmHeadM1Arguments&,
+      const Sm87MacroFeedV4LmHeadM1ResourceSnapshot&,
+      Sm87MacroFeedV4FixedSubmitLedger*) noexcept;
 };
 
 // Construction-prevalidated V4 launch seams.  These functions intentionally
@@ -294,5 +460,45 @@ class Sm87MacroFeedV4LockedSubmitToken final {
     const Sm87MacroFeedV4DownC8000Arguments& arguments,
     const Sm87MacroFeedV4NvFp4DownCudaResources& resources,
     std::size_t* submitted_launches) noexcept;
+
+// Construction-only observation contracts.  They may query the current
+// device, function attributes, and occupancy, but they allocate nothing and
+// confer no request-time authority.  Only an immutable retained snapshot plus
+// a LockedSubmitToken can reach the corresponding hot seam.
+[[nodiscard]] int query_embedding_c8000_resources_cuda(
+    Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot* resources) noexcept;
+
+[[nodiscard]] int query_final_norm_m1_resources_cuda(
+    Sm87MacroFeedV4FinalNormM1ResourceSnapshot* resources) noexcept;
+
+[[nodiscard]] int query_greedy_argmax_m1_resources_cuda(
+    Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot* resources) noexcept;
+
+[[nodiscard]] int query_lm_head_m1_resources_cuda(
+    Sm87MacroFeedV4LmHeadM1ResourceSnapshot* resources) noexcept;
+
+[[nodiscard]] int enqueue_embedding_c8000_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4EmbeddingC8000Arguments& arguments,
+    const Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot& resources,
+    Sm87MacroFeedV4FixedSubmitLedger* submit_ledger) noexcept;
+
+[[nodiscard]] int enqueue_final_norm_m1_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4FinalNormM1Arguments& arguments,
+    const Sm87MacroFeedV4FinalNormM1ResourceSnapshot& resources,
+    Sm87MacroFeedV4FixedSubmitLedger* submit_ledger) noexcept;
+
+[[nodiscard]] int enqueue_greedy_argmax_m1_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4GreedyArgmaxM1Arguments& arguments,
+    const Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot& resources,
+    Sm87MacroFeedV4FixedSubmitLedger* submit_ledger) noexcept;
+
+[[nodiscard]] int enqueue_lm_head_m1_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4LmHeadM1Arguments& arguments,
+    const Sm87MacroFeedV4LmHeadM1ResourceSnapshot& resources,
+    Sm87MacroFeedV4FixedSubmitLedger* submit_ledger) noexcept;
 
 }  // namespace q3x::kernels::sm87_macrofeed_v4_bound_launch_detail

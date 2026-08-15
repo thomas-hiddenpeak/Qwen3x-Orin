@@ -2,6 +2,10 @@
 
 #include "projection_route_registry.h"
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+#include "sm87_macrofeed_v4_bound_launch_internal.h"
+#endif
+
 #include <cuda_bf16.h>
 #include <cooperative_groups.h>
 #include <cuda_runtime.h>
@@ -34161,5 +34165,181 @@ int launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
   }
   return static_cast<int>(cudaSuccess);
 }
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+namespace sm87_macrofeed_v4_bound_launch_detail {
+namespace {
+
+constexpr std::uint64_t kLmHeadM1ResourceIdentity =
+    0x7634'6c6d'6831'3234ULL;
+
+[[nodiscard]] bool lm_head_m1_resource_gate(
+    const Sm87MacroFeedV4LmHeadM1ResourceSnapshot& resources) noexcept {
+  const auto& kernel = resources.activation_staged;
+  return resources.identity == kLmHeadM1ResourceIdentity &&
+         resources.device_ordinal >= 0 && resources.compute_major == 8 &&
+         resources.compute_minor == 7 && resources.sm_count == 16 &&
+         resources.exact_geometry && resources.static_resource_gate_passed &&
+         kernel.registers_per_thread == 64 &&
+         kernel.static_shared_bytes == 11'328U &&
+         kernel.local_bytes == 0U &&
+         kernel.maximum_threads_per_block == static_cast<int>(kThreads) &&
+         kernel.active_blocks_per_sm == 4 && kernel.binary_version == 87 &&
+         kernel.threads == static_cast<int>(kThreads) &&
+         kernel.grid_ctas ==
+             static_cast<int>(kNvFp4M1RowQuadMaximumBlocks);
+}
+
+[[nodiscard]] bool lm_head_m1_arguments_valid(
+    const Sm87MacroFeedV4LmHeadM1Arguments& arguments,
+    const void* const stream) noexcept {
+  if (stream == nullptr || arguments.packed_weights == nullptr ||
+      arguments.block_scales == nullptr || arguments.activation == nullptr ||
+      arguments.logits_output == nullptr ||
+      !std::isfinite(arguments.weight_scale_2) ||
+      arguments.weight_scale_2 < 0.0F ||
+      !pointer_is_aligned<alignof(std::uint32_t)>(
+          arguments.packed_weights) ||
+      !pointer_is_aligned<alignof(std::uint8_t)>(arguments.block_scales) ||
+      !pointer_is_aligned<alignof(std::uint64_t)>(arguments.activation) ||
+      !pointer_is_aligned<alignof(std::uint16_t)>(
+          arguments.logits_output) ||
+      byte_range_overflows(arguments.packed_weights,
+                           kSm87MacroFeedV4LmHeadPackedWeightBytes) ||
+      byte_range_overflows(arguments.block_scales,
+                           kSm87MacroFeedV4LmHeadBlockScaleBytes) ||
+      byte_range_overflows(arguments.activation,
+                           kSm87MacroFeedV4LmHeadActivationBytes) ||
+      byte_range_overflows(arguments.logits_output,
+                           kSm87MacroFeedV4LmHeadOutputBytes)) {
+    return false;
+  }
+
+  const void* const pointers[] = {
+      arguments.packed_weights,
+      arguments.block_scales,
+      arguments.activation,
+      arguments.logits_output,
+  };
+  constexpr std::size_t bytes[] = {
+      kSm87MacroFeedV4LmHeadPackedWeightBytes,
+      kSm87MacroFeedV4LmHeadBlockScaleBytes,
+      kSm87MacroFeedV4LmHeadActivationBytes,
+      kSm87MacroFeedV4LmHeadOutputBytes,
+  };
+  for (std::size_t left = 0U; left < 4U; ++left) {
+    for (std::size_t right = left + 1U; right < 4U; ++right) {
+      if (ranges_overlap(pointers[left], bytes[left], pointers[right],
+                         bytes[right])) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
+int query_lm_head_m1_resources_cuda(
+    Sm87MacroFeedV4LmHeadM1ResourceSnapshot* const resources) noexcept {
+  if (resources == nullptr) {
+    return invalid_value();
+  }
+  *resources = {};
+  int device = -1;
+  cudaError_t status = cudaGetDevice(&device);
+  if (status != cudaSuccess || device < 0) {
+    return status == cudaSuccess ? static_cast<int>(cudaErrorInvalidDevice)
+                                 : static_cast<int>(status);
+  }
+  cudaDeviceProp properties{};
+  status = cudaGetDeviceProperties(&properties, device);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  if (properties.major != 8 || properties.minor != 7 ||
+      properties.multiProcessorCount != 16) {
+    return static_cast<int>(cudaErrorNotSupported);
+  }
+
+  cudaFuncAttributes attributes{};
+  status = cudaFuncGetAttributes(
+      &attributes,
+      nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_k5120_activation_staged_kernel<
+          kSm87MacroFeedV4LmHeadRows, kSm87MacroFeedV4LmHeadColumns>);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_k5120_activation_staged_kernel<
+          kSm87MacroFeedV4LmHeadRows, kSm87MacroFeedV4LmHeadColumns>,
+      static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+
+  resources->identity = kLmHeadM1ResourceIdentity;
+  resources->device_ordinal = device;
+  resources->compute_major = properties.major;
+  resources->compute_minor = properties.minor;
+  resources->sm_count = properties.multiProcessorCount;
+  resources->activation_staged = Sm87MacroFeedV4FixedKernelResource{
+      attributes.numRegs,
+      attributes.sharedSizeBytes,
+      attributes.localSizeBytes,
+      attributes.maxThreadsPerBlock,
+      active_blocks,
+      attributes.binaryVersion,
+      static_cast<int>(kThreads),
+      static_cast<int>(kNvFp4M1RowQuadMaximumBlocks)};
+  resources->exact_geometry = true;
+  resources->static_resource_gate_passed = true;
+  resources->static_resource_gate_passed =
+      lm_head_m1_resource_gate(*resources);
+  return resources->static_resource_gate_passed
+             ? static_cast<int>(cudaSuccess)
+             : static_cast<int>(cudaErrorLaunchOutOfResources);
+}
+
+int enqueue_lm_head_m1_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4LmHeadM1Arguments& arguments,
+    const Sm87MacroFeedV4LmHeadM1ResourceSnapshot& resources,
+    Sm87MacroFeedV4FixedSubmitLedger* const submit_ledger) noexcept {
+  if (submit_ledger == nullptr) {
+    return invalid_value();
+  }
+  *submit_ledger = {};
+  if (!lm_head_m1_arguments_valid(arguments, token.cuda_stream_)) {
+    return invalid_value();
+  }
+  if (!lm_head_m1_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  const cudaError_t prior_status = cudaPeekAtLastError();
+  if (prior_status != cudaSuccess) {
+    return static_cast<int>(prior_status);
+  }
+
+  // This is the existing exact anonymous production leaf.  In particular,
+  // the seam performs no selector dispatch and passes weight_scale_2 through
+  // unchanged; there is no input_scale multiplication on this boundary.
+  launch_nvfp4_lm_head_activation_staged_unchecked(
+      arguments.packed_weights, arguments.block_scales,
+      arguments.weight_scale_2, arguments.activation,
+      arguments.logits_output,
+      reinterpret_cast<cudaStream_t>(token.cuda_stream_));
+  const cudaError_t launch_status = cudaPeekAtLastError();
+  if (launch_status != cudaSuccess) {
+    return static_cast<int>(launch_status);
+  }
+  submit_ledger->accepted_kernel_launches = 1U;
+  return static_cast<int>(cudaSuccess);
+}
+
+}  // namespace sm87_macrofeed_v4_bound_launch_detail
+#endif
 
 }  // namespace q3x::kernels

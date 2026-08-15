@@ -3,6 +3,7 @@
 #include "sm87_macrofeed_v4_request_state_internal.h"
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
 #include "../kernels/sm87/sm87_macrofeed_v4_bound_launch_internal.h"
+#include <cuda_runtime_api.h>
 #endif
 
 #include <array>
@@ -1383,6 +1384,119 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
       std::uint64_t recurrent_allocation_identity) noexcept;
 
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  // T1 constituent probes still acquire their stream capability from the
+  // real EventsOwner.  These fixed private helpers expose neither a token nor
+  // a callback and are reachable only through the already named CUDA test
+  // fixture.  They deliberately do not mutate request ledgers or mint a
+  // production receipt.
+  [[nodiscard]] int submit_embedding_c8000_constituent_for_cuda_test(
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4EmbeddingC8000Arguments& arguments,
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot& resources,
+      kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4FixedSubmitLedger* submit_ledger) noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (submit_ledger == nullptr) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+    *submit_ledger = {};
+    void* const main_stream =
+        streams_[static_cast<std::size_t>(
+            Sm87MacroFeedV4ExecutionStream::kMain)];
+    if (state_ != Sm87MacroFeedV4ExecutionOwnerState::kReady ||
+        access_ == nullptr || main_stream == nullptr ||
+        resources.device_ordinal != device_ordinal_) {
+      return static_cast<int>(cudaErrorInvalidResourceHandle);
+    }
+    const kernels::sm87_macrofeed_v4_bound_launch_detail::
+        Sm87MacroFeedV4LockedSubmitToken token(main_stream);
+    return kernels::sm87_macrofeed_v4_bound_launch_detail::
+        enqueue_embedding_c8000_prevalidated(token, arguments, resources,
+                                             submit_ledger);
+  }
+
+  [[nodiscard]] int submit_final_norm_m1_constituent_for_cuda_test(
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4FinalNormM1Arguments& arguments,
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4FinalNormM1ResourceSnapshot& resources,
+      kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4FixedSubmitLedger* submit_ledger) noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (submit_ledger == nullptr) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+    *submit_ledger = {};
+    void* const main_stream =
+        streams_[static_cast<std::size_t>(
+            Sm87MacroFeedV4ExecutionStream::kMain)];
+    if (state_ != Sm87MacroFeedV4ExecutionOwnerState::kReady ||
+        access_ == nullptr || main_stream == nullptr ||
+        resources.device_ordinal != device_ordinal_) {
+      return static_cast<int>(cudaErrorInvalidResourceHandle);
+    }
+    const kernels::sm87_macrofeed_v4_bound_launch_detail::
+        Sm87MacroFeedV4LockedSubmitToken token(main_stream);
+    return kernels::sm87_macrofeed_v4_bound_launch_detail::
+        enqueue_final_norm_m1_prevalidated(token, arguments, resources,
+                                           submit_ledger);
+  }
+
+  [[nodiscard]] int submit_greedy_argmax_m1_constituent_for_cuda_test(
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4GreedyArgmaxM1Arguments& arguments,
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot& resources,
+      kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4FixedSubmitLedger* submit_ledger) noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (submit_ledger == nullptr) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+    *submit_ledger = {};
+    void* const main_stream =
+        streams_[static_cast<std::size_t>(
+            Sm87MacroFeedV4ExecutionStream::kMain)];
+    if (state_ != Sm87MacroFeedV4ExecutionOwnerState::kReady ||
+        access_ == nullptr || main_stream == nullptr ||
+        resources.device_ordinal != device_ordinal_) {
+      return static_cast<int>(cudaErrorInvalidResourceHandle);
+    }
+    const kernels::sm87_macrofeed_v4_bound_launch_detail::
+        Sm87MacroFeedV4LockedSubmitToken token(main_stream);
+    return kernels::sm87_macrofeed_v4_bound_launch_detail::
+        enqueue_greedy_argmax_m1_prevalidated(token, arguments, resources,
+                                              submit_ledger);
+  }
+
+  [[nodiscard]] int submit_lm_head_m1_constituent_for_cuda_test(
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4LmHeadM1Arguments& arguments,
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4LmHeadM1ResourceSnapshot& resources,
+      kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4FixedSubmitLedger* submit_ledger) noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (submit_ledger == nullptr) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+    *submit_ledger = {};
+    void* const main_stream =
+        streams_[static_cast<std::size_t>(
+            Sm87MacroFeedV4ExecutionStream::kMain)];
+    if (state_ != Sm87MacroFeedV4ExecutionOwnerState::kReady ||
+        access_ == nullptr || main_stream == nullptr ||
+        resources.device_ordinal != device_ordinal_) {
+      return static_cast<int>(cudaErrorInvalidResourceHandle);
+    }
+    const kernels::sm87_macrofeed_v4_bound_launch_detail::
+        Sm87MacroFeedV4LockedSubmitToken token(main_stream);
+    return kernels::sm87_macrofeed_v4_bound_launch_detail::
+        enqueue_lm_head_m1_prevalidated(token, arguments, resources,
+                                       submit_ledger);
+  }
+
   // The exact body enqueue and its ready-event record are one owner-locked
   // transaction.  The package never receives or stores a raw CUDA stream.
   [[nodiscard]] Sm87MacroFeedV4EventEnqueueResult
@@ -2019,6 +2133,54 @@ class Sm87MacroFeedV4ExecutionEventsCudaTestFixture final {
         recurrent_allocation_identity);
   }
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  [[nodiscard]] static int submit_embedding_c8000_constituent(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4EmbeddingC8000Arguments& arguments,
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot& resources,
+      kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4FixedSubmitLedger* submit_ledger) noexcept {
+    return owner.submit_embedding_c8000_constituent_for_cuda_test(
+        arguments, resources, submit_ledger);
+  }
+
+  [[nodiscard]] static int submit_final_norm_m1_constituent(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4FinalNormM1Arguments& arguments,
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4FinalNormM1ResourceSnapshot& resources,
+      kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4FixedSubmitLedger* submit_ledger) noexcept {
+    return owner.submit_final_norm_m1_constituent_for_cuda_test(
+        arguments, resources, submit_ledger);
+  }
+
+  [[nodiscard]] static int submit_greedy_argmax_m1_constituent(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4GreedyArgmaxM1Arguments& arguments,
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot& resources,
+      kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4FixedSubmitLedger* submit_ledger) noexcept {
+    return owner.submit_greedy_argmax_m1_constituent_for_cuda_test(
+        arguments, resources, submit_ledger);
+  }
+
+  [[nodiscard]] static int submit_lm_head_m1_constituent(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4LmHeadM1Arguments& arguments,
+      const kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4LmHeadM1ResourceSnapshot& resources,
+      kernels::sm87_macrofeed_v4_bound_launch_detail::
+          Sm87MacroFeedV4FixedSubmitLedger* submit_ledger) noexcept {
+    return owner.submit_lm_head_m1_constituent_for_cuda_test(
+        arguments, resources, submit_ledger);
+  }
+
   // Focused lifecycle-test seam.  Existing transaction tests prove each
   // physical counter increment; this bounded helper composes their exact
   // successful panel ledger without enqueueing 560 expensive kernels again.

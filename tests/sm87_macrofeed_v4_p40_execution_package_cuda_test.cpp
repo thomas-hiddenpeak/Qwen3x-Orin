@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <string_view>
 #include <type_traits>
@@ -506,6 +507,62 @@ void require_test(const bool condition, const std::string_view message) {
   }
 }
 
+class FixedBoundaryDeviceAllocation final {
+ public:
+  FixedBoundaryDeviceAllocation() = default;
+  FixedBoundaryDeviceAllocation(const FixedBoundaryDeviceAllocation&) =
+      delete;
+  FixedBoundaryDeviceAllocation& operator=(
+      const FixedBoundaryDeviceAllocation&) = delete;
+
+  ~FixedBoundaryDeviceAllocation() {
+    if (pointer_ != nullptr) {
+      (void)cudaFree(pointer_);
+      pointer_ = nullptr;
+    }
+  }
+
+  [[nodiscard]] bool allocate(const std::size_t bytes) noexcept {
+    if (pointer_ != nullptr || bytes == 0U ||
+        cudaMalloc(&pointer_, bytes) != cudaSuccess || pointer_ == nullptr) {
+      pointer_ = nullptr;
+      return false;
+    }
+    bytes_ = bytes;
+    return true;
+  }
+
+  template <typename T>
+  [[nodiscard]] T* as() noexcept {
+    return static_cast<T*>(pointer_);
+  }
+
+  template <typename T>
+  [[nodiscard]] const T* as() const noexcept {
+    return static_cast<const T*>(pointer_);
+  }
+
+  [[nodiscard]] std::size_t bytes() const noexcept { return bytes_; }
+
+ private:
+  void* pointer_ = nullptr;
+  std::size_t bytes_ = 0U;
+};
+
+void seed_and_require_stale_cuda_error() {
+  const cudaError_t injected =
+      cudaMemcpy(nullptr, nullptr, 1U, cudaMemcpyHostToDevice);
+  require_test(injected == cudaErrorInvalidValue &&
+                   cudaPeekAtLastError() == cudaErrorInvalidValue,
+               "could not seed exact stale CUDA invalid-value state");
+}
+
+void clear_and_require_stale_cuda_error() {
+  require_test(cudaGetLastError() == cudaErrorInvalidValue &&
+                   cudaPeekAtLastError() == cudaSuccess,
+               "fixed boundary stale CUDA state was not retained fail-closed");
+}
+
 class LiveExecutionWeights final {
  public:
   LiveExecutionWeights() = default;
@@ -850,6 +907,499 @@ make_down_payload_receipt(
                                  Owner& owner) noexcept {
   model_weights.reset();
   return Access::clear_host_test_fixture(owner) && owner.empty();
+}
+
+void test_fixed_outer_request_boundaries() {
+  using EventsFixture = events::Sm87MacroFeedV4ExecutionEventsCudaTestFixture;
+  static_assert(bound_launch::kSm87MacroFeedV4EmbeddingTokenCount == 8'000U);
+  static_assert(bound_launch::kSm87MacroFeedV4EmbeddingVocabulary ==
+                248'320U);
+  static_assert(bound_launch::kSm87MacroFeedV4Hidden == 5'120U);
+  static_assert(bound_launch::kSm87MacroFeedV4FinalNormEpsilonFp32Bits ==
+                0x3586'37bdU);
+  static_assert(bound_launch::kSm87MacroFeedV4GreedyWorkspaceResults == 33U);
+  static_assert(bound_launch::kSm87MacroFeedV4LmHeadRows == 248'320U);
+  static_assert(bound_launch::kSm87MacroFeedV4LmHeadColumns == 5'120U);
+
+  bound_launch::Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot
+      embedding_resources{};
+  bound_launch::Sm87MacroFeedV4FinalNormM1ResourceSnapshot norm_resources{};
+  bound_launch::Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot
+      greedy_resources{};
+  bound_launch::Sm87MacroFeedV4LmHeadM1ResourceSnapshot lm_resources{};
+  require_test(
+      bound_launch::query_embedding_c8000_resources_cuda(
+          &embedding_resources) == static_cast<int>(cudaSuccess) &&
+          embedding_resources.identity != 0U &&
+          embedding_resources.exact_geometry &&
+          embedding_resources.static_resource_gate_passed &&
+          embedding_resources.gather.threads == 256 &&
+          embedding_resources.gather.grid_ctas == 8'000 &&
+          embedding_resources.gather.static_shared_bytes == 0U &&
+          embedding_resources.gather.local_bytes == 0U,
+      "fixed C8000 embedding construction snapshot failed");
+  require_test(
+      bound_launch::query_final_norm_m1_resources_cuda(&norm_resources) ==
+              static_cast<int>(cudaSuccess) &&
+          norm_resources.identity != 0U && norm_resources.exact_geometry &&
+          norm_resources.static_resource_gate_passed &&
+          norm_resources.centered_rms_norm.threads == 256 &&
+          norm_resources.centered_rms_norm.grid_ctas == 1 &&
+          norm_resources.centered_rms_norm.static_shared_bytes == 1'024U &&
+          norm_resources.centered_rms_norm.local_bytes == 0U,
+      "fixed final centered RMSNorm construction snapshot failed");
+  require_test(
+      bound_launch::query_greedy_argmax_m1_resources_cuda(
+          &greedy_resources) == static_cast<int>(cudaSuccess) &&
+          greedy_resources.identity != 0U &&
+          greedy_resources.exact_geometry &&
+          greedy_resources.static_resource_gate_passed &&
+          greedy_resources.partial.threads == 256 &&
+          greedy_resources.partial.grid_ctas == 32 &&
+          greedy_resources.partial.static_shared_bytes == 3'072U &&
+          greedy_resources.finalize.threads == 32 &&
+          greedy_resources.finalize.grid_ctas == 1,
+      "fixed BF16 greedy construction snapshot failed");
+  require_test(
+      bound_launch::query_lm_head_m1_resources_cuda(&lm_resources) ==
+              static_cast<int>(cudaSuccess) &&
+          lm_resources.identity != 0U && lm_resources.exact_geometry &&
+          lm_resources.static_resource_gate_passed &&
+          lm_resources.activation_staged.registers_per_thread == 64 &&
+          lm_resources.activation_staged.static_shared_bytes == 11'328U &&
+          lm_resources.activation_staged.local_bytes == 0U &&
+          lm_resources.activation_staged.active_blocks_per_sm == 4 &&
+          lm_resources.activation_staged.threads == 256 &&
+          lm_resources.activation_staged.grid_ctas == 64,
+      "fixed NVFP4 LM-head construction snapshot failed");
+  require_test(
+      bound_launch::query_embedding_c8000_resources_cuda(nullptr) ==
+              static_cast<int>(cudaErrorInvalidValue) &&
+          bound_launch::query_final_norm_m1_resources_cuda(nullptr) ==
+              static_cast<int>(cudaErrorInvalidValue) &&
+          bound_launch::query_greedy_argmax_m1_resources_cuda(nullptr) ==
+              static_cast<int>(cudaErrorInvalidValue) &&
+          bound_launch::query_lm_head_m1_resources_cuda(nullptr) ==
+              static_cast<int>(cudaErrorInvalidValue),
+      "fixed boundary construction queries accepted null snapshots");
+
+  auto owner_result = events::create_sm87_macrofeed_v4_execution_events_owner();
+  require_test(static_cast<bool>(owner_result) && owner_result.owner != nullptr,
+               "could not create fixed-boundary EventsOwner");
+  auto& boundary_owner = *owner_result.owner;
+
+  {
+    FixedBoundaryDeviceAllocation table;
+    FixedBoundaryDeviceAllocation token_ids;
+    FixedBoundaryDeviceAllocation hidden_output;
+    require_test(
+        table.allocate(bound_launch::kSm87MacroFeedV4EmbeddingTableBytes) &&
+            token_ids.allocate(
+                bound_launch::kSm87MacroFeedV4EmbeddingTokenIdBytes) &&
+            hidden_output.allocate(
+                bound_launch::kSm87MacroFeedV4EmbeddingOutputBytes),
+        "could not allocate exact C8000 embedding boundary buffers");
+
+    constexpr std::uint32_t kFirstTokenId = 17U;
+    constexpr std::uint32_t kLastTokenId = 19U;
+    std::vector<std::uint32_t> host_token_ids(
+        bound_launch::kSm87MacroFeedV4EmbeddingTokenCount, kFirstTokenId);
+    host_token_ids.back() = kLastTokenId;
+    std::vector<std::uint16_t> first_row(
+        bound_launch::kSm87MacroFeedV4Hidden);
+    std::vector<std::uint16_t> last_row(
+        bound_launch::kSm87MacroFeedV4Hidden);
+    for (std::size_t hidden = 0U;
+         hidden < bound_launch::kSm87MacroFeedV4Hidden; ++hidden) {
+      first_row[hidden] =
+          static_cast<std::uint16_t>(0x1000U + hidden % 0x0400U);
+      last_row[hidden] =
+          static_cast<std::uint16_t>(0x5000U + hidden % 0x0400U);
+    }
+    require_test(
+        cudaMemcpy(token_ids.as<std::uint32_t>(), host_token_ids.data(),
+                   bound_launch::kSm87MacroFeedV4EmbeddingTokenIdBytes,
+                   cudaMemcpyHostToDevice) == cudaSuccess &&
+            cudaMemcpy(
+                table.as<std::uint16_t>() +
+                    static_cast<std::size_t>(kFirstTokenId) *
+                        bound_launch::kSm87MacroFeedV4Hidden,
+                first_row.data(), bound_launch::kSm87MacroFeedV4FinalNormBytes,
+                cudaMemcpyHostToDevice) == cudaSuccess &&
+            cudaMemcpy(
+                table.as<std::uint16_t>() +
+                    static_cast<std::size_t>(kLastTokenId) *
+                        bound_launch::kSm87MacroFeedV4Hidden,
+                last_row.data(), bound_launch::kSm87MacroFeedV4FinalNormBytes,
+                cudaMemcpyHostToDevice) == cudaSuccess,
+        "could not install synthetic embedding rows and IDs");
+    require_test(cudaDeviceSynchronize() == cudaSuccess,
+                 "embedding fixture seed did not physically complete");
+
+    const bound_launch::Sm87MacroFeedV4EmbeddingC8000Arguments arguments{
+        table.as<std::uint16_t>(), token_ids.as<std::uint32_t>(),
+        hidden_output.as<std::uint16_t>()};
+    const auto invoke_embedding =
+        [&](const bound_launch::Sm87MacroFeedV4EmbeddingC8000Arguments& args,
+            const bound_launch::Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot&
+                resources,
+            bound_launch::Sm87MacroFeedV4FixedSubmitLedger* const ledger) {
+          return EventsFixture::submit_embedding_c8000_constituent(
+              boundary_owner, args, resources, ledger);
+        };
+    bound_launch::Sm87MacroFeedV4FixedSubmitLedger ledger{7U};
+    auto tampered_resources = embedding_resources;
+    tampered_resources.identity ^= 1U;
+    require_test(
+        invoke_embedding(arguments, tampered_resources, &ledger) ==
+                static_cast<int>(cudaErrorLaunchOutOfResources) &&
+            ledger.accepted_kernel_launches == 0U,
+        "embedding seam accepted a tampered construction snapshot");
+    auto alias_arguments = arguments;
+    alias_arguments.hidden_output =
+        const_cast<std::uint16_t*>(arguments.embedding_table);
+    ledger.accepted_kernel_launches = 7U;
+    require_test(
+        invoke_embedding(alias_arguments, embedding_resources, &ledger) ==
+                static_cast<int>(cudaErrorInvalidValue) &&
+            ledger.accepted_kernel_launches == 0U,
+        "embedding seam accepted overlapping table/output extents");
+    seed_and_require_stale_cuda_error();
+    ledger.accepted_kernel_launches = 7U;
+    require_test(
+        invoke_embedding(arguments, embedding_resources, &ledger) ==
+                static_cast<int>(cudaErrorInvalidValue) &&
+            ledger.accepted_kernel_launches == 0U,
+        "embedding seam consumed stale error or accepted work after it");
+    clear_and_require_stale_cuda_error();
+    require_test(
+        invoke_embedding(arguments, embedding_resources, &ledger) ==
+                static_cast<int>(cudaSuccess) &&
+            ledger.accepted_kernel_launches == 1U &&
+            cudaDeviceSynchronize() == cudaSuccess,
+        "fixed C8000 embedding launch failed");
+    std::uint16_t first_sample = 0U;
+    std::uint16_t middle_sample = 0U;
+    std::uint16_t last_sample = 0U;
+    require_test(
+        cudaMemcpy(&first_sample, hidden_output.as<std::uint16_t>(),
+                   sizeof(first_sample), cudaMemcpyDeviceToHost) ==
+                cudaSuccess &&
+            cudaMemcpy(
+                &middle_sample,
+                hidden_output.as<std::uint16_t>() +
+                    4'000U * bound_launch::kSm87MacroFeedV4Hidden + 2'557U,
+                sizeof(middle_sample), cudaMemcpyDeviceToHost) ==
+                cudaSuccess &&
+            cudaMemcpy(
+                &last_sample,
+                hidden_output.as<std::uint16_t>() +
+                    (bound_launch::kSm87MacroFeedV4EmbeddingTokenCount - 1U) *
+                        bound_launch::kSm87MacroFeedV4Hidden +
+                    (bound_launch::kSm87MacroFeedV4Hidden - 1U),
+                sizeof(last_sample), cudaMemcpyDeviceToHost) == cudaSuccess &&
+            first_sample == first_row.front() &&
+            middle_sample == first_row[2'557U] &&
+            last_sample == last_row.back(),
+        "fixed C8000 embedding did not preserve exact BF16 row payloads");
+  }
+
+  {
+    FixedBoundaryDeviceAllocation hidden;
+    FixedBoundaryDeviceAllocation centered_weight;
+    require_test(
+        hidden.allocate(bound_launch::kSm87MacroFeedV4FinalNormBytes) &&
+            centered_weight.allocate(
+                bound_launch::kSm87MacroFeedV4FinalNormBytes),
+        "could not allocate fixed final RMSNorm buffers");
+    const std::vector<std::uint16_t> host_hidden(
+        bound_launch::kSm87MacroFeedV4Hidden, 0x4000U);
+    const std::vector<std::uint16_t> host_weight(
+        bound_launch::kSm87MacroFeedV4Hidden, 0x3f00U);
+    require_test(
+        cudaMemcpy(hidden.as<std::uint16_t>(), host_hidden.data(),
+                   bound_launch::kSm87MacroFeedV4FinalNormBytes,
+                   cudaMemcpyHostToDevice) == cudaSuccess &&
+            cudaMemcpy(centered_weight.as<std::uint16_t>(),
+                       host_weight.data(),
+                       bound_launch::kSm87MacroFeedV4FinalNormBytes,
+                       cudaMemcpyHostToDevice) == cudaSuccess,
+        "could not seed final RMSNorm fixture");
+    require_test(cudaDeviceSynchronize() == cudaSuccess,
+                 "final RMSNorm fixture seed did not physically complete");
+    const bound_launch::Sm87MacroFeedV4FinalNormM1Arguments arguments{
+        hidden.as<std::uint16_t>(), centered_weight.as<std::uint16_t>(),
+        hidden.as<std::uint16_t>()};
+    const auto invoke_norm =
+        [&](const bound_launch::Sm87MacroFeedV4FinalNormM1Arguments& args,
+            const bound_launch::Sm87MacroFeedV4FinalNormM1ResourceSnapshot&
+                resources,
+            bound_launch::Sm87MacroFeedV4FixedSubmitLedger* const ledger) {
+          return EventsFixture::submit_final_norm_m1_constituent(
+              boundary_owner, args, resources, ledger);
+        };
+    bound_launch::Sm87MacroFeedV4FixedSubmitLedger ledger{7U};
+    auto tampered_resources = norm_resources;
+    tampered_resources.static_resource_gate_passed = false;
+    require_test(
+        invoke_norm(arguments, tampered_resources, &ledger) ==
+                static_cast<int>(cudaErrorLaunchOutOfResources) &&
+            ledger.accepted_kernel_launches == 0U,
+        "final RMSNorm seam accepted a failed resource gate");
+    auto partial_alias = arguments;
+    partial_alias.normalized_output =
+        const_cast<std::uint16_t*>(arguments.hidden_input) + 1U;
+    ledger.accepted_kernel_launches = 7U;
+    require_test(
+        invoke_norm(partial_alias, norm_resources, &ledger) ==
+                static_cast<int>(cudaErrorInvalidValue) &&
+            ledger.accepted_kernel_launches == 0U,
+        "final RMSNorm seam accepted a shifted partial alias");
+    seed_and_require_stale_cuda_error();
+    ledger.accepted_kernel_launches = 7U;
+    require_test(
+        invoke_norm(arguments, norm_resources, &ledger) ==
+                static_cast<int>(cudaErrorInvalidValue) &&
+            ledger.accepted_kernel_launches == 0U,
+        "final RMSNorm seam accepted work behind a stale error");
+    clear_and_require_stale_cuda_error();
+    require_test(
+        invoke_norm(arguments, norm_resources, &ledger) ==
+                static_cast<int>(cudaSuccess) &&
+            ledger.accepted_kernel_launches == 1U &&
+            cudaDeviceSynchronize() == cudaSuccess,
+        "fixed in-place final centered RMSNorm launch failed");
+    std::vector<std::uint16_t> normalized(
+        bound_launch::kSm87MacroFeedV4Hidden);
+    require_test(
+        cudaMemcpy(normalized.data(), hidden.as<std::uint16_t>(),
+                   bound_launch::kSm87MacroFeedV4FinalNormBytes,
+                   cudaMemcpyDeviceToHost) == cudaSuccess,
+        "could not read final RMSNorm output");
+    for (const std::uint16_t value : normalized) {
+      require_test(value == 0x3fc0U,
+                   "final centered RMSNorm lost exact BF16 result");
+    }
+  }
+
+  {
+    FixedBoundaryDeviceAllocation packed_weights;
+    FixedBoundaryDeviceAllocation block_scales;
+    FixedBoundaryDeviceAllocation activation;
+    FixedBoundaryDeviceAllocation logits;
+    FixedBoundaryDeviceAllocation greedy_workspace;
+    require_test(
+        packed_weights.allocate(
+            bound_launch::kSm87MacroFeedV4LmHeadPackedWeightBytes) &&
+            block_scales.allocate(
+                bound_launch::kSm87MacroFeedV4LmHeadBlockScaleBytes) &&
+            activation.allocate(
+                bound_launch::kSm87MacroFeedV4LmHeadActivationBytes) &&
+            logits.allocate(bound_launch::kSm87MacroFeedV4LmHeadOutputBytes) &&
+            greedy_workspace.allocate(
+                bound_launch::kSm87MacroFeedV4GreedyWorkspaceBytes),
+        "could not allocate fixed LM-head/greedy boundary buffers");
+
+    constexpr std::size_t kSelectedRow = 123'456U;
+    constexpr std::size_t kPackedBytesPerRow =
+        bound_launch::kSm87MacroFeedV4LmHeadColumns / 2U;
+    constexpr std::size_t kScaleBytesPerRow =
+        bound_launch::kSm87MacroFeedV4LmHeadColumns / 16U;
+    const std::vector<std::uint8_t> selected_packed_row(
+        kPackedBytesPerRow, 0x22U);
+    const std::vector<std::uint8_t> selected_scale_row(
+        kScaleBytesPerRow, 0x38U);
+    const std::vector<std::uint16_t> host_activation(
+        bound_launch::kSm87MacroFeedV4LmHeadColumns, 0x3f80U);
+    require_test(
+        cudaMemset(block_scales.as<std::uint8_t>(), 0,
+                   block_scales.bytes()) == cudaSuccess &&
+            cudaMemcpy(
+                packed_weights.as<std::uint8_t>() +
+                    kSelectedRow * kPackedBytesPerRow,
+                selected_packed_row.data(), selected_packed_row.size(),
+                cudaMemcpyHostToDevice) == cudaSuccess &&
+            cudaMemcpy(
+                block_scales.as<std::uint8_t>() +
+                    kSelectedRow * kScaleBytesPerRow,
+                selected_scale_row.data(), selected_scale_row.size(),
+                cudaMemcpyHostToDevice) == cudaSuccess &&
+            cudaMemcpy(
+                activation.as<std::uint16_t>(), host_activation.data(),
+                bound_launch::kSm87MacroFeedV4LmHeadActivationBytes,
+                cudaMemcpyHostToDevice) == cudaSuccess,
+        "could not seed fixed NVFP4 LM-head fixture");
+    require_test(cudaDeviceSynchronize() == cudaSuccess,
+                 "LM-head fixture seed did not physically complete");
+
+    const bound_launch::Sm87MacroFeedV4LmHeadM1Arguments lm_arguments{
+        packed_weights.as<std::uint8_t>(), block_scales.as<std::uint8_t>(),
+        0.5F, activation.as<std::uint16_t>(), logits.as<std::uint16_t>()};
+    const auto invoke_lm =
+        [&](const bound_launch::Sm87MacroFeedV4LmHeadM1Arguments& args,
+            const bound_launch::Sm87MacroFeedV4LmHeadM1ResourceSnapshot&
+                resources,
+            bound_launch::Sm87MacroFeedV4FixedSubmitLedger* const ledger) {
+          return EventsFixture::submit_lm_head_m1_constituent(
+              boundary_owner, args, resources, ledger);
+        };
+    bound_launch::Sm87MacroFeedV4FixedSubmitLedger lm_ledger{7U};
+    auto tampered_lm_resources = lm_resources;
+    tampered_lm_resources.activation_staged.grid_ctas = 63;
+    require_test(
+        invoke_lm(lm_arguments, tampered_lm_resources, &lm_ledger) ==
+                static_cast<int>(cudaErrorLaunchOutOfResources) &&
+            lm_ledger.accepted_kernel_launches == 0U,
+        "LM-head seam accepted non-fixed launch geometry");
+    std::array<bound_launch::Sm87MacroFeedV4LmHeadM1Arguments, 4U>
+        null_role_arguments{lm_arguments, lm_arguments, lm_arguments,
+                            lm_arguments};
+    null_role_arguments[0].packed_weights = nullptr;
+    null_role_arguments[1].block_scales = nullptr;
+    null_role_arguments[2].activation = nullptr;
+    null_role_arguments[3].logits_output = nullptr;
+    for (const auto& null_role : null_role_arguments) {
+      lm_ledger.accepted_kernel_launches = 7U;
+      require_test(
+          invoke_lm(null_role, lm_resources, &lm_ledger) ==
+                  static_cast<int>(cudaErrorInvalidValue) &&
+              lm_ledger.accepted_kernel_launches == 0U,
+          "LM-head seam accepted a null fixed-role pointer");
+    }
+    std::array<bound_launch::Sm87MacroFeedV4LmHeadM1Arguments, 2U>
+        invalid_scale_arguments{lm_arguments, lm_arguments};
+    invalid_scale_arguments[0].weight_scale_2 = -0.5F;
+    invalid_scale_arguments[1].weight_scale_2 =
+        std::numeric_limits<float>::quiet_NaN();
+    for (const auto& invalid_scale : invalid_scale_arguments) {
+      lm_ledger.accepted_kernel_launches = 7U;
+      require_test(
+          invoke_lm(invalid_scale, lm_resources, &lm_ledger) ==
+                  static_cast<int>(cudaErrorInvalidValue) &&
+              lm_ledger.accepted_kernel_launches == 0U,
+          "LM-head seam accepted an invalid fixed weight scale");
+    }
+    auto aliased_lm_arguments = lm_arguments;
+    aliased_lm_arguments.logits_output =
+        const_cast<std::uint16_t*>(lm_arguments.activation);
+    lm_ledger.accepted_kernel_launches = 7U;
+    require_test(
+        invoke_lm(aliased_lm_arguments, lm_resources, &lm_ledger) ==
+                static_cast<int>(cudaErrorInvalidValue) &&
+            lm_ledger.accepted_kernel_launches == 0U,
+        "LM-head seam accepted activation/output aliasing");
+    seed_and_require_stale_cuda_error();
+    lm_ledger.accepted_kernel_launches = 7U;
+    require_test(
+        invoke_lm(lm_arguments, lm_resources, &lm_ledger) ==
+                static_cast<int>(cudaErrorInvalidValue) &&
+            lm_ledger.accepted_kernel_launches == 0U,
+        "LM-head seam accepted work behind a stale error");
+    clear_and_require_stale_cuda_error();
+    require_test(
+        invoke_lm(lm_arguments, lm_resources, &lm_ledger) ==
+                static_cast<int>(cudaSuccess) &&
+            lm_ledger.accepted_kernel_launches == 1U &&
+            cudaDeviceSynchronize() == cudaSuccess,
+        "fixed activation-staged NVFP4 LM-head launch failed");
+    std::uint16_t zero_logit = 1U;
+    std::uint16_t selected_logit = 0U;
+    require_test(
+        cudaMemcpy(&zero_logit, logits.as<std::uint16_t>(),
+                   sizeof(zero_logit), cudaMemcpyDeviceToHost) ==
+                cudaSuccess &&
+            cudaMemcpy(&selected_logit,
+                       logits.as<std::uint16_t>() + kSelectedRow,
+                       sizeof(selected_logit), cudaMemcpyDeviceToHost) ==
+                cudaSuccess &&
+            zero_logit == 0U && selected_logit == 0x4520U,
+        "fixed LM-head did not preserve exact scale2-only BF16 output");
+
+    const bound_launch::Sm87MacroFeedV4GreedyArgmaxM1Arguments
+        greedy_arguments{
+            logits.as<std::uint16_t>(),
+            greedy_workspace.as<q3x::runtime::Bf16GreedyArgmaxResult>()};
+    const auto invoke_greedy =
+        [&](const bound_launch::Sm87MacroFeedV4GreedyArgmaxM1Arguments& args,
+            const bound_launch::Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot&
+                resources,
+            bound_launch::Sm87MacroFeedV4FixedSubmitLedger* const ledger) {
+          return EventsFixture::submit_greedy_argmax_m1_constituent(
+              boundary_owner, args, resources, ledger);
+        };
+    bound_launch::Sm87MacroFeedV4FixedSubmitLedger greedy_ledger{7U};
+    auto tampered_greedy_resources = greedy_resources;
+    tampered_greedy_resources.partial.static_shared_bytes = 0U;
+    require_test(
+        invoke_greedy(greedy_arguments, tampered_greedy_resources,
+                      &greedy_ledger) ==
+                static_cast<int>(cudaErrorLaunchOutOfResources) &&
+            greedy_ledger.accepted_kernel_launches == 0U,
+        "greedy seam accepted tampered partial resources");
+    auto aliased_greedy_arguments = greedy_arguments;
+    aliased_greedy_arguments.result_workspace =
+        reinterpret_cast<q3x::runtime::Bf16GreedyArgmaxResult*>(
+            logits.as<std::uint16_t>());
+    greedy_ledger.accepted_kernel_launches = 7U;
+    require_test(
+        invoke_greedy(aliased_greedy_arguments, greedy_resources,
+                      &greedy_ledger) ==
+                static_cast<int>(cudaErrorInvalidValue) &&
+            greedy_ledger.accepted_kernel_launches == 0U,
+        "greedy seam accepted logits/workspace aliasing");
+    seed_and_require_stale_cuda_error();
+    greedy_ledger.accepted_kernel_launches = 7U;
+    require_test(
+        invoke_greedy(greedy_arguments, greedy_resources, &greedy_ledger) ==
+                static_cast<int>(cudaErrorInvalidValue) &&
+            greedy_ledger.accepted_kernel_launches == 0U,
+        "greedy seam accepted work behind a stale error");
+    clear_and_require_stale_cuda_error();
+    require_test(
+        invoke_greedy(greedy_arguments, greedy_resources, &greedy_ledger) ==
+                static_cast<int>(cudaSuccess) &&
+            greedy_ledger.accepted_kernel_launches == 2U &&
+            cudaDeviceSynchronize() == cudaSuccess,
+        "fixed BF16 greedy launch failed");
+    q3x::runtime::Bf16GreedyArgmaxResult result{};
+    require_test(
+        cudaMemcpy(
+            &result,
+            greedy_workspace.as<q3x::runtime::Bf16GreedyArgmaxResult>() +
+                (bound_launch::kSm87MacroFeedV4GreedyWorkspaceResults - 1U),
+            sizeof(result), cudaMemcpyDeviceToHost) == cudaSuccess &&
+            result.index == kSelectedRow && result.value_bits == 0x4520U &&
+            result.has_nonfinite == 0U,
+        "greedy seam did not select the unique exact LM-head maximum");
+
+    constexpr std::size_t kEarlierTie = 123U;
+    constexpr std::size_t kNonfinite = 7U;
+    const std::uint16_t tie_bits = 0x4520U;
+    const std::uint16_t infinity_bits = 0x7f80U;
+    require_test(
+        cudaMemcpy(logits.as<std::uint16_t>() + kEarlierTie, &tie_bits,
+                   sizeof(tie_bits), cudaMemcpyHostToDevice) == cudaSuccess &&
+            cudaMemcpy(logits.as<std::uint16_t>() + kNonfinite,
+                       &infinity_bits, sizeof(infinity_bits),
+                       cudaMemcpyHostToDevice) == cudaSuccess,
+        "could not install greedy tie/nonfinite fixture");
+    require_test(cudaDeviceSynchronize() == cudaSuccess,
+                 "greedy tie/nonfinite fixture did not physically complete");
+    require_test(
+        invoke_greedy(greedy_arguments, greedy_resources, &greedy_ledger) ==
+                static_cast<int>(cudaSuccess) &&
+            greedy_ledger.accepted_kernel_launches == 2U &&
+            cudaDeviceSynchronize() == cudaSuccess &&
+            cudaMemcpy(
+                &result,
+                greedy_workspace.as<q3x::runtime::Bf16GreedyArgmaxResult>() +
+                    (bound_launch::kSm87MacroFeedV4GreedyWorkspaceResults -
+                     1U),
+                sizeof(result), cudaMemcpyDeviceToHost) == cudaSuccess &&
+            result.index == kEarlierTie && result.value_bits == tie_bits &&
+            result.has_nonfinite == 1U,
+        "greedy seam lost earliest-tie or nonfinite semantics");
+  }
 }
 
 void test_real_cuda_front_half() {
@@ -1420,6 +1970,9 @@ int main() {
     return 77;
   }
   test_real_cuda_front_half();
+  // Keep the multi-gigabyte constituent fixture last so its allocator history
+  // cannot perturb the execution package's construction-time reserve gates.
+  test_fixed_outer_request_boundaries();
   std::cout <<
       "sm87_macrofeed_v4_p40_execution_package_cuda_test: PASS\n";
   return 0;

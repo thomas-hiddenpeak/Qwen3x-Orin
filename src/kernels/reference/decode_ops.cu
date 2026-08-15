@@ -4361,6 +4361,455 @@ int enqueue_residual_post_norm_prevalidated(
   *submitted_launches = 1U;
   return static_cast<int>(cudaSuccess);
 }
+
+namespace {
+
+constexpr std::uint64_t kEmbeddingC8000ResourceIdentity =
+    0x7634'656d'6263'3830ULL;
+constexpr std::uint64_t kFinalNormM1ResourceIdentity =
+    0x7634'666e'6d31'3531ULL;
+constexpr std::uint64_t kGreedyArgmaxM1ResourceIdentity =
+    0x7634'6172'6731'3234ULL;
+constexpr unsigned int kFixedThreads = 256U;
+constexpr unsigned int kGreedyPartialBlocks = 32U;
+constexpr unsigned int kGreedyFinalizeThreads = 32U;
+
+[[nodiscard]] bool fixed_pointer_aligned(
+    const void* const pointer, const std::size_t alignment) noexcept {
+  return pointer != nullptr && alignment != 0U &&
+         reinterpret_cast<std::uintptr_t>(pointer) % alignment == 0U;
+}
+
+[[nodiscard]] bool fixed_range_valid(
+    const void* const pointer, const std::size_t bytes) noexcept {
+  if (pointer == nullptr || bytes == 0U) {
+    return false;
+  }
+  const std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(pointer);
+  return bytes <= std::numeric_limits<std::uintptr_t>::max() - begin;
+}
+
+[[nodiscard]] bool fixed_ranges_disjoint(
+    const void* const left, const std::size_t left_bytes,
+    const void* const right, const std::size_t right_bytes) noexcept {
+  if (!fixed_range_valid(left, left_bytes) ||
+      !fixed_range_valid(right, right_bytes)) {
+    return false;
+  }
+  const std::uintptr_t left_begin =
+      reinterpret_cast<std::uintptr_t>(left);
+  const std::uintptr_t right_begin =
+      reinterpret_cast<std::uintptr_t>(right);
+  return left_begin + left_bytes <= right_begin ||
+         right_begin + right_bytes <= left_begin;
+}
+
+[[nodiscard]] bool fixed_ranges_disjoint_or_identical(
+    const void* const left, const std::size_t left_bytes,
+    const void* const right, const std::size_t right_bytes) noexcept {
+  return (left == right && left_bytes == right_bytes &&
+          fixed_range_valid(left, left_bytes)) ||
+         fixed_ranges_disjoint(left, left_bytes, right, right_bytes);
+}
+
+[[nodiscard]] cudaError_t query_fixed_sm87_device(
+    int* const device, cudaDeviceProp* const properties) noexcept {
+  if (device == nullptr || properties == nullptr) {
+    return cudaErrorInvalidValue;
+  }
+  *device = -1;
+  *properties = {};
+  cudaError_t status = cudaGetDevice(device);
+  if (status != cudaSuccess || *device < 0) {
+    return status == cudaSuccess ? cudaErrorInvalidDevice : status;
+  }
+  status = cudaGetDeviceProperties(properties, *device);
+  if (status != cudaSuccess) {
+    return status;
+  }
+  return properties->major == 8 && properties->minor == 7 &&
+                 properties->multiProcessorCount == 16
+             ? cudaSuccess
+             : cudaErrorNotSupported;
+}
+
+[[nodiscard]] Sm87MacroFeedV4FixedKernelResource fixed_kernel_resource(
+    const cudaFuncAttributes& attributes, const int active_blocks_per_sm,
+    const int threads, const int grid_ctas) noexcept {
+  return Sm87MacroFeedV4FixedKernelResource{
+      attributes.numRegs,
+      attributes.sharedSizeBytes,
+      attributes.localSizeBytes,
+      attributes.maxThreadsPerBlock,
+      active_blocks_per_sm,
+      attributes.binaryVersion,
+      threads,
+      grid_ctas};
+}
+
+[[nodiscard]] bool fixed_kernel_resource_gate(
+    const Sm87MacroFeedV4FixedKernelResource& resource,
+    const std::size_t static_shared_bytes, const int threads,
+    const int grid_ctas, const int minimum_active_blocks) noexcept {
+  return resource.registers_per_thread > 0 &&
+         resource.static_shared_bytes == static_shared_bytes &&
+         resource.local_bytes == 0U &&
+         resource.maximum_threads_per_block >= threads &&
+         resource.active_blocks_per_sm >= minimum_active_blocks &&
+         resource.binary_version == 87 && resource.threads == threads &&
+         resource.grid_ctas == grid_ctas;
+}
+
+[[nodiscard]] bool embedding_resource_gate(
+    const Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot& resources)
+    noexcept {
+  return resources.identity == kEmbeddingC8000ResourceIdentity &&
+         resources.device_ordinal >= 0 && resources.compute_major == 8 &&
+         resources.compute_minor == 7 && resources.sm_count == 16 &&
+         resources.exact_geometry && resources.static_resource_gate_passed &&
+         fixed_kernel_resource_gate(
+             resources.gather, 0U, static_cast<int>(kFixedThreads),
+             static_cast<int>(kSm87MacroFeedV4EmbeddingTokenCount), 1);
+}
+
+[[nodiscard]] bool final_norm_resource_gate(
+    const Sm87MacroFeedV4FinalNormM1ResourceSnapshot& resources) noexcept {
+  return resources.identity == kFinalNormM1ResourceIdentity &&
+         resources.device_ordinal >= 0 && resources.compute_major == 8 &&
+         resources.compute_minor == 7 && resources.sm_count == 16 &&
+         resources.exact_geometry && resources.static_resource_gate_passed &&
+         fixed_kernel_resource_gate(resources.centered_rms_norm, 1'024U,
+                                    static_cast<int>(kFixedThreads), 1, 1);
+}
+
+[[nodiscard]] bool greedy_resource_gate(
+    const Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot& resources) noexcept {
+  return resources.identity == kGreedyArgmaxM1ResourceIdentity &&
+         resources.device_ordinal >= 0 && resources.compute_major == 8 &&
+         resources.compute_minor == 7 && resources.sm_count == 16 &&
+         resources.exact_geometry && resources.static_resource_gate_passed &&
+         fixed_kernel_resource_gate(
+             resources.partial, 3'072U, static_cast<int>(kFixedThreads),
+             static_cast<int>(kGreedyPartialBlocks), 1) &&
+         fixed_kernel_resource_gate(
+             resources.finalize, 0U,
+             static_cast<int>(kGreedyFinalizeThreads), 1, 1);
+}
+
+[[nodiscard]] bool embedding_arguments_valid(
+    const Sm87MacroFeedV4EmbeddingC8000Arguments& arguments,
+    const void* const stream) noexcept {
+  return stream != nullptr &&
+         fixed_pointer_aligned(arguments.embedding_table,
+                               alignof(std::uint16_t)) &&
+         fixed_pointer_aligned(arguments.token_ids,
+                               alignof(std::uint32_t)) &&
+         fixed_pointer_aligned(arguments.hidden_output,
+                               alignof(std::uint16_t)) &&
+         fixed_ranges_disjoint(
+             arguments.embedding_table,
+             kSm87MacroFeedV4EmbeddingTableBytes, arguments.token_ids,
+             kSm87MacroFeedV4EmbeddingTokenIdBytes) &&
+         fixed_ranges_disjoint(
+             arguments.embedding_table,
+             kSm87MacroFeedV4EmbeddingTableBytes, arguments.hidden_output,
+             kSm87MacroFeedV4EmbeddingOutputBytes) &&
+         fixed_ranges_disjoint(
+             arguments.token_ids, kSm87MacroFeedV4EmbeddingTokenIdBytes,
+             arguments.hidden_output,
+             kSm87MacroFeedV4EmbeddingOutputBytes);
+}
+
+[[nodiscard]] bool final_norm_arguments_valid(
+    const Sm87MacroFeedV4FinalNormM1Arguments& arguments,
+    const void* const stream) noexcept {
+  return stream != nullptr &&
+         fixed_pointer_aligned(arguments.hidden_input,
+                               alignof(std::uint16_t)) &&
+         fixed_pointer_aligned(arguments.centered_weight,
+                               alignof(std::uint16_t)) &&
+         fixed_pointer_aligned(arguments.normalized_output,
+                               alignof(std::uint16_t)) &&
+         fixed_ranges_disjoint_or_identical(
+             arguments.hidden_input, kSm87MacroFeedV4FinalNormBytes,
+             arguments.normalized_output, kSm87MacroFeedV4FinalNormBytes) &&
+         fixed_ranges_disjoint(
+             arguments.hidden_input, kSm87MacroFeedV4FinalNormBytes,
+             arguments.centered_weight, kSm87MacroFeedV4FinalNormBytes) &&
+         fixed_ranges_disjoint(
+             arguments.normalized_output, kSm87MacroFeedV4FinalNormBytes,
+             arguments.centered_weight, kSm87MacroFeedV4FinalNormBytes);
+}
+
+[[nodiscard]] bool greedy_arguments_valid(
+    const Sm87MacroFeedV4GreedyArgmaxM1Arguments& arguments,
+    const void* const stream) noexcept {
+  return stream != nullptr &&
+         fixed_pointer_aligned(arguments.logits, alignof(std::uint16_t)) &&
+         fixed_pointer_aligned(
+             arguments.result_workspace,
+             alignof(q3x::runtime::Bf16GreedyArgmaxResult)) &&
+         fixed_ranges_disjoint(
+             arguments.logits, kSm87MacroFeedV4VocabularyBf16Bytes,
+             arguments.result_workspace,
+             kSm87MacroFeedV4GreedyWorkspaceBytes);
+}
+
+}  // namespace
+
+int query_embedding_c8000_resources_cuda(
+    Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot* const resources)
+    noexcept {
+  if (resources == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *resources = {};
+  int device = -1;
+  cudaDeviceProp properties{};
+  cudaError_t status = query_fixed_sm87_device(&device, &properties);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  cudaFuncAttributes attributes{};
+  status = cudaFuncGetAttributes(
+      &attributes, q3x::runtime::embedding_gather_prompt_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks, q3x::runtime::embedding_gather_prompt_kernel,
+      static_cast<int>(kFixedThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  resources->identity = kEmbeddingC8000ResourceIdentity;
+  resources->device_ordinal = device;
+  resources->compute_major = properties.major;
+  resources->compute_minor = properties.minor;
+  resources->sm_count = properties.multiProcessorCount;
+  resources->gather = fixed_kernel_resource(
+      attributes, active_blocks, static_cast<int>(kFixedThreads),
+      static_cast<int>(kSm87MacroFeedV4EmbeddingTokenCount));
+  resources->exact_geometry = true;
+  resources->static_resource_gate_passed = true;
+  resources->static_resource_gate_passed = embedding_resource_gate(*resources);
+  return resources->static_resource_gate_passed
+             ? static_cast<int>(cudaSuccess)
+             : static_cast<int>(cudaErrorLaunchOutOfResources);
+}
+
+int query_final_norm_m1_resources_cuda(
+    Sm87MacroFeedV4FinalNormM1ResourceSnapshot* const resources) noexcept {
+  if (resources == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *resources = {};
+  int device = -1;
+  cudaDeviceProp properties{};
+  cudaError_t status = query_fixed_sm87_device(&device, &properties);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  cudaFuncAttributes attributes{};
+  status = cudaFuncGetAttributes(
+      &attributes, q3x::runtime::rms_norm_kernel<true>);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks, q3x::runtime::rms_norm_kernel<true>,
+      static_cast<int>(kFixedThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  resources->identity = kFinalNormM1ResourceIdentity;
+  resources->device_ordinal = device;
+  resources->compute_major = properties.major;
+  resources->compute_minor = properties.minor;
+  resources->sm_count = properties.multiProcessorCount;
+  resources->centered_rms_norm = fixed_kernel_resource(
+      attributes, active_blocks, static_cast<int>(kFixedThreads), 1);
+  resources->exact_geometry = true;
+  resources->static_resource_gate_passed = true;
+  resources->static_resource_gate_passed = final_norm_resource_gate(*resources);
+  return resources->static_resource_gate_passed
+             ? static_cast<int>(cudaSuccess)
+             : static_cast<int>(cudaErrorLaunchOutOfResources);
+}
+
+int query_greedy_argmax_m1_resources_cuda(
+    Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot* const resources)
+    noexcept {
+  if (resources == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *resources = {};
+  int device = -1;
+  cudaDeviceProp properties{};
+  cudaError_t status = query_fixed_sm87_device(&device, &properties);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  cudaFuncAttributes partial_attributes{};
+  status = cudaFuncGetAttributes(
+      &partial_attributes, q3x::runtime::bf16_greedy_argmax_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  cudaFuncAttributes finalize_attributes{};
+  status = cudaFuncGetAttributes(
+      &finalize_attributes,
+      q3x::runtime::bf16_greedy_argmax_finalize_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int partial_active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &partial_active_blocks, q3x::runtime::bf16_greedy_argmax_kernel,
+      static_cast<int>(kFixedThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int finalize_active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &finalize_active_blocks,
+      q3x::runtime::bf16_greedy_argmax_finalize_kernel,
+      static_cast<int>(kGreedyFinalizeThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  resources->identity = kGreedyArgmaxM1ResourceIdentity;
+  resources->device_ordinal = device;
+  resources->compute_major = properties.major;
+  resources->compute_minor = properties.minor;
+  resources->sm_count = properties.multiProcessorCount;
+  resources->partial = fixed_kernel_resource(
+      partial_attributes, partial_active_blocks,
+      static_cast<int>(kFixedThreads),
+      static_cast<int>(kGreedyPartialBlocks));
+  resources->finalize = fixed_kernel_resource(
+      finalize_attributes, finalize_active_blocks,
+      static_cast<int>(kGreedyFinalizeThreads), 1);
+  resources->exact_geometry = true;
+  resources->static_resource_gate_passed = true;
+  resources->static_resource_gate_passed = greedy_resource_gate(*resources);
+  return resources->static_resource_gate_passed
+             ? static_cast<int>(cudaSuccess)
+             : static_cast<int>(cudaErrorLaunchOutOfResources);
+}
+
+int enqueue_embedding_c8000_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4EmbeddingC8000Arguments& arguments,
+    const Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot& resources,
+    Sm87MacroFeedV4FixedSubmitLedger* const submit_ledger) noexcept {
+  if (submit_ledger == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *submit_ledger = {};
+  if (!embedding_arguments_valid(arguments, token.cuda_stream_)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if (!embedding_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  const cudaError_t prior_status = cudaPeekAtLastError();
+  if (prior_status != cudaSuccess) {
+    return static_cast<int>(prior_status);
+  }
+  q3x::runtime::embedding_gather_prompt_kernel<<<
+      static_cast<unsigned int>(kSm87MacroFeedV4EmbeddingTokenCount),
+      kFixedThreads, 0U,
+      reinterpret_cast<cudaStream_t>(token.cuda_stream_)>>>(
+      arguments.embedding_table, kSm87MacroFeedV4EmbeddingVocabulary,
+      kSm87MacroFeedV4Hidden, arguments.token_ids,
+      arguments.hidden_output);
+  const cudaError_t launch_status = cudaPeekAtLastError();
+  if (launch_status != cudaSuccess) {
+    return static_cast<int>(launch_status);
+  }
+  submit_ledger->accepted_kernel_launches = 1U;
+  return static_cast<int>(cudaSuccess);
+}
+
+int enqueue_final_norm_m1_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4FinalNormM1Arguments& arguments,
+    const Sm87MacroFeedV4FinalNormM1ResourceSnapshot& resources,
+    Sm87MacroFeedV4FixedSubmitLedger* const submit_ledger) noexcept {
+  if (submit_ledger == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *submit_ledger = {};
+  if (!final_norm_arguments_valid(arguments, token.cuda_stream_)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if (!final_norm_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  const cudaError_t prior_status = cudaPeekAtLastError();
+  if (prior_status != cudaSuccess) {
+    return static_cast<int>(prior_status);
+  }
+  float epsilon = 0.0F;
+  const std::uint32_t epsilon_bits =
+      kSm87MacroFeedV4FinalNormEpsilonFp32Bits;
+  std::memcpy(&epsilon, &epsilon_bits, sizeof(epsilon));
+  q3x::runtime::rms_norm_kernel<true>
+      <<<1U, kFixedThreads, 0U,
+         reinterpret_cast<cudaStream_t>(token.cuda_stream_)>>>(
+          arguments.hidden_input, arguments.centered_weight,
+          kSm87MacroFeedV4Hidden, epsilon, arguments.normalized_output);
+  const cudaError_t launch_status = cudaPeekAtLastError();
+  if (launch_status != cudaSuccess) {
+    return static_cast<int>(launch_status);
+  }
+  submit_ledger->accepted_kernel_launches = 1U;
+  return static_cast<int>(cudaSuccess);
+}
+
+int enqueue_greedy_argmax_m1_prevalidated(
+    const Sm87MacroFeedV4LockedSubmitToken& token,
+    const Sm87MacroFeedV4GreedyArgmaxM1Arguments& arguments,
+    const Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot& resources,
+    Sm87MacroFeedV4FixedSubmitLedger* const submit_ledger) noexcept {
+  if (submit_ledger == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *submit_ledger = {};
+  if (!greedy_arguments_valid(arguments, token.cuda_stream_)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if (!greedy_resource_gate(resources)) {
+    return static_cast<int>(cudaErrorLaunchOutOfResources);
+  }
+  const cudaError_t prior_status = cudaPeekAtLastError();
+  if (prior_status != cudaSuccess) {
+    return static_cast<int>(prior_status);
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(token.cuda_stream_);
+  q3x::runtime::bf16_greedy_argmax_kernel<<<
+      kGreedyPartialBlocks, kFixedThreads, 0U, stream>>>(
+      arguments.logits, kSm87MacroFeedV4Vocabulary,
+      arguments.result_workspace);
+  cudaError_t launch_status = cudaPeekAtLastError();
+  if (launch_status != cudaSuccess) {
+    return static_cast<int>(launch_status);
+  }
+  submit_ledger->accepted_kernel_launches = 1U;
+  q3x::runtime::bf16_greedy_argmax_finalize_kernel<<<
+      1U, kGreedyFinalizeThreads, 0U, stream>>>(
+      arguments.logits, arguments.result_workspace,
+      arguments.result_workspace + kGreedyPartialBlocks);
+  launch_status = cudaPeekAtLastError();
+  if (launch_status != cudaSuccess) {
+    return static_cast<int>(launch_status);
+  }
+  submit_ledger->accepted_kernel_launches = 2U;
+  return static_cast<int>(cudaSuccess);
+}
 #endif
 
 }  // namespace sm87_macrofeed_v4_bound_launch_detail

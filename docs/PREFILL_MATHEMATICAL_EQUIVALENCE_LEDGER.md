@@ -361,6 +361,77 @@ placed inside a larger projection/Attention/GDN residency design, but it is
 not an independent production candidate or a reason to start another local
 parameter scan.
 
+### 4.5 Fixed request-boundary equations and phase endpoint
+
+For the admitted token domain `0 <= token_id < 248320`, one C8000 Embedding
+panel is a bit-preserving BF16 row gather, not an arithmetic rewrite. For
+panel `p`, local row `t`, hidden column `h`, and authenticated Embedding table
+`E`:
+
+```text
+X[p * 8000 + t, h] = E[token_id[p * 8000 + t], h]
+```
+
+Every one of the five panels must cover its exact absolute token range once.
+The normal request admission must reject an out-of-domain token before the
+gather; an unwritten row is not a legal substitute. Changing the table,
+tokenizer identity, row order, BF16 payload bits, or panel-to-absolute-token
+mapping changes the request function.
+
+For ordinary one-token generation, let `r[h]` be the live final hidden row,
+`c[h]` the centered final-norm weight, `H=5120`, and let
+`epsilon` have exact FP32 bits `0x358637bd`. The fixed centered RMSNorm M1
+boundary is:
+
+```text
+s        = Acc_fp32^H(float(r[h]) * float(r[h]))
+inv_rms  = rsqrtf(s / float(H) + epsilon)
+z[h]     = R_bf16((float(r[h]) * inv_rms) * (float(c[h]) + 1.0f))
+```
+
+`Acc_fp32^H` names the established 256-thread accumulation and shared-memory
+reduction tree. The fixed final-row route may execute in place, but a shifted
+partial alias is not equivalent. No earlier final-layer row becomes live by
+materializing this M1 boundary.
+
+For vocabulary row `n`, the exact NVFP4 LM-head M1 boundary consumes `z`, the
+authenticated packed E2M1 codes and E4M3FN block scales, and one weight-side
+scale `weight_scale_2`:
+
+```text
+logit_bf16[n]
+  = R_bf16(
+      Acc_fp32^H(
+        float(z[k]) * D4(Q_lm[n,k], S_lm[n,floor(k/16)])
+      ) * weight_scale_2
+    )
+```
+
+The implementation must retain the established activation-staged K order,
+row/warp reduction parents, special-value behavior, and BF16 publication for
+all 248,320 rows. This boundary has no input-scale term; adding one or moving
+the weight-side scale changes the function.
+
+Greedy selection over those BF16 logits is a deterministic two-level
+reduction. It ignores nonfinite values for maximum selection, OR-reduces a
+separate `has_nonfinite` observation, selects the greatest finite BF16 value,
+and selects the smallest vocabulary index on an exact-value tie. The admitted
+physical form is one 32-CTA partial kernel followed by one 32-thread final
+kernel. Sampling, MTP, approximate top-k, or a different tie/nonfinite rule is
+not this boundary.
+
+These equations define arithmetic obligations; the presently exercised
+Synthetic-T1 leaves do not establish a normal owner binding or whole-request
+equivalence. `FinalRepresentationReady` names only a diagnostic computation
+endpoint and has no state-publication authority. Normative pure Prefill ends
+at the atomic canonical RequestState publication, `PrefillStateCommitted`.
+LM-head and argmax may overlap after the final-row dependency becomes ready,
+but a qualified pure-Prefill interval must be bracketed by independent
+timing-enabled Control events on the canonical publication path and must
+exclude those finalizer kernels. A representation-ready timestamp, a
+finalizer-completion timestamp, or duration subtraction cannot replace that
+contiguous phase boundary.
+
 ## 5. Quantitative P40 arithmetic ledger
 
 The figures below count conventional operations as two operations per MAC.
@@ -719,6 +790,19 @@ tree into an exact route.
 | `status` | `real-equivalent-only`; this is not numerical qualification or production eligibility. |
 | `target_effect` | Preserve the locked P40 ceiling of 9.302326 seconds (4,300 prompt tok/s starting line), then exceed the matched general engine; no local result may lower it. |
 
+The V4 boundary-leaf addendum does not change that status. Fixed/private
+prevalidated C8000 Embedding, final-row centered RMSNorm M1, exact
+activation-staged NVFP4 LM-head M1, and two-kernel BF16 greedy seams now
+exist. Their separate Synthetic-T1 CUDA fixture covers fixed SM87 resources,
+stale-error and alias rejection, exact sampled BF16 Embedding rows,
+centered-norm output, one exact scale-only LM-head result, unique/earliest-tie
+greedy selection, and nonfinite reporting. It enqueues one Embedding kernel,
+one final-norm kernel, one LM-head kernel, and two greedy kernels across its
+independent test cases; it is not a normal request transaction. No normal
+Startup/Execution catalog, owner, or receipt binds those seams, so this
+addendum has no whole-panel/request, real-weight, real-checkpoint numerical,
+API, performance, release, or production authority.
+
 Both normal composer success boundaries are enqueue plus RequestState grant
 commit only: neither drains, publishes private KV/recurrent or canonical
 state, or attests device, panel, model, API, numerical, performance, release,
@@ -735,11 +819,15 @@ request/panel, complete KV/RoPE and one normal combined drain/discard, while
 publishing nothing. Its minimum failure preserves 27/3 and poison-invalidates
 the pending Full grant. The owner-only panel-commit and atomic cold rearm/
 panel-0 lifecycle are now implemented at a seeded-ledger state-machine
-boundary. The next P0 is construction-sealed Embedding/final-norm/exact-
-LM-head-M1 request boundaries, the fixed 64-layer/five-panel package
-transaction and rollback, final `B -> A`/`FinalPublish`/sequence fence plus
-successful-request reuse, and proportional real-checkpoint gates;
-no synthetic timing or normal-prefix probe precedes that composition.
+boundary. The next P0 is normal owner catalog/binding of the already-existing
+fixed Embedding/final-norm/exact-LM-head-M1/two-kernel-greedy leaves, the fixed
+64-layer/five-panel package transaction and rollback, final
+`B -> A`/`FinalPublish`/sequence fence plus successful-request reuse, and
+independent timing-enabled Control events that end pure Prefill at canonical
+`PrefillStateCommitted` while excluding LM-head/argmax. Proportional
+real-checkpoint gates follow; no synthetic timing or normal-prefix probe
+precedes that composition. `FinalRepresentationReady` remains a diagnostic
+computation endpoint and cannot authorize or time state publication.
 
 The single scratch plane cannot hold the incumbent raw-Q/gate, processed-Q,
 and pre-gate/Attention-output owners concurrently. V4 therefore requires an

@@ -893,23 +893,52 @@ and three copies and invalidates the pending Full grant under poison. The
 normal GDN and Full package paths still have no runtime-positive invocation,
 and the Engine real-asset root remains source/build evidence only.
 
+The current boundary slice also contains four fixed, source-private,
+construction-prevalidated launch seams: exact BF16 row-gather Embedding for
+one C8000 panel; centered RMSNorm M1 intended for the final hidden row; the
+existing exact activation-staged NVFP4 LM-head M1 leaf, which publishes
+248,320 BF16 logits while applying only its authenticated weight-side scale;
+and deterministic BF16 greedy argmax as one 32-CTA partial kernel plus one
+single-warp final kernel. A BUILD_TESTING-only Synthetic-T1 fixture exercises
+their fixed SM87 resource gates, alias/error rejection, BF16 Embedding and
+normalization results, the LM-head scale-only result, and greedy unique-max,
+earliest-tie, and nonfinite-reporting behavior. This is constituent synthetic
+correctness and resource evidence only.
+
+Those four seams are not wired into the normal Startup or Execution owner:
+there is no construction-sealed normal catalog/binding for their assets,
+resources, arguments, or submission order, and no normal request invokes
+them. The request entrance and one-token exit are therefore not package-bound.
+The slice has no physical 64-layer-by-five-panel witness, real-weight or
+real-checkpoint numerical result, whole-model receipt, API result, performance
+result, release authority, or production authority.
+
 The owner-only Events-to-RequestState panel-commit bridge and atomic cold
 rearm/panel-0 admission are now implemented at their narrow lifecycle
-boundary. The next P0 is therefore construction-sealed Embedding, final norm,
-and exact LM-head-M1 input/output, followed directly by the package-owned fixed
-64-natural-layer by five-panel loop and failure rollback—not another synthetic
-timing cell or normal-prefix probe. The request loop is followed by the exact
-final epoch-five `B -> A` canonical copy, `FinalPublish`, and logical sequence fence,
-with proportional pinned-real-checkpoint lifetime and numerical gates. The
-request entry/one-token exit are not implied by that loop: Embedding, final
-norm, and the exact LM-head-M1 input/output bindings are still missing and must
-be construction-sealed before the package can claim a complete request. Until
-those boundaries close, the joined T1 result remains synthetic-only and the
-v10 observation at 392.804397 prompt tok/s remains the current whole-product
+boundary. The next P0 is therefore to construction-seal the already-existing
+fixed Embedding, final-norm-M1, exact NVFP4 LM-head-M1, and two-kernel greedy
+leaves into normal Startup/Execution owner catalogs, then execute them around
+the package-owned fixed 64-natural-layer by five-panel loop with complete
+failure rollback—not another synthetic timing cell or normal-prefix probe. The
+request loop is followed by the exact final epoch-five `B -> A` canonical
+copy, `FinalPublish`, and logical sequence fence, with proportional pinned-
+real-checkpoint lifetime and numerical gates.
+
+`FinalRepresentationReady` is only the diagnostic endpoint of final hidden-
+representation computation. It is neither canonical state publication nor
+the normative pure-Prefill stop. Pure Prefill still ends only when the complete
+KV/recurrent/convolution/position/final-representation handoff is atomically
+published to RequestState at `PrefillStateCommitted`. LM-head and argmax may be
+scheduled to overlap after their final-row input becomes ready, but a qualified
+pure-Prefill interval must use independent timing-enabled Control events around
+that normative state-publication boundary and exclude LM-head/argmax; neither
+`FinalRepresentationReady` nor duration subtraction may manufacture the
+phase. Until the normal bindings, 64-by-five loop, publication writer, and
+real gates close, the boundary T1 remains synthetic-only and the v10
+observation at 392.804397 prompt tok/s remains the current whole-product
 incumbent. cuBLASLt remains reference-only and cannot fill any missing binding
 or runtime route.
-The V4 boundary remains exact and non-MTP; cuBLASLt is reference-only and has
-no production-path eligibility.
+The V4 boundary remains exact and non-MTP.
 
 ## 2. Current capability matrix
 
@@ -925,7 +954,7 @@ no production-path eligibility.
 | SM87 whole-system AOT Prefill v1 | Default-off real-P40 API composition; performance-rejected after a zero-byte 840.000399-second timeout | Retain only as correctness/diagnostic control; it is not an active performance candidate |
 | SM87 bulk-dataflow v2 Prefill | Complete default-off real-P40 API route; performance-rejected after a zero-byte 680.73-second EvalScope timeout and one bounded causal profile; accuracy remains unqualified | Retain exact constituents and evidence only; no V2 tuning, P60/P130, qualification, or production promotion |
 | SM87 MacroFeed v3 Prefill | Complete default-off, test-only 64-layer source composition with startup-bound target-AOT assets, role-specific macro projections, nine-kernel-per-layer exact GDN, cold rollback, and a V18 physical transaction; integrated build and focused admission tests pass | Frozen executable diagnostic/control; no authoritative P40 timing, numerical, release, or production qualification exists |
-| SM87 MacroFeed v4 Prefill | Active, default-off C8000×5 panel-major foundation: Full Events strictly separates normal and Synthetic-T1 authority and uses direct O(1) `panel * 16 + ordinal` replay slots; the normal Full outer receipt binds every identity but has no runtime-positive invocation. One same-request/panel Synthetic-T1 fixture physically executes `GDN0 -> GDN1 -> GDN2 -> Full3` with complete KV/RoPE as 35 kernels plus three 61,440-byte copies, followed by one normal combined drain/discard and no publication. Owner-atomic runtime rearm now performs the exact 156,893,184-byte Main zero and creates fresh epoch/panel 0 together without heap allocation; exact-ledger `PanelDone` directly commits RequestState with no host wait, healthy discard can rearm, poison cannot, and final private discard publishes nothing. The panel-close fixture seeds rather than physically executes the 560-kernel ledger | Construction-seal Embedding, final norm and exact LM-head-M1 input/output; then add the fixed package 64-layer × 5-panel loop and rollback, final `B -> A`/`FinalPublish`/sequence fence (including successful-request reuse), and proportional real-checkpoint lifetime/numerical gates before the API. This row has synthetic correctness/dependency/lifecycle authority only; normal runtime-positive whole panel/request, real checkpoint, numerical, API, performance, release, and production authority remain absent |
+| SM87 MacroFeed v4 Prefill | Active, default-off C8000×5 panel-major foundation: Full Events strictly separates normal and Synthetic-T1 authority and uses direct O(1) `panel * 16 + ordinal` replay slots; the normal Full outer receipt binds every identity but has no runtime-positive invocation. One same-request/panel Synthetic-T1 fixture physically executes `GDN0 -> GDN1 -> GDN2 -> Full3` with complete KV/RoPE as 35 kernels plus three 61,440-byte copies, followed by one normal combined drain/discard and no publication. Owner-atomic runtime rearm performs the exact 156,893,184-byte Main zero and creates fresh epoch/panel 0 together without heap allocation; exact-ledger `PanelDone` directly commits RequestState with no host wait, healthy discard can rearm, poison cannot, and final private discard publishes nothing. Four additional fixed/private prevalidated leaves—C8000 Embedding, final-row centered RMSNorm M1, exact NVFP4 LM-head M1, and two-kernel BF16 greedy argmax—pass a Synthetic-T1 CUDA fixture only; they are not normal owner bindings or package-bound request edges. The panel-close fixture seeds rather than physically executes the 560-kernel ledger | Construction-seal those four existing leaves into normal Startup/Execution catalogs; then add the fixed package 64-layer × 5-panel loop and rollback, final `B -> A`/`FinalPublish`/sequence fence (including successful-request reuse), and independent timing-enabled Control events that stop pure Prefill at canonical `PrefillStateCommitted` while excluding any overlapped LM-head/argmax work. Proportional real-checkpoint lifetime/numerical gates precede the API. This row has synthetic correctness/dependency/lifecycle authority only; normal runtime-positive whole panel/request, real checkpoint/weight, numerical, API, performance, release, and production authority remain absent |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
