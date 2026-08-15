@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <new>
 #include <tuple>
@@ -17,6 +18,124 @@
 #include <cuda_runtime_api.h>
 #endif
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_FP8_ADMISSION)
+namespace q3x::runtime::target_aot_complete_execution_detail {
+namespace {
+
+[[nodiscard]] std::uint64_t request_boundary_resident_root_identity(
+    const ModelWeights* const model_weights,
+    const ResidentWeights* const resident, const std::uint64_t owner_identity,
+    const std::uint64_t allocation_identity,
+    const std::uint64_t device_identity, const std::int32_t device_ordinal,
+    const std::uintptr_t arena_begin, const std::uint64_t arena_bytes,
+    const bool host_test_authority,
+    const std::uint64_t issuer_nonce) noexcept {
+  if (model_weights == nullptr || resident == nullptr || owner_identity == 0U ||
+      allocation_identity == 0U || device_identity == 0U ||
+      device_ordinal < 0 || arena_begin == 0U || arena_bytes == 0U ||
+      arena_bytes >
+          std::numeric_limits<std::uintptr_t>::max() - arena_begin ||
+      (host_test_authority ? issuer_nonce == 0U
+                           : issuer_nonce != 0U ||
+                                 arena_bytes !=
+                                     kPinnedQwen36_27BArenaBytes)) {
+    return 0U;
+  }
+  auto mix = [](std::uint64_t value, const std::uint64_t input) noexcept {
+    value ^= input + 0x9e37'79b9'7f4a'7c15ULL + (value << 6U) +
+             (value >> 2U);
+    return value;
+  };
+  std::uint64_t identity = host_test_authority
+                               ? 0x5133'5854'4553'5452ULL
+                               : 0x5133'5852'4553'524fULL;
+  identity = mix(identity, reinterpret_cast<std::uintptr_t>(model_weights));
+  identity = mix(identity, owner_identity);
+  identity = mix(identity, allocation_identity);
+  identity = mix(identity, device_identity);
+  identity = mix(identity, static_cast<std::uint64_t>(device_ordinal + 1));
+  identity = mix(identity, reinterpret_cast<std::uintptr_t>(resident));
+  identity = mix(identity, arena_begin);
+  identity = mix(identity, arena_bytes);
+  identity = mix(identity, issuer_nonce);
+  return identity;
+}
+
+}  // namespace
+
+std::optional<Sm87TargetAotCompleteProjectionExecutionAccess>
+Sm87TargetAotCompleteProjectionExecutionAccess::
+    bind_request_boundary_startup(const ModelWeights& model_weights) noexcept {
+  auto projection = bind(model_weights);
+  if (!projection) {
+    return std::nullopt;
+  }
+  const ResidentWeights* const resident = projection->owner_->prepared_resident_;
+  if (resident == nullptr || !*resident || resident->arena_data() == nullptr ||
+      resident->size_bytes() != kPinnedQwen36_27BArenaBytes) {
+    return std::nullopt;
+  }
+  const std::uintptr_t resident_arena_begin =
+      reinterpret_cast<std::uintptr_t>(resident->arena_data());
+  const std::uint64_t resident_root_identity =
+      request_boundary_resident_root_identity(
+          &model_weights, resident, projection->owner_identity_,
+          projection->allocation_identity_, projection->device_identity_,
+          projection->device_ordinal_, resident_arena_begin,
+          resident->size_bytes(), false, 0U);
+  if (resident_root_identity == 0U) {
+    return std::nullopt;
+  }
+  projection->resident_root_ = resident;
+  projection->resident_root_identity_ = resident_root_identity;
+  projection->resident_arena_begin_ = resident_arena_begin;
+  projection->resident_arena_bytes_ = resident->size_bytes();
+  projection->host_test_resident_authority_ = false;
+  projection->host_test_issuer_nonce_ = 0U;
+  return projection;
+}
+
+bool Sm87TargetAotCompleteProjectionExecutionAccess::resident_root_matches()
+    const noexcept {
+  if (model_weights_ == nullptr || owner_ == nullptr ||
+      owner_->prepared_model_weights_ != model_weights_ ||
+      owner_->prepared_resident_ != resident_root_ ||
+      resident_root_identity_ == 0U || resident_arena_begin_ == 0U ||
+      resident_arena_bytes_ == 0U) {
+    return false;
+  }
+  if (host_test_resident_authority_) {
+    return host_test_issuer_nonce_ == kHostTestResidentIssuerNonce &&
+           resident_root_identity_ == request_boundary_resident_root_identity(
+                                          model_weights_, resident_root_,
+                                          owner_identity_,
+                                          allocation_identity_,
+                                          device_identity_, device_ordinal_,
+                                          resident_arena_begin_,
+                                          resident_arena_bytes_, true,
+                                          host_test_issuer_nonce_);
+  }
+  if (host_test_issuer_nonce_ != 0U || resident_root_ == nullptr ||
+      !*resident_root_ || resident_root_->arena_data() == nullptr ||
+      reinterpret_cast<std::uintptr_t>(resident_root_->arena_data()) !=
+          resident_arena_begin_ ||
+      resident_root_->size_bytes() != resident_arena_bytes_) {
+    return false;
+  }
+  return resident_root_identity_ == request_boundary_resident_root_identity(
+                                        model_weights_, resident_root_,
+                                        owner_identity_, allocation_identity_,
+                                        device_identity_, device_ordinal_,
+                                        resident_arena_begin_,
+                                        resident_arena_bytes_, false, 0U);
+}
+
+}  // namespace q3x::runtime::target_aot_complete_execution_detail
+#endif
+
 namespace q3x::runtime::sm87_macrofeed_v4_p40_startup_package_detail {
 namespace {
 
@@ -26,6 +145,7 @@ using Error = Sm87MacroFeedV4P40StartupPackageError;
 using Status = Sm87MacroFeedV4P40StartupPackageStatus;
 using Package = Sm87MacroFeedV4P40StartupPackage;
 using CreateResult = Sm87MacroFeedV4P40StartupPackageCreateResult;
+namespace Bound = kernels::sm87_macrofeed_v4_bound_launch_detail;
 
 inline constexpr std::uint64_t kGateUpSealIssuerNonce =
     0x5133'4d46'5634'474eULL;
@@ -39,6 +159,16 @@ inline constexpr std::uint64_t kGdnQkvZSealIssuerNonce =
     0x5133'4d46'5634'4653ULL;
 inline constexpr std::uint64_t kFullAttentionSealIssuerNonce =
     0x5133'4d46'5634'4641ULL;
+inline constexpr std::uint64_t kRequestBoundarySealIssuerNonce =
+    0x5133'4d46'5634'5242ULL;
+inline constexpr std::uint64_t kEmbeddingC8000ResourceIdentity =
+    0x7634'656d'6263'3830ULL;
+inline constexpr std::uint64_t kFinalNormM1ResourceIdentity =
+    0x7634'666e'6d31'3531ULL;
+inline constexpr std::uint64_t kGreedyArgmaxM1ResourceIdentity =
+    0x7634'6172'6731'3234ULL;
+inline constexpr std::uint64_t kLmHeadM1ResourceIdentity =
+    0x7634'6c6d'6831'3234ULL;
 inline constexpr Role kGdnQkvZRole = Role::kFp8GdnQkvZ;
 inline constexpr kernels::Sm87MacroFeedV4Fp8InputLayout
     kGdnQkvZInputLayout = kernels::Sm87MacroFeedV4Fp8InputLayout::
@@ -98,6 +228,39 @@ struct GdnContinuationSource final {
 
 [[nodiscard]] constexpr std::uint64_t mix(
     std::uint64_t hash, std::uint64_t value) noexcept;
+
+[[nodiscard]] std::uint32_t fp32_bits(const float value) noexcept {
+  std::uint32_t bits = 0U;
+  static_assert(sizeof(bits) == sizeof(value));
+  std::memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+struct RequestBoundaryT0Range final {
+  std::uintptr_t begin = 0U;
+  std::uintptr_t end = 0U;
+};
+
+[[nodiscard]] bool request_boundary_t0_range(
+    const void* const pointer, const std::uint64_t bytes,
+    RequestBoundaryT0Range* const range) noexcept {
+  if (pointer == nullptr || bytes == 0U || range == nullptr) {
+    return false;
+  }
+  const std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(pointer);
+  if (begin % 16U != 0U ||
+      bytes > std::numeric_limits<std::uintptr_t>::max() - begin) {
+    return false;
+  }
+  *range = {begin, begin + static_cast<std::uintptr_t>(bytes)};
+  return range->end > range->begin;
+}
+
+[[nodiscard]] constexpr bool request_boundary_ranges_disjoint(
+    const RequestBoundaryT0Range& left,
+    const RequestBoundaryT0Range& right) noexcept {
+  return left.end <= right.begin || right.end <= left.begin;
+}
 
 [[nodiscard]] bool exact_gdn_continuation_source(
     const ModelWeights& model_weights, const std::size_t model_layer,
@@ -859,12 +1022,165 @@ template <typename UploadReceipt>
   return identity;
 }
 
+[[nodiscard]] constexpr bool request_boundary_fixed_resource_gate(
+    const Bound::Sm87MacroFeedV4FixedKernelResource& resource,
+    const std::size_t static_shared_bytes, const std::int32_t threads,
+    const std::int32_t grid_ctas, const std::int32_t minimum_active_blocks,
+    const std::int32_t exact_registers = 0,
+    const std::int32_t exact_maximum_threads = 0,
+    const std::int32_t exact_active_blocks = 0) noexcept {
+  return resource.registers_per_thread > 0 &&
+         (exact_registers == 0 ||
+          resource.registers_per_thread == exact_registers) &&
+         resource.static_shared_bytes == static_shared_bytes &&
+         resource.local_bytes == 0U &&
+         resource.maximum_threads_per_block >= threads &&
+         (exact_maximum_threads == 0 ||
+          resource.maximum_threads_per_block == exact_maximum_threads) &&
+         resource.active_blocks_per_sm >= minimum_active_blocks &&
+         (exact_active_blocks == 0 ||
+          resource.active_blocks_per_sm == exact_active_blocks) &&
+         resource.binary_version == 87 && resource.threads == threads &&
+         resource.grid_ctas == grid_ctas;
+}
+
+[[nodiscard]] constexpr bool request_boundary_common_resource_gate(
+    const std::uint64_t identity, const std::uint64_t expected_identity,
+    const std::int32_t device_ordinal, const std::int32_t compute_major,
+    const std::int32_t compute_minor, const std::int32_t sm_count,
+    const bool exact_geometry,
+    const bool static_resource_gate_passed) noexcept {
+  return identity == expected_identity && device_ordinal >= 0 &&
+         compute_major == 8 && compute_minor == 7 && sm_count == 16 &&
+         exact_geometry && static_resource_gate_passed;
+}
+
+[[nodiscard]] constexpr bool request_boundary_embedding_resource_gate(
+    const Bound::Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot& resources)
+    noexcept {
+  return request_boundary_common_resource_gate(
+             resources.identity, kEmbeddingC8000ResourceIdentity,
+             resources.device_ordinal, resources.compute_major,
+             resources.compute_minor, resources.sm_count,
+             resources.exact_geometry, resources.static_resource_gate_passed) &&
+         request_boundary_fixed_resource_gate(
+             resources.gather, 0U, 256, 8'000, 1);
+}
+
+[[nodiscard]] constexpr bool request_boundary_final_norm_resource_gate(
+    const Bound::Sm87MacroFeedV4FinalNormM1ResourceSnapshot& resources)
+    noexcept {
+  return request_boundary_common_resource_gate(
+             resources.identity, kFinalNormM1ResourceIdentity,
+             resources.device_ordinal, resources.compute_major,
+             resources.compute_minor, resources.sm_count,
+             resources.exact_geometry, resources.static_resource_gate_passed) &&
+         request_boundary_fixed_resource_gate(
+             resources.centered_rms_norm, 1'024U, 256, 1, 1);
+}
+
+[[nodiscard]] constexpr bool request_boundary_lm_head_resource_gate(
+    const Bound::Sm87MacroFeedV4LmHeadM1ResourceSnapshot& resources)
+    noexcept {
+  return request_boundary_common_resource_gate(
+             resources.identity, kLmHeadM1ResourceIdentity,
+             resources.device_ordinal, resources.compute_major,
+             resources.compute_minor, resources.sm_count,
+             resources.exact_geometry, resources.static_resource_gate_passed) &&
+         request_boundary_fixed_resource_gate(
+             resources.activation_staged, 11'328U, 256, 64, 4, 64, 256, 4);
+}
+
+[[nodiscard]] constexpr bool request_boundary_greedy_resource_gate(
+    const Bound::Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot& resources)
+    noexcept {
+  return request_boundary_common_resource_gate(
+             resources.identity, kGreedyArgmaxM1ResourceIdentity,
+             resources.device_ordinal, resources.compute_major,
+             resources.compute_minor, resources.sm_count,
+             resources.exact_geometry, resources.static_resource_gate_passed) &&
+         request_boundary_fixed_resource_gate(
+             resources.partial, 3'072U, 256, 32, 1) &&
+         request_boundary_fixed_resource_gate(
+             resources.finalize, 0U, 32, 1, 1);
+}
+
+[[nodiscard]] std::uint64_t mix_request_boundary_fixed_resource(
+    std::uint64_t identity,
+    const Bound::Sm87MacroFeedV4FixedKernelResource& resource) noexcept {
+  identity = mix(
+      identity, static_cast<std::uint64_t>(resource.registers_per_thread));
+  identity = mix(identity, resource.static_shared_bytes);
+  identity = mix(identity, resource.local_bytes);
+  identity = mix(
+      identity,
+      static_cast<std::uint64_t>(resource.maximum_threads_per_block));
+  identity = mix(
+      identity, static_cast<std::uint64_t>(resource.active_blocks_per_sm));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(resource.binary_version));
+  identity = mix(identity, static_cast<std::uint64_t>(resource.threads));
+  identity = mix(identity, static_cast<std::uint64_t>(resource.grid_ctas));
+  return identity;
+}
+
+template <typename Snapshot>
+[[nodiscard]] std::uint64_t mix_request_boundary_snapshot_common(
+    std::uint64_t identity, const Snapshot& resources) noexcept {
+  identity = mix(identity, resources.identity);
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(resources.device_ordinal + 1));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(resources.compute_major));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(resources.compute_minor));
+  identity = mix(identity, static_cast<std::uint64_t>(resources.sm_count));
+  identity = mix(identity, resources.exact_geometry);
+  identity = mix(identity, resources.static_resource_gate_passed);
+  return identity;
+}
+
+[[nodiscard]] std::uint64_t mix_request_boundary_embedding_resource(
+    std::uint64_t identity,
+    const Bound::Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot& resources)
+    noexcept {
+  identity = mix_request_boundary_snapshot_common(identity, resources);
+  return mix_request_boundary_fixed_resource(identity, resources.gather);
+}
+
+[[nodiscard]] std::uint64_t mix_request_boundary_final_norm_resource(
+    std::uint64_t identity,
+    const Bound::Sm87MacroFeedV4FinalNormM1ResourceSnapshot& resources)
+    noexcept {
+  identity = mix_request_boundary_snapshot_common(identity, resources);
+  return mix_request_boundary_fixed_resource(identity,
+                                             resources.centered_rms_norm);
+}
+
+[[nodiscard]] std::uint64_t mix_request_boundary_lm_head_resource(
+    std::uint64_t identity,
+    const Bound::Sm87MacroFeedV4LmHeadM1ResourceSnapshot& resources)
+    noexcept {
+  identity = mix_request_boundary_snapshot_common(identity, resources);
+  return mix_request_boundary_fixed_resource(identity,
+                                             resources.activation_staged);
+}
+
+[[nodiscard]] std::uint64_t mix_request_boundary_greedy_resource(
+    std::uint64_t identity,
+    const Bound::Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot& resources)
+    noexcept {
+  identity = mix_request_boundary_snapshot_common(identity, resources);
+  identity = mix_request_boundary_fixed_resource(identity, resources.partial);
+  return mix_request_boundary_fixed_resource(identity, resources.finalize);
+}
+
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_MACROFEED_V4_FP8_ADMISSION)
 [[nodiscard]] bool live_current_device_allocation_range(
-    const std::uint16_t* const pointer, const std::uint64_t bytes,
+    const void* const pointer, const std::uint64_t bytes,
     const std::int32_t expected_device, int* const cuda_error,
     const std::uintptr_t expected_allocation_begin = 0U,
     const std::uintptr_t expected_allocation_end = 0U,
@@ -882,7 +1198,7 @@ template <typename UploadReceipt>
         expected_allocation_bytes == 0U ||
         expected_allocation_end - expected_allocation_begin !=
             expected_allocation_bytes)) ||
-      !kernels::sm87_macrofeed_v4_bf16_ab_pointer_aligned(pointer)) {
+      reinterpret_cast<std::uintptr_t>(pointer) % 16U != 0U) {
     if (cuda_error != nullptr) {
       *cuda_error = static_cast<int>(cudaErrorInvalidValue);
     }
@@ -900,14 +1216,16 @@ template <typename UploadReceipt>
     return false;
   }
 
-  const auto range =
-      kernels::sm87_macrofeed_v4_bf16_ab_byte_range(pointer, bytes);
-  if (!range.valid || range.end <= range.begin) {
+  const std::uintptr_t range_begin =
+      reinterpret_cast<std::uintptr_t>(pointer);
+  if (bytes > std::numeric_limits<std::uintptr_t>::max() - range_begin) {
     if (cuda_error != nullptr) {
       *cuda_error = static_cast<int>(cudaErrorInvalidValue);
     }
     return false;
   }
+  const kernels::Sm87MacroFeedV4Bf16AbByteRange range{
+      range_begin, range_begin + static_cast<std::uintptr_t>(bytes), true};
 
   cudaPointerAttributes begin_attributes{};
   cudaPointerAttributes end_attributes{};
@@ -977,6 +1295,25 @@ template <typename UploadReceipt>
     return false;
   }
   return true;
+}
+
+[[nodiscard]] bool resident_tensor_view_matches(
+    const ResidentWeights& resident, const std::string_view name,
+    const void* const expected_pointer,
+    const io::safetensors::DType expected_dtype,
+    const std::uint64_t expected_bytes, const std::uint64_t first_dimension,
+    const std::uint64_t second_dimension,
+    const std::size_t expected_rank) noexcept {
+  const DeviceTensorView* const view = resident.find(name);
+  if (view == nullptr || view->device_data != expected_pointer ||
+      view->dtype != expected_dtype || view->byte_size != expected_bytes ||
+      view->shape.size() != expected_rank) {
+    return false;
+  }
+  if (expected_rank >= 1U && view->shape[0U] != first_dimension) {
+    return false;
+  }
+  return expected_rank < 2U || view->shape[1U] == second_dimension;
 }
 #endif
 
@@ -1131,6 +1468,75 @@ template <typename UploadReceipt>
   return identity == 0U ? 0x5133'4d46'4655'4c53ULL : identity;
 }
 
+[[nodiscard]] std::uint64_t request_boundary_source_seal_identity(
+    const Sm87MacroFeedV4RequestBoundaryStartupSeal& seal) noexcept {
+  const bool exact_resident_authority =
+      seal.normal_resident_authority != seal.host_test_resident_authority;
+  if (seal.package_identity == 0U ||
+      seal.deployment_plan_identity == 0U ||
+      seal.source_catalog_identity == 0U ||
+      seal.resident_root_identity == 0U || seal.resident_arena_bytes == 0U ||
+      seal.binding_count !=
+          kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings ||
+      seal.device_ordinal < 0 ||
+      seal.final_norm_epsilon_fp32_bits !=
+          Bound::kSm87MacroFeedV4FinalNormEpsilonFp32Bits ||
+      !kernels::sm87_target_aot_projection_scale_bits_valid(
+          seal.weight_scale_2_fp32_bits) ||
+      !kernels::sm87_target_aot_projection_scale_bits_valid(
+          seal.input_scale_fp32_bits) ||
+      !seal.embedding_exact_bf16_shape ||
+      !seal.final_norm_exact_bf16_shape_and_epsilon ||
+      !seal.lm_head_exact_canonical_nvfp4_shape ||
+      !seal.device_scale_raw_bits_match_host ||
+      !seal.input_scale_provenance_retained || seal.input_scale_consumed ||
+      !seal.greedy_spec_exact || !seal.complete_live_device_ranges ||
+      !seal.observed_resource_execution_seal_deferred ||
+      !seal.final_representation_ready_diagnostic_only ||
+      !seal.pure_prefill_state_committed_endpoint_unchanged ||
+      !exact_resident_authority ||
+      (seal.normal_resident_authority &&
+       seal.resident_arena_bytes != kPinnedQwen36_27BArenaBytes) ||
+      !seal.issued_by_v4_package || seal.caller_resource_snapshot_accepted ||
+      seal.raw_pointer_exposed || seal.launcher_authority ||
+      seal.production_dispatch_eligible) {
+    return 0U;
+  }
+  std::uint64_t identity = 0x5133'4d46'5242'5353ULL;
+  identity = mix(identity, seal.package_identity);
+  identity = mix(identity, seal.deployment_plan_identity);
+  identity = mix(identity, seal.source_catalog_identity);
+  identity = mix(identity, seal.resident_root_identity);
+  identity = mix(identity, seal.resident_arena_bytes);
+  identity = mix(identity, seal.binding_count);
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(seal.device_ordinal + 1));
+  identity = mix(identity, seal.final_norm_epsilon_fp32_bits);
+  identity = mix(identity, seal.weight_scale_2_fp32_bits);
+  identity = mix(identity, seal.input_scale_fp32_bits);
+  identity = mix(identity, seal.embedding_exact_bf16_shape);
+  identity = mix(identity, seal.final_norm_exact_bf16_shape_and_epsilon);
+  identity = mix(identity, seal.lm_head_exact_canonical_nvfp4_shape);
+  identity = mix(identity, seal.device_scale_raw_bits_match_host);
+  identity = mix(identity, seal.input_scale_provenance_retained);
+  identity = mix(identity, seal.input_scale_consumed);
+  identity = mix(identity, seal.greedy_spec_exact);
+  identity = mix(identity, seal.complete_live_device_ranges);
+  identity = mix(identity, seal.observed_resource_execution_seal_deferred);
+  identity = mix(identity,
+                 seal.final_representation_ready_diagnostic_only);
+  identity = mix(identity,
+                 seal.pure_prefill_state_committed_endpoint_unchanged);
+  identity = mix(identity, seal.normal_resident_authority);
+  identity = mix(identity, seal.host_test_resident_authority);
+  identity = mix(identity, seal.issued_by_v4_package);
+  identity = mix(identity, seal.caller_resource_snapshot_accepted);
+  identity = mix(identity, seal.raw_pointer_exposed);
+  identity = mix(identity, seal.launcher_authority);
+  identity = mix(identity, seal.production_dispatch_eligible);
+  return identity == 0U ? 0x5133'4d46'5242'5353ULL : identity;
+}
+
 }  // namespace
 
 Sm87MacroFeedV4Bf16AbT0InventoryAudit
@@ -1219,6 +1625,148 @@ inspect_sm87_macrofeed_v4_bf16_ab_t0_inventory(
   return audit;
 }
 
+Sm87MacroFeedV4RequestBoundaryT0SourceAudit
+inspect_sm87_macrofeed_v4_request_boundary_t0_source(
+    const Sm87MacroFeedV4RequestBoundaryT0SourceDescriptor& source) noexcept {
+  Sm87MacroFeedV4RequestBoundaryT0SourceAudit audit;
+  audit.live_cuda_device_ranges_validated = false;
+  audit.execution_capability = false;
+
+  std::array<RequestBoundaryT0Range, 6U> ranges{};
+  if (source.embedding.output_size != Bound::kSm87MacroFeedV4EmbeddingVocabulary ||
+      source.embedding.input_size != Bound::kSm87MacroFeedV4Hidden ||
+      !request_boundary_t0_range(
+          source.embedding.weight,
+          Bound::kSm87MacroFeedV4EmbeddingTableBytes, &ranges[0U])) {
+    audit.failure_index = 0U;
+    return audit;
+  }
+  audit.embedding_exact_bf16_shape = true;
+  std::uint64_t embedding_identity = 0x5133'4d46'5242'454dULL;
+  embedding_identity = mix(embedding_identity, ranges[0U].begin);
+  embedding_identity = mix(embedding_identity, ranges[0U].end);
+  embedding_identity = mix(embedding_identity, source.embedding.output_size);
+  embedding_identity = mix(embedding_identity, source.embedding.input_size);
+  embedding_identity =
+      mix(embedding_identity, Bound::kSm87MacroFeedV4EmbeddingTableBytes);
+  audit.embedding_identity = embedding_identity;
+
+  if (source.final_norm.element_count != Bound::kSm87MacroFeedV4Hidden ||
+      source.final_norm_epsilon_fp32_bits !=
+          Bound::kSm87MacroFeedV4FinalNormEpsilonFp32Bits ||
+      !request_boundary_t0_range(
+          source.final_norm.data, Bound::kSm87MacroFeedV4FinalNormBytes,
+          &ranges[1U])) {
+    audit.failure_index = 1U;
+    return audit;
+  }
+  audit.final_norm_exact_bf16_shape_and_epsilon = true;
+  std::uint64_t final_norm_identity = 0x5133'4d46'5242'464eULL;
+  final_norm_identity = mix(final_norm_identity, ranges[1U].begin);
+  final_norm_identity = mix(final_norm_identity, ranges[1U].end);
+  final_norm_identity = mix(final_norm_identity, source.final_norm.element_count);
+  final_norm_identity =
+      mix(final_norm_identity, source.final_norm_epsilon_fp32_bits);
+  audit.final_norm_identity = final_norm_identity;
+
+  const auto* const lm_head = std::get_if<NvFp4LinearWeight>(&source.lm_head);
+  if (lm_head == nullptr ||
+      lm_head->output_size != Bound::kSm87MacroFeedV4LmHeadRows ||
+      lm_head->input_size != Bound::kSm87MacroFeedV4LmHeadColumns ||
+      !request_boundary_t0_range(
+          lm_head->packed_weight,
+          Bound::kSm87MacroFeedV4LmHeadPackedWeightBytes, &ranges[2U]) ||
+      !request_boundary_t0_range(
+          lm_head->block_scale,
+          Bound::kSm87MacroFeedV4LmHeadBlockScaleBytes, &ranges[3U]) ||
+      !request_boundary_t0_range(lm_head->weight_scale_2_device,
+                                 sizeof(float), &ranges[4U]) ||
+      !request_boundary_t0_range(lm_head->input_scale_device,
+                                 sizeof(float), &ranges[5U])) {
+    audit.failure_index = 2U;
+    return audit;
+  }
+  audit.lm_head_exact_canonical_nvfp4_shape = true;
+
+  audit.weight_scale_2_fp32_bits = fp32_bits(lm_head->weight_scale_2);
+  if (!kernels::sm87_target_aot_projection_scale_bits_valid(
+          audit.weight_scale_2_fp32_bits)) {
+    audit.weight_scale_2_fp32_bits = 0U;
+    audit.failure_index = 3U;
+    return audit;
+  }
+  audit.input_scale_fp32_bits = fp32_bits(lm_head->input_scale);
+  if (!kernels::sm87_target_aot_projection_scale_bits_valid(
+          audit.input_scale_fp32_bits)) {
+    audit.input_scale_fp32_bits = 0U;
+    audit.failure_index = 4U;
+    return audit;
+  }
+  audit.lm_head_scale_raw_bits_valid = true;
+  audit.input_scale_provenance_retained = true;
+  audit.input_scale_consumed = false;
+
+  if (source.greedy_vocabulary != Bound::kSm87MacroFeedV4Vocabulary ||
+      source.greedy_workspace_results !=
+          Bound::kSm87MacroFeedV4GreedyWorkspaceResults ||
+      !source.greedy_strict_left_to_right_fp32_order ||
+      !source.greedy_smallest_index_tie_break ||
+      !source.greedy_nonfinite_reported_and_ignored) {
+    audit.failure_index = 5U;
+    return audit;
+  }
+  audit.greedy_spec_exact = true;
+
+  for (std::size_t right = 0U; right < ranges.size(); ++right) {
+    for (std::size_t left = 0U; left < right; ++left) {
+      if (!request_boundary_ranges_disjoint(ranges[left], ranges[right])) {
+        audit.failure_index = 5U;
+        return audit;
+      }
+    }
+  }
+  audit.nonnull_16b_aligned_disjoint_ranges = true;
+
+  std::uint64_t lm_head_identity = 0x5133'4d46'5242'4c4dULL;
+  for (std::size_t index = 2U; index < ranges.size(); ++index) {
+    lm_head_identity = mix(lm_head_identity, ranges[index].begin);
+    lm_head_identity = mix(lm_head_identity, ranges[index].end);
+  }
+  lm_head_identity = mix(lm_head_identity, lm_head->output_size);
+  lm_head_identity = mix(lm_head_identity, lm_head->input_size);
+  lm_head_identity = mix(
+      lm_head_identity, Bound::kSm87MacroFeedV4LmHeadPackedWeightBytes);
+  lm_head_identity = mix(
+      lm_head_identity, Bound::kSm87MacroFeedV4LmHeadBlockScaleBytes);
+  lm_head_identity = mix(lm_head_identity, audit.weight_scale_2_fp32_bits);
+  lm_head_identity = mix(lm_head_identity, audit.input_scale_fp32_bits);
+  lm_head_identity = mix(lm_head_identity,
+                         audit.input_scale_provenance_retained);
+  lm_head_identity = mix(lm_head_identity, audit.input_scale_consumed);
+  audit.lm_head_identity = lm_head_identity;
+
+  std::uint64_t greedy_identity = 0x5133'4d46'5242'4752ULL;
+  greedy_identity = mix(greedy_identity, source.greedy_vocabulary);
+  greedy_identity = mix(greedy_identity, source.greedy_workspace_results);
+  greedy_identity = mix(
+      greedy_identity, source.greedy_strict_left_to_right_fp32_order);
+  greedy_identity =
+      mix(greedy_identity, source.greedy_smallest_index_tie_break);
+  greedy_identity =
+      mix(greedy_identity, source.greedy_nonfinite_reported_and_ignored);
+  audit.greedy_identity = greedy_identity;
+
+  std::uint64_t catalog_identity = 0x5133'4d46'5242'5343ULL;
+  catalog_identity = mix(catalog_identity, audit.embedding_identity);
+  catalog_identity = mix(catalog_identity, audit.final_norm_identity);
+  catalog_identity = mix(catalog_identity, audit.lm_head_identity);
+  catalog_identity = mix(catalog_identity, audit.greedy_identity);
+  catalog_identity = mix(catalog_identity, ranges.size());
+  audit.catalog_identity = catalog_identity;
+  audit.failure_index = ranges.size();
+  return audit;
+}
+
 bool Sm87MacroFeedV4GateUpStartupSeal::valid() const noexcept {
   return issuer_nonce_ == kGateUpSealIssuerNonce && seal_identity != 0U &&
          seal_identity == gate_up_seal_identity(*this);
@@ -1243,6 +1791,12 @@ bool Sm87MacroFeedV4FullAttentionStartupSeal::valid() const noexcept {
   return issuer_nonce_ == kFullAttentionSealIssuerNonce &&
          seal_identity != 0U &&
          seal_identity == full_attention_source_seal_identity(*this);
+}
+
+bool Sm87MacroFeedV4RequestBoundaryStartupSeal::valid() const noexcept {
+  return issuer_nonce_ == kRequestBoundarySealIssuerNonce &&
+         seal_identity != 0U &&
+         seal_identity == request_boundary_source_seal_identity(*this);
 }
 
 Sm87MacroFeedV4P40StartupPackage::Bf16AbStartupCapability::
@@ -1319,11 +1873,13 @@ Sm87MacroFeedV4P40StartupPackage::Sm87MacroFeedV4P40StartupPackage(
     std::array<AssetCapability, kSm87MacroFeedV4P40StartupPackageArtifacts>
         capabilities,
     Bf16AbStartupCapability bf16_ab_capability,
+    RequestBoundarySourceCatalog request_boundary_sources,
     Sm87MacroFeedV4PanelWavefrontPlan plan, StartupSeals seals,
     Sm87MacroFeedV4P40StartupPackageAudit audit) noexcept
     : projection_access_(std::move(access)),
       capabilities_(std::move(capabilities)),
       bf16_ab_capability_(std::move(bf16_ab_capability)),
+      request_boundary_sources_(std::move(request_boundary_sources)),
       plan_(std::move(plan)),
       seals_(std::move(seals)),
       audit_(audit) {}
@@ -1355,19 +1911,60 @@ Sm87MacroFeedV4P40StartupPackage::create(
   result.status = failure(Error::kAdmissionDisabled, "admission_disabled");
   return result;
 #else
+  auto access = ProjectionAccess::bind_request_boundary_startup(model_weights);
+  if (!access) {
+    CreateResult result;
+    result.status =
+        failure(Error::kProjectionAccessBind, "projection_access_bind");
+    return result;
+  }
+  return create_from_private_access(model_weights, std::move(*access));
+#endif
+}
+
+Sm87MacroFeedV4P40StartupPackageCreateResult
+Sm87MacroFeedV4P40StartupPackage::create_from_host_test_authority(
+    const ModelWeights& model_weights, ProjectionAccess access) noexcept {
+#if !defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) || \
+    !defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) || \
+    !defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION) || \
+    !defined(Q3X_ENABLE_SM87_MACROFEED_V4_FP8_ADMISSION)
+  (void)model_weights;
+  (void)access;
+  CreateResult result;
+  result.status = failure(Error::kAdmissionDisabled, "admission_disabled");
+  return result;
+#else
+  if (!access.attached() || !access.host_test_resident_authority_ ||
+      access.host_test_issuer_nonce_ !=
+          ProjectionAccess::kHostTestResidentIssuerNonce) {
+    CreateResult result;
+    result.status = failure(Error::kProjectionAccessBind,
+                            "host_test_projection_access_bind");
+    return result;
+  }
+  return create_from_private_access(model_weights, std::move(access));
+#endif
+}
+
+Sm87MacroFeedV4P40StartupPackageCreateResult
+Sm87MacroFeedV4P40StartupPackage::create_from_private_access(
+    const ModelWeights& model_weights, ProjectionAccess access) noexcept {
+#if !defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) || \
+    !defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) || \
+    !defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION) || \
+    !defined(Q3X_ENABLE_SM87_MACROFEED_V4_FP8_ADMISSION)
+  (void)model_weights;
+  (void)access;
+  CreateResult result;
+  result.status = failure(Error::kAdmissionDisabled, "admission_disabled");
+  return result;
+#else
   auto plan = make_sm87_macrofeed_v4_p40_panel_wavefront_plan();
   if (!sm87_macrofeed_v4_p40_panel_wavefront_plan_valid(plan) ||
       compute_deployment_plan_identity(plan) == 0U) {
     CreateResult result;
     result.status = failure(Error::kCanonicalPlan, "canonical_v4_plan");
-    return result;
-  }
-
-  auto access = ProjectionAccess::bind(model_weights);
-  if (!access) {
-    CreateResult result;
-    result.status =
-        failure(Error::kProjectionAccessBind, "projection_access_bind");
     return result;
   }
 
@@ -1440,7 +2037,7 @@ Sm87MacroFeedV4P40StartupPackage::create(
                             kAttentionOutputRole);
     return result;
   }
-  return build_from_private_authority(std::move(*access), std::move(plan),
+  return build_from_private_authority(std::move(access), std::move(plan),
                                       gate_up, down, bf16_ab, gdn_qkvz,
                                       gdn_output,
                                       model_weights);
@@ -1778,6 +2375,298 @@ bool Sm87MacroFeedV4P40StartupPackage::build_bf16_ab_pairs(
   }
   structural.live_cuda_device_ranges_validated = true;
   *inventory = structural;
+  return true;
+}
+
+bool Sm87MacroFeedV4P40StartupPackage::build_request_boundary_source_catalog(
+    const ModelWeights& model_weights, const ProjectionAccess& access,
+    const std::uint64_t deployment_plan_identity,
+    RequestBoundarySourceCatalog* const catalog, int* const cuda_error,
+    std::size_t* const failure_index,
+    const RequestBoundarySourceCatalog* const startup_authenticated_catalog)
+    noexcept {
+  if (catalog != nullptr) {
+    *catalog = {};
+  }
+  if (cuda_error != nullptr) {
+    *cuda_error = 0;
+  }
+  if (failure_index != nullptr) {
+    *failure_index = 6U;
+  }
+  if (catalog == nullptr || cuda_error == nullptr || failure_index == nullptr ||
+      deployment_plan_identity == 0U || !access.attached() ||
+      access.model_weights_ != &model_weights ||
+      !access.resident_root_matches() || access.owner_identity() == 0U ||
+      access.allocation_identity() == 0U || access.catalog_identity() == 0U ||
+      access.device_identity() == 0U || access.device_ordinal() < 0 ||
+      access.resident_root_ == nullptr || access.resident_root_identity_ == 0U ||
+      access.resident_arena_begin_ == 0U ||
+      access.resident_arena_bytes_ == 0U ||
+      access.resident_arena_bytes_ >
+          std::numeric_limits<std::uintptr_t>::max() -
+              access.resident_arena_begin_) {
+    if (failure_index != nullptr) {
+      *failure_index = 0U;
+    }
+    return false;
+  }
+
+  const bool host_authority = access.host_test_resident_authority_;
+  const bool normal_authority = !host_authority;
+  if ((host_authority &&
+       access.host_test_issuer_nonce_ !=
+           ProjectionAccess::kHostTestResidentIssuerNonce) ||
+      (normal_authority &&
+       (access.host_test_issuer_nonce_ != 0U ||
+        access.resident_arena_bytes_ != kPinnedQwen36_27BArenaBytes))) {
+    *failure_index = 0U;
+    return false;
+  }
+
+  const Sm87MacroFeedV4RequestBoundaryT0SourceDescriptor source{
+      model_weights.embed_tokens(),
+      model_weights.final_norm(),
+      model_weights.lm_head(),
+      Bound::kSm87MacroFeedV4FinalNormEpsilonFp32Bits,
+      Bound::kSm87MacroFeedV4Vocabulary,
+      Bound::kSm87MacroFeedV4GreedyWorkspaceResults,
+      true,
+      true,
+      true,
+  };
+  const auto structural =
+      inspect_sm87_macrofeed_v4_request_boundary_t0_source(source);
+  if (!structural.valid_t0()) {
+    *failure_index = structural.failure_index;
+    return false;
+  }
+  const auto* const lm_head =
+      std::get_if<NvFp4LinearWeight>(&model_weights.lm_head());
+  if (lm_head == nullptr) {
+    *failure_index = 2U;
+    return false;
+  }
+
+  // A normal seal is tied to the exact named tensors in the authenticated
+  // ResidentWeights root, not merely to arbitrary ranges that happen to sit
+  // inside the same CUDA allocation.  This rejects role substitution while
+  // leaving the explicitly separate T0 host authority incapable of claiming
+  // a production resident binding.
+  if (normal_authority) {
+    using DType = io::safetensors::DType;
+    const ResidentWeights& resident = *access.resident_root_;
+    const std::array<bool, 6U> canonical_views{{
+        resident_tensor_view_matches(
+            resident, "model.language_model.embed_tokens.weight",
+            model_weights.embed_tokens().weight, DType::kBf16,
+            Bound::kSm87MacroFeedV4EmbeddingTableBytes,
+            Bound::kSm87MacroFeedV4EmbeddingVocabulary,
+            Bound::kSm87MacroFeedV4Hidden, 2U),
+        resident_tensor_view_matches(
+            resident, "model.language_model.norm.weight",
+            model_weights.final_norm().data, DType::kBf16,
+            Bound::kSm87MacroFeedV4FinalNormBytes,
+            Bound::kSm87MacroFeedV4Hidden, 0U, 1U),
+        resident_tensor_view_matches(
+            resident, "lm_head.weight", lm_head->packed_weight, DType::kU8,
+            Bound::kSm87MacroFeedV4LmHeadPackedWeightBytes,
+            Bound::kSm87MacroFeedV4LmHeadRows,
+            Bound::kSm87MacroFeedV4LmHeadColumns / 2U, 2U),
+        resident_tensor_view_matches(
+            resident, "lm_head.weight_scale", lm_head->block_scale,
+            DType::kF8E4M3,
+            Bound::kSm87MacroFeedV4LmHeadBlockScaleBytes,
+            Bound::kSm87MacroFeedV4LmHeadRows,
+            Bound::kSm87MacroFeedV4LmHeadColumns / 16U, 2U),
+        resident_tensor_view_matches(
+            resident, "lm_head.weight_scale_2",
+            lm_head->weight_scale_2_device, DType::kF32, sizeof(float), 0U,
+            0U, 0U),
+        resident_tensor_view_matches(
+            resident, "lm_head.input_scale", lm_head->input_scale_device,
+            DType::kF32, sizeof(float), 0U, 0U, 0U),
+    }};
+    for (std::size_t index = 0U; index < canonical_views.size(); ++index) {
+      if (!canonical_views[index]) {
+        *failure_index = index;
+        return false;
+      }
+    }
+  }
+
+  const std::array<const void*, 6U> pointers{{
+      model_weights.embed_tokens().weight,
+      model_weights.final_norm().data,
+      lm_head->packed_weight,
+      lm_head->block_scale,
+      lm_head->weight_scale_2_device,
+      lm_head->input_scale_device,
+  }};
+  const std::array<std::uint64_t, 6U> bytes{{
+      Bound::kSm87MacroFeedV4EmbeddingTableBytes,
+      Bound::kSm87MacroFeedV4FinalNormBytes,
+      Bound::kSm87MacroFeedV4LmHeadPackedWeightBytes,
+      Bound::kSm87MacroFeedV4LmHeadBlockScaleBytes,
+      sizeof(float),
+      sizeof(float),
+  }};
+  const std::uintptr_t resident_arena_end =
+      access.resident_arena_begin_ +
+      static_cast<std::uintptr_t>(access.resident_arena_bytes_);
+  for (std::size_t index = 0U; index < pointers.size(); ++index) {
+    int range_error = 0;
+    if (!live_current_device_allocation_range(
+            pointers[index], bytes[index], access.device_ordinal(),
+            &range_error, access.resident_arena_begin_, resident_arena_end,
+            access.resident_arena_bytes_)) {
+      *cuda_error = range_error;
+      *failure_index = index;
+      return false;
+    }
+  }
+  // Exactly one D2H read of each scalar is allowed: the initial Startup
+  // source seal.  Later package/catalog revalidation proves the immutable
+  // ModelWeights/Resident attachment and reuses that sealed raw-bit receipt;
+  // it does not introduce request-time scalar traffic.
+  if (startup_authenticated_catalog == nullptr) {
+    std::uint32_t weight_scale_2_device_bits = 0U;
+    cudaError_t copy_status = cudaMemcpy(
+        &weight_scale_2_device_bits, lm_head->weight_scale_2_device,
+        sizeof(weight_scale_2_device_bits), cudaMemcpyDeviceToHost);
+    if (copy_status != cudaSuccess ||
+        weight_scale_2_device_bits != structural.weight_scale_2_fp32_bits) {
+      *cuda_error = copy_status == cudaSuccess
+                        ? static_cast<int>(cudaErrorInvalidValue)
+                        : static_cast<int>(copy_status);
+      *failure_index = 4U;
+      return false;
+    }
+    std::uint32_t input_scale_device_bits = 0U;
+    copy_status = cudaMemcpy(
+        &input_scale_device_bits, lm_head->input_scale_device,
+        sizeof(input_scale_device_bits), cudaMemcpyDeviceToHost);
+    if (copy_status != cudaSuccess ||
+        input_scale_device_bits != structural.input_scale_fp32_bits) {
+      *cuda_error = copy_status == cudaSuccess
+                        ? static_cast<int>(cudaErrorInvalidValue)
+                        : static_cast<int>(copy_status);
+      *failure_index = 5U;
+      return false;
+    }
+  } else {
+    if (!startup_authenticated_catalog->device_scale_raw_bits_match_host ||
+        startup_authenticated_catalog->model_weights != &model_weights ||
+        startup_authenticated_catalog->resident_root !=
+            access.resident_root_ ||
+        startup_authenticated_catalog->lm_head.weight_scale_2_device !=
+            lm_head->weight_scale_2_device ||
+        startup_authenticated_catalog->lm_head.input_scale_device !=
+            lm_head->input_scale_device ||
+        startup_authenticated_catalog->lm_head.weight_scale_2_fp32_bits !=
+            structural.weight_scale_2_fp32_bits ||
+        startup_authenticated_catalog->lm_head.input_scale_fp32_bits !=
+            structural.input_scale_fp32_bits) {
+      *failure_index = 4U;
+      return false;
+    }
+  }
+
+  RequestBoundarySourceCatalog sealed;
+  sealed.model_weights = &model_weights;
+  sealed.resident_root = access.resident_root_;
+  sealed.embedding = {
+      model_weights.embed_tokens().weight,
+      model_weights.embed_tokens().output_size,
+      model_weights.embed_tokens().input_size,
+      Bound::kSm87MacroFeedV4EmbeddingTableBytes,
+      structural.embedding_identity,
+  };
+  sealed.final_norm = {
+      model_weights.final_norm().data,
+      model_weights.final_norm().element_count,
+      Bound::kSm87MacroFeedV4FinalNormBytes,
+      Bound::kSm87MacroFeedV4FinalNormEpsilonFp32Bits,
+      structural.final_norm_identity,
+  };
+  sealed.lm_head = {
+      lm_head->packed_weight,
+      lm_head->block_scale,
+      lm_head->weight_scale_2_device,
+      lm_head->input_scale_device,
+      lm_head->output_size,
+      lm_head->input_size,
+      Bound::kSm87MacroFeedV4LmHeadPackedWeightBytes,
+      Bound::kSm87MacroFeedV4LmHeadBlockScaleBytes,
+      structural.weight_scale_2_fp32_bits,
+      structural.input_scale_fp32_bits,
+      structural.lm_head_identity,
+      true,
+      true,
+      false,
+  };
+  sealed.greedy = {
+      Bound::kSm87MacroFeedV4Vocabulary,
+      Bound::kSm87MacroFeedV4GreedyWorkspaceResults,
+      structural.greedy_identity,
+      true,
+      true,
+      true,
+  };
+  sealed.projection_owner_identity = access.owner_identity();
+  sealed.projection_allocation_identity = access.allocation_identity();
+  sealed.projection_catalog_identity = access.catalog_identity();
+  sealed.projection_device_identity = access.device_identity();
+  sealed.resident_root_identity = access.resident_root_identity_;
+  sealed.resident_arena_begin = access.resident_arena_begin_;
+  sealed.resident_arena_end = resident_arena_end;
+  sealed.resident_arena_bytes = access.resident_arena_bytes_;
+  sealed.device_ordinal = access.device_ordinal();
+  sealed.exact_shapes_and_specs = true;
+  sealed.complete_live_device_ranges = true;
+  sealed.device_scale_raw_bits_match_host = true;
+  sealed.input_scale_provenance_retained = true;
+  sealed.input_scale_consumed = false;
+  sealed.normal_resident_authority = normal_authority;
+  sealed.host_test_resident_authority = host_authority;
+
+  std::uint64_t identity = 0x5133'4d46'5242'4341ULL;
+  identity = mix(identity,
+                 reinterpret_cast<std::uintptr_t>(sealed.model_weights));
+  identity = mix(identity,
+                 reinterpret_cast<std::uintptr_t>(sealed.resident_root));
+  identity = mix(identity, deployment_plan_identity);
+  identity = mix(identity, sealed.projection_owner_identity);
+  identity = mix(identity, sealed.projection_allocation_identity);
+  identity = mix(identity, sealed.projection_catalog_identity);
+  identity = mix(identity, sealed.projection_device_identity);
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(sealed.device_ordinal + 1));
+  identity = mix(identity, sealed.resident_root_identity);
+  identity = mix(identity, sealed.resident_arena_begin);
+  identity = mix(identity, sealed.resident_arena_end);
+  identity = mix(identity, sealed.resident_arena_bytes);
+  identity = mix(identity, sealed.embedding.source_identity);
+  identity = mix(identity, sealed.final_norm.source_identity);
+  identity = mix(identity, sealed.lm_head.source_identity);
+  identity = mix(identity, sealed.greedy.spec_identity);
+  identity = mix(identity, sealed.final_norm.epsilon_fp32_bits);
+  identity = mix(identity, sealed.lm_head.weight_scale_2_fp32_bits);
+  identity = mix(identity, sealed.lm_head.input_scale_fp32_bits);
+  identity = mix(identity, sealed.exact_shapes_and_specs);
+  identity = mix(identity, sealed.complete_live_device_ranges);
+  identity = mix(identity, sealed.device_scale_raw_bits_match_host);
+  identity = mix(identity, sealed.input_scale_provenance_retained);
+  identity = mix(identity, sealed.input_scale_consumed);
+  identity = mix(identity, sealed.normal_resident_authority);
+  identity = mix(identity, sealed.host_test_resident_authority);
+  if (identity == 0U) {
+    *failure_index = 0U;
+    return false;
+  }
+  sealed.catalog_identity = identity;
+  *catalog = sealed;
+  *failure_index = pointers.size();
   return true;
 }
 
@@ -2380,6 +3269,7 @@ std::uint64_t Sm87MacroFeedV4P40StartupPackage::compute_package_identity(
     const std::uint64_t mlp_pair_binding_catalog_identity,
     const std::uint64_t gdn_qkvz_binding_catalog_identity,
     const std::uint64_t full_attention_source_catalog_identity,
+    const std::uint64_t request_boundary_source_catalog_identity,
     const kernels::Sm87MacroFeedV4Fp8CudaResources& gdn_qkvz,
     const kernels::Sm87MacroFeedV4Fp8CudaResources& gdn_output,
     const std::size_t sources) noexcept {
@@ -2393,6 +3283,7 @@ std::uint64_t Sm87MacroFeedV4P40StartupPackage::compute_package_identity(
       mlp_pair_binding_catalog_identity == 0U ||
       gdn_qkvz_binding_catalog_identity == 0U ||
       full_attention_source_catalog_identity == 0U ||
+      request_boundary_source_catalog_identity == 0U ||
       sources != kSm87MacroFeedV4P40StartupPackageSources ||
       !gate_up.static_resource_gate_passed ||
       !down.static_resource_gate_passed ||
@@ -2437,6 +3328,7 @@ std::uint64_t Sm87MacroFeedV4P40StartupPackage::compute_package_identity(
   identity = mix(identity, mlp_pair_binding_catalog_identity);
   identity = mix(identity, gdn_qkvz_binding_catalog_identity);
   identity = mix(identity, full_attention_source_catalog_identity);
+  identity = mix(identity, request_boundary_source_catalog_identity);
   for (std::size_t index = 0U; index < capabilities.size(); ++index) {
     const auto& capability = capabilities[index];
     if (!capability.asset || capability.artifact_identity == 0U ||
@@ -2528,6 +3420,7 @@ Sm87MacroFeedV4P40StartupPackage::mint_startup_seals(
     const std::uint64_t mlp_pair_binding_catalog_identity,
     const std::uint64_t gdn_qkvz_binding_catalog_identity,
     const std::uint64_t full_attention_source_catalog_identity,
+    const RequestBoundarySourceCatalog& request_boundary_sources,
     const kernels::Sm87MacroFeedV4Fp8CudaResources& gdn_qkvz,
     const kernels::Sm87MacroFeedV4Fp8CudaResources& gdn_output) noexcept {
   StartupSeals seals;
@@ -2635,6 +3528,49 @@ Sm87MacroFeedV4P40StartupPackage::mint_startup_seals(
   seals.full_attention.issuer_nonce_ = kFullAttentionSealIssuerNonce;
   seals.full_attention.seal_identity =
       full_attention_source_seal_identity(seals.full_attention);
+
+  seals.request_boundary.package_identity = package_identity;
+  seals.request_boundary.deployment_plan_identity = plan_identity;
+  seals.request_boundary.source_catalog_identity =
+      request_boundary_sources.catalog_identity;
+  seals.request_boundary.resident_root_identity =
+      request_boundary_sources.resident_root_identity;
+  seals.request_boundary.resident_arena_bytes =
+      request_boundary_sources.resident_arena_bytes;
+  seals.request_boundary.binding_count =
+      kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings;
+  seals.request_boundary.device_ordinal = request_boundary_sources.device_ordinal;
+  seals.request_boundary.final_norm_epsilon_fp32_bits =
+      request_boundary_sources.final_norm.epsilon_fp32_bits;
+  seals.request_boundary.weight_scale_2_fp32_bits =
+      request_boundary_sources.lm_head.weight_scale_2_fp32_bits;
+  seals.request_boundary.input_scale_fp32_bits =
+      request_boundary_sources.lm_head.input_scale_fp32_bits;
+  seals.request_boundary.embedding_exact_bf16_shape = true;
+  seals.request_boundary.final_norm_exact_bf16_shape_and_epsilon = true;
+  seals.request_boundary.lm_head_exact_canonical_nvfp4_shape = true;
+  seals.request_boundary.device_scale_raw_bits_match_host =
+      request_boundary_sources.device_scale_raw_bits_match_host;
+  seals.request_boundary.input_scale_provenance_retained = true;
+  seals.request_boundary.input_scale_consumed = false;
+  seals.request_boundary.greedy_spec_exact = true;
+  seals.request_boundary.complete_live_device_ranges = true;
+  seals.request_boundary.observed_resource_execution_seal_deferred = true;
+  seals.request_boundary.final_representation_ready_diagnostic_only = true;
+  seals.request_boundary.pure_prefill_state_committed_endpoint_unchanged =
+      true;
+  seals.request_boundary.normal_resident_authority =
+      request_boundary_sources.normal_resident_authority;
+  seals.request_boundary.host_test_resident_authority =
+      request_boundary_sources.host_test_resident_authority;
+  seals.request_boundary.issued_by_v4_package = true;
+  seals.request_boundary.caller_resource_snapshot_accepted = false;
+  seals.request_boundary.raw_pointer_exposed = false;
+  seals.request_boundary.launcher_authority = false;
+  seals.request_boundary.production_dispatch_eligible = false;
+  seals.request_boundary.issuer_nonce_ = kRequestBoundarySealIssuerNonce;
+  seals.request_boundary.seal_identity =
+      request_boundary_source_seal_identity(seals.request_boundary);
   return seals;
 }
 
@@ -2646,16 +3582,19 @@ bool Sm87MacroFeedV4P40StartupPackage::startup_seals_valid(
          device_ordinal >= 0 && seals.gate_up.valid() &&
          seals.down.valid() && seals.bf16_ab.valid() &&
          seals.gdn_qkvz.valid() && seals.full_attention.valid() &&
+         seals.request_boundary.valid() &&
          seals.gate_up.package_identity == package_identity &&
          seals.down.package_identity == package_identity &&
          seals.bf16_ab.package_identity == package_identity &&
          seals.gdn_qkvz.package_identity == package_identity &&
          seals.full_attention.package_identity == package_identity &&
+         seals.request_boundary.package_identity == package_identity &&
          seals.gate_up.deployment_plan_identity == plan_identity &&
          seals.down.deployment_plan_identity == plan_identity &&
          seals.bf16_ab.deployment_plan_identity == plan_identity &&
          seals.gdn_qkvz.deployment_plan_identity == plan_identity &&
          seals.full_attention.deployment_plan_identity == plan_identity &&
+         seals.request_boundary.deployment_plan_identity == plan_identity &&
          seals.gate_up.binding_catalog_identity != 0U &&
          seals.gate_up.binding_catalog_identity ==
              seals.down.binding_catalog_identity &&
@@ -2668,11 +3607,15 @@ bool Sm87MacroFeedV4P40StartupPackage::startup_seals_valid(
          seals.full_attention.source_catalog_identity != 0U &&
          seals.full_attention.binding_count ==
              kSm87MacroFeedV4P40StartupPackageFullLayers &&
+         seals.request_boundary.source_catalog_identity != 0U &&
+         seals.request_boundary.binding_count ==
+             kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings &&
          seals.gate_up.resources.device_ordinal == device_ordinal &&
          seals.down.resources.device_ordinal == device_ordinal &&
          seals.bf16_ab.resources.device_ordinal == device_ordinal &&
          seals.gdn_qkvz.resources.device_ordinal == device_ordinal &&
-         seals.gdn_qkvz.output_resources.device_ordinal == device_ordinal;
+         seals.gdn_qkvz.output_resources.device_ordinal == device_ordinal &&
+         seals.request_boundary.device_ordinal == device_ordinal;
 }
 
 Sm87MacroFeedV4P40StartupPackageCreateResult
@@ -2977,19 +3920,37 @@ Sm87MacroFeedV4P40StartupPackage::build_from_private_authority(
     return result;
   }
 
+  RequestBoundarySourceCatalog request_boundary_sources;
+  int request_boundary_cuda_error = 0;
+  std::size_t request_boundary_failure_index = 6U;
+  if (!build_request_boundary_source_catalog(
+          model_weights, access, plan_identity, &request_boundary_sources,
+          &request_boundary_cuda_error, &request_boundary_failure_index,
+          nullptr)) {
+    result.status = failure(
+        Error::kRequestBoundarySourceCatalogSeal,
+        request_boundary_cuda_error == 0
+            ? "request_boundary_source_catalog"
+            : "request_boundary_resident_live_range",
+        request_boundary_cuda_error, request_boundary_failure_index);
+    return result;
+  }
+
   const std::uint64_t package_identity = compute_package_identity(
       access, capabilities, plan, gate_up, down,
       bf16_ab_inventory.catalog_identity, bf16_ab,
       mlp_pair_binding_catalog_identity,
       gdn_qkvz_binding_catalog_identity,
-      full_attention_source_catalog_identity, gdn_qkvz, gdn_output,
+      full_attention_source_catalog_identity,
+      request_boundary_sources.catalog_identity, gdn_qkvz, gdn_output,
       sources);
   StartupSeals seals = mint_startup_seals(
       package_identity, plan_identity, gate_up, down,
       bf16_ab_inventory.catalog_identity, bf16_ab,
       mlp_pair_binding_catalog_identity,
       gdn_qkvz_binding_catalog_identity,
-      full_attention_source_catalog_identity, gdn_qkvz, gdn_output);
+      full_attention_source_catalog_identity, request_boundary_sources,
+      gdn_qkvz, gdn_output);
   if (package_identity == 0U ||
       !startup_seals_valid(seals, package_identity, plan_identity,
                            device_ordinal)) {
@@ -3033,6 +3994,16 @@ Sm87MacroFeedV4P40StartupPackage::build_from_private_authority(
       full_attention_source_catalog_identity;
   audit.full_attention_source_seal_identity =
       seals.full_attention.seal_identity;
+  audit.request_boundary_source_bindings =
+      kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings;
+  audit.request_boundary_source_catalog_identity =
+      request_boundary_sources.catalog_identity;
+  audit.request_boundary_source_seal_identity =
+      seals.request_boundary.seal_identity;
+  audit.request_boundary_resident_root_identity =
+      request_boundary_sources.resident_root_identity;
+  audit.request_boundary_resident_arena_bytes =
+      request_boundary_sources.resident_arena_bytes;
   audit.canonical_plan_generated_internally = true;
   audit.caller_plan_accepted = false;
   audit.complete_projection_access_retained = true;
@@ -3061,6 +4032,19 @@ Sm87MacroFeedV4P40StartupPackage::build_from_private_authority(
   audit.full_attention_qk_norm_live_device_ranges_complete = true;
   audit.full_attention_typed_asset_values_private = true;
   audit.full_attention_observed_resource_execution_catalog_sealed = false;
+  audit.request_boundary_exact_shapes_and_specs = true;
+  audit.request_boundary_live_device_ranges_complete = true;
+  audit.request_boundary_device_scale_raw_bits_match_host = true;
+  audit.request_boundary_input_scale_provenance_retained = true;
+  audit.request_boundary_input_scale_consumed = false;
+  audit.request_boundary_observed_resource_execution_catalog_sealed = false;
+  audit.request_boundary_final_representation_ready_diagnostic_only = true;
+  audit.pure_prefill_state_committed_endpoint_unchanged = true;
+  audit.request_boundary_normal_resident_authority =
+      request_boundary_sources.normal_resident_authority;
+  audit.request_boundary_host_test_resident_authority =
+      request_boundary_sources.host_test_resident_authority;
+  audit.request_boundary_raw_pointer_publicly_exposed = false;
   audit.caller_raw_receipts_accepted = false;
   audit.v3_execution_identity_reused = false;
   audit.request_time_repack_jit_autotune_or_fallback_permitted = false;
@@ -3096,8 +4080,8 @@ Sm87MacroFeedV4P40StartupPackage::build_from_private_authority(
 
   auto package = std::unique_ptr<Package>(new (std::nothrow) Package(
       std::move(access), std::move(capabilities),
-      std::move(bf16_ab_capability), std::move(plan), std::move(seals),
-      audit));
+      std::move(bf16_ab_capability), std::move(request_boundary_sources),
+      std::move(plan), std::move(seals), audit));
   if (!package) {
     result.status = failure(Error::kAllocationFailure, "package_allocation");
     return result;
@@ -3478,6 +4462,39 @@ bool Sm87MacroFeedV4P40StartupPackage::base_valid() const noexcept {
       seals_.full_attention.output_input_layout != kFullOutputInputLayout ||
       seals_.full_attention.output_tactic_identity !=
           kFullOutputTacticIdentity ||
+      seals_.request_boundary.source_catalog_identity !=
+          audit_.request_boundary_source_catalog_identity ||
+      seals_.request_boundary.seal_identity !=
+          audit_.request_boundary_source_seal_identity ||
+      seals_.request_boundary.resident_root_identity !=
+          audit_.request_boundary_resident_root_identity ||
+      seals_.request_boundary.resident_arena_bytes !=
+          audit_.request_boundary_resident_arena_bytes ||
+      request_boundary_sources_.model_weights !=
+          bf16_ab_capability_.model_weights_ ||
+      request_boundary_sources_.resident_root == nullptr ||
+      request_boundary_sources_.catalog_identity !=
+          audit_.request_boundary_source_catalog_identity ||
+      request_boundary_sources_.resident_root_identity !=
+          audit_.request_boundary_resident_root_identity ||
+      request_boundary_sources_.resident_arena_bytes !=
+          audit_.request_boundary_resident_arena_bytes ||
+      request_boundary_sources_.device_ordinal != audit_.device_ordinal ||
+      request_boundary_sources_.projection_owner_identity !=
+          audit_.owner_identity ||
+      request_boundary_sources_.projection_allocation_identity !=
+          audit_.allocation_identity ||
+      request_boundary_sources_.projection_catalog_identity !=
+          audit_.catalog_identity ||
+      request_boundary_sources_.projection_device_identity !=
+          audit_.device_identity ||
+      !request_boundary_sources_.exact_shapes_and_specs ||
+      !request_boundary_sources_.complete_live_device_ranges ||
+      !request_boundary_sources_.device_scale_raw_bits_match_host ||
+      !request_boundary_sources_.input_scale_provenance_retained ||
+      request_boundary_sources_.input_scale_consumed ||
+      (request_boundary_sources_.normal_resident_authority ==
+       request_boundary_sources_.host_test_resident_authority) ||
       seals_.gate_up.binding_catalog_identity == 0U ||
       seals_.gate_up.binding_catalog_identity !=
           seals_.down.binding_catalog_identity ||
@@ -3505,6 +4522,58 @@ bool Sm87MacroFeedV4P40StartupPackage::base_valid() const noexcept {
       full_failure_ordinal !=
           kSm87MacroFeedV4P40StartupPackageFullLayers ||
       full_failure_k_norm || full_cuda_error != 0) {
+    return false;
+  }
+
+  RequestBoundarySourceCatalog fresh_request_boundary_sources;
+  int request_boundary_cuda_error = 0;
+  std::size_t request_boundary_failure_index = 6U;
+  if (!build_request_boundary_source_catalog(
+          *bf16_ab_capability_.model_weights_, projection_access_,
+          plan_identity, &fresh_request_boundary_sources,
+          &request_boundary_cuda_error, &request_boundary_failure_index,
+          &request_boundary_sources_) ||
+      request_boundary_cuda_error != 0 || request_boundary_failure_index != 6U ||
+      fresh_request_boundary_sources.catalog_identity !=
+          request_boundary_sources_.catalog_identity ||
+      fresh_request_boundary_sources.model_weights !=
+          request_boundary_sources_.model_weights ||
+      fresh_request_boundary_sources.resident_root !=
+          request_boundary_sources_.resident_root ||
+      fresh_request_boundary_sources.resident_root_identity !=
+          request_boundary_sources_.resident_root_identity ||
+      fresh_request_boundary_sources.resident_arena_begin !=
+          request_boundary_sources_.resident_arena_begin ||
+      fresh_request_boundary_sources.resident_arena_end !=
+          request_boundary_sources_.resident_arena_end ||
+      fresh_request_boundary_sources.resident_arena_bytes !=
+          request_boundary_sources_.resident_arena_bytes ||
+      fresh_request_boundary_sources.embedding.table !=
+          request_boundary_sources_.embedding.table ||
+      fresh_request_boundary_sources.embedding.source_identity !=
+          request_boundary_sources_.embedding.source_identity ||
+      fresh_request_boundary_sources.final_norm.centered_weight !=
+          request_boundary_sources_.final_norm.centered_weight ||
+      fresh_request_boundary_sources.final_norm.source_identity !=
+          request_boundary_sources_.final_norm.source_identity ||
+      fresh_request_boundary_sources.lm_head.canonical_packed_weight !=
+          request_boundary_sources_.lm_head.canonical_packed_weight ||
+      fresh_request_boundary_sources.lm_head.canonical_block_scale !=
+          request_boundary_sources_.lm_head.canonical_block_scale ||
+      fresh_request_boundary_sources.lm_head.weight_scale_2_device !=
+          request_boundary_sources_.lm_head.weight_scale_2_device ||
+      fresh_request_boundary_sources.lm_head.input_scale_device !=
+          request_boundary_sources_.lm_head.input_scale_device ||
+      fresh_request_boundary_sources.lm_head.source_identity !=
+          request_boundary_sources_.lm_head.source_identity ||
+      fresh_request_boundary_sources.greedy.spec_identity !=
+          request_boundary_sources_.greedy.spec_identity ||
+      fresh_request_boundary_sources.device_scale_raw_bits_match_host !=
+          request_boundary_sources_.device_scale_raw_bits_match_host ||
+      fresh_request_boundary_sources.normal_resident_authority !=
+          request_boundary_sources_.normal_resident_authority ||
+      fresh_request_boundary_sources.host_test_resident_authority !=
+          request_boundary_sources_.host_test_resident_authority) {
     return false;
   }
 
@@ -3589,6 +4658,7 @@ bool Sm87MacroFeedV4P40StartupPackage::base_valid() const noexcept {
                                         seals_.gate_up.binding_catalog_identity,
                                         audit_.gdn_qkvz_binding_catalog_identity,
                                         audit_.full_attention_source_catalog_identity,
+                                        audit_.request_boundary_source_catalog_identity,
                                         seals_.gdn_qkvz.resources,
                                         seals_.gdn_qkvz.output_resources,
                                         sources);
@@ -3770,6 +4840,169 @@ std::uint64_t Sm87MacroFeedV4P40StartupPackage::
   identity = mix(identity, observations.source_private_queries_completed);
   identity = mix(identity, observations.caller_resource_snapshot_accepted);
   return identity == 0U ? 0x5133'4d46'4652'5342ULL : identity;
+}
+
+std::uint64_t Sm87MacroFeedV4P40StartupPackage::
+    compute_request_boundary_resource_bundle_identity(
+        const RequestBoundaryExecutionResourceObservations& observations,
+        const std::uint64_t package_identity,
+        const std::uint64_t deployment_plan_identity,
+        const std::uint64_t device_identity,
+        const std::int32_t device_ordinal) noexcept {
+  if (package_identity == 0U || deployment_plan_identity == 0U ||
+      device_identity == 0U || device_ordinal < 0 ||
+      !observations.source_private_queries_completed ||
+      observations.caller_resource_snapshot_accepted ||
+      observations.embedding.device_ordinal != device_ordinal ||
+      observations.final_norm.device_ordinal != device_ordinal ||
+      observations.lm_head.device_ordinal != device_ordinal ||
+      observations.greedy.device_ordinal != device_ordinal ||
+      !request_boundary_embedding_resource_gate(observations.embedding) ||
+      !request_boundary_final_norm_resource_gate(observations.final_norm) ||
+      !request_boundary_lm_head_resource_gate(observations.lm_head) ||
+      !request_boundary_greedy_resource_gate(observations.greedy)) {
+    return 0U;
+  }
+  std::uint64_t identity = 0x5133'4d46'5242'5253ULL;
+  identity = mix(identity, package_identity);
+  identity = mix(identity, deployment_plan_identity);
+  identity = mix(identity, device_identity);
+  identity = mix(identity, static_cast<std::uint64_t>(device_ordinal + 1));
+  identity =
+      mix_request_boundary_embedding_resource(identity, observations.embedding);
+  identity = mix_request_boundary_final_norm_resource(identity,
+                                                      observations.final_norm);
+  identity =
+      mix_request_boundary_lm_head_resource(identity, observations.lm_head);
+  identity =
+      mix_request_boundary_greedy_resource(identity, observations.greedy);
+  identity = mix(identity, observations.source_private_queries_completed);
+  identity = mix(identity, observations.caller_resource_snapshot_accepted);
+  return identity == 0U ? 0x5133'4d46'5242'5253ULL : identity;
+}
+
+std::uint64_t Sm87MacroFeedV4P40StartupPackage::
+    compute_request_boundary_execution_binding_identity(
+        const RequestBoundaryExecutionBinding& binding) noexcept {
+  const bool exact_resident_authority =
+      binding.normal_resident_authority &&
+      !binding.host_test_resident_authority;
+  if (binding.package_identity == 0U ||
+      binding.deployment_plan_identity == 0U ||
+      binding.projection_owner_identity == 0U ||
+      binding.projection_allocation_identity == 0U ||
+      binding.projection_catalog_identity == 0U ||
+      binding.device_identity == 0U || binding.device_ordinal < 0 ||
+      binding.embedding_resources.device_ordinal != binding.device_ordinal ||
+      binding.final_norm_resources.device_ordinal != binding.device_ordinal ||
+      binding.lm_head_resources.device_ordinal != binding.device_ordinal ||
+      binding.greedy_resources.device_ordinal != binding.device_ordinal ||
+      binding.resident_root == nullptr ||
+      binding.resident_root_identity == 0U ||
+      binding.resident_arena_begin == 0U ||
+      binding.resident_arena_end <= binding.resident_arena_begin ||
+      binding.resident_arena_bytes != kPinnedQwen36_27BArenaBytes ||
+      binding.resident_arena_end - binding.resident_arena_begin !=
+          binding.resident_arena_bytes ||
+      binding.source_catalog_identity == 0U ||
+      binding.resource_bundle_identity == 0U ||
+      binding.embedding.table == nullptr ||
+      binding.embedding.vocabulary != Bound::kSm87MacroFeedV4EmbeddingVocabulary ||
+      binding.embedding.hidden != Bound::kSm87MacroFeedV4Hidden ||
+      binding.embedding.bytes != Bound::kSm87MacroFeedV4EmbeddingTableBytes ||
+      binding.embedding.source_identity == 0U ||
+      binding.final_norm.centered_weight == nullptr ||
+      binding.final_norm.elements != Bound::kSm87MacroFeedV4Hidden ||
+      binding.final_norm.bytes != Bound::kSm87MacroFeedV4FinalNormBytes ||
+      binding.final_norm.epsilon_fp32_bits !=
+          Bound::kSm87MacroFeedV4FinalNormEpsilonFp32Bits ||
+      binding.final_norm.source_identity == 0U ||
+      binding.lm_head.canonical_packed_weight == nullptr ||
+      binding.lm_head.canonical_block_scale == nullptr ||
+      binding.lm_head.weight_scale_2_device == nullptr ||
+      binding.lm_head.input_scale_device == nullptr ||
+      binding.lm_head.rows != Bound::kSm87MacroFeedV4LmHeadRows ||
+      binding.lm_head.columns != Bound::kSm87MacroFeedV4LmHeadColumns ||
+      binding.lm_head.packed_weight_bytes !=
+          Bound::kSm87MacroFeedV4LmHeadPackedWeightBytes ||
+      binding.lm_head.block_scale_bytes !=
+          Bound::kSm87MacroFeedV4LmHeadBlockScaleBytes ||
+      !kernels::sm87_target_aot_projection_scale_bits_valid(
+          binding.lm_head.weight_scale_2_fp32_bits) ||
+      !kernels::sm87_target_aot_projection_scale_bits_valid(
+          binding.lm_head.input_scale_fp32_bits) ||
+      binding.lm_head.source_identity == 0U ||
+      !binding.lm_head.canonical_resident_nvfp4 ||
+      !binding.lm_head.input_scale_provenance_retained ||
+      binding.lm_head.input_scale_consumed ||
+      binding.greedy.vocabulary != Bound::kSm87MacroFeedV4Vocabulary ||
+      binding.greedy.workspace_results !=
+          Bound::kSm87MacroFeedV4GreedyWorkspaceResults ||
+      binding.greedy.spec_identity == 0U ||
+      !binding.greedy.strict_left_to_right_fp32_order ||
+      !binding.greedy.smallest_index_tie_break ||
+      !binding.greedy.nonfinite_reported_and_ignored ||
+      !request_boundary_embedding_resource_gate(binding.embedding_resources) ||
+      !request_boundary_final_norm_resource_gate(binding.final_norm_resources) ||
+      !request_boundary_lm_head_resource_gate(binding.lm_head_resources) ||
+      !request_boundary_greedy_resource_gate(binding.greedy_resources) ||
+      !binding.source_private_resource_queries ||
+      !binding.device_scale_raw_bits_match_host ||
+      !binding.input_scale_provenance_retained ||
+      binding.input_scale_consumed ||
+      !binding.final_representation_ready_diagnostic_only ||
+      !binding.pure_prefill_state_committed_endpoint_unchanged ||
+      !exact_resident_authority || binding.request_selectable ||
+      binding.launcher_authority || binding.production_dispatch_eligible) {
+    return 0U;
+  }
+  std::uint64_t identity = 0x5133'4d46'5242'4244ULL;
+  identity = mix(identity, binding.package_identity);
+  identity = mix(identity, binding.deployment_plan_identity);
+  identity = mix(identity, binding.projection_owner_identity);
+  identity = mix(identity, binding.projection_allocation_identity);
+  identity = mix(identity, binding.projection_catalog_identity);
+  identity = mix(identity, binding.device_identity);
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(binding.device_ordinal + 1));
+  identity = mix(
+      identity, reinterpret_cast<std::uintptr_t>(binding.resident_root));
+  identity = mix(identity, binding.resident_root_identity);
+  identity = mix(identity, binding.resident_arena_begin);
+  identity = mix(identity, binding.resident_arena_end);
+  identity = mix(identity, binding.resident_arena_bytes);
+  identity = mix(identity, binding.source_catalog_identity);
+  identity = mix(identity, binding.resource_bundle_identity);
+  identity = mix(identity, binding.embedding.source_identity);
+  identity = mix(identity, binding.final_norm.source_identity);
+  identity = mix(identity, binding.lm_head.source_identity);
+  identity = mix(identity, binding.greedy.spec_identity);
+  identity = mix(identity, binding.lm_head.weight_scale_2_fp32_bits);
+  identity = mix(identity, binding.lm_head.input_scale_fp32_bits);
+  identity =
+      mix_request_boundary_embedding_resource(identity,
+                                              binding.embedding_resources);
+  identity = mix_request_boundary_final_norm_resource(
+      identity, binding.final_norm_resources);
+  identity =
+      mix_request_boundary_lm_head_resource(identity,
+                                           binding.lm_head_resources);
+  identity = mix_request_boundary_greedy_resource(identity,
+                                                  binding.greedy_resources);
+  identity = mix(identity, binding.source_private_resource_queries);
+  identity = mix(identity, binding.device_scale_raw_bits_match_host);
+  identity = mix(identity, binding.input_scale_provenance_retained);
+  identity = mix(identity, binding.input_scale_consumed);
+  identity = mix(identity,
+                 binding.final_representation_ready_diagnostic_only);
+  identity = mix(identity,
+                 binding.pure_prefill_state_committed_endpoint_unchanged);
+  identity = mix(identity, binding.normal_resident_authority);
+  identity = mix(identity, binding.host_test_resident_authority);
+  identity = mix(identity, binding.request_selectable);
+  identity = mix(identity, binding.launcher_authority);
+  identity = mix(identity, binding.production_dispatch_eligible);
+  return identity == 0U ? 0x5133'4d46'5242'4244ULL : identity;
 }
 
 std::uint64_t Sm87MacroFeedV4P40StartupPackage::
@@ -4513,6 +5746,164 @@ bool Sm87MacroFeedV4P40StartupPackage::
   return true;
 }
 
+bool Sm87MacroFeedV4P40StartupPackage::
+    seal_request_boundary_execution_catalog_for_execution_package(
+        const RequestBoundaryExecutionResourceObservations& observations,
+        RequestBoundaryExecutionBindingCatalog* const catalog,
+        std::uint64_t* const catalog_identity,
+        std::size_t* const failure_index,
+        int* const cuda_error) const noexcept {
+  if (catalog != nullptr) {
+    catalog->fill({});
+  }
+  if (catalog_identity != nullptr) {
+    *catalog_identity = 0U;
+  }
+  if (failure_index != nullptr) {
+    *failure_index =
+        kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings;
+  }
+  if (cuda_error != nullptr) {
+    *cuda_error = 0;
+  }
+  if (catalog == nullptr || catalog_identity == nullptr ||
+      failure_index == nullptr || cuda_error == nullptr || !valid()) {
+    return false;
+  }
+  const auto fail = [&](const std::size_t index,
+                        const int error = 0) noexcept {
+    catalog->fill({});
+    *catalog_identity = 0U;
+    *failure_index = index;
+    *cuda_error = error;
+    return false;
+  };
+
+  // A host fixture can exercise the Startup/T0 inventory but can never mint
+  // the normal Engine-lifetime execution catalog.
+  if (!request_boundary_sources_.normal_resident_authority ||
+      request_boundary_sources_.host_test_resident_authority ||
+      projection_access_.host_test_resident_authority_ ||
+      projection_access_.host_test_issuer_nonce_ != 0U ||
+      request_boundary_sources_.resident_root !=
+          projection_access_.resident_root_ ||
+      request_boundary_sources_.resident_root_identity !=
+          projection_access_.resident_root_identity_ ||
+      request_boundary_sources_.resident_arena_begin !=
+          projection_access_.resident_arena_begin_ ||
+      request_boundary_sources_.resident_arena_bytes !=
+          kPinnedQwen36_27BArenaBytes ||
+      request_boundary_sources_.resident_arena_bytes !=
+          projection_access_.resident_arena_bytes_) {
+    return fail(0U, static_cast<int>(cudaErrorInvalidValue));
+  }
+
+  if (!request_boundary_embedding_resource_gate(observations.embedding)) {
+    return fail(0U, static_cast<int>(cudaErrorInvalidValue));
+  }
+  if (!request_boundary_final_norm_resource_gate(observations.final_norm)) {
+    return fail(1U, static_cast<int>(cudaErrorInvalidValue));
+  }
+  if (!request_boundary_lm_head_resource_gate(observations.lm_head)) {
+    return fail(2U, static_cast<int>(cudaErrorInvalidValue));
+  }
+  if (!request_boundary_greedy_resource_gate(observations.greedy) ||
+      !observations.source_private_queries_completed ||
+      observations.caller_resource_snapshot_accepted) {
+    return fail(3U, static_cast<int>(cudaErrorInvalidValue));
+  }
+  const std::uint64_t resource_bundle_identity =
+      compute_request_boundary_resource_bundle_identity(
+          observations, audit_.package_identity,
+          audit_.deployment_plan_identity, audit_.device_identity,
+          audit_.device_ordinal);
+  if (resource_bundle_identity == 0U) {
+    return fail(0U, static_cast<int>(cudaErrorInvalidValue));
+  }
+
+  RequestBoundarySourceCatalog fresh_sources;
+  int source_cuda_error = 0;
+  std::size_t source_failure = 6U;
+  if (request_boundary_sources_.model_weights == nullptr ||
+      !build_request_boundary_source_catalog(
+          *request_boundary_sources_.model_weights, projection_access_,
+          audit_.deployment_plan_identity, &fresh_sources,
+          &source_cuda_error, &source_failure,
+          &request_boundary_sources_) ||
+      fresh_sources.catalog_identity !=
+          request_boundary_sources_.catalog_identity ||
+      fresh_sources.resident_root_identity !=
+          request_boundary_sources_.resident_root_identity ||
+      !fresh_sources.normal_resident_authority ||
+      fresh_sources.host_test_resident_authority) {
+    return fail(source_failure < 6U ? source_failure : 0U,
+                source_cuda_error == 0
+                    ? static_cast<int>(cudaErrorInvalidValue)
+                    : source_cuda_error);
+  }
+
+  RequestBoundaryExecutionBinding binding;
+  binding.embedding = fresh_sources.embedding;
+  binding.final_norm = fresh_sources.final_norm;
+  binding.lm_head = fresh_sources.lm_head;
+  binding.greedy = fresh_sources.greedy;
+  binding.embedding_resources = observations.embedding;
+  binding.final_norm_resources = observations.final_norm;
+  binding.lm_head_resources = observations.lm_head;
+  binding.greedy_resources = observations.greedy;
+  binding.package_identity = audit_.package_identity;
+  binding.deployment_plan_identity = audit_.deployment_plan_identity;
+  binding.projection_owner_identity = audit_.owner_identity;
+  binding.projection_allocation_identity = audit_.allocation_identity;
+  binding.projection_catalog_identity = audit_.catalog_identity;
+  binding.device_identity = audit_.device_identity;
+  binding.device_ordinal = audit_.device_ordinal;
+  binding.resident_root = fresh_sources.resident_root;
+  binding.resident_root_identity = fresh_sources.resident_root_identity;
+  binding.resident_arena_begin = fresh_sources.resident_arena_begin;
+  binding.resident_arena_end = fresh_sources.resident_arena_end;
+  binding.resident_arena_bytes = fresh_sources.resident_arena_bytes;
+  binding.source_catalog_identity = fresh_sources.catalog_identity;
+  binding.resource_bundle_identity = resource_bundle_identity;
+  binding.source_private_resource_queries = true;
+  binding.device_scale_raw_bits_match_host = true;
+  binding.input_scale_provenance_retained = true;
+  binding.input_scale_consumed = false;
+  binding.final_representation_ready_diagnostic_only = true;
+  binding.pure_prefill_state_committed_endpoint_unchanged = true;
+  binding.normal_resident_authority = true;
+  binding.host_test_resident_authority = false;
+  binding.request_selectable = false;
+  binding.launcher_authority = false;
+  binding.production_dispatch_eligible = false;
+  binding.binding_identity =
+      compute_request_boundary_execution_binding_identity(binding);
+  if (binding.binding_identity == 0U) {
+    return fail(0U, static_cast<int>(cudaErrorInvalidValue));
+  }
+
+  RequestBoundaryExecutionBindingCatalog sealed{};
+  sealed[0U] = binding;
+  std::uint64_t identity = 0x5133'4d46'5242'5843ULL;
+  identity = mix(identity, audit_.package_identity);
+  identity = mix(identity, audit_.deployment_plan_identity);
+  identity = mix(identity, audit_.request_boundary_source_catalog_identity);
+  identity = mix(identity, audit_.request_boundary_source_seal_identity);
+  identity = mix(identity, audit_.request_boundary_resident_root_identity);
+  identity = mix(identity, audit_.request_boundary_resident_arena_bytes);
+  identity = mix(identity, resource_bundle_identity);
+  identity = mix(identity, sealed.size());
+  identity = mix(identity, binding.binding_identity);
+  if (identity == 0U) {
+    return fail(0U, static_cast<int>(cudaErrorInvalidValue));
+  }
+  *catalog = sealed;
+  *catalog_identity = identity;
+  *failure_index = sealed.size();
+  *cuda_error = 0;
+  return true;
+}
+
 std::uint64_t Sm87MacroFeedV4P40StartupPackage::
     compute_mlp_pair_execution_binding_identity(
         const MlpPairExecutionBinding& binding) noexcept {
@@ -5205,6 +6596,30 @@ bool Sm87MacroFeedV4P40StartupPackage::
   }
   if (failure_ordinal != nullptr) {
     *failure_ordinal = kSm87MacroFeedV4P40StartupPackageFullLayers;
+  }
+  if (cuda_error != nullptr) {
+    *cuda_error = 0;
+  }
+  return false;
+}
+
+bool Sm87MacroFeedV4P40StartupPackage::
+    seal_request_boundary_execution_catalog_for_execution_package(
+        const RequestBoundaryExecutionResourceObservations& observations,
+        RequestBoundaryExecutionBindingCatalog* const catalog,
+        std::uint64_t* const catalog_identity,
+        std::size_t* const failure_index,
+        int* const cuda_error) const noexcept {
+  (void)observations;
+  if (catalog != nullptr) {
+    catalog->fill({});
+  }
+  if (catalog_identity != nullptr) {
+    *catalog_identity = 0U;
+  }
+  if (failure_index != nullptr) {
+    *failure_index =
+        kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings;
   }
   if (cuda_error != nullptr) {
     *cuda_error = 0;

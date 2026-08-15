@@ -14,6 +14,7 @@ class Sm87MacroFeedV3P40ProjectionStartupBinding;
 
 namespace q3x::runtime::sm87_macrofeed_v4_p40_startup_package_detail {
 class Sm87MacroFeedV4P40StartupPackage;
+class Sm87MacroFeedV4P40StartupPackageHostTestFixture;
 }  // namespace q3x::runtime::sm87_macrofeed_v4_p40_startup_package_detail
 
 namespace q3x::runtime::target_aot_complete_execution_detail {
@@ -31,6 +32,12 @@ struct Sm87TargetAotCompleteHostTestLayerNormPair final {
 struct Sm87TargetAotCompleteHostTestFullQkNormPair final {
   Bf16VectorWeight q_norm;
   Bf16VectorWeight k_norm;
+};
+
+struct Sm87TargetAotCompleteHostTestRequestBoundary final {
+  Bf16LinearWeight embedding;
+  Bf16VectorWeight final_norm;
+  LinearWeight lm_head;
 };
 
 // Source-private immutable borrow of one artifact from the complete 256-entry
@@ -176,6 +183,15 @@ class Sm87TargetAotCompleteProjectionExecutionAccess final {
   [[nodiscard]] static std::optional<ModelWeights>
   make_complete_host_test_fixture(
       Sm87TargetAotCompleteProjectionDeviceAssets& owner) noexcept;
+  // Test-TU definition only.  It issues an explicit projection/test-resident
+  // authority for Startup host tests.  It is distinct from bind(): no such
+  // access can satisfy the normal ResidentWeights gate or mint a production
+  // request-boundary execution catalog.
+  [[nodiscard]] static std::optional<
+      Sm87TargetAotCompleteProjectionExecutionAccess>
+  bind_complete_host_test_fixture(
+      const ModelWeights& model_weights, std::uintptr_t resident_arena_begin,
+      std::uint64_t resident_arena_bytes) noexcept;
   // Test-TU definition only.  This installs ModelWeights fields before a
   // startup package is constructed; it never mutates an already-issued
   // package and never creates a raw-pointer capability of its own.
@@ -191,6 +207,9 @@ class Sm87TargetAotCompleteProjectionExecutionAccess final {
       ModelWeights& model_weights,
       const Sm87TargetAotCompleteHostTestFullQkNormPair* pairs,
       std::size_t pair_count) noexcept;
+  [[nodiscard]] static bool install_complete_host_test_request_boundary(
+      ModelWeights& model_weights,
+      const Sm87TargetAotCompleteHostTestRequestBoundary& boundary) noexcept;
   [[nodiscard]] static bool poison_host_test_fixture_receipt(
       Sm87TargetAotCompleteProjectionDeviceAssets& owner,
       std::size_t layer_index,
@@ -211,7 +230,13 @@ class Sm87TargetAotCompleteProjectionExecutionAccess final {
       Sm87TargetAotCompleteProjectionDeviceAssets& owner) noexcept;
 
  private:
+  inline static constexpr std::uint64_t kHostTestResidentIssuerNonce =
+      0x5133'5848'4f53'5452ULL;
   friend class Sm87TargetAotCompleteProjectionExecutionAsset;
+  friend class sm87_macrofeed_v4_p40_startup_package_detail::
+      Sm87MacroFeedV4P40StartupPackage;
+  friend class sm87_macrofeed_v4_p40_startup_package_detail::
+      Sm87MacroFeedV4P40StartupPackageHostTestFixture;
 
   Sm87TargetAotCompleteProjectionExecutionAccess(
       const ModelWeights* model_weights,
@@ -241,12 +266,19 @@ class Sm87TargetAotCompleteProjectionExecutionAccess final {
       std::uint64_t device_identity,
       std::uintptr_t arena_begin, std::uint64_t arena_bytes,
       std::int32_t device_ordinal) noexcept;
+  // Strict canonical ResidentWeights authentication for the Startup boundary
+  // source catalog only.  The shared bind()/attached()/catalog_identity()
+  // contract remains the pure 256-artifact projection domain.
+  [[nodiscard]] static std::optional<
+      Sm87TargetAotCompleteProjectionExecutionAccess>
+  bind_request_boundary_startup(const ModelWeights& model_weights) noexcept;
   [[nodiscard]] static bool descriptor_matches(
       const Sm87TargetAotCompleteProjectionDeviceAssets& owner,
       const Sm87TargetAotCompleteDeviceAssetDescriptor& descriptor,
       std::size_t layer_index,
       kernels::Sm87TargetAotProjectionRole role,
       std::uint64_t expected_offset) noexcept;
+  [[nodiscard]] bool resident_root_matches() const noexcept;
 
   const ModelWeights* model_weights_ = nullptr;
   const Sm87TargetAotCompleteProjectionDeviceAssets* owner_ = nullptr;
@@ -256,6 +288,12 @@ class Sm87TargetAotCompleteProjectionExecutionAccess final {
   std::uintptr_t arena_begin_ = 0U;
   std::uint64_t arena_bytes_ = 0U;
   std::int32_t device_ordinal_ = -1;
+  const ResidentWeights* resident_root_ = nullptr;
+  std::uint64_t resident_root_identity_ = 0U;
+  std::uintptr_t resident_arena_begin_ = 0U;
+  std::uint64_t resident_arena_bytes_ = 0U;
+  bool host_test_resident_authority_ = false;
+  std::uint64_t host_test_issuer_nonce_ = 0U;
   std::array<const Sm87TargetAotCompleteDeviceAssetDescriptor*,
              kSm87TargetAotCompleteProjectionDeviceArtifactCount>
       descriptors_{};

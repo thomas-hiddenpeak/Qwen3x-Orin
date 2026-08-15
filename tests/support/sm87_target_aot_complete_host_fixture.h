@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <utility>
 
@@ -19,8 +20,10 @@ using Owner = Sm87TargetAotCompleteProjectionDeviceAssets;
 
 inline constexpr std::uintptr_t kHostTestArenaBegin =
     0x0000'0030'0000'0000ULL;
-inline constexpr std::uintptr_t kHostTestResidentAddress =
-    0x0000'0020'0000'0000ULL;
+// A real, inert object is used as the opaque test resident token.  Only the
+// explicit host-test issuer below accepts it, and that path never dereferences
+// it or upgrades it to normal ResidentWeights authority.
+inline ResidentWeights kHostTestResidentToken{};
 inline constexpr std::uint64_t kHostTestOwnerIdentity =
     0x7133'7843'4f4d'504fULL;
 inline constexpr std::uint64_t kHostTestAllocationIdentity =
@@ -312,8 +315,7 @@ Sm87TargetAotCompleteProjectionExecutionAccess::
     owner.descriptor_count_ = 0U;
     return std::nullopt;
   }
-  owner.prepared_resident_ =
-      reinterpret_cast<const ResidentWeights*>(kHostTestResidentAddress);
+  owner.prepared_resident_ = &kHostTestResidentToken;
   owner.prepared_model_weights_ = &model_weights;
   owner.execution_bound_ = true;
   model_weights.target_aot_complete_projection_attachment_.owner = &owner;
@@ -333,6 +335,65 @@ Sm87TargetAotCompleteProjectionExecutionAccess::
       owner.descriptor_count_;
   return std::optional<ModelWeights>(std::in_place,
                                      std::move(model_weights));
+}
+
+std::optional<Sm87TargetAotCompleteProjectionExecutionAccess>
+Sm87TargetAotCompleteProjectionExecutionAccess::
+    bind_complete_host_test_fixture(
+        const ModelWeights& model_weights,
+        const std::uintptr_t resident_arena_begin,
+        const std::uint64_t resident_arena_bytes) noexcept {
+  const auto& attachment =
+      model_weights.target_aot_complete_projection_attachment_;
+  const Owner* const owner = attachment.owner;
+  if (resident_arena_begin == 0U || resident_arena_bytes == 0U ||
+      resident_arena_begin % 16U != 0U ||
+      resident_arena_bytes >
+          std::numeric_limits<std::uintptr_t>::max() - resident_arena_begin ||
+      !attachment_matches(
+          &model_weights, owner, attachment.owner_identity,
+          attachment.allocation_identity, attachment.device_identity,
+          attachment.arena_begin, attachment.arena_bytes,
+          attachment.device_ordinal) ||
+      owner->prepared_resident_ == nullptr) {
+    return std::nullopt;
+  }
+
+  auto access = bind(model_weights);
+  if (!access) {
+    return std::nullopt;
+  }
+
+  auto mix = [](std::uint64_t value, const std::uint64_t input) noexcept {
+    value ^= input + 0x9e37'79b9'7f4a'7c15ULL + (value << 6U) +
+             (value >> 2U);
+    return value;
+  };
+  std::uint64_t resident_identity = 0x5133'5854'4553'5452ULL;
+  resident_identity = mix(
+      resident_identity, reinterpret_cast<std::uintptr_t>(&model_weights));
+  resident_identity = mix(resident_identity, attachment.owner_identity);
+  resident_identity = mix(resident_identity, attachment.allocation_identity);
+  resident_identity = mix(resident_identity, attachment.device_identity);
+  resident_identity = mix(
+      resident_identity,
+      static_cast<std::uint64_t>(attachment.device_ordinal + 1));
+  resident_identity = mix(
+      resident_identity,
+      reinterpret_cast<std::uintptr_t>(owner->prepared_resident_));
+  resident_identity = mix(resident_identity, resident_arena_begin);
+  resident_identity = mix(resident_identity, resident_arena_bytes);
+  resident_identity = mix(resident_identity, kHostTestResidentIssuerNonce);
+  if (resident_identity == 0U) {
+    return std::nullopt;
+  }
+  access->resident_root_ = owner->prepared_resident_;
+  access->resident_root_identity_ = resident_identity;
+  access->resident_arena_begin_ = resident_arena_begin;
+  access->resident_arena_bytes_ = resident_arena_bytes;
+  access->host_test_resident_authority_ = true;
+  access->host_test_issuer_nonce_ = kHostTestResidentIssuerNonce;
+  return access;
 }
 
 bool Sm87TargetAotCompleteProjectionExecutionAccess::
@@ -423,6 +484,23 @@ bool Sm87TargetAotCompleteProjectionExecutionAccess::
     full->q_norm = pairs[ordinal].q_norm;
     full->k_norm = pairs[ordinal].k_norm;
   }
+  return true;
+}
+
+bool Sm87TargetAotCompleteProjectionExecutionAccess::
+    install_complete_host_test_request_boundary(
+        ModelWeights& model_weights,
+        const Sm87TargetAotCompleteHostTestRequestBoundary& boundary)
+        noexcept {
+  if (model_weights.target_aot_complete_projection_attachment_.owner ==
+          nullptr ||
+      model_weights.target_aot_complete_projection_attachment_.owner
+              ->prepared_model_weights_ != &model_weights) {
+    return false;
+  }
+  model_weights.embed_tokens_ = boundary.embedding;
+  model_weights.final_norm_ = boundary.final_norm;
+  model_weights.lm_head_ = boundary.lm_head;
   return true;
 }
 

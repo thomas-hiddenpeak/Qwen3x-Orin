@@ -13,6 +13,7 @@
     defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_MACROFEED_V4_FP8_ADMISSION)
+#include <cuda.h>
 #include <cuda_runtime_api.h>
 #endif
 
@@ -255,6 +256,71 @@ host_test_v4_full_attention_resources() noexcept {
   return resources;
 }
 
+[[nodiscard]] sm87_macrofeed_v4_bound_launch_detail::
+    Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot
+host_test_v4_embedding_resources() noexcept {
+  using namespace sm87_macrofeed_v4_bound_launch_detail;
+  Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot resources;
+  resources.identity = 0x7634'656d'6263'3830ULL;
+  resources.device_ordinal = 0;
+  resources.compute_major = 8;
+  resources.compute_minor = 7;
+  resources.sm_count = 16;
+  resources.gather = {32, 0U, 0U, 1'024, 4, 87, 256, 8'000};
+  resources.exact_geometry = true;
+  resources.static_resource_gate_passed = true;
+  return resources;
+}
+
+[[nodiscard]] sm87_macrofeed_v4_bound_launch_detail::
+    Sm87MacroFeedV4FinalNormM1ResourceSnapshot
+host_test_v4_final_norm_resources() noexcept {
+  using namespace sm87_macrofeed_v4_bound_launch_detail;
+  Sm87MacroFeedV4FinalNormM1ResourceSnapshot resources;
+  resources.identity = 0x7634'666e'6d31'3531ULL;
+  resources.device_ordinal = 0;
+  resources.compute_major = 8;
+  resources.compute_minor = 7;
+  resources.sm_count = 16;
+  resources.centered_rms_norm = {32, 1'024U, 0U, 1'024, 4, 87, 256, 1};
+  resources.exact_geometry = true;
+  resources.static_resource_gate_passed = true;
+  return resources;
+}
+
+[[nodiscard]] sm87_macrofeed_v4_bound_launch_detail::
+    Sm87MacroFeedV4LmHeadM1ResourceSnapshot
+host_test_v4_lm_head_resources() noexcept {
+  using namespace sm87_macrofeed_v4_bound_launch_detail;
+  Sm87MacroFeedV4LmHeadM1ResourceSnapshot resources;
+  resources.identity = 0x7634'6c6d'6831'3234ULL;
+  resources.device_ordinal = 0;
+  resources.compute_major = 8;
+  resources.compute_minor = 7;
+  resources.sm_count = 16;
+  resources.activation_staged = {64, 11'328U, 0U, 256, 4, 87, 256, 64};
+  resources.exact_geometry = true;
+  resources.static_resource_gate_passed = true;
+  return resources;
+}
+
+[[nodiscard]] sm87_macrofeed_v4_bound_launch_detail::
+    Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot
+host_test_v4_greedy_resources() noexcept {
+  using namespace sm87_macrofeed_v4_bound_launch_detail;
+  Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot resources;
+  resources.identity = 0x7634'6172'6731'3234ULL;
+  resources.device_ordinal = 0;
+  resources.compute_major = 8;
+  resources.compute_minor = 7;
+  resources.sm_count = 16;
+  resources.partial = {32, 3'072U, 0U, 1'024, 4, 87, 256, 32};
+  resources.finalize = {32, 0U, 0U, 1'024, 4, 87, 32, 1};
+  resources.exact_geometry = true;
+  resources.static_resource_gate_passed = true;
+  return resources;
+}
+
 }  // namespace
 
 int query_sm87_macrofeed_v4_nvfp4_gate_up_cuda_resources(
@@ -330,7 +396,51 @@ class Sm87MacroFeedV4P40StartupPackageHostTestFixture final {
  public:
   [[nodiscard]] static Sm87MacroFeedV4P40StartupPackageCreateResult create(
       const ModelWeights& model_weights) noexcept {
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION) && \
+    defined(Q3X_ENABLE_SM87_MACROFEED_V4_FP8_ADMISSION)
+    CUdeviceptr resident_arena_begin = 0U;
+    std::size_t resident_arena_bytes = 0U;
+    const auto* const embedding = model_weights.embed_tokens().weight;
+    if (embedding == nullptr ||
+        cuMemGetAddressRange(
+            &resident_arena_begin, &resident_arena_bytes,
+            static_cast<CUdeviceptr>(
+                reinterpret_cast<std::uintptr_t>(embedding))) !=
+            CUDA_SUCCESS ||
+        resident_arena_begin == 0U || resident_arena_bytes == 0U) {
+      Sm87MacroFeedV4P40StartupPackageCreateResult result;
+      result.status.error =
+          Sm87MacroFeedV4P40StartupPackageError::kProjectionAccessBind;
+      result.status.context = "host_test_resident_allocation_query";
+      return result;
+    }
+    return create(model_weights,
+                  static_cast<std::uintptr_t>(resident_arena_begin),
+                  resident_arena_bytes);
+#else
     return Sm87MacroFeedV4P40StartupPackage::create(model_weights);
+#endif
+  }
+
+  [[nodiscard]] static Sm87MacroFeedV4P40StartupPackageCreateResult create(
+      const ModelWeights& model_weights,
+      const std::uintptr_t resident_arena_begin,
+      const std::uint64_t resident_arena_bytes) noexcept {
+    auto access = target_aot_complete_execution_detail::
+        Sm87TargetAotCompleteProjectionExecutionAccess::
+            bind_complete_host_test_fixture(
+                model_weights, resident_arena_begin, resident_arena_bytes);
+    if (!access) {
+      Sm87MacroFeedV4P40StartupPackageCreateResult result;
+      result.status.error =
+          Sm87MacroFeedV4P40StartupPackageError::kProjectionAccessBind;
+      result.status.context = "host_test_resident_access_bind";
+      return result;
+    }
+    return Sm87MacroFeedV4P40StartupPackage::create_from_host_test_authority(
+        model_weights, std::move(*access));
   }
 
   [[nodiscard]] static bool typed_catalog_contract_closed(
@@ -348,6 +458,10 @@ class Sm87MacroFeedV4P40StartupPackageHostTestFixture final {
                       Sm87MacroFeedV4P40StartupPackage::
                           FullAttentionLayerExecutionBindingCatalog> ==
                   kSm87MacroFeedV4P40StartupPackageFullLayers);
+    static_assert(std::tuple_size_v<
+                      Sm87MacroFeedV4P40StartupPackage::
+                          RequestBoundaryExecutionBindingCatalog> ==
+                  kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings);
     static_assert(!std::is_same_v<
                   Sm87MacroFeedV4P40StartupPackage::GdnOutputExecutionBinding,
                   Sm87MacroFeedV4P40StartupPackage::GdnLayerExecutionBinding>);
@@ -455,6 +569,83 @@ class Sm87MacroFeedV4P40StartupPackageHostTestFixture final {
            resource_bundle_identity != 0U;
   }
 
+  [[nodiscard]] static bool
+  request_boundary_resource_and_host_authority_fail_closed(
+      const Sm87MacroFeedV4P40StartupPackage& package) noexcept {
+    using Catalog = Sm87MacroFeedV4P40StartupPackage::
+        RequestBoundaryExecutionBindingCatalog;
+    const auto catalog_is_clear = [](const Catalog& catalog) noexcept {
+      const auto& binding = catalog[0U];
+      return binding.binding_identity == 0U &&
+             binding.embedding.table == nullptr &&
+             binding.final_norm.centered_weight == nullptr &&
+             binding.lm_head.canonical_packed_weight == nullptr &&
+             binding.lm_head.canonical_block_scale == nullptr &&
+             binding.lm_head.weight_scale_2_device == nullptr &&
+             binding.lm_head.input_scale_device == nullptr &&
+             binding.resident_root == nullptr &&
+             binding.resident_root_identity == 0U &&
+             binding.resource_bundle_identity == 0U;
+    };
+    const auto rejected = [&](const auto& observations,
+                              const bool bundle_must_be_zero) noexcept {
+      const std::uint64_t bundle_identity =
+          Sm87MacroFeedV4P40StartupPackage::
+              compute_request_boundary_resource_bundle_identity(
+                  observations, package.audit_.package_identity,
+                  package.audit_.deployment_plan_identity,
+                  package.audit_.device_identity,
+                  package.audit_.device_ordinal);
+      Catalog catalog{};
+      catalog[0U].binding_identity = 1U;
+      catalog[0U].resident_root = reinterpret_cast<const ResidentWeights*>(
+          static_cast<std::uintptr_t>(16U));
+      std::uint64_t identity = 1U;
+      std::size_t failure =
+          kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings;
+      int cuda_error = 0;
+      const bool sealed = package.
+          seal_request_boundary_execution_catalog_for_execution_package(
+              observations, &catalog, &identity, &failure, &cuda_error);
+      return !sealed && identity == 0U && failure == 0U && cuda_error != 0 &&
+             catalog_is_clear(catalog) &&
+             (bundle_must_be_zero ? bundle_identity == 0U
+                                  : bundle_identity != 0U);
+    };
+
+    const auto canonical = make_request_boundary_resource_observations();
+    if (!rejected(canonical, false)) {
+      return false;
+    }
+    const auto reject_mutation = [&](auto mutate) noexcept {
+      auto observations = canonical;
+      mutate(observations);
+      return rejected(observations, true);
+    };
+    return reject_mutation([](auto& observations) noexcept {
+             observations.embedding.identity = 0U;
+           }) &&
+           reject_mutation([](auto& observations) noexcept {
+             observations.final_norm.exact_geometry = false;
+           }) &&
+           reject_mutation([](auto& observations) noexcept {
+             observations.lm_head.activation_staged.registers_per_thread =
+                 63;
+           }) &&
+           reject_mutation([](auto& observations) noexcept {
+             observations.greedy.partial.grid_ctas = 31;
+           }) &&
+           reject_mutation([](auto& observations) noexcept {
+             observations.embedding.device_ordinal = 1;
+           }) &&
+           reject_mutation([](auto& observations) noexcept {
+             observations.source_private_queries_completed = false;
+           }) &&
+           reject_mutation([](auto& observations) noexcept {
+             observations.caller_resource_snapshot_accepted = true;
+           });
+  }
+
   [[nodiscard]] static bool full_resource_substitutions_fail_closed(
       const Sm87MacroFeedV4P40StartupPackage& package) noexcept {
     using Catalog = Sm87MacroFeedV4P40StartupPackage::
@@ -525,7 +716,7 @@ class Sm87MacroFeedV4P40StartupPackageHostTestFixture final {
  private:
   [[nodiscard]] static Sm87MacroFeedV4P40StartupPackage::
       FullAttentionExecutionResourceObservations
-      make_full_attention_resource_observations() noexcept {
+  make_full_attention_resource_observations() noexcept {
     Sm87MacroFeedV4P40StartupPackage::
         FullAttentionExecutionResourceObservations observations;
     observations.qkv = kernels::host_test_v4_full_qkv_resources();
@@ -534,6 +725,20 @@ class Sm87MacroFeedV4P40StartupPackageHostTestFixture final {
         kernels::host_test_v4_full_preprocess_resources();
     observations.attention =
         kernels::host_test_v4_full_attention_resources();
+    observations.source_private_queries_completed = true;
+    observations.caller_resource_snapshot_accepted = false;
+    return observations;
+  }
+
+  [[nodiscard]] static Sm87MacroFeedV4P40StartupPackage::
+      RequestBoundaryExecutionResourceObservations
+      make_request_boundary_resource_observations() noexcept {
+    Sm87MacroFeedV4P40StartupPackage::
+        RequestBoundaryExecutionResourceObservations observations;
+    observations.embedding = kernels::host_test_v4_embedding_resources();
+    observations.final_norm = kernels::host_test_v4_final_norm_resources();
+    observations.lm_head = kernels::host_test_v4_lm_head_resources();
+    observations.greedy = kernels::host_test_v4_greedy_resources();
     observations.source_private_queries_completed = true;
     observations.caller_resource_snapshot_accepted = false;
     return observations;
@@ -558,12 +763,15 @@ using HostBf16AbPair =
     execution::Sm87TargetAotCompleteHostTestBf16AbPair;
 using HostFullQkNormPair =
     execution::Sm87TargetAotCompleteHostTestFullQkNormPair;
+using HostRequestBoundary =
+    execution::Sm87TargetAotCompleteHostTestRequestBoundary;
 using Owner = q3x::runtime::Sm87TargetAotCompleteProjectionDeviceAssets;
 using Role = q3x::kernels::Sm87TargetAotProjectionRole;
 using q3x::runtime::Bf16LinearWeight;
 using q3x::runtime::Bf16VectorWeight;
 using q3x::runtime::Fp8LinearWeight;
 using q3x::runtime::ModelWeights;
+using q3x::runtime::NvFp4LinearWeight;
 
 template <typename T, typename = void>
 struct HasPublicStartupCreate : std::false_type {};
@@ -616,6 +824,177 @@ make_bf16_ab_t0_inventory() noexcept {
     }
   }
   return tensors;
+}
+
+[[nodiscard]] package::Sm87MacroFeedV4RequestBoundaryT0SourceDescriptor
+make_request_boundary_t0_source() noexcept {
+  namespace bound =
+      q3x::kernels::sm87_macrofeed_v4_bound_launch_detail;
+  constexpr std::uintptr_t kBase = 0x0000'0100'0000'0000ULL;
+  constexpr std::uintptr_t kEmbedding = kBase;
+  constexpr std::uintptr_t kFinalNorm =
+      kEmbedding + bound::kSm87MacroFeedV4EmbeddingTableBytes;
+  constexpr std::uintptr_t kPacked =
+      kFinalNorm + bound::kSm87MacroFeedV4FinalNormBytes;
+  constexpr std::uintptr_t kBlockScale =
+      kPacked + bound::kSm87MacroFeedV4LmHeadPackedWeightBytes;
+  constexpr std::uintptr_t kWeightScale =
+      kBlockScale + bound::kSm87MacroFeedV4LmHeadBlockScaleBytes;
+  constexpr std::uintptr_t kInputScale = kWeightScale + 16U;
+
+  package::Sm87MacroFeedV4RequestBoundaryT0SourceDescriptor source;
+  source.embedding = {
+      reinterpret_cast<const std::uint16_t*>(kEmbedding),
+      bound::kSm87MacroFeedV4EmbeddingVocabulary,
+      bound::kSm87MacroFeedV4Hidden};
+  source.final_norm = {
+      reinterpret_cast<const std::uint16_t*>(kFinalNorm),
+      bound::kSm87MacroFeedV4Hidden};
+  source.lm_head = NvFp4LinearWeight{
+      reinterpret_cast<const std::uint8_t*>(kPacked),
+      reinterpret_cast<const std::uint8_t*>(kBlockScale),
+      reinterpret_cast<const float*>(kWeightScale),
+      reinterpret_cast<const float*>(kInputScale), 1.0F, 0.5F,
+      bound::kSm87MacroFeedV4LmHeadRows,
+      bound::kSm87MacroFeedV4LmHeadColumns};
+  source.final_norm_epsilon_fp32_bits =
+      bound::kSm87MacroFeedV4FinalNormEpsilonFp32Bits;
+  source.greedy_vocabulary = bound::kSm87MacroFeedV4Vocabulary;
+  source.greedy_workspace_results =
+      bound::kSm87MacroFeedV4GreedyWorkspaceResults;
+  source.greedy_strict_left_to_right_fp32_order = true;
+  source.greedy_smallest_index_tie_break = true;
+  source.greedy_nonfinite_reported_and_ignored = true;
+  return source;
+}
+
+void test_request_boundary_t0_source_contract() {
+  const auto canonical = make_request_boundary_t0_source();
+  const auto audit =
+      package::inspect_sm87_macrofeed_v4_request_boundary_t0_source(
+          canonical);
+  require_package(
+      audit.valid_t0() && audit.failure_index == 6U &&
+          audit.catalog_identity != 0U && audit.embedding_identity != 0U &&
+          audit.final_norm_identity != 0U && audit.lm_head_identity != 0U &&
+          audit.greedy_identity != 0U &&
+          audit.input_scale_provenance_retained &&
+          !audit.input_scale_consumed &&
+          !audit.live_cuda_device_ranges_validated &&
+          !audit.execution_capability,
+      "canonical request-boundary T0 source did not close");
+
+  auto wrong_embedding_shape = canonical;
+  wrong_embedding_shape.embedding.output_size -= 1U;
+  require_package(
+      !package::inspect_sm87_macrofeed_v4_request_boundary_t0_source(
+           wrong_embedding_shape)
+           .valid_t0(),
+      "wrong embedding shape was accepted");
+  auto null_embedding = canonical;
+  null_embedding.embedding.weight = nullptr;
+  require_package(
+      !package::inspect_sm87_macrofeed_v4_request_boundary_t0_source(
+           null_embedding)
+           .valid_t0(),
+      "null embedding source was accepted");
+  auto unaligned_embedding = canonical;
+  unaligned_embedding.embedding.weight =
+      reinterpret_cast<const std::uint16_t*>(
+          reinterpret_cast<std::uintptr_t>(canonical.embedding.weight) + 2U);
+  require_package(
+      !package::inspect_sm87_macrofeed_v4_request_boundary_t0_source(
+           unaligned_embedding)
+           .valid_t0(),
+      "unaligned embedding source was accepted");
+
+  auto wrong_norm = canonical;
+  wrong_norm.final_norm.element_count -= 1U;
+  require_package(
+      !package::inspect_sm87_macrofeed_v4_request_boundary_t0_source(
+           wrong_norm)
+           .valid_t0(),
+      "wrong final norm shape was accepted");
+  auto wrong_epsilon = canonical;
+  wrong_epsilon.final_norm_epsilon_fp32_bits ^= 1U;
+  require_package(
+      !package::inspect_sm87_macrofeed_v4_request_boundary_t0_source(
+           wrong_epsilon)
+           .valid_t0(),
+      "wrong final norm epsilon bits were accepted");
+
+  auto non_nvfp4 = canonical;
+  non_nvfp4.lm_head = Bf16LinearWeight{
+      canonical.embedding.weight,
+      q3x::kernels::sm87_macrofeed_v4_bound_launch_detail::
+          kSm87MacroFeedV4LmHeadRows,
+      q3x::kernels::sm87_macrofeed_v4_bound_launch_detail::
+          kSm87MacroFeedV4LmHeadColumns};
+  require_package(
+      !package::inspect_sm87_macrofeed_v4_request_boundary_t0_source(
+           non_nvfp4)
+           .valid_t0(),
+      "non-NVFP4 LM head was accepted");
+  auto wrong_lm_shape = canonical;
+  std::get<NvFp4LinearWeight>(wrong_lm_shape.lm_head).input_size -= 1U;
+  require_package(
+      !package::inspect_sm87_macrofeed_v4_request_boundary_t0_source(
+           wrong_lm_shape)
+           .valid_t0(),
+      "wrong NVFP4 LM-head shape was accepted");
+  auto null_scale_pointer = canonical;
+  std::get<NvFp4LinearWeight>(null_scale_pointer.lm_head)
+      .weight_scale_2_device = nullptr;
+  require_package(
+      !package::inspect_sm87_macrofeed_v4_request_boundary_t0_source(
+           null_scale_pointer)
+           .valid_t0(),
+      "null LM-head scale source was accepted");
+  auto invalid_weight_scale = canonical;
+  std::get<NvFp4LinearWeight>(invalid_weight_scale.lm_head).weight_scale_2 =
+      0.0F;
+  require_package(
+      !package::inspect_sm87_macrofeed_v4_request_boundary_t0_source(
+           invalid_weight_scale)
+           .valid_t0(),
+      "invalid LM-head weight-scale raw bits were accepted");
+  auto invalid_input_scale = canonical;
+  std::get<NvFp4LinearWeight>(invalid_input_scale.lm_head).input_scale =
+      -1.0F;
+  require_package(
+      !package::inspect_sm87_macrofeed_v4_request_boundary_t0_source(
+           invalid_input_scale)
+           .valid_t0(),
+      "invalid retained input-scale raw bits were accepted");
+
+  auto overlap = canonical;
+  auto& overlap_lm = std::get<NvFp4LinearWeight>(overlap.lm_head);
+  overlap_lm.block_scale = overlap_lm.packed_weight;
+  require_package(
+      !package::inspect_sm87_macrofeed_v4_request_boundary_t0_source(overlap)
+           .valid_t0(),
+      "overlapping request-boundary sources were accepted");
+  auto scalar_substitution = canonical;
+  auto& substituted_lm =
+      std::get<NvFp4LinearWeight>(scalar_substitution.lm_head);
+  std::swap(substituted_lm.weight_scale_2_device,
+            substituted_lm.input_scale_device);
+  const auto substituted_audit =
+      package::inspect_sm87_macrofeed_v4_request_boundary_t0_source(
+          scalar_substitution);
+  require_package(
+      substituted_audit.valid_t0() &&
+          substituted_audit.catalog_identity != audit.catalog_identity &&
+          substituted_audit.lm_head_identity != audit.lm_head_identity,
+      "disjoint scalar-source substitution preserved boundary identity");
+
+  auto wrong_greedy = canonical;
+  wrong_greedy.greedy_smallest_index_tie_break = false;
+  require_package(
+      !package::inspect_sm87_macrofeed_v4_request_boundary_t0_source(
+           wrong_greedy)
+           .valid_t0(),
+      "wrong greedy tie-break spec was accepted");
 }
 
 void test_bf16_ab_t0_inventory_contract() {
@@ -756,6 +1135,38 @@ class LiveBf16AbHostFixture final {
           q3x::kernels::
               kSm87MacroFeedV4FullAttentionPreprocessHeadDimension};
     }
+    request_boundary_.embedding = Bf16LinearWeight{
+        reinterpret_cast<const std::uint16_t*>(
+            bytes + kRequestEmbeddingOffset),
+        q3x::kernels::sm87_macrofeed_v4_bound_launch_detail::
+            kSm87MacroFeedV4EmbeddingVocabulary,
+        q3x::kernels::sm87_macrofeed_v4_bound_launch_detail::
+            kSm87MacroFeedV4Hidden};
+    request_boundary_.final_norm = Bf16VectorWeight{
+        reinterpret_cast<const std::uint16_t*>(bytes + kRequestFinalNormOffset),
+        q3x::kernels::sm87_macrofeed_v4_bound_launch_detail::
+            kSm87MacroFeedV4Hidden};
+    request_boundary_.lm_head = NvFp4LinearWeight{
+        bytes + kRequestLmPackedOffset,
+        bytes + kRequestLmBlockScaleOffset,
+        reinterpret_cast<const float*>(bytes + kRequestWeightScaleOffset),
+        reinterpret_cast<const float*>(bytes + kRequestInputScaleOffset),
+        1.0F,
+        1.0F,
+        q3x::kernels::sm87_macrofeed_v4_bound_launch_detail::
+            kSm87MacroFeedV4LmHeadRows,
+        q3x::kernels::sm87_macrofeed_v4_bound_launch_detail::
+            kSm87MacroFeedV4LmHeadColumns};
+    constexpr float kScale = 1.0F;
+    if (cudaMemcpy(bytes + kRequestWeightScaleOffset, &kScale, sizeof(kScale),
+                   cudaMemcpyHostToDevice) != cudaSuccess ||
+        cudaMemcpy(bytes + kRequestInputScaleOffset, &kScale, sizeof(kScale),
+                   cudaMemcpyHostToDevice) != cudaSuccess) {
+      (void)cudaFree(allocation_);
+      allocation_ = nullptr;
+      request_boundary_ = {};
+      return false;
+    }
     return true;
   }
 
@@ -768,7 +1179,9 @@ class LiveBf16AbHostFixture final {
                weights, pairs_.data(), pair_count) &&
            Access::install_complete_host_test_full_qk_norm_pairs(
                weights, full_qk_norm_pairs_.data(),
-               full_qk_norm_pairs_.size());
+               full_qk_norm_pairs_.size()) &&
+           Access::install_complete_host_test_request_boundary(
+               weights, request_boundary_);
   }
 
   [[nodiscard]] HostBf16AbPair& pair(const std::size_t ordinal) noexcept {
@@ -785,6 +1198,18 @@ class LiveBf16AbHostFixture final {
         static_cast<const std::uint8_t*>(allocation_) + kAllocationBytes);
   }
 
+  [[nodiscard]] std::uintptr_t arena_begin() const noexcept {
+    return reinterpret_cast<std::uintptr_t>(allocation_);
+  }
+
+  [[nodiscard]] std::uint64_t arena_bytes() const noexcept {
+    return kAllocationBytes;
+  }
+
+  [[nodiscard]] HostRequestBoundary& request_boundary() noexcept {
+    return request_boundary_;
+  }
+
  private:
   static constexpr std::size_t kWeightBytes =
       q3x::kernels::kSm87MacroFeedV4Bf16AbWeightBytes;
@@ -794,10 +1219,31 @@ class LiveBf16AbHostFixture final {
   static constexpr std::size_t kFullNormWeightBytes =
       q3x::kernels::
           kSm87MacroFeedV4FullAttentionPreprocessNormWeightBytes;
-  static constexpr std::size_t kAllocationBytes =
+  static constexpr std::size_t kFullNormBytes =
       kBf16AbBytes +
       2U * package::kSm87MacroFeedV4P40StartupPackageFullLayers *
           kFullNormWeightBytes;
+  static constexpr std::size_t kRequestEmbeddingOffset = kFullNormBytes;
+  static constexpr std::size_t kRequestFinalNormOffset =
+      kRequestEmbeddingOffset +
+      q3x::kernels::sm87_macrofeed_v4_bound_launch_detail::
+          kSm87MacroFeedV4EmbeddingTableBytes;
+  static constexpr std::size_t kRequestLmPackedOffset =
+      kRequestFinalNormOffset +
+      q3x::kernels::sm87_macrofeed_v4_bound_launch_detail::
+          kSm87MacroFeedV4FinalNormBytes;
+  static constexpr std::size_t kRequestLmBlockScaleOffset =
+      kRequestLmPackedOffset +
+      q3x::kernels::sm87_macrofeed_v4_bound_launch_detail::
+          kSm87MacroFeedV4LmHeadPackedWeightBytes;
+  static constexpr std::size_t kRequestWeightScaleOffset =
+      kRequestLmBlockScaleOffset +
+      q3x::kernels::sm87_macrofeed_v4_bound_launch_detail::
+          kSm87MacroFeedV4LmHeadBlockScaleBytes;
+  static constexpr std::size_t kRequestInputScaleOffset =
+      kRequestWeightScaleOffset + 16U;
+  static constexpr std::size_t kAllocationBytes =
+      kRequestInputScaleOffset + 16U;
 
   void* allocation_ = nullptr;
   std::array<HostBf16AbPair,
@@ -806,6 +1252,7 @@ class LiveBf16AbHostFixture final {
   std::array<HostFullQkNormPair,
              package::kSm87MacroFeedV4P40StartupPackageFullLayers>
       full_qk_norm_pairs_{};
+  HostRequestBoundary request_boundary_{};
 };
 
 [[nodiscard]] bool live_sm87_test_device_available() noexcept {
@@ -814,6 +1261,90 @@ class LiveBf16AbHostFixture final {
   return cudaGetDevice(&device) == cudaSuccess && device == 0 &&
          cudaGetDeviceProperties(&properties, device) == cudaSuccess &&
          properties.major == 8 && properties.minor == 7;
+}
+
+void test_request_boundary_live_source_failures() {
+  LiveBf16AbHostFixture fixture;
+  require_package(fixture.allocate(),
+                  "request-boundary live allocation failed");
+  const HostRequestBoundary canonical = fixture.request_boundary();
+
+  const auto reject = [&](const char* const context,
+                          const std::size_t expected_failure_index,
+                          const bool expect_cuda_error,
+                          auto&& mutate) noexcept {
+    fixture.request_boundary() = canonical;
+    auto& lm = std::get<NvFp4LinearWeight>(fixture.request_boundary().lm_head);
+    constexpr float kCanonicalScale = 1.0F;
+    require_package(
+        cudaMemcpy(const_cast<float*>(lm.weight_scale_2_device),
+                   &kCanonicalScale, sizeof(kCanonicalScale),
+                   cudaMemcpyHostToDevice) == cudaSuccess &&
+            cudaMemcpy(const_cast<float*>(lm.input_scale_device),
+                       &kCanonicalScale, sizeof(kCanonicalScale),
+                       cudaMemcpyHostToDevice) == cudaSuccess &&
+            mutate(fixture.request_boundary()),
+        context);
+
+    Owner owner;
+    std::optional<ModelWeights> weights =
+        Access::make_complete_host_test_fixture(owner);
+    require_package(weights.has_value() && fixture.install(*weights), context);
+    auto result = PackageFactory::create(*weights);
+    require_package(
+        !result && result.package == nullptr &&
+            result.status.error ==
+                PackageError::kRequestBoundarySourceCatalogSeal &&
+            result.status.layer == expected_failure_index &&
+            ((result.status.cuda_error != 0) == expect_cuda_error),
+        context);
+    require_package(clear_fixture(weights, owner), context);
+  };
+
+  reject("device weight_scale_2 raw-bit mismatch was accepted", 4U, true,
+         [](HostRequestBoundary& boundary) noexcept {
+           auto& lm = std::get<NvFp4LinearWeight>(boundary.lm_head);
+           constexpr float kDifferentPositiveScale = 2.0F;
+           return cudaMemcpy(const_cast<float*>(lm.weight_scale_2_device),
+                             &kDifferentPositiveScale,
+                             sizeof(kDifferentPositiveScale),
+                             cudaMemcpyHostToDevice) == cudaSuccess;
+         });
+  reject("device input_scale raw-bit mismatch was accepted", 5U, true,
+         [](HostRequestBoundary& boundary) noexcept {
+           auto& lm = std::get<NvFp4LinearWeight>(boundary.lm_head);
+           constexpr float kDifferentPositiveScale = 0.5F;
+           return cudaMemcpy(const_cast<float*>(lm.input_scale_device),
+                             &kDifferentPositiveScale,
+                             sizeof(kDifferentPositiveScale),
+                             cudaMemcpyHostToDevice) == cudaSuccess;
+         });
+  void* foreign_norm_allocation = nullptr;
+  require_package(
+      cudaMalloc(&foreign_norm_allocation,
+                 q3x::kernels::sm87_macrofeed_v4_bound_launch_detail::
+                     kSm87MacroFeedV4FinalNormBytes) == cudaSuccess &&
+          foreign_norm_allocation != nullptr,
+      "foreign request-boundary allocation failed");
+  reject("foreign live CUDA allocation substituted the resident source", 1U,
+         true, [&](HostRequestBoundary& boundary) noexcept {
+           boundary.final_norm.data =
+               static_cast<const std::uint16_t*>(foreign_norm_allocation);
+           return true;
+         });
+  require_package(cudaFree(foreign_norm_allocation) == cudaSuccess,
+                  "foreign request-boundary allocation cleanup failed");
+  foreign_norm_allocation = nullptr;
+  reject("one-past resident request-boundary range was accepted", 1U, true,
+         [&](HostRequestBoundary& boundary) noexcept {
+           boundary.final_norm.data = fixture.one_past_allocation();
+           return true;
+         });
+  reject("overlapping request-boundary source substitution was accepted", 5U,
+         false, [](HostRequestBoundary& boundary) noexcept {
+           boundary.final_norm.data = boundary.embedding.weight;
+           return true;
+         });
 }
 
 void test_complete_v4_foundation_package() {
@@ -864,6 +1395,14 @@ void test_complete_v4_foundation_package() {
                 package::Sm87MacroFeedV4FullAttentionStartupSeal>);
   static_assert(!std::is_trivially_copyable_v<
                 package::Sm87MacroFeedV4FullAttentionStartupSeal>);
+  static_assert(!std::is_default_constructible_v<
+                package::Sm87MacroFeedV4RequestBoundaryStartupSeal>);
+  static_assert(!std::is_copy_constructible_v<
+                package::Sm87MacroFeedV4RequestBoundaryStartupSeal>);
+  static_assert(!std::is_move_constructible_v<
+                package::Sm87MacroFeedV4RequestBoundaryStartupSeal>);
+  static_assert(!std::is_trivially_copyable_v<
+                package::Sm87MacroFeedV4RequestBoundaryStartupSeal>);
 
   Owner owner;
   LiveBf16AbHostFixture bf16_ab;
@@ -915,7 +1454,13 @@ void test_complete_v4_foundation_package() {
           first.audit.gdn_qkvz_resource_seal_identity != 0U &&
           first.audit.full_attention_source_bindings == 16U &&
           first.audit.full_attention_source_catalog_identity != 0U &&
-          first.audit.full_attention_source_seal_identity != 0U,
+          first.audit.full_attention_source_seal_identity != 0U &&
+          first.audit.request_boundary_source_bindings == 1U &&
+          first.audit.request_boundary_source_catalog_identity != 0U &&
+          first.audit.request_boundary_source_seal_identity != 0U &&
+          first.audit.request_boundary_resident_root_identity != 0U &&
+          first.audit.request_boundary_resident_arena_bytes ==
+              bf16_ab.arena_bytes(),
       "V4 startup identity or complete asset cardinality drifted");
   require_package(
       first.audit.canonical_plan_generated_internally &&
@@ -947,6 +1492,19 @@ void test_complete_v4_foundation_package() {
           first.audit.full_attention_typed_asset_values_private &&
           !first.audit
                .full_attention_observed_resource_execution_catalog_sealed &&
+          first.audit.request_boundary_exact_shapes_and_specs &&
+          first.audit.request_boundary_live_device_ranges_complete &&
+          first.audit.request_boundary_device_scale_raw_bits_match_host &&
+          first.audit.request_boundary_input_scale_provenance_retained &&
+          !first.audit.request_boundary_input_scale_consumed &&
+          !first.audit
+               .request_boundary_observed_resource_execution_catalog_sealed &&
+          first.audit
+              .request_boundary_final_representation_ready_diagnostic_only &&
+          first.audit.pure_prefill_state_committed_endpoint_unchanged &&
+          !first.audit.request_boundary_normal_resident_authority &&
+          first.audit.request_boundary_host_test_resident_authority &&
+          !first.audit.request_boundary_raw_pointer_publicly_exposed &&
           !first.audit.caller_raw_receipts_accepted &&
           !first.audit.v3_execution_identity_reused &&
           !first.audit
@@ -979,9 +1537,12 @@ void test_complete_v4_foundation_package() {
   const auto& bf16_ab_seal = first.package->bf16_ab_startup_seal();
   const auto& gdn_qkvz_seal = first.package->gdn_qkvz_startup_seal();
   const auto& full_seal = first.package->full_attention_startup_seal();
+  const auto& request_seal =
+      first.package->request_boundary_startup_seal();
   require_package(
       gate_seal.valid() && down_seal.valid() && bf16_ab_seal.valid() &&
           gdn_qkvz_seal.valid() && full_seal.valid() &&
+          request_seal.valid() &&
           gate_seal.seal_identity != down_seal.seal_identity &&
           bf16_ab_seal.seal_identity != gate_seal.seal_identity &&
           bf16_ab_seal.seal_identity != down_seal.seal_identity &&
@@ -992,11 +1553,13 @@ void test_complete_v4_foundation_package() {
           full_seal.seal_identity != down_seal.seal_identity &&
           full_seal.seal_identity != bf16_ab_seal.seal_identity &&
           full_seal.seal_identity != gdn_qkvz_seal.seal_identity &&
+          request_seal.seal_identity != full_seal.seal_identity &&
           gate_seal.package_identity == first.audit.package_identity &&
           down_seal.package_identity == first.audit.package_identity &&
           bf16_ab_seal.package_identity == first.audit.package_identity &&
           gdn_qkvz_seal.package_identity == first.audit.package_identity &&
           full_seal.package_identity == first.audit.package_identity &&
+          request_seal.package_identity == first.audit.package_identity &&
           gate_seal.deployment_plan_identity ==
               first.audit.deployment_plan_identity &&
           down_seal.deployment_plan_identity ==
@@ -1006,6 +1569,8 @@ void test_complete_v4_foundation_package() {
           gdn_qkvz_seal.deployment_plan_identity ==
               first.audit.deployment_plan_identity &&
           full_seal.deployment_plan_identity ==
+              first.audit.deployment_plan_identity &&
+          request_seal.deployment_plan_identity ==
               first.audit.deployment_plan_identity &&
           bf16_ab_seal.binding_catalog_identity ==
               first.audit.bf16_ab_binding_catalog_identity &&
@@ -1021,6 +1586,15 @@ void test_complete_v4_foundation_package() {
           full_seal.source_catalog_identity ==
               first.audit.full_attention_source_catalog_identity &&
           full_seal.binding_count == 16U &&
+          request_seal.source_catalog_identity ==
+              first.audit.request_boundary_source_catalog_identity &&
+          request_seal.resident_root_identity ==
+              first.audit.request_boundary_resident_root_identity &&
+          request_seal.resident_arena_bytes == bf16_ab.arena_bytes() &&
+          request_seal.binding_count == 1U &&
+          request_seal.final_norm_epsilon_fp32_bits == 0x3586'37bdU &&
+          request_seal.weight_scale_2_fp32_bits == 0x3f80'0000U &&
+          request_seal.input_scale_fp32_bits == 0x3f80'0000U &&
           full_seal.qkv_role == Role::kFp8FullQkv &&
           full_seal.qkv_input_layout ==
               q3x::kernels::Sm87MacroFeedV4Fp8InputLayout::
@@ -1080,15 +1654,30 @@ void test_complete_v4_foundation_package() {
           full_seal.typed_asset_values_private &&
           full_seal.observed_resource_execution_seal_deferred &&
           !full_seal.raw_pointer_exposed &&
+          request_seal.embedding_exact_bf16_shape &&
+          request_seal.final_norm_exact_bf16_shape_and_epsilon &&
+          request_seal.lm_head_exact_canonical_nvfp4_shape &&
+          request_seal.device_scale_raw_bits_match_host &&
+          request_seal.input_scale_provenance_retained &&
+          !request_seal.input_scale_consumed && request_seal.greedy_spec_exact &&
+          request_seal.complete_live_device_ranges &&
+          request_seal.observed_resource_execution_seal_deferred &&
+          request_seal.final_representation_ready_diagnostic_only &&
+          request_seal.pure_prefill_state_committed_endpoint_unchanged &&
+          !request_seal.normal_resident_authority &&
+          request_seal.host_test_resident_authority &&
+          !request_seal.raw_pointer_exposed &&
           !gate_seal.launcher_authority && !down_seal.launcher_authority &&
           !bf16_ab_seal.launcher_authority &&
           !gdn_qkvz_seal.launcher_authority &&
           !full_seal.launcher_authority &&
+          !request_seal.launcher_authority &&
           !gate_seal.caller_receipt_accepted &&
           !down_seal.caller_receipt_accepted &&
           !bf16_ab_seal.caller_resource_snapshot_accepted &&
           !gdn_qkvz_seal.caller_resource_snapshot_accepted &&
           !full_seal.caller_resource_snapshot_accepted &&
+          !request_seal.caller_resource_snapshot_accepted &&
           !bf16_ab_seal.production_dispatch_eligible &&
           !gdn_qkvz_seal.production_dispatch_eligible &&
           !full_seal.production_dispatch_eligible,
@@ -1099,6 +1688,10 @@ void test_complete_v4_foundation_package() {
   require_package(
       PackageFactory::full_resource_substitutions_fail_closed(*first.package),
       "V4 Full observed-resource substitution did not fail all-or-nothing");
+  require_package(
+      PackageFactory::request_boundary_resource_and_host_authority_fail_closed(
+          *first.package),
+      "V4 request-boundary resources or host authority did not fail closed");
 
   auto second = PackageFactory::create(*model_weights);
   require_package(static_cast<bool>(second) &&
@@ -1694,6 +2287,7 @@ void test_default_off_package_linkage_is_closed() {
 }  // namespace
 
 int main() {
+  test_request_boundary_t0_source_contract();
   test_bf16_ab_t0_inventory_contract();
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) && \
@@ -1705,6 +2299,7 @@ int main() {
     return 77;
   }
   test_complete_v4_foundation_package();
+  test_request_boundary_live_source_failures();
   test_source_scale_and_device_tamper_fail_closed();
   test_bf16_ab_model_and_range_failures();
   test_full_attention_qk_norm_failures();

@@ -27,9 +27,12 @@ ledger. One same-request/panel Synthetic-T1 fixture physically joins
 61,440-byte copies, followed by one normal combined drain/discard and no
 publication. A separate Synthetic-T1 fixture exercises fixed/private
 prevalidated C8000 Embedding, final-row centered RMSNorm M1, exact NVFP4
-LM-head M1, and two-kernel BF16 greedy leaves. Neither fixture is a normal
-Startup/Execution owner binding or a package-bound request edge. This is T1
-correctness/dependency evidence only. V4 does not become a
+LM-head M1, and two-kernel BF16 greedy leaves. Normal Startup now separately
+seals those immutable sources/specifications against the authenticated real
+Resident root, but ExecutionPackage has not consumed the existing normal
+resource-seal API, so neither fixture is a normal execution binding or a
+package-bound request edge. This is T1 correctness/dependency evidence only.
+V4 does not become a
 Constitution-defined `architecture_candidate`
 until the complete dataflow is runnable. V1/V2 and the complete V3 composition are
 retained only as the diagnostic controls described by Current Status. This
@@ -155,7 +158,7 @@ The principal audited loci are:
 | Source mechanism | Invariant to retain | Architecture/runtime shell to replace | SM87 AOT translation | Main risk or falsifier |
 | --- | --- | --- | --- | --- |
 | vLLM scheduler and startup plan | Explicit scheduled-token budget, shape warmup, backend identity, route-ready barrier | Python scheduler, general batching policy, late JIT ecosystem | Offline enumerate only P40/P60/P130 and required tails; authenticate the selected physical plan before ready | A service-level chunk can improve concurrency while regressing batch-one Prefill |
-| vLLM/model request edges and first-token finalizer | Exact token-ID-to-Embedding rows, final-row normalization, vocabulary projection, deterministic selection, and separate phase observability | Python module dispatch, generic sampling stack, and framework timing callbacks | Fixed C8000 BF16 gather; centered final-row RMSNorm M1; exact activation-staged NVFP4 LM-head M1; two-level BF16 greedy reduction; bind them through normal AOT owners and time canonical `PrefillStateCommitted` with independent Control events | Treating private Synthetic-T1 leaves as package-bound, or using `FinalRepresentationReady`/finalizer completion as the pure-Prefill endpoint |
+| vLLM/model request edges and first-token finalizer | Exact token-ID-to-Embedding rows, final-row normalization, vocabulary projection, deterministic selection, and separate phase observability | Python module dispatch, generic sampling stack, and framework timing callbacks | Fixed C8000 BF16 gather; centered final-row RMSNorm M1; exact activation-staged NVFP4 LM-head M1 that consumes only `weight_scale_2` while retaining `input_scale` provenance; two-level BF16 greedy reduction. Startup source/Resident seal is complete; next bind the existing normal resource seal, pinned staging and aliases in ExecutionPackage, then time canonical `PrefillStateCommitted` with independent Control events | Treating Startup source authority as executable, allowing host-test authority to upgrade, or using `FinalRepresentationReady`/finalizer completion as the pure-Prefill endpoint |
 | vLLM ModelOpt W4A16 selection | W4A16 is distinct from native W4A4; BF16 A, packed E2M1/E4M3 scales, exact role boundaries | General backend registry and automatic fallback order | Bind every NVFP4/FP8 role to one explicit SM87 launcher and fail closed | Accidentally attributing a W4A4/native-FP4 result to the W4A16 route |
 | Humming SM8x W4A16 | Static N/K/layout, M buckets, packed B+scale through global/shared movement, register decode immediately before BF16 MMA, multistage load/decode/MMA, persistent scheduler, L2-aware raster | Runtime source generation, cubin cache/load, generic palette, NVML discovery | Generate fixed cubins offline; freeze role-specific layout, M range, tile, stages, CTA residency, Stream-K/raster, compiler and SASS identity | Reusing one Gate tactic for K-heavy Down or reproducing only the tile while omitting the pipeline |
 | Triton/vLLM kernels | Packed load, local unpack/dequant, dot ownership, masked tails, fused consumer boundaries, and shape heuristics | Runtime Triton JIT plus the audited ROCm/GPTQ W4A16 or same-dtype scaled-MM contracts | Use only the transferable fusion and ownership ideas; express an independently derived NVFP4/FP8 result as native AOT C++/CUDA | Copying GPTQ/ROCm scales, W8A8 semantics, or a fixed tile into the ModelOpt W4A16 path |
@@ -559,7 +562,7 @@ For V4, `FinalRepresentationReady` remains only a diagnostic computation
 endpoint. LM-head/argmax may overlap after their final-row dependency is
 ready, but the qualified pure-Prefill interval must be delimited by separate
 timing-enabled Control events on the canonical RequestState publication path
-and must exclude those finalizer kernels.
+and must exclude LM-head, argmax, and D2H.
 
 The active V4 foundation reuses these source translations and authenticated
 canonical payloads, but replaces the whole-request traversal with five C8000
@@ -598,7 +601,22 @@ the normal startup and execution factories are now private, and the core
 static library no longer contains the named synthetic-T1 construction
 wrapper. The private synthetic branch remains confined to the
 BUILD_TESTING-only archive for the CUDA fixture and grants no production
-authority. An Engine-private composition root wires only those normal catalogs
+authority.
+
+Startup now also construction-seals one immutable request-boundary source
+catalog independently from its 256 projection bindings. The catalog is rooted
+in the same authenticated real `ResidentWeights` owner and retains exact live
+ranges for the Embedding table, final norm, canonical resident NVFP4 LM-head
+packed weight and block scale, both `weight_scale_2` and `input_scale`
+host/device raw-bit provenances, and the fixed greedy source. Only
+`weight_scale_2` is consumed by the LM-head leaf. The capability-free seal
+exposes neither pointer nor launcher authority. Host-test Resident authority
+can exercise the T0 source inventory but cannot mint a normal execution
+catalog. A construction-only, all-or-nothing normal Execution resource-seal
+API exists, but ExecutionPackage has not called it; no request-boundary
+execution catalog, pinned staging, or finalizer scratch aliases exist.
+
+An Engine-private composition root wires only those normal catalogs
 into the existing default-off V3 real-owner
 harness. The normal ExecutionPackage owns exactly 442,368,000 transient plus
 156,893,184 recurrent plus 2,621,440,000 private Full-KV bytes, or
@@ -705,17 +723,20 @@ no physical normal whole panel is claimed. Fixed/private construction-
 prevalidated leaves now exist for exact BF16 C8000 Embedding, final-row
 centered RMSNorm M1, exact activation-staged NVFP4 LM-head M1, and two-kernel
 BF16 greedy argmax. Their independent Synthetic-T1 fixture has narrow
-resource/argument/synthetic-correctness authority only. Normal Startup and
-Execution still lack the catalogs, asset/resource bindings, owner submission,
-and receipts for all four leaves; neither request edge is package-bound. Those
-normal bindings, the fixed 64-layer/five-panel package loop and rollback,
+resource/argument/synthetic-correctness authority only. Normal Startup source
+and Resident sealing is complete; normal Execution still lacks the resulting
+execution catalog, pinned staging, scratch aliases, owner submission, and
+receipts for all four leaves because ExecutionPackage has not invoked the
+existing resource-seal API. Neither request edge is package-bound. That
+Execution binding, the fixed 64-layer/five-panel package loop and rollback,
 final `B -> A`/`FinalPublish`/sequence fence plus successful-request reuse,
 timing-enabled Control events around canonical `PrefillStateCommitted`,
 real-checkpoint gates, whole-model receipt, and API launcher must still compose
 before V4 is runnable or eligible for a P40 witness. No whole-64-by-five,
-real-weight, real-checkpoint numerical, API, performance, release, or
-production authority follows from the boundary T1. cuBLASLt remains
-reference-only and cannot supply a missing binding or runtime route.
+real-weight boundary oracle, real-checkpoint numerical, API, performance,
+release, or production authority follows from the Startup seal or boundary
+T1. cuBLASLt remains reference-only and cannot supply a missing binding or
+runtime route.
 
 The fixed Attention handoff now retains the FP8 projection's native
 `[Q256, Gate256]` head interleave. Q preprocessing and exact Attention both
@@ -1071,13 +1092,15 @@ rearm/panel-0 admission, exact-ledger panel commit, healthy discard reuse and
 unpublished final discard are now narrow implementation facts. Fixed/private
 prevalidated C8000 Embedding, final-row centered RMSNorm M1, exact NVFP4
 LM-head M1, and two-kernel BF16 greedy leaves also exist with Synthetic-T1
-correctness only; they are not normal Startup/Execution bindings or
-package-bound request edges. The remaining sequence is:
-`normal owner catalogs/bindings for the four fixed boundary leaves → fixed`
-`64×5 package loop plus rollback → final B-to-A/FinalPublish/sequence fence`
-`and successful-request reuse → timing-enabled Control events that end pure`
-`Prefill at canonical PrefillStateCommitted while excluding LM-head/argmax →`
-`proportional real-checkpoint gates → real API`. Full authority hardening,
+correctness only. Normal Startup source/Resident sealing is complete, but they
+are not normal Execution bindings or package-bound request edges. The
+remaining sequence is:
+`ExecutionPackage consumes the existing normal boundary resource seal and`
+`binds pinned staging/aliases → fixed 64×5 package loop plus rollback →`
+`final B-to-A/FinalPublish/sequence fence and successful-request reuse →`
+`timing-enabled Control events that end pure Prefill at canonical`
+`PrefillStateCommitted while excluding LM-head/argmax/D2H → proportional`
+`real-checkpoint gates → real API`. Full authority hardening,
 O(1) replay, the normal Full outer-receipt binding, and the physically joined
 35/3 Synthetic-T1 cohort are now narrow implementation facts. The cohort and
 boundary-leaf fixture have only correctness/dependency authority; they cannot

@@ -2,6 +2,7 @@
 #include "support/sm87_macrofeed_v4_live_fp8_asset_fixture.h"
 #include "support/sm87_target_aot_complete_host_fixture.h"
 
+#include <cuda.h>
 #include <cuda_runtime_api.h>
 
 #include <array>
@@ -22,7 +23,37 @@ class Sm87MacroFeedV4P40StartupPackageHostTestFixture final {
  public:
   [[nodiscard]] static Sm87MacroFeedV4P40StartupPackageCreateResult create(
       const ModelWeights& model_weights) noexcept {
-    return Sm87MacroFeedV4P40StartupPackage::create(model_weights);
+    CUdeviceptr resident_arena_begin = 0U;
+    std::size_t resident_arena_bytes = 0U;
+    const auto* const embedding = model_weights.embed_tokens().weight;
+    if (embedding == nullptr ||
+        cuMemGetAddressRange(
+            &resident_arena_begin, &resident_arena_bytes,
+            static_cast<CUdeviceptr>(
+                reinterpret_cast<std::uintptr_t>(embedding))) !=
+            CUDA_SUCCESS ||
+        resident_arena_begin == 0U || resident_arena_bytes == 0U) {
+      Sm87MacroFeedV4P40StartupPackageCreateResult result;
+      result.status.error =
+          Sm87MacroFeedV4P40StartupPackageError::kProjectionAccessBind;
+      result.status.context = "host_test_resident_allocation_query";
+      return result;
+    }
+    auto access = target_aot_complete_execution_detail::
+        Sm87TargetAotCompleteProjectionExecutionAccess::
+            bind_complete_host_test_fixture(
+                model_weights,
+                static_cast<std::uintptr_t>(resident_arena_begin),
+                resident_arena_bytes);
+    if (!access) {
+      Sm87MacroFeedV4P40StartupPackageCreateResult result;
+      result.status.error =
+          Sm87MacroFeedV4P40StartupPackageError::kProjectionAccessBind;
+      result.status.context = "host_test_resident_access_bind";
+      return result;
+    }
+    return Sm87MacroFeedV4P40StartupPackage::
+        create_from_host_test_authority(model_weights, std::move(*access));
   }
 };
 
@@ -480,10 +511,13 @@ using LayerNormPair =
     target_aot::Sm87TargetAotCompleteHostTestLayerNormPair;
 using FullQkNormPair =
     target_aot::Sm87TargetAotCompleteHostTestFullQkNormPair;
+using RequestBoundary =
+    target_aot::Sm87TargetAotCompleteHostTestRequestBoundary;
 using Owner = q3x::runtime::Sm87TargetAotCompleteProjectionDeviceAssets;
 using q3x::runtime::Bf16LinearWeight;
 using q3x::runtime::Bf16VectorWeight;
 using q3x::runtime::ModelWeights;
+using q3x::runtime::NvFp4LinearWeight;
 
 template <typename T, typename = void>
 struct HasPublicExecutionCreate : std::false_type {};
@@ -570,6 +604,10 @@ class LiveExecutionWeights final {
   LiveExecutionWeights& operator=(const LiveExecutionWeights&) = delete;
 
   ~LiveExecutionWeights() {
+    if (request_boundary_allocation_ != nullptr) {
+      (void)cudaFree(request_boundary_allocation_);
+      request_boundary_allocation_ = nullptr;
+    }
     if (full_qk_norm_allocation_ != nullptr) {
       (void)cudaFree(full_qk_norm_allocation_);
       full_qk_norm_allocation_ = nullptr;
@@ -587,7 +625,8 @@ class LiveExecutionWeights final {
   [[nodiscard]] bool allocate() noexcept {
     if (bf16_ab_allocation_ != nullptr ||
         layer_norm_allocation_ != nullptr ||
-        full_qk_norm_allocation_ != nullptr) {
+        full_qk_norm_allocation_ != nullptr ||
+        request_boundary_allocation_ != nullptr) {
       return false;
     }
     if (cudaMalloc(&bf16_ab_allocation_, kBf16AbAllocationBytes) !=
@@ -605,6 +644,41 @@ class LiveExecutionWeights final {
         full_qk_norm_allocation_ == nullptr ||
         cudaMemset(full_qk_norm_allocation_, 0,
                    kFullQkNormAllocationBytes) != cudaSuccess) {
+      return false;
+    }
+    if (cudaMalloc(&request_boundary_allocation_,
+                   kRequestBoundaryAllocationBytes) != cudaSuccess ||
+        request_boundary_allocation_ == nullptr) {
+      request_boundary_allocation_ = nullptr;
+      return false;
+    }
+    auto* const request_bytes =
+        static_cast<std::uint8_t*>(request_boundary_allocation_);
+    request_boundary_.embedding = Bf16LinearWeight{
+        reinterpret_cast<const std::uint16_t*>(
+            request_bytes + kRequestEmbeddingOffset),
+        bound_launch::kSm87MacroFeedV4EmbeddingVocabulary,
+        bound_launch::kSm87MacroFeedV4Hidden};
+    request_boundary_.final_norm = Bf16VectorWeight{
+        reinterpret_cast<const std::uint16_t*>(
+            request_bytes + kRequestFinalNormOffset),
+        bound_launch::kSm87MacroFeedV4Hidden};
+    request_boundary_.lm_head = NvFp4LinearWeight{
+        request_bytes + kRequestLmPackedOffset,
+        request_bytes + kRequestLmBlockScaleOffset,
+        reinterpret_cast<const float*>(request_bytes +
+                                       kRequestWeightScaleOffset),
+        reinterpret_cast<const float*>(request_bytes +
+                                       kRequestInputScaleOffset),
+        1.0F,
+        1.0F,
+        bound_launch::kSm87MacroFeedV4LmHeadRows,
+        bound_launch::kSm87MacroFeedV4LmHeadColumns};
+    constexpr float kScale = 1.0F;
+    if (cudaMemcpy(request_bytes + kRequestWeightScaleOffset, &kScale,
+                   sizeof(kScale), cudaMemcpyHostToDevice) != cudaSuccess ||
+        cudaMemcpy(request_bytes + kRequestInputScaleOffset, &kScale,
+                   sizeof(kScale), cudaMemcpyHostToDevice) != cudaSuccess) {
       return false;
     }
     // Keep LayerNorm last: the one-past-final-post-norm negative below must
@@ -669,6 +743,7 @@ class LiveExecutionWeights final {
     return bf16_ab_allocation_ != nullptr &&
            layer_norm_allocation_ != nullptr &&
            full_qk_norm_allocation_ != nullptr &&
+           request_boundary_allocation_ != nullptr &&
            Access::install_complete_host_test_bf16_ab_pairs(
                model_weights, bf16_ab_pairs_.data(),
                bf16_ab_pairs_.size()) &&
@@ -677,7 +752,9 @@ class LiveExecutionWeights final {
                layer_norm_pairs_.size()) &&
            Access::install_complete_host_test_full_qk_norm_pairs(
                model_weights, full_qk_norm_pairs_.data(),
-               full_qk_norm_pairs_.size());
+               full_qk_norm_pairs_.size()) &&
+           Access::install_complete_host_test_request_boundary(
+               model_weights, request_boundary_);
   }
 
   [[nodiscard]] bool install_one_past_final_post_norm(
@@ -724,6 +801,22 @@ class LiveExecutionWeights final {
   static constexpr std::size_t kFullQkNormAllocationBytes =
       2U * q3x::runtime::kQwen36FullAttentionLayerCount *
       kFullQkNormWeightBytes;
+  static constexpr std::size_t kRequestEmbeddingOffset = 0U;
+  static constexpr std::size_t kRequestFinalNormOffset =
+      kRequestEmbeddingOffset +
+      bound_launch::kSm87MacroFeedV4EmbeddingTableBytes;
+  static constexpr std::size_t kRequestLmPackedOffset =
+      kRequestFinalNormOffset + bound_launch::kSm87MacroFeedV4FinalNormBytes;
+  static constexpr std::size_t kRequestLmBlockScaleOffset =
+      kRequestLmPackedOffset +
+      bound_launch::kSm87MacroFeedV4LmHeadPackedWeightBytes;
+  static constexpr std::size_t kRequestWeightScaleOffset =
+      kRequestLmBlockScaleOffset +
+      bound_launch::kSm87MacroFeedV4LmHeadBlockScaleBytes;
+  static constexpr std::size_t kRequestInputScaleOffset =
+      kRequestWeightScaleOffset + 16U;
+  static constexpr std::size_t kRequestBoundaryAllocationBytes =
+      kRequestInputScaleOffset + 16U;
 
   static_assert(kBf16AbAllocationBytes == 47'185'920U);
   static_assert(kLayerNormAllocationBytes == 1'310'720U);
@@ -734,6 +827,7 @@ class LiveExecutionWeights final {
   void* bf16_ab_allocation_ = nullptr;
   void* layer_norm_allocation_ = nullptr;
   void* full_qk_norm_allocation_ = nullptr;
+  void* request_boundary_allocation_ = nullptr;
   std::array<Bf16AbPair, q3x::runtime::kQwen36LinearAttentionLayerCount>
       bf16_ab_pairs_{};
   std::array<LayerNormPair, q3x::runtime::kQwen36DenseLayerCount>
@@ -741,6 +835,7 @@ class LiveExecutionWeights final {
   std::array<FullQkNormPair,
              q3x::runtime::kQwen36FullAttentionLayerCount>
       full_qk_norm_pairs_{};
+  RequestBoundary request_boundary_{};
   Bf16VectorWeight saved_final_post_norm_{};
   bool final_post_norm_poisoned_ = false;
 };

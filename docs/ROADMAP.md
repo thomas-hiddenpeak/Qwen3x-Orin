@@ -361,17 +361,29 @@ quiescence while explicitly denying panel, model, numerical, API, performance,
 release, and production completion. These boundaries are blockers, not
 implied future facts.
 
-Four additional fixed outer-edge leaves now exist behind source-private,
+Four additional fixed outer-edge leaves exist behind source-private,
 construction-prevalidated launch seams: one exact BF16 C8000 Embedding gather,
 one centered RMSNorm M1 intended for the final hidden row, one exact
 activation-staged NVFP4 LM-head M1 producing BF16 vocabulary logits, and a
 two-kernel BF16 greedy argmax. Their BUILD_TESTING-only Synthetic-T1 CUDA
 fixture supplies narrow resource, argument/alias/error, and synthetic
 correctness evidence, including deterministic earliest-tie and nonfinite
-reporting. No normal Startup or Execution owner catalog/binding contains these
-leaves and no normal request invokes them. They are not package-bound request
-entry/exit edges and grant no whole-panel, whole-request, real-weight,
-real-checkpoint numerical, API, timing, release, or production authority.
+reporting.
+
+Normal Startup has now closed their immutable source boundary independently
+from the 256-entry projection catalog and against the authenticated real
+Resident owner. Its capability-free seal binds Embedding, final norm,
+canonical LM-head packed weight/block scale, `weight_scale_2` and
+`input_scale` raw-bit provenance, and the fixed greedy specification;
+`input_scale` is retained but not consumed. Host-test Resident authority may
+exercise the T0 source inventory but cannot mint or upgrade to a normal
+execution binding. The construction-only normal Execution resource-seal API
+also exists and fails all-or-nothing, but ExecutionPackage has not invoked it.
+There is therefore still no normal execution catalog, pinned staging,
+finalizer scratch-alias binding, fixed request-edge submission, or normal
+runtime-positive invocation. The leaves grant no whole-panel, whole-request,
+real-weight boundary oracle, real-checkpoint numerical, API, timing, release,
+or production authority.
 
 Its P40 allocation remains:
 
@@ -578,19 +590,22 @@ timestamp nor duration subtraction is admissible.
 
 Remaining execution order:
 
-1. construction-seal normal Startup/Execution catalogs and bindings for the
-   already-existing fixed C8000 Embedding, final-row centered-RMSNorm M1,
-   exact NVFP4 LM-head M1, and two-kernel BF16 greedy leaves. Then place the
+1. make the normal ExecutionPackage perform the one construction-time call to
+   the existing request-boundary execution resource seal, retain that private
+   binding catalog, and bind package-owned pinned token/greedy-handoff staging
+   plus the exact Embedding/final-row/finalizer scratch aliases. Then place the
    owner-atomic panel lifecycle behind the normal package's fixed natural
-   64-layer loop and execute the loop for all five C8000 panels. Add complete
-   failure/cancellation rollback without a per-layer or per-panel host drain;
+   64-layer loop and execute the loop for all five C8000 panels, with one
+   Embedding H2D/gather entry per panel. Add complete failure/cancellation
+   rollback without a per-layer or per-panel host drain;
 2. close the final state transition: exact epoch-five `B -> A` canonical copy
    when required by parity, `FinalPublish`, physical completion receipt, and
    the logical sequence-length fence as the last non-fallible visibility
    transition, then make physically successful requests eligible for cold
    reuse. Add independent timing-enabled Control events around canonical
    RequestState publication so qualified pure Prefill ends at
-   `PrefillStateCommitted` and excludes any overlapped LM-head/argmax work. In
+   `PrefillStateCommitted` and excludes any overlapped LM-head/argmax/D2H work.
+   `FinalRepresentationReady` remains diagnostic only. In
    the first accepted clean-host windows, run the pending pinned-real-
    checkpoint Engine lifetime/catalog and proportional C8000
    GDN/Full/cohort/loop/boundary numerical gates. Synthetic T1 cannot

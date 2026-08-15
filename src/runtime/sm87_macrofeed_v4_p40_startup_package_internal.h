@@ -9,6 +9,7 @@
 #include "q3x/kernels/sm87_macrofeed_v4_nvfp4_down.h"
 #include "q3x/kernels/sm87_macrofeed_v4_nvfp4_gate_up.h"
 #include "q3x/runtime/sm87_macrofeed_v4_panel_wavefront_plan.h"
+#include "../kernels/sm87/sm87_macrofeed_v4_bound_launch_internal.h"
 #include "sm87_target_aot_projection_complete_execution_access_internal.h"
 
 #include <array>
@@ -43,7 +44,7 @@ inline constexpr std::array<std::uint8_t, 8U>
 inline constexpr std::uint16_t kSm87MacroFeedV4P40StartupPackageAbiMajor =
     1U;
 inline constexpr std::uint16_t kSm87MacroFeedV4P40StartupPackageAbiMinor =
-    4U;
+    5U;
 inline constexpr std::size_t kSm87MacroFeedV4P40StartupPackageLayers = 64U;
 inline constexpr std::size_t kSm87MacroFeedV4P40StartupPackageArtifacts =
     256U;
@@ -56,6 +57,8 @@ inline constexpr std::size_t kSm87MacroFeedV4P40StartupPackageBf16AbPairs =
     48U;
 inline constexpr std::size_t kSm87MacroFeedV4P40StartupPackageBf16AbTensors =
     2U * kSm87MacroFeedV4P40StartupPackageBf16AbPairs;
+inline constexpr std::size_t
+    kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings = 1U;
 inline constexpr std::size_t kSm87MacroFeedV4MaximumTensorScales =
     kernels::kSm87TargetAotFp8CudaMaximumTensorScales;
 
@@ -77,11 +80,67 @@ enum class Sm87MacroFeedV4P40StartupPackageError : std::uint8_t {
   kGdnQkvZResourceSeal,
   kGdnQkvZCatalogSeal,
   kFullAttentionSourceCatalogSeal,
+  kRequestBoundarySourceCatalogSeal,
   kDeviceMismatch,
   kPackageIdentity,
   kBindingConstruction,
   kAllocationFailure,
 };
+
+// Capability-free structural input used by T0.  It contains no live-range
+// claim and can never be converted into an execution binding.  Production
+// construction derives the same record from the private ModelWeights root,
+// then adds current-device range validation before minting a startup seal.
+struct Sm87MacroFeedV4RequestBoundaryT0SourceDescriptor final {
+  Bf16LinearWeight embedding{};
+  Bf16VectorWeight final_norm{};
+  LinearWeight lm_head{};
+  std::uint32_t final_norm_epsilon_fp32_bits = 0U;
+  std::size_t greedy_vocabulary = 0U;
+  std::size_t greedy_workspace_results = 0U;
+  bool greedy_strict_left_to_right_fp32_order = false;
+  bool greedy_smallest_index_tie_break = false;
+  bool greedy_nonfinite_reported_and_ignored = false;
+};
+
+struct Sm87MacroFeedV4RequestBoundaryT0SourceAudit final {
+  std::uint64_t catalog_identity = 0U;
+  std::uint64_t embedding_identity = 0U;
+  std::uint64_t final_norm_identity = 0U;
+  std::uint64_t lm_head_identity = 0U;
+  std::uint64_t greedy_identity = 0U;
+  std::uint32_t weight_scale_2_fp32_bits = 0U;
+  std::uint32_t input_scale_fp32_bits = 0U;
+  std::size_t failure_index = 6U;
+  bool embedding_exact_bf16_shape = false;
+  bool final_norm_exact_bf16_shape_and_epsilon = false;
+  bool lm_head_exact_canonical_nvfp4_shape = false;
+  bool lm_head_scale_raw_bits_valid = false;
+  bool input_scale_provenance_retained = false;
+  bool input_scale_consumed = true;
+  bool greedy_spec_exact = false;
+  bool nonnull_16b_aligned_disjoint_ranges = false;
+  bool live_cuda_device_ranges_validated = true;
+  bool execution_capability = true;
+
+  [[nodiscard]] constexpr bool valid_t0() const noexcept {
+    return catalog_identity != 0U && embedding_identity != 0U &&
+           final_norm_identity != 0U && lm_head_identity != 0U &&
+           greedy_identity != 0U && weight_scale_2_fp32_bits != 0U &&
+           input_scale_fp32_bits != 0U && failure_index == 6U &&
+           embedding_exact_bf16_shape &&
+           final_norm_exact_bf16_shape_and_epsilon &&
+           lm_head_exact_canonical_nvfp4_shape &&
+           lm_head_scale_raw_bits_valid && input_scale_provenance_retained &&
+           !input_scale_consumed && greedy_spec_exact &&
+           nonnull_16b_aligned_disjoint_ranges &&
+           !live_cuda_device_ranges_validated && !execution_capability;
+  }
+};
+
+[[nodiscard]] Sm87MacroFeedV4RequestBoundaryT0SourceAudit
+inspect_sm87_macrofeed_v4_request_boundary_t0_source(
+    const Sm87MacroFeedV4RequestBoundaryT0SourceDescriptor& source) noexcept;
 
 enum class Sm87MacroFeedV4Bf16AbWeightRole : std::uint8_t {
   kInvalid = 0U,
@@ -371,6 +430,63 @@ class Sm87MacroFeedV4FullAttentionStartupSeal final {
   friend class Sm87MacroFeedV4P40StartupPackage;
 };
 
+// Capability-free startup seal for the four fixed request edges.  It seals
+// only the immutable ModelWeights sources and the exact numerical/spec facts;
+// function-resource observations remain a private Execution construction
+// transaction and are deliberately absent here.
+class Sm87MacroFeedV4RequestBoundaryStartupSeal final {
+ public:
+  Sm87MacroFeedV4RequestBoundaryStartupSeal(
+      const Sm87MacroFeedV4RequestBoundaryStartupSeal&) = delete;
+  Sm87MacroFeedV4RequestBoundaryStartupSeal& operator=(
+      const Sm87MacroFeedV4RequestBoundaryStartupSeal&) = delete;
+  ~Sm87MacroFeedV4RequestBoundaryStartupSeal() noexcept {
+    issuer_nonce_ = 0U;
+  }
+
+  std::uint64_t seal_identity = 0U;
+  std::uint64_t package_identity = 0U;
+  std::uint64_t deployment_plan_identity = 0U;
+  std::uint64_t source_catalog_identity = 0U;
+  std::uint64_t resident_root_identity = 0U;
+  std::uint64_t resident_arena_bytes = 0U;
+  std::size_t binding_count = 0U;
+  std::int32_t device_ordinal = -1;
+  std::uint32_t final_norm_epsilon_fp32_bits = 0U;
+  std::uint32_t weight_scale_2_fp32_bits = 0U;
+  std::uint32_t input_scale_fp32_bits = 0U;
+  bool embedding_exact_bf16_shape = false;
+  bool final_norm_exact_bf16_shape_and_epsilon = false;
+  bool lm_head_exact_canonical_nvfp4_shape = false;
+  bool device_scale_raw_bits_match_host = false;
+  bool input_scale_provenance_retained = false;
+  bool input_scale_consumed = true;
+  bool greedy_spec_exact = false;
+  bool complete_live_device_ranges = false;
+  bool observed_resource_execution_seal_deferred = false;
+  bool final_representation_ready_diagnostic_only = false;
+  bool pure_prefill_state_committed_endpoint_unchanged = false;
+  bool normal_resident_authority = false;
+  bool host_test_resident_authority = false;
+  bool issued_by_v4_package = false;
+  bool caller_resource_snapshot_accepted = true;
+  bool raw_pointer_exposed = true;
+  bool launcher_authority = true;
+  bool production_dispatch_eligible = true;
+
+  [[nodiscard]] bool valid() const noexcept;
+
+ private:
+  Sm87MacroFeedV4RequestBoundaryStartupSeal() = default;
+  Sm87MacroFeedV4RequestBoundaryStartupSeal(
+      Sm87MacroFeedV4RequestBoundaryStartupSeal&&) noexcept = default;
+  Sm87MacroFeedV4RequestBoundaryStartupSeal& operator=(
+      Sm87MacroFeedV4RequestBoundaryStartupSeal&&) noexcept = default;
+  std::uint64_t issuer_nonce_ = 0U;
+
+  friend class Sm87MacroFeedV4P40StartupPackage;
+};
+
 // Capability-free diagnostic record.  It intentionally makes every missing
 // V4 dependency observable; copying it cannot grant an asset or launch.
 struct Sm87MacroFeedV4P40StartupPackageAudit final {
@@ -404,6 +520,11 @@ struct Sm87MacroFeedV4P40StartupPackageAudit final {
   std::size_t full_attention_source_bindings = 0U;
   std::uint64_t full_attention_source_catalog_identity = 0U;
   std::uint64_t full_attention_source_seal_identity = 0U;
+  std::size_t request_boundary_source_bindings = 0U;
+  std::uint64_t request_boundary_source_catalog_identity = 0U;
+  std::uint64_t request_boundary_source_seal_identity = 0U;
+  std::uint64_t request_boundary_resident_root_identity = 0U;
+  std::uint64_t request_boundary_resident_arena_bytes = 0U;
   bool canonical_plan_generated_internally = false;
   bool caller_plan_accepted = true;
   bool complete_projection_access_retained = false;
@@ -432,6 +553,17 @@ struct Sm87MacroFeedV4P40StartupPackageAudit final {
   bool full_attention_qk_norm_live_device_ranges_complete = false;
   bool full_attention_typed_asset_values_private = false;
   bool full_attention_observed_resource_execution_catalog_sealed = true;
+  bool request_boundary_exact_shapes_and_specs = false;
+  bool request_boundary_live_device_ranges_complete = false;
+  bool request_boundary_device_scale_raw_bits_match_host = false;
+  bool request_boundary_input_scale_provenance_retained = false;
+  bool request_boundary_input_scale_consumed = true;
+  bool request_boundary_observed_resource_execution_catalog_sealed = true;
+  bool request_boundary_final_representation_ready_diagnostic_only = false;
+  bool pure_prefill_state_committed_endpoint_unchanged = false;
+  bool request_boundary_normal_resident_authority = false;
+  bool request_boundary_host_test_resident_authority = false;
+  bool request_boundary_raw_pointer_publicly_exposed = true;
   bool caller_raw_receipts_accepted = true;
   bool v3_execution_identity_reused = true;
   bool request_time_repack_jit_autotune_or_fallback_permitted = true;
@@ -485,6 +617,12 @@ struct Sm87MacroFeedV4P40StartupPackageAudit final {
                kSm87MacroFeedV4P40StartupPackageFullLayers &&
            full_attention_source_catalog_identity != 0U &&
            full_attention_source_seal_identity != 0U &&
+           request_boundary_source_bindings ==
+               kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings &&
+           request_boundary_source_catalog_identity != 0U &&
+           request_boundary_source_seal_identity != 0U &&
+           request_boundary_resident_root_identity != 0U &&
+           request_boundary_resident_arena_bytes != 0U &&
            canonical_plan_generated_internally && !caller_plan_accepted &&
            complete_projection_access_retained && catalog_revalidated &&
            typed_capabilities_retained &&
@@ -510,6 +648,17 @@ struct Sm87MacroFeedV4P40StartupPackageAudit final {
            full_attention_qk_norm_live_device_ranges_complete &&
            full_attention_typed_asset_values_private &&
            !full_attention_observed_resource_execution_catalog_sealed &&
+           request_boundary_exact_shapes_and_specs &&
+           request_boundary_live_device_ranges_complete &&
+           request_boundary_device_scale_raw_bits_match_host &&
+           request_boundary_input_scale_provenance_retained &&
+           !request_boundary_input_scale_consumed &&
+           !request_boundary_observed_resource_execution_catalog_sealed &&
+           request_boundary_final_representation_ready_diagnostic_only &&
+           pure_prefill_state_committed_endpoint_unchanged &&
+           (request_boundary_normal_resident_authority !=
+            request_boundary_host_test_resident_authority) &&
+           !request_boundary_raw_pointer_publicly_exposed &&
            !caller_raw_receipts_accepted && !v3_execution_identity_reused &&
            !request_time_repack_jit_autotune_or_fallback_permitted &&
            !fp8_executor_bound && !gdn_executor_bound &&
@@ -719,6 +868,10 @@ class Sm87MacroFeedV4P40StartupPackage final {
   full_attention_startup_seal() const noexcept {
     return seals_.full_attention;
   }
+  [[nodiscard]] const Sm87MacroFeedV4RequestBoundaryStartupSeal&
+  request_boundary_startup_seal() const noexcept {
+    return seals_.request_boundary;
+  }
   [[nodiscard]] const Sm87MacroFeedV4ProjectionStartupBinding*
   borrow_projection_startup_binding(
       std::size_t layer_index,
@@ -728,11 +881,18 @@ class Sm87MacroFeedV4P40StartupPackage final {
 
  private:
   // Engine-lifetime construction authority is intentionally closed over the
-  // future composition root.  Tests receive the same normal factory only
-  // through the named friend fixture; no runtime caller can independently
-  // mint a startup capability detached from its ModelWeights owner.
+  // future composition root.  The named host fixture receives an explicit
+  // test-only authority that cannot seal the production request boundary; no
+  // runtime caller can independently mint a startup capability detached from
+  // its ModelWeights owner.
   [[nodiscard]] static Sm87MacroFeedV4P40StartupPackageCreateResult create(
       const ModelWeights& model_weights) noexcept;
+  [[nodiscard]] static Sm87MacroFeedV4P40StartupPackageCreateResult
+  create_from_host_test_authority(
+      const ModelWeights& model_weights, ProjectionAccess access) noexcept;
+  [[nodiscard]] static Sm87MacroFeedV4P40StartupPackageCreateResult
+  create_from_private_access(
+      const ModelWeights& model_weights, ProjectionAccess access) noexcept;
 
   struct Bf16AbPair final {
     std::uint32_t model_layer =
@@ -762,6 +922,145 @@ class Sm87MacroFeedV4P40StartupPackage final {
   using LayerNormExecutionBindingCatalog =
       std::array<LayerNormExecutionBinding,
                  kSm87MacroFeedV4P40StartupPackageLayers>;
+
+  struct RequestBoundaryEmbeddingSourceBinding final {
+    const std::uint16_t* table = nullptr;
+    std::size_t vocabulary = 0U;
+    std::size_t hidden = 0U;
+    std::uint64_t bytes = 0U;
+    std::uint64_t source_identity = 0U;
+  };
+
+  struct RequestBoundaryFinalNormSourceBinding final {
+    const std::uint16_t* centered_weight = nullptr;
+    std::size_t elements = 0U;
+    std::uint64_t bytes = 0U;
+    std::uint32_t epsilon_fp32_bits = 0U;
+    std::uint64_t source_identity = 0U;
+  };
+
+  struct RequestBoundaryLmHeadSourceBinding final {
+    const std::uint8_t* canonical_packed_weight = nullptr;
+    const std::uint8_t* canonical_block_scale = nullptr;
+    const float* weight_scale_2_device = nullptr;
+    const float* input_scale_device = nullptr;
+    std::size_t rows = 0U;
+    std::size_t columns = 0U;
+    std::uint64_t packed_weight_bytes = 0U;
+    std::uint64_t block_scale_bytes = 0U;
+    std::uint32_t weight_scale_2_fp32_bits = 0U;
+    std::uint32_t input_scale_fp32_bits = 0U;
+    std::uint64_t source_identity = 0U;
+    bool canonical_resident_nvfp4 = false;
+    bool input_scale_provenance_retained = false;
+    bool input_scale_consumed = true;
+  };
+
+  struct RequestBoundaryGreedySpecBinding final {
+    std::size_t vocabulary = 0U;
+    std::size_t workspace_results = 0U;
+    std::uint64_t spec_identity = 0U;
+    bool strict_left_to_right_fp32_order = false;
+    bool smallest_index_tie_break = false;
+    bool nonfinite_reported_and_ignored = false;
+  };
+
+  // One immutable aggregate source authority.  The exact ModelWeights root
+  // remains the owner; this package only retains non-owning, construction-
+  // validated borrows under that Engine lifetime.
+  struct RequestBoundarySourceCatalog final {
+    const ModelWeights* model_weights = nullptr;
+    const ResidentWeights* resident_root = nullptr;
+    RequestBoundaryEmbeddingSourceBinding embedding{};
+    RequestBoundaryFinalNormSourceBinding final_norm{};
+    RequestBoundaryLmHeadSourceBinding lm_head{};
+    RequestBoundaryGreedySpecBinding greedy{};
+    std::uint64_t catalog_identity = 0U;
+    std::uint64_t projection_owner_identity = 0U;
+    std::uint64_t projection_allocation_identity = 0U;
+    std::uint64_t projection_catalog_identity = 0U;
+    std::uint64_t projection_device_identity = 0U;
+    std::uint64_t resident_root_identity = 0U;
+    std::uintptr_t resident_arena_begin = 0U;
+    std::uintptr_t resident_arena_end = 0U;
+    std::uint64_t resident_arena_bytes = 0U;
+    std::int32_t device_ordinal = -1;
+    bool exact_shapes_and_specs = false;
+    bool complete_live_device_ranges = false;
+    bool device_scale_raw_bits_match_host = false;
+    bool input_scale_provenance_retained = false;
+    bool input_scale_consumed = true;
+    bool normal_resident_authority = false;
+    bool host_test_resident_authority = false;
+  };
+
+  // Execution is the sole production observer.  It fills all four snapshots
+  // after querying the compiled leaves on the current device, then submits
+  // the whole record to the all-or-nothing seal below.  A caller-provided
+  // snapshot can never be admitted.
+  struct RequestBoundaryExecutionResourceObservations final {
+    kernels::sm87_macrofeed_v4_bound_launch_detail::
+        Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot embedding{};
+    kernels::sm87_macrofeed_v4_bound_launch_detail::
+        Sm87MacroFeedV4FinalNormM1ResourceSnapshot final_norm{};
+    kernels::sm87_macrofeed_v4_bound_launch_detail::
+        Sm87MacroFeedV4LmHeadM1ResourceSnapshot lm_head{};
+    kernels::sm87_macrofeed_v4_bound_launch_detail::
+        Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot greedy{};
+    bool source_private_queries_completed = false;
+    bool caller_resource_snapshot_accepted = false;
+
+   private:
+    RequestBoundaryExecutionResourceObservations() = default;
+    friend class sm87_macrofeed_v4_p40_execution_detail::
+        Sm87MacroFeedV4P40ExecutionPackage;
+    friend class Sm87MacroFeedV4P40StartupPackageHostTestFixture;
+  };
+
+  struct RequestBoundaryExecutionBinding final {
+    RequestBoundaryEmbeddingSourceBinding embedding{};
+    RequestBoundaryFinalNormSourceBinding final_norm{};
+    RequestBoundaryLmHeadSourceBinding lm_head{};
+    RequestBoundaryGreedySpecBinding greedy{};
+    kernels::sm87_macrofeed_v4_bound_launch_detail::
+        Sm87MacroFeedV4EmbeddingC8000ResourceSnapshot embedding_resources{};
+    kernels::sm87_macrofeed_v4_bound_launch_detail::
+        Sm87MacroFeedV4FinalNormM1ResourceSnapshot final_norm_resources{};
+    kernels::sm87_macrofeed_v4_bound_launch_detail::
+        Sm87MacroFeedV4LmHeadM1ResourceSnapshot lm_head_resources{};
+    kernels::sm87_macrofeed_v4_bound_launch_detail::
+        Sm87MacroFeedV4GreedyArgmaxM1ResourceSnapshot greedy_resources{};
+    std::uint64_t package_identity = 0U;
+    std::uint64_t deployment_plan_identity = 0U;
+    std::uint64_t projection_owner_identity = 0U;
+    std::uint64_t projection_allocation_identity = 0U;
+    std::uint64_t projection_catalog_identity = 0U;
+    std::uint64_t device_identity = 0U;
+    std::int32_t device_ordinal = -1;
+    const ResidentWeights* resident_root = nullptr;
+    std::uint64_t resident_root_identity = 0U;
+    std::uintptr_t resident_arena_begin = 0U;
+    std::uintptr_t resident_arena_end = 0U;
+    std::uint64_t resident_arena_bytes = 0U;
+    std::uint64_t source_catalog_identity = 0U;
+    std::uint64_t resource_bundle_identity = 0U;
+    std::uint64_t binding_identity = 0U;
+    bool source_private_resource_queries = false;
+    bool device_scale_raw_bits_match_host = false;
+    bool input_scale_provenance_retained = false;
+    bool input_scale_consumed = true;
+    bool final_representation_ready_diagnostic_only = false;
+    bool pure_prefill_state_committed_endpoint_unchanged = false;
+    bool normal_resident_authority = false;
+    bool host_test_resident_authority = false;
+    bool request_selectable = false;
+    bool launcher_authority = false;
+    bool production_dispatch_eligible = false;
+  };
+
+  using RequestBoundaryExecutionBindingCatalog =
+      std::array<RequestBoundaryExecutionBinding,
+                 kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings>;
 
   // The two AttentionOutput tactics share a checkpoint role but not an input
   // layout.  Keeping GDN-O in a distinct type prevents a future Full-O value
@@ -1053,6 +1352,7 @@ class Sm87MacroFeedV4P40StartupPackage final {
     Sm87MacroFeedV4Bf16AbStartupSeal bf16_ab{};
     Sm87MacroFeedV4GdnQkvZStartupSeal gdn_qkvz{};
     Sm87MacroFeedV4FullAttentionStartupSeal full_attention{};
+    Sm87MacroFeedV4RequestBoundaryStartupSeal request_boundary{};
 
     StartupSeals() = default;
     StartupSeals(const StartupSeals&) = delete;
@@ -1062,7 +1362,8 @@ class Sm87MacroFeedV4P40StartupPackage final {
           down(std::move(other.down)),
           bf16_ab(std::move(other.bf16_ab)),
           gdn_qkvz(std::move(other.gdn_qkvz)),
-          full_attention(std::move(other.full_attention)) {}
+          full_attention(std::move(other.full_attention)),
+          request_boundary(std::move(other.request_boundary)) {}
     StartupSeals& operator=(StartupSeals&&) = delete;
   };
 
@@ -1071,6 +1372,7 @@ class Sm87MacroFeedV4P40StartupPackage final {
       std::array<AssetCapability,
                  kSm87MacroFeedV4P40StartupPackageArtifacts> capabilities,
       Bf16AbStartupCapability bf16_ab_capability,
+      RequestBoundarySourceCatalog request_boundary_sources,
       Sm87MacroFeedV4PanelWavefrontPlan plan, StartupSeals seals,
       Sm87MacroFeedV4P40StartupPackageAudit audit) noexcept;
 
@@ -1090,6 +1392,7 @@ class Sm87MacroFeedV4P40StartupPackage final {
       std::uint64_t mlp_pair_binding_catalog_identity,
       std::uint64_t gdn_qkvz_binding_catalog_identity,
       std::uint64_t full_attention_source_catalog_identity,
+      std::uint64_t request_boundary_source_catalog_identity,
       const kernels::Sm87MacroFeedV4Fp8CudaResources& gdn_qkvz,
       const kernels::Sm87MacroFeedV4Fp8CudaResources& gdn_output,
       std::size_t sources) noexcept;
@@ -1129,6 +1432,7 @@ class Sm87MacroFeedV4P40StartupPackage final {
       std::uint64_t mlp_pair_binding_catalog_identity,
       std::uint64_t gdn_qkvz_binding_catalog_identity,
       std::uint64_t full_attention_source_catalog_identity,
+      const RequestBoundarySourceCatalog& request_boundary_sources,
       const kernels::Sm87MacroFeedV4Fp8CudaResources& gdn_qkvz,
       const kernels::Sm87MacroFeedV4Fp8CudaResources& gdn_output) noexcept;
   [[nodiscard]] static bool startup_seals_valid(
@@ -1149,6 +1453,13 @@ class Sm87MacroFeedV4P40StartupPackage final {
                  kSm87MacroFeedV4P40StartupPackageBf16AbPairs>* pairs,
       Sm87MacroFeedV4Bf16AbT0InventoryAudit* inventory,
       int* cuda_error, std::size_t* failure_layer) noexcept;
+  [[nodiscard]] static bool build_request_boundary_source_catalog(
+      const ModelWeights& model_weights, const ProjectionAccess& access,
+      std::uint64_t deployment_plan_identity,
+      RequestBoundarySourceCatalog* catalog, int* cuda_error,
+      std::size_t* failure_index,
+      const RequestBoundarySourceCatalog* startup_authenticated_catalog)
+      noexcept;
   [[nodiscard]] const AssetCapability* capability(
       std::size_t layer_index,
       kernels::Sm87TargetAotProjectionRole role) const noexcept;
@@ -1192,6 +1503,12 @@ class Sm87MacroFeedV4P40StartupPackage final {
       FullAttentionLayerExecutionBindingCatalog* catalog,
       std::uint64_t* catalog_identity, std::size_t* failure_ordinal,
       int* cuda_error) const noexcept;
+  [[nodiscard]] bool
+  seal_request_boundary_execution_catalog_for_execution_package(
+      const RequestBoundaryExecutionResourceObservations& observations,
+      RequestBoundaryExecutionBindingCatalog* catalog,
+      std::uint64_t* catalog_identity, std::size_t* failure_index,
+      int* cuda_error) const noexcept;
   [[nodiscard]] static std::uint64_t
   compute_gdn_qkvz_asset_value_identity(
       const kernels::Sm87TargetAotFp8CudaAssetView& asset) noexcept;
@@ -1223,6 +1540,16 @@ class Sm87MacroFeedV4P40StartupPackage final {
       std::uint64_t deployment_plan_identity,
       std::uint64_t device_identity,
       std::int32_t device_ordinal) noexcept;
+  [[nodiscard]] static std::uint64_t
+  compute_request_boundary_resource_bundle_identity(
+      const RequestBoundaryExecutionResourceObservations& observations,
+      std::uint64_t package_identity,
+      std::uint64_t deployment_plan_identity,
+      std::uint64_t device_identity,
+      std::int32_t device_ordinal) noexcept;
+  [[nodiscard]] static std::uint64_t
+  compute_request_boundary_execution_binding_identity(
+      const RequestBoundaryExecutionBinding& binding) noexcept;
   [[nodiscard]] static std::uint64_t compute_nvfp4_asset_value_identity(
       const kernels::Sm87TargetAotNvFp4CudaAssetView& asset) noexcept;
   [[nodiscard]] std::optional<Sm87MacroFeedV4ProjectionStartupBinding>
@@ -1234,6 +1561,7 @@ class Sm87MacroFeedV4P40StartupPackage final {
   std::array<AssetCapability, kSm87MacroFeedV4P40StartupPackageArtifacts>
       capabilities_{};
   Bf16AbStartupCapability bf16_ab_capability_{};
+  RequestBoundarySourceCatalog request_boundary_sources_{};
   Sm87MacroFeedV4PanelWavefrontPlan plan_{};
   StartupSeals seals_{};
   Sm87MacroFeedV4P40StartupPackageAudit audit_{};

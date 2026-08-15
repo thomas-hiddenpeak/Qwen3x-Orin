@@ -410,7 +410,11 @@ logit_bf16[n]
 The implementation must retain the established activation-staged K order,
 row/warp reduction parents, special-value behavior, and BF16 publication for
 all 248,320 rows. This boundary has no input-scale term; adding one or moving
-the weight-side scale changes the function.
+the weight-side scale changes the function. Normal Startup therefore
+authenticates and retains both the host/device raw bits of `weight_scale_2`
+and `input_scale` as source provenance, while the executable leaf consumes
+only `weight_scale_2`. Retaining `input_scale` in an identity or receipt must
+never be interpreted as multiplying the activation by it.
 
 Greedy selection over those BF16 logits is a deterministic two-level
 reduction. It ignores nonfinite values for maximum selection, OR-reduces a
@@ -420,17 +424,23 @@ physical form is one 32-CTA partial kernel followed by one 32-thread final
 kernel. Sampling, MTP, approximate top-k, or a different tie/nonfinite rule is
 not this boundary.
 
-These equations define arithmetic obligations; the presently exercised
-Synthetic-T1 leaves do not establish a normal owner binding or whole-request
-equivalence. `FinalRepresentationReady` names only a diagnostic computation
-endpoint and has no state-publication authority. Normative pure Prefill ends
-at the atomic canonical RequestState publication, `PrefillStateCommitted`.
-LM-head and argmax may overlap after the final-row dependency becomes ready,
-but a qualified pure-Prefill interval must be bracketed by independent
-timing-enabled Control events on the canonical publication path and must
-exclude those finalizer kernels. A representation-ready timestamp, a
-finalizer-completion timestamp, or duration subtraction cannot replace that
-contiguous phase boundary.
+These equations define arithmetic obligations. Normal Startup now seals the
+four immutable sources and specifications against the authenticated real
+`ResidentWeights` root in a request-boundary catalog independent from the
+256-entry projection catalog. Its capability-free source seal grants no raw
+pointer or launcher authority, and host-test Resident authority cannot be
+upgraded to the normal Execution domain. A construction-only normal Execution
+resource-seal API exists, but ExecutionPackage has not called it; therefore
+the Synthetic-T1 leaves still do not establish a normal execution binding or
+whole-request equivalence. `FinalRepresentationReady` names only a diagnostic
+computation endpoint and has no state-publication authority. Normative pure
+Prefill ends at the atomic canonical RequestState publication,
+`PrefillStateCommitted`. LM-head and argmax may overlap after the final-row
+dependency becomes ready, but a qualified pure-Prefill interval must be
+bracketed by independent timing-enabled Control events on the canonical
+publication path and must exclude LM-head, argmax, and D2H. A
+representation-ready timestamp, a finalizer-completion timestamp, or duration
+subtraction cannot replace that contiguous phase boundary.
 
 ## 5. Quantitative P40 arithmetic ledger
 
@@ -784,7 +794,7 @@ tree into an exact route.
 | `live_set` / `dead_set` | All recurrent state, all 16-layer K/V rows, final hidden/logits/token, request status, cancellation, and commit fields remain live. V4 currently claims no liveness deletion. |
 | `finite_precision_contract` | The section-3 NVFP4 decode, K order, FP32 accumulator order, tensor scales, BF16-RNE publications, exact Attention ordering, and per-token BF16 GDN state remain required. Full-Attention rows retain the projection-native 24-head `[Q256, Gate256]` interleave: the admitted preprocess changes only Q slots, reproduces the established centered RMSNorm reduction/add order and BF16-before-partial-D64-NeoX boundary, and changes only the active private-NHD K slice. The admitted BF16 Attention body overwrites those Q slots after staging the complete CTA-owned Q128 tile, preserves the established Q64 subgroup iteration/reduction order, rounds Attention before the sigmoid Gate, and leaves Gate/gap slots unchanged; FP8 O gathers its logical K axis directly without a compacting arithmetic conversion. Gate/Up and Down preserve projection order in synthetic bit tests. The BF16 A/B admission reuses the established K64-stage, four-K16-MMA, FP32-accumulator body and preserves the independent BF16-RNE A/B publication before `dt_bias` or GDN nonlinearities while changing only the physical output stride. The two-plane norm/residual admission reuses the established centered RMSNorm and fused residual-plus-centered-RMSNorm bodies: residual publication remains BF16-RNE before the unchanged reduction tree, the right plane owns the published residual, and the left plane owns the normalized result. The independent FP8 admissions preserve raw E4M3 decode, ascending full-K FP32 accumulation, partition-private scale, BF16-RNE publication, direct role scatter, interleaved-Q O gather, and the distinct fixed contiguous GDN-O input layout in bounded tile oracles. The independent GDN admission preserves preceding-token BF16 state, pre-round same-token FP32 output, active/candidate separation, exact reduction trees, and final BF16-RNE in C1/C65 oracles; real-checkpoint BF16 A/B/full-K FP8, full-C8000 Attention/GDN, layer, and request equivalence remain open. |
 | `state_transition_contract` | Two distinct 78,446,592-byte private convolution/GDN epochs are required. For each GDN layer, only its 61,440-byte convolution history copies active-to-candidate before in-place update; the recurrent matrix writes active-to-candidate directly. A whole-epoch pre-panel copy is forbidden. The candidate epoch must be fully assigned before the layer-63 swap and is discarded on failure. KV uses a private valid-end; canonical recurrent publication occurs after panel five and sequence length is the final non-fallible visibility fence. Complete-GDN Events consumes one move-only grant through a direct O(1) `panel * 48 + ordinal` slot. Full Events strictly separates normal sealed-catalog and Synthetic-T1 authority and reserves a direct O(1) `panel * 16 + full_ordinal` slot; its digest, opaque receipt and owner matcher bind the domain and synthetic source. Joined success records four private layer commits but leaves recurrent banks, KV valid ends, canonical state, sequence fence and Decode publication unchanged before one normal combined drain/discard. The minimum failure retains the 27-kernel/three-copy GDN prefix, poisons before the first Full enqueue, and invalidates the pending Full grant at terminal quiescence. Runtime admission now enqueues one exact 156,893,184-byte Main zero and atomically publishes a fresh request epoch already active at panel 0. Panel close requires exact 48-GDN/16-Full, 560-kernel, 48-copy/2,949,120-byte and 48-A/B ledgers, records device-ordered `PanelDone`, and directly commits RequestState under the owner lock without a host wait or caller receipt. Healthy physical discard may rearm; poison-terminal may not. Epoch-five `B -> A`, successful `FinalPublish`/sequence publication, and successful-request reuse remain unimplemented. |
-| `plan_and_receipts` | A default-off host plan declares C8000×5 traversal, two C8000×5120 hidden owners, one phase-aliased C8000×17408 scratch owner, recurrent owner identities, and panel/final events. The private startup foundation construction-seals 48 GDN, 64 MLP, 48 BF16 A/B, 64 norm, and 16 Full bindings. The normal ExecutionPackage owns the exact 2,621,440,000-byte private KV arena and borrows the exact 67,108,864-byte shared Engine RoPE owner under the staged lifetime chain; that normal root still has source/build authority only. GDN and Full Events receipts are opaque, owner-authenticated, accepted-prefix preserving, and directly indexed in five-by-48 and five-by-16 replay ledgers. The normal Full outer commit receipt now cross-checks the normal domain, zero synthetic source, every package/Full/MLP/norm/RoPE/resource identity, request/grant/KV range and exact nested Events receipt, but it has no runtime-positive invocation. The joined Synthetic-T1 fixture uses complete KV/RoPE and physically executes the 35-kernel/three-copy four-layer cohort, then one physical completion/drain receipt and RequestState discard; it mints no panel, model, release, or production receipt. The selector, 64-by-5 package executor, and whole-model receipt do not exist. |
+| `plan_and_receipts` | A default-off host plan declares C8000×5 traversal, two C8000×5120 hidden owners, one phase-aliased C8000×17408 scratch owner, recurrent owner identities, and panel/final events. The private startup foundation construction-seals 48 GDN, 64 MLP, 48 BF16 A/B, 64 norm, and 16 Full bindings. It now also seals one immutable request-boundary source catalog against the authenticated real Resident root, independently from the 256-entry projection catalog, covering Embedding, final norm, canonical LM-head plus both scalar provenances, and the greedy specification. Host-test authority cannot mint the normal execution catalog. The construction-only normal Execution resource-seal API exists, but ExecutionPackage has not called it and owns no request-boundary binding catalog, pinned staging, or finalizer aliases. The normal ExecutionPackage owns the exact 2,621,440,000-byte private KV arena and borrows the exact 67,108,864-byte shared Engine RoPE owner under the staged lifetime chain; that normal root still has source/build authority only. GDN and Full Events receipts are opaque, owner-authenticated, accepted-prefix preserving, and directly indexed in five-by-48 and five-by-16 replay ledgers. The normal Full outer commit receipt now cross-checks the normal domain, zero synthetic source, every package/Full/MLP/norm/RoPE/resource identity, request/grant/KV range and exact nested Events receipt, but it has no runtime-positive invocation. The joined Synthetic-T1 fixture uses complete KV/RoPE and physically executes the 35-kernel/three-copy four-layer cohort, then one physical completion/drain receipt and RequestState discard; it mints no panel, model, release, or production receipt. The selector, 64-by-5 package executor, and whole-model receipt do not exist. |
 | `oracles` | Constituent decoder, projection, norm, preprocess, Attention and GDN synthetic bit/resource oracles remain as previously declared. Complete-GDN Events tests cover authority, opaque receipt/owner match, replay, substitutions and accepted prefixes; Full Events additionally covers strict normal-versus-Synthetic-T1 identities and O(1) five-by-16 replay. The joined CUDA oracle uses live synthetic allocations, complete KV/RoPE and natural shared hidden/scratch ownership. Success proves exact `GDN0 -> GDN1 -> GDN2 -> Full3` enqueue order, 35 kernels/three copies, four grant commits, no publication and one normal combined drain/discard. The minimum failure proves an exact 27/3 prefix, zero Full kernels, retained pending Full grant, poison-terminal invalidation and no publication. Owner-lifecycle CUDA tests physically sample the runtime recurrent zero and verify fresh epoch/panel-0 atomic admission, exact-ledger panel commit/replay rejection, healthy terminal rearm, poison permanence, and unpublished final discard. Their 560-kernel panel ledger is deliberately seeded rather than physically executed, so it is state-machine evidence only. These are T1 correctness/dependency/scheduling/security/lifetime oracles. Normal package runtime-positive execution, positive real-owner probe, real-checkpoint full-C8000 numerical equivalence, physical whole-panel/request execution, logits/token and external API oracles are absent. |
 | `quantitative_scope` | The plan caps transient activation storage at 442,368,000 bytes, declares 156,893,184 bytes for two recurrent epochs, and binds an exact 2,621,440,000-byte private KV arena: normal ExecutionPackage ownership is exactly 3,220,701,184 bytes. The shared Engine RoPE owner is exactly 67,108,864 bytes, so the anchored V4 total is 3,287,810,048 bytes and the future-allocation reserve including the existing 8,640,542,976-byte legacy arena is 11,928,353,024 bytes before the caller reserve. One secure GDN transaction is nine kernels plus one 61,440-byte copy; Full is eight kernels/zero copies. Joined success is 35 kernels plus three copies totaling 184,320 bytes; minimum failure is 27 kernels plus the same three copies and a pending Full-grant invalidation. The transformation removes no model MAC and has no measured API effect. No clean-host real-checkpoint Engine-lifetime/numerical result or timing exists. |
 | `status` | `real-equivalent-only`; this is not numerical qualification or production eligibility. |
@@ -792,16 +802,21 @@ tree into an exact route.
 
 The V4 boundary-leaf addendum does not change that status. Fixed/private
 prevalidated C8000 Embedding, final-row centered RMSNorm M1, exact
-activation-staged NVFP4 LM-head M1, and two-kernel BF16 greedy seams now
-exist. Their separate Synthetic-T1 CUDA fixture covers fixed SM87 resources,
+activation-staged NVFP4 LM-head M1, and two-kernel BF16 greedy seams exist.
+Their separate Synthetic-T1 CUDA fixture covers fixed SM87 resources,
 stale-error and alias rejection, exact sampled BF16 Embedding rows,
 centered-norm output, one exact scale-only LM-head result, unique/earliest-tie
 greedy selection, and nonfinite reporting. It enqueues one Embedding kernel,
 one final-norm kernel, one LM-head kernel, and two greedy kernels across its
-independent test cases; it is not a normal request transaction. No normal
-Startup/Execution catalog, owner, or receipt binds those seams, so this
-addendum has no whole-panel/request, real-weight, real-checkpoint numerical,
-API, performance, release, or production authority.
+independent test cases; it is not a normal request transaction. Normal Startup
+now binds their immutable sources/specifications to the real Resident root,
+retains both LM-head scalar provenances while consuming only
+`weight_scale_2`, and prevents host authority from upgrading. Its separate
+normal Execution resource-seal API remains unconsumed by ExecutionPackage.
+Thus no normal execution catalog, pinned staging, aliases, submission receipt,
+or request edge exists, and the addendum has no whole-panel/request,
+real-weight boundary oracle, real-checkpoint numerical, API, performance,
+release, or production authority.
 
 Both normal composer success boundaries are enqueue plus RequestState grant
 commit only: neither drains, publishes private KV/recurrent or canonical
@@ -819,12 +834,14 @@ request/panel, complete KV/RoPE and one normal combined drain/discard, while
 publishing nothing. Its minimum failure preserves 27/3 and poison-invalidates
 the pending Full grant. The owner-only panel-commit and atomic cold rearm/
 panel-0 lifecycle are now implemented at a seeded-ledger state-machine
-boundary. The next P0 is normal owner catalog/binding of the already-existing
-fixed Embedding/final-norm/exact-LM-head-M1/two-kernel-greedy leaves, the fixed
-64-layer/five-panel package transaction and rollback, final
+boundary. The next P0 is ExecutionPackage consumption of the already-existing
+normal request-boundary resource seal, followed by package-owned pinned
+staging and scratch-alias binding for the fixed Embedding/final-norm/exact-
+LM-head-M1/two-kernel-greedy leaves, the fixed 64-layer/five-panel package
+transaction and rollback, final
 `B -> A`/`FinalPublish`/sequence fence plus successful-request reuse, and
 independent timing-enabled Control events that end pure Prefill at canonical
-`PrefillStateCommitted` while excluding LM-head/argmax. Proportional
+`PrefillStateCommitted` while excluding LM-head/argmax/D2H. Proportional
 real-checkpoint gates follow; no synthetic timing or normal-prefix probe
 precedes that composition. `FinalRepresentationReady` remains a diagnostic
 computation endpoint and cannot authorize or time state publication.
