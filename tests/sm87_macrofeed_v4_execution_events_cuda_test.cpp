@@ -35,6 +35,12 @@ static_assert(!std::is_convertible_v<
               events::Sm87MacroFeedV4PhysicalCompletionReceipt>);
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
 static_assert(!std::is_aggregate_v<
+              events::Sm87MacroFeedV4CompleteGdnLayerEnqueueReceipt>);
+static_assert(std::is_default_constructible_v<
+              events::Sm87MacroFeedV4CompleteGdnLayerEnqueueReceipt>);
+static_assert(std::is_copy_constructible_v<
+              events::Sm87MacroFeedV4CompleteGdnLayerEnqueueReceipt>);
+static_assert(!std::is_aggregate_v<
               events::
                   Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt>);
 static_assert(std::is_default_constructible_v<
@@ -259,6 +265,260 @@ make_down_payload_receipt(
       kernels::sm87_macrofeed_v3_nvfp4_down_compute_payload_receipt_identity(
           receipt);
   return receipt;
+}
+
+struct GdnTransactionFixture final {
+  support::Sm87MacroFeedV4LiveFp8AssetFixture gdn_qkvz_asset;
+  support::Sm87MacroFeedV4LiveFp8AssetFixture gdn_output_asset;
+  support::Sm87MacroFeedV4LiveNvFp4AssetFixture gate_up_asset;
+  support::Sm87MacroFeedV4LiveNvFp4AssetFixture down_asset;
+  support::Sm87MacroFeedV4LiveFp8Allocation hidden_a;
+  support::Sm87MacroFeedV4LiveFp8Allocation hidden_b;
+  support::Sm87MacroFeedV4LiveFp8Allocation scratch;
+  support::Sm87MacroFeedV4LiveFp8Allocation input_norm_weight;
+  support::Sm87MacroFeedV4LiveFp8Allocation post_norm_weight;
+  support::Sm87MacroFeedV4LiveFp8Allocation bf16_a_weight;
+  support::Sm87MacroFeedV4LiveFp8Allocation bf16_b_weight;
+  support::Sm87MacroFeedV4LiveFp8Allocation conv_weight;
+  support::Sm87MacroFeedV4LiveFp8Allocation a_log;
+  support::Sm87MacroFeedV4LiveFp8Allocation dt_bias;
+  support::Sm87MacroFeedV4LiveFp8Allocation gdn_norm_weight;
+  events::Sm87MacroFeedV4CompleteGdnLayerC8000Submission submission{};
+
+  template <typename T>
+  [[nodiscard]] static T* as(
+      support::Sm87MacroFeedV4LiveFp8Allocation& allocation) noexcept {
+    return static_cast<T*>(allocation.data());
+  }
+
+  [[nodiscard]] bool initialize(const int device_ordinal) noexcept {
+    if (!gdn_qkvz_asset.initialize(
+            kernels::Sm87TargetAotProjectionRole::kFp8GdnQkvZ,
+            device_ordinal) ||
+        !gdn_output_asset.initialize(
+            kernels::Sm87TargetAotProjectionRole::kFp8AttentionOutput,
+            device_ordinal) ||
+        !gate_up_asset.initialize(
+            kernels::Sm87TargetAotProjectionRole::kNvFp4GateUp,
+            device_ordinal) ||
+        !down_asset.initialize(
+            kernels::Sm87TargetAotProjectionRole::kNvFp4Down,
+            device_ordinal) ||
+        !hidden_a.allocate_zeroed(
+            kernels::kSm87MacroFeedV4NormResidualHiddenBytes) ||
+        !hidden_b.allocate_zeroed(
+            kernels::kSm87MacroFeedV4NormResidualHiddenBytes) ||
+        !scratch.allocate_zeroed(kernels::kSm87MacroFeedV4GdnScratchBytes) ||
+        !input_norm_weight.allocate_zeroed(
+            kernels::kSm87MacroFeedV4NormResidualWeightBytes) ||
+        !post_norm_weight.allocate_zeroed(
+            kernels::kSm87MacroFeedV4NormResidualWeightBytes) ||
+        !bf16_a_weight.allocate_zeroed(
+            kernels::kSm87MacroFeedV4Bf16AbWeightBytes) ||
+        !bf16_b_weight.allocate_zeroed(
+            kernels::kSm87MacroFeedV4Bf16AbWeightBytes) ||
+        !conv_weight.allocate_zeroed(
+            kernels::kSm87MacroFeedV4GdnConvWeightBytes) ||
+        !a_log.allocate_zeroed(
+            kernels::kSm87MacroFeedV4GdnHeadVectorBytes) ||
+        !dt_bias.allocate_zeroed(
+            kernels::kSm87MacroFeedV4GdnHeadVectorBytes) ||
+        !gdn_norm_weight.allocate_zeroed(
+            kernels::kSm87MacroFeedV4GdnNormWeightBytes)) {
+      return false;
+    }
+
+    // The Events test intentionally reuses one honest physical T1 asset
+    // cohort across three natural layers.  It therefore declares the
+    // synthetic authority domain instead of inventing production catalog or
+    // binding identities for a fixture that owns no startup package seal.
+    submission.authority_domain =
+        events::Sm87MacroFeedV4GdnSubmissionAuthorityDomain::kSyntheticT1;
+    submission.execution_package_identity = 0x5200U;
+    submission.gdn_catalog_identity = 0U;
+    submission.gdn_binding_identity = 0U;
+    submission.bf16_ab_catalog_identity = 0x5201U;
+    submission.bf16_ab_pair_identity = 0x5202U;
+    submission.layer_norm_catalog_identity = 0x5203U;
+    submission.layer_norm_pair_identity = 0x5204U;
+    submission.input_norm_binding_identity = 0x5205U;
+    submission.post_norm_binding_identity = 0x5206U;
+    submission.mlp_catalog_identity = 0U;
+    submission.mlp_binding_identity = 0U;
+    submission.resource_bundle_identity = 0U;
+    submission.synthetic_source_identity = 0x5207U;
+    submission.gdn_ordinal = 0U;
+    submission.model_layer = 0U;
+    submission.input_norm = {
+        as<std::uint16_t>(hidden_a),
+        as<std::uint16_t>(input_norm_weight),
+        as<std::uint16_t>(hidden_b),
+        kernels::kSm87MacroFeedV4NormResidualTokens,
+        kernels::kSm87MacroFeedV4NormResidualHidden,
+        kernels::kSm87MacroFeedV4NormResidualEpsilonFp32Bits,
+        nullptr};
+    submission.bf16_ab = {
+        as<std::uint16_t>(bf16_a_weight),
+        as<std::uint16_t>(bf16_b_weight),
+        as<std::uint16_t>(hidden_b),
+        as<std::uint16_t>(scratch),
+        kernels::kSm87MacroFeedV4Bf16AbTokens,
+        kernels::kSm87MacroFeedV4Bf16AbScratchRowStride,
+        nullptr};
+    submission.gdn_qkvz = {as<std::uint16_t>(hidden_b),
+                           gdn_qkvz_asset.asset,
+                           as<std::uint16_t>(scratch)};
+    submission.gdn_continuation.phase_scratch =
+        as<std::uint16_t>(scratch);
+    submission.gdn_continuation.conv_weight =
+        as<std::uint16_t>(conv_weight);
+    submission.gdn_continuation.a_log = as<std::uint16_t>(a_log);
+    submission.gdn_continuation.dt_bias = as<std::uint16_t>(dt_bias);
+    submission.gdn_continuation.norm_weight =
+        as<std::uint16_t>(gdn_norm_weight);
+    submission.gdn_continuation.cancellation_signal = nullptr;
+    submission.gdn_continuation.l2_epsilon_fp32_bits =
+        kernels::kSm87TargetAotGdnEpsilonFp32Bits;
+    submission.gdn_continuation.norm_epsilon_fp32_bits =
+        kernels::kSm87TargetAotGdnEpsilonFp32Bits;
+    submission.gdn_output = {as<std::uint16_t>(scratch),
+                             gdn_output_asset.asset,
+                             as<std::uint16_t>(hidden_b)};
+    submission.residual_post_norm = {
+        as<std::uint16_t>(hidden_a), as<std::uint16_t>(hidden_b),
+        as<std::uint16_t>(post_norm_weight)};
+    submission.gate_up.normalized_input = as<std::uint16_t>(hidden_a);
+    submission.gate_up.payload = reinterpret_cast<const std::uint8_t*>(
+        gate_up_asset.asset.payload.begin);
+    submission.gate_up.payload_bytes = gate_up_asset.asset.payload.bytes;
+    submission.gate_up.gate_tensor_scale =
+        fp32_from_bits(gate_up_asset.asset.tensor_scale_bits[0U]);
+    submission.gate_up.up_tensor_scale =
+        fp32_from_bits(gate_up_asset.asset.tensor_scale_bits[1U]);
+    submission.gate_up.intermediate_output = as<std::uint16_t>(scratch);
+    submission.gate_up.canonical_v3_payload_receipt =
+        make_gate_up_payload_receipt(gate_up_asset);
+    submission.down.intermediate_input = as<std::uint16_t>(scratch);
+    submission.down.payload = reinterpret_cast<const std::uint8_t*>(
+        down_asset.asset.payload.begin);
+    submission.down.payload_bytes = down_asset.asset.payload.bytes;
+    submission.down.tensor_scale =
+        fp32_from_bits(down_asset.asset.tensor_scale_bits[0U]);
+    submission.down.residual_output = as<std::uint16_t>(hidden_b);
+    submission.down.payload_receipt = make_down_payload_receipt(down_asset);
+
+    if (kernels::query_sm87_macrofeed_v4_norm_residual_admission_resources_cuda(
+            &submission.norm_resources) != static_cast<int>(cudaSuccess) ||
+        kernels::query_sm87_macrofeed_v4_bf16_ab_admission_resource_snapshot_cuda(
+            &submission.bf16_ab_resources) !=
+            static_cast<int>(cudaSuccess) ||
+        kernels::query_sm87_macrofeed_v4_fp8_cuda_resources(
+            kernels::Sm87TargetAotProjectionRole::kFp8GdnQkvZ,
+            kernels::Sm87MacroFeedV4Fp8InputLayout::
+                kHiddenContiguousH5120V1,
+            &submission.gdn_qkvz_resources) !=
+            static_cast<int>(cudaSuccess) ||
+        kernels::query_sm87_macrofeed_v4_gdn_c8000_admission_resource_snapshot_cuda(
+            &submission.gdn_continuation_resources) !=
+            static_cast<int>(cudaSuccess) ||
+        kernels::query_sm87_macrofeed_v4_fp8_cuda_resources(
+            kernels::Sm87TargetAotProjectionRole::kFp8AttentionOutput,
+            kernels::Sm87MacroFeedV4Fp8InputLayout::
+                kGdnContiguousVScratchV1,
+            &submission.gdn_output_resources) !=
+            static_cast<int>(cudaSuccess) ||
+        kernels::query_sm87_macrofeed_v4_nvfp4_gate_up_cuda_resources(
+            &submission.gate_up_resources) !=
+            static_cast<int>(cudaSuccess) ||
+        kernels::query_sm87_macrofeed_v4_nvfp4_down_cuda_resources(
+            &submission.down_resources) != static_cast<int>(cudaSuccess)) {
+      return false;
+    }
+    submission.gdn_qkvz_resources.static_resource_gate_passed =
+        kernels::sm87_macrofeed_v4_fp8_resource_gate(
+            submission.gdn_qkvz_resources);
+    submission.gdn_output_resources.static_resource_gate_passed =
+        kernels::sm87_macrofeed_v4_fp8_resource_gate(
+            submission.gdn_output_resources);
+    if (!kernels::sm87_macrofeed_v3_nvfp4_gate_up_payload_receipt_valid(
+            submission.gate_up.canonical_v3_payload_receipt) ||
+        !kernels::sm87_macrofeed_v3_nvfp4_down_payload_receipt_valid(
+            submission.down.payload_receipt) ||
+        cudaDeviceSynchronize() != cudaSuccess) {
+      return false;
+    }
+    return cudaGetLastError() == cudaSuccess;
+  }
+
+  [[nodiscard]] events::Sm87MacroFeedV4CompleteGdnLayerC8000Submission
+  for_ordinal(const std::size_t ordinal) noexcept {
+    auto current = submission;
+    current.gdn_ordinal = ordinal;
+    current.model_layer = ordinal + ordinal / 3U;
+    current.bf16_ab_pair_identity = 0x5210U + ordinal;
+    current.layer_norm_pair_identity = 0x5220U + current.model_layer;
+    current.input_norm_binding_identity = 0x5230U + current.model_layer;
+    current.post_norm_binding_identity = 0x5240U + current.model_layer;
+    current.synthetic_source_identity = 0x5250U + ordinal;
+    auto* const residual = current.model_layer % 2U == 0U
+                               ? as<std::uint16_t>(hidden_a)
+                               : as<std::uint16_t>(hidden_b);
+    auto* const branch = current.model_layer % 2U == 0U
+                             ? as<std::uint16_t>(hidden_b)
+                             : as<std::uint16_t>(hidden_a);
+    current.input_norm.input_hidden = residual;
+    current.input_norm.output_hidden = branch;
+    current.bf16_ab.input = branch;
+    current.gdn_qkvz.hidden_input = branch;
+    current.gdn_output.branch_output = branch;
+    current.residual_post_norm.left_residual_then_normalized = residual;
+    current.residual_post_norm.right_branch_then_residual = branch;
+    current.gate_up.normalized_input = residual;
+    current.down.residual_output = branch;
+    return current;
+  }
+};
+
+[[nodiscard]] bool bind_gdn_recurrent_grant(
+    events::Sm87MacroFeedV4CompleteGdnLayerC8000Submission* const submission,
+    BoundOwner& bound,
+    const runtime::Sm87MacroFeedV4GdnLayerStateGrant& grant) noexcept {
+  if (submission == nullptr || bound.recurrent_allocation == nullptr) {
+    return false;
+  }
+  const auto exact_range = [](const std::uint64_t offset,
+                              const std::uint64_t bytes) noexcept {
+    return offset <= runtime::kSm87MacroFeedV4RecurrentStorageBytes &&
+           bytes <= runtime::kSm87MacroFeedV4RecurrentStorageBytes - offset;
+  };
+  if (!exact_range(grant.active_conv_allocation_offset(),
+                   grant.conv_bytes()) ||
+      !exact_range(grant.candidate_conv_allocation_offset(),
+                   grant.conv_bytes()) ||
+      !exact_range(grant.active_gdn_state_allocation_offset(),
+                   grant.gdn_state_bytes()) ||
+      !exact_range(grant.candidate_gdn_state_allocation_offset(),
+                   grant.gdn_state_bytes())) {
+    return false;
+  }
+  const auto* const recurrent =
+      static_cast<const std::uint8_t*>(bound.recurrent_allocation);
+  auto* const recurrent_mutable =
+      static_cast<std::uint8_t*>(bound.recurrent_allocation);
+  submission->gdn_continuation.active_conv_history =
+      reinterpret_cast<const std::uint16_t*>(
+          recurrent + grant.active_conv_allocation_offset());
+  submission->gdn_continuation.candidate_conv_history =
+      reinterpret_cast<std::uint16_t*>(
+          recurrent_mutable + grant.candidate_conv_allocation_offset());
+  submission->gdn_continuation.active_recurrent_state =
+      reinterpret_cast<const std::uint16_t*>(
+          recurrent + grant.active_gdn_state_allocation_offset());
+  submission->gdn_continuation.candidate_recurrent_state =
+      reinterpret_cast<std::uint16_t*>(
+          recurrent_mutable +
+          grant.candidate_gdn_state_allocation_offset());
+  return true;
 }
 
 struct FullAttentionTransactionFixture final {
@@ -840,6 +1100,648 @@ void test_poison_terminal_drain(Test& test) {
 }
 
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+enum class GdnPrevalidationNegative : std::uint8_t {
+  kAuthorityDomain,
+  kCatalogIdentity,
+  kNaturalOrdinal,
+  kRecurrentPointer,
+  kResourceDevice,
+  kResourceTactic,
+};
+
+void expect_gdn_prevalidation_rejection(
+    Test& test, GdnTransactionFixture& gdn,
+    const GdnPrevalidationNegative negative,
+    const std::uint64_t allocation_identity,
+    const std::string_view case_name) {
+  auto bound = make_bound_owner(test, allocation_identity);
+  if (bound == nullptr) {
+    return;
+  }
+  auto& owner = *bound->execution.owner;
+  test.expect(static_cast<bool>(Fixture::begin_request(
+                  owner, *bound->request.state, bound->request_access)),
+              "GDN negative begins Events request");
+  auto panel = Fixture::begin_panel(owner, 0U);
+  if (!panel) {
+    test.expect(false, "GDN negative begins Events panel");
+    return;
+  }
+  test.expect(static_cast<bool>(bound->request.state->begin_panel(
+                  bound->request_access, 0U)),
+              "GDN negative begins RequestState panel");
+  auto authorization = bound->request.state->authorize_gdn_layer_state(
+      bound->request_access, 0U, 0U);
+  if (!authorization) {
+    test.expect(false, "GDN negative mints layer-zero grant");
+    return;
+  }
+  auto submission = gdn.for_ordinal(0U);
+  test.expect(bind_gdn_recurrent_grant(&submission, *bound,
+                                       *authorization.grant),
+              "GDN negative binds grant-derived recurrent slices");
+  switch (negative) {
+    case GdnPrevalidationNegative::kAuthorityDomain:
+      submission.authority_domain =
+          events::Sm87MacroFeedV4GdnSubmissionAuthorityDomain::
+              kNormalSealedCatalog;
+      break;
+    case GdnPrevalidationNegative::kCatalogIdentity:
+      submission.bf16_ab_pair_identity = 0U;
+      break;
+    case GdnPrevalidationNegative::kNaturalOrdinal:
+      submission.gdn_ordinal = 1U;
+      submission.model_layer = 1U;
+      break;
+    case GdnPrevalidationNegative::kRecurrentPointer:
+      ++submission.gdn_continuation.candidate_recurrent_state;
+      break;
+    case GdnPrevalidationNegative::kResourceDevice:
+      ++submission.gdn_continuation_resources.device_ordinal;
+      break;
+    case GdnPrevalidationNegative::kResourceTactic:
+      submission.gdn_output_resources.identity =
+          kernels::Sm87MacroFeedV4Fp8Identity::
+              kAttentionOutputM64N128K64OrdinaryGridV1;
+      break;
+  }
+
+  const auto before = owner.snapshot();
+  const auto rejected =
+      Fixture::submit_complete_gdn_layer_c8000_prevalidated(
+          owner, *panel.panel_access, *authorization.grant, submission);
+  const auto after = owner.snapshot();
+  test.expect(
+      !rejected &&
+          rejected.status.error ==
+              events::Sm87MacroFeedV4ExecutionError::kKernelSubmitContract &&
+          !rejected.receipt.valid_shape() &&
+          after.state ==
+              events::Sm87MacroFeedV4ExecutionOwnerState::kPoisoned &&
+          after.bound_kernel_submissions == before.bound_kernel_submissions &&
+          after.gdn_history_d2d_copies == before.gdn_history_d2d_copies &&
+          after.accepted_gdn_grants == 0U &&
+          after.complete_gdn_layers_submitted == 0U &&
+          after.last_gdn_accepted_prefix.valid_prefix() &&
+          after.last_gdn_accepted_prefix.accepted_operations() == 0U &&
+          !after.last_gdn_accepted_prefix.complete,
+      case_name);
+  const auto drained = Fixture::drain_poisoned_request_and_discard(
+      owner, *bound->request.state, bound->request_access);
+  const auto request_after = bound->request.state->snapshot();
+  test.expect(static_cast<bool>(drained) &&
+                  drained.all_stream_synchronizations_attempted &&
+                  drained.request_state_discarded &&
+                  request_after.phase ==
+                      runtime::Sm87MacroFeedV4RequestStatePhase::kFailed &&
+                  request_after.candidate_discard_count == 1U &&
+                  request_after.pending_gdn_layer_grant_identity == 0U,
+              "GDN prevalidation poison drains and discards the pending "
+              "move-only grant");
+}
+
+void test_gdn_foreign_grant_rejection(Test& test,
+                                      GdnTransactionFixture& gdn) {
+  auto issuer = make_bound_owner(test, 0xa700U);
+  auto foreign = make_bound_owner(test, 0xa800U);
+  if (issuer == nullptr || foreign == nullptr) {
+    return;
+  }
+  auto& issuer_owner = *issuer->execution.owner;
+  auto& foreign_owner = *foreign->execution.owner;
+  if (!Fixture::begin_request(issuer_owner, *issuer->request.state,
+                              issuer->request_access) ||
+      !Fixture::begin_request(foreign_owner, *foreign->request.state,
+                              foreign->request_access)) {
+    test.expect(false, "GDN foreign fixture begins both Events requests");
+    return;
+  }
+  auto issuer_panel = Fixture::begin_panel(issuer_owner, 0U);
+  auto foreign_panel = Fixture::begin_panel(foreign_owner, 0U);
+  if (!issuer_panel || !foreign_panel ||
+      !issuer->request.state->begin_panel(issuer->request_access, 0U) ||
+      !foreign->request.state->begin_panel(foreign->request_access, 0U)) {
+    test.expect(false, "GDN foreign fixture begins both panels");
+    return;
+  }
+  auto issuer_authorization =
+      issuer->request.state->authorize_gdn_layer_state(
+          issuer->request_access, 0U, 0U);
+  auto foreign_authorization =
+      foreign->request.state->authorize_gdn_layer_state(
+          foreign->request_access, 0U, 0U);
+  if (!issuer_authorization || !foreign_authorization) {
+    test.expect(false, "GDN foreign fixture mints both grants");
+    return;
+  }
+  auto foreign_submission = gdn.for_ordinal(0U);
+  if (!bind_gdn_recurrent_grant(&foreign_submission, *foreign,
+                                *foreign_authorization.grant)) {
+    test.expect(false, "GDN foreign fixture binds foreign recurrent slices");
+    return;
+  }
+  const auto rejected =
+      Fixture::submit_complete_gdn_layer_c8000_prevalidated(
+          issuer_owner, *issuer_panel.panel_access,
+          *foreign_authorization.grant, foreign_submission);
+  const auto after = issuer_owner.snapshot();
+  test.expect(
+      !rejected &&
+          rejected.status.error ==
+              events::Sm87MacroFeedV4ExecutionError::kKernelSubmitContract &&
+          after.state ==
+              events::Sm87MacroFeedV4ExecutionOwnerState::kPoisoned &&
+          after.accepted_gdn_grants == 0U &&
+          after.bound_kernel_submissions == 0U &&
+          after.last_gdn_accepted_prefix.valid_prefix() &&
+          after.last_gdn_accepted_prefix.grant_identity ==
+              foreign_authorization.grant->grant_identity() &&
+          after.last_gdn_accepted_prefix.accepted_operations() == 0U,
+      "same-panel GDN transaction rejects foreign owner/allocation grant "
+      "before first enqueue");
+  const auto drained = Fixture::drain_poisoned_request_and_discard(
+      issuer_owner, *issuer->request.state, issuer->request_access);
+  test.expect(static_cast<bool>(drained) && drained.request_state_discarded,
+              "foreign GDN grant rejection drains only the issuing owner");
+}
+
+void test_gdn_grant_at_most_once(Test& test,
+                                 GdnTransactionFixture& gdn) {
+  auto bound = make_bound_owner(test, 0xa900U);
+  if (bound == nullptr) {
+    return;
+  }
+  auto& owner = *bound->execution.owner;
+  if (!Fixture::begin_request(owner, *bound->request.state,
+                              bound->request_access)) {
+    test.expect(false, "GDN replay fixture begins Events request");
+    return;
+  }
+  auto panel = Fixture::begin_panel(owner, 0U);
+  if (!panel || !bound->request.state->begin_panel(bound->request_access,
+                                                   0U)) {
+    test.expect(false, "GDN replay fixture begins both panels");
+    return;
+  }
+  auto authorization = bound->request.state->authorize_gdn_layer_state(
+      bound->request_access, 0U, 0U);
+  if (!authorization) {
+    test.expect(false, "GDN replay fixture mints grant");
+    return;
+  }
+  auto submission = gdn.for_ordinal(0U);
+  if (!bind_gdn_recurrent_grant(&submission, *bound,
+                                *authorization.grant)) {
+    test.expect(false, "GDN replay fixture binds recurrent slices");
+    return;
+  }
+  const auto first =
+      Fixture::submit_complete_gdn_layer_c8000_prevalidated(
+          owner, *panel.panel_access, *authorization.grant, submission);
+  test.expect(static_cast<bool>(first) && first.receipt.valid_shape(),
+              "GDN replay fixture accepts one grant exactly once");
+  if (!first) {
+    return;
+  }
+  const auto once = owner.snapshot();
+  const auto replayed =
+      Fixture::submit_complete_gdn_layer_c8000_prevalidated(
+          owner, *panel.panel_access, *authorization.grant, submission);
+  const auto twice = owner.snapshot();
+  test.expect(
+      !replayed &&
+          replayed.status.error ==
+              events::Sm87MacroFeedV4ExecutionError::kKernelSubmitContract &&
+          !replayed.receipt.valid_shape() &&
+          twice.state ==
+              events::Sm87MacroFeedV4ExecutionOwnerState::kPoisoned &&
+          once.bound_kernel_submissions == 9U &&
+          twice.bound_kernel_submissions == once.bound_kernel_submissions &&
+          once.gdn_history_d2d_copies == 1U &&
+          twice.gdn_history_d2d_copies == once.gdn_history_d2d_copies &&
+          once.accepted_gdn_grants == 1U &&
+          twice.accepted_gdn_grants == 1U &&
+          twice.complete_gdn_layers_submitted == 1U &&
+          twice.last_gdn_accepted_prefix.valid_prefix() &&
+          twice.last_gdn_accepted_prefix.accepted_operations() == 0U &&
+          !twice.last_gdn_accepted_prefix.complete,
+      "O(1) GDN grant slot rejects replay with zero additional kernels or "
+      "history copies");
+  const auto drained = Fixture::drain_poisoned_request_and_discard(
+      owner, *bound->request.state, bound->request_access);
+  const auto request_after = bound->request.state->snapshot();
+  test.expect(static_cast<bool>(drained) && drained.request_state_discarded &&
+                  request_after.phase ==
+                      runtime::Sm87MacroFeedV4RequestStatePhase::kFailed &&
+                  request_after.pending_gdn_layer_grant_identity == 0U,
+              "GDN replay poison drains all streams and discards its exact "
+              "pending grant");
+}
+
+void test_complete_gdn_transaction(Test& test) {
+  int device = -1;
+  if (cudaGetDevice(&device) != cudaSuccess) {
+    test.expect(false, "GDN transaction observes current CUDA device");
+    return;
+  }
+  GdnTransactionFixture gdn;
+  test.expect(gdn.initialize(device),
+              "GDN transaction constructs seven honest resource snapshots "
+              "and synthetic-T1 bindings");
+  if (!kernels::sm87_macrofeed_v4_norm_residual_resource_gate(
+          gdn.submission.norm_resources) ||
+      !kernels::sm87_macrofeed_v4_bf16_ab_admission_resource_gate(
+          gdn.submission.bf16_ab_resources) ||
+      !kernels::sm87_macrofeed_v4_fp8_resource_gate(
+          gdn.submission.gdn_qkvz_resources) ||
+      !kernels::sm87_macrofeed_v4_gdn_c8000_admission_resource_gate(
+          gdn.submission.gdn_continuation_resources) ||
+      !kernels::sm87_macrofeed_v4_fp8_resource_gate(
+          gdn.submission.gdn_output_resources) ||
+      !kernels::sm87_macrofeed_v4_nvfp4_gate_up_resource_gate(
+          gdn.submission.gate_up_resources) ||
+      !kernels::sm87_macrofeed_v4_nvfp4_down_resource_gate(
+          gdn.submission.down_resources)) {
+    return;
+  }
+
+  {
+    auto bound = make_bound_owner(test, 0xa000U,
+                                  0x5133'4744'4e4b'5601ULL);
+    if (bound == nullptr) {
+      return;
+    }
+    auto& owner = *bound->execution.owner;
+    if (!Fixture::begin_request(owner, *bound->request.state,
+                                bound->request_access)) {
+      test.expect(false, "reusable GDN cohort begins Events request");
+      return;
+    }
+    auto panel = Fixture::begin_panel(owner, 0U);
+    if (!panel || !bound->request.state->begin_panel(bound->request_access,
+                                                     0U)) {
+      test.expect(false, "reusable GDN cohort begins both panel ledgers");
+      return;
+    }
+
+    for (std::size_t ordinal = 0U; ordinal < 3U; ++ordinal) {
+      auto authorization = bound->request.state->authorize_gdn_layer_state(
+          bound->request_access, 0U, ordinal);
+      if (!authorization) {
+        test.expect(false, "reusable cohort mints next natural GDN grant");
+        return;
+      }
+      auto submission = gdn.for_ordinal(ordinal);
+      if (!bind_gdn_recurrent_grant(&submission, *bound,
+                                    *authorization.grant)) {
+        test.expect(false, "reusable cohort binds exact grant slices");
+        return;
+      }
+      const auto before = owner.snapshot();
+      const events::Sm87MacroFeedV4CompleteGdnLayerEnqueueReceipt forged;
+      test.expect(!Fixture::gdn_receipt_matches(
+                      owner, *panel.panel_access, *authorization.grant,
+                      submission, forged),
+                  "default GDN receipt has no owner authority");
+      const auto enqueued =
+          Fixture::submit_complete_gdn_layer_c8000_prevalidated(
+              owner, *panel.panel_access, *authorization.grant, submission);
+      const auto after = owner.snapshot();
+      if (!enqueued) {
+        std::cerr << "GDN positive ordinal=" << ordinal << " error="
+                  << static_cast<unsigned>(enqueued.status.error)
+                  << " context=" << enqueued.status.context
+                  << " cuda=" << enqueued.status.cuda_error
+                  << " operations="
+                  << after.last_gdn_accepted_prefix.accepted_operations()
+                  << " valid="
+                  << after.last_gdn_accepted_prefix.valid_prefix() << '\n';
+      }
+      const auto& receipt = enqueued.receipt;
+      test.expect(
+          static_cast<bool>(enqueued) && receipt.valid_shape() &&
+              receipt.authority_domain() ==
+                  events::Sm87MacroFeedV4GdnSubmissionAuthorityDomain::
+                      kSyntheticT1 &&
+              receipt.grant_identity() ==
+                  authorization.grant->grant_identity() &&
+              receipt.grant_state_epoch() ==
+                  authorization.grant->state_epoch() &&
+              receipt.gdn_ordinal() == ordinal &&
+              receipt.model_layer() == ordinal &&
+              receipt.active_bank_index() ==
+                  authorization.grant->active_bank_index() &&
+              receipt.candidate_bank_index() ==
+                  authorization.grant->candidate_bank_index() &&
+              receipt.active_conv_allocation_offset() ==
+                  authorization.grant->active_conv_allocation_offset() &&
+              receipt.candidate_conv_allocation_offset() ==
+                  authorization.grant->candidate_conv_allocation_offset() &&
+              receipt.conv_bytes() ==
+                  kernels::kSm87MacroFeedV4GdnConvHistoryBytes &&
+              receipt.active_gdn_state_allocation_offset() ==
+                  authorization.grant
+                      ->active_gdn_state_allocation_offset() &&
+              receipt.candidate_gdn_state_allocation_offset() ==
+                  authorization.grant
+                      ->candidate_gdn_state_allocation_offset() &&
+              receipt.gdn_state_bytes() ==
+                  kernels::kSm87MacroFeedV4GdnStateBytes &&
+              receipt.input_norm_launches() == 1U &&
+              receipt.bf16_ab_launches() == 1U &&
+              receipt.gdn_qkvz_launches() == 1U &&
+              receipt.gdn_continuation_launches() == 2U &&
+              receipt.gdn_output_launches() == 1U &&
+              receipt.residual_post_norm_launches() == 1U &&
+              receipt.gate_up_launches() == 1U &&
+              receipt.down_launches() == 1U &&
+              receipt.bound_kernel_submissions() == 9U &&
+              receipt.asynchronous_d2d_copies() == 1U &&
+              receipt.conv_history_copy_bytes() ==
+                  kernels::kSm87MacroFeedV4GdnConvHistoryBytes &&
+              receipt.norm_ready_waited_by_ab() &&
+              receipt.ab_ready_waited_by_main() &&
+              !receipt.physical_device_completion_attested() &&
+              !receipt.panel_complete() &&
+              !receipt.production_receipt_eligible(),
+          "opaque GDN receipt exposes exact grant, 9+1 DAG and two waits "
+          "without production authority");
+      if (!enqueued) {
+        return;
+      }
+      test.expect(
+          Fixture::gdn_receipt_matches(
+              owner, *panel.panel_access, *authorization.grant, submission,
+              receipt),
+          "issuing owner authenticates exact GDN grant/submission/receipt");
+
+      if (ordinal == 0U) {
+        auto substituted = submission;
+        ++substituted.synthetic_source_identity;
+        test.expect(
+            !Fixture::gdn_receipt_matches(
+                owner, *panel.panel_access, *authorization.grant,
+                substituted, receipt),
+            "GDN receipt rejects authority-identity substitution");
+        substituted = submission;
+        ++substituted.gdn_continuation.dt_bias;
+        test.expect(
+            !Fixture::gdn_receipt_matches(
+                owner, *panel.panel_access, *authorization.grant,
+                substituted, receipt),
+            "GDN semantic digest rejects weight-pointer substitution");
+        substituted = submission;
+        ++substituted.bf16_ab_resources.physical_grid_ctas;
+        test.expect(
+            !Fixture::gdn_receipt_matches(
+                owner, *panel.panel_access, *authorization.grant,
+                substituted, receipt),
+            "GDN semantic digest rejects resource-snapshot substitution");
+
+        auto foreign = make_bound_owner(test, 0xa100U);
+        if (foreign != nullptr &&
+            Fixture::begin_request(*foreign->execution.owner,
+                                   *foreign->request.state,
+                                   foreign->request_access)) {
+          auto foreign_panel =
+              Fixture::begin_panel(*foreign->execution.owner, 0U);
+          if (foreign_panel && foreign->request.state->begin_panel(
+                                   foreign->request_access, 0U)) {
+            auto foreign_authorization =
+                foreign->request.state->authorize_gdn_layer_state(
+                    foreign->request_access, 0U, 0U);
+            if (foreign_authorization) {
+              auto foreign_submission = gdn.for_ordinal(0U);
+              (void)bind_gdn_recurrent_grant(
+                  &foreign_submission, *foreign,
+                  *foreign_authorization.grant);
+              test.expect(
+                  !Fixture::gdn_receipt_matches(
+                      *foreign->execution.owner, *foreign_panel.panel_access,
+                      *foreign_authorization.grant, foreign_submission,
+                      receipt) &&
+                      !Fixture::gdn_receipt_matches(
+                          owner, *panel.panel_access,
+                          *foreign_authorization.grant, submission, receipt),
+                  "foreign owner and foreign move-only grant cannot "
+                  "authenticate copied GDN receipt");
+              const auto stale_on_issuer =
+                  Fixture::submit_complete_gdn_layer_c8000_prevalidated(
+                      owner, *foreign_panel.panel_access,
+                      *authorization.grant, submission);
+              const auto stale_on_foreign =
+                  Fixture::submit_complete_gdn_layer_c8000_prevalidated(
+                      *foreign->execution.owner, *panel.panel_access,
+                      *foreign_authorization.grant, foreign_submission);
+              test.expect(
+                  !stale_on_issuer && !stale_on_foreign &&
+                      stale_on_issuer.status.error ==
+                          events::Sm87MacroFeedV4ExecutionError::
+                              kStalePanelGeneration &&
+                      stale_on_foreign.status.error ==
+                          events::Sm87MacroFeedV4ExecutionError::
+                              kStalePanelGeneration &&
+                      owner.snapshot().state ==
+                          events::Sm87MacroFeedV4ExecutionOwnerState::
+                              kRequestActive &&
+                      foreign->execution.owner->snapshot().state ==
+                          events::Sm87MacroFeedV4ExecutionOwnerState::
+                              kRequestActive,
+                  "foreign/stale panel access rejects before GDN ledger or "
+                  "poison mutation");
+            }
+          }
+        }
+      }
+
+      test.expect(
+          after.bound_kernel_submissions ==
+                  before.bound_kernel_submissions + 9U &&
+              after.gdn_history_d2d_copies ==
+                  before.gdn_history_d2d_copies + 1U &&
+              after.gdn_history_d2d_bytes ==
+                  before.gdn_history_d2d_bytes +
+                      kernels::kSm87MacroFeedV4GdnConvHistoryBytes &&
+              after.complete_gdn_layers_submitted == ordinal + 1U &&
+              after.accepted_gdn_grants == ordinal + 1U &&
+              after.bf16_ab_cycles_completed == ordinal + 1U &&
+              after.bf16_ab_cycle_at_norm_boundary &&
+              after.last_gdn_accepted_prefix.valid_prefix() &&
+              after.last_gdn_accepted_prefix.complete &&
+              after.last_gdn_accepted_prefix.accepted_kernel_launches == 9U &&
+              after.last_gdn_accepted_prefix.asynchronous_d2d_copies == 1U,
+          "each reusable GDN transaction restores A/B phase and advances "
+          "exact cumulative 9+1 ledgers");
+      const auto committed =
+          bound->request.state->commit_gdn_layer_candidate_enqueued(
+              bound->request_access, std::move(*authorization.grant));
+      const auto request_after = bound->request.state->snapshot();
+      test.expect(static_cast<bool>(committed) &&
+                      request_after.next_model_layer == ordinal + 1U &&
+                      request_after.panel_gdn_layers_assigned == ordinal + 1U &&
+                      request_after.pending_gdn_layer_grant_identity == 0U,
+                  "same authenticated move-only GDN grant commits in natural "
+                  "order without draining the successful owner");
+    }
+    const auto events_after_three = owner.snapshot();
+    const auto request_after_three = bound->request.state->snapshot();
+    test.expect(events_after_three.bound_kernel_submissions == 27U &&
+                    events_after_three.gdn_history_d2d_copies == 3U &&
+                    events_after_three.accepted_gdn_grants == 3U &&
+                    events_after_three.complete_gdn_layers_submitted == 3U &&
+                    events_after_three.state ==
+                        events::Sm87MacroFeedV4ExecutionOwnerState::
+                            kRequestActive &&
+                    request_after_three.next_model_layer == 3U,
+                "one request/panel accepts natural GDN ordinals 0/1/2 as "
+                "27 kernels plus three history D2D copies");
+    const auto full_authorization =
+        bound->request.state->authorize_full_attention_kv(
+            bound->request_access, 0U, 3U);
+    test.expect(static_cast<bool>(full_authorization) &&
+                    full_authorization.grant->model_layer() == 3U &&
+                    full_authorization.grant->attention_layer_ordinal() ==
+                        0U,
+                "three reusable GDN commits leave the same RequestState at "
+                "the natural Full-3 authorization boundary");
+  }
+
+  test_gdn_foreign_grant_rejection(test, gdn);
+  test_gdn_grant_at_most_once(test, gdn);
+
+  std::uint64_t negative_identity = 0xaa00U;
+  expect_gdn_prevalidation_rejection(
+      test, gdn, GdnPrevalidationNegative::kAuthorityDomain,
+      negative_identity++,
+      "synthetic identities cannot be relabeled normal authority");
+  expect_gdn_prevalidation_rejection(
+      test, gdn, GdnPrevalidationNegative::kCatalogIdentity,
+      negative_identity++,
+      "zero BF16 pair identity fails before first GDN enqueue");
+  expect_gdn_prevalidation_rejection(
+      test, gdn, GdnPrevalidationNegative::kNaturalOrdinal,
+      negative_identity++,
+      "GDN ordinal/model substitution fails before first enqueue");
+  expect_gdn_prevalidation_rejection(
+      test, gdn, GdnPrevalidationNegative::kRecurrentPointer,
+      negative_identity++,
+      "candidate recurrent pointer substitution fails before first enqueue");
+  expect_gdn_prevalidation_rejection(
+      test, gdn, GdnPrevalidationNegative::kResourceDevice,
+      negative_identity++,
+      "foreign GDN continuation device fails before first enqueue");
+  expect_gdn_prevalidation_rejection(
+      test, gdn, GdnPrevalidationNegative::kResourceTactic,
+      negative_identity++,
+      "GDN output rejects every tactic except exact 4604");
+
+  events::Sm87MacroFeedV4GdnAcceptedPrefixLedger prefix_three{};
+  constexpr std::size_t kInjectablePrefixes[] = {0U, 1U, 2U, 3U,
+                                                  6U, 7U, 8U, 9U};
+  for (const std::size_t prefix : kInjectablePrefixes) {
+    auto bound = make_bound_owner(test, negative_identity++);
+    if (bound == nullptr) {
+      return;
+    }
+    auto& owner = *bound->execution.owner;
+    if (!Fixture::begin_request(owner, *bound->request.state,
+                                bound->request_access)) {
+      test.expect(false, "GDN partial-prefix begins Events request");
+      return;
+    }
+    auto panel = Fixture::begin_panel(owner, 0U);
+    if (!panel || !bound->request.state->begin_panel(bound->request_access,
+                                                     0U)) {
+      test.expect(false, "GDN partial-prefix begins both panels");
+      return;
+    }
+    auto authorization = bound->request.state->authorize_gdn_layer_state(
+        bound->request_access, 0U, 0U);
+    if (!authorization) {
+      test.expect(false, "GDN partial-prefix mints grant");
+      return;
+    }
+    auto submission = gdn.for_ordinal(0U);
+    if (!bind_gdn_recurrent_grant(&submission, *bound,
+                                  *authorization.grant)) {
+      test.expect(false, "GDN partial-prefix binds recurrent slices");
+      return;
+    }
+    const auto before = owner.snapshot();
+    test.expect(Fixture::fail_gdn_after_accepted_operation(owner, prefix),
+                "fixture arms exact injectable GDN operation prefix");
+    const auto failed =
+        Fixture::submit_complete_gdn_layer_c8000_prevalidated(
+            owner, *panel.panel_access, *authorization.grant, submission);
+    const auto after = owner.snapshot();
+    const auto& ledger = after.last_gdn_accepted_prefix;
+    if (prefix == 3U) {
+      prefix_three = ledger;
+    }
+    const std::size_t expected_kernels =
+        prefix <= 3U ? prefix : prefix - 1U;
+    const std::size_t expected_copies = prefix >= 6U ? 1U : 0U;
+    test.expect(
+        !failed &&
+            failed.status.error ==
+                events::Sm87MacroFeedV4ExecutionError::kCudaSubmission &&
+            !failed.receipt.valid_shape() && ledger.valid_prefix() &&
+            ledger.accepted_operations() == prefix &&
+            ledger.accepted_kernel_launches == expected_kernels &&
+            ledger.asynchronous_d2d_copies == expected_copies &&
+            ledger.conv_history_copy_bytes ==
+                (expected_copies == 0U
+                     ? 0U
+                     : kernels::kSm87MacroFeedV4GdnConvHistoryBytes) &&
+            ledger.input_norm_launches == (prefix >= 1U ? 1U : 0U) &&
+            ledger.bf16_ab_launches == (prefix >= 2U ? 1U : 0U) &&
+            ledger.gdn_qkvz_launches == (prefix >= 3U ? 1U : 0U) &&
+            ledger.gdn_continuation_launches ==
+                (prefix >= 6U ? 2U : 0U) &&
+            ledger.gdn_output_launches == (prefix >= 7U ? 1U : 0U) &&
+            ledger.residual_post_norm_launches ==
+                (prefix >= 8U ? 1U : 0U) &&
+            ledger.gate_up_launches == (prefix >= 9U ? 1U : 0U) &&
+            ledger.down_launches == 0U && !ledger.complete &&
+            after.bound_kernel_submissions ==
+                before.bound_kernel_submissions + expected_kernels &&
+            after.gdn_history_d2d_copies ==
+                before.gdn_history_d2d_copies + expected_copies &&
+            after.accepted_gdn_grants == 1U &&
+            after.complete_gdn_layers_submitted == 0U &&
+            after.state ==
+                events::Sm87MacroFeedV4ExecutionOwnerState::kPoisoned,
+        "every injectable GDN operation prefix is retained exactly and "
+        "never mints a receipt");
+    const auto drained = Fixture::drain_poisoned_request_and_discard(
+        owner, *bound->request.state, bound->request_access);
+    const auto request_after = bound->request.state->snapshot();
+    test.expect(static_cast<bool>(drained) &&
+                    drained.all_stream_synchronizations_attempted &&
+                    drained.request_state_discarded &&
+                    request_after.phase ==
+                        runtime::Sm87MacroFeedV4RequestStatePhase::kFailed &&
+                    request_after.pending_gdn_layer_grant_identity == 0U,
+                "partial GDN failure drains Main/AbAux/Control and discards "
+                "the exact candidate grant");
+  }
+
+  auto continuation_copy_only = prefix_three;
+  continuation_copy_only.asynchronous_d2d_copies = 1U;
+  continuation_copy_only.conv_history_copy_bytes =
+      kernels::kSm87MacroFeedV4GdnConvHistoryBytes;
+  auto continuation_one_kernel = continuation_copy_only;
+  continuation_one_kernel.gdn_continuation_launches = 1U;
+  continuation_one_kernel.accepted_kernel_launches = 4U;
+  test.expect(continuation_copy_only.valid_prefix() &&
+                  continuation_copy_only.accepted_operations() == 4U &&
+                  continuation_one_kernel.valid_prefix() &&
+                  continuation_one_kernel.accepted_operations() == 5U,
+              "public ledger represents continuation-internal D2D-only and "
+              "one-kernel prefixes without a test seam fabricating device "
+              "acceptance");
+}
+
 void expect_full_attention_prevalidation_rejection(
     Test& test, FullAttentionTransactionFixture& full,
     const events::Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission&
@@ -1512,6 +2414,7 @@ int main() {
   test_request_owner_phase_and_identity_binding(test);
   test_poison_terminal_drain(test);
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  test_complete_gdn_transaction(test);
   test_complete_full_attention_transaction(test);
 #endif
   if (test.failures != 0) {

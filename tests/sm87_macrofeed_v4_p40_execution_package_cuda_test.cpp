@@ -261,6 +261,64 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
            !request_after.decode_access_issued;
   }
 
+  [[nodiscard]] static bool
+  exercise_synthetic_normal_gdn_composer_fail_closed(
+      Sm87MacroFeedV4P40ExecutionPackage& package) noexcept {
+    if (package.request_state_ == nullptr || package.events_owner_ == nullptr ||
+        package.events_driver_ == nullptr ||
+        package.gdn_composer_authority_sealed()) {
+      return false;
+    }
+    const auto request_access = package.request_state_->issue_sealed_access();
+    const auto begin_request = package.events_driver_->begin_request(
+        *package.request_state_, request_access);
+    auto panel = package.events_driver_->begin_panel(0U);
+    const auto begin_state_panel =
+        package.request_state_->begin_panel(request_access, 0U);
+    if (!begin_request || !panel || !begin_state_panel) {
+      return false;
+    }
+    const auto before = package.events_driver_->snapshot();
+    const auto attempted = package.submit_complete_gdn_layer_c8000(
+        request_access, *panel.panel_access, 0U);
+    const auto events_after = package.events_driver_->snapshot();
+    const auto request_after = package.request_state_->snapshot();
+    return !attempted && !attempted.receipt.valid() &&
+           attempted.status.error ==
+               Sm87MacroFeedV4P40ExecutionPackageError::kGdnQkvZCatalog &&
+           before.bound_kernel_submissions == 0U &&
+           events_after.bound_kernel_submissions == 0U &&
+           events_after.input_norm_submissions == 0U &&
+           events_after.bf16_ab_submissions == 0U &&
+           events_after.gdn_qkvz_c8000_submissions == 0U &&
+           events_after.gdn_continuation_c8000_submissions == 0U &&
+           events_after.gdn_history_d2d_copies == 0U &&
+           events_after.gdn_history_d2d_bytes == 0U &&
+           events_after.gdn_output_c8000_submissions == 0U &&
+           events_after.residual_post_norm_submissions == 0U &&
+           events_after.gate_up_c8000_submissions == 0U &&
+           events_after.down_c8000_submissions == 0U &&
+           events_after.complete_gdn_layers_submitted == 0U &&
+           events_after.accepted_gdn_grants == 0U &&
+           !events_after.last_gdn_accepted_prefix.valid_prefix() &&
+           events_after.physical_completion_receipts_issued == 1U &&
+           events_after.state ==
+               sm87_macrofeed_v4_execution_events_detail::
+                   Sm87MacroFeedV4ExecutionOwnerState::kRequestDiscarded &&
+           events_after.owner_drained_recorded &&
+           request_after.phase == Sm87MacroFeedV4RequestStatePhase::kFailed &&
+           request_after.pending_gdn_layer_grant_identity == 0U &&
+           request_after.panel_conv_layers_prepared == 0U &&
+           request_after.panel_gdn_layers_assigned == 0U &&
+           request_after.next_model_layer == 0U &&
+           request_after.candidate_discard_count == 1U &&
+           request_after.physical_execution_receipt_issued &&
+           !request_after.physical_owner_drain_was_poison_terminal &&
+           !request_after.canonical_state_published &&
+           !request_after.logical_sequence_fence_published &&
+           !request_after.decode_access_issued;
+  }
+
   [[nodiscard]] static bool seed(
       Sm87MacroFeedV4P40ExecutionPackage& package) noexcept {
     if (package.ping_ == nullptr || package.pong_ == nullptr ||
@@ -964,6 +1022,19 @@ void test_real_cuda_front_half() {
       "synthetic package crossed the real-owner Full composer boundary");
   synthetic_full_composer_created.package.reset();
 
+  auto synthetic_gdn_composer_created =
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          create_with_synthetic_t1_gdn_layer0(
+              *startup_created.package, live_gdn_qkvz.asset);
+  require_test(static_cast<bool>(synthetic_gdn_composer_created),
+               "synthetic GDN-composer negative package creation failed");
+  require_test(
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          exercise_synthetic_normal_gdn_composer_fail_closed(
+              *synthetic_gdn_composer_created.package),
+      "synthetic package crossed the normal sealed-catalog GDN composer");
+  synthetic_gdn_composer_created.package.reset();
+
   auto execution_created =
       execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
           create_with_synthetic_t1_gdn_layer0(
@@ -1221,6 +1292,24 @@ void test_real_cuda_front_half() {
           complete.receipt.bound_kernel_submissions == 9U &&
           complete.receipt.asynchronous_d2d_copies == 1U &&
           complete.receipt.conv_history_copy_bytes == 61'440U &&
+          complete.receipt.enqueue_receipt_owner_matched &&
+          complete.receipt.enqueue_receipt.authority_domain() ==
+              events::Sm87MacroFeedV4GdnSubmissionAuthorityDomain::
+                  kSyntheticT1 &&
+          complete.receipt.enqueue_receipt.execution_package_identity() ==
+              complete.receipt.package_identity &&
+          complete.receipt.enqueue_receipt.gdn_catalog_identity() == 0U &&
+          complete.receipt.enqueue_receipt.gdn_binding_identity() == 0U &&
+          complete.receipt.enqueue_receipt.mlp_catalog_identity() == 0U &&
+          complete.receipt.enqueue_receipt.mlp_binding_identity() == 0U &&
+          complete.receipt.enqueue_receipt.resource_bundle_identity() == 0U &&
+          complete.receipt.enqueue_receipt.synthetic_source_identity() ==
+              complete_audit.gdn_layer0_source_identity &&
+          complete.receipt.enqueue_receipt.bf16_ab_catalog_identity() != 0U &&
+          complete.receipt.enqueue_receipt.bf16_ab_pair_identity() != 0U &&
+          complete.receipt.enqueue_receipt.layer_norm_catalog_identity() !=
+              0U &&
+          complete.receipt.enqueue_receipt.layer_norm_pair_identity() != 0U &&
           complete.receipt.physical_owner_drain_receipt_identity != 0U &&
           complete.receipt.physical_completion_receipts == 1U &&
           complete.receipt.norm_ready_waited_by_ab &&

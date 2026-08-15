@@ -534,15 +534,17 @@ phase-aliased scratch plane, two explicit 78,446,592-byte private recurrent
 epochs, private KV valid-end, and final-only canonical publication. The
 contract requires in-place/streaming Attention and GDN workspace aliasing.
 The independent admitted bodies exist, and one isolated default-off
-synthetic-T1 execution package now composes and physically closes one complete
-GDN layer 0. The normal ExecutionPackage now has a private construction-sealed
-complete-Full-layer composer. In O(1) it derives the fixed Full submission
-from sealed catalogs/owners, enqueues the existing eight-kernel Events
-transaction, authenticates its receipt, and commits the same move-only KV
-grant. Success does not drain or publish. No normal positive or real-checkpoint
-invocation has run; the synthetic package proves only zero-enqueue fail-closed
-rejection because it has no Full physical owner. This is not the physical
-natural-layers-0--3 cohort or an executable whole-model/API route.
+synthetic-T1 execution package physically closes one complete GDN layer 0.
+The normal ExecutionPackage now has private construction-sealed, reusable
+complete-GDN and complete-Full composers. Each derives the natural layer,
+hidden-plane parity, pointers, assets, resources, and grant-bound state from
+sealed catalogs and owners in O(1), authenticates the Events enqueue receipt,
+and commits the same move-only RequestState grant. A successful GDN composition
+accepts exactly nine kernels plus one 61,440-byte D2D history copy; a successful
+Full composition accepts exactly eight kernels and zero copies. Neither success
+path drains or publishes. No normal positive or real-checkpoint invocation of
+either composer has run. This is not the physical natural-layers-0--3 cohort or
+an executable whole-model/API route.
 
 The Attention lifetime is now frozen more tightly than that allocation-only
 statement. Each scratch row retains the projection-native 24-head
@@ -590,6 +592,31 @@ original failure, and cannot swap a recurrent bank or publish canonical/Decode
 state. The isolated execution package uses this capability for one complete
 GDN layer-0 admission, but the owner remains scheduling/lifetime
 infrastructure rather than a whole-model execution path.
+
+The complete-GDN Events transaction is now the reusable security boundary for
+both normal sealed-catalog and explicit Synthetic-T1 authority domains. It
+accepts a const move-only GDN state grant and binds the request, panel,
+natural GDN/model layer, recurrent banks and slices, package, GDN/BF16-A/B/norm/
+MLP catalogs and bindings, and all seven concrete resource snapshots into a
+fieldwise semantic digest and an opaque owner-authenticated receipt. The
+issuing owner performs a second exact grant/submission/receipt match before a
+RequestState commit is permitted. Replay authority is a direct O(1)
+`panel * 48 + gdn_ordinal` slot over all five panels and 48 GDN ordinals; the
+slot is reserved before the first enqueue, so replay is rejected with no new
+physical work. On failure, the accepted-prefix ledger preserves the exact
+nine-kernel/one-copy prefix, including a partial two-kernel continuation, then
+all three streams are drained and the pending candidate is discarded. On
+success, the receipt attests enqueue only and performs no drain, bank swap,
+panel publication, or production publication.
+
+The Events CUDA T1 cohort reuses one request and one panel for natural GDN
+ordinals 0, 1, and 2. Three fresh grants and three authenticated transactions
+accept exactly 27 kernels plus three 61,440-byte D2D history copies, restore
+the BF16 A/B phase to `ExpectNormRecord` after each layer, and move RequestState
+to `next_model_layer=3`, where a Full-layer-3 grant is authorized. The fixture
+does not submit Full3 and uses the Synthetic-T1 authority domain and synthetic
+assets. It is Events scheduling/security/lifetime evidence, not a normal
+package positive, the physical 35-kernel cohort, or real-model evidence.
 
 The same private Events owner now also has a BUILD_TESTING-only Full-Attention
 T1 transaction. It validates the live panel, a move-only request/KV grant,
@@ -659,6 +686,20 @@ No request may query CUDA state or rescan the model or catalog per layer. The
 startup package itself remains host-only and grants no launcher or
 production-dispatch authority.
 
+The normal ExecutionPackage now exposes one reusable complete-GDN composer
+only through the private owner capability. Given the already-live sealed
+request/panel access and a GDN ordinal, it derives the natural model layer and
+even/odd hidden-plane mapping, indexes the normal 48-GDN, 48-BF16-A/B,
+64-norm, and 64-MLP catalogs directly, binds the recurrent grant slices and
+seven sealed resource observations, and submits the authenticated complete-
+GDN Events transaction. Only after the issuing owner re-matches the opaque
+receipt does RequestState consume the same grant by move. Success records
+nine kernels, one 61,440-byte D2D history copy, and the candidate-enqueued
+state commit; it does not drain, swap recurrent banks, complete a panel/model,
+or publish canonical/Decode state. Failure terminally drains and discards.
+This normal composer has source/build authority only: its positive package
+path has not run.
+
 A first default-off, test-only V4 execution package now composes those sealed
 catalogs with the request state and event owner. It copies all 256 immutable
 projection bindings by value rather than retaining startup-package addresses;
@@ -668,7 +709,8 @@ expired weight ownership. It owns exactly
 442,368,000 bytes of transient ping/pong/scratch storage and 156,893,184 bytes
 of dual-epoch recurrent storage in both branches; the normal branch also owns
 the exact KV arena described above, while the synthetic fixture deliberately
-does not allocate it. Its one-shot synthetic-T1 operation executes
+does not allocate it. Its old one-shot operation is hard-gated to the explicit
+Synthetic-T1 source domain and executes
 `InputNorm → (GDN-QKVZ || BF16 A/B) → GDN continuation → GDN-O →`
 `ResidualPostNorm → GateUp → Down` for layer 0. The continuation is exactly
 two kernels plus one asynchronous 61,440-byte device-to-device convolution-
@@ -676,7 +718,8 @@ history copy; the complete layer receipt accounts for exactly nine kernel
 submissions plus that one copy. Main still waits on the authenticated
 `AbReady` generation before the continuation. Control then performs one
 combined Events/RequestState physical drain and discards the candidate without
-publication. The owner-mediated physical-drain identity is consumed by
+publication; unlike the reusable normal composer, this legacy test seam never
+returns a live success continuation. The owner-mediated physical-drain identity is consumed by
 RequestState and the complete-layer receipt is valid only when its
 `physical_owner_drain_receipt_identity` agrees and
 `physical_execution_receipt_issued` is true. The receipt also proves that the
@@ -798,22 +841,24 @@ without swapping banks or publishing state.
 V4 has no selector, whole-model launcher, physical natural-layers-0--3 cohort,
 64-layer/five-panel executor, real-checkpoint oracle, API witness, performance
 result, numerical qualification, release authority, or production
-eligibility. The next P0 is to harden the complete-GDN Events transaction from
-the one-shot layer-0 fixture into the owner-locked natural-layer form needed by
-a cohort. The missing first physical cohort is exactly three complete GDN
-layers followed by one Full layer: 35 kernels and three 61,440-byte D2D copies
-in natural order.
-The present Events Full fixture advances the host RequestState to layer 4 only
-after its isolated eight-kernel enqueue; it is not evidence that those first
-three GDN layers physically ran. The Engine composition root and normal real-
-asset catalogs remain source/build evidence only and do not alter route
-selection. Current live CUDA evidence consists of the separately discarded
-synthetic-T1 complete GDN layer 0 (nine kernels plus one copy) and the private
-Full Events transaction (eight Main kernels, zero copies); the package-composer
-fixture adds only a zero-enqueue synthetic rejection. None is a complete
-cohort, normal positive composer execution, or real-model result. The v10
-observation at 392.804397 prompt tok/s therefore remains the current
-whole-product incumbent.
+eligibility. Complete-GDN Events hardening and the reusable normal package
+composer are implementation-complete at their narrow enqueue-and-commit
+boundary. The next P0 is a positive normal-package GDN invocation from the
+sealed real-owner catalogs, followed by the first physical cohort: three
+complete GDN layers and one Full layer, exactly 35 kernels and three
+61,440-byte D2D copies in natural order.
+The present Events GDN T1 fixture physically enqueues only the first 27 kernels
+and three copies, advances RequestState to the Full3 authorization boundary,
+and stops. The separate Events Full fixture physically enqueues eight kernels
+only in its own isolated transaction. Joining the two counts on paper is not a
+physical `GDN0 → GDN1 → GDN2 → Full3` cohort. The Engine composition root and
+normal real-asset catalogs remain source/build evidence only and do not alter
+route selection. The old package one-shot remains Synthetic-T1-only and
+terminally drains; the normal GDN and Full package paths have only negative
+synthetic coverage and no positive invocation. None of this is a normal
+package cohort, real-checkpoint numerical result, whole-model/API result, or
+performance result. The v10 observation at 392.804397 prompt tok/s therefore
+remains the current whole-product incumbent.
 The V4 boundary remains exact and non-MTP; cuBLASLt is reference-only and has
 no production-path eligibility.
 
@@ -831,7 +876,7 @@ no production-path eligibility.
 | SM87 whole-system AOT Prefill v1 | Default-off real-P40 API composition; performance-rejected after a zero-byte 840.000399-second timeout | Retain only as correctness/diagnostic control; it is not an active performance candidate |
 | SM87 bulk-dataflow v2 Prefill | Complete default-off real-P40 API route; performance-rejected after a zero-byte 680.73-second EvalScope timeout and one bounded causal profile; accuracy remains unqualified | Retain exact constituents and evidence only; no V2 tuning, P60/P130, qualification, or production promotion |
 | SM87 MacroFeed v3 Prefill | Complete default-off, test-only 64-layer source composition with startup-bound target-AOT assets, role-specific macro projections, nine-kernel-per-layer exact GDN, cold rollback, and a V18 physical transaction; integrated build and focused admission tests pass | Frozen executable diagnostic/control; no authoritative P40 timing, numerical, release, or production qualification exists |
-| SM87 MacroFeed v4 Prefill | Active, default-off C8000×5 panel-major foundation: the normal source/build path seals 48-complete-GDN, 64-MLP, and 16-Full catalogs, owns exact KV/transient/recurrent arenas, and borrows sealed Engine RoPE. Its private normal Full composer is an O(1) eight-kernel enqueue plus move-only KV-grant commit with no drain/publication authority; no normal positive or real-checkpoint execution has run. T1 separately executes one discarded nine-kernel/one-copy GDN layer and one private eight-kernel/zero-copy Full Events transaction, while the synthetic composer test proves only zero-enqueue fail-closed behavior | Harden the owner-locked complete-GDN Events transaction, prove the physical natural-layers-0--3 35-kernel/3-copy cohort, then run clean-host real-checkpoint lifetime/numerical gates before 64 layers × 5 panels and the real API; no selector, whole-model, numerical, API, performance, release, or production authority exists |
+| SM87 MacroFeed v4 Prefill | Active, default-off C8000×5 panel-major foundation: the normal source/build path seals 48-complete-GDN, 64-MLP, 64-norm, 48-BF16-A/B, and 16-Full catalogs, owns exact KV/transient/recurrent arenas, and borrows sealed Engine RoPE. Grant-bound authenticated Events transactions and O(1) normal GDN/Full package composers now exist. GDN success is nine kernels plus one 61,440-byte D2D copy and move-commit with no drain/publication. Events Synthetic-T1 proves same-panel GDN0/1/2 as 27 kernels plus three copies and reaches, but does not execute, Full3 | Run a positive normal-package GDN composition, then prove the physical natural-layers-0--3 35-kernel/3-copy cohort and clean-host real-checkpoint lifetime/numerical gates before 64 layers × 5 panels and the real API. Normal-package positive, physical cohort, real checkpoint, numerical, API, performance, release, and production authority remain absent |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

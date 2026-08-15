@@ -18,9 +18,11 @@ q3x_document:
 This document is the bounded working record for
 `WP-PREFILL-REFERENCE-TRANSLATION-v1` under the reserved successor lineage
 `AC-PREFILL-SM87-MACROFEED-v4`. V4 remains a non-route-executable foundation
-with separate BUILD_TESTING-only complete synthetic GDN-layer and private
-Full-Events transactions plus a normal construction-sealed Full composer;
-none is the missing physical first four-layer cohort. V4 does not become a
+with grant-bound authenticated GDN/Full Events transactions, reusable normal
+construction-sealed GDN/Full composers, and a legacy BUILD_TESTING-only
+Synthetic-T1 one-shot. The Events T1 GDN0--2 sequence reaches Full3
+authorization but does not execute Full3; none of these facts is the missing
+physical first four-layer cohort. V4 does not become a
 Constitution-defined `architecture_candidate`
 until the complete dataflow is runnable. V1/V2 and the complete V3 composition are
 retained only as the diagnostic controls described by Current Status. This
@@ -599,12 +601,45 @@ lifetime currently have source/build authority only; positive execution of
 the complete catalogs under the real owner is still open. A separate private
 owner now owns three nonblocking streams and nine events and
 enforces the five-panel, 48-AB-cycle-per-panel dependency graph without
-per-panel host observation. That owner and the startup package now compose one
-isolated synthetic-T1 complete GDN layer 0:
+per-panel host observation. Its complete-GDN Events transaction now consumes a
+const move-only GDN state grant under one of two explicit authority domains:
+normal sealed catalog or Synthetic-T1. The fieldwise semantic digest binds the
+request/panel/layer, recurrent grant/banks/slices, package, GDN/BF16-A/B/norm/
+MLP identities, every typed argument, and all seven concrete resource
+snapshots. The opaque receipt is authenticated and then exactly re-matched by
+the issuing owner before RequestState may consume the same moved grant. One
+direct O(1) `panel * 48 + gdn_ordinal` slot over all five panels and 48 GDN
+ordinals is reserved before the first enqueue, so replay adds no work. The
+accepted-prefix ledger retains the exact nine-kernel/one-copy prefix,
+including the asynchronous history copy and either continuation kernel, before
+a failure terminally drains all three streams and discards the candidate.
+Success returns enqueue-only evidence with no drain, bank swap, panel/model
+completion, or publication.
+
+The Events CUDA T1 fixture executes natural GDN ordinals 0, 1, and 2 on one
+request/panel with three fresh grants: exactly 27 kernels plus three
+61,440-byte D2D history copies. Each transaction restores the BF16 A/B phase to
+its norm boundary, and the three RequestState commits reach
+`next_model_layer=3`, where Full3 can be authorized. Full3 is not submitted in
+that fixture. Its assets remain Synthetic-T1, so this is transaction,
+scheduling, and lifetime evidence rather than a normal package or real-model
+cohort.
+
+The normal ExecutionPackage now has a reusable complete-GDN composer. It
+directly indexes the construction-sealed 48-GDN, 48-BF16-A/B, 64-norm, and
+64-MLP catalogs; derives the natural model layer, hidden-plane even/odd
+mapping, recurrent slices, assets, and resources; submits the authenticated
+nine-kernel/one-copy transaction; owner-matches the receipt; and move-commits
+the same grant. It performs no request-time discovery or scan. Success does
+not drain or publish; failure terminally drains/discards. This normal positive
+path has not run.
+
+The old package one-shot is now hard-gated to the Synthetic-T1 source domain
+and cannot accept normal catalog authority. It composes only layer 0 as:
 `InputNorm → (QKVZ || A/B) → continuation(2 kernels + 1 asynchronous`
 `61,440-byte D2D history copy) → GDN-O → ResidualPostNorm → GateUp → Down`.
 The receipt counts exactly nine kernels plus the copy and grants layer
-completion only. Combined Events/RequestState drain physically quiesces and
+completion only, after which combined Events/RequestState drain physically quiesces and
 discards the candidate without a bank swap or canonical/Decode publication.
 RequestState consumes the owner-mediated physical-drain identity, and the
 complete-layer receipt requires the matching identity plus
@@ -622,24 +657,26 @@ accepted-prefix 0--8 failure coverage, and terminal three-stream
 drain/RequestState discard are executable. It does not record GDN A/B events
 or change the BF16 A/B cycle state, and its receipt explicitly denies device,
 panel, and production completion. Advancing the host RequestState to layer 4
-after that isolated enqueue is not a physical execution of natural GDN layers
-0--2. These fixtures establish synthetic scheduling/lifetime evidence, not a
-real-checkpoint numerical, real-owner, whole-model, API, or performance
-result. The normal ExecutionPackage now has a private complete-Full-layer
+after that isolated enqueue is not the GDN T1 fixture and is not a physical
+join with its natural GDN layers 0--2. These fixtures establish synthetic
+scheduling/lifetime evidence, not a real-checkpoint numerical, real-owner,
+whole-model, API, or performance result. The normal ExecutionPackage also has
+a private complete-Full-layer
 composer. It derives layer/parity/aliases, owned KV origins and panel offsets,
 first position, borrowed RoPE, assets, and resource observations from sealed
 state in O(1), without a request-time catalog scan or CUDA/resource/pointer/
 allocation/synchronization query. It submits the eight-kernel Events
 transaction, authenticates its receipt, and commits the same move-only
 RequestState grant. Success grants enqueue-plus-grant-commit only and does not
-drain or publish; failure terminal-drains/discards. No normal positive or
-pinned real-checkpoint composer invocation has run. Because the synthetic
-package has no Full physical owner, its only composer test proves zero-enqueue
-fail-closed rejection and is not a positive identity. The physical
-natural-layers-0--3 cohort (35 kernels plus three 61,440-byte copies) remains
-absent. Complete-GDN Events hardening, that cohort, all layers/panels,
-whole-model receipt, rollback, finalizer, and API launcher must compose before
-V4 is runnable or eligible for a P40 witness.
+drain or publish; failure terminal-drains/discards. No positive normal-package
+invocation of either composer and no pinned real-checkpoint composer invocation
+has run. Because the synthetic package has no Full physical owner, its Full
+composer test proves zero-enqueue fail-closed rejection and is not a positive
+identity; its normal GDN composer is likewise rejected before enqueue. The
+physical natural-layers-0--3 cohort (35 kernels plus three 61,440-byte copies)
+remains absent. A positive normal-package GDN composition, that cohort, all
+layers/panels, whole-model receipt, rollback, finalizer, and API launcher must
+compose before V4 is runnable or eligible for a P40 witness.
 
 The fixed Attention handoff now retains the FP8 projection's native
 `[Q256, Gate256]` head interleave. Q preprocessing and exact Attention both
@@ -991,11 +1028,13 @@ workload.
 ## 10. Package closure
 
 The active Roadmap owns the current dependency sequence:
-`complete-GDN Events hardening → physical natural-layers-0--3 cohort →`
-`clean-host real-checkpoint lifetime/numerical gates → 64×5 composition and`
-`real API`. This work package may explain or falsify those translations, but
-it cannot skip that sequence with the Events-only host progression or a local
-constituent result.
+`positive normal-package GDN composition → physical natural-layers-0--3`
+`cohort → clean-host real-checkpoint lifetime/numerical gates → 64×5`
+`composition and real API`. Complete-GDN Events hardening and the normal
+reusable composer are now narrow implementation facts. This work package may
+explain or falsify those translations, but it cannot skip the remaining
+sequence with the Synthetic-T1 Events progression, an isolated Full
+transaction, or a local constituent result.
 
 This package closes only when all of the following are true:
 

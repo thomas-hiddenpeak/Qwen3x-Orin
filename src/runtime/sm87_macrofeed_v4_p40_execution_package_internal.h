@@ -383,6 +383,9 @@ struct Sm87MacroFeedV4GdnLayer0CompleteReceipt final {
   std::size_t bound_kernel_submissions = 0U;
   std::size_t asynchronous_d2d_copies = 0U;
   std::uint64_t conv_history_copy_bytes = 0U;
+  sm87_macrofeed_v4_execution_events_detail::
+      Sm87MacroFeedV4CompleteGdnLayerEnqueueReceipt enqueue_receipt{};
+  bool enqueue_receipt_owner_matched = false;
   std::uint64_t physical_owner_drain_receipt_identity = 0U;
   std::size_t physical_completion_receipts = 0U;
   bool norm_ready_waited_by_ab = false;
@@ -422,6 +425,66 @@ struct Sm87MacroFeedV4GdnLayer0CompleteReceipt final {
            asynchronous_d2d_copies == 1U &&
            conv_history_copy_bytes ==
                kernels::kSm87MacroFeedV4GdnConvHistoryBytes &&
+           enqueue_receipt.valid_shape() &&
+           enqueue_receipt.authority_domain() ==
+               sm87_macrofeed_v4_execution_events_detail::
+                   Sm87MacroFeedV4GdnSubmissionAuthorityDomain::kSyntheticT1 &&
+           enqueue_receipt.execution_package_identity() == package_identity &&
+           enqueue_receipt.gdn_catalog_identity() == 0U &&
+           enqueue_receipt.gdn_binding_identity() == 0U &&
+           enqueue_receipt.mlp_catalog_identity() == 0U &&
+           enqueue_receipt.mlp_binding_identity() == 0U &&
+           enqueue_receipt.resource_bundle_identity() == 0U &&
+           enqueue_receipt.synthetic_source_identity() ==
+               gdn_layer0_source_identity &&
+           enqueue_receipt.request_epoch() == request_epoch &&
+           enqueue_receipt.panel() == panel &&
+           enqueue_receipt.grant_identity() == state_grant_identity &&
+           enqueue_receipt.grant_state_epoch() == state_epoch_before &&
+           enqueue_receipt.recurrent_allocation_identity() != 0U &&
+           enqueue_receipt.gdn_ordinal() == 0U &&
+           enqueue_receipt.model_layer() == model_layer &&
+           enqueue_receipt.active_bank_index() == active_bank_before &&
+           enqueue_receipt.candidate_bank_index() ==
+               candidate_bank_before &&
+           enqueue_receipt.active_conv_allocation_offset() ==
+               static_cast<std::uint64_t>(active_bank_before) *
+                   kSm87MacroFeedV4RecurrentEpochBytes &&
+           enqueue_receipt.candidate_conv_allocation_offset() ==
+               static_cast<std::uint64_t>(candidate_bank_before) *
+                   kSm87MacroFeedV4RecurrentEpochBytes &&
+           enqueue_receipt.conv_bytes() == conv_history_copy_bytes &&
+           enqueue_receipt.active_gdn_state_allocation_offset() ==
+               static_cast<std::uint64_t>(active_bank_before) *
+                       kSm87MacroFeedV4RecurrentEpochBytes +
+                   kSm87MacroFeedV4ConvEpochBytes &&
+           enqueue_receipt.candidate_gdn_state_allocation_offset() ==
+               static_cast<std::uint64_t>(candidate_bank_before) *
+                       kSm87MacroFeedV4RecurrentEpochBytes +
+                   kSm87MacroFeedV4ConvEpochBytes &&
+           enqueue_receipt.gdn_state_bytes() ==
+               kernels::kSm87MacroFeedV4GdnStateBytes &&
+           enqueue_receipt.input_norm_launches() == input_norm_launches &&
+           enqueue_receipt.bf16_ab_launches() == bf16_ab_launches &&
+           enqueue_receipt.gdn_qkvz_launches() == gdn_qkvz_launches &&
+           enqueue_receipt.gdn_continuation_launches() ==
+               gdn_continuation_launches &&
+           enqueue_receipt.gdn_output_launches() == gdn_output_launches &&
+           enqueue_receipt.residual_post_norm_launches() ==
+               residual_post_norm_launches &&
+           enqueue_receipt.gate_up_launches() == gate_up_launches &&
+           enqueue_receipt.down_launches() == down_launches &&
+           enqueue_receipt.bound_kernel_submissions() == 9U &&
+           enqueue_receipt.asynchronous_d2d_copies() == 1U &&
+           enqueue_receipt.conv_history_copy_bytes() ==
+               conv_history_copy_bytes &&
+           enqueue_receipt.norm_ready_waited_by_ab() &&
+           enqueue_receipt.ab_ready_waited_by_main() &&
+           enqueue_receipt.complete_layer_enqueued() &&
+           !enqueue_receipt.physical_device_completion_attested() &&
+           !enqueue_receipt.panel_complete() &&
+           !enqueue_receipt.production_receipt_eligible() &&
+           enqueue_receipt_owner_matched &&
            physical_owner_drain_receipt_identity != 0U &&
            physical_completion_receipts == 1U &&
            norm_ready_waited_by_ab && ab_ready_waited_by_main &&
@@ -435,6 +498,174 @@ struct Sm87MacroFeedV4GdnLayer0CompleteReceipt final {
 struct Sm87MacroFeedV4GdnLayer0CompleteResult final {
   Sm87MacroFeedV4P40ExecutionPackageStatus status{};
   Sm87MacroFeedV4GdnLayer0CompleteReceipt receipt{};
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return static_cast<bool>(status) && receipt.valid();
+  }
+};
+
+// Package-composed enqueue-and-commit evidence for one naturally ordered GDN
+// layer.  The nested opaque Events receipt is the owner-authenticated fact;
+// these outer fields only bind it to the construction-sealed package catalogs
+// and the RequestState move-only grant commit.  Success neither drains the
+// streams nor publishes recurrent, panel, model, Decode, or production state.
+struct Sm87MacroFeedV4GdnLayerCommitReceipt final {
+  std::uint64_t package_identity = 0U;
+  std::uint64_t gdn_catalog_identity = 0U;
+  std::uint64_t gdn_binding_identity = 0U;
+  std::uint64_t bf16_ab_catalog_identity = 0U;
+  std::uint64_t bf16_ab_pair_identity = 0U;
+  std::uint64_t layer_norm_catalog_identity = 0U;
+  std::uint64_t layer_norm_pair_identity = 0U;
+  std::uint64_t input_norm_binding_identity = 0U;
+  std::uint64_t post_norm_binding_identity = 0U;
+  std::uint64_t mlp_catalog_identity = 0U;
+  std::uint64_t mlp_binding_identity = 0U;
+  std::uint64_t resource_bundle_identity = 0U;
+  std::uint64_t request_epoch = 0U;
+  std::uint64_t grant_identity = 0U;
+  std::uint64_t grant_state_epoch = 0U;
+  std::uint64_t recurrent_allocation_identity = 0U;
+  std::size_t panel = kSm87MacroFeedV4PanelCount;
+  std::size_t gdn_ordinal = kSm87MacroFeedV4StateLayerCount;
+  std::size_t model_layer = kSm87MacroFeedV4LayerCount;
+  std::size_t active_bank_index = 2U;
+  std::size_t candidate_bank_index = 2U;
+  std::uint64_t active_conv_allocation_offset = 0U;
+  std::uint64_t candidate_conv_allocation_offset = 0U;
+  std::uint64_t conv_bytes = 0U;
+  std::uint64_t active_gdn_state_allocation_offset = 0U;
+  std::uint64_t candidate_gdn_state_allocation_offset = 0U;
+  std::uint64_t gdn_state_bytes = 0U;
+  std::size_t next_model_layer_after_commit = 0U;
+  std::size_t panel_conv_layers_prepared_after_commit = 0U;
+  std::size_t panel_gdn_layers_assigned_after_commit = 0U;
+  sm87_macrofeed_v4_execution_events_detail::
+      Sm87MacroFeedV4CompleteGdnLayerEnqueueReceipt enqueue_receipt{};
+  bool enqueue_receipt_owner_matched = false;
+  bool state_candidate_commit_recorded = false;
+  bool physical_device_completion_attested = true;
+  bool panel_complete = true;
+  bool model_complete = true;
+  bool production_dispatch_eligible = true;
+
+  [[nodiscard]] bool valid() const noexcept {
+    using AuthorityDomain = sm87_macrofeed_v4_execution_events_detail::
+        Sm87MacroFeedV4GdnSubmissionAuthorityDomain;
+    const std::uint64_t active_bank_offset =
+        active_bank_index < 2U
+            ? static_cast<std::uint64_t>(active_bank_index) *
+                  kSm87MacroFeedV4RecurrentEpochBytes
+            : kSm87MacroFeedV4RecurrentStorageBytes;
+    const std::uint64_t candidate_bank_offset =
+        candidate_bank_index < 2U
+            ? static_cast<std::uint64_t>(candidate_bank_index) *
+                  kSm87MacroFeedV4RecurrentEpochBytes
+            : kSm87MacroFeedV4RecurrentStorageBytes;
+    const std::uint64_t conv_slice_offset =
+        static_cast<std::uint64_t>(gdn_ordinal) *
+        kSm87MacroFeedV4ConvLayerBytes;
+    const std::uint64_t gdn_slice_offset =
+        kSm87MacroFeedV4ConvEpochBytes +
+        static_cast<std::uint64_t>(gdn_ordinal) *
+            kSm87MacroFeedV4GdnStateLayerBytes;
+    return package_identity != 0U && gdn_catalog_identity != 0U &&
+           gdn_binding_identity != 0U && bf16_ab_catalog_identity != 0U &&
+           bf16_ab_pair_identity != 0U &&
+           layer_norm_catalog_identity != 0U &&
+           layer_norm_pair_identity != 0U &&
+           input_norm_binding_identity != 0U &&
+           post_norm_binding_identity != 0U && mlp_catalog_identity != 0U &&
+           mlp_binding_identity != 0U && resource_bundle_identity != 0U &&
+           request_epoch != 0U && grant_identity != 0U &&
+           recurrent_allocation_identity != 0U &&
+           panel < kSm87MacroFeedV4PanelCount &&
+           gdn_ordinal < kSm87MacroFeedV4StateLayerCount &&
+           model_layer == gdn_ordinal + gdn_ordinal / 3U &&
+           active_bank_index < 2U && candidate_bank_index < 2U &&
+           active_bank_index != candidate_bank_index &&
+           conv_bytes == kernels::kSm87MacroFeedV4GdnConvHistoryBytes &&
+           gdn_state_bytes == kernels::kSm87MacroFeedV4GdnStateBytes &&
+           active_conv_allocation_offset ==
+               active_bank_offset + conv_slice_offset &&
+           candidate_conv_allocation_offset ==
+               candidate_bank_offset + conv_slice_offset &&
+           active_gdn_state_allocation_offset ==
+               active_bank_offset + gdn_slice_offset &&
+           candidate_gdn_state_allocation_offset ==
+               candidate_bank_offset + gdn_slice_offset &&
+           next_model_layer_after_commit == model_layer + 1U &&
+           panel_conv_layers_prepared_after_commit == gdn_ordinal + 1U &&
+           panel_gdn_layers_assigned_after_commit == gdn_ordinal + 1U &&
+           enqueue_receipt.valid_shape() &&
+           enqueue_receipt.authority_domain() ==
+               AuthorityDomain::kNormalSealedCatalog &&
+           enqueue_receipt.execution_package_identity() == package_identity &&
+           enqueue_receipt.gdn_catalog_identity() == gdn_catalog_identity &&
+           enqueue_receipt.gdn_binding_identity() == gdn_binding_identity &&
+           enqueue_receipt.bf16_ab_catalog_identity() ==
+               bf16_ab_catalog_identity &&
+           enqueue_receipt.bf16_ab_pair_identity() ==
+               bf16_ab_pair_identity &&
+           enqueue_receipt.layer_norm_catalog_identity() ==
+               layer_norm_catalog_identity &&
+           enqueue_receipt.layer_norm_pair_identity() ==
+               layer_norm_pair_identity &&
+           enqueue_receipt.input_norm_binding_identity() ==
+               input_norm_binding_identity &&
+           enqueue_receipt.post_norm_binding_identity() ==
+               post_norm_binding_identity &&
+           enqueue_receipt.mlp_catalog_identity() == mlp_catalog_identity &&
+           enqueue_receipt.mlp_binding_identity() == mlp_binding_identity &&
+           enqueue_receipt.resource_bundle_identity() ==
+               resource_bundle_identity &&
+           enqueue_receipt.synthetic_source_identity() == 0U &&
+           enqueue_receipt.request_epoch() == request_epoch &&
+           enqueue_receipt.panel() == panel &&
+           enqueue_receipt.grant_identity() == grant_identity &&
+           enqueue_receipt.grant_state_epoch() == grant_state_epoch &&
+           enqueue_receipt.recurrent_allocation_identity() ==
+               recurrent_allocation_identity &&
+           enqueue_receipt.gdn_ordinal() == gdn_ordinal &&
+           enqueue_receipt.model_layer() == model_layer &&
+           enqueue_receipt.active_bank_index() == active_bank_index &&
+           enqueue_receipt.candidate_bank_index() == candidate_bank_index &&
+           enqueue_receipt.active_conv_allocation_offset() ==
+               active_conv_allocation_offset &&
+           enqueue_receipt.candidate_conv_allocation_offset() ==
+               candidate_conv_allocation_offset &&
+           enqueue_receipt.conv_bytes() == conv_bytes &&
+           enqueue_receipt.active_gdn_state_allocation_offset() ==
+               active_gdn_state_allocation_offset &&
+           enqueue_receipt.candidate_gdn_state_allocation_offset() ==
+               candidate_gdn_state_allocation_offset &&
+           enqueue_receipt.gdn_state_bytes() == gdn_state_bytes &&
+           enqueue_receipt.input_norm_launches() == 1U &&
+           enqueue_receipt.bf16_ab_launches() == 1U &&
+           enqueue_receipt.gdn_qkvz_launches() == 1U &&
+           enqueue_receipt.gdn_continuation_launches() == 2U &&
+           enqueue_receipt.gdn_output_launches() == 1U &&
+           enqueue_receipt.residual_post_norm_launches() == 1U &&
+           enqueue_receipt.gate_up_launches() == 1U &&
+           enqueue_receipt.down_launches() == 1U &&
+           enqueue_receipt.bound_kernel_submissions() == 9U &&
+           enqueue_receipt.asynchronous_d2d_copies() == 1U &&
+           enqueue_receipt.conv_history_copy_bytes() == conv_bytes &&
+           enqueue_receipt.norm_ready_waited_by_ab() &&
+           enqueue_receipt.ab_ready_waited_by_main() &&
+           enqueue_receipt.complete_layer_enqueued() &&
+           !enqueue_receipt.physical_device_completion_attested() &&
+           !enqueue_receipt.panel_complete() &&
+           !enqueue_receipt.production_receipt_eligible() &&
+           enqueue_receipt_owner_matched && state_candidate_commit_recorded &&
+           !physical_device_completion_attested && !panel_complete &&
+           !model_complete && !production_dispatch_eligible;
+  }
+};
+
+struct Sm87MacroFeedV4GdnLayerCommitResult final {
+  Sm87MacroFeedV4P40ExecutionPackageStatus status{};
+  Sm87MacroFeedV4GdnLayerCommitReceipt receipt{};
 
   [[nodiscard]] explicit operator bool() const noexcept {
     return static_cast<bool>(status) && receipt.valid();
@@ -666,6 +897,14 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
   execute_gdn_layer0_front_half_once() noexcept;
   [[nodiscard]] Sm87MacroFeedV4GdnLayer0CompleteResult
   execute_gdn_layer0_complete_once() noexcept;
+  // Reusable normal-domain GDN composition seam for a future natural-layer
+  // cohort.  The caller supplies only already-live owner capabilities and the
+  // fixed GDN ordinal; every pointer, identity, resource and layer is derived
+  // in O(1) from the construction-sealed package.
+  [[nodiscard]] Sm87MacroFeedV4GdnLayerCommitResult
+  submit_complete_gdn_layer_c8000(
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+      const PanelAccess& panel_access, std::size_t gdn_ordinal) noexcept;
   // First reusable Full-layer composition slice.  A future natural-layer
   // cohort is the only intended caller: it supplies the already active
   // package-owned request/panel capabilities and a fixed Full ordinal.  No
@@ -678,6 +917,12 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
       std::size_t full_attention_ordinal) noexcept;
   [[nodiscard]] bool front_half_bindings_valid() const noexcept;
   [[nodiscard]] bool complete_layer_bindings_valid() const noexcept;
+  [[nodiscard]] bool gdn_composer_authority_sealed() const noexcept;
+  [[nodiscard]] bool compose_complete_gdn_submission(
+      const Sm87MacroFeedV4GdnLayerStateGrant& grant,
+      sm87_macrofeed_v4_execution_events_detail::
+          Sm87MacroFeedV4CompleteGdnLayerC8000Submission* submission)
+      const noexcept;
   [[nodiscard]] bool full_attention_composer_authority_sealed()
       const noexcept;
   [[nodiscard]] bool compose_complete_full_attention_submission(

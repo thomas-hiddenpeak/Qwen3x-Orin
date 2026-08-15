@@ -373,6 +373,9 @@ void Sm87MacroFeedV4ExecutionEventsOwner::reset_request_ledger() noexcept {
   down_c8000_submissions_ = 0U;
   complete_gdn_layers_submitted_ = 0U;
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  accepted_gdn_grant_identities_.fill(0U);
+  accepted_gdn_grant_count_ = 0U;
+  last_gdn_accepted_prefix_ = {};
   complete_full_attention_layers_submitted_ = 0U;
   accepted_full_attention_grant_identities_.fill(0U);
   accepted_full_attention_grant_count_ = 0U;
@@ -397,6 +400,8 @@ void Sm87MacroFeedV4ExecutionEventsOwner::reset_request_ledger() noexcept {
   poisoned_terminal_quiescence_identity_ = 0U;
   test_fail_next_bound_ab_wait_ = false;
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  test_fail_gdn_after_accepted_operation_ =
+      std::numeric_limits<std::size_t>::max();
   test_fail_full_after_accepted_prefix_ =
       std::numeric_limits<std::size_t>::max();
 #endif
@@ -1177,6 +1182,7 @@ Sm87MacroFeedV4ExecutionEventsOwner::
     submit_complete_gdn_layer_c8000_prevalidated(
         const Sm87MacroFeedV4ExecutionEventsAccess& access,
         const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+        const Sm87MacroFeedV4GdnLayerStateGrant& gdn_grant,
         const Sm87MacroFeedV4CompleteGdnLayerC8000Submission& submission)
         noexcept {
   namespace bound =
@@ -1187,6 +1193,32 @@ Sm87MacroFeedV4ExecutionEventsOwner::
   if (!result.status) {
     return result;
   }
+
+  Sm87MacroFeedV4GdnAcceptedPrefixLedger ledger;
+  ledger.transaction_identity =
+      next_nonzero(&g_next_gdn_layer_transaction_identity);
+  ledger.owner_identity = owner_identity_;
+  ledger.request_epoch = request_epoch_;
+  ledger.panel = active_panel_;
+  ledger.panel_generation = active_panel_generation_;
+  ledger.grant_identity = gdn_grant.grant_identity();
+  ledger.grant_state_epoch = gdn_grant.state_epoch();
+  ledger.recurrent_allocation_identity = gdn_grant.allocation_identity();
+  ledger.gdn_ordinal = gdn_grant.state_layer_ordinal();
+  ledger.model_layer = gdn_grant.model_layer();
+  ledger.active_bank_index = gdn_grant.active_bank_index();
+  ledger.candidate_bank_index = gdn_grant.candidate_bank_index();
+  ledger.active_conv_allocation_offset =
+      gdn_grant.active_conv_allocation_offset();
+  ledger.candidate_conv_allocation_offset =
+      gdn_grant.candidate_conv_allocation_offset();
+  ledger.conv_bytes = gdn_grant.conv_bytes();
+  ledger.active_gdn_state_allocation_offset =
+      gdn_grant.active_gdn_state_allocation_offset();
+  ledger.candidate_gdn_state_allocation_offset =
+      gdn_grant.candidate_gdn_state_allocation_offset();
+  ledger.gdn_state_bytes = gdn_grant.gdn_state_bytes();
+  last_gdn_accepted_prefix_ = ledger;
 
   const void* const main_stream =
       streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kMain)];
@@ -1268,12 +1300,184 @@ Sm87MacroFeedV4ExecutionEventsOwner::
       submission.down.residual_output,
       const_cast<void*>(main_stream),
       submission.down.payload_receipt};
+
+  constexpr auto kGdnQkvzIdentity =
+      kernels::Sm87MacroFeedV4Fp8Identity::
+          kGdnQkvZM64N128K64OrdinaryGridV1;
+  constexpr auto kGdnOutputIdentity =
+      kernels::Sm87MacroFeedV4Fp8Identity::
+          kGdnAttentionOutputM64N128K64OrdinaryGridV1;
+  const bool normal_authority =
+      submission.authority_domain ==
+          Sm87MacroFeedV4GdnSubmissionAuthorityDomain::kNormalSealedCatalog &&
+      submission.gdn_catalog_identity != 0U &&
+      submission.gdn_binding_identity != 0U &&
+      submission.mlp_catalog_identity != 0U &&
+      submission.mlp_binding_identity != 0U &&
+      submission.resource_bundle_identity != 0U &&
+      submission.synthetic_source_identity == 0U;
+  const bool synthetic_authority =
+      submission.authority_domain ==
+          Sm87MacroFeedV4GdnSubmissionAuthorityDomain::kSyntheticT1 &&
+      submission.gdn_catalog_identity == 0U &&
+      submission.gdn_binding_identity == 0U &&
+      submission.mlp_catalog_identity == 0U &&
+      submission.mlp_binding_identity == 0U &&
+      submission.resource_bundle_identity == 0U &&
+      submission.synthetic_source_identity != 0U;
+  const bool exact_submission_identities =
+      submission.execution_package_identity != 0U &&
+      submission.bf16_ab_catalog_identity != 0U &&
+      submission.bf16_ab_pair_identity != 0U &&
+      submission.layer_norm_catalog_identity != 0U &&
+      submission.layer_norm_pair_identity != 0U &&
+      submission.input_norm_binding_identity != 0U &&
+      submission.post_norm_binding_identity != 0U &&
+      (normal_authority || synthetic_authority);
+
+  const bool exact_grant =
+      gdn_grant.grant_identity() != 0U &&
+      gdn_grant.owner_identity() == owner_identity_ &&
+      gdn_grant.allocation_identity() == request_allocation_identity_ &&
+      gdn_grant.request_epoch() == request_epoch_ &&
+      gdn_grant.panel() == active_panel_ &&
+      gdn_grant.state_layer_ordinal() == submission.gdn_ordinal &&
+      gdn_grant.model_layer() == submission.model_layer &&
+      submission.gdn_ordinal < kSm87MacroFeedV4StateLayerCount &&
+      submission.model_layer ==
+          submission.gdn_ordinal + submission.gdn_ordinal / 3U &&
+      gdn_grant.active_bank_index() < 2U &&
+      gdn_grant.candidate_bank_index() < 2U &&
+      gdn_grant.active_bank_index() != gdn_grant.candidate_bank_index() &&
+      gdn_grant.conv_bytes() ==
+          kernels::kSm87MacroFeedV4GdnConvHistoryBytes &&
+      gdn_grant.gdn_state_bytes() ==
+          kernels::kSm87MacroFeedV4GdnStateBytes;
+
+  const auto bank_origin = [](const std::size_t bank) noexcept {
+    return static_cast<std::uint64_t>(bank) *
+           kSm87MacroFeedV4RecurrentEpochBytes;
+  };
+  const std::uint64_t ordinal_conv_offset =
+      static_cast<std::uint64_t>(submission.gdn_ordinal) *
+      kSm87MacroFeedV4ConvLayerBytes;
+  const std::uint64_t ordinal_state_offset =
+      kSm87MacroFeedV4ConvEpochBytes +
+      static_cast<std::uint64_t>(submission.gdn_ordinal) *
+          kSm87MacroFeedV4GdnStateLayerBytes;
+  const bool exact_grant_offsets =
+      exact_grant &&
+      gdn_grant.active_conv_allocation_offset() ==
+          bank_origin(gdn_grant.active_bank_index()) + ordinal_conv_offset &&
+      gdn_grant.candidate_conv_allocation_offset() ==
+          bank_origin(gdn_grant.candidate_bank_index()) +
+              ordinal_conv_offset &&
+      gdn_grant.active_gdn_state_allocation_offset() ==
+          bank_origin(gdn_grant.active_bank_index()) + ordinal_state_offset &&
+      gdn_grant.candidate_gdn_state_allocation_offset() ==
+          bank_origin(gdn_grant.candidate_bank_index()) +
+              ordinal_state_offset;
+
+  const auto recurrent_pointer =
+      [&](const std::uint64_t offset) noexcept -> const void* {
+    if (cold_recurrent_allocation_begin_ == 0U ||
+        offset > kSm87MacroFeedV4RecurrentStorageBytes ||
+        cold_recurrent_allocation_begin_ >
+            std::numeric_limits<std::uintptr_t>::max() - offset) {
+      return nullptr;
+    }
+    return reinterpret_cast<const void*>(
+        cold_recurrent_allocation_begin_ +
+        static_cast<std::uintptr_t>(offset));
+  };
+  const bool exact_recurrent_pointers =
+      exact_grant_offsets &&
+      submission.gdn_continuation.active_conv_history ==
+          recurrent_pointer(gdn_grant.active_conv_allocation_offset()) &&
+      submission.gdn_continuation.candidate_conv_history ==
+          recurrent_pointer(gdn_grant.candidate_conv_allocation_offset()) &&
+      submission.gdn_continuation.active_recurrent_state ==
+          recurrent_pointer(
+              gdn_grant.active_gdn_state_allocation_offset()) &&
+      submission.gdn_continuation.candidate_recurrent_state ==
+          recurrent_pointer(
+              gdn_grant.candidate_gdn_state_allocation_offset());
+
+  constexpr std::uint64_t kHiddenBytes =
+      kernels::kSm87MacroFeedV4NormResidualHiddenBytes;
+  constexpr std::uint64_t kScratchBytes =
+      kernels::kSm87MacroFeedV4GdnScratchBytes;
+  constexpr std::uint64_t kNormWeightBytes =
+      kernels::kSm87MacroFeedV4NormResidualWeightBytes;
+  const std::array<ByteRange, 15U> non_recurrent_ranges{{
+      byte_range(submission.input_norm.input_hidden, kHiddenBytes),
+      byte_range(submission.input_norm.output_hidden, kHiddenBytes),
+      byte_range(submission.bf16_ab.scratch, kScratchBytes),
+      byte_range(submission.input_norm.centered_weight, kNormWeightBytes),
+      byte_range(submission.residual_post_norm.centered_weight,
+                 kNormWeightBytes),
+      byte_range(submission.bf16_ab.a_weights,
+                 kernels::kSm87MacroFeedV4Bf16AbWeightBytes),
+      byte_range(submission.bf16_ab.b_weights,
+                 kernels::kSm87MacroFeedV4Bf16AbWeightBytes),
+      byte_range(submission.gdn_qkvz.asset.payload.begin,
+                 submission.gdn_qkvz.asset.payload.bytes),
+      byte_range(submission.gdn_output.asset.payload.begin,
+                 submission.gdn_output.asset.payload.bytes),
+      byte_range(submission.gdn_continuation.conv_weight,
+                 kernels::kSm87MacroFeedV4GdnConvWeightBytes),
+      byte_range(submission.gdn_continuation.a_log,
+                 kernels::kSm87MacroFeedV4GdnHeadVectorBytes),
+      byte_range(submission.gdn_continuation.dt_bias,
+                 kernels::kSm87MacroFeedV4GdnHeadVectorBytes),
+      byte_range(submission.gdn_continuation.norm_weight,
+                 kernels::kSm87MacroFeedV4GdnNormWeightBytes),
+      byte_range(submission.gate_up.payload,
+                 submission.gate_up.payload_bytes),
+      byte_range(submission.down.payload, submission.down.payload_bytes),
+  }};
+  const ByteRange recurrent_arena =
+      byte_range(cold_recurrent_allocation_begin_,
+                 kSm87MacroFeedV4RecurrentStorageBytes);
+  bool recurrent_disjoint = recurrent_arena.valid;
+  for (const ByteRange& range : non_recurrent_ranges) {
+    recurrent_disjoint =
+        recurrent_disjoint && range.valid &&
+        (range.end <= recurrent_arena.begin ||
+         recurrent_arena.end <= range.begin);
+  }
+  const bool exact_alias_graph =
+      submission.input_norm.input_hidden ==
+          submission.residual_post_norm.left_residual_then_normalized &&
+      submission.input_norm.output_hidden == submission.bf16_ab.input &&
+      submission.input_norm.output_hidden ==
+          submission.gdn_qkvz.hidden_input &&
+      submission.input_norm.output_hidden ==
+          submission.gdn_output.branch_output &&
+      submission.input_norm.output_hidden ==
+          submission.residual_post_norm.right_branch_then_residual &&
+      submission.bf16_ab.scratch == submission.gdn_qkvz.phase_scratch &&
+      submission.bf16_ab.scratch ==
+          submission.gdn_continuation.phase_scratch &&
+      submission.bf16_ab.scratch == submission.gdn_output.phase_scratch &&
+      submission.bf16_ab.scratch ==
+          submission.gate_up.intermediate_output &&
+      submission.bf16_ab.scratch == submission.down.intermediate_input &&
+      submission.gate_up.normalized_input ==
+          submission.residual_post_norm.left_residual_then_normalized &&
+      submission.down.residual_output ==
+          submission.residual_post_norm.right_branch_then_residual &&
+      pairwise_disjoint(non_recurrent_ranges) && recurrent_disjoint;
+
   if (cold_recurrent_initializations_ != 1U ||
       cold_recurrent_allocation_identity_ != request_allocation_identity_ ||
       cold_recurrent_allocation_begin_ == 0U ||
       cold_recurrent_zero_bytes_ != kSm87MacroFeedV4RecurrentStorageBytes ||
+      !exact_submission_identities || !exact_grant_offsets ||
+      !exact_recurrent_pointers || !exact_alias_graph || !ledger.valid_prefix() ||
       submission.input_norm.cuda_stream != nullptr ||
       submission.bf16_ab.cuda_stream != nullptr ||
+      submission.gdn_continuation.cancellation_signal != nullptr ||
       !kernels::sm87_macrofeed_v4_input_norm_arguments_valid(
           checked_input_norm) ||
       !kernels::sm87_macrofeed_v4_bf16_ab_arguments_valid(checked_bf16_ab) ||
@@ -1292,10 +1496,22 @@ Sm87MacroFeedV4ExecutionEventsOwner::
           submission.bf16_ab_resources) ||
       !kernels::sm87_macrofeed_v4_fp8_resource_gate(
           submission.gdn_qkvz_resources) ||
+      submission.gdn_qkvz_resources.identity != kGdnQkvzIdentity ||
+      submission.gdn_qkvz_resources.role !=
+          kernels::Sm87TargetAotProjectionRole::kFp8GdnQkvZ ||
+      submission.gdn_qkvz_resources.input_layout !=
+          kernels::Sm87MacroFeedV4Fp8InputLayout::
+              kHiddenContiguousH5120V1 ||
       !kernels::sm87_macrofeed_v4_gdn_c8000_admission_resource_gate(
           submission.gdn_continuation_resources) ||
       !kernels::sm87_macrofeed_v4_fp8_resource_gate(
           submission.gdn_output_resources) ||
+      submission.gdn_output_resources.identity != kGdnOutputIdentity ||
+      submission.gdn_output_resources.role !=
+          kernels::Sm87TargetAotProjectionRole::kFp8AttentionOutput ||
+      submission.gdn_output_resources.input_layout !=
+          kernels::Sm87MacroFeedV4Fp8InputLayout::
+              kGdnContiguousVScratchV1 ||
       !kernels::sm87_macrofeed_v4_nvfp4_gate_up_resource_gate(
           submission.gate_up_resources) ||
       !kernels::sm87_macrofeed_v4_nvfp4_down_resource_gate(
@@ -1318,14 +1534,63 @@ Sm87MacroFeedV4ExecutionEventsOwner::
     return result;
   }
 
+  static_assert(std::tuple_size<
+                    decltype(accepted_gdn_grant_identities_)>::value ==
+                kSm87MacroFeedV4PanelCount *
+                    kSm87MacroFeedV4StateLayerCount);
+  const std::size_t grant_slot =
+      active_panel_ * kSm87MacroFeedV4StateLayerCount +
+      submission.gdn_ordinal;
+  if (accepted_gdn_grant_identities_[grant_slot] != 0U) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
+        "complete_gdn_layer_grant_at_most_once", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kCount, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+  accepted_gdn_grant_identities_[grant_slot] =
+      gdn_grant.grant_identity();
+  ++accepted_gdn_grant_count_;
+
+  const auto inject_failure_if_armed = [&]() noexcept {
+    if (test_fail_gdn_after_accepted_operation_ !=
+        ledger.accepted_operations()) {
+      return false;
+    }
+    test_fail_gdn_after_accepted_operation_ =
+        std::numeric_limits<std::size_t>::max();
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+        "test_gdn_failure_after_accepted_operation", 1,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kCount, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return true;
+  };
+  if (inject_failure_if_armed()) {
+    return result;
+  }
+
+  std::size_t before_submissions = input_norm_submissions_;
   auto enqueue = submit_input_norm_and_record_ready_locked(
       access, panel_access, submission.input_norm,
       submission.norm_resources);
+  ledger.input_norm_launches =
+      input_norm_submissions_ - before_submissions;
+  ledger.accepted_kernel_launches += ledger.input_norm_launches;
+  last_gdn_accepted_prefix_ = ledger;
   if (!enqueue) {
     result.status = enqueue.status;
     if (state_ != Sm87MacroFeedV4ExecutionOwnerState::kPoisoned) {
       record_poison_cause(result.status);
     }
+    return result;
+  }
+  if (inject_failure_if_armed()) {
     return result;
   }
 
@@ -1340,9 +1605,14 @@ Sm87MacroFeedV4ExecutionEventsOwner::
     return result;
   }
 
+  before_submissions = bf16_ab_submissions_;
   enqueue = submit_bf16_ab_and_record_ready_locked(
       access, panel_access, submission.bf16_ab,
       submission.bf16_ab_resources);
+  ledger.bf16_ab_launches =
+      bf16_ab_submissions_ - before_submissions;
+  ledger.accepted_kernel_launches += ledger.bf16_ab_launches;
+  last_gdn_accepted_prefix_ = ledger;
   if (!enqueue) {
     result.status = enqueue.status;
     if (state_ != Sm87MacroFeedV4ExecutionOwnerState::kPoisoned) {
@@ -1350,15 +1620,26 @@ Sm87MacroFeedV4ExecutionEventsOwner::
     }
     return result;
   }
+  if (inject_failure_if_armed()) {
+    return result;
+  }
 
+  before_submissions = gdn_qkvz_c8000_submissions_;
   enqueue = submit_gdn_qkvz_c8000_then_wait_ab_ready_locked(
       access, panel_access, submission.gdn_qkvz,
       submission.gdn_qkvz_resources);
+  ledger.gdn_qkvz_launches =
+      gdn_qkvz_c8000_submissions_ - before_submissions;
+  ledger.accepted_kernel_launches += ledger.gdn_qkvz_launches;
+  last_gdn_accepted_prefix_ = ledger;
   if (!enqueue) {
     result.status = enqueue.status;
     if (state_ != Sm87MacroFeedV4ExecutionOwnerState::kPoisoned) {
       record_poison_cause(result.status);
     }
+    return result;
+  }
+  if (inject_failure_if_armed()) {
     return result;
   }
 
@@ -1374,6 +1655,15 @@ Sm87MacroFeedV4ExecutionEventsOwner::
       continuation_ledger.accepted_kernel_launches;
   gdn_history_d2d_copies_ += continuation_ledger.asynchronous_d2d_copies;
   gdn_history_d2d_bytes_ += continuation_ledger.conv_history_copy_bytes;
+  ledger.gdn_continuation_launches =
+      continuation_ledger.accepted_kernel_launches;
+  ledger.accepted_kernel_launches +=
+      continuation_ledger.accepted_kernel_launches;
+  ledger.asynchronous_d2d_copies =
+      continuation_ledger.asynchronous_d2d_copies;
+  ledger.conv_history_copy_bytes =
+      continuation_ledger.conv_history_copy_bytes;
+  last_gdn_accepted_prefix_ = ledger;
   if (cuda_status != static_cast<int>(cudaSuccess) ||
       continuation_ledger.accepted_kernel_launches != 2U ||
       continuation_ledger.asynchronous_d2d_copies != 1U ||
@@ -1390,11 +1680,19 @@ Sm87MacroFeedV4ExecutionEventsOwner::
     record_poison_cause(result.status);
     return result;
   }
+  if (inject_failure_if_armed()) {
+    return result;
+  }
 
   std::size_t submitted = 0U;
   cuda_status = bound::enqueue_gdn_o_c8000_prevalidated(
       main_token, submission.gdn_output, submission.gdn_output_resources,
       &submitted);
+  ledger.gdn_output_launches += submitted;
+  ledger.accepted_kernel_launches += submitted;
+  bound_kernel_submissions_ += submitted;
+  gdn_output_c8000_submissions_ += submitted;
+  last_gdn_accepted_prefix_ = ledger;
   if (cuda_status != static_cast<int>(cudaSuccess) || submitted != 1U) {
     result.status = fail(
         cuda_status == static_cast<int>(cudaSuccess)
@@ -1407,13 +1705,19 @@ Sm87MacroFeedV4ExecutionEventsOwner::
     record_poison_cause(result.status);
     return result;
   }
-  bound_kernel_submissions_ += submitted;
-  gdn_output_c8000_submissions_ += submitted;
+  if (inject_failure_if_armed()) {
+    return result;
+  }
 
   submitted = 0U;
   cuda_status = bound::enqueue_residual_post_norm_prevalidated(
       main_token, submission.residual_post_norm,
       submission.norm_resources, &submitted);
+  ledger.residual_post_norm_launches += submitted;
+  ledger.accepted_kernel_launches += submitted;
+  bound_kernel_submissions_ += submitted;
+  residual_post_norm_submissions_ += submitted;
+  last_gdn_accepted_prefix_ = ledger;
   if (cuda_status != static_cast<int>(cudaSuccess) || submitted != 1U) {
     result.status = fail(
         cuda_status == static_cast<int>(cudaSuccess)
@@ -1426,13 +1730,19 @@ Sm87MacroFeedV4ExecutionEventsOwner::
     record_poison_cause(result.status);
     return result;
   }
-  bound_kernel_submissions_ += submitted;
-  residual_post_norm_submissions_ += submitted;
+  if (inject_failure_if_armed()) {
+    return result;
+  }
 
   submitted = 0U;
   cuda_status = bound::enqueue_gate_up_c8000_prevalidated(
       main_token, submission.gate_up, submission.gate_up_resources,
       &submitted);
+  ledger.gate_up_launches += submitted;
+  ledger.accepted_kernel_launches += submitted;
+  bound_kernel_submissions_ += submitted;
+  gate_up_c8000_submissions_ += submitted;
+  last_gdn_accepted_prefix_ = ledger;
   if (cuda_status != static_cast<int>(cudaSuccess) || submitted != 1U) {
     result.status = fail(
         cuda_status == static_cast<int>(cudaSuccess)
@@ -1445,12 +1755,18 @@ Sm87MacroFeedV4ExecutionEventsOwner::
     record_poison_cause(result.status);
     return result;
   }
-  bound_kernel_submissions_ += submitted;
-  gate_up_c8000_submissions_ += submitted;
+  if (inject_failure_if_armed()) {
+    return result;
+  }
 
   submitted = 0U;
   cuda_status = bound::enqueue_down_c8000_prevalidated(
       main_token, submission.down, submission.down_resources, &submitted);
+  ledger.down_launches += submitted;
+  ledger.accepted_kernel_launches += submitted;
+  bound_kernel_submissions_ += submitted;
+  down_c8000_submissions_ += submitted;
+  last_gdn_accepted_prefix_ = ledger;
   if (cuda_status != static_cast<int>(cudaSuccess) || submitted != 1U) {
     result.status = fail(
         cuda_status == static_cast<int>(cudaSuccess)
@@ -1463,43 +1779,86 @@ Sm87MacroFeedV4ExecutionEventsOwner::
     record_poison_cause(result.status);
     return result;
   }
-  bound_kernel_submissions_ += submitted;
-  down_c8000_submissions_ += submitted;
-  ++complete_gdn_layers_submitted_;
 
   Sm87MacroFeedV4CompleteGdnLayerEnqueueReceipt receipt;
-  receipt.transaction_identity =
-      next_nonzero(&g_next_gdn_layer_transaction_identity);
-  receipt.owner_identity = owner_identity_;
-  receipt.request_epoch = request_epoch_;
-  receipt.panel = active_panel_;
-  receipt.panel_generation = active_panel_generation_;
-  receipt.input_norm_launches = 1U;
-  receipt.bf16_ab_launches = 1U;
-  receipt.gdn_qkvz_launches = 1U;
-  receipt.gdn_continuation_launches = 2U;
-  receipt.gdn_output_launches = 1U;
-  receipt.residual_post_norm_launches = 1U;
-  receipt.gate_up_launches = 1U;
-  receipt.down_launches = 1U;
-  receipt.bound_kernel_submissions = 9U;
-  receipt.asynchronous_d2d_copies = 1U;
-  receipt.conv_history_copy_bytes =
-      kernels::kSm87MacroFeedV4GdnConvHistoryBytes;
-  receipt.norm_ready_waited_by_ab = true;
-  receipt.ab_ready_waited_by_main = true;
-  receipt.complete_layer_enqueued = true;
-  receipt.physical_device_completion_attested = false;
-  receipt.panel_complete = false;
-  receipt.production_receipt_eligible = false;
-  result.receipt = receipt;
-  result.status = receipt.valid()
-                      ? ok()
-                      : fail(Sm87MacroFeedV4ExecutionError::kReceiptInvalid,
-                             "complete_gdn_layer_enqueue_receipt");
-  if (!result.status) {
+  ledger.complete = true;
+  last_gdn_accepted_prefix_ = ledger;
+  receipt.transaction_identity_ = ledger.transaction_identity;
+  receipt.owner_identity_ = owner_identity_;
+  receipt.request_epoch_ = request_epoch_;
+  receipt.panel_ = active_panel_;
+  receipt.panel_generation_ = active_panel_generation_;
+  receipt.grant_identity_ = gdn_grant.grant_identity();
+  receipt.grant_state_epoch_ = gdn_grant.state_epoch();
+  receipt.recurrent_allocation_identity_ =
+      gdn_grant.allocation_identity();
+  receipt.gdn_ordinal_ = submission.gdn_ordinal;
+  receipt.model_layer_ = submission.model_layer;
+  receipt.active_bank_index_ = gdn_grant.active_bank_index();
+  receipt.candidate_bank_index_ = gdn_grant.candidate_bank_index();
+  receipt.active_conv_allocation_offset_ =
+      gdn_grant.active_conv_allocation_offset();
+  receipt.candidate_conv_allocation_offset_ =
+      gdn_grant.candidate_conv_allocation_offset();
+  receipt.conv_bytes_ = gdn_grant.conv_bytes();
+  receipt.active_gdn_state_allocation_offset_ =
+      gdn_grant.active_gdn_state_allocation_offset();
+  receipt.candidate_gdn_state_allocation_offset_ =
+      gdn_grant.candidate_gdn_state_allocation_offset();
+  receipt.gdn_state_bytes_ = gdn_grant.gdn_state_bytes();
+  receipt.authority_domain_ = submission.authority_domain;
+  receipt.execution_package_identity_ =
+      submission.execution_package_identity;
+  receipt.gdn_catalog_identity_ = submission.gdn_catalog_identity;
+  receipt.gdn_binding_identity_ = submission.gdn_binding_identity;
+  receipt.bf16_ab_catalog_identity_ = submission.bf16_ab_catalog_identity;
+  receipt.bf16_ab_pair_identity_ = submission.bf16_ab_pair_identity;
+  receipt.layer_norm_catalog_identity_ =
+      submission.layer_norm_catalog_identity;
+  receipt.layer_norm_pair_identity_ = submission.layer_norm_pair_identity;
+  receipt.input_norm_binding_identity_ =
+      submission.input_norm_binding_identity;
+  receipt.post_norm_binding_identity_ =
+      submission.post_norm_binding_identity;
+  receipt.mlp_catalog_identity_ = submission.mlp_catalog_identity;
+  receipt.mlp_binding_identity_ = submission.mlp_binding_identity;
+  receipt.resource_bundle_identity_ = submission.resource_bundle_identity;
+  receipt.synthetic_source_identity_ = submission.synthetic_source_identity;
+  receipt.submission_digest_ = gdn_submission_digest(submission);
+  receipt.input_norm_launches_ = ledger.input_norm_launches;
+  receipt.bf16_ab_launches_ = ledger.bf16_ab_launches;
+  receipt.gdn_qkvz_launches_ = ledger.gdn_qkvz_launches;
+  receipt.gdn_continuation_launches_ =
+      ledger.gdn_continuation_launches;
+  receipt.gdn_output_launches_ = ledger.gdn_output_launches;
+  receipt.residual_post_norm_launches_ =
+      ledger.residual_post_norm_launches;
+  receipt.gate_up_launches_ = ledger.gate_up_launches;
+  receipt.down_launches_ = ledger.down_launches;
+  receipt.bound_kernel_submissions_ = ledger.accepted_kernel_launches;
+  receipt.asynchronous_d2d_copies_ = ledger.asynchronous_d2d_copies;
+  receipt.conv_history_copy_bytes_ = ledger.conv_history_copy_bytes;
+  receipt.norm_ready_waited_by_ab_ = true;
+  receipt.ab_ready_waited_by_main_ = true;
+  receipt.complete_layer_enqueued_ = true;
+  receipt.physical_device_completion_attested_ = false;
+  receipt.panel_complete_ = false;
+  receipt.production_receipt_eligible_ = false;
+  receipt.authenticator_ = gdn_receipt_authenticator(receipt);
+  if (!gdn_receipt_matches_locked(panel_access, gdn_grant, submission,
+                                  receipt)) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kReceiptInvalid,
+        "complete_gdn_layer_owner_authenticated_receipt", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kCount, active_panel_,
+        active_panel_generation_);
     record_poison_cause(result.status);
+    return result;
   }
+  ++complete_gdn_layers_submitted_;
+  result.receipt = receipt;
+  result.status = ok();
   return result;
 }
 
@@ -2247,6 +2606,487 @@ std::uint64_t Sm87MacroFeedV4ExecutionEventsOwner::completion_authenticator(
 }
 
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+std::uint64_t Sm87MacroFeedV4ExecutionEventsOwner::gdn_submission_digest(
+    const Sm87MacroFeedV4CompleteGdnLayerC8000Submission& submission)
+    const noexcept {
+  // Mix every semantic field explicitly; never inspect struct padding.
+  std::uint64_t value = mix64(0x5133'4d46'5634'4744ULL);
+  const auto add = [&value](const std::uint64_t fact) noexcept {
+    value = mix64(value ^ fact);
+  };
+  const auto add_size = [&add](const std::size_t fact) noexcept {
+    add(static_cast<std::uint64_t>(fact));
+  };
+  const auto add_i32 = [&add](const std::int32_t fact) noexcept {
+    add(static_cast<std::uint64_t>(static_cast<std::int64_t>(fact)));
+  };
+  const auto add_bool = [&add](const bool fact) noexcept {
+    add(static_cast<std::uint64_t>(fact));
+  };
+  const auto add_pointer = [&add](const void* const pointer) noexcept {
+    add(static_cast<std::uint64_t>(
+        reinterpret_cast<std::uintptr_t>(pointer)));
+  };
+  const auto add_float = [&add](const float fact) noexcept {
+    std::uint32_t bits = 0U;
+    static_assert(sizeof(bits) == sizeof(fact));
+    std::memcpy(&bits, &fact, sizeof(bits));
+    add(bits);
+  };
+  const auto add_fp8_asset = [&](const auto& asset) noexcept {
+    add(static_cast<std::uint64_t>(asset.payload.role));
+    add(static_cast<std::uint64_t>(asset.payload.plan_identity));
+    add(static_cast<std::uint64_t>(asset.payload.layout_identity));
+    add(asset.payload.begin);
+    add(asset.payload.end);
+    add(asset.payload.bytes);
+    add_bool(asset.payload.valid);
+    add(asset.artifact_identity);
+    add(asset.source_inventory_identity);
+    add(static_cast<std::uint64_t>(asset.transform_identity));
+    for (const std::uint8_t byte : asset.host_payload_digest.bytes) {
+      add(byte);
+    }
+    add(asset.host_manifest_seal.value);
+    const auto& upload = asset.device_upload_receipt;
+    add(upload.receipt_identity);
+    add(upload.artifact_identity);
+    add(upload.source_inventory_identity);
+    add(static_cast<std::uint64_t>(upload.role));
+    add(static_cast<std::uint64_t>(upload.plan_identity));
+    add(static_cast<std::uint64_t>(upload.layout_identity));
+    add(static_cast<std::uint64_t>(upload.transform_identity));
+    add(upload.device_allocation_identity);
+    add(upload.device_allocation_owner_identity);
+    add_i32(upload.device_ordinal);
+    add(upload.device_allocation_begin);
+    add(upload.device_allocation_end);
+    add(upload.device_allocation_bytes);
+    add(upload.device_payload_begin);
+    add(upload.device_payload_end);
+    add(upload.device_payload_bytes);
+    for (const std::uint32_t bits : asset.tensor_scale_bits) {
+      add(bits);
+    }
+    for (const std::uint16_t bits :
+         asset.compensated_tensor_scale_bf16_bits) {
+      add(bits);
+    }
+    add(asset.tensor_scale_count);
+    add_bool(asset.no_request_time_repacking);
+    add_bool(asset.no_request_time_scale_conversion);
+    add_bool(asset.valid);
+  };
+  const auto add_gate_up_receipt = [&](const auto& receipt) noexcept {
+    add(receipt.receipt_identity);
+    add(static_cast<std::uint64_t>(receipt.plan_identity));
+    add(receipt.payload_identity);
+    add(receipt.gate_source_identity);
+    add(receipt.up_source_identity);
+    add_i32(receipt.device_ordinal);
+    add(receipt.payload_begin);
+    add(receipt.payload_end);
+    add(receipt.payload_bytes);
+    add(receipt.gate_partition_bytes);
+    add(receipt.up_partition_bytes);
+    add_bool(receipt.canonical_consumer_n64_k16_lane_component_v1);
+    add_bool(receipt.canonical_gate_then_up_partition_order);
+    add_bool(receipt.independent_tensor_scales);
+    add_bool(receipt.host_bytes_authenticated_before_copy);
+    add_bool(receipt.device_readback_authenticated);
+    add_bool(receipt.allocation_retained_for_launch);
+  };
+  const auto add_down_receipt = [&](const auto& receipt) noexcept {
+    add(receipt.receipt_identity);
+    add(static_cast<std::uint64_t>(receipt.plan_identity));
+    add(receipt.payload_identity);
+    add_i32(receipt.device_ordinal);
+    add(receipt.payload_begin);
+    add(receipt.payload_end);
+    add(receipt.payload_bytes);
+    add_bool(receipt.canonical_consumer_n64_k16_lane_component_v1);
+    add_bool(receipt.host_bytes_authenticated_before_copy);
+    add_bool(receipt.device_readback_authenticated);
+    add_bool(receipt.allocation_retained_for_launch);
+  };
+  const auto add_kernel_resources = [&](const auto& kernel) noexcept {
+    add_i32(kernel.registers_per_thread);
+    add_size(kernel.static_shared_bytes);
+    add_size(kernel.local_bytes);
+    add_i32(kernel.maximum_threads_per_block);
+    add_i32(kernel.active_blocks_per_sm);
+    add_i32(kernel.threads_per_block);
+    add_i32(kernel.physical_grid_ctas);
+  };
+  const auto add_norm_resources = [&](const auto& resources) noexcept {
+    add(static_cast<std::uint64_t>(resources.identity));
+    add_i32(resources.device_ordinal);
+    add_i32(resources.compute_major);
+    add_i32(resources.compute_minor);
+    add_i32(resources.sm_count);
+    add_i32(resources.binary_version);
+    add_kernel_resources(resources.input_norm);
+    add_kernel_resources(resources.fused_residual_norm);
+    add_bool(resources.kernels_compiled);
+    add_bool(resources.exact_geometry);
+    add_bool(resources.static_resource_gate_passed);
+    add_bool(resources.numerical_contract_qualified);
+    add_bool(resources.production_dispatch_eligible);
+    add_bool(resources.startup_package_unbound);
+    add_bool(resources.execution_capability);
+    add_bool(resources.caller_snapshot_grants_production_authority);
+  };
+  const auto add_bf16_ab_resources = [&](const auto& resources) noexcept {
+    add(static_cast<std::uint64_t>(resources.identity));
+    add_i32(resources.device_ordinal);
+    add_i32(resources.compute_major);
+    add_i32(resources.compute_minor);
+    add_i32(resources.sm_count);
+    add_i32(resources.binary_version);
+    add_i32(resources.registers_per_thread);
+    add_size(resources.static_shared_bytes);
+    add_size(resources.dynamic_shared_bytes);
+    add_size(resources.local_bytes);
+    add_i32(resources.maximum_threads_per_block);
+    add_i32(resources.active_blocks_per_sm);
+    add_i32(resources.threads_per_block);
+    add_i32(resources.physical_grid_ctas);
+    add_bool(resources.kernel_compiled);
+    add_bool(resources.exact_geometry);
+    add_bool(resources.static_resource_gate_passed);
+    add_bool(resources.numerical_contract_qualified);
+    add_bool(resources.production_dispatch_eligible);
+    add_bool(resources.startup_package_unbound);
+    add_bool(resources.execution_capability);
+    add_bool(resources.caller_snapshot_grants_production_authority);
+  };
+  const auto add_fp8_resources = [&](const auto& resources) noexcept {
+    add(static_cast<std::uint64_t>(resources.identity));
+    add(static_cast<std::uint64_t>(resources.role));
+    add(static_cast<std::uint64_t>(resources.input_layout));
+    add_i32(resources.device_ordinal);
+    add_i32(resources.compute_major);
+    add_i32(resources.compute_minor);
+    add_i32(resources.sm_count);
+    add_i32(resources.binary_version);
+    add_i32(resources.registers_per_thread);
+    add_size(resources.static_shared_bytes);
+    add_size(resources.dynamic_shared_bytes);
+    add_size(resources.local_bytes);
+    add_i32(resources.maximum_threads_per_block);
+    add_i32(resources.active_blocks_per_sm);
+    add_size(resources.shared_bytes_per_sm);
+    add_size(resources.optin_shared_bytes_per_block);
+    add_bool(resources.kernel_compiled);
+    add_bool(resources.static_resource_gate_passed);
+    add_bool(resources.numerical_contract_qualified);
+    add_bool(resources.production_dispatch_eligible);
+  };
+  const auto add_gdn_resources = [&](const auto& resources) noexcept {
+    add(static_cast<std::uint64_t>(resources.identity));
+    add_i32(resources.device_ordinal);
+    add_i32(resources.compute_major);
+    add_i32(resources.compute_minor);
+    add_i32(resources.sm_count);
+    add_i32(resources.binary_version);
+    add_kernel_resources(resources.convolution);
+    add_kernel_resources(resources.recurrence_epilogue);
+    add_bool(resources.kernels_compiled);
+    add_bool(resources.exact_geometry);
+    add_bool(resources.static_resource_gate_passed);
+    add_bool(resources.numerical_contract_qualified);
+    add_bool(resources.production_dispatch_eligible);
+    add_bool(resources.startup_package_unbound);
+    add_bool(resources.execution_capability);
+    add_bool(resources.caller_snapshot_grants_production_authority);
+  };
+  const auto add_gate_up_resources = [&](const auto& resources) noexcept {
+    add(static_cast<std::uint64_t>(resources.identity));
+    add_i32(resources.device_ordinal);
+    add_i32(resources.compute_major);
+    add_i32(resources.compute_minor);
+    add_i32(resources.sm_count);
+    add_i32(resources.binary_version);
+    add_i32(resources.registers_per_thread);
+    add_size(resources.static_shared_bytes);
+    add_size(resources.dynamic_shared_bytes);
+    add_size(resources.local_bytes);
+    add_i32(resources.maximum_threads_per_block);
+    add_i32(resources.active_blocks_per_sm);
+    add_bool(resources.kernel_compiled);
+    add_bool(resources.static_resource_gate_passed);
+    add_bool(resources.numerical_contract_qualified);
+    add_bool(resources.production_dispatch_eligible);
+  };
+  const auto add_down_resources = [&](const auto& resources) noexcept {
+    add(static_cast<std::uint64_t>(resources.identity));
+    add_i32(resources.device_ordinal);
+    add_i32(resources.compute_major);
+    add_i32(resources.compute_minor);
+    add_i32(resources.sm_count);
+    add_i32(resources.binary_version);
+    add_i32(resources.registers_per_thread);
+    add_size(resources.static_shared_bytes);
+    add_size(resources.dynamic_shared_bytes);
+    add_size(resources.local_bytes);
+    add_i32(resources.maximum_threads_per_block);
+    add_i32(resources.active_blocks_per_sm);
+    add_size(resources.shared_bytes_per_sm);
+    add_size(resources.optin_shared_bytes_per_block);
+    add_bool(resources.kernel_compiled);
+    add_bool(resources.static_resource_gate_passed);
+    add_bool(resources.numerical_contract_qualified);
+    add_bool(resources.production_dispatch_eligible);
+  };
+
+  add(static_cast<std::uint64_t>(submission.authority_domain));
+  add(submission.execution_package_identity);
+  add(submission.gdn_catalog_identity);
+  add(submission.gdn_binding_identity);
+  add(submission.bf16_ab_catalog_identity);
+  add(submission.bf16_ab_pair_identity);
+  add(submission.layer_norm_catalog_identity);
+  add(submission.layer_norm_pair_identity);
+  add(submission.input_norm_binding_identity);
+  add(submission.post_norm_binding_identity);
+  add(submission.mlp_catalog_identity);
+  add(submission.mlp_binding_identity);
+  add(submission.resource_bundle_identity);
+  add(submission.synthetic_source_identity);
+  add_size(submission.gdn_ordinal);
+  add_size(submission.model_layer);
+
+  add(1U);
+  add_pointer(submission.input_norm.input_hidden);
+  add_pointer(submission.input_norm.centered_weight);
+  add_pointer(submission.input_norm.output_hidden);
+  add_size(submission.input_norm.token_count);
+  add_size(submission.input_norm.hidden_size);
+  add(submission.input_norm.epsilon_fp32_bits);
+  add_pointer(submission.input_norm.cuda_stream);
+
+  add(2U);
+  add_pointer(submission.bf16_ab.a_weights);
+  add_pointer(submission.bf16_ab.b_weights);
+  add_pointer(submission.bf16_ab.input);
+  add_pointer(submission.bf16_ab.scratch);
+  add_size(submission.bf16_ab.token_count);
+  add_size(submission.bf16_ab.scratch_row_stride);
+  add_pointer(submission.bf16_ab.cuda_stream);
+
+  add(3U);
+  add_pointer(submission.gdn_qkvz.hidden_input);
+  add_fp8_asset(submission.gdn_qkvz.asset);
+  add_pointer(submission.gdn_qkvz.phase_scratch);
+
+  add(4U);
+  add_pointer(submission.gdn_continuation.phase_scratch);
+  add_pointer(submission.gdn_continuation.conv_weight);
+  add_pointer(submission.gdn_continuation.a_log);
+  add_pointer(submission.gdn_continuation.dt_bias);
+  add_pointer(submission.gdn_continuation.norm_weight);
+  add_pointer(submission.gdn_continuation.active_conv_history);
+  add_pointer(submission.gdn_continuation.candidate_conv_history);
+  add_pointer(submission.gdn_continuation.active_recurrent_state);
+  add_pointer(submission.gdn_continuation.candidate_recurrent_state);
+  add_pointer(submission.gdn_continuation.cancellation_signal);
+  add(submission.gdn_continuation.l2_epsilon_fp32_bits);
+  add(submission.gdn_continuation.norm_epsilon_fp32_bits);
+
+  add(5U);
+  add_pointer(submission.gdn_output.phase_scratch);
+  add_fp8_asset(submission.gdn_output.asset);
+  add_pointer(submission.gdn_output.branch_output);
+
+  add(6U);
+  add_pointer(submission.residual_post_norm.left_residual_then_normalized);
+  add_pointer(submission.residual_post_norm.right_branch_then_residual);
+  add_pointer(submission.residual_post_norm.centered_weight);
+
+  add(7U);
+  add_pointer(submission.gate_up.normalized_input);
+  add_pointer(submission.gate_up.payload);
+  add_size(submission.gate_up.payload_bytes);
+  add_float(submission.gate_up.gate_tensor_scale);
+  add_float(submission.gate_up.up_tensor_scale);
+  add_pointer(submission.gate_up.intermediate_output);
+  add_gate_up_receipt(submission.gate_up.canonical_v3_payload_receipt);
+
+  add(8U);
+  add_pointer(submission.down.intermediate_input);
+  add_pointer(submission.down.payload);
+  add_size(submission.down.payload_bytes);
+  add_float(submission.down.tensor_scale);
+  add_pointer(submission.down.residual_output);
+  add_down_receipt(submission.down.payload_receipt);
+
+  add(9U);
+  add_norm_resources(submission.norm_resources);
+  add_bf16_ab_resources(submission.bf16_ab_resources);
+  add_fp8_resources(submission.gdn_qkvz_resources);
+  add_gdn_resources(submission.gdn_continuation_resources);
+  add_fp8_resources(submission.gdn_output_resources);
+  add_gate_up_resources(submission.gate_up_resources);
+  add_down_resources(submission.down_resources);
+  return value == 0U ? 0x5133'4d46'5634'4744ULL : value;
+}
+
+std::uint64_t
+Sm87MacroFeedV4ExecutionEventsOwner::gdn_receipt_authenticator(
+    const Sm87MacroFeedV4CompleteGdnLayerEnqueueReceipt& receipt)
+    const noexcept {
+  std::uint64_t value =
+      mix64(receipt_secret_ ^ 0x5133'4d46'5634'4741ULL);
+  const auto add = [&value](const std::uint64_t fact) noexcept {
+    value = mix64(value ^ fact);
+  };
+  add(receipt.transaction_identity_);
+  add(receipt.owner_identity_);
+  add(receipt.request_epoch_);
+  add(receipt.panel_);
+  add(receipt.panel_generation_);
+  add(receipt.grant_identity_);
+  add(receipt.grant_state_epoch_);
+  add(receipt.recurrent_allocation_identity_);
+  add(receipt.gdn_ordinal_);
+  add(receipt.model_layer_);
+  add(receipt.active_bank_index_);
+  add(receipt.candidate_bank_index_);
+  add(receipt.active_conv_allocation_offset_);
+  add(receipt.candidate_conv_allocation_offset_);
+  add(receipt.conv_bytes_);
+  add(receipt.active_gdn_state_allocation_offset_);
+  add(receipt.candidate_gdn_state_allocation_offset_);
+  add(receipt.gdn_state_bytes_);
+  add(static_cast<std::uint64_t>(receipt.authority_domain_));
+  add(receipt.execution_package_identity_);
+  add(receipt.gdn_catalog_identity_);
+  add(receipt.gdn_binding_identity_);
+  add(receipt.bf16_ab_catalog_identity_);
+  add(receipt.bf16_ab_pair_identity_);
+  add(receipt.layer_norm_catalog_identity_);
+  add(receipt.layer_norm_pair_identity_);
+  add(receipt.input_norm_binding_identity_);
+  add(receipt.post_norm_binding_identity_);
+  add(receipt.mlp_catalog_identity_);
+  add(receipt.mlp_binding_identity_);
+  add(receipt.resource_bundle_identity_);
+  add(receipt.synthetic_source_identity_);
+  add(receipt.submission_digest_);
+  add(receipt.input_norm_launches_);
+  add(receipt.bf16_ab_launches_);
+  add(receipt.gdn_qkvz_launches_);
+  add(receipt.gdn_continuation_launches_);
+  add(receipt.gdn_output_launches_);
+  add(receipt.residual_post_norm_launches_);
+  add(receipt.gate_up_launches_);
+  add(receipt.down_launches_);
+  add(receipt.bound_kernel_submissions_);
+  add(receipt.asynchronous_d2d_copies_);
+  add(receipt.conv_history_copy_bytes_);
+  add(receipt.norm_ready_waited_by_ab_);
+  add(receipt.ab_ready_waited_by_main_);
+  add(receipt.complete_layer_enqueued_);
+  add(receipt.physical_device_completion_attested_);
+  add(receipt.panel_complete_);
+  add(receipt.production_receipt_eligible_);
+  return value;
+}
+
+bool Sm87MacroFeedV4ExecutionEventsOwner::gdn_receipt_matches_locked(
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const Sm87MacroFeedV4GdnLayerStateGrant& gdn_grant,
+    const Sm87MacroFeedV4CompleteGdnLayerC8000Submission& expected_submission,
+    const Sm87MacroFeedV4CompleteGdnLayerEnqueueReceipt& receipt)
+    const noexcept {
+  const bool slot_valid =
+      receipt.gdn_ordinal_ < kSm87MacroFeedV4StateLayerCount &&
+      receipt.panel_ < kSm87MacroFeedV4PanelCount;
+  const std::size_t slot =
+      slot_valid
+          ? receipt.panel_ * kSm87MacroFeedV4StateLayerCount +
+                receipt.gdn_ordinal_
+          : accepted_gdn_grant_identities_.size();
+  return panel_access_matches(panel_access) && receipt.valid_shape() &&
+         slot < accepted_gdn_grant_identities_.size() &&
+         accepted_gdn_grant_identities_[slot] ==
+             gdn_grant.grant_identity() &&
+         receipt.owner_identity_ == owner_identity_ &&
+         receipt.request_epoch_ == request_epoch_ &&
+         receipt.panel_ == active_panel_ &&
+         receipt.panel_generation_ == active_panel_generation_ &&
+         gdn_grant.owner_identity() == owner_identity_ &&
+         gdn_grant.allocation_identity() == request_allocation_identity_ &&
+         gdn_grant.request_epoch() == request_epoch_ &&
+         gdn_grant.panel() == active_panel_ &&
+         receipt.grant_identity_ == gdn_grant.grant_identity() &&
+         receipt.grant_state_epoch_ == gdn_grant.state_epoch() &&
+         receipt.recurrent_allocation_identity_ ==
+             gdn_grant.allocation_identity() &&
+         receipt.gdn_ordinal_ == gdn_grant.state_layer_ordinal() &&
+         receipt.model_layer_ == gdn_grant.model_layer() &&
+         receipt.active_bank_index_ == gdn_grant.active_bank_index() &&
+         receipt.candidate_bank_index_ ==
+             gdn_grant.candidate_bank_index() &&
+         receipt.active_conv_allocation_offset_ ==
+             gdn_grant.active_conv_allocation_offset() &&
+         receipt.candidate_conv_allocation_offset_ ==
+             gdn_grant.candidate_conv_allocation_offset() &&
+         receipt.conv_bytes_ == gdn_grant.conv_bytes() &&
+         receipt.active_gdn_state_allocation_offset_ ==
+             gdn_grant.active_gdn_state_allocation_offset() &&
+         receipt.candidate_gdn_state_allocation_offset_ ==
+             gdn_grant.candidate_gdn_state_allocation_offset() &&
+         receipt.gdn_state_bytes_ == gdn_grant.gdn_state_bytes() &&
+         receipt.authority_domain_ == expected_submission.authority_domain &&
+         receipt.execution_package_identity_ ==
+             expected_submission.execution_package_identity &&
+         receipt.gdn_catalog_identity_ ==
+             expected_submission.gdn_catalog_identity &&
+         receipt.gdn_binding_identity_ ==
+             expected_submission.gdn_binding_identity &&
+         receipt.bf16_ab_catalog_identity_ ==
+             expected_submission.bf16_ab_catalog_identity &&
+         receipt.bf16_ab_pair_identity_ ==
+             expected_submission.bf16_ab_pair_identity &&
+         receipt.layer_norm_catalog_identity_ ==
+             expected_submission.layer_norm_catalog_identity &&
+         receipt.layer_norm_pair_identity_ ==
+             expected_submission.layer_norm_pair_identity &&
+         receipt.input_norm_binding_identity_ ==
+             expected_submission.input_norm_binding_identity &&
+         receipt.post_norm_binding_identity_ ==
+             expected_submission.post_norm_binding_identity &&
+         receipt.mlp_catalog_identity_ ==
+             expected_submission.mlp_catalog_identity &&
+         receipt.mlp_binding_identity_ ==
+             expected_submission.mlp_binding_identity &&
+         receipt.resource_bundle_identity_ ==
+             expected_submission.resource_bundle_identity &&
+         receipt.synthetic_source_identity_ ==
+             expected_submission.synthetic_source_identity &&
+         receipt.gdn_ordinal_ == expected_submission.gdn_ordinal &&
+         receipt.model_layer_ == expected_submission.model_layer &&
+         receipt.submission_digest_ ==
+             gdn_submission_digest(expected_submission) &&
+         receipt.authenticator_ != 0U &&
+         receipt.authenticator_ == gdn_receipt_authenticator(receipt);
+}
+
+bool Sm87MacroFeedV4ExecutionEventsOwner::gdn_receipt_matches(
+    const Sm87MacroFeedV4ExecutionEventsAccess& access,
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const Sm87MacroFeedV4GdnLayerStateGrant& gdn_grant,
+    const Sm87MacroFeedV4CompleteGdnLayerC8000Submission& expected_submission,
+    const Sm87MacroFeedV4CompleteGdnLayerEnqueueReceipt& receipt)
+    const noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return owner_access_matches(access) &&
+         state_ == Sm87MacroFeedV4ExecutionOwnerState::kRequestActive &&
+         gdn_receipt_matches_locked(panel_access, gdn_grant,
+                                    expected_submission, receipt);
+}
+
 std::uint64_t
 Sm87MacroFeedV4ExecutionEventsOwner::full_attention_submission_digest(
     const Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission&
@@ -3297,6 +4137,8 @@ Sm87MacroFeedV4ExecutionEventsOwner::snapshot() const noexcept {
   snapshot.down_c8000_submissions = down_c8000_submissions_;
   snapshot.complete_gdn_layers_submitted = complete_gdn_layers_submitted_;
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  snapshot.accepted_gdn_grants = accepted_gdn_grant_count_;
+  snapshot.last_gdn_accepted_prefix = last_gdn_accepted_prefix_;
   snapshot.complete_full_attention_layers_submitted =
       complete_full_attention_layers_submitted_;
   snapshot.accepted_full_attention_grants =
@@ -3477,6 +4319,7 @@ Sm87MacroFeedV4CompleteGdnLayerEnqueueResult
 Sm87MacroFeedV4ExecutionEventsDriver::
     submit_complete_gdn_layer_c8000_prevalidated(
         const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+        const Sm87MacroFeedV4GdnLayerStateGrant& gdn_grant,
         const Sm87MacroFeedV4CompleteGdnLayerC8000Submission& submission)
         noexcept {
   if (owner_ == nullptr || access_ == nullptr) {
@@ -3487,7 +4330,18 @@ Sm87MacroFeedV4ExecutionEventsDriver::
     return result;
   }
   return owner_->submit_complete_gdn_layer_c8000_prevalidated(
-      *access_, panel_access, submission);
+      *access_, panel_access, gdn_grant, submission);
+}
+
+bool Sm87MacroFeedV4ExecutionEventsDriver::gdn_receipt_matches(
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    const Sm87MacroFeedV4GdnLayerStateGrant& gdn_grant,
+    const Sm87MacroFeedV4CompleteGdnLayerC8000Submission& expected_submission,
+    const Sm87MacroFeedV4CompleteGdnLayerEnqueueReceipt& receipt)
+    const noexcept {
+  return owner_ != nullptr && access_ != nullptr &&
+         owner_->gdn_receipt_matches(*access_, panel_access, gdn_grant,
+                                     expected_submission, receipt);
 }
 
 Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueResult
@@ -3652,6 +4506,13 @@ void Sm87MacroFeedV4ExecutionEventsOwner::release_resources() noexcept {
       raw_stream = nullptr;
     }
   }
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  accepted_gdn_grant_identities_.fill(0U);
+  accepted_gdn_grant_count_ = 0U;
+  last_gdn_accepted_prefix_ = {};
+  test_fail_gdn_after_accepted_operation_ =
+      std::numeric_limits<std::size_t>::max();
+#endif
   access_.reset();
   state_ = Sm87MacroFeedV4ExecutionOwnerState::kDestroyed;
 }
