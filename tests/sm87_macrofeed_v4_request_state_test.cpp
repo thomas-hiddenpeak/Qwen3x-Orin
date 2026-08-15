@@ -202,6 +202,36 @@ void test_admission(Test& test) {
                           admission.recurrent_layers.back().gdn_state_bytes ==
                       78'446'592U,
               "48 layer slices exactly tile Conv and GDN epoch regions");
+  bool exact_state_layer_bijection = true;
+  for (std::size_t ordinal = 0U;
+       ordinal < runtime::kSm87MacroFeedV4StateLayerCount; ++ordinal) {
+    const std::size_t model_layer = ordinal + ordinal / 3U;
+    exact_state_layer_bijection &=
+        admission.recurrent_layers[ordinal].state_layer_ordinal == ordinal &&
+        admission.recurrent_layers[ordinal].model_layer == model_layer &&
+        model_layer - model_layer / 4U == ordinal &&
+        runtime::sm87_macrofeed_v4_expected_layer_kind(model_layer) ==
+            runtime::Sm87MacroFeedV4LayerKind::kGdn;
+  }
+  test.expect(exact_state_layer_bijection,
+              "all 48 GDN ordinals and natural model layers map both ways");
+  bool all_full_layers_rejected_from_state_ordinals = true;
+  for (std::size_t ordinal = 0U;
+       ordinal < runtime::kSm87MacroFeedV4FullAttentionLayerCount;
+       ++ordinal) {
+    const std::size_t model_layer = 4U * ordinal + 3U;
+    const std::size_t rejected_state_ordinal =
+        model_layer - model_layer / 4U;
+    all_full_layers_rejected_from_state_ordinals &=
+        runtime::sm87_macrofeed_v4_expected_layer_kind(model_layer) ==
+            runtime::Sm87MacroFeedV4LayerKind::kFullAttention &&
+        (rejected_state_ordinal >=
+             runtime::kSm87MacroFeedV4StateLayerCount ||
+         admission.recurrent_layers[rejected_state_ordinal].model_layer !=
+             model_layer);
+  }
+  test.expect(all_full_layers_rejected_from_state_ordinals,
+              "all 16 Full layers are rejected from the GDN ordinal domain");
   test.expect(
       admission.conv_history_copies_active_to_candidate_per_layer &&
           admission.gdn_first_update_reads_active_and_writes_candidate &&

@@ -91,32 +91,44 @@ std::atomic<std::uint64_t> g_next_full_attention_kv_grant_identity{1U};
 
 [[nodiscard]] constexpr std::size_t model_layer_for_state_ordinal(
     const std::size_t ordinal) noexcept {
-  std::size_t seen = 0U;
-  for (std::size_t layer = 0U; layer < kSm87MacroFeedV4LayerCount; ++layer) {
-    if (gdn_layer(layer)) {
-      if (seen == ordinal) {
-        return layer;
-      }
-      ++seen;
-    }
-  }
-  return kSm87MacroFeedV4LayerCount;
+  return ordinal < kSm87MacroFeedV4StateLayerCount
+             ? ordinal + ordinal / 3U
+             : kSm87MacroFeedV4LayerCount;
 }
 
 [[nodiscard]] constexpr std::size_t state_ordinal_for_model_layer(
     const std::size_t model_layer) noexcept {
-  std::size_t ordinal = 0U;
-  for (std::size_t layer = 0U; layer < kSm87MacroFeedV4LayerCount; ++layer) {
-    if (!gdn_layer(layer)) {
-      continue;
-    }
-    if (layer == model_layer) {
-      return ordinal;
-    }
-    ++ordinal;
-  }
-  return kSm87MacroFeedV4StateLayerCount;
+  return gdn_layer(model_layer)
+             ? model_layer - model_layer / 4U
+             : kSm87MacroFeedV4StateLayerCount;
 }
+
+[[nodiscard]] constexpr bool state_layer_mapping_is_complete() noexcept {
+  for (std::size_t ordinal = 0U;
+       ordinal < kSm87MacroFeedV4StateLayerCount; ++ordinal) {
+    const std::size_t model_layer = model_layer_for_state_ordinal(ordinal);
+    if (model_layer != ordinal + ordinal / 3U || !gdn_layer(model_layer) ||
+        state_ordinal_for_model_layer(model_layer) != ordinal) {
+      return false;
+    }
+  }
+  for (std::size_t ordinal = 0U;
+       ordinal < kSm87MacroFeedV4FullAttentionLayerCount; ++ordinal) {
+    const std::size_t model_layer =
+        model_layer_for_attention_ordinal(ordinal);
+    if (!full_attention_layer(model_layer) ||
+        state_ordinal_for_model_layer(model_layer) !=
+            kSm87MacroFeedV4StateLayerCount) {
+      return false;
+    }
+  }
+  return model_layer_for_state_ordinal(kSm87MacroFeedV4StateLayerCount) ==
+             kSm87MacroFeedV4LayerCount &&
+         state_ordinal_for_model_layer(kSm87MacroFeedV4LayerCount) ==
+             kSm87MacroFeedV4StateLayerCount;
+}
+
+static_assert(state_layer_mapping_is_complete());
 
 void add_issue(Sm87MacroFeedV4RequestAdmissionValidation* const validation,
                const Sm87MacroFeedV4RequestAdmissionIssue issue,
