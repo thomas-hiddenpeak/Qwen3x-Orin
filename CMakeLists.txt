@@ -3548,14 +3548,62 @@ if(BUILD_TESTING)
     # an owner-supplied checkpoint, an admitted clean Jetson resource lane,
     # and a repository-local create-only evidence path.  It constructs no V4
     # selector or API route and performs no generation or timing.
+    find_package(Git REQUIRED)
+    set(macrofeed_v4_lifetime_probe_provenance_header
+      "${CMAKE_CURRENT_BINARY_DIR}/generated/tests/sm87_macrofeed_v4_lifetime_probe_provenance.h"
+    )
+    add_custom_target(q3x_sm87_macrofeed_v4_lifetime_probe_provenance
+      COMMAND "${CMAKE_COMMAND}"
+        "-DQ3X_PROVENANCE_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        "-DQ3X_PROVENANCE_GIT_EXECUTABLE=${GIT_EXECUTABLE}"
+        "-DQ3X_PROVENANCE_TEMPLATE=${CMAKE_SOURCE_DIR}/cmake/sm87_macrofeed_v4_lifetime_probe_provenance.h.in"
+        "-DQ3X_PROVENANCE_OUTPUT=${macrofeed_v4_lifetime_probe_provenance_header}"
+        "-DQ3X_PROVENANCE_CMAKE_VERSION=${CMAKE_VERSION}"
+        "-DQ3X_PROVENANCE_GENERATOR=${CMAKE_GENERATOR}"
+        "-DQ3X_PROVENANCE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+        "-DQ3X_PROVENANCE_BUILD_TESTING=${BUILD_TESTING}"
+        "-DQ3X_PROVENANCE_Q3X_CUDA_ARCHITECTURES=${Q3X_CUDA_ARCHITECTURES}"
+        "-DQ3X_PROVENANCE_EFFECTIVE_CUDA_ARCHITECTURES=${CMAKE_CUDA_ARCHITECTURES}"
+        "-DQ3X_PROVENANCE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "-DQ3X_PROVENANCE_CXX_COMPILER_ID=${CMAKE_CXX_COMPILER_ID}"
+        "-DQ3X_PROVENANCE_CXX_COMPILER_VERSION=${CMAKE_CXX_COMPILER_VERSION}"
+        "-DQ3X_PROVENANCE_CUDA_COMPILER=${CMAKE_CUDA_COMPILER}"
+        "-DQ3X_PROVENANCE_CUDA_COMPILER_ID=${CMAKE_CUDA_COMPILER_ID}"
+        "-DQ3X_PROVENANCE_CUDA_COMPILER_VERSION=${CMAKE_CUDA_COMPILER_VERSION}"
+        "-DQ3X_PROVENANCE_CUDA_TOOLKIT_VERSION=${CUDAToolkit_VERSION}"
+        "-DQ3X_PROVENANCE_CXX_RELEASE_FLAGS=${CMAKE_CXX_FLAGS_RELEASE}"
+        "-DQ3X_PROVENANCE_CUDA_RELEASE_FLAGS=${CMAKE_CUDA_FLAGS_RELEASE}"
+        "-DQ3X_PROVENANCE_CXX_GLOBAL_FLAGS=${CMAKE_CXX_FLAGS}"
+        "-DQ3X_PROVENANCE_CUDA_GLOBAL_FLAGS=${CMAKE_CUDA_FLAGS}"
+        "-DQ3X_PROVENANCE_MACROFEED_V3_P40_EXECUTOR_ADMISSION=${Q3X_BUILD_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION}"
+        "-DQ3X_PROVENANCE_MACROFEED_V4_STARTUP_PACKAGE_ADMISSION=${Q3X_BUILD_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION}"
+        "-DQ3X_PROVENANCE_MACROFEED_V4_EXECUTION_EVENTS_ADMISSION=${Q3X_BUILD_SM87_MACROFEED_V4_EXECUTION_EVENTS_ADMISSION}"
+        "-DQ3X_PROVENANCE_MACROFEED_V4_EXECUTION_PACKAGE_ADMISSION=${Q3X_BUILD_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION}"
+        "-DQ3X_PROVENANCE_MACROFEED_V4_NORM_RESIDUAL_ADMISSION=${Q3X_BUILD_SM87_MACROFEED_V4_NORM_RESIDUAL_ADMISSION}"
+        "-DQ3X_PROVENANCE_MACROFEED_V4_BF16_AB_ADMISSION=${Q3X_BUILD_SM87_MACROFEED_V4_BF16_AB_ADMISSION}"
+        "-DQ3X_PROVENANCE_MACROFEED_V4_FP8_ADMISSION=${Q3X_BUILD_SM87_MACROFEED_V4_FP8_ADMISSION}"
+        "-DQ3X_PROVENANCE_MACROFEED_V4_GDN_C8000_ADMISSION=${Q3X_BUILD_SM87_MACROFEED_V4_GDN_C8000_ADMISSION}"
+        "-DQ3X_PROVENANCE_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION=${Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION}"
+        "-DQ3X_PROVENANCE_MACROFEED_V4_NVFP4_DOWN_ADMISSION=${Q3X_BUILD_SM87_MACROFEED_V4_NVFP4_DOWN_ADMISSION}"
+        "-DQ3X_PROVENANCE_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION=${Q3X_BUILD_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION}"
+        -P "${CMAKE_SOURCE_DIR}/cmake/GenerateSm87MacroFeedV4LifetimeProbeProvenance.cmake"
+      BYPRODUCTS "${macrofeed_v4_lifetime_probe_provenance_header}"
+      VERBATIM
+    )
     add_executable(
       q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe
       EXCLUDE_FROM_ALL
       tests/sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe.cpp
     )
+    add_dependencies(
+      q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe
+      q3x_sm87_macrofeed_v4_lifetime_probe_provenance
+    )
     target_include_directories(
       q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe
-      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+      PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/tests"
     )
     target_compile_definitions(
       q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe PRIVATE
@@ -3573,6 +3621,18 @@ if(BUILD_TESTING)
     )
     q3x_enable_warnings(
       q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe
+    )
+    add_custom_target(
+      q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe_contract
+      COMMAND "${CMAKE_COMMAND}"
+        "-DQ3X_PROBE=$<TARGET_FILE:q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe>"
+        "-DQ3X_NM=${CMAKE_NM}"
+        "-DQ3X_CTEST=${CMAKE_CTEST_COMMAND}"
+        "-DQ3X_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+        "-DQ3X_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifySm87MacroFeedV4LifetimeProbeContract.cmake"
+      DEPENDS q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe
+      VERBATIM
     )
   endif()
 

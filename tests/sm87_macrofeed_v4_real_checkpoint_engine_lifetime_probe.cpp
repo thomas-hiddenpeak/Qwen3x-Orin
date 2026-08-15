@@ -3,12 +3,14 @@
 #include "q3x/runtime/reference_engine.h"
 #include "q3x/runtime/sm87_target_aot_projection_complete_device_assets.h"
 #include "sm87_macrofeed_v4_engine_lifetime_probe_internal.h"
+#include "sm87_macrofeed_v4_lifetime_probe_provenance.h"
 
 #include <cuda_runtime.h>
 
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <array>
 #include <cctype>
 #include <cstdint>
 #include <filesystem>
@@ -31,6 +33,8 @@ namespace core = q3x::core;
 namespace runtime = q3x::runtime;
 namespace lifetime_probe =
     q3x::runtime::sm87_macrofeed_v4_engine_lifetime_probe_detail;
+namespace provenance =
+    q3x::test::sm87_macrofeed_v4_lifetime_probe_provenance;
 
 namespace {
 
@@ -38,13 +42,38 @@ constexpr std::uint64_t kDestroyRecoveryToleranceBytes =
     64ULL * 1024ULL * 1024ULL;
 constexpr std::uint64_t kRetainedFreeBytes =
     4ULL * 1024ULL * 1024ULL * 1024ULL;
+constexpr std::string_view kPinnedModelIdentity =
+    "nvidia/Qwen3.6-27B-NVFP4";
+constexpr std::string_view kPinnedModelRevision =
+    "0893e1606ff3d5f97a441f405d5fc541a6bdf404";
+
+struct PinnedMetadataFile final {
+  std::string_view filename;
+  std::uint64_t bytes = 0U;
+  std::string_view sha256;
+};
+
+constexpr std::array<PinnedMetadataFile, 3U> kPinnedMetadataFiles{{
+    {"config.json", 88'567U,
+     "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338"},
+    {"hf_quant_config.json", 54'902U,
+     "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1"},
+    {"model.safetensors.index.json", 214'866U,
+     "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2"},
+}};
 
 struct ProbeEvidence final {
   bool passed = false;
   std::filesystem::path model_directory;
+  std::filesystem::path canonical_model_directory;
+  std::array<std::uint64_t, kPinnedMetadataFiles.size()> metadata_file_bytes{};
+  std::array<std::string, kPinnedMetadataFiles.size()> metadata_file_sha256{};
+  bool checkpoint_metadata_exact = false;
+  bool resident_shard_manifest_exact = false;
   std::filesystem::path repository_work_root;
   std::filesystem::path evidence_output_path;
   bool evidence_output_repository_local = false;
+  bool source_build_provenance_valid = false;
   bool binary_provenance_valid = false;
   std::filesystem::path executable_path;
   std::uint64_t executable_bytes = 0U;
@@ -83,6 +112,8 @@ struct ProbeEvidence final {
   std::size_t construction_snapshot_count = 0U;
   bool construction_snapshot_hook_exact = false;
   bool construction_snapshot_valid = false;
+  bool normal_catalogs_exact = false;
+  bool owner_allocation_device_lifetime_chain_exact = false;
   bool snapshot_matches_complete_aot_load_stats = false;
   bool live_engine_reduced_free_memory = false;
   bool pre_destroy_synchronized = false;
@@ -157,6 +188,71 @@ void write_boolean(std::ostream& output, const bool value) {
     nonzero = nonzero || byte != '0';
   }
   return nonzero;
+}
+
+void capture_checkpoint_metadata(ProbeEvidence& evidence) {
+  std::error_code error;
+  evidence.canonical_model_directory =
+      std::filesystem::canonical(evidence.model_directory, error);
+  if (error || evidence.canonical_model_directory.empty() ||
+      !std::filesystem::is_directory(evidence.canonical_model_directory,
+                                     error) ||
+      error) {
+    return;
+  }
+  bool exact = true;
+  for (std::size_t index = 0U; index < kPinnedMetadataFiles.size(); ++index) {
+    const auto& expected = kPinnedMetadataFiles[index];
+    const std::filesystem::path path =
+        evidence.canonical_model_directory / expected.filename;
+    const std::filesystem::file_status status =
+        std::filesystem::symlink_status(path, error);
+    if (error || status.type() != std::filesystem::file_type::regular) {
+      exact = false;
+      error.clear();
+      continue;
+    }
+    const std::uint64_t bytes = static_cast<std::uint64_t>(
+        std::filesystem::file_size(path, error));
+    if (error) {
+      exact = false;
+      error.clear();
+      continue;
+    }
+    evidence.metadata_file_bytes[index] = bytes;
+    const core::Sha256FileResult hashed = core::sha256_file(path.string());
+    if (!hashed.ok()) {
+      exact = false;
+      continue;
+    }
+    evidence.metadata_file_sha256[index] = hashed.digest->hex();
+    exact = exact && bytes == expected.bytes &&
+            evidence.metadata_file_sha256[index] == expected.sha256;
+  }
+  evidence.checkpoint_metadata_exact = exact;
+}
+
+[[nodiscard]] bool resident_shard_manifest_exact(
+    const runtime::ResidentLoadStats& resident) {
+  const auto& expected = runtime::pinned_qwen36_27b_shards();
+  if (resident.shards.size() != expected.size() || expected.size() != 3U) {
+    return false;
+  }
+  for (const auto& pinned : expected) {
+    bool found = false;
+    for (const auto& observed : resident.shards) {
+      if (observed.filename == pinned.filename) {
+        found = observed.bytes_read == pinned.file_size &&
+                observed.sha256 == pinned.sha256 &&
+                is_nonzero_lower_hex(observed.sha256, 64U);
+        break;
+      }
+    }
+    if (!found) {
+      return false;
+    }
+  }
+  return true;
 }
 
 [[nodiscard]] bool is_strictly_within(
@@ -274,6 +370,25 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
       evidence.executable_bytes != 0U &&
       is_nonzero_lower_hex(evidence.executable_sha256, 64U);
 
+  evidence.source_build_provenance_valid =
+      is_nonzero_lower_hex(provenance::kGitCommit, 40U) &&
+      is_nonzero_lower_hex(provenance::kGitTree, 40U) &&
+      provenance::kGitClean &&
+      is_nonzero_lower_hex(provenance::kBuildReceiptSha256, 64U) &&
+      !std::string_view(provenance::kCmakeVersion).empty() &&
+      !std::string_view(provenance::kGenerator).empty() &&
+      !std::string_view(provenance::kCxxCompiler).empty() &&
+      !std::string_view(provenance::kCxxCompilerId).empty() &&
+      !std::string_view(provenance::kCxxCompilerVersion).empty() &&
+      !std::string_view(provenance::kCudaCompiler).empty() &&
+      !std::string_view(provenance::kCudaCompilerId).empty() &&
+      !std::string_view(provenance::kCudaCompilerVersion).empty() &&
+      !std::string_view(provenance::kCudaToolkitVersion).empty() &&
+      std::string_view(provenance::kBuildReceiptSchema) ==
+          "q3x.sm87.macrofeed-v4.engine-lifetime-build.v1" &&
+      is_nonzero_lower_hex(provenance::kCxxCompilerSha256, 64U) &&
+      is_nonzero_lower_hex(provenance::kCudaCompilerSha256, 64U);
+
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V3_P40_EXECUTOR_ADMISSION)
   evidence.macrofeed_v3_admission = true;
 #endif
@@ -284,11 +399,29 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
   evidence.ndebug = true;
 #endif
   evidence.build_configuration_exact =
+      evidence.source_build_provenance_valid &&
       evidence.build_testing && evidence.macrofeed_v3_admission &&
       evidence.macrofeed_v4_admission && evidence.ndebug &&
       evidence.build_type == "Release" &&
       evidence.q3x_cuda_architectures == "87" &&
-      evidence.effective_cuda_architectures == "87";
+      evidence.effective_cuda_architectures == "87" &&
+      provenance::kBuildType == evidence.build_type &&
+      provenance::kBuildTesting == evidence.build_testing &&
+      provenance::kQ3xCudaArchitectures ==
+          evidence.q3x_cuda_architectures &&
+      provenance::kEffectiveCudaArchitectures ==
+          evidence.effective_cuda_architectures &&
+      provenance::kMacroFeedV3P40ExecutorAdmission &&
+      provenance::kMacroFeedV4StartupPackageAdmission &&
+      provenance::kMacroFeedV4ExecutionEventsAdmission &&
+      provenance::kMacroFeedV4ExecutionPackageAdmission &&
+      provenance::kMacroFeedV4NormResidualAdmission &&
+      provenance::kMacroFeedV4Bf16AbAdmission &&
+      provenance::kMacroFeedV4Fp8Admission &&
+      provenance::kMacroFeedV4GdnC8000Admission &&
+      provenance::kMacroFeedV4NvFp4GateUpAdmission &&
+      provenance::kMacroFeedV4NvFp4DownAdmission &&
+      provenance::kTargetAotCompleteDeviceAssetsV2Admission;
 }
 
 [[nodiscard]] bool publish_create_only(
@@ -345,7 +478,7 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
 [[nodiscard]] bool write_evidence(const std::filesystem::path& path,
                                   const ProbeEvidence& evidence) {
   std::ostringstream output;
-  output << "{\n  \"schema_version\": 2,\n"
+  output << "{\n  \"schema_version\": 3,\n"
             "  \"artifact\": "
             "\"q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime\",\n"
             "  \"status\": \""
@@ -353,29 +486,130 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
          << "\",\n  \"claim_boundary\": ";
   write_json_string(
       output,
-      "real-checkpoint Engine construction, normal 48-GDN-QKVZ factory "
-      "postcondition, CUDA quiescence, destruction, and free-memory recovery "
-      "within the declared 64 MiB tolerance only; the recovery gate does not "
-      "exclude smaller retained resources and grants no generation, "
+      "pinned-metadata and three-resident-shard real-checkpoint Engine "
+      "construction, normal 48-complete-GDN and 64-MLP-pair catalog "
+      "identities/folds, target-AOT owner/allocation/device lifetime chain, "
+      "CUDA quiescence, destruction, and free-memory "
+      "recovery within the declared 64 MiB tolerance only; the recovery gate "
+      "does not exclude smaller retained resources and grants no generation, "
       "numerical, performance, selector, API-route, or production authority");
   output << ",\n  \"model_directory\": ";
   write_json_string(output, evidence.model_directory.string());
-  output << ",\n  \"evidence_output\": {\n    \"path\": ";
+  output << ",\n  \"checkpoint_identity\": {\n    \"model\": ";
+  write_json_string(output, kPinnedModelIdentity);
+  output << ",\n    \"revision\": ";
+  write_json_string(output, kPinnedModelRevision);
+  output << ",\n    \"canonical_directory\": ";
+  write_json_string(output, evidence.canonical_model_directory.string());
+  output << ",\n    \"metadata_files\": [";
+  for (std::size_t index = 0U; index < kPinnedMetadataFiles.size(); ++index) {
+    const auto& expected = kPinnedMetadataFiles[index];
+    output << (index == 0U ? "\n" : ",\n") << "      {\"filename\": ";
+    write_json_string(output, expected.filename);
+    output << ", \"bytes\": " << evidence.metadata_file_bytes[index]
+           << ", \"sha256\": ";
+    write_json_string(output, evidence.metadata_file_sha256[index]);
+    output << ", \"expected_bytes\": " << expected.bytes
+           << ", \"expected_sha256\": ";
+    write_json_string(output, expected.sha256);
+    output << ", \"exact\": ";
+    write_boolean(output,
+                  evidence.metadata_file_bytes[index] == expected.bytes &&
+                      evidence.metadata_file_sha256[index] == expected.sha256);
+    output << "}";
+  }
+  output << "\n    ],\n    \"metadata_exact\": ";
+  write_boolean(output, evidence.checkpoint_metadata_exact);
+  output << ",\n    \"resident_shards\": [";
+  const auto& pinned_shards = runtime::pinned_qwen36_27b_shards();
+  for (std::size_t index = 0U; index < pinned_shards.size(); ++index) {
+    const auto& expected = pinned_shards[index];
+    const runtime::ShardLoadStats* observed = nullptr;
+    for (const auto& candidate : evidence.load.resident.shards) {
+      if (candidate.filename == expected.filename) {
+        observed = &candidate;
+        break;
+      }
+    }
+    output << (index == 0U ? "\n" : ",\n") << "      {\"filename\": ";
+    write_json_string(output, expected.filename);
+    output << ", \"bytes\": "
+           << (observed == nullptr ? 0U : observed->bytes_read)
+           << ", \"sha256\": ";
+    write_json_string(output,
+                      observed == nullptr ? std::string_view{}
+                                          : observed->sha256);
+    output << ", \"expected_bytes\": " << expected.file_size
+           << ", \"expected_sha256\": ";
+    write_json_string(output, expected.sha256);
+    output << ", \"exact\": ";
+    write_boolean(output,
+                  observed != nullptr &&
+                      observed->bytes_read == expected.file_size &&
+                      observed->sha256 == expected.sha256);
+    output << "}";
+  }
+  output << "\n    ],\n    \"resident_shards_exact\": ";
+  write_boolean(output, evidence.resident_shard_manifest_exact);
+  output << "\n  },\n  \"evidence_output\": {\n    \"path\": ";
   write_json_string(output, evidence.evidence_output_path.string());
   output << ",\n    \"repository_work_root\": ";
   write_json_string(output, evidence.repository_work_root.string());
   output << ",\n    \"repository_local\": ";
   write_boolean(output, evidence.evidence_output_repository_local);
   output << "\n  }";
-  output << ",\n  \"binary\": {\n    \"path\": ";
+  output << ",\n  \"source\": {\n    \"git_commit\": ";
+  write_json_string(output, provenance::kGitCommit);
+  output << ",\n    \"git_tree\": ";
+  write_json_string(output, provenance::kGitTree);
+  output << ",\n    \"clean_at_build\": ";
+  write_boolean(output, provenance::kGitClean);
+  output << ",\n    \"valid\": ";
+  write_boolean(output, evidence.source_build_provenance_valid);
+  output << "\n  },\n  \"binary\": {\n    \"path\": ";
   write_json_string(output, evidence.executable_path.string());
   output << ",\n    \"bytes\": " << evidence.executable_bytes
-         << ",\n    \"sha256\": ";
+         << ",\n    \"self_sha256\": ";
   write_json_string(output, evidence.executable_sha256);
   output << ",\n    \"valid\": ";
   write_boolean(output, evidence.binary_provenance_valid);
   output << "\n  },\n  \"build_configuration\": {\n"
-         << "    \"build_type\": ";
+         << "    \"receipt_schema\": ";
+  write_json_string(output, provenance::kBuildReceiptSchema);
+  output << ",\n    \"receipt_sha256\": ";
+  write_json_string(output, provenance::kBuildReceiptSha256);
+  output << ",\n    \"cmake_version\": ";
+  write_json_string(output, provenance::kCmakeVersion);
+  output << ",\n    \"generator\": ";
+  write_json_string(output, provenance::kGenerator);
+  output << ",\n    \"cxx_compiler\": {\n      \"path\": ";
+  write_json_string(output, provenance::kCxxCompiler);
+  output << ",\n      \"id\": ";
+  write_json_string(output, provenance::kCxxCompilerId);
+  output << ",\n      \"version\": ";
+  write_json_string(output, provenance::kCxxCompilerVersion);
+  output << ",\n      \"sha256\": ";
+  write_json_string(output, provenance::kCxxCompilerSha256);
+  output << "\n    },\n    \"cuda_compiler\": {\n      \"path\": ";
+  write_json_string(output, provenance::kCudaCompiler);
+  output << ",\n      \"id\": ";
+  write_json_string(output, provenance::kCudaCompilerId);
+  output << ",\n      \"version\": ";
+  write_json_string(output, provenance::kCudaCompilerVersion);
+  output << ",\n      \"sha256\": ";
+  write_json_string(output, provenance::kCudaCompilerSha256);
+  output << "\n    },\n    \"cuda_toolkit_version\": ";
+  write_json_string(output, provenance::kCudaToolkitVersion);
+  output << ",\n    \"flags\": {\n      \"cxx_release\": ";
+  write_json_string(output, provenance::kCxxReleaseFlags);
+  output << ",\n      \"cuda_release\": ";
+  write_json_string(output, provenance::kCudaReleaseFlags);
+  output << ",\n      \"cxx_global\": ";
+  write_json_string(output, provenance::kCxxGlobalFlags);
+  output << ",\n      \"cuda_global\": ";
+  write_json_string(output, provenance::kCudaGlobalFlags);
+  output << "\n    }";
+  output << ",\n    \"build_type\": ";
   write_json_string(output, evidence.build_type);
   output << ",\n    \"q3x_cuda_architectures\": ";
   write_json_string(output, evidence.q3x_cuda_architectures);
@@ -387,6 +621,45 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
   write_boolean(output, evidence.macrofeed_v3_admission);
   output << ",\n    \"macrofeed_v4_admission\": ";
   write_boolean(output, evidence.macrofeed_v4_admission);
+  output << ",\n    \"required_admissions_exact\": ";
+  write_boolean(
+      output,
+      provenance::kMacroFeedV3P40ExecutorAdmission &&
+          provenance::kMacroFeedV4StartupPackageAdmission &&
+          provenance::kMacroFeedV4ExecutionEventsAdmission &&
+          provenance::kMacroFeedV4ExecutionPackageAdmission &&
+          provenance::kMacroFeedV4NormResidualAdmission &&
+          provenance::kMacroFeedV4Bf16AbAdmission &&
+          provenance::kMacroFeedV4Fp8Admission &&
+          provenance::kMacroFeedV4GdnC8000Admission &&
+          provenance::kMacroFeedV4NvFp4GateUpAdmission &&
+          provenance::kMacroFeedV4NvFp4DownAdmission &&
+          provenance::kTargetAotCompleteDeviceAssetsV2Admission);
+  output << ",\n    \"admissions\": {\n"
+         << "      \"macrofeed_v3_p40_executor\": ";
+  write_boolean(output, provenance::kMacroFeedV3P40ExecutorAdmission);
+  output << ",\n      \"macrofeed_v4_startup_package\": ";
+  write_boolean(output, provenance::kMacroFeedV4StartupPackageAdmission);
+  output << ",\n      \"macrofeed_v4_execution_events\": ";
+  write_boolean(output, provenance::kMacroFeedV4ExecutionEventsAdmission);
+  output << ",\n      \"macrofeed_v4_execution_package\": ";
+  write_boolean(output, provenance::kMacroFeedV4ExecutionPackageAdmission);
+  output << ",\n      \"macrofeed_v4_norm_residual\": ";
+  write_boolean(output, provenance::kMacroFeedV4NormResidualAdmission);
+  output << ",\n      \"macrofeed_v4_bf16_ab\": ";
+  write_boolean(output, provenance::kMacroFeedV4Bf16AbAdmission);
+  output << ",\n      \"macrofeed_v4_fp8\": ";
+  write_boolean(output, provenance::kMacroFeedV4Fp8Admission);
+  output << ",\n      \"macrofeed_v4_gdn_c8000\": ";
+  write_boolean(output, provenance::kMacroFeedV4GdnC8000Admission);
+  output << ",\n      \"macrofeed_v4_nvfp4_gate_up\": ";
+  write_boolean(output, provenance::kMacroFeedV4NvFp4GateUpAdmission);
+  output << ",\n      \"macrofeed_v4_nvfp4_down\": ";
+  write_boolean(output, provenance::kMacroFeedV4NvFp4DownAdmission);
+  output << ",\n      \"target_aot_complete_device_assets_v2\": ";
+  write_boolean(output,
+                provenance::kTargetAotCompleteDeviceAssetsV2Admission);
+  output << "\n    }";
   output << ",\n    \"ndebug\": ";
   write_boolean(output, evidence.ndebug);
   output << ",\n    \"exact\": ";
@@ -433,8 +706,31 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
          << evidence.load.target_aot_complete_projection_allocation_identity
          << ",\n    \"device_ordinal\": "
          << evidence.load.target_aot_complete_projection_device_ordinal
-         << "\n  },\n  \"macrofeed_v4_construction_snapshot\": {\n"
-         << "    \"startup_package_identity\": "
+         << "\n  },\n  \"macrofeed_v4_normal_catalogs\": {\n"
+         << "    \"normal_factory_branch\": ";
+  write_boolean(output, evidence.construction_snapshot.normal_factory_branch);
+  output << ",\n    \"complete_gdn_catalog_identity\": "
+         << evidence.construction_snapshot
+                .execution_complete_gdn_catalog_identity
+         << ",\n    \"complete_gdn_binding_count\": "
+         << evidence.construction_snapshot
+                .execution_complete_gdn_binding_count
+         << ",\n    \"mlp_pair_catalog_identity\": "
+         << evidence.construction_snapshot.execution_mlp_pair_catalog_identity
+         << ",\n    \"mlp_pair_binding_count\": "
+         << evidence.construction_snapshot.execution_mlp_pair_binding_count
+         << ",\n    \"retained_complete_gdn_catalog_fold_identity\": "
+         << evidence.construction_snapshot
+                .retained_complete_gdn_catalog_fold_identity
+         << ",\n    \"retained_mlp_pair_catalog_fold_identity\": "
+         << evidence.construction_snapshot
+                .retained_mlp_pair_catalog_fold_identity
+         << ",\n    \"exact\": ";
+  write_boolean(output, evidence.normal_catalogs_exact);
+  output << "\n  },\n  \"owner_allocation_device_lifetime_chain\": {\n"
+         << "    \"lifetime_root_identity\": "
+         << evidence.construction_snapshot.lifetime_root_identity
+         << ",\n    \"startup_package_identity\": "
          << evidence.construction_snapshot.startup_package_identity
          << ",\n    \"execution_package_identity\": "
          << evidence.construction_snapshot.execution_package_identity
@@ -450,21 +746,49 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
          << evidence.construction_snapshot.startup_device_ordinal
          << ",\n    \"execution_device_ordinal\": "
          << evidence.construction_snapshot.execution_device_ordinal
-         << ",\n    \"startup_gdn_qkvz_catalog_identity\": "
-         << evidence.construction_snapshot.startup_gdn_qkvz_catalog_identity
-         << ",\n    \"startup_gdn_qkvz_binding_count\": "
-         << evidence.construction_snapshot.startup_gdn_qkvz_binding_count
-         << ",\n    \"execution_gdn_qkvz_catalog_identity\": "
-         << evidence.construction_snapshot.execution_gdn_qkvz_catalog_identity
-         << ",\n    \"execution_gdn_qkvz_binding_count\": "
-         << evidence.construction_snapshot.execution_gdn_qkvz_binding_count
-         << ",\n    \"synthetic_t1_gdn_layer0_source\": ";
+         << ",\n    \"startup_complete_gdn_source_catalog_identity\": "
+         << evidence.construction_snapshot
+                .startup_complete_gdn_source_catalog_identity
+         << ",\n    \"startup_mlp_source_catalog_identity\": "
+         << evidence.construction_snapshot.startup_mlp_source_catalog_identity
+         << ",\n    \"transient_allocation_identity\": "
+         << evidence.construction_snapshot.transient_allocation_identity
+         << ",\n    \"recurrent_allocation_identity\": "
+         << evidence.construction_snapshot.recurrent_allocation_identity
+         << ",\n    \"execution_events_owner_identity\": "
+         << evidence.construction_snapshot.execution_events_owner_identity
+         << ",\n    \"transient_bytes\": "
+         << evidence.construction_snapshot.transient_bytes
+         << ",\n    \"recurrent_bytes\": "
+         << evidence.construction_snapshot.recurrent_bytes
+         << ",\n    \"owned_bytes\": "
+         << evidence.construction_snapshot.owned_bytes
+         << ",\n    \"lifetime_chain_sealed\": ";
+  write_boolean(output, evidence.construction_snapshot.lifetime_chain_sealed);
+  output << ",\n    \"exact\": ";
+  write_boolean(output,
+                evidence.owner_allocation_device_lifetime_chain_exact);
+  output << "\n  },\n  \"macrofeed_v4_construction_snapshot\": {\n"
+         << "    \"synthetic_t1_gdn_layer0_source\": ";
   write_boolean(
       output,
       evidence.construction_snapshot.synthetic_t1_gdn_layer0_source);
-  output << ",\n    \"owned_bytes\": "
-         << evidence.construction_snapshot.owned_bytes
-         << ",\n    \"valid\": ";
+  output << ",\n    \"complete_gdn_layer0_bound\": ";
+  write_boolean(output,
+                evidence.construction_snapshot.complete_gdn_layer0_bound);
+  output << ",\n    \"whole_model_executor_bound\": ";
+  write_boolean(output,
+                evidence.construction_snapshot.whole_model_executor_bound);
+  output << ",\n    \"selector_bound\": ";
+  write_boolean(output, evidence.construction_snapshot.selector_bound);
+  output << ",\n    \"api_route_bound\": ";
+  write_boolean(output, evidence.construction_snapshot.api_route_bound);
+  output << ",\n    \"default_off\": ";
+  write_boolean(output, evidence.construction_snapshot.default_off);
+  output << ",\n    \"production_dispatch_eligible\": ";
+  write_boolean(
+      output, evidence.construction_snapshot.production_dispatch_eligible);
+  output << ",\n    \"valid\": ";
   write_boolean(output, evidence.construction_snapshot_valid);
   output << "\n  },\n  \"memory\": {\n"
          << "    \"initial_mem_info_cuda_error\": "
@@ -548,6 +872,12 @@ int main(const int argc, char** argv) {
                 256U);
   static_assert(runtime::kSm87TargetAotCompleteProjectionDeviceSourceCount ==
                 400U);
+  static_assert(
+      lifetime_probe::
+          kSm87MacroFeedV4EngineLifetimeExpectedCompleteGdnBindings == 48U);
+  static_assert(
+      lifetime_probe::
+          kSm87MacroFeedV4EngineLifetimeExpectedMlpPairBindings == 64U);
   static_assert(runtime::kLayerMajorPrefillPromptWideP40RequestCapacityTokens ==
                 40'001U);
   static_assert(runtime::kLayerMajorPrefillPromptWideP40RequestArenaBytes ==
@@ -567,6 +897,9 @@ int main(const int argc, char** argv) {
   evidence.evidence_output_path = evidence_path.output_path;
   evidence.evidence_output_repository_local = true;
   capture_binary_and_build_configuration(evidence);
+  if (!evidence.model_directory.empty()) {
+    capture_checkpoint_metadata(evidence);
+  }
 
   cudaError_t cuda_status = cudaGetDevice(&evidence.device_ordinal);
   evidence.device_query_cuda_error = static_cast<int>(cuda_status);
@@ -583,6 +916,7 @@ int main(const int argc, char** argv) {
 
   runtime::ReferenceEngineCreateResult created;
   if (!evidence.model_directory.empty() &&
+      evidence.checkpoint_metadata_exact &&
       evidence.device_query_cuda_error == 0 &&
       evidence.initial_mem_info_cuda_error == 0) {
     evidence.engine_create_attempted = true;
@@ -603,12 +937,36 @@ int main(const int argc, char** argv) {
     evidence.construction_snapshot_valid =
         evidence.construction_snapshot_count == 1U &&
         evidence.construction_snapshot.valid();
+    evidence.normal_catalogs_exact =
+        evidence.construction_snapshot_valid &&
+        evidence.construction_snapshot.normal_factory_branch &&
+        !evidence.construction_snapshot.synthetic_t1_gdn_layer0_source &&
+        evidence.construction_snapshot
+                .startup_complete_gdn_source_catalog_identity != 0U &&
+        evidence.construction_snapshot.startup_mlp_source_catalog_identity !=
+            0U &&
+        evidence.construction_snapshot
+                .execution_complete_gdn_catalog_identity != 0U &&
+        evidence.construction_snapshot.execution_complete_gdn_binding_count ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedCompleteGdnBindings &&
+        evidence.construction_snapshot.execution_mlp_pair_catalog_identity !=
+            0U &&
+        evidence.construction_snapshot.execution_mlp_pair_binding_count ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedMlpPairBindings &&
+        evidence.construction_snapshot
+                .retained_complete_gdn_catalog_fold_identity != 0U &&
+        evidence.construction_snapshot
+                .retained_mlp_pair_catalog_fold_identity != 0U;
     evidence.diagnostic = created.diagnostic;
     evidence.engine_created = static_cast<bool>(created);
     if (created) {
       evidence.engine_valid = static_cast<bool>(*created.value);
       evidence.load = created.value->load_stats();
       const auto& load = evidence.load;
+      evidence.resident_shard_manifest_exact =
+          resident_shard_manifest_exact(load.resident);
       evidence.complete_aot_inventory_exact =
           load.target_aot_complete_projection_device_assets_enabled &&
           load.target_aot_complete_projection_device_assets_attached &&
@@ -661,6 +1019,28 @@ int main(const int argc, char** argv) {
               load.target_aot_complete_projection_device_ordinal &&
           evidence.construction_snapshot.startup_device_ordinal ==
               evidence.device_ordinal;
+      evidence.owner_allocation_device_lifetime_chain_exact =
+          evidence.snapshot_matches_complete_aot_load_stats &&
+          evidence.construction_snapshot.lifetime_root_identity ==
+              evidence.construction_snapshot
+                  .compute_lifetime_root_identity() &&
+          evidence.construction_snapshot.execution_startup_package_identity ==
+              evidence.construction_snapshot.startup_package_identity &&
+          evidence.construction_snapshot.transient_allocation_identity != 0U &&
+          evidence.construction_snapshot.recurrent_allocation_identity != 0U &&
+          evidence.construction_snapshot.transient_allocation_identity !=
+              evidence.construction_snapshot.recurrent_allocation_identity &&
+          evidence.construction_snapshot.execution_events_owner_identity !=
+              0U &&
+          evidence.construction_snapshot.transient_bytes ==
+              lifetime_probe::
+                  kSm87MacroFeedV4EngineLifetimeExpectedTransientBytes &&
+          evidence.construction_snapshot.recurrent_bytes ==
+              lifetime_probe::
+                  kSm87MacroFeedV4EngineLifetimeMinimumOwnedArenaBytes &&
+          evidence.construction_snapshot.owned_bytes ==
+              lifetime_probe::kSm87MacroFeedV4EngineLifetimeExpectedOwnedBytes &&
+          evidence.construction_snapshot.lifetime_chain_sealed;
 
       std::size_t free_during = 0U;
       std::size_t total_during = 0U;
@@ -701,17 +1081,22 @@ int main(const int argc, char** argv) {
        free_before - free_after <= kDestroyRecoveryToleranceBytes);
 
   evidence.passed =
+      evidence.source_build_provenance_valid &&
       evidence.binary_provenance_valid &&
       evidence.build_configuration_exact &&
       evidence.device_query_cuda_error == 0 &&
       evidence.initial_mem_info_cuda_error == 0 &&
       evidence.engine_create_attempted && evidence.engine_created &&
       evidence.engine_valid && evidence.complete_aot_inventory_exact &&
+      evidence.checkpoint_metadata_exact &&
+      evidence.resident_shard_manifest_exact &&
       evidence.macrofeed_v3_engine_contract_exact &&
       evidence.construction_snapshot_hook_exact &&
       evidence.construction_snapshot_count == 1U &&
       evidence.construction_snapshot_valid &&
+      evidence.normal_catalogs_exact &&
       evidence.snapshot_matches_complete_aot_load_stats &&
+      evidence.owner_allocation_device_lifetime_chain_exact &&
       evidence.during_mem_info_cuda_error == 0 &&
       evidence.live_engine_reduced_free_memory &&
       evidence.pre_destroy_synchronized &&

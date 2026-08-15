@@ -1,0 +1,66 @@
+#pragma once
+
+namespace q3x::test::sm87_macrofeed_v4_lifetime_probe_provenance {
+
+inline constexpr char kGitCommit[] = "@Q3X_PROVENANCE_GIT_COMMIT@";
+inline constexpr char kGitTree[] = "@Q3X_PROVENANCE_GIT_TREE@";
+inline constexpr bool kGitClean = @Q3X_PROVENANCE_GIT_CLEAN@;
+inline constexpr char kCmakeVersion[] = "@Q3X_PROVENANCE_CMAKE_VERSION@";
+inline constexpr char kGenerator[] = "@Q3X_PROVENANCE_GENERATOR@";
+inline constexpr char kBuildType[] = "@Q3X_PROVENANCE_BUILD_TYPE@";
+inline constexpr bool kBuildTesting = @Q3X_PROVENANCE_BUILD_TESTING@;
+inline constexpr char kQ3xCudaArchitectures[] =
+    "@Q3X_PROVENANCE_Q3X_CUDA_ARCHITECTURES@";
+inline constexpr char kEffectiveCudaArchitectures[] =
+    "@Q3X_PROVENANCE_EFFECTIVE_CUDA_ARCHITECTURES@";
+inline constexpr char kCxxCompiler[] = "@Q3X_PROVENANCE_CXX_COMPILER@";
+inline constexpr char kCxxCompilerId[] = "@Q3X_PROVENANCE_CXX_COMPILER_ID@";
+inline constexpr char kCxxCompilerVersion[] =
+    "@Q3X_PROVENANCE_CXX_COMPILER_VERSION@";
+inline constexpr char kCxxCompilerSha256[] =
+    "@Q3X_PROVENANCE_CXX_COMPILER_SHA256@";
+inline constexpr char kCudaCompiler[] = "@Q3X_PROVENANCE_CUDA_COMPILER@";
+inline constexpr char kCudaCompilerId[] =
+    "@Q3X_PROVENANCE_CUDA_COMPILER_ID@";
+inline constexpr char kCudaCompilerVersion[] =
+    "@Q3X_PROVENANCE_CUDA_COMPILER_VERSION@";
+inline constexpr char kCudaCompilerSha256[] =
+    "@Q3X_PROVENANCE_CUDA_COMPILER_SHA256@";
+inline constexpr char kCudaToolkitVersion[] =
+    "@Q3X_PROVENANCE_CUDA_TOOLKIT_VERSION@";
+inline constexpr char kCxxReleaseFlags[] =
+    "@Q3X_PROVENANCE_CXX_RELEASE_FLAGS@";
+inline constexpr char kCudaReleaseFlags[] =
+    "@Q3X_PROVENANCE_CUDA_RELEASE_FLAGS@";
+inline constexpr char kCxxGlobalFlags[] =
+    "@Q3X_PROVENANCE_CXX_GLOBAL_FLAGS@";
+inline constexpr char kCudaGlobalFlags[] =
+    "@Q3X_PROVENANCE_CUDA_GLOBAL_FLAGS@";
+inline constexpr bool kMacroFeedV3P40ExecutorAdmission =
+    @Q3X_PROVENANCE_MACROFEED_V3_P40_EXECUTOR_ADMISSION@;
+inline constexpr bool kMacroFeedV4StartupPackageAdmission =
+    @Q3X_PROVENANCE_MACROFEED_V4_STARTUP_PACKAGE_ADMISSION@;
+inline constexpr bool kMacroFeedV4ExecutionEventsAdmission =
+    @Q3X_PROVENANCE_MACROFEED_V4_EXECUTION_EVENTS_ADMISSION@;
+inline constexpr bool kMacroFeedV4ExecutionPackageAdmission =
+    @Q3X_PROVENANCE_MACROFEED_V4_EXECUTION_PACKAGE_ADMISSION@;
+inline constexpr bool kMacroFeedV4NormResidualAdmission =
+    @Q3X_PROVENANCE_MACROFEED_V4_NORM_RESIDUAL_ADMISSION@;
+inline constexpr bool kMacroFeedV4Bf16AbAdmission =
+    @Q3X_PROVENANCE_MACROFEED_V4_BF16_AB_ADMISSION@;
+inline constexpr bool kMacroFeedV4Fp8Admission =
+    @Q3X_PROVENANCE_MACROFEED_V4_FP8_ADMISSION@;
+inline constexpr bool kMacroFeedV4GdnC8000Admission =
+    @Q3X_PROVENANCE_MACROFEED_V4_GDN_C8000_ADMISSION@;
+inline constexpr bool kMacroFeedV4NvFp4GateUpAdmission =
+    @Q3X_PROVENANCE_MACROFEED_V4_NVFP4_GATE_UP_ADMISSION@;
+inline constexpr bool kMacroFeedV4NvFp4DownAdmission =
+    @Q3X_PROVENANCE_MACROFEED_V4_NVFP4_DOWN_ADMISSION@;
+inline constexpr bool kTargetAotCompleteDeviceAssetsV2Admission =
+    @Q3X_PROVENANCE_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION@;
+inline constexpr char kBuildReceiptSchema[] =
+    "@Q3X_PROVENANCE_BUILD_RECEIPT_SCHEMA@";
+inline constexpr char kBuildReceiptSha256[] =
+    "@Q3X_PROVENANCE_BUILD_RECEIPT_SHA256@";
+
+}  // namespace q3x::test::sm87_macrofeed_v4_lifetime_probe_provenance

@@ -186,6 +186,9 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
         snapshot;
     snapshot.owned_bytes =
         kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes;
+    snapshot.transient_bytes = kSm87MacroFeedV4P40ExecutionTransientBytes;
+    snapshot.recurrent_bytes = kSm87MacroFeedV4RecurrentStorageBytes;
+    snapshot.lifetime_chain_sealed = construction_sealed_;
     if (startup_ != nullptr) {
       const auto& startup = startup_->audit();
       snapshot.startup_package_identity = startup.package_identity;
@@ -193,10 +196,10 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
       snapshot.startup_allocation_identity = startup.allocation_identity;
       snapshot.startup_device_identity = startup.device_identity;
       snapshot.startup_device_ordinal = startup.device_ordinal;
-      snapshot.startup_gdn_qkvz_catalog_identity =
+      snapshot.startup_complete_gdn_source_catalog_identity =
           startup.gdn_qkvz_binding_catalog_identity;
-      snapshot.startup_gdn_qkvz_binding_count =
-          startup.gdn_qkvz_bindings;
+      snapshot.startup_mlp_source_catalog_identity =
+          startup_->gate_up_startup_seal().binding_catalog_identity;
     }
     if (execution_ != nullptr) {
       const auto& execution = execution_->audit();
@@ -204,13 +207,43 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
       snapshot.execution_startup_package_identity =
           execution.startup_package_identity;
       snapshot.execution_device_ordinal = execution.device_ordinal;
-      snapshot.execution_gdn_qkvz_catalog_identity =
+      snapshot.execution_complete_gdn_catalog_identity =
           execution.gdn_qkvz_catalog_identity;
-      snapshot.execution_gdn_qkvz_binding_count =
+      snapshot.execution_complete_gdn_binding_count =
           execution.gdn_qkvz_bindings;
+      snapshot.execution_mlp_pair_catalog_identity =
+          execution.mlp_pair_catalog_identity;
+      snapshot.execution_mlp_pair_binding_count =
+          execution.mlp_pair_bindings;
+      snapshot.retained_complete_gdn_catalog_fold_identity =
+          execution.retained_gdn_layer_catalog_fold_identity;
+      snapshot.retained_mlp_pair_catalog_fold_identity =
+          execution.retained_mlp_pair_catalog_fold_identity;
+      snapshot.transient_allocation_identity =
+          execution.transient_allocation_identity;
+      snapshot.recurrent_allocation_identity =
+          execution.recurrent_allocation_identity;
+      snapshot.execution_events_owner_identity =
+          execution.execution_events_owner_identity;
+      snapshot.normal_factory_branch =
+          !execution.synthetic_t1_gdn_layer0_source &&
+          execution.gdn_qkvz_bindings ==
+              kSm87MacroFeedV4StateLayerCount &&
+          execution.mlp_pair_bindings == kSm87MacroFeedV4LayerCount;
       snapshot.synthetic_t1_gdn_layer0_source =
           execution.synthetic_t1_gdn_layer0_source;
+      snapshot.complete_gdn_layer0_bound =
+          execution.fixed_gdn_layer0_complete_bound;
+      snapshot.whole_model_executor_bound =
+          execution.whole_model_executor_bound;
+      snapshot.selector_bound = execution.selector_bound;
+      snapshot.api_route_bound = execution.api_route_bound;
+      snapshot.default_off = execution.default_off;
+      snapshot.production_dispatch_eligible =
+          execution.production_dispatch_eligible;
     }
+    snapshot.lifetime_root_identity =
+        snapshot.compute_lifetime_root_identity();
     return snapshot;
   }
 
@@ -6132,8 +6165,8 @@ struct ReferenceEngine::Impl {
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
         // This construction deliberately has no selector or API effect.  It
         // exercises only the normal real-owner factories and anchors the
-        // complete 48-GDN-QKVZ seal under the same target-AOT lifetime that
-        // already backs the default-off V3 harness.
+        // complete 48-GDN-layer plus 64-MLP-pair seals under the same
+        // target-AOT lifetime that already backs the default-off V3 harness.
         auto v4_root = sm87_macrofeed_v4_p40_execution_detail::
             Sm87MacroFeedV4P40ExecutionCompositionRoot::create(
                 *impl->model_weights);
