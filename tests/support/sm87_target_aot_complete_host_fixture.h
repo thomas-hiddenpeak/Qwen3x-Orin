@@ -397,6 +397,36 @@ bool Sm87TargetAotCompleteProjectionExecutionAccess::
 }
 
 bool Sm87TargetAotCompleteProjectionExecutionAccess::
+    install_complete_host_test_full_qk_norm_pairs(
+        ModelWeights& model_weights,
+        const Sm87TargetAotCompleteHostTestFullQkNormPair* const pairs,
+        const std::size_t pair_count) noexcept {
+  if (pairs == nullptr || pair_count != kQwen36FullAttentionLayerCount ||
+      model_weights.target_aot_complete_projection_attachment_.owner ==
+          nullptr ||
+      model_weights.target_aot_complete_projection_attachment_.owner
+              ->prepared_model_weights_ != &model_weights) {
+    return false;
+  }
+
+  for (std::size_t ordinal = 0U; ordinal < pair_count; ++ordinal) {
+    const std::size_t model_layer = 4U * ordinal + 3U;
+    if (model_layer >= kQwen36DenseLayerCount ||
+        !sm87_target_aot_complete_is_full_layer(model_layer)) {
+      return false;
+    }
+    auto* const full = std::get_if<FullAttentionWeights>(
+        &model_weights.layers_[model_layer].attention);
+    if (full == nullptr) {
+      return false;
+    }
+    full->q_norm = pairs[ordinal].q_norm;
+    full->k_norm = pairs[ordinal].k_norm;
+  }
+  return true;
+}
+
+bool Sm87TargetAotCompleteProjectionExecutionAccess::
     poison_host_test_fixture_receipt(
         Owner& owner, const std::size_t layer_index,
         const Role role) noexcept {

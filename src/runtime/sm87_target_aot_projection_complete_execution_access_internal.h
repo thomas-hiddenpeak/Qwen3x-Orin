@@ -28,6 +28,11 @@ struct Sm87TargetAotCompleteHostTestLayerNormPair final {
   Bf16VectorWeight post_attention_layernorm;
 };
 
+struct Sm87TargetAotCompleteHostTestFullQkNormPair final {
+  Bf16VectorWeight q_norm;
+  Bf16VectorWeight k_norm;
+};
+
 // Source-private immutable borrow of one artifact from the complete 256-entry
 // target-AOT catalog.  This capability neither owns nor extends the Engine
 // lifetime.  Every typed borrow revalidates the live ModelWeights attachment,
@@ -181,6 +186,10 @@ class Sm87TargetAotCompleteProjectionExecutionAccess final {
   [[nodiscard]] static bool install_complete_host_test_layer_norm_pairs(
       ModelWeights& model_weights,
       const Sm87TargetAotCompleteHostTestLayerNormPair* pairs,
+      std::size_t pair_count) noexcept;
+  [[nodiscard]] static bool install_complete_host_test_full_qk_norm_pairs(
+      ModelWeights& model_weights,
+      const Sm87TargetAotCompleteHostTestFullQkNormPair* pairs,
       std::size_t pair_count) noexcept;
   [[nodiscard]] static bool poison_host_test_fixture_receipt(
       Sm87TargetAotCompleteProjectionDeviceAssets& owner,

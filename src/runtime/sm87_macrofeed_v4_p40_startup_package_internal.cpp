@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <limits>
 #include <new>
+#include <tuple>
 #include <utility>
 #include <variant>
 
@@ -36,6 +37,8 @@ inline constexpr std::uint64_t kBf16AbCapabilityIssuerNonce =
     0x5133'4d46'5634'4243ULL;
 inline constexpr std::uint64_t kGdnQkvZSealIssuerNonce =
     0x5133'4d46'5634'4653ULL;
+inline constexpr std::uint64_t kFullAttentionSealIssuerNonce =
+    0x5133'4d46'5634'4641ULL;
 inline constexpr Role kGdnQkvZRole = Role::kFp8GdnQkvZ;
 inline constexpr kernels::Sm87MacroFeedV4Fp8InputLayout
     kGdnQkvZInputLayout = kernels::Sm87MacroFeedV4Fp8InputLayout::
@@ -56,6 +59,24 @@ inline constexpr kernels::Sm87MacroFeedV4Fp8Identity
 inline constexpr kernels::Sm87MacroFeedV4Fp8Identity
     kFullOutputTacticIdentity = kernels::Sm87MacroFeedV4Fp8Identity::
         kAttentionOutputM64N128K64OrdinaryGridV1;
+inline constexpr Role kFullQkvRole = Role::kFp8FullQkv;
+inline constexpr kernels::Sm87MacroFeedV4Fp8InputLayout
+    kFullQkvInputLayout = kernels::Sm87MacroFeedV4Fp8InputLayout::
+        kHiddenContiguousH5120V1;
+inline constexpr kernels::Sm87MacroFeedV4Fp8InputLayout
+    kFullOutputInputLayout = kernels::Sm87MacroFeedV4Fp8InputLayout::
+        kFullAttentionInterleavedQScratchV1;
+
+[[nodiscard]] constexpr std::size_t full_attention_model_layer(
+    const std::size_t full_ordinal) noexcept {
+  return 4U * full_ordinal + 3U;
+}
+
+[[nodiscard]] constexpr bool model_layer_is_full_attention(
+    const std::size_t model_layer) noexcept {
+  return model_layer < kSm87MacroFeedV4P40StartupPackageLayers &&
+         (model_layer + 1U) % 4U == 0U;
+}
 
 [[nodiscard]] constexpr std::size_t gdn_model_layer(
     const std::size_t gdn_ordinal) noexcept {
@@ -285,6 +306,114 @@ struct GdnContinuationSource final {
   identity = mix(identity, post_attention_layernorm_identity);
   identity = mix(identity, epsilon_fp32_bits);
   return identity == 0U ? 0x5133'4d46'4e50'4149ULL : identity;
+}
+
+struct FullAttentionQkNormSource final {
+  const std::uint16_t* q_norm = nullptr;
+  const std::uint16_t* k_norm = nullptr;
+};
+
+[[nodiscard, maybe_unused]] bool exact_full_attention_qk_norm_source(
+    const ModelWeights& model_weights, const std::size_t model_layer,
+    FullAttentionQkNormSource* const source) noexcept {
+  if (source == nullptr || !model_layer_is_full_attention(model_layer)) {
+    return false;
+  }
+  *source = {};
+  const auto* const full = std::get_if<FullAttentionWeights>(
+      &model_weights.layer(model_layer).attention);
+  constexpr std::uintptr_t kNormBytes = static_cast<std::uintptr_t>(
+      kernels::kSm87MacroFeedV4FullAttentionPreprocessNormWeightBytes);
+  if (full == nullptr || full->q_norm.data == nullptr ||
+      full->k_norm.data == nullptr ||
+      full->q_norm.element_count !=
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessHeadDimension ||
+      full->k_norm.element_count !=
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessHeadDimension ||
+      reinterpret_cast<std::uintptr_t>(full->q_norm.data) %
+              kernels::kSm87MacroFeedV4FullAttentionPreprocessPointerAlignment !=
+          0U ||
+      reinterpret_cast<std::uintptr_t>(full->k_norm.data) %
+              kernels::kSm87MacroFeedV4FullAttentionPreprocessPointerAlignment !=
+          0U ||
+      full->q_norm.data == full->k_norm.data) {
+    return false;
+  }
+  const std::uintptr_t q_begin =
+      reinterpret_cast<std::uintptr_t>(full->q_norm.data);
+  const std::uintptr_t k_begin =
+      reinterpret_cast<std::uintptr_t>(full->k_norm.data);
+  if (q_begin > std::numeric_limits<std::uintptr_t>::max() - kNormBytes ||
+      k_begin > std::numeric_limits<std::uintptr_t>::max() - kNormBytes) {
+    return false;
+  }
+  const std::uintptr_t q_end = q_begin + kNormBytes;
+  const std::uintptr_t k_end = k_begin + kNormBytes;
+  if (!(q_end <= k_begin || k_end <= q_begin)) {
+    return false;
+  }
+  source->q_norm = full->q_norm.data;
+  source->k_norm = full->k_norm.data;
+  return true;
+}
+
+[[nodiscard, maybe_unused]] std::uint64_t
+full_attention_qk_norm_tensor_identity(
+    const std::uint64_t package_or_source_domain,
+    const std::uint64_t deployment_plan_identity,
+    const std::uint64_t device_identity, const std::int32_t device_ordinal,
+    const std::size_t full_ordinal, const std::size_t model_layer,
+    const bool k_norm, const std::uint16_t* const weight) noexcept {
+  constexpr std::size_t kElements =
+      kernels::kSm87MacroFeedV4FullAttentionPreprocessHeadDimension;
+  constexpr std::uint64_t kBytes =
+      kernels::kSm87MacroFeedV4FullAttentionPreprocessNormWeightBytes;
+  if (package_or_source_domain == 0U || deployment_plan_identity == 0U ||
+      device_identity == 0U || device_ordinal < 0 ||
+      full_ordinal >= kSm87MacroFeedV4P40StartupPackageFullLayers ||
+      model_layer != full_attention_model_layer(full_ordinal) ||
+      !model_layer_is_full_attention(model_layer) || weight == nullptr ||
+      reinterpret_cast<std::uintptr_t>(weight) %
+              kernels::kSm87MacroFeedV4FullAttentionPreprocessPointerAlignment !=
+          0U) {
+    return 0U;
+  }
+  std::uint64_t identity = k_norm ? 0x5133'4d46'464b'4e4dULL
+                                  : 0x5133'4d46'4651'4e4dULL;
+  identity = mix(identity, package_or_source_domain);
+  identity = mix(identity, deployment_plan_identity);
+  identity = mix(identity, device_identity);
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(device_ordinal + 1));
+  identity = mix(identity, full_ordinal + 1U);
+  identity = mix(identity, model_layer + 1U);
+  identity = mix(identity, k_norm ? 2U : 1U);
+  identity = mix(identity, reinterpret_cast<std::uintptr_t>(weight));
+  identity = mix(identity, kElements);
+  identity = mix(identity, kBytes);
+  return identity == 0U
+             ? (k_norm ? 0x5133'4d46'464b'4e4dULL
+                       : 0x5133'4d46'4651'4e4dULL)
+             : identity;
+}
+
+[[nodiscard, maybe_unused]] std::uint64_t
+full_attention_qk_norm_pair_identity(
+    const std::size_t full_ordinal, const std::size_t model_layer,
+    const std::uint64_t q_norm_identity,
+    const std::uint64_t k_norm_identity) noexcept {
+  if (full_ordinal >= kSm87MacroFeedV4P40StartupPackageFullLayers ||
+      model_layer != full_attention_model_layer(full_ordinal) ||
+      q_norm_identity == 0U || k_norm_identity == 0U ||
+      q_norm_identity == k_norm_identity) {
+    return 0U;
+  }
+  std::uint64_t identity = 0x5133'4d46'4651'4b50ULL;
+  identity = mix(identity, full_ordinal + 1U);
+  identity = mix(identity, model_layer + 1U);
+  identity = mix(identity, q_norm_identity);
+  identity = mix(identity, k_norm_identity);
+  return identity == 0U ? 0x5133'4d46'4651'4b50ULL : identity;
 }
 
 template <typename UploadReceipt>
@@ -568,6 +697,168 @@ template <typename UploadReceipt>
   return identity;
 }
 
+[[nodiscard]] constexpr bool full_preprocess_resource_equal(
+    const kernels::Sm87MacroFeedV4FullAttentionPreprocessAdmissionResourceSnapshot&
+        left,
+    const kernels::Sm87MacroFeedV4FullAttentionPreprocessAdmissionResourceSnapshot&
+        right) noexcept {
+  return left.identity == right.identity &&
+         left.device_ordinal == right.device_ordinal &&
+         left.compute_major == right.compute_major &&
+         left.compute_minor == right.compute_minor &&
+         left.sm_count == right.sm_count &&
+         left.binary_version == right.binary_version &&
+         left.kernel.registers_per_thread ==
+             right.kernel.registers_per_thread &&
+         left.kernel.static_shared_bytes == right.kernel.static_shared_bytes &&
+         left.kernel.local_bytes == right.kernel.local_bytes &&
+         left.kernel.maximum_threads_per_block ==
+             right.kernel.maximum_threads_per_block &&
+         left.kernel.active_blocks_per_sm ==
+             right.kernel.active_blocks_per_sm &&
+         left.kernel.threads_per_block == right.kernel.threads_per_block &&
+         left.kernel.grid_x == right.kernel.grid_x &&
+         left.kernel.grid_y == right.kernel.grid_y &&
+         left.kernel.physical_grid_ctas ==
+             right.kernel.physical_grid_ctas &&
+         left.kernel_compiled == right.kernel_compiled &&
+         left.exact_geometry == right.exact_geometry &&
+         left.static_resource_gate_passed ==
+             right.static_resource_gate_passed &&
+         left.numerical_contract_qualified ==
+             right.numerical_contract_qualified &&
+         left.production_dispatch_eligible ==
+             right.production_dispatch_eligible &&
+         left.startup_package_unbound == right.startup_package_unbound &&
+         left.execution_capability == right.execution_capability &&
+         left.caller_snapshot_grants_production_authority ==
+             right.caller_snapshot_grants_production_authority;
+}
+
+[[nodiscard, maybe_unused]] std::uint64_t mix_full_preprocess_resource(
+    std::uint64_t identity,
+    const kernels::Sm87MacroFeedV4FullAttentionPreprocessAdmissionResourceSnapshot&
+        resources) noexcept {
+  identity = mix(identity, static_cast<std::uint64_t>(resources.identity));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(resources.device_ordinal + 1));
+  identity = mix(identity, static_cast<std::uint64_t>(resources.compute_major));
+  identity = mix(identity, static_cast<std::uint64_t>(resources.compute_minor));
+  identity = mix(identity, static_cast<std::uint64_t>(resources.sm_count));
+  identity = mix(identity, static_cast<std::uint64_t>(resources.binary_version));
+  identity = mix(
+      identity,
+      static_cast<std::uint64_t>(resources.kernel.registers_per_thread));
+  identity = mix(identity, resources.kernel.static_shared_bytes);
+  identity = mix(identity, resources.kernel.local_bytes);
+  identity = mix(identity, static_cast<std::uint64_t>(
+                               resources.kernel.maximum_threads_per_block));
+  identity = mix(identity, static_cast<std::uint64_t>(
+                               resources.kernel.active_blocks_per_sm));
+  identity = mix(identity, static_cast<std::uint64_t>(
+                               resources.kernel.threads_per_block));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(resources.kernel.grid_x));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(resources.kernel.grid_y));
+  identity = mix(identity, static_cast<std::uint64_t>(
+                               resources.kernel.physical_grid_ctas));
+  identity = mix(identity, resources.kernel_compiled);
+  identity = mix(identity, resources.exact_geometry);
+  identity = mix(identity, resources.static_resource_gate_passed);
+  identity = mix(identity, resources.numerical_contract_qualified);
+  identity = mix(identity, resources.production_dispatch_eligible);
+  identity = mix(identity, resources.startup_package_unbound);
+  identity = mix(identity, resources.execution_capability);
+  identity = mix(
+      identity, resources.caller_snapshot_grants_production_authority);
+  return identity;
+}
+
+[[nodiscard]] constexpr bool full_attention_resource_equal(
+    const kernels::Sm87MacroFeedV4AttentionC8000AdmissionResourceSnapshot&
+        left,
+    const kernels::Sm87MacroFeedV4AttentionC8000AdmissionResourceSnapshot&
+        right) noexcept {
+  return left.identity == right.identity &&
+         left.device_ordinal == right.device_ordinal &&
+         left.compute_major == right.compute_major &&
+         left.compute_minor == right.compute_minor &&
+         left.sm_count == right.sm_count &&
+         left.binary_version == right.binary_version &&
+         left.kernel.registers_per_thread ==
+             right.kernel.registers_per_thread &&
+         left.kernel.static_shared_bytes == right.kernel.static_shared_bytes &&
+         left.kernel.dynamic_shared_bytes ==
+             right.kernel.dynamic_shared_bytes &&
+         left.kernel.local_bytes == right.kernel.local_bytes &&
+         left.kernel.maximum_threads_per_block ==
+             right.kernel.maximum_threads_per_block &&
+         left.kernel.active_blocks_per_sm ==
+             right.kernel.active_blocks_per_sm &&
+         left.kernel.threads_per_block == right.kernel.threads_per_block &&
+         left.kernel.grid_x == right.kernel.grid_x &&
+         left.kernel.grid_y == right.kernel.grid_y &&
+         left.kernel.grid_z == right.kernel.grid_z &&
+         left.kernel.physical_grid_ctas ==
+             right.kernel.physical_grid_ctas &&
+         left.kernel_compiled == right.kernel_compiled &&
+         left.exact_geometry == right.exact_geometry &&
+         left.static_resource_gate_passed ==
+             right.static_resource_gate_passed &&
+         left.numerical_contract_qualified ==
+             right.numerical_contract_qualified &&
+         left.production_dispatch_eligible ==
+             right.production_dispatch_eligible &&
+         left.startup_package_unbound == right.startup_package_unbound &&
+         left.execution_capability == right.execution_capability &&
+         left.caller_snapshot_grants_production_authority ==
+             right.caller_snapshot_grants_production_authority;
+}
+
+[[nodiscard, maybe_unused]] std::uint64_t mix_full_attention_resource(
+    std::uint64_t identity,
+    const kernels::Sm87MacroFeedV4AttentionC8000AdmissionResourceSnapshot&
+        resources) noexcept {
+  identity = mix(identity, static_cast<std::uint64_t>(resources.identity));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(resources.device_ordinal + 1));
+  identity = mix(identity, static_cast<std::uint64_t>(resources.compute_major));
+  identity = mix(identity, static_cast<std::uint64_t>(resources.compute_minor));
+  identity = mix(identity, static_cast<std::uint64_t>(resources.sm_count));
+  identity = mix(identity, static_cast<std::uint64_t>(resources.binary_version));
+  identity = mix(
+      identity,
+      static_cast<std::uint64_t>(resources.kernel.registers_per_thread));
+  identity = mix(identity, resources.kernel.static_shared_bytes);
+  identity = mix(identity, resources.kernel.dynamic_shared_bytes);
+  identity = mix(identity, resources.kernel.local_bytes);
+  identity = mix(identity, static_cast<std::uint64_t>(
+                               resources.kernel.maximum_threads_per_block));
+  identity = mix(identity, static_cast<std::uint64_t>(
+                               resources.kernel.active_blocks_per_sm));
+  identity = mix(identity, static_cast<std::uint64_t>(
+                               resources.kernel.threads_per_block));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(resources.kernel.grid_x));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(resources.kernel.grid_y));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(resources.kernel.grid_z));
+  identity = mix(identity, static_cast<std::uint64_t>(
+                               resources.kernel.physical_grid_ctas));
+  identity = mix(identity, resources.kernel_compiled);
+  identity = mix(identity, resources.exact_geometry);
+  identity = mix(identity, resources.static_resource_gate_passed);
+  identity = mix(identity, resources.numerical_contract_qualified);
+  identity = mix(identity, resources.production_dispatch_eligible);
+  identity = mix(identity, resources.startup_package_unbound);
+  identity = mix(identity, resources.execution_capability);
+  identity = mix(
+      identity, resources.caller_snapshot_grants_production_authority);
+  return identity;
+}
+
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_STARTUP_PACKAGE_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_TARGET_AOT_COMPLETE_DEVICE_ASSETS_V2_ADMISSION) && \
     defined(Q3X_ENABLE_SM87_MACROFEED_V4_BF16_AB_ADMISSION) && \
@@ -784,6 +1075,62 @@ template <typename UploadReceipt>
   return identity == 0U ? 0x5133'4d46'5634'4653ULL : identity;
 }
 
+[[nodiscard]] std::uint64_t full_attention_source_seal_identity(
+    const Sm87MacroFeedV4FullAttentionStartupSeal& seal) noexcept {
+  if (seal.package_identity == 0U ||
+      seal.deployment_plan_identity == 0U ||
+      seal.source_catalog_identity == 0U ||
+      seal.binding_count != kSm87MacroFeedV4P40StartupPackageFullLayers ||
+      seal.qkv_role != kFullQkvRole ||
+      seal.qkv_input_layout != kFullQkvInputLayout ||
+      seal.qkv_tactic_identity != kFullQkvTacticIdentity ||
+      seal.output_role != kAttentionOutputRole ||
+      seal.output_input_layout != kFullOutputInputLayout ||
+      seal.output_tactic_identity != kFullOutputTacticIdentity ||
+      seal.q_norm_elements !=
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessHeadDimension ||
+      seal.k_norm_elements !=
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessHeadDimension ||
+      seal.norm_weight_bytes !=
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessNormWeightBytes ||
+      !seal.canonical_natural_full_layer_order ||
+      !seal.role_layout_and_tactics_fixed ||
+      !seal.qk_norm_exact_shapes || !seal.qk_norm_live_device_ranges ||
+      !seal.typed_asset_values_private ||
+      !seal.observed_resource_execution_seal_deferred ||
+      seal.caller_resource_snapshot_accepted || seal.raw_pointer_exposed ||
+      seal.launcher_authority || seal.production_dispatch_eligible) {
+    return 0U;
+  }
+  std::uint64_t identity = 0x5133'4d46'4655'4c53ULL;
+  identity = mix(identity, seal.package_identity);
+  identity = mix(identity, seal.deployment_plan_identity);
+  identity = mix(identity, seal.source_catalog_identity);
+  identity = mix(identity, seal.binding_count);
+  identity = mix(identity, static_cast<std::uint64_t>(seal.qkv_role));
+  identity = mix(identity, static_cast<std::uint64_t>(seal.qkv_input_layout));
+  identity = mix(identity, static_cast<std::uint64_t>(seal.qkv_tactic_identity));
+  identity = mix(identity, static_cast<std::uint64_t>(seal.output_role));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(seal.output_input_layout));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(seal.output_tactic_identity));
+  identity = mix(identity, seal.q_norm_elements);
+  identity = mix(identity, seal.k_norm_elements);
+  identity = mix(identity, seal.norm_weight_bytes);
+  identity = mix(identity, seal.canonical_natural_full_layer_order);
+  identity = mix(identity, seal.role_layout_and_tactics_fixed);
+  identity = mix(identity, seal.qk_norm_exact_shapes);
+  identity = mix(identity, seal.qk_norm_live_device_ranges);
+  identity = mix(identity, seal.typed_asset_values_private);
+  identity = mix(identity, seal.observed_resource_execution_seal_deferred);
+  identity = mix(identity, seal.caller_resource_snapshot_accepted);
+  identity = mix(identity, seal.raw_pointer_exposed);
+  identity = mix(identity, seal.launcher_authority);
+  identity = mix(identity, seal.production_dispatch_eligible);
+  return identity == 0U ? 0x5133'4d46'4655'4c53ULL : identity;
+}
+
 }  // namespace
 
 Sm87MacroFeedV4Bf16AbT0InventoryAudit
@@ -890,6 +1237,12 @@ bool Sm87MacroFeedV4Bf16AbStartupSeal::valid() const noexcept {
 bool Sm87MacroFeedV4GdnQkvZStartupSeal::valid() const noexcept {
   return issuer_nonce_ == kGdnQkvZSealIssuerNonce &&
          seal_identity != 0U && seal_identity == gdn_qkvz_seal_identity(*this);
+}
+
+bool Sm87MacroFeedV4FullAttentionStartupSeal::valid() const noexcept {
+  return issuer_nonce_ == kFullAttentionSealIssuerNonce &&
+         seal_identity != 0U &&
+         seal_identity == full_attention_source_seal_identity(*this);
 }
 
 Sm87MacroFeedV4P40StartupPackage::Bf16AbStartupCapability::
@@ -1822,6 +2175,197 @@ std::uint64_t Sm87MacroFeedV4P40StartupPackage::
   return identity == 0U ? 0x5133'4d46'4d4c'5043ULL : identity;
 }
 
+std::uint64_t Sm87MacroFeedV4P40StartupPackage::
+    compute_full_attention_source_catalog_identity(
+        const ProjectionAccess& access,
+        const std::array<AssetCapability,
+                         kSm87MacroFeedV4P40StartupPackageArtifacts>&
+            capabilities,
+        const std::uint64_t plan_identity,
+        const ModelWeights& model_weights,
+        std::size_t* const failure_ordinal,
+        bool* const failure_k_norm,
+        int* const cuda_error) noexcept {
+  if (failure_ordinal != nullptr) {
+    *failure_ordinal = kSm87MacroFeedV4P40StartupPackageFullLayers;
+  }
+  if (failure_k_norm != nullptr) {
+    *failure_k_norm = false;
+  }
+  if (cuda_error != nullptr) {
+    *cuda_error = 0;
+  }
+  if (!access.attached() || access.owner_identity() == 0U ||
+      access.allocation_identity() == 0U || access.catalog_identity() == 0U ||
+      access.device_identity() == 0U || access.device_ordinal() < 0 ||
+      plan_identity == 0U) {
+    if (failure_ordinal != nullptr) {
+      *failure_ordinal = 0U;
+    }
+    return 0U;
+  }
+
+  constexpr std::uint64_t kNormBytes =
+      kernels::kSm87MacroFeedV4FullAttentionPreprocessNormWeightBytes;
+  std::array<std::uintptr_t,
+             2U * kSm87MacroFeedV4P40StartupPackageFullLayers>
+      norm_begins{};
+  std::array<std::uintptr_t,
+             2U * kSm87MacroFeedV4P40StartupPackageFullLayers>
+      norm_ends{};
+  std::uint64_t identity = 0x5133'4d46'4653'4341ULL;
+  identity = mix(identity, access.owner_identity());
+  identity = mix(identity, access.allocation_identity());
+  identity = mix(identity, access.catalog_identity());
+  identity = mix(identity, access.device_identity());
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(access.device_ordinal() + 1));
+  identity = mix(identity, plan_identity);
+  identity = mix(identity, kSm87MacroFeedV4P40StartupPackageFullLayers);
+  identity = mix(identity, static_cast<std::uint64_t>(kFullQkvRole));
+  identity = mix(identity, static_cast<std::uint64_t>(kFullQkvInputLayout));
+  identity = mix(identity, static_cast<std::uint64_t>(kFullQkvTacticIdentity));
+  identity = mix(identity, static_cast<std::uint64_t>(kAttentionOutputRole));
+  identity = mix(identity, static_cast<std::uint64_t>(kFullOutputInputLayout));
+  identity = mix(identity,
+                 static_cast<std::uint64_t>(kFullOutputTacticIdentity));
+
+  for (std::size_t ordinal = 0U;
+       ordinal < kSm87MacroFeedV4P40StartupPackageFullLayers; ++ordinal) {
+    const auto fail = [&](const bool k_norm, const int error = 0) noexcept {
+      if (failure_ordinal != nullptr) {
+        *failure_ordinal = ordinal;
+      }
+      if (failure_k_norm != nullptr) {
+        *failure_k_norm = k_norm;
+      }
+      if (cuda_error != nullptr) {
+        *cuda_error = error;
+      }
+      return std::uint64_t{0U};
+    };
+    const std::size_t model_layer = full_attention_model_layer(ordinal);
+    if (!model_layer_is_full_attention(model_layer)) {
+      return fail(false);
+    }
+    identity = mix(identity, ordinal + 1U);
+    identity = mix(identity, model_layer + 1U);
+    for (const auto& [role, layout, tactic] :
+         {std::tuple<Role, kernels::Sm87MacroFeedV4Fp8InputLayout,
+                     kernels::Sm87MacroFeedV4Fp8Identity>{
+              kFullQkvRole, kFullQkvInputLayout, kFullQkvTacticIdentity},
+          std::tuple<Role, kernels::Sm87MacroFeedV4Fp8InputLayout,
+                     kernels::Sm87MacroFeedV4Fp8Identity>{
+              kAttentionOutputRole, kFullOutputInputLayout,
+              kFullOutputTacticIdentity}}) {
+      const std::size_t index =
+          sm87_target_aot_complete_descriptor_ordinal(model_layer, role);
+      if (index >= capabilities.size()) {
+        return fail(false);
+      }
+      const auto& capability = capabilities[index];
+      const auto packed_layout =
+          kernels::sm87_target_aot_projection_packed_layout(role);
+      const auto* const asset = capability.asset
+                                    ? capability.asset->borrow_fp8_cuda_asset()
+                                    : nullptr;
+      const std::uint64_t asset_identity =
+          asset == nullptr ? 0U
+                           : compute_gdn_qkvz_asset_value_identity(*asset);
+      if (!packed_layout.valid() || asset_identity == 0U ||
+          capability.asset->borrow_nvfp4_cuda_asset() != nullptr ||
+          capability.layer_index != model_layer || capability.role != role ||
+          capability.encoding != packed_layout.encoding ||
+          capability.payload_bytes != packed_layout.payload_bytes ||
+          capability.source_count != packed_layout.partition_count ||
+          asset->payload.role != role ||
+          asset->artifact_identity != capability.artifact_identity ||
+          asset->source_inventory_identity !=
+              capability.source_inventory_identity ||
+          asset->host_manifest_seal.value != capability.manifest_seal ||
+          asset->device_upload_receipt.receipt_identity !=
+              capability.upload_receipt_identity ||
+          asset->host_payload_digest != capability.payload_digest ||
+          asset->payload.begin != capability.payload_begin ||
+          asset->payload.end != capability.payload_end ||
+          asset->payload.bytes != capability.payload_bytes ||
+          asset->tensor_scale_count != capability.source_count ||
+          expected_consumer_tactic_identity(model_layer, role) !=
+              static_cast<std::uint64_t>(tactic) ||
+          !authenticated_upload_complete(
+              asset->device_upload_receipt, access.owner_identity(),
+              access.allocation_identity(), access.device_ordinal(),
+              asset->payload.begin, asset->payload.end,
+              asset->payload.bytes)) {
+        return fail(false);
+      }
+      for (std::size_t source = 0U; source < capability.source_count;
+           ++source) {
+        if (asset->tensor_scale_bits[source] !=
+            capability.tensor_scale_bits[source]) {
+          return fail(false);
+        }
+      }
+      identity = mix(identity, static_cast<std::uint64_t>(role));
+      identity = mix(identity, static_cast<std::uint64_t>(layout));
+      identity = mix(identity, static_cast<std::uint64_t>(tactic));
+      identity = mix(identity, asset_identity);
+    }
+
+    FullAttentionQkNormSource norms;
+    if (!exact_full_attention_qk_norm_source(model_weights, model_layer,
+                                             &norms)) {
+      return fail(false);
+    }
+    const std::array<const std::uint16_t*, 2U> weights{{norms.q_norm,
+                                                        norms.k_norm}};
+    std::array<std::uint64_t, 2U> norm_identities{};
+    for (std::size_t norm_index = 0U; norm_index < weights.size();
+         ++norm_index) {
+      int range_error = 0;
+      if (!live_current_device_allocation_range(
+              weights[norm_index], kNormBytes, access.device_ordinal(),
+              &range_error)) {
+        return fail(norm_index == 1U, range_error);
+      }
+      const std::size_t flat = 2U * ordinal + norm_index;
+      const std::uintptr_t begin =
+          reinterpret_cast<std::uintptr_t>(weights[norm_index]);
+      if (begin > std::numeric_limits<std::uintptr_t>::max() - kNormBytes) {
+        return fail(norm_index == 1U,
+                    static_cast<int>(cudaErrorInvalidValue));
+      }
+      norm_begins[flat] = begin;
+      norm_ends[flat] = begin + kNormBytes;
+      for (std::size_t earlier = 0U; earlier < flat; ++earlier) {
+        if (!(norm_ends[earlier] <= norm_begins[flat] ||
+              norm_ends[flat] <= norm_begins[earlier])) {
+          return fail(norm_index == 1U,
+                      static_cast<int>(cudaErrorInvalidValue));
+        }
+      }
+      norm_identities[norm_index] =
+          full_attention_qk_norm_tensor_identity(
+              0x5133'4d46'4653'4e44ULL, plan_identity,
+              access.device_identity(), access.device_ordinal(), ordinal,
+              model_layer, norm_index == 1U, weights[norm_index]);
+      if (norm_identities[norm_index] == 0U) {
+        return fail(norm_index == 1U);
+      }
+    }
+    const std::uint64_t pair_identity =
+        full_attention_qk_norm_pair_identity(
+            ordinal, model_layer, norm_identities[0], norm_identities[1]);
+    if (pair_identity == 0U) {
+      return fail(false);
+    }
+    identity = mix(identity, norm_identities[0]);
+    identity = mix(identity, norm_identities[1]);
+    identity = mix(identity, pair_identity);
+  }
+  return identity == 0U ? 0x5133'4d46'4653'4341ULL : identity;
+}
+
 std::uint64_t Sm87MacroFeedV4P40StartupPackage::compute_package_identity(
     const ProjectionAccess& access,
     const std::array<AssetCapability,
@@ -1835,6 +2379,7 @@ std::uint64_t Sm87MacroFeedV4P40StartupPackage::compute_package_identity(
         bf16_ab,
     const std::uint64_t mlp_pair_binding_catalog_identity,
     const std::uint64_t gdn_qkvz_binding_catalog_identity,
+    const std::uint64_t full_attention_source_catalog_identity,
     const kernels::Sm87MacroFeedV4Fp8CudaResources& gdn_qkvz,
     const kernels::Sm87MacroFeedV4Fp8CudaResources& gdn_output,
     const std::size_t sources) noexcept {
@@ -1847,6 +2392,7 @@ std::uint64_t Sm87MacroFeedV4P40StartupPackage::compute_package_identity(
       plan_identity == 0U || bf16_ab_binding_catalog_identity == 0U ||
       mlp_pair_binding_catalog_identity == 0U ||
       gdn_qkvz_binding_catalog_identity == 0U ||
+      full_attention_source_catalog_identity == 0U ||
       sources != kSm87MacroFeedV4P40StartupPackageSources ||
       !gate_up.static_resource_gate_passed ||
       !down.static_resource_gate_passed ||
@@ -1890,6 +2436,7 @@ std::uint64_t Sm87MacroFeedV4P40StartupPackage::compute_package_identity(
   identity = mix(identity, bf16_ab_binding_catalog_identity);
   identity = mix(identity, mlp_pair_binding_catalog_identity);
   identity = mix(identity, gdn_qkvz_binding_catalog_identity);
+  identity = mix(identity, full_attention_source_catalog_identity);
   for (std::size_t index = 0U; index < capabilities.size(); ++index) {
     const auto& capability = capabilities[index];
     if (!capability.asset || capability.artifact_identity == 0U ||
@@ -1980,6 +2527,7 @@ Sm87MacroFeedV4P40StartupPackage::mint_startup_seals(
         bf16_ab,
     const std::uint64_t mlp_pair_binding_catalog_identity,
     const std::uint64_t gdn_qkvz_binding_catalog_identity,
+    const std::uint64_t full_attention_source_catalog_identity,
     const kernels::Sm87MacroFeedV4Fp8CudaResources& gdn_qkvz,
     const kernels::Sm87MacroFeedV4Fp8CudaResources& gdn_output) noexcept {
   StartupSeals seals;
@@ -2055,6 +2603,38 @@ Sm87MacroFeedV4P40StartupPackage::mint_startup_seals(
   seals.gdn_qkvz.issuer_nonce_ = kGdnQkvZSealIssuerNonce;
   seals.gdn_qkvz.seal_identity =
       gdn_qkvz_seal_identity(seals.gdn_qkvz);
+
+  seals.full_attention.package_identity = package_identity;
+  seals.full_attention.deployment_plan_identity = plan_identity;
+  seals.full_attention.source_catalog_identity =
+      full_attention_source_catalog_identity;
+  seals.full_attention.binding_count =
+      kSm87MacroFeedV4P40StartupPackageFullLayers;
+  seals.full_attention.qkv_role = kFullQkvRole;
+  seals.full_attention.qkv_input_layout = kFullQkvInputLayout;
+  seals.full_attention.qkv_tactic_identity = kFullQkvTacticIdentity;
+  seals.full_attention.output_role = kAttentionOutputRole;
+  seals.full_attention.output_input_layout = kFullOutputInputLayout;
+  seals.full_attention.output_tactic_identity = kFullOutputTacticIdentity;
+  seals.full_attention.q_norm_elements =
+      kernels::kSm87MacroFeedV4FullAttentionPreprocessHeadDimension;
+  seals.full_attention.k_norm_elements =
+      kernels::kSm87MacroFeedV4FullAttentionPreprocessHeadDimension;
+  seals.full_attention.norm_weight_bytes =
+      kernels::kSm87MacroFeedV4FullAttentionPreprocessNormWeightBytes;
+  seals.full_attention.canonical_natural_full_layer_order = true;
+  seals.full_attention.role_layout_and_tactics_fixed = true;
+  seals.full_attention.qk_norm_exact_shapes = true;
+  seals.full_attention.qk_norm_live_device_ranges = true;
+  seals.full_attention.typed_asset_values_private = true;
+  seals.full_attention.observed_resource_execution_seal_deferred = true;
+  seals.full_attention.caller_resource_snapshot_accepted = false;
+  seals.full_attention.raw_pointer_exposed = false;
+  seals.full_attention.launcher_authority = false;
+  seals.full_attention.production_dispatch_eligible = false;
+  seals.full_attention.issuer_nonce_ = kFullAttentionSealIssuerNonce;
+  seals.full_attention.seal_identity =
+      full_attention_source_seal_identity(seals.full_attention);
   return seals;
 }
 
@@ -2065,15 +2645,17 @@ bool Sm87MacroFeedV4P40StartupPackage::startup_seals_valid(
   return package_identity != 0U && plan_identity != 0U &&
          device_ordinal >= 0 && seals.gate_up.valid() &&
          seals.down.valid() && seals.bf16_ab.valid() &&
-         seals.gdn_qkvz.valid() &&
+         seals.gdn_qkvz.valid() && seals.full_attention.valid() &&
          seals.gate_up.package_identity == package_identity &&
          seals.down.package_identity == package_identity &&
          seals.bf16_ab.package_identity == package_identity &&
          seals.gdn_qkvz.package_identity == package_identity &&
+         seals.full_attention.package_identity == package_identity &&
          seals.gate_up.deployment_plan_identity == plan_identity &&
          seals.down.deployment_plan_identity == plan_identity &&
          seals.bf16_ab.deployment_plan_identity == plan_identity &&
          seals.gdn_qkvz.deployment_plan_identity == plan_identity &&
+         seals.full_attention.deployment_plan_identity == plan_identity &&
          seals.gate_up.binding_catalog_identity != 0U &&
          seals.gate_up.binding_catalog_identity ==
              seals.down.binding_catalog_identity &&
@@ -2083,6 +2665,9 @@ bool Sm87MacroFeedV4P40StartupPackage::startup_seals_valid(
              kSm87MacroFeedV4P40StartupPackageLayers &&
          seals.bf16_ab.binding_catalog_identity != 0U &&
          seals.gdn_qkvz.binding_catalog_identity != 0U &&
+         seals.full_attention.source_catalog_identity != 0U &&
+         seals.full_attention.binding_count ==
+             kSm87MacroFeedV4P40StartupPackageFullLayers &&
          seals.gate_up.resources.device_ordinal == device_ordinal &&
          seals.down.resources.device_ordinal == device_ordinal &&
          seals.bf16_ab.resources.device_ordinal == device_ordinal &&
@@ -2368,16 +2953,43 @@ Sm87MacroFeedV4P40StartupPackage::build_from_private_authority(
     return result;
   }
 
+  std::size_t full_failure_ordinal =
+      kSm87MacroFeedV4P40StartupPackageFullLayers;
+  bool full_failure_k_norm = false;
+  int full_cuda_error = 0;
+  const std::uint64_t full_attention_source_catalog_identity =
+      compute_full_attention_source_catalog_identity(
+          access, capabilities, plan_identity, model_weights,
+          &full_failure_ordinal, &full_failure_k_norm, &full_cuda_error);
+  if (full_attention_source_catalog_identity == 0U) {
+    const std::size_t failure_layer =
+        full_failure_ordinal < kSm87MacroFeedV4P40StartupPackageFullLayers
+            ? full_attention_model_layer(full_failure_ordinal)
+            : kSm87MacroFeedV4P40StartupPackageLayers;
+    result.status = failure(
+        Error::kFullAttentionSourceCatalogSeal,
+        full_cuda_error == 0 ? "full_attention_source_catalog"
+                             : (full_failure_k_norm
+                                    ? "full_attention_k_norm_live_range"
+                                    : "full_attention_q_norm_live_range"),
+        full_cuda_error, failure_layer,
+        Role::kInvalid);
+    return result;
+  }
+
   const std::uint64_t package_identity = compute_package_identity(
       access, capabilities, plan, gate_up, down,
       bf16_ab_inventory.catalog_identity, bf16_ab,
       mlp_pair_binding_catalog_identity,
-      gdn_qkvz_binding_catalog_identity, gdn_qkvz, gdn_output, sources);
+      gdn_qkvz_binding_catalog_identity,
+      full_attention_source_catalog_identity, gdn_qkvz, gdn_output,
+      sources);
   StartupSeals seals = mint_startup_seals(
       package_identity, plan_identity, gate_up, down,
       bf16_ab_inventory.catalog_identity, bf16_ab,
       mlp_pair_binding_catalog_identity,
-      gdn_qkvz_binding_catalog_identity, gdn_qkvz, gdn_output);
+      gdn_qkvz_binding_catalog_identity,
+      full_attention_source_catalog_identity, gdn_qkvz, gdn_output);
   if (package_identity == 0U ||
       !startup_seals_valid(seals, package_identity, plan_identity,
                            device_ordinal)) {
@@ -2415,6 +3027,12 @@ Sm87MacroFeedV4P40StartupPackage::build_from_private_authority(
   audit.gdn_qkvz_binding_catalog_identity =
       gdn_qkvz_binding_catalog_identity;
   audit.gdn_qkvz_resource_seal_identity = seals.gdn_qkvz.seal_identity;
+  audit.full_attention_source_bindings =
+      kSm87MacroFeedV4P40StartupPackageFullLayers;
+  audit.full_attention_source_catalog_identity =
+      full_attention_source_catalog_identity;
+  audit.full_attention_source_seal_identity =
+      seals.full_attention.seal_identity;
   audit.canonical_plan_generated_internally = true;
   audit.caller_plan_accepted = false;
   audit.complete_projection_access_retained = true;
@@ -2437,6 +3055,12 @@ Sm87MacroFeedV4P40StartupPackage::build_from_private_authority(
   audit.gdn_qkvz_asset_value_snapshots_private = true;
   audit.gdn_qkvz_resource_seal_complete = true;
   audit.gdn_qkvz_raw_pointer_publicly_exposed = false;
+  audit.full_attention_natural_layer_order_complete = true;
+  audit.full_attention_role_layout_tactics_fixed = true;
+  audit.full_attention_qk_norm_shapes_exact = true;
+  audit.full_attention_qk_norm_live_device_ranges_complete = true;
+  audit.full_attention_typed_asset_values_private = true;
+  audit.full_attention_observed_resource_execution_catalog_sealed = false;
   audit.caller_raw_receipts_accepted = false;
   audit.v3_execution_identity_reused = false;
   audit.request_time_repack_jit_autotune_or_fallback_permitted = false;
@@ -2841,6 +3465,19 @@ bool Sm87MacroFeedV4P40StartupPackage::base_valid() const noexcept {
           seals_.gdn_qkvz.resources) ||
       !kernels::sm87_macrofeed_v4_fp8_resource_gate(
           seals_.gdn_qkvz.output_resources) ||
+      seals_.full_attention.binding_count !=
+          kSm87MacroFeedV4P40StartupPackageFullLayers ||
+      seals_.full_attention.source_catalog_identity !=
+          audit_.full_attention_source_catalog_identity ||
+      seals_.full_attention.seal_identity !=
+          audit_.full_attention_source_seal_identity ||
+      seals_.full_attention.qkv_role != kFullQkvRole ||
+      seals_.full_attention.qkv_input_layout != kFullQkvInputLayout ||
+      seals_.full_attention.qkv_tactic_identity != kFullQkvTacticIdentity ||
+      seals_.full_attention.output_role != kAttentionOutputRole ||
+      seals_.full_attention.output_input_layout != kFullOutputInputLayout ||
+      seals_.full_attention.output_tactic_identity !=
+          kFullOutputTacticIdentity ||
       seals_.gate_up.binding_catalog_identity == 0U ||
       seals_.gate_up.binding_catalog_identity !=
           seals_.down.binding_catalog_identity ||
@@ -2853,6 +3490,21 @@ bool Sm87MacroFeedV4P40StartupPackage::base_valid() const noexcept {
           seals_.gdn_qkvz.output_resources,
           *bf16_ab_capability_.model_weights_) !=
           audit_.gdn_qkvz_binding_catalog_identity) {
+    return false;
+  }
+
+  std::size_t full_failure_ordinal =
+      kSm87MacroFeedV4P40StartupPackageFullLayers;
+  bool full_failure_k_norm = false;
+  int full_cuda_error = 0;
+  if (compute_full_attention_source_catalog_identity(
+          projection_access_, capabilities_, plan_identity,
+          *bf16_ab_capability_.model_weights_, &full_failure_ordinal,
+          &full_failure_k_norm, &full_cuda_error) !=
+          audit_.full_attention_source_catalog_identity ||
+      full_failure_ordinal !=
+          kSm87MacroFeedV4P40StartupPackageFullLayers ||
+      full_failure_k_norm || full_cuda_error != 0) {
     return false;
   }
 
@@ -2936,6 +3588,7 @@ bool Sm87MacroFeedV4P40StartupPackage::base_valid() const noexcept {
                                         seals_.bf16_ab.resources,
                                         seals_.gate_up.binding_catalog_identity,
                                         audit_.gdn_qkvz_binding_catalog_identity,
+                                        audit_.full_attention_source_catalog_identity,
                                         seals_.gdn_qkvz.resources,
                                         seals_.gdn_qkvz.output_resources,
                                         sources);
@@ -3071,6 +3724,215 @@ std::uint64_t Sm87MacroFeedV4P40StartupPackage::
   identity = mix(identity, binding.launcher_authority);
   identity = mix(identity, binding.production_dispatch_eligible);
   return identity == 0U ? 0x5133'4d46'4742'4e44ULL : identity;
+}
+
+std::uint64_t Sm87MacroFeedV4P40StartupPackage::
+    compute_full_attention_resource_bundle_identity(
+        const FullAttentionExecutionResourceObservations& observations,
+        const std::uint64_t package_identity,
+        const std::uint64_t deployment_plan_identity,
+        const std::uint64_t device_identity,
+        const std::int32_t device_ordinal) noexcept {
+  if (package_identity == 0U || deployment_plan_identity == 0U ||
+      device_identity == 0U || device_ordinal < 0 ||
+      !observations.source_private_queries_completed ||
+      observations.caller_resource_snapshot_accepted ||
+      observations.qkv.role != kFullQkvRole ||
+      observations.qkv.input_layout != kFullQkvInputLayout ||
+      observations.qkv.identity != kFullQkvTacticIdentity ||
+      observations.output.role != kAttentionOutputRole ||
+      observations.output.input_layout != kFullOutputInputLayout ||
+      observations.output.identity != kFullOutputTacticIdentity ||
+      observations.qkv.device_ordinal != device_ordinal ||
+      observations.output.device_ordinal != device_ordinal ||
+      observations.preprocess.device_ordinal != device_ordinal ||
+      observations.attention.device_ordinal != device_ordinal ||
+      !observations.qkv.static_resource_gate_passed ||
+      !observations.output.static_resource_gate_passed ||
+      !kernels::sm87_macrofeed_v4_fp8_resource_gate(observations.qkv) ||
+      !kernels::sm87_macrofeed_v4_fp8_resource_gate(observations.output) ||
+      !kernels::
+          sm87_macrofeed_v4_full_attention_preprocess_admission_resource_gate(
+              observations.preprocess) ||
+      !kernels::sm87_macrofeed_v4_attention_c8000_admission_resource_gate(
+          observations.attention)) {
+    return 0U;
+  }
+  std::uint64_t identity = 0x5133'4d46'4652'5342ULL;
+  identity = mix(identity, package_identity);
+  identity = mix(identity, deployment_plan_identity);
+  identity = mix(identity, device_identity);
+  identity = mix(identity, static_cast<std::uint64_t>(device_ordinal + 1));
+  identity = mix_fp8_resource(identity, observations.qkv);
+  identity = mix_fp8_resource(identity, observations.output);
+  identity = mix_full_preprocess_resource(identity, observations.preprocess);
+  identity = mix_full_attention_resource(identity, observations.attention);
+  identity = mix(identity, observations.source_private_queries_completed);
+  identity = mix(identity, observations.caller_resource_snapshot_accepted);
+  return identity == 0U ? 0x5133'4d46'4652'5342ULL : identity;
+}
+
+std::uint64_t Sm87MacroFeedV4P40StartupPackage::
+    compute_full_attention_qkv_execution_binding_identity(
+        const FullAttentionQkvExecutionBinding& binding,
+        const FullAttentionLayerExecutionBinding& owner) noexcept {
+  const auto& upload = binding.asset.device_upload_receipt;
+  const std::uint64_t asset_identity =
+      compute_gdn_qkvz_asset_value_identity(binding.asset);
+  if (owner.full_ordinal >= kSm87MacroFeedV4P40StartupPackageFullLayers ||
+      owner.model_layer != full_attention_model_layer(owner.full_ordinal) ||
+      binding.role != kFullQkvRole ||
+      binding.input_layout != kFullQkvInputLayout ||
+      binding.tactic_identity != kFullQkvTacticIdentity ||
+      binding.resources.role != kFullQkvRole ||
+      binding.resources.input_layout != kFullQkvInputLayout ||
+      binding.resources.identity != kFullQkvTacticIdentity ||
+      !fp8_resource_equal(binding.resources, owner.qkv.resources) ||
+      !kernels::sm87_macrofeed_v4_fp8_resource_gate(binding.resources) ||
+      binding.projection_binding_identity == 0U || asset_identity == 0U ||
+      binding.asset_value_identity != asset_identity ||
+      binding.asset.payload.role != kFullQkvRole ||
+      upload.role != kFullQkvRole ||
+      upload.device_allocation_owner_identity != owner.owner_identity ||
+      upload.device_allocation_identity != owner.allocation_identity ||
+      upload.device_ordinal != binding.resources.device_ordinal ||
+      !binding.live_cuda_payload_range_validated) {
+    return 0U;
+  }
+  std::uint64_t identity = 0x5133'4d46'4651'4b42ULL;
+  identity = mix(identity, owner.full_ordinal + 1U);
+  identity = mix(identity, owner.model_layer + 1U);
+  identity = mix(identity, static_cast<std::uint64_t>(binding.role));
+  identity = mix(identity, static_cast<std::uint64_t>(binding.input_layout));
+  identity = mix(identity, static_cast<std::uint64_t>(binding.tactic_identity));
+  identity = mix(identity, binding.projection_binding_identity);
+  identity = mix(identity, binding.asset_value_identity);
+  identity = mix_fp8_resource(identity, binding.resources);
+  identity = mix(identity, binding.live_cuda_payload_range_validated);
+  return identity == 0U ? 0x5133'4d46'4651'4b42ULL : identity;
+}
+
+std::uint64_t Sm87MacroFeedV4P40StartupPackage::
+    compute_full_attention_output_execution_binding_identity(
+        const FullAttentionOutputExecutionBinding& binding,
+        const FullAttentionLayerExecutionBinding& owner) noexcept {
+  const auto& upload = binding.asset.device_upload_receipt;
+  const std::uint64_t asset_identity =
+      compute_gdn_qkvz_asset_value_identity(binding.asset);
+  if (owner.full_ordinal >= kSm87MacroFeedV4P40StartupPackageFullLayers ||
+      owner.model_layer != full_attention_model_layer(owner.full_ordinal) ||
+      binding.role != kAttentionOutputRole ||
+      binding.input_layout != kFullOutputInputLayout ||
+      binding.tactic_identity != kFullOutputTacticIdentity ||
+      binding.resources.role != kAttentionOutputRole ||
+      binding.resources.input_layout != kFullOutputInputLayout ||
+      binding.resources.identity != kFullOutputTacticIdentity ||
+      !fp8_resource_equal(binding.resources, owner.output.resources) ||
+      !kernels::sm87_macrofeed_v4_fp8_resource_gate(binding.resources) ||
+      binding.projection_binding_identity == 0U || asset_identity == 0U ||
+      binding.asset_value_identity != asset_identity ||
+      binding.asset.payload.role != kAttentionOutputRole ||
+      upload.role != kAttentionOutputRole ||
+      upload.device_allocation_owner_identity != owner.owner_identity ||
+      upload.device_allocation_identity != owner.allocation_identity ||
+      upload.device_ordinal != binding.resources.device_ordinal ||
+      !binding.live_cuda_payload_range_validated) {
+    return 0U;
+  }
+  std::uint64_t identity = 0x5133'4d46'464f'5542ULL;
+  identity = mix(identity, owner.full_ordinal + 1U);
+  identity = mix(identity, owner.model_layer + 1U);
+  identity = mix(identity, static_cast<std::uint64_t>(binding.role));
+  identity = mix(identity, static_cast<std::uint64_t>(binding.input_layout));
+  identity = mix(identity, static_cast<std::uint64_t>(binding.tactic_identity));
+  identity = mix(identity, binding.projection_binding_identity);
+  identity = mix(identity, binding.asset_value_identity);
+  identity = mix_fp8_resource(identity, binding.resources);
+  identity = mix(identity, binding.live_cuda_payload_range_validated);
+  return identity == 0U ? 0x5133'4d46'464f'5542ULL : identity;
+}
+
+std::uint64_t Sm87MacroFeedV4P40StartupPackage::
+    compute_full_attention_execution_binding_identity(
+        const FullAttentionLayerExecutionBinding& binding) noexcept {
+  const std::uint64_t qkv_identity =
+      compute_full_attention_qkv_execution_binding_identity(binding.qkv,
+                                                             binding);
+  const std::uint64_t output_identity =
+      compute_full_attention_output_execution_binding_identity(binding.output,
+                                                                binding);
+  const std::uint64_t q_identity = full_attention_qk_norm_tensor_identity(
+      binding.package_identity, binding.deployment_plan_identity,
+      binding.device_identity, binding.qkv.resources.device_ordinal,
+      binding.full_ordinal, binding.model_layer, false,
+      binding.qk_norm.q_norm);
+  const std::uint64_t k_identity = full_attention_qk_norm_tensor_identity(
+      binding.package_identity, binding.deployment_plan_identity,
+      binding.device_identity, binding.qkv.resources.device_ordinal,
+      binding.full_ordinal, binding.model_layer, true,
+      binding.qk_norm.k_norm);
+  const std::uint64_t pair_identity =
+      full_attention_qk_norm_pair_identity(
+          binding.full_ordinal, binding.model_layer, q_identity, k_identity);
+  if (binding.full_ordinal >=
+          kSm87MacroFeedV4P40StartupPackageFullLayers ||
+      binding.model_layer != full_attention_model_layer(binding.full_ordinal) ||
+      !model_layer_is_full_attention(binding.model_layer) ||
+      binding.package_identity == 0U ||
+      binding.deployment_plan_identity == 0U ||
+      binding.owner_identity == 0U || binding.allocation_identity == 0U ||
+      binding.projection_catalog_identity == 0U ||
+      binding.device_identity == 0U || binding.source_catalog_identity == 0U ||
+      binding.resource_bundle_identity == 0U || qkv_identity == 0U ||
+      output_identity == 0U || binding.qkv.binding_identity != qkv_identity ||
+      binding.output.binding_identity != output_identity ||
+      q_identity == 0U || k_identity == 0U || pair_identity == 0U ||
+      binding.qk_norm.q_norm_identity != q_identity ||
+      binding.qk_norm.k_norm_identity != k_identity ||
+      binding.qk_norm.pair_identity != pair_identity ||
+      binding.qk_norm.q_norm_elements !=
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessHeadDimension ||
+      binding.qk_norm.k_norm_elements !=
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessHeadDimension ||
+      !binding.qk_norm.exact_shapes ||
+      !binding.qk_norm.live_cuda_weight_ranges_validated ||
+      !kernels::
+          sm87_macrofeed_v4_full_attention_preprocess_admission_resource_gate(
+              binding.preprocess_resources) ||
+      !kernels::sm87_macrofeed_v4_attention_c8000_admission_resource_gate(
+          binding.attention_resources) ||
+      binding.preprocess_resources.device_ordinal !=
+          binding.qkv.resources.device_ordinal ||
+      binding.attention_resources.device_ordinal !=
+          binding.qkv.resources.device_ordinal ||
+      !binding.live_cuda_ranges_validated ||
+      !binding.source_private_resource_queries || binding.request_selectable ||
+      binding.launcher_authority || binding.production_dispatch_eligible) {
+    return 0U;
+  }
+  std::uint64_t identity = 0x5133'4d46'464c'4244ULL;
+  identity = mix(identity, binding.full_ordinal + 1U);
+  identity = mix(identity, binding.model_layer + 1U);
+  identity = mix(identity, binding.package_identity);
+  identity = mix(identity, binding.deployment_plan_identity);
+  identity = mix(identity, binding.owner_identity);
+  identity = mix(identity, binding.allocation_identity);
+  identity = mix(identity, binding.projection_catalog_identity);
+  identity = mix(identity, binding.device_identity);
+  identity = mix(identity, binding.source_catalog_identity);
+  identity = mix(identity, binding.resource_bundle_identity);
+  identity = mix(identity, qkv_identity);
+  identity = mix(identity, output_identity);
+  identity = mix(identity, pair_identity);
+  identity = mix_full_preprocess_resource(identity,
+                                           binding.preprocess_resources);
+  identity = mix_full_attention_resource(identity, binding.attention_resources);
+  identity = mix(identity, binding.live_cuda_ranges_validated);
+  identity = mix(identity, binding.source_private_resource_queries);
+  identity = mix(identity, binding.request_selectable);
+  identity = mix(identity, binding.launcher_authority);
+  identity = mix(identity, binding.production_dispatch_eligible);
+  return identity == 0U ? 0x5133'4d46'464c'4244ULL : identity;
 }
 
 bool Sm87MacroFeedV4P40StartupPackage::
@@ -3396,6 +4258,259 @@ bool Sm87MacroFeedV4P40StartupPackage::
         int* const cuda_error) const noexcept {
   return seal_gdn_layer_execution_catalog_for_execution_package(
       catalog, catalog_identity, failure_ordinal, cuda_error);
+}
+
+bool Sm87MacroFeedV4P40StartupPackage::
+    seal_full_attention_execution_catalog_for_execution_package(
+        const FullAttentionExecutionResourceObservations& observations,
+        FullAttentionLayerExecutionBindingCatalog* const catalog,
+        std::uint64_t* const catalog_identity,
+        std::size_t* const failure_ordinal,
+        int* const cuda_error) const noexcept {
+  if (catalog != nullptr) {
+    catalog->fill({});
+  }
+  if (catalog_identity != nullptr) {
+    *catalog_identity = 0U;
+  }
+  if (failure_ordinal != nullptr) {
+    *failure_ordinal = kSm87MacroFeedV4P40StartupPackageFullLayers;
+  }
+  if (cuda_error != nullptr) {
+    *cuda_error = 0;
+  }
+  if (catalog == nullptr || catalog_identity == nullptr ||
+      failure_ordinal == nullptr || cuda_error == nullptr || !valid()) {
+    return false;
+  }
+  const auto fail = [&](const std::size_t ordinal,
+                        const int error = 0) noexcept {
+    catalog->fill({});
+    *catalog_identity = 0U;
+    *failure_ordinal = ordinal;
+    *cuda_error = error;
+    return false;
+  };
+  const std::uint64_t resource_bundle_identity =
+      compute_full_attention_resource_bundle_identity(
+          observations, audit_.package_identity,
+          audit_.deployment_plan_identity, audit_.device_identity,
+          audit_.device_ordinal);
+  if (resource_bundle_identity == 0U) {
+    return fail(0U, static_cast<int>(cudaErrorInvalidValue));
+  }
+
+  FullAttentionLayerExecutionBindingCatalog sealed{};
+  std::uint64_t identity = 0x5133'4d46'4645'5843ULL;
+  identity = mix(identity, audit_.full_attention_source_catalog_identity);
+  identity = mix(identity, seals_.full_attention.seal_identity);
+  identity = mix(identity, resource_bundle_identity);
+  identity = mix(identity, sealed.size());
+  for (std::size_t ordinal = 0U; ordinal < sealed.size(); ++ordinal) {
+    const std::size_t model_layer = full_attention_model_layer(ordinal);
+    const std::size_t qkv_descriptor =
+        sm87_target_aot_complete_descriptor_ordinal(model_layer,
+                                                    kFullQkvRole);
+    const std::size_t output_descriptor =
+        sm87_target_aot_complete_descriptor_ordinal(model_layer,
+                                                    kAttentionOutputRole);
+    if (!model_layer_is_full_attention(model_layer) ||
+        qkv_descriptor >= projection_bindings_.size() ||
+        output_descriptor >= projection_bindings_.size() ||
+        !projection_bindings_[qkv_descriptor] ||
+        !projection_bindings_[output_descriptor] ||
+        !projection_bindings_[qkv_descriptor]
+             ->valid_for_prevalidated_catalog(
+                 model_layer, kFullQkvRole, audit_.package_identity,
+                 audit_.catalog_identity) ||
+        projection_bindings_[qkv_descriptor]
+                ->deployment_plan_identity() !=
+            audit_.deployment_plan_identity ||
+        projection_bindings_[qkv_descriptor]
+                ->consumer_tactic_identity() !=
+            static_cast<std::uint64_t>(kFullQkvTacticIdentity) ||
+        !projection_bindings_[output_descriptor]
+             ->valid_for_prevalidated_catalog(
+                 model_layer, kAttentionOutputRole, audit_.package_identity,
+                 audit_.catalog_identity) ||
+        projection_bindings_[output_descriptor]
+                ->deployment_plan_identity() !=
+            audit_.deployment_plan_identity ||
+        projection_bindings_[output_descriptor]
+                ->consumer_tactic_identity() !=
+            static_cast<std::uint64_t>(kFullOutputTacticIdentity)) {
+      return fail(ordinal);
+    }
+
+    const auto& qkv_projection = *projection_bindings_[qkv_descriptor];
+    const auto& output_projection =
+        *projection_bindings_[output_descriptor];
+    const auto* const qkv_asset =
+        qkv_projection.asset_.borrow_fp8_cuda_asset();
+    const auto* const output_asset =
+        output_projection.asset_.borrow_fp8_cuda_asset();
+    const auto live_asset = [&](const kernels::Sm87TargetAotFp8CudaAssetView*
+                                    asset,
+                                const Role role) noexcept {
+      if (asset == nullptr ||
+          !kernels::sm87_target_aot_fp8_cuda_asset_valid(*asset) ||
+          asset->payload.role != role ||
+          asset->payload.begin !=
+              asset->device_upload_receipt.device_payload_begin ||
+          asset->payload.end !=
+              asset->device_upload_receipt.device_payload_end ||
+          asset->payload.bytes !=
+              asset->device_upload_receipt.device_payload_bytes ||
+          asset->device_upload_receipt.device_allocation_owner_identity !=
+              audit_.owner_identity ||
+          asset->device_upload_receipt.device_allocation_identity !=
+              audit_.allocation_identity ||
+          asset->device_upload_receipt.device_ordinal !=
+              audit_.device_ordinal ||
+          compute_gdn_qkvz_asset_value_identity(*asset) == 0U) {
+        *cuda_error = static_cast<int>(cudaErrorInvalidValue);
+        return false;
+      }
+      return live_current_device_allocation_range(
+          reinterpret_cast<const std::uint16_t*>(asset->payload.begin),
+          asset->payload.bytes, audit_.device_ordinal, cuda_error,
+          asset->device_upload_receipt.device_allocation_begin,
+          asset->device_upload_receipt.device_allocation_end,
+          asset->device_upload_receipt.device_allocation_bytes);
+    };
+    if (qkv_projection.asset_.borrow_nvfp4_cuda_asset() != nullptr ||
+        output_projection.asset_.borrow_nvfp4_cuda_asset() != nullptr ||
+        !live_asset(qkv_asset, kFullQkvRole) ||
+        !live_asset(output_asset, kAttentionOutputRole)) {
+      return fail(ordinal, *cuda_error);
+    }
+
+    FullAttentionQkNormSource norm_source;
+    if (bf16_ab_capability_.model_weights_ == nullptr ||
+        !exact_full_attention_qk_norm_source(
+            *bf16_ab_capability_.model_weights_, model_layer,
+            &norm_source)) {
+      return fail(ordinal, static_cast<int>(cudaErrorInvalidValue));
+    }
+    constexpr std::uint64_t kNormBytes =
+        kernels::kSm87MacroFeedV4FullAttentionPreprocessNormWeightBytes;
+    if (!live_current_device_allocation_range(
+            norm_source.q_norm, kNormBytes, audit_.device_ordinal,
+            cuda_error) ||
+        !live_current_device_allocation_range(
+            norm_source.k_norm, kNormBytes, audit_.device_ordinal,
+            cuda_error)) {
+      return fail(ordinal, *cuda_error);
+    }
+
+    auto& binding = sealed[ordinal];
+    binding.full_ordinal = static_cast<std::uint32_t>(ordinal);
+    binding.model_layer = static_cast<std::uint32_t>(model_layer);
+    binding.package_identity = audit_.package_identity;
+    binding.deployment_plan_identity = audit_.deployment_plan_identity;
+    binding.owner_identity = audit_.owner_identity;
+    binding.allocation_identity = audit_.allocation_identity;
+    binding.projection_catalog_identity = audit_.catalog_identity;
+    binding.device_identity = audit_.device_identity;
+    binding.source_catalog_identity =
+        audit_.full_attention_source_catalog_identity;
+    binding.resource_bundle_identity = resource_bundle_identity;
+
+    binding.qkv.role = kFullQkvRole;
+    binding.qkv.input_layout = kFullQkvInputLayout;
+    binding.qkv.tactic_identity = kFullQkvTacticIdentity;
+    binding.qkv.asset = *qkv_asset;
+    binding.qkv.resources = observations.qkv;
+    binding.qkv.projection_binding_identity =
+        qkv_projection.binding_identity();
+    binding.qkv.asset_value_identity =
+        compute_gdn_qkvz_asset_value_identity(binding.qkv.asset);
+    binding.qkv.live_cuda_payload_range_validated = true;
+
+    binding.output.role = kAttentionOutputRole;
+    binding.output.input_layout = kFullOutputInputLayout;
+    binding.output.tactic_identity = kFullOutputTacticIdentity;
+    binding.output.asset = *output_asset;
+    binding.output.resources = observations.output;
+    binding.output.projection_binding_identity =
+        output_projection.binding_identity();
+    binding.output.asset_value_identity =
+        compute_gdn_qkvz_asset_value_identity(binding.output.asset);
+    binding.output.live_cuda_payload_range_validated = true;
+
+    binding.qk_norm.q_norm = norm_source.q_norm;
+    binding.qk_norm.k_norm = norm_source.k_norm;
+    binding.qk_norm.q_norm_elements =
+        kernels::kSm87MacroFeedV4FullAttentionPreprocessHeadDimension;
+    binding.qk_norm.k_norm_elements =
+        kernels::kSm87MacroFeedV4FullAttentionPreprocessHeadDimension;
+    binding.qk_norm.q_norm_identity =
+        full_attention_qk_norm_tensor_identity(
+            binding.package_identity, binding.deployment_plan_identity,
+            binding.device_identity, audit_.device_ordinal, ordinal,
+            model_layer, false, norm_source.q_norm);
+    binding.qk_norm.k_norm_identity =
+        full_attention_qk_norm_tensor_identity(
+            binding.package_identity, binding.deployment_plan_identity,
+            binding.device_identity, audit_.device_ordinal, ordinal,
+            model_layer, true, norm_source.k_norm);
+    binding.qk_norm.pair_identity =
+        full_attention_qk_norm_pair_identity(
+            ordinal, model_layer, binding.qk_norm.q_norm_identity,
+            binding.qk_norm.k_norm_identity);
+    binding.qk_norm.exact_shapes = true;
+    binding.qk_norm.live_cuda_weight_ranges_validated = true;
+    binding.preprocess_resources = observations.preprocess;
+    binding.attention_resources = observations.attention;
+    if (!fp8_resource_equal(binding.qkv.resources, observations.qkv) ||
+        !fp8_resource_equal(binding.output.resources,
+                            observations.output) ||
+        !full_preprocess_resource_equal(binding.preprocess_resources,
+                                        observations.preprocess) ||
+        !full_attention_resource_equal(binding.attention_resources,
+                                       observations.attention)) {
+      return fail(ordinal, static_cast<int>(cudaErrorInvalidValue));
+    }
+    binding.live_cuda_ranges_validated = true;
+    binding.source_private_resource_queries = true;
+    binding.request_selectable = false;
+    binding.launcher_authority = false;
+    binding.production_dispatch_eligible = false;
+    binding.qkv.binding_identity =
+        compute_full_attention_qkv_execution_binding_identity(binding.qkv,
+                                                               binding);
+    binding.output.binding_identity =
+        compute_full_attention_output_execution_binding_identity(
+            binding.output, binding);
+    binding.binding_identity =
+        compute_full_attention_execution_binding_identity(binding);
+    if (binding.binding_identity == 0U) {
+      return fail(ordinal, static_cast<int>(cudaErrorInvalidValue));
+    }
+    identity = mix(identity, ordinal + 1U);
+    identity = mix(identity, binding.binding_identity);
+  }
+
+  std::size_t source_failure =
+      kSm87MacroFeedV4P40StartupPackageFullLayers;
+  bool source_failure_k = false;
+  int source_cuda_error = 0;
+  if (identity == 0U ||
+      compute_full_attention_source_catalog_identity(
+          projection_access_, capabilities_, audit_.deployment_plan_identity,
+          *bf16_ab_capability_.model_weights_, &source_failure,
+          &source_failure_k, &source_cuda_error) !=
+          audit_.full_attention_source_catalog_identity) {
+    return fail(source_failure < sealed.size() ? source_failure : 0U,
+                source_cuda_error == 0
+                    ? static_cast<int>(cudaErrorInvalidValue)
+                    : source_cuda_error);
+  }
+  *catalog = sealed;
+  *catalog_identity = identity;
+  *failure_ordinal = sealed.size();
+  *cuda_error = 0;
+  return true;
 }
 
 std::uint64_t Sm87MacroFeedV4P40StartupPackage::
@@ -4067,6 +5182,29 @@ bool Sm87MacroFeedV4P40StartupPackage::
   }
   if (failure_layer != nullptr) {
     *failure_layer = kSm87MacroFeedV4P40StartupPackageLayers;
+  }
+  if (cuda_error != nullptr) {
+    *cuda_error = 0;
+  }
+  return false;
+}
+
+bool Sm87MacroFeedV4P40StartupPackage::
+    seal_full_attention_execution_catalog_for_execution_package(
+        const FullAttentionExecutionResourceObservations& observations,
+        FullAttentionLayerExecutionBindingCatalog* const catalog,
+        std::uint64_t* const catalog_identity,
+        std::size_t* const failure_ordinal,
+        int* const cuda_error) const noexcept {
+  (void)observations;
+  if (catalog != nullptr) {
+    catalog->fill({});
+  }
+  if (catalog_identity != nullptr) {
+    *catalog_identity = 0U;
+  }
+  if (failure_ordinal != nullptr) {
+    *failure_ordinal = kSm87MacroFeedV4P40StartupPackageFullLayers;
   }
   if (cuda_error != nullptr) {
     *cuda_error = 0;

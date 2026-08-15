@@ -1,7 +1,9 @@
 #pragma once
 
 #include "q3x/kernels/sm87_macrofeed_v4_bf16_ab.h"
+#include "q3x/kernels/sm87_macrofeed_v4_attention_c8000.h"
 #include "q3x/kernels/sm87_macrofeed_v4_fp8.h"
+#include "q3x/kernels/sm87_macrofeed_v4_full_attention_preprocess.h"
 #include "q3x/kernels/sm87_macrofeed_v4_gdn_c8000.h"
 #include "q3x/kernels/sm87_macrofeed_v4_norm_residual.h"
 #include "q3x/kernels/sm87_macrofeed_v4_nvfp4_down.h"
@@ -41,7 +43,7 @@ inline constexpr std::array<std::uint8_t, 8U>
 inline constexpr std::uint16_t kSm87MacroFeedV4P40StartupPackageAbiMajor =
     1U;
 inline constexpr std::uint16_t kSm87MacroFeedV4P40StartupPackageAbiMinor =
-    3U;
+    4U;
 inline constexpr std::size_t kSm87MacroFeedV4P40StartupPackageLayers = 64U;
 inline constexpr std::size_t kSm87MacroFeedV4P40StartupPackageArtifacts =
     256U;
@@ -74,6 +76,7 @@ enum class Sm87MacroFeedV4P40StartupPackageError : std::uint8_t {
   kBf16AbDeviceRange,
   kGdnQkvZResourceSeal,
   kGdnQkvZCatalogSeal,
+  kFullAttentionSourceCatalogSeal,
   kDeviceMismatch,
   kPackageIdentity,
   kBindingConstruction,
@@ -310,6 +313,64 @@ class Sm87MacroFeedV4GdnQkvZStartupSeal final {
   friend class Sm87MacroFeedV4P40StartupPackage;
 };
 
+// Capability-free source-fact seal for the 16 natural Full-Attention layers.
+// It fixes the two projection roles/layouts/tactics and authenticates the
+// exact Q/K norm inventory under the same ModelWeights and target-AOT owner.
+// Physical kernel resources are deliberately absent here: the sole friend
+// execution package must query those compiled constituents at its own
+// construction boundary before this package can seal an execution catalog.
+class Sm87MacroFeedV4FullAttentionStartupSeal final {
+ public:
+  Sm87MacroFeedV4FullAttentionStartupSeal(
+      const Sm87MacroFeedV4FullAttentionStartupSeal&) = delete;
+  Sm87MacroFeedV4FullAttentionStartupSeal& operator=(
+      const Sm87MacroFeedV4FullAttentionStartupSeal&) = delete;
+  ~Sm87MacroFeedV4FullAttentionStartupSeal() noexcept { issuer_nonce_ = 0U; }
+
+  std::uint64_t seal_identity = 0U;
+  std::uint64_t package_identity = 0U;
+  std::uint64_t deployment_plan_identity = 0U;
+  std::uint64_t source_catalog_identity = 0U;
+  std::size_t binding_count = 0U;
+  kernels::Sm87TargetAotProjectionRole qkv_role =
+      kernels::Sm87TargetAotProjectionRole::kInvalid;
+  kernels::Sm87MacroFeedV4Fp8InputLayout qkv_input_layout =
+      kernels::Sm87MacroFeedV4Fp8InputLayout::kInvalid;
+  kernels::Sm87MacroFeedV4Fp8Identity qkv_tactic_identity =
+      kernels::Sm87MacroFeedV4Fp8Identity::kInvalid;
+  kernels::Sm87TargetAotProjectionRole output_role =
+      kernels::Sm87TargetAotProjectionRole::kInvalid;
+  kernels::Sm87MacroFeedV4Fp8InputLayout output_input_layout =
+      kernels::Sm87MacroFeedV4Fp8InputLayout::kInvalid;
+  kernels::Sm87MacroFeedV4Fp8Identity output_tactic_identity =
+      kernels::Sm87MacroFeedV4Fp8Identity::kInvalid;
+  std::size_t q_norm_elements = 0U;
+  std::size_t k_norm_elements = 0U;
+  std::uint64_t norm_weight_bytes = 0U;
+  bool canonical_natural_full_layer_order = false;
+  bool role_layout_and_tactics_fixed = false;
+  bool qk_norm_exact_shapes = false;
+  bool qk_norm_live_device_ranges = false;
+  bool typed_asset_values_private = false;
+  bool observed_resource_execution_seal_deferred = false;
+  bool caller_resource_snapshot_accepted = true;
+  bool raw_pointer_exposed = true;
+  bool launcher_authority = true;
+  bool production_dispatch_eligible = true;
+
+  [[nodiscard]] bool valid() const noexcept;
+
+ private:
+  Sm87MacroFeedV4FullAttentionStartupSeal() = default;
+  Sm87MacroFeedV4FullAttentionStartupSeal(
+      Sm87MacroFeedV4FullAttentionStartupSeal&&) noexcept = default;
+  Sm87MacroFeedV4FullAttentionStartupSeal& operator=(
+      Sm87MacroFeedV4FullAttentionStartupSeal&&) noexcept = default;
+  std::uint64_t issuer_nonce_ = 0U;
+
+  friend class Sm87MacroFeedV4P40StartupPackage;
+};
+
 // Capability-free diagnostic record.  It intentionally makes every missing
 // V4 dependency observable; copying it cannot grant an asset or launch.
 struct Sm87MacroFeedV4P40StartupPackageAudit final {
@@ -340,6 +401,9 @@ struct Sm87MacroFeedV4P40StartupPackageAudit final {
   std::size_t gdn_qkvz_bindings = 0U;
   std::uint64_t gdn_qkvz_binding_catalog_identity = 0U;
   std::uint64_t gdn_qkvz_resource_seal_identity = 0U;
+  std::size_t full_attention_source_bindings = 0U;
+  std::uint64_t full_attention_source_catalog_identity = 0U;
+  std::uint64_t full_attention_source_seal_identity = 0U;
   bool canonical_plan_generated_internally = false;
   bool caller_plan_accepted = true;
   bool complete_projection_access_retained = false;
@@ -362,6 +426,12 @@ struct Sm87MacroFeedV4P40StartupPackageAudit final {
   bool gdn_qkvz_asset_value_snapshots_private = false;
   bool gdn_qkvz_resource_seal_complete = false;
   bool gdn_qkvz_raw_pointer_publicly_exposed = true;
+  bool full_attention_natural_layer_order_complete = false;
+  bool full_attention_role_layout_tactics_fixed = false;
+  bool full_attention_qk_norm_shapes_exact = false;
+  bool full_attention_qk_norm_live_device_ranges_complete = false;
+  bool full_attention_typed_asset_values_private = false;
+  bool full_attention_observed_resource_execution_catalog_sealed = true;
   bool caller_raw_receipts_accepted = true;
   bool v3_execution_identity_reused = true;
   bool request_time_repack_jit_autotune_or_fallback_permitted = true;
@@ -411,6 +481,10 @@ struct Sm87MacroFeedV4P40StartupPackageAudit final {
                kSm87MacroFeedV4P40StartupPackageGdnLayers &&
            gdn_qkvz_binding_catalog_identity != 0U &&
            gdn_qkvz_resource_seal_identity != 0U &&
+           full_attention_source_bindings ==
+               kSm87MacroFeedV4P40StartupPackageFullLayers &&
+           full_attention_source_catalog_identity != 0U &&
+           full_attention_source_seal_identity != 0U &&
            canonical_plan_generated_internally && !caller_plan_accepted &&
            complete_projection_access_retained && catalog_revalidated &&
            typed_capabilities_retained &&
@@ -430,6 +504,12 @@ struct Sm87MacroFeedV4P40StartupPackageAudit final {
            gdn_qkvz_asset_value_snapshots_private &&
            gdn_qkvz_resource_seal_complete &&
            !gdn_qkvz_raw_pointer_publicly_exposed &&
+           full_attention_natural_layer_order_complete &&
+           full_attention_role_layout_tactics_fixed &&
+           full_attention_qk_norm_shapes_exact &&
+           full_attention_qk_norm_live_device_ranges_complete &&
+           full_attention_typed_asset_values_private &&
+           !full_attention_observed_resource_execution_catalog_sealed &&
            !caller_raw_receipts_accepted && !v3_execution_identity_reused &&
            !request_time_repack_jit_autotune_or_fallback_permitted &&
            !fp8_executor_bound && !gdn_executor_bound &&
@@ -635,6 +715,10 @@ class Sm87MacroFeedV4P40StartupPackage final {
   gdn_qkvz_startup_seal() const noexcept {
     return seals_.gdn_qkvz;
   }
+  [[nodiscard]] const Sm87MacroFeedV4FullAttentionStartupSeal&
+  full_attention_startup_seal() const noexcept {
+    return seals_.full_attention;
+  }
   [[nodiscard]] const Sm87MacroFeedV4ProjectionStartupBinding*
   borrow_projection_startup_binding(
       std::size_t layer_index,
@@ -755,6 +839,105 @@ class Sm87MacroFeedV4P40StartupPackage final {
   // Its value type is already the complete GDN-layer binding above.
   using GdnQkvZExecutionBindingCatalog = GdnLayerExecutionBindingCatalog;
 
+  struct FullAttentionQkvExecutionBinding final {
+    kernels::Sm87TargetAotProjectionRole role =
+        kernels::Sm87TargetAotProjectionRole::kInvalid;
+    kernels::Sm87MacroFeedV4Fp8InputLayout input_layout =
+        kernels::Sm87MacroFeedV4Fp8InputLayout::kInvalid;
+    kernels::Sm87MacroFeedV4Fp8Identity tactic_identity =
+        kernels::Sm87MacroFeedV4Fp8Identity::kInvalid;
+    kernels::Sm87TargetAotFp8CudaAssetView asset{};
+    kernels::Sm87MacroFeedV4Fp8CudaResources resources{};
+    std::uint64_t projection_binding_identity = 0U;
+    std::uint64_t asset_value_identity = 0U;
+    std::uint64_t binding_identity = 0U;
+    bool live_cuda_payload_range_validated = false;
+  };
+
+  // The shared checkpoint role is intentionally wrapped in a Full-only type
+  // whose interleaved-Q layout and 4603 tactic cannot be substituted with the
+  // GDN contiguous-V output binding.
+  struct FullAttentionOutputExecutionBinding final {
+    kernels::Sm87TargetAotProjectionRole role =
+        kernels::Sm87TargetAotProjectionRole::kInvalid;
+    kernels::Sm87MacroFeedV4Fp8InputLayout input_layout =
+        kernels::Sm87MacroFeedV4Fp8InputLayout::kInvalid;
+    kernels::Sm87MacroFeedV4Fp8Identity tactic_identity =
+        kernels::Sm87MacroFeedV4Fp8Identity::kInvalid;
+    kernels::Sm87TargetAotFp8CudaAssetView asset{};
+    kernels::Sm87MacroFeedV4Fp8CudaResources resources{};
+    std::uint64_t projection_binding_identity = 0U;
+    std::uint64_t asset_value_identity = 0U;
+    std::uint64_t binding_identity = 0U;
+    bool live_cuda_payload_range_validated = false;
+  };
+
+  struct FullAttentionQkNormExecutionBinding final {
+    const std::uint16_t* q_norm = nullptr;
+    const std::uint16_t* k_norm = nullptr;
+    std::uint64_t q_norm_identity = 0U;
+    std::uint64_t k_norm_identity = 0U;
+    std::uint64_t pair_identity = 0U;
+    std::size_t q_norm_elements = 0U;
+    std::size_t k_norm_elements = 0U;
+    bool exact_shapes = false;
+    bool live_cuda_weight_ranges_validated = false;
+  };
+
+  // This type is private and unavailable to runtime callers.  The production
+  // execution package sets the observation bits only after it has queried all
+  // four compiled constituents on the current device; the startup package
+  // then performs exact field/device/role/layout/tactic validation.  The
+  // existing host fixture is the sole non-production observer.
+  struct FullAttentionExecutionResourceObservations final {
+    kernels::Sm87MacroFeedV4Fp8CudaResources qkv{};
+    kernels::Sm87MacroFeedV4Fp8CudaResources output{};
+    kernels::Sm87MacroFeedV4FullAttentionPreprocessAdmissionResourceSnapshot
+        preprocess{};
+    kernels::Sm87MacroFeedV4AttentionC8000AdmissionResourceSnapshot
+        attention{};
+    bool source_private_queries_completed = false;
+    bool caller_resource_snapshot_accepted = false;
+
+   private:
+    FullAttentionExecutionResourceObservations() = default;
+    friend class sm87_macrofeed_v4_p40_execution_detail::
+        Sm87MacroFeedV4P40ExecutionPackage;
+    friend class Sm87MacroFeedV4P40StartupPackageHostTestFixture;
+  };
+
+  struct FullAttentionLayerExecutionBinding final {
+    std::uint32_t full_ordinal = static_cast<std::uint32_t>(
+        kSm87MacroFeedV4P40StartupPackageFullLayers);
+    std::uint32_t model_layer = static_cast<std::uint32_t>(
+        kSm87MacroFeedV4P40StartupPackageLayers);
+    FullAttentionQkvExecutionBinding qkv{};
+    FullAttentionOutputExecutionBinding output{};
+    FullAttentionQkNormExecutionBinding qk_norm{};
+    kernels::Sm87MacroFeedV4FullAttentionPreprocessAdmissionResourceSnapshot
+        preprocess_resources{};
+    kernels::Sm87MacroFeedV4AttentionC8000AdmissionResourceSnapshot
+        attention_resources{};
+    std::uint64_t package_identity = 0U;
+    std::uint64_t deployment_plan_identity = 0U;
+    std::uint64_t owner_identity = 0U;
+    std::uint64_t allocation_identity = 0U;
+    std::uint64_t projection_catalog_identity = 0U;
+    std::uint64_t device_identity = 0U;
+    std::uint64_t source_catalog_identity = 0U;
+    std::uint64_t resource_bundle_identity = 0U;
+    std::uint64_t binding_identity = 0U;
+    bool live_cuda_ranges_validated = false;
+    bool source_private_resource_queries = false;
+    bool request_selectable = false;
+    bool launcher_authority = false;
+    bool production_dispatch_eligible = false;
+  };
+
+  using FullAttentionLayerExecutionBindingCatalog =
+      std::array<FullAttentionLayerExecutionBinding,
+                 kSm87MacroFeedV4P40StartupPackageFullLayers>;
+
   struct GateUpExecutionBinding final {
     kernels::Sm87TargetAotNvFp4CudaAssetView asset{};
     kernels::Sm87MacroFeedV3NvFp4GateUpPayloadReceipt payload_receipt{};
@@ -869,6 +1052,7 @@ class Sm87MacroFeedV4P40StartupPackage final {
     Sm87MacroFeedV4DownStartupSeal down{};
     Sm87MacroFeedV4Bf16AbStartupSeal bf16_ab{};
     Sm87MacroFeedV4GdnQkvZStartupSeal gdn_qkvz{};
+    Sm87MacroFeedV4FullAttentionStartupSeal full_attention{};
 
     StartupSeals() = default;
     StartupSeals(const StartupSeals&) = delete;
@@ -877,7 +1061,8 @@ class Sm87MacroFeedV4P40StartupPackage final {
         : gate_up(std::move(other.gate_up)),
           down(std::move(other.down)),
           bf16_ab(std::move(other.bf16_ab)),
-          gdn_qkvz(std::move(other.gdn_qkvz)) {}
+          gdn_qkvz(std::move(other.gdn_qkvz)),
+          full_attention(std::move(other.full_attention)) {}
     StartupSeals& operator=(StartupSeals&&) = delete;
   };
 
@@ -904,6 +1089,7 @@ class Sm87MacroFeedV4P40StartupPackage final {
           bf16_ab,
       std::uint64_t mlp_pair_binding_catalog_identity,
       std::uint64_t gdn_qkvz_binding_catalog_identity,
+      std::uint64_t full_attention_source_catalog_identity,
       const kernels::Sm87MacroFeedV4Fp8CudaResources& gdn_qkvz,
       const kernels::Sm87MacroFeedV4Fp8CudaResources& gdn_output,
       std::size_t sources) noexcept;
@@ -924,6 +1110,15 @@ class Sm87MacroFeedV4P40StartupPackage final {
                        kSm87MacroFeedV4P40StartupPackageArtifacts>&
           capabilities,
       std::uint64_t plan_identity) noexcept;
+  [[nodiscard]] static std::uint64_t
+  compute_full_attention_source_catalog_identity(
+      const ProjectionAccess& access,
+      const std::array<AssetCapability,
+                       kSm87MacroFeedV4P40StartupPackageArtifacts>&
+          capabilities,
+      std::uint64_t plan_identity, const ModelWeights& model_weights,
+      std::size_t* failure_ordinal, bool* failure_k_norm,
+      int* cuda_error) noexcept;
   [[nodiscard]] static StartupSeals mint_startup_seals(
       std::uint64_t package_identity, std::uint64_t plan_identity,
       const kernels::Sm87MacroFeedV4NvFp4GateUpCudaResources& gate_up,
@@ -933,6 +1128,7 @@ class Sm87MacroFeedV4P40StartupPackage final {
           bf16_ab,
       std::uint64_t mlp_pair_binding_catalog_identity,
       std::uint64_t gdn_qkvz_binding_catalog_identity,
+      std::uint64_t full_attention_source_catalog_identity,
       const kernels::Sm87MacroFeedV4Fp8CudaResources& gdn_qkvz,
       const kernels::Sm87MacroFeedV4Fp8CudaResources& gdn_output) noexcept;
   [[nodiscard]] static bool startup_seals_valid(
@@ -990,6 +1186,12 @@ class Sm87MacroFeedV4P40StartupPackage final {
       MlpPairExecutionBindingCatalog* catalog,
       std::uint64_t* catalog_identity, std::size_t* failure_layer,
       int* cuda_error) const noexcept;
+  [[nodiscard]] bool
+  seal_full_attention_execution_catalog_for_execution_package(
+      const FullAttentionExecutionResourceObservations& observations,
+      FullAttentionLayerExecutionBindingCatalog* catalog,
+      std::uint64_t* catalog_identity, std::size_t* failure_ordinal,
+      int* cuda_error) const noexcept;
   [[nodiscard]] static std::uint64_t
   compute_gdn_qkvz_asset_value_identity(
       const kernels::Sm87TargetAotFp8CudaAssetView& asset) noexcept;
@@ -1003,6 +1205,24 @@ class Sm87MacroFeedV4P40StartupPackage final {
   [[nodiscard]] static std::uint64_t
   compute_mlp_pair_execution_binding_identity(
       const MlpPairExecutionBinding& binding) noexcept;
+  [[nodiscard]] static std::uint64_t
+  compute_full_attention_qkv_execution_binding_identity(
+      const FullAttentionQkvExecutionBinding& binding,
+      const FullAttentionLayerExecutionBinding& owner) noexcept;
+  [[nodiscard]] static std::uint64_t
+  compute_full_attention_output_execution_binding_identity(
+      const FullAttentionOutputExecutionBinding& binding,
+      const FullAttentionLayerExecutionBinding& owner) noexcept;
+  [[nodiscard]] static std::uint64_t
+  compute_full_attention_execution_binding_identity(
+      const FullAttentionLayerExecutionBinding& binding) noexcept;
+  [[nodiscard]] static std::uint64_t
+  compute_full_attention_resource_bundle_identity(
+      const FullAttentionExecutionResourceObservations& observations,
+      std::uint64_t package_identity,
+      std::uint64_t deployment_plan_identity,
+      std::uint64_t device_identity,
+      std::int32_t device_ordinal) noexcept;
   [[nodiscard]] static std::uint64_t compute_nvfp4_asset_value_identity(
       const kernels::Sm87TargetAotNvFp4CudaAssetView& asset) noexcept;
   [[nodiscard]] std::optional<Sm87MacroFeedV4ProjectionStartupBinding>
@@ -1037,5 +1257,6 @@ static_assert(kSm87MacroFeedV4P40StartupPackageSources ==
 static_assert(kSm87MacroFeedV4P40StartupPackageBf16AbPairs ==
               kSm87MacroFeedV4P40StartupPackageGdnLayers);
 static_assert(kSm87MacroFeedV4P40StartupPackageBf16AbTensors == 96U);
+static_assert(kSm87MacroFeedV4P40StartupPackageFullLayers == 16U);
 
 }  // namespace q3x::runtime::sm87_macrofeed_v4_p40_startup_package_detail
