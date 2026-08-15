@@ -545,29 +545,33 @@ Its success has one normal combined drain/discard and no publication; its
 minimum failure retains 27/3 and poison-invalidates the pending Full grant.
 The real-checkpoint Engine-lifetime probe has not run. These are synthetic
 correctness/dependency facts only; none has whole-model, API, numerical,
-performance, release, or production authority.
+performance, release, or production authority. The owner-only panel-commit
+bridge is now implemented separately: runtime rearm enqueues the exact
+156,893,184-byte Main zero and atomically creates a fresh epoch plus panel 0;
+exact 48-GDN/16-Full, 560-kernel, 48-copy/2,949,120-byte and 48-A/B ledgers
+gate device-ordered `PanelDone` before Events directly commits RequestState.
+Panel capabilities are move-only optional values with no per-panel heap.
+Healthy physical discard can rearm; poison-terminal and successful-request
+reuse cannot. The focused lifecycle fixture seeds the 560-kernel counter
+ledger, so it is not a physical whole-panel witness.
 
 Remaining execution order:
 
-1. implement the owner-only Events-to-RequestState panel-commit bridge. It
-   consumes the exact 48-GDN/16-Full accepted ledger, records `PanelDone`
-   device-side, commits the candidate recurrent epoch and private KV valid-end
-   exactly once, and exposes no raw event, stream, grant, or caller-written
-   receipt;
-2. construction-seal the still-missing request boundary: Embedding input,
+1. construction-seal the still-missing request boundary: Embedding input,
    final norm, and exact LM-head-M1 input/output bindings. Then place the
-   panel-commit bridge behind the normal package's fixed natural 64-layer loop
-   and execute the loop for all five C8000 panels. Add cold request rearm and
+   owner-atomic panel lifecycle behind the normal package's fixed natural
+   64-layer loop and execute the loop for all five C8000 panels. Add complete
    failure/cancellation rollback without a per-layer or per-panel host drain;
-3. close the final state transition: exact epoch-five `B -> A` canonical copy
+2. close the final state transition: exact epoch-five `B -> A` canonical copy
    when required by parity, `FinalPublish`, physical completion receipt, and
    the logical sequence-length fence as the last non-fallible visibility
-   transition. In the first accepted clean-host windows, run the pending
+   transition, then make physically successful requests eligible for cold
+   reuse. In the first accepted clean-host windows, run the pending
    pinned-real-checkpoint Engine lifetime/catalog and proportional C8000
    GDN/Full/cohort/loop numerical gates. Synthetic T1 cannot substitute for
    those results, and the correctness/lifetime probes have no performance
    authority; and
-4. expose exactly one default-off V4 route through the existing real OpenAI
+3. expose exactly one default-off V4 route through the existing real OpenAI
    P40 API, then run one clean-host cold/no-cache EvalScope direction witness.
    A negative or merely small whole-path result reopens the V4 global
    dataflow; it does not authorize a local parameter scan. Do not add a

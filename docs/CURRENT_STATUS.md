@@ -592,9 +592,30 @@ immediately terminal-drained across all three streams. Normal and exceptional
 closure now couple the Events owner to RequestState discard: physical
 quiescence invalidates any still-pending GDN state grant, preserves the
 original failure, and cannot swap a recurrent bank or publish canonical/Decode
-state. The isolated execution package uses this capability for one complete
-GDN layer-0 admission, but the owner remains scheduling/lifetime
-infrastructure rather than a whole-model execution path.
+state. Runtime request admission now enqueues the exact 156,893,184-byte
+recurrent zero on Main and, under the same Events lock and one RequestState
+lock acquisition, mints a fresh epoch already active at panel 0. The returned
+request and move-only panel capabilities are therefore born together; there
+is no admitted request without a live generation that can be physically
+drained. `PanelAccess` uses optional value ownership and performs no per-panel
+heap allocation. A healthy physical discard can rearm another cold request;
+a poison-terminal drain permanently forbids reuse.
+
+The owner-only panel close is also implemented. It first requires the exact
+live ledger for 48 GDN layers, 16 Full layers, 560 layer-kernel submissions,
+48 history copies totaling 2,949,120 bytes, and 48 A/B cycles. It then records
+`PanelDone` on Main and directly calls the friend-only RequestState commit
+under the fixed Events-to-RequestState lock order, without a host wait or a
+caller-supplied receipt. Its returned authenticated receipt is audit-only and
+cannot authorize another swap. Focused CUDA lifecycle tests seed this exact
+counter ledger instead of physically replaying all 560 kernels, so they prove
+the close/replay/failure state machine but are not a physical whole-panel or
+performance witness. Final private failure/cancellation can likewise consume
+an exact physical drain and publish no canonical KV, sequence, or Decode
+state. Successful `FinalPublish`, sequence publication, and successful-request
+reuse remain unimplemented. The isolated execution package uses the existing
+transaction capability for one complete GDN layer-0 admission, but the owner
+remains scheduling/lifetime infrastructure rather than a whole-model path.
 
 The complete-GDN Events transaction is now the reusable security boundary for
 both normal sealed-catalog and explicit Synthetic-T1 authority domains. It
@@ -872,12 +893,13 @@ and three copies and invalidates the pending Full grant under poison. The
 normal GDN and Full package paths still have no runtime-positive invocation,
 and the Engine real-asset root remains source/build evidence only.
 
-The next P0 is therefore the owner-only Events-to-RequestState panel-commit
-bridge, not another synthetic timing cell or normal-prefix probe. That bridge
-must consume the complete 48-GDN/16-Full panel ledger without exposing raw
-events or grants. It is followed by the package-owned fixed 64-natural-layer
-by five-panel loop, cold rearm and failure rollback, and the exact final
-epoch-five `B -> A` canonical copy, `FinalPublish`, and logical sequence fence,
+The owner-only Events-to-RequestState panel-commit bridge and atomic cold
+rearm/panel-0 admission are now implemented at their narrow lifecycle
+boundary. The next P0 is therefore construction-sealed Embedding, final norm,
+and exact LM-head-M1 input/output, followed directly by the package-owned fixed
+64-natural-layer by five-panel loop and failure rollback—not another synthetic
+timing cell or normal-prefix probe. The request loop is followed by the exact
+final epoch-five `B -> A` canonical copy, `FinalPublish`, and logical sequence fence,
 with proportional pinned-real-checkpoint lifetime and numerical gates. The
 request entry/one-token exit are not implied by that loop: Embedding, final
 norm, and the exact LM-head-M1 input/output bindings are still missing and must
@@ -903,7 +925,7 @@ no production-path eligibility.
 | SM87 whole-system AOT Prefill v1 | Default-off real-P40 API composition; performance-rejected after a zero-byte 840.000399-second timeout | Retain only as correctness/diagnostic control; it is not an active performance candidate |
 | SM87 bulk-dataflow v2 Prefill | Complete default-off real-P40 API route; performance-rejected after a zero-byte 680.73-second EvalScope timeout and one bounded causal profile; accuracy remains unqualified | Retain exact constituents and evidence only; no V2 tuning, P60/P130, qualification, or production promotion |
 | SM87 MacroFeed v3 Prefill | Complete default-off, test-only 64-layer source composition with startup-bound target-AOT assets, role-specific macro projections, nine-kernel-per-layer exact GDN, cold rollback, and a V18 physical transaction; integrated build and focused admission tests pass | Frozen executable diagnostic/control; no authoritative P40 timing, numerical, release, or production qualification exists |
-| SM87 MacroFeed v4 Prefill | Active, default-off C8000×5 panel-major foundation: Full Events now strictly separates normal and Synthetic-T1 authority and uses direct O(1) `panel * 16 + ordinal` replay slots; the normal Full outer receipt binds every identity but has no runtime-positive invocation. One same-request/panel Synthetic-T1 fixture physically executes `GDN0 -> GDN1 -> GDN2 -> Full3` with complete KV/RoPE as 35 kernels plus three 61,440-byte copies, followed by one normal combined drain/discard and no publication. Its minimum failure retains 27/3 and poison-invalidates the pending Full grant | Implement the owner-only Events/RequestState panel-commit bridge; construction-seal Embedding, final norm and exact LM-head-M1 input/output; then add the fixed package 64-layer × 5-panel loop, cold rearm/rollback, final `B -> A`/`FinalPublish`/sequence fence, and proportional real-checkpoint lifetime/numerical gates before the API. This row has synthetic correctness/dependency authority only; normal runtime-positive, real checkpoint, numerical, API, performance, release, and production authority remain absent |
+| SM87 MacroFeed v4 Prefill | Active, default-off C8000×5 panel-major foundation: Full Events strictly separates normal and Synthetic-T1 authority and uses direct O(1) `panel * 16 + ordinal` replay slots; the normal Full outer receipt binds every identity but has no runtime-positive invocation. One same-request/panel Synthetic-T1 fixture physically executes `GDN0 -> GDN1 -> GDN2 -> Full3` with complete KV/RoPE as 35 kernels plus three 61,440-byte copies, followed by one normal combined drain/discard and no publication. Owner-atomic runtime rearm now performs the exact 156,893,184-byte Main zero and creates fresh epoch/panel 0 together without heap allocation; exact-ledger `PanelDone` directly commits RequestState with no host wait, healthy discard can rearm, poison cannot, and final private discard publishes nothing. The panel-close fixture seeds rather than physically executes the 560-kernel ledger | Construction-seal Embedding, final norm and exact LM-head-M1 input/output; then add the fixed package 64-layer × 5-panel loop and rollback, final `B -> A`/`FinalPublish`/sequence fence (including successful-request reuse), and proportional real-checkpoint lifetime/numerical gates before the API. This row has synthetic correctness/dependency/lifecycle authority only; normal runtime-positive whole panel/request, real checkpoint, numerical, API, performance, release, and production authority remain absent |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

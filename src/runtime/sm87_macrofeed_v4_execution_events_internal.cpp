@@ -16,6 +16,7 @@ std::atomic<std::uint64_t> g_next_owner_identity{1U};
 std::atomic<std::uint64_t> g_next_seal_nonce{1U};
 std::atomic<std::uint64_t> g_next_enqueue_identity{1U};
 std::atomic<std::uint64_t> g_next_completion_identity{1U};
+std::atomic<std::uint64_t> g_next_panel_commit_audit_identity{1U};
 std::atomic<std::uint64_t> g_next_gdn_layer_transaction_identity{1U};
 std::atomic<std::uint64_t> g_next_full_attention_layer_transaction_identity{
     1U};
@@ -213,6 +214,29 @@ Sm87MacroFeedV4ExecutionPanelAccess::Sm87MacroFeedV4ExecutionPanelAccess(
       panel_(panel),
       panel_generation_(panel_generation) {}
 
+Sm87MacroFeedV4ExecutionPanelAccess::Sm87MacroFeedV4ExecutionPanelAccess(
+    Sm87MacroFeedV4ExecutionPanelAccess&& other) noexcept
+    : owner_(std::exchange(other.owner_, nullptr)),
+      owner_identity_(std::exchange(other.owner_identity_, 0U)),
+      seal_nonce_(std::exchange(other.seal_nonce_, 0U)),
+      request_epoch_(std::exchange(other.request_epoch_, 0U)),
+      panel_(std::exchange(other.panel_, kSm87MacroFeedV4PanelCount)),
+      panel_generation_(std::exchange(other.panel_generation_, 0U)) {}
+
+Sm87MacroFeedV4ExecutionPanelAccess&
+Sm87MacroFeedV4ExecutionPanelAccess::operator=(
+    Sm87MacroFeedV4ExecutionPanelAccess&& other) noexcept {
+  if (this != &other) {
+    owner_ = std::exchange(other.owner_, nullptr);
+    owner_identity_ = std::exchange(other.owner_identity_, 0U);
+    seal_nonce_ = std::exchange(other.seal_nonce_, 0U);
+    request_epoch_ = std::exchange(other.request_epoch_, 0U);
+    panel_ = std::exchange(other.panel_, kSm87MacroFeedV4PanelCount);
+    panel_generation_ = std::exchange(other.panel_generation_, 0U);
+  }
+  return *this;
+}
+
 Sm87MacroFeedV4ExecutionEventsCreateResult::operator bool() const noexcept {
   return owner != nullptr && static_cast<bool>(status) &&
          owner->access() != nullptr &&
@@ -353,6 +377,8 @@ void Sm87MacroFeedV4ExecutionEventsOwner::reset_request_ledger() noexcept {
   bf16_ab_cycles_completed_ = 0U;
   enqueue_receipts_issued_ = 0U;
   physical_completion_receipts_issued_ = 0U;
+  panel_commit_audit_receipts_issued_ = 0U;
+  panel_ledger_baseline_ = {};
   bound_kernel_submissions_ = 0U;
   input_norm_submissions_ = 0U;
   bf16_ab_submissions_ = 0U;
@@ -463,11 +489,191 @@ Sm87MacroFeedV4ExecutionEventsOwner::begin_request(
   return ok();
 }
 
+Sm87MacroFeedV4ColdRequestRearmResult
+Sm87MacroFeedV4ExecutionEventsOwner::rearm_cold_request(
+    const Sm87MacroFeedV4ExecutionEventsAccess& access,
+    Sm87MacroFeedV4RequestState& request_owner,
+    const Sm87MacroFeedV4RequestStateSealedAccess& previous_request_access)
+    noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  Sm87MacroFeedV4ColdRequestRearmResult result;
+  if (!owner_access_matches(access)) {
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                         "runtime_rearm_owner_issued_access");
+    return result;
+  }
+  const bool construction_boundary =
+      state_ == Sm87MacroFeedV4ExecutionOwnerState::kReady &&
+      last_request_epoch_ == 0U;
+  const bool terminal_boundary =
+      (state_ == Sm87MacroFeedV4ExecutionOwnerState::kRequestCompleted ||
+       state_ == Sm87MacroFeedV4ExecutionOwnerState::kRequestDiscarded) &&
+      last_request_epoch_ != 0U;
+  if ((!construction_boundary && !terminal_boundary) ||
+      active_panel_ != kSm87MacroFeedV4PanelCount ||
+      (construction_boundary && draining_)) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kInvalidOwnerState,
+        "runtime_rearm_requires_construction_or_physical_terminal_boundary");
+    return result;
+  }
+  const std::uint64_t previous_epoch =
+      previous_request_access.request_epoch();
+  if (previous_request_access.owner_identity() != owner_identity_ ||
+      previous_request_access.allocation_identity() !=
+          cold_recurrent_allocation_identity_ ||
+      previous_epoch == 0U ||
+      (terminal_boundary && previous_epoch != last_request_epoch_)) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kForeignRequestAccess,
+        "runtime_rearm_requires_matching_previous_request_capability");
+    return result;
+  }
+  if (cold_recurrent_initializations_ != 1U ||
+      cold_recurrent_allocation_identity_ == 0U ||
+      cold_recurrent_allocation_begin_ == 0U ||
+      cold_recurrent_zero_bytes_ != kSm87MacroFeedV4RecurrentStorageBytes ||
+      request_owner.admission().owner_identity != owner_identity_ ||
+      request_owner.admission().allocation_identity !=
+          cold_recurrent_allocation_identity_ ||
+      runtime_cold_rearms_ == std::numeric_limits<std::size_t>::max()) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
+        "runtime_rearm_requires_exact_construction_sealed_recurrent_arena");
+    return result;
+  }
+
+  // This is request work, not construction work.  Main owns the exact full
+  // recurrent zero so every subsequent layer launch is device ordered after
+  // it without a host fence or a hot-path allocation/resource query.
+  const auto main_stream = reinterpret_cast<cudaStream_t>(
+      streams_[stream_index(Sm87MacroFeedV4ExecutionStream::kMain)]);
+  void* const recurrent_allocation =
+      reinterpret_cast<void*>(cold_recurrent_allocation_begin_);
+  const cudaError_t cuda_status = cudaMemsetAsync(
+      recurrent_allocation, 0, kSm87MacroFeedV4RecurrentStorageBytes,
+      main_stream);
+  if (cuda_status != cudaSuccess) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kCudaSubmission,
+        "runtime_rearm_main_recurrent_zero_enqueue",
+        static_cast<int>(cuda_status), Sm87MacroFeedV4ExecutionStream::kMain);
+    record_poison_cause(result.status);
+    return result;
+  }
+  result.enqueued_recurrent_zero_bytes =
+      kSm87MacroFeedV4RecurrentStorageBytes;
+
+  // Fixed lock order: EventsOwner -> RequestState.  Once the memset has been
+  // accepted, any logical rejection permanently poisons this owner; the zero
+  // transaction is never silently retried under the old epoch.
+  auto rearmed = request_owner
+                     .rearm_cold_and_begin_panel_zero_after_owner_quiescence(
+                         owner_identity_, cold_recurrent_allocation_identity_,
+                         previous_epoch,
+                         kSm87MacroFeedV4RecurrentStorageBytes);
+  result.request_state_status = rearmed.status;
+  if (!rearmed || !rearmed.access.has_value() ||
+      rearmed.previous_request_epoch != previous_epoch ||
+      rearmed.request_epoch <= previous_epoch ||
+      rearmed.access->owner_identity() != owner_identity_ ||
+      rearmed.access->allocation_identity() !=
+          cold_recurrent_allocation_identity_ ||
+      rearmed.access->request_epoch() != rearmed.request_epoch) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kRequestStateRearm,
+        rearmed.status.context, 0, Sm87MacroFeedV4ExecutionStream::kMain);
+    record_poison_cause(result.status);
+    return result;
+  }
+
+  reset_request_ledger();
+  request_owner_identity_ = owner_identity_;
+  request_allocation_identity_ = cold_recurrent_allocation_identity_;
+  request_epoch_ = rearmed.request_epoch;
+  last_request_epoch_ = request_epoch_;
+  ++runtime_cold_rearms_;
+  runtime_recurrent_zero_bytes_ = kSm87MacroFeedV4RecurrentStorageBytes;
+  last_rearmed_previous_request_epoch_ = previous_epoch;
+  last_rearmed_request_epoch_ = request_epoch_;
+  state_ = Sm87MacroFeedV4ExecutionOwnerState::kRequestActive;
+  result.panel_access.emplace(activate_panel_locked(0U));
+
+  result.previous_request_epoch = previous_epoch;
+  result.request_epoch = request_epoch_;
+  result.request_access = rearmed.access;
+  result.status = ok();
+  return result;
+}
+
 Sm87MacroFeedV4PanelBeginResult
 Sm87MacroFeedV4ExecutionEventsOwner::begin_panel(
     const Sm87MacroFeedV4ExecutionEventsAccess& access,
     const std::size_t panel) noexcept {
   std::lock_guard<std::mutex> lock(mutex_);
+  return begin_panel_locked(access, panel);
+}
+
+Sm87MacroFeedV4PanelBeginResult
+Sm87MacroFeedV4ExecutionEventsOwner::begin_panel_with_state(
+    const Sm87MacroFeedV4ExecutionEventsAccess& access,
+    Sm87MacroFeedV4RequestState& request_owner,
+    const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+    const std::size_t panel) noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  Sm87MacroFeedV4PanelBeginResult result;
+  if (!owner_access_matches(access)) {
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                         "begin_panel_with_state_owner_issued_access");
+    return result;
+  }
+  if (state_ != Sm87MacroFeedV4ExecutionOwnerState::kRequestActive ||
+      active_panel_ != kSm87MacroFeedV4PanelCount || draining_) {
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kInvalidOwnerState,
+                         "begin_panel_with_state_requires_idle_request");
+    return result;
+  }
+  if (panel >= kSm87MacroFeedV4PanelCount || panel != completed_panels_ ||
+      request_access.owner_identity() != owner_identity_ ||
+      request_access.allocation_identity() != request_allocation_identity_ ||
+      request_access.request_epoch() != request_epoch_) {
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kInvalidPanel,
+                         "begin_panel_with_state_identity_or_order_mismatch", 0,
+                         Sm87MacroFeedV4ExecutionStream::kCount,
+                         Sm87MacroFeedV4ExecutionEvent::kCount, panel);
+    return result;
+  }
+
+  // Fixed lock order: EventsOwner -> RequestState.  All Events-side facts are
+  // validated before RequestState mutates; the remaining Events begin path is
+  // allocation-free and cannot fail for this retained generation.
+  result.request_state_status = request_owner.begin_panel(request_access,
+                                                          panel);
+  if (!result.request_state_status) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kRequestStatePanelBegin,
+        result.request_state_status.context, 0,
+        Sm87MacroFeedV4ExecutionStream::kCount,
+        Sm87MacroFeedV4ExecutionEvent::kCount, panel);
+    return result;
+  }
+  result = begin_panel_locked(access, panel);
+  if (!result) {
+    const auto cause = fail(
+        Sm87MacroFeedV4ExecutionError::kRequestStatePanelBegin,
+        "events_panel_begin_failed_after_request_state_begin", 0,
+        Sm87MacroFeedV4ExecutionStream::kCount,
+        Sm87MacroFeedV4ExecutionEvent::kCount, panel);
+    record_poison_cause(cause);
+    result.status = cause;
+  }
+  return result;
+}
+
+Sm87MacroFeedV4PanelBeginResult
+Sm87MacroFeedV4ExecutionEventsOwner::begin_panel_locked(
+    const Sm87MacroFeedV4ExecutionEventsAccess& access,
+    const std::size_t panel) noexcept {
   Sm87MacroFeedV4PanelBeginResult result;
   if (!owner_access_matches(access)) {
     result.status = fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
@@ -488,6 +694,14 @@ Sm87MacroFeedV4ExecutionEventsOwner::begin_panel(
     return result;
   }
 
+  result.panel_access.emplace(activate_panel_locked(panel));
+  result.status = ok();
+  return result;
+}
+
+Sm87MacroFeedV4ExecutionPanelAccess
+Sm87MacroFeedV4ExecutionEventsOwner::activate_panel_locked(
+    const std::size_t panel) noexcept {
   // PanelDone is a device-ordered marker, not a per-panel host barrier.  No
   // consumer waits on it and no physical receipt is required to advance the
   // enqueue ledger.  CUDA permits re-recording the same event; invalidate the
@@ -514,20 +728,42 @@ Sm87MacroFeedV4ExecutionEventsOwner::begin_panel(
   main_tail_joined_ = false;
   ab_tail_joined_ = false;
   owner_drained_recorded_ = false;
+  panel_ledger_baseline_.bf16_ab_cycles = bf16_ab_cycles_completed_;
+  panel_ledger_baseline_.bound_kernels = bound_kernel_submissions_;
+  panel_ledger_baseline_.input_norm = input_norm_submissions_;
+  panel_ledger_baseline_.bf16_ab = bf16_ab_submissions_;
+  panel_ledger_baseline_.gdn_qkvz = gdn_qkvz_c8000_submissions_;
+  panel_ledger_baseline_.gdn_qkvz_waits =
+      gdn_qkvz_ab_ready_wait_transactions_;
+  panel_ledger_baseline_.gdn_continuation =
+      gdn_continuation_c8000_submissions_;
+  panel_ledger_baseline_.gdn_copies = gdn_history_d2d_copies_;
+  panel_ledger_baseline_.gdn_copy_bytes = gdn_history_d2d_bytes_;
+  panel_ledger_baseline_.gdn_output = gdn_output_c8000_submissions_;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  panel_ledger_baseline_.full_qkv = full_qkv_c8000_submissions_;
+  panel_ledger_baseline_.full_preprocess =
+      full_attention_preprocess_c8000_submissions_;
+  panel_ledger_baseline_.attention = attention_c8000_submissions_;
+  panel_ledger_baseline_.full_output =
+      full_attention_output_c8000_submissions_;
+#endif
+  panel_ledger_baseline_.residual_post_norm =
+      residual_post_norm_submissions_;
+  panel_ledger_baseline_.gate_up = gate_up_c8000_submissions_;
+  panel_ledger_baseline_.down = down_c8000_submissions_;
+  panel_ledger_baseline_.complete_gdn = complete_gdn_layers_submitted_;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  panel_ledger_baseline_.accepted_gdn = accepted_gdn_grant_count_;
+  panel_ledger_baseline_.complete_full =
+      complete_full_attention_layers_submitted_;
+  panel_ledger_baseline_.accepted_full =
+      accepted_full_attention_grant_count_;
+#endif
 
-  result.panel_access.reset(
-      new (std::nothrow) Sm87MacroFeedV4ExecutionPanelAccess(
-          this, owner_identity_, seal_nonce_, request_epoch_, active_panel_,
-          active_panel_generation_));
-  if (result.panel_access == nullptr) {
-    active_panel_ = kSm87MacroFeedV4PanelCount;
-    active_panel_generation_ = 0U;
-    result.status = fail(Sm87MacroFeedV4ExecutionError::kInvalidOwnerState,
-                         "panel_access_allocation");
-    return result;
-  }
-  result.status = ok();
-  return result;
+  return Sm87MacroFeedV4ExecutionPanelAccess(
+      this, owner_identity_, seal_nonce_, request_epoch_, active_panel_,
+      active_panel_generation_);
 }
 
 Sm87MacroFeedV4ExecutionStatus
@@ -3779,6 +4015,287 @@ bool Sm87MacroFeedV4ExecutionEventsOwner::completion_receipt_matches(
                                            receipt);
 }
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+Sm87MacroFeedV4ExecutionStatus
+Sm87MacroFeedV4ExecutionEventsOwner::validate_exact_panel_ledger_locked()
+    const noexcept {
+  constexpr std::size_t kGdnLayers =
+      kSm87MacroFeedV4StateLayerCount;
+  constexpr std::size_t kFullLayers =
+      kSm87MacroFeedV4FullAttentionLayerCount;
+  constexpr std::size_t kModelLayers = kSm87MacroFeedV4LayerCount;
+  constexpr std::size_t kGdnKernels = 9U;
+  constexpr std::size_t kFullKernels = 8U;
+  constexpr std::size_t kPanelKernels =
+      kGdnLayers * kGdnKernels + kFullLayers * kFullKernels;
+  constexpr std::size_t kGdnContinuationKernels = 2U * kGdnLayers;
+  constexpr std::uint64_t kPanelCopyBytes =
+      kSm87MacroFeedV4ConvEpochBytes;
+  static_assert(kGdnLayers == 48U);
+  static_assert(kFullLayers == 16U);
+  static_assert(kModelLayers == 64U);
+  static_assert(kPanelKernels == 560U);
+  static_assert(kPanelCopyBytes == 2'949'120U);
+
+  if (active_panel_ >= kSm87MacroFeedV4PanelCount ||
+      active_panel_ != completed_panels_ || panel_done_recorded_ ||
+      draining_ ||
+      ab_cycle_phase_ != AbCyclePhase::kExpectNormRecord ||
+      bf16_ab_cycles_completed_ != kGdnLayers ||
+      panel_ledger_baseline_.bf16_ab_cycles != 0U) {
+    return fail(
+        Sm87MacroFeedV4ExecutionError::kPanelIncomplete,
+        "atomic_panel_close_requires_live_unrecorded_panel_boundary", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kPanelDone, active_panel_,
+        active_panel_generation_);
+  }
+
+  const auto exact_delta = [](const auto current, const auto baseline,
+                              const auto expected) noexcept {
+    return current >= baseline && current - baseline == expected;
+  };
+  const std::size_t prior_panels = active_panel_;
+  const bool exact_cumulative_baseline =
+      panel_ledger_baseline_.bound_kernels ==
+          prior_panels * kPanelKernels &&
+      panel_ledger_baseline_.input_norm == prior_panels * kModelLayers &&
+      panel_ledger_baseline_.bf16_ab == prior_panels * kGdnLayers &&
+      panel_ledger_baseline_.gdn_qkvz == prior_panels * kGdnLayers &&
+      panel_ledger_baseline_.gdn_qkvz_waits ==
+          prior_panels * kGdnLayers &&
+      panel_ledger_baseline_.gdn_continuation ==
+          prior_panels * kGdnContinuationKernels &&
+      panel_ledger_baseline_.gdn_copies == prior_panels * kGdnLayers &&
+      panel_ledger_baseline_.gdn_copy_bytes ==
+          prior_panels * kPanelCopyBytes &&
+      panel_ledger_baseline_.gdn_output == prior_panels * kGdnLayers &&
+      panel_ledger_baseline_.full_qkv == prior_panels * kFullLayers &&
+      panel_ledger_baseline_.full_preprocess == prior_panels * kFullLayers &&
+      panel_ledger_baseline_.attention == prior_panels * kFullLayers &&
+      panel_ledger_baseline_.full_output == prior_panels * kFullLayers &&
+      panel_ledger_baseline_.residual_post_norm ==
+          prior_panels * kModelLayers &&
+      panel_ledger_baseline_.gate_up == prior_panels * kModelLayers &&
+      panel_ledger_baseline_.down == prior_panels * kModelLayers &&
+      panel_ledger_baseline_.complete_gdn == prior_panels * kGdnLayers &&
+      panel_ledger_baseline_.accepted_gdn == prior_panels * kGdnLayers &&
+      panel_ledger_baseline_.complete_full == prior_panels * kFullLayers &&
+      panel_ledger_baseline_.accepted_full == prior_panels * kFullLayers;
+  const bool exact_panel_delta =
+      exact_delta(bound_kernel_submissions_,
+                  panel_ledger_baseline_.bound_kernels, kPanelKernels) &&
+      exact_delta(input_norm_submissions_, panel_ledger_baseline_.input_norm,
+                  kModelLayers) &&
+      exact_delta(bf16_ab_submissions_, panel_ledger_baseline_.bf16_ab,
+                  kGdnLayers) &&
+      exact_delta(gdn_qkvz_c8000_submissions_,
+                  panel_ledger_baseline_.gdn_qkvz, kGdnLayers) &&
+      exact_delta(gdn_qkvz_ab_ready_wait_transactions_,
+                  panel_ledger_baseline_.gdn_qkvz_waits, kGdnLayers) &&
+      exact_delta(gdn_continuation_c8000_submissions_,
+                  panel_ledger_baseline_.gdn_continuation,
+                  kGdnContinuationKernels) &&
+      exact_delta(gdn_history_d2d_copies_, panel_ledger_baseline_.gdn_copies,
+                  kGdnLayers) &&
+      exact_delta(gdn_history_d2d_bytes_,
+                  panel_ledger_baseline_.gdn_copy_bytes, kPanelCopyBytes) &&
+      exact_delta(gdn_output_c8000_submissions_,
+                  panel_ledger_baseline_.gdn_output, kGdnLayers) &&
+      exact_delta(full_qkv_c8000_submissions_,
+                  panel_ledger_baseline_.full_qkv, kFullLayers) &&
+      exact_delta(full_attention_preprocess_c8000_submissions_,
+                  panel_ledger_baseline_.full_preprocess, kFullLayers) &&
+      exact_delta(attention_c8000_submissions_,
+                  panel_ledger_baseline_.attention, kFullLayers) &&
+      exact_delta(full_attention_output_c8000_submissions_,
+                  panel_ledger_baseline_.full_output, kFullLayers) &&
+      exact_delta(residual_post_norm_submissions_,
+                  panel_ledger_baseline_.residual_post_norm, kModelLayers) &&
+      exact_delta(gate_up_c8000_submissions_,
+                  panel_ledger_baseline_.gate_up, kModelLayers) &&
+      exact_delta(down_c8000_submissions_, panel_ledger_baseline_.down,
+                  kModelLayers) &&
+      exact_delta(complete_gdn_layers_submitted_,
+                  panel_ledger_baseline_.complete_gdn, kGdnLayers) &&
+      exact_delta(accepted_gdn_grant_count_,
+                  panel_ledger_baseline_.accepted_gdn, kGdnLayers) &&
+      exact_delta(complete_full_attention_layers_submitted_,
+                  panel_ledger_baseline_.complete_full, kFullLayers) &&
+      exact_delta(accepted_full_attention_grant_count_,
+                  panel_ledger_baseline_.accepted_full, kFullLayers);
+  if (!exact_cumulative_baseline || !exact_panel_delta) {
+    return fail(
+        Sm87MacroFeedV4ExecutionError::kPanelIncomplete,
+        "atomic_panel_close_requires_exact_64_layer_560_kernel_ledger", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kPanelDone, active_panel_,
+        active_panel_generation_);
+  }
+
+  const std::size_t gdn_end = (active_panel_ + 1U) * kGdnLayers;
+  const std::size_t full_end = (active_panel_ + 1U) * kFullLayers;
+  for (std::size_t slot = 0U; slot < gdn_end; ++slot) {
+    if (accepted_gdn_grant_identities_[slot] == 0U) {
+      return fail(
+          Sm87MacroFeedV4ExecutionError::kPanelIncomplete,
+          "atomic_panel_close_requires_all_48_gdn_grant_slots", 0,
+          Sm87MacroFeedV4ExecutionStream::kMain,
+          Sm87MacroFeedV4ExecutionEvent::kPanelDone, active_panel_,
+          active_panel_generation_);
+    }
+  }
+  for (std::size_t slot = 0U; slot < full_end; ++slot) {
+    if (accepted_full_attention_grant_identities_[slot] == 0U) {
+      return fail(
+          Sm87MacroFeedV4ExecutionError::kPanelIncomplete,
+          "atomic_panel_close_requires_all_16_full_grant_slots", 0,
+          Sm87MacroFeedV4ExecutionStream::kMain,
+          Sm87MacroFeedV4ExecutionEvent::kPanelDone, active_panel_,
+          active_panel_generation_);
+    }
+  }
+  if (!last_gdn_accepted_prefix_.valid_prefix() ||
+      !last_gdn_accepted_prefix_.complete ||
+      last_gdn_accepted_prefix_.panel != active_panel_ ||
+      last_gdn_accepted_prefix_.panel_generation !=
+          active_panel_generation_ ||
+      last_gdn_accepted_prefix_.gdn_ordinal != kGdnLayers - 1U ||
+      last_gdn_accepted_prefix_.model_layer != kModelLayers - 2U ||
+      last_gdn_accepted_prefix_.accepted_kernel_launches != kGdnKernels ||
+      last_gdn_accepted_prefix_.asynchronous_d2d_copies != 1U ||
+      !last_full_attention_accepted_prefix_.valid_prefix() ||
+      !last_full_attention_accepted_prefix_.complete ||
+      last_full_attention_accepted_prefix_.panel != active_panel_ ||
+      last_full_attention_accepted_prefix_.panel_generation !=
+          active_panel_generation_ ||
+      last_full_attention_accepted_prefix_.full_attention_ordinal !=
+          kFullLayers - 1U ||
+      last_full_attention_accepted_prefix_.model_layer != kModelLayers - 1U ||
+      last_full_attention_accepted_prefix_.accepted_kernel_launches !=
+          kFullKernels) {
+    return fail(
+        Sm87MacroFeedV4ExecutionError::kPanelIncomplete,
+        "atomic_panel_close_requires_exact_terminal_gdn_and_full_prefixes", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kPanelDone, active_panel_,
+        active_panel_generation_);
+  }
+  return ok();
+}
+
+std::uint64_t
+Sm87MacroFeedV4ExecutionEventsOwner::panel_commit_audit_authenticator(
+    const Sm87MacroFeedV4PanelCommitAuditReceipt& receipt) const noexcept {
+  std::uint64_t value = receipt_secret_ ^ receipt.receipt_identity_;
+  value = mix64(value ^ receipt.owner_identity_);
+  value = mix64(value ^ receipt.request_epoch_);
+  value = mix64(value ^ static_cast<std::uint64_t>(receipt.panel_));
+  value = mix64(value ^ receipt.panel_generation_);
+  value = mix64(value ^ receipt.panel_done_generation_);
+  value = mix64(value ^ static_cast<std::uint64_t>(
+                            receipt.accepted_kernel_submissions_));
+  value = mix64(value ^ receipt.accepted_d2d_copy_bytes_);
+  value = mix64(value ^ 0x5041'4e45'4c43'4d54ULL);
+  return value == 0U ? 1U : value;
+}
+
+Sm87MacroFeedV4PanelCommitAuditReceipt
+Sm87MacroFeedV4ExecutionEventsOwner::mint_panel_commit_audit_receipt_locked(
+    const std::uint64_t panel_done_generation) noexcept {
+  Sm87MacroFeedV4PanelCommitAuditReceipt receipt;
+  receipt.receipt_identity_ =
+      next_nonzero(&g_next_panel_commit_audit_identity);
+  receipt.owner_identity_ = owner_identity_;
+  receipt.request_epoch_ = request_epoch_;
+  receipt.panel_ = active_panel_;
+  receipt.panel_generation_ = active_panel_generation_;
+  receipt.panel_done_generation_ = panel_done_generation;
+  receipt.accepted_gdn_layers_ = kSm87MacroFeedV4StateLayerCount;
+  receipt.accepted_full_attention_layers_ =
+      kSm87MacroFeedV4FullAttentionLayerCount;
+  receipt.accepted_kernel_submissions_ = 560U;
+  receipt.accepted_d2d_copies_ = kSm87MacroFeedV4StateLayerCount;
+  receipt.accepted_d2d_copy_bytes_ = kSm87MacroFeedV4ConvEpochBytes;
+  receipt.request_state_commit_succeeded_ = true;
+  receipt.mutation_authority_ = false;
+  receipt.authenticator_ = panel_commit_audit_authenticator(receipt);
+  ++panel_commit_audit_receipts_issued_;
+  return receipt;
+}
+
+Sm87MacroFeedV4PanelCloseCommitResult
+Sm87MacroFeedV4ExecutionEventsOwner::close_panel_and_commit_state(
+    const Sm87MacroFeedV4ExecutionEventsAccess& access,
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    Sm87MacroFeedV4RequestState& request_owner,
+    const Sm87MacroFeedV4RequestStateSealedAccess& request_access) noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  Sm87MacroFeedV4PanelCloseCommitResult result;
+  result.status = validate_operation_access(access, panel_access);
+  if (!result.status) {
+    return result;
+  }
+  if (request_access.owner_identity() != owner_identity_ ||
+      request_access.allocation_identity() != request_allocation_identity_ ||
+      request_access.request_epoch() != request_epoch_) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kForeignRequestAccess,
+        "atomic_panel_close_requires_matching_request_capability", 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kPanelDone, active_panel_,
+        active_panel_generation_);
+    return result;
+  }
+  result.status = validate_exact_panel_ledger_locked();
+  if (!result.status) {
+    return result;
+  }
+
+  // Every host fact is proven before PanelDone is recorded.  The record is a
+  // device-order edge only--there is intentionally no query or synchronize.
+  const auto panel_done = record_event_locked(
+      access, panel_access, Sm87MacroFeedV4ExecutionStream::kMain,
+      Sm87MacroFeedV4ExecutionEvent::kPanelDone);
+  if (!panel_done) {
+    result.status = panel_done.status;
+    return result;
+  }
+  const std::uint64_t panel_done_generation =
+      panel_done.receipt.event_generation;
+
+  // Fixed lock order: EventsOwner -> RequestState.  A post-record rejection
+  // permanently poisons the owner; completed_panels_ is never advanced and a
+  // three-stream physical drain plus RequestState discard is then mandatory.
+  result.request_state_status =
+      request_owner.commit_panel_after_device_ordered_execution(
+          request_access, owner_identity_, request_allocation_identity_,
+          request_epoch_, active_panel_, active_panel_generation_);
+  if (!result.request_state_status) {
+    result.status = fail(
+        Sm87MacroFeedV4ExecutionError::kRequestStatePanelCommit,
+        result.request_state_status.context, 0,
+        Sm87MacroFeedV4ExecutionStream::kMain,
+        Sm87MacroFeedV4ExecutionEvent::kPanelDone, active_panel_,
+        active_panel_generation_);
+    record_poison_cause(result.status);
+    return result;
+  }
+
+  // Mint only after the state swap has succeeded.  The receipt is audit-only
+  // and no mutation API accepts it as authority.
+  result.audit_receipt =
+      mint_panel_commit_audit_receipt_locked(panel_done_generation);
+  ++completed_panels_;
+  if (completed_panels_ < kSm87MacroFeedV4PanelCount) {
+    active_panel_ = kSm87MacroFeedV4PanelCount;
+    active_panel_generation_ = 0U;
+  }
+  result.status = ok();
+  return result;
+}
+#endif
+
 Sm87MacroFeedV4ExecutionStatus
 Sm87MacroFeedV4ExecutionEventsOwner::close_panel(
     const Sm87MacroFeedV4ExecutionEventsAccess& access,
@@ -3915,6 +4432,78 @@ Sm87MacroFeedV4ExecutionEventsOwner::discard_request_state_after_drain(
     // reusable RequestActive state.  Preserve the live request/panel identities
     // and poison it so the package can perform the terminal all-stream drain
     // and retry the same owner-mediated RequestState discard exactly once.
+    record_poison_cause(failure);
+    return failure;
+  }
+
+  state_ = Sm87MacroFeedV4ExecutionOwnerState::kRequestDiscarded;
+  active_panel_ = kSm87MacroFeedV4PanelCount;
+  active_panel_generation_ = 0U;
+  request_epoch_ = 0U;
+  return ok();
+}
+
+Sm87MacroFeedV4ExecutionStatus
+Sm87MacroFeedV4ExecutionEventsOwner::
+    discard_final_request_state_after_drain(
+        const Sm87MacroFeedV4ExecutionEventsAccess& access,
+        const Sm87MacroFeedV4ExecutionPanelAccess& final_panel_access,
+        const Sm87MacroFeedV4PhysicalCompletionReceipt& owner_drained,
+        Sm87MacroFeedV4RequestState& request_owner,
+        const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+        const Sm87MacroFeedV4RequestDiscardReason reason) noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  Sm87MacroFeedV4ExecutionStatus status =
+      validate_operation_access(access, final_panel_access);
+  if (!status) {
+    return status;
+  }
+  const std::uint64_t main_generation =
+      event_state_[event_index(Sm87MacroFeedV4ExecutionEvent::kMainTail)]
+          .generation;
+  const std::uint64_t ab_generation =
+      event_state_[event_index(Sm87MacroFeedV4ExecutionEvent::kAbTail)]
+          .generation;
+  if (completed_panels_ != kSm87MacroFeedV4PanelCount ||
+      active_panel_ != kSm87MacroFeedV4PanelCount - 1U || !draining_ ||
+      !main_tail_recorded_ || !ab_tail_recorded_ || !main_tail_joined_ ||
+      !ab_tail_joined_ || !owner_drained_recorded_ ||
+      main_generation == 0U || ab_generation == 0U) {
+    return fail(
+        Sm87MacroFeedV4ExecutionError::kDrainIncomplete,
+        "final_discard_requires_exact_final_panel_dual_stream_drain", 0,
+        Sm87MacroFeedV4ExecutionStream::kControl,
+        Sm87MacroFeedV4ExecutionEvent::kOwnerDrained, active_panel_,
+        active_panel_generation_);
+  }
+  if (!completion_receipt_matches_locked(
+          final_panel_access, Sm87MacroFeedV4ExecutionEvent::kOwnerDrained,
+          owner_drained) ||
+      owner_drained.main_tail_generation_ != main_generation ||
+      owner_drained.ab_tail_generation_ != ab_generation) {
+    return fail(
+        Sm87MacroFeedV4ExecutionError::kReceiptInvalid,
+        "final_discard_requires_exact_physical_owner_drain_receipt", 0,
+        Sm87MacroFeedV4ExecutionStream::kControl,
+        Sm87MacroFeedV4ExecutionEvent::kOwnerDrained, active_panel_,
+        active_panel_generation_);
+  }
+
+  // The opaque receipt is validated here and its private identity is passed
+  // directly while Events still owns the fixed Events -> RequestState lock
+  // order.  Returning the receipt to a caller never grants another mutation.
+  const auto request_discard =
+      request_owner.discard_final_after_physical_execution_drain(
+          request_access, owner_identity_, request_allocation_identity_,
+          request_epoch_, active_panel_, active_panel_generation_,
+          owner_drained.receipt_identity_, false, reason);
+  if (!request_discard) {
+    const auto failure = fail(
+        Sm87MacroFeedV4ExecutionError::kRequestStateDiscard,
+        request_discard.context, 0,
+        Sm87MacroFeedV4ExecutionStream::kControl,
+        Sm87MacroFeedV4ExecutionEvent::kOwnerDrained, active_panel_,
+        active_panel_generation_);
     record_poison_cause(failure);
     return failure;
   }
@@ -4082,11 +4671,22 @@ Sm87MacroFeedV4ExecutionEventsOwner::drain_poisoned_request_locked(
     // The audit identity above is never consumed as caller authority.  This
     // EventsOwner still holds its exact poisoned request/panel generation and
     // directly performs the only RequestState transition that may consume it.
+    const bool final_private_generation =
+        completed_panels_ == kSm87MacroFeedV4PanelCount &&
+        active_panel_ == kSm87MacroFeedV4PanelCount - 1U;
     result.request_state_status =
-        request_owner->discard_active_panel_after_physical_execution_drain(
-            *request_access, owner_identity_, request_allocation_identity_,
-            request_epoch_, active_panel_, active_panel_generation_,
-            poisoned_terminal_quiescence_identity_, true, reason);
+        final_private_generation
+            ? request_owner->discard_final_after_physical_execution_drain(
+                  *request_access, owner_identity_,
+                  request_allocation_identity_, request_epoch_, active_panel_,
+                  active_panel_generation_,
+                  poisoned_terminal_quiescence_identity_, true, reason)
+            : request_owner
+                  ->discard_active_panel_after_physical_execution_drain(
+                      *request_access, owner_identity_,
+                      request_allocation_identity_, request_epoch_,
+                      active_panel_, active_panel_generation_,
+                      poisoned_terminal_quiescence_identity_, true, reason);
     if (!result.request_state_status) {
       if (result.drain_status.error ==
           Sm87MacroFeedV4ExecutionError::kNone) {
@@ -4178,6 +4778,13 @@ Sm87MacroFeedV4ExecutionEventsOwner::snapshot() const noexcept {
   snapshot.cold_recurrent_allocation_begin =
       cold_recurrent_allocation_begin_;
   snapshot.cold_recurrent_zero_bytes = cold_recurrent_zero_bytes_;
+  snapshot.runtime_cold_rearms = runtime_cold_rearms_;
+  snapshot.runtime_recurrent_zero_bytes = runtime_recurrent_zero_bytes_;
+  snapshot.last_rearmed_previous_request_epoch =
+      last_rearmed_previous_request_epoch_;
+  snapshot.last_rearmed_request_epoch = last_rearmed_request_epoch_;
+  snapshot.panel_commit_audit_receipts_issued =
+      panel_commit_audit_receipts_issued_;
   snapshot.streams_nonblocking = streams_nonblocking_;
   snapshot.bf16_ab_cycle_at_norm_boundary =
       ab_cycle_phase_ == AbCyclePhase::kExpectNormRecord;
@@ -4234,6 +4841,21 @@ Sm87MacroFeedV4ExecutionEventsDriver::begin_request(
              : owner_->begin_request(*access_, request_owner, request_access);
 }
 
+Sm87MacroFeedV4ColdRequestRearmResult
+Sm87MacroFeedV4ExecutionEventsDriver::rearm_cold_request(
+    Sm87MacroFeedV4RequestState& request_owner,
+    const Sm87MacroFeedV4RequestStateSealedAccess& previous_request_access)
+    noexcept {
+  if (owner_ == nullptr || access_ == nullptr) {
+    Sm87MacroFeedV4ColdRequestRearmResult result;
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                         "execution_driver_unbound");
+    return result;
+  }
+  return owner_->rearm_cold_request(*access_, request_owner,
+                                    previous_request_access);
+}
+
 Sm87MacroFeedV4PanelBeginResult
 Sm87MacroFeedV4ExecutionEventsDriver::begin_panel(
     const std::size_t panel) noexcept {
@@ -4244,6 +4866,21 @@ Sm87MacroFeedV4ExecutionEventsDriver::begin_panel(
     return result;
   }
   return owner_->begin_panel(*access_, panel);
+}
+
+Sm87MacroFeedV4PanelBeginResult
+Sm87MacroFeedV4ExecutionEventsDriver::begin_panel_with_state(
+    Sm87MacroFeedV4RequestState& request_owner,
+    const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+    const std::size_t panel) noexcept {
+  if (owner_ == nullptr || access_ == nullptr) {
+    Sm87MacroFeedV4PanelBeginResult result;
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                         "execution_driver_unbound");
+    return result;
+  }
+  return owner_->begin_panel_with_state(*access_, request_owner,
+                                        request_access, panel);
 }
 
 Sm87MacroFeedV4EventEnqueueResult
@@ -4258,15 +4895,31 @@ Sm87MacroFeedV4ExecutionEventsDriver::record_event(
     return result;
   }
   if (event == Sm87MacroFeedV4ExecutionEvent::kNormReady ||
-      event == Sm87MacroFeedV4ExecutionEvent::kAbReady) {
+      event == Sm87MacroFeedV4ExecutionEvent::kAbReady ||
+      event == Sm87MacroFeedV4ExecutionEvent::kPanelDone) {
     Sm87MacroFeedV4EventEnqueueResult result;
     result.status = fail(
         Sm87MacroFeedV4ExecutionError::kKernelSubmitContract,
-        "driver_ready_event_requires_bound_kernel_transaction", 0,
+        "driver_event_requires_owner_atomic_bound_transaction", 0,
         producer, event);
     return result;
   }
   return owner_->record_event(*access_, panel_access, producer, event);
+}
+
+Sm87MacroFeedV4PanelCloseCommitResult
+Sm87MacroFeedV4ExecutionEventsDriver::close_panel_and_commit_state(
+    const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    Sm87MacroFeedV4RequestState& request_owner,
+    const Sm87MacroFeedV4RequestStateSealedAccess& request_access) noexcept {
+  if (owner_ == nullptr || access_ == nullptr) {
+    Sm87MacroFeedV4PanelCloseCommitResult result;
+    result.status = fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                         "execution_driver_unbound");
+    return result;
+  }
+  return owner_->close_panel_and_commit_state(
+      *access_, panel_access, request_owner, request_access);
 }
 
 Sm87MacroFeedV4EventEnqueueResult
@@ -4460,6 +5113,22 @@ Sm87MacroFeedV4ExecutionEventsDriver::discard_request_state_after_drain(
                     "execution_driver_unbound")
              : owner_->discard_request_state_after_drain(
                    *access_, panel_access, owner_drained, request_owner,
+                   request_access, reason);
+}
+
+Sm87MacroFeedV4ExecutionStatus
+Sm87MacroFeedV4ExecutionEventsDriver::
+    discard_final_request_state_after_drain(
+        const Sm87MacroFeedV4ExecutionPanelAccess& final_panel_access,
+        const Sm87MacroFeedV4PhysicalCompletionReceipt& owner_drained,
+        Sm87MacroFeedV4RequestState& request_owner,
+        const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+        const Sm87MacroFeedV4RequestDiscardReason reason) noexcept {
+  return owner_ == nullptr || access_ == nullptr
+             ? fail(Sm87MacroFeedV4ExecutionError::kForeignOwnerAccess,
+                    "execution_driver_unbound")
+             : owner_->discard_final_request_state_after_drain(
+                   *access_, final_panel_access, owner_drained, request_owner,
                    request_access, reason);
 }
 

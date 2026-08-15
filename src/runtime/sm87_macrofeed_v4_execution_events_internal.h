@@ -12,6 +12,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <utility>
 
 namespace q3x::runtime::sm87_macrofeed_v4_p40_execution_detail {
@@ -84,6 +85,9 @@ enum class Sm87MacroFeedV4ExecutionError : std::uint8_t {
   kDrainIncomplete,
   kFinalPublicationIncomplete,
   kRequestStateDiscard,
+  kRequestStateRearm,
+  kRequestStatePanelBegin,
+  kRequestStatePanelCommit,
 };
 
 struct Sm87MacroFeedV4ExecutionStatus final {
@@ -153,9 +157,9 @@ class Sm87MacroFeedV4ExecutionPanelAccess final {
   Sm87MacroFeedV4ExecutionPanelAccess& operator=(
       const Sm87MacroFeedV4ExecutionPanelAccess&) = delete;
   Sm87MacroFeedV4ExecutionPanelAccess(
-      Sm87MacroFeedV4ExecutionPanelAccess&&) = delete;
+      Sm87MacroFeedV4ExecutionPanelAccess&& other) noexcept;
   Sm87MacroFeedV4ExecutionPanelAccess& operator=(
-      Sm87MacroFeedV4ExecutionPanelAccess&&) = delete;
+      Sm87MacroFeedV4ExecutionPanelAccess&& other) noexcept;
 
   [[nodiscard]] std::uint64_t request_epoch() const noexcept {
     return request_epoch_;
@@ -328,11 +332,110 @@ struct Sm87MacroFeedV4PoisonDrainResult final {
 };
 
 struct Sm87MacroFeedV4PanelBeginResult final {
-  std::unique_ptr<Sm87MacroFeedV4ExecutionPanelAccess> panel_access;
+  std::optional<Sm87MacroFeedV4ExecutionPanelAccess> panel_access;
   Sm87MacroFeedV4ExecutionStatus status{};
+  Sm87MacroFeedV4RequestStateStatus request_state_status{};
 
   [[nodiscard]] explicit operator bool() const noexcept {
-    return panel_access != nullptr && static_cast<bool>(status);
+    return panel_access.has_value() && static_cast<bool>(status) &&
+           static_cast<bool>(request_state_status);
+  }
+};
+
+// Runtime request admission is one owner-locked physical/logical transaction.
+// A successful result carries both the newly minted RequestState epoch and its
+// live panel-0 capability; every failure is capability-empty.  This closes the
+// otherwise-undrainable interval between a recurrent zero/rearm and the first
+// panel.  The construction-only cold-zero seal is deliberately accounted
+// separately in the owner snapshot.
+struct Sm87MacroFeedV4ColdRequestRearmResult final {
+  Sm87MacroFeedV4ExecutionStatus status{};
+  Sm87MacroFeedV4RequestStateStatus request_state_status{};
+  std::optional<Sm87MacroFeedV4RequestStateSealedAccess> request_access{};
+  std::optional<Sm87MacroFeedV4ExecutionPanelAccess> panel_access{};
+  std::uint64_t previous_request_epoch = 0U;
+  std::uint64_t request_epoch = 0U;
+  std::uint64_t enqueued_recurrent_zero_bytes = 0U;
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return static_cast<bool>(status) &&
+           static_cast<bool>(request_state_status) &&
+           request_access.has_value() && panel_access.has_value() &&
+           previous_request_epoch != 0U &&
+           request_epoch > previous_request_epoch &&
+           request_access->request_epoch() == request_epoch &&
+           panel_access->request_epoch() == request_epoch &&
+           panel_access->panel() == 0U &&
+           enqueued_recurrent_zero_bytes ==
+               kSm87MacroFeedV4RecurrentStorageBytes;
+  }
+};
+
+// Private authenticated audit evidence for a panel transaction that has
+// already been committed by EventsOwner.  No RequestState API consumes this
+// type, so copying or replaying it can never authorize another bank swap.
+class Sm87MacroFeedV4PanelCommitAuditReceipt final {
+ public:
+  Sm87MacroFeedV4PanelCommitAuditReceipt() = default;
+  Sm87MacroFeedV4PanelCommitAuditReceipt(
+      const Sm87MacroFeedV4PanelCommitAuditReceipt&) = default;
+  Sm87MacroFeedV4PanelCommitAuditReceipt& operator=(
+      const Sm87MacroFeedV4PanelCommitAuditReceipt&) = default;
+
+  [[nodiscard]] std::uint64_t receipt_identity() const noexcept {
+    return receipt_identity_;
+  }
+  [[nodiscard]] std::uint64_t request_epoch() const noexcept {
+    return request_epoch_;
+  }
+  [[nodiscard]] std::size_t panel() const noexcept { return panel_; }
+  [[nodiscard]] std::uint64_t panel_generation() const noexcept {
+    return panel_generation_;
+  }
+  [[nodiscard]] std::size_t accepted_gdn_layers() const noexcept {
+    return accepted_gdn_layers_;
+  }
+  [[nodiscard]] std::size_t accepted_full_attention_layers() const noexcept {
+    return accepted_full_attention_layers_;
+  }
+  [[nodiscard]] std::size_t accepted_kernel_submissions() const noexcept {
+    return accepted_kernel_submissions_;
+  }
+  [[nodiscard]] std::size_t accepted_d2d_copies() const noexcept {
+    return accepted_d2d_copies_;
+  }
+  [[nodiscard]] std::uint64_t accepted_d2d_copy_bytes() const noexcept {
+    return accepted_d2d_copy_bytes_;
+  }
+
+ private:
+  std::uint64_t receipt_identity_ = 0U;
+  std::uint64_t owner_identity_ = 0U;
+  std::uint64_t request_epoch_ = 0U;
+  std::size_t panel_ = kSm87MacroFeedV4PanelCount;
+  std::uint64_t panel_generation_ = 0U;
+  std::uint64_t panel_done_generation_ = 0U;
+  std::size_t accepted_gdn_layers_ = 0U;
+  std::size_t accepted_full_attention_layers_ = 0U;
+  std::size_t accepted_kernel_submissions_ = 0U;
+  std::size_t accepted_d2d_copies_ = 0U;
+  std::uint64_t accepted_d2d_copy_bytes_ = 0U;
+  std::uint64_t authenticator_ = 0U;
+  bool request_state_commit_succeeded_ = false;
+  bool mutation_authority_ = false;
+
+  friend class Sm87MacroFeedV4ExecutionEventsOwner;
+};
+
+struct Sm87MacroFeedV4PanelCloseCommitResult final {
+  Sm87MacroFeedV4ExecutionStatus status{};
+  Sm87MacroFeedV4RequestStateStatus request_state_status{};
+  Sm87MacroFeedV4PanelCommitAuditReceipt audit_receipt{};
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return static_cast<bool>(status) &&
+           static_cast<bool>(request_state_status) &&
+           audit_receipt.receipt_identity() != 0U;
   }
 };
 
@@ -1182,6 +1285,11 @@ struct Sm87MacroFeedV4ExecutionEventsSnapshot final {
   std::uint64_t cold_recurrent_allocation_identity = 0U;
   std::uintptr_t cold_recurrent_allocation_begin = 0U;
   std::uint64_t cold_recurrent_zero_bytes = 0U;
+  std::size_t runtime_cold_rearms = 0U;
+  std::uint64_t runtime_recurrent_zero_bytes = 0U;
+  std::uint64_t last_rearmed_previous_request_epoch = 0U;
+  std::uint64_t last_rearmed_request_epoch = 0U;
+  std::size_t panel_commit_audit_receipts_issued = 0U;
   bool streams_nonblocking = false;
   bool bf16_ab_cycle_at_norm_boundary = true;
   bool panel_done_recorded = false;
@@ -1244,8 +1352,18 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
       const Sm87MacroFeedV4ExecutionEventsAccess& access,
       const Sm87MacroFeedV4RequestState& request_owner,
       const Sm87MacroFeedV4RequestStateSealedAccess& request_access) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4ColdRequestRearmResult rearm_cold_request(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& previous_request_access)
+      noexcept;
   [[nodiscard]] Sm87MacroFeedV4PanelBeginResult begin_panel(
       const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      std::size_t panel) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4PanelBeginResult begin_panel_with_state(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
       std::size_t panel) noexcept;
 
   [[nodiscard]] Sm87MacroFeedV4EventEnqueueResult record_event(
@@ -1344,6 +1462,15 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
       const Sm87MacroFeedV4ExecutionEventsAccess& access,
       const Sm87MacroFeedV4ExecutionPanelAccess& panel_access) noexcept;
 
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  [[nodiscard]] Sm87MacroFeedV4PanelCloseCommitResult
+  close_panel_and_commit_state(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access) noexcept;
+#endif
+
   // A candidate epoch may be discarded only after both producer streams have
   // recorded tails, Control has waited for both, OwnerDrained has been
   // recorded, and that exact OwnerDrained generation has physically completed.
@@ -1360,6 +1487,15 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
   discard_request_state_after_drain(
       const Sm87MacroFeedV4ExecutionEventsAccess& access,
       const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      const Sm87MacroFeedV4PhysicalCompletionReceipt& owner_drained,
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+      Sm87MacroFeedV4RequestDiscardReason reason) noexcept;
+
+  [[nodiscard]] Sm87MacroFeedV4ExecutionStatus
+  discard_final_request_state_after_drain(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      const Sm87MacroFeedV4ExecutionPanelAccess& final_panel_access,
       const Sm87MacroFeedV4PhysicalCompletionReceipt& owner_drained,
       Sm87MacroFeedV4RequestState& request_owner,
       const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
@@ -1403,9 +1539,42 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
     kExpectAbWait,
   };
 
+  struct PanelLedgerBaseline final {
+    std::size_t bf16_ab_cycles = 0U;
+    std::size_t bound_kernels = 0U;
+    std::size_t input_norm = 0U;
+    std::size_t bf16_ab = 0U;
+    std::size_t gdn_qkvz = 0U;
+    std::size_t gdn_qkvz_waits = 0U;
+    std::size_t gdn_continuation = 0U;
+    std::size_t gdn_copies = 0U;
+    std::uint64_t gdn_copy_bytes = 0U;
+    std::size_t gdn_output = 0U;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+    std::size_t full_qkv = 0U;
+    std::size_t full_preprocess = 0U;
+    std::size_t attention = 0U;
+    std::size_t full_output = 0U;
+#endif
+    std::size_t residual_post_norm = 0U;
+    std::size_t gate_up = 0U;
+    std::size_t down = 0U;
+    std::size_t complete_gdn = 0U;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+    std::size_t accepted_gdn = 0U;
+    std::size_t complete_full = 0U;
+    std::size_t accepted_full = 0U;
+#endif
+  };
+
   Sm87MacroFeedV4ExecutionEventsOwner() noexcept;
 
   [[nodiscard]] Sm87MacroFeedV4ExecutionStatus initialize() noexcept;
+  [[nodiscard]] Sm87MacroFeedV4PanelBeginResult begin_panel_locked(
+      const Sm87MacroFeedV4ExecutionEventsAccess& access,
+      std::size_t panel) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4ExecutionPanelAccess
+  activate_panel_locked(std::size_t panel) noexcept;
   [[nodiscard]] bool owner_access_matches(
       const Sm87MacroFeedV4ExecutionEventsAccess& access) const noexcept;
   [[nodiscard]] bool panel_access_matches(
@@ -1469,6 +1638,15 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
       const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
       Sm87MacroFeedV4ExecutionEvent expected_event,
       const Sm87MacroFeedV4PhysicalCompletionReceipt& receipt) const noexcept;
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  [[nodiscard]] Sm87MacroFeedV4ExecutionStatus
+  validate_exact_panel_ledger_locked() const noexcept;
+  [[nodiscard]] Sm87MacroFeedV4PanelCommitAuditReceipt
+  mint_panel_commit_audit_receipt_locked(
+      std::uint64_t panel_done_generation) noexcept;
+  [[nodiscard]] std::uint64_t panel_commit_audit_authenticator(
+      const Sm87MacroFeedV4PanelCommitAuditReceipt& receipt) const noexcept;
+#endif
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
   [[nodiscard]] std::uint64_t gdn_submission_digest(
       const Sm87MacroFeedV4CompleteGdnLayerC8000Submission& submission)
@@ -1569,6 +1747,12 @@ class Sm87MacroFeedV4ExecutionEventsOwner final {
   std::uint64_t cold_recurrent_allocation_identity_ = 0U;
   std::uintptr_t cold_recurrent_allocation_begin_ = 0U;
   std::uint64_t cold_recurrent_zero_bytes_ = 0U;
+  std::size_t runtime_cold_rearms_ = 0U;
+  std::uint64_t runtime_recurrent_zero_bytes_ = 0U;
+  std::uint64_t last_rearmed_previous_request_epoch_ = 0U;
+  std::uint64_t last_rearmed_request_epoch_ = 0U;
+  std::size_t panel_commit_audit_receipts_issued_ = 0U;
+  PanelLedgerBaseline panel_ledger_baseline_{};
   bool streams_nonblocking_ = false;
   bool panel_done_recorded_ = false;
   bool draining_ = false;
@@ -1672,6 +1856,27 @@ class Sm87MacroFeedV4ExecutionEventsDriver final {
       noexcept;
 
  private:
+  [[nodiscard]] Sm87MacroFeedV4ColdRequestRearmResult rearm_cold_request(
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& previous_request_access)
+      noexcept;
+  [[nodiscard]] Sm87MacroFeedV4PanelBeginResult begin_panel_with_state(
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+      std::size_t panel) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4PanelCloseCommitResult
+  close_panel_and_commit_state(
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4ExecutionStatus
+  discard_final_request_state_after_drain(
+      const Sm87MacroFeedV4ExecutionPanelAccess& final_panel_access,
+      const Sm87MacroFeedV4PhysicalCompletionReceipt& owner_drained,
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+      Sm87MacroFeedV4RequestDiscardReason reason) noexcept;
+
   // Package-authority-only transaction.  Raw asset/resource values cannot be
   // submitted through the caller-visible driver surface: the sole non-test
   // friend copies them from the construction-sealed 48-layer catalog.
@@ -1767,10 +1972,28 @@ class Sm87MacroFeedV4ExecutionEventsCudaTestFixture final {
       const Sm87MacroFeedV4RequestStateSealedAccess& request_access) noexcept {
     return owner.begin_request(*owner.access_, request_owner, request_access);
   }
+  [[nodiscard]] static Sm87MacroFeedV4ColdRequestRearmResult
+  rearm_cold_request(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& previous_request_access)
+      noexcept {
+    return owner.rearm_cold_request(*owner.access_, request_owner,
+                                    previous_request_access);
+  }
   [[nodiscard]] static Sm87MacroFeedV4PanelBeginResult begin_panel(
       Sm87MacroFeedV4ExecutionEventsOwner& owner,
       const std::size_t panel) noexcept {
     return owner.begin_panel(*owner.access_, panel);
+  }
+  [[nodiscard]] static Sm87MacroFeedV4PanelBeginResult
+  begin_panel_with_state(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+      const std::size_t panel) noexcept {
+    return owner.begin_panel_with_state(*owner.access_, request_owner,
+                                        request_access, panel);
   }
   [[nodiscard]] static Sm87MacroFeedV4EventEnqueueResult record_event(
       Sm87MacroFeedV4ExecutionEventsOwner& owner,
@@ -1796,6 +2019,129 @@ class Sm87MacroFeedV4ExecutionEventsCudaTestFixture final {
         recurrent_allocation_identity);
   }
 #if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  // Focused lifecycle-test seam.  Existing transaction tests prove each
+  // physical counter increment; this bounded helper composes their exact
+  // successful panel ledger without enqueueing 560 expensive kernels again.
+  // It is absent from production and cannot mint a panel receipt or mutate
+  // RequestState.
+  [[nodiscard]] static bool seed_exact_panel_ledger_for_atomic_close(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      const bool omit_one_bound_kernel = false) noexcept {
+    std::lock_guard<std::mutex> lock(owner.mutex_);
+    if (owner.state_ !=
+            Sm87MacroFeedV4ExecutionOwnerState::kRequestActive ||
+        owner.active_panel_ >= kSm87MacroFeedV4PanelCount ||
+        owner.panel_done_recorded_ || owner.draining_) {
+      return false;
+    }
+    constexpr std::size_t kGdn = kSm87MacroFeedV4StateLayerCount;
+    constexpr std::size_t kFull = kSm87MacroFeedV4FullAttentionLayerCount;
+    constexpr std::size_t kLayers = kSm87MacroFeedV4LayerCount;
+    constexpr std::size_t kKernels = 560U;
+    const auto& baseline = owner.panel_ledger_baseline_;
+    owner.bf16_ab_cycles_completed_ = kGdn;
+    owner.ab_cycle_phase_ =
+        Sm87MacroFeedV4ExecutionEventsOwner::AbCyclePhase::kExpectNormRecord;
+    owner.bound_kernel_submissions_ =
+        baseline.bound_kernels + kKernels -
+        static_cast<std::size_t>(omit_one_bound_kernel);
+    owner.input_norm_submissions_ = baseline.input_norm + kLayers;
+    owner.bf16_ab_submissions_ = baseline.bf16_ab + kGdn;
+    owner.gdn_qkvz_c8000_submissions_ = baseline.gdn_qkvz + kGdn;
+    owner.gdn_qkvz_ab_ready_wait_transactions_ =
+        baseline.gdn_qkvz_waits + kGdn;
+    owner.gdn_continuation_c8000_submissions_ =
+        baseline.gdn_continuation + 2U * kGdn;
+    owner.gdn_history_d2d_copies_ = baseline.gdn_copies + kGdn;
+    owner.gdn_history_d2d_bytes_ =
+        baseline.gdn_copy_bytes + kSm87MacroFeedV4ConvEpochBytes;
+    owner.gdn_output_c8000_submissions_ = baseline.gdn_output + kGdn;
+    owner.full_qkv_c8000_submissions_ = baseline.full_qkv + kFull;
+    owner.full_attention_preprocess_c8000_submissions_ =
+        baseline.full_preprocess + kFull;
+    owner.attention_c8000_submissions_ = baseline.attention + kFull;
+    owner.full_attention_output_c8000_submissions_ =
+        baseline.full_output + kFull;
+    owner.residual_post_norm_submissions_ =
+        baseline.residual_post_norm + kLayers;
+    owner.gate_up_c8000_submissions_ = baseline.gate_up + kLayers;
+    owner.down_c8000_submissions_ = baseline.down + kLayers;
+    owner.complete_gdn_layers_submitted_ = baseline.complete_gdn + kGdn;
+    owner.accepted_gdn_grant_count_ = baseline.accepted_gdn + kGdn;
+    owner.complete_full_attention_layers_submitted_ =
+        baseline.complete_full + kFull;
+    owner.accepted_full_attention_grant_count_ =
+        baseline.accepted_full + kFull;
+
+    const std::size_t gdn_begin = owner.active_panel_ * kGdn;
+    for (std::size_t ordinal = 0U; ordinal < kGdn; ++ordinal) {
+      owner.accepted_gdn_grant_identities_[gdn_begin + ordinal] =
+          1U + static_cast<std::uint64_t>(gdn_begin + ordinal);
+    }
+    const std::size_t full_begin = owner.active_panel_ * kFull;
+    for (std::size_t ordinal = 0U; ordinal < kFull; ++ordinal) {
+      owner.accepted_full_attention_grant_identities_[full_begin + ordinal] =
+          1U + static_cast<std::uint64_t>(full_begin + ordinal);
+    }
+
+    auto& gdn = owner.last_gdn_accepted_prefix_;
+    gdn = {};
+    gdn.transaction_identity = 1U;
+    gdn.owner_identity = owner.owner_identity_;
+    gdn.request_epoch = owner.request_epoch_;
+    gdn.panel = owner.active_panel_;
+    gdn.panel_generation = owner.active_panel_generation_;
+    gdn.grant_identity = owner.accepted_gdn_grant_identities_[
+        gdn_begin + kGdn - 1U];
+    gdn.recurrent_allocation_identity =
+        owner.request_allocation_identity_;
+    gdn.gdn_ordinal = kGdn - 1U;
+    gdn.model_layer = kLayers - 2U;
+    gdn.active_bank_index = owner.active_panel_ % 2U;
+    gdn.candidate_bank_index = 1U - gdn.active_bank_index;
+    gdn.conv_bytes = kernels::kSm87MacroFeedV4GdnConvHistoryBytes;
+    gdn.gdn_state_bytes = kernels::kSm87MacroFeedV4GdnStateBytes;
+    gdn.input_norm_launches = 1U;
+    gdn.bf16_ab_launches = 1U;
+    gdn.gdn_qkvz_launches = 1U;
+    gdn.gdn_continuation_launches = 2U;
+    gdn.gdn_output_launches = 1U;
+    gdn.residual_post_norm_launches = 1U;
+    gdn.gate_up_launches = 1U;
+    gdn.down_launches = 1U;
+    gdn.accepted_kernel_launches = 9U;
+    gdn.asynchronous_d2d_copies = 1U;
+    gdn.conv_history_copy_bytes =
+        kernels::kSm87MacroFeedV4GdnConvHistoryBytes;
+    gdn.complete = true;
+
+    auto& full = owner.last_full_attention_accepted_prefix_;
+    full = {};
+    full.transaction_identity = 1U;
+    full.owner_identity = owner.owner_identity_;
+    full.request_epoch = owner.request_epoch_;
+    full.panel = owner.active_panel_;
+    full.panel_generation = owner.active_panel_generation_;
+    full.first_position =
+        owner.active_panel_ * kernels::kSm87MacroFeedV4Fp8Tokens;
+    full.grant_identity = owner.accepted_full_attention_grant_identities_[
+        full_begin + kFull - 1U];
+    full.kv_allocation_identity = 1U;
+    full.full_attention_ordinal = kFull - 1U;
+    full.model_layer = kLayers - 1U;
+    full.input_norm_launches = 1U;
+    full.full_qkv_launches = 1U;
+    full.preprocess_launches = 1U;
+    full.attention_launches = 1U;
+    full.full_output_launches = 1U;
+    full.residual_post_norm_launches = 1U;
+    full.gate_up_launches = 1U;
+    full.down_launches = 1U;
+    full.accepted_kernel_launches = 8U;
+    full.complete = true;
+    return true;
+  }
+
   // Explicit test-only bypass for exercising transaction failures.  This is
   // deliberately absent from the execution driver and from non-test builds.
   [[nodiscard]] static Sm87MacroFeedV4EventEnqueueResult
@@ -1879,6 +2225,17 @@ class Sm87MacroFeedV4ExecutionEventsCudaTestFixture final {
       const Sm87MacroFeedV4ExecutionPanelAccess& panel_access) noexcept {
     return owner.close_panel(*owner.access_, panel_access);
   }
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  [[nodiscard]] static Sm87MacroFeedV4PanelCloseCommitResult
+  close_panel_and_commit_state(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access) noexcept {
+    return owner.close_panel_and_commit_state(
+        *owner.access_, panel_access, request_owner, request_access);
+  }
+#endif
   [[nodiscard]] static Sm87MacroFeedV4ExecutionStatus discard_after_drain(
       Sm87MacroFeedV4ExecutionEventsOwner& owner,
       const Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
@@ -1896,6 +2253,18 @@ class Sm87MacroFeedV4ExecutionEventsCudaTestFixture final {
       const Sm87MacroFeedV4RequestDiscardReason reason) noexcept {
     return owner.discard_request_state_after_drain(
         *owner.access_, panel_access, owner_drained, request_owner,
+        request_access, reason);
+  }
+  [[nodiscard]] static Sm87MacroFeedV4ExecutionStatus
+  discard_final_request_state_after_drain(
+      Sm87MacroFeedV4ExecutionEventsOwner& owner,
+      const Sm87MacroFeedV4ExecutionPanelAccess& final_panel_access,
+      const Sm87MacroFeedV4PhysicalCompletionReceipt& owner_drained,
+      Sm87MacroFeedV4RequestState& request_owner,
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+      const Sm87MacroFeedV4RequestDiscardReason reason) noexcept {
+    return owner.discard_final_request_state_after_drain(
+        *owner.access_, final_panel_access, owner_drained, request_owner,
         request_access, reason);
   }
   [[nodiscard]] static Sm87MacroFeedV4ExecutionStatus complete_request(

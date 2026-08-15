@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <new>
 #include <utility>
 
@@ -774,6 +775,149 @@ Sm87MacroFeedV4RequestState::validate_execution_begin_access(
   return ok();
 }
 
+Sm87MacroFeedV4RequestStateRearmResult
+Sm87MacroFeedV4RequestState::
+    rearm_cold_and_begin_panel_zero_after_owner_quiescence(
+    const std::uint64_t execution_owner_identity,
+    const std::uint64_t recurrent_allocation_identity,
+    const std::uint64_t previous_request_epoch,
+    const std::uint64_t enqueued_recurrent_zero_bytes) noexcept {
+  const std::lock_guard<std::mutex> lock(owner_mutex_);
+  Sm87MacroFeedV4RequestStateRearmResult result;
+
+  if (execution_owner_identity == 0U ||
+      execution_owner_identity != admission_.owner_identity ||
+      execution_owner_identity != state_.owner_identity ||
+      recurrent_allocation_identity == 0U ||
+      recurrent_allocation_identity != admission_.allocation_identity ||
+      recurrent_allocation_identity != state_.allocation_identity ||
+      previous_request_epoch == 0U ||
+      previous_request_epoch != state_.request_epoch) {
+    result.status = fail(
+        Sm87MacroFeedV4RequestStateError::kCapabilityMismatch,
+        "runtime_rearm_owner_allocation_or_previous_epoch_mismatch");
+    return result;
+  }
+  if (enqueued_recurrent_zero_bytes != admission_.allocation_bytes ||
+      enqueued_recurrent_zero_bytes !=
+          kSm87MacroFeedV4RecurrentStorageBytes) {
+    result.status = fail(
+        Sm87MacroFeedV4RequestStateError::kPhysicalExecutionRequired,
+        "runtime_rearm_requires_exact_enqueued_recurrent_zero");
+    return result;
+  }
+
+  // The construction epoch carries no physical request history and may be
+  // consumed exactly once.  Thereafter a terminal phase is insufficient by
+  // itself: failure/cancellation must carry an owner-drain observation, and a
+  // successful sequence fence must carry a physical FinalPublish observation.
+  // This keeps test-only receipts and host-only aborts permanently ineligible
+  // for production reuse.
+  const bool pristine_construction_epoch =
+      state_.phase ==
+          Sm87MacroFeedV4RequestStatePhase::kAdmittedPrivate &&
+      state_.runtime_cold_rearm_count == 0U &&
+      state_.previous_request_epoch == 0U && state_.state_epoch == 0U &&
+      state_.completed_panels == 0U &&
+      state_.active_panel == kSm87MacroFeedV4PanelCount &&
+      state_.next_model_layer == 0U &&
+      state_.pending_event_receipt_identity == 0U &&
+      state_.pending_gdn_layer_grant_identity == 0U &&
+      state_.pending_full_attention_kv_grant_identity == 0U &&
+      state_.private_kv_valid_end == 0U &&
+      state_.candidate_kv_valid_end == 0U &&
+      state_.canonical_kv_valid_end == 0U &&
+      state_.canonical_sequence_length == 0U &&
+      state_.panel_swap_count == 0U &&
+      state_.last_committed_panel_generation == 0U &&
+      !state_.canonical_state_published &&
+      !state_.logical_sequence_fence_published &&
+      !state_.decode_access_issued &&
+      !state_.physical_execution_receipt_issued;
+  const bool physically_discarded_terminal =
+      (state_.phase == Sm87MacroFeedV4RequestStatePhase::kCancelled ||
+       state_.phase == Sm87MacroFeedV4RequestStatePhase::kFailed) &&
+      state_.physical_execution_receipt_issued &&
+      state_.physical_owner_drain_receipt_identity != 0U &&
+      state_.physical_owner_drain_panel_generation != 0U &&
+      !state_.physical_owner_drain_was_poison_terminal &&
+      state_.physical_final_publish_receipt_identity == 0U &&
+      state_.physical_final_publish_panel_generation == 0U;
+  const bool physically_published_terminal =
+      state_.phase ==
+          Sm87MacroFeedV4RequestStatePhase::kSequenceLengthPublished &&
+      state_.physical_execution_receipt_issued &&
+      state_.physical_final_publish_receipt_identity != 0U &&
+      state_.physical_final_publish_panel_generation != 0U &&
+      state_.canonical_state_published &&
+      state_.logical_sequence_fence_published && state_.decode_access_issued &&
+      state_.canonical_kv_valid_end == kSm87MacroFeedV4P40Tokens &&
+      state_.canonical_sequence_length == kSm87MacroFeedV4P40Tokens;
+  if (!pristine_construction_epoch && !physically_discarded_terminal &&
+      !physically_published_terminal) {
+    result.status = fail(
+        Sm87MacroFeedV4RequestStateError::kPhysicalExecutionRequired,
+        "runtime_rearm_requires_pristine_construction_or_physical_terminal");
+    return result;
+  }
+  if (state_.pending_event_receipt_identity != 0U ||
+      state_.pending_gdn_layer_grant_identity != 0U ||
+      state_.pending_full_attention_kv_grant_identity != 0U ||
+      state_.current_conv_layer_prepared) {
+    result.status = fail(
+        Sm87MacroFeedV4RequestStateError::kInvalidTransition,
+        "runtime_rearm_rejects_live_receipt_or_grant");
+    return result;
+  }
+  if (state_.runtime_cold_rearm_count ==
+      std::numeric_limits<std::size_t>::max()) {
+    result.status = fail(
+        Sm87MacroFeedV4RequestStateError::kRequestEpochExhausted,
+        "runtime_rearm_count_exhausted");
+    return result;
+  }
+
+  const std::uint64_t request_epoch =
+      next_nonzero(&g_next_request_epoch);
+  if (request_epoch <= previous_request_epoch) {
+    result.status = fail(
+        Sm87MacroFeedV4RequestStateError::kRequestEpochExhausted,
+        "runtime_rearm_monotonic_request_epoch_exhausted");
+    return result;
+  }
+
+  Sm87MacroFeedV4RequestStateSnapshot fresh;
+  fresh.phase = Sm87MacroFeedV4RequestStatePhase::kPanelActive;
+  fresh.active_bank_index = 0U;
+  fresh.candidate_bank_index = 1U;
+  fresh.active_bank_identity = admission_.recurrent_banks[0U].storage_identity;
+  fresh.candidate_bank_identity =
+      admission_.recurrent_banks[1U].storage_identity;
+  fresh.owner_identity = admission_.owner_identity;
+  fresh.allocation_identity = admission_.allocation_identity;
+  fresh.request_epoch = request_epoch;
+  fresh.previous_request_epoch = previous_request_epoch;
+  fresh.runtime_cold_rearm_count = state_.runtime_cold_rearm_count + 1U;
+  fresh.runtime_recurrent_zero_bytes = enqueued_recurrent_zero_bytes;
+  fresh.active_panel = 0U;
+  fresh.next_model_layer = 0U;
+  fresh.candidate_kv_valid_end = 0U;
+  fresh.default_off = admission_.default_off;
+  fresh.host_only = admission_.host_only;
+  fresh.production_dispatch_eligible =
+      admission_.production_dispatch_eligible;
+  state_ = fresh;
+
+  result.previous_request_epoch = previous_request_epoch;
+  result.request_epoch = request_epoch;
+  const Sm87MacroFeedV4RequestStateSealedAccess fresh_access(
+      this, state_.owner_identity, state_.allocation_identity,
+      state_.request_epoch);
+  result.access.emplace(fresh_access);
+  result.status = ok();
+  return result;
+}
+
 Sm87MacroFeedV4RequestEventReceipt
 Sm87MacroFeedV4RequestState::mint_event_receipt(
     const Sm87MacroFeedV4RequestEventKind kind) noexcept {
@@ -1504,6 +1648,61 @@ Sm87MacroFeedV4RequestState::record_test_only_panel_completion(
   return result;
 }
 
+Sm87MacroFeedV4RequestStateStatus
+Sm87MacroFeedV4RequestState::commit_panel_locked(
+    const std::size_t panel,
+    const std::uint64_t panel_generation) noexcept {
+  if (state_.phase != Sm87MacroFeedV4RequestStatePhase::kPanelReady) {
+    return fail(Sm87MacroFeedV4RequestStateError::kCandidateIncomplete,
+                "panel_commit_requires_complete_candidate", panel);
+  }
+  if (panel != state_.active_panel || panel != state_.completed_panels) {
+    return fail(Sm87MacroFeedV4RequestStateError::kPanelMismatch,
+                "panel_commit_panel_mismatch", panel);
+  }
+  const std::size_t expected_end =
+      (panel + 1U) * kSm87MacroFeedV4PanelTokens;
+  if (!state_.candidate_epoch_complete ||
+      state_.next_model_layer != kSm87MacroFeedV4LayerCount ||
+      state_.panel_conv_layers_prepared !=
+          kSm87MacroFeedV4StateLayerCount ||
+      state_.panel_gdn_layers_assigned !=
+          kSm87MacroFeedV4StateLayerCount ||
+      state_.panel_kv_layers_staged !=
+          kSm87MacroFeedV4FullAttentionLayerCount ||
+      state_.panel_conv_copy_bytes != kSm87MacroFeedV4ConvEpochBytes ||
+      state_.panel_gdn_assignment_bytes != kSm87MacroFeedV4GdnEpochBytes ||
+      state_.whole_epoch_copy_bytes != 0U ||
+      state_.pending_gdn_layer_grant_identity != 0U ||
+      state_.pending_full_attention_kv_grant_identity != 0U) {
+    return fail(Sm87MacroFeedV4RequestStateError::kCandidateIncomplete,
+                "panel_commit_candidate_coverage_incomplete", panel);
+  }
+  if (state_.candidate_kv_valid_end != expected_end) {
+    return fail(Sm87MacroFeedV4RequestStateError::kKvValidEndMismatch,
+                "panel_commit_private_kv_incomplete", panel);
+  }
+  std::swap(state_.active_bank_index, state_.candidate_bank_index);
+  std::swap(state_.active_bank_identity, state_.candidate_bank_identity);
+  state_.private_kv_valid_end = state_.candidate_kv_valid_end;
+  ++state_.state_epoch;
+  ++state_.completed_panels;
+  ++state_.panel_swap_count;
+  if (panel_generation != 0U) {
+    state_.last_committed_panel_generation = panel_generation;
+  }
+  state_.active_panel = kSm87MacroFeedV4PanelCount;
+  state_.next_model_layer = 0U;
+  state_.candidate_epoch_complete = false;
+  state_.current_conv_layer_prepared = false;
+  state_.pending_event_receipt_identity = 0U;
+  state_.phase =
+      state_.completed_panels == kSm87MacroFeedV4PanelCount
+          ? Sm87MacroFeedV4RequestStatePhase::kAllPanelsPrivate
+          : Sm87MacroFeedV4RequestStatePhase::kBetweenPanelsPrivate;
+  return ok();
+}
+
 Sm87MacroFeedV4RequestStateStatus Sm87MacroFeedV4RequestState::commit_panel(
     const Sm87MacroFeedV4RequestStateSealedAccess& access,
     const Sm87MacroFeedV4RequestEventReceipt& receipt) noexcept {
@@ -1542,44 +1741,46 @@ Sm87MacroFeedV4RequestStateStatus Sm87MacroFeedV4RequestState::commit_panel(
     return fail(Sm87MacroFeedV4RequestStateError::kEventReceiptMismatch,
                 "panel_commit_event_generation_mismatch", panel);
   }
-  const std::size_t expected_end =
-      (panel + 1U) * kSm87MacroFeedV4PanelTokens;
-  if (!state_.candidate_epoch_complete ||
-      state_.next_model_layer != kSm87MacroFeedV4LayerCount ||
-      state_.panel_conv_layers_prepared !=
-          kSm87MacroFeedV4StateLayerCount ||
-      state_.panel_gdn_layers_assigned !=
-          kSm87MacroFeedV4StateLayerCount ||
-      state_.panel_kv_layers_staged !=
-          kSm87MacroFeedV4FullAttentionLayerCount ||
-      state_.panel_conv_copy_bytes != kSm87MacroFeedV4ConvEpochBytes ||
-      state_.panel_gdn_assignment_bytes != kSm87MacroFeedV4GdnEpochBytes ||
-      state_.whole_epoch_copy_bytes != 0U ||
-      state_.pending_gdn_layer_grant_identity != 0U ||
-      state_.pending_full_attention_kv_grant_identity != 0U) {
-    return fail(Sm87MacroFeedV4RequestStateError::kCandidateIncomplete,
-                "panel_commit_candidate_coverage_incomplete", panel);
+  // Test-only completion remains a distinct zero-generation path.  It cannot
+  // populate the production device-ordered generation ledger.
+  return commit_panel_locked(panel, 0U);
+}
+
+Sm87MacroFeedV4RequestStateStatus
+Sm87MacroFeedV4RequestState::
+    commit_panel_after_device_ordered_execution(
+        const Sm87MacroFeedV4RequestStateSealedAccess& access,
+        const std::uint64_t execution_owner_identity,
+        const std::uint64_t allocation_identity,
+        const std::uint64_t request_epoch, const std::size_t panel,
+        const std::uint64_t panel_generation) noexcept {
+  const std::lock_guard<std::mutex> lock(owner_mutex_);
+  const auto capability = validate_access(access);
+  if (!capability) {
+    return capability;
   }
-  if (state_.candidate_kv_valid_end != expected_end) {
-    return fail(Sm87MacroFeedV4RequestStateError::kKvValidEndMismatch,
-                "panel_commit_private_kv_incomplete", panel);
+  if (execution_owner_identity == 0U ||
+      execution_owner_identity != admission_.owner_identity ||
+      execution_owner_identity != state_.owner_identity ||
+      allocation_identity == 0U ||
+      allocation_identity != state_.allocation_identity ||
+      request_epoch == 0U || request_epoch != state_.request_epoch) {
+    return fail(
+        Sm87MacroFeedV4RequestStateError::kCapabilityMismatch,
+        "physical_panel_commit_owner_allocation_or_epoch_mismatch", panel);
   }
-  std::swap(state_.active_bank_index, state_.candidate_bank_index);
-  std::swap(state_.active_bank_identity, state_.candidate_bank_identity);
-  state_.private_kv_valid_end = state_.candidate_kv_valid_end;
-  ++state_.state_epoch;
-  ++state_.completed_panels;
-  ++state_.panel_swap_count;
-  state_.active_panel = kSm87MacroFeedV4PanelCount;
-  state_.next_model_layer = 0U;
-  state_.candidate_epoch_complete = false;
-  state_.current_conv_layer_prepared = false;
-  state_.pending_event_receipt_identity = 0U;
-  state_.phase =
-      state_.completed_panels == kSm87MacroFeedV4PanelCount
-          ? Sm87MacroFeedV4RequestStatePhase::kAllPanelsPrivate
-          : Sm87MacroFeedV4RequestStatePhase::kBetweenPanelsPrivate;
-  return ok();
+  if (panel_generation == 0U ||
+      panel_generation <= state_.last_committed_panel_generation) {
+    return fail(
+        Sm87MacroFeedV4RequestStateError::kPanelGenerationMismatch,
+        "physical_panel_commit_requires_fresh_device_generation", panel);
+  }
+  if (state_.pending_event_receipt_identity != 0U) {
+    return fail(
+        Sm87MacroFeedV4RequestStateError::kEventReceiptMismatch,
+        "physical_panel_commit_rejects_test_event_receipt", panel);
+  }
+  return commit_panel_locked(panel, panel_generation);
 }
 
 Sm87MacroFeedV4RequestEventResult
@@ -1726,6 +1927,114 @@ Sm87MacroFeedV4RequestState::
   state_.active_panel = kSm87MacroFeedV4PanelCount;
   state_.physical_owner_drain_receipt_identity = physical_receipt_identity;
   state_.physical_owner_drain_panel_generation = panel_generation;
+  state_.physical_execution_receipt_issued = true;
+  state_.physical_owner_drain_was_poison_terminal = poison_terminal;
+  state_.phase = discard_phase(reason);
+  return ok();
+}
+
+Sm87MacroFeedV4RequestStateStatus
+Sm87MacroFeedV4RequestState::
+    discard_final_after_physical_execution_drain(
+        const Sm87MacroFeedV4RequestStateSealedAccess& access,
+        const std::uint64_t execution_owner_identity,
+        const std::uint64_t allocation_identity,
+        const std::uint64_t request_epoch, const std::size_t final_panel,
+        const std::uint64_t final_panel_generation,
+        const std::uint64_t physical_receipt_identity,
+        const bool poison_terminal,
+        const Sm87MacroFeedV4RequestDiscardReason reason) noexcept {
+  const std::lock_guard<std::mutex> lock(owner_mutex_);
+  const auto capability = validate_access(access);
+  if (!capability) {
+    return capability;
+  }
+  if (!valid_discard_reason(reason)) {
+    return fail(Sm87MacroFeedV4RequestStateError::kInvalidDiscardReason,
+                "physical_final_discard_reason_invalid", final_panel);
+  }
+  if (state_.phase !=
+          Sm87MacroFeedV4RequestStatePhase::kAllPanelsPrivate &&
+      state_.phase !=
+          Sm87MacroFeedV4RequestStatePhase::kFinalPublicationArmed) {
+    return fail(
+        Sm87MacroFeedV4RequestStateError::kInvalidTransition,
+        "physical_final_discard_requires_unpublished_final_state",
+        final_panel);
+  }
+  if (execution_owner_identity == 0U ||
+      execution_owner_identity != admission_.owner_identity ||
+      execution_owner_identity != state_.owner_identity ||
+      allocation_identity == 0U ||
+      allocation_identity != state_.allocation_identity ||
+      request_epoch == 0U || request_epoch != state_.request_epoch ||
+      physical_receipt_identity == 0U) {
+    return fail(
+        Sm87MacroFeedV4RequestStateError::kEventReceiptMismatch,
+        "physical_final_discard_owner_epoch_or_receipt_mismatch",
+        final_panel);
+  }
+  if (final_panel != kSm87MacroFeedV4PanelCount - 1U ||
+      state_.completed_panels != kSm87MacroFeedV4PanelCount ||
+      state_.state_epoch != kSm87MacroFeedV4PanelCount ||
+      state_.private_kv_valid_end != kSm87MacroFeedV4P40Tokens ||
+      state_.active_bank_index != 1U || state_.candidate_bank_index != 0U ||
+      state_.active_bank_identity == 0U ||
+      state_.candidate_bank_identity == 0U ||
+      state_.active_bank_identity == state_.candidate_bank_identity) {
+    return fail(
+        Sm87MacroFeedV4RequestStateError::kFinalPublicationIncomplete,
+        "physical_final_discard_requires_exact_private_epoch5_b_to_a",
+        final_panel);
+  }
+  if (final_panel_generation == 0U ||
+      state_.last_committed_panel_generation == 0U ||
+      final_panel_generation != state_.last_committed_panel_generation) {
+    return fail(
+        Sm87MacroFeedV4RequestStateError::kPanelGenerationMismatch,
+        "physical_final_discard_generation_mismatch", final_panel);
+  }
+  if (state_.pending_event_receipt_identity != 0U ||
+      state_.pending_gdn_layer_grant_identity != 0U ||
+      state_.pending_full_attention_kv_grant_identity != 0U ||
+      state_.physical_owner_drain_receipt_identity != 0U ||
+      state_.physical_owner_drain_panel_generation != 0U ||
+      state_.physical_final_publish_receipt_identity != 0U ||
+      state_.physical_final_publish_panel_generation != 0U ||
+      state_.physical_execution_receipt_issued ||
+      state_.canonical_state_published ||
+      state_.logical_sequence_fence_published ||
+      state_.canonical_kv_valid_end != 0U ||
+      state_.canonical_sequence_length != 0U ||
+      state_.decode_access_issued) {
+    return fail(
+        Sm87MacroFeedV4RequestStateError::kEventReceiptMismatch,
+        "physical_final_discard_requires_unique_unpublished_receipt",
+        final_panel);
+  }
+
+  // The exact final generation is physically quiescent.  A partial B -> A
+  // copy or finalizer write is therefore confined to private request storage
+  // and may be discarded without changing the already committed recurrent
+  // B epoch, private KV endpoint, or any canonical/Decode-visible field.
+  state_.last_discarded_candidate_identity = state_.candidate_bank_identity;
+  ++state_.candidate_discard_count;
+  state_.pending_event_receipt_identity = 0U;
+  state_.pending_gdn_layer_grant_identity = 0U;
+  state_.pending_full_attention_kv_grant_identity = 0U;
+  state_.candidate_epoch_complete = false;
+  state_.current_conv_layer_prepared = false;
+  state_.fallible_work_closed = true;
+  state_.canonical_recurrent_source_identity = 0U;
+  state_.canonical_recurrent_target_identity = 0U;
+  state_.canonical_recurrent_copy_bytes = 0U;
+  state_.canonical_kv_valid_end = 0U;
+  state_.canonical_sequence_length = 0U;
+  state_.canonical_state_published = false;
+  state_.logical_sequence_fence_published = false;
+  state_.decode_access_issued = false;
+  state_.physical_owner_drain_receipt_identity = physical_receipt_identity;
+  state_.physical_owner_drain_panel_generation = final_panel_generation;
   state_.physical_execution_receipt_issued = true;
   state_.physical_owner_drain_was_poison_terminal = poison_terminal;
   state_.phase = discard_phase(reason);

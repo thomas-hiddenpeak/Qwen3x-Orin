@@ -13,6 +13,7 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -1451,14 +1452,14 @@ struct BoundGdnQkvzEventOwner final {
   std::unique_ptr<events::Sm87MacroFeedV4ExecutionEventsDriver> driver;
   runtime::Sm87MacroFeedV4RequestStateCreateResult request;
   runtime::Sm87MacroFeedV4RequestStateSealedAccess request_access;
-  std::unique_ptr<events::Sm87MacroFeedV4ExecutionPanelAccess> panel_access;
+  std::optional<events::Sm87MacroFeedV4ExecutionPanelAccess> panel_access;
 
   BoundGdnQkvzEventOwner(
       std::shared_ptr<events::Sm87MacroFeedV4ExecutionEventsOwner> owner_in,
       std::unique_ptr<events::Sm87MacroFeedV4ExecutionEventsDriver> driver_in,
       runtime::Sm87MacroFeedV4RequestStateCreateResult request_in,
       runtime::Sm87MacroFeedV4RequestStateSealedAccess request_access_in,
-      std::unique_ptr<events::Sm87MacroFeedV4ExecutionPanelAccess>
+      std::optional<events::Sm87MacroFeedV4ExecutionPanelAccess>
           panel_access_in) noexcept
       : owner(std::move(owner_in)),
         driver(std::move(driver_in)),
@@ -1469,6 +1470,7 @@ struct BoundGdnQkvzEventOwner final {
 
 [[nodiscard]] std::unique_ptr<BoundGdnQkvzEventOwner>
 make_bound_gdn_qkvz_event_owner(const std::uint64_t allocation_identity,
+                                void* const recurrent_allocation,
                                 bool* const ok) {
   auto created = events::create_sm87_macrofeed_v4_execution_events_owner();
   *ok &= expect(static_cast<bool>(created),
@@ -1482,6 +1484,14 @@ make_bound_gdn_qkvz_event_owner(const std::uint64_t allocation_identity,
   *ok &= expect(driver != nullptr && driver->owner_identity() != 0U,
                 "bound QKVZ event driver binding failed");
   if (driver == nullptr || driver->owner_identity() == 0U) {
+    return nullptr;
+  }
+  const auto cold_recurrent = EventFixture::initialize_cold_recurrent_storage(
+      *owner, recurrent_allocation,
+      runtime::kSm87MacroFeedV4RecurrentStorageBytes, allocation_identity);
+  *ok &= expect(static_cast<bool>(cold_recurrent),
+                "bound QKVZ recurrent cold initialization failed");
+  if (!cold_recurrent) {
     return nullptr;
   }
 
@@ -1646,6 +1656,7 @@ make_bound_gdn_qkvz_event_owner(const std::uint64_t allocation_identity,
   LiveFp8AssetFixture fixture;
   RawDeviceAllocation input;
   RawDeviceAllocation scratch;
+  RawDeviceAllocation recurrent;
   ok &= expect(fixture.initialize(Role::kFp8GdnQkvZ, device_ordinal) &&
                    fixture.payload_allocation.bytes() ==
                        kExpectedPayloadBytes &&
@@ -1654,8 +1665,10 @@ make_bound_gdn_qkvz_event_owner(const std::uint64_t allocation_identity,
                    fixture.asset.payload.bytes == kExpectedPayloadBytes,
                "bound QKVZ must use the real 83,886,080-byte cudaMalloc "
                "payload");
-  ok &= expect(input.allocate(kInputBytes) && scratch.allocate(kScratchBytes),
-               "bound QKVZ C8000 input/scratch cudaMalloc failed");
+  ok &= expect(
+      input.allocate(kInputBytes) && scratch.allocate(kScratchBytes) &&
+          recurrent.allocate(runtime::kSm87MacroFeedV4RecurrentStorageBytes),
+      "bound QKVZ C8000 input/scratch/recurrent cudaMalloc failed");
   if (!ok) {
     return false;
   }
@@ -1687,7 +1700,8 @@ make_bound_gdn_qkvz_event_owner(const std::uint64_t allocation_identity,
       reinterpret_cast<const std::uint16_t*>(input.data()), fixture.asset,
       reinterpret_cast<std::uint16_t*>(scratch.data())};
 
-  auto wrong_phase = make_bound_gdn_qkvz_event_owner(0x5134'0000U, &ok);
+  auto wrong_phase = make_bound_gdn_qkvz_event_owner(
+      0x5134'0000U, recurrent.data(), &ok);
   if (wrong_phase == nullptr) {
     return false;
   }
@@ -1715,7 +1729,8 @@ make_bound_gdn_qkvz_event_owner(const std::uint64_t allocation_identity,
     return false;
   }
 
-  auto positive = make_bound_gdn_qkvz_event_owner(0x5135'0000U, &ok);
+  auto positive = make_bound_gdn_qkvz_event_owner(
+      0x5135'0000U, recurrent.data(), &ok);
   if (positive == nullptr) {
     return false;
   }
@@ -1759,7 +1774,8 @@ make_bound_gdn_qkvz_event_owner(const std::uint64_t allocation_identity,
     return false;
   }
 
-  auto forged = make_bound_gdn_qkvz_event_owner(0x5136'0000U, &ok);
+  auto forged = make_bound_gdn_qkvz_event_owner(
+      0x5136'0000U, recurrent.data(), &ok);
   if (forged == nullptr || !prepare_bound_gdn_qkvz_ab_ready(*forged)) {
     return false;
   }
@@ -1791,7 +1807,8 @@ make_bound_gdn_qkvz_event_owner(const std::uint64_t allocation_identity,
     return false;
   }
 
-  auto poisoned = make_bound_gdn_qkvz_event_owner(0x5137'0000U, &ok);
+  auto poisoned = make_bound_gdn_qkvz_event_owner(
+      0x5137'0000U, recurrent.data(), &ok);
   if (poisoned == nullptr || !prepare_bound_gdn_qkvz_ab_ready(*poisoned)) {
     return false;
   }

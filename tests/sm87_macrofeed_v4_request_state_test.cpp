@@ -62,6 +62,9 @@ struct Test final {
   mix(snapshot.owner_identity);
   mix(snapshot.allocation_identity);
   mix(snapshot.request_epoch);
+  mix(snapshot.previous_request_epoch);
+  mix(snapshot.runtime_cold_rearm_count);
+  mix(snapshot.runtime_recurrent_zero_bytes);
   mix(snapshot.state_epoch);
   mix(snapshot.pending_event_receipt_identity);
   mix(snapshot.pending_gdn_layer_grant_identity);
@@ -85,12 +88,15 @@ struct Test final {
   mix(snapshot.canonical_recurrent_target_identity);
   mix(snapshot.canonical_recurrent_copy_bytes);
   mix(snapshot.panel_swap_count);
+  mix(snapshot.last_committed_panel_generation);
   mix(snapshot.candidate_discard_count);
   mix(snapshot.last_discarded_candidate_identity);
   mix(snapshot.last_invalidated_gdn_layer_grant_identity);
   mix(snapshot.last_invalidated_full_attention_kv_grant_identity);
   mix(snapshot.physical_owner_drain_receipt_identity);
   mix(snapshot.physical_owner_drain_panel_generation);
+  mix(snapshot.physical_final_publish_receipt_identity);
+  mix(snapshot.physical_final_publish_panel_generation);
   mix(snapshot.current_conv_layer_prepared);
   mix(snapshot.candidate_epoch_complete);
   mix(snapshot.fallible_work_closed);

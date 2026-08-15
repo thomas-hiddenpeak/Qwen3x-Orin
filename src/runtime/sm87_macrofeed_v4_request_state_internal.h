@@ -204,6 +204,9 @@ enum class Sm87MacroFeedV4RequestStateError : std::uint8_t {
   kGdnLayerGrantMismatch,
   kFullAttentionKvGrantPending,
   kFullAttentionKvGrantMismatch,
+  kRequestEpochExhausted,
+  kPhysicalExecutionRequired,
+  kPanelGenerationMismatch,
 };
 
 struct Sm87MacroFeedV4RequestStateStatus final {
@@ -228,6 +231,9 @@ struct Sm87MacroFeedV4RequestStateSnapshot final {
   std::uint64_t owner_identity = 0U;
   std::uint64_t allocation_identity = 0U;
   std::uint64_t request_epoch = 0U;
+  std::uint64_t previous_request_epoch = 0U;
+  std::size_t runtime_cold_rearm_count = 0U;
+  std::uint64_t runtime_recurrent_zero_bytes = 0U;
   std::uint64_t state_epoch = 0U;
   std::uint64_t pending_event_receipt_identity = 0U;
   std::uint64_t pending_gdn_layer_grant_identity = 0U;
@@ -251,12 +257,15 @@ struct Sm87MacroFeedV4RequestStateSnapshot final {
   std::uint64_t canonical_recurrent_target_identity = 0U;
   std::uint64_t canonical_recurrent_copy_bytes = 0U;
   std::size_t panel_swap_count = 0U;
+  std::uint64_t last_committed_panel_generation = 0U;
   std::size_t candidate_discard_count = 0U;
   std::uint64_t last_discarded_candidate_identity = 0U;
   std::uint64_t last_invalidated_gdn_layer_grant_identity = 0U;
   std::uint64_t last_invalidated_full_attention_kv_grant_identity = 0U;
   std::uint64_t physical_owner_drain_receipt_identity = 0U;
   std::uint64_t physical_owner_drain_panel_generation = 0U;
+  std::uint64_t physical_final_publish_receipt_identity = 0U;
+  std::uint64_t physical_final_publish_panel_generation = 0U;
   bool current_conv_layer_prepared = false;
   bool candidate_epoch_complete = false;
   bool fallible_work_closed = false;
@@ -308,6 +317,26 @@ class Sm87MacroFeedV4RequestStateSealedAccess final {
   std::uint64_t request_epoch_ = 0U;
 
   friend class Sm87MacroFeedV4RequestState;
+};
+
+// A runtime cold rearm never mutates a previously issued capability into
+// authority for another request.  The Events owner receives a newly minted
+// access only after its exact recurrent zero has been accepted and the
+// RequestState has atomically advanced to panel 0 of a fresh monotonic epoch.
+// Keeping the access in an optional also makes every failure result
+// capability-empty.
+struct Sm87MacroFeedV4RequestStateRearmResult final {
+  Sm87MacroFeedV4RequestStateStatus status{};
+  std::optional<Sm87MacroFeedV4RequestStateSealedAccess> access{};
+  std::uint64_t previous_request_epoch = 0U;
+  std::uint64_t request_epoch = 0U;
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return static_cast<bool>(status) && access.has_value() &&
+           previous_request_epoch != 0U &&
+           request_epoch > previous_request_epoch &&
+           access->request_epoch() == request_epoch;
+  }
 };
 
 // Move-only, owner-minted authority for exactly one natural-order GDN layer.
@@ -719,6 +748,44 @@ class Sm87MacroFeedV4RequestState final {
       std::size_t panel, std::uint64_t panel_generation,
       std::uint64_t physical_receipt_identity, bool poison_terminal,
       Sm87MacroFeedV4RequestDiscardReason reason) noexcept;
+  // Production request reuse is owner-atomic.  The execution owner calls this
+  // only while holding its mutex, after a quiescent owner boundary and after
+  // enqueueing the exact full recurrent-allocation zero on its Main stream.
+  // The initial construction epoch is consumable exactly once; later rearms
+  // require a healthy physically attested terminal RequestState.  The fresh
+  // request and panel 0 are created in the same RequestState lock acquisition,
+  // so no admitted-but-undrainable request can escape between those phases.
+  // Physical KV bytes are intentionally not cleared here--only their private
+  // logical valid-end is reset in the new epoch.
+  [[nodiscard]] Sm87MacroFeedV4RequestStateRearmResult
+  rearm_cold_and_begin_panel_zero_after_owner_quiescence(
+      std::uint64_t execution_owner_identity,
+      std::uint64_t recurrent_allocation_identity,
+      std::uint64_t previous_request_epoch,
+      std::uint64_t enqueued_recurrent_zero_bytes) noexcept;
+  // PanelDone remains device ordered: Events validates its live 48-GDN /
+  // 16-Full physical ledger and calls this method without a host wait.  No
+  // test receipt or caller-filled completion structure authorizes this path.
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus
+  commit_panel_after_device_ordered_execution(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      std::uint64_t execution_owner_identity,
+      std::uint64_t allocation_identity, std::uint64_t request_epoch,
+      std::size_t panel, std::uint64_t panel_generation) noexcept;
+  // Final failure/cancellation is likewise owner atomic.  Events must first
+  // physically drain the exact final generation; RequestState then
+  // terminalizes the private AllPanels/FinalPublicationArmed state without
+  // publishing canonical state, sequence length, or Decode access.
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus
+  discard_final_after_physical_execution_drain(
+      const Sm87MacroFeedV4RequestStateSealedAccess& access,
+      std::uint64_t execution_owner_identity,
+      std::uint64_t allocation_identity, std::uint64_t request_epoch,
+      std::size_t final_panel, std::uint64_t final_panel_generation,
+      std::uint64_t physical_receipt_identity, bool poison_terminal,
+      Sm87MacroFeedV4RequestDiscardReason reason) noexcept;
+  [[nodiscard]] Sm87MacroFeedV4RequestStateStatus commit_panel_locked(
+      std::size_t panel, std::uint64_t panel_generation) noexcept;
 
   Sm87MacroFeedV4RequestStateAdmission admission_{};
   mutable std::mutex owner_mutex_;

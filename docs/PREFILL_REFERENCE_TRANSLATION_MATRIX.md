@@ -685,12 +685,20 @@ composer and no pinned real-checkpoint composer invocation has run. Because
 the synthetic package has no Full physical owner, its Full-composer test still
 proves zero-enqueue fail-closed rejection; that fact is separate from the
 joined direct-Events T1 cohort. The owner-only Events/RequestState panel-commit
-bridge, construction-sealed Embedding/final-norm/exact-LM-head-M1 boundaries,
-fixed 64-layer/five-panel package loop, cold rearm/rollback, final
-`B -> A`/`FinalPublish`/sequence fence, real-checkpoint gates, whole-model
-receipt and API launcher must compose before V4 is runnable or eligible for a
-P40 witness. cuBLASLt remains reference-only and cannot supply a missing
-binding or runtime route.
+bridge is now implemented at a narrow state-machine boundary. One exact
+156,893,184-byte Main zero, fresh request epoch, and panel-0 capability are
+issued atomically; `PanelAccess` is a move-only optional value. Exact
+48-GDN/16-Full, 560-kernel, 48-copy/2,949,120-byte and 48-A/B ledgers gate
+device-ordered `PanelDone`, then Events directly commits RequestState without
+a host wait or caller receipt. Healthy physical discard can rearm and
+poison-terminal cannot; focused tests seed the 560-kernel counter ledger, so
+no physical normal whole panel is claimed. Construction-sealed Embedding/
+final-norm/exact-LM-head-M1 boundaries, the fixed 64-layer/five-panel package
+loop and rollback, final `B -> A`/`FinalPublish`/sequence fence plus
+successful-request reuse, real-checkpoint gates, whole-model receipt and API
+launcher must still compose before V4 is runnable or eligible for a P40
+witness. cuBLASLt remains reference-only and cannot supply a missing binding
+or runtime route.
 
 The fixed Attention handoff now retains the FP8 projection's native
 `[Q256, Gate256]` head interleave. Q preprocessing and exact Attention both
@@ -1041,10 +1049,13 @@ workload.
 
 ## 10. Package closure
 
-The active Roadmap owns the current dependency sequence:
-`owner-only Events/RequestState panel commit → construction-sealed Embedding,`
-`final norm and exact LM-head-M1 boundary → fixed 64×5 package loop plus cold`
-`rearm/rollback → final B-to-A/FinalPublish/sequence fence and proportional`
+The active Roadmap owns the current dependency sequence. Owner-atomic cold
+rearm/panel-0 admission, exact-ledger panel commit, healthy discard reuse and
+unpublished final discard are now narrow implementation facts. The remaining
+sequence is:
+`construction-sealed Embedding, final norm and exact LM-head-M1 boundary →`
+`fixed 64×5 package loop plus rollback → final B-to-A/FinalPublish/sequence`
+`fence and successful-request reuse → proportional`
 `real-checkpoint gates → real API`. Full authority hardening, O(1) replay, the
 normal Full outer-receipt binding, and the physically joined 35/3
 Synthetic-T1 cohort are now narrow implementation facts. The cohort has only

@@ -9,6 +9,7 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -29,6 +30,10 @@ static_assert(!std::is_move_constructible_v<
 static_assert(!std::is_default_constructible_v<
               events::Sm87MacroFeedV4ExecutionPanelAccess>);
 static_assert(!std::is_copy_constructible_v<
+              events::Sm87MacroFeedV4ExecutionPanelAccess>);
+static_assert(std::is_move_constructible_v<
+              events::Sm87MacroFeedV4ExecutionPanelAccess>);
+static_assert(std::is_move_assignable_v<
               events::Sm87MacroFeedV4ExecutionPanelAccess>);
 static_assert(!std::is_convertible_v<
               events::Sm87MacroFeedV4EventEnqueueReceipt,
@@ -1003,6 +1008,101 @@ prepare_first_full_attention_grant(Test& test, BoundOwner& bound) {
               "Full fixture mints the natural layer-3 move-only KV grant");
   return authorization;
 }
+
+[[nodiscard]] bool complete_private_request_state_panel(
+    Test& test, BoundOwner& bound, const std::size_t panel) {
+  for (std::size_t model_layer = 0U;
+       model_layer < runtime::kSm87MacroFeedV4LayerCount; ++model_layer) {
+    if (model_layer % 4U == 3U) {
+      auto authorization =
+          bound.request.state->authorize_full_attention_kv(
+              bound.request_access, panel, model_layer);
+      if (!authorization) {
+        test.expect(false,
+                    "atomic lifecycle authorizes every natural Full layer");
+        return false;
+      }
+      const auto committed =
+          bound.request.state->commit_full_attention_layer_enqueued(
+              bound.request_access, std::move(*authorization.grant));
+      if (!committed) {
+        test.expect(false,
+                    "atomic lifecycle commits every natural Full layer");
+        return false;
+      }
+    } else {
+      auto authorization = bound.request.state->authorize_gdn_layer_state(
+          bound.request_access, panel, model_layer);
+      if (!authorization) {
+        test.expect(false,
+                    "atomic lifecycle authorizes every natural GDN layer");
+        return false;
+      }
+      const auto committed =
+          bound.request.state->commit_gdn_layer_candidate_enqueued(
+              bound.request_access, std::move(*authorization.grant));
+      if (!committed) {
+        test.expect(false,
+                    "atomic lifecycle commits every natural GDN layer");
+        return false;
+      }
+    }
+  }
+  const auto snapshot = bound.request.state->snapshot();
+  test.expect(
+      snapshot.phase == runtime::Sm87MacroFeedV4RequestStatePhase::kPanelReady &&
+          snapshot.active_panel == panel &&
+          snapshot.next_model_layer == runtime::kSm87MacroFeedV4LayerCount &&
+          snapshot.panel_gdn_layers_assigned ==
+              runtime::kSm87MacroFeedV4StateLayerCount &&
+          snapshot.panel_kv_layers_staged ==
+              runtime::kSm87MacroFeedV4FullAttentionLayerCount,
+      "atomic lifecycle reaches exact RequestState PanelReady ledger");
+  return snapshot.phase ==
+         runtime::Sm87MacroFeedV4RequestStatePhase::kPanelReady;
+}
+
+[[nodiscard]] bool enqueue_and_observe_owner_drain(
+    Test& test, events::Sm87MacroFeedV4ExecutionEventsOwner& owner,
+    const events::Sm87MacroFeedV4ExecutionPanelAccess& panel_access,
+    events::Sm87MacroFeedV4PhysicalCompletionReceipt* const receipt) {
+  if (receipt == nullptr) {
+    return false;
+  }
+  const auto main_tail = Fixture::record_event(
+      owner, panel_access, events::Sm87MacroFeedV4ExecutionStream::kMain,
+      events::Sm87MacroFeedV4ExecutionEvent::kMainTail);
+  const auto ab_tail = Fixture::record_event(
+      owner, panel_access, events::Sm87MacroFeedV4ExecutionStream::kAbAux,
+      events::Sm87MacroFeedV4ExecutionEvent::kAbTail);
+  const auto main_join = Fixture::wait_event(
+      owner, panel_access, events::Sm87MacroFeedV4ExecutionStream::kControl,
+      events::Sm87MacroFeedV4ExecutionEvent::kMainTail);
+  const auto ab_join = Fixture::wait_event(
+      owner, panel_access, events::Sm87MacroFeedV4ExecutionStream::kControl,
+      events::Sm87MacroFeedV4ExecutionEvent::kAbTail);
+  const auto drained = Fixture::record_event(
+      owner, panel_access, events::Sm87MacroFeedV4ExecutionStream::kControl,
+      events::Sm87MacroFeedV4ExecutionEvent::kOwnerDrained);
+  if (!main_tail || !ab_tail || !main_join || !ab_join || !drained) {
+    test.expect(false,
+                "atomic lifecycle enqueues exact dual-stream owner drain");
+    return false;
+  }
+  const auto observed = Fixture::observe_event_synchronize(
+      owner, panel_access,
+      events::Sm87MacroFeedV4ExecutionEvent::kOwnerDrained);
+  if (!observed || !Fixture::completion_receipt_matches(
+                       owner, panel_access,
+                       events::Sm87MacroFeedV4ExecutionEvent::kOwnerDrained,
+                       observed.receipt)) {
+    test.expect(false,
+                "atomic lifecycle authenticates physical OwnerDrained");
+    return false;
+  }
+  *receipt = observed.receipt;
+  return true;
+}
 #endif
 
 void expect_physical_observation_forbidden(
@@ -1123,7 +1223,7 @@ void test_five_panel_enqueue_without_host_barriers(Test& test) {
                   owner, *bound->request.state, bound->request_access)),
               "live admitted RequestState begins physical owner request");
 
-  std::unique_ptr<events::Sm87MacroFeedV4ExecutionPanelAccess>
+  std::optional<events::Sm87MacroFeedV4ExecutionPanelAccess>
       final_panel_access;
   for (std::size_t panel = 0U;
        panel < runtime::kSm87MacroFeedV4PanelCount; ++panel) {
@@ -1143,10 +1243,10 @@ void test_five_panel_enqueue_without_host_barriers(Test& test) {
     }
   }
 
-  test.expect(final_panel_access != nullptr &&
+  test.expect(final_panel_access.has_value() &&
                   owner.snapshot().physical_completion_receipts_issued == 0U,
               "all five panels enqueue and close with no query/synchronize");
-  if (final_panel_access == nullptr) {
+  if (!final_panel_access.has_value()) {
     return;
   }
 
@@ -1214,6 +1314,356 @@ void test_five_panel_enqueue_without_host_barriers(Test& test) {
                   snapshot.physical_completion_receipts_issued == 1U,
               "complete request retains five panels and one physical receipt");
 }
+
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+void test_owner_atomic_cold_rearm_and_panel_commit(Test& test) {
+  auto bound = make_bound_owner(test, 0xc000U, 0xc100U);
+  if (bound == nullptr) {
+    return;
+  }
+  auto& owner = *bound->execution.owner;
+  const auto construction_access = bound->request_access;
+  const std::uint64_t construction_epoch =
+      construction_access.request_epoch();
+  const cudaError_t sentinel_status = cudaMemset(
+      bound->recurrent_allocation, 0xa5,
+      runtime::kSm87MacroFeedV4RecurrentStorageBytes);
+  test.expect(sentinel_status == cudaSuccess,
+              "cold rearm test first dirties the exact recurrent arena");
+  if (sentinel_status != cudaSuccess) {
+    return;
+  }
+
+  const auto rearmed = Fixture::rearm_cold_request(
+      owner, *bound->request.state, construction_access);
+  test.expect(
+      static_cast<bool>(rearmed) &&
+          rearmed.previous_request_epoch == construction_epoch &&
+          rearmed.request_epoch > construction_epoch &&
+          rearmed.enqueued_recurrent_zero_bytes ==
+              runtime::kSm87MacroFeedV4RecurrentStorageBytes,
+      "Main accepts one exact full recurrent zero and RequestState mints a "
+      "fresh epoch");
+  if (!rearmed) {
+    return;
+  }
+  bound->request_access = *rearmed.request_access;
+  const auto after_rearm = owner.snapshot();
+  const auto request_after_rearm = bound->request.state->snapshot();
+  test.expect(
+      after_rearm.cold_recurrent_initializations == 1U &&
+          after_rearm.cold_recurrent_zero_bytes ==
+              runtime::kSm87MacroFeedV4RecurrentStorageBytes &&
+          after_rearm.runtime_cold_rearms == 1U &&
+          after_rearm.runtime_recurrent_zero_bytes ==
+              runtime::kSm87MacroFeedV4RecurrentStorageBytes &&
+          after_rearm.last_rearmed_previous_request_epoch ==
+              construction_epoch &&
+          after_rearm.last_rearmed_request_epoch == rearmed.request_epoch &&
+          request_after_rearm.runtime_cold_rearm_count == 1U &&
+          request_after_rearm.request_epoch == rearmed.request_epoch &&
+          request_after_rearm.phase ==
+              runtime::Sm87MacroFeedV4RequestStatePhase::kPanelActive &&
+          request_after_rearm.active_panel == 0U &&
+          after_rearm.active_panel == 0U &&
+          rearmed.panel_access->panel() == 0U,
+      "runtime rearm preserves the immutable construction zero fact and "
+      "atomically begins panel 0 in the separate request ledger");
+
+  test.expect(cudaDeviceSynchronize() == cudaSuccess,
+              "cold rearm test observes Main only outside the owner method");
+  std::array<unsigned char, 3U> samples{{0xffU, 0xffU, 0xffU}};
+  const std::array<std::size_t, 3U> offsets{{
+      0U, runtime::kSm87MacroFeedV4RecurrentStorageBytes / 2U,
+      runtime::kSm87MacroFeedV4RecurrentStorageBytes - 1U}};
+  for (std::size_t index = 0U; index < samples.size(); ++index) {
+    const auto* const source =
+        static_cast<const unsigned char*>(bound->recurrent_allocation) +
+        offsets[index];
+    const cudaError_t copied = cudaMemcpy(
+        &samples[index], source, 1U, cudaMemcpyDeviceToHost);
+    test.expect(copied == cudaSuccess,
+                "cold rearm test samples the physical recurrent zero");
+  }
+  test.expect(samples[0U] == 0U && samples[1U] == 0U &&
+                  samples[2U] == 0U,
+              "runtime rearm physically zeros beginning, middle, and end");
+
+  const auto stale_begin =
+      bound->request.state->begin_panel(construction_access, 0U);
+  test.expect(
+      !stale_begin &&
+          stale_begin.error ==
+              runtime::Sm87MacroFeedV4RequestStateError::kCapabilityMismatch,
+      "fresh request epoch invalidates the construction capability");
+  if (!complete_private_request_state_panel(test, *bound, 0U) ||
+      !Fixture::seed_exact_panel_ledger_for_atomic_close(owner)) {
+    test.expect(false,
+                "atomic close test composes one exact successful panel");
+    return;
+  }
+  const std::uint64_t panel_generation =
+      rearmed.panel_access->panel_generation();
+  const auto closed = Fixture::close_panel_and_commit_state(
+      owner, *rearmed.panel_access, *bound->request.state,
+      bound->request_access);
+  const auto owner_after_close = owner.snapshot();
+  const auto request_after_close = bound->request.state->snapshot();
+  test.expect(
+      static_cast<bool>(closed) &&
+          closed.audit_receipt.panel() == 0U &&
+          closed.audit_receipt.panel_generation() == panel_generation &&
+          closed.audit_receipt.accepted_gdn_layers() == 48U &&
+          closed.audit_receipt.accepted_full_attention_layers() == 16U &&
+          closed.audit_receipt.accepted_kernel_submissions() == 560U &&
+          closed.audit_receipt.accepted_d2d_copies() == 48U &&
+          closed.audit_receipt.accepted_d2d_copy_bytes() == 2'949'120U &&
+          owner_after_close.completed_panels == 1U &&
+          owner_after_close.panel_done_recorded &&
+          owner_after_close.physical_completion_receipts_issued == 0U &&
+          owner_after_close.panel_commit_audit_receipts_issued == 1U &&
+          request_after_close.phase ==
+              runtime::Sm87MacroFeedV4RequestStatePhase::
+                  kBetweenPanelsPrivate &&
+          request_after_close.completed_panels == 1U &&
+          request_after_close.panel_swap_count == 1U &&
+          request_after_close.last_committed_panel_generation ==
+              panel_generation,
+      "PanelDone and RequestState swap close atomically without a host wait");
+
+  const auto copied_audit = closed.audit_receipt;
+  const auto replay = Fixture::close_panel_and_commit_state(
+      owner, *rearmed.panel_access, *bound->request.state,
+      bound->request_access);
+  test.expect(
+      !replay && replay.audit_receipt.receipt_identity() == 0U &&
+          copied_audit.receipt_identity() ==
+              closed.audit_receipt.receipt_identity() &&
+          owner.snapshot().completed_panels == 1U &&
+          bound->request.state->snapshot().panel_swap_count == 1U,
+      "audit receipt copy/replay cannot authorize a second state mutation");
+}
+
+void test_atomic_panel_close_rejects_before_panel_done(Test& test) {
+  auto bound = make_bound_owner(test, 0xc200U, 0xc300U);
+  if (bound == nullptr) {
+    return;
+  }
+  auto& owner = *bound->execution.owner;
+  const auto rearmed = Fixture::rearm_cold_request(
+      owner, *bound->request.state, bound->request_access);
+  if (!rearmed) {
+    test.expect(false, "negative atomic close test rearms request");
+    return;
+  }
+  bound->request_access = *rearmed.request_access;
+  if (!complete_private_request_state_panel(test, *bound, 0U) ||
+      !Fixture::seed_exact_panel_ledger_for_atomic_close(owner, true)) {
+    test.expect(false, "negative atomic close test reaches its fault seam");
+    return;
+  }
+  const auto rejected = Fixture::close_panel_and_commit_state(
+      owner, *rearmed.panel_access, *bound->request.state,
+      bound->request_access);
+  const auto owner_after = owner.snapshot();
+  const auto request_after = bound->request.state->snapshot();
+  test.expect(
+      !rejected &&
+          rejected.status.error ==
+              events::Sm87MacroFeedV4ExecutionError::kPanelIncomplete &&
+          !owner_after.panel_done_recorded &&
+          owner_after.completed_panels == 0U &&
+          owner_after.state ==
+              events::Sm87MacroFeedV4ExecutionOwnerState::kRequestActive &&
+          request_after.phase ==
+              runtime::Sm87MacroFeedV4RequestStatePhase::kPanelReady &&
+          request_after.panel_swap_count == 0U,
+      "559-kernel panel fails before PanelDone and mutates neither owner");
+
+  events::Sm87MacroFeedV4PhysicalCompletionReceipt drained;
+  if (!enqueue_and_observe_owner_drain(test, owner, *rearmed.panel_access,
+                                       &drained)) {
+    return;
+  }
+  test.expect(static_cast<bool>(Fixture::discard_request_state_after_drain(
+                  owner, *rearmed.panel_access, drained,
+                  *bound->request.state, bound->request_access,
+                  runtime::Sm87MacroFeedV4RequestDiscardReason::kFailed)),
+              "rejected pre-PanelDone panel remains physically discardable");
+}
+
+void test_post_panel_done_state_rejection_poison_drains(Test& test) {
+  auto bound = make_bound_owner(test, 0xc400U, 0xc500U);
+  if (bound == nullptr) {
+    return;
+  }
+  auto& owner = *bound->execution.owner;
+  const auto rearmed = Fixture::rearm_cold_request(
+      owner, *bound->request.state, bound->request_access);
+  if (!rearmed) {
+    test.expect(false, "post-PanelDone rejection test rearms request");
+    return;
+  }
+  bound->request_access = *rearmed.request_access;
+  if (!complete_private_request_state_panel(test, *bound, 0U) ||
+      !Fixture::seed_exact_panel_ledger_for_atomic_close(owner)) {
+    test.expect(false, "post-PanelDone rejection reaches exact panel state");
+    return;
+  }
+
+  auto foreign_request = runtime::Sm87MacroFeedV4RequestState::create(
+      runtime::make_sm87_macrofeed_v4_request_state_admission(
+          Fixture::owner_identity(owner), 0xc400U, 0xc401U, 0xc402U,
+          0xc500U));
+  if (!foreign_request) {
+    test.expect(false, "post-PanelDone rejection creates foreign state owner");
+    return;
+  }
+  const auto rejected = Fixture::close_panel_and_commit_state(
+      owner, *rearmed.panel_access, *foreign_request.state,
+      bound->request_access);
+  const auto owner_after = owner.snapshot();
+  test.expect(
+      !rejected &&
+          rejected.status.error ==
+              events::Sm87MacroFeedV4ExecutionError::
+                  kRequestStatePanelCommit &&
+          owner_after.panel_done_recorded &&
+          owner_after.completed_panels == 0U &&
+          owner_after.panel_commit_audit_receipts_issued == 0U &&
+          owner_after.state ==
+              events::Sm87MacroFeedV4ExecutionOwnerState::kPoisoned &&
+          bound->request.state->snapshot().panel_swap_count == 0U,
+      "RequestState rejection after accepted PanelDone permanently poisons "
+      "without counting or minting a receipt");
+  const auto drained = Fixture::drain_poisoned_request_and_discard(
+      owner, *bound->request.state, bound->request_access);
+  test.expect(
+      static_cast<bool>(drained) && drained.request_state_discarded &&
+          bound->request.state->snapshot().phase ==
+              runtime::Sm87MacroFeedV4RequestStatePhase::kFailed &&
+          owner.snapshot().state ==
+              events::Sm87MacroFeedV4ExecutionOwnerState::kPoisoned,
+      "post-PanelDone failure requires three-stream drain and physical "
+      "RequestState discard");
+}
+
+void test_armed_final_discard_and_terminal_rearm(Test& test) {
+  auto bound = make_bound_owner(test, 0xc600U, 0xc700U);
+  if (bound == nullptr) {
+    return;
+  }
+  auto& owner = *bound->execution.owner;
+  auto first_rearm = Fixture::rearm_cold_request(
+      owner, *bound->request.state, bound->request_access);
+  if (!first_rearm) {
+    test.expect(false, "final discard test rearms construction request");
+    return;
+  }
+  bound->request_access = *first_rearm.request_access;
+  std::optional<events::Sm87MacroFeedV4ExecutionPanelAccess> final_access;
+  std::uint64_t final_generation = 0U;
+  for (std::size_t panel_index = 0U;
+       panel_index < runtime::kSm87MacroFeedV4PanelCount; ++panel_index) {
+    std::optional<events::Sm87MacroFeedV4ExecutionPanelAccess> panel_access;
+    if (panel_index == 0U) {
+      panel_access = std::move(first_rearm.panel_access);
+    } else {
+      auto panel = Fixture::begin_panel_with_state(
+          owner, *bound->request.state, bound->request_access, panel_index);
+      if (!panel) {
+        test.expect(false, "final discard begins the next atomic panel");
+        return;
+      }
+      panel_access = std::move(panel.panel_access);
+    }
+    if (!panel_access.has_value() ||
+        !complete_private_request_state_panel(test, *bound, panel_index) ||
+        !Fixture::seed_exact_panel_ledger_for_atomic_close(owner)) {
+      test.expect(false, "final discard test composes each exact panel");
+      return;
+    }
+    const auto closed = Fixture::close_panel_and_commit_state(
+        owner, *panel_access, *bound->request.state,
+        bound->request_access);
+    if (!closed) {
+      test.expect(false, "final discard test atomically closes every panel");
+      return;
+    }
+    if (panel_index + 1U == runtime::kSm87MacroFeedV4PanelCount) {
+      final_generation = panel_access->panel_generation();
+      final_access = std::move(panel_access);
+    }
+  }
+  if (!final_access.has_value()) {
+    test.expect(false, "final discard retains exact final panel capability");
+    return;
+  }
+  const auto armed =
+      bound->request.state->begin_final_canonical_copy(bound->request_access);
+  test.expect(static_cast<bool>(armed),
+              "five committed private panels arm final publication");
+  events::Sm87MacroFeedV4PhysicalCompletionReceipt drained;
+  if (!armed || !enqueue_and_observe_owner_drain(
+                    test, owner, *final_access, &drained)) {
+    return;
+  }
+  const auto discarded = Fixture::discard_final_request_state_after_drain(
+      owner, *final_access, drained, *bound->request.state,
+      bound->request_access,
+      runtime::Sm87MacroFeedV4RequestDiscardReason::kFailed);
+  const auto owner_after = owner.snapshot();
+  const auto request_after = bound->request.state->snapshot();
+  test.expect(
+      static_cast<bool>(discarded) &&
+          owner_after.state ==
+              events::Sm87MacroFeedV4ExecutionOwnerState::kRequestDiscarded &&
+          owner_after.completed_panels == 5U &&
+          owner_after.panel_commit_audit_receipts_issued == 5U &&
+          request_after.phase ==
+              runtime::Sm87MacroFeedV4RequestStatePhase::kFailed &&
+          request_after.completed_panels == 5U &&
+          request_after.private_kv_valid_end ==
+              runtime::kSm87MacroFeedV4P40Tokens &&
+          request_after.canonical_kv_valid_end == 0U &&
+          request_after.canonical_sequence_length == 0U &&
+          request_after.physical_owner_drain_receipt_identity ==
+              drained.receipt_identity() &&
+          request_after.physical_owner_drain_panel_generation ==
+              final_generation &&
+          request_after.physical_execution_receipt_issued &&
+          !request_after.canonical_state_published &&
+          !request_after.logical_sequence_fence_published &&
+          !request_after.decode_access_issued,
+      "armed final failure drains exact generation and publishes no state");
+
+  const auto terminal_access = bound->request_access;
+  const auto second_rearm = Fixture::rearm_cold_request(
+      owner, *bound->request.state, terminal_access);
+  test.expect(
+      static_cast<bool>(second_rearm) &&
+          second_rearm.previous_request_epoch ==
+              terminal_access.request_epoch() &&
+          second_rearm.request_epoch > terminal_access.request_epoch() &&
+          owner.snapshot().runtime_cold_rearms == 2U &&
+          owner.snapshot().cold_recurrent_initializations == 1U,
+      "physically discarded terminal request rearms with another fresh epoch");
+  if (!second_rearm) {
+    return;
+  }
+  bound->request_access = *second_rearm.request_access;
+  events::Sm87MacroFeedV4PhysicalCompletionReceipt cleanup_drain;
+  if (!enqueue_and_observe_owner_drain(
+          test, owner, *second_rearm.panel_access, &cleanup_drain)) {
+    return;
+  }
+  test.expect(static_cast<bool>(Fixture::discard_request_state_after_drain(
+                  owner, *second_rearm.panel_access, cleanup_drain,
+                  *bound->request.state, bound->request_access,
+                  runtime::Sm87MacroFeedV4RequestDiscardReason::kCancelled)),
+              "rearmed request remains physically discardable from panel 0");
+}
+#endif
 
 void test_dual_stream_discard_drain(Test& test) {
   auto bound = make_bound_owner(test, 0x4000U);
@@ -3298,6 +3748,12 @@ int main() {
 
   Test test;
   test_five_panel_enqueue_without_host_barriers(test);
+#if defined(Q3X_ENABLE_SM87_MACROFEED_V4_P40_EXECUTION_PACKAGE_ADMISSION)
+  test_owner_atomic_cold_rearm_and_panel_commit(test);
+  test_atomic_panel_close_rejects_before_panel_done(test);
+  test_post_panel_done_state_rejection_poison_drains(test);
+  test_armed_final_discard_and_terminal_rearm(test);
+#endif
   test_dual_stream_discard_drain(test);
   test_request_owner_phase_and_identity_binding(test);
   test_poison_terminal_drain(test);
