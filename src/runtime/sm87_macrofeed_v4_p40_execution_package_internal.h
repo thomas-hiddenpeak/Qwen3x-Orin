@@ -102,6 +102,7 @@ enum class Sm87MacroFeedV4P40ExecutionPackageError : std::uint8_t {
   kFrontHalfBinding,
   kCompleteLayerBinding,
   kGdnLayerStateGrant,
+  kFullAttentionKvGrant,
   kExecutionEvent,
   kPhysicalDrain,
   kRequestAbort,
@@ -440,6 +441,94 @@ struct Sm87MacroFeedV4GdnLayer0CompleteResult final {
   }
 };
 
+// Package-composed evidence for one naturally ordered Full-Attention layer.
+// The independently forgeable outer fields make no authority claim; the live
+// owner match of the nested opaque Events receipt is the authentication fact.
+// Together they record only that the fixed eight-kernel transaction was
+// accepted and RequestState consumed the corresponding move-only K/V grant.
+// They do not attest device completion, panel publication, model completion,
+// or a production route.
+struct Sm87MacroFeedV4FullAttentionLayerCommitReceipt final {
+  std::uint64_t package_identity = 0U;
+  std::uint64_t full_attention_catalog_identity = 0U;
+  std::uint64_t full_attention_binding_identity = 0U;
+  std::uint64_t mlp_binding_identity = 0U;
+  std::uint64_t resource_bundle_identity = 0U;
+  std::uint64_t request_epoch = 0U;
+  std::uint64_t grant_identity = 0U;
+  std::uint64_t grant_state_epoch = 0U;
+  std::uint64_t kv_allocation_identity = 0U;
+  std::size_t panel = kSm87MacroFeedV4PanelCount;
+  std::size_t full_attention_ordinal =
+      kSm87MacroFeedV4FullAttentionLayerCount;
+  std::size_t model_layer = kSm87MacroFeedV4LayerCount;
+  std::size_t previous_valid_end = kSm87MacroFeedV4P40Tokens;
+  std::size_t candidate_end = kSm87MacroFeedV4P40Tokens;
+  std::size_t next_model_layer_after_commit = 0U;
+  std::size_t panel_kv_layers_staged_after_commit = 0U;
+  sm87_macrofeed_v4_execution_events_detail::
+      Sm87MacroFeedV4CompleteFullAttentionLayerEnqueueReceipt
+          enqueue_receipt{};
+  bool enqueue_receipt_owner_matched = false;
+  bool kv_layer_commit_recorded = false;
+  bool physical_device_completion_attested = true;
+  bool panel_complete = true;
+  bool model_complete = true;
+  bool production_dispatch_eligible = true;
+
+  [[nodiscard]] bool valid() const noexcept {
+    return package_identity != 0U &&
+           full_attention_catalog_identity != 0U &&
+           full_attention_binding_identity != 0U &&
+           mlp_binding_identity != 0U && resource_bundle_identity != 0U &&
+           request_epoch != 0U && grant_identity != 0U &&
+           kv_allocation_identity != 0U &&
+           panel < kSm87MacroFeedV4PanelCount &&
+           full_attention_ordinal <
+               kSm87MacroFeedV4FullAttentionLayerCount &&
+           model_layer == 4U * full_attention_ordinal + 3U &&
+           previous_valid_end ==
+               panel * kSm87MacroFeedV4PanelTokens &&
+           candidate_end ==
+               previous_valid_end + kSm87MacroFeedV4PanelTokens &&
+           next_model_layer_after_commit == model_layer + 1U &&
+           panel_kv_layers_staged_after_commit ==
+               full_attention_ordinal + 1U &&
+           enqueue_receipt.valid_shape() &&
+           enqueue_receipt.request_epoch() == request_epoch &&
+           enqueue_receipt.panel() == panel &&
+           enqueue_receipt.grant_identity() == grant_identity &&
+           enqueue_receipt.kv_allocation_identity() ==
+               kv_allocation_identity &&
+           enqueue_receipt.full_attention_ordinal() ==
+               full_attention_ordinal &&
+           enqueue_receipt.model_layer() == model_layer &&
+           enqueue_receipt.full_attention_catalog_identity() ==
+               full_attention_catalog_identity &&
+           enqueue_receipt.resource_bundle_identity() ==
+               resource_bundle_identity &&
+           enqueue_receipt.bound_kernel_submissions() == 8U &&
+           enqueue_receipt.asynchronous_d2d_copies() == 0U &&
+           enqueue_receipt.asynchronous_d2d_copy_bytes() == 0U &&
+           enqueue_receipt.complete_layer_enqueued() &&
+           !enqueue_receipt.physical_device_completion_attested() &&
+           !enqueue_receipt.panel_complete() &&
+           !enqueue_receipt.production_receipt_eligible() &&
+           enqueue_receipt_owner_matched && kv_layer_commit_recorded &&
+           !physical_device_completion_attested && !panel_complete &&
+           !model_complete && !production_dispatch_eligible;
+  }
+};
+
+struct Sm87MacroFeedV4FullAttentionLayerCommitResult final {
+  Sm87MacroFeedV4P40ExecutionPackageStatus status{};
+  Sm87MacroFeedV4FullAttentionLayerCommitReceipt receipt{};
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return static_cast<bool>(status) && receipt.valid();
+  }
+};
+
 class Sm87MacroFeedV4P40ExecutionPackage;
 class Sm87MacroFeedV4P40ExecutionCompositionRoot;
 
@@ -577,8 +666,25 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
   execute_gdn_layer0_front_half_once() noexcept;
   [[nodiscard]] Sm87MacroFeedV4GdnLayer0CompleteResult
   execute_gdn_layer0_complete_once() noexcept;
+  // First reusable Full-layer composition slice.  A future natural-layer
+  // cohort is the only intended caller: it supplies the already active
+  // package-owned request/panel capabilities and a fixed Full ordinal.  No
+  // pointer, tactic, stream, role, layer kind, or K/V offset crosses this
+  // boundary as a caller choice.
+  [[nodiscard]] Sm87MacroFeedV4FullAttentionLayerCommitResult
+  submit_complete_full_attention_layer_c8000(
+      const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+      const PanelAccess& panel_access,
+      std::size_t full_attention_ordinal) noexcept;
   [[nodiscard]] bool front_half_bindings_valid() const noexcept;
   [[nodiscard]] bool complete_layer_bindings_valid() const noexcept;
+  [[nodiscard]] bool full_attention_composer_authority_sealed()
+      const noexcept;
+  [[nodiscard]] bool compose_complete_full_attention_submission(
+      const Sm87MacroFeedV4FullAttentionKvGrant& grant,
+      sm87_macrofeed_v4_execution_events_detail::
+          Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission*
+              submission) const noexcept;
   [[nodiscard]] static std::uint64_t compute_gdn_layer_catalog_fold_identity(
       const GdnQkvZCatalog& catalog) noexcept;
   [[nodiscard]] static std::uint64_t compute_mlp_pair_catalog_fold_identity(

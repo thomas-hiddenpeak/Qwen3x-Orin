@@ -205,6 +205,62 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
            !after.decode_access_issued && !replay;
   }
 
+  [[nodiscard]] static bool
+  exercise_synthetic_full_attention_composer_fail_closed(
+      Sm87MacroFeedV4P40ExecutionPackage& package) noexcept {
+    if (package.request_state_ == nullptr || package.events_owner_ == nullptr ||
+        package.events_driver_ == nullptr ||
+        package.full_attention_composer_authority_sealed()) {
+      return false;
+    }
+    const auto request_access = package.request_state_->issue_sealed_access();
+    const auto begin_request = package.events_driver_->begin_request(
+        *package.request_state_, request_access);
+    auto panel = package.events_driver_->begin_panel(0U);
+    const auto begin_state_panel =
+        package.request_state_->begin_panel(request_access, 0U);
+    if (!begin_request || !panel || !begin_state_panel) {
+      return false;
+    }
+    const auto before = package.events_driver_->snapshot();
+    const auto attempted =
+        package.submit_complete_full_attention_layer_c8000(
+            request_access, *panel.panel_access, 0U);
+    const auto events_after = package.events_driver_->snapshot();
+    const auto request_after = package.request_state_->snapshot();
+    return !attempted && !attempted.receipt.valid() &&
+           attempted.status.error ==
+               Sm87MacroFeedV4P40ExecutionPackageError::
+                   kFullAttentionCatalog &&
+           before.bound_kernel_submissions == 0U &&
+           events_after.bound_kernel_submissions == 0U &&
+           events_after.full_qkv_c8000_submissions == 0U &&
+           events_after.full_attention_preprocess_c8000_submissions == 0U &&
+           events_after.attention_c8000_submissions == 0U &&
+           events_after.full_attention_output_c8000_submissions == 0U &&
+           events_after.residual_post_norm_submissions == 0U &&
+           events_after.gate_up_c8000_submissions == 0U &&
+           events_after.down_c8000_submissions == 0U &&
+           events_after.complete_full_attention_layers_submitted == 0U &&
+           events_after.accepted_full_attention_grants == 0U &&
+           !events_after.last_full_attention_accepted_prefix.valid_prefix() &&
+           events_after.physical_completion_receipts_issued == 1U &&
+           events_after.state ==
+               sm87_macrofeed_v4_execution_events_detail::
+                   Sm87MacroFeedV4ExecutionOwnerState::kRequestDiscarded &&
+           events_after.owner_drained_recorded &&
+           request_after.phase == Sm87MacroFeedV4RequestStatePhase::kFailed &&
+           request_after.pending_full_attention_kv_grant_identity == 0U &&
+           request_after.panel_kv_layers_staged == 0U &&
+           request_after.next_model_layer == 0U &&
+           request_after.candidate_discard_count == 1U &&
+           request_after.physical_execution_receipt_issued &&
+           !request_after.physical_owner_drain_was_poison_terminal &&
+           !request_after.canonical_state_published &&
+           !request_after.logical_sequence_fence_published &&
+           !request_after.decode_access_issued;
+  }
+
   [[nodiscard]] static bool seed(
       Sm87MacroFeedV4P40ExecutionPackage& package) noexcept {
     if (package.ping_ == nullptr || package.pong_ == nullptr ||
@@ -894,6 +950,19 @@ void test_real_cuda_front_half() {
           exercise_terminal_poison_drain(*terminal_drain_created.package),
       "tail-stage CUDA poison did not immediately drain all private streams");
   terminal_drain_created.package.reset();
+
+  auto synthetic_full_composer_created =
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          create_with_synthetic_t1_gdn_layer0(
+              *startup_created.package, live_gdn_qkvz.asset);
+  require_test(static_cast<bool>(synthetic_full_composer_created),
+               "synthetic Full-composer negative package creation failed");
+  require_test(
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          exercise_synthetic_full_attention_composer_fail_closed(
+              *synthetic_full_composer_created.package),
+      "synthetic package crossed the real-owner Full composer boundary");
+  synthetic_full_composer_created.package.reset();
 
   auto execution_created =
       execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::

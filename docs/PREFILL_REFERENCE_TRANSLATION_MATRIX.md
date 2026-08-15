@@ -19,8 +19,9 @@ This document is the bounded working record for
 `WP-PREFILL-REFERENCE-TRANSLATION-v1` under the reserved successor lineage
 `AC-PREFILL-SM87-MACROFEED-v4`. V4 remains a non-route-executable foundation
 with separate BUILD_TESTING-only complete synthetic GDN-layer and private
-Full-Events transactions; neither is the missing physical first four-layer
-cohort. V4 does not become a Constitution-defined `architecture_candidate`
+Full-Events transactions plus a normal construction-sealed Full composer;
+none is the missing physical first four-layer cohort. V4 does not become a
+Constitution-defined `architecture_candidate`
 until the complete dataflow is runnable. V1/V2 and the complete V3 composition are
 retained only as the diagnostic controls described by Current Status. This
 document does not amend the product
@@ -624,10 +625,21 @@ panel, and production completion. Advancing the host RequestState to layer 4
 after that isolated enqueue is not a physical execution of natural GDN layers
 0--2. These fixtures establish synthetic scheduling/lifetime evidence, not a
 real-checkpoint numerical, real-owner, whole-model, API, or performance
-result. The ExecutionPackage complete-Full-layer composer and the physical
-natural-layers-0--3 cohort (35 kernels plus three 61,440-byte copies) are still
-absent. They, all layers/panels, whole-model receipt, rollback, finalizer, and
-API launcher must compose before V4 is runnable or eligible for a P40 witness.
+result. The normal ExecutionPackage now has a private complete-Full-layer
+composer. It derives layer/parity/aliases, owned KV origins and panel offsets,
+first position, borrowed RoPE, assets, and resource observations from sealed
+state in O(1), without a request-time catalog scan or CUDA/resource/pointer/
+allocation/synchronization query. It submits the eight-kernel Events
+transaction, authenticates its receipt, and commits the same move-only
+RequestState grant. Success grants enqueue-plus-grant-commit only and does not
+drain or publish; failure terminal-drains/discards. No normal positive or
+pinned real-checkpoint composer invocation has run. Because the synthetic
+package has no Full physical owner, its only composer test proves zero-enqueue
+fail-closed rejection and is not a positive identity. The physical
+natural-layers-0--3 cohort (35 kernels plus three 61,440-byte copies) remains
+absent. Complete-GDN Events hardening, that cohort, all layers/panels,
+whole-model receipt, rollback, finalizer, and API launcher must compose before
+V4 is runnable or eligible for a P40 witness.
 
 The fixed Attention handoff now retains the FP8 projection's native
 `[Q256, Gate256]` head interleave. Q preprocessing and exact Attention both
@@ -979,7 +991,7 @@ workload.
 ## 10. Package closure
 
 The active Roadmap owns the current dependency sequence:
-`ExecutionPackage Full composer → physical natural-layers-0--3 cohort →`
+`complete-GDN Events hardening → physical natural-layers-0--3 cohort →`
 `clean-host real-checkpoint lifetime/numerical gates → 64×5 composition and`
 `real API`. This work package may explain or falsify those translations, but
 it cannot skip that sequence with the Events-only host progression or a local

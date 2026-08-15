@@ -1639,6 +1639,413 @@ bool Sm87MacroFeedV4P40ExecutionPackage::complete_layer_bindings_valid()
          down_resources_.device_ordinal == audit_.device_ordinal;
 }
 
+bool Sm87MacroFeedV4P40ExecutionPackage::
+    full_attention_composer_authority_sealed() const noexcept {
+  // This is a constant-time consumption of construction-sealed facts.  It
+  // deliberately performs no CUDA query, catalog fold, asset validation,
+  // allocation discovery, or other request-time admission work.
+  return construction_postconditions_sealed_ &&
+         !audit_.synthetic_t1_gdn_layer0_source &&
+         audit_.package_identity != 0U &&
+         audit_.full_attention_catalog_identity != 0U &&
+         audit_.retained_full_attention_catalog_fold_identity != 0U &&
+         audit_.full_attention_resource_bundle_identity != 0U &&
+         audit_.mlp_pair_catalog_identity != 0U &&
+         audit_.layer_norm_catalog_identity != 0U &&
+         audit_.full_attention_bindings ==
+             kSm87MacroFeedV4FullAttentionLayerCount &&
+         audit_.mlp_pair_bindings == kSm87MacroFeedV4LayerCount &&
+         audit_.layer_norm_pairs == kSm87MacroFeedV4LayerCount &&
+         kv_allocation_ != nullptr &&
+         reinterpret_cast<std::uintptr_t>(kv_allocation_) ==
+             audit_.kv_allocation_begin &&
+         audit_.kv_allocation_identity != 0U &&
+         audit_.kv_allocation_bytes ==
+             kSm87MacroFeedV4AttentionKvArenaBytes &&
+         audit_.kv_allocation_begin <=
+             std::numeric_limits<std::uintptr_t>::max() -
+                 audit_.kv_allocation_bytes &&
+         audit_.request_state_kv_allocation_identity ==
+             audit_.kv_allocation_identity &&
+         audit_.request_state_kv_physical_owner_bound &&
+         engine_rope_.cosines != nullptr && engine_rope_.sines != nullptr &&
+         engine_rope_.owner_identity == audit_.engine_rope_owner_identity &&
+         audit_.engine_rope_binding_identity != 0U &&
+         engine_rope_.allocation_begin ==
+             audit_.engine_rope_allocation_begin &&
+         engine_rope_.allocation_bytes ==
+             kSm87MacroFeedV4P40EngineRopeAllocationBytes &&
+         engine_rope_.allocation_begin <=
+             std::numeric_limits<std::uintptr_t>::max() -
+                 engine_rope_.allocation_bytes &&
+         engine_rope_.position_count ==
+             kSm87MacroFeedV4P40EngineRopePositions &&
+         engine_rope_.rotary_pairs ==
+             kSm87MacroFeedV4P40EngineRopePairs &&
+         engine_rope_.device_ordinal == audit_.device_ordinal &&
+         ping_ != nullptr && pong_ != nullptr && scratch_ != nullptr &&
+         request_state_ != nullptr && events_owner_ != nullptr &&
+         events_driver_ != nullptr;
+}
+
+bool Sm87MacroFeedV4P40ExecutionPackage::
+    compose_complete_full_attention_submission(
+        const Sm87MacroFeedV4FullAttentionKvGrant& grant,
+        events::Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission*
+            const submission) const noexcept {
+  if (submission != nullptr) {
+    *submission = {};
+  }
+  if (submission == nullptr ||
+      !full_attention_composer_authority_sealed() ||
+      grant.attention_layer_ordinal() >=
+          kSm87MacroFeedV4FullAttentionLayerCount ||
+      grant.model_layer() >= kSm87MacroFeedV4LayerCount ||
+      grant.panel() >= kSm87MacroFeedV4PanelCount) {
+    return false;
+  }
+
+  const std::size_t ordinal = grant.attention_layer_ordinal();
+  const std::size_t model_layer = 4U * ordinal + 3U;
+  if (grant.model_layer() != model_layer ||
+      model_layer >= layer_norm_catalog_.size() ||
+      model_layer >= mlp_pair_catalog_.size() ||
+      ordinal >= full_attention_catalog_.size()) {
+    return false;
+  }
+
+  static_assert(kSm87MacroFeedV4FullAttentionLayerCount <=
+                std::numeric_limits<std::uint64_t>::max() /
+                    kSm87MacroFeedV4AttentionKvLayerBytes);
+  static_assert(kSm87MacroFeedV4PanelCount <=
+                std::numeric_limits<std::uint64_t>::max() /
+                    kSm87MacroFeedV4AttentionKvPanelBytes);
+  static_assert(kSm87MacroFeedV4AttentionKvLayerBytes ==
+                2U * kSm87MacroFeedV4AttentionKvPlaneBytes);
+  static_assert(kSm87MacroFeedV4FullAttentionLayerCount *
+                        kSm87MacroFeedV4AttentionKvLayerBytes ==
+                    kSm87MacroFeedV4AttentionKvArenaBytes);
+  const std::uint64_t expected_key_origin =
+      static_cast<std::uint64_t>(ordinal) *
+      kSm87MacroFeedV4AttentionKvLayerBytes;
+  if (expected_key_origin >
+      std::numeric_limits<std::uint64_t>::max() -
+          kSm87MacroFeedV4AttentionKvPlaneBytes) {
+    return false;
+  }
+  const std::uint64_t expected_value_origin =
+      expected_key_origin + kSm87MacroFeedV4AttentionKvPlaneBytes;
+  const std::uint64_t expected_panel_delta =
+      static_cast<std::uint64_t>(grant.panel()) *
+      kSm87MacroFeedV4AttentionKvPanelBytes;
+  if (expected_key_origin >
+          std::numeric_limits<std::uint64_t>::max() -
+              expected_panel_delta ||
+      expected_value_origin >
+          std::numeric_limits<std::uint64_t>::max() -
+              expected_panel_delta) {
+    return false;
+  }
+  const std::uint64_t expected_key_panel =
+      expected_key_origin + expected_panel_delta;
+  const std::uint64_t expected_value_panel =
+      expected_value_origin + expected_panel_delta;
+  const auto exact_arena_range = [](const std::uint64_t offset,
+                                    const std::uint64_t bytes) noexcept {
+    return offset <= kSm87MacroFeedV4AttentionKvArenaBytes &&
+           bytes <= kSm87MacroFeedV4AttentionKvArenaBytes - offset;
+  };
+  const bool exact_grant_arena =
+      grant.grant_identity() != 0U &&
+      grant.owner_identity() == audit_.execution_events_owner_identity &&
+      grant.request_epoch() != 0U &&
+      grant.kv_allocation_identity() == audit_.kv_allocation_identity &&
+      grant.panel() < kSm87MacroFeedV4PanelCount &&
+      grant.key_full_allocation_origin() == expected_key_origin &&
+      grant.value_full_allocation_origin() == expected_value_origin &&
+      grant.key_panel_allocation_offset() == expected_key_panel &&
+      grant.value_panel_allocation_offset() == expected_value_panel &&
+      grant.panel_bytes() == kSm87MacroFeedV4AttentionKvPanelBytes &&
+      grant.first_position() ==
+          grant.panel() * kSm87MacroFeedV4PanelTokens &&
+      grant.previous_valid_end() == grant.first_position() &&
+      grant.first_position() <=
+          std::numeric_limits<std::size_t>::max() -
+              kSm87MacroFeedV4PanelTokens &&
+      grant.candidate_end() ==
+          grant.first_position() + kSm87MacroFeedV4PanelTokens &&
+      exact_arena_range(expected_key_origin,
+                        kSm87MacroFeedV4AttentionKvPlaneBytes) &&
+      exact_arena_range(expected_value_origin,
+                        kSm87MacroFeedV4AttentionKvPlaneBytes) &&
+      exact_arena_range(expected_key_panel,
+                        kSm87MacroFeedV4AttentionKvPanelBytes) &&
+      exact_arena_range(expected_value_panel,
+                        kSm87MacroFeedV4AttentionKvPanelBytes);
+  if (!exact_grant_arena ||
+      expected_key_origin > std::numeric_limits<std::size_t>::max() ||
+      expected_value_origin > std::numeric_limits<std::size_t>::max() ||
+      expected_key_panel > std::numeric_limits<std::size_t>::max() ||
+      expected_value_panel > std::numeric_limits<std::size_t>::max()) {
+    return false;
+  }
+
+  const auto& full = full_attention_catalog_[ordinal];
+  const auto& norm = layer_norm_catalog_[model_layer];
+  const auto& mlp = mlp_pair_catalog_[model_layer];
+  const bool exact_sealed_binding =
+      full.full_ordinal == ordinal && full.model_layer == model_layer &&
+      full.binding_identity != 0U &&
+      full.package_identity == audit_.startup_package_identity &&
+      full.projection_catalog_identity ==
+          audit_.projection_catalog_identity &&
+      full.resource_bundle_identity ==
+          audit_.full_attention_resource_bundle_identity &&
+      full.live_cuda_ranges_validated &&
+      full.source_private_resource_queries && !full.request_selectable &&
+      !full.launcher_authority && !full.production_dispatch_eligible &&
+      norm.model_layer == model_layer &&
+      norm.input_layernorm != nullptr &&
+      norm.post_attention_layernorm != nullptr &&
+      norm.input_layernorm_identity != 0U &&
+      norm.post_attention_layernorm_identity != 0U &&
+      norm.epsilon_fp32_bits ==
+          kernels::kSm87MacroFeedV4NormResidualEpsilonFp32Bits &&
+      mlp.model_layer == model_layer && mlp.binding_identity != 0U &&
+      mlp.package_identity == audit_.startup_package_identity &&
+      mlp.projection_catalog_identity == audit_.projection_catalog_identity &&
+      mlp.live_cuda_payload_ranges_validated && !mlp.request_selectable &&
+      !mlp.launcher_authority && !mlp.production_dispatch_eligible &&
+      full.qk_norm.q_norm != nullptr && full.qk_norm.k_norm != nullptr &&
+      full.qk_norm.exact_shapes &&
+      full.qk_norm.live_cuda_weight_ranges_validated &&
+      full.qk_norm.q_norm_elements ==
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessHeadDimension &&
+      full.qk_norm.k_norm_elements ==
+          kernels::kSm87MacroFeedV4FullAttentionPreprocessHeadDimension;
+  if (!exact_sealed_binding) {
+    return false;
+  }
+
+  auto* const arena = static_cast<std::uint8_t*>(kv_allocation_);
+  auto* const key_origin = reinterpret_cast<std::uint16_t*>(
+      arena + static_cast<std::size_t>(expected_key_origin));
+  auto* const value_origin = reinterpret_cast<std::uint16_t*>(
+      arena + static_cast<std::size_t>(expected_value_origin));
+  auto* const key_panel = reinterpret_cast<std::uint16_t*>(
+      arena + static_cast<std::size_t>(expected_key_panel));
+  auto* const value_panel = reinterpret_cast<std::uint16_t*>(
+      arena + static_cast<std::size_t>(expected_value_panel));
+
+  // Layer 0 consumes ping and publishes pong.  The natural 64-layer chain
+  // alternates ownership, so every Full layer (3,7,...,63) consumes pong and
+  // publishes ping.  Keep the parity expression explicit for the future
+  // cohort instead of hard-coding the current Full-layer oddness.
+  std::uint16_t* const residual_input =
+      model_layer % 2U == 0U ? ping_ : pong_;
+  std::uint16_t* const branch_and_output =
+      model_layer % 2U == 0U ? pong_ : ping_;
+
+  submission->execution_package_identity = audit_.package_identity;
+  submission->full_attention_catalog_identity =
+      audit_.full_attention_catalog_identity;
+  submission->full_attention_binding_identity = full.binding_identity;
+  submission->mlp_binding_identity = mlp.binding_identity;
+  submission->input_norm_binding_identity =
+      norm.input_layernorm_identity;
+  submission->post_norm_binding_identity =
+      norm.post_attention_layernorm_identity;
+  submission->rope_binding_identity = audit_.engine_rope_binding_identity;
+  submission->resource_bundle_identity = full.resource_bundle_identity;
+  submission->full_attention_ordinal = ordinal;
+  submission->model_layer = model_layer;
+
+  submission->input_norm.input_hidden = residual_input;
+  submission->input_norm.centered_weight = norm.input_layernorm;
+  submission->input_norm.output_hidden = branch_and_output;
+  submission->input_norm.token_count =
+      kernels::kSm87MacroFeedV4NormResidualTokens;
+  submission->input_norm.hidden_size =
+      kernels::kSm87MacroFeedV4NormResidualHidden;
+  submission->input_norm.epsilon_fp32_bits = norm.epsilon_fp32_bits;
+  submission->input_norm.cuda_stream = nullptr;
+  submission->full_qkv.hidden_input = branch_and_output;
+  submission->full_qkv.asset = full.qkv.asset;
+  submission->full_qkv.q_gate_scratch = scratch_;
+  submission->full_qkv.key_panel_output = key_panel;
+  submission->full_qkv.value_panel_output = value_panel;
+  submission->preprocess.q_gate_scratch = scratch_;
+  submission->preprocess.key_cache_origin = key_origin;
+  submission->preprocess.q_norm_weight = full.qk_norm.q_norm;
+  submission->preprocess.k_norm_weight = full.qk_norm.k_norm;
+  submission->preprocess.cosines = engine_rope_.cosines;
+  submission->preprocess.sines = engine_rope_.sines;
+  submission->preprocess.first_position = grant.first_position();
+  submission->attention.q_gate_scratch = scratch_;
+  submission->attention.key_cache_origin = key_origin;
+  submission->attention.value_cache_origin = value_origin;
+  submission->attention.first_position = grant.first_position();
+  submission->full_output.q_gate_scratch = scratch_;
+  submission->full_output.asset = full.output.asset;
+  submission->full_output.branch_output = branch_and_output;
+  submission->residual_post_norm.left_residual_then_normalized =
+      residual_input;
+  submission->residual_post_norm.right_branch_then_residual =
+      branch_and_output;
+  submission->residual_post_norm.centered_weight =
+      norm.post_attention_layernorm;
+  submission->gate_up.normalized_input = residual_input;
+  submission->gate_up.payload = reinterpret_cast<const std::uint8_t*>(
+      mlp.gate_up.asset.payload.begin);
+  submission->gate_up.payload_bytes = mlp.gate_up.asset.payload.bytes;
+  submission->gate_up.gate_tensor_scale =
+      fp32_from_bits(mlp.gate_up.asset.tensor_scale_bits[0U]);
+  submission->gate_up.up_tensor_scale =
+      fp32_from_bits(mlp.gate_up.asset.tensor_scale_bits[1U]);
+  submission->gate_up.intermediate_output = scratch_;
+  submission->gate_up.canonical_v3_payload_receipt =
+      mlp.gate_up.payload_receipt;
+  submission->down.intermediate_input = scratch_;
+  submission->down.payload = reinterpret_cast<const std::uint8_t*>(
+      mlp.down.asset.payload.begin);
+  submission->down.payload_bytes = mlp.down.asset.payload.bytes;
+  submission->down.tensor_scale =
+      fp32_from_bits(mlp.down.asset.tensor_scale_bits[0U]);
+  submission->down.residual_output = branch_and_output;
+  submission->down.payload_receipt = mlp.down.payload_receipt;
+  submission->norm_resources = norm_resources_;
+  submission->full_qkv_resources = full.qkv.resources;
+  submission->preprocess_resources = full.preprocess_resources;
+  submission->attention_resources = full.attention_resources;
+  submission->full_output_resources = full.output.resources;
+  submission->gate_up_resources = gate_up_resources_;
+  submission->down_resources = down_resources_;
+  return true;
+}
+
+Sm87MacroFeedV4FullAttentionLayerCommitResult
+Sm87MacroFeedV4P40ExecutionPackage::
+    submit_complete_full_attention_layer_c8000(
+        const Sm87MacroFeedV4RequestStateSealedAccess& request_access,
+        const PanelAccess& panel_access,
+        const std::size_t full_attention_ordinal) noexcept {
+  Sm87MacroFeedV4FullAttentionLayerCommitResult result;
+  const auto close_failed_transaction =
+      [&](const Status& primary_status) noexcept {
+        const Status drain = drain_and_discard_active_panel(
+            panel_access, nullptr, &request_access);
+        result.receipt = {};
+        result.status = drain ? primary_status : drain;
+      };
+
+  if (!full_attention_composer_authority_sealed() ||
+      full_attention_ordinal >=
+          kSm87MacroFeedV4FullAttentionLayerCount) {
+    close_failed_transaction(failure(
+        Error::kFullAttentionCatalog,
+        "complete_full_attention_normal_owner_seal_required", 0,
+        full_attention_ordinal < kSm87MacroFeedV4FullAttentionLayerCount
+            ? 4U * full_attention_ordinal + 3U
+            : kSm87MacroFeedV4LayerCount));
+    return result;
+  }
+
+  const std::size_t model_layer = 4U * full_attention_ordinal + 3U;
+  auto authorized = request_state_->authorize_full_attention_kv(
+      request_access, panel_access.panel(), model_layer);
+  if (!authorized) {
+    close_failed_transaction(failure(
+        Error::kFullAttentionKvGrant,
+        "complete_full_attention_kv_authorization", 0,
+        authorized.status.layer));
+    return result;
+  }
+
+  auto grant = std::move(*authorized.grant);
+  const std::uint64_t grant_identity = grant.grant_identity();
+  const std::uint64_t grant_state_epoch = grant.state_epoch();
+  const std::uint64_t kv_allocation_identity =
+      grant.kv_allocation_identity();
+  const std::size_t panel = grant.panel();
+  const std::size_t previous_valid_end = grant.previous_valid_end();
+  const std::size_t candidate_end = grant.candidate_end();
+  events::Sm87MacroFeedV4CompleteFullAttentionLayerC8000Submission
+      submission;
+  if (!compose_complete_full_attention_submission(grant, &submission)) {
+    close_failed_transaction(failure(
+        Error::kCompleteLayerBinding,
+        "complete_full_attention_package_composition", 0, model_layer));
+    return result;
+  }
+
+  const auto enqueued =
+      events_driver_->submit_complete_full_attention_layer_c8000_prevalidated(
+          panel_access, grant, submission);
+  if (!enqueued) {
+    close_failed_transaction(event_failure(
+        "complete_full_attention_eight_kernel_enqueue", enqueued.status));
+    return result;
+  }
+  const bool receipt_matches = events_driver_->full_attention_receipt_matches(
+      panel_access, grant, submission, enqueued.receipt);
+  if (!receipt_matches) {
+    close_failed_transaction(failure(
+        Error::kExecutionEvent,
+        "complete_full_attention_second_owner_receipt_match", 0,
+        model_layer));
+    return result;
+  }
+
+  const auto committed = request_state_->commit_full_attention_layer_enqueued(
+      request_access, std::move(grant));
+  if (!committed) {
+    close_failed_transaction(failure(
+        Error::kFullAttentionKvGrant,
+        "complete_full_attention_kv_commit_after_receipt", 0,
+        committed.layer));
+    return result;
+  }
+  const std::size_t expected_next_layer = model_layer + 1U;
+  const std::size_t expected_staged = full_attention_ordinal + 1U;
+
+  Sm87MacroFeedV4FullAttentionLayerCommitReceipt receipt;
+  receipt.package_identity = audit_.package_identity;
+  receipt.full_attention_catalog_identity =
+      audit_.full_attention_catalog_identity;
+  receipt.full_attention_binding_identity =
+      submission.full_attention_binding_identity;
+  receipt.mlp_binding_identity = submission.mlp_binding_identity;
+  receipt.resource_bundle_identity = submission.resource_bundle_identity;
+  receipt.request_epoch = request_access.request_epoch();
+  receipt.grant_identity = grant_identity;
+  receipt.grant_state_epoch = grant_state_epoch;
+  receipt.kv_allocation_identity = kv_allocation_identity;
+  receipt.panel = panel;
+  receipt.full_attention_ordinal = full_attention_ordinal;
+  receipt.model_layer = model_layer;
+  receipt.previous_valid_end = previous_valid_end;
+  receipt.candidate_end = candidate_end;
+  receipt.next_model_layer_after_commit = expected_next_layer;
+  receipt.panel_kv_layers_staged_after_commit = expected_staged;
+  receipt.enqueue_receipt = enqueued.receipt;
+  receipt.enqueue_receipt_owner_matched = true;
+  receipt.kv_layer_commit_recorded = true;
+  receipt.physical_device_completion_attested = false;
+  receipt.panel_complete = false;
+  receipt.model_complete = false;
+  receipt.production_dispatch_eligible = false;
+  if (!receipt.valid()) {
+    close_failed_transaction(failure(
+        Error::kRequestState,
+        "complete_full_attention_package_receipt_postcondition", 0,
+        model_layer));
+    return result;
+  }
+  result.receipt = receipt;
+  result.status = ok();
+  return result;
+}
+
 bool Sm87MacroFeedV4P40ExecutionPackage::valid() const noexcept {
   if (!construction_postconditions_sealed_ ||
       transient_allocation_ == nullptr ||
@@ -1681,7 +2088,8 @@ bool Sm87MacroFeedV4P40ExecutionPackage::valid() const noexcept {
     }
   }
   if (audit_.synthetic_t1_gdn_layer0_source) {
-    if (kv_allocation_ != nullptr ||
+    if (full_attention_composer_authority_sealed() ||
+        kv_allocation_ != nullptr ||
         engine_rope_binding_identity(engine_rope_) != 0U) {
       return false;
     }
@@ -1790,7 +2198,8 @@ bool Sm87MacroFeedV4P40ExecutionPackage::valid() const noexcept {
          gdn_layer0_source_.asset.payload.begin == first.asset.payload.begin &&
          gdn_layer0_source_.asset.payload.end == first.asset.payload.end &&
          !gdn_layer0_source_.synthetic_t1 &&
-         complete_layer_bindings_valid();
+         complete_layer_bindings_valid() &&
+         full_attention_composer_authority_sealed();
 }
 
 Sm87MacroFeedV4P40ExecutionPackageStatus

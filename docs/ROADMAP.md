@@ -296,10 +296,15 @@ and drains all streams plus discards RequestState after an accepted-prefix or
 replay failure. It leaves the GDN BF16 A/B event/cycle state unchanged. This
 enqueue receipt has no device-completion, panel, production, or preceding-
 layer authority. In particular, its host RequestState progression to layer 4
-is not a physical execution of GDN layers 0--2. The ExecutionPackage still
-lacks the composer that derives this eight-step Full submission from its
-sealed catalog, arenas, grant, and shared RoPE binding; the physical natural
-layers-0--3 cohort of 35 kernels and three D2D copies is therefore absent.
+is not a physical execution of GDN layers 0--2. The normal ExecutionPackage
+now has the private construction-sealed composer for this exact transaction.
+It derives layer/parity/aliases, KV offsets, first position, RoPE, assets, and
+resources in O(1), performs no request-time query or scan, authenticates the
+eight-kernel receipt, and commits the same move-only KV grant. Success does not
+drain or publish; failure terminal-drains/discards. The synthetic branch owns
+no Full physical identity and proves only zero-enqueue fail-closed rejection;
+no normal positive or real-checkpoint composer execution has run. The physical
+natural-layers-0--3 cohort of 35 kernels and three D2D copies remains absent.
 No complete layer is numerically qualified at full C8000 with the real
 checkpoint. The startup
 package regenerates the canonical plan, validates the live
@@ -310,9 +315,9 @@ perform the expensive BF16/model/CUDA validation once; request execution may
 not rescan it. These ownership facts, bounded bit
 oracles, projection resource gates, event graph, and the Attention one-CTA/SM
 gate do not create a whole-product result. There is no V4 selector, whole-model
-launcher, ExecutionPackage complete-Full-layer composer, physical first
-four-layer cohort, 64-layer/request execution package, real-checkpoint oracle,
-API timing, numerical qualification, or production eligibility yet. The
+launcher, physical first four-layer cohort, 64-layer/request execution
+package, real-checkpoint oracle, API timing, numerical qualification, or
+production eligibility yet. The
 isolated synthetic GDN receipt proves layer completion while
 explicitly denying panel, model, and dispatch completion. Its combined
 Events/RequestState drain discards the candidate without a bank swap or state
@@ -475,19 +480,25 @@ accepted-prefix failures, terminal drain/discard, and unchanged BF16 A/B
 boundary pass synthetic CUDA tests. The normal source/build path separately
 seals 16 Full bindings plus the four Full resource observations, owns the exact
 2,621,440,000-byte KV arena, and borrows the exact 67,108,864-byte shared
-Engine RoPE owner under the closed reserve/lifetime chain. These two facts do
-not compose themselves: the ExecutionPackage Full-layer composer and the
-physical natural-layers-0--3 35-kernel/3-copy cohort remain missing. The
-real-checkpoint Engine-lifetime probe has not run, and neither branch has
-whole-model, API, or performance authority.
+Engine RoPE owner under the closed reserve/lifetime chain. The private normal
+composer now joins those facts to the eight-kernel Events transaction and
+commits the matching RequestState KV grant in O(1). Its synthetic test is
+deliberately negative because that fixture has no Full physical owner: it
+fails before enqueue with zero added kernels, then drains and discards. No
+normal positive or real-checkpoint invocation has run, and the physical
+natural-layers-0--3 35-kernel/3-copy cohort remains missing. The real-checkpoint
+Engine-lifetime probe has not run; none of these branches has whole-model,
+API, numerical, performance, release, or production authority.
 
 Remaining execution order:
 
-1. implement the private ExecutionPackage complete-Full-layer composer. It
-   must derive the fixed eight-step submission from the normal 16-Full
-   catalog, owned KV, shared Engine RoPE binding, current panel grant, MLP/norm
-   bindings, and sealed resources without request-time queries or caller-
-   supplied authority;
+1. harden the complete-GDN Events transaction beyond the current one-shot
+   synthetic layer-0 wrapper into a reusable owner-locked natural-layer
+   submission/receipt. It must derive each layer from sealed GDN/norm/MLP,
+   recurrent-state, and resource owners; preserve move-only grant,
+   accepted-prefix, at-most-once, poison, rollback, and zero-publication
+   semantics; and perform no request-time discovery or caller-selected
+   identity;
 2. physically execute the first natural cohort—GDN layers 0, 1, and 2 followed
    by Full layer 3—as exactly 35 kernels and three 61,440-byte D2D copies on
    the common owner/event graph. Its receipt must distinguish actual execution
