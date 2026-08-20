@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-08-21
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -145,121 +145,55 @@ Exit criteria:
 - health/telemetry identifies the release and route without relying on an
   experiment harness.
 
-## P3. Exact Prefill parity, then specialization advantage
+## P3. Exact Prefill parity, then specialization advantage — paused
 
-Purpose: first reach the useful vLLM starting line and then justify the
-specialized runner by exceeding it.
+Purpose: preserve the useful-vLLM-parity and specialization-advantage outcome
+while Prefill performance work is paused.
 
-P3 implementation preparation may proceed in the same pinned development
-route while P1/P2 capacity and release seams are being closed. It cannot
-select an architecture, change the default, or promote production before the
-P1 and P2 exits provide the target-length API and canonical release artifact.
+Status: **paused by project-owner direction on 2026-08-20**. The pause changes
+delivery scheduling only. It does not amend the Constitution's accuracy,
+non-MTP, reference-only cuBLASLt, 40K/60K/approximately-130K capacity, or
+latency targets. There is no active Prefill architecture candidate or local
+optimization work package on the delivery mainline. P1/P2 and later delivery
+slices retain their existing dependency and exit contracts; nothing in this
+section authorizes a Prefill performance run, profiler capture, local scan,
+default-route change, or production promotion while the pause remains.
 
-Current implementation facts, the P40 incumbent, rejected candidate versions,
-and their measurements are owned by
-[Current Status](CURRENT_STATUS.md) and immutable evidence. This roadmap does
-not repeat them. A new candidate compares against the incumbent identified
-there without inheriting a rejected kernel skeleton or treating an old
-measurement as a current plan.
+### Paused recovery boundary
 
-### Active architecture candidate
+The exact recovery anchor is
+`archive/v4-construction-ownership-20260820@f3545240075651eaa54a5bea6c0f15ee9dfd9a3e`.
+It is an explicitly incomplete, default-off architecture foundation/local work
+package, not a Constitution-defined runnable `architecture_candidate`, and it
+is neither contained in nor selected by this mainline. The archive's
+schema-v5 closeout source remains `status=fail` because the 419,917,824-byte
+post-destruction free-memory gap exceeds the fixed 33,554,432-byte tolerance.
+The later holder-free post-exit preflight is not a Jetson `nvmap`
+`no_owner_leak` classification. The archive grants no normal request
+execution, numerical, generation, API, timing, performance, release, or
+production authority.
 
-The active successor is **`AC-PREFILL-SM87-AOT-SYSTEM-v1`**. It is one
-complete Prefill composition, not a projection-first sequence of independently
-selected kernels. Its P40 allocation is:
+Resume only after a new explicit project-owner direction. Start from the
+then-current mainline and use the archive as a source/evidence reference; do
+not merge it wholesale or infer mainline capability from branch-local tests.
+The frozen first sequence is:
 
-- no more than 5.0 s for all NVFP4 and FP8 projections;
-- no more than 1.8 s for exact full Attention;
-- no more than 1.5 s for exact GDN plus BF16 A/B work;
-- about 1.0 s for all remaining work; and
-- no more than 9.302326 s total, equivalent to the 4,300 prompt tok/s starting
-  line on exactly 40,000 consumed prompt tokens.
-
-These are planning allocations derived from the owner-set target, not
-hardware-bound claims. The candidate must cover Gate/Up, Down, FP8 QKV/Z/O,
-Attention, GDN/SSM, residual/layout consumers, state publication, and their
-live producer/consumer boundaries in one authenticated AOT execution plan.
-It may not introduce a full-model BF16 weight copy, cuBLASLt production path,
-MTP, approximate arithmetic, request-time JIT/repack/autotune, silent
-fallback, or request-time tactic discovery.
-
-The first bounded package is
-**[`WP-PREFILL-REFERENCE-TRANSLATION-v1`](PREFILL_REFERENCE_TRANSLATION_MATRIX.md)**:
-
-1. read the relevant vLLM, FlashInfer SM8x, Humming/Triton, FLA, and Mamba
-   source paths and separate invariant mathematics, dataflow, ownership,
-   scheduling, specialization, and tuning from their ISA/resource shell;
-2. map TMA/WGMMA/cluster/TMEM/native-FP4 or other unavailable mechanisms to an
-   explicit SM87 load, buffering, synchronization, MMA, residency, and AOT
-   plan instead of excluding the reference;
-3. after source analysis, run one clean-host, real-weight, cold/no-cache P40
-   API geometry witness for the proven reference route at the target-first
-   whole-prompt scheduler budget `40000`, after its JIT/autotune warmup;
-4. treat any invalid witness as control feedback rather than a performance
-   result: keep the gate fixed, do not repeat an unchanged route, and reconcile
-   its startup/JIT cache, Humming/backend identity, execution geometry, and
-   physical power/thermal lane against the known optimized reference first;
-5. use `8192`, `4096`, or `2048` budgets only after a valid target witness and
-   only to answer a predeclared explanatory question; they cannot delay or
-   replace the target gate;
-6. freeze the selected macrochunk geometry and role-specific plans into a
-   Q3X-only AOT candidate covering the complete family set above; and
-7. return the first executable composition directly to the incumbent P40 API
-   gate. A material whole-path step advances qualification; a small complete
-   result reopens the global dataflow instead of starting a parameter scan.
-
-FlashInfer and the other engines remain source and behavioral references, not
-runtime dependencies. Offline JIT/autotune may reveal a tactic; the native
-release contains only the authenticated AOT result. The package records added
-work, eliminated movement, resource transfer, exactness, and API effect under
-the Constitution's compute-for-movement rule.
-
-### Constituent plans and dependency order
-
-The reference-translation package must produce one source/dataflow matrix and
-then freeze the following mutually dependent constituents before CUDA
-implementation is selected:
-
-- **SM87 AOT projection plan:** distinct packed-operand ownership and
-  load/decode/MMA schedules for NVFP4 Gate/Up, K-heavy NVFP4 Down, and FP8
-  QKV/Z/O. One universal tile or persistent-grid skeleton is not assumed.
-- **`WP-P40-EXACT-ATTENTION-v1`:** exact whole-prompt online-softmax
-  Attention with ordered KV publication, consumer-native Q/gate/layout
-  handling, and a declared sequence-parallel work plan. FlashInfer and
-  FlashAttention supply reference mechanisms; the provisional P40 allocation
-  is 1.8 s.
-- **`WP-P40-EXACT-GDN-v1`:** one prompt-span recurrent work graph with
-  chunk-local parallel work, only the mathematical boundary-state dependency
-  serialized, exact BF16 state/publication semantics, and panel-wide BF16 A/B
-  tactics. FLA and Mamba selective-scan supply reference mechanisms; the
-  provisional GDN plus BF16 A/B allocation is 1.5 s.
-- **Handoff and composition plan:** one final exact Prefill state publication,
-  bounded arena/control-state lifetimes, no illegal aliasing, and explicit
-  overlap only where the dependency graph permits it.
-
-Exact arithmetic-class qualification and terminal-layer liveness deletion
-remain documented in the
-[mathematical-equivalence ledger](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md).
-They are not independent active scans. The architecture may compose them only
-when the source/dataflow matrix shows that they serve the complete candidate
-and its current critical path.
-
-Execution order:
-
-1. complete the reference/source dataflow matrix and SM87 translation;
-2. close any matched-path or physical-lane discrepancy exposed by the bounded
-   target-first reference witness before interpreting its timing;
-3. choose macrochunk geometry and full-family ownership from that matrix;
-4. freeze numerical, state, buffer, synchronization, and AOT-plan identities;
-5. implement the mutually required projection, Attention, GDN, and handoff
-   seams in one candidate binary;
-6. return immediately to one clean-host real P40 API direction witness;
-7. use a bounded profile only to answer a predeclared causal question that can
-   select a materially different complete dataflow; and
-8. qualify a positive composition or close and redesign the architecture
-   version. Do not convert a negative result into a local parameter scan.
+1. fixed normal 64-layer by five-C8000-panel loop plus the Embedding edge and
+   complete failure/cancellation rollback;
+2. exact epoch-five B-to-A/FinalPublish/sequence fence, successful-request
+   reuse, and independent Control events around canonical
+   `PrefillStateCommitted`;
+3. preserve and reconcile the strict lifetime failure if formal lifecycle
+   acceptance is needed, then run the remaining proportional real-checkpoint
+   numerical gates; and
+4. only then expose one default-off OpenAI P40 route and run one clean-host
+   direction witness. A negative or small result reopens the global dataflow,
+   never a local parameter scan.
 
 ### Promotion and stop gates
+
+These gates remain resume-time exit criteria; they do not make P3 or any
+candidate active.
 
 Before CUDA mapping, the candidate records its real-number equations,
 finite-precision reduction/publication/state boundaries,

@@ -4,23 +4,29 @@ q3x_document:
   class: local-work-package
   status: active
   owner: prefill-maintainers
-  authority: source-to-SM87 translation and selection record for WP-PREFILL-REFERENCE-TRANSLATION-v1
+  authority: paused source-to-SM87 translation and recovery record for WP-PREFILL-REFERENCE-TRANSLATION-v1
   effective: 2026-08-12
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-08-21
   supersedes: []
   superseded_by: []
-  ssot_for: the active Prefill reference-translation work package only
+  ssot_for: the paused Prefill reference-translation recovery record only
   review_trigger: source pin, P40 geometry witness, selected AOT plan, or work-package closure
 ---
 
 # Prefill reference-to-SM87 translation matrix
 
-This document is the bounded working record for
-`WP-PREFILL-REFERENCE-TRANSLATION-v1` under
-`AC-PREFILL-SM87-AOT-SYSTEM-v1`. It does not amend the product target,
-stable SDD boundary, current implementation status, numerical contract, or
-production route. Those authorities remain with the Constitution, system and
-Prefill SDDs, Current Status, and numerical ledger.
+This lifecycle-active document is the current mainline reference for the
+paused `WP-PREFILL-REFERENCE-TRANSLATION-v1` lineage under the former
+`AC-PREFILL-SM87-AOT-SYSTEM-v1`; document lifecycle does not make the package
+execution-active. The exact later checkpoint is
+`archive/v4-construction-ownership-20260820@f3545240075651eaa54a5bea6c0f15ee9dfd9a3e`
+and is not part of this mainline. Every `must`, `next`, `run`, and closure
+instruction below is resume-only and grants no present implementation,
+measurement, profiling, dispatch, or promotion authority. This document does
+not amend the product target, stable SDD boundary, current implementation
+status, numerical contract, or production route. Those authorities remain
+with the Constitution, system and Prefill SDDs, Current Status, and numerical
+ledger.
 
 The purpose of a separate work-package document is deliberate: source pins,
 candidate hypotheses, and falsifiers change during development without
@@ -34,7 +40,7 @@ stable system boundary returns to the SDD.
 | --- | --- |
 | Product symptom | Cold/no-cache, single-request 40K--60K and approximately 130K Prefill remains below the owner-set API target and useful vLLM starting line |
 | Parent candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` |
-| Active package | `WP-PREFILL-REFERENCE-TRANSLATION-v1` |
+| Package state | Paused; no active local optimization package |
 | Incumbent | The P40 development route identified by [Current Status](CURRENT_STATUS.md), not restated here |
 | Numerical boundary | [Prefill mathematical-equivalence ledger](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md) |
 | Production exclusions | No MTP, cuBLASLt production path, silent fallback, approximate mainline, request-time JIT/repack/autotune, or full-model BF16 weight copy |
@@ -43,8 +49,8 @@ stable system boundary returns to the SDD.
 
 ## 2. Control model and current Q3X plant
 
-The active engineering loop treats the complete runner as the controlled
-system:
+If a successor package is explicitly reactivated, its engineering loop treats
+the complete runner as the controlled system:
 
 | Control-system role | Project binding |
 | --- | --- |
@@ -651,7 +657,8 @@ workload.
 
 ## 10. Package closure
 
-This package closes only when all of the following are true:
+After an explicit project-owner resume, a successor package closes only when
+all of the following are true:
 
 1. source pins and invariant/ISA/SM87 translations are complete;
 2. the first valid P40 witness selects or rejects the whole-prompt target under the

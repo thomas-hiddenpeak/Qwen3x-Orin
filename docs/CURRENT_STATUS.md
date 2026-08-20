@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-08-21
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-08-12.
+Snapshot date: 2026-08-21.
 
 This page is a replaceable state snapshot. It does not own architecture,
 delivery order, or experiment history. The system design is in
@@ -31,6 +31,18 @@ installed production service. The evaluation-adapter default capacity remains
 8,192 tokens, and no canonical `BUILD_TESTING=OFF` binary plus authenticated
 DeploymentPlan has passed the long-context, accuracy, stability, and packaging
 gates.
+
+By project-owner direction, Prefill performance work has been paused since
+2026-08-20 so the delivery mainline can advance P1/P2 and subsequent product
+work. This changes priority only: the default route, qualification state, and
+Constitution targets are unchanged. The exact recovery anchor is
+`archive/v4-construction-ownership-20260820@f3545240075651eaa54a5bea6c0f15ee9dfd9a3e`;
+it is an incomplete, default-off archive and is not part of this mainline. Its
+schema-v5 closeout source remains `status=fail` because a 419,917,824-byte
+post-destruction free-memory gap exceeded the fixed 33,554,432-byte tolerance.
+The later holder-free post-exit preflight is not a Jetson `nvmap`
+`no_owner_leak` classification. The archive grants no mainline numerical,
+generation, API, timing, performance, release, or production authority.
 
 The strongest whole-product P40 development observation remains the
 default-off exact-P40000 whole-core route. It was measured from a binary-pinned
@@ -206,7 +218,7 @@ runner and its 392.804397-token/s incumbent are unchanged.
 | Loopback OpenAI-compatible evaluation API | Implemented | It has no authentication, TLS, multi-tenant admission, or production exposure contract |
 | Final product API | Designed | No installed production server/profile or release attestation exists |
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
-| Target-length Prefill | P40 development route exercised | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
+| Target-length Prefill | P40 development route exercised; performance program paused | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
 | SM87 whole-system AOT Prefill candidate | Default-off and non-executable; real-checkpoint upload/readback/private attachment is authenticated, and the layer-0 M192 Gate+Up/Down-plus-residual candidate has passed bitwise, same-ELF SM87 resource/geometry, and immediate-snapshot lifecycle gates | Persist and directly load authenticated AOT payloads; compose all 64 layers plus FP8 QKV/Z/O, grouped online Attention, exact GDN, buffers/state/handoffs without fallback; extend complete-model accuracy; open a reviewed admission launch; then return to clean-host real-P40 API/EvalScope evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
@@ -357,7 +369,7 @@ sequence and successor identity live exclusively in
 | Documentation-control propagation | The canonical main line now has one `AGENTS.md -> docs/README.md` Codex entry; pre-existing dirty worktrees do not receive it until explicitly integrated, because Codex reads the worktree in which a session starts | P0 |
 | Product API and long-context admission | Validation and host planners exist, but the default contract cannot admit 40K/60K/130K | P1 |
 | Exact deliverable identity | No unique release binary plus authenticated DeploymentPlan | P2 |
-| Prefill parity and physical plan | P40 is 392.804397 tok/s, 10.95x below the useful vLLM line, and accuracy-unqualified | P3 |
+| Prefill parity and physical plan | P40 is 392.804397 tok/s, 10.95x below the useful vLLM line, and accuracy-unqualified; optimization is paused and the recovery archive is not a mainline route | P3 (paused) |
 | Accuracy, capability, stability, and release evidence | Partial oracles only; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install, startup, upgrade, or rollback lane | P5 |
 
@@ -365,12 +377,12 @@ sequence and successor identity live exclusively in
 
 Use the following language until this snapshot changes:
 
-- **Current:** real-model native evaluation runner; strongest default-off P40
-  development direction is 392.804397 pure prompt tok/s and is
-  accuracy-unqualified.
+- **Current:** real-model native evaluation runner; Prefill performance work is
+  paused, and the strongest default-off P40 development direction is
+  392.804397 pure prompt tok/s and is accuracy-unqualified.
 - **Not current:** production server, production-default 40K--130K support,
-  lossless Factorized-R1 Prefill, vLLM parity, or a fully qualified
-  10-token/s Decode release.
+  any archived V4 construction route, lossless Factorized-R1 Prefill, vLLM
+  parity, or a fully qualified 10-token/s Decode release.
 - **Target:** the accuracy-preserving, non-MTP, OpenAI-compatible runner and
   performance region locked by the Constitution.
 
