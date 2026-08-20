@@ -193,8 +193,12 @@ not eligible for performance authority under the clean-host policy. V3 has no
 P40 timing, numerical qualification, release authority, or production
 dispatch. It is frozen against local tile, cache, stage, or launch scanning.
 
-The reserved active successor lineage is
-**`AC-PREFILL-SM87-MACROFEED-v4`**. At the present boundary it is an
+The reserved performance successor lineage is
+**`AC-PREFILL-SM87-MACROFEED-v4`**. Owner direction on 2026-08-20 pauses this
+lineage while the project returns to delivery mainline development. Its
+recoverable, explicitly incomplete construction checkpoint is isolated on
+`archive/v4-construction-ownership-20260820`; nothing in that branch is a
+delivery dependency or production route. At the present boundary it is an
 architecture foundation/local work package, not yet the Constitution's
 `architecture_candidate`: that term becomes valid only after the complete
 dataflow is runnable on the real API route. V4 changes the
@@ -271,9 +275,13 @@ without production authority. One Engine-private
 composition root now wires those normal catalogs into the existing
 default-off V3 real-owner harness. The normal ExecutionPackage owns the exact
 442,368,000-byte transient, 156,893,184-byte recurrent, and
-2,621,440,000-byte private Full-KV arenas, exactly 3,220,701,184 bytes. It
+2,621,440,000-byte private Full-KV arenas, exactly 3,220,701,184 device bytes.
+It additionally owns one exact 160,008-byte portable pinned request-boundary
+staging allocation, for 3,220,861,192 total package-owned bytes, without
+charging those host bytes to the device reserve. It
 borrows an exact 67,108,864-byte, 262,144-position × 32-pair cosine/sine table
-from one shared Engine RoPE owner. The build-time reserve chain preserves the
+from one shared Engine RoPE owner, for 3,287,970,056 total anchored
+device-plus-host bytes. The build-time reserve chain preserves the
 8,640,542,976-byte legacy P40 request arena and caller reserve at every
 preceding allocation: complete target-AOT leaves 11,928,353,024 bytes plus
 the caller reserve, RoPE creation leaves 11,861,244,160 bytes plus it, and V4
@@ -378,10 +386,16 @@ canonical LM-head packed weight/block scale, `weight_scale_2` and
 `input_scale` is retained but not consumed. Host-test Resident authority may
 exercise the T0 source inventory but cannot mint or upgrade to a normal
 execution binding. The construction-only normal Execution resource-seal API
-also exists and fails all-or-nothing, but ExecutionPackage has not invoked it.
-There is therefore still no normal execution catalog, pinned staging,
-finalizer scratch-alias binding, fixed request-edge submission, or normal
-runtime-positive invocation. The leaves grant no whole-panel, whole-request,
+also exists and fails all-or-nothing. Normal Execution construction now
+invokes it exactly once after four source-private resource queries, retains the
+sealed catalog and independent fold, acquires and zeroes exact 160,008-byte
+`cudaHostAllocPortable` staging before the device reserve query, and binds the
+exact 507,144-byte phase-aliased scratch span. Synthetic-T1 keeps these facts
+explicitly zero/unbound. Every construction rollback checks `cudaFreeHost`;
+the separate stale-address lifetime-probe assertion remains unexecuted. There
+is therefore still no fixed request-edge submission, request-boundary leaf
+invocation, or normal runtime-positive invocation. The leaves grant no
+whole-panel, whole-request,
 real-weight boundary oracle, real-checkpoint numerical, API, timing, release,
 or production authority.
 
@@ -588,16 +602,15 @@ normative state-publication path with independent timing-enabled Control
 events and exclude those finalizer kernels; neither a representation-ready
 timestamp nor duration subtraction is admissible.
 
-Remaining execution order:
+Frozen recovery order (inactive until the owner explicitly resumes Prefill
+performance work):
 
-1. make the normal ExecutionPackage perform the one construction-time call to
-   the existing request-boundary execution resource seal, retain that private
-   binding catalog, and bind package-owned pinned token/greedy-handoff staging
-   plus the exact Embedding/final-row/finalizer scratch aliases. Then place the
-   owner-atomic panel lifecycle behind the normal package's fixed natural
+1. place the owner-atomic panel lifecycle behind the normal package's fixed natural
    64-layer loop and execute the loop for all five C8000 panels, with one
-   Embedding H2D/gather entry per panel. Add complete failure/cancellation
-   rollback without a per-layer or per-panel host drain;
+   Embedding H2D/gather entry per panel using the already construction-sealed
+   request-boundary catalog, portable staging, and scratch aliases. Add
+   complete failure/cancellation rollback without a per-layer or per-panel
+   host drain;
 2. close the final state transition: exact epoch-five `B -> A` canonical copy
    when required by parity, `FinalPublish`, physical completion receipt, and
    the logical sequence-length fence as the last non-fallible visibility

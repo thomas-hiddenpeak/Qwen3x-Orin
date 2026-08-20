@@ -114,6 +114,12 @@ static_assert(kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes ==
 static_assert(kSm87MacroFeedV4P40ExecutionCompositionOwnedBytes ==
               lifetime_probe::
                   kSm87MacroFeedV4EngineLifetimeExpectedOwnedBytes);
+static_assert(kSm87MacroFeedV4P40ExecutionTotalOwnedBytes ==
+              lifetime_probe::
+                  kSm87MacroFeedV4EngineLifetimeExpectedTotalOwnedBytes);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryHostStagingBytes ==
+              lifetime_probe::
+                  kSm87MacroFeedV4EngineLifetimeExpectedHostOwnedBytes);
 static_assert(kSm87MacroFeedV4P40ExecutionCompositionAnchoredBytes ==
               3'287'810'048U);
 static_assert(kSm87MacroFeedV4P40ExecutionCompositionAnchoredBytes ==
@@ -178,6 +184,205 @@ struct Sm87MacroFeedV4P40ExecutionCompositionRootCreateResult final {
   }
 };
 
+// Immutable capability-free copy of the complete normal request-boundary
+// chain.  The root compares it against both live package audits so a later
+// snapshot cannot omit the Resident owner, resource seal, pinned owner, or
+// the negative hot-authority facts.
+struct Sm87MacroFeedV4P40RequestBoundaryRootSeal final {
+  std::uint64_t identity = 0U;
+  std::uint64_t startup_source_catalog_identity = 0U;
+  std::uint64_t startup_resident_root_identity = 0U;
+  std::uint64_t startup_resident_arena_bytes = 0U;
+  std::size_t startup_source_bindings = 0U;
+  bool startup_normal_resident_authority = false;
+  bool startup_host_test_resident_authority = true;
+  std::uint64_t execution_catalog_identity = 0U;
+  std::uint64_t retained_catalog_fold_identity = 0U;
+  std::uint64_t execution_source_catalog_identity = 0U;
+  std::uint64_t resource_bundle_identity = 0U;
+  std::uint64_t binding_identity = 0U;
+  std::uint64_t resident_root_identity = 0U;
+  std::uint64_t resident_arena_bytes = 0U;
+  std::size_t binding_count = 0U;
+  std::size_t resource_queries = 0U;
+  std::uint64_t host_staging_allocation_identity = 0U;
+  std::uintptr_t host_staging_begin = 0U;
+  std::uint64_t host_staging_bytes = 0U;
+  std::uint32_t host_staging_flags = 0U;
+  std::uint64_t host_owned_bytes = 0U;
+  std::uint64_t scratch_alias_identity = 0U;
+  std::uint64_t scratch_alias_span_bytes = 0U;
+  std::uint64_t total_owned_bytes = 0U;
+  bool execution_catalog_bound = false;
+  bool source_private_resource_queries = false;
+  bool normal_resident_authority = false;
+  bool host_test_resident_authority = true;
+  bool synthetic_unbound = true;
+  bool host_staging_pinned = false;
+  bool host_staging_construction_zero_initialized = false;
+  bool scratch_aliases_exact = false;
+  bool request_selectable = true;
+  bool launcher_authority = true;
+  bool production_dispatch_eligible = true;
+
+  [[nodiscard]] std::uint64_t compute_identity() const noexcept {
+    const auto add = [](std::uint64_t state,
+                        const std::uint64_t value) noexcept {
+      state ^= value + 0x9e37'79b9'7f4a'7c15ULL + (state << 6U) +
+               (state >> 2U);
+      state ^= state >> 30U;
+      state *= 0xbf58'476d'1ce4'e5b9ULL;
+      state ^= state >> 27U;
+      state *= 0x94d0'49bb'1331'11ebULL;
+      state ^= state >> 31U;
+      return state;
+    };
+    std::uint64_t value = 0x5133'4d46'5634'4252ULL;
+    value = add(value, startup_source_catalog_identity);
+    value = add(value, startup_resident_root_identity);
+    value = add(value, startup_resident_arena_bytes);
+    value = add(value, startup_source_bindings);
+    value = add(value, startup_normal_resident_authority);
+    value = add(value, startup_host_test_resident_authority);
+    value = add(value, execution_catalog_identity);
+    value = add(value, retained_catalog_fold_identity);
+    value = add(value, execution_source_catalog_identity);
+    value = add(value, resource_bundle_identity);
+    value = add(value, binding_identity);
+    value = add(value, resident_root_identity);
+    value = add(value, resident_arena_bytes);
+    value = add(value, binding_count);
+    value = add(value, resource_queries);
+    value = add(value, host_staging_allocation_identity);
+    value = add(value, host_staging_begin);
+    value = add(value, host_staging_bytes);
+    value = add(value, host_staging_flags);
+    value = add(value, host_owned_bytes);
+    value = add(value, scratch_alias_identity);
+    value = add(value, scratch_alias_span_bytes);
+    value = add(value, total_owned_bytes);
+    value = add(value, execution_catalog_bound);
+    value = add(value, source_private_resource_queries);
+    value = add(value, normal_resident_authority);
+    value = add(value, host_test_resident_authority);
+    value = add(value, synthetic_unbound);
+    value = add(value, host_staging_pinned);
+    value = add(value, host_staging_construction_zero_initialized);
+    value = add(value, scratch_aliases_exact);
+    value = add(value, request_selectable);
+    value = add(value, launcher_authority);
+    value = add(value, production_dispatch_eligible);
+    return value == 0U ? 1U : value;
+  }
+
+  [[nodiscard]] bool valid() const noexcept {
+    return identity != 0U && identity == compute_identity() &&
+           startup_source_catalog_identity != 0U &&
+           startup_resident_root_identity != 0U &&
+           startup_resident_arena_bytes == kPinnedQwen36_27BArenaBytes &&
+           startup_source_bindings ==
+               sm87_macrofeed_v4_p40_startup_package_detail::
+                   kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings &&
+           startup_normal_resident_authority &&
+           !startup_host_test_resident_authority &&
+           execution_catalog_identity != 0U &&
+           retained_catalog_fold_identity != 0U &&
+           execution_source_catalog_identity ==
+               startup_source_catalog_identity &&
+           resource_bundle_identity != 0U && binding_identity != 0U &&
+           resident_root_identity == startup_resident_root_identity &&
+           resident_arena_bytes == startup_resident_arena_bytes &&
+           binding_count ==
+               sm87_macrofeed_v4_p40_startup_package_detail::
+                   kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings &&
+           resource_queries == 4U &&
+           host_staging_allocation_identity != 0U &&
+           host_staging_begin != 0U &&
+           host_staging_bytes ==
+               kSm87MacroFeedV4P40RequestBoundaryHostStagingBytes &&
+           host_staging_flags ==
+               kSm87MacroFeedV4P40RequestBoundaryHostPortableFlag &&
+           host_owned_bytes == host_staging_bytes &&
+           scratch_alias_identity != 0U &&
+           scratch_alias_span_bytes ==
+               kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchEnd &&
+           total_owned_bytes ==
+               kSm87MacroFeedV4P40ExecutionTotalOwnedBytes &&
+           execution_catalog_bound && source_private_resource_queries &&
+           normal_resident_authority && !host_test_resident_authority &&
+           !synthetic_unbound && host_staging_pinned &&
+           host_staging_construction_zero_initialized &&
+           scratch_aliases_exact && !request_selectable &&
+           !launcher_authority && !production_dispatch_eligible;
+  }
+};
+
+[[nodiscard]] Sm87MacroFeedV4P40RequestBoundaryRootSeal
+make_sm87_macrofeed_v4_p40_request_boundary_root_seal(
+    const sm87_macrofeed_v4_p40_startup_package_detail::
+        Sm87MacroFeedV4P40StartupPackageAudit& startup,
+    const Sm87MacroFeedV4P40ExecutionPackageAudit& execution) noexcept {
+  Sm87MacroFeedV4P40RequestBoundaryRootSeal seal;
+  seal.startup_source_catalog_identity =
+      startup.request_boundary_source_catalog_identity;
+  seal.startup_resident_root_identity =
+      startup.request_boundary_resident_root_identity;
+  seal.startup_resident_arena_bytes =
+      startup.request_boundary_resident_arena_bytes;
+  seal.startup_source_bindings = startup.request_boundary_source_bindings;
+  seal.startup_normal_resident_authority =
+      startup.request_boundary_normal_resident_authority;
+  seal.startup_host_test_resident_authority =
+      startup.request_boundary_host_test_resident_authority;
+  seal.execution_catalog_identity = execution.request_boundary_catalog_identity;
+  seal.retained_catalog_fold_identity =
+      execution.retained_request_boundary_catalog_fold_identity;
+  seal.execution_source_catalog_identity =
+      execution.request_boundary_source_catalog_identity;
+  seal.resource_bundle_identity =
+      execution.request_boundary_resource_bundle_identity;
+  seal.binding_identity = execution.request_boundary_binding_identity;
+  seal.resident_root_identity =
+      execution.request_boundary_resident_root_identity;
+  seal.resident_arena_bytes = execution.request_boundary_resident_arena_bytes;
+  seal.binding_count = execution.request_boundary_bindings;
+  seal.resource_queries = execution.request_boundary_resource_queries;
+  seal.host_staging_allocation_identity =
+      execution.request_boundary_host_staging_allocation_identity;
+  seal.host_staging_begin = execution.request_boundary_host_staging_begin;
+  seal.host_staging_bytes = execution.request_boundary_host_staging_bytes;
+  seal.host_staging_flags = execution.request_boundary_host_staging_flags;
+  seal.host_owned_bytes = execution.request_boundary_host_owned_bytes;
+  seal.scratch_alias_identity =
+      execution.request_boundary_scratch_alias_identity;
+  seal.scratch_alias_span_bytes =
+      execution.request_boundary_scratch_alias_span_bytes;
+  seal.total_owned_bytes = execution.total_owned_bytes;
+  seal.execution_catalog_bound =
+      execution.request_boundary_execution_catalog_bound;
+  seal.source_private_resource_queries =
+      execution.request_boundary_source_private_resource_queries;
+  seal.normal_resident_authority =
+      execution.request_boundary_normal_resident_authority;
+  seal.host_test_resident_authority =
+      execution.request_boundary_host_test_resident_authority;
+  seal.synthetic_unbound = execution.request_boundary_synthetic_unbound;
+  seal.host_staging_pinned =
+      execution.request_boundary_host_staging_pinned;
+  seal.host_staging_construction_zero_initialized =
+      execution
+          .request_boundary_host_staging_construction_zero_initialized;
+  seal.scratch_aliases_exact =
+      execution.request_boundary_scratch_aliases_exact;
+  seal.request_selectable = execution.request_boundary_request_selectable;
+  seal.launcher_authority =
+      execution.request_boundary_launcher_authority;
+  seal.production_dispatch_eligible =
+      execution.request_boundary_production_dispatch_eligible;
+  seal.identity = seal.compute_identity();
+  return seal;
+}
+
 // Engine-private lifetime anchor.  Member declaration and explicit teardown
 // both enforce execution -> startup.  The enclosing Engine declares its RoPE
 // owner immediately before this root, so reverse destruction is V4 execution
@@ -217,6 +422,25 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
            retained_mlp_pair_catalog_fold_identity_ != 0U &&
            retained_full_attention_catalog_fold_identity_ != 0U &&
            full_attention_resource_bundle_identity_ != 0U &&
+           request_boundary_root_seal_.valid() &&
+           request_boundary_root_seal_.host_staging_allocation_identity !=
+               transient_allocation_identity_ &&
+           request_boundary_root_seal_.host_staging_allocation_identity !=
+               recurrent_allocation_identity_ &&
+           request_boundary_root_seal_.host_staging_allocation_identity !=
+               kv_allocation_identity_ &&
+           request_boundary_root_seal_.scratch_alias_identity !=
+               transient_allocation_identity_ &&
+           request_boundary_root_seal_.scratch_alias_identity !=
+               recurrent_allocation_identity_ &&
+           request_boundary_root_seal_.scratch_alias_identity !=
+               kv_allocation_identity_ &&
+           request_boundary_root_seal_.scratch_alias_identity !=
+               request_boundary_root_seal_
+                   .host_staging_allocation_identity &&
+           make_sm87_macrofeed_v4_p40_request_boundary_root_seal(
+               startup_->audit(), execution_->audit()).identity ==
+               request_boundary_root_seal_.identity &&
            kv_allocation_identity_ != 0U &&
            engine_rope_binding_identity_ != 0U &&
            engine_rope_device_ordinal_ >= 0 && reserve_chain_.valid() &&
@@ -240,6 +464,27 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
                retained_full_attention_catalog_fold_identity_ &&
            execution_->audit().full_attention_resource_bundle_identity ==
                full_attention_resource_bundle_identity_ &&
+           execution_->audit().transient_allocation_identity ==
+               transient_allocation_identity_ &&
+           execution_->audit().recurrent_allocation_identity ==
+               recurrent_allocation_identity_ &&
+           execution_->audit().request_boundary_execution_catalog_bound &&
+           execution_->audit()
+               .request_boundary_source_private_resource_queries &&
+           execution_->audit().request_boundary_normal_resident_authority &&
+           !execution_->audit()
+                .request_boundary_host_test_resident_authority &&
+           !execution_->audit().request_boundary_synthetic_unbound &&
+           execution_->audit().request_boundary_host_staging_pinned &&
+           execution_->audit()
+               .request_boundary_host_staging_construction_zero_initialized &&
+           execution_->audit().request_boundary_scratch_aliases_exact &&
+           !execution_->audit().request_boundary_request_selectable &&
+           !execution_->audit().request_boundary_launcher_authority &&
+           !execution_->audit()
+                .request_boundary_production_dispatch_eligible &&
+           execution_->audit().total_owned_bytes ==
+               kSm87MacroFeedV4P40ExecutionTotalOwnedBytes &&
            execution_->audit().kv_allocation_identity ==
                kv_allocation_identity_ &&
            execution_->audit().engine_rope_binding_identity ==
@@ -278,6 +523,18 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
           startup_->gate_up_startup_seal().binding_catalog_identity;
       snapshot.startup_full_attention_source_catalog_identity =
           startup.full_attention_source_catalog_identity;
+      snapshot.startup_request_boundary_source_catalog_identity =
+          startup.request_boundary_source_catalog_identity;
+      snapshot.startup_request_boundary_resident_root_identity =
+          startup.request_boundary_resident_root_identity;
+      snapshot.startup_request_boundary_resident_arena_bytes =
+          startup.request_boundary_resident_arena_bytes;
+      snapshot.startup_request_boundary_source_bindings =
+          startup.request_boundary_source_bindings;
+      snapshot.startup_request_boundary_normal_resident_authority =
+          startup.request_boundary_normal_resident_authority;
+      snapshot.startup_request_boundary_host_test_resident_authority =
+          startup.request_boundary_host_test_resident_authority;
     }
     if (execution_ != nullptr) {
       const auto& execution = execution_->audit();
@@ -305,6 +562,24 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
           execution.retained_full_attention_catalog_fold_identity;
       snapshot.full_attention_resource_bundle_identity =
           execution.full_attention_resource_bundle_identity;
+      snapshot.execution_request_boundary_catalog_identity =
+          execution.request_boundary_catalog_identity;
+      snapshot.retained_request_boundary_catalog_fold_identity =
+          execution.retained_request_boundary_catalog_fold_identity;
+      snapshot.request_boundary_source_catalog_identity =
+          execution.request_boundary_source_catalog_identity;
+      snapshot.request_boundary_resource_bundle_identity =
+          execution.request_boundary_resource_bundle_identity;
+      snapshot.request_boundary_binding_identity =
+          execution.request_boundary_binding_identity;
+      snapshot.request_boundary_resident_root_identity =
+          execution.request_boundary_resident_root_identity;
+      snapshot.request_boundary_resident_arena_bytes =
+          execution.request_boundary_resident_arena_bytes;
+      snapshot.execution_request_boundary_binding_count =
+          execution.request_boundary_bindings;
+      snapshot.execution_request_boundary_resource_queries =
+          execution.request_boundary_resource_queries;
       snapshot.transient_allocation_identity =
           execution.transient_allocation_identity;
       snapshot.recurrent_allocation_identity =
@@ -323,6 +598,12 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
       snapshot.engine_rope_pairs = execution.engine_rope_pairs;
       snapshot.execution_events_owner_identity =
           execution.execution_events_owner_identity;
+      snapshot.request_boundary_host_staging_allocation_identity =
+          execution.request_boundary_host_staging_allocation_identity;
+      snapshot.request_boundary_host_staging_begin =
+          execution.request_boundary_host_staging_begin;
+      snapshot.request_boundary_scratch_alias_identity =
+          execution.request_boundary_scratch_alias_identity;
       snapshot.transient_bytes = execution.transient_bytes;
       snapshot.recurrent_bytes = execution.recurrent_bytes;
       snapshot.kv_allocation_bytes = execution.kv_allocation_bytes;
@@ -330,6 +611,14 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
           execution.request_state_kv_allocation_bytes;
       snapshot.engine_rope_allocation_bytes =
           execution.engine_rope_allocation_bytes;
+      snapshot.request_boundary_host_staging_bytes =
+          execution.request_boundary_host_staging_bytes;
+      snapshot.request_boundary_host_owned_bytes =
+          execution.request_boundary_host_owned_bytes;
+      snapshot.request_boundary_scratch_alias_span_bytes =
+          execution.request_boundary_scratch_alias_span_bytes;
+      snapshot.request_boundary_host_staging_flags =
+          execution.request_boundary_host_staging_flags;
       snapshot.execution_required_device_allocation_bytes =
           execution.required_device_allocation_bytes;
       snapshot.execution_minimum_free_bytes_after_create =
@@ -339,13 +628,40 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
       snapshot.execution_free_bytes_after_allocations =
           execution.device_free_bytes_after_allocations;
       snapshot.owned_bytes = execution.execution_owned_bytes;
+      snapshot.total_owned_bytes = execution.total_owned_bytes;
       snapshot.anchored_bytes =
           execution.execution_owned_bytes +
+          execution.engine_rope_allocation_bytes;
+      snapshot.total_anchored_bytes =
+          execution.total_owned_bytes +
           execution.engine_rope_allocation_bytes;
       snapshot.request_state_kv_physical_owner_bound =
           execution.request_state_kv_physical_owner_bound;
       snapshot.execution_aggregate_memory_gate_passed =
           execution.aggregate_memory_gate_passed;
+      snapshot.request_boundary_execution_catalog_bound =
+          execution.request_boundary_execution_catalog_bound;
+      snapshot.request_boundary_source_private_resource_queries =
+          execution.request_boundary_source_private_resource_queries;
+      snapshot.request_boundary_normal_resident_authority =
+          execution.request_boundary_normal_resident_authority;
+      snapshot.request_boundary_host_test_resident_authority =
+          execution.request_boundary_host_test_resident_authority;
+      snapshot.request_boundary_synthetic_unbound =
+          execution.request_boundary_synthetic_unbound;
+      snapshot.request_boundary_host_staging_pinned =
+          execution.request_boundary_host_staging_pinned;
+      snapshot.request_boundary_host_staging_construction_zero_initialized =
+          execution
+              .request_boundary_host_staging_construction_zero_initialized;
+      snapshot.request_boundary_scratch_aliases_exact =
+          execution.request_boundary_scratch_aliases_exact;
+      snapshot.request_boundary_request_selectable =
+          execution.request_boundary_request_selectable;
+      snapshot.request_boundary_launcher_authority =
+          execution.request_boundary_launcher_authority;
+      snapshot.request_boundary_production_dispatch_eligible =
+          execution.request_boundary_production_dispatch_eligible;
       snapshot.normal_factory_branch =
           !execution.synthetic_t1_gdn_layer0_source &&
           execution.gdn_qkvz_bindings ==
@@ -353,6 +669,14 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
           execution.mlp_pair_bindings == kSm87MacroFeedV4LayerCount &&
           execution.full_attention_bindings ==
               kSm87MacroFeedV4FullAttentionLayerCount &&
+          execution.request_boundary_bindings ==
+              sm87_macrofeed_v4_p40_startup_package_detail::
+                  kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings &&
+          execution.request_boundary_resource_queries == 4U &&
+          execution.request_boundary_execution_catalog_bound &&
+          execution.request_boundary_normal_resident_authority &&
+          !execution.request_boundary_host_test_resident_authority &&
+          !execution.request_boundary_synthetic_unbound &&
           execution.request_state_kv_physical_owner_bound &&
           execution.engine_rope_binding_identity != 0U;
       snapshot.synthetic_t1_gdn_layer0_source =
@@ -404,7 +728,16 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
         startup.audit.gdn_qkvz_binding_catalog_identity == 0U ||
         startup.audit.full_attention_source_bindings !=
             kSm87MacroFeedV4FullAttentionLayerCount ||
-        startup.audit.full_attention_source_catalog_identity == 0U) {
+        startup.audit.full_attention_source_catalog_identity == 0U ||
+        startup.audit.request_boundary_source_bindings !=
+            sm87_macrofeed_v4_p40_startup_package_detail::
+                kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings ||
+        startup.audit.request_boundary_source_catalog_identity == 0U ||
+        startup.audit.request_boundary_resident_root_identity == 0U ||
+        startup.audit.request_boundary_resident_arena_bytes !=
+            kPinnedQwen36_27BArenaBytes ||
+        !startup.audit.request_boundary_normal_resident_authority ||
+        startup.audit.request_boundary_host_test_resident_authority) {
       result.context = startup.status.context == nullptr
                            ? "MacroFeed-v4 startup package failed closed"
                            : startup.status.context;
@@ -429,6 +762,49 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
         execution.audit.full_attention_catalog_identity == 0U ||
         execution.audit.retained_full_attention_catalog_fold_identity == 0U ||
         execution.audit.full_attention_resource_bundle_identity == 0U ||
+        execution.audit.request_boundary_catalog_identity == 0U ||
+        execution.audit.retained_request_boundary_catalog_fold_identity ==
+            0U ||
+        execution.audit.request_boundary_source_catalog_identity !=
+            startup.audit.request_boundary_source_catalog_identity ||
+        execution.audit.request_boundary_resource_bundle_identity == 0U ||
+        execution.audit.request_boundary_binding_identity == 0U ||
+        execution.audit.request_boundary_resident_root_identity !=
+            startup.audit.request_boundary_resident_root_identity ||
+        execution.audit.request_boundary_resident_arena_bytes !=
+            startup.audit.request_boundary_resident_arena_bytes ||
+        execution.audit.request_boundary_resident_arena_bytes !=
+            kPinnedQwen36_27BArenaBytes ||
+        execution.audit.request_boundary_bindings !=
+            sm87_macrofeed_v4_p40_startup_package_detail::
+                kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings ||
+        execution.audit.request_boundary_resource_queries != 4U ||
+        !execution.audit.request_boundary_execution_catalog_bound ||
+        !execution.audit.request_boundary_source_private_resource_queries ||
+        !execution.audit.request_boundary_normal_resident_authority ||
+        execution.audit.request_boundary_host_test_resident_authority ||
+        execution.audit.request_boundary_synthetic_unbound ||
+        execution.audit.request_boundary_host_staging_allocation_identity ==
+            0U ||
+        execution.audit.request_boundary_host_staging_begin == 0U ||
+        execution.audit.request_boundary_host_staging_bytes !=
+            kSm87MacroFeedV4P40RequestBoundaryHostStagingBytes ||
+        execution.audit.request_boundary_host_staging_flags !=
+            kSm87MacroFeedV4P40RequestBoundaryHostPortableFlag ||
+        !execution.audit.request_boundary_host_staging_pinned ||
+        !execution.audit
+             .request_boundary_host_staging_construction_zero_initialized ||
+        execution.audit.request_boundary_scratch_alias_identity == 0U ||
+        execution.audit.request_boundary_scratch_alias_span_bytes !=
+            kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchEnd ||
+        !execution.audit.request_boundary_scratch_aliases_exact ||
+        execution.audit.request_boundary_request_selectable ||
+        execution.audit.request_boundary_launcher_authority ||
+        execution.audit.request_boundary_production_dispatch_eligible ||
+        execution.audit.request_boundary_host_owned_bytes !=
+            kSm87MacroFeedV4P40RequestBoundaryHostStagingBytes ||
+        execution.audit.total_owned_bytes !=
+            kSm87MacroFeedV4P40ExecutionTotalOwnedBytes ||
         execution.audit.kv_allocation_identity == 0U ||
         !execution.audit.request_state_kv_physical_owner_bound ||
         execution.audit.engine_rope_binding_identity == 0U ||
@@ -506,6 +882,14 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
             execution_ == nullptr
                 ? 0U
                 : execution_->audit().full_attention_resource_bundle_identity),
+        transient_allocation_identity_(
+            execution_ == nullptr
+                ? 0U
+                : execution_->audit().transient_allocation_identity),
+        recurrent_allocation_identity_(
+            execution_ == nullptr
+                ? 0U
+                : execution_->audit().recurrent_allocation_identity),
         kv_allocation_identity_(
             execution_ == nullptr
                 ? 0U
@@ -514,6 +898,11 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
             execution_ == nullptr
                 ? 0U
                 : execution_->audit().engine_rope_binding_identity),
+        request_boundary_root_seal_(
+            startup_ == nullptr || execution_ == nullptr
+                ? Sm87MacroFeedV4P40RequestBoundaryRootSeal{}
+                : make_sm87_macrofeed_v4_p40_request_boundary_root_seal(
+                      startup_->audit(), execution_->audit())),
         engine_rope_device_ordinal_(engine_rope_device_ordinal),
         reserve_chain_(reserve_chain),
         construction_sealed_(
@@ -527,8 +916,12 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
             retained_mlp_pair_catalog_fold_identity_ != 0U &&
             retained_full_attention_catalog_fold_identity_ != 0U &&
             full_attention_resource_bundle_identity_ != 0U &&
+            transient_allocation_identity_ != 0U &&
+            recurrent_allocation_identity_ != 0U &&
+            transient_allocation_identity_ != recurrent_allocation_identity_ &&
             kv_allocation_identity_ != 0U &&
             engine_rope_binding_identity_ != 0U &&
+            request_boundary_root_seal_.valid() &&
             engine_rope_device_ordinal_ >= 0 && reserve_chain_.valid() &&
             execution_->audit().valid() &&
             execution_->audit().startup_package_identity ==
@@ -560,8 +953,11 @@ class Sm87MacroFeedV4P40ExecutionCompositionRoot final {
   std::uint64_t retained_mlp_pair_catalog_fold_identity_ = 0U;
   std::uint64_t retained_full_attention_catalog_fold_identity_ = 0U;
   std::uint64_t full_attention_resource_bundle_identity_ = 0U;
+  std::uint64_t transient_allocation_identity_ = 0U;
+  std::uint64_t recurrent_allocation_identity_ = 0U;
   std::uint64_t kv_allocation_identity_ = 0U;
   std::uint64_t engine_rope_binding_identity_ = 0U;
+  Sm87MacroFeedV4P40RequestBoundaryRootSeal request_boundary_root_seal_{};
   std::int32_t engine_rope_device_ordinal_ = -1;
   Sm87MacroFeedV4P40EngineMemoryReserveChain reserve_chain_{};
   bool construction_sealed_ = false;

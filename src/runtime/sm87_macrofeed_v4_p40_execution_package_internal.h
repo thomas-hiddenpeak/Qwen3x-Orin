@@ -41,6 +41,50 @@ inline constexpr std::uint64_t kSm87MacroFeedV4P40ExecutionOwnedBytes =
     kSm87MacroFeedV4P40ExecutionTransientBytes +
     kSm87MacroFeedV4RecurrentStorageBytes +
     kSm87MacroFeedV4AttentionKvArenaBytes;
+inline constexpr std::size_t
+    kSm87MacroFeedV4P40RequestBoundaryHostTokenCount = 40'000U;
+inline constexpr std::uint64_t
+    kSm87MacroFeedV4P40RequestBoundaryHostTokenBytes =
+        kSm87MacroFeedV4P40RequestBoundaryHostTokenCount *
+        sizeof(std::uint32_t);
+inline constexpr std::uint64_t
+    kSm87MacroFeedV4P40RequestBoundaryHostResultOffset =
+        kSm87MacroFeedV4P40RequestBoundaryHostTokenBytes;
+inline constexpr std::uint64_t
+    kSm87MacroFeedV4P40RequestBoundaryHostStagingBytes =
+        kSm87MacroFeedV4P40RequestBoundaryHostResultOffset +
+        sizeof(Bf16GreedyArgmaxResult);
+inline constexpr std::uint32_t
+    kSm87MacroFeedV4P40RequestBoundaryHostPortableFlag = 1U;
+inline constexpr std::uint64_t
+    kSm87MacroFeedV4P40ExecutionTotalOwnedBytes =
+        kSm87MacroFeedV4P40ExecutionOwnedBytes +
+        kSm87MacroFeedV4P40RequestBoundaryHostStagingBytes;
+
+// Construction-sealed, phase-exclusive aliases inside the existing V4
+// scratch plane.  They do not reserve a second device allocation.  The final
+// result is the 33rd greedy workspace element and therefore intentionally
+// aliases the last eight bytes of that workspace.
+inline constexpr std::uint64_t
+    kSm87MacroFeedV4P40RequestBoundaryTokenIdsScratchBegin = 0U;
+inline constexpr std::uint64_t
+    kSm87MacroFeedV4P40RequestBoundaryTokenIdsScratchEnd = 32'000U;
+inline constexpr std::uint64_t
+    kSm87MacroFeedV4P40RequestBoundaryFinalNormScratchBegin = 0U;
+inline constexpr std::uint64_t
+    kSm87MacroFeedV4P40RequestBoundaryFinalNormScratchEnd = 10'240U;
+inline constexpr std::uint64_t
+    kSm87MacroFeedV4P40RequestBoundaryLogitsScratchBegin = 10'240U;
+inline constexpr std::uint64_t
+    kSm87MacroFeedV4P40RequestBoundaryLogitsScratchEnd = 506'880U;
+inline constexpr std::uint64_t
+    kSm87MacroFeedV4P40RequestBoundaryGreedyScratchBegin = 506'880U;
+inline constexpr std::uint64_t
+    kSm87MacroFeedV4P40RequestBoundaryGreedyScratchEnd = 507'144U;
+inline constexpr std::uint64_t
+    kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchBegin = 507'136U;
+inline constexpr std::uint64_t
+    kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchEnd = 507'144U;
 inline constexpr std::size_t kSm87MacroFeedV4P40EngineRopePositions =
     262'144U;
 inline constexpr std::size_t kSm87MacroFeedV4P40EngineRopePairs = 32U;
@@ -53,6 +97,72 @@ inline constexpr std::uint64_t kSm87MacroFeedV4P40EngineRopeAllocationBytes =
 static_assert(kSm87MacroFeedV4P40ExecutionTransientBytes == 442'368'000U);
 static_assert(kSm87MacroFeedV4P40ExecutionScratchOffset == 163'840'000U);
 static_assert(kSm87MacroFeedV4P40ExecutionOwnedBytes == 3'220'701'184U);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryHostTokenBytes == 160'000U);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryHostStagingBytes == 160'008U);
+static_assert(kSm87MacroFeedV4P40ExecutionTotalOwnedBytes == 3'220'861'192U);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryHostTokenCount ==
+              kSm87MacroFeedV4P40Tokens);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryHostTokenBytes ==
+              kSm87MacroFeedV4P40RequestBoundaryHostResultOffset);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryHostResultOffset %
+                  alignof(Bf16GreedyArgmaxResult) ==
+              0U);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryTokenIdsScratchBegin %
+                  alignof(std::uint32_t) ==
+              0U);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryFinalNormScratchBegin %
+                  alignof(std::uint16_t) ==
+              0U);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryLogitsScratchBegin %
+                  alignof(std::uint16_t) ==
+              0U);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryGreedyScratchBegin %
+                  alignof(Bf16GreedyArgmaxResult) ==
+              0U);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchBegin %
+                  alignof(Bf16GreedyArgmaxResult) ==
+              0U);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryTokenIdsScratchEnd -
+                  kSm87MacroFeedV4P40RequestBoundaryTokenIdsScratchBegin ==
+              kernels::sm87_macrofeed_v4_bound_launch_detail::
+                  kSm87MacroFeedV4EmbeddingTokenIdBytes);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryFinalNormScratchEnd -
+                  kSm87MacroFeedV4P40RequestBoundaryFinalNormScratchBegin ==
+              kernels::sm87_macrofeed_v4_bound_launch_detail::
+                  kSm87MacroFeedV4FinalNormBytes);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryLogitsScratchEnd -
+                  kSm87MacroFeedV4P40RequestBoundaryLogitsScratchBegin ==
+              kernels::sm87_macrofeed_v4_bound_launch_detail::
+                  kSm87MacroFeedV4LmHeadOutputBytes);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryGreedyScratchEnd -
+                  kSm87MacroFeedV4P40RequestBoundaryGreedyScratchBegin ==
+              kernels::sm87_macrofeed_v4_bound_launch_detail::
+                  kSm87MacroFeedV4GreedyWorkspaceBytes);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchEnd -
+                  kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchBegin ==
+              sizeof(Bf16GreedyArgmaxResult));
+static_assert(kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchBegin ==
+              kSm87MacroFeedV4P40RequestBoundaryGreedyScratchBegin +
+                  (kernels::sm87_macrofeed_v4_bound_launch_detail::
+                       kSm87MacroFeedV4GreedyWorkspaceResults -
+                   1U) *
+                      sizeof(Bf16GreedyArgmaxResult));
+static_assert(kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchEnd <=
+              kernels::kSm87MacroFeedV4Bf16AbScratchBytes);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryTokenIdsScratchBegin ==
+              kSm87MacroFeedV4P40RequestBoundaryFinalNormScratchBegin);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryFinalNormScratchEnd ==
+              kSm87MacroFeedV4P40RequestBoundaryLogitsScratchBegin);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryLogitsScratchBegin <
+              kSm87MacroFeedV4P40RequestBoundaryTokenIdsScratchEnd);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryTokenIdsScratchEnd <
+              kSm87MacroFeedV4P40RequestBoundaryLogitsScratchEnd);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryLogitsScratchEnd ==
+              kSm87MacroFeedV4P40RequestBoundaryGreedyScratchBegin);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryGreedyScratchBegin <=
+              kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchBegin);
+static_assert(kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchEnd ==
+              kSm87MacroFeedV4P40RequestBoundaryGreedyScratchEnd);
 static_assert(kSm87MacroFeedV4P40EngineRopeTableBytes == 33'554'432U);
 static_assert(kSm87MacroFeedV4P40EngineRopeAllocationBytes == 67'108'864U);
 static_assert(kSm87MacroFeedV4P40EngineRopePositions >=
@@ -89,12 +199,16 @@ enum class Sm87MacroFeedV4P40ExecutionPackageError : std::uint8_t {
   kGdnResources,
   kGateUpResources,
   kDownResources,
+  kRequestBoundaryResources,
+  kRequestBoundaryCatalog,
   kExecutionEvents,
   kEngineRope,
   kMemoryReserve,
   kKvAllocation,
   kTransientAllocation,
   kRecurrentAllocation,
+  kPinnedHostStagingAllocation,
+  kRequestBoundaryScratchAliases,
   kColdRecurrentInitialization,
   kRequestState,
   kPackageAllocation,
@@ -136,6 +250,16 @@ struct Sm87MacroFeedV4P40ExecutionPackageAudit final {
   std::uint64_t retained_mlp_pair_catalog_fold_identity = 0U;
   std::uint64_t retained_full_attention_catalog_fold_identity = 0U;
   std::uint64_t full_attention_resource_bundle_identity = 0U;
+  std::uint64_t request_boundary_catalog_identity = 0U;
+  std::uint64_t retained_request_boundary_catalog_fold_identity = 0U;
+  std::uint64_t request_boundary_source_catalog_identity = 0U;
+  std::uint64_t request_boundary_resource_bundle_identity = 0U;
+  std::uint64_t request_boundary_binding_identity = 0U;
+  std::uint64_t request_boundary_resident_root_identity = 0U;
+  std::uint64_t request_boundary_resident_arena_bytes = 0U;
+  std::uint64_t request_boundary_host_staging_allocation_identity = 0U;
+  std::uint64_t request_boundary_scratch_alias_identity = 0U;
+  std::uintptr_t request_boundary_host_staging_begin = 0U;
   std::uint64_t gdn_layer0_source_identity = 0U;
   std::uint64_t transient_allocation_identity = 0U;
   std::uint64_t recurrent_allocation_identity = 0U;
@@ -153,6 +277,8 @@ struct Sm87MacroFeedV4P40ExecutionPackageAudit final {
   std::size_t gdn_qkvz_bindings = 0U;
   std::size_t mlp_pair_bindings = 0U;
   std::size_t full_attention_bindings = 0U;
+  std::size_t request_boundary_bindings = 0U;
+  std::size_t request_boundary_resource_queries = 0U;
   std::size_t engine_rope_positions = 0U;
   std::size_t engine_rope_pairs = 0U;
   std::uint64_t transient_bytes = 0U;
@@ -160,6 +286,11 @@ struct Sm87MacroFeedV4P40ExecutionPackageAudit final {
   std::uint64_t kv_allocation_bytes = 0U;
   std::uint64_t request_state_kv_allocation_bytes = 0U;
   std::uint64_t engine_rope_allocation_bytes = 0U;
+  std::uint64_t request_boundary_host_staging_bytes = 0U;
+  std::uint64_t request_boundary_host_owned_bytes = 0U;
+  std::uint64_t total_owned_bytes = 0U;
+  std::uint64_t request_boundary_scratch_alias_span_bytes = 0U;
+  std::uint32_t request_boundary_host_staging_flags = 0U;
   std::uint64_t execution_owned_bytes = 0U;
   std::uint64_t required_device_allocation_bytes = 0U;
   std::uint64_t minimum_free_bytes_after_create = 0U;
@@ -168,6 +299,17 @@ struct Sm87MacroFeedV4P40ExecutionPackageAudit final {
   std::uint64_t cold_recurrent_zero_bytes = 0U;
   std::size_t cold_recurrent_initializations = 0U;
   bool request_state_kv_physical_owner_bound = false;
+  bool request_boundary_execution_catalog_bound = false;
+  bool request_boundary_source_private_resource_queries = false;
+  bool request_boundary_normal_resident_authority = false;
+  bool request_boundary_host_test_resident_authority = false;
+  bool request_boundary_synthetic_unbound = false;
+  bool request_boundary_host_staging_pinned = false;
+  bool request_boundary_host_staging_construction_zero_initialized = false;
+  bool request_boundary_scratch_aliases_exact = false;
+  bool request_boundary_request_selectable = true;
+  bool request_boundary_launcher_authority = true;
+  bool request_boundary_production_dispatch_eligible = true;
   bool aggregate_memory_gate_passed = false;
   bool fixed_gdn_layer0_front_half_bound = false;
   bool fixed_gdn_layer0_complete_bound = false;
@@ -247,6 +389,88 @@ struct Sm87MacroFeedV4P40ExecutionPackageAudit final {
         device_free_bytes_before_allocations == 0U &&
         device_free_bytes_after_allocations == 0U &&
         !aggregate_memory_gate_passed;
+    const bool normal_request_boundary =
+        !synthetic_t1_gdn_layer0_source &&
+        request_boundary_catalog_identity != 0U &&
+        retained_request_boundary_catalog_fold_identity != 0U &&
+        request_boundary_source_catalog_identity != 0U &&
+        request_boundary_resource_bundle_identity != 0U &&
+        request_boundary_binding_identity != 0U &&
+        request_boundary_resident_root_identity != 0U &&
+        request_boundary_resident_arena_bytes ==
+            kPinnedQwen36_27BArenaBytes &&
+        request_boundary_bindings ==
+            sm87_macrofeed_v4_p40_startup_package_detail::
+                kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings &&
+        request_boundary_resource_queries == 4U &&
+        request_boundary_execution_catalog_bound &&
+        request_boundary_source_private_resource_queries &&
+        request_boundary_normal_resident_authority &&
+        !request_boundary_host_test_resident_authority &&
+        !request_boundary_synthetic_unbound &&
+        !request_boundary_request_selectable &&
+        !request_boundary_launcher_authority &&
+        !request_boundary_production_dispatch_eligible;
+    const bool synthetic_request_boundary_unbound =
+        synthetic_t1_gdn_layer0_source &&
+        request_boundary_catalog_identity == 0U &&
+        retained_request_boundary_catalog_fold_identity == 0U &&
+        request_boundary_source_catalog_identity == 0U &&
+        request_boundary_resource_bundle_identity == 0U &&
+        request_boundary_binding_identity == 0U &&
+        request_boundary_resident_root_identity == 0U &&
+        request_boundary_resident_arena_bytes == 0U &&
+        request_boundary_bindings == 0U &&
+        request_boundary_resource_queries == 0U &&
+        !request_boundary_execution_catalog_bound &&
+        !request_boundary_source_private_resource_queries &&
+        !request_boundary_normal_resident_authority &&
+        !request_boundary_host_test_resident_authority &&
+        request_boundary_synthetic_unbound &&
+        !request_boundary_request_selectable &&
+        !request_boundary_launcher_authority &&
+        !request_boundary_production_dispatch_eligible;
+    const bool normal_request_boundary_storage =
+        request_boundary_host_staging_allocation_identity != 0U &&
+        request_boundary_host_staging_allocation_identity !=
+            transient_allocation_identity &&
+        request_boundary_host_staging_allocation_identity !=
+            recurrent_allocation_identity &&
+        request_boundary_host_staging_allocation_identity !=
+            kv_allocation_identity &&
+        request_boundary_scratch_alias_identity != 0U &&
+        request_boundary_scratch_alias_identity !=
+            transient_allocation_identity &&
+        request_boundary_scratch_alias_identity !=
+            recurrent_allocation_identity &&
+        request_boundary_scratch_alias_identity != kv_allocation_identity &&
+        request_boundary_scratch_alias_identity !=
+            request_boundary_host_staging_allocation_identity &&
+        request_boundary_host_staging_begin != 0U &&
+        request_boundary_host_staging_bytes ==
+            kSm87MacroFeedV4P40RequestBoundaryHostStagingBytes &&
+        request_boundary_host_owned_bytes ==
+            kSm87MacroFeedV4P40RequestBoundaryHostStagingBytes &&
+        total_owned_bytes == kSm87MacroFeedV4P40ExecutionTotalOwnedBytes &&
+        request_boundary_scratch_alias_span_bytes ==
+            kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchEnd &&
+        request_boundary_host_staging_flags ==
+            kSm87MacroFeedV4P40RequestBoundaryHostPortableFlag &&
+        request_boundary_host_staging_pinned &&
+        request_boundary_host_staging_construction_zero_initialized &&
+        request_boundary_scratch_aliases_exact;
+    const bool synthetic_request_boundary_storage_unbound =
+        request_boundary_host_staging_allocation_identity == 0U &&
+        request_boundary_scratch_alias_identity == 0U &&
+        request_boundary_host_staging_begin == 0U &&
+        request_boundary_host_staging_bytes == 0U &&
+        request_boundary_host_owned_bytes == 0U &&
+        total_owned_bytes == execution_owned_bytes &&
+        request_boundary_scratch_alias_span_bytes == 0U &&
+        request_boundary_host_staging_flags == 0U &&
+        !request_boundary_host_staging_pinned &&
+        !request_boundary_host_staging_construction_zero_initialized &&
+        !request_boundary_scratch_aliases_exact;
     const bool synthetic_front_half_source =
         synthetic_t1_gdn_layer0_source &&
         gdn_qkvz_catalog_identity == 0U && gdn_qkvz_bindings == 1U &&
@@ -272,6 +496,11 @@ struct Sm87MacroFeedV4P40ExecutionPackageAudit final {
             synthetic_complete_source) &&
            (real_full_attention_owner ||
             synthetic_no_full_attention_owner) &&
+           (normal_request_boundary ||
+            synthetic_request_boundary_unbound) &&
+           ((normal_request_boundary && normal_request_boundary_storage) ||
+            (synthetic_request_boundary_unbound &&
+             synthetic_request_boundary_storage_unbound)) &&
            transient_allocation_identity != 0U &&
            recurrent_allocation_identity != 0U &&
            execution_events_owner_identity != 0U && device_ordinal >= 0 &&
@@ -849,6 +1078,8 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
   using MlpPairCatalog = StartupPackage::MlpPairExecutionBindingCatalog;
   using FullAttentionCatalog =
       StartupPackage::FullAttentionLayerExecutionBindingCatalog;
+  using RequestBoundaryCatalog =
+      StartupPackage::RequestBoundaryExecutionBindingCatalog;
   using EventsOwner = sm87_macrofeed_v4_execution_events_detail::
       Sm87MacroFeedV4ExecutionEventsOwner;
   using EventsDriver = sm87_macrofeed_v4_execution_events_detail::
@@ -893,6 +1124,8 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
       LayerNormCatalog layer_norm_catalog, GdnQkvZCatalog gdn_qkvz_catalog,
       MlpPairCatalog mlp_pair_catalog,
       FullAttentionCatalog full_attention_catalog,
+      RequestBoundaryCatalog request_boundary_catalog,
+      std::uint64_t request_boundary_catalog_identity,
       GdnLayer0ExecutionSource gdn_layer0_source,
       std::optional<CompleteGdnLayer0ExecutionSource>
           complete_gdn_layer0_source,
@@ -906,7 +1139,7 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
       kernels::Sm87MacroFeedV4NvFp4DownCudaResources down_resources,
       Sm87MacroFeedV4P40EngineRopeBinding engine_rope,
       void* kv_allocation, void* transient_allocation,
-      void* recurrent_allocation,
+      void* recurrent_allocation, void* request_boundary_host_staging,
       std::unique_ptr<Sm87MacroFeedV4RequestState> request_state,
       std::shared_ptr<EventsOwner> events_owner,
       std::unique_ptr<EventsDriver> events_driver,
@@ -957,6 +1190,8 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
       const noexcept;
   [[nodiscard]] bool full_attention_composer_authority_sealed()
       const noexcept;
+  [[nodiscard]] bool request_boundary_bindings_valid() const noexcept;
+  [[nodiscard]] bool request_boundary_storage_valid() const noexcept;
   [[nodiscard]] bool compose_complete_full_attention_submission(
       const Sm87MacroFeedV4FullAttentionKvGrant& grant,
       sm87_macrofeed_v4_execution_events_detail::
@@ -969,6 +1204,9 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
   [[nodiscard]] static std::uint64_t
   compute_full_attention_catalog_fold_identity(
       const FullAttentionCatalog& catalog) noexcept;
+  [[nodiscard]] static std::uint64_t
+  compute_request_boundary_catalog_fold_identity(
+      const RequestBoundaryCatalog& catalog) noexcept;
   [[nodiscard]] static std::uint64_t compute_complete_layer0_source_identity(
       const CompleteGdnLayer0ExecutionSource& source) noexcept;
   [[nodiscard]] Sm87MacroFeedV4P40ExecutionPackageStatus
@@ -994,6 +1232,8 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
   GdnQkvZCatalog gdn_qkvz_catalog_{};
   MlpPairCatalog mlp_pair_catalog_{};
   FullAttentionCatalog full_attention_catalog_{};
+  RequestBoundaryCatalog request_boundary_catalog_{};
+  std::uint64_t request_boundary_catalog_identity_ = 0U;
   GdnLayer0ExecutionSource gdn_layer0_source_{};
   std::optional<CompleteGdnLayer0ExecutionSource>
       complete_gdn_layer0_source_{};
@@ -1009,9 +1249,17 @@ class Sm87MacroFeedV4P40ExecutionPackage final {
   void* kv_allocation_ = nullptr;
   void* transient_allocation_ = nullptr;
   void* recurrent_allocation_ = nullptr;
+  void* request_boundary_host_staging_ = nullptr;
+  std::uint32_t* request_boundary_host_token_ids_ = nullptr;
+  Bf16GreedyArgmaxResult* request_boundary_host_result_ = nullptr;
   std::uint16_t* ping_ = nullptr;
   std::uint16_t* pong_ = nullptr;
   std::uint16_t* scratch_ = nullptr;
+  std::uint32_t* request_boundary_device_token_ids_ = nullptr;
+  std::uint16_t* request_boundary_final_norm_ = nullptr;
+  std::uint16_t* request_boundary_logits_ = nullptr;
+  Bf16GreedyArgmaxResult* request_boundary_greedy_workspace_ = nullptr;
+  Bf16GreedyArgmaxResult* request_boundary_final_result_ = nullptr;
   std::unique_ptr<Sm87MacroFeedV4RequestState> request_state_;
   std::shared_ptr<EventsOwner> events_owner_;
   std::unique_ptr<EventsDriver> events_driver_;

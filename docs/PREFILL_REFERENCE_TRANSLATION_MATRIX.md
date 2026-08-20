@@ -17,7 +17,10 @@ q3x_document:
 
 This document is the bounded working record for
 `WP-PREFILL-REFERENCE-TRANSLATION-v1` under the reserved successor lineage
-`AC-PREFILL-SM87-MACROFEED-v4`. V4 remains a non-route-executable foundation
+`AC-PREFILL-SM87-MACROFEED-v4`. Owner direction on 2026-08-20 pauses this work
+package; this document is the recovery record retained on
+`archive/v4-construction-ownership-20260820`, not an active delivery-mainline
+dependency. V4 remains a non-route-executable foundation
 with grant-bound authenticated GDN/Full Events transactions, reusable normal
 construction-sealed GDN/Full composers, and a legacy BUILD_TESTING-only
 Synthetic-T1 one-shot. Full Events now strictly separates normal and
@@ -29,9 +32,11 @@ publication. A separate Synthetic-T1 fixture exercises fixed/private
 prevalidated C8000 Embedding, final-row centered RMSNorm M1, exact NVFP4
 LM-head M1, and two-kernel BF16 greedy leaves. Normal Startup now separately
 seals those immutable sources/specifications against the authenticated real
-Resident root, but ExecutionPackage has not consumed the existing normal
-resource-seal API, so neither fixture is a normal execution binding or a
-package-bound request edge. This is T1 correctness/dependency evidence only.
+Resident root. Normal Execution construction now consumes the existing normal
+resource-seal API, retains its private catalog, exact portable pinned staging,
+and fixed scratch aliases. Neither fixture invokes those normal leaves or
+forms a package-bound request edge. This remains T0/T1 construction and
+correctness/dependency evidence only.
 V4 does not become a
 Constitution-defined `architecture_candidate`
 until the complete dataflow is runnable. V1/V2 and the complete V3 composition are
@@ -62,7 +67,7 @@ stable system boundary returns to the SDD.
 
 ## 2. Control model and current Q3X plant
 
-The active engineering loop treats the complete runner as the controlled
+When this package is active, the engineering loop treats the complete runner as the controlled
 system:
 
 | Control-system role | Project binding |
@@ -158,7 +163,7 @@ The principal audited loci are:
 | Source mechanism | Invariant to retain | Architecture/runtime shell to replace | SM87 AOT translation | Main risk or falsifier |
 | --- | --- | --- | --- | --- |
 | vLLM scheduler and startup plan | Explicit scheduled-token budget, shape warmup, backend identity, route-ready barrier | Python scheduler, general batching policy, late JIT ecosystem | Offline enumerate only P40/P60/P130 and required tails; authenticate the selected physical plan before ready | A service-level chunk can improve concurrency while regressing batch-one Prefill |
-| vLLM/model request edges and first-token finalizer | Exact token-ID-to-Embedding rows, final-row normalization, vocabulary projection, deterministic selection, and separate phase observability | Python module dispatch, generic sampling stack, and framework timing callbacks | Fixed C8000 BF16 gather; centered final-row RMSNorm M1; exact activation-staged NVFP4 LM-head M1 that consumes only `weight_scale_2` while retaining `input_scale` provenance; two-level BF16 greedy reduction. Startup source/Resident seal is complete; next bind the existing normal resource seal, pinned staging and aliases in ExecutionPackage, then time canonical `PrefillStateCommitted` with independent Control events | Treating Startup source authority as executable, allowing host-test authority to upgrade, or using `FinalRepresentationReady`/finalizer completion as the pure-Prefill endpoint |
+| vLLM/model request edges and first-token finalizer | Exact token-ID-to-Embedding rows, final-row normalization, vocabulary projection, deterministic selection, and separate phase observability | Python module dispatch, generic sampling stack, and framework timing callbacks | Fixed C8000 BF16 gather; centered final-row RMSNorm M1; exact activation-staged NVFP4 LM-head M1 that consumes only `weight_scale_2` while retaining `input_scale` provenance; two-level BF16 greedy reduction. Startup source/Resident seal and Execution construction ownership are complete; after an explicit performance-work resume, invoke the leaves around the fixed 64×5 loop and time canonical `PrefillStateCommitted` with independent Control events | Treating construction ownership as execution, allowing host-test authority to upgrade, or using `FinalRepresentationReady`/finalizer completion as the pure-Prefill endpoint |
 | vLLM ModelOpt W4A16 selection | W4A16 is distinct from native W4A4; BF16 A, packed E2M1/E4M3 scales, exact role boundaries | General backend registry and automatic fallback order | Bind every NVFP4/FP8 role to one explicit SM87 launcher and fail closed | Accidentally attributing a W4A4/native-FP4 result to the W4A16 route |
 | Humming SM8x W4A16 | Static N/K/layout, M buckets, packed B+scale through global/shared movement, register decode immediately before BF16 MMA, multistage load/decode/MMA, persistent scheduler, L2-aware raster | Runtime source generation, cubin cache/load, generic palette, NVML discovery | Generate fixed cubins offline; freeze role-specific layout, M range, tile, stages, CTA residency, Stream-K/raster, compiler and SASS identity | Reusing one Gate tactic for K-heavy Down or reproducing only the tile while omitting the pipeline |
 | Triton/vLLM kernels | Packed load, local unpack/dequant, dot ownership, masked tails, fused consumer boundaries, and shape heuristics | Runtime Triton JIT plus the audited ROCm/GPTQ W4A16 or same-dtype scaled-MM contracts | Use only the transferable fusion and ownership ideas; express an independently derived NVFP4/FP8 result as native AOT C++/CUDA | Copying GPTQ/ROCm scales, W8A8 semantics, or a fixed tile into the ModelOpt W4A16 path |
@@ -564,7 +569,7 @@ ready, but the qualified pure-Prefill interval must be delimited by separate
 timing-enabled Control events on the canonical RequestState publication path
 and must exclude LM-head, argmax, and D2H.
 
-The active V4 foundation reuses these source translations and authenticated
+The retained V4 foundation reuses these source translations and authenticated
 canonical payloads, but replaces the whole-request traversal with five C8000
 panels outside the natural layer loop. Its current implementation boundary is
 the host workspace/state contract, an owner/epoch-bound host request
@@ -613,15 +618,24 @@ host/device raw-bit provenances, and the fixed greedy source. Only
 exposes neither pointer nor launcher authority. Host-test Resident authority
 can exercise the T0 source inventory but cannot mint a normal execution
 catalog. A construction-only, all-or-nothing normal Execution resource-seal
-API exists, but ExecutionPackage has not called it; no request-boundary
-execution catalog, pinned staging, or finalizer scratch aliases exist.
+API exists. ExecutionPackage now performs the four fixed source-private
+resource queries once during normal construction, calls that seal, and retains
+the private catalog plus its independent fold. It also owns exact
+zero-initialized 160,008-byte `cudaHostAllocPortable` token/result staging and
+binds token, final-norm, logits, greedy, and final-result phase aliases over the
+first 507,144 scratch bytes. Synthetic-T1 keeps these boundary facts unbound.
+All `cudaFreeHost` results are checked on construction rollback; the schema-v5
+stale-address physical-release probe has not run against the real checkpoint.
 
 An Engine-private composition root wires only those normal catalogs
 into the existing default-off V3 real-owner
 harness. The normal ExecutionPackage owns exactly 442,368,000 transient plus
 156,893,184 recurrent plus 2,621,440,000 private Full-KV bytes, or
-3,220,701,184 bytes. It borrows an exact 67,108,864-byte shared Engine RoPE
-owner containing 262,144 positions × 32 cosine/sine pairs. The reserve chain
+3,220,701,184 device bytes. Portable staging raises total package ownership to
+3,220,861,192 bytes without entering the device reserve. It borrows an exact
+67,108,864-byte shared Engine RoPE owner containing 262,144 positions × 32
+cosine/sine pairs, for 3,287,970,056 total anchored device-plus-host bytes. The
+reserve chain
 also preserves the 8,640,542,976-byte legacy P40 arena: complete target-AOT
 creation leaves 11,928,353,024 bytes plus the caller reserve, RoPE creation
 leaves 11,861,244,160 bytes plus it, and V4 creation leaves the legacy arena
@@ -724,11 +738,11 @@ prevalidated leaves now exist for exact BF16 C8000 Embedding, final-row
 centered RMSNorm M1, exact activation-staged NVFP4 LM-head M1, and two-kernel
 BF16 greedy argmax. Their independent Synthetic-T1 fixture has narrow
 resource/argument/synthetic-correctness authority only. Normal Startup source
-and Resident sealing is complete; normal Execution still lacks the resulting
-execution catalog, pinned staging, scratch aliases, owner submission, and
-receipts for all four leaves because ExecutionPackage has not invoked the
-existing resource-seal API. Neither request edge is package-bound. That
-Execution binding, the fixed 64-layer/five-panel package loop and rollback,
+and Resident sealing is complete; normal Execution now retains the resulting
+execution catalog, portable pinned staging, and scratch aliases under its
+construction root. It still lacks owner submission and receipts for all four
+leaves. Neither request edge is package-bound. The fixed 64-layer/five-panel
+package loop and rollback,
 final `B -> A`/`FinalPublish`/sequence fence plus successful-request reuse,
 timing-enabled Control events around canonical `PrefillStateCommitted`,
 real-checkpoint gates, whole-model receipt, and API launcher must still compose
@@ -1087,16 +1101,15 @@ workload.
 
 ## 10. Package closure
 
-The active Roadmap owns the current dependency sequence. Owner-atomic cold
+The Roadmap owns any future reactivation sequence. Owner-atomic cold
 rearm/panel-0 admission, exact-ledger panel commit, healthy discard reuse and
 unpublished final discard are now narrow implementation facts. Fixed/private
 prevalidated C8000 Embedding, final-row centered RMSNorm M1, exact NVFP4
 LM-head M1, and two-kernel BF16 greedy leaves also exist with Synthetic-T1
-correctness only. Normal Startup source/Resident sealing is complete, but they
-are not normal Execution bindings or package-bound request edges. The
-remaining sequence is:
-`ExecutionPackage consumes the existing normal boundary resource seal and`
-`binds pinned staging/aliases → fixed 64×5 package loop plus rollback →`
+correctness only. Normal Startup source/Resident sealing and normal Execution
+construction ownership are complete, but no leaf is a package-bound request
+edge. The package is paused here. Its recovery sequence is:
+`fixed 64×5 package loop plus rollback using the sealed boundary owners →`
 `final B-to-A/FinalPublish/sequence fence and successful-request reuse →`
 `timing-enabled Control events that end pure Prefill at canonical`
 `PrefillStateCommitted while excluding LM-head/argmax/D2H → proportional`

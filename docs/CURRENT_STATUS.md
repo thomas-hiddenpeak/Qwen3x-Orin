@@ -524,8 +524,11 @@ unavailable, and leaves the first P40 direction decision to external
 EvalScope TTFT/New Prompt Throughput. No duration subtraction is permitted to
 manufacture a non-contiguous pure phase.
 
-The active implementation successor is
-`AC-PREFILL-SM87-MACROFEED-v4`. Its present boundary is narrower and must not
+The performance successor retained for later recovery is
+`AC-PREFILL-SM87-MACROFEED-v4`. Owner direction on 2026-08-20 paused further
+Prefill optimization before the whole-request loop; the incomplete checkpoint
+is isolated on `archive/v4-construction-ownership-20260820` and is not part of
+the delivery mainline. Its present boundary is narrower and must not
 be confused with an executable whole-model or API route. A default-off host
 contract fixes exact P40000 as five contiguous C8000 panels with the panel
 loop outside the natural
@@ -704,14 +707,34 @@ Full-QKV, Full-O, in-place preprocess, and fixed C8000 online Attention. Those
 queries occur once inside normal execution-package construction; the request
 path cannot supply or repeat them.
 
+The same normal construction now consumes Startup's existing request-boundary
+execution-seal API exactly once. It performs the four fixed source-private
+resource queries for Embedding, final norm, LM-head, and greedy argmax, then
+retains the all-or-nothing execution catalog and its independent fold under
+normal Resident authority. It acquires one exact 160,008-byte
+`cudaHostAllocPortable` owner before the device reserve query, zero-initializes
+it, and binds 160,000 bytes of token-ID staging plus the final eight-byte
+result. Exact phase-exclusive token-ID, final-norm, logits, greedy-workspace,
+and final-result aliases occupy the first 507,144 bytes of the existing
+scratch plane; they add no device allocation. Synthetic-T1 keeps every one of
+these boundary owners and identities explicitly unbound. Construction
+rollback inspects every `cudaFreeHost` result, and the real-checkpoint lifetime
+probe is specified to require that the stale pinned address becomes invalid
+after Engine destruction. That probe has not been executed for this archived
+checkpoint, so the physical release assertion is procedure/source authority,
+not a positive runtime fact.
+
 That composition root is wired into the existing default-off V3 real-owner
 Engine harness and constructs the normal 48-complete-GDN, 64-MLP, and 16-Full
 startup-to-execution chain. The normal ExecutionPackage now owns exactly
 2,621,440,000 bytes of private Full-Attention KV in addition to the
 442,368,000-byte transient and 156,893,184-byte recurrent arenas, for exactly
-3,220,701,184 owned bytes. It borrows a sealed non-owning binding from one
+3,220,701,184 device-owned bytes. Its request-boundary pinned owner raises the
+total package-owned ledger to 3,220,861,192 bytes without changing the
+device-only reserve calculation. It borrows a sealed non-owning binding from one
 shared Engine RoPE owner containing 262,144 positions by 32 pairs of cosine
-and sine tables, exactly 67,108,864 bytes. The build-time reserve chain keeps
+and sine tables, exactly 67,108,864 bytes, for 3,287,970,056 total anchored
+device-plus-host bytes. The build-time reserve chain keeps
 the existing 8,640,542,976-byte legacy P40 request arena and the caller's
 minimum-free reserve available: complete-target-AOT creation leaves
 11,928,353,024 bytes plus that caller reserve for RoPE, V4 execution, and the
@@ -922,22 +945,22 @@ Startup also exposes the construction-only, all-or-nothing
 combine those immutable sources only with source-private current-device
 resource observations under normal Resident authority; it rejects host-test
 authority and clears the complete result on failure. The normal
-ExecutionPackage has not called this API and owns no resulting request-boundary
-execution catalog. Consequently there is still no normal pinned token or
-greedy-handoff staging, final-row/finalizer scratch alias binding, fixed
-submission order, request entry/exit execution, or runtime-positive normal
-invocation. The slice has no physical 64-layer-by-five-panel witness,
+ExecutionPackage now calls this API once during construction, retains the
+resulting private catalog, exact portable pinned staging, and fixed scratch
+aliases described above. These are owner and construction facts only: no
+request-entry or finalizer leaf is invoked, no fixed submission order exists,
+and there is no runtime-positive normal invocation. The slice has no physical
+64-layer-by-five-panel witness,
 real-weight or real-checkpoint boundary numerical result, whole-model receipt,
 API result, performance result, release authority, or production authority.
 
-The owner-only Events-to-RequestState panel-commit bridge and atomic cold
-rearm/panel-0 admission are now implemented at their narrow lifecycle
-boundary. The next P0 is therefore for the normal ExecutionPackage to make
-the one construction-time call to the existing request-boundary execution
-seal, retain its private catalog, bind package-owned pinned staging and exact
-scratch aliases, then execute the fixed Embedding edge around the package's
-64-natural-layer by five-panel loop with complete failure rollback—not another
-synthetic timing cell or normal-prefix probe. The request loop is followed by
+The owner-only Events-to-RequestState panel-commit bridge, atomic cold
+rearm/panel-0 admission, and construction-only request-boundary ownership are
+now implemented at their narrow lifecycle boundaries. Performance work is
+paused at this checkpoint. When explicitly resumed, the first unfinished P0
+is the owner-atomic fixed Embedding edge around the package's 64-natural-layer
+by five-panel loop with complete failure rollback—not another synthetic timing
+cell or normal-prefix probe. The request loop is followed by
 final-row norm, the exact final epoch-five `B -> A` canonical copy,
 `FinalPublish`, and logical sequence fence, with proportional pinned-real-
 checkpoint lifetime and numerical gates; LM-head, greedy argmax, and D2H then
@@ -952,8 +975,8 @@ scheduled to overlap after their final-row input becomes ready, but a qualified
 pure-Prefill interval must use independent timing-enabled Control events around
 that normative state-publication boundary and exclude LM-head/argmax; neither
 `FinalRepresentationReady` nor duration subtraction may manufacture the
-phase. D2H is excluded as well. Until the normal Execution binding,
-64-by-five loop, publication writer, and real gates close, the boundary T1
+phase. D2H is excluded as well. Until the 64-by-five loop, publication writer,
+request-boundary leaf invocation, and real gates close, the boundary T1
 remains synthetic-only and the v10 observation at 392.804397 prompt tok/s
 remains the current whole-product incumbent. cuBLASLt remains reference-only
 and cannot fill any missing binding or runtime route.
@@ -973,7 +996,7 @@ The V4 boundary remains exact and non-MTP.
 | SM87 whole-system AOT Prefill v1 | Default-off real-P40 API composition; performance-rejected after a zero-byte 840.000399-second timeout | Retain only as correctness/diagnostic control; it is not an active performance candidate |
 | SM87 bulk-dataflow v2 Prefill | Complete default-off real-P40 API route; performance-rejected after a zero-byte 680.73-second EvalScope timeout and one bounded causal profile; accuracy remains unqualified | Retain exact constituents and evidence only; no V2 tuning, P60/P130, qualification, or production promotion |
 | SM87 MacroFeed v3 Prefill | Complete default-off, test-only 64-layer source composition with startup-bound target-AOT assets, role-specific macro projections, nine-kernel-per-layer exact GDN, cold rollback, and a V18 physical transaction; integrated build and focused admission tests pass | Frozen executable diagnostic/control; no authoritative P40 timing, numerical, release, or production qualification exists |
-| SM87 MacroFeed v4 Prefill | Active, default-off C8000×5 panel-major foundation: Full Events strictly separates normal and Synthetic-T1 authority and uses direct O(1) `panel * 16 + ordinal` replay slots; the normal Full outer receipt binds every identity but has no runtime-positive invocation. One same-request/panel Synthetic-T1 fixture physically executes `GDN0 -> GDN1 -> GDN2 -> Full3` with complete KV/RoPE as 35 kernels plus three 61,440-byte copies, followed by one normal combined drain/discard and no publication. Owner-atomic runtime rearm performs the exact 156,893,184-byte Main zero and creates fresh epoch/panel 0 together without heap allocation; exact-ledger `PanelDone` directly commits RequestState with no host wait, healthy discard can rearm, poison cannot, and final private discard publishes nothing. Normal Startup independently seals the four request-boundary sources from the authenticated real Resident owner, including both LM-head scalar provenances while consuming only `weight_scale_2`; host-test authority cannot mint a normal execution binding. A construction-only normal Execution resource-seal API exists, but ExecutionPackage has not called it. The panel-close fixture seeds rather than physically executes the 560-kernel ledger | Connect ExecutionPackage once to the existing request-boundary execution seal; bind its private pinned staging and scratch aliases; then add the fixed package 64-layer × 5-panel loop and rollback, final `B -> A`/`FinalPublish`/sequence fence (including successful-request reuse), and independent timing-enabled Control events that stop pure Prefill at canonical `PrefillStateCommitted` while excluding LM-head/argmax/D2H. Proportional real-checkpoint lifetime/numerical gates precede the API. There is still no normal request-boundary execution binding, pinned staging, scratch-alias binding, runtime-positive whole panel/request, real checkpoint/weight boundary oracle, API, performance, release, or production authority |
+| SM87 MacroFeed v4 Prefill | Paused, default-off C8000×5 panel-major construction checkpoint on `archive/v4-construction-ownership-20260820`: Full Events strictly separates normal and Synthetic-T1 authority and uses direct O(1) `panel * 16 + ordinal` replay slots; the normal Full outer receipt binds every identity but has no runtime-positive invocation. One same-request/panel Synthetic-T1 fixture physically executes `GDN0 -> GDN1 -> GDN2 -> Full3` with complete KV/RoPE as 35 kernels plus three 61,440-byte copies, followed by one normal combined drain/discard and no publication. Owner-atomic runtime rearm performs the exact 156,893,184-byte Main zero and creates fresh epoch/panel 0 together without heap allocation; exact-ledger `PanelDone` directly commits RequestState with no host wait, healthy discard can rearm, poison cannot, and final private discard publishes nothing. Normal Startup independently seals the four request-boundary sources from the authenticated real Resident owner, including both LM-head scalar provenances while consuming only `weight_scale_2`; host-test authority cannot mint a normal execution binding. Normal Execution construction now performs all four source-private resource queries, retains the sealed boundary catalog, owns exact 160,008-byte portable pinned staging, and binds the exact 507,144-byte scratch alias span. The panel-close fixture seeds rather than physically executes the 560-kernel ledger | Resume only after an explicit owner decision, starting with the fixed package 64-layer × 5-panel loop and rollback, final `B -> A`/`FinalPublish`/sequence fence (including successful-request reuse), and independent timing-enabled Control events that stop pure Prefill at canonical `PrefillStateCommitted` while excluding LM-head/argmax/D2H. Proportional real-checkpoint lifetime/numerical gates precede the API. There is still no request-boundary leaf invocation, runtime-positive whole panel/request, real-checkpoint lifetime or weight-boundary oracle, API, performance, release, or production authority |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |

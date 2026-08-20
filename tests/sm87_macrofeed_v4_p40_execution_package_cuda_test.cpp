@@ -460,6 +460,31 @@ class Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture final {
     return true;
   }
 
+  [[nodiscard]] static bool request_boundary_is_explicitly_unbound(
+      const Sm87MacroFeedV4P40ExecutionPackage& package) noexcept {
+    if (package.request_boundary_catalog_identity_ != 0U ||
+        package.request_boundary_host_staging_ != nullptr ||
+        package.request_boundary_host_token_ids_ != nullptr ||
+        package.request_boundary_host_result_ != nullptr ||
+        package.request_boundary_device_token_ids_ != nullptr ||
+        package.request_boundary_final_norm_ != nullptr ||
+        package.request_boundary_logits_ != nullptr ||
+        package.request_boundary_greedy_workspace_ != nullptr ||
+        package.request_boundary_final_result_ != nullptr) {
+      return false;
+    }
+    for (const auto& binding : package.request_boundary_catalog_) {
+      if (binding.binding_identity != 0U ||
+          binding.source_catalog_identity != 0U ||
+          binding.resource_bundle_identity != 0U ||
+          binding.normal_resident_authority ||
+          binding.host_test_resident_authority) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   [[nodiscard]] static bool scratch_gap_untouched(
       const Sm87MacroFeedV4P40ExecutionPackage& package) {
     if (package.scratch_ == nullptr) {
@@ -533,6 +558,39 @@ struct HasPublicExecutionCreate<
 
 static_assert(!HasPublicExecutionCreate<
               execution::Sm87MacroFeedV4P40ExecutionPackage>::value);
+static_assert(
+    execution::kSm87MacroFeedV4P40RequestBoundaryHostTokenBytes == 160'000U);
+static_assert(
+    execution::kSm87MacroFeedV4P40RequestBoundaryHostResultOffset ==
+    160'000U);
+static_assert(
+    execution::kSm87MacroFeedV4P40RequestBoundaryHostStagingBytes ==
+    160'008U);
+static_assert(execution::kSm87MacroFeedV4P40ExecutionTotalOwnedBytes ==
+              3'220'861'192U);
+static_assert(
+    execution::kSm87MacroFeedV4P40RequestBoundaryTokenIdsScratchBegin == 0U &&
+    execution::kSm87MacroFeedV4P40RequestBoundaryTokenIdsScratchEnd ==
+        32'000U);
+static_assert(
+    execution::kSm87MacroFeedV4P40RequestBoundaryFinalNormScratchBegin == 0U &&
+    execution::kSm87MacroFeedV4P40RequestBoundaryFinalNormScratchEnd ==
+        10'240U);
+static_assert(
+    execution::kSm87MacroFeedV4P40RequestBoundaryLogitsScratchBegin ==
+        10'240U &&
+    execution::kSm87MacroFeedV4P40RequestBoundaryLogitsScratchEnd ==
+        506'880U);
+static_assert(
+    execution::kSm87MacroFeedV4P40RequestBoundaryGreedyScratchBegin ==
+        506'880U &&
+    execution::kSm87MacroFeedV4P40RequestBoundaryGreedyScratchEnd ==
+        507'144U);
+static_assert(
+    execution::kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchBegin ==
+        507'136U &&
+    execution::kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchEnd ==
+        507'144U);
 
 void require_test(const bool condition, const std::string_view message) {
   if (!condition) {
@@ -1595,6 +1653,17 @@ void test_real_cuda_front_half() {
   }
   require_test(static_cast<bool>(startup_created),
                "actual-kernel startup package creation failed");
+  require_test(
+      !startup_created.audit.request_boundary_normal_resident_authority &&
+          startup_created.audit.request_boundary_host_test_resident_authority &&
+          startup_created.audit.request_boundary_source_catalog_identity !=
+              0U &&
+          startup_created.audit.request_boundary_resident_root_identity !=
+              0U &&
+          startup_created.audit.request_boundary_live_device_ranges_complete &&
+          !startup_created.audit
+               .request_boundary_observed_resource_execution_catalog_sealed,
+      "host Startup fixture did not retain a live, non-upgradable boundary source");
 
   auto fake_catalog_execution =
       execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::create(
@@ -1741,6 +1810,32 @@ void test_real_cuda_front_half() {
       audit.valid() && audit.fixed_gdn_layer0_front_half_bound &&
           audit.qkvz_ab_ready_transaction_bound &&
           audit.synthetic_t1_gdn_layer0_source &&
+          audit.request_boundary_catalog_identity == 0U &&
+          audit.retained_request_boundary_catalog_fold_identity == 0U &&
+          audit.request_boundary_source_catalog_identity == 0U &&
+          audit.request_boundary_resource_bundle_identity == 0U &&
+          audit.request_boundary_binding_identity == 0U &&
+          audit.request_boundary_bindings == 0U &&
+          audit.request_boundary_resource_queries == 0U &&
+          !audit.request_boundary_execution_catalog_bound &&
+          !audit.request_boundary_source_private_resource_queries &&
+          !audit.request_boundary_normal_resident_authority &&
+          !audit.request_boundary_host_test_resident_authority &&
+          audit.request_boundary_synthetic_unbound &&
+          audit.request_boundary_host_staging_allocation_identity == 0U &&
+          audit.request_boundary_scratch_alias_identity == 0U &&
+          audit.request_boundary_host_staging_begin == 0U &&
+          audit.request_boundary_host_staging_bytes == 0U &&
+          audit.request_boundary_host_owned_bytes == 0U &&
+          audit.total_owned_bytes == audit.execution_owned_bytes &&
+          audit.request_boundary_scratch_alias_span_bytes == 0U &&
+          audit.request_boundary_host_staging_flags == 0U &&
+          !audit.request_boundary_host_staging_pinned &&
+          !audit.request_boundary_host_staging_construction_zero_initialized &&
+          !audit.request_boundary_scratch_aliases_exact &&
+          !audit.request_boundary_request_selectable &&
+          !audit.request_boundary_launcher_authority &&
+          !audit.request_boundary_production_dispatch_eligible &&
           audit.gdn_qkvz_catalog_identity == 0U &&
           audit.gdn_layer0_source_identity != 0U &&
           audit.gdn_qkvz_bindings == 1U &&
@@ -1752,6 +1847,11 @@ void test_real_cuda_front_half() {
           !audit.cublaslt_present && !audit.mtp_present &&
           !audit.production_dispatch_eligible,
       "execution audit overstated the layer-0 front-half slice");
+  require_test(
+      execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::
+          request_boundary_is_explicitly_unbound(
+              *execution_created.package),
+      "synthetic package acquired request-boundary catalog or storage authority");
 
   require_test(
       execution::Sm87MacroFeedV4P40ExecutionPackageCudaTestFixture::seed(

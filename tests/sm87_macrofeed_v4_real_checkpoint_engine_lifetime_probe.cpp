@@ -115,6 +115,7 @@ struct ProbeEvidence final {
   bool construction_snapshot_hook_exact = false;
   bool construction_snapshot_valid = false;
   bool normal_catalogs_exact = false;
+  bool request_boundary_ownership_exact = false;
   bool full_attention_ownership_exact = false;
   bool reserve_chain_exact = false;
   bool owner_allocation_device_lifetime_chain_exact = false;
@@ -124,6 +125,11 @@ struct ProbeEvidence final {
   bool engine_destroy_attempted = false;
   bool engine_destroyed = false;
   bool post_destroy_synchronized = false;
+  int pinned_host_staging_release_query_cuda_error = 0;
+  int pinned_host_staging_release_clear_cuda_error = 0;
+  int pinned_host_staging_release_post_clear_cuda_error = 0;
+  bool pinned_host_staging_released_after_destroy = false;
+  bool pinned_host_staging_release_cuda_error_cleared = false;
   bool memory_recovered_after_destroy = false;
   runtime::ReferenceEngineLoadStats load;
   runtime::ReferenceEngineDiagnostic diagnostic;
@@ -492,7 +498,7 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
 [[nodiscard]] bool write_evidence(const std::filesystem::path& path,
                                   const ProbeEvidence& evidence) {
   std::ostringstream output;
-  output << "{\n  \"schema_version\": 4,\n"
+  output << "{\n  \"schema_version\": 5,\n"
             "  \"artifact\": "
             "\"q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime\",\n"
             "  \"status\": \""
@@ -503,7 +509,10 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
       "pinned-metadata and three-resident-shard real-checkpoint Engine "
       "construction, normal 48-complete-GDN, 64-MLP-pair, and 16-Full-"
       "Attention catalog identities/folds, exact V4 KV and shared Engine "
-      "RoPE ownership, staged aggregate reserve arguments, target-AOT "
+      "RoPE ownership, exact normal request-boundary Resident/resource, "
+      "160008-byte pinned staging and scratch-alias ownership, physical "
+      "pinned-staging release after Engine destruction, staged aggregate "
+      "reserve arguments, target-AOT "
       "owner/allocation/device lifetime chain, "
       "CUDA quiescence, destruction, and free-memory "
       "recovery within the declared 32 MiB tolerance only; the recovery gate "
@@ -718,6 +727,9 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
   write_boolean(output, evidence.engine_destroy_attempted);
   output << ",\n    \"destroyed\": ";
   write_boolean(output, evidence.engine_destroyed);
+  output << ",\n    \"pinned_host_staging_released_after_destroy\": ";
+  write_boolean(output,
+                evidence.pinned_host_staging_released_after_destroy);
   output << "\n  },\n  \"complete_aot\": {\n"
          << "    \"artifacts\": "
          << evidence.load.target_aot_complete_projection_artifacts
@@ -770,6 +782,130 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
                 .full_attention_resource_bundle_identity
          << ",\n    \"exact\": ";
   write_boolean(output, evidence.normal_catalogs_exact);
+  output << "\n  },\n  \"request_boundary_owner\": {\n"
+         << "    \"startup_source_catalog_identity\": "
+         << evidence.construction_snapshot
+                .startup_request_boundary_source_catalog_identity
+         << ",\n    \"startup_resident_root_identity\": "
+         << evidence.construction_snapshot
+                .startup_request_boundary_resident_root_identity
+         << ",\n    \"startup_resident_arena_bytes\": "
+         << evidence.construction_snapshot
+                .startup_request_boundary_resident_arena_bytes
+         << ",\n    \"startup_source_bindings\": "
+         << evidence.construction_snapshot
+                .startup_request_boundary_source_bindings
+         << ",\n    \"startup_normal_resident_authority\": ";
+  write_boolean(
+      output,
+      evidence.construction_snapshot
+          .startup_request_boundary_normal_resident_authority);
+  output << ",\n    \"startup_host_test_resident_authority\": ";
+  write_boolean(
+      output,
+      evidence.construction_snapshot
+          .startup_request_boundary_host_test_resident_authority);
+  output << ",\n    \"execution_catalog_identity\": "
+         << evidence.construction_snapshot
+                .execution_request_boundary_catalog_identity
+         << ",\n    \"retained_catalog_fold_identity\": "
+         << evidence.construction_snapshot
+                .retained_request_boundary_catalog_fold_identity
+         << ",\n    \"source_catalog_identity\": "
+         << evidence.construction_snapshot
+                .request_boundary_source_catalog_identity
+         << ",\n    \"resource_bundle_identity\": "
+         << evidence.construction_snapshot
+                .request_boundary_resource_bundle_identity
+         << ",\n    \"binding_identity\": "
+         << evidence.construction_snapshot.request_boundary_binding_identity
+         << ",\n    \"resident_root_identity\": "
+         << evidence.construction_snapshot
+                .request_boundary_resident_root_identity
+         << ",\n    \"resident_arena_bytes\": "
+         << evidence.construction_snapshot
+                .request_boundary_resident_arena_bytes
+         << ",\n    \"binding_count\": "
+         << evidence.construction_snapshot
+                .execution_request_boundary_binding_count
+         << ",\n    \"resource_query_count\": "
+         << evidence.construction_snapshot
+                .execution_request_boundary_resource_queries
+         << ",\n    \"host_staging_allocation_identity\": "
+         << evidence.construction_snapshot
+                .request_boundary_host_staging_allocation_identity
+         << ",\n    \"host_staging_begin\": "
+         << evidence.construction_snapshot
+                .request_boundary_host_staging_begin
+         << ",\n    \"host_staging_bytes\": "
+         << evidence.construction_snapshot.request_boundary_host_staging_bytes
+         << ",\n    \"host_staging_flags\": "
+         << evidence.construction_snapshot.request_boundary_host_staging_flags
+         << ",\n    \"host_owned_bytes\": "
+         << evidence.construction_snapshot.request_boundary_host_owned_bytes
+         << ",\n    \"execution_device_owned_bytes\": "
+         << evidence.construction_snapshot.owned_bytes
+         << ",\n    \"scratch_alias_identity\": "
+         << evidence.construction_snapshot
+                .request_boundary_scratch_alias_identity
+         << ",\n    \"scratch_alias_span_bytes\": "
+         << evidence.construction_snapshot
+                .request_boundary_scratch_alias_span_bytes
+         << ",\n    \"total_owned_bytes\": "
+         << evidence.construction_snapshot.total_owned_bytes
+         << ",\n    \"total_anchored_bytes\": "
+         << evidence.construction_snapshot.total_anchored_bytes
+         << ",\n    \"execution_catalog_bound\": ";
+  write_boolean(
+      output,
+      evidence.construction_snapshot.request_boundary_execution_catalog_bound);
+  output << ",\n    \"source_private_queries_completed\": ";
+  write_boolean(
+      output,
+      evidence.construction_snapshot
+          .request_boundary_source_private_resource_queries);
+  output << ",\n    \"normal_resident_authority\": ";
+  write_boolean(
+      output,
+      evidence.construction_snapshot
+          .request_boundary_normal_resident_authority);
+  output << ",\n    \"host_test_resident_authority\": ";
+  write_boolean(
+      output,
+      evidence.construction_snapshot
+          .request_boundary_host_test_resident_authority);
+  output << ",\n    \"synthetic_unbound\": ";
+  write_boolean(
+      output,
+      evidence.construction_snapshot.request_boundary_synthetic_unbound);
+  output << ",\n    \"host_staging_pinned\": ";
+  write_boolean(
+      output,
+      evidence.construction_snapshot.request_boundary_host_staging_pinned);
+  output << ",\n    \"host_staging_construction_zero_initialized\": ";
+  write_boolean(
+      output,
+      evidence.construction_snapshot
+          .request_boundary_host_staging_construction_zero_initialized);
+  output << ",\n    \"scratch_aliases_exact\": ";
+  write_boolean(
+      output,
+      evidence.construction_snapshot.request_boundary_scratch_aliases_exact);
+  output << ",\n    \"request_selectable\": ";
+  write_boolean(
+      output,
+      evidence.construction_snapshot.request_boundary_request_selectable);
+  output << ",\n    \"launcher_authority\": ";
+  write_boolean(
+      output,
+      evidence.construction_snapshot.request_boundary_launcher_authority);
+  output << ",\n    \"production_dispatch_eligible\": ";
+  write_boolean(
+      output,
+      evidence.construction_snapshot
+          .request_boundary_production_dispatch_eligible);
+  output << ",\n    \"exact\": ";
+  write_boolean(output, evidence.request_boundary_ownership_exact);
   output << "\n  },\n  \"full_attention_owner\": {\n"
          << "    \"kv_allocation_identity\": "
          << evidence.construction_snapshot.kv_allocation_identity
@@ -935,6 +1071,16 @@ void capture_binary_and_build_configuration(ProbeEvidence& evidence) {
          << evidence.pre_destroy_sync_cuda_error
          << ",\n    \"post_destroy_sync_cuda_error\": "
          << evidence.post_destroy_sync_cuda_error
+         << ",\n    \"pinned_host_staging_release_query_cuda_error\": "
+         << evidence.pinned_host_staging_release_query_cuda_error
+         << ",\n    \"pinned_host_staging_release_clear_cuda_error\": "
+         << evidence.pinned_host_staging_release_clear_cuda_error
+         << ",\n    \"pinned_host_staging_release_post_clear_cuda_error\": "
+         << evidence.pinned_host_staging_release_post_clear_cuda_error
+         << ",\n    \"pinned_host_staging_release_cuda_error_cleared\": ";
+  write_boolean(
+      output, evidence.pinned_host_staging_release_cuda_error_cleared);
+  output
          << ",\n    \"recovered_after_destroy\": ";
   write_boolean(output, evidence.memory_recovered_after_destroy);
   output << "\n  },\n  \"diagnostic\": {\n    \"code\": "
@@ -1006,6 +1152,24 @@ int main(const int argc, char** argv) {
   static_assert(
       lifetime_probe::kSm87MacroFeedV4EngineLifetimeExpectedOwnedBytes ==
       3'220'701'184ULL);
+  static_assert(
+      lifetime_probe::
+          kSm87MacroFeedV4EngineLifetimeExpectedRequestBoundaryBindings ==
+      1U);
+  static_assert(
+      lifetime_probe::
+          kSm87MacroFeedV4EngineLifetimeExpectedRequestBoundaryResourceQueries ==
+      4U);
+  static_assert(
+      lifetime_probe::
+          kSm87MacroFeedV4EngineLifetimeExpectedRequestBoundaryResidentBytes ==
+      20'150'786'560ULL);
+  static_assert(
+      lifetime_probe::kSm87MacroFeedV4EngineLifetimeExpectedHostOwnedBytes ==
+      160'008ULL);
+  static_assert(
+      lifetime_probe::kSm87MacroFeedV4EngineLifetimeExpectedTotalOwnedBytes ==
+      3'220'861'192ULL);
   static_assert(
       lifetime_probe::kSm87MacroFeedV4EngineLifetimeExpectedRopeBytes ==
       67'108'864ULL);
@@ -1108,6 +1272,112 @@ int main(const int argc, char** argv) {
                 .retained_full_attention_catalog_fold_identity != 0U &&
         evidence.construction_snapshot
                 .full_attention_resource_bundle_identity != 0U;
+    evidence.request_boundary_ownership_exact =
+        evidence.construction_snapshot_valid &&
+        evidence.construction_snapshot
+                .startup_request_boundary_source_catalog_identity != 0U &&
+        evidence.construction_snapshot
+                .startup_request_boundary_resident_root_identity != 0U &&
+        evidence.construction_snapshot
+                .startup_request_boundary_resident_arena_bytes ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedRequestBoundaryResidentBytes &&
+        evidence.construction_snapshot
+                .startup_request_boundary_source_bindings ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedRequestBoundaryBindings &&
+        evidence.construction_snapshot
+            .startup_request_boundary_normal_resident_authority &&
+        !evidence.construction_snapshot
+             .startup_request_boundary_host_test_resident_authority &&
+        evidence.construction_snapshot
+                .execution_request_boundary_catalog_identity != 0U &&
+        evidence.construction_snapshot
+                .retained_request_boundary_catalog_fold_identity != 0U &&
+        evidence.construction_snapshot.request_boundary_source_catalog_identity ==
+            evidence.construction_snapshot
+                .startup_request_boundary_source_catalog_identity &&
+        evidence.construction_snapshot
+                .request_boundary_resource_bundle_identity != 0U &&
+        evidence.construction_snapshot.request_boundary_binding_identity !=
+            0U &&
+        evidence.construction_snapshot.request_boundary_resident_root_identity ==
+            evidence.construction_snapshot
+                .startup_request_boundary_resident_root_identity &&
+        evidence.construction_snapshot.request_boundary_resident_arena_bytes ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedRequestBoundaryResidentBytes &&
+        evidence.construction_snapshot
+                .execution_request_boundary_binding_count ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedRequestBoundaryBindings &&
+        evidence.construction_snapshot
+                .execution_request_boundary_resource_queries ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedRequestBoundaryResourceQueries &&
+        evidence.construction_snapshot
+                .request_boundary_host_staging_allocation_identity != 0U &&
+        evidence.construction_snapshot.request_boundary_host_staging_begin !=
+            0U &&
+        evidence.construction_snapshot
+                .request_boundary_host_staging_bytes ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedHostOwnedBytes &&
+        evidence.construction_snapshot.request_boundary_host_owned_bytes ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedHostOwnedBytes &&
+        evidence.construction_snapshot.request_boundary_host_staging_flags ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedPinnedHostFlags &&
+        evidence.construction_snapshot.request_boundary_scratch_alias_identity !=
+            0U &&
+        evidence.construction_snapshot
+                .request_boundary_scratch_alias_span_bytes ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedScratchAliasSpanBytes &&
+        evidence.construction_snapshot.total_owned_bytes ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedTotalOwnedBytes &&
+        evidence.construction_snapshot.owned_bytes ==
+            lifetime_probe::kSm87MacroFeedV4EngineLifetimeExpectedOwnedBytes &&
+        evidence.construction_snapshot.total_anchored_bytes ==
+            lifetime_probe::
+                kSm87MacroFeedV4EngineLifetimeExpectedTotalAnchoredBytes &&
+        evidence.construction_snapshot
+            .request_boundary_execution_catalog_bound &&
+        evidence.construction_snapshot
+            .request_boundary_source_private_resource_queries &&
+        evidence.construction_snapshot
+            .request_boundary_normal_resident_authority &&
+        !evidence.construction_snapshot
+             .request_boundary_host_test_resident_authority &&
+        !evidence.construction_snapshot.request_boundary_synthetic_unbound &&
+        evidence.construction_snapshot.request_boundary_host_staging_pinned &&
+        evidence.construction_snapshot
+            .request_boundary_host_staging_construction_zero_initialized &&
+        evidence.construction_snapshot.request_boundary_scratch_aliases_exact &&
+        !evidence.construction_snapshot.request_boundary_request_selectable &&
+        !evidence.construction_snapshot.request_boundary_launcher_authority &&
+        !evidence.construction_snapshot
+             .request_boundary_production_dispatch_eligible &&
+        evidence.construction_snapshot
+                .request_boundary_host_staging_allocation_identity !=
+            evidence.construction_snapshot.transient_allocation_identity &&
+        evidence.construction_snapshot
+                .request_boundary_host_staging_allocation_identity !=
+            evidence.construction_snapshot.recurrent_allocation_identity &&
+        evidence.construction_snapshot
+                .request_boundary_host_staging_allocation_identity !=
+            evidence.construction_snapshot.kv_allocation_identity &&
+        evidence.construction_snapshot.request_boundary_scratch_alias_identity !=
+            evidence.construction_snapshot.transient_allocation_identity &&
+        evidence.construction_snapshot.request_boundary_scratch_alias_identity !=
+            evidence.construction_snapshot.recurrent_allocation_identity &&
+        evidence.construction_snapshot.request_boundary_scratch_alias_identity !=
+            evidence.construction_snapshot.kv_allocation_identity &&
+        evidence.construction_snapshot.request_boundary_scratch_alias_identity !=
+            evidence.construction_snapshot
+                .request_boundary_host_staging_allocation_identity;
     evidence.full_attention_ownership_exact =
         evidence.construction_snapshot_valid &&
         evidence.construction_snapshot.kv_allocation_identity != 0U &&
@@ -1238,6 +1508,7 @@ int main(const int argc, char** argv) {
       evidence.owner_allocation_device_lifetime_chain_exact =
           evidence.snapshot_matches_complete_aot_load_stats &&
           evidence.normal_catalogs_exact &&
+          evidence.request_boundary_ownership_exact &&
           evidence.full_attention_ownership_exact &&
           evidence.reserve_chain_exact &&
           evidence.construction_snapshot.lifetime_root_identity ==
@@ -1287,6 +1558,31 @@ int main(const int argc, char** argv) {
   evidence.post_destroy_sync_cuda_error = static_cast<int>(cuda_status);
   evidence.post_destroy_synchronized = cuda_status == cudaSuccess;
 
+  if (evidence.engine_destroyed && evidence.post_destroy_synchronized &&
+      evidence.construction_snapshot.request_boundary_host_staging_begin !=
+          0U) {
+    unsigned int stale_flags = 0U;
+    const cudaError_t release_query_status = cudaHostGetFlags(
+        &stale_flags,
+        reinterpret_cast<void*>(
+            evidence.construction_snapshot
+                .request_boundary_host_staging_begin));
+    evidence.pinned_host_staging_release_query_cuda_error =
+        static_cast<int>(release_query_status);
+    evidence.pinned_host_staging_released_after_destroy =
+        release_query_status == cudaErrorInvalidValue;
+    // cudaHostGetFlags on the deliberately stale owner address is the
+    // physical release assertion.  Clear its expected invalid-value status
+    // before the final cudaMemGetInfo call.
+    evidence.pinned_host_staging_release_clear_cuda_error =
+        static_cast<int>(cudaGetLastError());
+    const cudaError_t post_clear_status = cudaPeekAtLastError();
+    evidence.pinned_host_staging_release_post_clear_cuda_error =
+        static_cast<int>(post_clear_status);
+    evidence.pinned_host_staging_release_cuda_error_cleared =
+        post_clear_status == cudaSuccess;
+  }
+
   std::size_t free_after = 0U;
   std::size_t total_after = 0U;
   cuda_status = cudaMemGetInfo(&free_after, &total_after);
@@ -1314,6 +1610,7 @@ int main(const int argc, char** argv) {
       evidence.construction_snapshot_count == 1U &&
       evidence.construction_snapshot_valid &&
       evidence.normal_catalogs_exact &&
+      evidence.request_boundary_ownership_exact &&
       evidence.full_attention_ownership_exact &&
       evidence.reserve_chain_exact &&
       evidence.snapshot_matches_complete_aot_load_stats &&
@@ -1323,6 +1620,8 @@ int main(const int argc, char** argv) {
       evidence.pre_destroy_synchronized &&
       evidence.engine_destroy_attempted && evidence.engine_destroyed &&
       evidence.post_destroy_synchronized &&
+      evidence.pinned_host_staging_released_after_destroy &&
+      evidence.pinned_host_staging_release_cuda_error_cleared &&
       evidence.final_mem_info_cuda_error == 0 &&
       evidence.memory_recovered_after_destroy;
 

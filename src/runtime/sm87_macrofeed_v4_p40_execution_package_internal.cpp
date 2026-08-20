@@ -261,6 +261,74 @@ std::atomic<std::uint64_t> g_next_complete_layer_receipt_identity{1U};
   return true;
 }
 
+static_assert(kSm87MacroFeedV4P40RequestBoundaryHostPortableFlag ==
+              cudaHostAllocPortable);
+
+// PointerAttributes proves that the supplied address is CUDA-pinned host
+// memory; cudaHostGetFlags proves the requested Portable registration.  The
+// exact 160,008-byte extent is an owner ledger established by the sole
+// cudaHostAlloc call below, not something inferred from PointerAttributes.
+[[nodiscard]] bool live_portable_pinned_host_pointer(
+    void* const pointer, int* const cuda_error) noexcept {
+  if (cuda_error != nullptr) {
+    *cuda_error = 0;
+  }
+  if (pointer == nullptr || cuda_error == nullptr) {
+    if (cuda_error != nullptr) {
+      *cuda_error = static_cast<int>(cudaErrorInvalidValue);
+    }
+    return false;
+  }
+  auto* const bytes = static_cast<std::uint8_t*>(pointer);
+  cudaPointerAttributes begin_attributes{};
+  cudaError_t status = cudaPointerGetAttributes(&begin_attributes, bytes);
+  unsigned int flags = 0U;
+  if (status == cudaSuccess) {
+    status = cudaHostGetFlags(&flags, pointer);
+  }
+  if (status != cudaSuccess ||
+      begin_attributes.type != cudaMemoryTypeHost ||
+      flags != cudaHostAllocPortable) {
+    *cuda_error = status == cudaSuccess
+                      ? static_cast<int>(cudaErrorInvalidValue)
+                      : static_cast<int>(status);
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] std::uint64_t request_boundary_scratch_alias_identity(
+    const void* const scratch,
+    const std::uint64_t transient_allocation_identity) noexcept {
+  if (scratch == nullptr || transient_allocation_identity == 0U) {
+    return 0U;
+  }
+  std::uint64_t identity = 0x5133'4d46'5242'5341ULL;
+  identity = mix64(identity ^ reinterpret_cast<std::uintptr_t>(scratch));
+  identity = mix64(identity ^ transient_allocation_identity);
+  identity = mix64(
+      identity ^ kSm87MacroFeedV4P40RequestBoundaryTokenIdsScratchBegin);
+  identity = mix64(
+      identity ^ kSm87MacroFeedV4P40RequestBoundaryTokenIdsScratchEnd);
+  identity = mix64(
+      identity ^ kSm87MacroFeedV4P40RequestBoundaryFinalNormScratchBegin);
+  identity = mix64(
+      identity ^ kSm87MacroFeedV4P40RequestBoundaryFinalNormScratchEnd);
+  identity = mix64(
+      identity ^ kSm87MacroFeedV4P40RequestBoundaryLogitsScratchBegin);
+  identity = mix64(
+      identity ^ kSm87MacroFeedV4P40RequestBoundaryLogitsScratchEnd);
+  identity = mix64(
+      identity ^ kSm87MacroFeedV4P40RequestBoundaryGreedyScratchBegin);
+  identity = mix64(
+      identity ^ kSm87MacroFeedV4P40RequestBoundaryGreedyScratchEnd);
+  identity = mix64(
+      identity ^ kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchBegin);
+  identity = mix64(
+      identity ^ kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchEnd);
+  return identity == 0U ? 1U : identity;
+}
+
 [[nodiscard]] std::uint64_t engine_rope_binding_identity(
     const Sm87MacroFeedV4P40EngineRopeBinding& binding) noexcept {
   if (binding.cosines == nullptr || binding.sines == nullptr ||
@@ -346,6 +414,8 @@ Sm87MacroFeedV4P40ExecutionPackage::Sm87MacroFeedV4P40ExecutionPackage(
     LayerNormCatalog layer_norm_catalog, GdnQkvZCatalog gdn_qkvz_catalog,
     MlpPairCatalog mlp_pair_catalog,
     FullAttentionCatalog full_attention_catalog,
+    RequestBoundaryCatalog request_boundary_catalog,
+    const std::uint64_t request_boundary_catalog_identity,
     GdnLayer0ExecutionSource gdn_layer0_source,
     std::optional<CompleteGdnLayer0ExecutionSource>
         complete_gdn_layer0_source,
@@ -359,6 +429,7 @@ Sm87MacroFeedV4P40ExecutionPackage::Sm87MacroFeedV4P40ExecutionPackage(
     Sm87MacroFeedV4P40EngineRopeBinding engine_rope,
     void* const kv_allocation, void* const transient_allocation,
     void* const recurrent_allocation,
+    void* const request_boundary_host_staging,
     std::unique_ptr<Sm87MacroFeedV4RequestState> request_state,
     std::shared_ptr<EventsOwner> events_owner,
     std::unique_ptr<EventsDriver> events_driver,
@@ -369,6 +440,8 @@ Sm87MacroFeedV4P40ExecutionPackage::Sm87MacroFeedV4P40ExecutionPackage(
       gdn_qkvz_catalog_(std::move(gdn_qkvz_catalog)),
       mlp_pair_catalog_(std::move(mlp_pair_catalog)),
       full_attention_catalog_(std::move(full_attention_catalog)),
+      request_boundary_catalog_(std::move(request_boundary_catalog)),
+      request_boundary_catalog_identity_(request_boundary_catalog_identity),
       gdn_layer0_source_(gdn_layer0_source),
       complete_gdn_layer0_source_(std::move(complete_gdn_layer0_source)),
       norm_resources_(norm_resources),
@@ -380,6 +453,19 @@ Sm87MacroFeedV4P40ExecutionPackage::Sm87MacroFeedV4P40ExecutionPackage(
       kv_allocation_(kv_allocation),
       transient_allocation_(transient_allocation),
       recurrent_allocation_(recurrent_allocation),
+      request_boundary_host_staging_(request_boundary_host_staging),
+      request_boundary_host_token_ids_(
+          request_boundary_host_staging_ == nullptr
+              ? nullptr
+              : static_cast<std::uint32_t*>(
+                    request_boundary_host_staging_)),
+      request_boundary_host_result_(
+          request_boundary_host_staging_ == nullptr
+              ? nullptr
+              : reinterpret_cast<Bf16GreedyArgmaxResult*>(
+                    static_cast<std::uint8_t*>(
+                        request_boundary_host_staging_) +
+                    kSm87MacroFeedV4P40RequestBoundaryHostResultOffset)),
       ping_(reinterpret_cast<std::uint16_t*>(
           static_cast<std::uint8_t*>(transient_allocation_) +
           kSm87MacroFeedV4P40ExecutionPingOffset)),
@@ -389,6 +475,33 @@ Sm87MacroFeedV4P40ExecutionPackage::Sm87MacroFeedV4P40ExecutionPackage(
       scratch_(reinterpret_cast<std::uint16_t*>(
           static_cast<std::uint8_t*>(transient_allocation_) +
           kSm87MacroFeedV4P40ExecutionScratchOffset)),
+      request_boundary_device_token_ids_(reinterpret_cast<std::uint32_t*>(
+          request_boundary_catalog_identity_ == 0U
+              ? nullptr
+              : reinterpret_cast<std::uint8_t*>(scratch_) +
+                    kSm87MacroFeedV4P40RequestBoundaryTokenIdsScratchBegin)),
+      request_boundary_final_norm_(reinterpret_cast<std::uint16_t*>(
+          request_boundary_catalog_identity_ == 0U
+              ? nullptr
+              : reinterpret_cast<std::uint8_t*>(scratch_) +
+                    kSm87MacroFeedV4P40RequestBoundaryFinalNormScratchBegin)),
+      request_boundary_logits_(reinterpret_cast<std::uint16_t*>(
+          request_boundary_catalog_identity_ == 0U
+              ? nullptr
+              : reinterpret_cast<std::uint8_t*>(scratch_) +
+                    kSm87MacroFeedV4P40RequestBoundaryLogitsScratchBegin)),
+      request_boundary_greedy_workspace_(
+          reinterpret_cast<Bf16GreedyArgmaxResult*>(
+              request_boundary_catalog_identity_ == 0U
+                  ? nullptr
+                  : reinterpret_cast<std::uint8_t*>(scratch_) +
+                        kSm87MacroFeedV4P40RequestBoundaryGreedyScratchBegin)),
+      request_boundary_final_result_(
+          reinterpret_cast<Bf16GreedyArgmaxResult*>(
+              request_boundary_catalog_identity_ == 0U
+                  ? nullptr
+                  : reinterpret_cast<std::uint8_t*>(scratch_) +
+                        kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchBegin)),
       request_state_(std::move(request_state)),
       events_owner_(std::move(events_owner)),
       events_driver_(std::move(events_driver)),
@@ -453,6 +566,31 @@ std::uint64_t Sm87MacroFeedV4P40ExecutionPackage::
     }
     identity = mix64(identity ^ (ordinal + 1U));
     identity = mix64(identity ^ binding_identity);
+  }
+  return identity == 0U ? 1U : identity;
+}
+
+std::uint64_t Sm87MacroFeedV4P40ExecutionPackage::
+    compute_request_boundary_catalog_fold_identity(
+        const RequestBoundaryCatalog& catalog) noexcept {
+  std::uint64_t identity = 0x5133'4d46'5634'5243ULL;
+  identity = mix64(identity ^ catalog.size());
+  for (std::size_t ordinal = 0U; ordinal < catalog.size(); ++ordinal) {
+    const std::uint64_t binding_identity =
+        StartupPackage::compute_request_boundary_execution_binding_identity(
+            catalog[ordinal]);
+    if (binding_identity == 0U ||
+        binding_identity != catalog[ordinal].binding_identity) {
+      return 0U;
+    }
+    identity = mix64(identity ^ (ordinal + 1U));
+    identity = mix64(identity ^ binding_identity);
+    identity = mix64(identity ^ catalog[ordinal].source_catalog_identity);
+    identity = mix64(identity ^ catalog[ordinal].resource_bundle_identity);
+    identity = mix64(identity ^ catalog[ordinal].resident_root_identity);
+    identity = mix64(identity ^ catalog[ordinal].resident_arena_begin);
+    identity = mix64(identity ^ catalog[ordinal].resident_arena_end);
+    identity = mix64(identity ^ catalog[ordinal].resident_arena_bytes);
   }
   return identity == 0U ? 1U : identity;
 }
@@ -1088,6 +1226,134 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
     return result;
   }
 
+  RequestBoundaryCatalog request_boundary_catalog{};
+  std::uint64_t request_boundary_catalog_identity = 0U;
+  std::size_t request_boundary_resource_queries = 0U;
+  if (!synthetic_requested) {
+    StartupPackage::RequestBoundaryExecutionResourceObservations
+        observations{};
+    int resource_status = kernels::sm87_macrofeed_v4_bound_launch_detail::
+        query_embedding_c8000_resources_cuda(&observations.embedding);
+    ++request_boundary_resource_queries;
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.status = failure(Error::kRequestBoundaryResources,
+                              "request_boundary_embedding_resource_query",
+                              resource_status);
+      return result;
+    }
+    resource_status = kernels::sm87_macrofeed_v4_bound_launch_detail::
+        query_final_norm_m1_resources_cuda(&observations.final_norm);
+    ++request_boundary_resource_queries;
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.status = failure(Error::kRequestBoundaryResources,
+                              "request_boundary_final_norm_resource_query",
+                              resource_status);
+      return result;
+    }
+    resource_status = kernels::sm87_macrofeed_v4_bound_launch_detail::
+        query_lm_head_m1_resources_cuda(&observations.lm_head);
+    ++request_boundary_resource_queries;
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.status = failure(Error::kRequestBoundaryResources,
+                              "request_boundary_lm_head_resource_query",
+                              resource_status);
+      return result;
+    }
+    resource_status = kernels::sm87_macrofeed_v4_bound_launch_detail::
+        query_greedy_argmax_m1_resources_cuda(&observations.greedy);
+    ++request_boundary_resource_queries;
+    if (resource_status != static_cast<int>(cudaSuccess)) {
+      result.status = failure(Error::kRequestBoundaryResources,
+                              "request_boundary_greedy_resource_query",
+                              resource_status);
+      return result;
+    }
+    observations.source_private_queries_completed = true;
+    observations.caller_resource_snapshot_accepted = false;
+    std::size_t request_boundary_failure =
+        startup::kSm87MacroFeedV4P40StartupPackageRequestBoundaryBindings;
+    int request_boundary_cuda_error = 0;
+    if (!startup_package
+             .seal_request_boundary_execution_catalog_for_execution_package(
+                 observations, &request_boundary_catalog,
+                 &request_boundary_catalog_identity,
+                 &request_boundary_failure, &request_boundary_cuda_error) ||
+        request_boundary_catalog_identity == 0U ||
+        request_boundary_failure != request_boundary_catalog.size() ||
+        request_boundary_resource_queries != 4U) {
+      result.status = failure(
+          Error::kRequestBoundaryCatalog,
+          "complete_request_boundary_catalog_seal",
+          request_boundary_cuda_error,
+          request_boundary_failure < request_boundary_catalog.size()
+              ? request_boundary_failure
+              : kSm87MacroFeedV4LayerCount);
+      return result;
+    }
+  }
+  const std::uint64_t retained_request_boundary_catalog_fold_identity =
+      synthetic_requested
+          ? 0U
+          : compute_request_boundary_catalog_fold_identity(
+                request_boundary_catalog);
+  if (!synthetic_requested &&
+      retained_request_boundary_catalog_fold_identity == 0U) {
+    result.status = failure(
+        Error::kRequestBoundaryCatalog,
+        "retained_request_boundary_catalog_identity_fold");
+    return result;
+  }
+
+  void* request_boundary_host_staging = nullptr;
+  if (!synthetic_requested) {
+    const cudaError_t staging_status = cudaHostAlloc(
+        &request_boundary_host_staging,
+        static_cast<std::size_t>(
+            kSm87MacroFeedV4P40RequestBoundaryHostStagingBytes),
+        cudaHostAllocPortable);
+    int staging_cuda_error = 0;
+    if (staging_status != cudaSuccess ||
+        !live_portable_pinned_host_pointer(request_boundary_host_staging,
+                                           &staging_cuda_error)) {
+      if (request_boundary_host_staging != nullptr) {
+        const cudaError_t cleanup_status =
+            cudaFreeHost(request_boundary_host_staging);
+        if (cleanup_status != cudaSuccess) {
+          result.status = failure(
+              Error::kPinnedHostStagingAllocation,
+              "cuda_free_host_after_staging_validation_failure",
+              static_cast<int>(cleanup_status));
+          return result;
+        }
+        request_boundary_host_staging = nullptr;
+      }
+      result.status = failure(
+          Error::kPinnedHostStagingAllocation,
+          "exact_portable_request_boundary_host_staging",
+          staging_status != cudaSuccess ? static_cast<int>(staging_status)
+                                        : staging_cuda_error);
+      return result;
+    }
+    std::memset(request_boundary_host_staging, 0,
+                static_cast<std::size_t>(
+                    kSm87MacroFeedV4P40RequestBoundaryHostStagingBytes));
+  }
+  const auto release_host_staging = [&](const char* const context) noexcept {
+    if (request_boundary_host_staging != nullptr) {
+      const cudaError_t release_status =
+          cudaFreeHost(request_boundary_host_staging);
+      if (release_status == cudaSuccess) {
+        request_boundary_host_staging = nullptr;
+      } else {
+        // Construction has already failed at every call site.  Preserve that
+        // fail-closed result while replacing its diagnostic with the cleanup
+        // failure: rollback must never imply that this owner was released.
+        result.status = failure(Error::kPinnedHostStagingAllocation, context,
+                                static_cast<int>(release_status));
+      }
+    }
+  };
+
   auto events_created =
       events::create_sm87_macrofeed_v4_execution_events_owner();
   if (!events_created) {
@@ -1095,6 +1361,7 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
                             "execution_event_owner_create", 0,
                             kSm87MacroFeedV4LayerCount, false,
                             events_created.status);
+    release_host_staging("cuda_free_host_after_event_owner_create_failure");
     return result;
   }
   std::shared_ptr<EventsOwner> events_owner;
@@ -1104,6 +1371,8 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
   } catch (const std::bad_alloc&) {
     result.status = failure(Error::kExecutionEvents,
                             "execution_event_owner_lifetime_allocation");
+    release_host_staging(
+        "cuda_free_host_after_event_owner_lifetime_allocation_failure");
     return result;
   }
   auto events_driver =
@@ -1111,6 +1380,7 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
   if (events_driver == nullptr) {
     result.status = failure(Error::kExecutionEvents,
                             "execution_event_driver_bind");
+    release_host_staging("cuda_free_host_after_event_driver_bind_failure");
     return result;
   }
   const std::uint64_t events_owner_identity =
@@ -1120,6 +1390,8 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
           startup_package.audit().device_ordinal) {
     result.status = failure(Error::kExecutionEvents,
                             "execution_event_owner_device_identity");
+    release_host_staging(
+        "cuda_free_host_after_event_owner_device_identity_failure");
     return result;
   }
 
@@ -1143,6 +1415,8 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
       result.status = failure(Error::kMemoryReserve,
                               "aggregate_device_memory_reserve_gate",
                               static_cast<int>(info_status));
+      release_host_staging(
+          "cuda_free_host_after_aggregate_memory_reserve_failure");
       return result;
     }
     aggregate_memory_gate_passed = true;
@@ -1166,6 +1440,7 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
       (void)cudaFree(transient);
       transient = nullptr;
     }
+    release_host_staging("cuda_free_host_during_storage_rollback");
   };
 
   cudaError_t cuda_status = cudaSuccess;
@@ -1180,11 +1455,11 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
             startup_package.audit().device_ordinal,
             reinterpret_cast<std::uintptr_t>(kv),
             kSm87MacroFeedV4AttentionKvArenaBytes, &kv_cuda_error)) {
-      rollback_storage();
       result.status = failure(
           Error::kKvAllocation, "exact_full_attention_kv_allocation",
           cuda_status != cudaSuccess ? static_cast<int>(cuda_status)
                                      : kv_cuda_error);
+      rollback_storage();
       return result;
     }
   }
@@ -1194,10 +1469,10 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
       static_cast<std::size_t>(
           kSm87MacroFeedV4P40ExecutionTransientBytes));
   if (cuda_status != cudaSuccess || transient == nullptr) {
-    rollback_storage();
     result.status = failure(Error::kTransientAllocation,
                             "transient_allocation",
                             static_cast<int>(cuda_status));
+    rollback_storage();
     return result;
   }
 
@@ -1205,10 +1480,10 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
       &recurrent,
       static_cast<std::size_t>(kSm87MacroFeedV4RecurrentStorageBytes));
   if (cuda_status != cudaSuccess || recurrent == nullptr) {
-    rollback_storage();
     result.status = failure(Error::kRecurrentAllocation,
                             "recurrent_allocation",
                             static_cast<int>(cuda_status));
+    rollback_storage();
     return result;
   }
 
@@ -1222,17 +1497,68 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
       next_nonzero(&g_next_execution_identity);
   const std::uint64_t bank_b_identity =
       next_nonzero(&g_next_execution_identity);
+  const std::uint64_t request_boundary_host_staging_identity =
+      synthetic_requested ? 0U : next_nonzero(&g_next_execution_identity);
+  const auto* const scratch_begin =
+      static_cast<const std::uint8_t*>(transient) +
+      kSm87MacroFeedV4P40ExecutionScratchOffset;
+  const std::uint64_t request_boundary_alias_identity =
+      synthetic_requested
+          ? 0U
+          : request_boundary_scratch_alias_identity(scratch_begin,
+                                                    transient_identity);
+  if (!synthetic_requested) {
+    const auto* const token_ids = reinterpret_cast<const std::uint32_t*>(
+        scratch_begin +
+        kSm87MacroFeedV4P40RequestBoundaryTokenIdsScratchBegin);
+    const auto* const final_norm = reinterpret_cast<const std::uint16_t*>(
+        scratch_begin +
+        kSm87MacroFeedV4P40RequestBoundaryFinalNormScratchBegin);
+    const auto* const logits = reinterpret_cast<const std::uint16_t*>(
+        scratch_begin +
+        kSm87MacroFeedV4P40RequestBoundaryLogitsScratchBegin);
+    const auto* const greedy =
+        reinterpret_cast<const Bf16GreedyArgmaxResult*>(
+            scratch_begin +
+            kSm87MacroFeedV4P40RequestBoundaryGreedyScratchBegin);
+    const auto* const final_result =
+        reinterpret_cast<const Bf16GreedyArgmaxResult*>(
+            scratch_begin +
+            kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchBegin);
+    const bool exact_aliases =
+        request_boundary_alias_identity != 0U &&
+        pointer_aligned(token_ids, alignof(std::uint32_t)) &&
+        pointer_aligned(final_norm, alignof(std::uint16_t)) &&
+        pointer_aligned(logits, alignof(std::uint16_t)) &&
+        pointer_aligned(greedy, alignof(Bf16GreedyArgmaxResult)) &&
+        pointer_aligned(final_result, alignof(Bf16GreedyArgmaxResult)) &&
+        reinterpret_cast<const void*>(token_ids) ==
+            reinterpret_cast<const void*>(final_norm) &&
+        final_result ==
+            greedy +
+                (kernels::sm87_macrofeed_v4_bound_launch_detail::
+                     kSm87MacroFeedV4GreedyWorkspaceResults -
+                 1U) &&
+        kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchEnd <=
+            kernels::kSm87MacroFeedV4Bf16AbScratchBytes;
+    if (!exact_aliases) {
+      result.status = failure(Error::kRequestBoundaryScratchAliases,
+                              "exact_request_boundary_scratch_aliases");
+      rollback_storage();
+      return result;
+    }
+  }
   const auto cold_initialized = events_driver->initialize_cold_recurrent_storage(
       recurrent,
       static_cast<std::size_t>(kSm87MacroFeedV4RecurrentStorageBytes),
       recurrent_identity);
   if (!cold_initialized) {
-    rollback_storage();
     result.status = failure(Error::kColdRecurrentInitialization,
                             "cold_recurrent_storage_zero_and_seal",
                             cold_initialized.cuda_error,
                             kSm87MacroFeedV4LayerCount, false,
                             cold_initialized);
+    rollback_storage();
     return result;
   }
   const auto cold_snapshot = events_driver->snapshot();
@@ -1243,9 +1569,9 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
           reinterpret_cast<std::uintptr_t>(recurrent) ||
       cold_snapshot.cold_recurrent_zero_bytes !=
           kSm87MacroFeedV4RecurrentStorageBytes) {
-    rollback_storage();
     result.status = failure(Error::kColdRecurrentInitialization,
                             "cold_recurrent_storage_seal_postcondition");
+    rollback_storage();
     return result;
   }
   // Sample the retained reserve only after the cold-initialization launch has
@@ -1262,10 +1588,10 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
     if (info_status != cudaSuccess ||
         device_free_bytes_after_allocations <
             minimum_free_bytes_after_create) {
-      rollback_storage();
       result.status = failure(Error::kMemoryReserve,
                               "post_initialization_device_memory_reserve_gate",
                               static_cast<int>(info_status));
+      rollback_storage();
       return result;
     }
   }
@@ -1279,9 +1605,9 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
                 bank_b_identity, kv_identity);
   auto request_created = Sm87MacroFeedV4RequestState::create(admission);
   if (!request_created) {
-    rollback_storage();
     result.status = failure(Error::kRequestState,
                             "request_state_owner_binding");
+    rollback_storage();
     return result;
   }
 
@@ -1302,6 +1628,29 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
       retained_full_attention_catalog_fold_identity;
   audit.full_attention_resource_bundle_identity =
       full_attention_resource_bundle_identity;
+  if (!synthetic_requested) {
+    const auto& request_boundary = request_boundary_catalog[0U];
+    audit.request_boundary_catalog_identity =
+        request_boundary_catalog_identity;
+    audit.request_boundary_source_catalog_identity =
+        request_boundary.source_catalog_identity;
+    audit.request_boundary_resource_bundle_identity =
+        request_boundary.resource_bundle_identity;
+    audit.request_boundary_binding_identity =
+        request_boundary.binding_identity;
+    audit.request_boundary_resident_root_identity =
+        request_boundary.resident_root_identity;
+    audit.request_boundary_resident_arena_bytes =
+        request_boundary.resident_arena_bytes;
+  }
+  audit.retained_request_boundary_catalog_fold_identity =
+      retained_request_boundary_catalog_fold_identity;
+  audit.request_boundary_host_staging_allocation_identity =
+      request_boundary_host_staging_identity;
+  audit.request_boundary_scratch_alias_identity =
+      request_boundary_alias_identity;
+  audit.request_boundary_host_staging_begin =
+      reinterpret_cast<std::uintptr_t>(request_boundary_host_staging);
   audit.gdn_layer0_source_identity =
       complete_gdn_layer0_source.has_value()
           ? complete_gdn_layer0_source->identity
@@ -1330,6 +1679,10 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
           : mlp_pair_catalog.size();
   audit.full_attention_bindings =
       synthetic_requested ? 0U : full_attention_catalog.size();
+  audit.request_boundary_bindings =
+      synthetic_requested ? 0U : request_boundary_catalog.size();
+  audit.request_boundary_resource_queries =
+      request_boundary_resource_queries;
   audit.engine_rope_positions = sealed_engine_rope.position_count;
   audit.engine_rope_pairs = sealed_engine_rope.rotary_pairs;
   audit.transient_bytes = kSm87MacroFeedV4P40ExecutionTransientBytes;
@@ -1339,11 +1692,27 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
   audit.request_state_kv_allocation_bytes =
       request_created.state->admission().kv_allocation_bytes;
   audit.engine_rope_allocation_bytes = sealed_engine_rope.allocation_bytes;
+  audit.request_boundary_host_staging_bytes =
+      synthetic_requested
+          ? 0U
+          : kSm87MacroFeedV4P40RequestBoundaryHostStagingBytes;
+  audit.request_boundary_host_owned_bytes =
+      audit.request_boundary_host_staging_bytes;
+  audit.request_boundary_scratch_alias_span_bytes =
+      synthetic_requested
+          ? 0U
+          : kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchEnd;
+  audit.request_boundary_host_staging_flags =
+      synthetic_requested
+          ? 0U
+          : kSm87MacroFeedV4P40RequestBoundaryHostPortableFlag;
   audit.execution_owned_bytes =
       synthetic_requested
           ? kSm87MacroFeedV4P40ExecutionTransientBytes +
                 kSm87MacroFeedV4RecurrentStorageBytes
           : kSm87MacroFeedV4P40ExecutionOwnedBytes;
+  audit.total_owned_bytes =
+      audit.execution_owned_bytes + audit.request_boundary_host_owned_bytes;
   audit.required_device_allocation_bytes =
       required_device_allocation_bytes;
   audit.minimum_free_bytes_after_create =
@@ -1357,6 +1726,29 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
       cold_snapshot.cold_recurrent_initializations;
   audit.request_state_kv_physical_owner_bound =
       request_created.state->admission().kv_physical_owner_bound;
+  audit.request_boundary_execution_catalog_bound =
+      !synthetic_requested;
+  audit.request_boundary_source_private_resource_queries =
+      !synthetic_requested &&
+      request_boundary_catalog[0U].source_private_resource_queries;
+  audit.request_boundary_normal_resident_authority =
+      !synthetic_requested &&
+      request_boundary_catalog[0U].normal_resident_authority;
+  audit.request_boundary_host_test_resident_authority = false;
+  audit.request_boundary_synthetic_unbound = synthetic_requested;
+  audit.request_boundary_host_staging_pinned = !synthetic_requested;
+  audit.request_boundary_host_staging_construction_zero_initialized =
+      !synthetic_requested;
+  audit.request_boundary_scratch_aliases_exact = !synthetic_requested;
+  audit.request_boundary_request_selectable =
+      !synthetic_requested &&
+      request_boundary_catalog[0U].request_selectable;
+  audit.request_boundary_launcher_authority =
+      !synthetic_requested &&
+      request_boundary_catalog[0U].launcher_authority;
+  audit.request_boundary_production_dispatch_eligible =
+      !synthetic_requested &&
+      request_boundary_catalog[0U].production_dispatch_eligible;
   audit.aggregate_memory_gate_passed = aggregate_memory_gate_passed;
   audit.fixed_gdn_layer0_front_half_bound = true;
   audit.fixed_gdn_layer0_complete_bound =
@@ -1394,6 +1786,64 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
       audit.retained_full_attention_catalog_fold_identity);
   package_identity = mix64(
       package_identity ^ audit.full_attention_resource_bundle_identity);
+  package_identity =
+      mix64(package_identity ^ audit.request_boundary_catalog_identity);
+  package_identity = mix64(
+      package_identity ^
+      audit.retained_request_boundary_catalog_fold_identity);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_source_catalog_identity);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_resource_bundle_identity);
+  package_identity =
+      mix64(package_identity ^ audit.request_boundary_binding_identity);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_resident_root_identity);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_resident_arena_bytes);
+  package_identity = mix64(
+      package_identity ^
+      audit.request_boundary_host_staging_allocation_identity);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_host_staging_begin);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_host_staging_flags);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_host_owned_bytes);
+  package_identity = mix64(package_identity ^ audit.total_owned_bytes);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_scratch_alias_identity);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_host_staging_bytes);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_scratch_alias_span_bytes);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_resource_queries);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_execution_catalog_bound);
+  package_identity = mix64(
+      package_identity ^
+      audit.request_boundary_source_private_resource_queries);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_normal_resident_authority);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_host_test_resident_authority);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_synthetic_unbound);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_host_staging_pinned);
+  package_identity = mix64(
+      package_identity ^
+      audit.request_boundary_host_staging_construction_zero_initialized);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_scratch_aliases_exact);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_request_selectable);
+  package_identity = mix64(
+      package_identity ^ audit.request_boundary_launcher_authority);
+  package_identity = mix64(
+      package_identity ^
+      audit.request_boundary_production_dispatch_eligible);
   package_identity = mix64(package_identity ^ audit.gdn_layer0_source_identity);
   package_identity = mix64(package_identity ^ audit.transient_allocation_identity);
   package_identity = mix64(package_identity ^ audit.recurrent_allocation_identity);
@@ -1410,9 +1860,9 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
   audit.package_identity = package_identity == 0U ? 1U : package_identity;
   if (!audit.valid()) {
     request_created.state.reset();
-    rollback_storage();
     result.status = failure(Error::kPackageAllocation,
                             "execution_package_audit");
+    rollback_storage();
     return result;
   }
 
@@ -1420,16 +1870,19 @@ Sm87MacroFeedV4P40ExecutionPackage::create_impl(
       std::move(projection_catalog), std::move(bf16_ab_catalog),
       std::move(layer_norm_catalog), std::move(gdn_qkvz_catalog),
       std::move(mlp_pair_catalog), std::move(full_attention_catalog),
+      std::move(request_boundary_catalog),
+      request_boundary_catalog_identity,
       gdn_layer0_source,
       std::move(complete_gdn_layer0_source), norm_resources,
       bf16_ab_resources, gdn_resources, gate_up_resources, down_resources,
       sealed_engine_rope, kv, transient, recurrent,
+      request_boundary_host_staging,
       std::move(request_created.state),
       std::move(events_owner), std::move(events_driver), audit));
   if (result.package == nullptr) {
-    rollback_storage();
     result.status = failure(Error::kPackageAllocation,
                             "execution_package_host_allocation");
+    rollback_storage();
     return result;
   }
   if (!result.package->valid()) {
@@ -2458,6 +2911,148 @@ Sm87MacroFeedV4P40ExecutionPackage::
   return result;
 }
 
+bool Sm87MacroFeedV4P40ExecutionPackage::request_boundary_bindings_valid()
+    const noexcept {
+  if (audit_.synthetic_t1_gdn_layer0_source) {
+    if (request_boundary_catalog_identity_ != 0U ||
+        audit_.request_boundary_execution_catalog_bound ||
+        !audit_.request_boundary_synthetic_unbound) {
+      return false;
+    }
+    for (const auto& binding : request_boundary_catalog_) {
+      if (binding.binding_identity != 0U ||
+          binding.source_catalog_identity != 0U ||
+          binding.resource_bundle_identity != 0U ||
+          binding.normal_resident_authority ||
+          binding.host_test_resident_authority) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (request_boundary_catalog_identity_ == 0U ||
+      request_boundary_catalog_identity_ !=
+          audit_.request_boundary_catalog_identity ||
+      compute_request_boundary_catalog_fold_identity(
+          request_boundary_catalog_) !=
+          audit_.retained_request_boundary_catalog_fold_identity ||
+      request_boundary_catalog_.size() !=
+          audit_.request_boundary_bindings) {
+    return false;
+  }
+  const auto& binding = request_boundary_catalog_[0U];
+  return binding.package_identity == audit_.startup_package_identity &&
+         binding.projection_catalog_identity ==
+             audit_.projection_catalog_identity &&
+         binding.device_ordinal == audit_.device_ordinal &&
+         binding.source_catalog_identity ==
+             audit_.request_boundary_source_catalog_identity &&
+         binding.resource_bundle_identity ==
+             audit_.request_boundary_resource_bundle_identity &&
+         binding.binding_identity ==
+             audit_.request_boundary_binding_identity &&
+         binding.resident_root_identity ==
+             audit_.request_boundary_resident_root_identity &&
+         binding.resident_arena_bytes ==
+             audit_.request_boundary_resident_arena_bytes &&
+         binding.source_private_resource_queries &&
+         binding.device_scale_raw_bits_match_host &&
+         binding.input_scale_provenance_retained &&
+         !binding.input_scale_consumed &&
+         binding.final_representation_ready_diagnostic_only &&
+         binding.pure_prefill_state_committed_endpoint_unchanged &&
+         binding.normal_resident_authority &&
+         !binding.host_test_resident_authority &&
+         !binding.request_selectable && !binding.launcher_authority &&
+         !binding.production_dispatch_eligible &&
+         StartupPackage::compute_request_boundary_execution_binding_identity(
+             binding) == binding.binding_identity;
+}
+
+bool Sm87MacroFeedV4P40ExecutionPackage::request_boundary_storage_valid()
+    const noexcept {
+  if (audit_.synthetic_t1_gdn_layer0_source) {
+    return request_boundary_host_staging_ == nullptr &&
+           request_boundary_host_token_ids_ == nullptr &&
+           request_boundary_host_result_ == nullptr &&
+           request_boundary_device_token_ids_ == nullptr &&
+           request_boundary_final_norm_ == nullptr &&
+           request_boundary_logits_ == nullptr &&
+           request_boundary_greedy_workspace_ == nullptr &&
+           request_boundary_final_result_ == nullptr &&
+           audit_.request_boundary_host_staging_allocation_identity == 0U &&
+           audit_.request_boundary_scratch_alias_identity == 0U;
+  }
+  if (request_boundary_host_staging_ == nullptr || scratch_ == nullptr ||
+      request_boundary_host_token_ids_ == nullptr ||
+      request_boundary_host_result_ == nullptr ||
+      request_boundary_device_token_ids_ == nullptr ||
+      request_boundary_final_norm_ == nullptr ||
+      request_boundary_logits_ == nullptr ||
+      request_boundary_greedy_workspace_ == nullptr ||
+      request_boundary_final_result_ == nullptr) {
+    return false;
+  }
+  int pinned_cuda_error = 0;
+  auto* const host_bytes =
+      static_cast<std::uint8_t*>(request_boundary_host_staging_);
+  auto* const scratch_bytes = reinterpret_cast<std::uint8_t*>(scratch_);
+  return live_portable_pinned_host_pointer(request_boundary_host_staging_,
+                                           &pinned_cuda_error) &&
+         pointer_aligned(request_boundary_host_staging_,
+                         alignof(std::uint32_t)) &&
+         pointer_aligned(request_boundary_host_result_,
+                         alignof(Bf16GreedyArgmaxResult)) &&
+         pointer_aligned(request_boundary_device_token_ids_,
+                         alignof(std::uint32_t)) &&
+         pointer_aligned(request_boundary_final_norm_,
+                         alignof(std::uint16_t)) &&
+         pointer_aligned(request_boundary_logits_, alignof(std::uint16_t)) &&
+         pointer_aligned(request_boundary_greedy_workspace_,
+                         alignof(Bf16GreedyArgmaxResult)) &&
+         pointer_aligned(request_boundary_final_result_,
+                         alignof(Bf16GreedyArgmaxResult)) &&
+         reinterpret_cast<std::uintptr_t>(request_boundary_host_staging_) ==
+             audit_.request_boundary_host_staging_begin &&
+         audit_.request_boundary_host_staging_flags ==
+             kSm87MacroFeedV4P40RequestBoundaryHostPortableFlag &&
+         audit_.request_boundary_host_owned_bytes ==
+             kSm87MacroFeedV4P40RequestBoundaryHostStagingBytes &&
+         audit_.total_owned_bytes ==
+             audit_.execution_owned_bytes +
+                 audit_.request_boundary_host_owned_bytes &&
+         reinterpret_cast<void*>(request_boundary_host_token_ids_) ==
+             request_boundary_host_staging_ &&
+         reinterpret_cast<std::uint8_t*>(request_boundary_host_result_) ==
+             host_bytes +
+                 kSm87MacroFeedV4P40RequestBoundaryHostResultOffset &&
+         reinterpret_cast<std::uint8_t*>(
+             request_boundary_device_token_ids_) ==
+             scratch_bytes +
+                 kSm87MacroFeedV4P40RequestBoundaryTokenIdsScratchBegin &&
+         reinterpret_cast<std::uint8_t*>(request_boundary_final_norm_) ==
+             scratch_bytes +
+                 kSm87MacroFeedV4P40RequestBoundaryFinalNormScratchBegin &&
+         reinterpret_cast<std::uint8_t*>(request_boundary_logits_) ==
+             scratch_bytes +
+                 kSm87MacroFeedV4P40RequestBoundaryLogitsScratchBegin &&
+         reinterpret_cast<std::uint8_t*>(
+             request_boundary_greedy_workspace_) ==
+             scratch_bytes +
+                 kSm87MacroFeedV4P40RequestBoundaryGreedyScratchBegin &&
+         reinterpret_cast<std::uint8_t*>(request_boundary_final_result_) ==
+             scratch_bytes +
+                 kSm87MacroFeedV4P40RequestBoundaryFinalResultScratchBegin &&
+         request_boundary_final_result_ ==
+             request_boundary_greedy_workspace_ +
+                 (kernels::sm87_macrofeed_v4_bound_launch_detail::
+                      kSm87MacroFeedV4GreedyWorkspaceResults -
+                  1U) &&
+         request_boundary_scratch_alias_identity(
+             scratch_, audit_.transient_allocation_identity) ==
+             audit_.request_boundary_scratch_alias_identity;
+}
+
 bool Sm87MacroFeedV4P40ExecutionPackage::valid() const noexcept {
   if (!construction_postconditions_sealed_ ||
       transient_allocation_ == nullptr ||
@@ -2490,6 +3085,8 @@ bool Sm87MacroFeedV4P40ExecutionPackage::valid() const noexcept {
       layer_norm_catalog_.size() != audit_.layer_norm_pairs ||
       complete_gdn_layer0_source_.has_value() !=
           audit_.fixed_gdn_layer0_complete_bound ||
+      !request_boundary_bindings_valid() ||
+      !request_boundary_storage_valid() ||
       !front_half_bindings_valid()) {
     return false;
   }
@@ -3290,9 +3887,27 @@ void Sm87MacroFeedV4P40ExecutionPackage::release() noexcept {
     (void)cudaFree(transient_allocation_);
     transient_allocation_ = nullptr;
   }
+  if (request_boundary_host_staging_ != nullptr) {
+    const cudaError_t release_status =
+        cudaFreeHost(request_boundary_host_staging_);
+    // `release()` is noexcept and therefore cannot return a receipt.  Do not
+    // clear the owner on failure; the real-checkpoint lifetime probe treats a
+    // still-live registration as a failed checkpoint rather than claiming a
+    // successful release.  This archived package remains non-production.
+    if (release_status == cudaSuccess) {
+      request_boundary_host_staging_ = nullptr;
+    }
+  }
+  request_boundary_host_token_ids_ = nullptr;
+  request_boundary_host_result_ = nullptr;
   ping_ = nullptr;
   pong_ = nullptr;
   scratch_ = nullptr;
+  request_boundary_device_token_ids_ = nullptr;
+  request_boundary_final_norm_ = nullptr;
+  request_boundary_logits_ = nullptr;
+  request_boundary_greedy_workspace_ = nullptr;
+  request_boundary_final_result_ = nullptr;
   for (auto& binding : projection_catalog_) {
     binding.reset();
   }
@@ -3301,6 +3916,8 @@ void Sm87MacroFeedV4P40ExecutionPackage::release() noexcept {
   gdn_qkvz_catalog_.fill({});
   mlp_pair_catalog_.fill({});
   full_attention_catalog_.fill({});
+  request_boundary_catalog_.fill({});
+  request_boundary_catalog_identity_ = 0U;
   gdn_layer0_source_ = {};
   complete_gdn_layer0_source_.reset();
   norm_resources_ = {};
