@@ -41,6 +41,17 @@ repository-history and consolidation-decision record only; it grants no
 numerical, generation, API, timing, performance, release, or production
 authority.
 
+The required post-absorption real-model health observation is frozen in
+[`qwen36-27b-mainline-real-model-acceptance-2026-08-21.json`](qwen36-27b-mainline-real-model-acceptance-2026-08-21.json).
+The exact `BUILD_TESTING=OFF` mainline binary loaded the pinned checkpoint,
+passed clean-host and thermal gates, completed one warmup plus eight measured
+short EvalScope requests and one raw-SSE protocol request, and exited without
+an observed server-owned `nvmap` residue. The record includes spawn-to-ready,
+memory, hardware, route, protocol, EvalScope, shutdown, and raw-artifact
+identities. It is a single-process historical short-proxy health result, not a
+performance improvement from the absorbed package-consumer fix, a 32-request
+baseline, a target-length witness, or release/production qualification.
+
 The first real-checkpoint preparation of the default-off SM87 whole-system AOT
 candidate is frozen in
 [`qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12.json`](qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12.json).

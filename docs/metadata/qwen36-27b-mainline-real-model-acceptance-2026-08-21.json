@@ -1,0 +1,343 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen36-27b-mainline-real-model-acceptance-2026-08-21",
+  "record_type": "post_absorption_real_model_acceptance",
+  "created_at_utc": "2026-08-20T18:23:57.396140+00:00",
+  "classification": {
+    "source_status": "pass",
+    "measurement_status": "valid_historical_eight_request_short_proxy",
+    "authority": "single-process default-off mainline real-checkpoint startup, short loopback evaluation-adapter health, route-accounting, thermal, memory, and bounded shutdown observation",
+    "branch_absorption_closed": true,
+    "performance_improvement_from_absorption": false,
+    "prefill_architecture_selection_authority": false,
+    "target_length_authority": false,
+    "final_product_api_authority": false,
+    "release_authority": false,
+    "production_authority": false
+  },
+  "claim_boundary": "This record closes the real-model health observation required after the 2026-08-21 delivery-mainline branch absorption. It proves that the exact BUILD_TESTING=OFF mainline binary started the pinned real checkpoint, served one warmup plus eight measured short requests and one separately retained raw-SSE request, remained within the declared thermal envelope, and exited without an observed server-owned nvmap residue. The absorbed code delta changed only the installed-package consumer version assertion, so this run establishes no performance improvement. The eight-request loopback workload is not the final product API, a 32-request reference baseline, a 40K/60K/approximately-130K witness, a Prefill architecture selector, or a release/production qualification.",
+  "source": {
+    "repository_ref": "main",
+    "git_commit": "19a4b4652b66e591e48ddf084d06c53c0328f29a",
+    "git_tree": "e452e820e0384323af5d36821c952e1a1eccabaa",
+    "git_status": [],
+    "build_type": "Release",
+    "build_testing": false,
+    "cuda_architectures": "87",
+    "enabled_test_admission_options": 0,
+    "server": {
+      "bytes": 9087632,
+      "sha256": "17aa679b5873f057e43407a688efe6c00c5f13a2fa597269b595df33c7f0ddf9",
+      "elf_build_id": "a2e51282725f3587b6ad264ec298a647f89307bf"
+    },
+    "cmake_cache_sha256": "d2f502b1b19751150e8a26475ca4d93996f02f31c5a57a8966ddc21f51e721e7",
+    "absorbed_runtime_delta": false,
+    "absorbed_delta": "The selected change updates the installed package-consumer fixture from version 0.4 to the repository's existing version 0.5 contract."
+  },
+  "model": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "model_index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "shard_sizes_bytes": [
+      9965652512,
+      9985757032,
+      1970287640
+    ],
+    "identity_limitations": [
+      "This run record retains shard sizes but not the three shard SHA-256 values.",
+      "No root-level quantization_config.json existed; quantization identity is inherited from the pinned config and model-index contracts rather than a separately hashed file."
+    ]
+  },
+  "hardware": {
+    "machine": "NVIDIA Jetson AGX Orin Developer Kit",
+    "soc": "tegra234",
+    "online_cpu_count": 12,
+    "active_gpu_tpcs": 8,
+    "power_mode": "MAXN",
+    "l4t_release": "R39.2.1",
+    "kernel": "6.8.12-1021-tegra",
+    "locked_clocks": {
+      "cpu_khz": 2201600,
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "post_run_environment_inventory": {
+      "cuda_sdk": "13.3.1",
+      "nvcc": "13.3.73",
+      "cudart": "13.3.29",
+      "nvidia_kernel_module": "595.78"
+    },
+    "identity_limitation": "The raw acceptance summary freezes the L4T, kernel, nvpmodel, and jetson_clocks observations, but it did not embed the CUDA SDK, runtime, compiler, or driver versions. Those four values are a post-run environment inventory and not same-file run attestation."
+  },
+  "server_configuration": {
+    "endpoint": "http://127.0.0.1:18080/v1/completions",
+    "model_name": "qwen3.6-27b-nvfp4",
+    "max_sequence_length": 8192,
+    "max_output_tokens": 4096,
+    "prefill_chunk_size": 512,
+    "prefill_execution_mode": "legacy",
+    "prefill_attention_tactic": "exact-segmented",
+    "prefill_projection_tactic": "exact-segmented",
+    "projection_backend_argument": "sm87",
+    "witness_backend": "sm87_weight_only",
+    "request_max_arena_bytes": 2147483648,
+    "minimum_free_bytes": 8589934592,
+    "queue_capacity": 8,
+    "ingress_threads": 10,
+    "worker_count": 1,
+    "fp8_sidecar": {
+      "artifact_count": 208,
+      "bytes": 7214202880,
+      "preparation_milliseconds": 836.38
+    }
+  },
+  "clean_host_preflight": {
+    "before_server": {
+      "accepted": true,
+      "collection_errors": [],
+      "gpu_holders": [],
+      "sha256": "af81a4c9b5d170f345bfb893848a57acd7b7ea358d7ad988210fdab7bc57ee1e"
+    },
+    "ready_before_evalscope": {
+      "accepted": true,
+      "collection_errors": [],
+      "only_allowed_gpu_holder": "exact server PID 542002",
+      "sha256": "6bc39ba72f67986471a0ec3523b628b1d002ef7022b5bf7a8b09ae6e63d9ca95"
+    },
+    "after_server_exit": {
+      "accepted": true,
+      "collection_errors": [],
+      "gpu_holders": [],
+      "sha256": "c761b53db9e75de24aeed092a64943742ca62c1450137f7f2b5831807d024404"
+    },
+    "jetson_idle_authority": "tegrastats plus CPU/process and complete GPU-device FD inspection; Jetson nvidia-smi was not used"
+  },
+  "startup": {
+    "spawn_to_health_ready_milliseconds": 25680.087957007345,
+    "scope": "process spawn through exec, real-model loading, resource preparation, server readiness, and health polling at at-most 100 ms intervals",
+    "pure_model_load": false,
+    "health": {
+      "status": "ok",
+      "ready": true,
+      "model": "qwen3.6-27b-nvfp4"
+    },
+    "models_endpoint": {
+      "http_status": 200,
+      "published_models": 1,
+      "owned_by": "qwen3x-orin"
+    }
+  },
+  "workload": {
+    "tool": "EvalScope",
+    "tool_version": "1.9.1",
+    "corpus": "q3x-sharegpt-false-thinking-33.jsonl",
+    "corpus_sha256": "bd2091cdc0599ac59ab881efc6d1307a03bb149f49e6fd728a99d926ccc67989",
+    "corpus_manifest_sha256": "d3d97e17c46e7beb4009006552118c70e5e8cef5ae74ec65632ba2a44e484868",
+    "warmup_requests": 1,
+    "measured_requests": 8,
+    "parallel": 1,
+    "workers": 1,
+    "max_tokens": 16,
+    "temperature": 0,
+    "seed": 42,
+    "streaming": true,
+    "measured_prompt_tokens": 3981,
+    "measured_prompt_token_range": {
+      "minimum": 32,
+      "maximum": 1025
+    },
+    "measured_completion_tokens": 128,
+    "finish_reason": "length for all eight measured requests",
+    "completion_limit_note": "All measured requests reached the declared 16-token performance-workload cap. This proves workload completion, not answer completeness."
+  },
+  "evalscope_result": {
+    "status": "pass",
+    "successful_requests": 8,
+    "failed_requests": 0,
+    "duplicate_requests": 0,
+    "missing_requests": 0,
+    "measurement_window_seconds": 35.064593714,
+    "request_latency_seconds": {
+      "mean": 4.382804,
+      "p50": 4.839019,
+      "p95": 5.705656,
+      "p99": 5.705656
+    },
+    "ttft_milliseconds": {
+      "mean": 2749.124,
+      "p50": 3204.974,
+      "p95": 4041.46,
+      "p99": 4041.46
+    },
+    "tpot_milliseconds": {
+      "mean": 108.912,
+      "p50": 109.328,
+      "p95": 110.946,
+      "p99": 110.946
+    },
+    "itl_milliseconds": {
+      "sample_count": 120,
+      "mean": 108.902,
+      "p50": 109.076,
+      "p95": 111.071,
+      "p99": 111.238
+    },
+    "throughput_tokens_per_second": {
+      "prompt": 113.533327449,
+      "completion": 3.650405906,
+      "total": 117.183733
+    },
+    "throughput_source": "workload_throughput.json and independent token-count/window recomputation; benchmark_summary.json Input Throughput=0.0 is a known invalid field and is not cited",
+    "percentile_limitation": "With eight request samples, request-level p95 and p99 both collapse to the maximum and are not stable tail-latency estimates. ITL percentiles use 120 token intervals and therefore have a different grain."
+  },
+  "protocol_and_route": {
+    "evalscope_request_witnesses": 9,
+    "witness_breakdown": "one warmup plus eight measured requests",
+    "separate_raw_sse_request": 1,
+    "prompt_tokens_fully_consumed": true,
+    "server_witness_prompt_tokens": 4945,
+    "server_witness_completion_tokens": 160,
+    "raw_sse": {
+      "http_status": 200,
+      "token_events": 16,
+      "final_finish_reason": "length",
+      "usage": {
+        "prompt_tokens": 482,
+        "completion_tokens": 16,
+        "total_tokens": 498
+      },
+      "done_marker": true,
+      "sha256": "04ebaeae7b8e06b34d9ebed2f8caf1a94f9cb376d8683794ec6c42b3f3a996a6"
+    },
+    "evalscope_route_counts": {
+      "production_hits": 3008,
+      "exact_fallback_hits": 13792,
+      "forbidden_hits": 0
+    },
+    "separate_raw_sse_route_counts": {
+      "production_hits": 480,
+      "exact_fallback_hits": 2320,
+      "forbidden_hits": 0
+    },
+    "forbidden_zero": [
+      "prefix_cache",
+      "mtp",
+      "cublaslt",
+      "external_reference",
+      "approximate_numerics"
+    ],
+    "limitations": [
+      "The default legacy route is exact but is not fallback-free.",
+      "DeploymentPlan is not implemented, cache hits are not instrumented, and first-byte timing is not instrumented.",
+      "EvalScope 1.9.1 does not retain the final empty-choices usage event in its database; the separately retained raw-SSE request proves protocol shape but does not substitute for per-request usage retention."
+    ]
+  },
+  "thermal_and_hardware_runtime": {
+    "prestart_gate": {
+      "cpu_tj_max_celsius": 62.0,
+      "gpu_max_celsius": 55.0,
+      "observed_cpu_tj_celsius": 61.125,
+      "observed_gpu_celsius": 52.562,
+      "passed": true
+    },
+    "runtime_gate": {
+      "cpu_gpu_tj_max_celsius": 70.0,
+      "maximum_cpu_tj_celsius": 69.343,
+      "maximum_gpu_celsius": 68.25,
+      "passed": true
+    },
+    "tegrastats_samples": 404,
+    "gr3d_percent": {
+      "minimum": 0.0,
+      "maximum": 99.0,
+      "whole_lifecycle_mean": 44.23762376237624,
+      "approximate_evalscope_interval_mean": 82.24
+    },
+    "ram_used_mb": {
+      "minimum": 10759,
+      "maximum": 33448,
+      "whole_lifecycle_mean": 30543.30693069307,
+      "reported_total": 62878
+    },
+    "swap_used_mb": {
+      "constant": 381,
+      "total": 2048,
+      "grew_during_run": false
+    },
+    "frequency_observation": "All 4,848 sampled CPU-core frequency values were 2,201 MHz. The frozen clock configuration reports GPU 1,300.5 MHz and EMC 3,200 MHz, but the runtime tegrastats lines did not report GPU/EMC frequency or EMC utilization, so per-sample GPU/EMC locking is not claimed."
+  },
+  "memory": {
+    "sampling_interval_seconds": 0.25,
+    "process_samples": 405,
+    "peak_proc_vm_rss_bytes": 30703714304,
+    "peak_proc_vm_hwm_bytes": 30703714304,
+    "peak_smaps_rss_bytes": 564199424,
+    "peak_smaps_pss_bytes": 358801408,
+    "peak_smaps_private_bytes": 225001472,
+    "first_sample_after_spawn_seconds": 0.8483751359744929,
+    "first_sample_mem_available_bytes": 54736326656,
+    "minimum_mem_available_bytes": 30883618816,
+    "maximum_mem_available_drop_bytes": 23852707840,
+    "last_process_gone_mem_available_bytes": 54511521792,
+    "last_to_first_mem_available_difference_bytes": -224804864,
+    "scope_note": "The first system-memory sample was taken 0.848 seconds after spawn, not before spawn. /proc VmRSS, smaps RSS/PSS/private, system MemAvailable, tegrastats RAM, and nvmap are overlapping views and must not be summed."
+  },
+  "shutdown_and_recovery": {
+    "shutdown_signal": "SIGINT",
+    "server_exit_code": 0,
+    "server_lifetime_milliseconds": 103814.90459095221,
+    "after_exit_preflight_passed": true,
+    "pre_and_post_nvmap": {
+      "clients": 0,
+      "allocations": 0,
+      "orphan_handles_empty": true,
+      "total_memory_bytes": 0,
+      "page_pool_available_pages_equal": true,
+      "page_pool_available_big_pages_delta": 416
+    },
+    "iovmm_max_allocatable_delta_bytes": -27092497,
+    "classification": "No server-owned nvmap residue was observed after exit.",
+    "limit": "This bounded before/after observation is not a general no-memory-leak proof. The IOVMM and system-memory differences may reflect allocator caches or background variation and are not added to process memory."
+  },
+  "retained_artifacts": {
+    "local_bundle": ".q3x-work/evidence/mainline-real-model-acceptance-20260821-19a4b46-attempt04",
+    "acceptance_summary_sha256": "ab2ac5fbb12e35d8dcb5fb6170bf8cfd7a4fdeaf2eb7811bd9b07e4bd271b3ac",
+    "harness_sha256_observed_after_run": "0238a769edfff1427d4fc424114a29ef025fa01d8c41940f5d5fd247a973b65b",
+    "harness_identity_limitation": "The harness mtime preceded the run and its logic matches the retained artifacts, but the raw summary did not embed the harness SHA-256 or a top-level harness exit-code receipt.",
+    "evalscope": {
+      "benchmark_database_sha256": "0ee5934422c7efef1546872c67f1d3ddcef23edcd84f827e9edaca3a3cbc33ce",
+      "benchmark_arguments_sha256": "d1a0d85a25e95e458181f7de8cc29ffad98de6e9f407260e5ffc8b281fcacfa0",
+      "benchmark_summary_sha256": "a8240c9a74470f26c6375b9a5e25ad0570224450f5e3849205bc27422ee7a561",
+      "benchmark_percentile_sha256": "b1195878c9fc082a3615c1ed61a25ee725a53b4ed41103e881b277c77b7efcb3",
+      "workload_throughput_sha256": "5c7d4fa240c0db24e76c2f11efa9b211edfcafb65541da14285cca7291c52bfe",
+      "timeline_sha256": "fe116706f6bd7c1c071544b2bd0d586c9b800f4bc1f81ac043bd1deecc93ac4a"
+    },
+    "server_stderr_sha256": "a330d99bb5ee601cca854cb04e25fb64dff22ba594a5cf688e5647546373b94e",
+    "server_stdout_sha256": "10b1b4d81e3b81ab5f774410babfa8ff967355d52a1e8e935369875d832f551a",
+    "memory_samples_sha256": "f2a10bd86d5e0b4e62e146d196cd237f9dcbc9a184ccea25ace58e62ed28e096",
+    "tegrastats_sha256": "de39a87bdc3e50c23b5eb28c94d1d61f9214f340eb6b01aab386b6a90d407d16",
+    "evalscope_stdout_sha256": "d75d4b7a715c5a06111d98383244dfd1cc0474c183418e3a44d3f17e9566990b",
+    "evalscope_stderr_sha256": "73f3224e5cd139072f133a421b9d910517b5e40846175d04173ad3ed29a3eb6f"
+  },
+  "discarded_diagnostic": {
+    "bundle": ".q3x-work/evidence/mainline-real-model-acceptance-20260821-19a4b46-attempt03",
+    "summary_sha256": "60e3ba79b29e2c2c6751850c47b72f687333bad59d696183c79386957dc4e8bb",
+    "measured_requests": 32,
+    "status": "invalid_thermal_diagnostic",
+    "maximum_cpu_tj_celsius": 76.937,
+    "maximum_gpu_celsius": 75.5,
+    "runtime_gate_celsius": 70.0,
+    "timing_authority": false,
+    "reason": "The complete 32-request diagnostic crossed the predeclared 70C thermal boundary. Its otherwise complete protocol and timing values are not retained as a valid performance baseline."
+  },
+  "known_limits": [
+    "One fresh process and one measurement round were observed; no independent-process repetition was run.",
+    "The eight-request sample is too small for stable request-tail estimates and is not comparable to the retained 32-request stock-vLLM reference.",
+    "The hardware software-stack revision differs from the retained R39.2.0 reference environment.",
+    "The loopback evaluation adapter is not the final product API or an authenticated DeploymentPlan route.",
+    "No 40K, 60K, or approximately-130K workload was run, and paused Prefill work was not resumed.",
+    "No speedup is attributed to the selected branch absorption because it did not change runtime source."
+  ]
+}

@@ -44,6 +44,22 @@ The later holder-free post-exit preflight is not a Jetson `nvmap`
 `no_owner_leak` classification. The archive grants no mainline numerical,
 generation, API, timing, performance, release, or production authority.
 
+The consolidated default-off mainline at `19a4b465` has also completed its
+required real-model health closeout on the pinned Qwen3.6-27B checkpoint. One
+fresh server reached `/healthz` in 25,680.088 ms, then EvalScope 1.9.1 completed
+one warmup plus eight measured short requests with 8/8 success. The measured
+proxy reported mean TTFT 2,749.124 ms, mean TPOT 108.912 ms, and 113.533327
+prompt token/s; these figures are a valid eight-request historical short
+proxy, not a performance improvement or a 32-request baseline. Peak `/proc`
+VmRSS/VmHWM was 30,703,714,304 bytes, the system `MemAvailable` drop from the
+first post-spawn sample was 23,852,707,840 bytes, and CPU/Tj and GPU remained
+below the declared 70C gate at 69.343C and 68.250C. All preflights passed,
+SIGINT shutdown returned zero, and no server-owned `nvmap` residue was
+observed. The exact record and its measurement limitations are in the
+[`mainline real-model acceptance record`](metadata/qwen36-27b-mainline-real-model-acceptance-2026-08-21.json).
+It grants no 40K/60K/approximately-130K, final-product API, release, or
+production authority, and it does not resume paused Prefill optimization.
+
 The strongest whole-product P40 development observation remains the
 default-off exact-P40000 whole-core route. It was measured from a binary-pinned
 dirty tree above `a4f95ba`; the implementation was committed later as
@@ -378,8 +394,10 @@ sequence and successor identity live exclusively in
 Use the following language until this snapshot changes:
 
 - **Current:** real-model native evaluation runner; Prefill performance work is
-  paused, and the strongest default-off P40 development direction is
-  392.804397 pure prompt tok/s and is accuracy-unqualified.
+  paused; the consolidated default-off mainline has passed its eight-request
+  short-proxy real-model health closeout, and the strongest default-off P40
+  development direction remains 392.804397 pure prompt tok/s and is
+  accuracy-unqualified.
 - **Not current:** production server, production-default 40K--130K support,
   any archived V4 construction route, lossless Factorized-R1 Prefill, vLLM
   parity, or a fully qualified 10-token/s Decode release.

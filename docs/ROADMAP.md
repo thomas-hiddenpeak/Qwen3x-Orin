@@ -39,6 +39,26 @@ as a required mutation inside a named architecture candidate selected by an
 API-visible product constraint. Local work-package rules stop at that package;
 they cannot reorder the delivery slices below.
 
+### Post-absorption whole-product acceptance gate
+
+Every selected cross-branch absorption or integration batch must be closed on
+the then-current mainline with the real pinned model, even when static review
+shows that the selected delta cannot affect runtime. The minimum closeout is a
+fresh `BUILD_TESTING=OFF` binary and one clean-host default-route run that
+records exact source/binary/model/workload identity, hardware and locked-clock
+state, process-spawn-to-ready time, process and system memory observations,
+EvalScope request/latency/throughput results, route and streaming-protocol
+receipts, thermal validity, bounded shutdown, and post-exit resource state.
+Any rejected or invalid attempt remains explicitly classified and cannot
+supply timing.
+
+This gate proves integration health only. A performance-improvement claim
+still requires a runtime-relevant delta, a matched retained comparator, the
+applicable request count and target-length workload, and the repetition and
+qualification required by the real-model performance policy. The gate cannot
+activate a paused Prefill work package, waive P1/P2/P3 exit criteria, or turn
+the loopback evaluation adapter into the final product API.
+
 Inside every Prefill architecture candidate, the work order is also fixed:
 
 ```text
