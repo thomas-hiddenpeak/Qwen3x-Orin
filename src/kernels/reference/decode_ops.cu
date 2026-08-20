@@ -548,18 +548,40 @@ void residual_add_headwise_centered_rms_norm_m32_5120_kernel(
   __shared__ float partial[kThreads];
   const std::size_t token = static_cast<std::size_t>(blockIdx.x);
   const std::size_t token_offset = token * kResidualRmsHiddenSize;
+  constexpr unsigned int kValuesPerThread =
+      static_cast<unsigned int>(kResidualRmsHiddenSize / kThreads);
+  constexpr unsigned int kPackedValuesPerThread = kValuesPerThread / 2U;
+  static_assert(kValuesPerThread == 20U);
+  static_assert(kValuesPerThread % 2U == 0U);
+  std::uint32_t packed_residuals[kPackedValuesPerThread];
 
   float sum = 0.0F;
-  for (std::size_t dimension = threadIdx.x;
-       dimension < kResidualRmsHiddenSize; dimension += blockDim.x) {
-    const std::size_t index = token_offset + dimension;
+#pragma unroll
+  for (unsigned int packed_index = 0U;
+       packed_index < kPackedValuesPerThread; ++packed_index) {
+    const std::size_t first_dimension =
+        static_cast<std::size_t>(threadIdx.x) +
+        static_cast<std::size_t>(2U * packed_index) * kThreads;
+    const std::size_t second_dimension = first_dimension + kThreads;
+    const std::size_t first_index = token_offset + first_dimension;
+    const std::size_t second_index = token_offset + second_dimension;
     // Keep the production operand order: residual-left + projection-right.
-    const std::uint16_t residual_bits =
-        encode_bf16_device(decode_bf16_device(left[index]) +
-                           decode_bf16_device(right[index]));
-    residual_output[index] = residual_bits;
-    const float residual = decode_bf16_device(residual_bits);
-    sum = fmaf(residual, residual, sum);
+    const std::uint16_t first_residual_bits =
+        encode_bf16_device(decode_bf16_device(left[first_index]) +
+                           decode_bf16_device(right[first_index]));
+    residual_output[first_index] = first_residual_bits;
+    const float first_residual = decode_bf16_device(first_residual_bits);
+    sum = fmaf(first_residual, first_residual, sum);
+
+    const std::uint16_t second_residual_bits =
+        encode_bf16_device(decode_bf16_device(left[second_index]) +
+                           decode_bf16_device(right[second_index]));
+    residual_output[second_index] = second_residual_bits;
+    const float second_residual = decode_bf16_device(second_residual_bits);
+    sum = fmaf(second_residual, second_residual, sum);
+    packed_residuals[packed_index] =
+        static_cast<std::uint32_t>(first_residual_bits) |
+        (static_cast<std::uint32_t>(second_residual_bits) << 16U);
   }
 
   partial[threadIdx.x] = sum;
@@ -573,12 +595,29 @@ void residual_add_headwise_centered_rms_norm_m32_5120_kernel(
   const float inverse_rms =
       rsqrtf(partial[0] / static_cast<float>(kResidualRmsHiddenSize) +
              epsilon);
-  for (std::size_t dimension = threadIdx.x;
-       dimension < kResidualRmsHiddenSize; dimension += blockDim.x) {
-    const std::size_t index = token_offset + dimension;
-    const float gamma = decode_bf16_device(weight[dimension]) + 1.0F;
-    normalized_output[index] = encode_bf16_device(
-        decode_bf16_device(residual_output[index]) * inverse_rms * gamma);
+#pragma unroll
+  for (unsigned int packed_index = 0U;
+       packed_index < kPackedValuesPerThread; ++packed_index) {
+    const std::size_t first_dimension =
+        static_cast<std::size_t>(threadIdx.x) +
+        static_cast<std::size_t>(2U * packed_index) * kThreads;
+    const std::size_t second_dimension = first_dimension + kThreads;
+    const std::size_t first_index = token_offset + first_dimension;
+    const std::size_t second_index = token_offset + second_dimension;
+    const std::uint32_t packed_residual = packed_residuals[packed_index];
+    const std::uint16_t first_residual_bits =
+        static_cast<std::uint16_t>(packed_residual);
+    const std::uint16_t second_residual_bits =
+        static_cast<std::uint16_t>(packed_residual >> 16U);
+    const float first_gamma =
+        decode_bf16_device(weight[first_dimension]) + 1.0F;
+    const float second_gamma =
+        decode_bf16_device(weight[second_dimension]) + 1.0F;
+    normalized_output[first_index] = encode_bf16_device(
+        decode_bf16_device(first_residual_bits) * inverse_rms * first_gamma);
+    normalized_output[second_index] = encode_bf16_device(
+        decode_bf16_device(second_residual_bits) * inverse_rms *
+        second_gamma);
   }
 }
 
