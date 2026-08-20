@@ -2156,6 +2156,7 @@ struct ReferenceEngine::Impl {
       const bool resident_was_prepared = prepared_resident.has_value();
       auto impl = std::make_unique<Impl>();
       impl->trace_enabled = options.enable_trace;
+      impl->load.projection_backend = options.projection_backend;
       impl->load.decode_graph_cache_requested_policy =
           options.decode_graph_cache_policy;
       if (prepared_tokenizer != nullptr) {

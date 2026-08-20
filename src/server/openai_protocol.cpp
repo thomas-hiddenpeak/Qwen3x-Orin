@@ -126,6 +126,41 @@ void append_usage(std::string& output, const OpenAIUsage& usage) {
             std::to_string(usage.total_tokens) + "}";
 }
 
+void append_nullable_json_string(std::string& output,
+                                 const std::string_view value) {
+  if (value.empty()) {
+    output += "null";
+  } else {
+    append_json_string(output, value);
+  }
+}
+
+void append_sidecar_fact(std::string& output, const std::string_view name,
+                         const ExecutionSidecarFact& fact) {
+  append_json_string(output, name);
+  output += ":{\"enabled\":";
+  output += fact.enabled ? "true" : "false";
+  output += ",\"attached_artifacts\":" +
+            std::to_string(fact.attached_artifacts) +
+            ",\"fallback_artifacts\":" +
+            std::to_string(fact.fallback_artifacts) +
+            ",\"bytes\":" + std::to_string(fact.bytes) +
+            ",\"fallback_reason\":";
+  append_nullable_json_string(output, fact.fallback_reason);
+  output += "}";
+}
+
+[[nodiscard]] constexpr std::string_view decode_graph_policy_name(
+    const runtime::ReferenceDecodeGraphCachePolicy policy) noexcept {
+  switch (policy) {
+    case runtime::ReferenceDecodeGraphCachePolicy::kDisabled:
+      return "disabled";
+    case runtime::ReferenceDecodeGraphCachePolicy::kSm87ShortPositions:
+      return "sm87_short_positions";
+  }
+  return "unknown";
+}
+
 OpenAIParseResult parse_messages(const json::Value& value,
                                  OpenAIRequest& request) {
   const json::Value::Array* const messages = value.as_array();
@@ -445,9 +480,128 @@ std::string serialize_models_response(const std::string_view served_model,
   return output;
 }
 
-std::string serialize_health_response(const std::string_view served_model) {
+ExecutionRouteAttestation make_execution_route_attestation(
+    const runtime::ReferenceEngineLoadStats& load,
+    const std::uint64_t generation_attempts_observed) {
+  ExecutionRouteAttestation attestation;
+  attestation.generation_attempts_observed = generation_attempts_observed;
+  attestation.projection_backend = load.projection_backend;
+  attestation.max_sequence_length = load.request_max_sequence_length;
+  attestation.prefill_chunk_size = load.request_prefill_chunk_size;
+  attestation.request_arena_bytes = load.request_arena_bytes;
+
+  attestation.fp8_output.enabled = load.fp8_output_sidecars_enabled;
+  attestation.fp8_output.attached_artifacts =
+      load.fp8_output_sidecar_layers;
+  attestation.fp8_output.bytes = load.fp8_output_sidecar_bytes;
+  attestation.fp8_output.fallback_reason =
+      load.fp8_output_sidecar_fallback_reason;
+
+  attestation.nvfp4_down_scale6.enabled =
+      load.nvfp4_down_scale6_sidecars_enabled;
+  attestation.nvfp4_down_scale6.attached_artifacts =
+      load.nvfp4_down_scale6_sidecars_enabled
+          ? load.nvfp4_down_scale6_sidecar_eligible_layers
+          : 0U;
+  attestation.nvfp4_down_scale6.fallback_artifacts =
+      load.nvfp4_down_scale6_sidecar_fallback_layers +
+      (load.nvfp4_down_scale6_sidecars_enabled
+           ? 0U
+           : load.nvfp4_down_scale6_sidecar_eligible_layers);
+  attestation.nvfp4_down_scale6.bytes =
+      load.nvfp4_down_scale6_sidecar_bytes;
+  attestation.nvfp4_down_scale6.fallback_reason =
+      load.nvfp4_down_scale6_sidecar_fallback_reason;
+
+  attestation.fp8_prefill_qkv.enabled =
+      load.fp8_prefill_qkv_sidecars_enabled;
+  attestation.fp8_prefill_qkv.attached_artifacts =
+      load.fp8_prefill_qkv_sidecar_layers;
+  attestation.fp8_prefill_qkv.bytes =
+      load.fp8_prefill_qkv_sidecar_bytes;
+  attestation.fp8_prefill_qkv.fallback_reason =
+      load.fp8_prefill_qkv_sidecar_fallback_reason;
+
+  attestation.fp8_prefill_supermatrix.enabled =
+      load.fp8_prefill_supermatrix_sidecars_enabled;
+  attestation.fp8_prefill_supermatrix.attached_artifacts =
+      load.fp8_prefill_supermatrix_sidecar_projections;
+  attestation.fp8_prefill_supermatrix.bytes =
+      load.fp8_prefill_supermatrix_sidecar_bytes;
+
+  attestation.nvfp4_marlin_prefill.enabled =
+      load.nvfp4_marlin_prefill_sidecars_enabled;
+  attestation.nvfp4_marlin_prefill.attached_artifacts =
+      load.nvfp4_marlin_prefill_sidecar_layers;
+  attestation.nvfp4_marlin_prefill.bytes =
+      load.nvfp4_marlin_prefill_sidecar_bytes;
+
+  attestation.decode_graph_requested_policy =
+      load.decode_graph_cache_requested_policy;
+  attestation.decode_graph_effective_policy =
+      load.decode_graph_cache_effective_policy;
+  attestation.decode_graph_first_position =
+      load.decode_graph_cache_first_position;
+  attestation.decode_graph_last_position =
+      load.decode_graph_cache_last_position;
+  attestation.decode_graph_slots = load.decode_graph_cache_slot_count;
+  attestation.decode_graph_fallback_reason =
+      load.decode_graph_cache_fallback_reason;
+  return attestation;
+}
+
+std::string serialize_health_response(
+    const std::string_view served_model,
+    const ExecutionRouteAttestation& attestation) {
   std::string output = "{\"status\":\"ok\",\"ready\":true,\"model\":";
   append_json_string(output, served_model);
+  output += ",\"route_attestation\":{\"kind\":"
+            "\"engine_build_facts\",\"schema_version\":" +
+            std::to_string(attestation.schema_version) +
+            ",\"deployment_plan_available\":";
+  output += attestation.deployment_plan_available ? "true" : "false";
+  output += ",\"per_operator_route_hits_available\":";
+  output += attestation.per_operator_route_hits_available ? "true" : "false";
+  output += ",\"generation_attempts_observed\":" +
+            std::to_string(attestation.generation_attempts_observed) +
+            ",\"projection\":{\"engine_backend\":";
+  append_json_string(output,
+                     runtime::to_string(attestation.projection_backend));
+  output += "},\"prefill\":{\"chunk_size\":" +
+            std::to_string(attestation.prefill_chunk_size) +
+            ",\"max_sequence_length\":" +
+            std::to_string(attestation.max_sequence_length) +
+            ",\"request_arena_bytes\":" +
+            std::to_string(attestation.request_arena_bytes) +
+            "},\"sidecars\":{";
+  append_sidecar_fact(output, "fp8_output", attestation.fp8_output);
+  output += ',';
+  append_sidecar_fact(output, "nvfp4_down_scale6",
+                      attestation.nvfp4_down_scale6);
+  output += ',';
+  append_sidecar_fact(output, "fp8_prefill_qkv",
+                      attestation.fp8_prefill_qkv);
+  output += ',';
+  append_sidecar_fact(output, "fp8_prefill_supermatrix",
+                      attestation.fp8_prefill_supermatrix);
+  output += ',';
+  append_sidecar_fact(output, "nvfp4_marlin_prefill",
+                      attestation.nvfp4_marlin_prefill);
+  output += "},\"decode_graph\":{\"requested_policy\":";
+  append_json_string(output, decode_graph_policy_name(
+                                 attestation.decode_graph_requested_policy));
+  output += ",\"effective_policy\":";
+  append_json_string(output, decode_graph_policy_name(
+                                 attestation.decode_graph_effective_policy));
+  output += ",\"first_position\":" +
+            std::to_string(attestation.decode_graph_first_position) +
+            ",\"last_position\":" +
+            std::to_string(attestation.decode_graph_last_position) +
+            ",\"slots\":" + std::to_string(attestation.decode_graph_slots) +
+            ",\"fallback_reason\":";
+  append_nullable_json_string(output,
+                              attestation.decode_graph_fallback_reason);
+  output += "}}";
   output += "}";
   return output;
 }

@@ -129,6 +129,58 @@ class BoundedQueue final {
   bool closed_ = false;
 };
 
+// Health checks are served concurrently with the single inference worker.
+// Keep a copied snapshot so ingress never races ReferenceEngine's mutable
+// Decode Graph demotion statistics. Only the inference thread refreshes this
+// state, immediately after each generation attempt returns or unwinds.
+class RouteAttestationState final {
+ public:
+  explicit RouteAttestationState(
+      const runtime::ReferenceEngineLoadStats& load)
+      : snapshot_(make_execution_route_attestation(load)) {}
+
+  void refresh_after_generation(
+      const runtime::ReferenceEngineLoadStats& load) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ++generation_attempts_observed_;
+    snapshot_ = make_execution_route_attestation(
+        load, generation_attempts_observed_);
+  }
+
+  [[nodiscard]] ExecutionRouteAttestation snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return snapshot_;
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  std::uint64_t generation_attempts_observed_ = 0U;
+  ExecutionRouteAttestation snapshot_;
+};
+
+class RouteAttestationRefreshGuard final {
+ public:
+  RouteAttestationRefreshGuard(runtime::ReferenceEngine& engine,
+                               RouteAttestationState& state) noexcept
+      : engine_(engine), state_(state) {}
+  ~RouteAttestationRefreshGuard() noexcept {
+    try {
+      state_.refresh_after_generation(engine_.load_stats());
+    } catch (...) {
+      // Route reporting is observational and must not convert a completed
+      // inference into a failure under host-memory pressure. The previous
+      // snapshot remains valid and its generation counter stays unchanged.
+    }
+  }
+  RouteAttestationRefreshGuard(const RouteAttestationRefreshGuard&) = delete;
+  RouteAttestationRefreshGuard& operator=(
+      const RouteAttestationRefreshGuard&) = delete;
+
+ private:
+  runtime::ReferenceEngine& engine_;
+  RouteAttestationState& state_;
+};
+
 struct HttpRequest {
   std::string method;
   std::string target;
@@ -747,6 +799,7 @@ void publish_job_error(const std::shared_ptr<InferenceJob>& job,
 void execute_job(runtime::ReferenceEngine& engine,
                  const std::shared_ptr<InferenceJob>& job,
                  const EvaluationServerOptions& options,
+                 RouteAttestationState& route_attestation,
                  const std::atomic<bool>& stopping) {
   if (job->cancelled.load(std::memory_order_relaxed) ||
       stopping.load(std::memory_order_relaxed)) {
@@ -770,19 +823,22 @@ void execute_job(runtime::ReferenceEngine& engine,
   generate_options.token_observer_context = &observer;
 
   runtime::ReferenceGenerateResult generated;
-  switch (job->request.prompt_kind) {
-    case OpenAIPromptKind::kChatMessages:
-      generated = engine.generate_chat(job->request.messages,
-                                       generate_options);
-      break;
-    case OpenAIPromptKind::kRawText:
-      generated = engine.generate_prompt(job->request.prompt,
+  {
+    RouteAttestationRefreshGuard refresh(engine, route_attestation);
+    switch (job->request.prompt_kind) {
+      case OpenAIPromptKind::kChatMessages:
+        generated = engine.generate_chat(job->request.messages,
                                          generate_options);
-      break;
-    case OpenAIPromptKind::kTokenIds:
-      generated = engine.generate_prompt_token_ids(
-          job->request.prompt_token_ids, generate_options);
-      break;
+        break;
+      case OpenAIPromptKind::kRawText:
+        generated = engine.generate_prompt(job->request.prompt,
+                                           generate_options);
+        break;
+      case OpenAIPromptKind::kTokenIds:
+        generated = engine.generate_prompt_token_ids(
+            job->request.prompt_token_ids, generate_options);
+        break;
+    }
   }
 
   if (observer.protocol_failure) {
@@ -875,11 +931,12 @@ void execute_job(runtime::ReferenceEngine& engine,
 void inference_worker(runtime::ReferenceEngine& engine,
                       BoundedQueue<std::shared_ptr<InferenceJob>>& queue,
                       const EvaluationServerOptions& options,
+                      RouteAttestationState& route_attestation,
                       const std::atomic<bool>& stopping) {
   std::shared_ptr<InferenceJob> job;
   while (queue.pop(job)) {
     try {
-      execute_job(engine, job, options, stopping);
+      execute_job(engine, job, options, route_attestation, stopping);
     } catch (const std::exception& error) {
       std::cerr << "evaluation request " << job->id
                 << " raised an unexpected exception: " << error.what()
@@ -993,6 +1050,7 @@ void handle_connection(
     UniqueFd connection,
     BoundedQueue<std::shared_ptr<InferenceJob>>& inference_queue,
     const EvaluationServerOptions& options,
+    const RouteAttestationState& route_attestation,
     const std::atomic<bool>& stopping,
     std::atomic<std::uint64_t>& next_request_id) {
   std::string buffer;
@@ -1020,7 +1078,8 @@ void handle_connection(
         request_count + 1U == kMaximumRequestsPerConnection;
 
     if (request.method == "GET" && request.target == "/healthz") {
-      const std::string body = serialize_health_response(options.served_model);
+      const std::string body = serialize_health_response(
+          options.served_model, route_attestation.snapshot());
       if (!send_fixed_response(connection.get(), 200, body,
                                !final_connection_request,
                                options.write_timeout_milliseconds) ||
@@ -1170,13 +1229,14 @@ void ingress_worker(
     BoundedQueue<UniqueFd>& connections,
     BoundedQueue<std::shared_ptr<InferenceJob>>& inference_queue,
     const EvaluationServerOptions& options,
+    const RouteAttestationState& route_attestation,
     const std::atomic<bool>& stopping,
     std::atomic<std::uint64_t>& next_request_id) {
   UniqueFd connection;
   while (connections.pop(connection)) {
     try {
       handle_connection(std::move(connection), inference_queue, options,
-                        stopping, next_request_id);
+                        route_attestation, stopping, next_request_id);
     } catch (const std::exception& error) {
       std::cerr << "evaluation ingress failure: " << error.what() << '\n';
     } catch (...) {
@@ -1338,6 +1398,7 @@ int run_evaluation_server(const EvaluationServerOptions& options,
     return 3;
   }
   runtime::ReferenceEngine engine = std::move(*created.value);
+  RouteAttestationState route_attestation(engine.load_stats());
 
   UniqueFd listener = create_listener(options, error_message);
   if (!listener) {
@@ -1356,10 +1417,12 @@ int run_evaluation_server(const EvaluationServerOptions& options,
                           ingress, inference);
   inference = std::thread(inference_worker, std::ref(engine),
                           std::ref(inference_queue), std::cref(options),
+                          std::ref(route_attestation),
                           std::cref(stop_requested));
   for (std::size_t index = 0U; index < options.ingress_threads; ++index) {
     ingress.emplace_back(ingress_worker, std::ref(connections),
                          std::ref(inference_queue), std::cref(options),
+                         std::cref(route_attestation),
                          std::cref(stop_requested),
                          std::ref(next_request_id));
   }
@@ -1367,6 +1430,11 @@ int run_evaluation_server(const EvaluationServerOptions& options,
   const runtime::ReferenceEngineLoadStats& load = engine.load_stats();
   std::cout << "ready: http://" << options.bind_address << ':'
             << options.port << "/v1 model=" << options.served_model
+            << " route_attestation=engine_build_facts_v1"
+            << " deployment_plan_available=0"
+            << " per_operator_route_hits_available=0"
+            << " projection_backend="
+            << runtime::to_string(load.projection_backend)
             << " max_sequence_length=" << options.max_sequence_length
             << " prefill_chunk_size=" << options.prefill_chunk_size
             << " inference_workers=1 queue_capacity="

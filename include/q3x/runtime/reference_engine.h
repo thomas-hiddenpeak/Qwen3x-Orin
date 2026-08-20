@@ -175,6 +175,11 @@ struct ReferenceGeneration {
 };
 
 struct ReferenceEngineLoadStats {
+  // Engine-wide projection policy accepted by the factory. This identifies
+  // the dispatcher family selected for the resident engine; it is not a
+  // claim that every shape took a specialized kernel rather than that
+  // backend's compatibility path.
+  ProjectionBackend projection_backend = ProjectionBackend::kReference;
   double tokenizer_milliseconds = 0.0;
   double resident_load_milliseconds = 0.0;
   double weight_bind_milliseconds = 0.0;
