@@ -11,6 +11,7 @@ inline constexpr std::size_t kFusedGqaMaximumSequenceLength = 64U;
 inline constexpr std::size_t kBulkCausalGqaMaximumSequenceLength = 262'144U;
 inline constexpr std::size_t kQwenRotaryDimension = 64U;
 inline constexpr std::size_t kQkRopeTileMaximumTokens = 16U;
+inline constexpr std::size_t kEmbeddingGatherBatchMaximumTokens = 512U;
 
 enum class DecodeOpStatus : std::uint8_t {
   kSuccess = 0,
@@ -140,6 +141,18 @@ inline constexpr std::size_t kBf16GreedyArgmaxWorkspaceResults = 33U;
 [[nodiscard]] int launch_embedding_gather_reference_cuda(
     const std::uint16_t* embedding_table, std::size_t vocabulary_size,
     std::size_t hidden_size, std::size_t token_id, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+// One-kernel row gather for a 1..512-token Prefill tile. token_ids is a
+// host-visible array whose validated values are copied into the CUDA launch
+// parameter payload; embedding_table and output remain device-accessible
+// storage. No device allocation, explicit copy, or synchronization occurs.
+// Empty token_count and zero hidden_size follow the scalar launcher's no-op
+// contract. Every non-empty token list is range-checked before enqueue.
+[[nodiscard]] int launch_embedding_gather_batch_reference_cuda(
+    const std::uint16_t* embedding_table, std::size_t vocabulary_size,
+    std::size_t hidden_size, const std::uint32_t* token_ids,
+    std::size_t token_count, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
 
 [[nodiscard]] int launch_centered_rms_norm_reference_cuda(

@@ -58,6 +58,7 @@ constexpr std::size_t kPrefillKernelTileMaximumTokens = 16U;
 constexpr std::size_t kProductionProjectionSubtileTokens = 32U;
 constexpr float kRmsEpsilon = 1.0e-6F;
 constexpr float kAttentionScale = 1.0F / 16.0F;
+thread_local std::size_t g_prefill_embedding_batch_launch_hits = 0U;
 
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
 [[nodiscard]] bool nvfp4_marlin_prefill_environment_enabled() noexcept {
@@ -134,6 +135,8 @@ static_assert(kFullKvElements <= kReferenceIntermediateSize);
 static_assert(kPrefillKernelTileMaximumTokens ==
               kQkRopeTileMaximumTokens);
 static_assert(kMaximumRequestPrefillChunkSize == 512U);
+static_assert(kMaximumRequestPrefillChunkSize ==
+              kEmbeddingGatherBatchMaximumTokens);
 static_assert(kReferenceHiddenSize == 5'120U);
 static_assert(kProductionProjectionSubtileTokens <=
               kMaximumProjectionTileTokenCount);
@@ -616,6 +619,11 @@ std::size_t exchange_nvfp4_marlin_prefill_admission_test_hits(
   (void)hits;
   return 0U;
 #endif
+}
+
+std::size_t exchange_prefill_embedding_batch_test_hits(
+    const std::size_t hits) noexcept {
+  return std::exchange(g_prefill_embedding_batch_launch_hits, hits);
 }
 
 #if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
@@ -3052,17 +3060,14 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
       reference_runner_detail::use_m32_prefill_residual_rms_fusion(
           token_count, kReferenceHiddenSize);
 
-  for (std::size_t token = 0U; token < token_count; ++token) {
-    if (!check_cuda(launch_embedding_gather_reference_cuda(
-                        weights_->embed_tokens().weight,
-                        kReferenceVocabularySize, kReferenceHiddenSize,
-                        input_token_ids[token],
-                        views_.hidden[0] + token * kReferenceHiddenSize,
-                        stream_),
-                    "prefill_embedding_gather", kReferenceNoLayer)) {
-      return fail_prefill_tile(launch_failure);
-    }
+  if (!check_cuda(launch_embedding_gather_batch_reference_cuda(
+                      weights_->embed_tokens().weight,
+                      kReferenceVocabularySize, kReferenceHiddenSize,
+                      input_token_ids, token_count, views_.hidden[0], stream_),
+                  "prefill_embedding_gather_batch", kReferenceNoLayer)) {
+    return fail_prefill_tile(launch_failure);
   }
+  ++g_prefill_embedding_batch_launch_hits;
 
   for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount; ++layer) {
     const DecoderLayerWeights& layer_weights = weights_->layer(layer);

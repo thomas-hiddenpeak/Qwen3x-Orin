@@ -334,6 +334,30 @@ __global__ void embedding_gather_kernel(
   }
 }
 
+struct EmbeddingGatherBatchIds {
+  std::uint32_t values[kEmbeddingGatherBatchMaximumTokens];
+};
+
+static_assert(sizeof(EmbeddingGatherBatchIds) ==
+              kEmbeddingGatherBatchMaximumTokens * sizeof(std::uint32_t));
+
+__global__ void embedding_gather_batch_kernel(
+    const std::uint16_t* const table,
+    const std::size_t hidden_size,
+    const EmbeddingGatherBatchIds token_ids,
+    std::uint16_t* const output) {
+  const std::size_t token = blockIdx.y;
+  const std::size_t table_offset =
+      static_cast<std::size_t>(token_ids.values[token]) * hidden_size;
+  const std::size_t output_offset = token * hidden_size;
+  for (std::size_t index =
+           static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       index < hidden_size;
+       index += static_cast<std::size_t>(blockDim.x) * gridDim.x) {
+    output[output_offset + index] = table[table_offset + index];
+  }
+}
+
 template <bool kCentered>
 __global__ void rms_norm_kernel(const std::uint16_t* const input,
                                 const std::uint16_t* const weight,
@@ -2488,6 +2512,47 @@ int launch_embedding_gather_reference_cuda(
   (void)cudaGetLastError();
   embedding_gather_kernel<<<block_count(hidden_size), kThreads, 0U, stream>>>(
       embedding_table, token_id * hidden_size, hidden_size, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_embedding_gather_batch_reference_cuda(
+    const std::uint16_t* const embedding_table,
+    const std::size_t vocabulary_size,
+    const std::size_t hidden_size,
+    const std::uint32_t* const token_ids,
+    const std::size_t token_count,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (multiply_overflows(vocabulary_size, hidden_size) ||
+      token_count > kEmbeddingGatherBatchMaximumTokens ||
+      multiply_overflows(token_count, hidden_size)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if (token_count == 0U) {
+    return static_cast<int>(cudaSuccess);
+  }
+  if (token_ids == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  EmbeddingGatherBatchIds batch{};
+  for (std::size_t token = 0U; token < token_count; ++token) {
+    if (token_ids[token] >= vocabulary_size) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+    batch.values[token] = token_ids[token];
+  }
+  if (hidden_size == 0U) {
+    return static_cast<int>(cudaSuccess);
+  }
+  if (embedding_table == nullptr || output == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  const dim3 grid(block_count(hidden_size),
+                  static_cast<unsigned int>(token_count), 1U);
+  embedding_gather_batch_kernel<<<grid, kThreads, 0U, stream>>>(
+      embedding_table, hidden_size, batch, output);
   return static_cast<int>(cudaGetLastError());
 }
 

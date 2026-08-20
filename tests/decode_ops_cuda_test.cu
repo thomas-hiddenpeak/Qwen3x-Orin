@@ -469,6 +469,56 @@ void test_launch_validation(TestContext& test) {
                       nullptr, 1U, 1U, 1U, nullptr)) ==
                   cudaErrorInvalidValue,
               "CUDA embedding rejects out-of-range token");
+  constexpr std::array<std::uint32_t, 2U> kValidBatchIds{0U, 0U};
+  constexpr std::array<std::uint32_t, 2U> kInvalidBatchIds{0U, 1U};
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_embedding_gather_batch_reference_cuda(
+              nullptr, 1U, 1U, nullptr, 1U, nullptr)) ==
+          cudaErrorInvalidValue,
+      "CUDA batch embedding rejects null token ids");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_embedding_gather_batch_reference_cuda(
+              nullptr, 1U, 1U, kValidBatchIds.data(), 1U, nullptr)) ==
+          cudaErrorInvalidValue,
+      "CUDA batch embedding rejects null storage");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_embedding_gather_batch_reference_cuda(
+              nullptr, 1U, 0U, kInvalidBatchIds.data(),
+              kInvalidBatchIds.size(), nullptr)) == cudaErrorInvalidValue,
+      "CUDA batch embedding validates tokens before zero-width no-op");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_embedding_gather_batch_reference_cuda(
+              nullptr, 1U, 0U, kValidBatchIds.data(),
+              kValidBatchIds.size(), nullptr)) == cudaSuccess,
+      "zero-width CUDA batch embedding is a no-op after token validation");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_embedding_gather_batch_reference_cuda(
+              nullptr, 0U, 0U, nullptr, 0U, nullptr)) == cudaSuccess,
+      "empty CUDA batch embedding is a no-op");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_embedding_gather_batch_reference_cuda(
+              nullptr, 1U, 1U, kValidBatchIds.data(),
+              q3x::runtime::kEmbeddingGatherBatchMaximumTokens + 1U,
+              nullptr)) == cudaErrorInvalidValue,
+      "CUDA batch embedding rejects more than C512");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_embedding_gather_batch_reference_cuda(
+              nullptr, std::numeric_limits<std::size_t>::max(), 2U,
+              kValidBatchIds.data(), 1U, nullptr)) == cudaErrorInvalidValue,
+      "CUDA batch embedding rejects table-size overflow");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_embedding_gather_batch_reference_cuda(
+              nullptr, 1U, std::numeric_limits<std::size_t>::max(),
+              kValidBatchIds.data(), 2U, nullptr)) == cudaErrorInvalidValue,
+      "CUDA batch embedding rejects output-size overflow");
   test.expect(static_cast<cudaError_t>(
                   q3x::runtime::launch_centered_rms_norm_reference_cuda(
                       nullptr, nullptr, 1U,
@@ -1006,6 +1056,144 @@ void test_embedding(TestContext& test, cudaStream_t stream) {
       test.expect(output[index] == table[kToken * kHidden + index],
                   "CUDA embedding element " + std::to_string(index));
     }
+  }
+
+  constexpr std::array<std::size_t, 7U> kBatchCases{
+      2U, 3U, 17U, 64U, 256U, 257U,
+      q3x::runtime::kEmbeddingGatherBatchMaximumTokens};
+  std::array<std::uint32_t,
+             q3x::runtime::kEmbeddingGatherBatchMaximumTokens>
+      token_ids{};
+  for (std::size_t token = 0U; token < token_ids.size(); ++token) {
+    token_ids[token] = static_cast<std::uint32_t>((token * 5U + 3U) %
+                                                  kVocabulary);
+  }
+  GuardedBf16Buffer batch_output;
+  ready = batch_output.allocate(test, token_ids.size() * kHidden,
+                                "batch embedding output");
+  if (!ready) {
+    return;
+  }
+  for (std::size_t index = 0U; index < table.size(); ++index) {
+    // Preserve arbitrary BF16 payload bits: gather is a bitwise row copy and
+    // must not canonicalize NaNs, signed zero, or subnormals.
+    table[index] = static_cast<std::uint16_t>(
+        (index * 4'051U + 0x80A5U) & 0xFFFFU);
+  }
+  for (const std::size_t token_count : kBatchCases) {
+    batch_output.initialize(0xDEADU, 0x1357U, 0x2468U);
+    const std::string label =
+        "batch embedding C" + std::to_string(token_count);
+    ready = launch_after_stale(test, stream, label, [&]() {
+      return q3x::runtime::launch_embedding_gather_batch_reference_cuda(
+          table.data(), kVocabulary, kHidden, token_ids.data(), token_count,
+          batch_output.data(), static_cast<void*>(stream));
+    });
+    if (!ready) {
+      continue;
+    }
+    bool exact = true;
+    for (std::size_t token = 0U; exact && token < token_count; ++token) {
+      for (std::size_t index = 0U; index < kHidden; ++index) {
+        exact = batch_output.data()[token * kHidden + index] ==
+                table[static_cast<std::size_t>(token_ids[token]) * kHidden +
+                      index];
+        if (!exact) {
+          break;
+        }
+      }
+    }
+    test.expect(exact, label + " preserves every source bit");
+    const bool untouched_tail = std::all_of(
+        batch_output.data() + token_count * kHidden,
+        batch_output.data() + token_ids.size() * kHidden,
+        [](const std::uint16_t value) { return value == 0xDEADU; });
+    test.expect(untouched_tail, label + " does not touch inactive rows");
+    batch_output.expect_guards(test, label);
+  }
+
+  cudaGraph_t graph = nullptr;
+  ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      "batch embedding begin capture");
+  if (ready) {
+    const cudaError_t launch_status = static_cast<cudaError_t>(
+        q3x::runtime::launch_embedding_gather_batch_reference_cuda(
+            table.data(), kVocabulary, kHidden, token_ids.data(),
+            token_ids.size(), batch_output.data(),
+            static_cast<void*>(stream)));
+    test.expect(launch_status == cudaSuccess,
+                "batch embedding capture launch succeeds");
+    const bool capture_ended =
+        test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                     "batch embedding end capture");
+    ready = launch_status == cudaSuccess && capture_ended;
+  }
+  if (ready) {
+    std::size_t node_count = 0U;
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                         "batch embedding count graph nodes");
+    test.expect(node_count == 1U,
+                "C512 batch embedding enqueues exactly one node");
+    if (ready && node_count == 1U) {
+      cudaGraphNode_t node = nullptr;
+      std::size_t capacity = 1U;
+      ready = test.cuda_ok(cudaGraphGetNodes(graph, &node, &capacity),
+                           "batch embedding read graph node");
+      cudaGraphNodeType type = cudaGraphNodeTypeEmpty;
+      ready = ready && test.cuda_ok(cudaGraphNodeGetType(node, &type),
+                                    "batch embedding graph node type");
+      test.expect(type == cudaGraphNodeTypeKernel,
+                  "C512 batch embedding sole node is a kernel");
+      cudaKernelNodeParams parameters{};
+      ready = ready && test.cuda_ok(
+                           cudaGraphKernelNodeGetParams(node, &parameters),
+                           "batch embedding graph kernel params");
+      if (ready) {
+        test.expect(
+            parameters.gridDim.y == token_ids.size() &&
+                parameters.blockDim.x == 256U &&
+                parameters.sharedMemBytes == 0U,
+            "C512 batch embedding encodes the complete tile in one grid");
+      }
+    }
+  }
+  cudaGraphExec_t graph_exec = nullptr;
+  if (ready) {
+    batch_output.initialize(0xDEADU, 0x1357U, 0x2468U);
+    ready = test.cuda_ok(
+        cudaGraphInstantiate(&graph_exec, graph, nullptr, nullptr, 0U),
+        "instantiate batch embedding graph");
+    ready = ready &&
+            test.cuda_ok(cudaGraphLaunch(graph_exec, stream),
+                         "launch batch embedding graph") &&
+            test.cuda_ok(cudaStreamSynchronize(stream),
+                         "synchronize batch embedding graph");
+    if (ready) {
+      bool exact = true;
+      for (std::size_t token = 0U; exact && token < token_ids.size();
+           ++token) {
+        for (std::size_t index = 0U; index < kHidden; ++index) {
+          exact = batch_output.data()[token * kHidden + index] ==
+                  table[static_cast<std::size_t>(token_ids[token]) * kHidden +
+                        index];
+          if (!exact) {
+            break;
+          }
+        }
+      }
+      test.expect(exact,
+                  "C512 batch embedding Graph replay preserves every bit");
+      batch_output.expect_guards(test, "C512 batch embedding Graph replay");
+    }
+  }
+  if (graph_exec != nullptr) {
+    (void)test.cuda_ok(cudaGraphExecDestroy(graph_exec),
+                       "destroy batch embedding graph executable");
+  }
+  if (graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(graph),
+                       "destroy batch embedding graph");
   }
 }
 

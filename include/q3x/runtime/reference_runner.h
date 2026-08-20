@@ -379,6 +379,13 @@ bool exchange_nvfp4_marlin_prefill_admission_test_enabled(
 std::size_t exchange_nvfp4_marlin_prefill_admission_test_hits(
     std::size_t hits) noexcept;
 
+// Test observation for the production C2..C512 batched embedding route.
+// One successful batch-kernel enqueue contributes exactly one hit, independent
+// of token count; Decode and the C1 step path never contribute. A later failure
+// in the same tile does not roll back the already-observed enqueue.
+std::size_t exchange_prefill_embedding_batch_test_hits(
+    std::size_t hits) noexcept;
+
 // Pure-host validation entry used by tests and factory preflight. It checks
 // exact batch-one workspace, cache, RoPE, and 48/16 schedule capacities.
 [[nodiscard]] ReferenceRunnerError validate_reference_workspace_plan(
@@ -444,6 +451,7 @@ class ReferenceRunner {
   // Executes 1..512 non-logit prompt-prefix tokens in layer-major order. The
   // request plan must reserve at least token_count workspace rows. Operations
   // with a narrower kernel contract are enqueued as ordered subtiles.
+  // Embeddings are gathered for the complete tile in one CUDA kernel.
   // Persistent conv/GDN/KV state is updated in token order. The exact aligned
   // SM87 FP8 C64 attention-output projection uses one exact kernel. Exact
   // aligned C256/C512 FP8 QKV/Z/O and NVFP4 Down projections each use one

@@ -15,6 +15,7 @@
 namespace {
 
 namespace runtime = q3x::runtime;
+namespace runner_detail = q3x::runtime::reference_runner_detail;
 
 struct Profile {
   std::size_t prompt_token_count = 0U;
@@ -155,8 +156,11 @@ void print_diagnostic(
   options.max_new_tokens = 1U;
   options.prefill_chunk_size = kBaselinePrefillChunk;
   options.logits_mode = runtime::ReferenceLogitsMode::kPredictedTokenOnly;
+  (void)runner_detail::exchange_prefill_embedding_batch_test_hits(0U);
   const runtime::ReferenceGenerateResult baseline =
       engine.generate(prompt, options);
+  const std::size_t baseline_embedding_launches =
+      runner_detail::exchange_prefill_embedding_batch_test_hits(0U);
   if (!baseline) {
     std::cerr << "P" << profile.prompt_token_count
               << " C64 baseline generation failed: ";
@@ -165,8 +169,11 @@ void print_diagnostic(
   }
 
   options.prefill_chunk_size = profile.candidate_chunk;
+  (void)runner_detail::exchange_prefill_embedding_batch_test_hits(0U);
   const runtime::ReferenceGenerateResult candidate =
       engine.generate(prompt, options);
+  const std::size_t candidate_embedding_launches =
+      runner_detail::exchange_prefill_embedding_batch_test_hits(0U);
   if (!candidate) {
     std::cerr << "P" << profile.prompt_token_count
               << " bulk candidate generation failed: ";
@@ -183,6 +190,8 @@ void print_diagnostic(
                        baseline_executions) &&
       valid_generation(candidate_value, profile, profile.candidate_chunk,
                        1U) &&
+      baseline_embedding_launches == baseline_executions &&
+      candidate_embedding_launches == 1U &&
       baseline_value.prompt_token_ids == candidate_value.prompt_token_ids &&
       baseline_value.generated_token_ids ==
           candidate_value.generated_token_ids &&
@@ -198,6 +207,10 @@ void print_diagnostic(
             << " steps=" << candidate_value.steps.size()
             << " token_csv_sha256="
             << token_ids_csv_sha256(candidate_value.prompt_token_ids)
+            << " baseline_embedding_launches="
+            << baseline_embedding_launches
+            << " candidate_embedding_launches="
+            << candidate_embedding_launches
             << " exact=" << (exact ? "true" : "false") << '\n';
   return exact;
 }
