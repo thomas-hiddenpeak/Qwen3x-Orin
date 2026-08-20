@@ -264,10 +264,30 @@ std::atomic<std::uint64_t> g_next_complete_layer_receipt_identity{1U};
 static_assert(kSm87MacroFeedV4P40RequestBoundaryHostPortableFlag ==
               cudaHostAllocPortable);
 
+[[nodiscard]] constexpr bool portable_pinned_host_flags_admissible(
+    const unsigned int flags) noexcept {
+  return flags == cudaHostAllocPortable ||
+         flags == (cudaHostAllocPortable | cudaHostAllocMapped);
+}
+
+static_assert(portable_pinned_host_flags_admissible(cudaHostAllocPortable));
+static_assert(portable_pinned_host_flags_admissible(
+    cudaHostAllocPortable | cudaHostAllocMapped));
+static_assert(!portable_pinned_host_flags_admissible(cudaHostAllocDefault));
+static_assert(!portable_pinned_host_flags_admissible(cudaHostAllocMapped));
+static_assert(!portable_pinned_host_flags_admissible(
+    cudaHostAllocPortable | cudaHostAllocWriteCombined));
+static_assert(!portable_pinned_host_flags_admissible(
+    cudaHostAllocPortable | cudaHostAllocMapped |
+    cudaHostAllocWriteCombined));
+
 // PointerAttributes proves that the supplied address is CUDA-pinned host
-// memory; cudaHostGetFlags proves the requested Portable registration.  The
-// exact 160,008-byte extent is an owner ledger established by the sole
-// cudaHostAlloc call below, not something inferred from PointerAttributes.
+// memory; cudaHostGetFlags proves the requested Portable registration.  CUDA
+// may additionally report Mapped for cudaHostAlloc memory on integrated/UVA
+// systems even when the caller requested only Portable, so accept exactly the
+// portable-only and portable-plus-implicit-mapped forms.  The exact
+// 160,008-byte extent is an owner ledger established by the sole cudaHostAlloc
+// call below, not something inferred from PointerAttributes.
 [[nodiscard]] bool live_portable_pinned_host_pointer(
     void* const pointer, int* const cuda_error) noexcept {
   if (cuda_error != nullptr) {
@@ -288,7 +308,7 @@ static_assert(kSm87MacroFeedV4P40RequestBoundaryHostPortableFlag ==
   }
   if (status != cudaSuccess ||
       begin_attributes.type != cudaMemoryTypeHost ||
-      flags != cudaHostAllocPortable) {
+      !portable_pinned_host_flags_admissible(flags)) {
     *cuda_error = status == cudaSuccess
                       ? static_cast<int>(cudaErrorInvalidValue)
                       : static_cast<int>(status);

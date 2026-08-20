@@ -164,7 +164,9 @@ foreach(required_text IN ITEMS
     "cudaPointerGetAttributes(&begin_attributes, bytes)"
     "begin_attributes.type != cudaMemoryTypeHost"
     "cudaHostGetFlags(&flags, pointer)"
-    "flags != cudaHostAllocPortable"
+    "portable_pinned_host_flags_admissible"
+    "flags == cudaHostAllocPortable"
+    "flags == (cudaHostAllocPortable | cudaHostAllocMapped)"
     "cudaFreeHost(request_boundary_host_staging)"
     "cudaFreeHost(request_boundary_host_staging_)"
     "release_status == cudaSuccess")
