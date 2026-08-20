@@ -1,0 +1,1161 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Qwen3.6-27B-NVFP4 分块零值统计",
+    "description": "固定 revision 的 size-16 NVFP4 quant-block 精确零值分布与校验。",
+    "generatedAt": "2026-07-28T18:54:36.218616+00:00",
+    "cards": [
+      {
+        "id": "zero_rate",
+        "description": "严格反量化零值占全部逻辑 NVFP4 权重的比例。",
+        "dataset": "overall",
+        "sourceId": "overall_sql",
+        "metrics": [
+          {
+            "label": "零值率",
+            "field": "zero_rate",
+            "format": "percent"
+          }
+        ]
+      },
+      {
+        "id": "any_zero_rate",
+        "description": "至少含一个零的 size-16 量化块占比。",
+        "dataset": "overall",
+        "sourceId": "overall_sql",
+        "metrics": [
+          {
+            "label": "含零 Block",
+            "field": "any_zero_rate",
+            "format": "percent"
+          }
+        ]
+      },
+      {
+        "id": "all_zero_blocks",
+        "description": "16 个值全部为零的量化块数量。",
+        "dataset": "overall",
+        "sourceId": "overall_sql",
+        "metrics": [
+          {
+            "label": "全零 Block",
+            "field": "all_zero_blocks",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "mean_zeros",
+        "description": "每个 size-16 量化块中的平均零值数量。",
+        "dataset": "overall",
+        "sourceId": "overall_sql",
+        "metrics": [
+          {
+            "label": "平均零/Block",
+            "field": "mean_zeros_per_block",
+            "format": "number"
+          }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "block_zero_distribution",
+        "title": "size-16 量化块的零值个数分布",
+        "subtitle": "17 个精确桶，覆盖 1,149,009,920 个量化块；纵轴从 0 开始。",
+        "type": "bar",
+        "dataset": "block_histogram",
+        "sourceId": "histogram_sql",
+        "valueFormat": "compact",
+        "layout": "full",
+        "encodings": {
+          "x": {
+            "field": "zero_count",
+            "type": "ordinal",
+            "label": "每块零值个数"
+          },
+          "y": {
+            "field": "block_count",
+            "type": "quantitative",
+            "label": "Block 数",
+            "format": "compact"
+          },
+          "tooltip": [
+            {
+              "field": "block_share",
+              "type": "quantitative",
+              "label": "Block 占比",
+              "format": "percent"
+            },
+            {
+              "field": "zero_values_contributed",
+              "type": "quantitative",
+              "label": "贡献零值",
+              "format": "compact"
+            }
+          ]
+        }
+      }
+    ],
+    "tables": [
+      {
+        "id": "projection_summary",
+        "title": "按投影汇总",
+        "subtitle": "gate、up、down 与 lm_head 的精确零值统计。",
+        "dataset": "projections",
+        "sourceId": "projection_sql",
+        "defaultSort": {
+          "field": "zero_rate",
+          "direction": "desc"
+        },
+        "columns": [
+          {
+            "field": "projection",
+            "label": "投影",
+            "type": "text"
+          },
+          {
+            "field": "zero_rate",
+            "label": "零值率",
+            "format": "percent"
+          },
+          {
+            "field": "any_zero_rate",
+            "label": "含零 Block",
+            "format": "percent"
+          },
+          {
+            "field": "zero_values",
+            "label": "零值数",
+            "format": "number"
+          },
+          {
+            "field": "all_zero_blocks",
+            "label": "全零 Block",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "layer_summary",
+        "title": "64 层 MLP 明细",
+        "subtitle": "按零值率降序；每层包含 gate、up、down 三个 NVFP4 张量。",
+        "dataset": "layers",
+        "sourceId": "layer_sql",
+        "defaultSort": {
+          "field": "zero_rate",
+          "direction": "desc"
+        },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "layer",
+            "label": "层",
+            "type": "text"
+          },
+          {
+            "field": "zero_rate",
+            "label": "零值率",
+            "format": "percent"
+          },
+          {
+            "field": "any_zero_rate",
+            "label": "含零 Block",
+            "format": "percent"
+          },
+          {
+            "field": "zero_values",
+            "label": "零值数",
+            "format": "number"
+          },
+          {
+            "field": "blocks",
+            "label": "Block 数",
+            "format": "number"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "overall_sql",
+        "label": "NVFP4 overall zero summary",
+        "path": "docs/analysis/qwen36-27b-nvfp4-zero-stats-2026-07-29/report_source.sqlite"
+      },
+      {
+        "id": "histogram_sql",
+        "label": "NVFP4 block zero-count distribution",
+        "path": "docs/analysis/qwen36-27b-nvfp4-zero-stats-2026-07-29/report_source.sqlite"
+      },
+      {
+        "id": "projection_sql",
+        "label": "NVFP4 projection summary",
+        "path": "docs/analysis/qwen36-27b-nvfp4-zero-stats-2026-07-29/report_source.sqlite"
+      },
+      {
+        "id": "layer_sql",
+        "label": "NVFP4 Transformer-layer summary",
+        "path": "docs/analysis/qwen36-27b-nvfp4-zero-stats-2026-07-29/report_source.sqlite"
+      },
+      {
+        "id": "scan_script",
+        "label": "NVFP4 memmap statistics implementation",
+        "path": "tools/analysis/nvfp4_per_block_zeros.py"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Qwen3.6-27B-NVFP4 分块零值统计"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "sourceId": "overall_sql",
+        "body": "## 技术结论：零值率 7.948%，但不存在 size-16 全零块\n\n- 18,384,158,720 个逻辑 NVFP4 权重中，1,461,170,821 个严格反量化为零。\n- 72.175% 的量化块至少含一个零，但 1,149,009,920 个块中没有任何全零块。\n- 因此，按 size-16 block 做整块跳过没有可利用空间；若目标是稀疏加速，需要检查更细粒度或结构化模式。"
+      },
+      {
+        "id": "headline_metrics",
+        "type": "metric-strip",
+        "cardIds": [
+          "zero_rate",
+          "any_zero_rate",
+          "all_zero_blocks",
+          "mean_zeros"
+        ]
+      },
+      {
+        "id": "distribution_finding",
+        "type": "markdown",
+        "sourceId": "histogram_sql",
+        "body": "## 大多数含零块只有 1–2 个零\n\n直方图展示每个 size-16 量化块里的严格零值个数。0、1、2 个零三档合计占 86.45%；高零密度块极少，且 16/16 桶为零。这个分布支持‘细粒度零较普遍、整块稀疏不存在’的判断。"
+      },
+      {
+        "id": "distribution_chart",
+        "type": "chart",
+        "chartId": "block_zero_distribution",
+        "layout": "full"
+      },
+      {
+        "id": "projection_finding",
+        "type": "markdown",
+        "sourceId": "projection_sql",
+        "body": "## 投影间差异很小，lm_head 略高\n\n四类投影的零值率都落在 7.916%–7.981% 之间；lm_head 最高，gate 最低。差异仅约 0.065 个百分点，不足以改变 size-16 整块跳过的结论。"
+      },
+      {
+        "id": "projection_table",
+        "type": "table",
+        "tableId": "projection_summary"
+      },
+      {
+        "id": "layer_finding",
+        "type": "markdown",
+        "sourceId": "layer_sql",
+        "body": "## 64 层零值率集中在窄区间\n\n最高为 layer_63 的 8.1566%，最低为 layer_03 的 7.8423%。层间变动存在，但所有层都保持同一数量级，未出现可单独启用整块稀疏路径的异常层。"
+      },
+      {
+        "id": "layer_table",
+        "type": "table",
+        "tableId": "layer_summary",
+        "layout": "full"
+      },
+      {
+        "id": "scope_definitions",
+        "type": "markdown",
+        "sourceId": "scan_script",
+        "body": "## 统计范围与定义\n\n统计范围是固定 revision 的 193 个 W4A16_NVFP4 张量：64 层 × gate/up/down，加 lm_head。每个 quant block 是同一输出行沿 K 连续的 16 个逻辑权重。E2M1 的 `0x0`（+0）和 `0x8`（-0）均计为数值零；FP8 attention、vision、BF16 与 MTP 权重不在本次分母中。"
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "sourceId": "scan_script",
+        "body": "## 方法：按 safetensors 原生布局逐块扫描\n\n脚本解析 index/header 后，以只读 memmap 扫描 9.19 GB packed U8 权重；每 8 bytes 还原一个 block，同时读取对应 E4M3 block scale 与 F32 tensor scale。输出在 tensor、layer、projection、overall 四个粒度上聚合，并用直方图求和、nibble 码总数、block 总数和 scale 有效性做内部交叉校验。"
+      },
+      {
+        "id": "robustness",
+        "type": "markdown",
+        "sourceId": "scan_script",
+        "body": "## 鲁棒性：两种零口径完全一致\n\n全部 1,149,009,920 个 block scale 和 193 个 tensor scale 都是有限正数，所以没有 scale 诱发零或 FP32 下溢；严格反量化零与 E2M1 `0x0/0x8` 计数逐项相同。结果是描述性权重统计，不直接等价于可获得的运行时加速。"
+      },
+      {
+        "id": "next_steps",
+        "type": "markdown",
+        "body": "## 建议：不要为 size-16 全零块设计跳过路径\n\n若目的是 Orin kernel 优化，当前数据否定了整块稀疏跳过。下一步更有价值的是统计 2:4 命中率、K32/K64 tile 内的零位置分布，以及 backend repack 后是否出现可合并的零模式，再把节省的指令/访存与分支开销一起建模。"
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## 后续问题\n\n逐块 `uint8` 明细未默认落盘，因为 11.49 亿行即使每块只存 1 byte 也约 1.15 GB。如果需要研究具体零位置或结构化稀疏，可按 tensor 生成压缩 sidecar，并只保留目标层/投影。"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-28T18:54:36.218616+00:00",
+    "status": "ready",
+    "datasets": {
+      "overall": [
+        {
+          "blocks": 1149009920,
+          "logical_values": 18384158720,
+          "zero_values": 1461170821,
+          "zero_rate": 0.07947988500612771,
+          "positive_zero_codes": 730618492,
+          "negative_zero_codes": 730552329,
+          "blocks_with_any_zero": 829302967,
+          "any_zero_rate": 0.7217544013893283,
+          "all_zero_blocks": 0,
+          "mean_zeros_per_block": 1.2716781600980434
+        }
+      ],
+      "block_histogram": [
+        {
+          "zero_count": 0,
+          "block_count": 319706953,
+          "block_share": 0.2782455986106717,
+          "zero_values_contributed": 0
+        },
+        {
+          "zero_count": 1,
+          "block_count": 411085902,
+          "block_share": 0.3577740233957249,
+          "zero_values_contributed": 411085902
+        },
+        {
+          "zero_count": 2,
+          "block_count": 262556728,
+          "block_share": 0.22850692881746398,
+          "zero_values_contributed": 525113456
+        },
+        {
+          "zero_count": 3,
+          "block_count": 110689449,
+          "block_share": 0.09633463303780702,
+          "zero_values_contributed": 332068347
+        },
+        {
+          "zero_count": 4,
+          "block_count": 34483357,
+          "block_share": 0.03001136578524927,
+          "zero_values_contributed": 137933428
+        },
+        {
+          "zero_count": 5,
+          "block_count": 8435736,
+          "block_share": 0.0073417434028768,
+          "zero_values_contributed": 42178680
+        },
+        {
+          "zero_count": 6,
+          "block_count": 1687484,
+          "block_share": 0.001468641802500713,
+          "zero_values_contributed": 10124904
+        },
+        {
+          "zero_count": 7,
+          "block_count": 291939,
+          "block_share": 0.00025407874633493155,
+          "zero_values_contributed": 2043573
+        },
+        {
+          "zero_count": 8,
+          "block_count": 50410,
+          "block_share": 4.387255420736489e-05,
+          "zero_values_contributed": 403280
+        },
+        {
+          "zero_count": 9,
+          "block_count": 11927,
+          "block_share": 1.0380241103575502e-05,
+          "zero_values_contributed": 107343
+        },
+        {
+          "zero_count": 10,
+          "block_count": 4611,
+          "block_share": 4.013020183498503e-06,
+          "zero_values_contributed": 46110
+        },
+        {
+          "zero_count": 11,
+          "block_count": 2329,
+          "block_share": 2.02696248262156e-06,
+          "zero_values_contributed": 25619
+        },
+        {
+          "zero_count": 12,
+          "block_count": 1355,
+          "block_share": 1.1792761545522602e-06,
+          "zero_values_contributed": 16260
+        },
+        {
+          "zero_count": 13,
+          "block_count": 826,
+          "block_share": 7.188797812990161e-07,
+          "zero_values_contributed": 10738
+        },
+        {
+          "zero_count": 14,
+          "block_count": 529,
+          "block_share": 4.60396373253244e-07,
+          "zero_values_contributed": 7406
+        },
+        {
+          "zero_count": 15,
+          "block_count": 385,
+          "block_share": 3.350710845037787e-07,
+          "zero_values_contributed": 5775
+        },
+        {
+          "zero_count": 16,
+          "block_count": 0,
+          "block_share": 0.0,
+          "zero_values_contributed": 0
+        }
+      ],
+      "projections": [
+        {
+          "projection": "gate",
+          "blocks": 356515840,
+          "zero_values": 451537249,
+          "zero_rate": 0.07915799214559442,
+          "blocks_with_any_zero": 256838994,
+          "any_zero_rate": 0.7204139765571146,
+          "all_zero_blocks": 0
+        },
+        {
+          "projection": "up",
+          "blocks": 356515840,
+          "zero_values": 454170694,
+          "zero_rate": 0.07961965553900775,
+          "blocks_with_any_zero": 257651749,
+          "any_zero_rate": 0.7226936929366168,
+          "all_zero_blocks": 0
+        },
+        {
+          "projection": "down",
+          "blocks": 356515840,
+          "zero_values": 453993356,
+          "zero_rate": 0.07958856680813958,
+          "blocks_with_any_zero": 257443388,
+          "any_zero_rate": 0.7221092560712029,
+          "all_zero_blocks": 0
+        },
+        {
+          "projection": "lm_head",
+          "blocks": 79462400,
+          "zero_values": 101469522,
+          "zero_rate": 0.07980938311704655,
+          "blocks_with_any_zero": 57368836,
+          "any_zero_rate": 0.7219620348743556,
+          "all_zero_blocks": 0
+        }
+      ],
+      "layers": [
+        {
+          "layer": "layer_63",
+          "blocks": 16711680,
+          "zero_values": 21809804,
+          "zero_rate": 0.08156647027707567,
+          "blocks_with_any_zero": 12197715,
+          "any_zero_rate": 0.7298916087431067,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_34",
+          "blocks": 16711680,
+          "zero_values": 21786700,
+          "zero_rate": 0.08148006364410999,
+          "blocks_with_any_zero": 12181693,
+          "any_zero_rate": 0.7289328780828738,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_50",
+          "blocks": 16711680,
+          "zero_values": 21767160,
+          "zero_rate": 0.08140698601217831,
+          "blocks_with_any_zero": 12182994,
+          "any_zero_rate": 0.7290107278262867,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_33",
+          "blocks": 16711680,
+          "zero_values": 21531686,
+          "zero_rate": 0.08052633696911382,
+          "blocks_with_any_zero": 12129695,
+          "any_zero_rate": 0.7258214015586704,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_49",
+          "blocks": 16711680,
+          "zero_values": 21503174,
+          "zero_rate": 0.08041970496084176,
+          "blocks_with_any_zero": 12116954,
+          "any_zero_rate": 0.7250590006510417,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_51",
+          "blocks": 16711680,
+          "zero_values": 21498313,
+          "zero_rate": 0.08040152531044156,
+          "blocks_with_any_zero": 12122867,
+          "any_zero_rate": 0.7254128250421262,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_32",
+          "blocks": 16711680,
+          "zero_values": 21495113,
+          "zero_rate": 0.08038955763274548,
+          "blocks_with_any_zero": 12123399,
+          "any_zero_rate": 0.7254446590647978,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_48",
+          "blocks": 16711680,
+          "zero_values": 21456838,
+          "zero_rate": 0.08024641298780254,
+          "blocks_with_any_zero": 12113648,
+          "any_zero_rate": 0.7248611749387255,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_35",
+          "blocks": 16711680,
+          "zero_values": 21430421,
+          "zero_rate": 0.08014761606852214,
+          "blocks_with_any_zero": 12103155,
+          "any_zero_rate": 0.7242332907284007,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_31",
+          "blocks": 16711680,
+          "zero_values": 21394118,
+          "zero_rate": 0.0800118465049594,
+          "blocks_with_any_zero": 12097796,
+          "any_zero_rate": 0.7239126168045343,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_30",
+          "blocks": 16711680,
+          "zero_values": 21392841,
+          "zero_rate": 0.08000707065357882,
+          "blocks_with_any_zero": 12096579,
+          "any_zero_rate": 0.7238397934857537,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_47",
+          "blocks": 16711680,
+          "zero_values": 21392495,
+          "zero_rate": 0.08000577664842792,
+          "blocks_with_any_zero": 12098813,
+          "any_zero_rate": 0.7239734724456188,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_42",
+          "blocks": 16711680,
+          "zero_values": 21387690,
+          "zero_rate": 0.07998780643238741,
+          "blocks_with_any_zero": 12096850,
+          "any_zero_rate": 0.7238560096890319,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_62",
+          "blocks": 16711680,
+          "zero_values": 21372221,
+          "zero_rate": 0.07992995393042471,
+          "blocks_with_any_zero": 12089938,
+          "any_zero_rate": 0.7234424067478554,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_54",
+          "blocks": 16711680,
+          "zero_values": 21368040,
+          "zero_rate": 0.07991431741153493,
+          "blocks_with_any_zero": 12085791,
+          "any_zero_rate": 0.7231942569508272,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_18",
+          "blocks": 16711680,
+          "zero_values": 21358326,
+          "zero_rate": 0.07987798802992876,
+          "blocks_with_any_zero": 12081289,
+          "any_zero_rate": 0.7229248645258884,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_46",
+          "blocks": 16711680,
+          "zero_values": 21352748,
+          "zero_rate": 0.07985712687174479,
+          "blocks_with_any_zero": 12087458,
+          "any_zero_rate": 0.723294007544424,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_52",
+          "blocks": 16711680,
+          "zero_values": 21350487,
+          "zero_rate": 0.07984867095947265,
+          "blocks_with_any_zero": 12083086,
+          "any_zero_rate": 0.7230323941099878,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_26",
+          "blocks": 16711680,
+          "zero_values": 21341952,
+          "zero_rate": 0.07981675091911765,
+          "blocks_with_any_zero": 12083775,
+          "any_zero_rate": 0.7230736227596507,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_29",
+          "blocks": 16711680,
+          "zero_values": 21338314,
+          "zero_rate": 0.07980314516553692,
+          "blocks_with_any_zero": 12087958,
+          "any_zero_rate": 0.7233239267386642,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_44",
+          "blocks": 16711680,
+          "zero_values": 21328572,
+          "zero_rate": 0.07976671106675091,
+          "blocks_with_any_zero": 12087776,
+          "any_zero_rate": 0.7233130361519607,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_28",
+          "blocks": 16711680,
+          "zero_values": 21328413,
+          "zero_rate": 0.07976611642276539,
+          "blocks_with_any_zero": 12085134,
+          "any_zero_rate": 0.7231549431295956,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_45",
+          "blocks": 16711680,
+          "zero_values": 21320427,
+          "zero_rate": 0.07973624958711512,
+          "blocks_with_any_zero": 12088540,
+          "any_zero_rate": 0.7233587526807598,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_43",
+          "blocks": 16711680,
+          "zero_values": 21319657,
+          "zero_rate": 0.0797333698646695,
+          "blocks_with_any_zero": 12084363,
+          "any_zero_rate": 0.7231088077320772,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_27",
+          "blocks": 16711680,
+          "zero_values": 21315596,
+          "zero_rate": 0.07971818213369332,
+          "blocks_with_any_zero": 12085116,
+          "any_zero_rate": 0.723153866038603,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_53",
+          "blocks": 16711680,
+          "zero_values": 21300444,
+          "zero_rate": 0.07966151517980238,
+          "blocks_with_any_zero": 12071260,
+          "any_zero_rate": 0.7223247453278187,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_41",
+          "blocks": 16711680,
+          "zero_values": 21297014,
+          "zero_rate": 0.0796486873252719,
+          "blocks_with_any_zero": 12080810,
+          "any_zero_rate": 0.7228962019378063,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_36",
+          "blocks": 16711680,
+          "zero_values": 21266731,
+          "zero_rate": 0.07953543195537492,
+          "blocks_with_any_zero": 12066486,
+          "any_zero_rate": 0.7220390768612133,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_25",
+          "blocks": 16711680,
+          "zero_values": 21264753,
+          "zero_rate": 0.07952803443459903,
+          "blocks_with_any_zero": 12071023,
+          "any_zero_rate": 0.7223105636297488,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_06",
+          "blocks": 16711680,
+          "zero_values": 21245520,
+          "zero_rate": 0.07945610495174632,
+          "blocks_with_any_zero": 12059194,
+          "any_zero_rate": 0.7216027353324143,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_22",
+          "blocks": 16711680,
+          "zero_values": 21240706,
+          "zero_rate": 0.07943810107661228,
+          "blocks_with_any_zero": 12063848,
+          "any_zero_rate": 0.721881223192402,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_38",
+          "blocks": 16711680,
+          "zero_values": 21236971,
+          "zero_rate": 0.0794241325528014,
+          "blocks_with_any_zero": 12054767,
+          "any_zero_rate": 0.7213378307866115,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_40",
+          "blocks": 16711680,
+          "zero_values": 21224664,
+          "zero_rate": 0.07937810561236214,
+          "blocks_with_any_zero": 12060670,
+          "any_zero_rate": 0.7216910567938113,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_37",
+          "blocks": 16711680,
+          "zero_values": 21198709,
+          "zero_rate": 0.0792810365265491,
+          "blocks_with_any_zero": 12056980,
+          "any_zero_rate": 0.7214702531403187,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_24",
+          "blocks": 16711680,
+          "zero_values": 21197796,
+          "zero_rate": 0.07927762199850644,
+          "blocks_with_any_zero": 12044828,
+          "any_zero_rate": 0.7207430970435049,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_61",
+          "blocks": 16711680,
+          "zero_values": 21181560,
+          "zero_rate": 0.07921690099379596,
+          "blocks_with_any_zero": 12046415,
+          "any_zero_rate": 0.7208380605660233,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_19",
+          "blocks": 16711680,
+          "zero_values": 21171807,
+          "zero_rate": 0.07918042575611788,
+          "blocks_with_any_zero": 12048268,
+          "any_zero_rate": 0.7209489410998775,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_23",
+          "blocks": 16711680,
+          "zero_values": 21171607,
+          "zero_rate": 0.07917967777626188,
+          "blocks_with_any_zero": 12047872,
+          "any_zero_rate": 0.7209252450980392,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_60",
+          "blocks": 16711680,
+          "zero_values": 21153157,
+          "zero_rate": 0.07911067663454542,
+          "blocks_with_any_zero": 12038658,
+          "any_zero_rate": 0.7203738941865809,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_55",
+          "blocks": 16711680,
+          "zero_values": 21151040,
+          "zero_rate": 0.0791027592677696,
+          "blocks_with_any_zero": 12031692,
+          "any_zero_rate": 0.7199570599724264,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_59",
+          "blocks": 16711680,
+          "zero_values": 21127756,
+          "zero_rate": 0.07901567945293352,
+          "blocks_with_any_zero": 12030435,
+          "any_zero_rate": 0.7198818431181067,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_20",
+          "blocks": 16711680,
+          "zero_values": 21114856,
+          "zero_rate": 0.0789674347522212,
+          "blocks_with_any_zero": 12031044,
+          "any_zero_rate": 0.7199182846966912,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_39",
+          "blocks": 16711680,
+          "zero_values": 21110528,
+          "zero_rate": 0.07895124846813725,
+          "blocks_with_any_zero": 12032509,
+          "any_zero_rate": 0.720005947935815,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_21",
+          "blocks": 16711680,
+          "zero_values": 21109819,
+          "zero_rate": 0.07894859687954772,
+          "blocks_with_any_zero": 12032440,
+          "any_zero_rate": 0.7200018190870098,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_58",
+          "blocks": 16711680,
+          "zero_values": 21108887,
+          "zero_rate": 0.07894511129341873,
+          "blocks_with_any_zero": 12027496,
+          "any_zero_rate": 0.7197059780943628,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_10",
+          "blocks": 16711680,
+          "zero_values": 21108760,
+          "zero_rate": 0.07894463632621017,
+          "blocks_with_any_zero": 12029703,
+          "any_zero_rate": 0.719838041417739,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_01",
+          "blocks": 16711680,
+          "zero_values": 21096949,
+          "zero_rate": 0.0789004643758138,
+          "blocks_with_any_zero": 12027801,
+          "any_zero_rate": 0.7197242288028493,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_56",
+          "blocks": 16711680,
+          "zero_values": 21088459,
+          "zero_rate": 0.07886871263092639,
+          "blocks_with_any_zero": 12018018,
+          "any_zero_rate": 0.7191388298483455,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_17",
+          "blocks": 16711680,
+          "zero_values": 21086260,
+          "zero_rate": 0.07886048859240961,
+          "blocks_with_any_zero": 12025415,
+          "any_zero_rate": 0.7195814544079351,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_57",
+          "blocks": 16711680,
+          "zero_values": 21082991,
+          "zero_rate": 0.07884826286166322,
+          "blocks_with_any_zero": 12024975,
+          "any_zero_rate": 0.7195551255170036,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_16",
+          "blocks": 16711680,
+          "zero_values": 21082895,
+          "zero_rate": 0.07884790383133233,
+          "blocks_with_any_zero": 12016760,
+          "any_zero_rate": 0.7190635531556373,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_15",
+          "blocks": 16711680,
+          "zero_values": 21067277,
+          "zero_rate": 0.07878949408437691,
+          "blocks_with_any_zero": 12017144,
+          "any_zero_rate": 0.7190865310968138,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_07",
+          "blocks": 16711680,
+          "zero_values": 21063453,
+          "zero_rate": 0.0787751927095301,
+          "blocks_with_any_zero": 12021085,
+          "any_zero_rate": 0.7193223541858149,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_14",
+          "blocks": 16711680,
+          "zero_values": 21054662,
+          "zero_rate": 0.07874231525495941,
+          "blocks_with_any_zero": 12020910,
+          "any_zero_rate": 0.7193118824678308,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_13",
+          "blocks": 16711680,
+          "zero_values": 21049311,
+          "zero_rate": 0.078722303053912,
+          "blocks_with_any_zero": 12011923,
+          "any_zero_rate": 0.7187741148705576,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_00",
+          "blocks": 16711680,
+          "zero_values": 21037679,
+          "zero_rate": 0.07867880054548675,
+          "blocks_with_any_zero": 12014357,
+          "any_zero_rate": 0.7189197615081189,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_05",
+          "blocks": 16711680,
+          "zero_values": 21032933,
+          "zero_rate": 0.07866105098350375,
+          "blocks_with_any_zero": 12008303,
+          "any_zero_rate": 0.7185574999042585,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_04",
+          "blocks": 16711680,
+          "zero_values": 21021832,
+          "zero_rate": 0.0786195343615962,
+          "blocks_with_any_zero": 12002683,
+          "any_zero_rate": 0.7182212081609988,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_11",
+          "blocks": 16711680,
+          "zero_values": 21013691,
+          "zero_rate": 0.07858908784155752,
+          "blocks_with_any_zero": 12009023,
+          "any_zero_rate": 0.7186005835439645,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_12",
+          "blocks": 16711680,
+          "zero_values": 21009761,
+          "zero_rate": 0.07857439003738703,
+          "blocks_with_any_zero": 12002549,
+          "any_zero_rate": 0.7182131898169424,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_02",
+          "blocks": 16711680,
+          "zero_values": 21006911,
+          "zero_rate": 0.07856373132443896,
+          "blocks_with_any_zero": 11997021,
+          "any_zero_rate": 0.7178824032054228,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_09",
+          "blocks": 16711680,
+          "zero_values": 21006876,
+          "zero_rate": 0.07856360042796415,
+          "blocks_with_any_zero": 12001463,
+          "any_zero_rate": 0.7181482053270527,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_08",
+          "blocks": 16711680,
+          "zero_values": 21005924,
+          "zero_rate": 0.07856004004384957,
+          "blocks_with_any_zero": 12006572,
+          "any_zero_rate": 0.718453919653799,
+          "all_zero_blocks": 0
+        },
+        {
+          "layer": "layer_03",
+          "blocks": 16711680,
+          "zero_values": 20969244,
+          "zero_rate": 0.07842286053825827,
+          "blocks_with_any_zero": 11989349,
+          "any_zero_rate": 0.7174233230890013,
+          "all_zero_blocks": 0
+        }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "overall_sql",
+      "label": "NVFP4 overall zero summary",
+      "path": "docs/analysis/qwen36-27b-nvfp4-zero-stats-2026-07-29/report_source.sqlite",
+      "query": {
+        "engine": "sqlite",
+        "language": "sql",
+        "sql": "SELECT blocks, logical_values, zero_values, zero_rate,\n       positive_zero_codes, negative_zero_codes, blocks_with_any_zero,\n       any_zero_rate, all_zero_blocks, mean_zeros_per_block\nFROM zero_summary\nWHERE scope_type = 'overall' AND scope = 'all_nvfp4'",
+        "description": "Returns the reviewed checkpoint-wide zero metrics used by the report cards and summary.",
+        "executed_at": "2026-07-28T18:54:36.218616+00:00",
+        "tables_used": [
+          "zero_summary"
+        ],
+        "filters": [
+          "Include only targets marked W4A16_NVFP4 in hf_quant_config.json.",
+          "Exclude FP8 attention, vision, BF16, and MTP tensors.",
+          "Checkpoint revision 0893e1606ff3d5f97a441f405d5fc541a6bdf404."
+        ],
+        "metric_definitions": [
+          "Zero value: strict FP32 dequantized value equals 0.0; for this checkpoint it is exactly E2M1 code 0x0 or 0x8.",
+          "Zero rate = dequantized zero values / all logical NVFP4 values.",
+          "Any-zero block rate = size-16 quantization blocks with at least one zero / all size-16 blocks."
+        ]
+      }
+    },
+    {
+      "id": "histogram_sql",
+      "label": "NVFP4 block zero-count distribution",
+      "path": "docs/analysis/qwen36-27b-nvfp4-zero-stats-2026-07-29/report_source.sqlite",
+      "query": {
+        "engine": "sqlite",
+        "language": "sql",
+        "sql": "SELECT zero_count, block_count, block_share,\n       zero_values_contributed\nFROM block_zero_histogram\nWHERE scope_type = 'overall' AND scope = 'all_nvfp4'\nORDER BY zero_count",
+        "description": "Returns all 17 exact zero-count bins for the size-16 quantization blocks.",
+        "executed_at": "2026-07-28T18:54:36.218616+00:00",
+        "tables_used": [
+          "block_zero_histogram"
+        ],
+        "filters": [
+          "Include only targets marked W4A16_NVFP4 in hf_quant_config.json.",
+          "Exclude FP8 attention, vision, BF16, and MTP tensors.",
+          "Checkpoint revision 0893e1606ff3d5f97a441f405d5fc541a6bdf404."
+        ],
+        "metric_definitions": [
+          "Zero value: strict FP32 dequantized value equals 0.0; for this checkpoint it is exactly E2M1 code 0x0 or 0x8.",
+          "Zero rate = dequantized zero values / all logical NVFP4 values.",
+          "Any-zero block rate = size-16 quantization blocks with at least one zero / all size-16 blocks."
+        ]
+      }
+    },
+    {
+      "id": "projection_sql",
+      "label": "NVFP4 projection summary",
+      "path": "docs/analysis/qwen36-27b-nvfp4-zero-stats-2026-07-29/report_source.sqlite",
+      "query": {
+        "engine": "sqlite",
+        "language": "sql",
+        "sql": "SELECT scope AS projection, blocks, zero_values, zero_rate,\n       blocks_with_any_zero, any_zero_rate, all_zero_blocks\nFROM zero_summary\nWHERE scope_type = 'projection'\nORDER BY CASE scope\n    WHEN 'gate' THEN 1 WHEN 'up' THEN 2 WHEN 'down' THEN 3 ELSE 4 END",
+        "description": "Returns exact zero statistics for gate, up, down, and lm_head projections.",
+        "executed_at": "2026-07-28T18:54:36.218616+00:00",
+        "tables_used": [
+          "zero_summary"
+        ],
+        "filters": [
+          "Include only targets marked W4A16_NVFP4 in hf_quant_config.json.",
+          "Exclude FP8 attention, vision, BF16, and MTP tensors.",
+          "Checkpoint revision 0893e1606ff3d5f97a441f405d5fc541a6bdf404."
+        ],
+        "metric_definitions": [
+          "Zero value: strict FP32 dequantized value equals 0.0; for this checkpoint it is exactly E2M1 code 0x0 or 0x8.",
+          "Zero rate = dequantized zero values / all logical NVFP4 values.",
+          "Any-zero block rate = size-16 quantization blocks with at least one zero / all size-16 blocks."
+        ]
+      }
+    },
+    {
+      "id": "layer_sql",
+      "label": "NVFP4 Transformer-layer summary",
+      "path": "docs/analysis/qwen36-27b-nvfp4-zero-stats-2026-07-29/report_source.sqlite",
+      "query": {
+        "engine": "sqlite",
+        "language": "sql",
+        "sql": "SELECT scope AS layer, blocks, zero_values, zero_rate,\n       blocks_with_any_zero, any_zero_rate, all_zero_blocks\nFROM zero_summary\nWHERE scope_type = 'layer' AND scope LIKE 'layer_%'\nORDER BY zero_rate DESC",
+        "description": "Returns exact zero statistics for the 64 Transformer MLP layers.",
+        "executed_at": "2026-07-28T18:54:36.218616+00:00",
+        "tables_used": [
+          "zero_summary"
+        ],
+        "filters": [
+          "Include only targets marked W4A16_NVFP4 in hf_quant_config.json.",
+          "Exclude FP8 attention, vision, BF16, and MTP tensors.",
+          "Checkpoint revision 0893e1606ff3d5f97a441f405d5fc541a6bdf404."
+        ],
+        "metric_definitions": [
+          "Zero value: strict FP32 dequantized value equals 0.0; for this checkpoint it is exactly E2M1 code 0x0 or 0x8.",
+          "Zero rate = dequantized zero values / all logical NVFP4 values.",
+          "Any-zero block rate = size-16 quantization blocks with at least one zero / all size-16 blocks."
+        ]
+      }
+    },
+    {
+      "id": "scan_script",
+      "label": "NVFP4 memmap statistics implementation",
+      "path": "tools/analysis/nvfp4_per_block_zeros.py",
+      "query": {
+        "engine": "python",
+        "language": "python",
+        "description": "Canonical safetensors header parsing, E2M1 decoding, scale validation, and per-block aggregation implementation.",
+        "executed_at": "2026-07-28T18:54:36.218616+00:00",
+        "filters": [
+          "Include only targets marked W4A16_NVFP4 in hf_quant_config.json.",
+          "Exclude FP8 attention, vision, BF16, and MTP tensors.",
+          "Checkpoint revision 0893e1606ff3d5f97a441f405d5fc541a6bdf404."
+        ],
+        "metric_definitions": [
+          "Zero value: strict FP32 dequantized value equals 0.0; for this checkpoint it is exactly E2M1 code 0x0 or 0x8.",
+          "Zero rate = dequantized zero values / all logical NVFP4 values.",
+          "Any-zero block rate = size-16 quantization blocks with at least one zero / all size-16 blocks."
+        ]
+      }
+    }
+  ],
+  "package_info": {}
+}
