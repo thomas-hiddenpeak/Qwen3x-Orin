@@ -1167,25 +1167,30 @@ invalid rather than slow or fast.
 
 ### MacroFeed V4 measurement eligibility
 
-`AC-PREFILL-SM87-MACROFEED-v4` now has one isolated executable foundation
-slice: a test-only device package submits layer-0 input norm and BF16 A/B
-on its private streams while Main submits one fixed GDN-QKVZ body and then
-waits on `AbReady`; it physically drains both tails and discards all state
-without publication. The only positive witness is explicitly synthetic-T1,
-not a positive real-owner 48-layer catalog or real-checkpoint result. The
-private normal startup-to-execution construction chain is now anchored under
-the existing default-off V3 real-owner Engine harness, with exact
-`execution → startup → ModelWeights → complete target-AOT owner → resident`
-teardown and 599,261,184 bytes of additional retained-memory accounting. The
-normal factories are not public, and the core static library contains no named
-synthetic-T1 construction wrapper. Its private synthetic branch still exists
-inside the BUILD_TESTING-only archive for the CUDA fixture and grants no
-production authority. No pinned real-checkpoint Engine-lifetime
-probe has executed that root, so this source/build integration supplies no
-new real-model witness. It is deliberately not a complete layer, model,
-selector, or API route and issues no production receipt. V4 therefore still
-has no valid EvalScope or server-timing command. Gate/Up, Down, the isolated front-half,
-occupancy, P513, NSys, or NCU results cannot substitute for that missing route.
+`AC-PREFILL-SM87-MACROFEED-v4` is paused at the default-off construction
+checkpoint retained on `archive/v4-construction-ownership-20260820`. Its
+positive device evidence remains explicitly Synthetic-T1: the joined fixture
+submits `GDN0 → GDN1 → GDN2 → Full3` as 35 kernels plus three
+61,440-byte copies, then physically drains and discards without publication.
+That is not a positive normal-owner catalog, complete panel, whole request, or
+real-checkpoint result. The private normal construction chain authenticates
+the Resident request-boundary sources, performs four construction-time leaf
+resource queries, retains their all-or-nothing execution catalog, and owns
+exactly 3,220,701,184 device bytes plus 160,008 bytes of portable pinned host
+staging. With the 67,108,864-byte shared RoPE owner, total anchored ownership
+is 3,287,970,056 bytes; the device-only reserve arithmetic remains separate.
+The normal factories are private and default off, and the synthetic branch
+grants no production authority.
+
+No clean-host real-checkpoint lifetime probe has executed this normal root,
+and no request-boundary leaf, fixed 64-layer by five-panel request loop,
+selector, API route, numerical gate, or production receipt exists. V4
+therefore has no valid EvalScope or server-timing command. Resuming performance
+work requires an explicit owner decision and starts from the fixed whole-request
+loop and rollback/final-publication closure recorded in the Roadmap, followed
+by real-checkpoint lifetime and numerical qualification. Gate/Up, Down,
+isolated constituent, occupancy, P513, NSys, or NCU evidence cannot substitute
+for that missing route.
 
 The first V4 performance run becomes eligible only after the Roadmap's C8000
 FP8, exact GDN, in-place/streaming exact Attention, dual recurrent epoch,
