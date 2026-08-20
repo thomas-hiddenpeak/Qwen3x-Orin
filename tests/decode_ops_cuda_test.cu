@@ -1495,13 +1495,15 @@ void test_residual_rms_m32_fused_exact(TestContext& test,
             << " local=" << local_bytes
             << " maximum_threads=" << maximum_threads
             << " active_blocks_per_sm=" << active_blocks << '\n';
-  test.expect(shared_bytes == 256U * sizeof(float),
-              label + " retains the exact 256-float reduction tree");
+  test.expect(shared_bytes ==
+                  5'120U * sizeof(std::uint16_t) + 256U * sizeof(float),
+              label + " stages BF16 residuals and retains the exact "
+                      "256-float reduction tree");
   test.expect(local_bytes == 0U, label + " has no local-memory spills");
-  test.expect(registers <= 64, label + " stays below register hard cap");
-  test.expect(maximum_threads >= 256,
-              label + " supports the fixed 256-thread block");
-  test.expect(active_blocks >= 4, label + " retains occupancy floor");
+  test.expect(registers <= 42, label + " stays below register hard cap");
+  test.expect(maximum_threads >= 512,
+              label + " supports the experimental 512-thread block");
+  test.expect(active_blocks >= 2, label + " retains occupancy floor");
 
   GuardedBf16Buffer left;
   GuardedBf16Buffer right;
@@ -1804,10 +1806,10 @@ void test_residual_rms_m32_fused_exact(TestContext& test,
                         parameters.gridDim.y == 1U &&
                         parameters.gridDim.z == 1U,
                     label + " graph grid is exactly 32x1x1");
-        test.expect(parameters.blockDim.x == 256U &&
+        test.expect(parameters.blockDim.x == 512U &&
                         parameters.blockDim.y == 1U &&
                         parameters.blockDim.z == 1U,
-                    label + " graph block is exactly 256x1x1");
+                    label + " graph block is exactly 512x1x1");
         test.expect(parameters.sharedMemBytes == 0U,
                     label + " graph uses no dynamic shared memory");
       }
