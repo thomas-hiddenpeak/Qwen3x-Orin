@@ -219,6 +219,12 @@ specialization to exceed that general engine while preserving accuracy.
    files, worktree registrations, and storage use. Retain material evidence
    inside the workspace and remove only artifacts whose ownership and
    recoverability are established.
+5. Before every performance timing or profiler capture, run and retain a
+   clean-host resource preflight. On Jetson, `tegrastats`, CPU/process
+   sampling, and GPU-device handle inspection are the authority for load and
+   ownership. The platform's incomplete `nvidia-smi` must not be used to
+   declare the GPU idle or identify all GPU consumers. Any unexpected CPU or
+   GPU consumer invalidates the run; abort before timing or discard the result.
 
 ## Amendments
 
@@ -235,3 +241,6 @@ specialization to exceed that general engine while preserving accuracy.
 - **2026-08-09:** Host-hygiene requirement. Generated project artifacts are
   confined to the repository workspace, large or persistent `/tmp` use is
   prohibited, and user-owned home-directory inputs remain untouched.
+- **2026-08-09:** Benchmark resource gate. Every timing/profile begins with a
+  clean-host preflight; Jetson load authority is `tegrastats` plus process and
+  device-handle inspection, never the incomplete `nvidia-smi` process view.

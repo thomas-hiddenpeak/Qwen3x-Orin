@@ -36,6 +36,39 @@ The commands below assume that `Q3X_WORK` remains set. They redirect the tool
 cache and temporary directory so neither `$HOME` nor `/tmp` accumulates
 project-owned EvalScope state.
 
+## Mandatory Orin resource preflight
+
+Every timing-bearing native or reference run must pass the fail-closed Orin
+resource preflight immediately before EvalScope starts. `tegrastats` is the
+authority for sampled GR3D activity; the preflight does not use
+`nvidia-smi`. It also audits visible GPU device descriptors and samples
+per-process CPU time, preventing an idle-at-one-instant GPU client or a heavy
+non-GPU workload from silently contaminating the run.
+
+When the server is already resident, explicitly allow only its known PID. The
+allowance includes descendants so a server worker process need not be named
+separately:
+
+```bash
+PREFLIGHT_JSON="$Q3X_WORK/evalscope/results/native-preflight.json"
+python3 tools/evaluation/orin_perf_preflight.py \
+  --output "$PREFLIGHT_JSON" \
+  --allow-pid "$SERVER_PID"
+```
+
+Omit `--allow-pid` when checking exclusivity before the server starts. A PID
+allowance does not excuse GR3D activity: the default contract still requires
+all five 200-ms samples to report zero utilization. Exit `0` admits the run;
+exit `3` is a valid busy-host rejection; exit `1` means required telemetry
+could not be collected; and exit `2` means the invocation or evidence path is
+invalid. All four cases fail closed except exit `0`.
+
+The output must be a unique file below the repository `.q3x-work` tree;
+replacement requires explicit `--force`. Retain the JSON beside the EvalScope
+result and start the workload immediately after admission. Do not stop or
+renice a discovered consumer merely to make the check pass—wait for the
+resource owner or coordinate the shared host.
+
 ## Evaluation-only gateway
 
 `qwen3x-eval-server` loads one resident model and exposes a deliberately small

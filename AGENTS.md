@@ -37,3 +37,10 @@ virtual environments (including `~/vllmEvn`), and shared caches as read-only
 unless the project owner explicitly requests otherwise. Avoid `/tmp` for
 large or persistent artifacts; when a tool requires `/tmp`, remove the exact
 project-owned files promptly after the task completes.
+
+Before every performance run or profiler capture, fail closed on a clean-host
+resource preflight. On Jetson, use `tegrastats` plus CPU/process and GPU-device
+handle inspection to establish idleness and ownership. The Jetson
+`nvidia-smi` implementation is incomplete and must not be used to decide that
+the GPU is idle or to attribute GPU consumers. Any unexpected CPU/GPU
+consumer invalidates the run; do not retain or report its timing.
