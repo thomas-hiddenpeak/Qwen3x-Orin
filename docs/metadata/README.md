@@ -29,6 +29,18 @@ operator-panel integration step; its older comparator used FP8, Attention,
 and GDN fallbacks, so the result has no constituent-level attribution,
 architecture-selection, release, or production authority.
 
+The delivery-mainline branch absorption audit is frozen in
+[`qwen3x-mainline-branch-absorption-audit-2026-08-21.json`](qwen3x-mainline-branch-absorption-audit-2026-08-21.json).
+Its exact pre-documentation snapshot covers 128 local branch refs, 72
+`origin` remote-tracking refs, and 430 unique commits outside `origin/main`.
+It selects only the installed-package consumer fix at `f8a7762`, records
+preflight, M32 C2, and bounded request lifecycle work as already absorbed,
+and keeps every other reviewed candidate rejected, scheduled for independent
+reimplementation/rewrite, or frozen behind its archive reference. This is a
+repository-history and consolidation-decision record only; it grants no
+numerical, generation, API, timing, performance, release, or production
+authority.
+
 The first real-checkpoint preparation of the default-off SM87 whole-system AOT
 candidate is frozen in
 [`qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12.json`](qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12.json).

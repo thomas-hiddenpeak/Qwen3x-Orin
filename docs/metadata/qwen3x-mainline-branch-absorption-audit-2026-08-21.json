@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen3x-mainline-branch-absorption-audit-2026-08-21",
+  "record_type": "repository_branch_absorption_audit",
+  "snapshot_date": "2026-08-21",
+  "classification": {
+    "status": "complete",
+    "authority": "exact repository-ref inventory and mainline consolidation disposition for the recorded snapshot only",
+    "mainline_code_selection_authority": true,
+    "default_route_changed": false,
+    "api_authority": false,
+    "numerical_authority": false,
+    "timing_authority": false,
+    "performance_authority": false,
+    "release_authority": false,
+    "production_authority": false
+  },
+  "claim_boundary": "This audit selects one packaging-contract fix, records three capabilities already present on the delivery mainline, and classifies the remaining reviewed branch work as rejected, future independent reimplementation, rewrite, or frozen evidence. An already-absorbed classification requires no cherry-pick; a frozen or future classification grants no mainline capability. The inventory and decisions do not establish numerical, generation, API, timing, performance, release, or production authority.",
+  "snapshot": {
+    "origin_main": {
+      "ref": "origin/main",
+      "commit": "52654e28b619e53138c40c60e37bfc174a244afb"
+    },
+    "audited_delivery_mainline": {
+      "ref": "codex/mainline-delivery-20260820",
+      "commit": "f8a776272dc4a05637988a7a329221ee1ce08b85"
+    },
+    "counts": {
+      "local_branch_refs": 128,
+      "origin_remote_tracking_refs": 72,
+      "unique_commits_reachable_from_audited_refs_and_not_reachable_from_origin_main": 430
+    },
+    "count_semantics": {
+      "local_branch_refs": "refs/heads at the pre-documentation audit snapshot",
+      "origin_remote_tracking_refs": "refs/remotes/origin at the same snapshot",
+      "unique_commits": "the unique output set equivalent to git rev-list --all --not origin/main at the same snapshot"
+    },
+    "snapshot_order": "The 430-commit inventory was captured after the package fix was selected at f8a776272dc4a05637988a7a329221ee1ce08b85 and before the follow-up mainline documentation commit 6ff9a63145833bb0b3df6fad572c4033178fc183. The follow-up commit and this record are outside the counted commit set.",
+    "consolidation_branch_after_snapshot": {
+      "ref": "codex/mainline-consolidation-20260821",
+      "commit_before_this_record": "6ff9a63145833bb0b3df6fad572c4033178fc183"
+    }
+  },
+  "decision_vocabulary": {
+    "selected": "the exact commit is retained on the consolidation mainline",
+    "already_absorbed": "the required capability is already present through a named mainline commit, so the archive commit is not cherry-picked",
+    "rejected": "the reviewed candidate has no remaining mainline absorption action",
+    "future_independent_reimplementation": "the product idea may be useful, but the archived implementation is not imported and must be independently scoped and verified on the then-current mainline",
+    "rewrite": "the archived harness is not imported; a successor must be written against the current owning contract",
+    "frozen": "the branch remains a recovery or evidence reference and is not merged wholesale"
+  },
+  "decisions": [
+    {
+      "id": "installed-package-consumer-version",
+      "source_ref": "codex/mainline-delivery-20260820",
+      "source_commit": "f8a776272dc4a05637988a7a329221ee1ce08b85",
+      "decision": "selected",
+      "mainline_state": "present in codex/mainline-consolidation-20260821",
+      "reason": "The package-consumer fixture now requests and reports the installed package version 0.5 instead of the stale 0.4 contract. This is a narrow delivery correctness fix with no runtime-route change."
+    },
+    {
+      "id": "orin-clean-host-performance-preflight",
+      "archive_ref": "archive/prefill-pause-root-wip-20260820",
+      "archive_tip": "c9bd18c5e00aaf6710d7f70ee9c78da735df1394",
+      "archive_commit": "3f782e05b315be390eb1ab1b009873ab6f5f6f04",
+      "decision": "already_absorbed",
+      "mainline_commits": [
+        "de9da5d45f6e84cd4a57bb77d701caeb28c9da72",
+        "c69de05105fb07afd50f2e19412dc9557d62d02e"
+      ],
+      "reason": "The delivery mainline already contains the fail-closed Orin preflight and its later hardening. The early archive copy is superseded for consolidation purposes and is not cherry-picked."
+    },
+    {
+      "id": "m32-residual-rmsnorm-c2",
+      "archive_ref": "archive/m32-resrms-c2-20260820",
+      "archive_tip": "d13073b1361ac93380acc13d5e20f11f0b33979e",
+      "decision": "already_absorbed",
+      "mainline_commit": "17b018f3281dce06e11b725d8110fd8f6662aa9d",
+      "verification": "The archived C2 decode_ops.cu content is byte-identical to the source at mainline commit 17b018f3281dce06e11b725d8110fd8f6662aa9d; the mainline subsequently evolved from that retained implementation.",
+      "reason": "No second copy or cherry-pick is needed."
+    },
+    {
+      "id": "bounded-api-submission-lifecycle-cancellation",
+      "source_commit": "606ea1d410550d0a25aa21df7c069a9b16b971e1",
+      "decision": "already_absorbed",
+      "mainline_commit": "606ea1d410550d0a25aa21df7c069a9b16b971e1",
+      "reason": "The delivery mainline already contains the bounded submission-window and associated request lifecycle/cancellation substrate. Archived variants add no independently selected mainline delta."
+    },
+    {
+      "id": "m32-residual-rmsnorm-c1-and-c3",
+      "archive_candidates": [
+        {
+          "ref": "archive/m32-resrms-c1-20260820",
+          "tip": "2b204fdcc112fc6f5b54d7c1895a7d03fd87c21d"
+        },
+        {
+          "ref": "archive/m32-resrms-c3-20260820",
+          "tip": "765669504c9d67b5fcf815c86cdc1327bb8416c5"
+        }
+      ],
+      "decision": "rejected",
+      "reason": "Both tips are explicitly retained as unverified candidates and provide no stronger verified mainline result than the already-absorbed C2 lineage."
+    },
+    {
+      "id": "persisted-authenticated-target-aot-assets",
+      "source_ref": "codex/prefill-target-path",
+      "source_ref_tip": "a344c0126f44b58c2be38185119e7c9f6a7200ae",
+      "implementation_commit": "27f5c716a9c53ef046955aadf133358b8fc10516",
+      "evidence_commit": "7714ebaf37684a5788b38c1f3a41c4ac5e353b89",
+      "independent_final_review": "NO",
+            "decision": "rejected",
+            "current_absorption": "none",
+            "blocking_findings": [
+                "test-admission persistence selectors expand installed ReferenceEngineOptions and load-stat structures even when the implementation is not compiled",
+                "CUDA stream, event, and approximately 9.6 GB allocation teardown errors can be discarded while ownership handles are cleared",
+                "online-create file operations can throw after raw CUDA resources are created without scope-bound cleanup",
+                "the real-checkpoint create and direct-load source probes both retain failed strict in-process memory-recovery results"
+            ],
+            "reopen_boundary": {
+                "roadmap_slice": "P2 Canonical exact release artifact",
+                "rule": "Re-evaluate from the then-current mainline only after P1's exact API workload and capacity contract selects the required persisted artifact boundary; this is not a P0 documentation-control absorption item."
+            },
+      "reason": "The commits are coupled to a default-off target-AOT research path and do not establish a current product API or release route. They must not be imported as a stand-alone preparation subsystem."
+    },
+    {
+      "id": "arm-sha2-implementation",
+      "source_ref": "codex/prefill-target-path",
+      "mixed_source_commit": "fad42f7835a3fe1c67c79e88a199de38ae6e1301",
+      "decision": "future_independent_reimplementation",
+            "reason": "The SHA2 work is embedded in a broad target-AOT diagnostic-route commit and has no retained mainline-relevant performance result. Any future mainline value must be isolated, reimplemented against the current core contract, and independently verified before selection; the mixed commit is not cherry-picked."
+    },
+    {
+      "id": "health-and-route-attestation",
+      "archive_ref": "archive/prefill-pause-root-wip-20260820",
+      "archive_tip": "c9bd18c5e00aaf6710d7f70ee9c78da735df1394",
+      "source_commit": "b70f2d23e7b744469dd79bd55332cc3c1c19fcaa",
+      "decision": "future_independent_reimplementation",
+      "reason": "The product concept belongs on the eventual attested mainline API, but this prototype is tied to archived route state. A successor must be independently implemented and verified against the current P1/P2 contracts."
+    },
+    {
+      "id": "long-context-api-matrix-harness",
+      "source_variants": [
+        "c82146b39b304de7ca4c923d7e308722ad6773b1",
+        "a445728a53f6a27d06d52c1db53ff66721caec27",
+        "f654603502ca2092869c9599fea0be7f904de514"
+      ],
+      "decision": "rewrite",
+      "reason": "The archived fail-closed harness variants target the old evaluation-adapter and branch-local admission shapes. The long-context successor must be written against the P1 exact product API, workload, capacity, and observability contracts."
+    },
+    {
+      "id": "batched-embedding-prototype",
+      "archive_ref": "archive/prefill-pause-root-wip-20260820",
+      "archive_tip": "c9bd18c5e00aaf6710d7f70ee9c78da735df1394",
+      "source_commit": "e1cc2910f5d272d656606eccf12712f220d4020d",
+      "decision": "frozen",
+      "reason": "The prototype has no selected current mainline composition point or demonstrated product-API benefit. It remains an archive reference only."
+    },
+    {
+      "id": "sm87-macrofeed-v4-construction-ownership",
+      "archive_ref": "archive/v4-construction-ownership-20260820",
+      "archive_tip": "f3545240075651eaa54a5bea6c0f15ee9dfd9a3e",
+      "decision": "frozen",
+      "source_status": "fail",
+      "reason": "The archive is an incomplete, default-off architecture foundation with no normal request execution or mainline selector. Its schema-v5 source remains failed at strict in-process memory recovery and the branch is not merged wholesale."
+    }
+  ],
+  "recovery_anchors": [
+    {
+      "ref": "archive/prefill-pause-root-wip-20260820",
+      "tip": "c9bd18c5e00aaf6710d7f70ee9c78da735df1394",
+      "scope": "early preflight, health/route-attestation prototype, batched embedding prototype, and frozen NVFP4 zero-statistics evidence"
+    },
+    {
+      "ref": "archive/m32-resrms-c1-20260820",
+      "tip": "2b204fdcc112fc6f5b54d7c1895a7d03fd87c21d",
+      "scope": "unverified M32 residual RMSNorm C1"
+    },
+    {
+      "ref": "archive/m32-resrms-c2-20260820",
+      "tip": "d13073b1361ac93380acc13d5e20f11f0b33979e",
+      "scope": "M32 residual RMSNorm C2 archive; implementation already absorbed through 17b018f3281dce06e11b725d8110fd8f6662aa9d"
+    },
+    {
+      "ref": "archive/m32-resrms-c3-20260820",
+      "tip": "765669504c9d67b5fcf815c86cdc1327bb8416c5",
+      "scope": "unverified M32 residual RMSNorm C3"
+    },
+    {
+      "ref": "codex/prefill-target-path",
+      "tip": "a344c0126f44b58c2be38185119e7c9f6a7200ae",
+      "scope": "paused target-AOT and Prefill source reference; not selected by the delivery mainline"
+    },
+    {
+      "ref": "archive/v4-construction-ownership-20260820",
+      "tip": "f3545240075651eaa54a5bea6c0f15ee9dfd9a3e",
+      "scope": "paused V4 construction and ownership closeout"
+    }
+  ],
+  "mainline_result": {
+    "selected_code_commit": "f8a776272dc4a05637988a7a329221ee1ce08b85",
+    "additional_branch_code_cherry_picks": 0,
+    "archived_branch_merged_wholesale": false,
+    "default_runtime_route_changed": false,
+    "prefill_performance_work_reactivated": false,
+    "next_delivery_boundary": "P1 Product API and target-capacity boundary"
+  }
+}
