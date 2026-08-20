@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-08-15
+  last_reviewed: 2026-08-20
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-08-15.
+Snapshot date: 2026-08-20.
 
 This page is a replaceable state snapshot. It does not own architecture,
 delivery order, or experiment history. The system design is in
@@ -718,11 +718,14 @@ result. Exact phase-exclusive token-ID, final-norm, logits, greedy-workspace,
 and final-result aliases occupy the first 507,144 bytes of the existing
 scratch plane; they add no device allocation. Synthetic-T1 keeps every one of
 these boundary owners and identities explicitly unbound. Construction
-rollback inspects every `cudaFreeHost` result, and the real-checkpoint lifetime
-probe is specified to require that the stale pinned address becomes invalid
-after Engine destruction. That probe has not been executed for this archived
-checkpoint, so the physical release assertion is procedure/source authority,
-not a positive runtime fact.
+rollback inspects every `cudaFreeHost` result. The fixed schema-v5
+real-checkpoint probe at `4f34c19` has now observed that the stale pinned
+address becomes invalid after Engine destruction. That physical-release check
+passed, but the probe's source status remains `fail` solely because free
+memory after destruction remained 419,917,824 bytes below its pre-construction
+value, above the fixed 33,554,432-byte tolerance. The later root resource
+preflight passed with no GPU-device holders and GR3D 0%; it is not a Jetson
+`nvmap` `no_owner_leak` classification and does not rewrite the source result.
 
 That composition root is wired into the existing default-off V3 real-owner
 Engine harness and constructs the normal 48-complete-GDN, 64-MLP, and 16-Full
@@ -742,12 +745,21 @@ legacy arena; RoPE creation leaves 11,861,244,160 bytes plus the caller
 reserve; and V4 creation itself leaves the legacy arena plus the caller
 reserve. Declaration order and explicit teardown enforce `execution → startup
 → Engine RoPE → ModelWeights → complete target-AOT owner → resident`.
-These KV, RoPE, reserve, catalog, and lifetime facts have source/build
-authority only. No pinned real-checkpoint Engine-lifetime probe has executed
-this root, so a positive real-owner/real-checkpoint witness remains absent.
-No request may query CUDA state or rescan the model or catalog per layer. The
-startup package itself remains host-only and grants no launcher or
-production-dispatch authority.
+A root-preflighted fixed schema-v5 probe at `4f34c19` has now constructed,
+validated, and destroyed this root against the pinned real checkpoint. It
+matched the complete target-AOT inventory; the normal 48-complete-GDN,
+64-MLP-pair, 16-Full-Attention, and one request-boundary catalogs; the exact
+3,220,701,184-byte device owner, 67,108,864-byte shared Engine RoPE owner,
+160,008-byte portable pinned staging, 507,144-byte scratch alias, and staged
+reserve ledgers; and the owner/allocation/device lifetime chain. The source
+probe nevertheless remains `status=fail` at its sole failed check,
+`memory.recovered_after_destroy`, as recorded in the
+[`V4 Engine-lifetime closeout`](metadata/qwen36-27b-sm87-macrofeed-v4-real-checkpoint-engine-lifetime-closeout-2026-08-20.json).
+This grants real-checkpoint construction, catalog, ownership, and bounded
+teardown observation only. No request may query CUDA state or rescan the model
+or catalog per layer; no normal composer or request-boundary leaf ran; and the
+startup package grants no numerical, generation, launcher, API, timing,
+performance, release, production-dispatch, or production authority.
 
 The normal ExecutionPackage now exposes one reusable complete-GDN composer
 only through the private owner capability. Given the already-live sealed
@@ -996,7 +1008,7 @@ The V4 boundary remains exact and non-MTP.
 | SM87 whole-system AOT Prefill v1 | Default-off real-P40 API composition; performance-rejected after a zero-byte 840.000399-second timeout | Retain only as correctness/diagnostic control; it is not an active performance candidate |
 | SM87 bulk-dataflow v2 Prefill | Complete default-off real-P40 API route; performance-rejected after a zero-byte 680.73-second EvalScope timeout and one bounded causal profile; accuracy remains unqualified | Retain exact constituents and evidence only; no V2 tuning, P60/P130, qualification, or production promotion |
 | SM87 MacroFeed v3 Prefill | Complete default-off, test-only 64-layer source composition with startup-bound target-AOT assets, role-specific macro projections, nine-kernel-per-layer exact GDN, cold rollback, and a V18 physical transaction; integrated build and focused admission tests pass | Frozen executable diagnostic/control; no authoritative P40 timing, numerical, release, or production qualification exists |
-| SM87 MacroFeed v4 Prefill | Paused, default-off C8000×5 panel-major construction checkpoint on `archive/v4-construction-ownership-20260820`: Full Events strictly separates normal and Synthetic-T1 authority and uses direct O(1) `panel * 16 + ordinal` replay slots; the normal Full outer receipt binds every identity but has no runtime-positive invocation. One same-request/panel Synthetic-T1 fixture physically executes `GDN0 -> GDN1 -> GDN2 -> Full3` with complete KV/RoPE as 35 kernels plus three 61,440-byte copies, followed by one normal combined drain/discard and no publication. Owner-atomic runtime rearm performs the exact 156,893,184-byte Main zero and creates fresh epoch/panel 0 together without heap allocation; exact-ledger `PanelDone` directly commits RequestState with no host wait, healthy discard can rearm, poison cannot, and final private discard publishes nothing. Normal Startup independently seals the four request-boundary sources from the authenticated real Resident owner, including both LM-head scalar provenances while consuming only `weight_scale_2`; host-test authority cannot mint a normal execution binding. Normal Execution construction now performs all four source-private resource queries, retains the sealed boundary catalog, owns exact 160,008-byte portable pinned staging, and binds the exact 507,144-byte scratch alias span. The panel-close fixture seeds rather than physically executes the 560-kernel ledger | Resume only after an explicit owner decision, starting with the fixed package 64-layer × 5-panel loop and rollback, final `B -> A`/`FinalPublish`/sequence fence (including successful-request reuse), and independent timing-enabled Control events that stop pure Prefill at canonical `PrefillStateCommitted` while excluding LM-head/argmax/D2H. Proportional real-checkpoint lifetime/numerical gates precede the API. There is still no request-boundary leaf invocation, runtime-positive whole panel/request, real-checkpoint lifetime or weight-boundary oracle, API, performance, release, or production authority |
+| SM87 MacroFeed v4 Prefill | Paused, default-off C8000×5 panel-major construction checkpoint on `archive/v4-construction-ownership-20260820`: Full Events strictly separates normal and Synthetic-T1 authority and uses direct O(1) `panel * 16 + ordinal` replay slots; the normal Full outer receipt binds every identity but has no runtime-positive invocation. One same-request/panel Synthetic-T1 fixture physically executes `GDN0 -> GDN1 -> GDN2 -> Full3` with complete KV/RoPE as 35 kernels plus three 61,440-byte copies, followed by one normal combined drain/discard and no publication. Owner-atomic runtime rearm performs the exact 156,893,184-byte Main zero and creates fresh epoch/panel 0 together without heap allocation; exact-ledger `PanelDone` directly commits RequestState with no host wait, healthy discard can rearm, poison cannot, and final private discard publishes nothing. Normal Startup independently seals the four request-boundary sources from the authenticated real Resident owner, including both LM-head scalar provenances while consuming only `weight_scale_2`; host-test authority cannot mint a normal execution binding. Normal Execution construction performs all four source-private resource queries, retains the sealed boundary catalog, owns exact 160,008-byte portable pinned staging, and binds the exact 507,144-byte scratch alias span. The fixed `4f34c19` schema-v5 probe constructed and destroyed the pinned-real-checkpoint Engine with exact 48/64/16/1 catalogs, KV/RoPE/boundary ownership, pinned-staging release, and reserve ledgers; its source status remains `fail` solely because the 419,917,824-byte free-memory gap exceeds the 33,554,432-byte tolerance. The post-exit root preflight passed but is not a `no_owner_leak` classification. The panel-close fixture seeds rather than physically executes the 560-kernel ledger | Resume only after an explicit owner decision, starting with the fixed package 64-layer × 5-panel loop and rollback, final `B -> A`/`FinalPublish`/sequence fence (including successful-request reuse), and independent timing-enabled Control events that stop pure Prefill at canonical `PrefillStateCommitted` while excluding LM-head/argmax/D2H. Preserve and reconcile the strict source lifetime failure, then run the remaining proportional real-checkpoint numerical gates before the API. There is still no request-boundary leaf invocation, runtime-positive whole panel/request, weight-boundary numerical oracle, API, performance, release, or production authority |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
@@ -1183,8 +1195,12 @@ Use the following language until this snapshot changes:
 Before any performance run or profiler capture, the clean-host preflight must
 pass using `tegrastats`, CPU/process inspection, and GPU-device-handle
 ownership. Jetson `nvidia-smi` is not an idle or attribution authority.
-The latest attempted V4 measurement admission failed closed because Xorg,
-GNOME, and Mutter still held GPU-device handles. No performance request or
-profiler capture was launched, and the pending real-checkpoint Engine-lifetime
-probe was not run in that contaminated window. No V4 timing or positive
-real-checkpoint probe result may be reported from that attempt.
+An earlier V4 measurement admission failed closed because Xorg, GNOME, and
+Mutter still held GPU-device handles. No performance request, timing, or
+profiler capture was launched in that window. The final construction closeout
+used separate passing root preflights after the interfering vLLM process group
+was terminated and ran correctness/lifetime probes only. Its fixed schema-v5
+source result is still `fail` solely at the 419,917,824-byte versus
+33,554,432-byte memory-recovery gate; the passing post-exit resource preflight
+does not turn it into `no_owner_leak`. No V4 timing or performance result
+exists.

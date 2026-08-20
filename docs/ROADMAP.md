@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-08-15
+  last_reviewed: 2026-08-20
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -286,10 +286,19 @@ device-plus-host bytes. The build-time reserve chain preserves the
 preceding allocation: complete target-AOT leaves 11,928,353,024 bytes plus
 the caller reserve, RoPE creation leaves 11,861,244,160 bytes plus it, and V4
 creation leaves the legacy arena plus it. Teardown is `execution → startup →
-Engine RoPE → ModelWeights → complete target-AOT owner → resident`. That
-source/build integration has not run through the pinned real checkpoint, so
-the positive real-owner catalog witness remains open and the normal factory,
-KV/RoPE/reserve, and Engine lifetime have construction/build authority only.
+Engine RoPE → ModelWeights → complete target-AOT owner → resident`. A fixed
+schema-v5 probe at `4f34c19` has now run this construction root through the
+pinned real checkpoint. Engine creation/validation/destruction, the complete
+target-AOT inventory, the normal 48-GDN/64-MLP/16-Full/one-boundary catalogs,
+KV/RoPE/boundary ownership, pinned-staging release, reserve arithmetic, and
+the owner/allocation/device chain were exact. The source result nevertheless
+remains `status=fail` solely because its 419,917,824-byte post-destruction
+free-memory gap exceeds the 33,554,432-byte tolerance. The passing root
+post-exit resource preflight does not supply a Jetson `nvmap`
+`no_owner_leak` classification. This is a bounded real-checkpoint
+construction/catalog/ownership observation, not normal request execution,
+numerical, generation, API, timing, performance, release, or production
+authority.
 The isolated package consumes layer-0
 input norm, QKVZ, A/B, the two-kernel continuation plus one asynchronous
 61,440-byte convolution-history D2D copy, GDN-O, residual/post-norm, Gate+Up,
@@ -392,8 +401,10 @@ sealed catalog and independent fold, acquires and zeroes exact 160,008-byte
 `cudaHostAllocPortable` staging before the device reserve query, and binds the
 exact 507,144-byte phase-aliased scratch span. Synthetic-T1 keeps these facts
 explicitly zero/unbound. Every construction rollback checks `cudaFreeHost`;
-the separate stale-address lifetime-probe assertion remains unexecuted. There
-is therefore still no fixed request-edge submission, request-boundary leaf
+the fixed `4f34c19` probe observed stale pinned-address invalidation after
+Engine destruction, while its overall source result remains failed solely at
+the strict memory-recovery gate described below. There is therefore still no
+fixed request-edge submission, request-boundary leaf
 invocation, or normal runtime-positive invocation. The leaves grant no
 whole-panel, whole-request,
 real-weight boundary oracle, real-checkpoint numerical, API, timing, release,
@@ -575,13 +586,17 @@ resource and request/grant/KV-range identities, and the exact nested opaque
 Events receipt. Its synthetic package test is
 deliberately negative because that fixture has no Full physical owner: it
 fails before enqueue with zero added kernels, then drains and discards. No
-runtime-positive normal-package invocation of either composer or real-
-checkpoint invocation has run. The joined Events T1 cohort instead uses the
+runtime-positive normal-package invocation of either composer and no
+real-checkpoint numerical invocation has run. The joined Events T1 cohort
+instead uses the
 strict Synthetic-T1 domain, complete KV/RoPE, and the same request/panel to
 physically execute natural GDN0--2 and Full3 as 35 kernels plus three copies.
 Its success has one normal combined drain/discard and no publication; its
 minimum failure retains 27/3 and poison-invalidates the pending Full grant.
-The real-checkpoint Engine-lifetime probe has not run. These are synthetic
+The separate fixed schema-v5 real-checkpoint Engine probe closed the exact
+construction/catalog/ownership and pinned-release observations but preserved
+`status=fail` at its sole free-memory-recovery check. It did not execute either
+normal composer. These transaction fixtures remain synthetic
 correctness/dependency facts only; none has whole-model, API, numerical,
 performance, release, or production authority. The owner-only panel-commit
 bridge is now implemented separately: runtime rearm enqueues the exact
@@ -618,12 +633,17 @@ performance work):
    reuse. Add independent timing-enabled Control events around canonical
    RequestState publication so qualified pure Prefill ends at
    `PrefillStateCommitted` and excludes any overlapped LM-head/argmax/D2H work.
-   `FinalRepresentationReady` remains diagnostic only. In
-   the first accepted clean-host windows, run the pending pinned-real-
-   checkpoint Engine lifetime/catalog and proportional C8000
-   GDN/Full/cohort/loop/boundary numerical gates. Synthetic T1 cannot
-   substitute for those results, and the correctness/lifetime probes have no
-   performance authority; and
+   `FinalRepresentationReady` remains diagnostic only. Preserve the frozen
+   pinned-real-checkpoint Engine closeout exactly: its construction/catalog,
+   KV/RoPE/boundary ownership, and pinned-release observations passed, while
+   the source remains `fail` because 419,917,824 bytes did not recover within
+   the 33,554,432-byte tolerance. If formal lifecycle acceptance is required
+   after resume, reconcile that gap with an immediate canonical Jetson
+   `nvmap`/owner snapshot or a separately admitted replacement probe; the
+   post-exit resource preflight alone is not `no_owner_leak`. Then run the
+   remaining proportional C8000 GDN/Full/cohort/loop/boundary numerical gates.
+   Synthetic T1 cannot substitute for those results, and correctness/lifetime
+   probes have no performance authority; and
 3. expose exactly one default-off V4 route through the existing real OpenAI
    P40 API, then run one clean-host cold/no-cache EvalScope direction witness.
    A negative or merely small whole-path result reopens the V4 global
@@ -633,12 +653,15 @@ performance work):
    accuracy-admissible P40 gate passes. cuBLASLt remains reference-only and
    cannot supply any missing request binding or runtime route.
 
-The latest clean-host admission stopped before execution because Xorg, GNOME,
-and Mutter held GPU-device handles. It produced no timing and the pending
-real-checkpoint Engine-lifetime probe was not run. Performance work and this
-real-owner probe remain fail-closed until the same
-`tegrastats`/process/device-handle inspection passes; no result from a
-contaminated host may enter an experiment or promotion decision.
+An earlier admission stopped before execution because Xorg, GNOME, and Mutter
+held GPU-device handles and produced no timing. The final construction
+closeout later used passing root `tegrastats`/process/device-handle preflights
+after the interfering vLLM process group was terminated; it ran correctness
+and Engine-lifetime probes only, not a performance request or profiler. The
+fixed source lifetime result remains `fail` at its sole recovery check, and
+the passing post-exit resource preflight does not rewrite it. Future
+performance work remains inactive until explicit owner resumption and must
+still fail closed on the same clean-host gate.
 
 ### Promotion and stop gates
 

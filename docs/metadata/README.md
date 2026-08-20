@@ -318,6 +318,23 @@ the whole-product control; V3 is now the complete executable diagnostic
 control, while `AC-PREFILL-SM87-MACROFEED-v4` is the reserved active successor
 lineage and remains a non-executable foundation.
 
+The paused V4 real-checkpoint Engine construction/lifetime closeout is frozen
+in
+[`qwen36-27b-sm87-macrofeed-v4-real-checkpoint-engine-lifetime-closeout-2026-08-20.json`](qwen36-27b-sm87-macrofeed-v4-real-checkpoint-engine-lifetime-closeout-2026-08-20.json).
+The fixed schema-v5 probe at `4f34c19` created, validated, and destroyed the
+Engine; matched the complete target-AOT inventory and the normal
+48-complete-GDN, 64-MLP-pair, 16-Full-Attention, and one request-boundary
+catalogs; closed the exact KV/RoPE/boundary ownership and reserve ledgers; and
+observed physical release of the 160,008-byte portable pinned staging owner.
+Its source status remains `fail` solely because free memory after destruction
+was 419,917,824 bytes below the pre-construction value, exceeding the fixed
+33,554,432-byte tolerance. The root post-exit resource preflight passed with
+no GPU-device holders and GR3D 0%, but it is not a Jetson `nvmap`
+`no_owner_leak` classification and does not rewrite the source result. This is
+real-checkpoint construction, catalog, ownership, and bounded teardown
+evidence only; it grants no normal request execution, numerical, generation,
+API, timing, performance, release, or production authority.
+
 The current Prefill architecture reset and same-host stock-vLLM P513 kernel
 profile are recorded in
 [`qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json`](qwen36-27b-vllm-p513-architecture-profile-2026-07-29.json).

@@ -6,7 +6,7 @@ q3x_document:
   owner: evaluation-maintainers
   authority: external API evaluation protocol, metric semantics, and artifact requirements
   effective: 2026-08-09
-  last_reviewed: 2026-08-15
+  last_reviewed: 2026-08-20
   supersedes: []
   superseded_by: []
   ssot_for: EvalScope and target-length external evaluation procedure
@@ -1169,11 +1169,13 @@ invalid rather than slow or fast.
 
 `AC-PREFILL-SM87-MACROFEED-v4` is paused at the default-off construction
 checkpoint retained on `archive/v4-construction-ownership-20260820`. Its
-positive device evidence remains explicitly Synthetic-T1: the joined fixture
+positive request-execution device evidence remains explicitly Synthetic-T1:
+the joined fixture
 submits `GDN0 → GDN1 → GDN2 → Full3` as 35 kernels plus three
 61,440-byte copies, then physically drains and discards without publication.
-That is not a positive normal-owner catalog, complete panel, whole request, or
-real-checkpoint result. The private normal construction chain authenticates
+That is not a positive normal-composer invocation, complete panel, whole
+request, or real-checkpoint numerical result. The private normal construction
+chain authenticates
 the Resident request-boundary sources, performs four construction-time leaf
 resource queries, retains their all-or-nothing execution catalog, and owns
 exactly 3,220,701,184 device bytes plus 160,008 bytes of portable pinned host
@@ -1182,15 +1184,25 @@ is 3,287,970,056 bytes; the device-only reserve arithmetic remains separate.
 The normal factories are private and default off, and the synthetic branch
 grants no production authority.
 
-No clean-host real-checkpoint lifetime probe has executed this normal root,
-and no request-boundary leaf, fixed 64-layer by five-panel request loop,
-selector, API route, numerical gate, or production receipt exists. V4
-therefore has no valid EvalScope or server-timing command. Resuming performance
-work requires an explicit owner decision and starts from the fixed whole-request
-loop and rollback/final-publication closure recorded in the Roadmap, followed
-by real-checkpoint lifetime and numerical qualification. Gate/Up, Down,
-isolated constituent, occupancy, P513, NSys, or NCU evidence cannot substitute
-for that missing route.
+A fixed schema-v5 probe at `4f34c19` has now constructed, validated, and
+destroyed this normal root against the pinned real checkpoint. Its exact
+48-GDN/64-MLP/16-Full/one-boundary catalogs, KV/RoPE/boundary ownership,
+reserve chain, and pinned-host release are construction observations only.
+The source result remains `fail` solely because its 419,917,824-byte
+post-destruction free-memory gap exceeds the 33,554,432-byte tolerance. The
+passing root post-exit resource preflight is not a Jetson `nvmap`
+`no_owner_leak` classification and does not rewrite that result. Exact
+evidence is frozen in the
+[`V4 Engine-lifetime closeout`](metadata/qwen36-27b-sm87-macrofeed-v4-real-checkpoint-engine-lifetime-closeout-2026-08-20.json).
+No request-boundary leaf, fixed 64-layer by five-panel request loop, selector,
+API route, numerical gate, or production receipt exists, so V4 still has no
+valid EvalScope or server-timing command. Resuming performance work requires
+an explicit owner decision and starts from the fixed whole-request loop and
+rollback/final-publication closure recorded in the Roadmap, reconciliation of
+the preserved strict lifetime failure if formal lifecycle acceptance is
+needed, and the remaining real-checkpoint numerical qualification. Gate/Up,
+Down, isolated constituent, occupancy, P513, NSys, or NCU evidence cannot
+substitute for that missing route.
 
 The first V4 performance run becomes eligible only after the Roadmap's C8000
 FP8, exact GDN, in-place/streaming exact Attention, dual recurrent epoch,

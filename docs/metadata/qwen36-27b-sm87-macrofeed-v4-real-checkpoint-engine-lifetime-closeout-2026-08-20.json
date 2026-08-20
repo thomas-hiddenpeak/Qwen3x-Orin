@@ -1,0 +1,293 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen36-27b-sm87-macrofeed-v4-real-checkpoint-engine-lifetime-closeout-2026-08-20",
+  "recorded_at_utc": "2026-08-20T15:48:07Z",
+  "classification": {
+    "authority": "paused_v4_real_checkpoint_engine_construction_catalog_ownership_and_source_failure_closeout_evidence",
+    "engineering_unit": "architecture_foundation_local_work_package_not_yet_architecture_candidate",
+    "source_probe_status": "fail",
+    "source_probe_status_preserved": true,
+    "exclusive_failed_check": "memory.recovered_after_destroy",
+    "engine_construction_catalog_and_ownership_observation": true,
+    "strict_in_process_memory_recovery_gate_passed": false,
+    "post_exit_resource_preflight_passed": true,
+    "derived_no_owner_leak_classification": "not_claimed",
+    "normal_request_execution_authority": false,
+    "numerical_authority": false,
+    "generation_authority": false,
+    "api_authority": false,
+    "performance_authority": false,
+    "release_authority": false,
+    "production_promotion_authority": false
+  },
+  "claim_boundary": "The fixed schema-v5 source probe at commit 4f34c19 constructed, validated, and destroyed the pinned-real-checkpoint Engine; matched the complete target-AOT inventory, the normal 48-complete-GDN, 64-MLP-pair, 16-Full-Attention, and one request-boundary execution catalogs; closed the exact V4 KV, shared Engine RoPE, portable pinned staging, scratch-alias, reserve, and device-owner ledgers; and observed the stale pinned staging address become invalid after Engine destruction. The source status remains fail solely because cudaMemGetInfo free memory after destruction remained 419,917,824 bytes below the pre-construction value, above the fixed 33,554,432-byte tolerance. The root post-exit resource preflight passed with a complete GPU-device descriptor audit, no holders, and GR3D 0%; that observation does not reclassify the source probe as pass and is not a Jetson nvmap no-owner-leak diagnosis. This record grants no normal request execution, numerical, generation, API, timing, performance, release, or production authority.",
+  "contracts": {
+    "lineage": "AC-PREFILL-SM87-MACROFEED-v4",
+    "work_package": "WP-PREFILL-REFERENCE-TRANSLATION-v1",
+    "branch": "archive/v4-construction-ownership-20260820",
+    "paused_by_owner_direction": true,
+    "default_off": true,
+    "selector_bound": false,
+    "whole_model_executor_bound": false,
+    "api_route_bound": false,
+    "production_route_changed": false
+  },
+  "measurement_repository": {
+    "branch": "archive/v4-construction-ownership-20260820",
+    "commit": "4f34c1917e6e6b7101b71d8e29e266a4feea3d20",
+    "tree": "5a1dc92a9fbc746e45745a2ab72cee5a910c5393",
+    "clean_at_build": true,
+    "fix_summary": "Accept exactly cudaHostAllocPortable and cudaHostAllocPortable|cudaHostAllocMapped live observations while retaining the requested Portable receipt; reject default, mapped-only, write-combined, and unknown flag combinations."
+  },
+  "model": {
+    "identity": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "directory_used_read_only": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "metadata_sha256": {
+      "config.json": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+      "hf_quant_config.json": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+      "model.safetensors.index.json": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2"
+    },
+    "resident_shards": [
+      {
+        "filename": "model-00001-of-00003.safetensors",
+        "bytes": 9965652512,
+        "sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d"
+      },
+      {
+        "filename": "model-00002-of-00003.safetensors",
+        "bytes": 9985757032,
+        "sha256": "06da4242b0f491118d19d4d4c7564307a7bd6059c6bed284e08c93f6fc5a556d"
+      },
+      {
+        "filename": "model-00003-of-00003.safetensors",
+        "bytes": 1970287640,
+        "sha256": "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845"
+      }
+    ]
+  },
+  "build": {
+    "binary_path": ".q3x-work/build/v4-closeout-20260820/q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime_probe",
+    "binary_bytes": 13014896,
+    "binary_sha256": "0eecaf628e29f3bf9881ca219e79825d95b12a09715159b53fb605188f7c06a1",
+    "receipt_schema": "q3x.sm87.macrofeed-v4.engine-lifetime-build.v1",
+    "receipt_sha256": "911caf96e6746c77e33127d37811d591e981c795d4e246b70074cfc72a05c1a6",
+    "build_type": "Release",
+    "build_testing": true,
+    "cmake_version": "3.28.3",
+    "generator": "Unix Makefiles",
+    "cuda_toolkit_version": "13.3.73",
+    "cuda_architecture": "87",
+    "required_admissions_exact": true
+  },
+  "source_artifacts": {
+    "initial_busy_preflight": {
+      "path": ".q3x-work/preflight/v4-closeout-20260820/before-cleanup.json",
+      "bytes": 91373,
+      "sha256": "72abe118a41aebbe9bb480169484b75881623002e5a94f16f15489212e1897a8",
+      "decision": "collection_error",
+      "result_retained_as_measurement": false
+    },
+    "post_cleanup_root_preflight": {
+      "path": ".q3x-work/preflight/v4-closeout-20260820/after-vllm-term.json",
+      "bytes": 19991,
+      "sha256": "7d22d87594655b6dc1f809f278d3e4813e146f131b5ce5642bfcc43723fa46b9",
+      "decision": "pass",
+      "gpu_device_fd_audit_complete": true,
+      "gpu_device_holder_count": 0,
+      "maximum_gr3d_percent": 0.0
+    },
+    "superseded_pre_fix_probe_preflight": {
+      "path": ".q3x-work/preflight/v4-closeout-20260820/before-real-checkpoint-probe-final.json",
+      "bytes": 20157,
+      "sha256": "dc462f3c2c2fcb972ecb223a78114cd82b90a0ab9f44b3116475bc2105611808",
+      "decision": "pass"
+    },
+    "superseded_pre_fix_probe": {
+      "path": ".q3x-work/worktrees/v4-closeout-20260820/.q3x-work/evidence/v4-construction-closeout-20260820/schema5-real-checkpoint-lifetime.json",
+      "bytes": 11295,
+      "sha256": "2c790118e6a14792c49aee7561fd18686c883517698ac11db6bdf7da9f18daa3",
+      "source_commit": "e0ef1284bd013c129086542c0b13edafc78b9143",
+      "binary_sha256": "84f7baff447677d7be63b4a0afb5c8ae03520aa54eaf7e06b4519ef5aa2d89fc",
+      "status": "fail",
+      "engine_created": false,
+      "diagnostic_stage": "macrofeed_v4_execution_composition_root",
+      "diagnostic_message": "exact_portable_request_boundary_host_staging",
+      "superseded_by_fix_commit": "4f34c1917e6e6b7101b71d8e29e266a4feea3d20",
+      "lifetime_authority": false
+    },
+    "superseded_pre_fix_post_exit_root_preflight": {
+      "path": ".q3x-work/preflight/v4-closeout-20260820/after-real-checkpoint-probe.json",
+      "bytes": 20059,
+      "sha256": "cf18dc547e0e1f94d31312dd650a9760848cffa46eb276db49fc09ab90304a0a",
+      "decision": "pass"
+    },
+    "fixed_cuda_correctness_root_preflight": {
+      "path": ".q3x-work/preflight/v4-closeout-20260820/before-fixed-cuda-correctness.json",
+      "bytes": 20076,
+      "sha256": "c42873245c0bd4041065dbc782953648468a468f48f2b63d642558516b7dcf8c",
+      "decision": "pass",
+      "gpu_device_fd_audit_complete": true,
+      "gpu_device_holder_count": 0,
+      "maximum_gr3d_percent": 0.0
+    },
+    "fixed_probe_root_preflight": {
+      "path": ".q3x-work/preflight/v4-closeout-20260820/before-fixed-real-checkpoint-probe.json",
+      "bytes": 20101,
+      "sha256": "cee9de0a06fe4611c175cc8322d5a0150ecb98bd9c64c7af76d83b23df4a9f78",
+      "decision": "pass",
+      "gpu_device_fd_audit_complete": true,
+      "gpu_device_holder_count": 0,
+      "maximum_gr3d_percent": 0.0
+    },
+    "fixed_probe": {
+      "path": ".q3x-work/worktrees/v4-closeout-20260820/.q3x-work/evidence/v4-construction-closeout-20260820/schema5-real-checkpoint-lifetime-fixed.json",
+      "bytes": 12288,
+      "sha256": "e884bac6af9654b2c5c8095e5b2c1484ecda0ac30d74dbe61d97dc819f230ac1",
+      "schema_version": 5,
+      "artifact": "q3x_sm87_macrofeed_v4_real_checkpoint_engine_lifetime",
+      "status": "fail",
+      "process_exit_code": 1
+    },
+    "fixed_post_exit_root_preflight": {
+      "path": ".q3x-work/preflight/v4-closeout-20260820/after-fixed-real-checkpoint-probe.json",
+      "bytes": 20067,
+      "sha256": "bfad5f25ab3016f67aeceda3f38d55f34eab87d7c4e9a6757d7d72386abb8ef4",
+      "decision": "pass",
+      "uid": 0,
+      "gpu_device_fd_audit_complete": true,
+      "gpu_device_holder_count": 0,
+      "maximum_gr3d_percent": 0.0,
+      "no_owner_leak_classification": "not_performed"
+    }
+  },
+  "fixed_cuda_validation_observation": {
+    "preflight_sha256": "c42873245c0bd4041065dbc782953648468a468f48f2b63d642558516b7dcf8c",
+    "serialized_same_lane": true,
+    "raw_log_retained": false,
+    "tests": [
+      {
+        "name": "q3x_sm87_macrofeed_v4_execution_events_cuda_test",
+        "binary_sha256": "6fc2268bd56a4b5731e022e1bb3986ed663007fdcec7dbf3cb5e9baaa51ba060",
+        "exit_code": 0,
+        "stdout_terminal_line": "sm87_macrofeed_v4_execution_events_cuda_test: PASS"
+      },
+      {
+        "name": "q3x_sm87_macrofeed_v4_p40_execution_package_cuda_test",
+        "binary_sha256": "5c5b2aa7b8704cafb7e200728642502b00bcd0b4ff95e58a8e32caf417f3cf2d",
+        "exit_code": 0,
+        "stdout_terminal_line": "sm87_macrofeed_v4_p40_execution_package_cuda_test: PASS"
+      }
+    ],
+    "authority": "fresh fixed-build T1 CUDA correctness and lifecycle observation only"
+  },
+  "fixed_probe_checks": {
+    "engine": {
+      "create_attempted": true,
+      "created": true,
+      "valid": true,
+      "destroy_attempted": true,
+      "destroyed": true,
+      "construction_snapshot_count": 1,
+      "construction_snapshot_valid": true,
+      "complete_aot_inventory_exact": true,
+      "snapshot_matches_complete_aot_load_stats": true,
+      "macrofeed_v3_engine_contract_exact": true
+    },
+    "complete_target_aot": {
+      "exact": true,
+      "source_count": 400,
+      "artifact_count": 256,
+      "device_bytes": 16840130560,
+      "catalog_sha256": "6b1e40863c2e2ba7095b11059b581e10a0f2d16bc1334226972cceeb9837b4d7"
+    },
+    "normal_catalogs": {
+      "exact": true,
+      "complete_gdn_binding_count": 48,
+      "mlp_pair_binding_count": 64,
+      "full_attention_binding_count": 16,
+      "request_boundary_binding_count": 1,
+      "normal_factory_branch": true
+    },
+    "request_boundary_owner": {
+      "exact": true,
+      "normal_resident_authority": true,
+      "source_private_resource_query_count": 4,
+      "execution_catalog_bound": true,
+      "host_staging_bytes": 160008,
+      "host_staging_pinned": true,
+      "host_staging_flags": 1,
+      "host_staging_construction_zero_initialized": true,
+      "pinned_host_staging_released_after_engine_destroy": true,
+      "scratch_alias_span_bytes": 507144,
+      "scratch_aliases_exact": true,
+      "request_selectable": false,
+      "launcher_authority": false,
+      "production_dispatch_eligible": false
+    },
+    "kv_rope_and_package_ownership": {
+      "exact": true,
+      "execution_device_owned_bytes": 3220701184,
+      "kv_device_bytes": 2621440000,
+      "shared_engine_rope_device_bytes": 67108864,
+      "shared_engine_rope_positions": 262144,
+      "shared_engine_rope_pairs": 32,
+      "package_owned_device_plus_host_bytes": 3220861192,
+      "anchored_device_plus_host_bytes": 3287970056,
+      "owner_allocation_device_lifetime_chain_exact": true
+    },
+    "aggregate_reserve_chain": {
+      "exact": true,
+      "execution_aggregate_memory_gate_passed": true,
+      "execution_required_device_allocation_bytes": 3220701184,
+      "legacy_request_arena_bytes": 8640542976,
+      "future_bytes_after_complete_aot_create": 11928353024,
+      "future_bytes_after_rope_create": 11861244160,
+      "future_bytes_after_execution_create": 8640542976
+    },
+    "construction_scope": {
+      "default_off": true,
+      "synthetic_t1_gdn_layer0_source": false,
+      "complete_gdn_layer0_bound": true,
+      "selector_bound": false,
+      "whole_model_executor_bound": false,
+      "api_route_bound": false,
+      "production_dispatch_eligible": false
+    }
+  },
+  "memory_recovery": {
+    "total_before_bytes": 65932103680,
+    "total_during_bytes": 65932103680,
+    "total_after_destroy_bytes": 65932103680,
+    "free_before_bytes": 54464172032,
+    "free_during_bytes": 11064246272,
+    "free_after_destroy_bytes": 54044254208,
+    "free_gap_after_destroy_bytes": 419917824,
+    "destroy_recovery_tolerance_bytes": 33554432,
+    "gap_above_tolerance_bytes": 386363392,
+    "live_engine_reduced_free_memory": true,
+    "pre_destroy_sync_cuda_error": 0,
+    "post_destroy_sync_cuda_error": 0,
+    "final_mem_info_cuda_error": 0,
+    "pinned_host_staging_release_query_cuda_error": 1,
+    "pinned_host_staging_release_error_cleared": true,
+    "recovered_after_destroy": false,
+    "exclusive_failed_check": "memory.recovered_after_destroy",
+    "source_status": "fail",
+    "post_exit_interpretation": "The later root preflight proves only an idle holder-free observation after process exit. It neither explains the cudaMemGetInfo gap through Jetson page-pool accounting nor supplies a no_owner_leak classification."
+  },
+  "resume_boundary": {
+    "performance_work_paused": true,
+    "automatic_rerun_authorized": false,
+    "strict_lifetime_acceptance_closed": false,
+    "required_if_lifecycle_acceptance_is_needed_after_resume": "preserve this source fail and reconcile the 419917824-byte gap with an immediate canonical Jetson nvmap/process/IOVMM/FSI/handle snapshot or a separately admitted replacement probe; do not infer no_owner_leak from the resource preflight",
+    "still_open": [
+      "normal request-boundary leaf invocation",
+      "runtime-positive fixed 64-layer by five-panel request execution",
+      "real-checkpoint numerical qualification",
+      "final canonical publication and sequence fence",
+      "OpenAI API route and witness",
+      "performance, release, and production qualification"
+    ]
+  }
+}

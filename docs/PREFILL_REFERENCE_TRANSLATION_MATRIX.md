@@ -6,7 +6,7 @@ q3x_document:
   owner: prefill-maintainers
   authority: source-to-SM87 translation and selection record for WP-PREFILL-REFERENCE-TRANSLATION-v1
   effective: 2026-08-12
-  last_reviewed: 2026-08-15
+  last_reviewed: 2026-08-20
   supersedes: []
   superseded_by: []
   ssot_for: the active Prefill reference-translation work package only
@@ -624,8 +624,10 @@ the private catalog plus its independent fold. It also owns exact
 zero-initialized 160,008-byte `cudaHostAllocPortable` token/result staging and
 binds token, final-norm, logits, greedy, and final-result phase aliases over the
 first 507,144 scratch bytes. Synthetic-T1 keeps these boundary facts unbound.
-All `cudaFreeHost` results are checked on construction rollback; the schema-v5
-stale-address physical-release probe has not run against the real checkpoint.
+All `cudaFreeHost` results are checked on construction rollback. The fixed
+schema-v5 real-checkpoint probe at `4f34c19` observed the stale pinned address
+become invalid after Engine destruction; its source still failed solely at the
+separate strict free-memory-recovery check.
 
 An Engine-private composition root wires only those normal catalogs
 into the existing default-off V3 real-owner
@@ -640,10 +642,12 @@ also preserves the 8,640,542,976-byte legacy P40 arena: complete target-AOT
 creation leaves 11,928,353,024 bytes plus the caller reserve, RoPE creation
 leaves 11,861,244,160 bytes plus it, and V4 creation leaves the legacy arena
 plus it. Teardown is `execution → startup → Engine RoPE → ModelWeights →
-complete target-AOT owner → resident`. No pinned real-checkpoint Engine probe
-has executed that root yet, so the normal factory, KV/RoPE/reserve chain, and
-lifetime currently have source/build authority only; positive execution of
-the complete catalogs under the real owner is still open. A separate private
+complete target-AOT owner → resident`. The fixed probe constructed and
+destroyed that root with exact complete catalogs, KV/RoPE/reserve ownership,
+and pinned staging release. It grants that bounded real-owner construction
+observation only: the source remains `fail` at its 419,917,824-byte versus
+33,554,432-byte recovery gate, and positive request execution of the complete
+catalogs under the real owner is still open. A separate private
 owner now owns three nonblocking streams and nine events and
 enforces the five-panel, 48-AB-cycle-per-panel dependency graph without
 per-panel host observation. Its complete-GDN Events transaction now consumes a
@@ -975,11 +979,19 @@ consecutive five-second samples of CPU/GPU/TJ at or below `65C` are required
 before server startup, before the measured request, and before post-release
 admission; every measured sample must still remain strictly below `70C`.
 
-The latest V4 performance admission stopped before execution because Xorg,
-GNOME, and Mutter held GPU-device handles. It produced no timing or profiler
-evidence, and the pending real-checkpoint Engine-lifetime probe was not run in
-that contaminated window. This does not relax the gate or authorize a
-contaminated result or positive real-owner claim.
+An earlier V4 performance admission stopped before execution because Xorg,
+GNOME, and Mutter held GPU-device handles and produced no timing or profiler
+evidence. The later construction closeout used separate passing root
+preflights and ran only the fixed correctness/lifetime probes. The schema-v5
+Engine source result remains `fail` solely because the 419,917,824-byte
+post-destruction free-memory gap exceeds its 33,554,432-byte tolerance; the
+passing post-exit resource preflight is not a Jetson `nvmap`
+`no_owner_leak` classification. Exact narrow authority and raw hashes are
+frozen in the
+[`V4 Engine-lifetime closeout`](metadata/qwen36-27b-sm87-macrofeed-v4-real-checkpoint-engine-lifetime-closeout-2026-08-20.json).
+This does not relax the performance gate or grant normal request execution,
+numerical, generation, API, timing, performance, release, or production
+authority.
 
 ### 9.1 First target-first execution feedback
 
