@@ -41,7 +41,7 @@ stable system boundary returns to the SDD.
 | Product symptom | Cold/no-cache, single-request 40K--60K and approximately 130K Prefill remains below the owner-set API target and useful vLLM starting line |
 | Parent candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` |
 | Package state | Paused; no active local optimization package |
-| Incumbent | The P40 development route identified by [Current Status](CURRENT_STATUS.md), not restated here |
+| Incumbent | The historical 392.804397-token/s v10 observation; its route is now exposed by the typed, default-OFF, non-installing `BUILD_TESTING=OFF` development artifact identified by [Current Status](CURRENT_STATUS.md), but the timing has not yet been validly reproduced on that artifact |
 | Numerical boundary | [Prefill mathematical-equivalence ledger](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md) |
 | Production exclusions | No MTP, cuBLASLt production path, silent fallback, approximate mainline, request-time JIT/repack/autotune, or full-model BF16 weight copy |
 | First return point | One clean-host, real-checkpoint, cold/no-cache P40 OpenAI API direction witness |
@@ -62,8 +62,9 @@ the complete runner as the controlled system:
 | Observables | Exact route receipts, consumed-token count, state/oracle result, pure Prefill, TTFT, Decode, memory, and clean-host resource state |
 | Disturbance rejection | Fail closed on foreign CPU/GPU consumers, cache/protocol mismatch, fallback, late compilation/allocation, or artifact drift |
 
-The current P40 whole-core controller is structurally layer-major and
-Prefill/Decode are logically separate. Its per-layer GPU submission graph is:
+The tracked, typed P40 v10 development controller is structurally layer-major
+and Prefill/Decode are logically separate. Its per-layer GPU submission graph
+is:
 
 ```text
 five M8000 fill panels

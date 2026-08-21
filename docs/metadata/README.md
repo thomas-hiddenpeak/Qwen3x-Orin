@@ -64,10 +64,28 @@ but are not statistically or release qualified. A final `BUILD_TESTING=OFF`
 EvalScope 1.9.1 run passed 8/8 short requests, protocol, thermal, memory,
 shutdown, and post-exit gates. The exact-C512 final-token candidate was not
 absorbed because P512 and P4096 state/KV/logit oracles failed. The record also
-corrects the often abbreviated 392.804397-token/s figure: it belongs only to
-the separate historical default-off, dirty-tree, accuracy-unqualified v10 P40
-screen, not to the current mainline or a production route. This closeout does
-not resume paused P3.
+corrects the often abbreviated 392.804397-token/s figure: it belongs to the
+separate historical, dirty-tree, accuracy-unqualified v10 P40 screen rather
+than a production route. The v10 route has since entered tracked mainline
+source through the separate record below, but that does not transfer or
+upgrade the historical timing. This closeout does not resume paused P3.
+
+The subsequent owner-directed absorption of the historical v10 P40 route is
+frozen in
+[`qwen36-27b-p40-v10-mainline-absorption-2026-08-21.json`](qwen36-27b-p40-v10-mainline-absorption-2026-08-21.json).
+Commit `0cf4048` exposes the exact nine-item inventory through one typed,
+default-OFF, `BUILD_TESTING=OFF` preset and a separately named, non-installing
+development artifact while leaving the ordinary default unchanged. The
+392.804397-token/s figure remains the one-sample historical incumbent and the
+route remains accuracy-unqualified because of the inherited P513 full-state
+mismatch; its P40000 full state was not measured. Attempt 1 completed only B1
+and is strictly invalid due to an unexpected `systemd-udevd` CPU consumer,
+continuous request-window maxima of 76.406C CPU and 77.062C GPU/Tj, incomplete
+clock proof, and old-harness cleanup defects. Its observed 389.733155 tok/s is
+diagnostic-only and cannot reproduce,
+retain, reject, release, or promote anything. The one-token workload has no
+Decode transition, so Decode is unavailable. This route retention does not
+resume paused P3.
 
 The first real-checkpoint preparation of the default-off SM87 whole-system AOT
 candidate is frozen in

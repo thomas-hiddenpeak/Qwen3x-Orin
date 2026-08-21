@@ -497,6 +497,30 @@ request, so the next work replaces dominant GPU dataflows rather than the API
 adapter. Exact hashes, counts, and limitations are frozen in the
 [v10 whole-core direction record](metadata/qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json).
 
+The retained v10 route is no longer confined to the historical
+`BUILD_TESTING=ON` experiment build. Commit `0cf4048` adds the default-OFF
+`orin-p40-whole-core-dev` preset, which builds the separately named
+`qwen3x-eval-server-p40-v10-dev` with `BUILD_TESTING=OFF`. The artifact accepts
+only `--development-route p40-whole-core-v10`; that acknowledgement atomically
+fixes the P40000/output-one/C512/layer-major/SM87/8,640,542,976-byte profile,
+and the gateway rejects ambient `Q3X_*` variables and any individual profile
+override. It is deliberately non-installing, accuracy-unqualified, and neither
+a release nor production route.
+
+The first BCCB run using the historical ELF as B and the new artifact as C did
+not reach C. Its sole B1 observation was 102,634.326941 ms / 389.733155 tok/s
+server pure Prefill with 102,674.589111 ms external TTFT, but it is invalid:
+continuous ownership detected an unexpected `systemd-udevd` CPU consumer;
+request-window maxima reached 76.406C CPU and 77.062C GPU/Tj; continuous clock
+proof was incomplete; and the old harness had shutdown/listener-reuse defects.
+The diagnostic cannot reproduce
+the incumbent or enter a comparison. The repaired harness must still complete
+two valid B and two valid C processes before a performance decision. Because
+the request asks for one output token, it contains no Decode transition and
+must report Decode unavailable. Exact identities and invalidation are frozen
+in the
+[`P40 v10 mainline absorption record`](metadata/qwen36-27b-p40-v10-mainline-absorption-2026-08-21.json).
+
 The default-off exact-P40000 grouped projection-reset experiment emits
 `target-prefill-witness-v11`; it may not reuse or be serialized as v10. A v11
 record is complete only when all of the following are true:

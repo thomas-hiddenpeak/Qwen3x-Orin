@@ -1,0 +1,252 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen36-27b-p40-v10-mainline-absorption-2026-08-21",
+  "record_type": "owner_directed_p40_v10_development_route_mainline_absorption",
+  "created_at_utc": "2026-08-21T15:58:37Z",
+  "classification": {
+    "source_status": "pass",
+    "decision": "retain_the_historical_v10_p40000_whole_core_route_as_one_typed_default_off_development_artifact",
+    "route_absorbed": true,
+    "ordinary_default_changed": false,
+    "prefill_program_resumed": false,
+    "accuracy_qualified": false,
+    "release_authority": false,
+    "production_authority": false,
+    "performance_reproduction_status": "not_yet_validly_measured_on_the_absorbed_artifact"
+  },
+  "claim_boundary": "This record establishes that the exact nine-item v10 P40000 whole-core inventory is now buildable from the tracked source by one default-OFF BUILD_TESTING=OFF development preset and is reachable only through one typed, fixed request/profile acknowledgement. The separately named artifact is not installed, does not change the ordinary default, rejects ambient Q3X_* controls, and exposes its known P513 full-state mismatch and unmeasured P40000 full-state status. The historical 392.804397 tok/s observation remains the single-sample incumbent for this accuracy-unqualified route. The 2026-08-21 attempt 1 diagnostic is strictly invalid and supplies no reproduction, comparison, retention, release, or production performance decision. This bounded owner-directed absorption does not resume paused P3 optimization.",
+  "source": {
+    "base_main": {
+      "git_commit": "40f43dfb020425e08efae11db889da94e5cac71a",
+      "branch": "main"
+    },
+    "absorption_commit": {
+      "git_commit": "0cf404872753fd1f5e351fa53b24a509a47c0f77",
+      "git_tree": "ac0e5a00bff18c949fa294335fde7f557374df9b",
+      "subject": "feat: expose P40 whole-core development baseline"
+    },
+    "ordinary_default_route_source_unchanged": true,
+    "target_prefill_witness_v10_serialization_changed": false
+  },
+  "development_route": {
+    "cmake_option": "Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE",
+    "cmake_default": false,
+    "configure_preset": "orin-p40-whole-core-dev",
+    "build_type": "Release",
+    "build_testing": false,
+    "cuda_architecture": "87",
+    "binary_name": "qwen3x-eval-server-p40-v10-dev",
+    "selector": "--development-route p40-whole-core-v10",
+    "typed_profile": {
+      "endpoint": "/v1/completions",
+      "prompt_kind": "token_ids",
+      "prompt_tokens": 40000,
+      "max_sequence_length": 40001,
+      "max_output_tokens": 1,
+      "stream": true,
+      "stream_options_include_usage": true,
+      "prefill_chunk_size": 512,
+      "prefill_execution_mode": "layer-major",
+      "request_memory_profile": "layer-major-p40-whole-core",
+      "prefill_projection_tactic": "native-prompt-wide-p40-whole-core",
+      "prefill_attention_tactic": "native-flashinfer-exact-whole-prompt",
+      "projection_backend": "sm87-weight-only",
+      "request_arena_bytes": 8640542976,
+      "minimum_free_bytes_after_arena": 4294967296,
+      "queue_capacity": 1,
+      "ingress_threads": 3
+    },
+    "effective_constituent_inventory": [
+      "Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION",
+      "Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION",
+      "Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION",
+      "Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION",
+      "Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION",
+      "Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION",
+      "Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION",
+      "Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION",
+      "Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION"
+    ],
+    "successor_admissions_reachable": false,
+    "internal_reference_test_seams_reachable": false,
+    "ambient_q3x_environment_allowed": false,
+    "individual_profile_override_allowed": false,
+    "installation_enabled": false,
+    "release": false,
+    "production": false,
+    "numerical_contract": {
+      "qualified": false,
+      "known_mismatch": "known-p513-full-state-mismatch-in-inherited-flashinfer-arithmetic",
+      "p40000_full_state": "not_measured"
+    }
+  },
+  "fresh_build_evidence": {
+    "ordinary_default": {
+      "build_directory": ".q3x-work/build/mainline-default-0cf4048",
+      "build_type": "Release",
+      "build_testing": false,
+      "cuda_architecture": "87",
+      "cmake_cache_sha256": "4a29cefc8c85c4ce152172d596ce3b53bc353a78bc1fd0a23f26a2d93392622d",
+      "server_binary_bytes": 9020936,
+      "server_binary_sha256": "66380b348c9da876a3d56d7880275505199c266bdf1992ab8c7db3b20e8982a9",
+      "server_elf_build_id": "808650c37cda0cc12a251523deb5be17c464c23c",
+      "development_or_v10_admission_macros_present": false,
+      "build_passed": true,
+      "install_passed": true,
+      "installed_package_consumer_passed": true
+    },
+    "p40_v10_development": {
+      "build_directory": ".q3x-work/build/p40-mainline-0cf4048",
+      "build_type": "Release",
+      "build_testing": false,
+      "cuda_architecture": "87",
+      "cmake_cache_sha256": "aecde8134fad4f8f86f3ab3fd9d8b8dcdb49eb4ec7263fa0619a5e56cfd16196",
+      "compile_commands_sha256": "6beb20d986ef725750309ec45d4b9e01378f717acab01f1497ede4a5f4446e3e",
+      "server_binary_bytes": 13273896,
+      "server_binary_sha256": "c98e3825a1cd5ad50c7f7755de65d932bf35884d692adff259bcf166f95f2bc6",
+      "server_elf_build_id": "d6666875d5d6bab772959328c3b0a8c5b098aa1a",
+      "exact_nine_effective_constituent_macros_present": true,
+      "successor_or_reference_test_seam_macros_present": false,
+      "build_passed": true,
+      "install_command_passed": true,
+      "installed_artifacts": 0
+    },
+    "host_validation": {
+      "p40_development_focused_tests": "7/7 pass",
+      "ordinary_default_focused_tests": "4/4 pass",
+      "openai_protocol_tests": "pass",
+      "package_consumer": "pass",
+      "git_diff_check": "pass"
+    }
+  },
+  "historical_incumbent": {
+    "record": "qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json",
+    "record_sha256": "b0847b1f1965570d7311f6b73c137f11e34bc65c893ae76783583bb4fcd7a9fa",
+    "measurement_base_commit": "a4f95ba3fa15248cbd95f0e2a7e0a8578fae3cb6",
+    "measurement_source_tree_clean": false,
+    "build_testing": true,
+    "binary_sha256": "d1d77e26cd4695185b772ded8d22eea229c361095cf66cbd3185b3a0a68a1634",
+    "elf_build_id": "c594b4a1b2e0d4607f17b74d596ab9f7b2456b33",
+    "prompt_tokens": 40000,
+    "output_tokens": 1,
+    "server_pure_prefill_ms": 101831.853876,
+    "server_pure_prefill_tok_s": 392.804397421,
+    "evalscope_ttft_ms": 101870.53,
+    "samples": 1,
+    "accuracy_qualified": false,
+    "release": false,
+    "production": false,
+    "decode": {
+      "available": false,
+      "reason": "one output token contains no Decode transition and cannot define Decode latency or token/s"
+    }
+  },
+  "model_and_workload_identity": {
+    "model": {
+      "repository": "nvidia/Qwen3.6-27B-NVFP4",
+      "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+      "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+      "hf_quant_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+      "model_index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+      "tokenizer_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+      "access": "read_only_external_input"
+    },
+    "corpus": {
+      "path": ".q3x-work/evalscope/corpora/q3x-repository-agent-context-p40000-one-token.jsonl",
+      "sha256": "8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844",
+      "prompt_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+      "request_body_sha256": "e6f5817ad868e85c333db1961fa3dc14c7e65247f0a4241e8bb638870b6575ec",
+      "prompt_tokens": 40000,
+      "output_tokens": 1
+    },
+    "evalscope_version": "1.9.1"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "date": "2026-08-21",
+      "requested_sequence": "BCCB",
+      "completed_sequence": "B",
+      "completed_runs": 1,
+      "measurement_valid": false,
+      "accepted": false,
+      "performance_decision_eligible": false,
+      "historical_reproduced": false,
+      "incumbent_preserved": false,
+      "invalid_reasons": [
+        "an unexpected systemd-udevd CPU consumer reached 7.993766556685777 percent of one core, above the 5 percent continuous-ownership limit",
+        "continuous request-window telemetry reached 76.406C CPU and 77.062C GPU/Tj, above the strict less-than-70C gate",
+        "the old harness misclassified stable shutdown identity and failed to recover the listener port because its cleanup/reuse handling was incomplete",
+        "the retained tegrastats parser did not prove the required continuous GPU/EMC clock fields"
+      ],
+      "observed_but_invalid_diagnostic": {
+        "route_symbol": "B",
+        "server_pure_prefill_ms": 102634.326941,
+        "server_pure_prefill_tok_s": 389.7331545126637,
+        "server_ttft_ms": 102668.16191,
+        "evalscope_ttft_ms": 102674.58911100402,
+        "evalscope_prompt_tok_s": 389.5801801971324,
+        "spawn_to_owned_health_ms": 41545.366406,
+        "peak_vmhwm_bytes": 48344702976,
+        "peak_pss_bytes": 344815616,
+        "maximum_memavailable_drop_bytes": 42830639104,
+        "maximum_request_cpu_temperature_c": 76.406,
+        "maximum_request_gpu_tj_temperature_c": 77.062,
+        "decode_available": false
+      },
+      "diagnostic_use_only": true,
+      "must_not_be_used_for": [
+        "historical incumbent reproduction",
+        "mainline candidate performance",
+        "baseline-candidate comparison",
+        "performance retention or rejection",
+        "release or production qualification"
+      ],
+      "bundle": {
+        "path": ".q3x-work/evidence/p40-v10-mainline-bccb-20260821-final",
+        "summary_sha256": "a4d41a091b85d7c5a80ccddbdd172475a54dfce50b96ae7a15af7b6eece94be5",
+        "manifest_sha256": "1e7e8a0d1836d5b06ab44ecced9844600a99c0423e553e727baea567533a3a24",
+        "frozen_old_harness_sha256": "85f84e08db7f64a400cd5d64bc79397b5a641cd8f829dcd4bf80009fbeb54abe"
+      }
+    }
+  ],
+  "harness_repair_after_attempt_1": {
+    "path": ".q3x-work/tools/run_p40_v10_bccb.py",
+    "sha256": "7a6bb0373159779836f2cb3b120c9cf44fbf9b363f66b86fd1a444f5754714c9",
+    "validation": [
+      "python bytecode compile pass",
+      "tabnanny pass",
+      "help pass",
+      "self-test pass without GPU or model execution",
+      "static baseline/candidate/EvalScope identity audit pass"
+    ],
+    "repairs": [
+      "stable PID/start-time/executable/session shutdown identity",
+      "root-owned tegrastats lifecycle",
+      "SO_REUSEADDR listener recovery",
+      "strict thermal fail-fast",
+      "separate startup temperature limits",
+      "strict unexpected udevd consumer rejection"
+    ],
+    "performance_authority": false,
+    "reason": "the repaired harness has not yet produced a valid real-model BCCB result"
+  },
+  "data_quality_assessment": {
+    "intended_grain": "one tracked absorption decision plus immutable per-attempt run evidence",
+    "comparison_key": "route symbol and independent process position within BCCB",
+    "expected_valid_comparison_rows": 4,
+    "attempt_1_valid_comparison_rows": 0,
+    "completeness": "failed: only B1 executed and it is invalid",
+    "uniqueness": "no duplicate comparison key in the sole observed run",
+    "identity_consistency": "code, model, workload, historical binary, and candidate binary identities were captured; attempt 1 used the pre-repair harness",
+    "metric_definition": "server pure Prefill rate is 40000 divided by the request-bound server pure Prefill interval in seconds; EvalScope TTFT is external and uses a different denominator",
+    "decision_safety": "safe only for route-absorption and invalidation claims; unsafe for any performance comparison or reproduction claim"
+  },
+  "delivery_and_recovery": {
+    "ordinary_mainline_development_continues": true,
+    "p3_prefill_program_paused": true,
+    "recovery_anchor": "the typed p40-whole-core-v10 BUILD_TESTING=OFF development preset and this record",
+    "future_first_step": "run a fresh clean-host BCCB with the repaired harness; require two valid historical B and two valid absorbed C measurements before any performance conclusion",
+    "p60_or_p130_unlocked": false
+  }
+}
