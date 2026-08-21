@@ -6,7 +6,7 @@ q3x_document:
   owner: prefill-maintainers
   authority: paused source-to-SM87 translation and recovery record for WP-PREFILL-REFERENCE-TRANSLATION-v1
   effective: 2026-08-12
-  last_reviewed: 2026-08-21
+  last_reviewed: 2026-08-22
   supersedes: []
   superseded_by: []
   ssot_for: the paused Prefill reference-translation recovery record only
@@ -44,7 +44,7 @@ stable system boundary returns to the SDD.
 | Incumbent | The historical 392.804397-token/s v10 observation; its route is now exposed by the typed, default-OFF, non-installing `BUILD_TESTING=OFF` development artifact identified by [Current Status](CURRENT_STATUS.md), but three invalid closeout attempts contain no valid absorbed-C request and do not reproduce that timing |
 | Numerical boundary | [Prefill mathematical-equivalence ledger](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md) |
 | Production exclusions | No MTP, cuBLASLt production path, silent fallback, approximate mainline, request-time JIT/repack/autotune, or full-model BF16 weight copy |
-| First return point | One clean-host, real-checkpoint, cold/no-cache P40 OpenAI API direction witness; the next retest uses harness `cacaba0a` and its exact fixed-sysfs-to-`tegrastats` display mapping |
+| First return point | One clean-host, real-checkpoint, cold/no-cache P40 OpenAI API direction witness; the next retest uses harness `cdb7f7e1`, accepts temperature through 85C, audits exact sysfs locks plus hardware throttle state independently, and treats `tegrastats` GPU effective MHz as a distribution |
 | Stop condition | Close or redesign the complete architecture after one negative composition and at most one predeclared causal profile; do not turn it into a tile scan |
 
 ## 2. Control model and current Q3X plant
@@ -533,18 +533,25 @@ only for SM90, SM100, or SM120 families.
 Before the run, the Jetson clean-host preflight must pass with `tegrastats`,
 CPU/process inspection, and GPU-device-handle ownership. If another workload
 owns a critical resource, the run does not start and no timing is retained.
-Thermal admission uses hysteresis rather than changing the hard limit: three
-consecutive five-second samples of CPU/GPU/TJ at or below `65C` are required
+Thermal admission uses hysteresis for repeatability rather than inventing a
+hardware limit: three consecutive five-second cooldown samples at or below
+65C are required only to make B/C starting states comparable
 before server startup, before the measured request, and before post-release
-admission; every measured sample must still remain strictly below `70C`.
+admission. Timed samples are accepted through `85C`; temperatures above `90C`
+are an informational throttle-risk condition. The stock-vLLM witness audits
+CPU and EMC clocks continuously, checks the GPU sysfs lock at performance-lane
+boundaries, and retains request-window GPU effective MHz as a distribution
+rather than treating it as the fixed lock. The native v10 retest harness adds
+continuous request-window GPU sysfs, cooling-device, and over-current gates.
 
 ### 9.1 First target-first execution feedback
 
 The first formal `40000`-budget execution from clean commit `fe626be`
 completed its real API transaction and cleanup, but it did not produce a
-performance result. The measured interval exceeded the fixed thermal gate,
-reached `81.812C`, and later showed CPU clocks falling from 2201 MHz to about
-1.1 GHz. The launcher consequently wrote `valid=false`, retained no result,
+performance result. The measured interval reached `81.812C`, which is inside
+the owner-specified normal range through 85C, and independently showed CPU
+clocks falling from 2201 MHz to about 1.1 GHz. The launcher consequently wrote
+`valid=false`, retained no result,
 and left the native incumbent and the owner-established 4.3K tok/s reference
 unchanged. Its exact classification and artifact hashes are frozen in the
 [`invalid P40 reference-witness record`](metadata/qwen36-27b-vllm-p40-target-witness-invalid-2026-08-12.json).
@@ -588,13 +595,14 @@ performance authority. It is consistent with the logger sample being a
 window-accounting observation, not a pure-Prefill measurement.
 
 These warmup figures have metric-semantics authority only. That warmup did not
-have a formal thermal/frequency envelope, while the later measured request was
-thermally invalid; neither becomes a vLLM performance baseline. The mismatch
+have a formal thermal/frequency envelope, while the later measured request
+failed its independent CPU-frequency gate; neither becomes a vLLM performance
+baseline. The mismatch
 instead requires auditing the stock r5 route, preparation, and configuration
 against the owner's optimized vLLM route. It does not lower the owner-observed
 4.3K reference or the locked 40K--60K product target.
 
-The r5 thermal rejection also exposed a retained-evidence gap: the measured
+The r5 frequency-gate rejection also exposed a retained-evidence gap: the measured
 telemetry validator raised before the launcher captured
 `metrics-after.prom`, `cache-after-measured.json`, and the post-request runtime
 snapshot. Their absence is not evidence that scheduler state, compilation
@@ -652,7 +660,8 @@ Attention, and Triton/FLA GDN; Humming was not selected. Before another GPU
 run, the package must reconcile that exact route with the owner's known
 optimized vLLM startup, JIT/AOT-cache, backend, Humming, and scheduler
 configuration. Only a materially different, hash-bound route returns to the
-same target-first P40 gate. The thermal limit is not relaxed, and smaller
+same target-first P40 gate. The owner-specified 85C normal envelope and
+above-90C risk boundary remain separate from clock/throttle evidence; smaller
 budgets remain explanatory tools rather than substitutes for the product
 workload.
 

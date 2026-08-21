@@ -80,17 +80,25 @@ development artifact while leaving the ordinary default unchanged. The
 route remains accuracy-unqualified because of the inherited P513 full-state
 mismatch; its P40000 full state was not measured. Attempt 1 completed only B1
 and is strictly invalid due to an unexpected `systemd-udevd` CPU consumer,
-continuous request-window maxima of 76.406C CPU and 77.062C GPU/Tj, incomplete
-clock proof, and old-harness cleanup defects. Its observed 389.733155 tok/s is
-diagnostic-only and cannot reproduce, retain, reject, release, or promote
-anything. Sustainable retry r1 failed before server/model execution. Retry r2
-started historical B but completed no response and has no usable timing: it
-crossed 70C, observed an external 7.994%-of-one-core `sshd` consumer, and saw
-1005--1019-MHz effective GPU clocks against the exact 1019-MHz display
-contract. SIGINT -> SIGTERM -> SIGKILL failed graceful shutdown, but process,
-port, GPU-device, and `nvmap` recovery passed. No valid C request exists. The
-final retest harness is `cacaba0a6911bbe628d1583830f296002dce6ce3131205485601931c7529211b`
-and binds a fixed 1.02-GHz sysfs lock to exactly 1019 MHz in `tegrastats`. The
+incomplete clock proof, and old-harness cleanup defects. Its 76.406C CPU and
+77.062C GPU/Tj maxima are within the owner-specified normal range through 85C;
+the old sub-70C rejection reason is superseded. Its observed 389.733155 tok/s
+remains diagnostic-only and cannot reproduce, retain, reject, release, or
+promote anything. Sustainable retry r1 failed before server/model execution.
+Retry r2 started historical B but completed no response and has no usable
+timing: a superseded 70C fail-fast stopped it at a normal 70.031C, while an
+external 7.994%-of-one-core `sshd` consumer independently violated the run
+protocol. Its 1010--1019-MHz request-window GPU effective samples are retained
+as telemetry and are not proof of a sysfs-lock failure. SIGINT -> SIGTERM -> SIGKILL
+failed graceful shutdown, but process, port, GPU-device, and `nvmap` recovery
+passed. No valid C request exists. Review follow-up `289f6d0` leaves the
+ordinary default ELF byte-identical and supplies the final rebuilt development
+artifact. The retest harness is
+`cdb7f7e1c4f0cc8d1e9ba1604f0820b09851e2abedf462bbc11a2798f1791bde`;
+it accepts temperatures through 85C, records above 90C as throttle risk, and
+checks exact CPU/GPU/EMC sysfs locks plus hardware cooling/throttle and
+over-current state independently while recording `tegrastats` GPU effective
+MHz as a distribution. The
 one-token workload has no Decode transition, so Decode is unavailable. This
 route retention does not resume paused P3.
 

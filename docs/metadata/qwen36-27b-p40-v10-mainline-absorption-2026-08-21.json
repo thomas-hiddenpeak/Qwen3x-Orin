@@ -3,7 +3,7 @@
   "record_id": "qwen36-27b-p40-v10-mainline-absorption-2026-08-21",
   "record_type": "owner_directed_p40_v10_development_route_mainline_absorption",
   "created_at_utc": "2026-08-21T15:58:37Z",
-  "updated_at_utc": "2026-08-21T16:43:14Z",
+  "updated_at_utc": "2026-08-21T17:34:05Z",
   "classification": {
     "source_status": "pass",
     "decision": "retain_the_historical_v10_p40000_whole_core_route_as_one_typed_default_off_development_artifact",
@@ -15,7 +15,7 @@
     "production_authority": false,
     "performance_reproduction_status": "not_yet_validly_measured_on_the_absorbed_artifact"
   },
-  "claim_boundary": "This record establishes that the exact nine-item v10 P40000 whole-core inventory is now buildable from the tracked source by one default-OFF BUILD_TESTING=OFF development preset and is reachable only through one typed, fixed request/profile acknowledgement. The separately named artifact is not installed, does not change the ordinary default, rejects ambient Q3X_* controls, and exposes its known P513 full-state mismatch and unmeasured P40000 full-state status. The historical 392.804397421 tok/s observation remains the single-sample incumbent for this accuracy-unqualified route. Attempts 1, 2, and 3 are strictly invalid: attempt 1 retains only a diagnostic historical-B timing, attempt 2 failed setup before server/model execution, and attempt 3 started historical B but produced no completed response or usable timing. No absorbed-candidate C request has completed validly, so this record supplies no current-mainline reproduction, B/C comparison, retention, release, or production performance decision. This bounded owner-directed absorption does not resume paused P3 optimization.",
+  "claim_boundary": "This record establishes that the exact nine-item v10 P40000 whole-core inventory is now buildable from the tracked source by one default-OFF BUILD_TESTING=OFF development preset and is reachable only through one typed, fixed request/profile acknowledgement. The separately named artifact is not installed, does not change the ordinary default, rejects ambient Q3X_* controls, and exposes its known P513 full-state mismatch and unmeasured P40000 full-state status. The historical 392.804397421 tok/s observation remains the single-sample incumbent for this accuracy-unqualified route. Attempts 1, 2, and 3 are strictly invalid: attempt 1 retains only a diagnostic historical-B timing, attempt 2 failed setup before server/model execution, and attempt 3 started historical B but produced no completed response or usable timing. The earlier 70C rule was an over-conservative comparability protocol, not an Orin hardware throttle threshold; the corrected future protocol accepts temperatures through 85C and audits clock stability independently, with thermal-throttle risk beginning above 90C. No absorbed-candidate C request has completed validly, so this record supplies no current-mainline reproduction, B/C comparison, retention, release, or production performance decision. This bounded owner-directed absorption does not resume paused P3 optimization.",
   "source": {
     "base_main": {
       "git_commit": "40f43dfb020425e08efae11db889da94e5cac71a",
@@ -25,6 +25,12 @@
       "git_commit": "0cf404872753fd1f5e351fa53b24a509a47c0f77",
       "git_tree": "ac0e5a00bff18c949fa294335fde7f557374df9b",
       "subject": "feat: expose P40 whole-core development baseline"
+    },
+    "review_followup_commit": {
+      "git_commit": "289f6d054b33b8df6ebe2425e9b41ed61c6ac8dc",
+      "git_tree": "4d871083de2dd65764d610807df509245e481fa6",
+      "subject": "fix: ignore malformed environment entries",
+      "ordinary_default_binary_changed": false
     },
     "ordinary_default_route_source_unchanged": true,
     "target_prefill_witness_v10_serialization_changed": false
@@ -91,26 +97,35 @@
       "server_binary_bytes": 9020936,
       "server_binary_sha256": "66380b348c9da876a3d56d7880275505199c266bdf1992ab8c7db3b20e8982a9",
       "server_elf_build_id": "808650c37cda0cc12a251523deb5be17c464c23c",
+      "byte_identity_unchanged_after_review_followup": true,
       "development_or_v10_admission_macros_present": false,
       "build_passed": true,
       "install_passed": true,
       "installed_package_consumer_passed": true
     },
     "p40_v10_development": {
-      "build_directory": ".q3x-work/build/p40-mainline-0cf4048",
+      "source_commit": "289f6d054b33b8df6ebe2425e9b41ed61c6ac8dc",
+      "source_tree": "4d871083de2dd65764d610807df509245e481fa6",
+      "build_directory": ".q3x-work/build/p40-mainline-289f6d0",
       "build_type": "Release",
       "build_testing": false,
       "cuda_architecture": "87",
-      "cmake_cache_sha256": "aecde8134fad4f8f86f3ab3fd9d8b8dcdb49eb4ec7263fa0619a5e56cfd16196",
-      "compile_commands_sha256": "6beb20d986ef725750309ec45d4b9e01378f717acab01f1497ede4a5f4446e3e",
-      "server_binary_bytes": 13273896,
-      "server_binary_sha256": "c98e3825a1cd5ad50c7f7755de65d932bf35884d692adff259bcf166f95f2bc6",
-      "server_elf_build_id": "d6666875d5d6bab772959328c3b0a8c5b098aa1a",
+      "cmake_cache_sha256": "1d950c19c9600c52d05bfc23a9f49e04f97df3947027f20bd1513790d60fe947",
+      "compile_commands_sha256": "d618ef28e3e5de23dc73d1fd9930f616f7bb1b3ca8d10eeee2132a0f85689b67",
+      "server_binary_bytes": 13274280,
+      "server_binary_sha256": "32dbe0d42c5ea16986470bbe91c6189bcab249dd52e4228e54322ecf654e9d39",
+      "server_elf_build_id": "e349cce6283731ea85fe3dd6e654b8ff29eb0ac2",
       "exact_nine_effective_constituent_macros_present": true,
       "successor_or_reference_test_seam_macros_present": false,
       "build_passed": true,
       "install_command_passed": true,
       "installed_artifacts": 0
+    },
+    "post_review_receipt": {
+      "path": ".q3x-work/evidence/p40-v10-mainline-thermal-policy-final-20260822/receipt.json",
+      "sha256": "32a06417afacca10a4807b09785b7703fa696d5d079c5b6dab77d6daaa7654bc",
+      "thermal_topology_path": ".q3x-work/evidence/p40-v10-mainline-thermal-policy-final-20260822/thermal-topology.json",
+      "thermal_topology_sha256": "f5c6c4a7d8ea68deeb995af833009af788c14e709d45857f0ed83daa3adcd804"
     },
     "host_validation": {
       "p40_development_focused_tests": "7/7 pass",
@@ -176,10 +191,16 @@
       "incumbent_preserved": false,
       "invalid_reasons": [
         "an unexpected systemd-udevd CPU consumer reached 7.993766556685777 percent of one core, above the 5 percent continuous-ownership limit",
-        "continuous request-window telemetry reached 76.406C CPU and 77.062C GPU/Tj, above the strict less-than-70C gate",
         "the old harness misclassified stable shutdown identity and failed to recover the listener port because its cleanup/reuse handling was incomplete",
         "the retained tegrastats parser did not prove the required continuous GPU/EMC clock fields"
       ],
+      "thermal_reassessment": {
+        "maximum_cpu_c": 76.406,
+        "maximum_gpu_tj_c": 77.062,
+        "within_owner_normal_maximum_85c": true,
+        "old_less_than_70c_invalidation_superseded": true,
+        "effect_on_attempt": "does not make the attempt valid because independent ownership, clock-proof, and cleanup gates failed"
+      },
       "observed_but_invalid_diagnostic": {
         "route_symbol": "B",
         "server_pure_prefill_ms": 102634.326941,
@@ -267,11 +288,33 @@
       "incumbent_preserved": false,
       "timing_available": false,
       "invalid_reasons": [
-        "request fail-fast triggered at 70.031C CPU/Tj, violating the strict less-than-70C thermal contract",
         "an external sshd accepted-session process consumed 7.9941304841628344 percent of one core, above the 5 percent continuous-ownership limit",
-        "although sysfs remained locked at 1020000000 Hz, root tegrastats reported request-window GPU effective clocks of 1005, 1010, 1011, 1012, 1013, 1014, 1015, 1016, 1017, 1018, and 1019 MHz instead of the exact mapped 1019 MHz display contract",
-        "EvalScope was terminated at zero of one completed requests and the server cancelled Prefill at its bounded safe point, so no TTFT, pure Prefill, or throughput observation exists"
+        "the superseded 70C harness rule terminated EvalScope at zero of one completed requests and the server cancelled Prefill at its bounded safe point, so no TTFT, pure Prefill, or throughput observation exists"
       ],
+      "gpu_effective_clock_reassessment": {
+        "request_window_mhz": [
+          1010,
+          1011,
+          1012,
+          1013,
+          1014,
+          1015,
+          1016,
+          1017,
+          1018,
+          1019
+        ],
+        "sysfs_lock_hz": 1020000000,
+        "hardware_downclock_invalidation": false,
+        "interpretation": "tegrastats GPU MHz is an effective activity sample and is retained as a distribution; it is not the fixed sysfs lock value and does not independently invalidate this attempt"
+      },
+      "thermal_reassessment": {
+        "maximum_cpu_tj_c": 70.031,
+        "within_owner_normal_maximum_85c": true,
+        "old_less_than_70c_fail_fast_superseded": true,
+        "hardware_thermal_invalidation": false,
+        "effect_on_attempt": "the old harness stopped the request prematurely; the missing response plus the independent external CPU-ownership failure still make the attempt unusable"
+      },
       "cleanup": {
         "server_signals": [
           "SIGINT",
@@ -314,12 +357,36 @@
   ],
   "future_retest_harness": {
     "path": ".q3x-work/tools/run_p40_v10_bccb.py",
-    "sha256": "cacaba0a6911bbe628d1583830f296002dce6ce3131205485601931c7529211b",
-    "frequency_mapping": {
+    "frozen_snapshot_path": ".q3x-work/evidence/p40-v10-mainline-thermal-policy-final-20260822/run_p40_v10_bccb.py",
+    "sha256": "cdb7f7e1c4f0cc8d1e9ba1604f0820b09851e2abedf462bbc11a2798f1791bde",
+    "candidate_source_commit": "289f6d054b33b8df6ebe2425e9b41ed61c6ac8dc",
+    "candidate_binary_sha256": "32dbe0d42c5ea16986470bbe91c6189bcab249dd52e4228e54322ecf654e9d39",
+    "frequency_evidence": {
       "sysfs_gpu_hz": 1020000000,
-      "tegrastats_exact_display_mhz": 1019,
-      "mapping_semantics": "the fixed 1.02 GHz sysfs lock maps to exactly 1019 MHz in tegrastats display; no division, rounding tolerance, range, or multi-value acceptance",
-      "request_window_requirement": "every tegrastats GPU effective-clock sample must equal 1019 MHz"
+      "tegrastats_nominal_display_reference_mhz": 1019,
+      "request_window_tegrastats_semantics": "GPU effective MHz is recorded as a distribution and is not treated as the fixed sysfs lock value",
+      "independent_validity_gates": [
+        "sysfs CPU/GPU/EMC min, max, and current frequency match the declared lane at a target 250 ms cadence, with request endpoint coverage and a verified maximum gap of at most 1000 ms, as well as at the server/request boundaries",
+        "CPU and EMC continuous frequency evidence remains exact",
+        "CPU/GPU/CV/SoC frequency cooling-device and throttle-alert states remain zero",
+        "SoC over-current event counters do not increase during the request"
+      ]
+    },
+    "thermal_policy": {
+      "normal_temperature_maximum_c_inclusive": 85.0,
+      "throttle_risk_boundary_c_exclusive": 90.0,
+      "clock_stability_evaluated_independently": true,
+      "cooldown_is_a_comparability_condition_not_a_throttle_threshold": true,
+      "orin_sysfs_topology": {
+        "hot_surface_alert_trip_c": 70.0,
+        "cpu_gpu_frequency_throttle_trip_c": 99.0,
+        "critical_trip_c": 104.5,
+        "tj_fan_active_trips_c": [
+          75.0,
+          95.0
+        ],
+        "interpretation": "70C is a hot-surface alert trip, not the CPU/GPU frequency-throttle threshold"
+      }
     },
     "validation": [
       "python bytecode compile pass",
@@ -327,19 +394,19 @@
       "help pass",
       "self-test pass without GPU or model execution",
       "static baseline/candidate/EvalScope identity audit pass",
-      "root tegrastats capability and exact sysfs-to-display mapping were exercised before r2 server spawn"
+      "root tegrastats pre-server capability display and request-window GPU effective-distribution semantics were exercised without treating the display as the sysfs lock"
     ],
     "repairs": [
       "stable PID/start-time/executable/session shutdown identity",
       "root-owned tegrastats lifecycle",
       "SO_REUSEADDR listener recovery",
-      "strict thermal fail-fast",
+      "owner-corrected 85C-inclusive normal-temperature gate with separate 90C throttle-risk boundary",
       "separate startup temperature limits",
       "strict unexpected CPU-consumer rejection",
-      "exact 1020000000 Hz sysfs to 1019 MHz tegrastats display mapping"
+      "exact sysfs lane checks plus hardware cooling/throttle and over-current evidence without treating GPU effective MHz as the lock value"
     ],
     "performance_authority": false,
-    "reason": "the final harness has not yet produced a valid real-model BCCB result or any completed absorbed-candidate C request"
+    "reason": "the post-review harness has not yet produced a valid real-model BCCB result or any completed absorbed-candidate C request"
   },
   "data_quality_assessment": {
     "intended_grain": "one tracked absorption decision plus immutable per-attempt run evidence",
@@ -361,7 +428,7 @@
     "ordinary_mainline_development_continues": true,
     "p3_prefill_program_paused": true,
     "recovery_anchor": "the typed p40-whole-core-v10 BUILD_TESTING=OFF development preset and this record",
-    "future_first_step": "run a fresh clean-host BCCB with harness cacaba0a6911bbe628d1583830f296002dce6ce3131205485601931c7529211b, enforcing exact sysfs 1020000000 Hz to tegrastats 1019 MHz mapping; require two valid historical B and two valid absorbed C measurements before any performance conclusion",
+    "future_first_step": "run a fresh clean-host BCCB with harness cdb7f7e1c4f0cc8d1e9ba1604f0820b09851e2abedf462bbc11a2798f1791bde, accepting temperatures through 85C while independently enforcing exact declared CPU/GPU/EMC sysfs locks and hardware throttle-state stability; require two valid historical B and two valid absorbed C measurements before any performance conclusion",
     "p60_or_p130_unlocked": false
   }
 }

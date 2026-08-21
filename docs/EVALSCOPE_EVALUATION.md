@@ -6,7 +6,7 @@ q3x_document:
   owner: evaluation-maintainers
   authority: external API evaluation protocol, metric semantics, and artifact requirements
   effective: 2026-08-09
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-08-22
   supersedes: []
   superseded_by: []
   ssot_for: EvalScope and target-length external evaluation procedure
@@ -505,27 +505,39 @@ only `--development-route p40-whole-core-v10`; that acknowledgement atomically
 fixes the P40000/output-one/C512/layer-major/SM87/8,640,542,976-byte profile,
 and the gateway rejects ambient `Q3X_*` variables and any individual profile
 override. It is deliberately non-installing, accuracy-unqualified, and neither
-a release nor production route.
+a release nor production route. Review follow-up `289f6d0` leaves the ordinary
+default ELF byte-identical and provides the final fresh development build used
+by the corrected retest harness.
 
 The first BCCB run using the historical ELF as B and the new artifact as C did
 not reach C. Its sole B1 observation was 102,634.326941 ms / 389.733155 tok/s
 server pure Prefill with 102,674.589111 ms external TTFT, but it is invalid:
 continuous ownership detected an unexpected `systemd-udevd` CPU consumer;
-request-window maxima reached 76.406C CPU and 77.062C GPU/Tj; continuous clock
-proof was incomplete; and the old harness had shutdown/listener-reuse defects.
-The diagnostic cannot reproduce the incumbent or enter a comparison.
+continuous clock proof was incomplete; and the old harness had
+shutdown/listener-reuse defects. Its 76.406C CPU and 77.062C GPU/Tj maxima are
+inside the owner-specified normal range through 85C, so the former sub-70C
+reason is superseded rather than a hardware thermal failure. The independent
+failures still prevent the diagnostic from reproducing the incumbent or
+entering a comparison.
 Sustainable retry r1 then failed its
 frequency setup before server/model execution. Retry r2 started B but returned
-zero of one completed EvalScope requests: fail-fast fired at 70.031C CPU/Tj,
-an external accepted `sshd` session reached 7.994% of one CPU core, and root
-`tegrastats` reported 1005--1019 MHz instead of the exact 1019-MHz display
-contract mapped from the fixed 1.02-GHz sysfs lock. It has no usable timing.
+zero of one completed EvalScope requests: the superseded 70C fail-fast fired at
+70.031C CPU/Tj even though that temperature is normal under the corrected
+protocol; independently, an external accepted `sshd` session reached 7.994% of
+one CPU core. Root `tegrastats` recorded 1010--1019-MHz request-window GPU
+effective values while sysfs remained fixed at 1.02 GHz; this is retained as
+telemetry and is not itself evidence of downclocking. The obsolete temperature
+gate stopped the request before a response, so it has no usable timing.
 SIGINT -> SIGTERM -> SIGKILL failed the graceful server-shutdown contract, but
 the private session, listener, GPU-device handles, and `nvmap` ownership were
 clean after exit. No C request completed validly. Harness
-`cacaba0a6911bbe628d1583830f296002dce6ce3131205485601931c7529211b`
-freezes the exact sysfs/display mapping for the next retest, which must still
-complete two valid B and two valid C processes before a performance decision.
+`cdb7f7e1c4f0cc8d1e9ba1604f0820b09851e2abedf462bbc11a2798f1791bde`
+freezes the final candidate identity, an 85C-inclusive normal-temperature
+gate, a separate above-90C throttle-risk boundary, exact sysfs-lock evidence,
+and independent hardware cooling/throttle plus over-current evidence for the
+next retest. GPU effective MHz from `tegrastats` is recorded as a distribution,
+not treated as the sysfs lock value. That retest must still complete two valid
+B and two valid C processes before a performance decision.
 Because the request asks for one output token, it contains no Decode transition
 and must report Decode unavailable. Exact identities and invalidation are
 frozen in the

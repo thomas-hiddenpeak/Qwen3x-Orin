@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-08-21
+  last_reviewed: 2026-08-22
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -53,7 +53,9 @@ prompt token/s; these figures are a valid eight-request historical short
 proxy, not a performance improvement or a 32-request baseline. Peak `/proc`
 VmRSS/VmHWM was 30,703,714,304 bytes, the system `MemAvailable` drop from the
 first post-spawn sample was 23,852,707,840 bytes, and CPU/Tj and GPU remained
-below the declared 70C gate at 69.343C and 68.250C. All preflights passed,
+below the then-declared 70C evidence gate at 69.343C and 68.250C. That
+conservative threshold is now superseded by the owner-specified 85C-inclusive
+normal range plus an independent clock-stability gate. All preflights passed,
 SIGINT shutdown returned zero, and no server-owned `nvmap` residue was
 observed. The exact record and its measurement limitations are in the
 [`mainline real-model acceptance record`](metadata/qwen36-27b-mainline-real-model-acceptance-2026-08-21.json).
@@ -92,8 +94,8 @@ repeated token-ID prompts. Candidate means were:
 | 16,384 | 191,768.588 ms | 191,747.013 ms | 85.445936 tok/s | 5.031028 tok/s | 35,553.153 ms | 31,233,032,192 B | +0.1224% |
 | 32,768 | 607,164.704 ms | 607,128.226 ms | 53.972166 tok/s | 3.716240 tok/s | 36,020.790 ms | 32,319,053,824 B | +0.1851% |
 
-All 16 runs passed the clean-host, continuous ownership, sub-70C thermal,
-route, output, SIGINT shutdown, and post-exit `nvmap` gates. The same small
+All 16 runs passed the clean-host, continuous ownership, then-declared sub-70C
+thermal, route, output, SIGINT shutdown, and post-exit `nvmap` gates. The same small
 positive sign at all four lengths supports development-default absorption,
 but the 0.12%--0.26% range and two-sample protocol are not statistical or
 release qualification. Decode, startup, and memory moved at noise scale in
@@ -133,7 +135,10 @@ exact-P40000 whole-core v10 inventory a first-class, separately named
 `--development-route p40-whole-core-v10` acknowledgement, fixes the complete
 P40000 profile atomically, rejects ambient `Q3X_*` controls, and has no install
 rules. The ordinary default binary, capacity, route, and installation remain
-unchanged. This is development-route retention, not release promotion.
+unchanged. Review follow-up `289f6d0` safely ignores malformed non-assignment
+environment entries, leaves the ordinary default ELF byte-identical, and has a
+fresh final development build receipt. This is development-route retention,
+not release promotion.
 
 The strongest whole-product P40 observation remains the historical v10
 measurement. It was recorded once from a `BUILD_TESTING=ON`, binary-pinned
@@ -172,26 +177,36 @@ The first clean-host BCCB closeout attempt for the absorbed artifact completed
 only historical-baseline run B1. It observed 102,634.326941 ms / 389.733155
 tok/s server pure Prefill and 102,674.589111 ms EvalScope TTFT, but the run is
 strictly invalid: an unexpected `systemd-udevd` CPU consumer exceeded the
-continuous-ownership limit, continuous request-window maxima reached 76.406C
-CPU and 77.062C GPU/Tj above the strict sub-70C gate, continuous clock proof
-was incomplete, and the old harness had shutdown identity/listener-reuse
-defects. Therefore it supplies no incumbent
-reproduction, candidate result, B/C comparison, or performance decision. The
-Two lower-clock sustainable-profile retries also remain invalid. Retry r1
+continuous-ownership limit, continuous clock proof was incomplete, and the old
+harness had shutdown identity/listener-reuse defects. Its 76.406C CPU and
+77.062C GPU/Tj maxima are within the owner-specified normal range through 85C;
+the earlier sub-70C rejection was an over-conservative protocol rule, not a
+hardware thermal failure. The attempt remains invalid for the independent
+ownership, clock-proof, and cleanup failures and supplies no incumbent
+reproduction, candidate result, B/C comparison, or performance decision. Two
+lower-clock sustainable-profile retries also remain invalid. Retry r1
 failed its pre-server frequency setup before spawning the server or loading the
-model. Retry r2 started historical B, but fail-fast stopped the request before
-a response when CPU/Tj reached 70.031C; an external accepted `sshd` session
-also reached 7.994% of one CPU core, while root `tegrastats` reported effective
-GPU clocks from 1005 through 1019 MHz instead of the exact 1019-MHz display
-contract mapped from the fixed 1.02-GHz sysfs lock. It produced no usable
-startup, TTFT, Prefill, throughput, or Decode timing. Server cleanup escalated
-SIGINT -> SIGTERM -> SIGKILL, so graceful shutdown failed, but no process,
-listener, GPU-device handle, or `nvmap` residue remained. No valid absorbed-C
-request has completed. The future retest anchor is harness
-`cacaba0a6911bbe628d1583830f296002dce6ce3131205485601931c7529211b`,
-which encodes the exact 1.02-GHz-sysfs-to-1019-MHz-`tegrastats` mapping; a valid
-two-B/two-C result is still pending. Exact build identities, invalid bundle
-hashes, harness boundary, and claim limits are frozen in the
+model. Retry r2 started historical B, but the superseded 70C fail-fast stopped
+the request before a response at 70.031C, which is also within the corrected
+normal range. The attempt is still unusable: an external accepted `sshd`
+session reached 7.994% of one CPU core, and the obsolete temperature gate
+terminated the request before any response. Root `tegrastats` observed
+request-window GPU effective values from 1010 through 1019 MHz while sysfs
+remained fixed at 1.02 GHz; those effective samples are retained as hardware
+telemetry, not misclassified as proof of downclocking. It produced no usable
+startup, TTFT, Prefill, throughput, or Decode timing. Server cleanup
+escalated SIGINT -> SIGTERM -> SIGKILL, so graceful shutdown failed, but no
+process, listener, GPU-device handle, or `nvmap` residue remained. No valid
+absorbed-C request has completed. Review follow-up `289f6d0` retains ordinary
+default ELF byte identity and rebuilds the development artifact from final
+source. The future retest anchor is harness
+`cdb7f7e1c4f0cc8d1e9ba1604f0820b09851e2abedf462bbc11a2798f1791bde`:
+temperature is accepted through 85C, throttle risk begins above 90C, and
+CPU/GPU/EMC sysfs locks plus hardware cooling/throttle and over-current state
+are gated independently; `tegrastats` GPU effective MHz is recorded as a
+distribution rather than treated as the fixed sysfs lock. A valid two-B/two-C
+result is still pending. Exact build identities, invalid bundle hashes, harness
+boundary, and claim limits are frozen in the
 [`P40 v10 mainline absorption record`](metadata/qwen36-27b-p40-v10-mainline-absorption-2026-08-21.json).
 
 The later independent stock-vLLM-Marlin projection reference completed the
@@ -214,11 +229,13 @@ commit `fe626be` with the real checkpoint, one cold/no-cache P40 API request,
 one output token, and a whole-prompt scheduler budget of `40000`. The API
 transaction completed and the process-group, route, and cleanup receipts were
 captured, but the measurement is invalid: the request interval crossed the
-hard `70C` thermal gate, reached `81.812C`, and later showed real CPU
-downclocking from 2201 MHz to approximately 1.1 GHz. Its manifest is therefore
-`valid=false` with an empty result set. No timing from that run is retained,
-compared, or used to alter either the native incumbent or the owner-established
-4.3K tok/s starting line. The exact invalidation and artifact hashes are in the
+old `70C` protocol threshold and reached `81.812C`, which is within the
+owner-specified normal range through 85C. The independent measured fact that
+still invalidates it is real CPU downclocking from 2201 MHz to approximately
+1.1 GHz. Its manifest remains `valid=false` with an empty result set. No timing
+from that run is retained, compared, or used to alter either the native
+incumbent or the owner-established 4.3K tok/s starting line. The exact
+invalidation and artifact hashes are in the
 [`P40 reference-witness invalidation record`](metadata/qwen36-27b-vllm-p40-target-witness-invalid-2026-08-12.json).
 The current stock-auto route also selected Marlin FP8, FlashInfer Attention,
 and Triton/FLA GDN without Humming, so it is not yet a matched reconstruction

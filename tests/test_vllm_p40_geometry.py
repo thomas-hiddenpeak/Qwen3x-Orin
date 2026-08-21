@@ -434,6 +434,10 @@ class VllmP40GeometryTest(unittest.TestCase):
         )
 
     def test_measured_tegrastats_envelope_is_windowed_and_strict(self) -> None:
+        self.assertEqual(GEOMETRY.JETSON_MAX_TEMPERATURE_MILLIC, 85_000)
+        self.assertEqual(
+            GEOMETRY.JETSON_THROTTLE_RISK_TEMPERATURE_MILLIC, 90_000
+        )
         cpu = ",".join(["0%@2201"] * 12)
         lines = [
             (
@@ -452,7 +456,28 @@ class VllmP40GeometryTest(unittest.TestCase):
             self.assertEqual(observed["in_request_sample_count"], 3)
             self.assertEqual(observed["post_request_sample_count"], 2)
             self.assertEqual(observed["maximum_gr3d_percent"], 80.0)
-            self.assertTrue(observed["clock_contract"]["stable_for_every_sample"])
+            self.assertTrue(
+                observed["clock_contract"][
+                    "cpu_and_emc_stable_for_every_sample"
+                ]
+            )
+            path.write_text(
+                ("\n".join(lines).replace("@[1300,1300]", "@[1294,1297]"))
+                + "\n",
+                encoding="utf-8",
+            )
+            effective_gpu = GEOMETRY.validate_measurement_telemetry(path, 1, 4)
+            self.assertEqual(
+                effective_gpu["clock_contract"]["gpu_effective_mhz_observed"],
+                [1294, 1297],
+            )
+            self.assertEqual(
+                effective_gpu["continuous_exact_clock_gate_roles"],
+                ["cpu", "emc"],
+            )
+            self.assertTrue(
+                effective_gpu["temperature_is_not_a_clock_or_throttle_proxy"]
+            )
             path.write_text(
                 ("\n".join(lines).replace("EMC_FREQ 0%@3200", "EMC_FREQ 0%@3199"))
                 + "\n",
@@ -461,7 +486,14 @@ class VllmP40GeometryTest(unittest.TestCase):
             with self.assertRaisesRegex(GEOMETRY.GeometryError, "clock/RAM drift"):
                 GEOMETRY.validate_measurement_telemetry(path, 1, 4)
             path.write_text(
-                ("\n".join(lines).replace("cpu@63C/63C", "cpu@63C/70C"))
+                ("\n".join(lines).replace("cpu@63C/63C", "cpu@63C/85C"))
+                + "\n",
+                encoding="utf-8",
+            )
+            exact_limit = GEOMETRY.validate_measurement_telemetry(path, 1, 4)
+            self.assertEqual(exact_limit["maximum_temperature_c"]["cpu"], 85.0)
+            path.write_text(
+                ("\n".join(lines).replace("cpu@63C/63C", "cpu@63C/85.1C"))
                 + "\n",
                 encoding="utf-8",
             )
