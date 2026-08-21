@@ -220,6 +220,61 @@ void test_serialization(TestContext& test) {
   test.expect(valid_json(health) &&
                   health.find("qwen\\\"model") != std::string::npos,
               "health response escapes the configured model alias");
+
+  const std::string p40_v10_models =
+      server::serialize_p40_whole_core_v10_models_response("qwen\"model",
+                                                            1234);
+  test.expect(
+      valid_json(p40_v10_models) &&
+          p40_v10_models.find("qwen\\\"model") != std::string::npos &&
+          p40_v10_models.find(
+              R"("q3x_development_route":{"id":"p40-whole-core-v10")") !=
+              std::string::npos &&
+          p40_v10_models.find(
+              R"("reason":"known-p513-full-state-mismatch-in-inherited-flashinfer-arithmetic")") !=
+              std::string::npos &&
+          p40_v10_models.find(
+              R"("p40000_full_state":"not_measured")") !=
+              std::string::npos &&
+          p40_v10_models.find(
+              R"("artifact":"qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json")") !=
+              std::string::npos &&
+          p40_v10_models.find(
+              R"("sha256":"b0847b1f1965570d7311f6b73c137f11e34bc65c893ae76783583bb4fcd7a9fa")") !=
+              std::string::npos &&
+          p40_v10_models.find(R"("release_qualified":false)") !=
+              std::string::npos &&
+          p40_v10_models.find(R"("production_eligible":false)") !=
+              std::string::npos,
+      "P40 v10 models discovery is valid JSON and exposes only the explicit "
+      "accuracy-unqualified development route");
+
+  const std::string p40_v10_health =
+      server::serialize_p40_whole_core_v10_health_response("qwen\"model");
+  test.expect(
+      valid_json(p40_v10_health) &&
+          p40_v10_health.find("qwen\\\"model") != std::string::npos &&
+          p40_v10_health.find(
+              R"("development_route":"p40-whole-core-v10")") !=
+              std::string::npos &&
+          p40_v10_health.find(
+              R"("reason":"known-p513-full-state-mismatch-in-inherited-flashinfer-arithmetic")") !=
+              std::string::npos &&
+          p40_v10_health.find(
+              R"("p40000_full_state":"not_measured")") !=
+              std::string::npos &&
+          p40_v10_health.find(R"("release_qualified":false)") !=
+              std::string::npos &&
+          p40_v10_health.find(R"("production_eligible":false)") !=
+              std::string::npos &&
+          p40_v10_health.find(
+              R"("artifact":"qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json")") !=
+              std::string::npos &&
+          p40_v10_health.find(
+              R"("sha256":"b0847b1f1965570d7311f6b73c137f11e34bc65c893ae76783583bb4fcd7a9fa")") !=
+              std::string::npos,
+      "P40 v10 health is valid JSON and binds its unqualified route to the "
+      "retained historical evidence");
 }
 
 void test_target_prefill_witness_evidence(TestContext& test) {
@@ -939,8 +994,15 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               std::string::npos &&
           whole_core_p40_serialized.find(
               R"("prompt_wide_p40_whole_core_package":{"identity":"exact-p40000-five-p8000-whole-core-v1","selection":"sealed-fail-closed","complete":true)") !=
+              std::string::npos &&
+          whole_core_p40_serialized.find(
+              R"("qualification":"accuracy-unqualified-architecture-candidate")") !=
+              std::string::npos &&
+          whole_core_p40_serialized.find(
+              R"("numerical_contract":{"qualified":false,"reason":"full-state-accuracy-qualification-not-run"})") !=
               std::string::npos,
-      "exact-P40000 whole-core route emits a complete v10 package witness");
+      "exact-P40000 whole-core route preserves the byte-stable complete v10 "
+      "package witness; stricter request admission lives at the gateway");
 
   server::TargetPrefillWitnessRecord projection_reset_p40_record =
       whole_core_p40_record;
@@ -1390,11 +1452,57 @@ void test_prefill_tactic_defaults_remain_exact(TestContext& test) {
               ReferencePrefillExecutionMode::kLegacyC512Tiled &&
           server_options.prefill_full_attention_tactic == q3x::runtime::
               LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512 &&
+          server_options.prefill_projection_tactic == q3x::runtime::
+              LayerMajorPrefillProjectionTactic::kExactSegmentedC512 &&
+          server_options.development_route ==
+              server::EvaluationDevelopmentRoute::kNone &&
           engine_options.prefill_execution_mode == q3x::runtime::
               ReferencePrefillExecutionMode::kLegacyC512Tiled &&
           engine_options.prefill_full_attention_tactic == q3x::runtime::
               LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512,
       "Q128-v4 exposure does not change server or engine defaults");
+}
+
+void test_p40_whole_core_v10_fixed_contract(TestContext& test) {
+  server::EvaluationServerOptions options;
+  options.development_route =
+      server::EvaluationDevelopmentRoute::kP40WholeCoreV10;
+  options.max_sequence_length = 40'001U;
+  options.maximum_output_tokens = 1U;
+  options.prefill_execution_mode = q3x::runtime::
+      ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+  options.prefill_full_attention_tactic = q3x::runtime::
+      LayerMajorPrefillFullAttentionTactic::
+          kNativeFlashInferExactWholePrompt;
+  options.prefill_projection_tactic = q3x::runtime::
+      LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore;
+  options.request_max_arena_bytes = 8'640'542'976ULL;
+  options.request_min_free_bytes_after_create =
+      4ULL * 1024ULL * 1024ULL * 1024ULL;
+  options.inference_queue_capacity = 1U;
+  options.ingress_threads = 3U;
+  test.expect(server::is_p40_whole_core_v10_fixed_profile(options),
+              "typed P40 v10 profile accepts its one exact configuration");
+  --options.max_sequence_length;
+  test.expect(!server::is_p40_whole_core_v10_fixed_profile(options),
+              "typed P40 v10 profile rejects a capacity mutation");
+
+  server::OpenAIRequest request;
+  request.endpoint = server::OpenAIEndpoint::kCompletions;
+  request.prompt_kind = server::OpenAIPromptKind::kTokenIds;
+  request.prompt_token_ids.assign(40'000U, 1U);
+  request.max_tokens = 1U;
+  request.stream = true;
+  request.include_usage = true;
+  test.expect(server::is_p40_whole_core_v10_request(request),
+              "typed P40 v10 request accepts exact token-ID/stream profile");
+  request.include_usage = false;
+  test.expect(!server::is_p40_whole_core_v10_request(request),
+              "typed P40 v10 request requires the usage completion receipt");
+  request.include_usage = true;
+  request.prompt_token_ids.pop_back();
+  test.expect(!server::is_p40_whole_core_v10_request(request),
+              "typed P40 v10 request rejects a P39999 prompt");
 }
 
 }  // namespace
@@ -1408,6 +1516,7 @@ int main() {
   test_serialization(test);
   test_target_prefill_witness_evidence(test);
   test_prefill_tactic_defaults_remain_exact(test);
+  test_p40_whole_core_v10_fixed_contract(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " OpenAI protocol test(s) failed\n";
     return 1;

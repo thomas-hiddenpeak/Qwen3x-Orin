@@ -15,12 +15,29 @@
         "BUILD_TESTING": "ON",
         "Q3X_CUDA_ARCHITECTURES": "87"
       }
+    },
+    {
+      "name": "orin-p40-whole-core-dev",
+      "displayName": "Jetson Orin P40 whole-core development baseline",
+      "description": "Default-off, accuracy-unqualified v10 P40000 route; not a release or production preset",
+      "binaryDir": "${sourceDir}/.q3x-work/build/orin-p40-whole-core-dev",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "OFF",
+        "Q3X_CUDA_ARCHITECTURES": "87",
+        "Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE": "ON"
+      }
     }
   ],
   "buildPresets": [
     {
       "name": "orin-release",
       "configurePreset": "orin-release"
+    },
+    {
+      "name": "orin-p40-whole-core-dev",
+      "configurePreset": "orin-p40-whole-core-dev",
+      "targets": ["qwen3x-eval-server"]
     }
   ],
   "testPresets": [

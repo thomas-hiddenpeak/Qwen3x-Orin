@@ -662,6 +662,59 @@ std::string serialize_health_response(const std::string_view served_model) {
   return output;
 }
 
+std::string serialize_p40_whole_core_v10_models_response(
+    const std::string_view served_model, const std::int64_t created) {
+  std::string output = "{\"object\":\"list\",\"data\":[{\"id\":";
+  append_json_string(output, served_model);
+  output += ",\"object\":\"model\",\"created\":" +
+            std::to_string(created) +
+            ",\"owned_by\":\"qwen3x-orin\",";
+  output +=
+      "\"q3x_development_route\":{\"id\":\"p40-whole-core-v10\",";
+  output +=
+      "\"numerical_contract\":{\"qualified\":false,\"reason\":";
+  append_json_string(
+      output,
+      "known-p513-full-state-mismatch-in-inherited-flashinfer-arithmetic");
+  output += ",\"p40000_full_state\":\"not_measured\"},"
+            "\"evidence\":{\"artifact\":";
+  append_json_string(
+      output,
+      "qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json");
+  output += ",\"sha256\":";
+  append_json_string(
+      output,
+      "b0847b1f1965570d7311f6b73c137f11e34bc65c893ae76783583bb4fcd7a9fa");
+  output += "},"
+            "\"release_qualified\":false,\"production_eligible\":false}}]}";
+  return output;
+}
+
+std::string serialize_p40_whole_core_v10_health_response(
+    const std::string_view served_model) {
+  std::string output = "{\"status\":\"ok\",\"ready\":true,\"model\":";
+  append_json_string(output, served_model);
+  output +=
+      ",\"development_route\":\"p40-whole-core-v10\",";
+  output +=
+      "\"numerical_contract\":{\"qualified\":false,\"reason\":";
+  append_json_string(
+      output,
+      "known-p513-full-state-mismatch-in-inherited-flashinfer-arithmetic");
+  output += ",\"p40000_full_state\":\"not_measured\",\"evidence\":{"
+            "\"artifact\":";
+  append_json_string(
+      output,
+      "qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json");
+  output += ",\"sha256\":";
+  append_json_string(
+      output,
+      "b0847b1f1965570d7311f6b73c137f11e34bc65c893ae76783583bb4fcd7a9fa");
+  output += "}},\"release_qualified\":false,"
+            "\"production_eligible\":false}";
+  return output;
+}
+
 std::string sha256_token_ids_u32le(
     const std::vector<std::uint32_t>& token_ids) {
   q3x::core::Sha256 hash;

@@ -188,6 +188,12 @@ enum class OpenAIFinishReason : std::uint8_t {
     std::string_view served_model, std::int64_t created);
 [[nodiscard]] std::string serialize_health_response(
     std::string_view served_model);
+// Development-only v10 discovery receipts. The ordinary health/model
+// responses remain byte-stable and never inherit an unqualified route claim.
+[[nodiscard]] std::string serialize_p40_whole_core_v10_models_response(
+    std::string_view served_model, std::int64_t created);
+[[nodiscard]] std::string serialize_p40_whole_core_v10_health_response(
+    std::string_view served_model);
 // Hashes the canonical concatenation of every token id encoded as four
 // little-endian bytes. The definition is host-endian independent and streams
 // without allocating a prompt-sized copy.
