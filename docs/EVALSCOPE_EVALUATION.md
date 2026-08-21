@@ -513,12 +513,22 @@ server pure Prefill with 102,674.589111 ms external TTFT, but it is invalid:
 continuous ownership detected an unexpected `systemd-udevd` CPU consumer;
 request-window maxima reached 76.406C CPU and 77.062C GPU/Tj; continuous clock
 proof was incomplete; and the old harness had shutdown/listener-reuse defects.
-The diagnostic cannot reproduce
-the incumbent or enter a comparison. The repaired harness must still complete
-two valid B and two valid C processes before a performance decision. Because
-the request asks for one output token, it contains no Decode transition and
-must report Decode unavailable. Exact identities and invalidation are frozen
-in the
+The diagnostic cannot reproduce the incumbent or enter a comparison.
+Sustainable retry r1 then failed its
+frequency setup before server/model execution. Retry r2 started B but returned
+zero of one completed EvalScope requests: fail-fast fired at 70.031C CPU/Tj,
+an external accepted `sshd` session reached 7.994% of one CPU core, and root
+`tegrastats` reported 1005--1019 MHz instead of the exact 1019-MHz display
+contract mapped from the fixed 1.02-GHz sysfs lock. It has no usable timing.
+SIGINT -> SIGTERM -> SIGKILL failed the graceful server-shutdown contract, but
+the private session, listener, GPU-device handles, and `nvmap` ownership were
+clean after exit. No C request completed validly. Harness
+`cacaba0a6911bbe628d1583830f296002dce6ce3131205485601931c7529211b`
+freezes the exact sysfs/display mapping for the next retest, which must still
+complete two valid B and two valid C processes before a performance decision.
+Because the request asks for one output token, it contains no Decode transition
+and must report Decode unavailable. Exact identities and invalidation are
+frozen in the
 [`P40 v10 mainline absorption record`](metadata/qwen36-27b-p40-v10-mainline-absorption-2026-08-21.json).
 
 The default-off exact-P40000 grouped projection-reset experiment emits

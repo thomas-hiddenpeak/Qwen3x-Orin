@@ -41,10 +41,10 @@ stable system boundary returns to the SDD.
 | Product symptom | Cold/no-cache, single-request 40K--60K and approximately 130K Prefill remains below the owner-set API target and useful vLLM starting line |
 | Parent candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` |
 | Package state | Paused; no active local optimization package |
-| Incumbent | The historical 392.804397-token/s v10 observation; its route is now exposed by the typed, default-OFF, non-installing `BUILD_TESTING=OFF` development artifact identified by [Current Status](CURRENT_STATUS.md), but the timing has not yet been validly reproduced on that artifact |
+| Incumbent | The historical 392.804397-token/s v10 observation; its route is now exposed by the typed, default-OFF, non-installing `BUILD_TESTING=OFF` development artifact identified by [Current Status](CURRENT_STATUS.md), but three invalid closeout attempts contain no valid absorbed-C request and do not reproduce that timing |
 | Numerical boundary | [Prefill mathematical-equivalence ledger](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md) |
 | Production exclusions | No MTP, cuBLASLt production path, silent fallback, approximate mainline, request-time JIT/repack/autotune, or full-model BF16 weight copy |
-| First return point | One clean-host, real-checkpoint, cold/no-cache P40 OpenAI API direction witness |
+| First return point | One clean-host, real-checkpoint, cold/no-cache P40 OpenAI API direction witness; the next retest uses harness `cacaba0a` and its exact fixed-sysfs-to-`tegrastats` display mapping |
 | Stop condition | Close or redesign the complete architecture after one negative composition and at most one predeclared causal profile; do not turn it into a tile scan |
 
 ## 2. Control model and current Q3X plant

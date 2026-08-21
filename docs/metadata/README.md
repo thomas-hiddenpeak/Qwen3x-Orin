@@ -82,10 +82,17 @@ mismatch; its P40000 full state was not measured. Attempt 1 completed only B1
 and is strictly invalid due to an unexpected `systemd-udevd` CPU consumer,
 continuous request-window maxima of 76.406C CPU and 77.062C GPU/Tj, incomplete
 clock proof, and old-harness cleanup defects. Its observed 389.733155 tok/s is
-diagnostic-only and cannot reproduce,
-retain, reject, release, or promote anything. The one-token workload has no
-Decode transition, so Decode is unavailable. This route retention does not
-resume paused P3.
+diagnostic-only and cannot reproduce, retain, reject, release, or promote
+anything. Sustainable retry r1 failed before server/model execution. Retry r2
+started historical B but completed no response and has no usable timing: it
+crossed 70C, observed an external 7.994%-of-one-core `sshd` consumer, and saw
+1005--1019-MHz effective GPU clocks against the exact 1019-MHz display
+contract. SIGINT -> SIGTERM -> SIGKILL failed graceful shutdown, but process,
+port, GPU-device, and `nvmap` recovery passed. No valid C request exists. The
+final retest harness is `cacaba0a6911bbe628d1583830f296002dce6ce3131205485601931c7529211b`
+and binds a fixed 1.02-GHz sysfs lock to exactly 1019 MHz in `tegrastats`. The
+one-token workload has no Decode transition, so Decode is unavailable. This
+route retention does not resume paused P3.
 
 The first real-checkpoint preparation of the default-off SM87 whole-system AOT
 candidate is frozen in

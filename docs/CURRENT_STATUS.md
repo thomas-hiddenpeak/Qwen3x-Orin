@@ -174,12 +174,24 @@ tok/s server pure Prefill and 102,674.589111 ms EvalScope TTFT, but the run is
 strictly invalid: an unexpected `systemd-udevd` CPU consumer exceeded the
 continuous-ownership limit, continuous request-window maxima reached 76.406C
 CPU and 77.062C GPU/Tj above the strict sub-70C gate, continuous clock proof
-was incomplete, and the old harness had shutdown
-identity/listener-reuse defects. Therefore it supplies no incumbent
+was incomplete, and the old harness had shutdown identity/listener-reuse
+defects. Therefore it supplies no incumbent
 reproduction, candidate result, B/C comparison, or performance decision. The
-repaired harness passed static/self validation without GPU or model execution;
-a valid two-B/two-C result is still pending. Exact build identities, invalid
-bundle hashes, harness boundary, and claim limits are frozen in the
+Two lower-clock sustainable-profile retries also remain invalid. Retry r1
+failed its pre-server frequency setup before spawning the server or loading the
+model. Retry r2 started historical B, but fail-fast stopped the request before
+a response when CPU/Tj reached 70.031C; an external accepted `sshd` session
+also reached 7.994% of one CPU core, while root `tegrastats` reported effective
+GPU clocks from 1005 through 1019 MHz instead of the exact 1019-MHz display
+contract mapped from the fixed 1.02-GHz sysfs lock. It produced no usable
+startup, TTFT, Prefill, throughput, or Decode timing. Server cleanup escalated
+SIGINT -> SIGTERM -> SIGKILL, so graceful shutdown failed, but no process,
+listener, GPU-device handle, or `nvmap` residue remained. No valid absorbed-C
+request has completed. The future retest anchor is harness
+`cacaba0a6911bbe628d1583830f296002dce6ce3131205485601931c7529211b`,
+which encodes the exact 1.02-GHz-sysfs-to-1019-MHz-`tegrastats` mapping; a valid
+two-B/two-C result is still pending. Exact build identities, invalid bundle
+hashes, harness boundary, and claim limits are frozen in the
 [`P40 v10 mainline absorption record`](metadata/qwen36-27b-p40-v10-mainline-absorption-2026-08-21.json).
 
 The later independent stock-vLLM-Marlin projection reference completed the
@@ -329,7 +341,7 @@ runner and its 392.804397-token/s incumbent are unchanged.
 | Loopback OpenAI-compatible evaluation API | Implemented | It has no authentication, TLS, multi-tenant admission, or production exposure contract |
 | Final product API | Designed | No installed production server/profile or release attestation exists |
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
-| Target-length Prefill | Two exact, allocation-free Legacy-C512 preprocessing mechanisms are absorbed in the narrow development default; the v10 P40 inventory is now a typed, non-installing `BUILD_TESTING=OFF` development artifact; performance program remains paused | Controlled 4K--32K gains are only 0.12%--0.26% and not statistically qualified; 392.804397 tok/s remains a historical, accuracy-unqualified incumbent because the first mainline closeout attempt was invalid; P60/P130 remain unopened |
+| Target-length Prefill | Two exact, allocation-free Legacy-C512 preprocessing mechanisms are absorbed in the narrow development default; the v10 P40 inventory is now a typed, non-installing `BUILD_TESTING=OFF` development artifact; performance program remains paused | Controlled 4K--32K gains are only 0.12%--0.26% and not statistically qualified; 392.804397 tok/s remains a historical, accuracy-unqualified incumbent because all three mainline closeout attempts were invalid and no C request completed validly; P60/P130 remain unopened |
 | SM87 whole-system AOT Prefill candidate | Default-off and non-executable; real-checkpoint upload/readback/private attachment is authenticated, and the layer-0 M192 Gate+Up/Down-plus-residual candidate has passed bitwise, same-ELF SM87 resource/geometry, and immediate-snapshot lifecycle gates | Persist and directly load authenticated AOT payloads; compose all 64 layers plus FP8 QKV/Z/O, grouped online Attention, exact GDN, buffers/state/handoffs without fallback; extend complete-model accuracy; open a reviewed admission launch; then return to clean-host real-P40 API/EvalScope evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |

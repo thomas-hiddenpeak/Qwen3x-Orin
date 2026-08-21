@@ -3,6 +3,7 @@
   "record_id": "qwen36-27b-p40-v10-mainline-absorption-2026-08-21",
   "record_type": "owner_directed_p40_v10_development_route_mainline_absorption",
   "created_at_utc": "2026-08-21T15:58:37Z",
+  "updated_at_utc": "2026-08-21T16:43:14Z",
   "classification": {
     "source_status": "pass",
     "decision": "retain_the_historical_v10_p40000_whole_core_route_as_one_typed_default_off_development_artifact",
@@ -14,7 +15,7 @@
     "production_authority": false,
     "performance_reproduction_status": "not_yet_validly_measured_on_the_absorbed_artifact"
   },
-  "claim_boundary": "This record establishes that the exact nine-item v10 P40000 whole-core inventory is now buildable from the tracked source by one default-OFF BUILD_TESTING=OFF development preset and is reachable only through one typed, fixed request/profile acknowledgement. The separately named artifact is not installed, does not change the ordinary default, rejects ambient Q3X_* controls, and exposes its known P513 full-state mismatch and unmeasured P40000 full-state status. The historical 392.804397 tok/s observation remains the single-sample incumbent for this accuracy-unqualified route. The 2026-08-21 attempt 1 diagnostic is strictly invalid and supplies no reproduction, comparison, retention, release, or production performance decision. This bounded owner-directed absorption does not resume paused P3 optimization.",
+  "claim_boundary": "This record establishes that the exact nine-item v10 P40000 whole-core inventory is now buildable from the tracked source by one default-OFF BUILD_TESTING=OFF development preset and is reachable only through one typed, fixed request/profile acknowledgement. The separately named artifact is not installed, does not change the ordinary default, rejects ambient Q3X_* controls, and exposes its known P513 full-state mismatch and unmeasured P40000 full-state status. The historical 392.804397421 tok/s observation remains the single-sample incumbent for this accuracy-unqualified route. Attempts 1, 2, and 3 are strictly invalid: attempt 1 retains only a diagnostic historical-B timing, attempt 2 failed setup before server/model execution, and attempt 3 started historical B but produced no completed response or usable timing. No absorbed-candidate C request has completed validly, so this record supplies no current-mainline reproduction, B/C comparison, retention, release, or production performance decision. This bounded owner-directed absorption does not resume paused P3 optimization.",
   "source": {
     "base_main": {
       "git_commit": "40f43dfb020425e08efae11db889da94e5cac71a",
@@ -208,17 +209,125 @@
         "manifest_sha256": "1e7e8a0d1836d5b06ab44ecced9844600a99c0423e553e727baea567533a3a24",
         "frozen_old_harness_sha256": "85f84e08db7f64a400cd5d64bc79397b5a641cd8f829dcd4bf80009fbeb54abe"
       }
+    },
+    {
+      "attempt": 2,
+      "date": "2026-08-22",
+      "bundle_label": "sustainable-r1",
+      "requested_sequence": "BCCB",
+      "summary_sequence_completed_field": "B",
+      "valid_comparison_rows": 0,
+      "server_spawned": false,
+      "model_loaded": false,
+      "request_started": false,
+      "measurement_valid": false,
+      "accepted": false,
+      "performance_decision_eligible": false,
+      "historical_reproduced": false,
+      "incumbent_preserved": false,
+      "timing_available": false,
+      "invalid_reasons": [
+        "setup failed before server spawn and model load because the pre-fix harness treated the root tegrastats 1019 MHz GPU display as a mismatch with the exact 1020000000 Hz sysfs lock",
+        "continuous setup telemetry therefore failed its fixed-frequency gate before any inference work"
+      ],
+      "must_not_be_used_for": [
+        "startup or model-load timing",
+        "historical incumbent reproduction",
+        "mainline candidate performance",
+        "baseline-candidate comparison",
+        "performance retention or rejection",
+        "release or production qualification"
+      ],
+      "bundle": {
+        "path": ".q3x-work/evidence/p40-v10-mainline-bccb-sustainable-20260822-r1",
+        "summary_sha256": "b6eede1c3338c13ecb8dffaea0d7b17eff7b353b45492625a17472cd81e913a0",
+        "manifest_sha256": "33cc1c8b6f223c545319002391180fe889a4a53d175a16f1c95bcdf3f5063e0e",
+        "result_sha256": "4055676aaa57f8ba77e1db1119f7ed7e60190513d1464c64dd56ce8a9635e578",
+        "tegrastats_lifetime_sha256": "2a2b7672add6de5980e796289a352bf0fe352b4d363ccd7fdfde4e861ff0a70d",
+        "frozen_harness_sha256": "0b77c8d8a21188b2b4ea29dfe25df899ded08c9f1754810f305af002a8218388"
+      }
+    },
+    {
+      "attempt": 3,
+      "date": "2026-08-22",
+      "bundle_label": "sustainable-r2",
+      "requested_sequence": "BCCB",
+      "summary_sequence_completed_field": "B",
+      "valid_comparison_rows": 0,
+      "server_spawned": true,
+      "model_loaded": true,
+      "request_started": true,
+      "response_completed": false,
+      "pure_prefill_receipt_available": false,
+      "evalscope_result_available": false,
+      "measurement_valid": false,
+      "accepted": false,
+      "performance_decision_eligible": false,
+      "historical_reproduced": false,
+      "incumbent_preserved": false,
+      "timing_available": false,
+      "invalid_reasons": [
+        "request fail-fast triggered at 70.031C CPU/Tj, violating the strict less-than-70C thermal contract",
+        "an external sshd accepted-session process consumed 7.9941304841628344 percent of one core, above the 5 percent continuous-ownership limit",
+        "although sysfs remained locked at 1020000000 Hz, root tegrastats reported request-window GPU effective clocks of 1005, 1010, 1011, 1012, 1013, 1014, 1015, 1016, 1017, 1018, and 1019 MHz instead of the exact mapped 1019 MHz display contract",
+        "EvalScope was terminated at zero of one completed requests and the server cancelled Prefill at its bounded safe point, so no TTFT, pure Prefill, or throughput observation exists"
+      ],
+      "cleanup": {
+        "server_signals": [
+          "SIGINT",
+          "SIGTERM",
+          "SIGKILL"
+        ],
+        "server_returncode": -9,
+        "graceful_sigint_exit_zero": false,
+        "server_session_residual_members": 0,
+        "active_listener_absent": true,
+        "port_reusable_with_so_reuseaddr": true,
+        "post_exit_gpu_device_holders": 0,
+        "post_exit_nvmap_added_pids": 0,
+        "post_exit_nvmap_added_orphan_rows": 0,
+        "post_exit_nvmap_pagepool_available_delta_bytes": 0,
+        "post_exit_preflight_accepted": true,
+        "interpretation": "shutdown quality failed the graceful-exit contract, but process, listener, GPU-device, and nvmap ownership recovery passed"
+      },
+      "must_not_be_used_for": [
+        "startup or request timing",
+        "historical incumbent reproduction",
+        "mainline candidate performance",
+        "baseline-candidate comparison",
+        "performance retention or rejection",
+        "release or production qualification"
+      ],
+      "bundle": {
+        "path": ".q3x-work/evidence/p40-v10-mainline-bccb-sustainable-20260822-r2",
+        "summary_sha256": "b6e8982bdeba68fc42e969e2b044e94aae3aab7a4f010d93717f412896a35baa",
+        "manifest_sha256": "326b82e66cb949f05b8add81f91423db15095df829be147fe50c796d6a4f2b14",
+        "result_sha256": "605c3d37635f074792f1863daa01429df5f2a9e21b95d3b74b2eafe08c908575",
+        "continuous_ownership_sha256": "46b595539a76d9d11b5c23a757ba6b569f753190aa75773767d0d5c72f530e60",
+        "tegrastats_lifetime_sha256": "83f0023d31e34d2672686daa7046eca366e99c7eae195d78acde8b70fce36a8c",
+        "preflight_after_exit_sha256": "cf09a2d6285fc11961949237c8e467425b800f73a94c102da9bda45f1ac5a2d6",
+        "nvmap_after_exit_sha256": "c725908493fe916b7b1abcd6dc6041ae7e37ce12ac676a000e84ae3208aba056",
+        "nvmap_post_exit_delta_sha256": "52f468b08d5c7892c2bc7759c22ee428819204acfc6dc58edaaa218a6566d8a4",
+        "frozen_harness_sha256": "cacaba0a6911bbe628d1583830f296002dce6ce3131205485601931c7529211b"
+      }
     }
   ],
-  "harness_repair_after_attempt_1": {
+  "future_retest_harness": {
     "path": ".q3x-work/tools/run_p40_v10_bccb.py",
-    "sha256": "7a6bb0373159779836f2cb3b120c9cf44fbf9b363f66b86fd1a444f5754714c9",
+    "sha256": "cacaba0a6911bbe628d1583830f296002dce6ce3131205485601931c7529211b",
+    "frequency_mapping": {
+      "sysfs_gpu_hz": 1020000000,
+      "tegrastats_exact_display_mhz": 1019,
+      "mapping_semantics": "the fixed 1.02 GHz sysfs lock maps to exactly 1019 MHz in tegrastats display; no division, rounding tolerance, range, or multi-value acceptance",
+      "request_window_requirement": "every tegrastats GPU effective-clock sample must equal 1019 MHz"
+    },
     "validation": [
       "python bytecode compile pass",
       "tabnanny pass",
       "help pass",
       "self-test pass without GPU or model execution",
-      "static baseline/candidate/EvalScope identity audit pass"
+      "static baseline/candidate/EvalScope identity audit pass",
+      "root tegrastats capability and exact sysfs-to-display mapping were exercised before r2 server spawn"
     ],
     "repairs": [
       "stable PID/start-time/executable/session shutdown identity",
@@ -226,27 +335,33 @@
       "SO_REUSEADDR listener recovery",
       "strict thermal fail-fast",
       "separate startup temperature limits",
-      "strict unexpected udevd consumer rejection"
+      "strict unexpected CPU-consumer rejection",
+      "exact 1020000000 Hz sysfs to 1019 MHz tegrastats display mapping"
     ],
     "performance_authority": false,
-    "reason": "the repaired harness has not yet produced a valid real-model BCCB result"
+    "reason": "the final harness has not yet produced a valid real-model BCCB result or any completed absorbed-candidate C request"
   },
   "data_quality_assessment": {
     "intended_grain": "one tracked absorption decision plus immutable per-attempt run evidence",
     "comparison_key": "route symbol and independent process position within BCCB",
     "expected_valid_comparison_rows": 4,
-    "attempt_1_valid_comparison_rows": 0,
-    "completeness": "failed: only B1 executed and it is invalid",
-    "uniqueness": "no duplicate comparison key in the sole observed run",
-    "identity_consistency": "code, model, workload, historical binary, and candidate binary identities were captured; attempt 1 used the pre-repair harness",
+    "valid_comparison_rows_by_attempt": {
+      "attempt_1": 0,
+      "attempt_2": 0,
+      "attempt_3": 0
+    },
+    "completed_valid_absorbed_candidate_requests": 0,
+    "completeness": "failed: no attempt completed the four valid BCCB rows and no absorbed-candidate C request completed validly",
+    "uniqueness": "each bundle contains only its first labeled B slot; there are no duplicate comparison keys, but the slots are invalid or incomplete",
+    "identity_consistency": "code, model, workload, historical binary, candidate binary, and tool identities are stable within each bundle; harness revisions differ intentionally and are hash-bound per attempt",
     "metric_definition": "server pure Prefill rate is 40000 divided by the request-bound server pure Prefill interval in seconds; EvalScope TTFT is external and uses a different denominator",
-    "decision_safety": "safe only for route-absorption and invalidation claims; unsafe for any performance comparison or reproduction claim"
+    "decision_safety": "safe only for route-absorption, per-attempt invalidation, and post-exit recovery claims; unsafe for any current-mainline reproduction, timing, or performance comparison claim"
   },
   "delivery_and_recovery": {
     "ordinary_mainline_development_continues": true,
     "p3_prefill_program_paused": true,
     "recovery_anchor": "the typed p40-whole-core-v10 BUILD_TESTING=OFF development preset and this record",
-    "future_first_step": "run a fresh clean-host BCCB with the repaired harness; require two valid historical B and two valid absorbed C measurements before any performance conclusion",
+    "future_first_step": "run a fresh clean-host BCCB with harness cacaba0a6911bbe628d1583830f296002dce6ce3131205485601931c7529211b, enforcing exact sysfs 1020000000 Hz to tegrastats 1019 MHz mapping; require two valid historical B and two valid absorbed C measurements before any performance conclusion",
     "p60_or_p130_unlocked": false
   }
 }

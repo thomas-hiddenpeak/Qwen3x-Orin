@@ -74,13 +74,16 @@ The subsequent owner-directed v10 P40 retention exception has made the exact
 nine-item whole-core inventory reproducible as one typed, default-OFF,
 `BUILD_TESTING=OFF`, non-installing development artifact at `0cf4048`. It does
 not change the ordinary default or grant accuracy, release, or production
-authority. Its first BCCB real-model closeout attempt is invalid and therefore
-does not close this runtime gate: it completed only B1, encountered an
-unexpected `systemd-udevd` CPU consumer, crossed the sub-70C thermal gate, and
-used a harness with subsequently repaired cleanup/clock-proof defects. The
-historical 392.804397 tok/s observation remains the unqualified incumbent; no
-current-mainline reproduction or performance decision is claimed. The exact
-boundary is frozen in the
+authority. None of its three BCCB closeout attempts closes this runtime gate.
+Attempt 1 retains only an invalid diagnostic B1 timing; sustainable retry r1
+failed setup before server/model execution; retry r2 stopped the first B
+request on a 70.031C thermal crossing, an external 7.994%-of-one-core `sshd`
+consumer, and effective GPU clocks inconsistent with its exact fixed-clock
+protocol. Retry r2 produced no usable timing and no residue after bounded
+escalation, but it did not satisfy graceful shutdown. No valid C request has
+completed. The historical 392.804397 tok/s observation remains the unqualified
+incumbent; no current-mainline reproduction or performance decision is
+claimed. The exact boundary is frozen in the
 [`P40 v10 mainline absorption record`](metadata/qwen36-27b-p40-v10-mainline-absorption-2026-08-21.json).
 
 Inside every Prefill architecture candidate, the work order is also fixed:
