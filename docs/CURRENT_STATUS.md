@@ -60,10 +60,75 @@ observed. The exact record and its measurement limitations are in the
 It grants no 40K/60K/approximately-130K, final-product API, release, or
 production authority, and it does not resume paused Prefill optimization.
 
-The strongest whole-product P40 development observation remains the
-default-off exact-P40000 whole-core route. It was measured from a binary-pinned
-dirty tree above `a4f95ba`; the implementation was committed later as
-`a46d165`:
+Under the later explicit owner direction to absorb confirmed cross-branch
+gains before returning completely to delivery work, the runtime stack ending
+at `ff47f179` now selects two zero-allocation mechanisms on one narrow
+development-default scope: whole-tile prompt-wide Embedding gather and the
+128-thread exact full-Attention preprocessing map. Selection requires legacy
+execution control, the SM87WeightOnly backend, the Legacy-C512 request-memory
+profile, and a non-sealed exact-arithmetic route. Other backends, memory
+profiles, controls, the sealed arithmetic route, and the M1 tail keep their
+established behavior. The policy is source-local, has no environment
+selector, and its mutable A/B/hit seams are absent from `BUILD_TESTING=OFF`.
+
+The selected mechanisms passed real-model baseline/Embedding-only/
+Attention-only/combined comparisons at P514, P4096, and P8192. The comparisons
+are bit-exact for complete convolution and GDN state, every used K/V row in
+all 16 full-Attention layers, sequence length, prompt and generated token IDs,
+generated text, and public logits statistics. P4096 generated 16 tokens and
+therefore exercised 15 Decode transitions after the first token. The related
+exact-C512 all-prompt final-token candidate was deliberately not selected: it
+changed state, used K/V, and public-logit results at both P512 and P4096.
+
+Matched clean-host BCCB measurements used fresh `BUILD_TESTING=OFF` processes,
+two baseline and two candidate samples per length, 16 output tokens, fixed
+1.4976 GHz CPU / 1.020 GHz GPU / 3.2 GHz EMC clocks in MAXN, and controlled
+repeated token-ID prompts. Candidate means were:
+
+| Prompt | External TTFT | Server pure Prefill | Pure prompt rate | External Decode | Startup | Max candidate VmHWM | Prefill direction |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 4,096 | 27,751.272 ms | 27,742.651 ms | 147.642708 tok/s | 6.832613 tok/s | 35,358.079 ms | 30,417,940,480 B | +0.2599% |
+| 8,192 | 68,267.597 ms | 68,255.342 ms | 120.019915 tok/s | 6.103963 tok/s | 35,348.268 ms | 30,688,944,128 B | +0.2268% |
+| 16,384 | 191,768.588 ms | 191,747.013 ms | 85.445936 tok/s | 5.031028 tok/s | 35,553.153 ms | 31,233,032,192 B | +0.1224% |
+| 32,768 | 607,164.704 ms | 607,128.226 ms | 53.972166 tok/s | 3.716240 tok/s | 36,020.790 ms | 32,319,053,824 B | +0.1851% |
+
+All 16 runs passed the clean-host, continuous ownership, sub-70C thermal,
+route, output, SIGINT shutdown, and post-exit `nvmap` gates. The same small
+positive sign at all four lengths supports development-default absorption,
+but the 0.12%--0.26% range and two-sample protocol are not statistical or
+release qualification. Decode, startup, and memory moved at noise scale in
+both directions and receive no improvement claim. These prompts are
+controlled regression witnesses rather than real Agent/EvalScope prompts;
+16K/32K used explicit expanded capacity and an 8 GiB arena, so the adapter's
+8,192-token/2-GiB defaults remain unchanged. Across the two candidate runs at
+4K/8K/16K/32K, maximum PSS was respectively 344,807,424 / 344,801,280 /
+344,803,328 / 345,393,152 bytes, and maximum system `MemAvailable` drop was
+22,971,265,024 / 23,236,730,880 / 23,591,137,280 / 24,705,056,768 bytes.
+After SIGINT, BCCB listener ports remained in TCP TIME_WAIT and became reusable
+only after approximately 44--48 seconds.
+
+The final `ff47f179` `BUILD_TESTING=OFF` integration run then reached owned
+health readiness in 25,431.773 ms and passed EvalScope 1.9.1 on one warmup
+plus 8/8 measured short requests. Mean TTFT was 2,741.090 ms, mean TPOT was
+108.612 ms, and independently recomputed prompt throughput was 113.857651
+tok/s; EvalScope's written zero `Input Throughput` field is invalid and is not
+cited. The corresponding server witnesses averaged 2,733.324 ms pure Prefill
+and 2,737.075 ms TTFT; 3,981 tokens divided by the sum of the eight per-request
+pure-Prefill intervals was 182.058549 tok/s, while server Decode was 108.702
+ms/token / 9.199479 tok/s. That aggregate server-interval rate and EvalScope's
+wall-clock prompt throughput use different denominators and are not directly
+interchangeable. Peak VmRSS/VmHWM was 30,688,911,360 bytes; maximum CPU/Tj and
+GPU temperatures were 69.593C and 68.718C. Raw SSE usage and completion
+ordering passed, SIGINT returned zero, the port was reusable, and the post-exit
+clean-host/`nvmap` gate passed. This is candidate integration health, not a
+baseline/candidate speedup or target-length result. Exact identities,
+raw-bundle hashes, and all limits are frozen in the
+[`prompt-wide mainline absorption record`](metadata/qwen36-27b-prompt-wide-mainline-absorption-2026-08-21.json).
+
+Separate from that absorbed Legacy-C512 route, the strongest whole-product P40
+development observation remains the default-off exact-P40000 whole-core v10
+route. It was measured once from a `BUILD_TESTING=ON`, binary-pinned dirty tree
+above `a4f95ba`; the implementation was committed later as `a46d165`:
 
 | Observable | Current incumbent observation |
 | --- | ---: |
@@ -81,6 +146,10 @@ nor release authority. Its transaction, memory, route-receipt, and
 whole-prompt control substrate is retained as development infrastructure.
 Its timing authority is one clean-host real-API direction sample plus one
 bounded NSys capture, not a repetition-qualified performance baseline.
+It is not the current mainline Prefill rate, is unrelated to the two mechanisms
+absorbed above, and contains no Decode measurement. Any earlier unqualified
+wording that described the 392.804397-token/s observation as current mainline
+or production performance was inaccurate.
 The witness consumed all 40,000 prompt tokens and reported zero Prefix-cache,
 MTP, cuBLASLt, external-reference, approximate, exact-fallback, and forbidden
 route hits.
@@ -234,7 +303,7 @@ runner and its 392.804397-token/s incumbent are unchanged.
 | Loopback OpenAI-compatible evaluation API | Implemented | It has no authentication, TLS, multi-tenant admission, or production exposure contract |
 | Final product API | Designed | No installed production server/profile or release attestation exists |
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
-| Target-length Prefill | P40 development route exercised; performance program paused | P40 is 392.804397 tok/s, accuracy-unqualified, and far below parity; P60/P130 remain unopened |
+| Target-length Prefill | Two exact, allocation-free Legacy-C512 preprocessing mechanisms are absorbed in the narrow development default; the separate historical P40 route was exercised; performance program remains paused | Controlled 4K--32K gains are only 0.12%--0.26% and not statistically qualified; historical P40 is 392.804397 tok/s, default-off and accuracy-unqualified; P60/P130 remain unopened |
 | SM87 whole-system AOT Prefill candidate | Default-off and non-executable; real-checkpoint upload/readback/private attachment is authenticated, and the layer-0 M192 Gate+Up/Down-plus-residual candidate has passed bitwise, same-ELF SM87 resource/geometry, and immediate-snapshot lifecycle gates | Persist and directly load authenticated AOT payloads; compose all 64 layers plus FP8 QKV/Z/O, grouped online Attention, exact GDN, buffers/state/handoffs without fallback; extend complete-model accuracy; open a reviewed admission launch; then return to clean-host real-P40 API/EvalScope evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
@@ -285,6 +354,14 @@ cancellation resources, thermal headroom, and request arena have not yet been
 proven to fit simultaneously. Whole-process capacity remains indeterminate.
 
 ## 4. Current Prefill execution and attribution
+
+On the eligible Legacy-C512/SM87WeightOnly development route, Embedding now
+gathers each complete admitted Prefix tile and full-Attention preprocessing
+uses the exact prompt-wide 128-thread mapping for M>=2. Both reuse existing
+request storage, retain the M1 reference path, and are excluded from sealed
+exact-arithmetic and non-Legacy scopes. Their measured upward effect is the
+small controlled 4K--32K direction reported in section 1; it must not be
+added to or confused with the unrelated P40 whole-core observation below.
 
 The strongest P40 development route is layer-major and single-stream. For
 each of 64 layers it performs:
@@ -361,6 +438,9 @@ Current evidence is incomplete:
 
 - selected native routes have deterministic component, state, token, and
   output oracles;
+- the absorbed Legacy-C512 Embedding and full-Attention preprocess mechanisms
+  match complete persistent/used-KV state, generation, and public logits at
+  P514/P4096/P8192, including 15 P4096 Decode transitions;
 - the short cumulative native route reproduced its comparator on 8/8 outputs;
 - the first external native/vLLM comparison matched text on 26/32 requests,
   but vLLM is not the accuracy oracle;
@@ -385,7 +465,7 @@ sequence and successor identity live exclusively in
 | Documentation-control propagation | The canonical main line now has one `AGENTS.md -> docs/README.md` Codex entry; pre-existing dirty worktrees do not receive it until explicitly integrated, because Codex reads the worktree in which a session starts | P0 |
 | Product API and long-context admission | Validation and host planners exist, but the default contract cannot admit 40K/60K/130K | P1 |
 | Exact deliverable identity | No unique release binary plus authenticated DeploymentPlan | P2 |
-| Prefill parity and physical plan | P40 is 392.804397 tok/s, 10.95x below the useful vLLM line, and accuracy-unqualified; optimization is paused and the recovery archive is not a mainline route | P3 (paused) |
+| Prefill parity and physical plan | The narrow Legacy-C512 default includes two exact preprocessing absorptions with only 0.12%--0.26% controlled direction; the separate historical P40 v10 observation is 392.804397 tok/s, 10.95x below the useful vLLM line, default-off and accuracy-unqualified; optimization is paused and the recovery archive is not a mainline route | P3 (paused) |
 | Accuracy, capability, stability, and release evidence | Partial oracles only; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install, startup, upgrade, or rollback lane | P5 |
 
@@ -394,10 +474,13 @@ sequence and successor identity live exclusively in
 Use the following language until this snapshot changes:
 
 - **Current:** real-model native evaluation runner; Prefill performance work is
-  paused; the consolidated default-off mainline has passed its eight-request
-  short-proxy real-model health closeout, and the strongest default-off P40
-  development direction remains 392.804397 pure prompt tok/s and is
-  accuracy-unqualified.
+  paused; the eligible Legacy-C512/SM87WeightOnly development default includes
+  bit-exact, allocation-free prompt-wide Embedding and full-Attention
+  preprocessing; controlled 4K--32K BCCB direction is positive by
+  0.12%--0.26% but not statistically qualified; the final eight-request short
+  integration proxy passes. The separate strongest default-off P40 v10
+  observation remains 392.804397 pure prompt tok/s and is
+  accuracy-unqualified, not current-mainline performance.
 - **Not current:** production server, production-default 40K--130K support,
   any archived V4 construction route, lossless Factorized-R1 Prefill, vLLM
   parity, or a fully qualified 10-token/s Decode release.
