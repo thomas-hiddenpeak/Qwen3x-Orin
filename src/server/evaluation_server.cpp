@@ -57,6 +57,9 @@ using Clock = std::chrono::steady_clock;
   for (char** entry = environ; *entry != nullptr; ++entry) {
     const std::string_view assignment(*entry);
     const std::size_t equals = assignment.find('=');
+    if (equals == std::string_view::npos) {
+      continue;
+    }
     const std::string_view name = assignment.substr(0U, equals);
     if (name.size() >= kProjectEnvironmentPrefix.size() &&
         name.compare(0U, kProjectEnvironmentPrefix.size(),
