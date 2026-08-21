@@ -27,26 +27,47 @@ void PrintUsage(std::ostream& output) {
   output
       << "Qwen3x-Orin evaluation server " Q3X_VERSION_STRING "\n\n"
       << "Usage:\n"
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+      << "  qwen3x-eval-server-p40-v10-dev MODEL_DIR [options]\n\n"
+#else
       << "  qwen3x-eval-server MODEL_DIR [options]\n\n"
+#endif
       << "Options:\n"
       << "  --host IPv4                 Loopback only (must be 127.0.0.1)\n"
       << "  --port N                    TCP port (default 8000)\n"
-      << "  --model ID                  Served OpenAI model id\n"
+      << "  --model ID                  Served OpenAI model id\n";
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+  output
+      << "  --development-route p40-whole-core-v10\n"
+      << "                              Accuracy-unqualified exact-P40000 baseline\n";
+#endif
+  output
       << "  --max-sequence-length N     Resident request capacity (default 8192)\n"
       << "  --max-output-tokens N       Per-request output ceiling (default 4096)\n"
       << "  --prefill-chunk-size N      Native Prefill chunk 1..512 (default 512)\n"
       << "  --prefill-execution-mode legacy|layer-major (default legacy)\n"
       << "  --prefill-attention-tactic exact-segmented|native-group-q64-panel|\n"
       << "                             native-group-q128-v4-panel|\n"
-      << "                             native-flashinfer-exact-panel|\n"
-      << "                             native-flashinfer-exact-whole-prompt\n"
+      << "                             native-flashinfer-exact-panel";
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_TACTIC_CLI)
+  output
+      << "|\n"
+      << "                             native-flashinfer-exact-whole-prompt\n";
+#else
+  output << "\n";
+#endif
+  output
       << "  --prefill-projection-tactic exact-segmented|\n"
       << "                              segmented-marlin-operator-panel|\n"
       << "                              native-quantized-large-m-operator-panel|\n"
       << "                              native-nvfp4-true-large-m-operator-panel|\n"
       << "                              native-nvfp4-g2-d2-large-m-operator-panel|\n"
-      << "                              native-nvfp4-persistent-p40-layer-wide-mlp|\n"
-      << "                              native-prompt-wide-p40-whole-core|\n"
+      << "                              native-nvfp4-persistent-p40-layer-wide-mlp|\n";
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_TACTIC_CLI)
+  output
+      << "                              native-prompt-wide-p40-whole-core|\n";
+#endif
+  output
       << "                              native-prompt-wide-p40-projection-reset|\n"
       << "                              native-prompt-wide-p40-packed-projection|\n"
       << "                              native-prompt-wide-p40-packed-nvfp4-v2|\n"
@@ -95,6 +116,10 @@ template <typename T>
     error = "MODEL_DIR must not be empty";
     return false;
   }
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+  bool p40_whole_core_v10_requested = false;
+  bool development_profile_override_seen = false;
+#endif
   for (int index = 2; index < argc; ++index) {
     const std::string_view argument(argv[index]);
     if (argument == "--nvtx-phase-ranges") {
@@ -106,6 +131,20 @@ template <typename T>
       return false;
     }
     const std::string_view value(argv[++index]);
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+    if (argument == "--development-route") {
+      if (value != "p40-whole-core-v10") {
+        error = "--development-route must be p40-whole-core-v10";
+        return false;
+      }
+      if (p40_whole_core_v10_requested) {
+        error = "--development-route may be specified only once";
+        return false;
+      }
+      p40_whole_core_v10_requested = true;
+      continue;
+    }
+#endif
     if (argument == "--host") {
       options.bind_address = value;
     } else if (argument == "--model") {
@@ -118,18 +157,27 @@ template <typename T>
       }
       options.port = static_cast<std::uint16_t>(port);
     } else if (argument == "--max-sequence-length") {
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+      development_profile_override_seen = true;
+#endif
       if (!ParseUnsigned(value, options.max_sequence_length) ||
           options.max_sequence_length == 0U) {
         error = "--max-sequence-length must be positive";
         return false;
       }
     } else if (argument == "--max-output-tokens") {
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+      development_profile_override_seen = true;
+#endif
       if (!ParseUnsigned(value, options.maximum_output_tokens) ||
           options.maximum_output_tokens == 0U) {
         error = "--max-output-tokens must be positive";
         return false;
       }
     } else if (argument == "--prefill-chunk-size") {
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+      development_profile_override_seen = true;
+#endif
       if (!ParseUnsigned(value, options.prefill_chunk_size) ||
           options.prefill_chunk_size == 0U ||
           options.prefill_chunk_size >
@@ -138,6 +186,9 @@ template <typename T>
         return false;
       }
     } else if (argument == "--prefill-execution-mode") {
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+      development_profile_override_seen = true;
+#endif
       if (value == "legacy") {
         options.prefill_execution_mode =
             q3x::runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled;
@@ -149,6 +200,9 @@ template <typename T>
         return false;
       }
     } else if (argument == "--prefill-attention-tactic") {
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+      development_profile_override_seen = true;
+#endif
       if (value == "exact-segmented") {
         options.prefill_full_attention_tactic = q3x::runtime::
             LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512;
@@ -162,18 +216,26 @@ template <typename T>
         options.prefill_full_attention_tactic = q3x::runtime::
             LayerMajorPrefillFullAttentionTactic::
                 kNativeFlashInferExactPanel;
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_TACTIC_CLI)
       } else if (value == "native-flashinfer-exact-whole-prompt") {
         options.prefill_full_attention_tactic = q3x::runtime::
             LayerMajorPrefillFullAttentionTactic::
                 kNativeFlashInferExactWholePrompt;
+#endif
       } else {
         error = "--prefill-attention-tactic must be exact-segmented or "
                 "native-group-q64-panel or native-group-q128-v4-panel or "
-                "native-flashinfer-exact-panel or "
-                "native-flashinfer-exact-whole-prompt";
+                "native-flashinfer-exact-panel"
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_TACTIC_CLI)
+                " or native-flashinfer-exact-whole-prompt"
+#endif
+                ;
         return false;
       }
     } else if (argument == "--prefill-projection-tactic") {
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+      development_profile_override_seen = true;
+#endif
       if (value == "exact-segmented") {
         options.prefill_projection_tactic = q3x::runtime::
             LayerMajorPrefillProjectionTactic::kExactSegmentedC512;
@@ -200,10 +262,12 @@ template <typename T>
         options.prefill_projection_tactic = q3x::runtime::
             LayerMajorPrefillProjectionTactic::
                 kNativeNvfp4PersistentP40LayerWideMlp;
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_TACTIC_CLI)
       } else if (value == "native-prompt-wide-p40-whole-core") {
         options.prefill_projection_tactic = q3x::runtime::
             LayerMajorPrefillProjectionTactic::
                 kNativePromptWideP40WholeCore;
+#endif
       } else if (value ==
                  "native-prompt-wide-p40-projection-reset") {
         options.prefill_projection_tactic = q3x::runtime::
@@ -231,7 +295,9 @@ template <typename T>
                 "native-nvfp4-true-large-m-operator-panel or "
                 "native-nvfp4-g2-d2-large-m-operator-panel or "
                 "native-nvfp4-persistent-p40-layer-wide-mlp or "
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_TACTIC_CLI)
                 "native-prompt-wide-p40-whole-core or "
+#endif
                 "native-prompt-wide-p40-projection-reset or "
                 "native-prompt-wide-p40-packed-projection or "
                 "native-prompt-wide-p40-packed-nvfp4-v2 or "
@@ -239,12 +305,18 @@ template <typename T>
         return false;
       }
     } else if (argument == "--queue-capacity") {
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+      development_profile_override_seen = true;
+#endif
       if (!ParseUnsigned(value, options.inference_queue_capacity) ||
           options.inference_queue_capacity == 0U) {
         error = "--queue-capacity must be positive";
         return false;
       }
     } else if (argument == "--ingress-threads") {
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+      development_profile_override_seen = true;
+#endif
       if (!ParseUnsigned(value, options.ingress_threads) ||
           options.ingress_threads == 0U || options.ingress_threads > 64U) {
         error = "--ingress-threads must be in [1,64]";
@@ -253,6 +325,9 @@ template <typename T>
       options.accepted_connection_capacity =
           std::max<std::size_t>(16U, options.ingress_threads * 4U);
     } else if (argument == "--projection-backend") {
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+      development_profile_override_seen = true;
+#endif
       if (value == "sm87") {
         options.projection_backend =
             q3x::runtime::ProjectionBackend::kSm87WeightOnly;
@@ -264,12 +339,18 @@ template <typename T>
         return false;
       }
     } else if (argument == "--request-max-arena-bytes") {
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+      development_profile_override_seen = true;
+#endif
       if (!ParseUnsigned(value, options.request_max_arena_bytes) ||
           options.request_max_arena_bytes == 0U) {
         error = "--request-max-arena-bytes must be positive";
         return false;
       }
     } else if (argument == "--min-free-bytes") {
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+      development_profile_override_seen = true;
+#endif
       if (!ParseUnsigned(value,
                          options.request_min_free_bytes_after_create)) {
         error = "--min-free-bytes must be an unsigned integer";
@@ -280,6 +361,35 @@ template <typename T>
       return false;
     }
   }
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+  if (p40_whole_core_v10_requested) {
+    if (development_profile_override_seen) {
+      error = "--development-route is atomic and cannot be combined with "
+              "individual execution, capacity, memory, or queue options";
+      return false;
+    }
+    options.development_route =
+        q3x::server::EvaluationDevelopmentRoute::kP40WholeCoreV10;
+    options.max_sequence_length = 40'001U;
+    options.maximum_output_tokens = 1U;
+    options.prefill_chunk_size =
+        q3x::runtime::kMaximumRequestPrefillChunkSize;
+    options.prefill_execution_mode = q3x::runtime::
+        ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+    options.prefill_full_attention_tactic = q3x::runtime::
+        LayerMajorPrefillFullAttentionTactic::
+            kNativeFlashInferExactWholePrompt;
+    options.prefill_projection_tactic = q3x::runtime::
+        LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore;
+    options.projection_backend =
+        q3x::runtime::ProjectionBackend::kSm87WeightOnly;
+    options.request_max_arena_bytes = 8'640'542'976ULL;
+    options.request_min_free_bytes_after_create =
+        4ULL * 1024ULL * 1024ULL * 1024ULL;
+    options.inference_queue_capacity = 1U;
+    options.ingress_threads = 3U;
+  }
+#endif
   return true;
 }
 

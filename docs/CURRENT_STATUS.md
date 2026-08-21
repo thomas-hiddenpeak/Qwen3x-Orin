@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-08-21
+  last_reviewed: 2026-08-22
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -53,7 +53,9 @@ prompt token/s; these figures are a valid eight-request historical short
 proxy, not a performance improvement or a 32-request baseline. Peak `/proc`
 VmRSS/VmHWM was 30,703,714,304 bytes, the system `MemAvailable` drop from the
 first post-spawn sample was 23,852,707,840 bytes, and CPU/Tj and GPU remained
-below the declared 70C gate at 69.343C and 68.250C. All preflights passed,
+below the then-declared 70C evidence gate at 69.343C and 68.250C. That
+conservative threshold is now superseded by the owner-specified 85C-inclusive
+normal range plus an independent clock-stability gate. All preflights passed,
 SIGINT shutdown returned zero, and no server-owned `nvmap` residue was
 observed. The exact record and its measurement limitations are in the
 [`mainline real-model acceptance record`](metadata/qwen36-27b-mainline-real-model-acceptance-2026-08-21.json).
@@ -92,8 +94,8 @@ repeated token-ID prompts. Candidate means were:
 | 16,384 | 191,768.588 ms | 191,747.013 ms | 85.445936 tok/s | 5.031028 tok/s | 35,553.153 ms | 31,233,032,192 B | +0.1224% |
 | 32,768 | 607,164.704 ms | 607,128.226 ms | 53.972166 tok/s | 3.716240 tok/s | 36,020.790 ms | 32,319,053,824 B | +0.1851% |
 
-All 16 runs passed the clean-host, continuous ownership, sub-70C thermal,
-route, output, SIGINT shutdown, and post-exit `nvmap` gates. The same small
+All 16 runs passed the clean-host, continuous ownership, then-declared sub-70C
+thermal, route, output, SIGINT shutdown, and post-exit `nvmap` gates. The same small
 positive sign at all four lengths supports development-default absorption,
 but the 0.12%--0.26% range and two-sample protocol are not statistical or
 release qualification. Decode, startup, and memory moved at noise scale in
@@ -125,10 +127,24 @@ baseline/candidate speedup or target-length result. Exact identities,
 raw-bundle hashes, and all limits are frozen in the
 [`prompt-wide mainline absorption record`](metadata/qwen36-27b-prompt-wide-mainline-absorption-2026-08-21.json).
 
-Separate from that absorbed Legacy-C512 route, the strongest whole-product P40
-development observation remains the default-off exact-P40000 whole-core v10
-route. It was measured once from a `BUILD_TESTING=ON`, binary-pinned dirty tree
-above `a4f95ba`; the implementation was committed later as `a46d165`:
+Separate from that absorbed Legacy-C512 route, commit `0cf4048` now makes the
+exact-P40000 whole-core v10 inventory a first-class, separately named
+`BUILD_TESTING=OFF` development artifact. The single default-OFF
+`orin-p40-whole-core-dev` preset builds
+`qwen3x-eval-server-p40-v10-dev`; the binary requires the typed
+`--development-route p40-whole-core-v10` acknowledgement, fixes the complete
+P40000 profile atomically, rejects ambient `Q3X_*` controls, and has no install
+rules. The ordinary default binary, capacity, route, and installation remain
+unchanged. Review follow-up `289f6d0` safely ignores malformed non-assignment
+environment entries, leaves the ordinary default ELF byte-identical, and has a
+fresh final development build receipt. This is development-route retention,
+not release promotion.
+
+The strongest whole-product P40 observation remains the historical v10
+measurement. It was recorded once from a `BUILD_TESTING=ON`, binary-pinned
+dirty tree above `a4f95ba`; the implementation was committed later as
+`a46d165`, and the new tracked development artifact makes that route
+rebuildable without claiming that its historical timing transfers:
 
 | Observable | Current incumbent observation |
 | --- | ---: |
@@ -146,15 +162,52 @@ nor release authority. Its transaction, memory, route-receipt, and
 whole-prompt control substrate is retained as development infrastructure.
 Its timing authority is one clean-host real-API direction sample plus one
 bounded NSys capture, not a repetition-qualified performance baseline.
-It is not the current mainline Prefill rate, is unrelated to the two mechanisms
-absorbed above, and contains no Decode measurement. Any earlier unqualified
-wording that described the 392.804397-token/s observation as current mainline
-or production performance was inaccurate.
+The route is now present in tracked source, but 392.804397 tok/s is still the
+historical incumbent rather than a current-mainline reproduction or production
+rate. It is unrelated to the two Legacy-C512 mechanisms absorbed above. The
+one-output-token workload contains no Decode transition, so Decode latency and
+token/s are unavailable rather than zero.
 The witness consumed all 40,000 prompt tokens and reported zero Prefix-cache,
 MTP, cuBLASLt, external-reference, approximate, exact-fallback, and forbidden
 route hits.
 Exact evidence is frozen in the
 [`v10` whole-core record](metadata/qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json).
+
+The first clean-host BCCB closeout attempt for the absorbed artifact completed
+only historical-baseline run B1. It observed 102,634.326941 ms / 389.733155
+tok/s server pure Prefill and 102,674.589111 ms EvalScope TTFT, but the run is
+strictly invalid: an unexpected `systemd-udevd` CPU consumer exceeded the
+continuous-ownership limit, continuous clock proof was incomplete, and the old
+harness had shutdown identity/listener-reuse defects. Its 76.406C CPU and
+77.062C GPU/Tj maxima are within the owner-specified normal range through 85C;
+the earlier sub-70C rejection was an over-conservative protocol rule, not a
+hardware thermal failure. The attempt remains invalid for the independent
+ownership, clock-proof, and cleanup failures and supplies no incumbent
+reproduction, candidate result, B/C comparison, or performance decision. Two
+lower-clock sustainable-profile retries also remain invalid. Retry r1
+failed its pre-server frequency setup before spawning the server or loading the
+model. Retry r2 started historical B, but the superseded 70C fail-fast stopped
+the request before a response at 70.031C, which is also within the corrected
+normal range. The attempt is still unusable: an external accepted `sshd`
+session reached 7.994% of one CPU core, and the obsolete temperature gate
+terminated the request before any response. Root `tegrastats` observed
+request-window GPU effective values from 1010 through 1019 MHz while sysfs
+remained fixed at 1.02 GHz; those effective samples are retained as hardware
+telemetry, not misclassified as proof of downclocking. It produced no usable
+startup, TTFT, Prefill, throughput, or Decode timing. Server cleanup
+escalated SIGINT -> SIGTERM -> SIGKILL, so graceful shutdown failed, but no
+process, listener, GPU-device handle, or `nvmap` residue remained. No valid
+absorbed-C request has completed. Review follow-up `289f6d0` retains ordinary
+default ELF byte identity and rebuilds the development artifact from final
+source. The future retest anchor is harness
+`cdb7f7e1c4f0cc8d1e9ba1604f0820b09851e2abedf462bbc11a2798f1791bde`:
+temperature is accepted through 85C, throttle risk begins above 90C, and
+CPU/GPU/EMC sysfs locks plus hardware cooling/throttle and over-current state
+are gated independently; `tegrastats` GPU effective MHz is recorded as a
+distribution rather than treated as the fixed sysfs lock. A valid two-B/two-C
+result is still pending. Exact build identities, invalid bundle hashes, harness
+boundary, and claim limits are frozen in the
+[`P40 v10 mainline absorption record`](metadata/qwen36-27b-p40-v10-mainline-absorption-2026-08-21.json).
 
 The later independent stock-vLLM-Marlin projection reference completed the
 same P40 API path at 101,857.500727 ms / 392.705493 tok/s. It supplied no
@@ -176,11 +229,13 @@ commit `fe626be` with the real checkpoint, one cold/no-cache P40 API request,
 one output token, and a whole-prompt scheduler budget of `40000`. The API
 transaction completed and the process-group, route, and cleanup receipts were
 captured, but the measurement is invalid: the request interval crossed the
-hard `70C` thermal gate, reached `81.812C`, and later showed real CPU
-downclocking from 2201 MHz to approximately 1.1 GHz. Its manifest is therefore
-`valid=false` with an empty result set. No timing from that run is retained,
-compared, or used to alter either the native incumbent or the owner-established
-4.3K tok/s starting line. The exact invalidation and artifact hashes are in the
+old `70C` protocol threshold and reached `81.812C`, which is within the
+owner-specified normal range through 85C. The independent measured fact that
+still invalidates it is real CPU downclocking from 2201 MHz to approximately
+1.1 GHz. Its manifest remains `valid=false` with an empty result set. No timing
+from that run is retained, compared, or used to alter either the native
+incumbent or the owner-established 4.3K tok/s starting line. The exact
+invalidation and artifact hashes are in the
 [`P40 reference-witness invalidation record`](metadata/qwen36-27b-vllm-p40-target-witness-invalid-2026-08-12.json).
 The current stock-auto route also selected Marlin FP8, FlashInfer Attention,
 and Triton/FLA GDN without Humming, so it is not yet a matched reconstruction
@@ -303,12 +358,12 @@ runner and its 392.804397-token/s incumbent are unchanged.
 | Loopback OpenAI-compatible evaluation API | Implemented | It has no authentication, TLS, multi-tenant admission, or production exposure contract |
 | Final product API | Designed | No installed production server/profile or release attestation exists |
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
-| Target-length Prefill | Two exact, allocation-free Legacy-C512 preprocessing mechanisms are absorbed in the narrow development default; the separate historical P40 route was exercised; performance program remains paused | Controlled 4K--32K gains are only 0.12%--0.26% and not statistically qualified; historical P40 is 392.804397 tok/s, default-off and accuracy-unqualified; P60/P130 remain unopened |
+| Target-length Prefill | Two exact, allocation-free Legacy-C512 preprocessing mechanisms are absorbed in the narrow development default; the v10 P40 inventory is now a typed, non-installing `BUILD_TESTING=OFF` development artifact; performance program remains paused | Controlled 4K--32K gains are only 0.12%--0.26% and not statistically qualified; 392.804397 tok/s remains a historical, accuracy-unqualified incumbent because all three mainline closeout attempts were invalid and no C request completed validly; P60/P130 remain unopened |
 | SM87 whole-system AOT Prefill candidate | Default-off and non-executable; real-checkpoint upload/readback/private attachment is authenticated, and the layer-0 M192 Gate+Up/Down-plus-residual candidate has passed bitwise, same-ELF SM87 resource/geometry, and immediate-snapshot lifecycle gates | Persist and directly load authenticated AOT payloads; compose all 64 layers plus FP8 QKV/Z/O, grouped online Attention, exact GDN, buffers/state/handoffs without fallback; extend complete-model accuracy; open a reviewed admission launch; then return to clean-host real-P40 API/EvalScope evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
-| Canonical release artifact | Not implemented | No unique `BUILD_TESTING=OFF` artifact reproduces the selected route without test admissions |
+| Canonical release artifact | Not implemented | The separately named P40 v10 `BUILD_TESTING=OFF` artifact is development-only, accuracy-unqualified, and deliberately non-installing; it is not the authenticated installed DeploymentPlan required by P2 |
 | Automated release lane | Designed only | Local tests and policies exist, but no checked-in Orin release workflow enforces the complete gate |
 
 Status terms are strict:
@@ -363,8 +418,8 @@ exact-arithmetic and non-Legacy scopes. Their measured upward effect is the
 small controlled 4K--32K direction reported in section 1; it must not be
 added to or confused with the unrelated P40 whole-core observation below.
 
-The strongest P40 development route is layer-major and single-stream. For
-each of 64 layers it performs:
+The typed P40 v10 development artifact exposes the retained layer-major,
+single-stream route. For each of 64 layers it performs:
 
 ```text
 five M8000 fill panels

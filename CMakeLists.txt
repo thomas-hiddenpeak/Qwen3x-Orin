@@ -75,7 +75,11 @@ option(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION
   OFF
 )
 option(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION
-  "Build the test-only exact-P40000 whole-core Prefill schedule"
+  "Build the exact-P40000 whole-core Prefill admission substrate"
+  OFF
+)
+option(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE
+  "Build the default-off, accuracy-unqualified P40 whole-core development route"
   OFF
 )
 option(Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION
@@ -114,6 +118,26 @@ option(Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION
   "Build the test-only real-weight layer-0 M192 numerical/resource oracle for the private target-AOT NVFP4 kernels"
   OFF
 )
+
+# The owner-selected P40 baseline is one indivisible development inventory.
+# Shadow the constituent cache options only in this top-level configure scope:
+# the single bundle remains the user-facing control, while the individual
+# test admissions remain OFF in the cache and cannot be enabled separately in
+# a BUILD_TESTING=OFF build.  Do not FORCE-write the cache here.
+if(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+  set(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION ON)
+  set(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION ON)
+  set(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION ON)
+  set(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION ON)
+  set(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION ON)
+  set(Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION ON)
+  set(Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION ON)
+  set(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION ON)
+  set(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION ON)
+  message(STATUS
+    "P40 whole-core v10 development inventory enabled (accuracy-unqualified; installation disabled)"
+  )
+endif()
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
@@ -129,12 +153,28 @@ if(Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION AND NOT BUILD_TESTING)
     "Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
-if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION AND NOT BUILD_TESTING)
+if(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE AND
+   (NOT Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION OR
+    NOT Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION OR
+    NOT Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION OR
+    NOT Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION OR
+    NOT Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION OR
+    NOT Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION))
+  message(FATAL_ERROR
+    "Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE requires the exact nine-item v10 whole-core inventory"
+  )
+endif()
+if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION AND NOT BUILD_TESTING AND
+   NOT Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
-if(Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION AND NOT BUILD_TESTING)
+if(Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION AND NOT BUILD_TESTING AND
+   NOT Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
@@ -145,7 +185,8 @@ if(Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION AND
     "Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION requires the native C64 GDN admission inventory"
   )
 endif()
-if(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION AND NOT BUILD_TESTING)
+if(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION AND NOT BUILD_TESTING AND
+   NOT Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   message(FATAL_ERROR
     "Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
@@ -181,27 +222,32 @@ if(Q3X_BUILD_NVFP4_SHAPE_WIDE_PREFILL_ADMISSION AND NOT BUILD_TESTING)
     "Q3X_BUILD_NVFP4_SHAPE_WIDE_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
-if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION AND NOT BUILD_TESTING)
+if(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION AND NOT BUILD_TESTING AND
+   NOT Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   message(FATAL_ERROR
     "Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
-if(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION AND NOT BUILD_TESTING)
+if(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION AND NOT BUILD_TESTING AND
+   NOT Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   message(FATAL_ERROR
     "Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
-if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION AND NOT BUILD_TESTING)
+if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION AND NOT BUILD_TESTING AND
+   NOT Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   message(FATAL_ERROR
     "Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
-if(Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION AND NOT BUILD_TESTING)
+if(Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION AND NOT BUILD_TESTING AND
+   NOT Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   message(FATAL_ERROR
     "Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
 endif()
-if(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION AND NOT BUILD_TESTING)
+if(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION AND NOT BUILD_TESTING AND
+   NOT Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   message(FATAL_ERROR
     "Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
@@ -213,7 +259,8 @@ if(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION AND
     "Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION requires Marlin Prefill and layer-wide P40 admission inventories"
   )
 endif()
-if(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION AND NOT BUILD_TESTING)
+if(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION AND NOT BUILD_TESTING AND
+   NOT Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   message(FATAL_ERROR
     "Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION is test-only and requires BUILD_TESTING=ON"
   )
@@ -803,10 +850,35 @@ target_link_libraries(q3x_eval_gateway
   PUBLIC q3x::engine
   PRIVATE q3x::core Threads::Threads
 )
+if(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+  # This acknowledgement is deliberately narrower than the constituent
+  # admission macros. It lets the evaluation gateway expose exactly the v10
+  # development profile without making another experimental P40 successor or
+  # an internal test seam reachable from a BUILD_TESTING=OFF binary.
+  target_compile_definitions(q3x_eval_gateway PRIVATE
+    Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE=1
+  )
+endif()
 q3x_enable_warnings(q3x_eval_gateway)
 
 add_executable(qwen3x-eval-server src/eval_server_main.cpp)
 target_link_libraries(qwen3x-eval-server PRIVATE q3x_eval_gateway)
+if(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+  target_compile_definitions(qwen3x-eval-server PRIVATE
+    Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE=1
+    Q3X_ENABLE_P40_WHOLE_CORE_TACTIC_CLI=1
+  )
+  # A development artifact must not be confused with the canonical adapter.
+  set_target_properties(qwen3x-eval-server PROPERTIES
+    OUTPUT_NAME qwen3x-eval-server-p40-v10-dev
+  )
+elseif(BUILD_TESTING AND Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION)
+  # Preserve the pre-existing test-only tactic surface without exposing the
+  # typed development-route acknowledgement in ordinary test builds.
+  target_compile_definitions(qwen3x-eval-server PRIVATE
+    Q3X_ENABLE_P40_WHOLE_CORE_TACTIC_CLI=1
+  )
+endif()
 q3x_enable_warnings(qwen3x-eval-server)
 
 add_executable(qwen3x-orin src/main.cpp)
@@ -2069,6 +2141,70 @@ if(BUILD_TESTING)
   set_tests_properties(eval_server_help PROPERTIES
     PASS_REGULAR_EXPRESSION "native-quantized-large-m-operator-panel"
   )
+  if(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+    add_test(NAME eval_server_p40_v10_dev_help
+      COMMAND qwen3x-eval-server --help
+    )
+    set_tests_properties(eval_server_p40_v10_dev_help PROPERTIES
+      PASS_REGULAR_EXPRESSION "development-route p40-whole-core-v10"
+    )
+    add_test(NAME eval_server_p40_v10_rejects_profile_override_after
+      COMMAND qwen3x-eval-server unused
+              --development-route p40-whole-core-v10
+              --max-sequence-length 40001
+    )
+    add_test(NAME eval_server_p40_v10_rejects_profile_override_before
+      COMMAND qwen3x-eval-server unused
+              --max-sequence-length 40001
+              --development-route p40-whole-core-v10
+    )
+    add_test(NAME eval_server_p40_v10_rejects_unacknowledged_tactic
+      COMMAND qwen3x-eval-server unused
+              --prefill-execution-mode layer-major
+              --prefill-attention-tactic
+              native-flashinfer-exact-whole-prompt
+              --prefill-projection-tactic
+              native-prompt-wide-p40-whole-core
+    )
+    add_test(NAME eval_server_p40_v10_rejects_missing_selector
+      COMMAND qwen3x-eval-server unused
+    )
+    add_test(NAME eval_server_p40_v10_rejects_route_environment
+      COMMAND ${CMAKE_COMMAND} -E env
+              Q3X_RUN_DECODE_GQA_SPLITKV_ADMISSION=1
+              $<TARGET_FILE:qwen3x-eval-server> unused
+              --development-route p40-whole-core-v10
+    )
+    set_tests_properties(
+      eval_server_p40_v10_rejects_profile_override_after
+      eval_server_p40_v10_rejects_profile_override_before
+      eval_server_p40_v10_rejects_unacknowledged_tactic
+      eval_server_p40_v10_rejects_missing_selector
+      eval_server_p40_v10_rejects_route_environment
+      PROPERTIES WILL_FAIL TRUE LABELS "host;server;prefill;p40;development"
+    )
+  else()
+    add_test(NAME eval_server_rejects_unbuilt_p40_v10_development_route
+      COMMAND qwen3x-eval-server unused
+              --development-route p40-whole-core-v10
+    )
+    add_test(NAME eval_server_rejects_unbuilt_p40_v10_projection_tactic
+      COMMAND qwen3x-eval-server unused
+              --prefill-projection-tactic
+              native-prompt-wide-p40-whole-core
+    )
+    add_test(NAME eval_server_rejects_unbuilt_p40_v10_attention_tactic
+      COMMAND qwen3x-eval-server unused
+              --prefill-attention-tactic
+              native-flashinfer-exact-whole-prompt
+    )
+    set_tests_properties(
+      eval_server_rejects_unbuilt_p40_v10_development_route
+      eval_server_rejects_unbuilt_p40_v10_projection_tactic
+      eval_server_rejects_unbuilt_p40_v10_attention_tactic
+      PROPERTIES WILL_FAIL TRUE LABELS "host;server;prefill;p40;isolation"
+    )
+  endif()
   add_test(NAME eval_server_help_lists_true_large_m_nvfp4
     COMMAND qwen3x-eval-server --help
   )
@@ -3139,32 +3275,34 @@ if(BUILD_TESTING)
   )
 endif()
 
-install(TARGETS q3x_core q3x_text q3x_kernels q3x_engine
-                qwen3x-orin qwen3x-eval-server qwen3x-inspect
-  EXPORT Qwen3xOrinTargets
-  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
-install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-  FILES_MATCHING PATTERN "*.h"
-  PATTERN "q3x/server/*" EXCLUDE
-)
-# Remove the header exported by older builds when installing over an existing
-# prefix.  The external-reference ABI now lives under tests/support only.
-install(CODE
-  "file(REMOVE \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}/q3x/kernels/sm87_nvfp4_prefill_cublaslt.h\")"
-)
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/generated/q3x/version.h
-  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/q3x
-)
-install(EXPORT Qwen3xOrinTargets
-  FILE Qwen3xOrinTargets.cmake
-  NAMESPACE q3x::
-  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Qwen3xOrin
-)
-install(FILES
-  ${CMAKE_CURRENT_BINARY_DIR}/generated/Qwen3xOrinConfig.cmake
-  ${CMAKE_CURRENT_BINARY_DIR}/generated/Qwen3xOrinConfigVersion.cmake
-  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Qwen3xOrin
-)
+if(NOT Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+  install(TARGETS q3x_core q3x_text q3x_kernels q3x_engine
+                  qwen3x-orin qwen3x-eval-server qwen3x-inspect
+    EXPORT Qwen3xOrinTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+  )
+  install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING PATTERN "*.h"
+    PATTERN "q3x/server/*" EXCLUDE
+  )
+  # Remove the header exported by older builds when installing over an existing
+  # prefix.  The external-reference ABI now lives under tests/support only.
+  install(CODE
+    "file(REMOVE \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}/q3x/kernels/sm87_nvfp4_prefill_cublaslt.h\")"
+  )
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/generated/q3x/version.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/q3x
+  )
+  install(EXPORT Qwen3xOrinTargets
+    FILE Qwen3xOrinTargets.cmake
+    NAMESPACE q3x::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Qwen3xOrin
+  )
+  install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/Qwen3xOrinConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/Qwen3xOrinConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Qwen3xOrin
+  )
+endif()

@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-08-21
+  last_reviewed: 2026-08-22
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -69,6 +69,29 @@ non-statistical, non-target-length, non-release boundary are frozen in the
 [`prompt-wide absorption record`](metadata/qwen36-27b-prompt-wide-mainline-absorption-2026-08-21.json).
 This was a branch-closeout exception under explicit owner direction, not a P3
 restart or permission for further performance exploration.
+
+The subsequent owner-directed v10 P40 retention exception has made the exact
+nine-item whole-core inventory reproducible as one typed, default-OFF,
+`BUILD_TESTING=OFF`, non-installing development artifact at `0cf4048`. It does
+not change the ordinary default or grant accuracy, release, or production
+authority. Review follow-up `289f6d0` leaves the ordinary default ELF
+byte-identical and refreshes the final development artifact/retest identity.
+None of its three BCCB closeout attempts closes this runtime gate.
+Attempt 1 retains only an invalid diagnostic B1 timing; sustainable retry r1
+failed setup before server/model execution; retry r2 stopped the first B
+request under a now-superseded 70C fail-fast even though 70.031C is within the
+owner-specified normal range through 85C. It independently observed an
+external 7.994%-of-one-core `sshd` consumer; the old temperature gate stopped
+the request before a response, so it produced no usable timing. The observed
+1010--1019-MHz request-window GPU effective values are telemetry rather than a
+fixed-sysfs-lock failure. It left no residue after bounded escalation but did not satisfy
+graceful shutdown. No valid C request has completed. The corrected retest gate
+accepts temperatures through 85C, treats above 90C as throttle risk, and audits
+exact sysfs locks plus hardware cooling/throttle and over-current state
+separately while recording GPU effective MHz as a distribution. The historical 392.804397 tok/s observation
+remains the unqualified incumbent; no current-mainline reproduction or
+performance decision is claimed. The exact boundary is frozen in the
+[`P40 v10 mainline absorption record`](metadata/qwen36-27b-p40-v10-mainline-absorption-2026-08-21.json).
 
 Inside every Prefill architecture candidate, the work order is also fixed:
 
@@ -189,9 +212,11 @@ optimization work package on the delivery mainline. P1/P2 and later delivery
 slices retain their existing dependency and exit contracts; nothing in this
 section authorizes a Prefill performance run, profiler capture, local scan,
 default-route change, or production promotion while the pause remains.
-The later 2026-08-21 owner direction authorized only the completed bounded
-absorption and real-model closeout recorded above. With that batch closed,
-the general pause and the prohibition on new P3 exploration remain in force.
+The later 2026-08-21 owner directions authorized only the bounded prompt-wide
+absorption and the v10 P40 development-route retention recorded above. The
+first batch is closed; the P40 code absorption is complete but its valid
+real-model closeout remains pending. The general pause and the prohibition on
+new P3 exploration remain in force.
 
 ### Paused recovery boundary
 
@@ -226,9 +251,11 @@ The frozen first sequence is:
 3. preserve and reconcile the strict lifetime failure if formal lifecycle
    acceptance is needed, then run the remaining proportional real-checkpoint
    numerical gates; and
-4. only then expose one default-off OpenAI P40 route and run one clean-host
-   direction witness. A negative or small result reopens the global dataflow,
-   never a local parameter scan.
+4. use the now-tracked, default-off `p40-whole-core-v10` development artifact
+   as the exact historical-route recovery surface and complete one valid
+   clean-host direction witness before any performance conclusion. The invalid
+   2026-08-21 B1 diagnostic does not satisfy this step. A negative or small
+   valid result reopens the global dataflow, never a local parameter scan.
 
 ### Promotion and stop gates
 

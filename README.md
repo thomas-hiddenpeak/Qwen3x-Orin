@@ -114,7 +114,13 @@ cmake --build "$Q3X_BUILD" --parallel \
 ```
 
 `BUILD_TESTING=OFF` excludes test-only admission paths; it does not by itself
-make this an attested release. Inspect the binary and target device:
+make this an attested release. The sole explicit exception is the default-OFF
+`Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE` bundle. That bundle builds the
+separately named, accuracy-unqualified
+`qwen3x-eval-server-p40-v10-dev` baseline, requires its typed
+`--development-route p40-whole-core-v10` selector, rejects ambient `Q3X_*`
+controls, and disables installation; it is not a release or production
+configuration. Inspect the ordinary binary and target device:
 
 ```bash
 "$Q3X_BUILD/qwen3x-orin" version

@@ -33,10 +33,43 @@
 #include <utility>
 #include <vector>
 
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+extern "C" {
+extern char** environ;
+}
+#endif
+
 namespace q3x::server {
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+[[nodiscard]] std::optional<std::string> first_q3x_environment_variable() {
+  // This deliberately rejects the complete project-specific namespace.  The
+  // v10 development baseline is a closed typed profile; both current and
+  // future Q3X environment controls would otherwise make its route, memory,
+  // or timing identity depend on ambient process state.
+  constexpr std::string_view kProjectEnvironmentPrefix = "Q3X_";
+  if (environ == nullptr) {
+    return std::nullopt;
+  }
+  for (char** entry = environ; *entry != nullptr; ++entry) {
+    const std::string_view assignment(*entry);
+    const std::size_t equals = assignment.find('=');
+    if (equals == std::string_view::npos) {
+      continue;
+    }
+    const std::string_view name = assignment.substr(0U, equals);
+    if (name.size() >= kProjectEnvironmentPrefix.size() &&
+        name.compare(0U, kProjectEnvironmentPrefix.size(),
+                     kProjectEnvironmentPrefix) == 0) {
+      return std::string(name);
+    }
+  }
+  return std::nullopt;
+}
+#endif
 
 [[nodiscard]] double elapsed_milliseconds(
     const Clock::time_point begin, const Clock::time_point end) noexcept {
@@ -1304,7 +1337,12 @@ void handle_connection(
         request_count + 1U == kMaximumRequestsPerConnection;
 
     if (request.method == "GET" && request.target == "/healthz") {
-      const std::string body = serialize_health_response(options.served_model);
+      const std::string body =
+          options.development_route ==
+                  EvaluationDevelopmentRoute::kP40WholeCoreV10
+              ? serialize_p40_whole_core_v10_health_response(
+                    options.served_model)
+              : serialize_health_response(options.served_model);
       if (!send_fixed_response(connection.get(), 200, body,
                                !final_connection_request,
                                options.write_timeout_milliseconds) ||
@@ -1319,7 +1357,11 @@ void handle_connection(
               std::chrono::system_clock::now().time_since_epoch())
               .count());
       const std::string body =
-          serialize_models_response(options.served_model, created);
+          options.development_route ==
+                  EvaluationDevelopmentRoute::kP40WholeCoreV10
+              ? serialize_p40_whole_core_v10_models_response(
+                    options.served_model, created)
+              : serialize_models_response(options.served_model, created);
       if (!send_fixed_response(connection.get(), 200, body,
                                !final_connection_request,
                                options.write_timeout_milliseconds) ||
@@ -1366,6 +1408,23 @@ void handle_connection(
     if (!parsed) {
       if (!send_fixed_response(connection.get(), parsed.error.http_status,
                                serialize_openai_error(parsed.error),
+                               !final_connection_request,
+                               options.write_timeout_milliseconds) ||
+          final_connection_request) {
+        return;
+      }
+      continue;
+    }
+    if (options.development_route ==
+            EvaluationDevelopmentRoute::kP40WholeCoreV10 &&
+        !is_p40_whole_core_v10_request(*parsed.value)) {
+      const OpenAIProtocolError error = simple_error(
+          400, "p40_whole_core_v10_contract",
+          "the p40-whole-core-v10 development route accepts only streaming "
+          "/v1/completions requests with exactly 40000 token IDs and "
+          "max_tokens=1 plus stream_options.include_usage=true");
+      if (!send_fixed_response(connection.get(), error.http_status,
+                               serialize_openai_error(error),
                                !final_connection_request,
                                options.write_timeout_milliseconds) ||
           final_connection_request) {
@@ -1541,6 +1600,7 @@ void ingress_worker(
       !runtime::is_valid_projection_backend(options.projection_backend) ||
       !runtime::is_valid_reference_prefill_execution_mode(
           options.prefill_execution_mode) ||
+      !is_valid_evaluation_development_route(options.development_route) ||
       !runtime::is_valid_layer_major_prefill_full_attention_tactic(
           options.prefill_full_attention_tactic) ||
       !runtime::is_valid_layer_major_prefill_projection_tactic(
@@ -1548,6 +1608,45 @@ void ingress_worker(
     error = "evaluation server options are outside fixed safe bounds";
     return false;
   }
+  const bool p40_whole_core_v10_selected =
+      options.development_route ==
+      EvaluationDevelopmentRoute::kP40WholeCoreV10;
+  const bool p40_whole_core_v10_tactic =
+      options.prefill_projection_tactic == runtime::
+          LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore;
+  if (p40_whole_core_v10_selected != p40_whole_core_v10_tactic) {
+    error = "the p40 whole-core v10 tactic requires the single explicit "
+            "p40-whole-core-v10 development-route acknowledgement";
+    return false;
+  }
+#if !defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+  if (p40_whole_core_v10_selected) {
+    error = "this binary does not contain the default-off P40 whole-core "
+            "development route";
+    return false;
+  }
+#else
+  if (!p40_whole_core_v10_selected) {
+    error = "the P40 development binary requires the explicit "
+            "p40-whole-core-v10 development-route selector";
+    return false;
+  }
+  if (p40_whole_core_v10_selected &&
+      !is_p40_whole_core_v10_fixed_profile(options)) {
+    error = "p40-whole-core-v10 requires its fixed P40000/output-one/"
+            "C512/SM87/8.64GB request profile";
+    return false;
+  }
+  if (p40_whole_core_v10_selected) {
+    const std::optional<std::string> hostile_environment =
+        first_q3x_environment_variable();
+    if (hostile_environment.has_value()) {
+      error = "p40-whole-core-v10 rejects route-changing environment " +
+              *hostile_environment;
+      return false;
+    }
+  }
+#endif
   if (options.bind_address != "127.0.0.1") {
     error = "the unauthenticated evaluation gateway is restricted to "
             "127.0.0.1";
@@ -1704,6 +1803,19 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << runtime::to_string(options.prefill_full_attention_tactic)
             << " prefill_projection_tactic="
             << runtime::to_string(options.prefill_projection_tactic)
+            << " development_route="
+            << to_string(options.development_route)
+            << " numerical_contract="
+            << (options.development_route ==
+                        EvaluationDevelopmentRoute::kP40WholeCoreV10
+                    ? "known-p513-full-state-mismatch"
+                    : "evaluation-route-not-release-qualified")
+            << " p40000_full_state="
+            << (options.development_route ==
+                        EvaluationDevelopmentRoute::kP40WholeCoreV10
+                    ? "not-measured"
+                    : "not-applicable")
+            << " release_qualified=0 production_eligible=0"
             << " nvtx_phase_ranges="
             << (options.emit_nvtx_phase_ranges ? 1 : 0)
             << " inference_workers=1 queue_capacity="

@@ -249,7 +249,8 @@ JETSON_ONLINE_CPUS = tuple(range(12))
 JETSON_CPU_KHZ = 2_201_600
 JETSON_GPU_HZ = 1_300_500_000
 JETSON_EMC_HZ = 3_200_000_000
-JETSON_MAX_TEMPERATURE_MILLIC = 70_000
+JETSON_MAX_TEMPERATURE_MILLIC = 85_000
+JETSON_THROTTLE_RISK_TEMPERATURE_MILLIC = 90_000
 THERMAL_COOLDOWN_TARGET_MILLIC = 65_000
 THERMAL_COOLDOWN_STABLE_SAMPLES = 3
 THERMAL_COOLDOWN_INTERVAL_SECONDS = 5.0
@@ -1959,7 +1960,8 @@ def validate_measurement_telemetry(
                 )
             cpu_clocks.append(int(match.group(1)))
         if (
-            gpu_clocks != (TEGRASTATS_GPU_MHZ, TEGRASTATS_GPU_MHZ)
+            not gpu_clocks
+            or any(value <= 0 for value in gpu_clocks)
             or emc_clock != TEGRASTATS_EMC_MHZ
             or len(cpu_clocks) != len(JETSON_ONLINE_CPUS)
             or set(cpu_clocks) != {TEGRASTATS_CPU_MHZ}
@@ -2037,7 +2039,7 @@ def validate_measurement_telemetry(
         name: value
         for name, value in maximum_temperature.items()
         if name in required_sensors
-        and value * 1000.0 >= JETSON_MAX_TEMPERATURE_MILLIC
+        and value * 1000.0 > JETSON_MAX_TEMPERATURE_MILLIC
     }
     if over_temperature:
         raise GeometryError(
@@ -2053,16 +2055,36 @@ def validate_measurement_telemetry(
         "post_request_sample_count": len(post_window),
         "maximum_gr3d_percent": maximum_gr3d,
         "clock_contract": {
-            "gpu_mhz": TEGRASTATS_GPU_MHZ,
+            "gpu_tegrastats_nominal_display_reference_mhz": TEGRASTATS_GPU_MHZ,
+            "gpu_effective_mhz_observed": sorted(
+                {
+                    value
+                    for sample in samples
+                    for value in sample["gpu_clock_mhz"]
+                }
+            ),
+            "gpu_effective_mhz_is_observation_not_exact_lock_gate": True,
             "emc_mhz": TEGRASTATS_EMC_MHZ,
             "cpu_mhz": TEGRASTATS_CPU_MHZ,
             "cpu_count": len(JETSON_ONLINE_CPUS),
             "ram_total_mb": TEGRASTATS_RAM_TOTAL_MB,
-            "stable_for_every_sample": True,
+            "cpu_and_emc_stable_for_every_sample": True,
         },
         "required_sensors": list(required_sensors),
         "maximum_temperature_c": maximum_temperature,
         "maximum_admitted_temperature_c": JETSON_MAX_TEMPERATURE_MILLIC / 1000.0,
+        "maximum_admitted_temperature_is_inclusive": True,
+        "throttle_risk_temperature_c_exclusive": (
+            JETSON_THROTTLE_RISK_TEMPERATURE_MILLIC / 1000.0
+        ),
+        "throttle_risk_boundary_is_informational": True,
+        "temperature_is_not_a_clock_or_throttle_proxy": True,
+        "continuous_exact_clock_gate_roles": ["cpu", "emc"],
+        "gpu_clock_evidence_scope": (
+            "sysfs lock is checked at performance-lane boundaries; "
+            "request-window tegrastats values are retained as effective-MHz "
+            "telemetry, not an exact fixed-lock gate"
+        ),
         "samples": samples,
     }
 
@@ -3495,12 +3517,17 @@ def collect_thermal_state(*, enforce_envelope: bool = True) -> dict[str, Any]:
         temperature = zones.get(name, {}).get("temperature_millic")
         if not isinstance(temperature, int):
             raise GeometryError(f"required thermal sensor is unavailable: {name}")
-        if enforce_envelope and temperature >= JETSON_MAX_TEMPERATURE_MILLIC:
+        if enforce_envelope and temperature > JETSON_MAX_TEMPERATURE_MILLIC:
             raise GeometryError(
                 f"{name} is outside the admitted thermal envelope: {temperature}"
             )
     return {
         "maximum_admitted_millic": JETSON_MAX_TEMPERATURE_MILLIC,
+        "maximum_admitted_is_inclusive": True,
+        "throttle_risk_millic_exclusive": (
+            JETSON_THROTTLE_RISK_TEMPERATURE_MILLIC
+        ),
+        "throttle_risk_boundary_is_informational": True,
         "required_sensors": list(required),
         "zones": zones,
     }
@@ -3554,6 +3581,8 @@ def wait_for_thermal_cooldown(
                 "stage": stage,
                 "target_millic": target_millic,
                 "rejection_millic": JETSON_MAX_TEMPERATURE_MILLIC,
+                "comparison_start_target_only": True,
+                "not_a_hardware_validity_or_throttle_threshold": True,
                 "stable_samples_required": stable_samples,
                 "interval_seconds": interval_seconds,
                 "elapsed_seconds": time.monotonic() - started,
@@ -3562,7 +3591,8 @@ def wait_for_thermal_cooldown(
         remaining = deadline - time.monotonic()
         if remaining <= 0.0:
             raise GeometryError(
-                f"thermal cooldown timed out at {stage}: last={temperatures}"
+                "comparison-start thermal cooldown timed out at "
+                f"{stage}: last={temperatures}"
             )
         time.sleep(min(interval_seconds, remaining))
 
