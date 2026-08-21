@@ -13,12 +13,12 @@ struct ReferenceRunnerPromptWidePolicy {
   bool full_attention_preprocess = false;
 };
 
-// Historical P513 evidence retained both mechanisms as development
-// candidates only.  Promotion changes these constants after the real-model
-// state/logit/Decode and whole-product gates pass; environment variables have
-// no authority to compose the release route.
+// The Legacy-C512 production route selects both allocation-free mechanisms.
+// Promotion is bounded by the real-model P514/P4096/P8192 state, public-logit,
+// Decode-handoff, and exact accepted-launch witnesses. Environment variables
+// have no authority to compose the release route.
 inline constexpr ReferenceRunnerPromptWidePolicy
-    kReferenceRunnerPromptWideProductionPolicy{};
+    kReferenceRunnerPromptWideProductionPolicy{true, true};
 
 // BUILD_TESTING-only A/B authority.  Explicit independent values make every
 // baseline/candidate composition visible to the host policy test.

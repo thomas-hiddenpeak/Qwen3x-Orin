@@ -12,10 +12,9 @@ namespace detail = q3x::runtime::reference_runner_detail;
 using Policy = detail::ReferenceRunnerPromptWidePolicy;
 using TestPolicy = detail::ReferenceRunnerPromptWidePolicyForTest;
 
-static_assert(
-    !detail::kReferenceRunnerPromptWideProductionPolicy.embedding);
-static_assert(!detail::kReferenceRunnerPromptWideProductionPolicy
-                   .full_attention_preprocess);
+static_assert(detail::kReferenceRunnerPromptWideProductionPolicy.embedding);
+static_assert(detail::kReferenceRunnerPromptWideProductionPolicy
+                  .full_attention_preprocess);
 
 struct PolicyCase {
   TestPolicy test_policy = TestPolicy::kProductionDefault;
@@ -33,7 +32,7 @@ struct PolicyCase {
 
 int main() {
   constexpr std::array<PolicyCase, 5U> cases{{
-      {TestPolicy::kProductionDefault, {false, false}},
+      {TestPolicy::kProductionDefault, {true, true}},
       {TestPolicy::kLegacy, {false, false}},
       {TestPolicy::kEmbeddingOnly, {true, false}},
       {TestPolicy::kFullAttentionPreprocessOnly, {false, true}},
