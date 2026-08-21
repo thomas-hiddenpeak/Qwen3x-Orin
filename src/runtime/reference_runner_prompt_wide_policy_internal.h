@@ -13,6 +13,16 @@ struct ReferenceRunnerPromptWidePolicy {
   bool full_attention_preprocess = false;
 };
 
+// Promotion is intentionally narrower than kernel validity. Only the
+// production SM87 Legacy-C512 composition has the real-model state/logit and
+// Decode-handoff evidence needed to select these mechanisms by default.
+[[nodiscard]] constexpr bool is_reference_runner_prompt_wide_scope(
+    const bool legacy_control, const bool sm87_weight_only_backend,
+    const bool legacy_c512_memory_profile) noexcept {
+  return legacy_control && sm87_weight_only_backend &&
+         legacy_c512_memory_profile;
+}
+
 // The Legacy-C512 production route selects both allocation-free mechanisms.
 // Promotion is bounded by the real-model P514/P4096/P8192 state, public-logit,
 // Decode-handoff, and exact accepted-launch witnesses. Environment variables

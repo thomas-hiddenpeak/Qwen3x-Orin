@@ -15,6 +15,16 @@ using TestPolicy = detail::ReferenceRunnerPromptWidePolicyForTest;
 static_assert(detail::kReferenceRunnerPromptWideProductionPolicy.embedding);
 static_assert(detail::kReferenceRunnerPromptWideProductionPolicy
                   .full_attention_preprocess);
+static_assert(
+    detail::is_reference_runner_prompt_wide_scope(true, true, true));
+static_assert(
+    !detail::is_reference_runner_prompt_wide_scope(false, true, true));
+static_assert(
+    !detail::is_reference_runner_prompt_wide_scope(true, false, true));
+static_assert(
+    !detail::is_reference_runner_prompt_wide_scope(true, true, false));
+static_assert(
+    !detail::is_reference_runner_prompt_wide_scope(false, false, false));
 
 struct PolicyCase {
   TestPolicy test_policy = TestPolicy::kProductionDefault;

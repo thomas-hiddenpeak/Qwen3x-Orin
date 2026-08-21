@@ -8810,10 +8810,16 @@ ReferenceRunner::enqueue_prefill_layer_segment(
       control.force_bound_gdn_chunk64_native_prefill;
   const reference_runner_detail::ReferenceRunnerPromptWidePolicy
       prompt_wide_policy = reference_runner_prompt_wide_policy();
+  const bool prompt_wide_scope =
+      reference_runner_detail::is_reference_runner_prompt_wide_scope(
+          legacy_control,
+          projection_backend_ == ProjectionBackend::kSm87WeightOnly,
+          state_->memory_profile() == RequestMemoryProfile::kLegacyC512);
   const bool use_embedding_prompt_wide =
-      !sealed_exact_arithmetic && prompt_wide_policy.embedding;
+      prompt_wide_scope && !sealed_exact_arithmetic &&
+      prompt_wide_policy.embedding;
   const bool use_full_attention_preprocess_prompt_wide =
-      !sealed_exact_arithmetic &&
+      prompt_wide_scope && !sealed_exact_arithmetic &&
       prompt_wide_policy.full_attention_preprocess;
   const LayerMajorPrefillArithmeticSpanLedger arithmetic_ledger =
       make_layer_major_prefill_arithmetic_span_ledger(token_count);
