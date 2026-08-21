@@ -519,6 +519,7 @@ q3x_enable_warnings(q3x_text)
 
 add_library(q3x_kernels STATIC
   src/runtime/reference_runner.cpp
+  src/runtime/reference_runner_prompt_wide_policy_internal.h
   src/runtime/reference_runner_layer_major_views.cpp
   src/kernels/reference/decode_ops.cu
   src/kernels/reference/full_attention_c512_register_pipeline.cu
@@ -551,6 +552,8 @@ target_include_directories(q3x_kernels
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime
 )
 target_link_libraries(q3x_kernels PUBLIC q3x::core CUDA::cudart)
 target_compile_options(q3x_kernels PRIVATE
@@ -696,6 +699,11 @@ if(Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION)
     Q3X_ENABLE_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION=1
   )
 endif()
+if(BUILD_TESTING)
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS=1
+  )
+endif()
 q3x_enable_warnings(q3x_kernels)
 
 add_library(q3x_engine STATIC
@@ -703,6 +711,7 @@ add_library(q3x_engine STATIC
   src/runtime/reference_benchmark.cpp
   src/runtime/reference_engine.cpp
   src/runtime/reference_engine_control.cpp
+  src/runtime/reference_engine_final_token_policy_internal.h
   src/runtime/reference_engine_prefill_authority.cpp
 )
 add_library(q3x::engine ALIAS q3x_engine)
@@ -767,6 +776,11 @@ endif()
 if(Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION)
   target_compile_definitions(q3x_engine PRIVATE
     Q3X_ENABLE_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION=1
+  )
+endif()
+if(BUILD_TESTING)
+  target_compile_definitions(q3x_engine PRIVATE
+    Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS=1
   )
 endif()
 q3x_enable_warnings(q3x_engine)
@@ -877,6 +891,46 @@ if(BUILD_TESTING)
       WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     )
   endif()
+
+  add_executable(q3x_reference_engine_final_token_policy_internal_test
+    tests/reference_engine_final_token_policy_internal_test.cpp
+  )
+  target_include_directories(
+    q3x_reference_engine_final_token_policy_internal_test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+  )
+  q3x_enable_warnings(
+    q3x_reference_engine_final_token_policy_internal_test
+  )
+  add_test(NAME reference_engine_final_token_policy_internal
+    COMMAND q3x_reference_engine_final_token_policy_internal_test
+  )
+  set_tests_properties(
+    reference_engine_final_token_policy_internal PROPERTIES
+    LABELS "host;runtime;prefill;policy"
+  )
+
+  add_executable(q3x_reference_runner_prompt_wide_policy_internal_test
+    tests/reference_runner_prompt_wide_policy_internal_test.cpp
+  )
+  target_include_directories(
+    q3x_reference_runner_prompt_wide_policy_internal_test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+  )
+  target_link_libraries(
+    q3x_reference_runner_prompt_wide_policy_internal_test
+    PRIVATE q3x::kernels
+  )
+  q3x_enable_warnings(
+    q3x_reference_runner_prompt_wide_policy_internal_test
+  )
+  add_test(NAME reference_runner_prompt_wide_policy_internal
+    COMMAND q3x_reference_runner_prompt_wide_policy_internal_test
+  )
+  set_tests_properties(
+    reference_runner_prompt_wide_policy_internal PROPERTIES
+    LABELS "host;runtime;prefill;policy"
+  )
 
   add_executable(q3x_sm87_target_aot_oracle_admission_contract_test
     tests/sm87_target_aot_oracle_admission_contract_test.cpp
@@ -2262,6 +2316,10 @@ if(BUILD_TESTING)
   add_executable(q3x_reference_prefill_all_prompt_tokens_admission_e2e_test
     tests/reference_prefill_all_prompt_tokens_admission_e2e_test.cpp
   )
+  target_include_directories(
+    q3x_reference_prefill_all_prompt_tokens_admission_e2e_test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+  )
   target_link_libraries(
     q3x_reference_prefill_all_prompt_tokens_admission_e2e_test
     PRIVATE q3x::engine
@@ -2281,8 +2339,37 @@ if(BUILD_TESTING)
     TIMEOUT 3600
   )
 
+  add_executable(q3x_reference_runner_prompt_wide_policy_e2e_test
+    tests/reference_runner_prompt_wide_policy_e2e_test.cpp
+  )
+  target_include_directories(
+    q3x_reference_runner_prompt_wide_policy_e2e_test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+  )
+  target_link_libraries(
+    q3x_reference_runner_prompt_wide_policy_e2e_test
+    PRIVATE q3x::engine q3x::core
+  )
+  q3x_enable_warnings(q3x_reference_runner_prompt_wide_policy_e2e_test)
+  add_test(NAME reference_runner_prompt_wide_policy_e2e
+    COMMAND q3x_reference_runner_prompt_wide_policy_e2e_test
+            "${_q3x_e2e_model_dir}"
+  )
+  set_tests_properties(
+    reference_runner_prompt_wide_policy_e2e PROPERTIES
+    LABELS "e2e;model;sm87;prefill;prompt_wide;correctness;bitwise"
+    RESOURCE_LOCK q3x_sm87_gpu
+    RUN_SERIAL TRUE
+    SKIP_RETURN_CODE 77
+    TIMEOUT 3600
+  )
+
   add_executable(q3x_reference_prefill_single_arbitrary_tile_admission_e2e_test
     tests/reference_prefill_single_arbitrary_tile_admission_e2e_test.cpp
+  )
+  target_include_directories(
+    q3x_reference_prefill_single_arbitrary_tile_admission_e2e_test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
   )
   target_link_libraries(
     q3x_reference_prefill_single_arbitrary_tile_admission_e2e_test

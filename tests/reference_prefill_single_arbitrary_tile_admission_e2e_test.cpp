@@ -1,4 +1,5 @@
 #include "q3x/runtime/reference_engine.h"
+#include "reference_engine_final_token_policy_internal.h"
 
 #include <array>
 #include <cstddef>
@@ -6,7 +7,6 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
-#include <optional>
 #include <string>
 #include <string_view>
 
@@ -15,37 +15,32 @@ namespace {
 namespace runtime = q3x::runtime;
 namespace detail = q3x::runtime::reference_engine_detail;
 
-constexpr char kAllPromptEnvironment[] =
-    "Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION";
-constexpr char kSingleTileEnvironment[] =
-    "Q3X_RUN_PREFILL_SINGLE_ARBITRARY_TILE_ADMISSION";
 constexpr std::uint32_t kPrefillChunkTokens =
     runtime::kMaximumRequestPrefillChunkSize;
 constexpr std::array<std::size_t, 2U> kPromptTokenCounts{407U, 481U};
 
-class EnvironmentRestore final {
+class ScopedFinalTokenPolicy final {
  public:
-  explicit EnvironmentRestore(const char* const name) : name_(name) {
-    const char* const value = std::getenv(name_);
-    if (value != nullptr) {
-      original_.emplace(value);
-    }
+  explicit ScopedFinalTokenPolicy(
+      const detail::ReferenceEnginePrefillFinalTokenPolicyForTest policy)
+      noexcept
+      : previous_(
+            detail::exchange_reference_engine_prefill_final_token_policy_for_test(
+                policy)) {}
+
+  ~ScopedFinalTokenPolicy() {
+    (void)detail::
+        exchange_reference_engine_prefill_final_token_policy_for_test(
+            previous_);
   }
 
-  ~EnvironmentRestore() {
-    if (original_.has_value()) {
-      (void)setenv(name_, original_->c_str(), 1);
-    } else {
-      (void)unsetenv(name_);
-    }
-  }
-
-  EnvironmentRestore(const EnvironmentRestore&) = delete;
-  EnvironmentRestore& operator=(const EnvironmentRestore&) = delete;
+  ScopedFinalTokenPolicy(const ScopedFinalTokenPolicy&) = delete;
+  ScopedFinalTokenPolicy& operator=(const ScopedFinalTokenPolicy&) = delete;
 
  private:
-  const char* name_ = nullptr;
-  std::optional<std::string> original_;
+  detail::ReferenceEnginePrefillFinalTokenPolicyForTest previous_ =
+      detail::ReferenceEnginePrefillFinalTokenPolicyForTest::
+          kProductionDefault;
 };
 
 [[nodiscard]] std::string model_directory_from(
@@ -131,13 +126,13 @@ void print_diagnostic(
   options.prefill_chunk_size = kPrefillChunkTokens;
   options.logits_mode = runtime::ReferenceLogitsMode::kPredictedTokenOnly;
 
-  if (setenv(kAllPromptEnvironment, "1", 1) != 0 ||
-      unsetenv(kSingleTileEnvironment) != 0) {
-    std::cerr << "failed to select canonical whole-prompt baseline\n";
-    return false;
+  runtime::ReferenceGenerateResult baseline;
+  {
+    const ScopedFinalTokenPolicy policy(
+        detail::ReferenceEnginePrefillFinalTokenPolicyForTest::
+            kAllPromptTiles);
+    baseline = engine.generate(prompt, options);
   }
-  const runtime::ReferenceGenerateResult baseline =
-      engine.generate(prompt, options);
   if (!baseline) {
     std::cerr << "P" << prompt_token_count
               << " baseline generation failed: ";
@@ -145,12 +140,13 @@ void print_diagnostic(
     return false;
   }
 
-  if (setenv(kSingleTileEnvironment, "1", 1) != 0) {
-    std::cerr << "failed to select single-arbitrary candidate\n";
-    return false;
+  runtime::ReferenceGenerateResult candidate;
+  {
+    const ScopedFinalTokenPolicy policy(
+        detail::ReferenceEnginePrefillFinalTokenPolicyForTest::
+            kSingleArbitraryTile);
+    candidate = engine.generate(prompt, options);
   }
-  const runtime::ReferenceGenerateResult candidate =
-      engine.generate(prompt, options);
   if (!candidate) {
     std::cerr << "P" << prompt_token_count
               << " candidate generation failed: ";
@@ -222,8 +218,6 @@ int main(const int argc, char** const argv) {
     return 77;
   }
 
-  const EnvironmentRestore restore_all_prompt(kAllPromptEnvironment);
-  const EnvironmentRestore restore_single_tile(kSingleTileEnvironment);
   runtime::ReferenceEngineOptions options;
   options.request_options.prefill_chunk_size = kPrefillChunkTokens;
   options.request_options.max_sequence_length =
