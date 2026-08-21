@@ -52,6 +52,23 @@ identities. It is a single-process historical short-proxy health result, not a
 performance improvement from the absorbed package-consumer fix, a 32-request
 baseline, a target-length witness, or release/production qualification.
 
+The later owner-directed prompt-wide performance absorption is frozen in
+[`qwen36-27b-prompt-wide-mainline-absorption-2026-08-21.json`](qwen36-27b-prompt-wide-mainline-absorption-2026-08-21.json).
+It selects only allocation-free prompt-wide Embedding gather and exact
+full-Attention preprocessing on the Legacy-C512/SM87WeightOnly development
+default. Real-model P514, P4096 plus 15 Decode transitions, and P8192 state,
+used-KV, generation, and public-logit comparisons are bit-exact. Matched
+two-sample-per-route BCCB runs are positive at 4K, 8K, 16K, and 32K, with
+pure-Prefill gains of only 0.122%--0.260%; they support this narrow absorption
+but are not statistically or release qualified. A final `BUILD_TESTING=OFF`
+EvalScope 1.9.1 run passed 8/8 short requests, protocol, thermal, memory,
+shutdown, and post-exit gates. The exact-C512 final-token candidate was not
+absorbed because P512 and P4096 state/KV/logit oracles failed. The record also
+corrects the often abbreviated 392.804397-token/s figure: it belongs only to
+the separate historical default-off, dirty-tree, accuracy-unqualified v10 P40
+screen, not to the current mainline or a production route. This closeout does
+not resume paused P3.
+
 The first real-checkpoint preparation of the default-off SM87 whole-system AOT
 candidate is frozen in
 [`qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12.json`](qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12.json).

@@ -59,6 +59,17 @@ qualification required by the real-model performance policy. The gate cannot
 activate a paused Prefill work package, waive P1/P2/P3 exit criteria, or turn
 the loopback evaluation adapter into the final product API.
 
+The bounded 2026-08-21 owner-directed prompt-wide absorption batch has closed
+this gate at runtime commit `ff47f179`. It selected only exact, allocation-free
+Legacy-C512 Embedding gather and full-Attention preprocessing, rejected the
+state/logit-inexact exact-C512 final-token candidate, retained matched
+4K/8K/16K/32K direction evidence, and passed the final `BUILD_TESTING=OFF`
+eight-request short EvalScope integration proxy. The exact result and its
+non-statistical, non-target-length, non-release boundary are frozen in the
+[`prompt-wide absorption record`](metadata/qwen36-27b-prompt-wide-mainline-absorption-2026-08-21.json).
+This was a branch-closeout exception under explicit owner direction, not a P3
+restart or permission for further performance exploration.
+
 Inside every Prefill architecture candidate, the work order is also fixed:
 
 ```text
@@ -178,6 +189,9 @@ optimization work package on the delivery mainline. P1/P2 and later delivery
 slices retain their existing dependency and exit contracts; nothing in this
 section authorizes a Prefill performance run, profiler capture, local scan,
 default-route change, or production promotion while the pause remains.
+The later 2026-08-21 owner direction authorized only the completed bounded
+absorption and real-model closeout recorded above. With that batch closed,
+the general pause and the prohibition on new P3 exploration remain in force.
 
 ### Paused recovery boundary
 
@@ -196,6 +210,12 @@ production authority.
 Resume only after a new explicit project-owner direction. Start from the
 then-current mainline and use the archive as a source/evidence reference; do
 not merge it wholesale or infer mainline capability from branch-local tests.
+The then-current mainline now already contains the narrow exact prompt-wide
+Embedding/Attention absorption at `ff47f179`; treat it as the incumbent for
+that eligible Legacy-C512 scope and use its
+[`closeout record`](metadata/qwen36-27b-prompt-wide-mainline-absorption-2026-08-21.json)
+instead of reopening the rejected final-token route or repeating branch-local
+qualification by assumption.
 The frozen first sequence is:
 
 1. fixed normal 64-layer by five-C8000-panel loop plus the Embedding edge and

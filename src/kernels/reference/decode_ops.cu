@@ -1,5 +1,7 @@
 #include "q3x/runtime/decode_ops.h"
 
+#include "reference_runner_prompt_wide_policy_internal.h"
+
 #include <cooperative_groups.h>
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
@@ -8,8 +10,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
-#include <cstring>
 #include <limits>
 
 namespace q3x::runtime {
@@ -138,17 +138,6 @@ static_assert(kBulkGqaQueryHeads % kBulkGqaKvHeads == 0U);
 static_assert(kBulkGqaQueriesPerKv == 6U);
 static_assert(kBulkGqaPackedDimension * 2U == kBulkGqaHeadDimension);
 static_assert(kBulkGqaThreads == 192U);
-
-[[nodiscard]] bool
-full_attention_preprocess_prompt_wide_environment_enabled() noexcept {
-  const char* const value = std::getenv(
-      "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION");
-  return value != nullptr && std::strcmp(value, "1") == 0;
-}
-
-thread_local bool g_enable_full_attention_preprocess_prompt_wide_admission =
-    full_attention_preprocess_prompt_wide_environment_enabled();
-thread_local bool g_force_full_attention_preprocess_prompt_wide_test = false;
 
 [[nodiscard]] bool multiply_overflows(const std::size_t left,
                                       const std::size_t right) noexcept {
@@ -3172,7 +3161,7 @@ namespace {
 
 enum class FullAttentionPreprocessLaunchPolicy : std::uint8_t {
   kReference256 = 0U,
-  kAdmissionWrapper,
+  kPromptWide128,
   kPromptWideP8000,
 };
 
@@ -3253,11 +3242,7 @@ enum class FullAttentionPreprocessLaunchPolicy : std::uint8_t {
   const unsigned int blocks =
       static_cast<unsigned int>(token_count * kCombinedHeads);
   const bool use_prompt_wide =
-      exact_prompt_wide_p8000 ||
-      (policy == FullAttentionPreprocessLaunchPolicy::kAdmissionWrapper &&
-       token_count >= 2U &&
-       (g_enable_full_attention_preprocess_prompt_wide_admission ||
-        g_force_full_attention_preprocess_prompt_wide_test));
+      policy != FullAttentionPreprocessLaunchPolicy::kReference256;
   if (!use_prompt_wide) {
     full_attention_preprocess_24_4_256_64_kernel
         <<<blocks, kThreads, 0U, stream>>>(
@@ -3348,9 +3333,30 @@ int launch_full_attention_preprocess_24_4_256_64_cuda(
   return launch_full_attention_preprocess_24_4_256_64_impl(
       interleaved_q_gate, key, q_weight, k_weight, epsilon, query_output,
       gate_output, cosines, sines, first_position, token_count,
-      FullAttentionPreprocessLaunchPolicy::kAdmissionWrapper, cuda_stream);
+      FullAttentionPreprocessLaunchPolicy::kReference256, cuda_stream);
 }
 
+int reference_runner_detail::
+    launch_full_attention_preprocess_24_4_256_64_prompt_wide_128_internal_cuda(
+        const std::uint16_t* const interleaved_q_gate,
+        std::uint16_t* const key,
+        const std::uint16_t* const q_weight,
+        const std::uint16_t* const k_weight,
+        const float epsilon,
+        std::uint16_t* const query_output,
+        std::uint16_t* const gate_output,
+        const float* const cosines,
+        const float* const sines,
+        const std::size_t first_position,
+        const std::size_t token_count,
+        void* const cuda_stream) noexcept {
+  return launch_full_attention_preprocess_24_4_256_64_impl(
+      interleaved_q_gate, key, q_weight, k_weight, epsilon, query_output,
+      gate_output, cosines, sines, first_position, token_count,
+      FullAttentionPreprocessLaunchPolicy::kPromptWide128, cuda_stream);
+}
+
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
 int launch_full_attention_preprocess_prompt_wide_128_test_cuda(
     const std::uint16_t* const interleaved_q_gate,
     std::uint16_t* const key,
@@ -3364,15 +3370,13 @@ int launch_full_attention_preprocess_prompt_wide_128_test_cuda(
     const std::size_t first_position,
     const std::size_t token_count,
     void* const cuda_stream) noexcept {
-  const bool previous_force =
-      g_force_full_attention_preprocess_prompt_wide_test;
-  g_force_full_attention_preprocess_prompt_wide_test = true;
-  const int status = launch_full_attention_preprocess_24_4_256_64_cuda(
-      interleaved_q_gate, key, q_weight, k_weight, epsilon, query_output,
-      gate_output, cosines, sines, first_position, token_count, cuda_stream);
-  g_force_full_attention_preprocess_prompt_wide_test = previous_force;
-  return status;
+  return reference_runner_detail::
+      launch_full_attention_preprocess_24_4_256_64_prompt_wide_128_internal_cuda(
+          interleaved_q_gate, key, q_weight, k_weight, epsilon, query_output,
+          gate_output, cosines, sines, first_position, token_count,
+          cuda_stream);
 }
+#endif
 
 int launch_full_attention_preprocess_warp_rms_24_4_256_64_test_cuda(
     const std::uint16_t* const interleaved_q_gate,
@@ -3481,6 +3485,7 @@ int query_full_attention_preprocess_24_4_256_64_resources_test_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
 int query_full_attention_preprocess_prompt_wide_128_resources_test_cuda(
     int* const registers,
     std::size_t* const static_shared_bytes,
@@ -3512,6 +3517,7 @@ int query_full_attention_preprocess_prompt_wide_128_resources_test_cuda(
   *active_blocks_per_multiprocessor = active_blocks;
   return static_cast<int>(cudaSuccess);
 }
+#endif
 
 int query_full_attention_preprocess_warp_rms_24_4_256_64_resources_test_cuda(
     int* const registers,

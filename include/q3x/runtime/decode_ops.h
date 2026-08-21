@@ -357,10 +357,10 @@ launch_full_attention_preprocess_24_4_256_64_prompt_wide_p8000_cuda(
     std::size_t first_position, std::size_t token_count,
     void* cuda_stream = nullptr) noexcept;
 
-// Compatibility/admission wrapper. The prompt-wide M>=2 route requires
-// Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION=1; otherwise it
-// launches the same established reference-256 tactic as the explicit entry
-// point above.
+// Compatibility wrapper. It deterministically launches the same established
+// reference-256 tactic as the explicit entry point above. Experimental route
+// composition is owned by source-local typed runner policy, not this public
+// ABI.
 [[nodiscard]] int launch_full_attention_preprocess_24_4_256_64_cuda(
     const std::uint16_t* interleaved_q_gate, std::uint16_t* key,
     const std::uint16_t* q_weight, const std::uint16_t* k_weight,

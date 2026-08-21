@@ -543,49 +543,17 @@ void print_diagnostic(
 }
 
 [[nodiscard]] std::size_t expected_prefix_executions() noexcept {
-  const char* const single_arbitrary =
-      std::getenv("Q3X_RUN_PREFILL_SINGLE_ARBITRARY_TILE_ADMISSION");
-  const bool use_single_arbitrary =
-      single_arbitrary != nullptr &&
-      std::string_view(single_arbitrary) == "1";
-  if (use_single_arbitrary) {
-    return runtime::reference_engine_detail::
-        single_arbitrary_prefix_execution_count(
-            g_prompt_tokens, kPrefillChunkTokens);
-  }
-  const char* const all_prompt =
-      std::getenv("Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION");
-  if (all_prompt != nullptr && std::string_view(all_prompt) == "1") {
-    return runtime::reference_engine_detail::prefix_execution_count(
-        g_prompt_tokens, kPrefillChunkTokens);
-  }
   return runtime::reference_engine_detail::prefix_execution_count(
       g_prompt_tokens - 1U, kPrefillChunkTokens);
 }
 
 [[nodiscard]] std::size_t expected_native_route_hits() noexcept {
-  const char* const single_arbitrary_environment =
-      std::getenv("Q3X_RUN_PREFILL_SINGLE_ARBITRARY_TILE_ADMISSION");
-  const bool single_arbitrary =
-      single_arbitrary_environment != nullptr &&
-      std::string_view(single_arbitrary_environment) == "1";
-  const char* const all_prompt_environment =
-      std::getenv("Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION");
-  const bool all_prompt =
-      single_arbitrary ||
-      (all_prompt_environment != nullptr &&
-       std::string_view(all_prompt_environment) == "1");
-  std::size_t remaining =
-      all_prompt ? g_prompt_tokens : g_prompt_tokens - 1U;
+  std::size_t remaining = g_prompt_tokens - 1U;
   std::size_t admitted_tiles = 0U;
   while (remaining != 0U) {
-    const std::size_t tile = single_arbitrary
-                                 ? runtime::reference_engine_detail::
-                                       next_single_arbitrary_prefix_tile_token_count(
-                                           remaining, kPrefillChunkTokens)
-                                 : runtime::reference_engine_detail::
-                                       next_prefix_tile_token_count(
-                                           remaining, kPrefillChunkTokens);
+    const std::size_t tile =
+        runtime::reference_engine_detail::next_prefix_tile_token_count(
+            remaining, kPrefillChunkTokens);
 #if defined(Q3X_GDN_CHUNK64_NATIVE_TEST)
     const bool admitted = tile >= 32U;
 #else

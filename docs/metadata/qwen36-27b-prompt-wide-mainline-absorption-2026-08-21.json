@@ -1,0 +1,542 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen36-27b-prompt-wide-mainline-absorption-2026-08-21",
+  "record_type": "owner_directed_prompt_wide_mainline_absorption_closeout",
+  "created_at_utc": "2026-08-21T13:36:26Z",
+  "classification": {
+    "source_status": "pass",
+    "decision": "absorb_two_bit_exact_allocation_free_prompt_wide_mechanisms_into_the_eligible_development_default",
+    "measurement_status": "valid_matched_positive_direction_not_statistically_qualified",
+    "authority": "owner-directed cross-branch development-mainline absorption, exact real-model state/generation qualification for the selected mechanisms, matched controlled-length direction evidence, and one BUILD_TESTING=OFF short external integration closeout",
+    "development_default_selected": true,
+    "prefill_program_resumed": false,
+    "target_length_architecture_selection_authority": false,
+    "release_authority": false,
+    "production_authority": false
+  },
+  "claim_boundary": "This record selects only the allocation-free prompt-wide Embedding gather and full-Attention preprocessing mechanisms on the exact Legacy-C512, SM87WeightOnly, non-sealed-arithmetic development route. Real-model P514, P4096 plus 15 Decode transitions, and P8192 comparisons establish bit-identical committed convolution/GDN state, all used K/V cache rows in all 16 full-Attention layers, generation transcript, public logits statistics, generated token IDs, and text for each selected mechanism alone and together. Matched BCCB runs at 4096, 8192, 16384, and 32768 controlled token-ID prompts are positive at every length, but use only two samples per route and therefore support the absorption decision without statistical, release, or production qualification. The 32K run uses an explicit 8 GiB request-arena and expanded per-run capacity; the evaluation adapter's default capacity remains 8192. The short EvalScope run proves integration health only. This one-time owner-directed absorption closeout does not resume paused P3 optimization, qualify the final product API, or alter the Constitution targets.",
+  "source": {
+    "base_main": {
+      "git_commit": "179a9fc0120ce975130aad8e42e3121d1c11ef1d",
+      "git_tree": "a71581900c5632c04764dd855ccf965b7d25e2c4"
+    },
+    "commit_stack": [
+      {
+        "git_commit": "96cfe68d1ec8a4c49c75da02c9e6ec517288f6a3",
+        "subject": "test: seal prefill route candidates behind typed policy",
+        "role": "remove runtime environment composition, retain the final-token candidate as a negative oracle, and add BUILD_TESTING-only policy/state/generation qualification seams"
+      },
+      {
+        "git_commit": "e7f18c05023941d8132aaf49744cfe2601b969b3",
+        "subject": "perf: select bit-exact prompt-wide prefill kernels",
+        "role": "select prompt-wide Embedding and full-Attention preprocessing in the private development-default policy"
+      },
+      {
+        "git_commit": "ff47f1796de6de9a8b6447ad11f78429554ab2da",
+        "subject": "fix: scope prompt-wide policy to validated route",
+        "role": "fail closed outside the exact validated Legacy-C512, SM87WeightOnly route"
+      }
+    ],
+    "selected_runtime": {
+      "git_commit": "ff47f1796de6de9a8b6447ad11f78429554ab2da",
+      "git_tree": "8ab553cd8d717c625f437f0df4da1f1b5d557a6b",
+      "tracked_status_at_build_and_measurement": []
+    },
+    "public_boundary": {
+      "runtime_environment_selector_removed": true,
+      "installed_reference_runner_selector_added": false,
+      "public_decode_ops_signatures_changed": false,
+      "policy_header_scope": "source-local private runtime header",
+      "mutable_policy_and_hit_seams": "compiled only when BUILD_TESTING is enabled"
+    }
+  },
+  "selected_mechanisms": {
+    "eligible_scope": {
+      "legacy_prefill_tile_execution_control": true,
+      "projection_backend": "sm87_weight_only",
+      "request_memory_profile": "legacy_c512",
+      "sealed_exact_arithmetic": false
+    },
+    "embedding": {
+      "selected": true,
+      "change": "copy the complete tile token-ID vector into an existing request workspace and launch one prompt-wide embedding gather instead of one scalar gather per token",
+      "persistent_allocation_delta_bytes": 0,
+      "request_allocation_delta_bytes": 0
+    },
+    "full_attention_preprocess": {
+      "selected": true,
+      "change": "use the 128-thread prompt-wide exact Q/gate split, centered Q/K RMSNorm, BF16 publication, and RoPE mapping for token_count >= 2 instead of the established 256-thread mapping",
+      "m1_behavior": "retains the established reference-256 scalar-tail launch",
+      "persistent_allocation_delta_bytes": 0,
+      "request_allocation_delta_bytes": 0
+    },
+    "excluded_scopes": [
+      "non-legacy execution control",
+      "non-SM87WeightOnly projection backend",
+      "non-LegacyC512 request memory profile",
+      "sealed exact-arithmetic route"
+    ]
+  },
+  "model": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "hf_quant_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "model_index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "shards": [
+      {
+        "name": "model-00001-of-00003.safetensors",
+        "bytes": 9965652512,
+        "sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d"
+      },
+      {
+        "name": "model-00002-of-00003.safetensors",
+        "bytes": 9985757032,
+        "sha256": "06da4242b0f491118d19d4d4c7564307a7bd6059c6bed284e08c93f6fc5a556d"
+      },
+      {
+        "name": "model-00003-of-00003.safetensors",
+        "bytes": 1970287640,
+        "sha256": "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845"
+      }
+    ],
+    "runtime_hashed_before_and_after_short_evalscope": true
+  },
+  "build_and_binary_pair": {
+    "common": {
+      "build_type": "Release",
+      "build_testing": false,
+      "enabled_test_admission_options": 0,
+      "q3x_cuda_architectures": "87",
+      "embedded_cubin_architectures": [
+        "87"
+      ],
+      "host_software": {
+        "l4t_release": "R39.2.1",
+        "kernel": "6.8.12-1021-tegra",
+        "cuda_sdk_version": "13.3.1",
+        "nvcc_release": "13.3",
+        "nvcc_version": "13.3.73"
+      },
+      "cuda_compiler_sha256": "f2f587c33005ae68e8d0dd90d41ea1ff8fd365dbc3055ac9f1ade7e806c8c680",
+      "cuda_compiler_version_output_sha256": "059115f35c321a398d6dadcbc4e4acd26ae0476124db2857f090446e58569252"
+    },
+    "baseline": {
+      "git_commit": "96cfe68d1ec8a4c49c75da02c9e6ec517288f6a3",
+      "git_tree": "dc4313cc23d82fe7b754182b43dd3561d6ffc5e6",
+      "server_bytes": 9086368,
+      "server_sha256": "f682144c095437654ba2a19b6406eab1ba6485d0b4a516748feb378222e90e30",
+      "elf_build_id": "d5f106b30cc81f2c5ad557e5cc1754d00467a220",
+      "prompt_wide_policy": "legacy"
+    },
+    "candidate": {
+      "git_commit": "ff47f1796de6de9a8b6447ad11f78429554ab2da",
+      "git_tree": "8ab553cd8d717c625f437f0df4da1f1b5d557a6b",
+      "server_bytes": 9086392,
+      "server_sha256": "d9867568c40c2cf8c7cb0f405845e3f2f7e35d2e7c1f53e2aa83719b37a4b2cf",
+      "elf_build_id": "2cd2590ac25407fc4920c07ac353973bb3d47e1d",
+      "prompt_wide_policy": "embedding_and_full_attention_preprocess"
+    },
+    "pair_identity_accepted": true
+  },
+  "real_model_correctness": {
+    "comparison_routes": [
+      "legacy baseline",
+      "Embedding only",
+      "full-Attention preprocessing only",
+      "Embedding plus full-Attention preprocessing"
+    ],
+    "compared_surfaces": [
+      "sequence length",
+      "complete convolution state",
+      "complete GDN recurrent state",
+      "all used BF16 K and V rows in all 16 full-Attention layers",
+      "rendered prompt and exact prompt token IDs",
+      "generated token IDs and generated text",
+      "per-step input token and position",
+      "chosen-logit FP32 bits",
+      "maximum log-probability FP64 bits",
+      "logsumexp FP64 bits",
+      "stop reason and transcript structure"
+    ],
+    "cases": [
+      {
+        "prompt_tokens": 514,
+        "completion_tokens": 1,
+        "committed_sequence_length": 514,
+        "baseline_state_sha256": "dfc93e8bbc774fef4a45248800a1501b9f56ba159ff7dc0721d3b643abeea51f",
+        "embedding_hits_when_selected": 1,
+        "attention_hits_when_selected": 16,
+        "state_exact_all_selected_routes": true,
+        "generation_and_public_logits_exact_all_selected_routes": true,
+        "log_sha256": "e9e9161a5178e67c0ad88f0af156a344b8a74884de3e4c963bcfef95d82c7d01"
+      },
+      {
+        "prompt_tokens": 4096,
+        "completion_tokens": 16,
+        "decode_transitions_after_first_token": 15,
+        "committed_sequence_length": 4111,
+        "baseline_state_sha256": "d6df5b5c27cf8cbd460c26c553d3c5e4f986eb3f03d97664c4189c9214e33775",
+        "embedding_hits_when_selected": 13,
+        "attention_hits_when_selected": 208,
+        "state_exact_all_selected_routes": true,
+        "generation_and_public_logits_exact_all_selected_routes": true,
+        "log_sha256": "98c4318c1905853c6b2c280b26549df0e087a345a3438c59670826f9d0ef9e5a"
+      },
+      {
+        "prompt_tokens": 8192,
+        "completion_tokens": 1,
+        "committed_sequence_length": 8192,
+        "baseline_state_sha256": "27ad389793a0ff71afa8fe5e678d78e79047c270c472ab6628bce9292910d06e",
+        "embedding_hits_when_selected": 21,
+        "attention_hits_when_selected": 336,
+        "state_exact_all_selected_routes": true,
+        "generation_and_public_logits_exact_all_selected_routes": true,
+        "log_sha256": "611f569079ca28d8fdddb4b74adba2826c77f79f6aa4a2729c608818ef921e9b"
+      }
+    ],
+    "rejected_final_token_candidate": {
+      "mechanism": "exact-C512 all-prompt-tokens finalizer",
+      "selected": false,
+      "development_default": false,
+      "reason": "P512 and P4096 changed convolution/GDN state, used K/V cache rows, aggregate state, and public logits statistics despite matching the final generated token",
+      "p512_log_sha256": "0d40164e7642010593084dbaf3c62ee1fb85d8066f4e5eeaa91ccaa73fc231a1",
+      "p4096_log_sha256": "3628f1824e9427f1eaf63f80c7f2fad14edc02ffb48451822e1588915e86d457",
+      "timing_authority": false,
+      "future_status": "negative oracle only; any successor requires a new numerical identity and complete state/logit qualification"
+    }
+  },
+  "matched_controlled_length_direction": {
+    "protocol": {
+      "surface": "loopback OpenAI-compatible completions API with raw committed-token SSE",
+      "prompt_contract": "controlled pinned chat-template token IDs with repeated token 23066 payload",
+      "prompt_is_real_agent_workload": false,
+      "evalscope_used": false,
+      "cache_protocol": "fresh process and private user/CUDA caches for every route symbol; OS page cache uncontrolled and never dropped",
+      "sequence": "BCCB",
+      "samples_per_route_per_length": 2,
+      "max_new_tokens": 16,
+      "max_sequence_length_formula": "prompt_tokens + 15",
+      "request_max_arena_bytes": 8589934592,
+      "output_text_exact_across_all_routes_and_lengths": true,
+      "forbidden_route_hits_zero": true,
+      "all_runs_clean_host_and_accepted": true
+    },
+    "hardware": {
+      "machine": "NVIDIA Jetson AGX Orin Developer Kit",
+      "soc": "tegra234",
+      "power_mode": "MAXN",
+      "online_cpu_count": 12,
+      "active_gpu_tpcs": 8,
+      "fixed_clocks": {
+        "cpu_khz": 1497600,
+        "gpu_hz": 1020000000,
+        "emc_hz": 3200000000
+      },
+      "thermal_limit_c_exclusive": 70.0,
+      "maximum_startup_temperature_c_across_16_runs": 62.843,
+      "maximum_request_temperature_c_across_16_runs": 69.218,
+      "clean_host_authority": "tegrastats plus CPU/process and complete GPU-device FD inspection; Jetson nvidia-smi was not used",
+      "all_continuous_ownership_gates_passed": true,
+      "all_post_exit_nvmap_gates_passed": true,
+      "all_sigint_shutdown_exit_codes_zero": true,
+      "port_reuse_observation": "The BCCB listener ports were not immediately reusable after shutdown; TCP TIME_WAIT cleared after approximately 44-48 seconds."
+    },
+    "lengths": {
+      "4096": {
+        "baseline": {
+          "external_visible_ttft_ms": 27823.17508,
+          "server_prompt_prefill_ms": 27814.7627405,
+          "server_prompt_prefill_tok_s": 147.25992982737606,
+          "external_decode_tok_s": 6.8300191531960355,
+          "startup_wall_ms": 35363.0133495,
+          "median_of_run_peak_vmhwm_bytes": 30417905664
+        },
+        "candidate": {
+          "external_visible_ttft_ms": 27751.2723535,
+          "server_prompt_prefill_ms": 27742.6505495,
+          "server_prompt_prefill_tok_s": 147.6427076490277,
+          "external_decode_tok_s": 6.832613475760839,
+          "startup_wall_ms": 35358.079106,
+          "median_of_run_peak_vmhwm_bytes": 30417938432,
+          "maximum_run_peak_vmhwm_bytes": 30417940480,
+          "maximum_run_peak_smaps_pss_bytes": 344807424,
+          "maximum_run_memavailable_drop_bytes": 22971265024
+        },
+        "candidate_vs_baseline": {
+          "prefill_speedup": 1.0025993345379178,
+          "prefill_speedup_percent": 0.25993345379178,
+          "external_ttft_speedup": 1.0025909704457545,
+          "external_decode_speedup": 1.0003798411844262
+        }
+      },
+      "8192": {
+        "baseline": {
+          "external_visible_ttft_ms": 68422.4722665,
+          "server_prompt_prefill_ms": 68410.149752,
+          "server_prompt_prefill_tok_s": 119.74833401378064,
+          "external_decode_tok_s": 6.102453883225741,
+          "startup_wall_ms": 35354.6543025,
+          "median_of_run_peak_vmhwm_bytes": 30688940032
+        },
+        "candidate": {
+          "external_visible_ttft_ms": 68267.5974195,
+          "server_prompt_prefill_ms": 68255.342038,
+          "server_prompt_prefill_tok_s": 120.01991476561741,
+          "external_decode_tok_s": 6.103962953543602,
+          "startup_wall_ms": 35348.267873,
+          "median_of_run_peak_vmhwm_bytes": 30688942080,
+          "maximum_run_peak_vmhwm_bytes": 30688944128,
+          "maximum_run_peak_smaps_pss_bytes": 344801280,
+          "maximum_run_memavailable_drop_bytes": 23236730880
+        },
+        "candidate_vs_baseline": {
+          "prefill_speedup": 1.0022679292707781,
+          "prefill_speedup_percent": 0.22679292707781,
+          "external_ttft_speedup": 1.0022686435857455,
+          "external_decode_speedup": 1.0002472890982446
+        }
+      },
+      "16384": {
+        "baseline": {
+          "external_visible_ttft_ms": 192003.1505945,
+          "server_prompt_prefill_ms": 191981.667337,
+          "server_prompt_prefill_tok_s": 85.34148198889204,
+          "external_decode_tok_s": 5.031438839215852,
+          "startup_wall_ms": 35507.899392,
+          "median_of_run_peak_vmhwm_bytes": 31231879168
+        },
+        "candidate": {
+          "external_visible_ttft_ms": 191768.587874,
+          "server_prompt_prefill_ms": 191747.0128905,
+          "server_prompt_prefill_tok_s": 85.4459363056504,
+          "external_decode_tok_s": 5.031028170586062,
+          "startup_wall_ms": 35553.1525865,
+          "median_of_run_peak_vmhwm_bytes": 31232380928,
+          "maximum_run_peak_vmhwm_bytes": 31233032192,
+          "maximum_run_peak_smaps_pss_bytes": 344803328,
+          "maximum_run_memavailable_drop_bytes": 23591137280
+        },
+        "candidate_vs_baseline": {
+          "prefill_speedup": 1.0012239571463262,
+          "prefill_speedup_percent": 0.12239571463262,
+          "external_ttft_speedup": 1.0012231550698707,
+          "external_decode_speedup": 0.9999183794848922
+        }
+      },
+      "32768": {
+        "baseline": {
+          "external_visible_ttft_ms": 608288.032243,
+          "server_prompt_prefill_ms": 608252.2262635,
+          "server_prompt_prefill_tok_s": 53.87246193521912,
+          "external_decode_tok_s": 3.7157325216448847,
+          "startup_wall_ms": 36077.9469305,
+          "median_of_run_peak_vmhwm_bytes": 32318787584
+        },
+        "candidate": {
+          "external_visible_ttft_ms": 607164.703722,
+          "server_prompt_prefill_ms": 607128.225679,
+          "server_prompt_prefill_tok_s": 53.97216560953928,
+          "external_decode_tok_s": 3.716239560371783,
+          "startup_wall_ms": 36020.790028,
+          "median_of_run_peak_vmhwm_bytes": 32318676992,
+          "maximum_run_peak_vmhwm_bytes": 32319053824,
+          "maximum_run_peak_smaps_pss_bytes": 345393152,
+          "maximum_run_memavailable_drop_bytes": 24705056768
+        },
+        "candidate_vs_baseline": {
+          "prefill_speedup": 1.0018507354358532,
+          "prefill_speedup_percent": 0.18507354358532,
+          "external_ttft_speedup": 1.0018501215800488,
+          "external_decode_speedup": 1.0001364572729454
+        }
+      }
+    },
+    "decision": "The same sign at all four controlled lengths, bit-exact output, allocation-free design, and narrow route scope support absorbing the mechanisms as the development default. The 0.12%-0.26% Prefill gains are too small and the two-sample protocol too short for a statistical or release-performance claim. Decode, startup, and memory move in both directions at noise-scale and receive no attributable improvement claim."
+  },
+  "short_evalscope_closeout": {
+    "accepted": true,
+    "source": {
+      "git_commit": "ff47f1796de6de9a8b6447ad11f78429554ab2da",
+      "git_tree": "8ab553cd8d717c625f437f0df4da1f1b5d557a6b",
+      "server_sha256": "d9867568c40c2cf8c7cb0f405845e3f2f7e35d2e7c1f53e2aa83719b37a4b2cf",
+      "build_testing": false,
+      "enabled_test_admission_options": 0
+    },
+    "workload": {
+      "tool": "EvalScope",
+      "version": "1.9.1",
+      "runtime_mode": "direct frozen executable without uvx or shared-cache mutation",
+      "corpus": "q3x-sharegpt-false-thinking-33.jsonl",
+      "corpus_sha256": "bd2091cdc0599ac59ab881efc6d1307a03bb149f49e6fd728a99d926ccc67989",
+      "warmup_requests": 1,
+      "measured_requests": 8,
+      "parallel": 1,
+      "completion_tokens_per_request": 16,
+      "measured_prompt_tokens": 3981,
+      "measured_completion_tokens": 128,
+      "success": "8/8"
+    },
+    "results": {
+      "external_evalscope": {
+        "mean_ttft_ms": 2741.0903715062886,
+        "mean_tpot_ms": 108.61208203229278,
+        "prompt_throughput_tok_s_recomputed": 113.85765126359206,
+        "completion_throughput_tok_s": 3.6608338009896464,
+        "total_throughput_tok_s": 117.5184850645817,
+        "measurement_duration_seconds": 34.96471212798497,
+        "evalscope_summary_input_throughput_valid": false,
+        "input_throughput_note": "EvalScope 1.9.1 wrote zero; prompt throughput is 3981 divided by the independently rechecked measurement duration."
+      },
+      "server_witnesses": {
+        "mean_pure_prefill_ms": 2733.323996,
+        "aggregate_pure_prefill_tok_s": 182.058549,
+        "aggregate_pure_prefill_denominator": "3981 prompt tokens divided by the sum of the eight per-request server pure-Prefill intervals",
+        "mean_ttft_ms": 2737.074799,
+        "decode_tpot_ms": 108.701810,
+        "decode_tok_s": 9.199479
+      },
+      "scope_note": "External EvalScope throughput uses wall-clock measurement duration; aggregate server pure-Prefill throughput uses the sum of per-request server intervals. These denominators are not interchangeable."
+    },
+    "startup": {
+      "process_spawn_to_owned_health_ready_ms": 25431.773084,
+      "scope": "actual server Popen/exec launch through listener-inode ownership and successful health response"
+    },
+    "memory": {
+      "sampling_interval_seconds": 0.25,
+      "samples": 432,
+      "peak_process_vm_rss_bytes": 30688911360,
+      "peak_process_vm_hwm_bytes": 30688911360,
+      "peak_process_pss_bytes": 344825856,
+      "peak_process_private_bytes": 211779584,
+      "maximum_system_mem_available_drop_bytes": 23394959360,
+      "minimum_system_mem_available_bytes": 31968489472,
+      "views_must_not_be_summed": true
+    },
+    "hardware": {
+      "machine": "NVIDIA Jetson AGX Orin Developer Kit",
+      "power_mode": "MAXN",
+      "fixed_clocks": {
+        "cpu_khz": 2201600,
+        "gpu_hz": 1300500000,
+        "emc_hz": 3200000000
+      },
+      "runtime_tegrastats_samples": 433,
+      "maximum_cpu_tj_c": 69.593,
+      "maximum_gpu_c": 68.718,
+      "maximum_gr3d_percent": 99.0,
+      "thermal_gate_c": 70.0,
+      "continuous_gpu_emc_frequency_from_tegrastats_available": false,
+      "all_observed_cpu_frequencies_mhz": [
+        2201
+      ]
+    },
+    "protocol_and_shutdown": {
+      "separate_raw_sse_choice_events": 16,
+      "separate_raw_sse_usage_events": 1,
+      "separate_raw_sse_done_events": 1,
+      "separate_raw_sse_sha256": "fff8e591cb86d6030096b8ad3198e3685666ec4ecb1b782e506491e69d4981c1",
+      "continuous_resource_ownership_accepted": true,
+      "sigint_server_exit_code": 0,
+      "final_port_reusable": true,
+      "post_exit_clean_host_accepted": true,
+      "post_exit_added_nvmap_pids": [],
+      "post_exit_added_orphans": [],
+      "post_exit_page_pool_delta_bytes": 0
+    },
+    "authority": "T3 eight-request historical short integration proxy only; this is not a matched B/C comparison and establishes no speedup, target-length architecture selection, release, or production claim"
+  },
+  "historical_392_tok_s_reconciliation": {
+    "evidence_record": "docs/metadata/qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json",
+    "workload": {
+      "prompt_tokens": 40000,
+      "completion_tokens": 1,
+      "cold_no_cache": true
+    },
+    "result": {
+      "server_pure_prefill_ms": 101831.853876,
+      "server_pure_prompt_tok_s": 392.804397,
+      "evalscope_ttft_ms": 101870.53
+    },
+    "identity_and_limits": {
+      "witness_schema": "target-prefill-witness-v10",
+      "build_testing": true,
+      "route_default": false,
+      "source_tree_clean": false,
+      "samples": 1,
+      "accuracy_qualified": false,
+      "known_mismatch": "inherited whole-prompt FlashInfer Attention has a P513 full-state mismatch",
+      "decode_measurement": false,
+      "release_or_production_authority": false
+    },
+    "relationship_to_this_absorption": "none; v10 is a separate historical P40 whole-core architecture direction and is not the Legacy-C512 development-default route selected here",
+    "wording_correction": "392.804397 tok/s may be described only as the strongest historical default-off P40 development observation for its exact v10 protocol. Any unqualified wording that called it the current mainline or production Prefill speed was inaccurate."
+  },
+  "retained_artifacts": {
+    "correctness": {
+      "bundle": ".q3x-work/evidence/performance-absorption-20260821/prompt-wide-state",
+      "authoritative_logs": [
+        {
+          "name": "p514-r2.log",
+          "sha256": "e9e9161a5178e67c0ad88f0af156a344b8a74884de3e4c963bcfef95d82c7d01"
+        },
+        {
+          "name": "p4096-r3.log",
+          "sha256": "98c4318c1905853c6b2c280b26549df0e087a345a3438c59670826f9d0ef9e5a"
+        },
+        {
+          "name": "p8192.log",
+          "sha256": "611f569079ca28d8fdddb4b74adba2826c77f79f6aa4a2729c608818ef921e9b"
+        }
+      ]
+    },
+    "p4k_p8k_p16k_bccb": {
+      "bundle": ".q3x-work/evidence/performance-absorption-20260821/native-length-bccb-p4k-p8k-p16k-sustained-final-r20",
+      "files": 543,
+      "bytes": 101364258,
+      "inventory_sha256": "16a6a3cdc20e0302431ee04b2647518134d5445896072acf163b79aa74f22bf6",
+      "inventory_algorithm": "sort relative file paths, sha256sum every file, then SHA-256 the emitted sha256sum lines",
+      "manifest_sha256": "f5feba278796bb9be532cecf9af15c88d6316f82a17af11625a8f0c2c0995bea",
+      "summary_sha256": "9e7c37c002d3560fa680ff82099d503ffe13c3cdaa6d277f6f8f1c079244ddd4"
+    },
+    "p32k_bccb": {
+      "bundle": ".q3x-work/evidence/performance-absorption-20260821/native-length-bccb-p32k-sustained-final-r19",
+      "files": 183,
+      "bytes": 138679191,
+      "inventory_sha256": "81bd30b123acaf41f909873d596442d6af30c1bad7b7049ba41ca6f9e0bbfbc8",
+      "inventory_algorithm": "sort relative file paths, sha256sum every file, then SHA-256 the emitted sha256sum lines",
+      "manifest_sha256": "adb6d27698bbc778e40d2d12562dee15198e6f2f51a5680f86f63aad87b252d5",
+      "summary_sha256": "c5fa3187265b8b26190f8138768a9687ef28ab6f2798e0e8868a3b75602472d3"
+    },
+    "short_evalscope_r5": {
+      "bundle": ".q3x-work/evidence/performance-absorption-20260821/evalscope-short-candidate-final-r5",
+      "files": 68,
+      "bytes": 2882053,
+      "inventory_sha256": "24268a51947d7d839cf7b6a550841f2e031fddd67a0b4c7706e5154d900395d1",
+      "inventory_algorithm": "sort relative file paths, sha256sum every file, then SHA-256 the emitted sha256sum lines",
+      "acceptance_summary_sha256": "34330a5eecd33a9433463e8f9e2fc3b3471a886e6e8e27d44e4bbdaba029f39b",
+      "key_metrics_review_sha256": "4bc8a146e14ca9da5fd3c54b4da6159d0627d883239819c9fbc9e459f0633bd7",
+      "sha256sums_sha256": "8240abbd146bd6078e65dbbb0d39682f272f6afc6f2a810892f8f623c3ef8a8a"
+    }
+  },
+  "delivery_and_recovery": {
+    "p3_prefill_optimization_status": "paused",
+    "absorption_closeout_is_a_p3_resume": false,
+    "delivery_mainline_next_priority": "continue P1/P2 and later product delivery work",
+    "future_resume_rule": "resume only on new explicit project-owner direction from the then-current mainline; treat the selected prompt-wide mechanisms as the exact incumbent for their narrow eligible route and use this record plus the archive anchor as references rather than merging an old performance branch wholesale",
+    "separate_incomplete_archive_anchor": "archive/v4-construction-ownership-20260820@f3545240075651eaa54a5bea6c0f15ee9dfd9a3e"
+  },
+  "known_limits": [
+    "No installed production service, authenticated DeploymentPlan, canonical release artifact, or final product API is qualified.",
+    "The development evaluation adapter still defaults to max_sequence_length=8192 and a 2 GiB request arena; the 16K/32K measurements used explicit per-run expanded capacity and do not change those defaults.",
+    "The 4K/8K/16K/32K prompts are controlled repeated-token witnesses, not real Agent prompts or EvalScope datasets.",
+    "Only two baseline and two candidate samples were retained per length; the positive direction is not statistically qualified.",
+    "No performance improvement is attributed to Decode, startup, or memory.",
+    "The eight-request EvalScope closeout is candidate-only integration evidence, not a baseline/candidate performance comparison.",
+    "No 40K, 60K, or approximately-130K target witness was run for this selected development-default route.",
+    "The historical 392.804397 tok/s P40 observation belongs to a different default-off, BUILD_TESTING=ON, dirty-tree, accuracy-unqualified route and is not current-mainline performance.",
+    "The exact-C512 final-token candidate remains rejected and test-only because full state and public logits differ at P512 and P4096.",
+    "This closeout does not resume P3 or waive P1/P2/P3/P4 release gates."
+  ]
+}

@@ -1,5 +1,7 @@
 #include "q3x/runtime/reference_runner.h"
 
+#include "reference_runner_prompt_wide_policy_internal.h"
+
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
 #if defined(Q3X_ENABLE_P40_PROJECTION_RESET_ADMISSION)
 #include "q3x/kernels/sm87_p40_projection_reset.h"
@@ -131,15 +133,27 @@ enum class PrefillGdnExecution : std::uint8_t {
   return PrefillRouteDisposition::kForbidden;
 }
 
-[[nodiscard]] bool
-full_attention_preprocess_prompt_wide_environment_enabled() noexcept {
-  const char* const value = std::getenv(
-      "Q3X_RUN_FULL_ATTENTION_PREPROCESS_PROMPT_WIDE_128_ADMISSION");
-  return value != nullptr && std::strcmp(value, "1") == 0;
-}
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+thread_local reference_runner_detail::
+    ReferenceRunnerPromptWidePolicyForTest
+        g_reference_runner_prompt_wide_policy_for_test =
+            reference_runner_detail::
+                ReferenceRunnerPromptWidePolicyForTest::kProductionDefault;
+thread_local std::size_t
+    g_reference_runner_prompt_wide_embedding_launch_hits_for_test = 0U;
+thread_local std::size_t
+    g_reference_runner_prompt_wide_attention_launch_hits_for_test = 0U;
+#endif
 
-thread_local bool g_enable_full_attention_preprocess_prompt_wide_admission =
-    full_attention_preprocess_prompt_wide_environment_enabled();
+[[nodiscard]] reference_runner_detail::ReferenceRunnerPromptWidePolicy
+reference_runner_prompt_wide_policy() noexcept {
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+  return reference_runner_detail::select_reference_runner_prompt_wide_policy(
+      g_reference_runner_prompt_wide_policy_for_test);
+#else
+  return reference_runner_detail::kReferenceRunnerPromptWideProductionPolicy;
+#endif
+}
 
 [[nodiscard]] bool decode_gqa_splitkv_environment_enabled() noexcept {
   const char* const value =
@@ -159,16 +173,6 @@ prefill_residual_rms_prompt_wide_environment_enabled() noexcept {
 
 thread_local bool g_enable_prefill_residual_rms_prompt_wide_admission =
     prefill_residual_rms_prompt_wide_environment_enabled();
-
-[[nodiscard]] bool
-prefill_embedding_prompt_wide_environment_enabled() noexcept {
-  const char* const value =
-      std::getenv("Q3X_RUN_PREFILL_EMBEDDING_PROMPT_WIDE_ADMISSION");
-  return value != nullptr && std::strcmp(value, "1") == 0;
-}
-
-thread_local bool g_enable_prefill_embedding_prompt_wide_admission =
-    prefill_embedding_prompt_wide_environment_enabled();
 
 [[nodiscard]] bool
 gdn_conv_token_parallel_environment_enabled() noexcept {
@@ -1013,6 +1017,29 @@ ConstBf16Span ReferenceTraceView::final_norm() const noexcept {
 }
 
 namespace reference_runner_detail {
+
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+ReferenceRunnerPromptWidePolicyForTest
+exchange_reference_runner_prompt_wide_policy_for_test(
+    const ReferenceRunnerPromptWidePolicyForTest policy) noexcept {
+  return std::exchange(g_reference_runner_prompt_wide_policy_for_test,
+                       policy);
+}
+
+std::size_t
+exchange_reference_runner_prompt_wide_embedding_launch_hits_for_test(
+    const std::size_t hits) noexcept {
+  return std::exchange(
+      g_reference_runner_prompt_wide_embedding_launch_hits_for_test, hits);
+}
+
+std::size_t
+exchange_reference_runner_prompt_wide_attention_launch_hits_for_test(
+    const std::size_t hits) noexcept {
+  return std::exchange(
+      g_reference_runner_prompt_wide_attention_launch_hits_for_test, hits);
+}
+#endif
 
 bool exchange_nvfp4_marlin_prefill_admission_test_enabled(
     const bool enabled) noexcept {
@@ -8781,6 +8808,19 @@ ReferenceRunner::enqueue_prefill_layer_segment(
       control.force_bound_nvfp4_marlin_prefill &&
       control.force_bound_fp8_marlin_prefill &&
       control.force_bound_gdn_chunk64_native_prefill;
+  const reference_runner_detail::ReferenceRunnerPromptWidePolicy
+      prompt_wide_policy = reference_runner_prompt_wide_policy();
+  const bool prompt_wide_scope =
+      reference_runner_detail::is_reference_runner_prompt_wide_scope(
+          legacy_control,
+          projection_backend_ == ProjectionBackend::kSm87WeightOnly,
+          state_->memory_profile() == RequestMemoryProfile::kLegacyC512);
+  const bool use_embedding_prompt_wide =
+      prompt_wide_scope && !sealed_exact_arithmetic &&
+      prompt_wide_policy.embedding;
+  const bool use_full_attention_preprocess_prompt_wide =
+      prompt_wide_scope && !sealed_exact_arithmetic &&
+      prompt_wide_policy.full_attention_preprocess;
   const LayerMajorPrefillArithmeticSpanLedger arithmetic_ledger =
       make_layer_major_prefill_arithmetic_span_ledger(token_count);
   if (!legacy_control &&
@@ -9297,8 +9337,7 @@ ReferenceRunner::enqueue_prefill_layer_segment(
       residual_rms_m32_schedule.valid();
 
   if (control.gather_embedding) {
-    if (!sealed_exact_arithmetic &&
-        g_enable_prefill_embedding_prompt_wide_admission) {
+    if (use_embedding_prompt_wide) {
       auto* const device_token_ids =
           reinterpret_cast<std::uint32_t*>(execution_views.projection[3]);
       if (!check_cuda(
@@ -9316,6 +9355,9 @@ ReferenceRunner::enqueue_prefill_layer_segment(
                       kReferenceNoLayer)) {
         return fail_enqueue(launch_failure);
       }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+      ++g_reference_runner_prompt_wide_embedding_launch_hits_for_test;
+#endif
     } else {
       for (std::size_t token = 0U; token < token_count; ++token) {
         if (!check_cuda(launch_embedding_gather_reference_cuda(
@@ -9801,8 +9843,7 @@ ReferenceRunner::enqueue_prefill_layer_segment(
       }
 
       const std::size_t preprocess_tile_maximum =
-          !sealed_exact_arithmetic &&
-                  g_enable_full_attention_preprocess_prompt_wide_admission
+          use_full_attention_preprocess_prompt_wide
               ? kFullAttentionPreprocessTileMaximumTokens
               : kPrefillKernelTileMaximumTokens;
       bool use_fused_preprocess = true;
@@ -9817,7 +9858,7 @@ ReferenceRunner::enqueue_prefill_layer_segment(
             sealed_exact_arithmetic
                 ? reference_runner_detail::use_full_attention_preprocess_tile(
                       rope_first_position + token_offset, subtile_tokens)
-                : g_enable_full_attention_preprocess_prompt_wide_admission
+                : use_full_attention_preprocess_prompt_wide
                 ? reference_runner_detail::use_full_attention_preprocess_tile(
                       rope_first_position + token_offset, subtile_tokens)
                 : reference_runner_detail::use_qk_rope_tile(
@@ -9850,15 +9891,22 @@ ReferenceRunner::enqueue_prefill_layer_segment(
         const std::size_t subtile_first_position =
             rope_first_position + token_offset;
         if (use_fused_preprocess) {
+          const bool launch_prompt_wide =
+              !sealed_exact_arithmetic &&
+              reference_runner_detail::
+                  use_reference_runner_full_attention_prompt_wide_launch(
+                      prompt_wide_policy, subtile_tokens);
           const int preprocess_status =
-              sealed_exact_arithmetic
-                  ? launch_full_attention_preprocess_24_4_256_64_reference_256_cuda(
-                        raw_query_gate, subtile_key, attention->q_norm.data,
-                        attention->k_norm.data, kRmsEpsilon, subtile_query,
-                        subtile_gates, execution_views.rope_cos,
-                        execution_views.rope_sin, subtile_first_position,
-                        subtile_tokens, stream_)
-                  : launch_full_attention_preprocess_24_4_256_64_cuda(
+              launch_prompt_wide
+                  ? reference_runner_detail::
+                        launch_full_attention_preprocess_24_4_256_64_prompt_wide_128_internal_cuda(
+                            raw_query_gate, subtile_key,
+                            attention->q_norm.data, attention->k_norm.data,
+                            kRmsEpsilon, subtile_query, subtile_gates,
+                            execution_views.rope_cos,
+                            execution_views.rope_sin,
+                            subtile_first_position, subtile_tokens, stream_)
+                  : launch_full_attention_preprocess_24_4_256_64_reference_256_cuda(
                         raw_query_gate, subtile_key, attention->q_norm.data,
                         attention->k_norm.data, kRmsEpsilon, subtile_query,
                         subtile_gates, execution_views.rope_cos,
@@ -9868,6 +9916,11 @@ ReferenceRunner::enqueue_prefill_layer_segment(
                           layer)) {
             return fail_enqueue(launch_failure);
           }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+          if (launch_prompt_wide) {
+            ++g_reference_runner_prompt_wide_attention_launch_hits_for_test;
+          }
+#endif
           continue;
         }
         if (!check_cuda(launch_split_interleaved_q_gate_reference_cuda(

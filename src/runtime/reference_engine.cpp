@@ -14,6 +14,7 @@
 #include "q3x/runtime/p40_packed_projection_assets.h"
 #include "q3x/runtime/sm87_target_aot_projection_device_assets.h"
 #include "q3x/text/tokenizer.h"
+#include "reference_engine_final_token_policy_internal.h"
 #include "reference_engine_prefill_authority.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
@@ -50,9 +51,17 @@
 namespace q3x::runtime {
 namespace {
 
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
 thread_local reference_runner_detail::
     ReferenceEngineGenerateReturnSnapshotHook
         g_reference_engine_generate_return_snapshot_hook{};
+thread_local reference_engine_detail::
+    ReferenceEnginePrefillFinalTokenPolicyForTest
+        g_reference_engine_prefill_final_token_policy_for_test =
+            reference_engine_detail::
+                ReferenceEnginePrefillFinalTokenPolicyForTest::
+                    kProductionDefault;
+#endif
 
 using Clock = std::chrono::steady_clock;
 
@@ -63,26 +72,6 @@ inline constexpr double kProductionDecodeGraphMaximumPrepareMilliseconds =
     1'000.0;
 inline constexpr std::uint64_t kProductionDecodeGraphMaximumFreeDropBytes =
     256ULL * 1024ULL * 1024ULL;
-
-// Same-ELF test-only admission. The ordinary runner schedule remains the
-// unconditional default; only the exact value "1" moves the final prompt
-// token into the bulk-prefill tile path.
-[[nodiscard]] bool prefill_all_prompt_tokens_environment_enabled() noexcept {
-  const char* const value =
-      std::getenv("Q3X_RUN_PREFILL_ALL_PROMPT_TOKENS_ADMISSION");
-  return value != nullptr && std::strcmp(value, "1") == 0;
-}
-
-// Same-ELF test-only scheduler admission. Enabling this also implies the
-// whole-prompt admission because the architecture probe must compare one
-// P-token layer-major tile with the canonical decomposition of the same P
-// prompt tokens; it must not reintroduce a scalar final prompt step.
-[[nodiscard]] bool
-prefill_single_arbitrary_tile_environment_enabled() noexcept {
-  const char* const value =
-      std::getenv("Q3X_RUN_PREFILL_SINGLE_ARBITRARY_TILE_ADMISSION");
-  return value != nullptr && std::strcmp(value, "1") == 0;
-}
 
 // The fused Marlin Gate/Up epilogue changes the retained sidecar's N ordering,
 // so load-time packing and runner dispatch must use one immutable process-wide
@@ -4749,14 +4738,29 @@ prepare_sm87_nvfp4_marlin_p40_parity_sidecars(
 
 namespace reference_runner_detail {
 
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
 ReferenceEngineGenerateReturnSnapshotHook
 exchange_reference_engine_generate_return_snapshot_hook(
     const ReferenceEngineGenerateReturnSnapshotHook hook) noexcept {
   return std::exchange(g_reference_engine_generate_return_snapshot_hook,
                        hook);
 }
+#endif
 
 }  // namespace reference_runner_detail
+
+namespace reference_engine_detail {
+
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+ReferenceEnginePrefillFinalTokenPolicyForTest
+exchange_reference_engine_prefill_final_token_policy_for_test(
+    const ReferenceEnginePrefillFinalTokenPolicyForTest policy) noexcept {
+  return std::exchange(
+      g_reference_engine_prefill_final_token_policy_for_test, policy);
+}
+#endif
+
+}  // namespace reference_engine_detail
 
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
@@ -7300,17 +7304,30 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     control_options.capture_trace = options.capture_trace;
     control_options.logits_mode = options.logits_mode;
     control_options.emit_nvtx_phase_ranges = options.emit_nvtx_phase_ranges;
-    const bool single_arbitrary_prefill_tile =
-        !whole_request_layer_major &&
-        !options.capture_trace && options.prefill_chunk_size > 1U &&
-        prefill_single_arbitrary_tile_environment_enabled();
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+    const reference_engine_detail::
+        ReferenceEnginePrefillFinalTokenPolicyForTest
+            final_token_policy_for_test =
+                g_reference_engine_prefill_final_token_policy_for_test;
+#else
+    constexpr reference_engine_detail::
+        ReferenceEnginePrefillFinalTokenPolicyForTest
+            final_token_policy_for_test =
+                reference_engine_detail::
+                    ReferenceEnginePrefillFinalTokenPolicyForTest::
+                        kProductionDefault;
+#endif
+    const reference_engine_detail::ReferenceEnginePrefillFinalTokenSelection
+        final_token_selection =
+            reference_engine_detail::
+                select_reference_engine_prefill_final_token_policy(
+                    final_token_policy_for_test, whole_request_layer_major,
+                    options.capture_trace, options.prefill_chunk_size,
+                    prompt_token_ids.size());
     control_options.prefill_all_prompt_tokens =
-        whole_request_layer_major ||
-        (!options.capture_trace && options.prefill_chunk_size > 1U &&
-         (prefill_all_prompt_tokens_environment_enabled() ||
-          single_arbitrary_prefill_tile));
+        final_token_selection.all_prompt_tokens;
     control_options.prefill_single_arbitrary_tile =
-        single_arbitrary_prefill_tile;
+        final_token_selection.single_arbitrary_tile;
     control_options.prefill_whole_request_layer_major =
         whole_request_layer_major;
     control_options.prefill_mlp_schedule_tactic =
@@ -7671,12 +7688,14 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.decode_graph_serial_fallbacks =
         step_context.decode_graph_serial_fallbacks;
     result.value.emplace(std::move(generation));
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
     const auto generate_return_snapshot_hook =
         g_reference_engine_generate_return_snapshot_hook;
     if (generate_return_snapshot_hook.callback != nullptr) {
       generate_return_snapshot_hook.callback(
           *impl_->request_state, generate_return_snapshot_hook.context);
     }
+#endif
     return result;
   } catch (const std::bad_alloc&) {
     result.diagnostic = engine_diagnostic(
