@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-08-21.
+Snapshot date: 2026-08-22.
 
 This page is a replaceable state snapshot. It does not own architecture,
 delivery order, or experiment history. The system design is in
@@ -173,40 +173,25 @@ route hits.
 Exact evidence is frozen in the
 [`v10` whole-core record](metadata/qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10.json).
 
-The first clean-host BCCB closeout attempt for the absorbed artifact completed
-only historical-baseline run B1. It observed 102,634.326941 ms / 389.733155
-tok/s server pure Prefill and 102,674.589111 ms EvalScope TTFT, but the run is
-strictly invalid: an unexpected `systemd-udevd` CPU consumer exceeded the
-continuous-ownership limit, continuous clock proof was incomplete, and the old
-harness had shutdown identity/listener-reuse defects. Its 76.406C CPU and
-77.062C GPU/Tj maxima are within the owner-specified normal range through 85C;
-the earlier sub-70C rejection was an over-conservative protocol rule, not a
-hardware thermal failure. The attempt remains invalid for the independent
-ownership, clock-proof, and cleanup failures and supplies no incumbent
-reproduction, candidate result, B/C comparison, or performance decision. Two
-lower-clock sustainable-profile retries also remain invalid. Retry r1
-failed its pre-server frequency setup before spawning the server or loading the
-model. Retry r2 started historical B, but the superseded 70C fail-fast stopped
-the request before a response at 70.031C, which is also within the corrected
-normal range. The attempt is still unusable: an external accepted `sshd`
-session reached 7.994% of one CPU core, and the obsolete temperature gate
-terminated the request before any response. Root `tegrastats` observed
-request-window GPU effective values from 1010 through 1019 MHz while sysfs
-remained fixed at 1.02 GHz; those effective samples are retained as hardware
-telemetry, not misclassified as proof of downclocking. It produced no usable
-startup, TTFT, Prefill, throughput, or Decode timing. Server cleanup
-escalated SIGINT -> SIGTERM -> SIGKILL, so graceful shutdown failed, but no
-process, listener, GPU-device handle, or `nvmap` residue remained. No valid
-absorbed-C request has completed. Review follow-up `289f6d0` retains ordinary
-default ELF byte identity and rebuilds the development artifact from final
-source. The future retest anchor is harness
-`cdb7f7e1c4f0cc8d1e9ba1604f0820b09851e2abedf462bbc11a2798f1791bde`:
-temperature is accepted through 85C, throttle risk begins above 90C, and
-CPU/GPU/EMC sysfs locks plus hardware cooling/throttle and over-current state
-are gated independently; `tegrastats` GPU effective MHz is recorded as a
-distribution rather than treated as the fixed sysfs lock. A valid two-B/two-C
-result is still pending. Exact build identities, invalid bundle hashes, harness
-boundary, and claim limits are frozen in the
+Current main `b0c0c837` / tree `2963cb99`, built as ELF
+`edb999f91683df85bfab3b757c6bfcb055e55110663566d177fcc7379cfed8f4`
+(Build ID `e349cce6283731ea85fe3dd6e654b8ff29eb0ac2`), now has a strict
+sustainable-profile BCCB integration-health result. All four cells pass the
+continuous sysfs, cooling, over-current, thermal, ownership, route, and cleanup
+gates at CPU 1,497,600 kHz, GPU 1.02 GHz, and EMC 3.2 GHz. Candidate mean pure
+Prefill is 325.983493208 tok/s versus 326.111753524 baseline, C/B
+0.9996066983. This passes the predeclared 0.99 matched-baseline floor but is
+not a speedup and does not reproduce the historical 392.804397 max-clock
+observation. Full max-GPU r4/r5 are wholly invalid because over-current event
+counters increased, despite all temperatures remaining below 85C. At CPU
+1,497,600 kHz / GPU 1.224 GHz / EMC 3.2 GHz, r6-r8 contain four fully valid C
+cells (375.895393126, 376.039811195, 375.958913176, and 375.931597138 tok/s;
+descriptive mean 375.956428659) and three fully valid B cells (descriptive mean
+375.935680902; descriptive C/B 1.00005519). Independent external CPU samples
+prevent each bundle from completing strict BCCB, so these cells are not
+stitched into a performance decision. The one-output-token workload has no
+Decode transition. Exact build identities, bundle hashes, and claim limits are
+frozen in the
 [`P40 v10 mainline absorption record`](metadata/qwen36-27b-p40-v10-mainline-absorption-2026-08-21.json).
 
 The later independent stock-vLLM-Marlin projection reference completed the
@@ -314,8 +299,8 @@ numerical, generation, API, performance, release, or production authority.
 The observed 699,705.551133 ms online prepare/attach time is a correctness-run
 startup diagnostic, not a performance baseline; it makes offline-persisted,
 authenticated AOT payload generation plus direct startup loading an explicit
-implementation requirement. The incumbent remains 392.804397 tok/s and the
-installed route is unchanged.
+implementation requirement. The historical max-clock incumbent remains
+392.804397 tok/s and the installed route is unchanged.
 
 A clean Release/SM87 probe at `9d0613a` has now closed the next narrow gate on
 the same pinned checkpoint. The private layer-0 M192 candidate covers one full
@@ -346,7 +331,7 @@ SM87 resource/geometry authority, and a bounded lifecycle diagnosis. It grants
 no complete-model, public-launcher, generation, API, performance, release, or
 production authority. The 701,709.6913 ms prepare/attach and 728,418 ms probe
 wall times remain diagnostics, not performance measurements. The default
-runner and its 392.804397-token/s incumbent are unchanged.
+runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 
 ## 2. Current capability matrix
 
@@ -358,7 +343,7 @@ runner and its 392.804397-token/s incumbent are unchanged.
 | Loopback OpenAI-compatible evaluation API | Implemented | It has no authentication, TLS, multi-tenant admission, or production exposure contract |
 | Final product API | Designed | No installed production server/profile or release attestation exists |
 | Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
-| Target-length Prefill | Two exact, allocation-free Legacy-C512 preprocessing mechanisms are absorbed in the narrow development default; the v10 P40 inventory is now a typed, non-installing `BUILD_TESTING=OFF` development artifact; performance program remains paused | Controlled 4K--32K gains are only 0.12%--0.26% and not statistically qualified; 392.804397 tok/s remains a historical, accuracy-unqualified incumbent because all three mainline closeout attempts were invalid and no C request completed validly; P60/P130 remain unopened |
+| Target-length Prefill | Two exact, allocation-free Legacy-C512 preprocessing mechanisms are absorbed in the narrow development default; the v10 P40 inventory is a typed, non-installing `BUILD_TESTING=OFF` development artifact and has a valid current-main sustainable integration-health BCCB; performance program remains paused | Current-main sustainable candidate mean is 325.983493208 tok/s versus 326.111753524 baseline; near-max valid-cell aggregation is descriptive only at 375.956428659 candidate tok/s; historical 392.804397 max-clock is not reproduced; P60/P130 remain unopened |
 | SM87 whole-system AOT Prefill candidate | Default-off and non-executable; real-checkpoint upload/readback/private attachment is authenticated, and the layer-0 M192 Gate+Up/Down-plus-residual candidate has passed bitwise, same-ELF SM87 resource/geometry, and immediate-snapshot lifecycle gates | Persist and directly load authenticated AOT payloads; compose all 64 layers plus FP8 QKV/Z/O, grouped online Attention, exact GDN, buffers/state/handoffs without fallback; extend complete-model accuracy; open a reviewed admission launch; then return to clean-host real-P40 API/EvalScope evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
@@ -458,7 +443,7 @@ None below is a production path or an active parameter scan.
 
 | Route | P40 pure prompt throughput | Current disposition |
 | --- | ---: | --- |
-| v10 whole-core substrate | 392.804397 tok/s | Strongest direction; retained infrastructure, default-off and accuracy-unqualified |
+| v10 whole-core substrate | historical max-clock 392.804397 tok/s; current-main strict sustainable 325.983493208 tok/s | Retained default-off, accuracy-unqualified infrastructure; current-main integration health passes, historical max-clock not reproduced |
 | Shape-wide NVFP4 v3 replacement | 376.030675 tok/s | Rejected; temporary runner overlay removed |
 | v11 grouped projection reset | 205.951777 tok/s | Rejected |
 | v12 phase-local BF16 projection | 320.472999 tok/s | Rejected; unsealed historical direction |
@@ -520,7 +505,7 @@ sequence and successor identity live exclusively in
 | Documentation-control propagation | The canonical main line now has one `AGENTS.md -> docs/README.md` Codex entry; pre-existing dirty worktrees do not receive it until explicitly integrated, because Codex reads the worktree in which a session starts | P0 |
 | Product API and long-context admission | Validation and host planners exist, but the default contract cannot admit 40K/60K/130K | P1 |
 | Exact deliverable identity | No unique release binary plus authenticated DeploymentPlan | P2 |
-| Prefill parity and physical plan | The narrow Legacy-C512 default includes two exact preprocessing absorptions with only 0.12%--0.26% controlled direction; the separate historical P40 v10 observation is 392.804397 tok/s, 10.95x below the useful vLLM line, default-off and accuracy-unqualified; optimization is paused and the recovery archive is not a mainline route | P3 (paused) |
+| Prefill parity and physical plan | The narrow Legacy-C512 default includes two exact preprocessing absorptions with only 0.12%--0.26% controlled direction; current main has a strict sustainable P40 v10 integration-health result of 325.983493208 tok/s and descriptive near-max valid cells averaging 375.956428659 tok/s, while the historical 392.804397 max-clock observation remains unreproduced; the route is default-off and accuracy-unqualified, optimization is paused, and the recovery archive is not a mainline route | P3 (paused) |
 | Accuracy, capability, stability, and release evidence | Partial oracles only; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install, startup, upgrade, or rollback lane | P5 |
 
@@ -533,9 +518,11 @@ Use the following language until this snapshot changes:
   bit-exact, allocation-free prompt-wide Embedding and full-Attention
   preprocessing; controlled 4K--32K BCCB direction is positive by
   0.12%--0.26% but not statistically qualified; the final eight-request short
-  integration proxy passes. The separate strongest default-off P40 v10
-  observation remains 392.804397 pure prompt tok/s and is
-  accuracy-unqualified, not current-mainline performance.
+  integration proxy passes. The separate default-off P40 v10 route has a
+  strict current-main sustainable BCCB at 325.983493208 candidate tok/s versus
+  326.111753524 baseline; near-max valid cells average 375.956428659 tok/s only
+  descriptively. The historical 392.804397 max-clock observation is not
+  reproduced. All of this remains accuracy-unqualified and non-production.
 - **Not current:** production server, production-default 40K--130K support,
   any archived V4 construction route, lossless Factorized-R1 Prefill, vLLM
   parity, or a fully qualified 10-token/s Decode release.

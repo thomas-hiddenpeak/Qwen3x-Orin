@@ -3,7 +3,7 @@
   "record_id": "qwen36-27b-p40-v10-mainline-absorption-2026-08-21",
   "record_type": "owner_directed_p40_v10_development_route_mainline_absorption",
   "created_at_utc": "2026-08-21T15:58:37Z",
-  "updated_at_utc": "2026-08-21T17:34:05Z",
+  "updated_at_utc": "2026-08-21T22:11:01Z",
   "classification": {
     "source_status": "pass",
     "decision": "retain_the_historical_v10_p40000_whole_core_route_as_one_typed_default_off_development_artifact",
@@ -13,9 +13,9 @@
     "accuracy_qualified": false,
     "release_authority": false,
     "production_authority": false,
-    "performance_reproduction_status": "not_yet_validly_measured_on_the_absorbed_artifact"
+    "performance_reproduction_status": "current_main_measured_historical_392_maxclock_not_reproduced"
   },
-  "claim_boundary": "This record establishes that the exact nine-item v10 P40000 whole-core inventory is now buildable from the tracked source by one default-OFF BUILD_TESTING=OFF development preset and is reachable only through one typed, fixed request/profile acknowledgement. The separately named artifact is not installed, does not change the ordinary default, rejects ambient Q3X_* controls, and exposes its known P513 full-state mismatch and unmeasured P40000 full-state status. The historical 392.804397421 tok/s observation remains the single-sample incumbent for this accuracy-unqualified route. Attempts 1, 2, and 3 are strictly invalid: attempt 1 retains only a diagnostic historical-B timing, attempt 2 failed setup before server/model execution, and attempt 3 started historical B but produced no completed response or usable timing. The earlier 70C rule was an over-conservative comparability protocol, not an Orin hardware throttle threshold; the corrected future protocol accepts temperatures through 85C and audits clock stability independently, with thermal-throttle risk beginning above 90C. No absorbed-candidate C request has completed validly, so this record supplies no current-mainline reproduction, B/C comparison, retention, release, or production performance decision. This bounded owner-directed absorption does not resume paused P3 optimization.",
+  "claim_boundary": "Current main b0c0c837 / tree 2963cb99 has now been measured on the typed, default-OFF BUILD_TESTING=OFF P40 v10 development artifact. Sustainable r3 is a complete strict BCCB integration-health result: all four cells are valid, candidate mean pure Prefill is 325.983493208 tok/s, baseline mean is 326.111753524 tok/s, and C/B is 0.9996066983. It passes the predeclared 0.99 matched-baseline floor but is not a speedup and does not reproduce the historical one-sample 392.804397421 tok/s max-clock observation. Max-GPU r4 and r5 are wholly invalid because over-current counters increased, despite temperatures remaining below 85C. Near-max GPU r6-r8 do not form a strict BCCB result because independent external CPU samples invalidate each bundle; four individually complete candidate cells have descriptive mean 375.956428659 tok/s, and three individually complete baseline cells have descriptive mean 375.935680902 tok/s, for descriptive C/B 1.00005519. That cross-bundle aggregation is descriptive only and grants no performance decision. The one-output-token workload has no Decode transition. The route remains T3 development integration health only, default-OFF, accuracy-unqualified, non-release, non-production, and ineligible to resume paused P3 optimization.",
   "source": {
     "base_main": {
       "git_commit": "40f43dfb020425e08efae11db889da94e5cac71a",
@@ -31,6 +31,11 @@
       "git_tree": "4d871083de2dd65764d610807df509245e481fa6",
       "subject": "fix: ignore malformed environment entries",
       "ordinary_default_binary_changed": false
+    },
+    "current_main_measurement_commit": {
+      "git_commit": "b0c0c8373d79649bd88038d0c07d20b9d8777ff7",
+      "git_tree": "2963cb99e54bfb7cdc39caec56d8cccf26eab6a8",
+      "branch": "main"
     },
     "ordinary_default_route_source_unchanged": true,
     "target_prefill_witness_v10_serialization_changed": false
@@ -120,6 +125,20 @@
       "build_passed": true,
       "install_command_passed": true,
       "installed_artifacts": 0
+    },
+    "current_main_p40_v10_development": {
+      "source_commit": "b0c0c8373d79649bd88038d0c07d20b9d8777ff7",
+      "source_tree": "2963cb99e54bfb7cdc39caec56d8cccf26eab6a8",
+      "build_directory": ".q3x-work/build/p40-main-b0c0c83",
+      "build_type": "Release",
+      "build_testing": false,
+      "cuda_architecture": "87",
+      "cmake_cache_sha256": "b393b847378eccc15c0a1eed7d974f1298e9061d40c3d8572a11e92470af111e",
+      "compile_commands_sha256": "b7068ae4282beb52add3ee363aa38a66c80e53d507b5d53b360ebad91f83ecd9",
+      "server_binary_bytes": 13274280,
+      "server_binary_sha256": "edb999f91683df85bfab3b757c6bfcb055e55110663566d177fcc7379cfed8f4",
+      "server_elf_build_id": "e349cce6283731ea85fe3dd6e654b8ff29eb0ac2",
+      "candidate_identity_audit_sha256": "6724c26463e84ae5e673a571652075239a2e52e6754cc4415d9f20e468141f5c"
     },
     "post_review_receipt": {
       "path": ".q3x-work/evidence/p40-v10-mainline-thermal-policy-final-20260822/receipt.json",
@@ -355,7 +374,136 @@
       }
     }
   ],
+  "current_main_measurement_closeout": {
+    "authority": "T3_development_integration_health",
+    "ordinary_default_changed": false,
+    "accuracy_qualified": false,
+    "release": false,
+    "production": false,
+    "production_eligible": false,
+    "p3_prefill_program_resumed": false,
+    "strict_sustainable_bccb": {
+      "bundle_label": "sustainable-r3",
+      "profile": {
+        "cpu_khz": 1497600,
+        "gpu_hz": 1020000000,
+        "emc_hz": 3200000000
+      },
+      "sequence": "BCCB",
+      "valid_cells": 4,
+      "expected_cells": 4,
+      "measurement_valid": true,
+      "accepted": true,
+      "candidate_pure_prefill_tok_s": [
+        325.8933279458536,
+        326.0736584706103
+      ],
+      "baseline_pure_prefill_tok_s": [
+        326.06984965074093,
+        326.15365739703327
+      ],
+      "candidate_mean_pure_prefill_tok_s": 325.98349320823195,
+      "baseline_mean_pure_prefill_tok_s": 326.1117535238871,
+      "candidate_over_baseline": 0.9996066982736157,
+      "candidate_mean_pure_prefill_ms": 122705.6090065,
+      "candidate_mean_evalscope_ttft_ms": 122753.24897549581,
+      "candidate_mean_evalscope_prompt_tok_s": 325.8568547460167,
+      "candidate_mean_spawn_to_owned_health_ms": 54286.5463705,
+      "candidate_mean_peak_vmhwm_bytes": 48356075520,
+      "candidate_mean_peak_vmrss_bytes": 48355944448,
+      "candidate_mean_peak_pss_bytes": 358505472,
+      "candidate_mean_peak_private_bytes": 239652864,
+      "candidate_mean_maximum_memavailable_drop_bytes": 40643860480,
+      "matched_baseline_floor": 0.99,
+      "matched_baseline_floor_passed": true,
+      "speedup_claimed": false,
+      "historical_392_maxclock_reproduced": false,
+      "maximum_temperature_c": 72.531,
+      "over_current_counter_delta": 0,
+      "decode_available": false,
+      "bundle": {
+        "path": ".q3x-work/evidence/p40-v10-current-main-b0c0c83-bccb-sustainable-20260822-r3",
+        "summary_sha256": "59ff01bcb9979b4b5a8c0e07be4df95bc5f236c8ff84b3d3a753294c68494a20",
+        "manifest_sha256": "6c4fded105213bcc9e78ee6a4858db0657dbc1105525b7fab5584eaed5253e1e",
+        "inventory_sha256": "11dffabe667447d159f5afdfd3c1f4a0c11d754a93e23dbb81fd93d987297eed",
+        "harness_sha256": "435edc86ef9552d7f4ec5a064a8b1b8fd5388503156abaf3a7f05ebe59a79186"
+      }
+    },
+    "invalid_max_gpu_attempts": [
+      {
+        "bundle_label": "max-r4",
+        "path": ".q3x-work/evidence/p40-v10-current-main-b0c0c83-bccb-max-20260822-r4",
+        "profile": "cpu_2201600khz_gpu_1300500000hz_emc_3200000000hz",
+        "measurement_valid": false,
+        "invalid_reason": "all four cells increased the over-current event counter; some cells also downclocked CPU; temperature remained below 85C",
+        "manifest_sha256": "63a049f3b1fc46932e1a0abdbe6e5058c60d702ebd2d62692760068bd0064c1b",
+        "summary_sha256": "81a57faa0a794352578edcbc28aba71439b47733c1039b4a36cc49f03f7cea66",
+        "inventory_sha256": "7d67511c4be19b060a70318fd3732c2ab045cc31e1febda515467982bad01639"
+      },
+      {
+        "bundle_label": "hybrid-maxgpu-r5",
+        "path": ".q3x-work/evidence/p40-v10-current-main-b0c0c83-bccb-hybrid-maxgpu-20260822-r5",
+        "profile": "cpu_1497600khz_gpu_1300500000hz_emc_3200000000hz",
+        "measurement_valid": false,
+        "invalid_reason": "all four cells increased the over-current event counter; one cell also downclocked CPU; temperature remained below 85C",
+        "manifest_sha256": "d7fb2a6d9bb43182676c8ad9e3e42bf363e6614a4c7e6ed97af32381abd664a0",
+        "summary_sha256": "3ccc3e256f17af724f62abe253b3bc466e57e3c3525893e6b417ff49595ed3ae",
+        "inventory_sha256": "11bb054604c7f563ac6ba4227690ecf2090fff496329274fd7c7477b49f5cb16"
+      }
+    ],
+    "nearmax_gpu_descriptive_cells": {
+      "profile": {
+        "cpu_khz": 1497600,
+        "gpu_hz": 1224000000,
+        "emc_hz": 3200000000
+      },
+      "strict_bccb_available": false,
+      "strict_bccb_failure_reason": "each r6-r8 bundle contains at least one cell invalidated by an independent unexpected external CPU sample; cells are not stitched across bundles",
+      "candidate_valid_cell_pure_prefill_tok_s": [
+        375.8953931259598,
+        376.0398111949996,
+        375.9589131755041,
+        375.9315971376012
+      ],
+      "candidate_descriptive_mean_pure_prefill_tok_s": 375.9564286585162,
+      "baseline_valid_cell_pure_prefill_tok_s": [
+        375.8836617076467,
+        376.16323345317255,
+        375.7601475461088
+      ],
+      "baseline_descriptive_mean_pure_prefill_tok_s": 375.93568090230935,
+      "descriptive_candidate_over_baseline": 1.000055189643497,
+      "performance_decision_eligible": false,
+      "bundles": [
+        {
+          "label": "gpu1224-r6",
+          "path": ".q3x-work/evidence/p40-v10-current-main-b0c0c83-bccb-gpu1224-20260822-r6",
+          "manifest_sha256": "cdf888af0c40fb3ece4a63187ad8f07527a3aba95fbbac1e048c85cfdd462e62",
+          "summary_sha256": "04175b74511ec0f2c62bf1341eb5340542658a44500480b14ba4906400a1f36f",
+          "inventory_sha256": "68dbb1e1184b7bb936e510585dd115845ba1ee07419299ae5e658f7d4bfd6644"
+        },
+        {
+          "label": "gpu1224-r7",
+          "path": ".q3x-work/evidence/p40-v10-current-main-b0c0c83-bccb-gpu1224-20260822-r7",
+          "manifest_sha256": "d333043345288c8919b0d8aeac75f5f033a00aa7b8020dbf7c8246aa0c917097",
+          "summary_sha256": "953360c586e45f40b4845fb7967c8bb6c87ce71b0f0eda4073272dfbeae530e3",
+          "inventory_sha256": "3053fe9a3e6f9c0ce45d80efe8a3bedc8ab5bee6bf1c242fea2485cbd446ee97"
+        },
+        {
+          "label": "gpu1224-r8",
+          "path": ".q3x-work/evidence/p40-v10-current-main-b0c0c83-bccb-gpu1224-20260822-r8",
+          "manifest_sha256": "d635b08f04501201e731c6e61d27ae3da01f79a7b053673f46ede6d8d4ef323d",
+          "summary_sha256": "d17e10f831885db2f9218d10f6fd470684d103a2f0a803494eff19b036f1ffcf",
+          "inventory_sha256": "ee68e692d1bd466b3d0f9745d3f80e926fb648a94aaf35b7d246491145436f84"
+        }
+      ],
+      "harness_sha256": "2770432bf55791c50491391dc51cd7fea9190dee24ec01c69337bddbf4024890",
+      "wrapper_sha256": "1a1d477ade9634df6e78e816386f00262c5455edc78e30b68fc62cfdc07c61b6"
+    },
+    "bundle_inventory_algorithm": "sort NUL-separated ./relative file paths, sha256sum every file, then SHA-256 the emitted sha256sum lines"
+  },
   "future_retest_harness": {
+    "status": "superseded_by_current_main_measurement_closeout",
     "path": ".q3x-work/tools/run_p40_v10_bccb.py",
     "frozen_snapshot_path": ".q3x-work/evidence/p40-v10-mainline-thermal-policy-final-20260822/run_p40_v10_bccb.py",
     "sha256": "cdb7f7e1c4f0cc8d1e9ba1604f0820b09851e2abedf462bbc11a2798f1791bde",
@@ -406,7 +554,7 @@
       "exact sysfs lane checks plus hardware cooling/throttle and over-current evidence without treating GPU effective MHz as the lock value"
     ],
     "performance_authority": false,
-    "reason": "the post-review harness has not yet produced a valid real-model BCCB result or any completed absorbed-candidate C request"
+    "reason": "this predecessor is retained for lineage; the current-main derived harness produced the strict sustainable r3 BCCB result recorded above"
   },
   "data_quality_assessment": {
     "intended_grain": "one tracked absorption decision plus immutable per-attempt run evidence",
@@ -415,20 +563,26 @@
     "valid_comparison_rows_by_attempt": {
       "attempt_1": 0,
       "attempt_2": 0,
-      "attempt_3": 0
+      "attempt_3": 0,
+      "sustainable_r3": 4,
+      "max_r4": 0,
+      "hybrid_maxgpu_r5": 0,
+      "gpu1224_r6_individually_valid_cells": 3,
+      "gpu1224_r7_individually_valid_cells": 2,
+      "gpu1224_r8_individually_valid_cells": 2
     },
-    "completed_valid_absorbed_candidate_requests": 0,
-    "completeness": "failed: no attempt completed the four valid BCCB rows and no absorbed-candidate C request completed validly",
-    "uniqueness": "each bundle contains only its first labeled B slot; there are no duplicate comparison keys, but the slots are invalid or incomplete",
+    "completed_valid_absorbed_candidate_requests": 6,
+    "completeness": "sustainable r3 completed one strict four-cell BCCB; r4/r5 are wholly invalid; r6-r8 contain seven individually valid cells but no complete strict BCCB bundle",
+    "uniqueness": "r3 has unique B1/C1/C2/B2 comparison keys; r6-r8 retain their independent bundle/cell keys and are not stitched into a synthetic BCCB",
     "identity_consistency": "code, model, workload, historical binary, candidate binary, and tool identities are stable within each bundle; harness revisions differ intentionally and are hash-bound per attempt",
     "metric_definition": "server pure Prefill rate is 40000 divided by the request-bound server pure Prefill interval in seconds; EvalScope TTFT is external and uses a different denominator",
-    "decision_safety": "safe only for route-absorption, per-attempt invalidation, and post-exit recovery claims; unsafe for any current-mainline reproduction, timing, or performance comparison claim"
+    "decision_safety": "safe for current-main sustainable integration-health timing and its matched-baseline floor; near-max r6-r8 aggregation is descriptive only; unsafe for a historical-392 reproduction, speedup, accuracy, release, production, or P3-resumption claim"
   },
   "delivery_and_recovery": {
     "ordinary_mainline_development_continues": true,
     "p3_prefill_program_paused": true,
     "recovery_anchor": "the typed p40-whole-core-v10 BUILD_TESTING=OFF development preset and this record",
-    "future_first_step": "run a fresh clean-host BCCB with harness cdb7f7e1c4f0cc8d1e9ba1604f0820b09851e2abedf462bbc11a2798f1791bde, accepting temperatures through 85C while independently enforcing exact declared CPU/GPU/EMC sysfs locks and hardware throttle-state stability; require two valid historical B and two valid absorbed C measurements before any performance conclusion",
+    "future_first_step": "the current-main sustainable integration-health BCCB is closed; any future competitive optimization or historical max-clock reproduction requires explicit owner resumption and a new predeclared clean-host protocol",
     "p60_or_p130_unlocked": false
   }
 }

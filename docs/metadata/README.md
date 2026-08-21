@@ -74,33 +74,23 @@ The subsequent owner-directed absorption of the historical v10 P40 route is
 frozen in
 [`qwen36-27b-p40-v10-mainline-absorption-2026-08-21.json`](qwen36-27b-p40-v10-mainline-absorption-2026-08-21.json).
 Commit `0cf4048` exposes the exact nine-item inventory through one typed,
-default-OFF, `BUILD_TESTING=OFF` preset and a separately named, non-installing
-development artifact while leaving the ordinary default unchanged. The
-392.804397-token/s figure remains the one-sample historical incumbent and the
-route remains accuracy-unqualified because of the inherited P513 full-state
-mismatch; its P40000 full state was not measured. Attempt 1 completed only B1
-and is strictly invalid due to an unexpected `systemd-udevd` CPU consumer,
-incomplete clock proof, and old-harness cleanup defects. Its 76.406C CPU and
-77.062C GPU/Tj maxima are within the owner-specified normal range through 85C;
-the old sub-70C rejection reason is superseded. Its observed 389.733155 tok/s
-remains diagnostic-only and cannot reproduce, retain, reject, release, or
-promote anything. Sustainable retry r1 failed before server/model execution.
-Retry r2 started historical B but completed no response and has no usable
-timing: a superseded 70C fail-fast stopped it at a normal 70.031C, while an
-external 7.994%-of-one-core `sshd` consumer independently violated the run
-protocol. Its 1010--1019-MHz request-window GPU effective samples are retained
-as telemetry and are not proof of a sysfs-lock failure. SIGINT -> SIGTERM -> SIGKILL
-failed graceful shutdown, but process, port, GPU-device, and `nvmap` recovery
-passed. No valid C request exists. Review follow-up `289f6d0` leaves the
-ordinary default ELF byte-identical and supplies the final rebuilt development
-artifact. The retest harness is
-`cdb7f7e1c4f0cc8d1e9ba1604f0820b09851e2abedf462bbc11a2798f1791bde`;
-it accepts temperatures through 85C, records above 90C as throttle risk, and
-checks exact CPU/GPU/EMC sysfs locks plus hardware cooling/throttle and
-over-current state independently while recording `tegrastats` GPU effective
-MHz as a distribution. The
-one-token workload has no Decode transition, so Decode is unavailable. This
-route retention does not resume paused P3.
+default-OFF, `BUILD_TESTING=OFF`, non-installing development artifact. Current
+main `b0c0c837` / tree `2963cb99` was rebuilt as ELF `edb999f...` / Build ID
+`e349cce6...` and completed strict sustainable BCCB with all four cells valid:
+candidate mean 325.983493208 tok/s, baseline mean 326.111753524 tok/s, C/B
+0.9996066983. It passes the predeclared 0.99 integration-health floor, is not a
+speedup, and does not reproduce the historical one-sample 392.804397-token/s
+max-clock result. Max-GPU r4/r5 are invalid from over-current counter increases
+despite temperatures below 85C. GPU-1.224-GHz r6-r8 contain four fully valid C
+cells averaging 375.956428659 tok/s and three fully valid B cells averaging
+375.935680902 tok/s, descriptive C/B 1.00005519; independent external CPU
+samples prevent every bundle from completing strict BCCB, so this aggregation
+is descriptive only. The record freezes all six bundle manifest, summary, and
+inventory hashes and preserves continuous sysfs, cooling/throttle, over-current,
+thermal, ownership, cleanup, and root-`tegrastats` observational boundaries.
+The one-token workload has no Decode transition. The route remains T3
+integration health only, accuracy-unqualified, non-release, non-production,
+and does not resume paused P3.
 
 The first real-checkpoint preparation of the default-off SM87 whole-system AOT
 candidate is frozen in

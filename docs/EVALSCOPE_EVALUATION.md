@@ -505,42 +505,28 @@ only `--development-route p40-whole-core-v10`; that acknowledgement atomically
 fixes the P40000/output-one/C512/layer-major/SM87/8,640,542,976-byte profile,
 and the gateway rejects ambient `Q3X_*` variables and any individual profile
 override. It is deliberately non-installing, accuracy-unqualified, and neither
-a release nor production route. Review follow-up `289f6d0` leaves the ordinary
-default ELF byte-identical and provides the final fresh development build used
-by the corrected retest harness.
+a release nor production route. Review follow-up `289f6d0` left the ordinary
+default ELF byte-identical; the closeout below uses the later current-main
+`b0c0c837` development build.
 
-The first BCCB run using the historical ELF as B and the new artifact as C did
-not reach C. Its sole B1 observation was 102,634.326941 ms / 389.733155 tok/s
-server pure Prefill with 102,674.589111 ms external TTFT, but it is invalid:
-continuous ownership detected an unexpected `systemd-udevd` CPU consumer;
-continuous clock proof was incomplete; and the old harness had
-shutdown/listener-reuse defects. Its 76.406C CPU and 77.062C GPU/Tj maxima are
-inside the owner-specified normal range through 85C, so the former sub-70C
-reason is superseded rather than a hardware thermal failure. The independent
-failures still prevent the diagnostic from reproducing the incumbent or
-entering a comparison.
-Sustainable retry r1 then failed its
-frequency setup before server/model execution. Retry r2 started B but returned
-zero of one completed EvalScope requests: the superseded 70C fail-fast fired at
-70.031C CPU/Tj even though that temperature is normal under the corrected
-protocol; independently, an external accepted `sshd` session reached 7.994% of
-one CPU core. Root `tegrastats` recorded 1010--1019-MHz request-window GPU
-effective values while sysfs remained fixed at 1.02 GHz; this is retained as
-telemetry and is not itself evidence of downclocking. The obsolete temperature
-gate stopped the request before a response, so it has no usable timing.
-SIGINT -> SIGTERM -> SIGKILL failed the graceful server-shutdown contract, but
-the private session, listener, GPU-device handles, and `nvmap` ownership were
-clean after exit. No C request completed validly. Harness
-`cdb7f7e1c4f0cc8d1e9ba1604f0820b09851e2abedf462bbc11a2798f1791bde`
-freezes the final candidate identity, an 85C-inclusive normal-temperature
-gate, a separate above-90C throttle-risk boundary, exact sysfs-lock evidence,
-and independent hardware cooling/throttle plus over-current evidence for the
-next retest. GPU effective MHz from `tegrastats` is recorded as a distribution,
-not treated as the sysfs lock value. That retest must still complete two valid
-B and two valid C processes before a performance decision.
-Because the request asks for one output token, it contains no Decode transition
-and must report Decode unavailable. Exact identities and invalidation are
-frozen in the
+Current main `b0c0c837` / tree `2963cb99` now has one strict sustainable BCCB
+integration-health result at CPU 1,497,600 kHz, GPU 1.02 GHz, and EMC 3.2 GHz.
+All four independent cells are valid. Candidate mean server pure Prefill is
+325.983493208 tok/s versus 326.111753524 baseline, C/B 0.9996066983; this
+passes the predeclared 0.99 matched-baseline floor but is not a speedup and does
+not reproduce historical max-clock 392.804397 tok/s. Max-GPU r4/r5 are invalid
+because over-current counters increased, while temperatures stayed below 85C.
+Near-max r6-r8 at GPU 1.224 GHz contain four fully valid C cells with descriptive
+mean 375.956428659 tok/s and three fully valid B cells with descriptive mean
+375.935680902 tok/s, descriptive C/B 1.00005519. Independent external CPU
+samples leave every near-max bundle without a complete strict BCCB, so the
+cross-bundle means are descriptive only and cannot authorize a performance
+decision. Root `tegrastats` GPU effective MHz remains observational; exact
+sysfs locks, cooling/throttle, over-current, ownership, and cleanup stay
+independent gates. Temperatures through 85C are accepted and above 90C is
+throttle risk. Because the request asks for one output token, Decode is
+unavailable. Exact identities, bundle hashes, and invalidations are frozen in
+the
 [`P40 v10 mainline absorption record`](metadata/qwen36-27b-p40-v10-mainline-absorption-2026-08-21.json).
 
 The default-off exact-P40000 grouped projection-reset experiment emits

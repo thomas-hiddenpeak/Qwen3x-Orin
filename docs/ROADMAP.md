@@ -70,27 +70,22 @@ non-statistical, non-target-length, non-release boundary are frozen in the
 This was a branch-closeout exception under explicit owner direction, not a P3
 restart or permission for further performance exploration.
 
-The subsequent owner-directed v10 P40 retention exception has made the exact
+The subsequent owner-directed v10 P40 retention exception made the exact
 nine-item whole-core inventory reproducible as one typed, default-OFF,
-`BUILD_TESTING=OFF`, non-installing development artifact at `0cf4048`. It does
-not change the ordinary default or grant accuracy, release, or production
-authority. Review follow-up `289f6d0` leaves the ordinary default ELF
-byte-identical and refreshes the final development artifact/retest identity.
-None of its three BCCB closeout attempts closes this runtime gate.
-Attempt 1 retains only an invalid diagnostic B1 timing; sustainable retry r1
-failed setup before server/model execution; retry r2 stopped the first B
-request under a now-superseded 70C fail-fast even though 70.031C is within the
-owner-specified normal range through 85C. It independently observed an
-external 7.994%-of-one-core `sshd` consumer; the old temperature gate stopped
-the request before a response, so it produced no usable timing. The observed
-1010--1019-MHz request-window GPU effective values are telemetry rather than a
-fixed-sysfs-lock failure. It left no residue after bounded escalation but did not satisfy
-graceful shutdown. No valid C request has completed. The corrected retest gate
-accepts temperatures through 85C, treats above 90C as throttle risk, and audits
-exact sysfs locks plus hardware cooling/throttle and over-current state
-separately while recording GPU effective MHz as a distribution. The historical 392.804397 tok/s observation
-remains the unqualified incumbent; no current-mainline reproduction or
-performance decision is claimed. The exact boundary is frozen in the
+`BUILD_TESTING=OFF`, non-installing development artifact. Current main
+`b0c0c837` / tree `2963cb99` now closes the integration-health gate with a
+strict four-valid-cell sustainable BCCB: candidate mean 325.983493208 tok/s,
+baseline mean 326.111753524 tok/s, and C/B 0.9996066983. It passes the
+predeclared 0.99 matched-baseline floor but is not a speedup and does not
+reproduce the historical one-sample 392.804397 tok/s max-clock result. Full
+max-GPU r4/r5 are invalid from over-current counter increases, not temperature;
+all remained below 85C. Near-max GPU r6-r8 contain four individually valid C
+cells with descriptive mean 375.956428659 tok/s and three valid B cells with
+descriptive mean 375.935680902 tok/s (descriptive C/B 1.00005519), but external
+CPU samples prevent any bundle from completing strict BCCB, so those cells are
+not stitched into a performance decision. The route remains accuracy-
+unqualified, non-release, non-production, and default-OFF. The exact boundary
+and bundle hashes are frozen in the
 [`P40 v10 mainline absorption record`](metadata/qwen36-27b-p40-v10-mainline-absorption-2026-08-21.json).
 
 Inside every Prefill architecture candidate, the work order is also fixed:
@@ -214,9 +209,10 @@ section authorizes a Prefill performance run, profiler capture, local scan,
 default-route change, or production promotion while the pause remains.
 The later 2026-08-21 owner directions authorized only the bounded prompt-wide
 absorption and the v10 P40 development-route retention recorded above. The
-first batch is closed; the P40 code absorption is complete but its valid
-real-model closeout remains pending. The general pause and the prohibition on
-new P3 exploration remain in force.
+first batch is closed; the P40 code absorption and current-main sustainable
+integration-health closeout are complete, while historical max-clock
+reproduction remains open. The general pause and the prohibition on new P3
+exploration remain in force.
 
 ### Paused recovery boundary
 

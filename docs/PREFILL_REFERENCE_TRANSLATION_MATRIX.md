@@ -41,10 +41,10 @@ stable system boundary returns to the SDD.
 | Product symptom | Cold/no-cache, single-request 40K--60K and approximately 130K Prefill remains below the owner-set API target and useful vLLM starting line |
 | Parent candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` |
 | Package state | Paused; no active local optimization package |
-| Incumbent | The historical 392.804397-token/s v10 observation; its route is now exposed by the typed, default-OFF, non-installing `BUILD_TESTING=OFF` development artifact identified by [Current Status](CURRENT_STATUS.md), but three invalid closeout attempts contain no valid absorbed-C request and do not reproduce that timing |
+| Incumbent | The historical max-clock 392.804397-token/s v10 observation remains unreproduced; the typed current-main artifact has a strict sustainable BCCB at 325.983493208 candidate tok/s versus 326.111753524 baseline, while near-max valid C cells average 375.956428659 tok/s descriptively without a complete strict BCCB |
 | Numerical boundary | [Prefill mathematical-equivalence ledger](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md) |
 | Production exclusions | No MTP, cuBLASLt production path, silent fallback, approximate mainline, request-time JIT/repack/autotune, or full-model BF16 weight copy |
-| First return point | One clean-host, real-checkpoint, cold/no-cache P40 OpenAI API direction witness; the next retest uses harness `cdb7f7e1`, accepts temperature through 85C, audits exact sysfs locks plus hardware throttle state independently, and treats `tegrastats` GPU effective MHz as a distribution |
+| First return point | Current-main sustainable integration health is closed; any resumed competitive package must return through a newly predeclared clean-host, real-checkpoint, cold/no-cache P40 OpenAI API witness while retaining the 85C-inclusive gate, above-90C risk boundary, independent sysfs/cooling/over-current/ownership checks, and observational `tegrastats` GPU effective distribution |
 | Stop condition | Close or redesign the complete architecture after one negative composition and at most one predeclared causal profile; do not turn it into a tile scan |
 
 ## 2. Control model and current Q3X plant
