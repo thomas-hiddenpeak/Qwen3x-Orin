@@ -520,6 +520,34 @@ void test_target_prefill_witness_evidence(TestContext& test) {
   test.expect(valid_json(serialized),
               "request evidence serialization remains valid JSON");
 
+  record.request_state_reset = q3x::runtime::RequestStateResetReceipt{
+      q3x::runtime::RequestStateResetMode::kCommittedDirtyPrefix,
+      40'015U, 2'700'869'632ULL, 15.625};
+  const std::string reset_serialized =
+      server::serialize_target_prefill_witness(record);
+  test.expect(
+      valid_json(reset_serialized) &&
+          reset_serialized.find(
+              R"("record":"target-prefill-witness-v16","schema_version":16)") !=
+              std::string::npos &&
+          reset_serialized.find(
+              R"("request_state_reset":{"mode":"committed_dirty_prefix","positions":40015,"bytes":2700869632,"milliseconds":15.625000})") !=
+              std::string::npos,
+      "ordinary production witness v16 publishes exact reset mode, positions, bytes, and synchronized timing");
+
+  server::TargetPrefillWitnessRecord invalid_reset_record = record;
+  ++invalid_reset_record.request_state_reset->zeroed_bytes;
+  const std::string invalid_reset_serialized =
+      server::serialize_target_prefill_witness(invalid_reset_record);
+  test.expect(
+      valid_json(invalid_reset_serialized) &&
+          invalid_reset_serialized.find(
+              R"("record":"target-prefill-witness-v1","schema_version":1)") !=
+              std::string::npos &&
+          invalid_reset_serialized.find("request_state_reset") ==
+              std::string::npos,
+      "an invalid reset receipt cannot claim the ordinary production v16 schema");
+
   server::TargetPrefillWitnessRecord sealed_record = record;
   sealed_record.prefill_execution_mode = q3x::runtime::
       ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
@@ -542,8 +570,9 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               std::string::npos &&
           sealed_serialized.find(
               R"("deployment_plan":{"available":true,"scope":"engine_lifetime_sealed_native_plan","id":"q3x.sm87.exact.layer-major-c8192.operator-panel.v3"})") !=
-              std::string::npos,
-      "sealed whole-request evidence keeps the stable v2 contract");
+              std::string::npos &&
+          sealed_serialized.find("request_state_reset") == std::string::npos,
+      "sealed whole-request evidence keeps the stable v2 contract and ignores the production-only receipt");
 
   server::TargetPrefillWitnessRecord candidate_record = sealed_record;
   candidate_record.operator_panel_executor_hits = 128U;

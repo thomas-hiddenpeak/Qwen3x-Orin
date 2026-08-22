@@ -277,8 +277,20 @@ backend selection from the log to explain the remaining engine interval. If
 those request boundaries are missing, the cause remains unresolved rather
 than being assigned from nearby log-line order.
 
-Legacy/unsealed evidence retains the byte-stable
-`target-prefill-witness-v1` schema. A successfully committed sealed
+Legacy/unsealed evidence without a request-reset receipt retains the
+byte-stable `target-prefill-witness-v1` schema. Ordinary legacy C512
+production requests with a valid automatic reset receipt emit the independent
+`target-prefill-witness-v16` schema. Version 16 adds
+`request_state_reset.mode`, `positions`, `bytes`, and synchronized
+`milliseconds`. Mode is `already_clean`, `committed_dirty_prefix`, or
+`conservative_full`; the first requires zero positions/bytes and the latter
+two require `78,446,592 + 65,536 * positions` exact bytes. It is valid only
+for unsealed legacy execution and cannot be selected by request input,
+environment, CLI, or a test admission. Missing or malformed receipts remain
+v1 and cannot claim v16. Historical v12 remains reserved by the removed
+phase-local experiment below.
+
+A successfully committed sealed
 layer-major request emits `target-prefill-witness-v2`, adding the actual
 execution mode, logical panel count, request-memory profile, bounded-window
 fact, retirement count, and stable deployment-plan identifier. An empty plan

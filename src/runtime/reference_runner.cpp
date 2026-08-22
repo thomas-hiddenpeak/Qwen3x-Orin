@@ -6,6 +6,7 @@
 #if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
 #include "reference_runner_full_attention_oracle_internal.h"
 #endif
+#include "reference_runner_request_reset_policy_internal.h"
 
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
 #if defined(Q3X_ENABLE_P40_PROJECTION_RESET_ADMISSION)
@@ -2754,6 +2755,13 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
   trace_enabled_ = std::exchange(other.trace_enabled_, false);
   trace_valid_ = std::exchange(other.trace_valid_, false);
   poisoned_ = std::exchange(other.poisoned_, false);
+  request_reuse_boundary_ = std::exchange(
+      other.request_reuse_boundary_,
+      static_cast<std::uint8_t>(
+          reference_runner_request_reset_detail::RequestReuseBoundary::
+              kKnownClean));
+  committed_request_positions_ =
+      std::exchange(other.committed_request_positions_, 0U);
   retained_prefill_hidden_valid_ =
       std::exchange(other.retained_prefill_hidden_valid_, false);
   retained_prefill_position_ =
@@ -2874,6 +2882,10 @@ void ReferenceRunner::release() noexcept {
   trace_enabled_ = false;
   trace_valid_ = false;
   poisoned_ = false;
+  request_reuse_boundary_ = static_cast<std::uint8_t>(
+      reference_runner_request_reset_detail::RequestReuseBoundary::
+          kKnownClean);
+  committed_request_positions_ = 0U;
   retained_prefill_hidden_valid_ = false;
   retained_prefill_position_ = 0U;
   retained_prefill_input_token_ = 0U;
@@ -2943,6 +2955,9 @@ ReferenceStepOutcome ReferenceRunner::fail_step(
         reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
   }
   poisoned_ = true;
+  request_reuse_boundary_ = static_cast<std::uint8_t>(
+      reference_runner_request_reset_detail::RequestReuseBoundary::kUncertain);
+  committed_request_positions_ = 0U;
   trace_valid_ = false;
   retained_prefill_hidden_valid_ = false;
   whole_request_prefill_stage_ = {};
@@ -2961,6 +2976,9 @@ ReferencePrefillTileOutcome ReferenceRunner::fail_prefill_tile(
         reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
   }
   poisoned_ = true;
+  request_reuse_boundary_ = static_cast<std::uint8_t>(
+      reference_runner_request_reset_detail::RequestReuseBoundary::kUncertain);
+  committed_request_positions_ = 0U;
   trace_valid_ = false;
   retained_prefill_hidden_valid_ = false;
   whole_request_prefill_stage_ = {};
@@ -3001,6 +3019,9 @@ ReferenceRunner::fail_whole_request_prefill(
         "whole_request_prefill_failure_drain_auxiliary");
   }
   poisoned_ = true;
+  request_reuse_boundary_ = static_cast<std::uint8_t>(
+      reference_runner_request_reset_detail::RequestReuseBoundary::kUncertain);
+  committed_request_positions_ = 0U;
   trace_valid_ = false;
   retained_prefill_hidden_valid_ = false;
   whole_request_prefill_stage_ = {};
@@ -3019,6 +3040,9 @@ ReferenceRunnerStatus ReferenceRunner::fail_whole_request_status(
         reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
   }
   poisoned_ = true;
+  request_reuse_boundary_ = static_cast<std::uint8_t>(
+      reference_runner_request_reset_detail::RequestReuseBoundary::kUncertain);
+  committed_request_positions_ = 0U;
   trace_valid_ = false;
   retained_prefill_hidden_valid_ = false;
   whole_request_prefill_stage_ = {};
@@ -3070,6 +3094,10 @@ ReferenceRunnerStatus ReferenceRunner::reset() noexcept {
                          static_cast<int>(sync_status));
   }
   poisoned_ = false;
+  request_reuse_boundary_ = static_cast<std::uint8_t>(
+      reference_runner_request_reset_detail::RequestReuseBoundary::
+          kKnownClean);
+  committed_request_positions_ = 0U;
   trace_valid_ = false;
   retained_prefill_hidden_valid_ = false;
   retained_prefill_position_ = 0U;
@@ -3079,6 +3107,112 @@ ReferenceRunnerStatus ReferenceRunner::reset() noexcept {
   trace_input_token_ = 0U;
   whole_request_prefill_stage_ = {};
   reset_prefill_route_request(prefill_route_evidence_);
+  return {};
+}
+
+ReferenceRunnerStatus ReferenceRunner::begin_ordinary_request(
+    RequestStateResetReceipt& receipt) noexcept {
+  using Clock = std::chrono::steady_clock;
+  const Clock::time_point started = Clock::now();
+  receipt = {};
+  if (!static_cast<bool>(*this)) {
+    return runner_status(ReferenceRunnerError::kInvalidRunner,
+                         "begin_ordinary_request");
+  }
+
+  using reference_runner_request_reset_detail::RequestResetDecision;
+  using reference_runner_request_reset_detail::RequestReuseBoundary;
+  const auto boundary = static_cast<RequestReuseBoundary>(
+      request_reuse_boundary_);
+  const RequestResetDecision decision =
+      reference_runner_request_reset_detail::select_request_reset(
+          boundary, committed_request_positions_, state_->current_position(),
+          state_->max_sequence_length(), state_->memory_profile(), poisoned_,
+          whole_request_prefill_active());
+
+  // Once a request has started, no prior committed boundary can be reused
+  // unless the Engine later accepts and republishes the whole request.
+  request_reuse_boundary_ =
+      static_cast<std::uint8_t>(RequestReuseBoundary::kUncertain);
+  committed_request_positions_ = 0U;
+  if (prefill_auxiliary_stream_ != nullptr) {
+    const cudaError_t auxiliary_sync_status = cudaStreamSynchronize(
+        reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
+    if (auxiliary_sync_status != cudaSuccess) {
+      poisoned_ = true;
+      trace_valid_ = false;
+      return runner_status(ReferenceRunnerError::kCudaFailure,
+                           "request_reset_auxiliary_synchronize",
+                           kReferenceNoLayer,
+                           static_cast<int>(auxiliary_sync_status));
+    }
+  }
+
+  const RequestOperationStatus reset_status =
+      state_->reset_for_request_async(decision.mode,
+                                      decision.committed_positions, stream_,
+                                      receipt);
+  if (!reset_status) {
+    poisoned_ = true;
+    trace_valid_ = false;
+    return runner_status(
+        reset_status.error == RequestAccessError::kNone
+            ? ReferenceRunnerError::kCudaFailure
+            : ReferenceRunnerError::kInvalidRequestState,
+        "request_state_ordinary_reset", kReferenceNoLayer,
+        reset_status.cuda_error);
+  }
+  if (decision.mode != RequestStateResetMode::kAlreadyClean) {
+    const cudaError_t sync_status = cudaStreamSynchronize(
+        reinterpret_cast<cudaStream_t>(stream_));
+    if (sync_status != cudaSuccess) {
+      poisoned_ = true;
+      trace_valid_ = false;
+      return runner_status(ReferenceRunnerError::kCudaFailure,
+                           "request_reset_synchronize", kReferenceNoLayer,
+                           static_cast<int>(sync_status));
+    }
+  }
+  receipt.milliseconds =
+      std::chrono::duration<double, std::milli>(Clock::now() - started).count();
+
+  poisoned_ = false;
+  trace_valid_ = false;
+  retained_prefill_hidden_valid_ = false;
+  retained_prefill_position_ = 0U;
+  retained_prefill_input_token_ = 0U;
+  retained_prefill_hidden_row_ = 0U;
+  trace_position_ = 0U;
+  trace_input_token_ = 0U;
+  whole_request_prefill_stage_ = {};
+  reset_prefill_route_request(prefill_route_evidence_);
+  return {};
+}
+
+ReferenceRunnerStatus ReferenceRunner::commit_ordinary_request_boundary()
+    noexcept {
+  using reference_runner_request_reset_detail::RequestReuseBoundary;
+  if (!static_cast<bool>(*this) || poisoned_ || whole_request_prefill_active() ||
+      state_->current_position() == 0U ||
+      state_->current_position() > state_->max_sequence_length() ||
+      static_cast<RequestReuseBoundary>(request_reuse_boundary_) !=
+          RequestReuseBoundary::kUncertain) {
+    request_reuse_boundary_ =
+        static_cast<std::uint8_t>(RequestReuseBoundary::kUncertain);
+    committed_request_positions_ = 0U;
+    return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                         "commit_ordinary_request_boundary");
+  }
+  if (state_->memory_profile() != RequestMemoryProfile::kLegacyC512) {
+    // Candidate profiles deliberately retain the existing full-reset route.
+    // Their successful request boundary is valid, but never authorizes a
+    // prefix reset on the next request.
+    committed_request_positions_ = 0U;
+    return {};
+  }
+  committed_request_positions_ = state_->current_position();
+  request_reuse_boundary_ =
+      static_cast<std::uint8_t>(RequestReuseBoundary::kCommitted);
   return {};
 }
 
@@ -3470,6 +3604,12 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
     outcome.status =
         runner_status(ReferenceRunnerError::kPoisoned, "step");
     return outcome;
+  }
+  if (graph_action != DecodeGraphP1Action::kCaptureOnly) {
+    request_reuse_boundary_ = static_cast<std::uint8_t>(
+        reference_runner_request_reset_detail::RequestReuseBoundary::
+            kUncertain);
+    committed_request_positions_ = 0U;
   }
   if (!is_valid_reference_logits_mode(options.logits_mode)) {
     return fail_step(runner_status(
@@ -5696,6 +5836,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                                    "prefill_prefix_tile");
     return outcome;
   }
+  request_reuse_boundary_ = static_cast<std::uint8_t>(
+      reference_runner_request_reset_detail::RequestReuseBoundary::kUncertain);
+  committed_request_positions_ = 0U;
   if (input_token_ids == nullptr || token_count == 0U ||
       token_count > kMaximumRequestPrefillChunkSize) {
     return fail_prefill_tile(
@@ -5896,6 +6039,9 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
                                    "whole_request_prefill");
     return outcome;
   }
+  request_reuse_boundary_ = static_cast<std::uint8_t>(
+      reference_runner_request_reset_detail::RequestReuseBoundary::kUncertain);
+  committed_request_positions_ = 0U;
   const bool any_prompt_wide_p40_whole_core_identity =
       state_->memory_profile() == RequestMemoryProfile::kLayerMajorP40WholeCore ||
       projection_tactic == LayerMajorPrefillProjectionTactic::

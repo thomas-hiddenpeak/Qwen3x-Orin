@@ -570,6 +570,7 @@ add_library(q3x_kernels STATIC
   src/runtime/reference_runner_full_attention_oracle_internal.h
   src/runtime/reference_runner_gdn_exact_span_policy_internal.h
   src/runtime/reference_runner_prompt_wide_policy_internal.h
+  src/runtime/reference_runner_request_reset_policy_internal.h
   src/runtime/reference_runner_layer_major_views.cpp
   src/kernels/reference/decode_ops.cu
   src/kernels/reference/full_attention_c512_register_pipeline.cu

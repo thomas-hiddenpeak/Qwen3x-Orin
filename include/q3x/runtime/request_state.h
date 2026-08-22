@@ -146,6 +146,36 @@ enum class RequestAccessError : std::uint8_t {
     kMemoryProfileMismatch,
     kSequenceLengthMismatch,
     kSequenceLengthRegression,
+    kInvalidResetPlan,
+};
+
+// Request reuse never exposes a caller-selected production tactic. The
+// ordinary engine derives one of these reset modes from its sealed request
+// lifecycle: a newly created/already-reset arena can be reused as-is, an
+// exactly committed request can clear only its visible KV prefix, and every
+// uncertain boundary falls back to the complete persistent span.
+enum class RequestStateResetMode : std::uint8_t {
+    kAlreadyClean = 0,
+    kCommittedDirtyPrefix,
+    kConservativeFull,
+};
+
+struct RequestStateResetPlan {
+    bool valid = false;
+    RequestStateResetMode mode = RequestStateResetMode::kConservativeFull;
+    std::uint32_t cleared_positions = 0U;
+    std::uint64_t zeroed_bytes = 0U;
+    std::uint32_t memset_operations = 0U;
+};
+
+// Appended to the successful ordinary request witness. The elapsed interval
+// includes the completion synchronization, so it is a request-visible reset
+// cost rather than enqueue-only host overhead.
+struct RequestStateResetReceipt {
+    RequestStateResetMode mode = RequestStateResetMode::kConservativeFull;
+    std::uint32_t cleared_positions = 0U;
+    std::uint64_t zeroed_bytes = 0U;
+    double milliseconds = 0.0;
 };
 
 struct RequestLayerSlotResult {
@@ -218,6 +248,16 @@ struct RequestMemoryPlan {
     // Appended in ABI 0.5.0 so every legacy field retains its prior offset.
     RequestMemoryProfile profile = RequestMemoryProfile::kLegacyC512;
 };
+
+// Pure host plan used by the automatic runner lifecycle and its host tests.
+// committed_positions is consumed only by kCommittedDirtyPrefix. A valid
+// dirty-prefix plan always covers the complete Conv/GDN span plus the exact
+// prefix of every one of the 16 K/V pairs. A conservative plan is the legacy
+// one-span reset; the already-clean plan enqueues no work.
+[[nodiscard]] RequestStateResetPlan build_request_state_reset_plan(
+    const RequestMemoryPlan& plan,
+    RequestStateResetMode mode,
+    std::uint32_t committed_positions = 0U) noexcept;
 
 struct RequestPlanResult {
     std::optional<RequestMemoryPlan> value;
@@ -575,6 +615,8 @@ struct RequestOperationStatus {
 };
 
 struct RequestStateResult;
+class ReferenceRunner;
+struct RequestStateResetCudaTestPeer;
 
 class RequestState {
   public:
@@ -676,6 +718,11 @@ class RequestState {
         const RequestMemoryOptions&);
     friend RequestStateResult create_layer_major_request_state(
         const LayerMajorRequestMemoryOptions&);
+    friend class ReferenceRunner;
+    // Narrow correctness-test peer for exercising the lifecycle-selected
+    // reset primitive against real CUDA storage. It is not a production
+    // selector and cannot be reached through the public engine API.
+    friend struct RequestStateResetCudaTestPeer;
 
     void release() noexcept;
     [[nodiscard]] DeviceBufferView mutable_view(
@@ -687,6 +734,11 @@ class RequestState {
     [[nodiscard]] const RequestMemoryPlan& common_plan() const noexcept {
         return layer_major_plan_ ? layer_major_plan_->common : plan_;
     }
+    [[nodiscard]] RequestOperationStatus reset_for_request_async(
+        RequestStateResetMode mode,
+        std::uint32_t committed_positions,
+        void* cuda_stream,
+        RequestStateResetReceipt& receipt) noexcept;
 
     void* arena_ = nullptr;
     RequestMemoryPlan plan_;
@@ -720,5 +772,6 @@ struct RequestStateResult {
 
 [[nodiscard]] std::string_view to_string(RequestErrorCode code) noexcept;
 [[nodiscard]] std::string_view to_string(RequestAccessError error) noexcept;
+[[nodiscard]] std::string_view to_string(RequestStateResetMode mode) noexcept;
 
 }  // namespace q3x::runtime

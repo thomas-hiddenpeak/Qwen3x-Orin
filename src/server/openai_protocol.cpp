@@ -213,6 +213,33 @@ void append_phase_evidence(std::string& output,
   output += "}";
 }
 
+[[nodiscard]] bool valid_request_state_reset_receipt(
+    const runtime::RequestStateResetReceipt& receipt) noexcept {
+  if (!std::isfinite(receipt.milliseconds) || receipt.milliseconds < 0.0) {
+    return false;
+  }
+  if (receipt.mode == runtime::RequestStateResetMode::kAlreadyClean) {
+    return receipt.cleared_positions == 0U && receipt.zeroed_bytes == 0U;
+  }
+  if ((receipt.mode !=
+           runtime::RequestStateResetMode::kCommittedDirtyPrefix &&
+       receipt.mode != runtime::RequestStateResetMode::kConservativeFull) ||
+      receipt.cleared_positions == 0U) {
+    return false;
+  }
+  constexpr std::uint64_t kFixedBytes =
+      runtime::kRequestConvStateBytes + runtime::kRequestGdnStateBytes;
+  if (receipt.cleared_positions >
+      (std::numeric_limits<std::uint64_t>::max() - kFixedBytes) /
+          runtime::kRequestKvBytesPerToken) {
+    return false;
+  }
+  return receipt.zeroed_bytes ==
+         kFixedBytes +
+             static_cast<std::uint64_t>(receipt.cleared_positions) *
+                 runtime::kRequestKvBytesPerToken;
+}
+
 void append_prefill_route_evidence(
     std::string& output, const runtime::PrefillRouteEvidence& evidence) {
   const bool count_matches =
@@ -838,6 +865,13 @@ std::string sha256_token_ids_u32le(
 std::string serialize_target_prefill_witness(
     const TargetPrefillWitnessRecord& record) {
   const bool sealed = !record.deployment_plan_id.empty();
+  const bool production_reset_v16 =
+      !sealed && record.request_state_reset.has_value() &&
+      record.prefill_execution_mode ==
+          runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled &&
+      record.request_memory_profile ==
+          runtime::RequestMemoryProfile::kLegacyC512 &&
+      valid_request_state_reset_receipt(*record.request_state_reset);
   const bool candidate_q64_v3 =
       record.deployment_plan_id ==
       runtime::kLayerMajorNativeGroupQ64PanelDeploymentPlanId;
@@ -1346,6 +1380,9 @@ std::string serialize_target_prefill_witness(
           : candidate_v3
           ? "{\"record\":\"target-prefill-witness-v3\","
             "\"schema_version\":3,\"request\":{\"id\":"
+          : production_reset_v16
+                ? "{\"record\":\"target-prefill-witness-v16\","
+                  "\"schema_version\":16,\"request\":{\"id\":"
           : sealed
                 ? "{\"record\":\"target-prefill-witness-v2\","
                   "\"schema_version\":2,\"request\":{\"id\":"
@@ -1386,7 +1423,20 @@ std::string serialize_target_prefill_witness(
   append_phase_evidence(output, "decode", record.decode);
   output += ',';
   append_phase_evidence(output, "total", record.total);
-  output += "},\"prefill\":{\"requested_chunk\":" +
+  output += "}";
+  if (production_reset_v16) {
+    output += ",\"request_state_reset\":{\"mode\":";
+    append_json_string(
+        output, runtime::to_string(record.request_state_reset->mode));
+    output += ",\"positions\":" +
+              std::to_string(
+                  record.request_state_reset->cleared_positions) +
+              ",\"bytes\":" +
+              std::to_string(record.request_state_reset->zeroed_bytes) +
+              ",\"milliseconds\":" +
+              std::to_string(record.request_state_reset->milliseconds) + "}";
+  }
+  output += ",\"prefill\":{\"requested_chunk\":" +
             std::to_string(record.requested_prefill_chunk_size) +
             ",\"effective_chunk\":" +
             std::to_string(record.effective_prefill_chunk_size) +

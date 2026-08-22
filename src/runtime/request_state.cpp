@@ -599,6 +599,92 @@ RequestPlanResult build_request_memory_plan(
     return result;
 }
 
+RequestStateResetPlan build_request_state_reset_plan(
+    const RequestMemoryPlan& plan,
+    const RequestStateResetMode mode,
+    const std::uint32_t committed_positions) noexcept {
+    RequestStateResetPlan result;
+    result.mode = mode;
+
+    std::uint64_t persistent_end = 0U;
+    if (plan.max_sequence_length == 0U || plan.persistent_bytes == 0U ||
+        !checked_add(plan.persistent_offset, plan.persistent_bytes,
+                     persistent_end) ||
+        persistent_end > plan.arena_bytes) {
+        return result;
+    }
+
+    if (mode == RequestStateResetMode::kAlreadyClean) {
+        if (committed_positions != 0U) {
+            return result;
+        }
+        result.valid = true;
+        return result;
+    }
+    if (mode == RequestStateResetMode::kConservativeFull) {
+        if (committed_positions != 0U) {
+            return result;
+        }
+        result.valid = true;
+        result.cleared_positions = plan.max_sequence_length;
+        result.zeroed_bytes = plan.persistent_bytes;
+        result.memset_operations = 1U;
+        return result;
+    }
+    if (mode != RequestStateResetMode::kCommittedDirtyPrefix ||
+        committed_positions == 0U ||
+        committed_positions > plan.max_sequence_length) {
+        return result;
+    }
+
+    std::uint64_t expected_offset = plan.persistent_offset;
+    const auto consume_region = [&expected_offset](
+                                    const RequestRegion& region,
+                                    const std::uint64_t expected_bytes) noexcept {
+        std::uint64_t region_end = 0U;
+        if (region.arena_offset != expected_offset ||
+            region.byte_size != expected_bytes ||
+            !checked_add(region.arena_offset, region.byte_size, region_end)) {
+            return false;
+        }
+        expected_offset = region_end;
+        return true;
+    };
+    std::uint64_t kv_region_bytes = 0U;
+    if (!checked_multiply(plan.max_sequence_length,
+                          kRequestKvBytesPerToken /
+                              (2U * kRequestFullLayerCount),
+                          kv_region_bytes) ||
+        !consume_region(plan.conv_state, kRequestConvStateBytes) ||
+        !consume_region(plan.gdn_state, kRequestGdnStateBytes)) {
+        return result;
+    }
+    for (std::size_t slot = 0U; slot < kRequestFullLayerCount; ++slot) {
+        if (!consume_region(plan.key_cache[slot], kv_region_bytes) ||
+            !consume_region(plan.value_cache[slot], kv_region_bytes)) {
+            return result;
+        }
+    }
+    if (expected_offset != persistent_end) {
+        return result;
+    }
+
+    std::uint64_t dirty_kv_bytes = 0U;
+    std::uint64_t zeroed_bytes = 0U;
+    if (!checked_multiply(committed_positions, kRequestKvBytesPerToken,
+                          dirty_kv_bytes) ||
+        !checked_add(kRequestConvStateBytes + kRequestGdnStateBytes,
+                     dirty_kv_bytes, zeroed_bytes)) {
+        return result;
+    }
+    result.valid = true;
+    result.cleared_positions = committed_positions;
+    result.zeroed_bytes = zeroed_bytes;
+    result.memset_operations =
+        1U + static_cast<std::uint32_t>(2U * kRequestFullLayerCount);
+    return result;
+}
+
 LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     const LayerMajorRequestMemoryOptions& options) {
     const bool whole_core_p40 =
@@ -1911,23 +1997,78 @@ RequestConstViewResult RequestState::current_rope_sin() const noexcept {
     return rope_sin(sequence_length_);
 }
 
-RequestOperationStatus RequestState::reset_async(void* const cuda_stream) noexcept {
+RequestOperationStatus RequestState::reset_for_request_async(
+    const RequestStateResetMode mode,
+    const std::uint32_t committed_positions,
+    void* const cuda_stream,
+    RequestStateResetReceipt& receipt) noexcept {
     if (arena_ == nullptr) {
         return {RequestAccessError::kEmptyState, 0};
     }
+    const RequestStateResetPlan reset_plan = build_request_state_reset_plan(
+        common_plan(), mode, committed_positions);
+    if (!reset_plan.valid ||
+        ((mode == RequestStateResetMode::kAlreadyClean ||
+          mode == RequestStateResetMode::kCommittedDirtyPrefix) &&
+         sequence_length_ != committed_positions)) {
+        return {RequestAccessError::kInvalidResetPlan, 0};
+    }
+
     (void)cudaGetLastError();
     const RequestMemoryPlan& active_plan = common_plan();
-    const cudaError_t status = cudaMemsetAsync(
-        static_cast<std::uint8_t*>(arena_) +
-            static_cast<std::size_t>(active_plan.persistent_offset),
-        0,
-        static_cast<std::size_t>(active_plan.persistent_bytes),
-        reinterpret_cast<cudaStream_t>(cuda_stream));
-    if (status != cudaSuccess) {
-        return {RequestAccessError::kNone, static_cast<int>(status)};
+    const cudaStream_t stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+    const auto zero_region = [this, stream](const RequestRegion& region,
+                                            const std::uint64_t bytes) noexcept {
+        return cudaMemsetAsync(
+            static_cast<std::uint8_t*>(arena_) +
+                static_cast<std::size_t>(region.arena_offset),
+            0, static_cast<std::size_t>(bytes), stream);
+    };
+    if (mode == RequestStateResetMode::kConservativeFull) {
+        const cudaError_t status = cudaMemsetAsync(
+            static_cast<std::uint8_t*>(arena_) +
+                static_cast<std::size_t>(active_plan.persistent_offset),
+            0, static_cast<std::size_t>(active_plan.persistent_bytes), stream);
+        if (status != cudaSuccess) {
+            return {RequestAccessError::kNone, static_cast<int>(status)};
+        }
+    } else if (mode == RequestStateResetMode::kCommittedDirtyPrefix) {
+        RequestRegion fixed_region;
+        fixed_region.arena_offset = active_plan.conv_state.arena_offset;
+        fixed_region.byte_size =
+            kRequestConvStateBytes + kRequestGdnStateBytes;
+        cudaError_t status = zero_region(fixed_region, fixed_region.byte_size);
+        if (status != cudaSuccess) {
+            return {RequestAccessError::kNone, static_cast<int>(status)};
+        }
+        const std::uint64_t per_cache_prefix_bytes =
+            static_cast<std::uint64_t>(committed_positions) *
+            kRequestKvBytesPerToken / (2U * kRequestFullLayerCount);
+        for (std::size_t slot = 0U; slot < kRequestFullLayerCount; ++slot) {
+            status = zero_region(active_plan.key_cache[slot],
+                                 per_cache_prefix_bytes);
+            if (status != cudaSuccess) {
+                return {RequestAccessError::kNone, static_cast<int>(status)};
+            }
+            status = zero_region(active_plan.value_cache[slot],
+                                 per_cache_prefix_bytes);
+            if (status != cudaSuccess) {
+                return {RequestAccessError::kNone, static_cast<int>(status)};
+            }
+        }
     }
     sequence_length_ = 0U;
+    receipt.mode = reset_plan.mode;
+    receipt.cleared_positions = reset_plan.cleared_positions;
+    receipt.zeroed_bytes = reset_plan.zeroed_bytes;
+    receipt.milliseconds = 0.0;
     return {};
+}
+
+RequestOperationStatus RequestState::reset_async(void* const cuda_stream) noexcept {
+    RequestStateResetReceipt receipt;
+    return reset_for_request_async(RequestStateResetMode::kConservativeFull, 0U,
+                                   cuda_stream, receipt);
 }
 
 RequestStateResult create_request_state(const RequestMemoryOptions& options) {
@@ -2246,6 +2387,20 @@ std::string_view to_string(RequestAccessError error) noexcept {
             return "sequence_length_regression";
         case RequestAccessError::kEmptyState:
             return "empty_state";
+        case RequestAccessError::kInvalidResetPlan:
+            return "invalid_reset_plan";
+    }
+    return "unknown";
+}
+
+std::string_view to_string(const RequestStateResetMode mode) noexcept {
+    switch (mode) {
+        case RequestStateResetMode::kAlreadyClean:
+            return "already_clean";
+        case RequestStateResetMode::kCommittedDirtyPrefix:
+            return "committed_dirty_prefix";
+        case RequestStateResetMode::kConservativeFull:
+            return "conservative_full";
     }
     return "unknown";
 }

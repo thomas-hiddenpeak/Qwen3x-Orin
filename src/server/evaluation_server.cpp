@@ -1300,6 +1300,7 @@ void emit_target_prefill_witness(
     record.vllm_marlin_parity_layer_completion_receipt_count =
         generation.prefill_vllm_marlin_parity_layer_completion_receipt_count;
     record.deployment_plan_id = generation.prefill_deployment_plan_id;
+    record.request_state_reset = generation.request_state_reset;
     std::cerr << serialize_target_prefill_witness(record) << '\n';
   } catch (...) {
     // Evidence is observational. Never convert an already successful model

@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: per-request state, workspace, memory-plan, and lifecycle ownership contract
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-08-23
   supersedes: []
   superseded_by: []
   ssot_for: RequestState persistent state, workspace, RoPE, allocation, and lifecycle behavior
@@ -169,10 +169,24 @@ remains available to reset or restore logical length where its callers already
 own that lifecycle. Conditional publication is supported identically by the
 legacy C512 and layer-major C8192 memory profiles and never launches CUDA work.
 
-`reset_async(stream)` enqueues one reset of the complete persistent Conv,
-GDN, K, and V span and sets host logical length to zero after successful
-enqueue. Workspace and immutable RoPE tables are not reset. Subsequent use
-must be ordered on the same stream or explicitly synchronized by the caller.
+The public `reset_async(stream)` remains the conservative recovery operation:
+it enqueues one reset of the complete persistent Conv, GDN, K, and V span and
+sets host logical length to zero after successful enqueue. Workspace and
+immutable RoPE tables are not reset. Subsequent use must be ordered on the
+same stream or explicitly synchronized by the caller.
+
+The ordinary production runner may use the private request-reuse boundary to
+select less work without weakening that zero-state contract. A state whose
+creation or prior full reset is known complete enqueues no reset. After one
+successfully accepted request, the next request clears the complete contiguous
+Conv/GDN region plus exactly `committed_positions` rows from each of the 16
+separate K and V caches. The byte receipt is therefore
+`78,446,592 + 65,536 * committed_positions`, submitted as one fixed-state
+memset plus 32 cache-prefix memsets. Zero or out-of-capacity positions, a
+noncanonical persistent layout, a host-length mismatch, or any lifecycle
+uncertainty rejects the prefix plan. The runner then uses the existing
+one-span full reset. No caller, environment variable, CLI flag, or test
+selector chooses a production reset mode.
 
 Move construction and assignment transfer sole arena ownership and leave the
 source empty. Views are non-owning and remain valid only while the owning
@@ -192,7 +206,8 @@ unrelated stale CUDA last-error state before reporting their own CUDA result.
 
 Host tests cover the exact schedule, region sizes, alignment, non-overlap,
 capacity limits, arithmetic overflow, bad options, all target-bucket totals,
-typed temporal aliases, and profile gates. CUDA tests cover real allocation,
+typed temporal aliases, profile gates, and exact clean/prefix/full reset-plan
+bytes. CUDA tests cover real allocation,
 initialization, view ranges, BF16-rounded RoPE values, lifecycle, reset
 ordering, memory gating, and move ownership. The approximately 1 GiB minimum
 layer-major allocation case is opt-in and may skip explicitly when its

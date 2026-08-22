@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: correctness-first engine ownership, generation, timing, trace, and failure contract
   effective: 2026-08-09
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-08-23
   supersedes: []
   superseded_by: []
   ssot_for: ReferenceEngine lifecycle, generation semantics, tracing, timing, and error behavior
@@ -74,8 +74,9 @@ tactic, launcher, runner route, CLI flag, API behavior, or production path.
 
 ## Accepted prompt surfaces
 
-All public generation calls require non-empty input and converge on one reset,
-capacity, Prefill, greedy Decode, stop, and result state machine:
+All public generation calls require non-empty input and converge on one
+automatic request-start cleanup, capacity, Prefill, greedy Decode, stop, and
+result state machine:
 
 - `generate(user_prompt)` formats exactly one user message with the pinned
   chat template, `add_generation_prompt=true`, and thinking disabled.
@@ -94,13 +95,24 @@ through the chat formatter changes token semantics and violates the contract.
 
 The engine has no internal mutex. Its caller must serialize generation calls
 and all mutation of the same engine; the current evaluation server provides
-that external serialization. Each invocation begins with a successful
-request-state reset. Prompt-prefix work executes without logits, the final
+that external serialization. Each started invocation first consumes the
+runner's private reuse boundary. A known-clean legacy arena skips redundant
+zeroing; an exactly accepted prior legacy request clears complete Conv/GDN and
+only its dirty K/V prefix; every uncertain or nonlegacy boundary performs the
+existing full reset. Prompt-prefix work executes without logits, the final
 prompt boundary produces the first greedy token, and subsequent Decode steps
 feed back the preceding prediction one token at a time. The logical control
 plane distinguishes Prefill, finish-Prefill, and Decode. This contract does
 not promise separate device executors, overlap, buffering depth, or a
 particular tile schedule.
+
+After result decoding and complete Prefill-route witness validation, a
+successful non-cancelled legacy generation seals its exact final logical
+position for the next request. Cancellation does not publish reusable
+dirty-prefix authority; like a failed or exceptional invocation, it leaves
+the boundary uncertain so the next request starts with and receipts a
+conservative full reset. The existing whole-request rollback guard continues
+to full-reset any active or uncommitted transaction.
 
 The requested workspace chunk is bounded by `1..512`. It is a capacity and
 controller input, not a promise that every component launches that exact
@@ -184,6 +196,11 @@ Timing fields have these stable meanings:
 - `decode_after_first_milliseconds`: sum of those later latencies; and
 - `total_generation_milliseconds`: complete generation wall time, excluding
   engine creation.
+
+Request-start cleanup retains its own synchronized
+`RequestStateResetReceipt`; it is not folded into these historical engine
+generation fields. The outer API engine-call wall and user-visible TTFT still
+observe the real cleanup cost.
 
 Accordingly, the exact host decomposition is:
 

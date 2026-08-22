@@ -15,6 +15,22 @@
 #include <utility>
 #include <vector>
 
+namespace q3x::runtime {
+
+struct RequestStateResetCudaTestPeer {
+    [[nodiscard]] static RequestOperationStatus reset_for_request_async(
+        RequestState& state,
+        const RequestStateResetMode mode,
+        const std::uint32_t committed_positions,
+        void* const cuda_stream,
+        RequestStateResetReceipt& receipt) noexcept {
+        return state.reset_for_request_async(mode, committed_positions,
+                                             cuda_stream, receipt);
+    }
+};
+
+}  // namespace q3x::runtime
+
 namespace {
 
 namespace runtime = q3x::runtime;
@@ -75,6 +91,84 @@ bool sample_zero(const runtime::DeviceBufferView& view) {
     for (std::size_t index = 0U; index < count; ++index) {
         if (bytes[index] != 0U) {
             return false;
+        }
+    }
+    return true;
+}
+
+bool sample_byte(const runtime::DeviceBufferView& view,
+                 const std::uint64_t byte_offset,
+                 const std::size_t count,
+                 const std::uint8_t expected) {
+    if (count == 0U || byte_offset > view.byte_size ||
+        count > view.byte_size - byte_offset || count > 64U) {
+        return false;
+    }
+    std::array<std::uint8_t, 64U> bytes{};
+    const auto* const source =
+        static_cast<const std::uint8_t*>(view.device_data) +
+        static_cast<std::size_t>(byte_offset);
+    if (cudaMemcpy(bytes.data(), source, count, cudaMemcpyDeviceToHost) !=
+        cudaSuccess) {
+        return false;
+    }
+    return std::all_of(bytes.begin(), bytes.begin() + count,
+                       [expected](const std::uint8_t byte) {
+                           return byte == expected;
+                       });
+}
+
+bool fixed_state_matches(const runtime::RequestState& state,
+                         const std::uint8_t expected) {
+    const runtime::RequestMemoryPlan& plan = state.plan();
+    const auto matches_edges = [&state, expected](
+                                   const runtime::RequestRegion& region) {
+        runtime::DeviceBufferView view;
+        view.device_data =
+            static_cast<std::uint8_t*>(
+                const_cast<void*>(state.arena_data())) +
+            static_cast<std::size_t>(region.arena_offset);
+        view.byte_size = region.byte_size;
+        return sample_byte(view, 0U, 64U, expected) &&
+               sample_byte(view, region.byte_size - 64U, 64U, expected);
+    };
+    return matches_edges(plan.conv_state) && matches_edges(plan.gdn_state);
+}
+
+bool all_kv_prefix_and_tail_match(runtime::RequestState& state,
+                                  const std::uint32_t cleared_positions,
+                                  const std::uint8_t tail_byte) {
+    constexpr std::uint64_t kBytesPerCachePosition =
+        runtime::kRequestKvBytesPerToken /
+        (2U * runtime::kRequestFullLayerCount);
+    for (std::size_t slot = 0U; slot < runtime::kRequestFullLayerCount;
+         ++slot) {
+        const std::size_t layer = slot * 4U + 3U;
+        const auto key = state.key_cache(layer);
+        const auto value = state.value_cache(layer);
+        if (!key || !value) {
+            return false;
+        }
+        for (const runtime::DeviceBufferView* const cache :
+             {&*key.value, &*value.value}) {
+            if (!sample_byte(*cache, 0U, 64U, 0U) ||
+                !sample_byte(*cache,
+                             static_cast<std::uint64_t>(cleared_positions) *
+                                     kBytesPerCachePosition -
+                                 64U,
+                             64U, 0U)) {
+                return false;
+            }
+            if (cleared_positions < state.max_sequence_length() &&
+                (!sample_byte(
+                     *cache,
+                     static_cast<std::uint64_t>(cleared_positions) *
+                         kBytesPerCachePosition,
+                     64U, tail_byte) ||
+                 !sample_byte(*cache, cache->byte_size - 64U, 64U,
+                              tail_byte))) {
+                return false;
+            }
         }
     }
     return true;
@@ -327,6 +421,70 @@ void test_create_views_rope_and_reset(TestContext& test) {
         }
         test.expect(workspace_untouched,
                     "reset leaves reusable workspace untouched");
+
+        constexpr std::uint8_t kFirstTailPoison = 0xA5U;
+        const runtime::RequestMemoryPlan& active_plan = state.plan();
+        const cudaError_t first_poison = cudaMemsetAsync(
+            static_cast<std::uint8_t*>(state.arena_data()) +
+                static_cast<std::size_t>(active_plan.persistent_offset),
+            kFirstTailPoison,
+            static_cast<std::size_t>(active_plan.persistent_bytes), stream);
+        const runtime::RequestOperationStatus first_publish =
+            state.set_sequence_length(2U);
+        runtime::RequestStateResetReceipt first_prefix_receipt;
+        const runtime::RequestOperationStatus first_prefix_reset =
+            runtime::RequestStateResetCudaTestPeer::reset_for_request_async(
+                state,
+                runtime::RequestStateResetMode::kCommittedDirtyPrefix, 2U,
+                reinterpret_cast<void*>(stream), first_prefix_receipt);
+        const cudaError_t first_prefix_sync = cudaStreamSynchronize(stream);
+        test.expect(
+            first_poison == cudaSuccess && first_publish &&
+                first_prefix_reset && first_prefix_sync == cudaSuccess &&
+                state.current_position() == 0U &&
+                first_prefix_receipt.mode ==
+                    runtime::RequestStateResetMode::kCommittedDirtyPrefix &&
+                first_prefix_receipt.cleared_positions == 2U &&
+                first_prefix_receipt.zeroed_bytes ==
+                    runtime::kRequestConvStateBytes +
+                        runtime::kRequestGdnStateBytes +
+                        2U * runtime::kRequestKvBytesPerToken &&
+                fixed_state_matches(state, 0U) &&
+                all_kv_prefix_and_tail_match(state, 2U,
+                                             kFirstTailPoison),
+            "dirty-prefix reset clears complete Conv/GDN and exactly two "
+            "positions in every K/V cache while preserving the poisoned "
+            "tail guard");
+
+        constexpr std::uint8_t kSecondTailPoison = 0x5AU;
+        const cudaError_t second_poison = cudaMemsetAsync(
+            static_cast<std::uint8_t*>(state.arena_data()) +
+                static_cast<std::size_t>(active_plan.persistent_offset),
+            kSecondTailPoison,
+            static_cast<std::size_t>(active_plan.persistent_bytes), stream);
+        const runtime::RequestOperationStatus second_publish =
+            state.set_sequence_length(1U);
+        runtime::RequestStateResetReceipt second_prefix_receipt;
+        const runtime::RequestOperationStatus second_prefix_reset =
+            runtime::RequestStateResetCudaTestPeer::reset_for_request_async(
+                state,
+                runtime::RequestStateResetMode::kCommittedDirtyPrefix, 1U,
+                reinterpret_cast<void*>(stream), second_prefix_receipt);
+        const cudaError_t second_prefix_sync = cudaStreamSynchronize(stream);
+        test.expect(
+            second_poison == cudaSuccess && second_publish &&
+                second_prefix_reset && second_prefix_sync == cudaSuccess &&
+                state.current_position() == 0U &&
+                second_prefix_receipt.cleared_positions == 1U &&
+                second_prefix_receipt.zeroed_bytes ==
+                    runtime::kRequestConvStateBytes +
+                        runtime::kRequestGdnStateBytes +
+                        runtime::kRequestKvBytesPerToken &&
+                fixed_state_matches(state, 0U) &&
+                all_kv_prefix_and_tail_match(state, 1U,
+                                             kSecondTailPoison),
+            "a second independent poison/guard pass proves reset length "
+            "tracks the newly committed prefix and never clears its tail");
         (void)cudaStreamDestroy(stream);
     }
 

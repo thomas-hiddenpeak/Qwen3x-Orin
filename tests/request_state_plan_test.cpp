@@ -1635,6 +1635,73 @@ void test_sequence_length_publication_validation(TestContext& test) {
         "empty RequestState rejects publication without changing host length");
 }
 
+void test_request_state_reset_plans(TestContext& test) {
+    runtime::RequestMemoryOptions options;
+    options.max_sequence_length = 40'015U;
+    options.max_arena_bytes = 4ULL * 1024ULL * 1024ULL * 1024ULL;
+    const runtime::RequestPlanResult built =
+        runtime::build_request_memory_plan(options);
+    test.expect(built.ok(), "P40015 reset-plan fixture builds");
+    if (!built) {
+        return;
+    }
+    const runtime::RequestMemoryPlan& plan = *built.value;
+    constexpr std::uint64_t kFixedBytes =
+        runtime::kRequestConvStateBytes + runtime::kRequestGdnStateBytes;
+
+    const runtime::RequestStateResetPlan clean =
+        runtime::build_request_state_reset_plan(
+            plan, runtime::RequestStateResetMode::kAlreadyClean);
+    test.expect(clean.valid && clean.cleared_positions == 0U &&
+                    clean.zeroed_bytes == 0U &&
+                    clean.memset_operations == 0U,
+                "newly created clean state requires no reset work");
+
+    const auto dirty_one = runtime::build_request_state_reset_plan(
+        plan, runtime::RequestStateResetMode::kCommittedDirtyPrefix, 1U);
+    const auto dirty_4k = runtime::build_request_state_reset_plan(
+        plan, runtime::RequestStateResetMode::kCommittedDirtyPrefix, 4'096U);
+    const auto dirty_40015 = runtime::build_request_state_reset_plan(
+        plan, runtime::RequestStateResetMode::kCommittedDirtyPrefix, 40'015U);
+    test.expect(
+        dirty_one.valid && dirty_one.cleared_positions == 1U &&
+            dirty_one.zeroed_bytes == kFixedBytes + 65'536U &&
+            dirty_one.memset_operations == 33U && dirty_4k.valid &&
+            dirty_4k.zeroed_bytes == 346'882'048U && dirty_40015.valid &&
+            dirty_40015.zeroed_bytes == 2'700'869'632ULL &&
+            dirty_40015.zeroed_bytes == plan.persistent_bytes,
+        "dirty reset covers fixed Conv/GDN plus the exact 16-layer K/V prefix");
+
+    const auto full = runtime::build_request_state_reset_plan(
+        plan, runtime::RequestStateResetMode::kConservativeFull);
+    test.expect(full.valid && full.cleared_positions == 40'015U &&
+                    full.zeroed_bytes == plan.persistent_bytes &&
+                    full.memset_operations == 1U,
+                "conservative reset preserves the legacy one-span memset");
+
+    runtime::RequestMemoryPlan malformed = plan;
+    ++malformed.key_cache[3U].arena_offset;
+    test.expect(
+        !runtime::build_request_state_reset_plan(
+             malformed,
+             runtime::RequestStateResetMode::kCommittedDirtyPrefix, 4'096U)
+             .valid &&
+            !runtime::build_request_state_reset_plan(
+                 plan, runtime::RequestStateResetMode::kCommittedDirtyPrefix,
+                 0U)
+                 .valid &&
+            !runtime::build_request_state_reset_plan(
+                 plan, runtime::RequestStateResetMode::kCommittedDirtyPrefix,
+                 40'016U)
+                 .valid &&
+            runtime::to_string(
+                runtime::RequestStateResetMode::kCommittedDirtyPrefix) ==
+                "committed_dirty_prefix" &&
+            runtime::to_string(runtime::RequestAccessError::kInvalidResetPlan) ==
+                "invalid_reset_plan",
+        "dirty reset planning fails closed on malformed or uncertain bounds");
+}
+
 }  // namespace
 
 int main() {
@@ -1657,6 +1724,7 @@ int main() {
     test_p40_marlin_parity_request_layout(test);
     test_layer_major_bad_options(test);
     test_sequence_length_publication_validation(test);
+    test_request_state_reset_plans(test);
     if (test.failures() != 0) {
         std::cerr << test.failures() << " request-state plan test(s) failed\n";
         return 1;

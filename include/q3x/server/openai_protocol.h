@@ -200,6 +200,10 @@ struct TargetPrefillWitnessRecord {
   // Empty for legacy/unsealed paths. A non-empty identifier is emitted only
   // after a sealed whole-request generation has completed successfully.
   std::string deployment_plan_id;
+  // Ordinary production-only request-start cleanup receipt. Its presence
+  // upgrades the unsealed witness to v16; every historical schema remains
+  // byte-stable when this optional field is absent.
+  std::optional<runtime::RequestStateResetReceipt> request_state_reset;
 };
 
 enum class OpenAIFinishReason : std::uint8_t {

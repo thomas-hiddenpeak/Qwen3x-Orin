@@ -3,6 +3,7 @@
 #include "q3x/runtime/decode_ops.h"
 #include "reference_runner_decode_gqa_policy_internal.h"
 #include "reference_runner_gdn_exact_span_policy_internal.h"
+#include "reference_runner_request_reset_policy_internal.h"
 
 #include <algorithm>
 #include <array>
@@ -425,6 +426,8 @@ namespace {
 
 namespace runtime = q3x::runtime;
 namespace detail = q3x::runtime::reference_runner_detail;
+namespace reset_detail =
+    q3x::runtime::reference_runner_request_reset_detail;
 
 class TestContext {
  public:
@@ -440,6 +443,46 @@ class TestContext {
  private:
   int failures_ = 0;
 };
+
+void test_request_reset_lifecycle_policy(TestContext& test) {
+  using Boundary = reset_detail::RequestReuseBoundary;
+  using Mode = runtime::RequestStateResetMode;
+  constexpr std::uint32_t kCapacity = 44'095U;
+
+  const auto clean = reset_detail::select_request_reset(
+      Boundary::kKnownClean, 0U, 0U, kCapacity,
+      runtime::RequestMemoryProfile::kLegacyC512, false, false);
+  const auto committed = reset_detail::select_request_reset(
+      Boundary::kCommitted, 40'015U, 40'015U, kCapacity,
+      runtime::RequestMemoryProfile::kLegacyC512, false, false);
+  test.expect(clean.mode == Mode::kAlreadyClean &&
+                  clean.committed_positions == 0U &&
+                  committed.mode == Mode::kCommittedDirtyPrefix &&
+                  committed.committed_positions == 40'015U,
+              "request lifecycle admits only known-clean and exact committed prefixes");
+
+  const auto poisoned = reset_detail::select_request_reset(
+      Boundary::kCommitted, 40'015U, 40'015U, kCapacity,
+      runtime::RequestMemoryProfile::kLegacyC512, true, false);
+  const auto active = reset_detail::select_request_reset(
+      Boundary::kCommitted, 40'015U, 40'015U, kCapacity,
+      runtime::RequestMemoryProfile::kLegacyC512, false, true);
+  const auto mismatch = reset_detail::select_request_reset(
+      Boundary::kCommitted, 40'015U, 40'014U, kCapacity,
+      runtime::RequestMemoryProfile::kLegacyC512, false, false);
+  const auto uncertain = reset_detail::select_request_reset(
+      Boundary::kUncertain, 0U, 40'015U, kCapacity,
+      runtime::RequestMemoryProfile::kLegacyC512, false, false);
+  const auto candidate = reset_detail::select_request_reset(
+      Boundary::kKnownClean, 0U, 0U, kCapacity,
+      runtime::RequestMemoryProfile::kLayerMajorC8192, false, false);
+  test.expect(poisoned.mode == Mode::kConservativeFull &&
+                  active.mode == Mode::kConservativeFull &&
+                  mismatch.mode == Mode::kConservativeFull &&
+                  uncertain.mode == Mode::kConservativeFull &&
+                  candidate.mode == Mode::kConservativeFull,
+              "poison, active whole-request, mismatch, uncertainty, and candidates fail closed to full reset");
+}
 
 [[nodiscard]] bool close(const double left, const double right,
                          const double tolerance = 1.0e-12) {
@@ -2817,6 +2860,7 @@ void test_whole_request_prefill_staging_contract(TestContext& test) {
 
 int main() {
   TestContext test;
+  test_request_reset_lifecycle_policy(test);
   test_bf16_rounding(test);
   test_logits_analysis(test);
   test_bf16_argmax_analysis(test);

@@ -480,6 +480,10 @@ struct ReferenceGeneration {
       prefill_vllm_marlin_parity_layer_completion_receipts{};
   std::size_t
       prefill_vllm_marlin_parity_layer_completion_receipt_count = 0U;
+  // Present on successful generations after the automatic request-start
+  // cleanup. Kept separate from generation timing because legacy TTFT fields
+  // retain their historical boundary and schema.
+  std::optional<RequestStateResetReceipt> request_state_reset;
 };
 
 struct ReferenceEngineLoadStats {
@@ -789,15 +793,16 @@ class ReferenceEngine {
   [[nodiscard]] std::uint32_t max_sequence_length() const noexcept;
 
   // Formats exactly one user message with thinking=false, encodes it with the
-  // pinned tokenizer, resets request state, then performs sequential batch-one
-  // prefill and greedy decode.
+  // pinned tokenizer, applies the automatic request-start cleanup, then
+  // performs sequential batch-one prefill and greedy decode.
   [[nodiscard]] ReferenceGenerateResult generate(
       std::string_view user_prompt,
       const ReferenceGenerateOptions& options = {});
 
   // Formats a supported text-only chat history with the pinned template,
-  // resets request state, then performs the same batch-one greedy path as
-  // generate(). The final message must be a user message.
+  // applies the same automatic request-start cleanup, then performs the same
+  // batch-one greedy path as generate(). The final message must be a user
+  // message.
   [[nodiscard]] ReferenceGenerateResult generate_chat(
       const std::vector<ReferenceChatMessage>& messages,
       const ReferenceGenerateOptions& options = {});

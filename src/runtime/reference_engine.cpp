@@ -7332,7 +7332,9 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
 
   try {
 
-    const ReferenceRunnerStatus reset = impl_->runner->reset();
+    RequestStateResetReceipt request_state_reset;
+    const ReferenceRunnerStatus reset =
+        impl_->runner->begin_ordinary_request(request_state_reset);
     if (!reset) {
       result.diagnostic = runner_diagnostic(
           ReferenceEngineError::kRunnerResetFailure, "runner_reset", reset);
@@ -7717,6 +7719,7 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.prefill_vllm_marlin_parity_layer_completion_receipt_count =
         step_context
             .prefill_vllm_marlin_parity_layer_completion_receipt_count;
+    generation.request_state_reset = request_state_reset;
     generation.all_prompt_tokens_prefilled_by_tiles =
         control_options.prefill_all_prompt_tokens;
     generation.single_arbitrary_prefill_tiles =
@@ -7745,7 +7748,20 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.decode_graph_replays = step_context.decode_graph_replays;
     generation.decode_graph_serial_fallbacks =
         step_context.decode_graph_serial_fallbacks;
+    const bool cancelled =
+        generation.stop_reason == ReferenceStopReason::kCancelled;
     result.value.emplace(std::move(generation));
+    if (!cancelled) {
+      const ReferenceRunnerStatus commit_boundary =
+          impl_->runner->commit_ordinary_request_boundary();
+      if (!commit_boundary) {
+        result.value.reset();
+        result.diagnostic = runner_diagnostic(
+            ReferenceEngineError::kRunnerStepFailure,
+            "request_reuse_boundary", commit_boundary);
+        return result;
+      }
+    }
 #if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
     const auto generate_return_snapshot_hook =
         g_reference_engine_generate_return_snapshot_hook;

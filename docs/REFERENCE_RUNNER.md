@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: batch-one CUDA runner state, numerical, ownership, and failure contract
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-08-23
   supersedes: []
   superseded_by: []
   ssot_for: ReferenceRunner public execution, commit, poison, reset, trace, and dependency behavior
@@ -138,6 +138,24 @@ runner rejects further execution. `reset()` is the only poison-recovery
 operation: it synchronizes owned execution resources, resets the request's
 persistent state, clears retained-final-hidden and trace validity, and returns
 the position to zero. If reset itself fails, poison is retained.
+
+Public `reset()` always retains that complete one-span behavior. The Engine's
+private ordinary-request entry instead derives reset work from runner-owned
+lifecycle facts. A newly created or successfully full-reset legacy C512 state
+is `already_clean`; a prior successful non-cancelled request whose exact
+logical length still matches is `committed_dirty_prefix`; every poison,
+active/uncommitted whole-request stage, cancellation boundary, position
+mismatch, unknown boundary, or nonlegacy candidate profile is
+`conservative_full`. Request entry consumes the prior authority and marks the
+new boundary uncertain before execution. Only the Engine's completed-request
+acceptance republishes an exact committed position. Direct runner operations
+cannot grant prefix-reset authority.
+
+Each successful request entry returns a synchronized receipt containing reset
+mode, cleared positions, zeroed bytes, and elapsed milliseconds. The
+already-clean mode performs no CUDA reset; prefix and full modes synchronize
+their submitted reset before execution. These modes are compiled lifecycle
+policy, not an environment, CLI, or test-selected production tactic.
 
 The last trace is a non-owning view of the most recently captured and
 successfully committed step. Its fixed layout is embedding, then hidden and

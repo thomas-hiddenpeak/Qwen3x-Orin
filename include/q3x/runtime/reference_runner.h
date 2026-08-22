@@ -13,6 +13,8 @@
 
 namespace q3x::runtime {
 
+class ReferenceEngine;
+
 namespace reference_engine_detail {
 class ReferenceEnginePrefillPlanFactory;
 class ReferenceEnginePrefillExecutor;
@@ -918,6 +920,7 @@ class ReferenceRunner {
   // Pure-host control tests use a friend peer so the candidate execution
   // control remains private and cannot become a production selector surface.
   friend struct ReferenceRunnerPrefillControlTestPeer;
+  friend class ReferenceEngine;
   friend class reference_engine_detail::ReferenceEnginePrefillPlanFactory;
   friend class reference_engine_detail::ReferenceEnginePrefillExecutor;
   friend ReferenceRunnerFactoryResult create_reference_runner(
@@ -1244,6 +1247,10 @@ class ReferenceRunner {
       ReferenceLayerMajorRequestViews&& candidate) noexcept;
   ReferenceRunner() noexcept = default;
   void release() noexcept;
+  [[nodiscard]] ReferenceRunnerStatus begin_ordinary_request(
+      RequestStateResetReceipt& receipt) noexcept;
+  [[nodiscard]] ReferenceRunnerStatus commit_ordinary_request_boundary()
+      noexcept;
   [[nodiscard]] ReferenceStepOutcome fail_step(
       ReferenceRunnerStatus status) noexcept;
   [[nodiscard]] ReferencePrefillTileOutcome fail_prefill_tile(
@@ -1315,6 +1322,10 @@ class ReferenceRunner {
   std::uint32_t trace_position_ = 0U;
   std::uint32_t trace_input_token_ = 0U;
   PrefillRouteEvidence prefill_route_evidence_{};
+  // Appended lifecycle-derived reuse authority. These fields are not
+  // externally selectable and never change the candidate layer-major route.
+  std::uint8_t request_reuse_boundary_ = 0U;
+  std::uint32_t committed_request_positions_ = 0U;
 };
 
 struct ReferenceRunnerFactoryResult {

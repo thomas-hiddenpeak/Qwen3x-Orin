@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: pinned Qwen3.5 and Qwen3.6 27B text runtime numerical and state contract
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-08-23
   supersedes: []
   superseded_by: []
   ssot_for: pinned 27B text Decode semantics, tensor boundaries, and recurrent state behavior
@@ -437,13 +437,16 @@ conv 为 2.8125 MiB。这是由源码 shape 直接派生；vLLM 的 shape calcul
 qwen35-thor 按同一尺寸分配 BF16 state
 ([T-state-size](https://github.com/thomas-hiddenpeak/qwen35-thor/blob/57e29777c2aff8a97f42df6e3d9487b1327f014f/src/engine/cache_manager.cpp#L39-L50))。
 
-每个新请求的 conv 和 DeltaNet state 必须清零；不能复用上一个请求的残留。实际分配
-和清零证据见
+每个新请求观察到的 conv 和 DeltaNet state 必须为零；不能复用上一个请求的残留。
+物理清理可以在创建后已知干净时省略，也可以在上一个请求完整成功且 dirty 边界精确
+提交后清完整 conv/GDN 固定区和 16 对 K/V 的实际 dirty prefix。poison、取消、未提交
+whole-request、位置不匹配或任何边界不确定都必须回退到完整 persistent span 清零。
+实际分配和清零证据见
 [T-state-init](https://github.com/thomas-hiddenpeak/qwen35-thor/blob/57e29777c2aff8a97f42df6e3d9487b1327f014f/src/engine/cache_manager.cpp#L177-L201)。
 
 运行时请求状态必须为 48 份 conv/GDN state、16 对 full-attention K/V、复用
-workspace 与 BF16-rounded RoPE 表提供显式所有权，并在创建和 reset 时使完整
-persistent span 满足零状态契约；当前实现与精确 byte budget/API 见
+workspace 与 BF16-rounded RoPE 表提供显式所有权，并在创建和请求复用边界使可见
+persistent state 满足零状态契约；当前实现与精确 byte budget/API 见
 [REQUEST_STATE.md](REQUEST_STATE.md)。
 
 vLLM 允许 state dtype 配置；`auto` 时 conv state 跟随 model/cache dtype，SSM state
