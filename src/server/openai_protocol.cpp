@@ -746,6 +746,21 @@ std::string serialize_health_response(
   return output;
 }
 
+std::string serialize_unhealthy_health_response(
+    const std::string_view served_model,
+    const OpenAIProductionIdentity& production,
+    const std::string_view reason) {
+  std::string output =
+      "{\"status\":\"unhealthy\",\"ready\":false,\"model\":";
+  append_json_string(output, served_model);
+  output += ",\"reason\":";
+  append_json_string(output, reason);
+  output += ",\"q3x_production\":";
+  append_production_identity(output, production);
+  output += "}";
+  return output;
+}
+
 std::string serialize_p40_whole_core_v10_models_response(
     const std::string_view served_model, const std::int64_t created) {
   std::string output = "{\"object\":\"list\",\"data\":[{\"id\":";

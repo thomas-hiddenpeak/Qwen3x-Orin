@@ -244,6 +244,36 @@ struct EvaluationServerOptions {
              plan.prefill_projection_tactic;
 }
 
+// The same exact receipt gate is used at startup and after every ordinary
+// production request.  Keeping it testable prevents health/readiness from
+// drifting away from the listener-opening authority.
+[[nodiscard]] bool evaluation_production_load_receipt_matches(
+    const EvaluationServerOptions& options,
+    const runtime::ReferenceEngineLoadStats& load, std::string& error);
+
+// One-way readiness latch for the ordinary sealed route.  A fresh process
+// starts healthy; the first receipt mismatch is irreversible until restart.
+// Development routes construct this with enforcement disabled.
+class EvaluationProductionRuntimeHealth final {
+ public:
+  explicit EvaluationProductionRuntimeHealth(bool enforced) noexcept
+      : enforced_(enforced) {}
+
+  [[nodiscard]] bool ready() const noexcept {
+    return !enforced_ || healthy_.load(std::memory_order_acquire);
+  }
+
+  [[nodiscard]] bool observe(
+      const EvaluationServerOptions& options,
+      const runtime::ReferenceEngineLoadStats& load) noexcept;
+
+ private:
+  void fail_closed(std::string_view detail) noexcept;
+
+  const bool enforced_;
+  std::atomic<bool> healthy_{true};
+};
+
 [[nodiscard]] inline bool is_p40_whole_core_v10_fixed_profile(
     const EvaluationServerOptions& options) noexcept {
   return options.development_route ==

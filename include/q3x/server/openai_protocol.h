@@ -220,6 +220,10 @@ enum class OpenAIFinishReason : std::uint8_t {
 [[nodiscard]] std::string serialize_health_response(
     std::string_view served_model,
     const OpenAIProductionIdentity& production);
+[[nodiscard]] std::string serialize_unhealthy_health_response(
+    std::string_view served_model,
+    const OpenAIProductionIdentity& production,
+    std::string_view reason);
 // The loop count depends only on the configured credential length, never on
 // how many prefix bytes supplied by the peer happen to match.
 [[nodiscard]] bool constant_time_bearer_authorization_matches(

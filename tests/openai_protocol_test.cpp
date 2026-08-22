@@ -68,6 +68,52 @@ class TestContext {
   return identity;
 }
 
+[[nodiscard]] q3x::runtime::ReferenceEngineLoadStats
+production_load_receipt() {
+  const server::EvaluationProductionDeploymentPlan& plan =
+      server::kP40ExactLegacyC512ProductionPlan;
+  q3x::runtime::ReferenceEngineLoadStats load;
+  load.fp8_prefill_supermatrix_sidecars_enabled = true;
+  load.fp8_prefill_supermatrix_sidecar_projections =
+      plan.prefill_supermatrix_projections;
+  load.fp8_prefill_supermatrix_sidecar_bytes =
+      plan.prefill_supermatrix_sidecar_bytes;
+  load.fp8_output_sidecars_enabled = true;
+  load.fp8_output_sidecar_layers = plan.decode_fp8_output_layers;
+  load.fp8_output_sidecar_bytes = plan.decode_fp8_output_sidecar_bytes;
+  load.nvfp4_gate_up_coupled_feed_requested = true;
+  load.nvfp4_gate_up_coupled_feed_enabled = true;
+  load.nvfp4_gate_up_coupled_feed_production_requested = true;
+  load.nvfp4_gate_up_coupled_feed_production_enabled = true;
+  load.nvfp4_gate_up_coupled_feed_layers = plan.decode_gate_up_layers;
+  load.nvfp4_gate_up_coupled_feed_bytes = plan.decode_gate_up_sidecar_bytes;
+  load.nvfp4_gate_up_coupled_feed_production_bytes =
+      plan.decode_gate_up_sidecar_bytes;
+  load.nvfp4_down_scale6_sidecars_enabled = true;
+  load.nvfp4_down_scale6_sidecar_eligible_layers =
+      plan.decode_down_scale6_layers;
+  load.nvfp4_down_scale6_sidecar_fallback_layers =
+      q3x::runtime::kQwen36DenseLayerCount - plan.decode_down_scale6_layers;
+  load.nvfp4_down_scale6_sidecar_bytes =
+      plan.decode_down_scale6_sidecar_bytes;
+  load.nvfp4_down_consumer_order_sidecars_requested = true;
+  load.nvfp4_down_consumer_order_sidecars_enabled = true;
+  load.nvfp4_down_consumer_order_production_requested = true;
+  load.nvfp4_down_consumer_order_production_enabled = true;
+  load.nvfp4_down_consumer_order_sidecar_layers =
+      plan.decode_down_consumer_order_layers;
+  load.nvfp4_down_consumer_order_sidecar_bytes =
+      plan.decode_down_consumer_order_sidecar_bytes;
+  load.nvfp4_down_consumer_order_production_bytes =
+      plan.decode_down_consumer_order_sidecar_bytes;
+  load.decode_graph_cache_requested_policy = plan.decode_graph_cache_policy;
+  load.decode_graph_cache_effective_policy = plan.decode_graph_cache_policy;
+  load.decode_graph_cache_first_position = plan.decode_graph_first_position;
+  load.decode_graph_cache_last_position = plan.decode_graph_last_position;
+  load.decode_graph_cache_slot_count = plan.decode_graph_slots;
+  return load;
+}
+
 void test_evalscope_chat_contract(TestContext& test) {
   const auto parsed = server::parse_openai_request(
       R"({"model":"qwen3.6-27b-nvfp4","messages":[{"role":"system","content":"brief"},{"role":"user","content":"你好"}],"max_tokens":2048,"temperature":0.0,"top_p":1,"n":1,"seed":42,"stream":true,"stream_options":{"include_usage":true},"stop":null})",
@@ -293,6 +339,22 @@ void test_serialization(TestContext& test) {
                       std::string::npos,
               "health response exposes the honest sealed production "
               "identity without claiming release qualification");
+
+  server::OpenAIProductionIdentity unhealthy_identity = identity;
+  unhealthy_identity.production_eligible = false;
+  const std::string unhealthy = server::serialize_unhealthy_health_response(
+      "qwen\"model", unhealthy_identity,
+      "sealed_production_load_receipt_deviated");
+  test.expect(
+      valid_json(unhealthy) &&
+          unhealthy.find(R"("status":"unhealthy")") != std::string::npos &&
+          unhealthy.find(R"("ready":false)") != std::string::npos &&
+          unhealthy.find(
+              R"("reason":"sealed_production_load_receipt_deviated")") !=
+              std::string::npos &&
+          unhealthy.find(R"("production_eligible":false)") !=
+              std::string::npos,
+      "runtime receipt failure serializes a non-ready production identity");
 
   const std::string models = server::serialize_models_response(
       "qwen\"model", 1234, identity);
@@ -1720,6 +1782,51 @@ void test_p40_whole_core_v10_fixed_contract(TestContext& test) {
               "typed P40 v10 request rejects a P39999 prompt");
 }
 
+void test_production_runtime_receipt_contract(TestContext& test) {
+  server::EvaluationServerOptions options;
+  std::string error;
+  q3x::runtime::ReferenceEngineLoadStats load = production_load_receipt();
+  test.expect(
+      server::evaluation_production_load_receipt_matches(options, load, error),
+      "the exact sealed v2 load receipt remains production-ready");
+  server::EvaluationProductionRuntimeHealth runtime_health(true);
+  test.expect(runtime_health.observe(options, load) && runtime_health.ready(),
+              "the runtime health latch accepts the exact startup receipt");
+
+  load.decode_graph_cache_effective_policy =
+      q3x::runtime::ReferenceDecodeGraphCachePolicy::kDisabled;
+  load.decode_graph_cache_first_position = 0U;
+  load.decode_graph_cache_last_position = 0U;
+  load.decode_graph_cache_slot_count = 0U;
+  load.decode_graph_cache_fallback_reason =
+      "runtime_graph_failure_demoted_to_serial";
+  error.clear();
+  test.expect(
+      !server::evaluation_production_load_receipt_matches(options, load,
+                                                          error) &&
+          error.find("short-position Graph inventory") != std::string::npos,
+      "a runtime Graph demotion invalidates the ordinary production receipt");
+  test.expect(!runtime_health.observe(options, load) && !runtime_health.ready(),
+              "a runtime Graph demotion irreversibly closes readiness");
+  load = production_load_receipt();
+  test.expect(!runtime_health.observe(options, load) && !runtime_health.ready(),
+              "a later exact receipt cannot reopen runtime readiness");
+
+  options.development_route =
+      server::EvaluationDevelopmentRoute::kP40WholeCoreV10;
+  error.clear();
+  test.expect(
+      server::evaluation_production_load_receipt_matches(
+          options, q3x::runtime::ReferenceEngineLoadStats{}, error),
+      "the production runtime receipt gate does not alter the development "
+      "route");
+  server::EvaluationProductionRuntimeHealth development_health(false);
+  test.expect(development_health.observe(
+                  options, q3x::runtime::ReferenceEngineLoadStats{}) &&
+                  development_health.ready(),
+              "the runtime health latch leaves the development route alone");
+}
+
 }  // namespace
 
 int main(const int argc, char** const argv) {
@@ -1738,6 +1845,7 @@ int main(const int argc, char** const argv) {
   test_bearer_authorization(test);
   test_api_key_file_loading(test, argv[1]);
   test_p40_whole_core_v10_fixed_contract(test);
+  test_production_runtime_receipt_contract(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " OpenAI protocol test(s) failed\n";
     return 1;

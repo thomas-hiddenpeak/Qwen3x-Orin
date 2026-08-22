@@ -357,6 +357,16 @@ class UniqueFd final {
   return true;
 }
 
+inline constexpr std::string_view kProductionRuntimeUnhealthyReason =
+    "sealed_production_load_receipt_deviated";
+
+[[nodiscard]] bool refresh_production_runtime_health(
+    const EvaluationServerOptions& options,
+    const runtime::ReferenceEngine& engine,
+    EvaluationProductionRuntimeHealth& runtime_health) noexcept {
+  return runtime_health.observe(options, engine.load_stats());
+}
+
 template <typename T>
 class BoundedQueue final {
  public:
@@ -1263,7 +1273,17 @@ void publish_job_error(const std::shared_ptr<InferenceJob>& job,
 void execute_job(runtime::ReferenceEngine& engine,
                  const std::shared_ptr<InferenceJob>& job,
                  const EvaluationServerOptions& options,
+                 EvaluationProductionRuntimeHealth& runtime_health,
                  const std::atomic<bool>& stopping) {
+  if (!runtime_health.ready()) {
+    publish_job_error(
+        job,
+        simple_error(503, "production_route_unhealthy",
+                     "the sealed production route is unhealthy; restart the "
+                     "server after inspecting its runtime receipt"),
+        stopping);
+    return;
+  }
   if (job->cancelled.load(std::memory_order_relaxed) ||
       stopping.load(std::memory_order_relaxed)) {
     publish_job_error(job,
@@ -1312,6 +1332,19 @@ void execute_job(runtime::ReferenceEngine& engine,
       break;
   }
   const Clock::time_point generation_finished_at = Clock::now();
+
+  // Graph replay failure can retire the engine-lifetime cache inside
+  // generate().  Revalidate before publishing another successful or generic
+  // engine response so the first divergence irreversibly closes admission.
+  if (!refresh_production_runtime_health(options, engine, runtime_health)) {
+    publish_job_error(
+        job,
+        simple_error(503, "production_route_unhealthy",
+                     "the sealed production route changed at runtime; restart "
+                     "the server after inspecting its receipt"),
+        stopping);
+    return;
+  }
 
   if (observer.protocol_failure) {
     publish_job_error(
@@ -1437,11 +1470,12 @@ void execute_job(runtime::ReferenceEngine& engine,
 void inference_worker(runtime::ReferenceEngine& engine,
                       BoundedQueue<std::shared_ptr<InferenceJob>>& queue,
                       const EvaluationServerOptions& options,
+                      EvaluationProductionRuntimeHealth& runtime_health,
                       const std::atomic<bool>& stopping) {
   std::shared_ptr<InferenceJob> job;
   while (queue.pop(job)) {
     try {
-      execute_job(engine, job, options, stopping);
+      execute_job(engine, job, options, runtime_health, stopping);
     } catch (const std::exception& error) {
       std::cerr << "evaluation request " << job->id
                 << " raised an unexpected exception: " << error.what()
@@ -1469,6 +1503,10 @@ void inference_worker(runtime::ReferenceEngine& engine,
         job->close_events();
       }
     }
+    // Cover cancellation, protocol failure, and unexpected host exceptions in
+    // addition to the immediate post-generate check above.  This is cheap for
+    // the immutable receipt and keeps every completed queue item fail-closed.
+    (void)refresh_production_runtime_health(options, engine, runtime_health);
   }
 }
 
@@ -1556,6 +1594,7 @@ void handle_connection(
     BoundedQueue<std::shared_ptr<InferenceJob>>& inference_queue,
     const EvaluationServerOptions& options,
     const std::string& api_key,
+    const EvaluationProductionRuntimeHealth& runtime_health,
     const std::atomic<bool>& stopping,
     std::atomic<std::uint64_t>& next_request_id) {
   std::string buffer;
@@ -1587,6 +1626,16 @@ void handle_connection(
     const bool completion = request.target == "/v1/completions";
 
     if (request.method == "GET" && request.target == "/healthz") {
+      if (!runtime_health.ready()) {
+        OpenAIProductionIdentity identity = production_identity(options);
+        identity.production_eligible = false;
+        const std::string body = serialize_unhealthy_health_response(
+            options.served_model, identity,
+            kProductionRuntimeUnhealthyReason);
+        (void)send_fixed_response(connection.get(), 503, body, false,
+                                  options.write_timeout_milliseconds);
+        return;
+      }
       const std::string body =
           options.development_route ==
                   EvaluationDevelopmentRoute::kP40WholeCoreV10
@@ -1612,6 +1661,15 @@ void handle_connection(
           serialize_openai_error(error), false,
           options.write_timeout_milliseconds,
           "WWW-Authenticate: Bearer realm=\"qwen3x-orin\"\r\n");
+      return;
+    }
+    if ((models || chat || completion) && !runtime_health.ready()) {
+      const OpenAIProtocolError error = simple_error(
+          503, "production_route_unhealthy",
+          "the sealed production route is unhealthy; restart the server");
+      (void)send_fixed_response(connection.get(), error.http_status,
+                                serialize_openai_error(error), false,
+                                options.write_timeout_milliseconds);
       return;
     }
     if (request.method == "GET" && models) {
@@ -1782,13 +1840,14 @@ void ingress_worker(
     BoundedQueue<std::shared_ptr<InferenceJob>>& inference_queue,
     const EvaluationServerOptions& options,
     const std::string& api_key,
+    const EvaluationProductionRuntimeHealth& runtime_health,
     const std::atomic<bool>& stopping,
     std::atomic<std::uint64_t>& next_request_id) {
   UniqueFd connection;
   while (connections.pop(connection)) {
     try {
       handle_connection(std::move(connection), inference_queue, options,
-                        api_key, stopping, next_request_id);
+                        api_key, runtime_health, stopping, next_request_id);
     } catch (const std::exception& error) {
       std::cerr << "evaluation ingress failure: " << error.what() << '\n';
     } catch (...) {
@@ -2018,6 +2077,49 @@ EvaluationApiKeyLoadResult load_evaluation_api_key_file(
   return load_api_key_file_impl(path);
 }
 
+bool evaluation_production_load_receipt_matches(
+    const EvaluationServerOptions& options,
+    const runtime::ReferenceEngineLoadStats& load, std::string& error) {
+  return valid_production_load_receipt(options, load, error);
+}
+
+bool EvaluationProductionRuntimeHealth::observe(
+    const EvaluationServerOptions& options,
+    const runtime::ReferenceEngineLoadStats& load) noexcept {
+  if (!ready()) {
+    return false;
+  }
+  if (!enforced_) {
+    return true;
+  }
+  try {
+    std::string error;
+    if (!evaluation_production_load_receipt_matches(options, load, error)) {
+      fail_closed(error);
+      return false;
+    }
+    return true;
+  } catch (...) {
+    fail_closed("live receipt validation raised an exception");
+    return false;
+  }
+}
+
+void EvaluationProductionRuntimeHealth::fail_closed(
+    const std::string_view detail) noexcept {
+  if (!enforced_ || !healthy_.exchange(false, std::memory_order_acq_rel)) {
+    return;
+  }
+  try {
+    std::cerr << "sealed production runtime became unhealthy reason="
+              << kProductionRuntimeUnhealthyReason << " detail=" << detail
+              << '\n';
+  } catch (...) {
+    // The health latch is already closed; logging must never reopen it or
+    // terminate the server during the failure transition.
+  }
+}
+
 int run_evaluation_server(const EvaluationServerOptions& options,
                           std::atomic<bool>& stop_requested,
                           std::string& error_message) {
@@ -2078,6 +2180,8 @@ int run_evaluation_server(const EvaluationServerOptions& options,
   if (!valid_production_load_receipt(options, load, error_message)) {
     return 3;
   }
+  EvaluationProductionRuntimeHealth runtime_health(
+      options.development_route == EvaluationDevelopmentRoute::kNone);
 
   UniqueFd listener = create_listener(options, error_message);
   if (!listener) {
@@ -2096,11 +2200,13 @@ int run_evaluation_server(const EvaluationServerOptions& options,
                           ingress, inference);
   inference = std::thread(inference_worker, std::ref(engine),
                           std::ref(inference_queue), std::cref(options),
+                          std::ref(runtime_health),
                           std::cref(stop_requested));
   for (std::size_t index = 0U; index < options.ingress_threads; ++index) {
     ingress.emplace_back(ingress_worker, std::ref(connections),
                          std::ref(inference_queue), std::cref(options),
                          std::cref(api_key),
+                         std::cref(runtime_health),
                          std::cref(stop_requested),
                          std::ref(next_request_id));
   }
