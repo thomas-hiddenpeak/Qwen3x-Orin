@@ -1,4 +1,5 @@
 #include "q3x/core/sha256.h"
+#include "q3x/io/json.h"
 #include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
 #include "q3x/runtime/decode_ops.h"
@@ -18,10 +19,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
 #include <new>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -36,6 +39,17 @@ namespace runner_detail = q3x::runtime::reference_runner_detail;
 
 constexpr std::array<std::size_t, 5U> kPromptTokenCounts{
     {513U, 1'025U, 7'712U, 8'192U, 8'193U}};
+constexpr std::array<std::size_t, 3U> kAttentionQualificationPromptTokenCounts{
+    {513U, 4'096U, 8'192U}};
+constexpr std::uint32_t kAttentionQualificationMaxNewTokens = 16U;
+constexpr std::uint32_t kAttentionQualificationDecodeTransitions =
+    kAttentionQualificationMaxNewTokens - 1U;
+constexpr std::uint32_t kAttentionQualificationStopTokenId = 248'056U;
+constexpr std::size_t kAttentionQualificationCorpusTokens = 40'000U;
+constexpr std::string_view kAttentionQualificationCorpusFileSha256 =
+    "8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844";
+constexpr std::string_view kAttentionQualificationCorpusTokenSha256 =
+    "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f";
 constexpr std::size_t kPromptTemplateTokens = 12U;
 constexpr std::size_t kHashCopyChunkBytes = 4U * 1024U * 1024U;
 constexpr std::size_t kKvHeadCount = 4U;
@@ -51,6 +65,8 @@ constexpr std::size_t kLayer3AttentionOracleQueryElements =
 constexpr std::size_t kLayer3AttentionOracleKvElements =
     kLayer3AttentionOracleTokens * kKvElementsPerToken;
 constexpr std::size_t kBf16Bytes = sizeof(std::uint16_t);
+static_assert(kAttentionQualificationStopTokenId <
+              runtime::kReferenceVocabularySize);
 
 class DeviceBf16Buffer final {
  public:
@@ -388,24 +404,20 @@ struct Bf16PairNumericMetrics {
   std::size_t mismatch_count = 0U;
   long double max_abs = 0.0L;
   long double mean_abs = 0.0L;
+  long double rmse = 0.0L;
+  long double reference_rms = 0.0L;
   long double nrmse_reference_rms = 0.0L;
   long double cosine = 0.0L;
   bool finite = false;
 };
 
-[[nodiscard]] Bf16PairNumericMetrics compute_bf16_pair_numeric_metrics(
+[[nodiscard]] Bf16PairNumericMetrics compute_bf16_pair_numeric_metrics_range(
     const std::vector<std::uint16_t>& reference,
     const std::vector<std::uint16_t>& candidate,
-    const std::size_t token_begin, const std::size_t token_count) noexcept {
+    const std::size_t begin, const std::size_t count) noexcept {
   Bf16PairNumericMetrics metrics;
-  if (token_count == 0U ||
-      token_begin > kLayer3AttentionOracleTokens ||
-      token_count > kLayer3AttentionOracleTokens - token_begin) {
-    return metrics;
-  }
-  const std::size_t begin = token_begin * kQueryElementsPerToken;
-  const std::size_t count = token_count * kQueryElementsPerToken;
-  if (reference.size() < begin + count || candidate.size() < begin + count) {
+  if (count == 0U || begin > reference.size() || begin > candidate.size() ||
+      count > reference.size() - begin || count > candidate.size() - begin) {
     return metrics;
   }
 
@@ -436,17 +448,17 @@ struct Bf16PairNumericMetrics {
 
   metrics.elements = count;
   metrics.mean_abs = absolute_sum / static_cast<long double>(count);
-  const long double rmse =
+  metrics.rmse =
       std::sqrt(squared_error_sum / static_cast<long double>(count));
-  const long double reference_rms =
+  metrics.reference_rms =
       std::sqrt(reference_squared_sum / static_cast<long double>(count));
-  if (reference_rms == 0.0L) {
-    if (rmse != 0.0L) {
+  if (metrics.reference_rms == 0.0L) {
+    if (metrics.rmse != 0.0L) {
       return metrics;
     }
     metrics.nrmse_reference_rms = 0.0L;
   } else {
-    metrics.nrmse_reference_rms = rmse / reference_rms;
+    metrics.nrmse_reference_rms = metrics.rmse / metrics.reference_rms;
   }
   const long double cosine_denominator =
       std::sqrt(reference_squared_sum * candidate_squared_sum);
@@ -460,9 +472,25 @@ struct Bf16PairNumericMetrics {
   }
   metrics.finite = std::isfinite(metrics.max_abs) &&
                    std::isfinite(metrics.mean_abs) &&
+                   std::isfinite(metrics.rmse) &&
+                   std::isfinite(metrics.reference_rms) &&
                    std::isfinite(metrics.nrmse_reference_rms) &&
                    std::isfinite(metrics.cosine);
   return metrics;
+}
+
+[[nodiscard]] Bf16PairNumericMetrics compute_bf16_pair_numeric_metrics(
+    const std::vector<std::uint16_t>& reference,
+    const std::vector<std::uint16_t>& candidate,
+    const std::size_t token_begin, const std::size_t token_count) noexcept {
+  if (token_count == 0U ||
+      token_begin > kLayer3AttentionOracleTokens ||
+      token_count > kLayer3AttentionOracleTokens - token_begin) {
+    return {};
+  }
+  return compute_bf16_pair_numeric_metrics_range(
+      reference, candidate, token_begin * kQueryElementsPerToken,
+      token_count * kQueryElementsPerToken);
 }
 
 [[nodiscard]] bool hash_host_bf16_output(
@@ -719,13 +747,16 @@ enum class SnapshotError : std::uint8_t {
 }
 
 struct StateSnapshot {
-  explicit StateSnapshot(const std::size_t prompt_tokens)
-      : expected_prompt_tokens(prompt_tokens),
+  explicit StateSnapshot(const std::size_t expected_sequence)
+      : expected_sequence_length(expected_sequence),
+        final_hidden_bf16(runtime::kReferenceHiddenSize),
         copy_scratch(kHashCopyChunkBytes) {}
 
-  std::size_t expected_prompt_tokens = 0U;
+  std::size_t expected_sequence_length = 0U;
   std::size_t hook_calls = 0U;
   std::uint32_t sequence_length = 0U;
+  std::size_t used_kv_bytes_per_layer = 0U;
+  std::size_t prompt_residual_bytes = 0U;
   SnapshotError error = SnapshotError::kNone;
   int cuda_error = static_cast<int>(cudaSuccess);
   core::Sha256Digest conv_state;
@@ -735,6 +766,7 @@ struct StateSnapshot {
   core::Sha256Digest prompt_residual;
   core::Sha256Digest final_hidden;
   core::Sha256Digest aggregate;
+  std::vector<std::uint16_t> final_hidden_bf16;
   std::vector<std::uint8_t> copy_scratch;
 };
 
@@ -817,8 +849,8 @@ void collect_generate_return_snapshot(
   }
 
   snapshot->sequence_length = state.sequence_length();
-  if (snapshot->sequence_length != snapshot->expected_prompt_tokens ||
-      snapshot->expected_prompt_tokens > state.max_sequence_length()) {
+  if (snapshot->sequence_length != snapshot->expected_sequence_length ||
+      snapshot->expected_sequence_length > state.max_sequence_length()) {
     snapshot->error = SnapshotError::kUnexpectedSequenceLength;
     return;
   }
@@ -840,14 +872,15 @@ void collect_generate_return_snapshot(
 
   constexpr std::size_t kKvBytesPerLayerPosition =
       kKvHeadCount * kKvHeadDimension * kBf16Bytes;
-  if (snapshot->expected_prompt_tokens >
+  if (snapshot->expected_sequence_length >
       std::numeric_limits<std::size_t>::max() /
           kKvBytesPerLayerPosition) {
     snapshot->error = SnapshotError::kInvalidKvRegion;
     return;
   }
   const std::size_t used_kv_bytes =
-      snapshot->expected_prompt_tokens * kKvBytesPerLayerPosition;
+      snapshot->expected_sequence_length * kKvBytesPerLayerPosition;
+  snapshot->used_kv_bytes_per_layer = used_kv_bytes;
   for (std::size_t slot = 0U; slot < runtime::kRequestFullLayerCount;
        ++slot) {
     const runtime::RequestRegion& key = common.key_cache[slot];
@@ -875,16 +908,17 @@ void collect_generate_return_snapshot(
   if (prompt.storage.element_size_bytes != kBf16Bytes ||
       prompt.columns != runtime::kReferenceHiddenSize ||
       prompt.row_stride_elements != runtime::kReferenceHiddenSize ||
-      prompt.row_capacity < snapshot->expected_prompt_tokens ||
-      snapshot->expected_prompt_tokens >
+      prompt.row_capacity < snapshot->expected_sequence_length ||
+      snapshot->expected_sequence_length >
           std::numeric_limits<std::size_t>::max() /
               (runtime::kReferenceHiddenSize * kBf16Bytes)) {
     snapshot->error = SnapshotError::kInvalidPromptResidual;
     return;
   }
   const std::size_t prompt_bytes =
-      snapshot->expected_prompt_tokens * runtime::kReferenceHiddenSize *
+      snapshot->expected_sequence_length * runtime::kReferenceHiddenSize *
       kBf16Bytes;
+  snapshot->prompt_residual_bytes = prompt_bytes;
   if (!hash_arena_region(state, prompt.storage, prompt_bytes, *snapshot,
                          snapshot->prompt_residual)) {
     snapshot->error = snapshot->cuda_error == static_cast<int>(cudaSuccess)
@@ -895,17 +929,31 @@ void collect_generate_return_snapshot(
 
   const runtime::RequestMatrixRegion& final_hidden =
       layer_major.final_hidden_bf16;
+  constexpr std::size_t kFinalHiddenBytes =
+      runtime::kReferenceHiddenSize * kBf16Bytes;
   if (final_hidden.storage.element_size_bytes != kBf16Bytes ||
       final_hidden.row_capacity != 1U ||
       final_hidden.columns != runtime::kReferenceHiddenSize ||
       final_hidden.row_stride_elements != runtime::kReferenceHiddenSize ||
+      final_hidden.storage.byte_size < kFinalHiddenBytes ||
+      snapshot->final_hidden_bf16.size() != runtime::kReferenceHiddenSize ||
       !hash_arena_region(
-          state, final_hidden.storage,
-          static_cast<std::size_t>(final_hidden.storage.byte_size),
-          *snapshot, snapshot->final_hidden)) {
+          state, final_hidden.storage, kFinalHiddenBytes, *snapshot,
+          snapshot->final_hidden)) {
     snapshot->error = snapshot->cuda_error == static_cast<int>(cudaSuccess)
                           ? SnapshotError::kInvalidFinalHidden
                           : SnapshotError::kHashFailure;
+    return;
+  }
+  const auto* const arena =
+      static_cast<const std::uint8_t*>(state.arena_data());
+  const cudaError_t final_hidden_copy_status = cudaMemcpy(
+      snapshot->final_hidden_bf16.data(),
+      arena + static_cast<std::size_t>(final_hidden.storage.arena_offset),
+      kFinalHiddenBytes, cudaMemcpyDeviceToHost);
+  if (final_hidden_copy_status != cudaSuccess) {
+    snapshot->cuda_error = static_cast<int>(final_hidden_copy_status);
+    snapshot->error = SnapshotError::kHashFailure;
     return;
   }
 
@@ -998,6 +1046,115 @@ class ScopedCompatibilityOracle final {
   return prompt;
 }
 
+struct AttentionQualificationCorpus {
+  std::vector<std::uint32_t> tokens;
+  core::Sha256Digest file_sha256;
+  core::Sha256Digest token_u32le_sha256;
+};
+
+[[nodiscard]] bool hash_token_ids_u32le(
+    const std::vector<std::uint32_t>& tokens, const std::size_t count,
+    core::Sha256Digest& digest) noexcept {
+  if (count == 0U || count > tokens.size()) {
+    return false;
+  }
+  core::Sha256 hash;
+  for (std::size_t index = 0U; index < count; ++index) {
+    const std::uint32_t value = tokens[index];
+    const std::array<std::uint8_t, 4U> bytes{{
+        static_cast<std::uint8_t>(value & 0xFFU),
+        static_cast<std::uint8_t>((value >> 8U) & 0xFFU),
+        static_cast<std::uint8_t>((value >> 16U) & 0xFFU),
+        static_cast<std::uint8_t>((value >> 24U) & 0xFFU),
+    }};
+    if (!hash.update(bytes.data(), bytes.size())) {
+      return false;
+    }
+  }
+  digest = hash.finalize();
+  return true;
+}
+
+[[nodiscard]] bool load_attention_qualification_corpus(
+    const std::filesystem::path& path, AttentionQualificationCorpus& corpus,
+    std::string& error) {
+  std::ifstream input(path, std::ios::binary | std::ios::ate);
+  if (!input) {
+    error = "open_failed";
+    return false;
+  }
+  const std::streampos end = input.tellg();
+  if (end <= 0 ||
+      static_cast<std::uintmax_t>(end) >
+          static_cast<std::uintmax_t>(
+              std::numeric_limits<std::size_t>::max())) {
+    error = "invalid_file_size";
+    return false;
+  }
+  std::string bytes(static_cast<std::size_t>(end), '\0');
+  input.seekg(0, std::ios::beg);
+  input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  if (!input || input.gcount() != static_cast<std::streamsize>(bytes.size())) {
+    error = "read_failed";
+    return false;
+  }
+
+  core::Sha256 file_hash;
+  if (!file_hash.update(bytes.data(), bytes.size())) {
+    error = "file_sha256_failed";
+    return false;
+  }
+  corpus.file_sha256 = file_hash.finalize();
+  if (corpus.file_sha256.hex() !=
+      kAttentionQualificationCorpusFileSha256) {
+    error = "file_sha256_mismatch";
+    return false;
+  }
+
+  q3x::io::json::ParseOptions parse_options;
+  parse_options.max_input_bytes = 1U * 1024U * 1024U;
+  parse_options.max_values = 50'100U;
+  parse_options.max_container_items = 50'100U;
+  const q3x::io::json::ParseResult parsed =
+      q3x::io::json::parse(bytes, parse_options);
+  if (!parsed) {
+    error = "json_parse:" + std::string(parsed.error.message()) +
+            ":offset=" + std::to_string(parsed.error.offset);
+    return false;
+  }
+  const q3x::io::json::Value* const prompt = parsed.value->find("prompt");
+  const q3x::io::json::Value::Array* const values =
+      prompt == nullptr ? nullptr : prompt->as_array();
+  if (values == nullptr ||
+      values->size() != kAttentionQualificationCorpusTokens) {
+    error = "prompt_shape_mismatch";
+    return false;
+  }
+  corpus.tokens.clear();
+  corpus.tokens.reserve(values->size());
+  for (const q3x::io::json::Value& item : *values) {
+    const q3x::io::json::Number* const number = item.as_number();
+    std::uint64_t value = 0U;
+    if (number == nullptr || !number->to_uint64(value) ||
+        value >= runtime::kReferenceVocabularySize) {
+      error = "invalid_prompt_token";
+      return false;
+    }
+    corpus.tokens.push_back(static_cast<std::uint32_t>(value));
+  }
+  if (!hash_token_ids_u32le(corpus.tokens, corpus.tokens.size(),
+                            corpus.token_u32le_sha256)) {
+    error = "token_u32le_sha256_failed";
+    return false;
+  }
+  if (corpus.token_u32le_sha256.hex() !=
+      kAttentionQualificationCorpusTokenSha256) {
+    error = "token_u32le_sha256_mismatch";
+    return false;
+  }
+  return true;
+}
+
 void print_diagnostic(
     const runtime::ReferenceEngineDiagnostic& diagnostic) {
   std::cerr << "code=" << runtime::to_string(diagnostic.code)
@@ -1063,9 +1220,12 @@ void print_diagnostic(
 
 [[nodiscard]] bool valid_snapshot(const StateSnapshot& snapshot) noexcept {
   return snapshot.hook_calls == 1U &&
-         snapshot.sequence_length == snapshot.expected_prompt_tokens &&
+         snapshot.sequence_length == snapshot.expected_sequence_length &&
          snapshot.error == SnapshotError::kNone &&
-         snapshot.cuda_error == static_cast<int>(cudaSuccess);
+         snapshot.cuda_error == static_cast<int>(cudaSuccess) &&
+         snapshot.used_kv_bytes_per_layer != 0U &&
+         snapshot.prompt_residual_bytes != 0U &&
+         snapshot.final_hidden_bf16.size() == runtime::kReferenceHiddenSize;
 }
 
 [[nodiscard]] bool same_snapshots(const StateSnapshot& oracle,
@@ -1138,6 +1298,698 @@ void print_diagnostic(
     return false;
   }
   return true;
+}
+
+struct QualificationTokenEvent {
+  std::size_t index = 0U;
+  std::uint32_t token_id = 0U;
+  std::string text_delta;
+  std::string generated_text;
+  bool is_stop_token = false;
+};
+
+struct QualificationTokenCollector {
+  std::vector<QualificationTokenEvent> events;
+  bool failed = false;
+  const char* error = "none";
+
+  QualificationTokenCollector() {
+    events.reserve(kAttentionQualificationMaxNewTokens);
+  }
+};
+
+bool collect_qualification_token(
+    void* const context,
+    const runtime::ReferenceTokenEvent& event) noexcept {
+  auto* const collector = static_cast<QualificationTokenCollector*>(context);
+  if (collector == nullptr) {
+    return false;
+  }
+  if (collector->failed || event.index != collector->events.size() ||
+      collector->events.size() >= kAttentionQualificationMaxNewTokens) {
+    collector->failed = true;
+    collector->error = "token_event_contract";
+    return false;
+  }
+  try {
+    collector->events.push_back(
+        {event.index, event.token_id, std::string(event.text_delta),
+         std::string(event.generated_text), event.is_stop_token});
+  } catch (const std::bad_alloc&) {
+    collector->failed = true;
+    collector->error = "token_event_allocation";
+    return false;
+  } catch (const std::length_error&) {
+    collector->failed = true;
+    collector->error = "token_event_length";
+    return false;
+  }
+  return true;
+}
+
+using QualificationLogitSteps =
+    std::vector<const runtime::ReferenceStepResult*>;
+
+[[nodiscard]] bool validate_qualification_generation(
+    const runtime::ReferenceGeneration& generation,
+    const std::vector<std::uint32_t>& prompt_token_ids,
+    const QualificationTokenCollector& token_collector,
+    QualificationLogitSteps& logit_steps, std::string& error) {
+  const std::size_t prompt_tokens = prompt_token_ids.size();
+  const std::size_t expected_sequence_length =
+      prompt_tokens + kAttentionQualificationDecodeTransitions;
+  if (generation.prompt_token_ids != prompt_token_ids) {
+    error = "prompt_token_ids";
+    return false;
+  }
+  if (generation.generated_token_ids.size() !=
+          kAttentionQualificationMaxNewTokens ||
+      generation.stop_reason != runtime::ReferenceStopReason::kMaxNewTokens) {
+    error = "generated_token_count_or_stop";
+    return false;
+  }
+  if (generation.steps.size() != expected_sequence_length ||
+      generation.timing.subsequent_token_milliseconds.size() !=
+          kAttentionQualificationDecodeTransitions) {
+    error = "decode_transition_count";
+    return false;
+  }
+  for (const double elapsed :
+       generation.timing.subsequent_token_milliseconds) {
+    if (!std::isfinite(elapsed) || elapsed < 0.0) {
+      error = "decode_transition_timing";
+      return false;
+    }
+  }
+
+  logit_steps.clear();
+  logit_steps.reserve(kAttentionQualificationMaxNewTokens);
+  for (std::size_t index = 0U; index < generation.steps.size(); ++index) {
+    const runtime::ReferenceStepResult& step = generation.steps[index];
+    const std::uint32_t expected_input_token =
+        index < prompt_tokens
+            ? prompt_token_ids[index]
+            : generation.generated_token_ids[index - prompt_tokens];
+    if (step.position != index || step.input_token_id != expected_input_token) {
+      error = "step_position_or_input";
+      return false;
+    }
+    const bool expects_logits = index + 1U >= prompt_tokens;
+    if (!expects_logits) {
+      if (step.logits.has_value() || step.prediction.has_value()) {
+        error = "prefix_step_logits";
+        return false;
+      }
+      continue;
+    }
+    if (!step.logits.has_value() || step.prediction.has_value()) {
+      error = "missing_full_statistics";
+      return false;
+    }
+    const std::size_t generated_index = index + 1U - prompt_tokens;
+    const runtime::ReferenceStepLogits& logits = *step.logits;
+    if (generated_index >= generation.generated_token_ids.size() ||
+        logits.predicted_token_id !=
+            generation.generated_token_ids[generated_index] ||
+        !std::isfinite(logits.chosen_logit) ||
+        !std::isfinite(logits.logsumexp) ||
+        !std::isfinite(logits.max_log_probability)) {
+      error = "invalid_full_statistics";
+      return false;
+    }
+    logit_steps.push_back(&step);
+  }
+  if (logit_steps.size() != kAttentionQualificationMaxNewTokens) {
+    error = "full_statistics_step_count";
+    return false;
+  }
+
+  if (token_collector.failed ||
+      token_collector.events.size() != kAttentionQualificationMaxNewTokens) {
+    error = token_collector.error;
+    return false;
+  }
+  for (std::size_t index = 0U; index < token_collector.events.size();
+       ++index) {
+    const QualificationTokenEvent& event = token_collector.events[index];
+    if (event.index != index ||
+        event.token_id != generation.generated_token_ids[index] ||
+        event.is_stop_token !=
+            (event.token_id == kAttentionQualificationStopTokenId)) {
+      error = "token_event_value";
+      return false;
+    }
+  }
+  if (token_collector.events.back().generated_text !=
+      generation.generated_text) {
+    error = "token_event_final_text";
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool same_qualification_token_events(
+    const QualificationTokenCollector& exact,
+    const QualificationTokenCollector& flashinfer) noexcept {
+  if (exact.events.size() != flashinfer.events.size()) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < exact.events.size(); ++index) {
+    const QualificationTokenEvent& left = exact.events[index];
+    const QualificationTokenEvent& right = flashinfer.events[index];
+    if (left.index != right.index || left.token_id != right.token_id ||
+        left.text_delta != right.text_delta ||
+        left.generated_text != right.generated_text ||
+        left.is_stop_token != right.is_stop_token) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool same_snapshots_quiet(const StateSnapshot& exact,
+                                        const StateSnapshot& flashinfer) {
+  bool same = exact.conv_state == flashinfer.conv_state &&
+              exact.gdn_state == flashinfer.gdn_state &&
+              exact.prompt_residual == flashinfer.prompt_residual &&
+              exact.final_hidden == flashinfer.final_hidden &&
+              exact.aggregate == flashinfer.aggregate;
+  for (std::size_t slot = 0U; slot < runtime::kRequestFullLayerCount;
+       ++slot) {
+    same = same && exact.key_cache[slot] == flashinfer.key_cache[slot] &&
+           exact.value_cache[slot] == flashinfer.value_cache[slot];
+  }
+  return same;
+}
+
+void write_json_string(std::ostream& output, const std::string_view value) {
+  constexpr char kHex[] = "0123456789abcdef";
+  output.put('"');
+  for (const unsigned char byte : value) {
+    switch (byte) {
+      case '"':
+        output << "\\\"";
+        break;
+      case '\\':
+        output << "\\\\";
+        break;
+      case '\b':
+        output << "\\b";
+        break;
+      case '\f':
+        output << "\\f";
+        break;
+      case '\n':
+        output << "\\n";
+        break;
+      case '\r':
+        output << "\\r";
+        break;
+      case '\t':
+        output << "\\t";
+        break;
+      default:
+        if (byte < 0x20U) {
+          output << "\\u00" << kHex[(byte >> 4U) & 0xFU]
+                 << kHex[byte & 0xFU];
+        } else {
+          output.put(static_cast<char>(byte));
+        }
+        break;
+    }
+  }
+  output.put('"');
+}
+
+void write_json_token_ids(std::ostream& output,
+                          const std::vector<std::uint32_t>& tokens) {
+  output.put('[');
+  for (std::size_t index = 0U; index < tokens.size(); ++index) {
+    if (index != 0U) {
+      output.put(',');
+    }
+    output << tokens[index];
+  }
+  output.put(']');
+}
+
+void write_json_token_events(std::ostream& output,
+                             const QualificationTokenCollector& collector) {
+  output.put('[');
+  for (std::size_t index = 0U; index < collector.events.size(); ++index) {
+    if (index != 0U) {
+      output.put(',');
+    }
+    const QualificationTokenEvent& event = collector.events[index];
+    output << "{\"index\":" << event.index << ",\"token_id\":"
+           << event.token_id << ",\"text_delta\":";
+    write_json_string(output, event.text_delta);
+    output << ",\"generated_text\":";
+    write_json_string(output, event.generated_text);
+    output << ",\"is_stop_token\":"
+           << (event.is_stop_token ? "true" : "false") << '}';
+  }
+  output.put(']');
+}
+
+template <std::size_t Size>
+void write_json_digests(std::ostream& output,
+                        const std::array<core::Sha256Digest, Size>& digests) {
+  output.put('[');
+  for (std::size_t index = 0U; index < digests.size(); ++index) {
+    if (index != 0U) {
+      output.put(',');
+    }
+    write_json_string(output, digests[index].hex());
+  }
+  output.put(']');
+}
+
+void write_json_state_snapshot(std::ostream& output,
+                               const StateSnapshot& snapshot) {
+  output << "{\"sequence_length\":" << snapshot.sequence_length
+         << ",\"used_kv_bytes_per_layer\":"
+         << snapshot.used_kv_bytes_per_layer
+         << ",\"prompt_residual_bytes\":"
+         << snapshot.prompt_residual_bytes << ",\"conv_sha256\":";
+  write_json_string(output, snapshot.conv_state.hex());
+  output << ",\"gdn_sha256\":";
+  write_json_string(output, snapshot.gdn_state.hex());
+  output << ",\"used_key_cache_sha256\":";
+  write_json_digests(output, snapshot.key_cache);
+  output << ",\"used_value_cache_sha256\":";
+  write_json_digests(output, snapshot.value_cache);
+  output << ",\"prompt_residual_sha256\":";
+  write_json_string(output, snapshot.prompt_residual.hex());
+  output << ",\"final_hidden_sha256\":";
+  write_json_string(output, snapshot.final_hidden.hex());
+  output << ",\"aggregate_sha256\":";
+  write_json_string(output, snapshot.aggregate.hex());
+  output.put('}');
+}
+
+void write_json_route_evidence(
+    std::ostream& output,
+    const runtime::PrefillRouteEvidence& evidence) {
+  output << "{\"complete\":" << (evidence.complete ? "true" : "false")
+         << ",\"valid\":" << (evidence.valid ? "true" : "false")
+         << ",\"request_active\":"
+         << (evidence.request_active ? "true" : "false")
+         << ",\"error\":";
+  write_json_string(output, runtime::to_string(evidence.error));
+  output << ",\"completed_layer_passes\":"
+         << evidence.completed_layer_passes
+         << ",\"expected_layer_passes\":"
+         << evidence.expected_layer_passes << ",\"operators\":[";
+  for (std::size_t role = 0U; role < runtime::kPrefillOperatorRoleCount;
+       ++role) {
+    if (role != 0U) {
+      output.put(',');
+    }
+    const runtime::PrefillOperatorRouteCounts& counts =
+        evidence.operators[role];
+    output << "{\"role\":";
+    write_json_string(
+        output,
+        runtime::to_string(static_cast<runtime::PrefillOperatorRole>(role)));
+    output << ",\"production_hits\":" << counts.production_hits
+           << ",\"exact_fallback_hits\":" << counts.exact_fallback_hits
+           << ",\"forbidden_hits\":" << counts.forbidden_hits << '}';
+  }
+  output << "],\"forbidden_boundary_hits\":[";
+  for (std::size_t index = 0U;
+       index < runtime::kPrefillForbiddenBoundaryCount; ++index) {
+    if (index != 0U) {
+      output.put(',');
+    }
+    output << evidence.forbidden_boundary_hits[index];
+  }
+  output << "]}";
+}
+
+[[nodiscard]] bool run_qualification_generation(
+    runtime::ReferenceEngine& engine,
+    const std::vector<std::uint32_t>& prompt_token_ids,
+    const bool compatibility_oracle, StateSnapshot& snapshot,
+    QualificationTokenCollector& token_collector,
+    runtime::ReferenceGenerateResult& result) {
+  runtime::ReferenceGenerateOptions options;
+  options.max_new_tokens = kAttentionQualificationMaxNewTokens;
+  options.stop_token_id = kAttentionQualificationStopTokenId;
+  options.prefill_chunk_size = runtime::kMaximumRequestPrefillChunkSize;
+  options.logits_mode = runtime::ReferenceLogitsMode::kFullStatistics;
+  options.token_observer = collect_qualification_token;
+  options.token_observer_context = &token_collector;
+  options.prefill_execution_mode =
+      runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+  {
+    const ScopedGenerateReturnSnapshot snapshot_hook(snapshot);
+    const ScopedCompatibilityOracle oracle_route(compatibility_oracle);
+    result = engine.generate_prompt_token_ids(prompt_token_ids, options);
+  }
+  if (!result) {
+    std::cerr << (compatibility_oracle ? "compatibility exact" : "flashinfer")
+              << " qualification generation failed for P"
+              << prompt_token_ids.size() << ": ";
+    print_diagnostic(result.diagnostic);
+    return false;
+  }
+  if (!valid_snapshot(snapshot)) {
+    std::cerr << (compatibility_oracle ? "compatibility exact" : "flashinfer")
+              << " qualification snapshot failed for P"
+              << prompt_token_ids.size() << " calls=" << snapshot.hook_calls
+              << " sequence_length=" << snapshot.sequence_length
+              << " expected_sequence_length="
+              << snapshot.expected_sequence_length
+              << " snapshot_error=" << to_string(snapshot.error)
+              << " cuda_error=" << snapshot.cuda_error << '\n';
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] int run_attention_qualification(
+    runtime::ReferenceEngine& engine, const AttentionQualificationCorpus& corpus,
+    const std::size_t prompt_tokens) {
+  if (prompt_tokens > corpus.tokens.size() ||
+      prompt_tokens > std::numeric_limits<std::size_t>::max() -
+                          kAttentionQualificationDecodeTransitions) {
+    std::cerr << "qualification prompt length is invalid\n";
+    return 2;
+  }
+  const std::vector<std::uint32_t> prompt_token_ids(
+      corpus.tokens.begin(),
+      corpus.tokens.begin() + static_cast<std::ptrdiff_t>(prompt_tokens));
+  core::Sha256Digest prompt_token_sha256;
+  if (!hash_token_ids_u32le(prompt_token_ids, prompt_token_ids.size(),
+                            prompt_token_sha256)) {
+    std::cerr << "qualification prompt token SHA-256 failed\n";
+    return 1;
+  }
+  const std::size_t expected_sequence_length =
+      prompt_tokens + kAttentionQualificationDecodeTransitions;
+  StateSnapshot exact_snapshot(expected_sequence_length);
+  StateSnapshot flashinfer_snapshot(expected_sequence_length);
+  QualificationTokenCollector exact_token_events;
+  QualificationTokenCollector flashinfer_token_events;
+  runtime::ReferenceGenerateResult exact_result;
+  runtime::ReferenceGenerateResult flashinfer_result;
+  if (!run_qualification_generation(
+          engine, prompt_token_ids, true, exact_snapshot, exact_token_events,
+          exact_result) ||
+      !run_qualification_generation(
+          engine, prompt_token_ids, false, flashinfer_snapshot,
+          flashinfer_token_events, flashinfer_result)) {
+    return 1;
+  }
+
+  const runtime::ReferenceGeneration& exact = *exact_result.value;
+  const runtime::ReferenceGeneration& flashinfer = *flashinfer_result.value;
+  QualificationLogitSteps exact_logit_steps;
+  QualificationLogitSteps flashinfer_logit_steps;
+  std::string validation_error;
+  if (!validate_qualification_generation(
+          exact, prompt_token_ids, exact_token_events, exact_logit_steps,
+          validation_error)) {
+    std::cerr << "compatibility exact qualification capture invalid: "
+              << validation_error << '\n';
+    return 1;
+  }
+  if (!validate_qualification_generation(
+          flashinfer, prompt_token_ids, flashinfer_token_events,
+          flashinfer_logit_steps, validation_error)) {
+    std::cerr << "flashinfer qualification capture invalid: "
+              << validation_error << '\n';
+    return 1;
+  }
+
+  runtime::PrefillExecutionPlanOptions topology_options;
+  topology_options.prompt_token_count = prompt_tokens;
+  const runtime::PrefillExecutionPlanResult topology =
+      runtime::build_unbound_layer_major_prefill_execution_plan(
+          topology_options);
+  if (!topology) {
+    std::cerr << "qualification topology construction failed\n";
+    return 1;
+  }
+  const std::uint64_t logical_panels = topology.value->panel_count;
+  const bool routes_same = same_route(exact.prefill_route_evidence,
+                                      flashinfer.prefill_route_evidence);
+  const bool route_contract =
+      exact.prefill_execution_mode ==
+          runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
+      flashinfer.prefill_execution_mode == exact.prefill_execution_mode &&
+      exact.prefill_deployment_plan_id ==
+          runtime::kLayerMajorNativeFlashInferExactPanelDeploymentPlanId &&
+      flashinfer.prefill_deployment_plan_id ==
+          exact.prefill_deployment_plan_id &&
+      exact.prefill_logical_panel_count == logical_panels &&
+      flashinfer.prefill_logical_panel_count == logical_panels &&
+      valid_completed_native_route(exact.prefill_route_evidence,
+                                   logical_panels) &&
+      valid_completed_native_route(flashinfer.prefill_route_evidence,
+                                   logical_panels) &&
+      routes_same && exact.prefill_operator_panel_executor_hits == 0U &&
+      exact.prefill_native_group_q64_panel_hits == 0U &&
+      exact.prefill_native_group_q128_v4_panel_hits == 0U &&
+      exact.prefill_native_flashinfer_exact_panel_hits == 0U &&
+      flashinfer.prefill_operator_panel_executor_hits ==
+          runtime::kReferenceDecoderLayerCount * logical_panels &&
+      flashinfer.prefill_native_group_q64_panel_hits == 0U &&
+      flashinfer.prefill_native_group_q128_v4_panel_hits == 0U &&
+      flashinfer.prefill_native_flashinfer_exact_panel_hits ==
+          runtime::kRequestFullLayerCount * logical_panels &&
+      flashinfer.prefill_generic_qt2_hits == 0U &&
+      exact.prefill_segmented_panel_projection_hits == 0U &&
+      flashinfer.prefill_segmented_panel_projection_hits == 0U &&
+      exact.prefill_native_large_m_projection_hits == 0U &&
+      flashinfer.prefill_native_large_m_projection_hits == 0U;
+
+  bool logit_argmax_exact =
+      exact_logit_steps.size() == flashinfer_logit_steps.size();
+  bool logit_metrics_finite = logit_argmax_exact;
+  for (std::size_t index = 0U;
+       index < exact_logit_steps.size() &&
+       index < flashinfer_logit_steps.size();
+       ++index) {
+    const runtime::ReferenceStepLogits& exact_logits =
+        *exact_logit_steps[index]->logits;
+    const runtime::ReferenceStepLogits& flashinfer_logits =
+        *flashinfer_logit_steps[index]->logits;
+    logit_argmax_exact =
+        logit_argmax_exact &&
+        exact_logits.predicted_token_id ==
+            flashinfer_logits.predicted_token_id;
+    const long double chosen_delta =
+        static_cast<long double>(flashinfer_logits.chosen_logit) -
+        static_cast<long double>(exact_logits.chosen_logit);
+    const long double logsumexp_delta =
+        static_cast<long double>(flashinfer_logits.logsumexp) -
+        static_cast<long double>(exact_logits.logsumexp);
+    const long double max_log_probability_delta =
+        static_cast<long double>(flashinfer_logits.max_log_probability) -
+        static_cast<long double>(exact_logits.max_log_probability);
+    logit_metrics_finite =
+        logit_metrics_finite && std::isfinite(chosen_delta) &&
+        std::isfinite(logsumexp_delta) &&
+        std::isfinite(max_log_probability_delta);
+  }
+
+  const Bf16PairNumericMetrics final_hidden_metrics =
+      compute_bf16_pair_numeric_metrics_range(
+          exact_snapshot.final_hidden_bf16,
+          flashinfer_snapshot.final_hidden_bf16, 0U,
+          runtime::kReferenceHiddenSize);
+  constexpr long double kMaximumFinalHiddenNrmse = 0.01L;
+  constexpr long double kMinimumFinalHiddenCosine = 0.9999L;
+  const bool final_hidden_screen =
+      final_hidden_metrics.finite &&
+      final_hidden_metrics.nrmse_reference_rms <=
+          kMaximumFinalHiddenNrmse &&
+      final_hidden_metrics.cosine >= kMinimumFinalHiddenCosine;
+  const bool token_ids_exact =
+      exact.generated_token_ids == flashinfer.generated_token_ids;
+  const bool generated_text_exact =
+      exact.generated_text == flashinfer.generated_text;
+  const bool stop_reason_exact = exact.stop_reason == flashinfer.stop_reason;
+  const bool token_events_exact =
+      same_qualification_token_events(exact_token_events,
+                                      flashinfer_token_events);
+  const bool behavior_exact =
+      token_ids_exact && generated_text_exact && stop_reason_exact &&
+      token_events_exact && logit_argmax_exact;
+  const bool state_exact =
+      same_snapshots_quiet(exact_snapshot, flashinfer_snapshot);
+  const bool infrastructure_valid = route_contract && logit_metrics_finite &&
+                                    final_hidden_metrics.finite;
+  const bool screen_passed =
+      infrastructure_valid && behavior_exact && final_hidden_screen;
+
+  std::ostringstream report;
+  report << std::setprecision(
+      std::numeric_limits<long double>::max_digits10);
+  report << "{\"schema\":\"q3x.prefill_attention.numerical_screen.v1\""
+            ",\"phase\":\"same_engine_compatibility_numerical_screen\""
+            ",\"authority\":\"REAL_MODEL_NUMERICAL_SCREEN_ONLY\""
+            ",\"accuracy_qualification\":\"NOT_RUN\""
+            ",\"capture_status\":\"VALID\""
+            ",\"full_logits_vector\":\"UNAVAILABLE\""
+         << ",\"prompt_tokens\":" << prompt_tokens
+         << ",\"max_new_tokens\":"
+         << kAttentionQualificationMaxNewTokens
+         << ",\"decode_transition_count\":"
+         << kAttentionQualificationDecodeTransitions
+         << ",\"expected_sequence_length\":"
+         << expected_sequence_length
+         << ",\"screen_gate\":\""
+         << (infrastructure_valid ? (screen_passed ? "PASS" : "FAIL")
+                                  : "INVALID")
+         << "\",\"corpus\":{\"file_sha256\":";
+  write_json_string(report, corpus.file_sha256.hex());
+  report << ",\"token_count\":" << corpus.tokens.size()
+         << ",\"token_u32le_sha256\":";
+  write_json_string(report, corpus.token_u32le_sha256.hex());
+  report << ",\"prefix_token_u32le_sha256\":";
+  write_json_string(report, prompt_token_sha256.hex());
+  report << "},\"pair\":{\"same_engine\":true"
+            ",\"configured_attention\":\"native-flashinfer-exact-panel\""
+            ",\"projection\":\"exact-segmented\""
+            ",\"exact_observer\":\"ScopedCompatibilityOracle=true\""
+            ",\"candidate_observer\":\"ScopedCompatibilityOracle=false\""
+            ",\"production_qualification\":\"NOT_RUN\"}"
+         << ",\"behavior\":{\"exact\":"
+         << (behavior_exact ? "true" : "false")
+         << ",\"token_ids_exact\":"
+         << (token_ids_exact ? "true" : "false")
+         << ",\"generated_text_exact\":"
+         << (generated_text_exact ? "true" : "false")
+         << ",\"stop_reason_exact\":"
+         << (stop_reason_exact ? "true" : "false")
+         << ",\"token_events_exact\":"
+         << (token_events_exact ? "true" : "false")
+         << ",\"logit_argmax_exact\":"
+         << (logit_argmax_exact ? "true" : "false") << '}';
+
+  const auto write_generation = [&report](
+                                    const runtime::ReferenceGeneration& value,
+                                    const QualificationTokenCollector& events) {
+    report << "{\"generated_token_ids\":";
+    write_json_token_ids(report, value.generated_token_ids);
+    report << ",\"generated_text\":";
+    write_json_string(report, value.generated_text);
+    report << ",\"stop_reason\":";
+    write_json_string(report, runtime::to_string(value.stop_reason));
+    report << ",\"token_events\":";
+    write_json_token_events(report, events);
+    report.put('}');
+  };
+  report << ",\"exact_generation\":";
+  write_generation(exact, exact_token_events);
+  report << ",\"flashinfer_generation\":";
+  write_generation(flashinfer, flashinfer_token_events);
+
+  report << ",\"logit_metrics_finite\":"
+         << (logit_metrics_finite ? "true" : "false")
+         << ",\"full_statistics_steps\":[";
+  for (std::size_t index = 0U; index < exact_logit_steps.size(); ++index) {
+    if (index != 0U) {
+      report.put(',');
+    }
+    const runtime::ReferenceStepResult& exact_step =
+        *exact_logit_steps[index];
+    const runtime::ReferenceStepResult& flashinfer_step =
+        *flashinfer_logit_steps[index];
+    const runtime::ReferenceStepLogits& exact_logits = *exact_step.logits;
+    const runtime::ReferenceStepLogits& flashinfer_logits =
+        *flashinfer_step.logits;
+    report << "{\"ordinal\":" << index << ",\"phase\":\""
+           << (index == 0U ? "prefill_final" : "decode")
+           << "\",\"exact_position\":" << exact_step.position
+           << ",\"flashinfer_position\":" << flashinfer_step.position
+           << ",\"exact_input_token_id\":" << exact_step.input_token_id
+           << ",\"flashinfer_input_token_id\":"
+           << flashinfer_step.input_token_id
+           << ",\"exact_predicted_token_id\":"
+           << exact_logits.predicted_token_id
+           << ",\"flashinfer_predicted_token_id\":"
+           << flashinfer_logits.predicted_token_id
+           << ",\"chosen_logit\":{\"exact\":"
+           << exact_logits.chosen_logit << ",\"flashinfer\":"
+           << flashinfer_logits.chosen_logit << ",\"delta\":"
+           << static_cast<long double>(flashinfer_logits.chosen_logit) -
+                  static_cast<long double>(exact_logits.chosen_logit)
+           << "},\"logsumexp\":{\"exact\":"
+           << exact_logits.logsumexp << ",\"flashinfer\":"
+           << flashinfer_logits.logsumexp << ",\"delta\":"
+           << static_cast<long double>(flashinfer_logits.logsumexp) -
+                  static_cast<long double>(exact_logits.logsumexp)
+           << "},\"max_log_probability\":{\"exact\":"
+           << exact_logits.max_log_probability << ",\"flashinfer\":"
+           << flashinfer_logits.max_log_probability << ",\"delta\":"
+           << static_cast<long double>(
+                  flashinfer_logits.max_log_probability) -
+                  static_cast<long double>(
+                      exact_logits.max_log_probability)
+           << "}}";
+  }
+  report << "]";
+
+  report << ",\"final_hidden_numeric\":{\"elements\":"
+         << final_hidden_metrics.elements
+         << ",\"bf16_mismatch_count\":"
+         << final_hidden_metrics.mismatch_count
+         << ",\"max_abs\":" << final_hidden_metrics.max_abs
+         << ",\"mean_abs\":" << final_hidden_metrics.mean_abs
+         << ",\"rmse\":" << final_hidden_metrics.rmse
+         << ",\"reference_rms\":" << final_hidden_metrics.reference_rms
+         << ",\"aggregate_nrmse_reference_rms\":"
+         << final_hidden_metrics.nrmse_reference_rms
+         << ",\"cosine\":" << final_hidden_metrics.cosine
+         << ",\"finite\":"
+         << (final_hidden_metrics.finite ? "true" : "false")
+         << ",\"maximum_aggregate_nrmse_reference_rms\":"
+         << kMaximumFinalHiddenNrmse
+         << ",\"minimum_cosine\":" << kMinimumFinalHiddenCosine
+         << ",\"screen_pass\":"
+         << (final_hidden_screen ? "true" : "false") << '}';
+
+  report << ",\"state\":{\"bitwise_exact\":"
+         << (state_exact ? "true" : "false") << ",\"exact\":";
+  write_json_state_snapshot(report, exact_snapshot);
+  report << ",\"flashinfer\":";
+  write_json_state_snapshot(report, flashinfer_snapshot);
+  report << "}";
+
+  const auto write_tactic_route = [&report](
+                                      const runtime::ReferenceGeneration& value) {
+    report << "{\"deployment_plan_id\":";
+    write_json_string(report, value.prefill_deployment_plan_id);
+    report << ",\"logical_panel_count\":"
+           << value.prefill_logical_panel_count
+           << ",\"operator_panel_executor_hits\":"
+           << value.prefill_operator_panel_executor_hits
+           << ",\"native_flashinfer_exact_panel_hits\":"
+           << value.prefill_native_flashinfer_exact_panel_hits
+           << ",\"generic_qt2_hits\":" << value.prefill_generic_qt2_hits
+           << ",\"route_evidence\":";
+    write_json_route_evidence(report, value.prefill_route_evidence);
+    report.put('}');
+  };
+  report << ",\"route\":{\"contract_complete\":"
+         << (route_contract ? "true" : "false")
+         << ",\"logical_evidence_same\":"
+         << (routes_same ? "true" : "false") << ",\"exact\":";
+  write_tactic_route(exact);
+  report << ",\"flashinfer\":";
+  write_tactic_route(flashinfer);
+  report << "}}";
+
+  std::cout << "PREFILL_ATTENTION_QUALIFICATION_JSON " << report.str()
+            << '\n';
+  if (!infrastructure_valid) {
+    return 1;
+  }
+  return screen_passed ? 0 : 3;
 }
 
 [[nodiscard]] bool run_case(runtime::ReferenceEngine& engine,
@@ -1470,9 +2322,21 @@ int main(const int argc, char** const argv) {
     std::cout << "SKIP: set Q3X_E2E_MODEL_DIR to the pinned model directory\n";
     return 77;
   }
+  const char* const attention_qualification_value =
+      std::getenv("Q3X_RUN_PREFILL_ATTENTION_QUALIFICATION");
+  if (attention_qualification_value != nullptr &&
+      std::string_view(attention_qualification_value) != "0" &&
+      std::string_view(attention_qualification_value) != "1") {
+    std::cerr << "Q3X_RUN_PREFILL_ATTENTION_QUALIFICATION must be 0 or 1\n";
+    return 2;
+  }
+  const bool attention_qualification =
+      attention_qualification_value != nullptr &&
+      std::string_view(attention_qualification_value) == "1";
   const char* const enabled =
       std::getenv("Q3X_RUN_PREFILL_OPERATOR_PANEL_EQUIVALENCE");
-  if (enabled == nullptr || std::string_view(enabled) != "1") {
+  if (!attention_qualification &&
+      (enabled == nullptr || std::string_view(enabled) != "1")) {
     std::cout << "SKIP: set Q3X_RUN_PREFILL_OPERATOR_PANEL_EQUIVALENCE=1 "
                  "after a clean-host GPU preflight\n";
     return 77;
@@ -1482,6 +2346,11 @@ int main(const int argc, char** const argv) {
   const bool layer3_attention_oracle =
       layer3_attention_oracle_value != nullptr &&
       std::string_view(layer3_attention_oracle_value) == "1";
+  if (attention_qualification && layer3_attention_oracle) {
+    std::cerr << "the attention qualification and layer3 P513 oracle modes "
+                 "are mutually exclusive\n";
+    return 2;
+  }
   const char* const attention_tactic =
       std::getenv("Q3X_TEST_PREFILL_ATTENTION_TACTIC");
   const bool native_group_q64_panel =
@@ -1522,11 +2391,37 @@ int main(const int argc, char** const argv) {
                  "native-quantized-large-m-operator-panel\n";
     return 2;
   }
+  if (attention_qualification &&
+      ((attention_tactic != nullptr && !native_flashinfer_exact_panel) ||
+       (projection_tactic != nullptr &&
+        std::string_view(projection_tactic) != "exact-segmented"))) {
+    std::cerr << "the attention qualification requires a FlashInfer-configured "
+                 "engine and exact-segmented projection\n";
+    return 2;
+  }
   std::vector<std::size_t> prompt_token_counts(kPromptTokenCounts.begin(),
                                                 kPromptTokenCounts.end());
   const char* const selected_prompt_tokens =
       std::getenv("Q3X_TEST_PREFILL_PROMPT_TOKENS");
-  if (selected_prompt_tokens != nullptr) {
+  if (attention_qualification) {
+    if (selected_prompt_tokens == nullptr) {
+      std::cerr << "Q3X_TEST_PREFILL_PROMPT_TOKENS is required for the "
+                   "attention qualification\n";
+      return 2;
+    }
+    const auto selected = std::find_if(
+        kAttentionQualificationPromptTokenCounts.begin(),
+        kAttentionQualificationPromptTokenCounts.end(),
+        [selected_prompt_tokens](const std::size_t value) {
+          return std::to_string(value) == selected_prompt_tokens;
+        });
+    if (selected == kAttentionQualificationPromptTokenCounts.end()) {
+      std::cerr << "attention qualification prompt tokens must be one of "
+                   "513, 4096, or 8192\n";
+      return 2;
+    }
+    prompt_token_counts.assign(1U, *selected);
+  } else if (selected_prompt_tokens != nullptr) {
     const auto selected = std::find_if(
         kPromptTokenCounts.begin(), kPromptTokenCounts.end(),
         [selected_prompt_tokens](const std::size_t value) {
@@ -1551,16 +2446,40 @@ int main(const int argc, char** const argv) {
     prompt_token_counts.assign(1U, kLayer3AttentionOracleTokens);
   }
 
+  const char* const qualification_corpus_path =
+      std::getenv("Q3X_TEST_PREFILL_ATTENTION_CORPUS");
+  if (attention_qualification &&
+      (qualification_corpus_path == nullptr ||
+       qualification_corpus_path[0] == '\0')) {
+    std::cerr << "Q3X_TEST_PREFILL_ATTENTION_CORPUS must name the frozen "
+                 "40K Agent token corpus\n";
+    return 2;
+  }
+
   try {
+    AttentionQualificationCorpus qualification_corpus;
+    if (attention_qualification) {
+      std::string corpus_error;
+      if (!load_attention_qualification_corpus(
+              std::filesystem::path(qualification_corpus_path),
+              qualification_corpus, corpus_error)) {
+        std::cerr << "attention qualification corpus rejected: "
+                  << corpus_error << '\n';
+        return 2;
+      }
+    }
     runtime::ReferenceEngineOptions options;
     options.request_options.prefill_chunk_size =
         runtime::kMaximumRequestPrefillChunkSize;
     options.request_options.max_sequence_length =
-        prompt_token_counts.back() + 1U;
+        prompt_token_counts.back() +
+        (attention_qualification
+             ? kAttentionQualificationDecodeTransitions
+             : 1U);
     options.projection_backend = runtime::ProjectionBackend::kSm87WeightOnly;
     options.prefill_execution_mode =
         runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
-    if (native_flashinfer_exact_panel) {
+    if (attention_qualification || native_flashinfer_exact_panel) {
       options.prefill_full_attention_tactic = runtime::
           LayerMajorPrefillFullAttentionTactic::
               kNativeFlashInferExactPanel;
@@ -1592,6 +2511,11 @@ int main(const int argc, char** const argv) {
       std::cerr << "engine creation failed: ";
       print_diagnostic(created.diagnostic);
       return 1;
+    }
+
+    if (attention_qualification) {
+      return run_attention_qualification(
+          *created.value, qualification_corpus, prompt_token_counts.front());
     }
 
     if (layer3_attention_oracle) {
