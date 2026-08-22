@@ -1156,7 +1156,7 @@ retain a `local_mutation`, select an `architecture_candidate`, promote a
 one-token workload would require a separate hash-locked corpus and manifest;
 changing only this command-line option is insufficient.
 
-### Current installed-production short closeout
+### Preceding 0.6.0 installed-production short closeout
 
 For the ordinary installed sealed profile, launch the installed
 `BUILD_TESTING=OFF` server with only the model directory, loopback host, port,
@@ -1169,7 +1169,7 @@ and throttle evidence to decide validity; above 90C is operational risk.
 Temperature is a validity/diagnostic guardrail, not an optimization target,
 and ownership remains an independent validity gate.
 
-Current main `c6c34ef` completed that procedure on installed ELF
+The 0.6.0 mainline at `c6c34ef` completed that procedure on installed ELF
 `ab3492a...` with harness SHA-256 `5c117c...` and wrapper SHA-256
 `a38f67d...`. One warmup plus eight measured requests passed 8/8. EvalScope
 reported mean TTFT 2,652.203 ms, TPOT 104.931 ms, ITL 104.920 ms, and
@@ -1180,6 +1180,49 @@ invalid because its harness reported missing GPU-clock observations and
 identity drift; none of its timing is admissible. Exact hashes, the corrected
 `r2` bundle, resource observations, and claim boundary are frozen in the
 [`current-main production-default closeout`](metadata/qwen36-27b-production-default-mainline-closeout-2026-08-23.json).
+
+### Current 0.7.0 ordinary-request reset closeout
+
+Package 0.7.0 and sealed profile v3 use the same fresh-server protocol above.
+For the matched short panel, each B or C cell starts a fresh installed
+Release/OFF process, performs one untimed first request to establish the
+same-server request-state boundary, then measures the second request. The
+baseline is the exact 0.6.0/v2 artifact before lifecycle-derived cleanup; the
+candidate is the exact 0.7.0/v3 artifact. Run B-C-C-B independently at P1024,
+P4096, and P8192 with 16 output tokens. Gate complete generated text, SSE
+termination, usage, finish, route coverage, reset receipt, source/build/install
+identity, continuous ownership, clocks/over-current, shutdown, port reuse, and
+post-exit `nvmap` state before reading timing.
+
+Formal r6 on main `8886119` accepts the lifecycle oracle plus all 12 BCCB
+cells. All six matched pairs reduce the targeted external-TTFT-minus-pure-
+Prefill bridge, and all 24 warmup plus measured requests preserve exact
+output/protocol/route receipts. Pure Prefill and Decode have mixed or
+noise-scale directions; external TTFT is not assigned a material improvement.
+This result selects ordinary reset-policy retention only.
+
+For the sealed P40 boundary, use one fresh current-main server and sequence:
+P40000 success from clean state, P40000 success from its exact committed
+prefix, P1024 cancellation after fresh GPU activity, then P40000 success from
+conservative full reset. Formal r2 measures 15.185065 ms for the
+40,015-position committed prefix and 17.504564 ms for the 44,095-position full
+reset, a 2.319499-ms reduction in the reset interval itself. The cancelled
+request emits no success witness; all three successful P40 requests preserve
+identical output, SSE, usage, finish, and route receipts. Do not attribute the
+single-sample approximately-695-second server Prefill differences to this
+2.3-ms reset delta, and do not report them as a throughput improvement. The
+bundle does not retain the complete external content-event arrival timeline;
+its derived external TTFT and Decode values therefore have no evidence
+authority.
+
+Every formal server ran only after unexpected consumers were stopped and
+`sync` plus cache drop completed. The procedure did not read, control, or gate
+a fan. Temperatures remained within the normal-through-85C band, clocks were
+stable, over-current event deltas were zero, and cleanup passed. Earlier busy-
+host, harness-binding, or ownership-rejected attempts have no timing authority.
+Exact artifact identities, invalid-run classifications, raw bundle hashes,
+metrics, and claim limits are frozen in the
+[`request-reset mainline closeout`](metadata/qwen36-27b-request-reset-mainline-closeout-2026-08-23.json).
 
 ## Capability gate: first attempt invalid
 

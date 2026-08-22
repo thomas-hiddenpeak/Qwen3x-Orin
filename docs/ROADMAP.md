@@ -99,6 +99,21 @@ direction observations, not release qualification. Exact identities,
 invalid-r1 classification, metrics, and limitations are frozen in the
 [`current-main production-default closeout`](metadata/qwen36-27b-production-default-mainline-closeout-2026-08-23.json).
 
+The follow-on 0.7.0 request-reuse conversion is now closed on current main
+`8886119` / tree `fbbcac6` and installed Release/OFF ELF `d70ba913...`.
+P1024/P4096/P8192 BCCB accepts 12/12 cells; every one of the six matched pairs
+reduces the external-TTFT-minus-pure-Prefill bridge, and all 24 warmup plus
+measured requests preserve output, SSE, usage, finish, and route receipts.
+Pure Prefill and Decode are mixed or noise-scale and receive no improvement
+claim. The same-server P40000 lifecycle measures committed-prefix cleanup at
+15.185065 ms versus 17.504564 ms for conservative full cleanup, while proving
+post-execution cancellation forces the next full reset and preserves exact
+output/protocol/route receipts. This supports retaining the compiled policy as
+the ordinary default across the verified lengths; it is not P40-throughput,
+accuracy, release, or production qualification. Exact invalid-run boundaries,
+identities, metrics, and bundle hashes are frozen in the
+[`request-reset mainline closeout`](metadata/qwen36-27b-request-reset-mainline-closeout-2026-08-23.json).
+
 Inside every Prefill architecture candidate, the work order is also fixed:
 
 ```text
@@ -228,11 +243,11 @@ into the sealed ordinary profile. It retains both proven Decode coupled-feed
 and consumer-order layouts as ordinary defaults, while explicitly rejecting
 the split-KV Decode selector after its S65 BF16 boundary oracle differed from
 the exact fallback. The next P0 inside P3 is the unconverted P40 result: the
-fresh exact ordinary default reaches 57.230764 tok/s, while the retained v10
-transaction reached a historical 392.804397 tok/s. Its known Attention-state
-mismatch must be repaired or separately qualified, followed by a fresh
-current-main complete-route comparison, before that arithmetic can become a
-production default.
+current 0.7 same-server exact route samples 57.391208--57.585234 tok/s without
+throughput-comparison authority, while the retained v10 transaction reached a
+historical 392.804397 tok/s. Its known Attention-state mismatch must be
+repaired or separately qualified, followed by a fresh current-main complete-
+route comparison, before that arithmetic can become a production default.
 
 The 0.7.0 request-reuse conversion is now compiled into the ordinary
 `q3x.sm87.production.p40.legacy-c512-exact.v3` lifecycle: creation is already
@@ -241,12 +256,16 @@ successful request clears only its committed K/V prefix plus complete
 Conv/GDN state, and every uncertain boundary performs the existing full
 reset. Its reset mode, positions, bytes, and synchronized duration are emitted
 without an environment, CLI, request, or test selector. Host policy, protocol,
-package-consumer, and bounded CUDA correctness gates establish mechanism
-safety only. The planned product return is approximately 15--16 ms of
-request-start cleanup; a matched installed real-model API B/C is still required
-before retaining that timing or claiming a TTFT improvement. This bounded
-qualification does not displace the accuracy-admissible P40 v10 conversion as
-the next architecture-scale P0.
+package-consumer, bounded CUDA correctness, and installed real-model API gates
+now close the verified P1024/P4096/P8192/P40000 scope. The short BCCB is 6/6
+positive on the targeted external-TTFT-minus-pure-Prefill bridge, and the P40
+same-server lifecycle measures the prefix reset itself 2.319499 ms below the
+full reset. Output, SSE, usage, finish, and route receipts remain exact. The
+policy is therefore retained as the ordinary default across those lengths;
+the evidence deliberately makes no material TTFT, Prefill-throughput, Decode,
+accuracy, release, or production claim. This bounded qualification does not
+displace the accuracy-admissible P40 v10 conversion as the next architecture-
+scale P0.
 
 ### Retained recovery boundary
 

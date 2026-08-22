@@ -68,6 +68,27 @@ drop, no-fan-observation, and owner thermal contract; these observations are
 not repetition, complete accuracy, target-length, release, or production
 qualification.
 
+The subsequent installed-API qualification of lifecycle-derived ordinary
+request cleanup is frozen in
+[`qwen36-27b-request-reset-mainline-closeout-2026-08-23.json`](qwen36-27b-request-reset-mainline-closeout-2026-08-23.json).
+It compares the installed Release/OFF 0.6.0/v2 baseline at `128698f` with the
+installed 0.7.0/v3 mainline artifact at `8886119`. The formal P1024/P4096/P8192
+BCCB accepts 12/12 cells and all 24 warmup plus measured requests preserve
+generated text, SSE termination, usage, finish, and route receipts. The
+external-TTFT-minus-pure-Prefill bridge improves in all six matched pairs;
+pure Prefill and Decode move at mixed or noise scale and receive no improvement
+claim. A separate same-server P40000 lifecycle proves 15.185065 ms committed-
+prefix cleanup versus 17.504564 ms conservative full cleanup, including one
+post-GPU-activity cancellation with no success witness and the required next-
+request full reset. Its three successful P40000 requests preserve identical
+output/protocol/route receipts, while their single-sample long-Prefill timing
+differences are not attributed to reset. The P40 bundle lacks the complete
+external content-event arrival timeline, so its derived external TTFT and
+Decode values have no evidence authority. The evidence supports retaining the
+compiled reset policy as the ordinary default across the verified lengths; it
+does not qualify model accuracy, P40 throughput improvement, capability,
+release, or production.
+
 The later owner-directed prompt-wide performance absorption is frozen in
 [`qwen36-27b-prompt-wide-mainline-absorption-2026-08-21.json`](qwen36-27b-prompt-wide-mainline-absorption-2026-08-21.json).
 It selects only allocation-free prompt-wide Embedding gather and exact

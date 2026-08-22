@@ -1,0 +1,306 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen36-27b-request-reset-mainline-closeout-2026-08-23",
+  "record_type": "current_main_ordinary_request_reset_installed_api_closeout",
+  "created_at_utc": "2026-08-22T21:49:24Z",
+  "classification": {
+    "source_status": "pass",
+    "ordinary_default_decision": "retain_lifecycle_derived_committed_dirty_prefix_reset_across_verified_p1024_p4096_p8192_p40000",
+    "short_bccb_status": "valid_twelve_cell_matched_installed_api_comparison",
+    "p40000_status": "valid_same_server_lifecycle_and_reset_cost_comparison",
+    "output_protocol_and_route_exact": true,
+    "reset_mechanism_qualified_for_ordinary_default_retention": true,
+    "material_ttft_improvement_claim": false,
+    "prefill_throughput_improvement_claim": false,
+    "decode_improvement_claim": false,
+    "complete_accuracy_qualified": false,
+    "release_qualified": false,
+    "production_authority": false
+  },
+  "claim_boundary": "This record supports retaining the lifecycle-derived 0.7.0/v3 ordinary request reset policy on the exact installed BUILD_TESTING=OFF mainline artifact. At P1024, P4096, and P8192, all six matched B/C pairs reduce the external-TTFT-minus-pure-Prefill bridge and all 24 warmup plus measured requests preserve complete generated text, SSE termination, usage, finish, and route receipts. Pure Prefill and Decode move only at mixed or noise-scale directions, so this record does not claim a material TTFT, Prefill-throughput, or Decode improvement. The same-server P40000 lifecycle proves that committed-prefix reset costs 15.185065 ms versus 17.504564 ms for conservative full reset, while three successful P40000 requests preserve identical server witnesses and raw output/SSE/usage/finish/route receipts. The P40000 bundle does not retain the complete external content-event arrival timeline, so its derived external TTFT and Decode figures have no evidence authority; its single-sample long-Prefill differences are not attributed to reset. This is ordinary-default retention evidence, not complete accuracy, capability, repetition, target-SLO, release, or production qualification.",
+  "decision_trace": {
+    "product_constraint": "Every accurate, API-visible improvement must be converted into the ordinary installed mainline while preserving request correctness and conservative recovery.",
+    "downward_contract": "At request entry, skip reset only for a known-clean arena, clear complete Conv/GDN plus the exactly committed K/V prefix after an accepted ordinary request, and use conservative full reset after cancellation, poison, mismatch, direct-runner use, or any uncertain boundary.",
+    "api_return_point": "Same-server OpenAI-compatible completions on the installed Release/OFF server, with visible TTFT decomposition, exact route/reset receipt, SSE/usage completion, and cleanup evidence.",
+    "decision": "retain the compiled 0.7.0/v3 lifecycle policy as the ordinary default for every verified P1024/P4096/P8192/P40000 request length"
+  },
+  "source_and_artifacts": {
+    "baseline": {
+      "git_commit": "128698f642890cfa13b846cbbae84dca4e228559",
+      "git_tree": "f9bd7796a40d348eeb896df3904f69f956bb5323",
+      "package_version": "0.6.0",
+      "release_profile": "q3x.sm87.production.p40.legacy-c512-exact.v2",
+      "build_type": "Release",
+      "build_testing": false,
+      "cuda_architecture": 87,
+      "build_elf_sha256": "276f57025931a96f9627f56dffa570ab7e4cd298efd1b3599264bb5292f7e268",
+      "installed_elf_sha256": "6c1089d3006b93af59cf50796166fce3854485065613b6951f7723bb4a565ea3",
+      "gnu_build_id": "162730b97150884c7e67e394c71fadf59784051e",
+      "cmake_cache_sha256": "c41eea7e1f96dbefba7c4d20e671beb12ff7cd8e281858dd06793d8d68326a2c",
+      "install_manifest_sha256": "2a772790951541a20d182af0f78116d82382bbb6ef8558f84a6b97bc99dc6180"
+    },
+    "current_main": {
+      "branch": "main",
+      "git_commit": "888611949f2bf2ed7608af54a3156a46f12e408d",
+      "git_tree": "fbbcac62491614966d7622bbc3dfde4f0d0f19b6",
+      "package_version": "0.7.0",
+      "release_profile": "q3x.sm87.production.p40.legacy-c512-exact.v3",
+      "build_type": "Release",
+      "build_testing": false,
+      "cuda_architecture": 87,
+      "build_elf_sha256": "22f6a9b55327f76a2677dcf3c8ace39e8de30629d71a53db6a6dae4d529cdc03",
+      "installed_elf_sha256": "d70ba913de3f5256b544b06d864dad5a7b5f4293d6b2accc4353761c872c0ae2",
+      "gnu_build_id": "9364ad0f825e755537da05dff97187e58053ab66",
+      "cmake_cache_sha256": "787c659cab04b3ff660732067298edab73549ec7bd5398114aa745cee9041fdf",
+      "install_manifest_sha256": "57a2faa72182b6a6d025e864a2325ebbafec2b52aa6bdc321e49b39e5baa5386"
+    },
+    "installed_build_relation": "Both build/install pairs retain their GNU Build ID; installation removes only the standard CUDA RUNPATH, with all bytes outside .dynamic and .dynstr identical.",
+    "source_build_install_identity_stable_across_formal_runs": true
+  },
+  "model_and_workload": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "hf_quant_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "model_index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "model_access": "read_only_external_input",
+    "corpus_sha256": "8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844",
+    "corpus_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "prompt_prefixes": {
+      "1024": "b549a6fd43b80800912b15193d672d8ea4b9c0b21f30f875c2d27680fd128e9b",
+      "4096": "2db712ab55a16950b76484fdfc7c12f9730be9362f1c9db959c76178ed1e5eb6",
+      "8192": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+      "40000": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f"
+    },
+    "output_tokens": 16,
+    "decode_transitions_after_first": 15,
+    "cache_policy": "cold fresh server with no Prefix or KV reuse"
+  },
+  "host_protocol": {
+    "unexpected_consumers": "stopped before timing and restored afterward by the quiet-host wrapper",
+    "drop_caches_before_each_fresh_server": "sync; echo 3 | sudo -n tee /proc/sys/vm/drop_caches",
+    "cooling": "external_only",
+    "fan_observation_control_or_gate": false,
+    "thermal_contract": {
+      "normal_through_c_inclusive": 85.0,
+      "diagnostic_band_above_c_through_c": [85.0, 90.0],
+      "diagnostic_band_decision": "actual clock, over-current, and throttle evidence",
+      "operational_risk_above_c": 90.0
+    },
+    "temperature_role": "validity_and_diagnostic_guardrail_not_optimization_target",
+    "locked_clocks": {
+      "cpu_khz": 2201600,
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "maximum_short_bccb_temperature_c": 75.281,
+    "maximum_p40000_reported_temperature_c": 79.031,
+    "overcurrent_event_count_delta": {
+      "oc1": 0,
+      "oc2": 0,
+      "oc3": 0
+    },
+    "quiet_host_wrapper_sha256": "b6749dd5259a6a51a7eda29a12ddeb27c27562a2060117a4e1601c11d8d5c136",
+    "short_bccb_harness_sha256": "8fd9e29bb8543aab7e02b68ded86fe4c3f2ca11f9051768a262552c639a3f03a",
+    "p40000_harness_sha256": "7d687c6256c124315c1ae1a35fb6ef02b2ed367015484fb28fd859a1d5da1aad",
+    "shared_production_harness_sha256": "1d27564707a5aee6384d23e27576c6913afec0f7caa19d291e876cbabde73d44"
+  },
+  "short_lifecycle_oracle": {
+    "accepted": true,
+    "same_server": true,
+    "successful_request_ids": ["cmpl-q3x-1", "cmpl-q3x-2", "cmpl-q3x-4"],
+    "cancelled_request_id_gap": "cmpl-q3x-3 has no success witness",
+    "sequence": [
+      {
+        "request": "r1",
+        "mode": "already_clean",
+        "positions": 0,
+        "bytes": 0,
+        "milliseconds": 0.042374
+      },
+      {
+        "request": "r2",
+        "mode": "committed_dirty_prefix",
+        "positions": 1039,
+        "bytes": 146538496,
+        "milliseconds": 1.498673
+      },
+      {
+        "request": "r3",
+        "result": "cancelled_after_fresh_gpu_execution_activity_without_success_witness"
+      },
+      {
+        "request": "r4",
+        "mode": "conservative_full",
+        "positions": 44095,
+        "bytes": 2968256512,
+        "milliseconds": 17.48572
+      }
+    ],
+    "successful_output_text_sha256": "b4a9b009d2b0f7361bd2cfe6745e475aa5837d5842dfb2978e764cd37f34a469"
+  },
+  "short_installed_api_bccb": {
+    "accepted": true,
+    "sequence_per_length": "BCCB",
+    "lengths": [1024, 4096, 8192],
+    "accepted_cells": 12,
+    "accepted_warmup_and_measured_requests": 24,
+    "output_sse_usage_finish_and_route_exact_across_all_requests": true,
+    "bridge_matched_pairs_candidate_faster": 6,
+    "bridge_matched_pairs_total": 6,
+    "performance_threshold": "not_predeclared",
+    "harness_production_promotion_decision": "not_run",
+    "length_results": {
+      "1024": {
+        "baseline_bridge_median_ms": 23.3253705,
+        "candidate_bridge_median_ms": 7.1527175,
+        "bridge_candidate_minus_baseline_ms": -16.172653,
+        "baseline_external_ttft_median_ms": 5600.2678235,
+        "candidate_external_ttft_median_ms": 5585.386452,
+        "external_ttft_candidate_minus_baseline_ms": -14.8813715,
+        "baseline_server_pure_prefill_median_ms": 5576.942453,
+        "candidate_server_pure_prefill_median_ms": 5578.2337345,
+        "baseline_server_decode_tpot_median_ms": 107.23811886666667,
+        "candidate_server_decode_tpot_median_ms": 107.2755065,
+        "candidate_prefix_reset_positions": 1039,
+        "candidate_prefix_reset_bytes": 146538496,
+        "candidate_prefix_reset_median_ms": 1.4814805,
+        "generated_text_sha256": "b4a9b009d2b0f7361bd2cfe6745e475aa5837d5842dfb2978e764cd37f34a469"
+      },
+      "4096": {
+        "baseline_bridge_median_ms": 22.1886995,
+        "candidate_bridge_median_ms": 10.81811,
+        "bridge_candidate_minus_baseline_ms": -11.3705895,
+        "baseline_external_ttft_median_ms": 21294.7341215,
+        "candidate_external_ttft_median_ms": 21273.792926,
+        "external_ttft_candidate_minus_baseline_ms": -20.9411955,
+        "baseline_server_pure_prefill_median_ms": 21272.545422,
+        "candidate_server_pure_prefill_median_ms": 21262.974816,
+        "baseline_server_decode_tpot_median_ms": 118.891423,
+        "candidate_server_decode_tpot_median_ms": 118.9395597,
+        "candidate_prefix_reset_positions": 4111,
+        "candidate_prefix_reset_bytes": 347865088,
+        "candidate_prefix_reset_median_ms": 2.566228,
+        "generated_text_sha256": "7674f5e0ff31b4d6564ce9c1ab3532b2d72f0e1f28e2ae2ed6f3974226ae0183"
+      },
+      "8192": {
+        "baseline_bridge_median_ms": 33.9418245,
+        "candidate_bridge_median_ms": 15.180447,
+        "bridge_candidate_minus_baseline_ms": -18.7613775,
+        "baseline_external_ttft_median_ms": 53237.4537505,
+        "candidate_external_ttft_median_ms": 53189.7277515,
+        "external_ttft_candidate_minus_baseline_ms": -47.725999,
+        "baseline_server_pure_prefill_median_ms": 53203.511926,
+        "candidate_server_pure_prefill_median_ms": 53174.5473045,
+        "baseline_server_decode_tpot_median_ms": 134.3628868,
+        "candidate_server_decode_tpot_median_ms": 134.397694,
+        "candidate_prefix_reset_positions": 8207,
+        "candidate_prefix_reset_bytes": 616300544,
+        "candidate_prefix_reset_median_ms": 3.9314545,
+        "generated_text_sha256": "f8656528d70736583ee55c7e94863b1889c25c437887109bd3f79e8d4085073c"
+      }
+    },
+    "interpretation": {
+      "targeted_bridge_effect": "positive in both matched pairs at every tested length",
+      "external_ttft": "candidate medians are lower at all three lengths, but matched-pair direction is mixed above P1024 and no material TTFT claim is made",
+      "pure_prefill": "mixed at pair level and not attributable to request reset",
+      "decode": "server movement is at most 0.048137 ms/token and receives no regression or improvement claim"
+    },
+    "formal_r6_bundle": {
+      "path": ".q3x-work/evidence/reset-real-api-bccb-128698f-vs-8886119-r6",
+      "files": 615,
+      "bytes": 54222703,
+      "manifest_sha256": "0a65b014ba472ee8387af44be703b2f28347d75cf5c749f1c4106853bd0827f3",
+      "summary_sha256": "5506debd272d65ebeb65cb9bba4f68424ff5ead02bf3ee780ecb0741d0777f20",
+      "aggregate_sha256": "4bb61242ed11ed5d8db1d1a829dbfda83bece1ccc1e10541a7c1c34610196eff",
+      "canonical_relative_inventory_digest": "af3855bcc83695844eb294e5f53f71c9bfb650d120f04560e009907553450cf4"
+    }
+  },
+  "p40000_same_server_lifecycle": {
+    "invalid_r1": {
+      "accepted": false,
+      "timing_authority": false,
+      "reason": "clean-host preflight rejected unexpected PID 90 above the 5 percent single-core threshold before the model run",
+      "bundle_path": ".q3x-work/evidence/reset-real-api-p40000-lifecycle-main-8886119-r1",
+      "files": 35,
+      "bytes": 1944189,
+      "manifest_sha256": "acf3b0365ff8185f68cdf682253ce010fb156adc7a61b2768b8ba927e1032cfb",
+      "summary_sha256": "e35fdcc05c1660f911841811fb711e84cd35b99d4188e664e922dba1139f8a03",
+      "result_sha256": "d7ec787316652ee932507d7b04dc1c68b5341ca902079740ff50f5ab57a2987e",
+      "result_use": "none"
+    },
+    "formal_r2": {
+      "accepted": true,
+      "same_server": true,
+      "successful_p40000_requests": 3,
+      "successful_request_ids": ["cmpl-q3x-1", "cmpl-q3x-2", "cmpl-q3x-4"],
+      "cancelled_request": "P1024 cmpl-q3x-3 disconnected after a fresh 99 percent GR3D activity sample and emitted no success witness",
+      "output_sse_usage_finish_and_route_exact": true,
+      "generated_text_sha256": "25451d25ce3799c749c8743a664277def7336b294af5ddfb238dac327058b20b",
+      "canonical_raw_sse_sha256": "3c150734d33cfef9f609c3ac5f2757b601655e06c51d0ce8572a96f8fea54c29",
+      "raw_sse_contract": "16 non-empty token events, one usage event with 40000 prompt/16 completion/40016 total, finish_reason length, and DONE",
+      "metric_authority": {
+        "direct_reset_interval": true,
+        "server_witness_and_raw_output": true,
+        "external_ttft": false,
+        "external_decode": false,
+        "external_metric_limitation": "complete per-token external content-event arrival timestamps were not retained"
+      },
+      "requests": {
+        "r1_already_clean": {
+          "positions": 0,
+          "bytes": 0,
+          "reset_ms": 0.047655,
+          "external_ttft_ms": 696990.312131,
+          "server_pure_prefill_ms": 696970.869445,
+          "bridge_ms": 19.442686
+        },
+        "r2_committed_dirty_prefix": {
+          "positions": 40015,
+          "bytes": 2700869632,
+          "reset_ms": 15.185065,
+          "external_ttft_ms": 695177.865976,
+          "server_pure_prefill_ms": 695132.536581,
+          "bridge_ms": 45.329395
+        },
+        "r4_conservative_full": {
+          "positions": 44095,
+          "bytes": 2968256512,
+          "reset_ms": 17.504564,
+          "external_ttft_ms": 694668.028632,
+          "server_pure_prefill_ms": 694622.513254,
+          "bridge_ms": 45.515378
+        }
+      },
+      "reset_comparison": {
+        "full_minus_prefix_ms": 2.319499,
+        "prefix_over_full_duration": 0.86749175815,
+        "prefix_duration_reduction_vs_full_percent": 13.250824185,
+        "interpretation": "The reset interval itself is positive for committed-prefix cleanup. The single-sample server Prefill differences are dominated by the approximately 695-second Prefill and are not attributed to reset. Derived external TTFT and Decode values have no authority because the complete content-event arrival timeline was not retained."
+      },
+      "bundle": {
+        "path": ".q3x-work/evidence/reset-real-api-p40000-lifecycle-main-8886119-r2",
+        "files": 62,
+        "bytes": 70745275,
+        "manifest_sha256": "1bdcae5f37227bc20b4d9fad0ac27084d60255f2ed1e70940ca39d63e7ef8e6f",
+        "summary_sha256": "d4c4754fc8551f8858544180ca5724dd157f7b5537154fd89e397995dab284ea",
+        "result_sha256": "55b406932e301defdb862065f5477ce0f5532497959625c806200a933bd4d4c2",
+        "identity_after_sha256": "6abe90d159ab5526b8cd75a37d14b01e82e5825ac40c9064af6a02db24733b4c",
+        "canonical_relative_inventory_digest": "86fa353e7044ed77ede1b1d34aa53544aacdc394099dd65d1337fe6577a1eab1"
+      }
+    }
+  },
+  "remaining_qualification": {
+    "ordinary_default_reset_policy": "retained",
+    "installed_package_tuple_confirmed_on_real_model_api": true,
+    "material_ttft_or_throughput_claim": false,
+    "release_qualified": false,
+    "open": [
+      "complete hidden-state, logit, token-ID, and public capability accuracy",
+      "independent-process target-length repetition and tail latency",
+      "P60 and approximately-P130 capacity and target-SLO witnesses",
+      "long-output, cancellation, overload, malformed-request, OOM, shutdown, and stability qualification"
+    ]
+  }
+}
