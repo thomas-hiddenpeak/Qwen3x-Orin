@@ -7,10 +7,150 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 
 namespace q3x::server {
+
+inline constexpr std::size_t kMaximumEvaluationApiKeyBytes = 4'096U;
+
+struct EvaluationApiKeyLoadResult {
+  std::optional<std::string> value;
+  std::string error;
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return value.has_value();
+  }
+};
+
+// Opens one owner-only regular file without following symlinks and loads one
+// bounded ASCII Bearer token. A single trailing LF or CRLF is ignored.
+[[nodiscard]] EvaluationApiKeyLoadResult load_evaluation_api_key_file(
+    const std::filesystem::path& path);
+
+// Installed/default evaluation-server authority.  A production profile is a
+// complete execution and capacity selection, not a bag of independently
+// mutable command-line tactics.  The first profile deliberately retains the
+// accuracy-qualified Legacy-C512 arithmetic while admitting the P40000
+// product prompt together with the ordinary 4096-token output ceiling.
+enum class EvaluationProductionProfile : std::uint8_t {
+  kNone = 0,
+  kP40ExactLegacyC512,
+};
+
+struct EvaluationProductionDeploymentPlan {
+  EvaluationProductionProfile profile =
+      EvaluationProductionProfile::kNone;
+  std::string_view id;
+  std::string_view decode_route_id;
+  std::uint32_t target_prompt_tokens = 0U;
+  std::uint32_t maximum_output_tokens = 0U;
+  std::uint32_t max_sequence_length = 0U;
+  std::uint32_t prefill_chunk_size = 0U;
+  std::uint64_t request_arena_bytes = 0U;
+  std::uint64_t min_free_bytes_after_create = 0U;
+  std::size_t prefill_supermatrix_projections = 0U;
+  std::uint64_t prefill_supermatrix_sidecar_bytes = 0U;
+  std::size_t decode_fp8_output_layers = 0U;
+  std::uint64_t decode_fp8_output_sidecar_bytes = 0U;
+  std::size_t decode_gate_up_layers = 0U;
+  std::uint64_t decode_gate_up_sidecar_bytes = 0U;
+  std::size_t decode_down_scale6_layers = 0U;
+  std::uint64_t decode_down_scale6_sidecar_bytes = 0U;
+  std::size_t decode_down_consumer_order_layers = 0U;
+  std::uint64_t decode_down_consumer_order_sidecar_bytes = 0U;
+  std::uint64_t decode_retained_sidecar_bytes = 0U;
+  std::uint64_t retained_acceleration_sidecar_bytes = 0U;
+  runtime::ReferenceDecodeGraphCachePolicy decode_graph_cache_policy =
+      runtime::ReferenceDecodeGraphCachePolicy::kDisabled;
+  std::uint32_t decode_graph_first_position = 0U;
+  std::uint32_t decode_graph_last_position = 0U;
+  std::size_t decode_graph_slots = 0U;
+  runtime::ProjectionBackend projection_backend =
+      runtime::ProjectionBackend::kReference;
+  runtime::ReferencePrefillExecutionMode prefill_execution_mode =
+      runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled;
+  runtime::LayerMajorPrefillFullAttentionTactic
+      prefill_full_attention_tactic =
+          runtime::LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512;
+  runtime::LayerMajorPrefillProjectionTactic prefill_projection_tactic =
+      runtime::LayerMajorPrefillProjectionTactic::kExactSegmentedC512;
+};
+
+inline constexpr EvaluationProductionDeploymentPlan
+    kP40ExactLegacyC512ProductionPlan{
+        EvaluationProductionProfile::kP40ExactLegacyC512,
+        "q3x.sm87.production.p40.legacy-c512-exact.v2",
+        "q3x.sm87.decode.coupled-feed-down-consumer-order.v1",
+        40'000U,
+        4'096U,
+        44'095U,
+        runtime::kMaximumRequestPrefillChunkSize,
+        3'070'908'416ULL,
+        8ULL * 1024ULL * 1024ULL * 1024ULL,
+        runtime::kFp8PrefillSupermatrixProjectionCount,
+        runtime::kQwen36Fp8PrefillSupermatrixSidecarBytes,
+        runtime::kQwen36DenseLayerCount,
+        runtime::kQwen36Fp8M1OutputProjectionAosoa4PreswizzledBytes,
+        runtime::kQwen36DenseLayerCount,
+        runtime::kQwen36NvFp4GateUpCoupledFeedBytes,
+        runtime::kQwen36NvFp4DownScale6LayerCount,
+        runtime::kQwen36NvFp4DownScale6SidecarBytes,
+        runtime::kQwen36NvFp4DownScale6LayerCount,
+        runtime::kQwen36NvFp4DownConsumerOrderBytes,
+        11'013'898'240ULL,
+        18'228'101'120ULL,
+        runtime::ReferenceDecodeGraphCachePolicy::kSm87ShortPositions,
+        19U,
+        43U,
+        25U,
+        runtime::ProjectionBackend::kSm87WeightOnly,
+        runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled,
+        runtime::LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512,
+        runtime::LayerMajorPrefillProjectionTactic::kExactSegmentedC512,
+    };
+
+static_assert(kP40ExactLegacyC512ProductionPlan.max_sequence_length ==
+              kP40ExactLegacyC512ProductionPlan.target_prompt_tokens +
+                  kP40ExactLegacyC512ProductionPlan.maximum_output_tokens -
+                  1U);
+static_assert(
+    kP40ExactLegacyC512ProductionPlan.decode_down_consumer_order_sidecar_bytes ==
+    kP40ExactLegacyC512ProductionPlan.decode_down_consumer_order_layers *
+        runtime::kNvFp4DownConsumerOrderWeightBytesPerProjection);
+static_assert(
+    kP40ExactLegacyC512ProductionPlan.decode_down_scale6_sidecar_bytes ==
+    kP40ExactLegacyC512ProductionPlan.decode_down_scale6_layers *
+        runtime::kNvFp4DownScale6SidecarBytesPerProjection);
+static_assert(
+    kP40ExactLegacyC512ProductionPlan.decode_retained_sidecar_bytes ==
+    kP40ExactLegacyC512ProductionPlan.decode_fp8_output_sidecar_bytes +
+        kP40ExactLegacyC512ProductionPlan.decode_gate_up_sidecar_bytes +
+        kP40ExactLegacyC512ProductionPlan.decode_down_scale6_sidecar_bytes +
+        kP40ExactLegacyC512ProductionPlan
+            .decode_down_consumer_order_sidecar_bytes);
+static_assert(
+    kP40ExactLegacyC512ProductionPlan.retained_acceleration_sidecar_bytes ==
+    kP40ExactLegacyC512ProductionPlan.prefill_supermatrix_sidecar_bytes +
+        kP40ExactLegacyC512ProductionPlan.decode_retained_sidecar_bytes);
+
+[[nodiscard]] constexpr bool is_valid_evaluation_production_profile(
+    const EvaluationProductionProfile profile) noexcept {
+  return profile == EvaluationProductionProfile::kNone ||
+         profile == EvaluationProductionProfile::kP40ExactLegacyC512;
+}
+
+[[nodiscard]] constexpr std::string_view to_string(
+    const EvaluationProductionProfile profile) noexcept {
+  switch (profile) {
+    case EvaluationProductionProfile::kNone:
+      return "none";
+    case EvaluationProductionProfile::kP40ExactLegacyC512:
+      return kP40ExactLegacyC512ProductionPlan.id;
+  }
+  return "unknown";
+}
 
 // Explicit acknowledgement for evaluation-only routes that are intentionally
 // outside the numerical and production contract. A non-default value never
@@ -40,13 +180,18 @@ enum class EvaluationDevelopmentRoute : std::uint8_t {
 
 struct EvaluationServerOptions {
   std::filesystem::path model_directory;
+  std::filesystem::path api_key_file;
   std::string bind_address = "127.0.0.1";
   std::uint16_t port = 8000U;
   std::string served_model = "qwen3.6-27b-nvfp4";
-  std::uint32_t max_sequence_length = 8'192U;
-  std::uint32_t maximum_output_tokens = 4'096U;
+  EvaluationProductionProfile production_profile =
+      EvaluationProductionProfile::kP40ExactLegacyC512;
+  std::uint32_t max_sequence_length =
+      kP40ExactLegacyC512ProductionPlan.max_sequence_length;
+  std::uint32_t maximum_output_tokens =
+      kP40ExactLegacyC512ProductionPlan.maximum_output_tokens;
   std::uint32_t prefill_chunk_size =
-      runtime::kMaximumRequestPrefillChunkSize;
+      kP40ExactLegacyC512ProductionPlan.prefill_chunk_size;
   // One thread may wait on each admitted batch-one request. Keep enough
   // threads for the active request, every bounded queued request, and one
   // control-plane/overload response.
@@ -57,18 +202,18 @@ struct EvaluationServerOptions {
   std::uint32_t read_timeout_milliseconds = 10'000U;
   std::uint32_t write_timeout_milliseconds = 5'000U;
   std::uint64_t request_max_arena_bytes =
-      2ULL * 1024ULL * 1024ULL * 1024ULL;
+      kP40ExactLegacyC512ProductionPlan.request_arena_bytes;
   std::uint64_t request_min_free_bytes_after_create =
-      8ULL * 1024ULL * 1024ULL * 1024ULL;
+      kP40ExactLegacyC512ProductionPlan.min_free_bytes_after_create;
   runtime::ProjectionBackend projection_backend =
-      runtime::ProjectionBackend::kSm87WeightOnly;
+      kP40ExactLegacyC512ProductionPlan.projection_backend;
   runtime::ReferencePrefillExecutionMode prefill_execution_mode =
-      runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled;
+      kP40ExactLegacyC512ProductionPlan.prefill_execution_mode;
   runtime::LayerMajorPrefillFullAttentionTactic
       prefill_full_attention_tactic =
-          runtime::LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512;
+          kP40ExactLegacyC512ProductionPlan.prefill_full_attention_tactic;
   runtime::LayerMajorPrefillProjectionTactic prefill_projection_tactic =
-      runtime::LayerMajorPrefillProjectionTactic::kExactSegmentedC512;
+      kP40ExactLegacyC512ProductionPlan.prefill_projection_tactic;
   // Single typed acknowledgement for the accuracy-unqualified v10 baseline.
   // The server rejects both a route without this acknowledgement and an
   // acknowledgement whose fixed P40000 configuration has been altered.
@@ -79,10 +224,31 @@ struct EvaluationServerOptions {
   bool emit_nvtx_phase_ranges = false;
 };
 
+[[nodiscard]] inline bool is_p40_exact_legacy_c512_production_profile(
+    const EvaluationServerOptions& options) noexcept {
+  const EvaluationProductionDeploymentPlan& plan =
+      kP40ExactLegacyC512ProductionPlan;
+  return options.production_profile == plan.profile &&
+         options.development_route == EvaluationDevelopmentRoute::kNone &&
+         options.max_sequence_length == plan.max_sequence_length &&
+         options.maximum_output_tokens == plan.maximum_output_tokens &&
+         options.prefill_chunk_size == plan.prefill_chunk_size &&
+         options.request_max_arena_bytes == plan.request_arena_bytes &&
+         options.request_min_free_bytes_after_create ==
+             plan.min_free_bytes_after_create &&
+         options.projection_backend == plan.projection_backend &&
+         options.prefill_execution_mode == plan.prefill_execution_mode &&
+         options.prefill_full_attention_tactic ==
+             plan.prefill_full_attention_tactic &&
+         options.prefill_projection_tactic ==
+             plan.prefill_projection_tactic;
+}
+
 [[nodiscard]] inline bool is_p40_whole_core_v10_fixed_profile(
     const EvaluationServerOptions& options) noexcept {
   return options.development_route ==
              EvaluationDevelopmentRoute::kP40WholeCoreV10 &&
+         options.production_profile == EvaluationProductionProfile::kNone &&
          options.max_sequence_length == 40'001U &&
          options.maximum_output_tokens == 1U &&
          options.prefill_chunk_size ==

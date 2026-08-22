@@ -56,7 +56,7 @@ This gate proves integration health only. A performance-improvement claim
 still requires a runtime-relevant delta, a matched retained comparator, the
 applicable request count and target-length workload, and the repetition and
 qualification required by the real-model performance policy. The gate cannot
-activate a paused Prefill work package, waive P1/P2/P3 exit criteria, or turn
+waive P1/P2/P3 exit criteria or turn
 the loopback evaluation adapter into the final product API.
 
 The bounded 2026-08-21 owner-directed prompt-wide absorption batch has closed
@@ -67,8 +67,8 @@ state/logit-inexact exact-C512 final-token candidate, retained matched
 eight-request short EvalScope integration proxy. The exact result and its
 non-statistical, non-target-length, non-release boundary are frozen in the
 [`prompt-wide absorption record`](metadata/qwen36-27b-prompt-wide-mainline-absorption-2026-08-21.json).
-This was a branch-closeout exception under explicit owner direction, not a P3
-restart or permission for further performance exploration.
+At the time this was a branch-closeout exception rather than a P3 restart;
+the later 2026-08-22 owner direction now supersedes that scheduling boundary.
 
 The subsequent owner-directed v10 P40 retention exception made the exact
 nine-item whole-core inventory reproducible as one typed, default-OFF,
@@ -194,27 +194,33 @@ Exit criteria:
 - health/telemetry identifies the release and route without relying on an
   experiment harness.
 
-## P3. Exact Prefill parity, then specialization advantage — paused
+## P3. Exact Prefill parity, then specialization advantage — active
 
-Purpose: preserve the useful-vLLM-parity and specialization-advantage outcome
-while Prefill performance work is paused.
+Purpose: convert every accuracy-admissible whole-product gain into the
+ordinary installed mainline, then close the remaining gap to the locked
+Prefill targets.
 
-Status: **paused by project-owner direction on 2026-08-20**. The pause changes
-delivery scheduling only. It does not amend the Constitution's accuracy,
-non-MTP, reference-only cuBLASLt, 40K/60K/approximately-130K capacity, or
-latency targets. There is no active Prefill architecture candidate or local
-optimization work package on the delivery mainline. P1/P2 and later delivery
-slices retain their existing dependency and exit contracts; nothing in this
-section authorizes a Prefill performance run, profiler capture, local scan,
-default-route change, or production promotion while the pause remains.
-The later 2026-08-21 owner directions authorized only the bounded prompt-wide
-absorption and the v10 P40 development-route retention recorded above. The
-first batch is closed; the P40 code absorption and current-main sustainable
-integration-health closeout are complete, while historical max-clock
-reproduction remains open. The general pause and the prohibition on new P3
-exploration remain in force.
+Status: **resumed by explicit project-owner direction on 2026-08-22**. Work is
+conversion-first: inventory retained real-API gains, re-evaluate them on the
+then-current mainline, select accurate positive changes into the ordinary
+Release default, and immediately return to the same installed API for
+Prefill, TTFT, Decode, startup, and memory measurement. Hardware telemetry is
+a validity/diagnostic guardrail, not the optimization objective. Unexpected
+CPU/GPU consumers may be stopped and restored for a clean measurement; the
+active thermal contract accepts temperatures through 85C and judges
+performance validity independently from actual clock/throttle evidence.
 
-### Paused recovery boundary
+The first active batch promotes the exact C256/C512 GDN whole-span path and
+the already-qualified prompt-wide Embedding/Attention preprocessing path into
+the sealed ordinary profile. It evaluates the proven Decode coupled-feed and
+consumer-order layouts as ordinary defaults, while explicitly rejecting the
+split-KV Decode selector after its S65 BF16 boundary oracle differed from the
+exact fallback. The P40 v10 transaction remains retained work, not an archive;
+its known Attention-state mismatch must be repaired or separately qualified
+before the historical 392.804397-token/s arithmetic can become a production
+default.
+
+### Retained recovery boundary
 
 The exact recovery anchor is
 `archive/v4-construction-ownership-20260820@f3545240075651eaa54a5bea6c0f15ee9dfd9a3e`.
@@ -228,9 +234,10 @@ The later holder-free post-exit preflight is not a Jetson `nvmap`
 execution, numerical, generation, API, timing, performance, release, or
 production authority.
 
-Resume only after a new explicit project-owner direction. Start from the
-then-current mainline and use the archive as a source/evidence reference; do
-not merge it wholesale or infer mainline capability from branch-local tests.
+The explicit owner direction has resumed this work. Start every conversion
+from the then-current mainline and use the archive only as a source/evidence
+reference; do not merge it wholesale or infer capability from branch-local
+tests.
 The then-current mainline now already contains the narrow exact prompt-wide
 Embedding/Attention absorption at `ff47f179`; treat it as the incumbent for
 that eligible Legacy-C512 scope and use its

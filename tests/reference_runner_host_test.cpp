@@ -1,6 +1,8 @@
 #include "q3x/runtime/reference_runner.h"
 
 #include "q3x/runtime/decode_ops.h"
+#include "reference_runner_decode_gqa_policy_internal.h"
+#include "reference_runner_gdn_exact_span_policy_internal.h"
 
 #include <algorithm>
 #include <array>
@@ -1165,6 +1167,87 @@ void test_schedule_and_workspace(TestContext& test) {
   test.expect(detail::validate_reference_workspace_plan(plan) ==
                   runtime::ReferenceRunnerError::kInvalidRequestState,
               "GQA scratch must alias the FP32 projection/logits scratch");
+}
+
+void test_decode_gqa_splitkv_production_policy(TestContext& test) {
+  using DecodeRoute = detail::ReferenceRunnerDecodeGqaRoute;
+  constexpr detail::ReferenceRunnerDecodeGqaPolicy policy =
+      detail::kReferenceRunnerDecodeGqaProductionPolicy;
+  struct RouteCase {
+    std::size_t sequence_length = 0U;
+    DecodeRoute expected = DecodeRoute::kExactFallback;
+  };
+  constexpr std::array<RouteCase, 7U> cases{{
+      {0U, DecodeRoute::kExactFallback},
+      {1U, DecodeRoute::kExactFallback},
+      {64U, DecodeRoute::kExactFallback},
+      {65U, DecodeRoute::kExactFallback},
+      {4'096U, DecodeRoute::kExactFallback},
+      {4'097U, DecodeRoute::kExactFallback},
+      {std::numeric_limits<std::size_t>::max(),
+       DecodeRoute::kExactFallback},
+  }};
+
+  std::size_t split_kv_route_hits = 0U;
+  bool boundaries_exact = true;
+  for (const RouteCase& route_case : cases) {
+    const DecodeRoute route = detail::select_reference_runner_decode_gqa_route(
+        policy, route_case.sequence_length);
+    split_kv_route_hits +=
+        route == DecodeRoute::kProductionSplitKv ? 1U : 0U;
+    boundaries_exact = route == route_case.expected &&
+                       detail::use_decode_gqa_splitkv(
+                           route_case.sequence_length) ==
+                           (route_case.expected ==
+                            DecodeRoute::kProductionSplitKv) &&
+                       boundaries_exact;
+  }
+  test.expect(
+      boundaries_exact && split_kv_route_hits == 0U &&
+          policy.split_kv_minimum_sequence_length >
+              policy.split_kv_maximum_sequence_length,
+      "compiled Decode GQA production policy keeps split-KV default-off");
+
+  constexpr char retired_environment[] =
+      "Q3X_RUN_DECODE_GQA_SPLITKV_ADMISSION";
+  const bool environment_calls_ok =
+      ::unsetenv(retired_environment) == 0 &&
+      std::getenv(retired_environment) == nullptr;
+  const bool absent_route_hit = detail::use_decode_gqa_splitkv(65U);
+  const bool off_environment_ignored =
+      ::setenv(retired_environment, "0", 1) == 0 &&
+      !detail::use_decode_gqa_splitkv(65U);
+  const bool on_environment_ignored =
+      ::setenv(retired_environment, "1", 1) == 0 &&
+      !detail::use_decode_gqa_splitkv(65U);
+  const bool cleanup_ok = ::unsetenv(retired_environment) == 0;
+  test.expect(environment_calls_ok && !absent_route_hit &&
+                  off_environment_ignored && on_environment_ignored &&
+                  cleanup_ok,
+              "Decode split-KV stays default-off with the retired environment "
+              "selector absent and ignores compatibility values");
+}
+
+void test_gdn_exact_span_production_policy(TestContext& test) {
+  test.expect(
+      detail::should_use_prefill_gdn_exact_span(
+          runtime::ProjectionBackend::kSm87WeightOnly, 0U, 256U) &&
+          detail::should_use_prefill_gdn_exact_span(
+              runtime::ProjectionBackend::kSm87WeightOnly, 16U, 512U) &&
+          !detail::should_use_prefill_gdn_exact_span(
+              runtime::ProjectionBackend::kReference, 0U, 256U) &&
+          !detail::should_use_prefill_gdn_exact_span(
+              runtime::ProjectionBackend::kSm87WeightOnly, 1U, 256U) &&
+          !detail::should_use_prefill_gdn_exact_span(
+              runtime::ProjectionBackend::kSm87WeightOnly, 0U, 255U) &&
+          !detail::should_use_prefill_gdn_exact_span(
+              runtime::ProjectionBackend::kSm87WeightOnly, 0U, 257U) &&
+          !detail::should_use_prefill_gdn_exact_span(
+              runtime::ProjectionBackend::kSm87WeightOnly, 0U, 511U) &&
+          !detail::should_use_prefill_gdn_exact_span(
+              runtime::ProjectionBackend::kSm87WeightOnly, 0U, 513U),
+      "exact-span GDN production policy admits only aligned SM87 C256/C512 "
+      "tiles");
 }
 
 void test_fake_linear_weight_validation(TestContext& test) {
@@ -2740,6 +2823,8 @@ int main() {
   test_bf16_logits_bits_analysis(test);
   test_bf16_logits_memo_perf(test);
   test_schedule_and_workspace(test);
+  test_decode_gqa_splitkv_production_policy(test);
+  test_gdn_exact_span_production_policy(test);
   test_fake_linear_weight_validation(test);
   test_trace_layout_and_factory_error(test);
   test_prefill_tile_execution_control(test);

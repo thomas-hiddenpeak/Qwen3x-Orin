@@ -54,6 +54,36 @@ struct OpenAIParseResult {
   }
 };
 
+// Public discovery identity for the installed/default server.  Production
+// eligibility means the binary owns a sealed non-development deployment
+// profile; it is deliberately independent from release qualification.
+struct OpenAIProductionIdentity {
+  std::string_view profile_id;
+  std::string_view decode_route_id;
+  std::uint32_t target_prompt_tokens = 0U;
+  std::uint32_t maximum_output_tokens = 0U;
+  std::uint32_t max_sequence_length = 0U;
+  std::uint64_t request_arena_bytes = 0U;
+  std::size_t prefill_supermatrix_projections = 0U;
+  std::uint64_t prefill_supermatrix_sidecar_bytes = 0U;
+  std::size_t decode_fp8_output_layers = 0U;
+  std::uint64_t decode_fp8_output_sidecar_bytes = 0U;
+  std::size_t decode_gate_up_layers = 0U;
+  std::uint64_t decode_gate_up_sidecar_bytes = 0U;
+  std::size_t decode_down_scale6_layers = 0U;
+  std::uint64_t decode_down_scale6_sidecar_bytes = 0U;
+  std::size_t decode_down_consumer_order_layers = 0U;
+  std::uint64_t decode_down_consumer_order_sidecar_bytes = 0U;
+  std::uint64_t decode_retained_sidecar_bytes = 0U;
+  std::uint64_t retained_acceleration_sidecar_bytes = 0U;
+  std::uint32_t decode_graph_first_position = 0U;
+  std::uint32_t decode_graph_last_position = 0U;
+  std::size_t decode_graph_slots = 0U;
+  bool build_testing = true;
+  bool production_eligible = false;
+  bool release_qualified = false;
+};
+
 struct OpenAIUsage {
   std::uint64_t prompt_tokens = 0U;
   std::uint64_t completion_tokens = 0U;
@@ -185,11 +215,18 @@ enum class OpenAIFinishReason : std::uint8_t {
 [[nodiscard]] std::string serialize_openai_error(
     const OpenAIProtocolError& error);
 [[nodiscard]] std::string serialize_models_response(
-    std::string_view served_model, std::int64_t created);
+    std::string_view served_model, std::int64_t created,
+    const OpenAIProductionIdentity& production);
 [[nodiscard]] std::string serialize_health_response(
-    std::string_view served_model);
-// Development-only v10 discovery receipts. The ordinary health/model
-// responses remain byte-stable and never inherit an unqualified route claim.
+    std::string_view served_model,
+    const OpenAIProductionIdentity& production);
+// The loop count depends only on the configured credential length, never on
+// how many prefix bytes supplied by the peer happen to match.
+[[nodiscard]] bool constant_time_bearer_authorization_matches(
+    std::string_view authorization, std::string_view api_key) noexcept;
+// Development-only v10 discovery receipts. They remain isolated from the
+// ordinary production-identity health/model responses and never imply that
+// the development route is qualified.
 [[nodiscard]] std::string serialize_p40_whole_core_v10_models_response(
     std::string_view served_model, std::int64_t created);
 [[nodiscard]] std::string serialize_p40_whole_core_v10_health_response(

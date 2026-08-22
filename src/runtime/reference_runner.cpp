@@ -1,5 +1,7 @@
 #include "q3x/runtime/reference_runner.h"
 
+#include "reference_runner_decode_gqa_policy_internal.h"
+#include "reference_runner_gdn_exact_span_policy_internal.h"
 #include "reference_runner_prompt_wide_policy_internal.h"
 
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
@@ -41,11 +43,12 @@
 #include "reference_runner_gdn_chunk64_reference_admission.h"
 #endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
-#include "../kernels/reference/gdn_prefill_whole_span_conv_sm87.h"
 #include "../kernels/sm87/gdn_prefill_chunk64_native_sm87.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
 #endif
 #include "../kernels/reference/gdn_prefill_c16_norm_gate_sm87.h"
+#include "../kernels/reference/gdn_prefill_whole_span_conv_sm87.h"
+#include "../kernels/sm87/gdn_prefill_exact_span_sm87.h"
 #if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
 #include "reference_runner_gdn_c16_norm_gate_admission.h"
 #endif
@@ -111,6 +114,7 @@ enum class PrefillProjectionExecution : std::uint8_t {
 enum class PrefillGdnExecution : std::uint8_t {
   kUnknown = 0,
   kChunk64Native,
+  kExactSpan,
   kC16Exact,
   kWarpExact,
   kExternalReference,
@@ -155,20 +159,15 @@ reference_runner_prompt_wide_policy() noexcept {
 #endif
 }
 
-[[nodiscard]] bool decode_gqa_splitkv_environment_enabled() noexcept {
-  const char* const value =
-      std::getenv("Q3X_RUN_DECODE_GQA_SPLITKV_ADMISSION");
-  return value != nullptr && std::strcmp(value, "1") == 0;
-}
-
-thread_local bool g_enable_decode_gqa_splitkv_admission =
-    decode_gqa_splitkv_environment_enabled();
-
 [[nodiscard]] bool
 prefill_residual_rms_prompt_wide_environment_enabled() noexcept {
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
   const char* const value =
       std::getenv("Q3X_RUN_PREFILL_RESIDUAL_RMS_PROMPT_WIDE_ADMISSION");
   return value != nullptr && std::strcmp(value, "1") == 0;
+#else
+  return false;
+#endif
 }
 
 thread_local bool g_enable_prefill_residual_rms_prompt_wide_admission =
@@ -176,9 +175,13 @@ thread_local bool g_enable_prefill_residual_rms_prompt_wide_admission =
 
 [[nodiscard]] bool
 gdn_conv_token_parallel_environment_enabled() noexcept {
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
   const char* const value =
       std::getenv("Q3X_RUN_GDN_CONV_TOKEN_PARALLEL_ADMISSION");
   return value != nullptr && std::strcmp(value, "1") == 0;
+#else
+  return false;
+#endif
 }
 
 thread_local bool g_enable_gdn_conv_token_parallel_admission =
@@ -186,6 +189,7 @@ thread_local bool g_enable_gdn_conv_token_parallel_admission =
 
 [[nodiscard]] bool
 gdn_conv_compact_qk_fused_candidate_environment_enabled() noexcept {
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
   const char* const baseline = std::getenv(
       "Q3X_RUN_GDN_CONV_COMPACT_QK_STANDALONE_BASELINE");
   if (baseline != nullptr && std::strcmp(baseline, "1") == 0) {
@@ -199,11 +203,16 @@ gdn_conv_compact_qk_fused_candidate_environment_enabled() noexcept {
       "Q3X_RUN_GDN_CONV_COMPACT_QK_FUSED_CANDIDATE");
   return compatibility_selector == nullptr ||
          std::strcmp(compatibility_selector, "1") == 0;
+#else
+  return true;
+#endif
 }
 
 thread_local bool g_enable_gdn_conv_compact_qk_fused_candidate =
     gdn_conv_compact_qk_fused_candidate_environment_enabled();
+#if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
 thread_local std::size_t g_gdn_conv_compact_qk_fused_candidate_hits = 0U;
+#endif
 
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
 [[nodiscard]] bool nvfp4_marlin_prefill_environment_enabled() noexcept {
@@ -1457,9 +1466,17 @@ bool use_fused_gqa_sigmoid_gate_tile(
 }
 
 bool use_decode_gqa_splitkv(const std::size_t sequence_length) noexcept {
-  return g_enable_decode_gqa_splitkv_admission &&
-         sequence_length > kFusedGqaMaximumSequenceLength &&
-         sequence_length <= kDecodeGqaSplitKvMaximumSequenceLength;
+  static_assert(kReferenceRunnerDecodeGqaProductionPolicy
+                        .split_kv_minimum_sequence_length >
+                    kReferenceRunnerDecodeGqaProductionPolicy
+                        .split_kv_maximum_sequence_length);
+  static_assert(kReferenceRunnerDecodeGqaProductionPolicy
+                        .split_kv_maximum_sequence_length <
+                    kFusedGqaMaximumSequenceLength);
+  return select_reference_runner_decode_gqa_route(
+             kReferenceRunnerDecodeGqaProductionPolicy,
+             sequence_length) ==
+         ReferenceRunnerDecodeGqaRoute::kProductionSplitKv;
 }
 
 std::size_t fused_gqa_sigmoid_gate_prefix_token_count(
@@ -9461,6 +9478,16 @@ ReferenceRunner::enqueue_prefill_layer_segment(
           should_use_prefill_gdn_c16_norm_gate(
               enable_gdn_c16_norm_gate_admission, projection_backend_,
               first_position, token_count);
+#if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
+      // The dedicated C16 admission build retains its historical in-ELF
+      // baseline/candidate seam. Canonical BUILD_TESTING=OFF artifacts do not
+      // compile that seam and select the exact whole-span production path.
+      constexpr bool use_gdn_exact_span = false;
+#else
+      const bool use_gdn_exact_span =
+          reference_runner_detail::should_use_prefill_gdn_exact_span(
+              projection_backend_, first_position, token_count);
+#endif
       bool gdn_output_is_normalized = false;
       PrefillGdnExecution gdn_execution = PrefillGdnExecution::kUnknown;
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
@@ -9651,7 +9678,40 @@ ReferenceRunner::enqueue_prefill_layer_segment(
         gdn_execution = PrefillGdnExecution::kApproximateB8;
       } else
 #endif
-      if (use_gdn_c16_norm_gate) {
+      if (use_gdn_exact_span) {
+        // Keep the incumbent token order and BF16-RNE recurrent boundary,
+        // but retain each state row in registers for the complete C256/C512
+        // scheduler tile. This removes the C16 launch/state round-trip chain
+        // without changing any observable arithmetic or adding workspace.
+        if (!check_cuda(
+                gdn_prefill_whole_span_conv_detail::
+                    launch_causal_conv1d_silu_update_whole_span_exact_cuda(
+                        execution_views.projection[0], token_count,
+                        attention->conv1d.data,
+                        execution_views.conv_state[layer],
+                        execution_views.projection[0], stream_),
+                "prefill_linear_causal_conv_exact_span", layer) ||
+            !check_cuda(
+                gdn_prefill_exact_span_detail::launch_row16_register_baton(
+                    execution_views.projection[0], token_count,
+                    execution_views.linear_a, execution_views.linear_b,
+                    attention->a_log.data, attention->dt_bias.data,
+                    execution_views.gdn_state[layer],
+                    execution_views.gdn_state[layer], kRmsEpsilon,
+                    execution_views.projection[2], stream_),
+                "prefill_linear_gdn_exact_span", layer) ||
+            !check_cuda(
+                launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
+                    execution_views.projection[2], attention->norm.data,
+                    execution_views.projection[1],
+                    token_count * kGdnValueHeadCount, kGdnHeadDimension,
+                    kRmsEpsilon, execution_views.projection[2], stream_),
+                "prefill_linear_gdn_exact_span_norm_gate", layer)) {
+          return fail_enqueue(launch_failure);
+        }
+        gdn_execution = PrefillGdnExecution::kExactSpan;
+        gdn_output_is_normalized = true;
+      } else if (use_gdn_c16_norm_gate) {
         // Preserve the established causal-convolution state order, then
         // consume every exact C16 slice in the C256/C512 composite
         // GDN/norm/gate route. Any launch error terminates the tile; the
@@ -9761,6 +9821,8 @@ ReferenceRunner::enqueue_prefill_layer_segment(
       PrefillRouteDisposition gdn_disposition =
           PrefillRouteDisposition::kForbidden;
       if (gdn_execution == PrefillGdnExecution::kChunk64Native) {
+        gdn_disposition = PrefillRouteDisposition::kProduction;
+      } else if (gdn_execution == PrefillGdnExecution::kExactSpan) {
         gdn_disposition = PrefillRouteDisposition::kProduction;
       } else if (gdn_execution == PrefillGdnExecution::kC16Exact ||
                  gdn_execution == PrefillGdnExecution::kWarpExact) {

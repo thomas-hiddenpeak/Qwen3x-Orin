@@ -17357,7 +17357,7 @@ nvfp4_w4a16_down_residual_norm_activation_staged_scale6_test_kernel(
 // canonical row words in uint4.{x,y,z,w}. No value is decoded, compressed,
 // padded, or discarded.
 __global__ __launch_bounds__(256, 4) void
-nvfp4_w4a16_down_consumer_order_pack_test_kernel(
+nvfp4_w4a16_down_consumer_order_pack_kernel(
     const std::uint8_t* const canonical_weights,
     uint4* const consumer_order_weights) {
   constexpr std::uint32_t kRows = 5'120U;
@@ -17404,13 +17404,13 @@ nvfp4_w4a16_down_consumer_order_pack_test_kernel(
   }
 }
 
-// Admission-only exact Decode Down Function for the equal-byte K512
+// Production exact Decode Down Function for the equal-byte K512
 // consumer-order sidecar. Grid/block shape, CTA-local raw/residual ownership,
 // cooperative RMSNorm barrier, output boundaries, and Graph topology are the
 // production scale6 contract. Only the projection phase's packed-weight load
 // representation changes.
 __global__ __launch_bounds__(512, 2) void
-nvfp4_w4a16_down_residual_norm_scale6_consumer_order_test_kernel(
+nvfp4_w4a16_down_residual_norm_scale6_consumer_order_kernel(
     const uint4* const consumer_order_weights,
     const std::uint8_t* const scale6_sidecar,
     const unsigned int scale_base, const float weight_scale_2,
@@ -21115,20 +21115,20 @@ launch_nvfp4_down_residual_norm_scale6_test_unchecked(
       dim3{32U}, dim3{512U}, arguments, 0U, stream);
 }
 
-void launch_nvfp4_down_consumer_order_pack_test_unchecked(
+void launch_nvfp4_down_consumer_order_pack_unchecked(
     const std::uint8_t* const canonical_weights,
     std::uint8_t* const consumer_order_weights,
     cudaStream_t const stream) noexcept {
   constexpr unsigned int kBlocks = 4'096U;
   constexpr unsigned int kThreads = 256U;
-  nvfp4_w4a16_down_consumer_order_pack_test_kernel
+  nvfp4_w4a16_down_consumer_order_pack_kernel
       <<<kBlocks, kThreads, 0U, stream>>>(
           canonical_weights,
           reinterpret_cast<uint4*>(consumer_order_weights));
 }
 
 [[nodiscard]] cudaError_t
-launch_nvfp4_down_residual_norm_scale6_consumer_order_test_unchecked(
+launch_nvfp4_down_residual_norm_scale6_consumer_order_unchecked(
     const std::uint8_t* const consumer_order_weights,
     const std::uint8_t* const scale6_sidecar,
     const unsigned int scale_base, const float weight_scale_2,
@@ -21158,7 +21158,7 @@ launch_nvfp4_down_residual_norm_scale6_consumer_order_test_unchecked(
       &residual_argument,      &normalized_argument,
   };
   return cudaLaunchCooperativeKernel(
-      nvfp4_w4a16_down_residual_norm_scale6_consumer_order_test_kernel,
+      nvfp4_w4a16_down_residual_norm_scale6_consumer_order_kernel,
       dim3{32U}, dim3{512U}, arguments, 0U, stream);
 }
 
@@ -27842,7 +27842,7 @@ launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_validated_impl(
   (void)cudaGetLastError();
   const cudaError_t launch_status =
       consumer_order
-          ? launch_nvfp4_down_residual_norm_scale6_consumer_order_test_unchecked(
+          ? launch_nvfp4_down_residual_norm_scale6_consumer_order_unchecked(
                 packed_weights, scale6_sidecar, scale_base, weight_scale_2,
                 activation, residual_left, norm_weight, epsilon,
                 raw_down_output, residual_output, normalized_output, stream)
@@ -27874,7 +27874,7 @@ int launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_test_cuda(
       residual_output, normalized_output, cuda_stream, false);
 }
 
-int launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_consumer_order_test_cuda(
+int launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_consumer_order_bf16_cuda(
     const std::uint8_t* const consumer_order_weights,
     const std::uint8_t* const scale6_sidecar,
     const unsigned int scale_base, const float weight_scale_2,
@@ -27892,7 +27892,7 @@ int launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_consumer_order_test_cuda(
       raw_down_output, residual_output, normalized_output, cuda_stream, true);
 }
 
-int launch_sm87_nvfp4_w4a16_down_consumer_order_pack_test_cuda(
+int launch_sm87_nvfp4_w4a16_down_consumer_order_pack_cuda(
     const std::uint8_t* const canonical_weights,
     std::uint8_t* const consumer_order_weights,
     const std::size_t rows, const std::size_t columns,
@@ -27914,9 +27914,38 @@ int launch_sm87_nvfp4_w4a16_down_consumer_order_pack_test_cuda(
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  launch_nvfp4_down_consumer_order_pack_test_unchecked(
+  launch_nvfp4_down_consumer_order_pack_unchecked(
       canonical_weights, consumer_order_weights, stream);
   return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_consumer_order_test_cuda(
+    const std::uint8_t* const consumer_order_weights,
+    const std::uint8_t* const scale6_sidecar,
+    const unsigned int scale_base, const float weight_scale_2,
+    const std::uint16_t* const activation,
+    const std::uint16_t* const residual_left,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    const std::size_t rows, const std::size_t columns,
+    std::uint16_t* const raw_down_output,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const normalized_output,
+    void* const cuda_stream) noexcept {
+  return
+      launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_consumer_order_bf16_cuda(
+          consumer_order_weights, scale6_sidecar, scale_base,
+          weight_scale_2, activation, residual_left, norm_weight, epsilon,
+          rows, columns, raw_down_output, residual_output, normalized_output,
+          cuda_stream);
+}
+
+int launch_sm87_nvfp4_w4a16_down_consumer_order_pack_test_cuda(
+    const std::uint8_t* const canonical_weights,
+    std::uint8_t* const consumer_order_weights,
+    const std::size_t rows, const std::size_t columns,
+    void* const cuda_stream) noexcept {
+  return launch_sm87_nvfp4_w4a16_down_consumer_order_pack_cuda(
+      canonical_weights, consumer_order_weights, rows, columns, cuda_stream);
 }
 
 int launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_bf16_cuda(
@@ -28119,7 +28148,7 @@ int query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_resources_cuda(
           maximum_threads_per_block, active_blocks_per_sm);
 }
 
-int query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_consumer_order_resources_test_cuda(
+int query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_consumer_order_resources_cuda(
     int* const registers_per_thread,
     std::size_t* const static_shared_bytes,
     std::size_t* const local_bytes,
@@ -28133,14 +28162,14 @@ int query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_consumer_order_resources
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(
       &attributes,
-      nvfp4_w4a16_down_residual_norm_scale6_consumer_order_test_kernel);
+      nvfp4_w4a16_down_residual_norm_scale6_consumer_order_kernel);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &active_blocks,
-      nvfp4_w4a16_down_residual_norm_scale6_consumer_order_test_kernel,
+      nvfp4_w4a16_down_residual_norm_scale6_consumer_order_kernel,
       512, 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
@@ -28151,6 +28180,18 @@ int query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_consumer_order_resources
   *maximum_threads_per_block = attributes.maxThreadsPerBlock;
   *active_blocks_per_sm = active_blocks;
   return static_cast<int>(cudaSuccess);
+}
+
+int query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_consumer_order_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  return
+      query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_consumer_order_resources_cuda(
+          registers_per_thread, static_shared_bytes, local_bytes,
+          maximum_threads_per_block, active_blocks_per_sm);
 }
 
 int launch_sm87_nvfp4_w4a16_down_residual_norm_predecessor_test_cuda(

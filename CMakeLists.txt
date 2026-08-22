@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 
-project(Qwen3xOrin VERSION 0.5.0 LANGUAGES CXX CUDA)
+project(Qwen3xOrin VERSION 0.6.0 LANGUAGES CXX CUDA)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -566,6 +566,8 @@ q3x_enable_warnings(q3x_text)
 
 add_library(q3x_kernels STATIC
   src/runtime/reference_runner.cpp
+  src/runtime/reference_runner_decode_gqa_policy_internal.h
+  src/runtime/reference_runner_gdn_exact_span_policy_internal.h
   src/runtime/reference_runner_prompt_wide_policy_internal.h
   src/runtime/reference_runner_layer_major_views.cpp
   src/kernels/reference/decode_ops.cu
@@ -574,6 +576,8 @@ add_library(q3x_kernels STATIC
   src/kernels/reference/gdn_m16_register_state.cu
   src/kernels/reference/gdn_prefill_b8_sequential_sm87.cu
   src/kernels/reference/gdn_prefill_c16_norm_gate_sm87.cu
+  src/kernels/reference/gdn_prefill_whole_span_conv_sm87.cu
+  src/kernels/reference/gdn_prefill_whole_span_conv_sm87.h
   src/kernels/reference/layout_ops.cu
   src/kernels/reference/fp8_reference.cu
   src/kernels/reference/gemv_reference.cu
@@ -582,6 +586,8 @@ add_library(q3x_kernels STATIC
   src/kernels/sm87/device_probe.cu
   src/kernels/sm87/decode_gqa_splitkv_sm87.cu
   src/kernels/sm87/fp8_prefill_supermatrix.cu
+  src/kernels/sm87/gdn_prefill_exact_span_sm87.cu
+  src/kernels/sm87/gdn_prefill_exact_span_sm87.h
   src/kernels/sm87/nvfp4_marlin_w4a16.cu
   src/kernels/sm87/nvfp4_prefill_large_m.cu
   src/kernels/sm87/nvfp4_prefill_g2_d2.cu
@@ -734,9 +740,6 @@ if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
   )
 endif()
 if(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION)
-  target_sources(q3x_kernels PRIVATE
-    src/kernels/reference/gdn_prefill_whole_span_conv_sm87.cu
-  )
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION=1
   )
@@ -758,6 +761,7 @@ add_library(q3x_engine STATIC
   src/runtime/reference_benchmark.cpp
   src/runtime/reference_engine.cpp
   src/runtime/reference_engine_control.cpp
+  src/runtime/reference_engine_decode_sidecar_policy_internal.h
   src/runtime/reference_engine_final_token_policy_internal.h
   src/runtime/reference_engine_prefill_authority.cpp
 )
@@ -850,6 +854,15 @@ target_link_libraries(q3x_eval_gateway
   PUBLIC q3x::engine
   PRIVATE q3x::core Threads::Threads
 )
+if(BUILD_TESTING)
+  target_compile_definitions(q3x_eval_gateway PRIVATE
+    Q3X_EVAL_GATEWAY_BUILD_TESTING=1
+  )
+else()
+  target_compile_definitions(q3x_eval_gateway PRIVATE
+    Q3X_EVAL_GATEWAY_BUILD_TESTING=0
+  )
+endif()
 if(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   # This acknowledgement is deliberately narrower than the constituent
   # admission macros. It lets the evaluation gateway expose exactly the v10
@@ -2064,6 +2077,30 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
+  # Production exact whole-span GDN recurrence. This compares C256/C512
+  # output, recurrent state, convolution history, replay, guards, and resource
+  # bounds against the retained exact-C16 chain used by the fallback path.
+  add_executable(q3x_gdn_prefill_exact_span_component_test
+    tests/gdn_prefill_exact_span_component_test.cu
+  )
+  target_include_directories(q3x_gdn_prefill_exact_span_component_test
+    PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/sm87"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/reference"
+  )
+  target_link_libraries(q3x_gdn_prefill_exact_span_component_test
+    PRIVATE q3x::kernels CUDA::cudart
+  )
+  q3x_enable_warnings(q3x_gdn_prefill_exact_span_component_test)
+  add_test(NAME gdn_prefill_exact_span_component
+    COMMAND q3x_gdn_prefill_exact_span_component_test
+  )
+  set_tests_properties(gdn_prefill_exact_span_component PROPERTIES
+    LABELS "correctness;cuda;prefill;sm87;synthetic"
+    SKIP_RETURN_CODE 77
+    RESOURCE_LOCK q3x_sm87_gpu
+  )
+
   add_executable(q3x_layout_ops_host_test
     tests/layout_ops_host_test.cpp
   )
@@ -2085,6 +2122,9 @@ if(BUILD_TESTING)
 
   add_executable(q3x_reference_runner_host_test
     tests/reference_runner_host_test.cpp
+  )
+  target_include_directories(q3x_reference_runner_host_test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
   )
   target_link_libraries(q3x_reference_runner_host_test PRIVATE q3x::kernels)
   q3x_enable_warnings(q3x_reference_runner_host_test)
@@ -2112,6 +2152,24 @@ if(BUILD_TESTING)
     COMMAND q3x_reference_engine_control_test
   )
 
+  add_executable(q3x_reference_engine_decode_sidecar_policy_host_test
+    tests/reference_engine_decode_sidecar_policy_host_test.cpp
+  )
+  target_include_directories(
+    q3x_reference_engine_decode_sidecar_policy_host_test
+    PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/include"
+      "${CMAKE_CURRENT_BINARY_DIR}/generated"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+  )
+  q3x_enable_warnings(q3x_reference_engine_decode_sidecar_policy_host_test)
+  add_test(NAME reference_engine_decode_sidecar_policy_host
+    COMMAND q3x_reference_engine_decode_sidecar_policy_host_test
+  )
+  set_tests_properties(reference_engine_decode_sidecar_policy_host PROPERTIES
+    LABELS "host;engine;decode;production;authority"
+  )
+
   add_executable(q3x_bound_prefill_authority_type_test
     tests/bound_prefill_authority_type_test.cpp
   )
@@ -2136,12 +2194,15 @@ if(BUILD_TESTING)
     PRIVATE q3x_eval_gateway q3x::core
   )
   q3x_enable_warnings(q3x_openai_protocol_test)
-  add_test(NAME openai_protocol COMMAND q3x_openai_protocol_test)
-  add_test(NAME eval_server_help COMMAND qwen3x-eval-server --help)
-  set_tests_properties(eval_server_help PROPERTIES
-    PASS_REGULAR_EXPRESSION "native-quantized-large-m-operator-panel"
+  add_test(NAME openai_protocol
+    COMMAND q3x_openai_protocol_test
+            "${CMAKE_CURRENT_SOURCE_DIR}/.q3x-work/tests/openai-protocol"
   )
+  add_test(NAME eval_server_help COMMAND qwen3x-eval-server --help)
   if(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+    set_tests_properties(eval_server_help PROPERTIES
+      PASS_REGULAR_EXPRESSION "development-route p40-whole-core-v10"
+    )
     add_test(NAME eval_server_p40_v10_dev_help
       COMMAND qwen3x-eval-server --help
     )
@@ -2184,6 +2245,10 @@ if(BUILD_TESTING)
       PROPERTIES WILL_FAIL TRUE LABELS "host;server;prefill;p40;development"
     )
   else()
+    set_tests_properties(eval_server_help PROPERTIES
+      PASS_REGULAR_EXPRESSION
+        "q3x.sm87.production.p40.legacy-c512-exact.v2"
+    )
     add_test(NAME eval_server_rejects_unbuilt_p40_v10_development_route
       COMMAND qwen3x-eval-server unused
               --development-route p40-whole-core-v10
@@ -2205,18 +2270,35 @@ if(BUILD_TESTING)
       PROPERTIES WILL_FAIL TRUE LABELS "host;server;prefill;p40;isolation"
     )
   endif()
-  add_test(NAME eval_server_help_lists_true_large_m_nvfp4
-    COMMAND qwen3x-eval-server --help
-  )
-  set_tests_properties(eval_server_help_lists_true_large_m_nvfp4 PROPERTIES
-    PASS_REGULAR_EXPRESSION "native-nvfp4-true-large-m-operator-panel"
-  )
-  add_test(NAME eval_server_help_lists_nvfp4_g2_d2
-    COMMAND qwen3x-eval-server --help
-  )
-  set_tests_properties(eval_server_help_lists_nvfp4_g2_d2 PROPERTIES
-    PASS_REGULAR_EXPRESSION "native-nvfp4-g2-d2-large-m-operator-panel"
-  )
+  if(NOT Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+    add_test(NAME eval_server_production_help_contract
+      COMMAND ${CMAKE_COMMAND}
+        -DQ3X_EVAL_SERVER=$<TARGET_FILE:qwen3x-eval-server>
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/eval_server_production_help_test.cmake
+    )
+    set_tests_properties(eval_server_production_help_contract PROPERTIES
+      LABELS "host;server;production;authority"
+    )
+    add_test(NAME eval_server_nonloopback_requires_api_key
+      COMMAND qwen3x-eval-server unused --host 0.0.0.0
+    )
+    set_tests_properties(eval_server_nonloopback_requires_api_key PROPERTIES
+      WILL_FAIL TRUE
+      PASS_REGULAR_EXPRESSION
+        "a non-loopback bind requires --api-key-file"
+      LABELS "host;server;production;authentication"
+    )
+    add_test(NAME eval_server_rejects_duplicate_api_key_file
+      COMMAND qwen3x-eval-server unused
+              --api-key-file first.key --api-key-file second.key
+    )
+    set_tests_properties(eval_server_rejects_duplicate_api_key_file PROPERTIES
+      WILL_FAIL TRUE
+      PASS_REGULAR_EXPRESSION
+        "--api-key-file may be specified only once"
+      LABELS "host;server;production;authentication"
+    )
+  endif()
   add_test(NAME eval_server_rejects_invalid_prefill_mode
     COMMAND qwen3x-eval-server unused
             --prefill-execution-mode invalid
@@ -3143,6 +3225,9 @@ if(BUILD_TESTING)
 
   add_test(NAME inspect_help COMMAND qwen3x-inspect help)
   add_test(NAME generate_help COMMAND qwen3x-orin generate --help)
+  set_tests_properties(generate_help PROPERTIES
+    PASS_REGULAR_EXPRESSION "default sm87"
+  )
   add_test(NAME generate_invalid_max
     COMMAND qwen3x-orin generate unused-model-directory
             --prompt test --max-tokens 0
@@ -3200,6 +3285,9 @@ if(BUILD_TESTING)
     PROPERTIES WILL_FAIL TRUE
   )
   add_test(NAME benchmark_help COMMAND qwen3x-orin benchmark --help)
+  set_tests_properties(benchmark_help PROPERTIES
+    PASS_REGULAR_EXPRESSION "default sm87"
+  )
   add_test(NAME benchmark_invalid_iterations
     COMMAND qwen3x-orin benchmark unused-model-directory
             --prompt test --iterations 0
@@ -3265,44 +3353,55 @@ if(BUILD_TESTING)
     PROPERTIES WILL_FAIL TRUE
   )
 
+  if(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+    set(q3x_package_expect_eval_server OFF)
+  else()
+    set(q3x_package_expect_eval_server ON)
+  endif()
   add_test(NAME package_consumer
     COMMAND ${CMAKE_COMMAND}
       -DQ3X_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
       -DQ3X_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
       -DQ3X_GENERATOR=${CMAKE_GENERATOR}
       -DQ3X_CONFIG=$<CONFIG>
+      -DQ3X_INSTALL_BINDIR=${CMAKE_INSTALL_BINDIR}
+      -DQ3X_EXPECT_EVAL_SERVER=${q3x_package_expect_eval_server}
       -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/package_consumer_test.cmake
   )
 endif()
 
+install(TARGETS q3x_core q3x_text q3x_kernels q3x_engine
+                qwen3x-orin qwen3x-inspect
+  EXPORT Qwen3xOrinTargets
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
 if(NOT Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
-  install(TARGETS q3x_core q3x_text q3x_kernels q3x_engine
-                  qwen3x-orin qwen3x-eval-server qwen3x-inspect
+  install(TARGETS qwen3x-eval-server
     EXPORT Qwen3xOrinTargets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
   )
-  install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-    FILES_MATCHING PATTERN "*.h"
-    PATTERN "q3x/server/*" EXCLUDE
-  )
-  # Remove the header exported by older builds when installing over an existing
-  # prefix.  The external-reference ABI now lives under tests/support only.
-  install(CODE
-    "file(REMOVE \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}/q3x/kernels/sm87_nvfp4_prefill_cublaslt.h\")"
-  )
-  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/generated/q3x/version.h
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/q3x
-  )
-  install(EXPORT Qwen3xOrinTargets
-    FILE Qwen3xOrinTargets.cmake
-    NAMESPACE q3x::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Qwen3xOrin
-  )
-  install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/generated/Qwen3xOrinConfig.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/generated/Qwen3xOrinConfigVersion.cmake
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Qwen3xOrin
-  )
 endif()
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+  FILES_MATCHING PATTERN "*.h"
+  PATTERN "q3x/server/*" EXCLUDE
+)
+# Remove the header exported by older builds when installing over an existing
+# prefix.  The external-reference ABI now lives under tests/support only.
+install(CODE
+  "file(REMOVE \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}/q3x/kernels/sm87_nvfp4_prefill_cublaslt.h\")"
+)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/generated/q3x/version.h
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/q3x
+)
+install(EXPORT Qwen3xOrinTargets
+  FILE Qwen3xOrinTargets.cmake
+  NAMESPACE q3x::
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Qwen3xOrin
+)
+install(FILES
+  ${CMAKE_CURRENT_BINARY_DIR}/generated/Qwen3xOrinConfig.cmake
+  ${CMAKE_CURRENT_BINARY_DIR}/generated/Qwen3xOrinConfigVersion.cmake
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Qwen3xOrin
+)

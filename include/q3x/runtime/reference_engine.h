@@ -548,22 +548,29 @@ struct ReferenceEngineLoadStats {
   // Empty when the optional SM87 sidecar inventory was attached or was not
   // requested. Admission/allocation failures preserve canonical execution.
   std::string nvfp4_down_scale6_sidecar_fallback_reason;
-  // Explicit same-ELF Decode Down K512 consumer-order admission. The
-  // equal-byte weight arena is attached only to scale6-eligible layers and
-  // is prepared after all production/Prefill sidecars so it cannot displace
-  // them. A requested admission is all-or-nothing and fails engine creation
-  // instead of silently benchmarking the production kernel.
+  // Decode Down K512 consumer-order selection receipt. Testing builds use
+  // requested/enabled for their same-ELF B/C admission. Ordinary release
+  // builds additionally set the production fields, and fail engine creation
+  // unless the selected all-or-nothing layout is attached. The equal-byte
+  // arena covers only scale6-eligible layers.
   bool nvfp4_down_consumer_order_sidecars_requested = false;
   bool nvfp4_down_consumer_order_sidecars_enabled = false;
   std::size_t nvfp4_down_consumer_order_sidecar_layers = 0U;
   std::uint64_t nvfp4_down_consumer_order_sidecar_bytes = 0U;
+  bool nvfp4_down_consumer_order_production_requested = false;
+  bool nvfp4_down_consumer_order_production_enabled = false;
+  std::uint64_t nvfp4_down_consumer_order_production_bytes = 0U;
 
-  // Explicit Decode admission only.  The arena is an equal-byte Gate+Up
-  // weight+scale permutation and therefore coexists with canonical tensors.
+  // Decode Gate/Up coupled-feed selection receipt. The equal-byte weight and
+  // scale permutation coexists with canonical tensors. Testing admission and
+  // ordinary release production selection are reported independently.
   bool nvfp4_gate_up_coupled_feed_requested = false;
   bool nvfp4_gate_up_coupled_feed_enabled = false;
   std::size_t nvfp4_gate_up_coupled_feed_layers = 0U;
   std::uint64_t nvfp4_gate_up_coupled_feed_bytes = 0U;
+  bool nvfp4_gate_up_coupled_feed_production_requested = false;
+  bool nvfp4_gate_up_coupled_feed_production_enabled = false;
+  std::uint64_t nvfp4_gate_up_coupled_feed_production_bytes = 0U;
   // The exact C512 register-feed layout is optional and intentionally
   // co-resident with the canonical 48 linear-attention QKV tensors. A
   // capacity miss preserves the canonical Prefill route; all non-capacity

@@ -9,6 +9,7 @@
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -41,6 +42,14 @@ extern char** environ;
 
 namespace q3x::server {
 namespace {
+
+#if !defined(Q3X_EVAL_GATEWAY_BUILD_TESTING)
+#error "q3x_eval_gateway must declare its BUILD_TESTING identity"
+#endif
+static_assert(Q3X_EVAL_GATEWAY_BUILD_TESTING == 0 ||
+              Q3X_EVAL_GATEWAY_BUILD_TESTING == 1);
+inline constexpr bool kEvaluationGatewayBuildTesting =
+    Q3X_EVAL_GATEWAY_BUILD_TESTING != 0;
 
 using Clock = std::chrono::steady_clock;
 
@@ -118,6 +127,236 @@ class UniqueFd final {
   int value_ = -1;
 };
 
+[[nodiscard]] EvaluationApiKeyLoadResult api_key_failure(
+    std::string error) {
+  EvaluationApiKeyLoadResult result;
+  result.error = std::move(error);
+  return result;
+}
+
+[[nodiscard]] bool is_bearer_token_character(
+    const unsigned char value) noexcept {
+  return (value >= static_cast<unsigned char>('a') &&
+          value <= static_cast<unsigned char>('z')) ||
+         (value >= static_cast<unsigned char>('A') &&
+          value <= static_cast<unsigned char>('Z')) ||
+         (value >= static_cast<unsigned char>('0') &&
+          value <= static_cast<unsigned char>('9')) ||
+         value == static_cast<unsigned char>('-') ||
+         value == static_cast<unsigned char>('.') ||
+         value == static_cast<unsigned char>('_') ||
+         value == static_cast<unsigned char>('~') ||
+         value == static_cast<unsigned char>('+') ||
+         value == static_cast<unsigned char>('/');
+}
+
+[[nodiscard]] EvaluationApiKeyLoadResult load_api_key_file_impl(
+    const std::filesystem::path& path) {
+  if (path.empty()) {
+    return api_key_failure("API key file path must not be empty");
+  }
+  UniqueFd file(::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+  if (!file) {
+    return api_key_failure("API key file open failed: " +
+                           std::string(std::strerror(errno)));
+  }
+
+  struct stat metadata {};
+  if (::fstat(file.get(), &metadata) != 0) {
+    return api_key_failure("API key file metadata read failed: " +
+                           std::string(std::strerror(errno)));
+  }
+  if (!S_ISREG(metadata.st_mode)) {
+    return api_key_failure("API key file must be a regular file");
+  }
+  if (metadata.st_uid != ::geteuid()) {
+    return api_key_failure(
+        "API key file must be owned by the server process user");
+  }
+  constexpr mode_t allowed_permissions = S_IRUSR | S_IWUSR;
+  const mode_t permissions = metadata.st_mode & 07777;
+  if ((permissions & S_IRUSR) == 0 ||
+      (permissions & ~allowed_permissions) != 0) {
+    return api_key_failure(
+        "API key file permissions must be owner-only 0400 or 0600");
+  }
+  constexpr std::uint64_t maximum_file_bytes =
+      kMaximumEvaluationApiKeyBytes + 2U;
+  if (metadata.st_size < 0 ||
+      static_cast<std::uint64_t>(metadata.st_size) > maximum_file_bytes) {
+    return api_key_failure("API key file exceeds the 4096-byte limit");
+  }
+
+  std::string api_key;
+  api_key.reserve(static_cast<std::size_t>(metadata.st_size));
+  char bytes[1024];
+  while (true) {
+    const ssize_t count = ::read(file.get(), bytes, sizeof(bytes));
+    if (count > 0) {
+      api_key.append(bytes, static_cast<std::size_t>(count));
+      if (api_key.size() > maximum_file_bytes) {
+        return api_key_failure("API key file exceeds the 4096-byte limit");
+      }
+      continue;
+    }
+    if (count == 0) {
+      break;
+    }
+    if (errno != EINTR) {
+      return api_key_failure("API key file read failed: " +
+                             std::string(std::strerror(errno)));
+    }
+  }
+
+  if (!api_key.empty() && api_key.back() == '\n') {
+    api_key.pop_back();
+    if (!api_key.empty() && api_key.back() == '\r') {
+      api_key.pop_back();
+    }
+  }
+  if (api_key.empty()) {
+    return api_key_failure("API key file must contain a non-empty key");
+  }
+  if (api_key.size() > kMaximumEvaluationApiKeyBytes) {
+    return api_key_failure("API key file exceeds the 4096-byte limit");
+  }
+  bool padding_started = false;
+  bool token_character_seen = false;
+  for (const unsigned char value : api_key) {
+    if (value == static_cast<unsigned char>('=')) {
+      padding_started = true;
+      continue;
+    }
+    if (padding_started || !is_bearer_token_character(value)) {
+      return api_key_failure(
+          "API key file must contain one ASCII Bearer token");
+    }
+    token_character_seen = true;
+  }
+  if (!token_character_seen) {
+    return api_key_failure(
+        "API key file must contain one ASCII Bearer token");
+  }
+
+  EvaluationApiKeyLoadResult result;
+  result.value.emplace(std::move(api_key));
+  return result;
+}
+
+[[nodiscard]] OpenAIProductionIdentity production_identity(
+    const EvaluationServerOptions& options) noexcept {
+  OpenAIProductionIdentity identity;
+  identity.profile_id = to_string(options.production_profile);
+  identity.decode_route_id =
+      kP40ExactLegacyC512ProductionPlan.decode_route_id;
+  identity.target_prompt_tokens =
+      kP40ExactLegacyC512ProductionPlan.target_prompt_tokens;
+  identity.maximum_output_tokens = options.maximum_output_tokens;
+  identity.max_sequence_length = options.max_sequence_length;
+  identity.request_arena_bytes = options.request_max_arena_bytes;
+  identity.prefill_supermatrix_projections =
+      kP40ExactLegacyC512ProductionPlan.prefill_supermatrix_projections;
+  identity.prefill_supermatrix_sidecar_bytes =
+      kP40ExactLegacyC512ProductionPlan.prefill_supermatrix_sidecar_bytes;
+  identity.decode_fp8_output_layers =
+      kP40ExactLegacyC512ProductionPlan.decode_fp8_output_layers;
+  identity.decode_fp8_output_sidecar_bytes =
+      kP40ExactLegacyC512ProductionPlan.decode_fp8_output_sidecar_bytes;
+  identity.decode_gate_up_layers =
+      kP40ExactLegacyC512ProductionPlan.decode_gate_up_layers;
+  identity.decode_gate_up_sidecar_bytes =
+      kP40ExactLegacyC512ProductionPlan.decode_gate_up_sidecar_bytes;
+  identity.decode_down_scale6_layers =
+      kP40ExactLegacyC512ProductionPlan.decode_down_scale6_layers;
+  identity.decode_down_scale6_sidecar_bytes =
+      kP40ExactLegacyC512ProductionPlan.decode_down_scale6_sidecar_bytes;
+  identity.decode_down_consumer_order_layers =
+      kP40ExactLegacyC512ProductionPlan.decode_down_consumer_order_layers;
+  identity.decode_down_consumer_order_sidecar_bytes =
+      kP40ExactLegacyC512ProductionPlan
+          .decode_down_consumer_order_sidecar_bytes;
+  identity.decode_retained_sidecar_bytes =
+      kP40ExactLegacyC512ProductionPlan.decode_retained_sidecar_bytes;
+  identity.retained_acceleration_sidecar_bytes =
+      kP40ExactLegacyC512ProductionPlan.retained_acceleration_sidecar_bytes;
+  identity.decode_graph_first_position =
+      kP40ExactLegacyC512ProductionPlan.decode_graph_first_position;
+  identity.decode_graph_last_position =
+      kP40ExactLegacyC512ProductionPlan.decode_graph_last_position;
+  identity.decode_graph_slots =
+      kP40ExactLegacyC512ProductionPlan.decode_graph_slots;
+  identity.build_testing = kEvaluationGatewayBuildTesting;
+  identity.production_eligible =
+      !identity.build_testing &&
+      is_p40_exact_legacy_c512_production_profile(options);
+  identity.release_qualified = false;
+  return identity;
+}
+
+[[nodiscard]] bool valid_production_load_receipt(
+    const EvaluationServerOptions& options,
+    const runtime::ReferenceEngineLoadStats& load,
+    std::string& error) {
+  if (options.development_route != EvaluationDevelopmentRoute::kNone) {
+    return true;
+  }
+  const EvaluationProductionDeploymentPlan& plan =
+      kP40ExactLegacyC512ProductionPlan;
+  if (!load.fp8_prefill_supermatrix_sidecars_enabled ||
+      load.fp8_prefill_supermatrix_sidecar_projections !=
+          plan.prefill_supermatrix_projections ||
+      load.fp8_prefill_supermatrix_sidecar_bytes !=
+          plan.prefill_supermatrix_sidecar_bytes ||
+      !load.fp8_output_sidecars_enabled ||
+      load.fp8_output_sidecar_layers != plan.decode_fp8_output_layers ||
+      load.fp8_output_sidecar_bytes !=
+          plan.decode_fp8_output_sidecar_bytes ||
+      !load.fp8_output_sidecar_fallback_reason.empty() ||
+      !load.nvfp4_gate_up_coupled_feed_requested ||
+      !load.nvfp4_gate_up_coupled_feed_enabled ||
+      !load.nvfp4_gate_up_coupled_feed_production_requested ||
+      !load.nvfp4_gate_up_coupled_feed_production_enabled ||
+      load.nvfp4_gate_up_coupled_feed_layers !=
+          plan.decode_gate_up_layers ||
+      load.nvfp4_gate_up_coupled_feed_bytes !=
+          plan.decode_gate_up_sidecar_bytes ||
+      load.nvfp4_gate_up_coupled_feed_production_bytes !=
+          plan.decode_gate_up_sidecar_bytes ||
+      !load.nvfp4_down_scale6_sidecars_enabled ||
+      load.nvfp4_down_scale6_sidecar_eligible_layers !=
+          plan.decode_down_scale6_layers ||
+      load.nvfp4_down_scale6_sidecar_fallback_layers !=
+          runtime::kQwen36DenseLayerCount - plan.decode_down_scale6_layers ||
+      load.nvfp4_down_scale6_sidecar_bytes !=
+          plan.decode_down_scale6_sidecar_bytes ||
+      !load.nvfp4_down_scale6_sidecar_fallback_reason.empty() ||
+      !load.nvfp4_down_consumer_order_sidecars_requested ||
+      !load.nvfp4_down_consumer_order_sidecars_enabled ||
+      !load.nvfp4_down_consumer_order_production_requested ||
+      !load.nvfp4_down_consumer_order_production_enabled ||
+      load.nvfp4_down_consumer_order_sidecar_layers !=
+          plan.decode_down_consumer_order_layers ||
+      load.nvfp4_down_consumer_order_sidecar_bytes !=
+          plan.decode_down_consumer_order_sidecar_bytes ||
+      load.nvfp4_down_consumer_order_production_bytes !=
+          plan.decode_down_consumer_order_sidecar_bytes ||
+      load.decode_graph_cache_requested_policy !=
+          plan.decode_graph_cache_policy ||
+      load.decode_graph_cache_effective_policy !=
+          plan.decode_graph_cache_policy ||
+      load.decode_graph_cache_first_position !=
+          plan.decode_graph_first_position ||
+      load.decode_graph_cache_last_position !=
+          plan.decode_graph_last_position ||
+      load.decode_graph_cache_slot_count != plan.decode_graph_slots ||
+      !load.decode_graph_cache_fallback_reason.empty()) {
+    error = "the sealed production route did not publish its exact Prefill, "
+            "Decode, and short-position Graph inventory";
+    return false;
+  }
+  return true;
+}
+
 template <typename T>
 class BoundedQueue final {
  public:
@@ -172,6 +411,7 @@ struct HttpRequest {
   std::string method;
   std::string target;
   std::string content_type;
+  std::string authorization;
   std::string body;
   bool keep_alive = true;
 };
@@ -362,6 +602,8 @@ struct InferenceJob {
       return "OK";
     case 400:
       return "Bad Request";
+    case 401:
+      return "Unauthorized";
     case 404:
       return "Not Found";
     case 405:
@@ -546,6 +788,10 @@ HttpReadResult read_http_request(
   const auto content_type = headers.find("content-type");
   if (content_type != headers.end()) {
     request.content_type = lowercase(content_type->second);
+  }
+  const auto authorization = headers.find("authorization");
+  if (authorization != headers.end()) {
+    request.authorization = authorization->second;
   }
   const auto connection = headers.find("connection");
   request.keep_alive = connection == headers.end() ||
@@ -1309,6 +1555,7 @@ void handle_connection(
     UniqueFd connection,
     BoundedQueue<std::shared_ptr<InferenceJob>>& inference_queue,
     const EvaluationServerOptions& options,
+    const std::string& api_key,
     const std::atomic<bool>& stopping,
     std::atomic<std::uint64_t>& next_request_id) {
   std::string buffer;
@@ -1335,6 +1582,9 @@ void handle_connection(
     const bool final_connection_request =
         !request.keep_alive ||
         request_count + 1U == kMaximumRequestsPerConnection;
+    const bool models = request.target == "/v1/models";
+    const bool chat = request.target == "/v1/chat/completions";
+    const bool completion = request.target == "/v1/completions";
 
     if (request.method == "GET" && request.target == "/healthz") {
       const std::string body =
@@ -1342,7 +1592,8 @@ void handle_connection(
                   EvaluationDevelopmentRoute::kP40WholeCoreV10
               ? serialize_p40_whole_core_v10_health_response(
                     options.served_model)
-              : serialize_health_response(options.served_model);
+              : serialize_health_response(options.served_model,
+                                            production_identity(options));
       if (!send_fixed_response(connection.get(), 200, body,
                                !final_connection_request,
                                options.write_timeout_milliseconds) ||
@@ -1351,7 +1602,19 @@ void handle_connection(
       }
       continue;
     }
-    if (request.method == "GET" && request.target == "/v1/models") {
+    if (!api_key.empty() && (models || chat || completion) &&
+        !constant_time_bearer_authorization_matches(
+            request.authorization, api_key)) {
+      const OpenAIProtocolError error = simple_error(
+          401, "unauthorized", "a valid Bearer API key is required");
+      (void)send_fixed_response(
+          connection.get(), error.http_status,
+          serialize_openai_error(error), false,
+          options.write_timeout_milliseconds,
+          "WWW-Authenticate: Bearer realm=\"qwen3x-orin\"\r\n");
+      return;
+    }
+    if (request.method == "GET" && models) {
       const auto created = static_cast<std::int64_t>(
           std::chrono::duration_cast<std::chrono::seconds>(
               std::chrono::system_clock::now().time_since_epoch())
@@ -1361,7 +1624,8 @@ void handle_connection(
                   EvaluationDevelopmentRoute::kP40WholeCoreV10
               ? serialize_p40_whole_core_v10_models_response(
                     options.served_model, created)
-              : serialize_models_response(options.served_model, created);
+              : serialize_models_response(options.served_model, created,
+                                           production_identity(options));
       if (!send_fixed_response(connection.get(), 200, body,
                                !final_connection_request,
                                options.write_timeout_milliseconds) ||
@@ -1371,8 +1635,6 @@ void handle_connection(
       continue;
     }
 
-    const bool chat = request.target == "/v1/chat/completions";
-    const bool completion = request.target == "/v1/completions";
     if (!chat && !completion) {
       const OpenAIProtocolError error = simple_error(
           404, "not_found", "the requested endpoint does not exist");
@@ -1519,13 +1781,14 @@ void ingress_worker(
     BoundedQueue<UniqueFd>& connections,
     BoundedQueue<std::shared_ptr<InferenceJob>>& inference_queue,
     const EvaluationServerOptions& options,
+    const std::string& api_key,
     const std::atomic<bool>& stopping,
     std::atomic<std::uint64_t>& next_request_id) {
   UniqueFd connection;
   while (connections.pop(connection)) {
     try {
       handle_connection(std::move(connection), inference_queue, options,
-                        stopping, next_request_id);
+                        api_key, stopping, next_request_id);
     } catch (const std::exception& error) {
       std::cerr << "evaluation ingress failure: " << error.what() << '\n';
     } catch (...) {
@@ -1600,6 +1863,7 @@ void ingress_worker(
       !runtime::is_valid_projection_backend(options.projection_backend) ||
       !runtime::is_valid_reference_prefill_execution_mode(
           options.prefill_execution_mode) ||
+      !is_valid_evaluation_production_profile(options.production_profile) ||
       !is_valid_evaluation_development_route(options.development_route) ||
       !runtime::is_valid_layer_major_prefill_full_attention_tactic(
           options.prefill_full_attention_tactic) ||
@@ -1618,6 +1882,31 @@ void ingress_worker(
     error = "the p40 whole-core v10 tactic requires the single explicit "
             "p40-whole-core-v10 development-route acknowledgement";
     return false;
+  }
+  if (!p40_whole_core_v10_selected) {
+    if (!is_p40_exact_legacy_c512_production_profile(options)) {
+      error = "the ordinary server requires the sealed P40 exact "
+              "Legacy-C512/SM87 deployment profile";
+      return false;
+    }
+    runtime::RequestMemoryOptions plan_options;
+    plan_options.batch_size = 1U;
+    plan_options.prefill_chunk_size = options.prefill_chunk_size;
+    plan_options.max_sequence_length = options.max_sequence_length;
+    plan_options.max_arena_bytes = options.request_max_arena_bytes;
+    plan_options.min_free_bytes_after_create =
+        options.request_min_free_bytes_after_create;
+    const runtime::RequestPlanResult request_plan =
+        runtime::build_request_memory_plan(plan_options);
+    if (!request_plan ||
+        request_plan.value->arena_bytes != options.request_max_arena_bytes ||
+        request_plan.value->max_sequence_length !=
+            options.max_sequence_length ||
+        request_plan.value->prefill_chunk_size != options.prefill_chunk_size) {
+      error = "the sealed P40 deployment capacity does not match the exact "
+              "Legacy-C512 request-memory planner";
+      return false;
+    }
   }
 #if !defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   if (p40_whole_core_v10_selected) {
@@ -1647,9 +1936,15 @@ void ingress_worker(
     }
   }
 #endif
-  if (options.bind_address != "127.0.0.1") {
-    error = "the unauthenticated evaluation gateway is restricted to "
-            "127.0.0.1";
+  in_addr parsed_bind_address{};
+  if (::inet_pton(AF_INET, options.bind_address.c_str(),
+                  &parsed_bind_address) != 1) {
+    error = "bind address must be one numeric IPv4 address";
+    return false;
+  }
+  if (options.bind_address != "127.0.0.1" &&
+      options.api_key_file.empty()) {
+    error = "a non-loopback bind requires --api-key-file";
     return false;
   }
   if (options.prefill_execution_mode == runtime::
@@ -1718,11 +2013,27 @@ class WorkerJoinGuard final {
 
 }  // namespace
 
+EvaluationApiKeyLoadResult load_evaluation_api_key_file(
+    const std::filesystem::path& path) {
+  return load_api_key_file_impl(path);
+}
+
 int run_evaluation_server(const EvaluationServerOptions& options,
                           std::atomic<bool>& stop_requested,
                           std::string& error_message) {
   if (!valid_options(options, error_message)) {
     return 2;
+  }
+
+  std::string api_key;
+  if (!options.api_key_file.empty()) {
+    EvaluationApiKeyLoadResult loaded =
+        load_evaluation_api_key_file(options.api_key_file);
+    if (!loaded) {
+      error_message = loaded.error;
+      return 2;
+    }
+    api_key = std::move(*loaded.value);
   }
 
   runtime::ReferenceEngineOptions engine_options;
@@ -1763,6 +2074,10 @@ int run_evaluation_server(const EvaluationServerOptions& options,
     return 3;
   }
   runtime::ReferenceEngine engine = std::move(*created.value);
+  const runtime::ReferenceEngineLoadStats& load = engine.load_stats();
+  if (!valid_production_load_receipt(options, load, error_message)) {
+    return 3;
+  }
 
   UniqueFd listener = create_listener(options, error_message);
   if (!listener) {
@@ -1785,11 +2100,11 @@ int run_evaluation_server(const EvaluationServerOptions& options,
   for (std::size_t index = 0U; index < options.ingress_threads; ++index) {
     ingress.emplace_back(ingress_worker, std::ref(connections),
                          std::ref(inference_queue), std::cref(options),
+                         std::cref(api_key),
                          std::cref(stop_requested),
                          std::ref(next_request_id));
   }
 
-  const runtime::ReferenceEngineLoadStats& load = engine.load_stats();
   std::cout << "ready: http://" << options.bind_address << ':'
             << options.port << "/v1 model=" << options.served_model
             << " max_sequence_length=" << options.max_sequence_length
@@ -1803,6 +2118,10 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << runtime::to_string(options.prefill_full_attention_tactic)
             << " prefill_projection_tactic="
             << runtime::to_string(options.prefill_projection_tactic)
+            << " production_profile="
+            << to_string(options.production_profile)
+            << " decode_route="
+            << kP40ExactLegacyC512ProductionPlan.decode_route_id
             << " development_route="
             << to_string(options.development_route)
             << " numerical_contract="
@@ -1815,7 +2134,12 @@ int run_evaluation_server(const EvaluationServerOptions& options,
                         EvaluationDevelopmentRoute::kP40WholeCoreV10
                     ? "not-measured"
                     : "not-applicable")
-            << " release_qualified=0 production_eligible=0"
+            << " BUILD_TESTING="
+            << (kEvaluationGatewayBuildTesting ? 1 : 0)
+            << " release_qualified=0 production_eligible="
+            << (production_identity(options).production_eligible ? 1 : 0)
+            << " api_authentication="
+            << (api_key.empty() ? "disabled-loopback" : "bearer")
             << " nvtx_phase_ranges="
             << (options.emit_nvtx_phase_ranges ? 1 : 0)
             << " inference_workers=1 queue_capacity="
@@ -1828,6 +2152,28 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << load.fp8_prefill_supermatrix_sidecar_projections
             << " fp8_prefill_supermatrix_sidecar_bytes="
             << load.fp8_prefill_supermatrix_sidecar_bytes
+            << " fp8_output_sidecars_enabled="
+            << (load.fp8_output_sidecars_enabled ? 1 : 0)
+            << " fp8_output_sidecar_layers="
+            << load.fp8_output_sidecar_layers
+            << " fp8_output_sidecar_bytes="
+            << load.fp8_output_sidecar_bytes
+            << " decode_graph_cache_requested_policy="
+            << (load.decode_graph_cache_requested_policy == runtime::
+                        ReferenceDecodeGraphCachePolicy::kSm87ShortPositions
+                    ? "sm87-short-positions"
+                    : "disabled")
+            << " decode_graph_cache_effective_policy="
+            << (load.decode_graph_cache_effective_policy == runtime::
+                        ReferenceDecodeGraphCachePolicy::kSm87ShortPositions
+                    ? "sm87-short-positions"
+                    : "disabled")
+            << " decode_graph_cache_first_position="
+            << load.decode_graph_cache_first_position
+            << " decode_graph_cache_last_position="
+            << load.decode_graph_cache_last_position
+            << " decode_graph_cache_slots="
+            << load.decode_graph_cache_slot_count
             << " p40_packed_projection_asset_ms="
             << load.p40_packed_projection_asset_milliseconds
             << " p40_packed_projection_assets_enabled="
@@ -1845,7 +2191,42 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << " nvfp4_down_consumer_order_layers="
             << load.nvfp4_down_consumer_order_sidecar_layers
             << " nvfp4_down_consumer_order_bytes="
-            << load.nvfp4_down_consumer_order_sidecar_bytes << '\n';
+            << load.nvfp4_down_consumer_order_sidecar_bytes
+            << " nvfp4_down_consumer_order_production_requested="
+            << (load.nvfp4_down_consumer_order_production_requested ? 1 : 0)
+            << " nvfp4_down_consumer_order_production_enabled="
+            << (load.nvfp4_down_consumer_order_production_enabled ? 1 : 0)
+            << " nvfp4_down_consumer_order_production_bytes="
+            << load.nvfp4_down_consumer_order_production_bytes
+            << " nvfp4_down_scale6_enabled="
+            << (load.nvfp4_down_scale6_sidecars_enabled ? 1 : 0)
+            << " nvfp4_down_scale6_eligible_layers="
+            << load.nvfp4_down_scale6_sidecar_eligible_layers
+            << " nvfp4_down_scale6_fallback_layers="
+            << load.nvfp4_down_scale6_sidecar_fallback_layers
+            << " nvfp4_down_scale6_bytes="
+            << load.nvfp4_down_scale6_sidecar_bytes
+            << " nvfp4_gate_up_coupled_feed_requested="
+            << (load.nvfp4_gate_up_coupled_feed_requested ? 1 : 0)
+            << " nvfp4_gate_up_coupled_feed_enabled="
+            << (load.nvfp4_gate_up_coupled_feed_enabled ? 1 : 0)
+            << " nvfp4_gate_up_coupled_feed_layers="
+            << load.nvfp4_gate_up_coupled_feed_layers
+            << " nvfp4_gate_up_coupled_feed_bytes="
+            << load.nvfp4_gate_up_coupled_feed_bytes
+            << " nvfp4_gate_up_coupled_feed_production_requested="
+            << (load.nvfp4_gate_up_coupled_feed_production_requested ? 1 : 0)
+            << " nvfp4_gate_up_coupled_feed_production_enabled="
+            << (load.nvfp4_gate_up_coupled_feed_production_enabled ? 1 : 0)
+            << " nvfp4_gate_up_coupled_feed_production_bytes="
+            << load.nvfp4_gate_up_coupled_feed_production_bytes
+            << " decode_production_retained_sidecar_bytes="
+            << kP40ExactLegacyC512ProductionPlan
+                   .decode_retained_sidecar_bytes
+            << " production_retained_acceleration_sidecar_bytes="
+            << kP40ExactLegacyC512ProductionPlan
+                   .retained_acceleration_sidecar_bytes
+            << '\n';
 
   bool fatal_accept_error = false;
   while (!stop_requested.load(std::memory_order_relaxed)) {

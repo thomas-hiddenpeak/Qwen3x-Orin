@@ -80,6 +80,17 @@ inline constexpr std::size_t
         kNvFp4DownScale6Rows * kNvFp4DownScale6Columns / 2U;
 static_assert(kNvFp4DownConsumerOrderWeightBytesPerProjection ==
               44'564'480U);
+// Pinned Qwen3.6-27B-NVFP4 inventory used by the sealed ordinary production
+// route. The remaining 11 Down layers retain the canonical scale layout.
+inline constexpr std::size_t kQwen36NvFp4DownScale6LayerCount = 53U;
+inline constexpr std::size_t kQwen36NvFp4DownScale6SidecarBytes =
+    kQwen36NvFp4DownScale6LayerCount *
+    kNvFp4DownScale6SidecarBytesPerProjection;
+inline constexpr std::size_t kQwen36NvFp4DownConsumerOrderBytes =
+    kQwen36NvFp4DownScale6LayerCount *
+    kNvFp4DownConsumerOrderWeightBytesPerProjection;
+static_assert(kQwen36NvFp4DownScale6SidecarBytes == 221'429'760ULL);
+static_assert(kQwen36NvFp4DownConsumerOrderBytes == 2'361'917'440ULL);
 inline constexpr std::size_t kNvFp4GateUpCoupledFeedRows = 17'408U;
 inline constexpr std::size_t kNvFp4GateUpCoupledFeedColumns = 5'120U;
 inline constexpr std::size_t
@@ -318,15 +329,16 @@ struct NvFp4LinearWeight {
   std::size_t input_size = 0U;
   const std::uint8_t* down_scale6_sidecar = nullptr;
   unsigned int down_scale6_base = 0U;
-  // Test-admission exact [5120,17408] Decode Down weight permutation. One
+  // Production exact [5120,17408] Decode Down weight permutation. One
   // aligned uint4 contains the four canonical row words consumed by the same
-  // lane and K256 phase. It has no scheduling authority unless the explicit
-  // whole-runner admission is enabled and scale6 is attached as well.
+  // lane and K256 phase. The ordinary release plan consumes it only when the
+  // corresponding scale6 layout is attached; testing builds retain a
+  // same-ELF baseline/admission seam.
   const std::uint8_t* down_consumer_order_weight = nullptr;
   // Equal-byte Decode-only [row-quad][K512][phase][weight-feed,scale-feed]
-  // representation.  Engine preparation attaches it only under the explicit
-  // test admission; Prefill and every generic projection keep canonical
-  // packed-weight and block-scale bindings.
+  // representation. Engine preparation attaches it for the ordinary release
+  // plan or explicit testing admission; Prefill and generic projections keep
+  // canonical packed-weight and block-scale bindings.
   const std::uint8_t* decode_gate_up_coupled_feed_sidecar = nullptr;
   // Scheduler-wide Marlin admission. The default route ignores these views;
   // the dedicated admission build plus a sealed engine-lifetime projection
@@ -597,7 +609,7 @@ class ModelWeights {
 
   // Atomically attaches a sparse set of exact [5120,17408] equal-byte
   // consumer-order Down weight sidecars. Every target must already own a
-  // valid scale6 sidecar, so the admission can never silently change the
+  // valid scale6 sidecar, so selection can never silently change the
   // numerical scale path. The canonical null/zero call detaches the set.
   [[nodiscard]] bool attach_nvfp4_down_consumer_order_sidecars(
       const std::uint8_t* arena, std::size_t arena_bytes,

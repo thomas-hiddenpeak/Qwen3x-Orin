@@ -1,6 +1,7 @@
 #include "q3x/core/sha256.h"
 #include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/layout_ops.h"
+#include "q3x/runtime/reference_runner.h"
 
 #include <cuda_runtime.h>
 
@@ -8809,6 +8810,263 @@ void test_fused_gqa_sigmoid_gate_exact(TestContext& test,
   }
 }
 
+[[nodiscard]] bool run_decode_gqa_splitkv_numerical_candidate_receipt(
+    TestContext& test, cudaStream_t stream,
+    const std::size_t sequence_length) {
+  constexpr std::size_t kQueryHeads = 24U;
+  constexpr std::size_t kKvHeads = 4U;
+  constexpr std::size_t kDimension = 256U;
+  constexpr std::size_t kStateElements = 258U;
+  constexpr float kScale = 0.0625F;
+  constexpr std::uint16_t kPoison = 0x7fc1U;
+  const std::size_t query_elements = kQueryHeads * kDimension;
+  const std::size_t cache_elements =
+      sequence_length * kKvHeads * kDimension;
+  const std::size_t baseline_scratch_elements =
+      kQueryHeads * sequence_length;
+  const std::size_t expected_splits = sequence_length <= 512U ? 4U : 8U;
+  const std::size_t expected_split_workspace_elements =
+      kQueryHeads * expected_splits * kStateElements;
+  const std::size_t split_workspace_elements =
+      q3x::runtime::
+          gqa_attention_splitkv_sigmoid_gate_24_4_256_workspace_elements(
+              sequence_length);
+  const std::string label =
+      "Decode split-KV default-off numerical receipt S=" +
+      std::to_string(sequence_length);
+  test.expect(split_workspace_elements ==
+                  expected_split_workspace_elements &&
+                  split_workspace_elements <=
+                      q3x::runtime::
+                          kDecodeGqaSplitKvMaximumWorkspaceElements,
+              label + " uses the fixed compiled workspace");
+  if (split_workspace_elements != expected_split_workspace_elements) {
+    return false;
+  }
+
+  ManagedBuffer<std::uint16_t> query;
+  ManagedBuffer<std::uint16_t> key;
+  ManagedBuffer<std::uint16_t> value;
+  ManagedBuffer<std::uint16_t> gate;
+  ManagedBuffer<float> baseline_scratch;
+  ManagedBuffer<float> split_workspace;
+  ManagedBuffer<std::uint16_t> baseline_output;
+  ManagedBuffer<std::uint16_t> split_output;
+  bool ready =
+      test.cuda_ok(query.allocate(query_elements), label + " allocate query");
+  ready = ready &&
+          test.cuda_ok(key.allocate(cache_elements), label + " allocate key");
+  ready = ready && test.cuda_ok(value.allocate(cache_elements),
+                                label + " allocate value");
+  ready = ready &&
+          test.cuda_ok(gate.allocate(query_elements), label + " allocate gate");
+  ready = ready && test.cuda_ok(
+                       baseline_scratch.allocate(baseline_scratch_elements),
+                       label + " allocate exact scratch");
+  ready = ready &&
+          test.cuda_ok(split_workspace.allocate(split_workspace_elements),
+                       label + " allocate split workspace");
+  ready = ready && test.cuda_ok(baseline_output.allocate(query_elements),
+                                label + " allocate exact output");
+  ready = ready && test.cuda_ok(split_output.allocate(query_elements),
+                                label + " allocate split output");
+  if (!ready) {
+    return false;
+  }
+
+  std::uint32_t random_state =
+      0x6d2b79f5U ^ static_cast<std::uint32_t>(sequence_length);
+  for (std::size_t index = 0U; index < query_elements; ++index) {
+    const int query_integer =
+        static_cast<int>(next_deterministic_random(random_state) % 257U) -
+        128;
+    const int gate_integer =
+        static_cast<int>(next_deterministic_random(random_state) % 193U) - 96;
+    query[index] = encode_bf16(static_cast<float>(query_integer) / 128.0F);
+    gate[index] = encode_bf16(static_cast<float>(gate_integer) / 32.0F);
+  }
+  for (std::size_t index = 0U; index < cache_elements; ++index) {
+    const int key_integer =
+        static_cast<int>(next_deterministic_random(random_state) % 257U) -
+        128;
+    const int value_integer =
+        static_cast<int>(next_deterministic_random(random_state) % 513U) -
+        256;
+    key[index] = encode_bf16(static_cast<float>(key_integer) / 128.0F);
+    value[index] = encode_bf16(static_cast<float>(value_integer) / 128.0F);
+  }
+  std::fill_n(baseline_scratch.data(), baseline_scratch.size(),
+              std::numeric_limits<float>::quiet_NaN());
+  std::fill_n(split_workspace.data(), split_workspace.size(),
+              std::numeric_limits<float>::quiet_NaN());
+  std::fill_n(baseline_output.data(), baseline_output.size(), kPoison);
+  std::fill_n(split_output.data(), split_output.size(), kPoison);
+  const std::vector<std::uint16_t> query_snapshot(
+      query.data(), query.data() + query.size());
+  const std::vector<std::uint16_t> key_snapshot(key.data(),
+                                                key.data() + key.size());
+  const std::vector<std::uint16_t> value_snapshot(
+      value.data(), value.data() + value.size());
+  const std::vector<std::uint16_t> gate_snapshot(gate.data(),
+                                                  gate.data() + gate.size());
+
+  ready = launch_after_stale(test, stream, label + " exact fallback", [&]() {
+    const int attention_status =
+        q3x::runtime::launch_gqa_attention_reference_cuda(
+            query.data(), key.data(), value.data(), kQueryHeads, kKvHeads,
+            sequence_length, kDimension, kScale, baseline_scratch.data(),
+            baseline_scratch.size(), baseline_output.data(),
+            static_cast<void*>(stream));
+    if (attention_status != static_cast<int>(cudaSuccess)) {
+      return attention_status;
+    }
+    return q3x::runtime::launch_sigmoid_gate_reference_cuda(
+        baseline_output.data(), gate.data(), query_elements,
+        baseline_output.data(), static_cast<void*>(stream));
+  });
+  ready = ready &&
+          launch_after_stale(test, stream,
+                             label + " default-off split-KV candidate",
+                             [&]() {
+                               return q3x::runtime::
+                                   launch_gqa_attention_splitkv_sigmoid_gate_24_4_256_cuda(
+                                       query.data(), key.data(), value.data(),
+                                       sequence_length, kScale,
+                                       split_workspace.data(),
+                                       split_workspace.size(), gate.data(),
+                                       split_output.data(),
+                                       static_cast<void*>(stream));
+                             });
+  if (!ready) {
+    return false;
+  }
+
+  const auto mismatch =
+      std::mismatch(split_output.data(),
+                    split_output.data() + query_elements,
+                    baseline_output.data());
+  const bool bitwise_output = mismatch.first ==
+                              split_output.data() + query_elements;
+  const std::size_t first_mismatch =
+      bitwise_output
+          ? query_elements
+          : static_cast<std::size_t>(mismatch.first - split_output.data());
+  test.expect(!bitwise_output,
+              label + " records a BF16 difference from exact fallback");
+  if (bitwise_output) {
+    return false;
+  }
+  const std::vector<std::uint16_t> split_output_snapshot(
+      split_output.data(), split_output.data() + split_output.size());
+  const bool production_selector_hit =
+      q3x::runtime::reference_runner_detail::use_decode_gqa_splitkv(
+          sequence_length);
+  test.expect(!production_selector_hit,
+              label + " is unreachable from the production selector");
+
+  const bool workspace_finite =
+      std::all_of(split_workspace.data(),
+                  split_workspace.data() + split_workspace.size(),
+                  [](const float state) { return std::isfinite(state); });
+  test.expect(workspace_finite,
+              label + " completely writes finite split states");
+
+  cudaGraph_t graph = nullptr;
+  ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      label + " begin graph capture");
+  if (ready) {
+    ready = test.cuda_ok(
+                static_cast<cudaError_t>(
+                    q3x::runtime::
+                        launch_gqa_attention_splitkv_sigmoid_gate_24_4_256_cuda(
+                            query.data(), key.data(), value.data(),
+                            sequence_length, kScale, split_workspace.data(),
+                            split_workspace.size(), gate.data(),
+                            split_output.data(), static_cast<void*>(stream))),
+                label + " capture split-state and merge") &&
+            ready;
+  }
+  ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                       label + " end graph capture") &&
+          ready;
+  bool graph_contract = false;
+  if (ready) {
+    std::array<cudaGraphNode_t, 2U> nodes{};
+    std::size_t node_count = nodes.size();
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nodes.data(), &node_count),
+                         label + " read graph nodes") &&
+            ready;
+    graph_contract = node_count == nodes.size();
+    for (std::size_t node = 0U; graph_contract && node < node_count; ++node) {
+      cudaGraphNodeType type = cudaGraphNodeTypeEmpty;
+      ready = test.cuda_ok(cudaGraphNodeGetType(nodes[node], &type),
+                           label + " read graph node type") &&
+              ready;
+      graph_contract = type == cudaGraphNodeTypeKernel;
+    }
+    test.expect(graph_contract,
+                label + " graph contains exactly two kernel nodes");
+    cudaGraphExec_t graph_exec = nullptr;
+    ready = test.cuda_ok(
+                cudaGraphInstantiate(&graph_exec, graph, nullptr, nullptr, 0U),
+                label + " instantiate graph") &&
+            ready;
+    if (ready) {
+      ready = test.cuda_ok(cudaGraphLaunch(graph_exec, stream),
+                           label + " replay graph") &&
+              test.cuda_ok(cudaStreamSynchronize(stream),
+                           label + " synchronize graph replay") &&
+              ready;
+    }
+    if (graph_exec != nullptr) {
+      (void)test.cuda_ok(cudaGraphExecDestroy(graph_exec),
+                         label + " destroy graph exec");
+    }
+  }
+  if (graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph");
+  }
+  const bool replay_bitwise =
+      ready && std::memcmp(split_output.data(), split_output_snapshot.data(),
+                           query_elements * sizeof(std::uint16_t)) == 0;
+  test.expect(replay_bitwise,
+              label + " graph replay is bitwise stable for the candidate");
+
+  const bool inputs_preserved =
+      std::memcmp(query.data(), query_snapshot.data(),
+                  query.size() * sizeof(std::uint16_t)) == 0 &&
+      std::memcmp(key.data(), key_snapshot.data(),
+                  key.size() * sizeof(std::uint16_t)) == 0 &&
+      std::memcmp(value.data(), value_snapshot.data(),
+                  value.size() * sizeof(std::uint16_t)) == 0 &&
+      std::memcmp(gate.data(), gate_snapshot.data(),
+                  gate.size() * sizeof(std::uint16_t)) == 0;
+  test.expect(inputs_preserved,
+              label + " preserves query, K/V cache, and gate");
+  const bool passed = !bitwise_output && !production_selector_hit &&
+                      workspace_finite && graph_contract && replay_bitwise &&
+                      inputs_preserved;
+  std::cout << "DECODE_SPLITKV_NUMERICAL_CANDIDATE_RECEIPT: S="
+            << sequence_length
+            << " splits=" << expected_splits
+            << " workspace_elements=" << split_workspace_elements
+            << " graph_nodes=2 exact_bitwise=false first_mismatch="
+            << first_mismatch << " split_bits="
+            << split_output_snapshot[first_mismatch] << " exact_bits="
+            << baseline_output[first_mismatch]
+            << " production_selector_hit=false inputs_preserved="
+            << (inputs_preserved ? "true" : "false")
+            << " gate=" << (passed ? "PASS" : "FAIL") << '\n';
+  return passed;
+}
+
+void test_decode_gqa_splitkv_numerical_candidate_receipt(
+    TestContext& test, cudaStream_t stream) {
+  (void)run_decode_gqa_splitkv_numerical_candidate_receipt(test, stream,
+                                                           65U);
+}
+
 void test_fused_gqa_sigmoid_gate_perf(TestContext& test,
                                       cudaStream_t stream) {
   const char* const enabled =
@@ -10495,6 +10753,7 @@ int main() {
   test_bulk_causal_gqa_prefill_perf(test, stream);
   test_fused_gqa_sigmoid_gate_warp_positions_contract(test, stream);
   test_fused_gqa_sigmoid_gate_exact(test, stream);
+  test_decode_gqa_splitkv_numerical_candidate_receipt(test, stream);
   test_fused_gqa_sigmoid_gate_perf(test, stream);
   test_fused_gqa_sigmoid_gate_warp_positions_perf(test, stream);
   test_nonfinite(test, stream);

@@ -8,6 +8,7 @@ namespace q3x::runtime::gdn_prefill_whole_span_conv_detail {
 
 inline constexpr std::size_t kMaximumTokenCount = 512U;
 
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
 using BoundaryInspectionCallback = void (*)(
     const std::uint16_t* conv_qkv, std::size_t conv_qkv_elements,
     const std::uint16_t* history, std::size_t history_elements,
@@ -20,10 +21,12 @@ struct BoundaryInspectionHook {
 
 [[nodiscard]] BoundaryInspectionHook exchange_boundary_inspection_hook(
     BoundaryInspectionHook hook) noexcept;
+#endif
 
-// Private, test-only Prefill launcher. This entry point deliberately stays
-// outside the installed/public GDN ABI: the production tile ABI remains
-// capped at 16 tokens.
+// Source-private production Prefill launcher. The canonical runner admits
+// its exact whole-span dataflow for C256/C512 scheduler tiles. This entry
+// point deliberately stays outside the installed/public GDN ABI and adds no
+// request or engine-lifetime workspace.
 //
 // raw_qkv and conv_qkv_output are token-major BF16 [token_count, 10240].
 // conv_weight is channel-major BF16 [10240, 4], and history_in_out is

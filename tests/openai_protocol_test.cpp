@@ -4,11 +4,16 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace {
 
@@ -30,6 +35,37 @@ class TestContext {
 
 [[nodiscard]] bool valid_json(const std::string_view text) {
   return static_cast<bool>(q3x::io::json::parse(text));
+}
+
+[[nodiscard]] server::OpenAIProductionIdentity production_identity() {
+  server::OpenAIProductionIdentity identity;
+  identity.profile_id =
+      server::kP40ExactLegacyC512ProductionPlan.id;
+  identity.decode_route_id =
+      server::kP40ExactLegacyC512ProductionPlan.decode_route_id;
+  identity.target_prompt_tokens = 40'000U;
+  identity.maximum_output_tokens = 4'096U;
+  identity.max_sequence_length = 44'095U;
+  identity.request_arena_bytes = 3'070'908'416ULL;
+  identity.prefill_supermatrix_projections = 208U;
+  identity.prefill_supermatrix_sidecar_bytes = 7'214'202'880ULL;
+  identity.decode_fp8_output_layers = 64U;
+  identity.decode_fp8_output_sidecar_bytes = 2'013'265'920ULL;
+  identity.decode_gate_up_layers = 64U;
+  identity.decode_gate_up_sidecar_bytes = 6'417'285'120ULL;
+  identity.decode_down_scale6_layers = 53U;
+  identity.decode_down_scale6_sidecar_bytes = 221'429'760ULL;
+  identity.decode_down_consumer_order_layers = 53U;
+  identity.decode_down_consumer_order_sidecar_bytes = 2'361'917'440ULL;
+  identity.decode_retained_sidecar_bytes = 11'013'898'240ULL;
+  identity.retained_acceleration_sidecar_bytes = 18'228'101'120ULL;
+  identity.decode_graph_first_position = 19U;
+  identity.decode_graph_last_position = 43U;
+  identity.decode_graph_slots = 25U;
+  identity.build_testing = false;
+  identity.production_eligible = true;
+  identity.release_qualified = false;
+  return identity;
 }
 
 void test_evalscope_chat_contract(TestContext& test) {
@@ -215,11 +251,63 @@ void test_serialization(TestContext& test) {
   test.expect(valid_json(server::serialize_openai_error(error)),
               "structured OpenAI errors are valid JSON");
 
+  const server::OpenAIProductionIdentity identity = production_identity();
   const std::string health =
-      server::serialize_health_response("qwen\"model");
+      server::serialize_health_response("qwen\"model", identity);
   test.expect(valid_json(health) &&
-                  health.find("qwen\\\"model") != std::string::npos,
-              "health response escapes the configured model alias");
+                  health.find("qwen\\\"model") != std::string::npos &&
+                  health.find(
+                      R"("profile":"q3x.sm87.production.p40.legacy-c512-exact.v2")") !=
+                      std::string::npos &&
+                  health.find(R"("target_prompt_tokens":40000)") !=
+                      std::string::npos &&
+                  health.find(R"("max_sequence_length":44095)") !=
+                      std::string::npos &&
+                  health.find(
+                      R"("route":"q3x.sm87.decode.coupled-feed-down-consumer-order.v1")") !=
+                      std::string::npos &&
+                  health.find(R"("gate_up_sidecar_bytes":6417285120)") !=
+                      std::string::npos &&
+                  health.find(R"("down_scale6_sidecar_bytes":221429760)") !=
+                      std::string::npos &&
+                  health.find(
+                      R"("down_consumer_order_sidecar_bytes":2361917440)") !=
+                      std::string::npos &&
+                  health.find(R"("retained_sidecar_bytes":11013898240)") !=
+                      std::string::npos &&
+                  health.find(
+                      R"("retained_acceleration_sidecar_bytes":18228101120)") !=
+                      std::string::npos &&
+                  health.find(R"("supermatrix_sidecar_bytes":7214202880)") !=
+                      std::string::npos &&
+                  health.find(R"("fp8_output_sidecar_bytes":2013265920)") !=
+                      std::string::npos &&
+                  health.find(
+                      R"("graph_cache":{"first_position":19,"last_position":43,"slots":25})") !=
+                      std::string::npos &&
+                  health.find(R"("BUILD_TESTING":false)") !=
+                      std::string::npos &&
+                  health.find(R"("production_eligible":true)") !=
+                      std::string::npos &&
+                  health.find(R"("release_qualified":false)") !=
+                      std::string::npos,
+              "health response exposes the honest sealed production "
+              "identity without claiming release qualification");
+
+  const std::string models = server::serialize_models_response(
+      "qwen\"model", 1234, identity);
+  test.expect(valid_json(models) &&
+                  models.find(R"("q3x_production":{)") !=
+                      std::string::npos &&
+                  models.find(R"("request_arena_bytes":3070908416)") !=
+                      std::string::npos &&
+                  models.find(R"("BUILD_TESTING":false)") !=
+                      std::string::npos &&
+                  models.find(R"("production_eligible":true)") !=
+                      std::string::npos &&
+                  models.find(R"("release_qualified":false)") !=
+                      std::string::npos,
+              "models discovery carries the same production identity");
 
   const std::string p40_v10_models =
       server::serialize_p40_whole_core_v10_models_response("qwen\"model",
@@ -1447,8 +1535,26 @@ void test_target_prefill_witness_evidence(TestContext& test) {
 void test_prefill_tactic_defaults_remain_exact(TestContext& test) {
   const server::EvaluationServerOptions server_options;
   const q3x::runtime::ReferenceEngineOptions engine_options;
+  q3x::runtime::RequestMemoryOptions plan_options;
+  plan_options.prefill_chunk_size = server_options.prefill_chunk_size;
+  plan_options.max_sequence_length = server_options.max_sequence_length;
+  plan_options.max_arena_bytes = server_options.request_max_arena_bytes;
+  plan_options.min_free_bytes_after_create =
+      server_options.request_min_free_bytes_after_create;
+  const q3x::runtime::RequestPlanResult request_plan =
+      q3x::runtime::build_request_memory_plan(plan_options);
   test.expect(
-      server_options.prefill_execution_mode == q3x::runtime::
+      server_options.production_profile ==
+              server::EvaluationProductionProfile::kP40ExactLegacyC512 &&
+          server_options.max_sequence_length == 44'095U &&
+          server_options.maximum_output_tokens == 4'096U &&
+          server_options.request_max_arena_bytes == 3'070'908'416ULL &&
+          server::is_p40_exact_legacy_c512_production_profile(
+              server_options) &&
+          request_plan &&
+          request_plan.value->arena_bytes ==
+              server_options.request_max_arena_bytes &&
+          server_options.prefill_execution_mode == q3x::runtime::
               ReferencePrefillExecutionMode::kLegacyC512Tiled &&
           server_options.prefill_full_attention_tactic == q3x::runtime::
               LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512 &&
@@ -1460,13 +1566,122 @@ void test_prefill_tactic_defaults_remain_exact(TestContext& test) {
               ReferencePrefillExecutionMode::kLegacyC512Tiled &&
           engine_options.prefill_full_attention_tactic == q3x::runtime::
               LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512,
-      "Q128-v4 exposure does not change server or engine defaults");
+      "the ordinary server seals planner-exact P40 Legacy-C512/SM87 "
+      "capacity while the engine API retains exact defaults");
+}
+
+void test_bearer_authorization(TestContext& test) {
+  test.expect(server::constant_time_bearer_authorization_matches(
+                  "Bearer sk-test_ABC+/=", "sk-test_ABC+/="),
+              "Bearer authentication accepts the exact configured key");
+  test.expect(!server::constant_time_bearer_authorization_matches(
+                  "Bearer sk-test_ABC+/x", "sk-test_ABC+/="),
+              "Bearer authentication rejects a same-length wrong key");
+  test.expect(!server::constant_time_bearer_authorization_matches(
+                  "Bearer sk-test_ABC+/=extra", "sk-test_ABC+/="),
+              "Bearer authentication rejects a credential suffix");
+  test.expect(!server::constant_time_bearer_authorization_matches(
+                  "bearer sk-test_ABC+/=", "sk-test_ABC+/="),
+              "Bearer authentication rejects a malformed scheme");
+  test.expect(!server::constant_time_bearer_authorization_matches(
+                  "", "sk-test_ABC+/="),
+              "Bearer authentication rejects a missing header");
+  test.expect(!server::constant_time_bearer_authorization_matches(
+                  "Bearer ", ""),
+              "Bearer authentication never accepts an empty configured key");
+}
+
+[[nodiscard]] bool write_api_key_fixture(
+    const std::filesystem::path& path, const std::string_view contents,
+    const mode_t permissions) {
+  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  output.write(contents.data(),
+               static_cast<std::streamsize>(contents.size()));
+  output.close();
+  return static_cast<bool>(output) &&
+         ::chmod(path.c_str(), permissions) == 0;
+}
+
+void test_api_key_file_loading(TestContext& test,
+                               const std::filesystem::path& work_root) {
+  const std::filesystem::path directory =
+      work_root / std::to_string(static_cast<unsigned long>(::getpid()));
+  std::error_code filesystem_error;
+  std::filesystem::remove_all(directory, filesystem_error);
+  filesystem_error.clear();
+  std::filesystem::create_directories(directory, filesystem_error);
+  test.expect(!filesystem_error,
+              "API key test creates its repository-local work directory");
+  if (filesystem_error) {
+    return;
+  }
+
+  const std::filesystem::path valid_path = directory / "valid.key";
+  const std::filesystem::path empty_path = directory / "empty.key";
+  const std::filesystem::path long_path = directory / "long.key";
+  const std::filesystem::path wide_path = directory / "wide.key";
+  const std::filesystem::path invalid_path = directory / "invalid.key";
+  const std::filesystem::path symlink_path = directory / "symlink.key";
+  test.expect(write_api_key_fixture(valid_path, "sk-test_ABC+/=\n", 0600) &&
+                  write_api_key_fixture(empty_path, "", 0600) &&
+                  write_api_key_fixture(
+                      long_path,
+                      std::string(server::kMaximumEvaluationApiKeyBytes + 1U,
+                                  'a'),
+                      0600) &&
+                  write_api_key_fixture(wide_path, "secret", 0644) &&
+                  write_api_key_fixture(invalid_path, "secret key", 0600),
+              "API key fixtures are created with explicit permissions");
+  filesystem_error.clear();
+  std::filesystem::create_symlink(valid_path, symlink_path,
+                                  filesystem_error);
+  test.expect(!filesystem_error,
+              "API key fixture creates a symlink rejection case");
+
+  const server::EvaluationApiKeyLoadResult valid =
+      server::load_evaluation_api_key_file(valid_path);
+  test.expect(valid && *valid.value == "sk-test_ABC+/=",
+              "API key loader accepts owner-only file and strips one LF");
+  const server::EvaluationApiKeyLoadResult empty =
+      server::load_evaluation_api_key_file(empty_path);
+  test.expect(!empty && empty.error.find("non-empty") != std::string::npos,
+              "API key loader rejects an empty file");
+  const server::EvaluationApiKeyLoadResult too_long =
+      server::load_evaluation_api_key_file(long_path);
+  test.expect(!too_long &&
+                  too_long.error.find("4096-byte") != std::string::npos,
+              "API key loader rejects an overlong file");
+  const server::EvaluationApiKeyLoadResult wide =
+      server::load_evaluation_api_key_file(wide_path);
+  test.expect(!wide &&
+                  wide.error.find("0400 or 0600") != std::string::npos,
+              "API key loader rejects group/world-readable permissions");
+  const server::EvaluationApiKeyLoadResult invalid =
+      server::load_evaluation_api_key_file(invalid_path);
+  test.expect(!invalid &&
+                  invalid.error.find("ASCII Bearer token") !=
+                      std::string::npos,
+              "API key loader rejects whitespace and non-token payloads");
+  if (!filesystem_error) {
+    const server::EvaluationApiKeyLoadResult symlink =
+        server::load_evaluation_api_key_file(symlink_path);
+    test.expect(!symlink &&
+                    symlink.error.find("open failed") != std::string::npos,
+                "API key loader refuses to follow a symlink");
+  }
+
+  filesystem_error.clear();
+  std::filesystem::remove_all(directory, filesystem_error);
+  test.expect(!filesystem_error,
+              "API key test removes its exact repository-local fixture tree");
 }
 
 void test_p40_whole_core_v10_fixed_contract(TestContext& test) {
   server::EvaluationServerOptions options;
   options.development_route =
       server::EvaluationDevelopmentRoute::kP40WholeCoreV10;
+  options.production_profile =
+      server::EvaluationProductionProfile::kNone;
   options.max_sequence_length = 40'001U;
   options.maximum_output_tokens = 1U;
   options.prefill_execution_mode = q3x::runtime::
@@ -1507,7 +1722,11 @@ void test_p40_whole_core_v10_fixed_contract(TestContext& test) {
 
 }  // namespace
 
-int main() {
+int main(const int argc, char** const argv) {
+  if (argc != 2) {
+    std::cerr << "usage: q3x_openai_protocol_test WORK_ROOT\n";
+    return 2;
+  }
   TestContext test;
   test_evalscope_chat_contract(test);
   test_raw_completion_contract(test);
@@ -1516,6 +1735,8 @@ int main() {
   test_serialization(test);
   test_target_prefill_witness_evidence(test);
   test_prefill_tactic_defaults_remain_exact(test);
+  test_bearer_authorization(test);
+  test_api_key_file_loading(test, argv[1]);
   test_p40_whole_core_v10_fixed_contract(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " OpenAI protocol test(s) failed\n";

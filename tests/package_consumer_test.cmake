@@ -1,10 +1,11 @@
 if(NOT DEFINED Q3X_SOURCE_DIR OR NOT DEFINED Q3X_BINARY_DIR OR
-   NOT DEFINED Q3X_GENERATOR)
+   NOT DEFINED Q3X_GENERATOR OR NOT DEFINED Q3X_INSTALL_BINDIR)
   message(FATAL_ERROR "package consumer test is missing required paths")
 endif()
 
 set(prefix "${Q3X_BINARY_DIR}/package-consumer-prefix")
 set(consumer_binary "${Q3X_BINARY_DIR}/package-consumer-build")
+file(REMOVE_RECURSE "${prefix}" "${consumer_binary}")
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" --install "${Q3X_BINARY_DIR}"
@@ -16,6 +17,39 @@ execute_process(
 if(NOT install_result EQUAL 0)
   message(FATAL_ERROR
     "package install failed (${install_result})\n${install_output}${install_error}")
+endif()
+
+foreach(executable qwen3x-orin qwen3x-inspect)
+  if(NOT EXISTS "${prefix}/${Q3X_INSTALL_BINDIR}/${executable}")
+    message(FATAL_ERROR
+      "package install is missing ${Q3X_INSTALL_BINDIR}/${executable}")
+  endif()
+endforeach()
+if(Q3X_EXPECT_EVAL_SERVER AND
+   NOT EXISTS "${prefix}/${Q3X_INSTALL_BINDIR}/qwen3x-eval-server")
+  message(FATAL_ERROR
+    "package install is missing ${Q3X_INSTALL_BINDIR}/qwen3x-eval-server")
+endif()
+if(NOT Q3X_EXPECT_EVAL_SERVER AND
+   EXISTS "${prefix}/${Q3X_INSTALL_BINDIR}/qwen3x-eval-server")
+  message(FATAL_ERROR
+    "development package unexpectedly installed qwen3x-eval-server")
+endif()
+if(Q3X_EXPECT_EVAL_SERVER)
+  execute_process(
+    COMMAND "${prefix}/${Q3X_INSTALL_BINDIR}/qwen3x-eval-server" --help
+    RESULT_VARIABLE server_help_result
+    OUTPUT_VARIABLE server_help_output
+    ERROR_VARIABLE server_help_error
+  )
+  if(NOT server_help_result EQUAL 0 OR
+     NOT server_help_output MATCHES "evaluation server 0\\.6\\.0" OR
+     NOT server_help_output MATCHES
+       "q3x\\.sm87\\.production\\.p40\\.legacy-c512-exact\\.v2")
+    message(FATAL_ERROR
+      "installed production server identity mismatch\n"
+      "${server_help_output}${server_help_error}")
+  endif()
 endif()
 
 execute_process(

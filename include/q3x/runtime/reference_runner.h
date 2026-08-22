@@ -659,9 +659,10 @@ struct LogitsAnalysis {
 [[nodiscard]] bool use_fused_gqa_sigmoid_gate_tile(
     std::size_t first_position, std::size_t token_count) noexcept;
 
-// Admission-only decode selector.  The legacy score/softmax/value/gate path
-// remains in the same ELF and is selected unless the split-KV admission flag
-// is enabled and the dynamic sequence length is in [65, 4096].
+// Compiled production Decode selector. The split-KV numerical candidate is
+// default-off because it is not bitwise-equivalent to the exact fallback at
+// S65. The exact fused <=64 path and exact reference >=65 path remain in the
+// same ELF; no environment variable has release-route authority.
 [[nodiscard]] bool use_decode_gqa_splitkv(
     std::size_t sequence_length) noexcept;
 

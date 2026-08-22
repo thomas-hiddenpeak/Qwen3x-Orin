@@ -1460,15 +1460,17 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_cuda(
   }
 #endif
 
-  // The final production binary keeps the v2 route as an exact same-ELF
-  // comparator.  Production defaults to the KV-head-centric v3 route; setting
-  // this narrowly scoped process variable to exactly "1" selects v2 for the
-  // mirrored real-P513 gate without changing any other Prefill component.
+  // Testing builds keep the v2 route as an exact same-ELF comparator.
+  // Production defaults unconditionally to the KV-head-centric v3 route.
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
   static const bool force_v2_baseline = []() noexcept {
     const char* const value =
         std::getenv("Q3X_FULL_ATTENTION_C512_FORCE_V2_BASELINE");
     return value != nullptr && std::strcmp(value, "1") == 0;
   }();
+#else
+  constexpr bool force_v2_baseline = false;
+#endif
   if (force_v2_baseline && first_position == 0U &&
       token_count == kBulkGqaC512TokenCount) {
     constexpr std::size_t kV2DynamicSharedBytes =

@@ -128,6 +128,61 @@ void append_usage(std::string& output, const OpenAIUsage& usage) {
             std::to_string(usage.total_tokens) + "}";
 }
 
+void append_production_identity(
+    std::string& output, const OpenAIProductionIdentity& production) {
+  output += "{\"profile\":";
+  append_json_string(output, production.profile_id);
+  output += ",\"capacity\":{\"target_prompt_tokens\":";
+  output += std::to_string(production.target_prompt_tokens);
+  output += ",\"maximum_output_tokens\":";
+  output += std::to_string(production.maximum_output_tokens);
+  output += ",\"max_sequence_length\":";
+  output += std::to_string(production.max_sequence_length);
+  output += ",\"request_arena_bytes\":";
+  output += std::to_string(production.request_arena_bytes);
+  output += "},\"prefill\":{\"supermatrix_projections\":";
+  output += std::to_string(production.prefill_supermatrix_projections);
+  output += ",\"supermatrix_sidecar_bytes\":";
+  output += std::to_string(production.prefill_supermatrix_sidecar_bytes);
+  output += "},\"decode\":{\"route\":";
+  append_json_string(output, production.decode_route_id);
+  output += ",\"fp8_output_layers\":";
+  output += std::to_string(production.decode_fp8_output_layers);
+  output += ",\"fp8_output_sidecar_bytes\":";
+  output += std::to_string(production.decode_fp8_output_sidecar_bytes);
+  output += ",\"gate_up_layers\":";
+  output += std::to_string(production.decode_gate_up_layers);
+  output += ",\"gate_up_sidecar_bytes\":";
+  output += std::to_string(production.decode_gate_up_sidecar_bytes);
+  output += ",\"down_scale6_layers\":";
+  output += std::to_string(production.decode_down_scale6_layers);
+  output += ",\"down_scale6_sidecar_bytes\":";
+  output += std::to_string(production.decode_down_scale6_sidecar_bytes);
+  output += ",\"down_consumer_order_layers\":";
+  output += std::to_string(production.decode_down_consumer_order_layers);
+  output += ",\"down_consumer_order_sidecar_bytes\":";
+  output +=
+      std::to_string(production.decode_down_consumer_order_sidecar_bytes);
+  output += ",\"retained_sidecar_bytes\":";
+  output += std::to_string(production.decode_retained_sidecar_bytes);
+  output += ",\"graph_cache\":{\"first_position\":";
+  output += std::to_string(production.decode_graph_first_position);
+  output += ",\"last_position\":";
+  output += std::to_string(production.decode_graph_last_position);
+  output += ",\"slots\":";
+  output += std::to_string(production.decode_graph_slots);
+  output += "}";
+  output += "},\"retained_acceleration_sidecar_bytes\":";
+  output += std::to_string(production.retained_acceleration_sidecar_bytes);
+  output += ",\"BUILD_TESTING\":";
+  output += production.build_testing ? "true" : "false";
+  output += ",\"production_eligible\":";
+  output += production.production_eligible ? "true" : "false";
+  output += ",\"release_qualified\":";
+  output += production.release_qualified ? "true" : "false";
+  output += "}";
+}
+
 void append_phase_evidence(std::string& output,
                            const std::string_view name,
                            const RequestPhaseEvidence& phase) {
@@ -646,18 +701,47 @@ std::string serialize_openai_error(const OpenAIProtocolError& error) {
   return output;
 }
 
+bool constant_time_bearer_authorization_matches(
+    const std::string_view authorization,
+    const std::string_view api_key) noexcept {
+  constexpr std::string_view prefix = "Bearer ";
+  const std::size_t expected_size = prefix.size() + api_key.size();
+  std::size_t difference = authorization.size() ^ expected_size;
+  difference |= static_cast<std::size_t>(api_key.empty());
+  for (std::size_t index = 0U; index < expected_size; ++index) {
+    const unsigned char expected = static_cast<unsigned char>(
+        index < prefix.size() ? prefix[index]
+                              : api_key[index - prefix.size()]);
+    const unsigned char actual =
+        index < authorization.size()
+            ? static_cast<unsigned char>(authorization[index])
+            : 0U;
+    difference |= static_cast<std::size_t>(actual ^ expected);
+  }
+  return difference == 0U;
+}
+
 std::string serialize_models_response(const std::string_view served_model,
-                                      const std::int64_t created) {
+                                      const std::int64_t created,
+                                      const OpenAIProductionIdentity&
+                                          production) {
   std::string output = "{\"object\":\"list\",\"data\":[{\"id\":";
   append_json_string(output, served_model);
   output += ",\"object\":\"model\",\"created\":" +
-            std::to_string(created) + ",\"owned_by\":\"qwen3x-orin\"}]}";
+            std::to_string(created) +
+            ",\"owned_by\":\"qwen3x-orin\",\"q3x_production\":";
+  append_production_identity(output, production);
+  output += "}]}";
   return output;
 }
 
-std::string serialize_health_response(const std::string_view served_model) {
+std::string serialize_health_response(
+    const std::string_view served_model,
+    const OpenAIProductionIdentity& production) {
   std::string output = "{\"status\":\"ok\",\"ready\":true,\"model\":";
   append_json_string(output, served_model);
+  output += ",\"q3x_production\":";
+  append_production_identity(output, production);
   output += "}";
   return output;
 }

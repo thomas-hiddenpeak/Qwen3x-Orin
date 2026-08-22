@@ -25,17 +25,41 @@ metadata/evidence records.
 
 ## 1. Answer-first state
 
-Qwen3x-Orin currently delivers a real-checkpoint, batch-one native evaluation
-runner with a bounded loopback OpenAI-compatible adapter. It is not yet an
-installed production service. The evaluation-adapter default capacity remains
-8,192 tokens, and no canonical `BUILD_TESTING=OFF` binary plus authenticated
-DeploymentPlan has passed the long-context, accuracy, stability, and packaging
-gates.
+Qwen3x-Orin now builds and installs a production-shaped 0.6.0 service from the
+ordinary `orin-release` preset (`Release`, SM87, `BUILD_TESTING=OFF`). Its
+sealed default profile is
+`q3x.sm87.production.p40.legacy-c512-exact.v2`: 40,000 prompt tokens, a
+4,096-token output ceiling, `prompt + output - 1 <= 44,095`, a
+3,070,908,416-byte exact request arena, Bearer authentication for non-health
+endpoints, and no public execution-tactic or arena selector. A non-loopback
+listener requires an owner-only key file. The installed profile remains
+`release_qualified=false` until the exact installed artifact completes the
+current target-length, Decode, accuracy, stability, and capability matrix.
 
-By project-owner direction, Prefill performance work has been paused since
-2026-08-20 so the delivery mainline can advance P1/P2 and subsequent product
-work. This changes priority only: the default route, qualification state, and
-Constitution targets are unchanged. The exact recovery anchor is
+The ordinary profile fails before listening unless its complete Prefill,
+Decode, and short-position Graph inventory is present. This includes the
+208-projection/7,214,202,880-byte FP8 Prefill supermatrix and
+11,013,898,240 bytes of Decode layouts; total retained acceleration sidecars
+are 18,228,101,120 bytes. Ordinary Release route composition is typed and
+does not consult `Q3X_*` environment selectors. The current batch has passed
+the Release/OFF build, install-tree consumer, help/authentication, host policy,
+exact-span GDN CUDA, Decode numerical-rejection, and package tests. The final
+same-install-artifact real-model length matrix is the active gate.
+
+By explicit project-owner direction on 2026-08-22, performance work is
+resumed with production conversion as the selection boundary. The first
+current-main real-API comparisons establish the exact C256/C512 GDN whole-span
+path as a positive ordinary-default candidate: pure Prefill is 3.5290% faster
+at P1024, 4.5009% faster at P4096, and 3.6983% faster at P8192, with exact
+generated output. The older prompt-wide Embedding and Attention preprocess
+gains remain selected. Decode split-KV is not selected despite a favorable
+API timing proxy because its direct S65 BF16 oracle differs from the exact
+fallback; S>=65 therefore remains on the exact route. The measured Gate/Up
+coupled-feed and Down consumer-order Decode layouts are selected for the final
+installed-API test, with startup failing if their exact inventory cannot fit.
+
+The prior pause is superseded; it did not amend the Constitution targets. The
+exact recovery anchor remains
 `archive/v4-construction-ownership-20260820@f3545240075651eaa54a5bea6c0f15ee9dfd9a3e`;
 it is an incomplete, default-off archive and is not part of this mainline. Its
 schema-v5 closeout source remains `status=fail` because a 419,917,824-byte
@@ -60,7 +84,8 @@ SIGINT shutdown returned zero, and no server-owned `nvmap` residue was
 observed. The exact record and its measurement limitations are in the
 [`mainline real-model acceptance record`](metadata/qwen36-27b-mainline-real-model-acceptance-2026-08-21.json).
 It grants no 40K/60K/approximately-130K, final-product API, release, or
-production authority, and it does not resume paused Prefill optimization.
+production authority. That record did not itself resume Prefill work; the
+later 2026-08-22 owner direction did.
 
 Under the later explicit owner direction to absorb confirmed cross-branch
 gains before returning completely to delivery work, the runtime stack ending
@@ -101,8 +126,9 @@ but the 0.12%--0.26% range and two-sample protocol are not statistical or
 release qualification. Decode, startup, and memory moved at noise scale in
 both directions and receive no improvement claim. These prompts are
 controlled regression witnesses rather than real Agent/EvalScope prompts;
-16K/32K used explicit expanded capacity and an 8 GiB arena, so the adapter's
-8,192-token/2-GiB defaults remain unchanged. Across the two candidate runs at
+16K/32K used explicit expanded capacity and an 8 GiB arena; for that historical
+artifact the adapter's 8,192-token/2-GiB defaults remained unchanged. Across
+the two candidate runs at
 4K/8K/16K/32K, maximum PSS was respectively 344,807,424 / 344,801,280 /
 344,803,328 / 345,393,152 bytes, and maximum system `MemAvailable` drop was
 22,971,265,024 / 23,236,730,880 / 23,591,137,280 / 24,705,056,768 bytes.
@@ -340,15 +366,14 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | Pinned Qwen3.6-27B NVFP4 checkpoint | Implemented | Installed artifact must bind checkpoint, binary, layouts, and DeploymentPlan in one attestation |
 | Resident loader and typed weights | Implemented | Whole-process memory and release identity remain unqualified |
 | Pure C++ tokenizer and greedy generation | Implemented | Public capability and long-run qualification remain incomplete |
-| Loopback OpenAI-compatible evaluation API | Implemented | It has no authentication, TLS, multi-tenant admission, or production exposure contract |
-| Final product API | Designed | No installed production server/profile or release attestation exists |
-| Evaluation-adapter default maximum context | 8,192 tokens | Does not admit the locked 40K/60K/approximately-130K workloads |
-| Target-length Prefill | Two exact, allocation-free Legacy-C512 preprocessing mechanisms are absorbed in the narrow development default; the v10 P40 inventory is a typed, non-installing `BUILD_TESTING=OFF` development artifact and has a valid current-main sustainable integration-health BCCB; performance program remains paused | Current-main sustainable candidate mean is 325.983493208 tok/s versus 326.111753524 baseline; near-max valid-cell aggregation is descriptive only at 375.956428659 candidate tok/s; historical 392.804397 max-clock is not reproduced; P60/P130 remain unopened |
+| OpenAI-compatible product API | Installed production-shaped 0.6.0 service with bounded queues, streaming, Bearer authentication, public health, and external TLS termination contract | Cancellation, multi-tenant policy, capability, and release stability remain incomplete |
+| Installed default context | Sealed P40 profile admits `prompt + output - 1 <= 44,095` with a 4,096-token output ceiling | P60 and approximately-P130 profiles remain unopened |
+| Target-length Prefill | Ordinary default includes exact prompt-wide preprocessing plus the current-main positive exact-span GDN path; the historical v10 transaction remains retained default-off work | Final installed 1K/4K/8K/16K/32K/P40 results and complete accuracy are active; P60/P130 and the 2s/4s targets remain open |
 | SM87 whole-system AOT Prefill candidate | Default-off and non-executable; real-checkpoint upload/readback/private attachment is authenticated, and the layer-0 M192 Gate+Up/Down-plus-residual candidate has passed bitwise, same-ELF SM87 resource/geometry, and immediate-snapshot lifecycle gates | Persist and directly load authenticated AOT payloads; compose all 64 layers plus FP8 QKV/Z/O, grouped online Attention, exact GDN, buffers/state/handoffs without fallback; extend complete-model accuracy; open a reviewed admission launch; then return to clean-host real-P40 API/EvalScope evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
-| Decode | Directionally near target | [Short API evidence](analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md) is about 104 ms TPOT; at least 10 tok/s, long-output stability, and release repetition are not qualified |
+| Decode | Exact S>=65 fallback plus selected coupled-feed/consumer-order layouts and fixed short-position Graph cache in the sealed profile; split-KV rejected numerically | Current installed API TPOT, route hits, long-output stability, and at least 10 tok/s remain to be qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
-| Canonical release artifact | Not implemented | The separately named P40 v10 `BUILD_TESTING=OFF` artifact is development-only, accuracy-unqualified, and deliberately non-installing; it is not the authenticated installed DeploymentPlan required by P2 |
+| Canonical release artifact | Production-shaped 0.6.0 Release/OFF package installs the ordinary sealed v2 server and tools | Exact installed-artifact real-model/capability/repetition attestation remains incomplete, so `release_qualified=false` |
 | Automated release lane | Designed only | Local tests and policies exist, but no checked-in Orin release workflow enforces the complete gate |
 
 Status terms are strict:
@@ -503,9 +528,9 @@ sequence and successor identity live exclusively in
 | Gap | Current fact | Roadmap owner |
 | --- | --- | --- |
 | Documentation-control propagation | The canonical main line now has one `AGENTS.md -> docs/README.md` Codex entry; pre-existing dirty worktrees do not receive it until explicitly integrated, because Codex reads the worktree in which a session starts | P0 |
-| Product API and long-context admission | Validation and host planners exist, but the default contract cannot admit 40K/60K/130K | P1 |
-| Exact deliverable identity | No unique release binary plus authenticated DeploymentPlan | P2 |
-| Prefill parity and physical plan | The narrow Legacy-C512 default includes two exact preprocessing absorptions with only 0.12%--0.26% controlled direction; current main has a strict sustainable P40 v10 integration-health result of 325.983493208 tok/s and descriptive near-max valid cells averaging 375.956428659 tok/s, while the historical 392.804397 max-clock observation remains unreproduced; the route is default-off and accuracy-unqualified, optimization is paused, and the recovery archive is not a mainline route | P3 (paused) |
+| Product API and long-context admission | Installed sealed P40 profile admits 40K plus normal Decode output; P60/P130 profiles and full cancellation semantics remain | P1 |
+| Exact deliverable identity | 0.6.0/v2 installed identity is implemented; installed-artifact model, route-hit, accuracy, and release evidence remain | P2 |
+| Prefill parity and physical plan | Exact-span GDN is positive at P1K/P4K/P8K and is selected into the ordinary default; v10's historical 392.804397 tok/s transaction remains tracked but its Attention arithmetic is accuracy-unqualified | P3 (active) |
 | Accuracy, capability, stability, and release evidence | Partial oracles only; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install, startup, upgrade, or rollback lane | P5 |
 
@@ -513,19 +538,16 @@ sequence and successor identity live exclusively in
 
 Use the following language until this snapshot changes:
 
-- **Current:** real-model native evaluation runner; Prefill performance work is
-  paused; the eligible Legacy-C512/SM87WeightOnly development default includes
-  bit-exact, allocation-free prompt-wide Embedding and full-Attention
-  preprocessing; controlled 4K--32K BCCB direction is positive by
-  0.12%--0.26% but not statistically qualified; the final eight-request short
-  integration proxy passes. The separate default-off P40 v10 route has a
-  strict current-main sustainable BCCB at 325.983493208 candidate tok/s versus
-  326.111753524 baseline; near-max valid cells average 375.956428659 tok/s only
-  descriptively. The historical 392.804397 max-clock observation is not
-  reproduced. All of this remains accuracy-unqualified and non-production.
-- **Not current:** production server, production-default 40K--130K support,
-  any archived V4 construction route, lossless Factorized-R1 Prefill, vLLM
-  parity, or a fully qualified 10-token/s Decode release.
+- **Current:** installable 0.6.0 Release/OFF batch-one service with an
+  authenticated, sealed P40 exact profile; exact-span GDN and prompt-wide
+  preprocessing are ordinary Prefill defaults; coupled-feed/consumer-order
+  layouts are selected for final installed-API Decode testing; split-KV is
+  rejected from production. The service is production-shaped but remains
+  `release_qualified=false` until the active installed-artifact matrix closes.
+- **Not current:** production-default P60/P130 support, the accuracy-unqualified
+  FlashInfer v10 arithmetic as a default, any archived V4 construction route,
+  lossless Factorized-R1 Prefill, vLLM parity, or a fully qualified 10-token/s
+  Decode release.
 - **Target:** the accuracy-preserving, non-MTP, OpenAI-compatible runner and
   performance region locked by the Constitution.
 

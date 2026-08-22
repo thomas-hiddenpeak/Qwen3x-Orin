@@ -14,6 +14,7 @@
 #include "q3x/runtime/p40_packed_projection_assets.h"
 #include "q3x/runtime/sm87_target_aot_projection_device_assets.h"
 #include "q3x/text/tokenizer.h"
+#include "reference_engine_decode_sidecar_policy_internal.h"
 #include "reference_engine_final_token_policy_internal.h"
 #include "reference_engine_prefill_authority.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
@@ -76,6 +77,7 @@ inline constexpr std::uint64_t kProductionDecodeGraphMaximumFreeDropBytes =
 // The fused Marlin Gate/Up epilogue changes the retained sidecar's N ordering,
 // so load-time packing and runner dispatch must use one immutable process-wide
 // selector. The candidate remains absent unless explicitly admitted.
+#if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
 [[nodiscard]] bool
 prefill_marlin_gate_up_epilogue_environment_enabled() noexcept {
   static const bool enabled = []() noexcept {
@@ -85,25 +87,43 @@ prefill_marlin_gate_up_epilogue_environment_enabled() noexcept {
   }();
   return enabled;
 }
+#endif
 
-// Same-ELF, whole-runner Decode Down admission. The value is immutable for
-// the process lifetime: sidecar ownership is decided while the engine is
-// built and every captured/replayed graph must retain the same dispatch.
-[[nodiscard]] bool
-decode_down_k512_consumer_order_environment_enabled() noexcept {
-  static const bool enabled = []() noexcept {
+// Testing builds retain same-ELF B/C selectors. In release builds the typed
+// policy ignores environment state and selects only the ordinary production
+// route supplied by the validated engine plan.
+[[nodiscard]] reference_engine_detail::DecodeSidecarPolicy
+decode_down_k512_consumer_order_policy(
+    const bool ordinary_production_route) noexcept {
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+  static const bool testing_admission = []() noexcept {
     const char* const value = std::getenv(
         "Q3X_RUN_DECODE_DOWN_K512_CONSUMER_ORDER_ADMISSION");
     return value != nullptr && std::strcmp(value, "1") == 0;
   }();
-  return enabled;
+  return reference_engine_detail::select_decode_sidecar_policy(
+      true, testing_admission, ordinary_production_route);
+#else
+  return reference_engine_detail::select_decode_sidecar_policy(
+      false, false, ordinary_production_route);
+#endif
 }
 
-[[nodiscard]] bool
-decode_gate_up_coupled_feed_environment_enabled() noexcept {
-  const char* const value =
-      std::getenv("Q3X_RUN_DECODE_GATE_UP_COUPLED_FEED_ADMISSION");
-  return value != nullptr && std::strcmp(value, "1") == 0;
+[[nodiscard]] reference_engine_detail::DecodeSidecarPolicy
+decode_gate_up_coupled_feed_policy(
+    const bool ordinary_production_route) noexcept {
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+  static const bool testing_admission = []() noexcept {
+    const char* const value =
+        std::getenv("Q3X_RUN_DECODE_GATE_UP_COUPLED_FEED_ADMISSION");
+    return value != nullptr && std::strcmp(value, "1") == 0;
+  }();
+  return reference_engine_detail::select_decode_sidecar_policy(
+      true, testing_admission, ordinary_production_route);
+#else
+  return reference_engine_detail::select_decode_sidecar_policy(
+      false, false, ordinary_production_route);
+#endif
 }
 
 struct DecodeGraphP1DeviceBuffer {
@@ -2804,9 +2824,9 @@ prepare_sm87_nvfp4_down_consumer_order_sidecars(
     return result;
   }
 
-  // This admission is intentionally downstream of scale6 preparation. It
+  // This layout is intentionally downstream of scale6 preparation. It
   // permutes weights only for layers already using that exact scale path, so
-  // the experiment changes neither scale representation nor arithmetic.
+  // selection changes neither scale representation nor arithmetic.
   std::vector<NvFp4DownConsumerOrderLayerPlan> plans;
   plans.reserve(kQwen36DenseLayerCount);
   for (std::size_t layer_index = 0U;
@@ -2828,7 +2848,7 @@ prepare_sm87_nvfp4_down_consumer_order_sidecars(
   if (plans.empty()) {
     result.hard_failure = true;
     result.message =
-        "NVFP4 Down consumer-order admission found no scale6 layers";
+        "NVFP4 Down consumer-order prepare found no scale6 layers";
     return result;
   }
   if (plans.size() >
@@ -2860,8 +2880,8 @@ prepare_sm87_nvfp4_down_consumer_order_sidecars(
     result.hard_failure = true;
     result.cuda_error = static_cast<int>(cudaErrorMemoryAllocation);
     result.message =
-        "insufficient device-memory margin for explicit NVFP4 Down "
-        "consumer-order admission";
+        "insufficient device-memory margin for NVFP4 Down consumer-order "
+        "layout";
     return result;
   }
 
@@ -2871,7 +2891,7 @@ prepare_sm87_nvfp4_down_consumer_order_sidecars(
     result.hard_failure = true;
     result.cuda_error = static_cast<int>(status);
     result.message =
-        "cudaMalloc failed for NVFP4 Down consumer-order admission";
+        "cudaMalloc failed for NVFP4 Down consumer-order layout";
     return result;
   }
   owner.data = static_cast<std::uint8_t*>(allocation);
@@ -2924,7 +2944,7 @@ prepare_sm87_nvfp4_down_consumer_order_sidecars(
         owner.data +
         index * kNvFp4DownConsumerOrderWeightBytesPerProjection;
     pack_error = kernels::
-        launch_sm87_nvfp4_w4a16_down_consumer_order_pack_test_cuda(
+        launch_sm87_nvfp4_w4a16_down_consumer_order_pack_cuda(
             plan.down->packed_weight, destination,
             kNvFp4DownScale6Rows, kNvFp4DownScale6Columns, stream);
     if (pack_error != static_cast<int>(cudaSuccess)) {
@@ -5285,6 +5305,21 @@ struct ReferenceEngine::Impl {
 
       if (options.projection_backend ==
           ProjectionBackend::kSm87WeightOnly) {
+        const bool ordinary_decode_production_route =
+            options.prefill_execution_mode ==
+                ReferencePrefillExecutionMode::kLegacyC512Tiled &&
+            options.prefill_full_attention_tactic ==
+                LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512 &&
+            options.prefill_projection_tactic ==
+                LayerMajorPrefillProjectionTactic::kExactSegmentedC512;
+        const reference_engine_detail::DecodeSidecarPolicy
+            gate_up_coupled_feed_policy =
+                decode_gate_up_coupled_feed_policy(
+                    ordinary_decode_production_route);
+        const reference_engine_detail::DecodeSidecarPolicy
+            down_consumer_order_policy =
+                decode_down_k512_consumer_order_policy(
+                    ordinary_decode_production_route);
         const Clock::time_point begin = Clock::now();
         const Sm87Fp8OutputSidecarPreparation preparation =
             prepare_sm87_fp8_output_projection_sidecars(
@@ -5599,12 +5634,14 @@ struct ReferenceEngine::Impl {
           }
         }
 
-        // Prepare Decode-only experiments only after every production/Prefill
-        // sidecar has succeeded.  A capacity miss must fail the explicitly
-        // requested experiment instead of displacing or silently bypassing
-        // the production inventory.
+        // Prepare the selected Decode layouts only after every Prefill
+        // sidecar has succeeded. Capacity failure is fatal for either a
+        // testing admission or the ordinary release production default; the
+        // engine never silently falls back after publishing a selection.
         impl->load.nvfp4_gate_up_coupled_feed_requested =
-            decode_gate_up_coupled_feed_environment_enabled();
+            gate_up_coupled_feed_policy.requested();
+        impl->load.nvfp4_gate_up_coupled_feed_production_requested =
+            gate_up_coupled_feed_policy.production_requested();
         if (impl->load.nvfp4_gate_up_coupled_feed_requested) {
           const Clock::time_point coupled_begin = Clock::now();
           const Sm87NvFp4GateUpCoupledFeedPreparation coupled_preparation =
@@ -5623,7 +5660,8 @@ struct ReferenceEngine::Impl {
                 ReferenceEngineError::kRunnerFactoryFailure,
                 "nvfp4_gate_up_coupled_feed_prepare",
                 coupled_preparation.message.empty()
-                    ? "the Decode admission did not publish all 64 Gate/Up "
+                    ? "the selected Decode route did not publish all 64 "
+                      "Gate/Up "
                       "coupled feeds"
                     : coupled_preparation.message);
             result.diagnostic.cuda_error = coupled_preparation.cuda_error;
@@ -5634,10 +5672,18 @@ struct ReferenceEngine::Impl {
               coupled_preparation.layers;
           impl->load.nvfp4_gate_up_coupled_feed_bytes =
               coupled_preparation.bytes;
+          impl->load.nvfp4_gate_up_coupled_feed_production_enabled =
+              gate_up_coupled_feed_policy.production_requested();
+          impl->load.nvfp4_gate_up_coupled_feed_production_bytes =
+              gate_up_coupled_feed_policy.production_requested()
+                  ? coupled_preparation.bytes
+                  : 0U;
         }
 
         impl->load.nvfp4_down_consumer_order_sidecars_requested =
-            decode_down_k512_consumer_order_environment_enabled();
+            down_consumer_order_policy.requested();
+        impl->load.nvfp4_down_consumer_order_production_requested =
+            down_consumer_order_policy.production_requested();
         if (impl->load.nvfp4_down_consumer_order_sidecars_requested) {
           const Clock::time_point consumer_order_begin = Clock::now();
           const Sm87NvFp4DownConsumerOrderPreparation preparation =
@@ -5647,14 +5693,20 @@ struct ReferenceEngine::Impl {
                   impl->nvfp4_down_consumer_order_sidecars);
           impl->load.nvfp4_down_consumer_order_sidecar_milliseconds =
               elapsed_milliseconds(consumer_order_begin);
+          const bool production_inventory_exact =
+              !down_consumer_order_policy.production_requested() ||
+              (preparation.layers ==
+                   kQwen36NvFp4DownScale6LayerCount &&
+               preparation.bytes ==
+                   kQwen36NvFp4DownConsumerOrderBytes);
           if (preparation.hard_failure || !preparation.enabled ||
-              preparation.layers == 0U) {
+              preparation.layers == 0U || !production_inventory_exact) {
             result.diagnostic = engine_diagnostic(
                 ReferenceEngineError::kRunnerFactoryFailure,
                 "nvfp4_down_consumer_order_sidecar_prepare",
                 preparation.message.empty()
-                    ? "the explicit Decode Down consumer-order admission "
-                      "did not publish any layer"
+                    ? "the selected Decode Down consumer-order route did "
+                      "not publish its complete pinned inventory"
                     : preparation.message);
             result.diagnostic.cuda_error = preparation.cuda_error;
             return result;
@@ -5664,6 +5716,12 @@ struct ReferenceEngine::Impl {
               preparation.layers;
           impl->load.nvfp4_down_consumer_order_sidecar_bytes =
               preparation.bytes;
+          impl->load.nvfp4_down_consumer_order_production_enabled =
+              down_consumer_order_policy.production_requested();
+          impl->load.nvfp4_down_consumer_order_production_bytes =
+              down_consumer_order_policy.production_requested()
+                  ? preparation.bytes
+                  : 0U;
         }
       }
 

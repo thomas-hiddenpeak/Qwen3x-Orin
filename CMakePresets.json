@@ -9,10 +9,10 @@
     {
       "name": "orin-release",
       "displayName": "Jetson Orin Release (sm_87)",
-      "binaryDir": "${sourceDir}/build/orin-release",
+      "binaryDir": "${sourceDir}/.q3x-work/build/orin-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "BUILD_TESTING": "ON",
+        "BUILD_TESTING": "OFF",
         "Q3X_CUDA_ARCHITECTURES": "87"
       }
     },

@@ -190,16 +190,38 @@ launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_bf16_cuda(
 // x/y/z/w are the untouched canonical packed words for the four adjacent
 // rows. Input and output must each span 44,564,480 bytes and be disjoint.
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_down_consumer_order_pack_cuda(
+    const std::uint8_t* canonical_weights,
+    std::uint8_t* consumer_order_weights,
+    std::size_t rows, std::size_t columns,
+    void* cuda_stream = nullptr) noexcept;
+
+// Exact production Decode Down scale6 Function consuming the equal-byte
+// layout above. Numerical/output/alias/Graph contracts match the canonical
+// scale6 fused Down/residual/RMSNorm launch; only the packed-weight load
+// representation changes.
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_consumer_order_bf16_cuda(
+    const std::uint8_t* consumer_order_weights,
+    const std::uint8_t* scale6_sidecar, unsigned int scale_base,
+    float weight_scale_2, const std::uint16_t* activation,
+    const std::uint16_t* residual_left,
+    const std::uint16_t* norm_weight, float epsilon,
+    std::size_t rows, std::size_t columns,
+    std::uint16_t* raw_down_output,
+    std::uint16_t* residual_output,
+    std::uint16_t* normalized_output,
+    void* cuda_stream = nullptr) noexcept;
+
+// Compatibility aliases retained for existing synthetic tests. Production
+// packing and dispatch call the non-test entry points above.
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_down_consumer_order_pack_test_cuda(
     const std::uint8_t* canonical_weights,
     std::uint8_t* consumer_order_weights,
     std::size_t rows, std::size_t columns,
     void* cuda_stream = nullptr) noexcept;
 
-// Admission-only exact Decode Down scale6 Function consuming the equal-byte
-// layout above. Numerical/output/alias/Graph contracts match the production
-// scale6 fused Down/residual/RMSNorm launch; only the packed-weight address
-// and load representation changes.
 [[nodiscard]] int
 launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_consumer_order_test_cuda(
     const std::uint8_t* consumer_order_weights,
@@ -221,7 +243,14 @@ query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_resources_cuda(
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
 
-// Static-resource query for the admission-only K512 consumer-order Function.
+// Static-resource query for the production K512 consumer-order Function.
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_consumer_order_resources_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+// Compatibility alias for existing synthetic resource tests.
 [[nodiscard]] int
 query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_consumer_order_resources_test_cuda(
     int* registers_per_thread, std::size_t* static_shared_bytes,
@@ -298,8 +327,8 @@ launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
     std::uint16_t* gate_output, std::uint16_t* up_workspace,
     void* cuda_stream = nullptr) noexcept;
 
-// Test-admission Decode representation for the exact [17408,5120] NVFP4
-// Gate/Up shape.  The equal-byte sidecar couples one row-quad's packed
+// Production Decode representation for the exact [17408,5120] NVFP4 Gate/Up
+// shape. The equal-byte sidecar couples one row-quad's packed
 // weights and E4M3 block scales in the order consumed by each K512/phase.
 // It is a permutation of canonical weight+scale bytes, not a compressed
 // format.  The destination requires 16-byte alignment and must span exactly
@@ -311,11 +340,11 @@ launch_sm87_nvfp4_w4a16_gate_up_coupled_feed_pack_cuda(
     std::size_t columns, std::uint8_t* coupled_sidecar,
     void* cuda_stream = nullptr) noexcept;
 
-// Decode-runner-only twin of the dead-up operation above consuming two
+// Production Decode-runner twin of the dead-up operation above consuming two
 // equal-byte coupled sidecars.  Its residual/RMSNorm, per-row FMA order,
 // independent BF16 Gate/Up boundaries and final SiLU publication are
-// identical to the canonical production route.  This entry point is kept
-// separate so the canonical path remains the unconditional fallback.
+// identical to the canonical route. Testing builds can omit the sidecars to
+// retain the same-ELF baseline.
 [[nodiscard]] int
 launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_coupled_feed_bf16_cuda(
     const std::uint8_t* gate_coupled_sidecar, float gate_weight_scale_2,
@@ -328,7 +357,7 @@ launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_coupled_feed_bf16_cud
     std::uint16_t* gate_output, std::uint16_t* up_workspace,
     void* cuda_stream = nullptr) noexcept;
 
-// Static resource envelope for the coupled-feed candidate.
+// Static resource envelope for the production coupled-feed Function.
 [[nodiscard]] int
 query_sm87_nvfp4_w4a16_m1_gate_up_coupled_feed_resources_cuda(
     int* registers_per_thread, std::size_t* static_shared_bytes,

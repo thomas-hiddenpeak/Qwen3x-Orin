@@ -25,12 +25,16 @@ constexpr std::size_t kSm87DirectBf16Columns = 5120U;
 
 [[nodiscard]] bool
 decode_down_k512_consumer_order_environment_enabled() noexcept {
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
   static const bool enabled = []() noexcept {
     const char* const value = std::getenv(
         "Q3X_RUN_DECODE_DOWN_K512_CONSUMER_ORDER_ADMISSION");
     return value != nullptr && std::strcmp(value, "1") == 0;
   }();
   return enabled;
+#else
+  return true;
+#endif
 }
 
 [[nodiscard]] bool valid_scale(const float value) noexcept {
@@ -1625,7 +1629,7 @@ int launch_mlp_down_residual_norm_to_bf16_cuda(
       if (decode_down_k512_consumer_order_environment_enabled() &&
           down.down_consumer_order_weight != nullptr) {
         return kernels::
-            launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_consumer_order_test_cuda(
+            launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_consumer_order_bf16_cuda(
                 down.down_consumer_order_weight,
                 down.down_scale6_sidecar, down.down_scale6_base,
                 down.weight_scale_2, activation, residual_left, norm_weight,

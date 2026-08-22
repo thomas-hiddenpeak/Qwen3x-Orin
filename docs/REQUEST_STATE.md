@@ -32,6 +32,10 @@ layer-major profile and changes the public C++ `RequestState`/plan object
 layout; consumers must rebuild against the exact package version, as already
 required by the 0.x package policy.
 
+Package ABI 0.6.0 also extends the public Engine load receipt for the sealed
+Decode layouts. It does not change the request-state geometry described here;
+0.x consumers must still rebuild against the exact installed package.
+
 ## Model-state contract
 
 The planner represents the pinned 64-layer hybrid schedule. Layers 3, 7, ...,

@@ -13,7 +13,9 @@
 namespace q3x::runtime::gdn_prefill_whole_span_conv_detail {
 namespace {
 
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
 thread_local BoundaryInspectionHook g_boundary_inspection_hook{};
+#endif
 
 constexpr unsigned int kThreads = 256U;
 constexpr unsigned int kBlocks =
@@ -382,6 +384,7 @@ void causal_conv1d_silu_update_token_parallel_compact_qk_kernel(
 
 }  // namespace
 
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
 BoundaryInspectionHook exchange_boundary_inspection_hook(
     const BoundaryInspectionHook hook) noexcept {
   const BoundaryInspectionHook previous = g_boundary_inspection_hook;
@@ -400,6 +403,7 @@ void inspect_boundaries(const std::uint16_t* const conv_qkv,
                   hook.context);
   }
 }
+#endif
 
 namespace {
 
@@ -456,10 +460,14 @@ namespace {
       raw_qkv, static_cast<unsigned int>(token_count), conv_weight,
       history_in_out, conv_qkv_output, l2_epsilon, compact_q, compact_k);
   const cudaError_t status = cudaGetLastError();
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
   if (status == cudaSuccess && inspect) {
     inspect_boundaries(conv_qkv_output, token_count, history_in_out,
                        cuda_stream);
   }
+#else
+  (void)inspect;
+#endif
   return static_cast<int>(status);
 }
 
@@ -567,10 +575,12 @@ int launch_causal_conv1d_silu_update_token_parallel_exact_cuda(
       raw_qkv, static_cast<unsigned int>(token_count), conv_weight,
       history_in_out, conv_qkv_output);
   const cudaError_t status = cudaGetLastError();
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
   if (status == cudaSuccess) {
     inspect_boundaries(conv_qkv_output, token_count, history_in_out,
                        cuda_stream);
   }
+#endif
   return static_cast<int>(status);
 }
 

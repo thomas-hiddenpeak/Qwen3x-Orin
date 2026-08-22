@@ -6,7 +6,7 @@ q3x_document:
   owner: project-owner
   authority: end-to-end external-to-internal runner system design
   effective: 2026-08-09
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-08-22
   supersedes: []
   superseded_by: []
   ssot_for: runner product shape, system boundaries, lifecycle, and release architecture
@@ -180,6 +180,35 @@ opens the listener. A missing shape, hash mismatch, resource shortfall,
 unsupported host, unknown tactic, or route-coverage gap fails closed. The
 runtime may select among predeclared plan entries using request facts; it may
 not invent a new route.
+
+### 3.1 First installable production profile
+
+The first ordinary installed profile is
+`q3x.sm87.production.p40.legacy-c512-exact.v2`. It is built by the
+`orin-release` preset as Release, SM87, and `BUILD_TESTING=OFF`, and installs
+`qwen3x-eval-server`, `qwen3x-orin`, `qwen3x-inspect`, and the versioned 0.6.0
+package. The server profile admits `prompt + output - 1 <= 44,095`, exposes a
+40,000-token product prompt and a 4,096-token output ceiling, fixes the exact
+Legacy-C512 request arena at 3,070,908,416 bytes, and retains an 8-GiB
+post-create free-memory reserve.
+
+This profile is a sealed route rather than a public tactic selector. Before
+opening its listener it requires the complete 208-projection FP8 Prefill
+supermatrix, the 64-layer FP8 Decode output layout, the 64-layer NVFP4
+Gate/Up coupled-feed layout, the pinned 53-layer scale6 and Down
+consumer-order layouts, and the 25-slot short-position Decode Graph cache.
+Their planned retained acceleration payload is 18,228,101,120 bytes. Missing,
+partial, memory-rejected, or silently demoted inventory fails startup; the
+ordinary Release binary does not consult environment variables to compose
+the route.
+
+`GET /healthz` remains public. When a key file is configured, models and
+generation require Bearer authentication; a non-loopback listener is rejected
+without an owner-only key file. TLS termination is supplied by a trusted
+local reverse proxy. This profile is the installed production-shaped artifact
+used for real-model selection, but remains `release_qualified=false` until its
+installed binary passes the target-length, Decode, accuracy, stability, and
+capability gates in Sections 2.2 and 11.
 
 ## 4. System decomposition from the API inward
 

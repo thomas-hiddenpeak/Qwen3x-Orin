@@ -33,14 +33,22 @@ void PrintUsage(std::ostream& output) {
       << "  qwen3x-eval-server MODEL_DIR [options]\n\n"
 #endif
       << "Options:\n"
-      << "  --host IPv4                 Loopback only (must be 127.0.0.1)\n"
+      << "  --host IPv4                 Numeric bind address; non-loopback needs key\n"
       << "  --port N                    TCP port (default 8000)\n"
-      << "  --model ID                  Served OpenAI model id\n";
+      << "  --model ID                  Served OpenAI model id\n"
+      << "  --api-key-file PATH         Owner-only 0400/0600 Bearer credential\n";
 #if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   output
       << "  --development-route p40-whole-core-v10\n"
       << "                              Accuracy-unqualified exact-P40000 baseline\n";
+#else
+  output
+      << "  Deployment profile: "
+      << q3x::server::kP40ExactLegacyC512ProductionPlan.id << "\n"
+      << "                              P40000 prompt, 4096 output ceiling,\n"
+      << "                              44095 resident Legacy-C512/SM87 capacity\n";
 #endif
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   output
       << "  --max-sequence-length N     Resident request capacity (default 8192)\n"
       << "  --max-output-tokens N       Per-request output ceiling (default 4096)\n"
@@ -72,16 +80,19 @@ void PrintUsage(std::ostream& output) {
       << "                              native-prompt-wide-p40-packed-projection|\n"
       << "                              native-prompt-wide-p40-packed-nvfp4-v2|\n"
       << "                              native-prompt-wide-p40-vllm-marlin-parity\n"
+      << "  --projection-backend sm87|reference (default sm87)\n"
+      << "  --request-max-arena-bytes N Request arena hard limit\n"
+      << "  --min-free-bytes N          Required free CUDA bytes after arena\n";
+#endif
+  output
       << "  --nvtx-phase-ranges        Emit generation/Prefill/Decode ranges\n"
       << "  --queue-capacity N          Bounded inference queue, max 62 (default 8)\n"
       << "  --ingress-threads N         Fixed HTTP threads, queue+2 min (default 10)\n"
-      << "  --projection-backend sm87|reference (default sm87)\n"
-      << "  --request-max-arena-bytes N Request arena hard limit\n"
-      << "  --min-free-bytes N          Required free CUDA bytes after arena\n"
       << "  --help                      Show this help\n\n"
       << "The gateway is intentionally batch-one and greedy. Unsupported sampling,\n"
-      << "tools, media, and custom stop semantics fail closed. It is an\n"
-      << "unauthenticated evaluation surface, not a production serving API.\n";
+      << "tools, media, and custom stop semantics fail closed. /healthz remains\n"
+      << "public; a configured key protects /v1/models and generation. Use TLS\n"
+      << "termination before exposing the HTTP listener outside a trusted host.\n";
 }
 
 template <typename T>
@@ -120,6 +131,7 @@ template <typename T>
   bool p40_whole_core_v10_requested = false;
   bool development_profile_override_seen = false;
 #endif
+  bool api_key_file_seen = false;
   for (int index = 2; index < argc; ++index) {
     const std::string_view argument(argv[index]);
     if (argument == "--nvtx-phase-ranges") {
@@ -149,6 +161,15 @@ template <typename T>
       options.bind_address = value;
     } else if (argument == "--model") {
       options.served_model = value;
+    } else if (argument == "--api-key-file") {
+      if (api_key_file_seen || value.empty()) {
+        error = value.empty()
+                    ? "--api-key-file PATH must not be empty"
+                    : "--api-key-file may be specified only once";
+        return false;
+      }
+      api_key_file_seen = true;
+      options.api_key_file = value;
     } else if (argument == "--port") {
       std::uint32_t port = 0U;
       if (!ParseUnsigned(value, port) || port == 0U || port > 65'535U) {
@@ -156,28 +177,23 @@ template <typename T>
         return false;
       }
       options.port = static_cast<std::uint16_t>(port);
-    } else if (argument == "--max-sequence-length") {
 #if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+    } else if (argument == "--max-sequence-length") {
       development_profile_override_seen = true;
-#endif
       if (!ParseUnsigned(value, options.max_sequence_length) ||
           options.max_sequence_length == 0U) {
         error = "--max-sequence-length must be positive";
         return false;
       }
     } else if (argument == "--max-output-tokens") {
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
       development_profile_override_seen = true;
-#endif
       if (!ParseUnsigned(value, options.maximum_output_tokens) ||
           options.maximum_output_tokens == 0U) {
         error = "--max-output-tokens must be positive";
         return false;
       }
     } else if (argument == "--prefill-chunk-size") {
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
       development_profile_override_seen = true;
-#endif
       if (!ParseUnsigned(value, options.prefill_chunk_size) ||
           options.prefill_chunk_size == 0U ||
           options.prefill_chunk_size >
@@ -186,9 +202,7 @@ template <typename T>
         return false;
       }
     } else if (argument == "--prefill-execution-mode") {
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
       development_profile_override_seen = true;
-#endif
       if (value == "legacy") {
         options.prefill_execution_mode =
             q3x::runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled;
@@ -200,9 +214,7 @@ template <typename T>
         return false;
       }
     } else if (argument == "--prefill-attention-tactic") {
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
       development_profile_override_seen = true;
-#endif
       if (value == "exact-segmented") {
         options.prefill_full_attention_tactic = q3x::runtime::
             LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512;
@@ -233,9 +245,7 @@ template <typename T>
         return false;
       }
     } else if (argument == "--prefill-projection-tactic") {
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
       development_profile_override_seen = true;
-#endif
       if (value == "exact-segmented") {
         options.prefill_projection_tactic = q3x::runtime::
             LayerMajorPrefillProjectionTactic::kExactSegmentedC512;
@@ -304,6 +314,7 @@ template <typename T>
                 "native-prompt-wide-p40-vllm-marlin-parity";
         return false;
       }
+#endif
     } else if (argument == "--queue-capacity") {
 #if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
       development_profile_override_seen = true;
@@ -324,10 +335,9 @@ template <typename T>
       }
       options.accepted_connection_capacity =
           std::max<std::size_t>(16U, options.ingress_threads * 4U);
-    } else if (argument == "--projection-backend") {
 #if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+    } else if (argument == "--projection-backend") {
       development_profile_override_seen = true;
-#endif
       if (value == "sm87") {
         options.projection_backend =
             q3x::runtime::ProjectionBackend::kSm87WeightOnly;
@@ -339,23 +349,20 @@ template <typename T>
         return false;
       }
     } else if (argument == "--request-max-arena-bytes") {
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
       development_profile_override_seen = true;
-#endif
       if (!ParseUnsigned(value, options.request_max_arena_bytes) ||
           options.request_max_arena_bytes == 0U) {
         error = "--request-max-arena-bytes must be positive";
         return false;
       }
     } else if (argument == "--min-free-bytes") {
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
       development_profile_override_seen = true;
-#endif
       if (!ParseUnsigned(value,
                          options.request_min_free_bytes_after_create)) {
         error = "--min-free-bytes must be an unsigned integer";
         return false;
       }
+#endif
     } else {
       error = "unknown option: " + std::string(argument);
       return false;
@@ -370,6 +377,8 @@ template <typename T>
     }
     options.development_route =
         q3x::server::EvaluationDevelopmentRoute::kP40WholeCoreV10;
+    options.production_profile =
+        q3x::server::EvaluationProductionProfile::kNone;
     options.max_sequence_length = 40'001U;
     options.maximum_output_tokens = 1U;
     options.prefill_chunk_size =

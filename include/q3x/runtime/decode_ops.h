@@ -468,10 +468,9 @@ select_fixed_bulk_causal_gqa_prefill_tactic(
     std::size_t first_position, std::size_t token_count,
     std::uint16_t* output_tile, void* cuda_stream = nullptr) noexcept;
 
-// Sealed counterpart to the admission-aware wrapper above. This entry never
-// reads Q3X_FULL_ATTENTION_FLASHINFER_DIRECT or
-// Q3X_FULL_ATTENTION_C512_FORCE_V2_BASELINE. It uses only the tactic returned
-// by select_fixed_bulk_causal_gqa_prefill_tactic().
+// Sealed counterpart to the test-comparison wrapper above. This entry never
+// reads a process environment selector and uses only the tactic returned by
+// select_fixed_bulk_causal_gqa_prefill_tactic().
 [[nodiscard]] int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_fixed_cuda(
     const std::uint16_t* query_tile, const std::uint16_t* key_cache,
     const std::uint16_t* value_cache, const std::uint16_t* gate_tile,

@@ -101,7 +101,7 @@ void PrintGenerateUsage(std::ostream& output) {
       << kCliDefaultPrefillChunkSize
       << "; trace mode has effective size 1)\n"
       << "  --projection-backend reference|sm87\n"
-      << "                  Projection policy (default reference)\n";
+      << "                  Projection policy (default sm87)\n";
 }
 
 void PrintBenchmarkUsage(std::ostream& output) {
@@ -135,7 +135,7 @@ void PrintBenchmarkUsage(std::ostream& output) {
       << "  --nvtx-phase-ranges       Emit Prefill/Decode NVTX ranges for "
          "profiling\n"
       << "  --projection-backend reference|sm87\n"
-      << "                              Projection policy (default reference)\n";
+      << "                              Projection policy (default sm87)\n";
 }
 
 void PrintEscaped(std::ostream& output, const std::string_view value) {
@@ -278,7 +278,7 @@ struct GenerateCliOptions {
   bool trace = false;
   bool nvtx_phase_ranges = false;
   q3x::runtime::ProjectionBackend projection_backend =
-      q3x::runtime::ProjectionBackend::kReference;
+      q3x::runtime::ProjectionBackend::kSm87WeightOnly;
 };
 
 struct GenerateParseResult {
@@ -455,7 +455,7 @@ struct BenchmarkCliOptions {
   std::uint32_t prefill_chunk_size = kCliDefaultPrefillChunkSize;
   bool nvtx_phase_ranges = false;
   q3x::runtime::ProjectionBackend projection_backend =
-      q3x::runtime::ProjectionBackend::kReference;
+      q3x::runtime::ProjectionBackend::kSm87WeightOnly;
 };
 
 struct BenchmarkParseResult {
