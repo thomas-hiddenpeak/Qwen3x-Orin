@@ -114,6 +114,33 @@ production_load_receipt() {
   return load;
 }
 
+[[nodiscard]] q3x::runtime::ReferenceEngineLoadStats
+testing_decode_sidecar_load_receipt(const bool gate_up,
+                                    const bool down) {
+  const server::EvaluationProductionDeploymentPlan& plan =
+      server::kP40ExactLegacyC512ProductionPlan;
+  q3x::runtime::ReferenceEngineLoadStats load = production_load_receipt();
+  load.nvfp4_gate_up_coupled_feed_requested = gate_up;
+  load.nvfp4_gate_up_coupled_feed_enabled = gate_up;
+  load.nvfp4_gate_up_coupled_feed_production_requested = false;
+  load.nvfp4_gate_up_coupled_feed_production_enabled = false;
+  load.nvfp4_gate_up_coupled_feed_layers =
+      gate_up ? plan.decode_gate_up_layers : 0U;
+  load.nvfp4_gate_up_coupled_feed_bytes =
+      gate_up ? plan.decode_gate_up_sidecar_bytes : 0U;
+  load.nvfp4_gate_up_coupled_feed_production_bytes = 0U;
+  load.nvfp4_down_consumer_order_sidecars_requested = down;
+  load.nvfp4_down_consumer_order_sidecars_enabled = down;
+  load.nvfp4_down_consumer_order_production_requested = false;
+  load.nvfp4_down_consumer_order_production_enabled = false;
+  load.nvfp4_down_consumer_order_sidecar_layers =
+      down ? plan.decode_down_consumer_order_layers : 0U;
+  load.nvfp4_down_consumer_order_sidecar_bytes =
+      down ? plan.decode_down_consumer_order_sidecar_bytes : 0U;
+  load.nvfp4_down_consumer_order_production_bytes = 0U;
+  return load;
+}
+
 void test_evalscope_chat_contract(TestContext& test) {
   const auto parsed = server::parse_openai_request(
       R"({"model":"qwen3.6-27b-nvfp4","messages":[{"role":"system","content":"brief"},{"role":"user","content":"你好"}],"max_tokens":2048,"temperature":0.0,"top_p":1,"n":1,"seed":42,"stream":true,"stream_options":{"include_usage":true},"stop":null})",
@@ -1785,13 +1812,69 @@ void test_p40_whole_core_v10_fixed_contract(TestContext& test) {
 void test_production_runtime_receipt_contract(TestContext& test) {
   server::EvaluationServerOptions options;
   std::string error;
+  for (int inventory = 0; inventory < 4; ++inventory) {
+    const bool gate_up = (inventory & 1) != 0;
+    const bool down = (inventory & 2) != 0;
+    const q3x::runtime::ReferenceEngineLoadStats load =
+        testing_decode_sidecar_load_receipt(gate_up, down);
+    error.clear();
+    test.expect(
+        server::evaluation_production_load_receipt_matches(options, load,
+                                                            error),
+        "the testing gateway accepts one exact none/gate/down/both Decode "
+        "inventory");
+    server::EvaluationProductionRuntimeHealth inventory_health(true);
+    test.expect(inventory_health.observe(options, load) &&
+                    inventory_health.ready(),
+                "the testing runtime health latch accepts each exact Decode "
+                "A/B inventory");
+  }
+
   q3x::runtime::ReferenceEngineLoadStats load = production_load_receipt();
+  error.clear();
   test.expect(
-      server::evaluation_production_load_receipt_matches(options, load, error),
-      "the exact sealed v2 load receipt remains production-ready");
+      !server::evaluation_production_load_receipt_matches(options, load,
+                                                          error) &&
+          error.find("zero production labels") != std::string::npos,
+      "the testing gateway rejects a sidecar receipt falsely labelled as "
+      "production");
+
+  load = testing_decode_sidecar_load_receipt(true, false);
+  load.nvfp4_gate_up_coupled_feed_enabled = false;
+  error.clear();
+  test.expect(
+      !server::evaluation_production_load_receipt_matches(options, load,
+                                                          error),
+      "the testing gateway rejects a requested but disabled Gate/Up sidecar");
+
+  load = testing_decode_sidecar_load_receipt(false, false);
+  load.nvfp4_gate_up_coupled_feed_bytes = 1U;
+  error.clear();
+  test.expect(
+      !server::evaluation_production_load_receipt_matches(options, load,
+                                                          error),
+      "the testing gateway rejects stale Gate/Up bytes in the none route");
+
+  load = testing_decode_sidecar_load_receipt(false, true);
+  --load.nvfp4_down_consumer_order_sidecar_layers;
+  error.clear();
+  test.expect(
+      !server::evaluation_production_load_receipt_matches(options, load,
+                                                          error),
+      "the testing gateway rejects an incomplete Down layer inventory");
+
+  load = testing_decode_sidecar_load_receipt(false, false);
+  load.nvfp4_down_consumer_order_production_requested = true;
+  error.clear();
+  test.expect(
+      !server::evaluation_production_load_receipt_matches(options, load,
+                                                          error),
+      "the testing gateway rejects any Down production label");
+
+  load = testing_decode_sidecar_load_receipt(true, true);
   server::EvaluationProductionRuntimeHealth runtime_health(true);
   test.expect(runtime_health.observe(options, load) && runtime_health.ready(),
-              "the runtime health latch accepts the exact startup receipt");
+              "the runtime health latch accepts the complete testing pair");
 
   load.decode_graph_cache_effective_policy =
       q3x::runtime::ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -1804,11 +1887,11 @@ void test_production_runtime_receipt_contract(TestContext& test) {
   test.expect(
       !server::evaluation_production_load_receipt_matches(options, load,
                                                           error) &&
-          error.find("short-position Graph inventory") != std::string::npos,
-      "a runtime Graph demotion invalidates the ordinary production receipt");
+          error.find("testing Decode A/B route") != std::string::npos,
+      "a runtime Graph demotion invalidates the testing Decode receipt");
   test.expect(!runtime_health.observe(options, load) && !runtime_health.ready(),
               "a runtime Graph demotion irreversibly closes readiness");
-  load = production_load_receipt();
+  load = testing_decode_sidecar_load_receipt(true, true);
   test.expect(!runtime_health.observe(options, load) && !runtime_health.ready(),
               "a later exact receipt cannot reopen runtime readiness");
 

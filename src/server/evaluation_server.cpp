@@ -302,6 +302,71 @@ class UniqueFd final {
   }
   const EvaluationProductionDeploymentPlan& plan =
       kP40ExactLegacyC512ProductionPlan;
+  if constexpr (kEvaluationGatewayBuildTesting) {
+    const bool gate_up_testing_inventory =
+        (!load.nvfp4_gate_up_coupled_feed_requested &&
+         !load.nvfp4_gate_up_coupled_feed_enabled &&
+         load.nvfp4_gate_up_coupled_feed_layers == 0U &&
+         load.nvfp4_gate_up_coupled_feed_bytes == 0U) ||
+        (load.nvfp4_gate_up_coupled_feed_requested &&
+         load.nvfp4_gate_up_coupled_feed_enabled &&
+         load.nvfp4_gate_up_coupled_feed_layers ==
+             plan.decode_gate_up_layers &&
+         load.nvfp4_gate_up_coupled_feed_bytes ==
+             plan.decode_gate_up_sidecar_bytes);
+    const bool down_testing_inventory =
+        (!load.nvfp4_down_consumer_order_sidecars_requested &&
+         !load.nvfp4_down_consumer_order_sidecars_enabled &&
+         load.nvfp4_down_consumer_order_sidecar_layers == 0U &&
+         load.nvfp4_down_consumer_order_sidecar_bytes == 0U) ||
+        (load.nvfp4_down_consumer_order_sidecars_requested &&
+         load.nvfp4_down_consumer_order_sidecars_enabled &&
+         load.nvfp4_down_consumer_order_sidecar_layers ==
+             plan.decode_down_consumer_order_layers &&
+         load.nvfp4_down_consumer_order_sidecar_bytes ==
+             plan.decode_down_consumer_order_sidecar_bytes);
+    if (!load.fp8_prefill_supermatrix_sidecars_enabled ||
+        load.fp8_prefill_supermatrix_sidecar_projections !=
+            plan.prefill_supermatrix_projections ||
+        load.fp8_prefill_supermatrix_sidecar_bytes !=
+            plan.prefill_supermatrix_sidecar_bytes ||
+        !load.fp8_output_sidecars_enabled ||
+        load.fp8_output_sidecar_layers != plan.decode_fp8_output_layers ||
+        load.fp8_output_sidecar_bytes !=
+            plan.decode_fp8_output_sidecar_bytes ||
+        !load.fp8_output_sidecar_fallback_reason.empty() ||
+        !gate_up_testing_inventory ||
+        load.nvfp4_gate_up_coupled_feed_production_requested ||
+        load.nvfp4_gate_up_coupled_feed_production_enabled ||
+        load.nvfp4_gate_up_coupled_feed_production_bytes != 0U ||
+        !load.nvfp4_down_scale6_sidecars_enabled ||
+        load.nvfp4_down_scale6_sidecar_eligible_layers !=
+            plan.decode_down_scale6_layers ||
+        load.nvfp4_down_scale6_sidecar_fallback_layers !=
+            runtime::kQwen36DenseLayerCount - plan.decode_down_scale6_layers ||
+        load.nvfp4_down_scale6_sidecar_bytes !=
+            plan.decode_down_scale6_sidecar_bytes ||
+        !load.nvfp4_down_scale6_sidecar_fallback_reason.empty() ||
+        !down_testing_inventory ||
+        load.nvfp4_down_consumer_order_production_requested ||
+        load.nvfp4_down_consumer_order_production_enabled ||
+        load.nvfp4_down_consumer_order_production_bytes != 0U ||
+        load.decode_graph_cache_requested_policy !=
+            plan.decode_graph_cache_policy ||
+        load.decode_graph_cache_effective_policy !=
+            plan.decode_graph_cache_policy ||
+        load.decode_graph_cache_first_position !=
+            plan.decode_graph_first_position ||
+        load.decode_graph_cache_last_position !=
+            plan.decode_graph_last_position ||
+        load.decode_graph_cache_slot_count != plan.decode_graph_slots ||
+        !load.decode_graph_cache_fallback_reason.empty()) {
+      error = "the testing Decode A/B route did not publish one complete "
+              "none/gate/down/both inventory with zero production labels";
+      return false;
+    }
+    return true;
+  }
   if (!load.fp8_prefill_supermatrix_sidecars_enabled ||
       load.fp8_prefill_supermatrix_sidecar_projections !=
           plan.prefill_supermatrix_projections ||
