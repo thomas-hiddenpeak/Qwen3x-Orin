@@ -1,22 +1,28 @@
 #include "q3x/core/sha256.h"
 #include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
 #include "q3x/kernels/sm87_nvfp4_marlin.h"
+#include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/reference_engine.h"
 
 #include "reference_engine_prefill_authority.h"
+#include "reference_runner_full_attention_oracle_internal.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
 
 #include <cuda_runtime_api.h>
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <new>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -34,7 +40,647 @@ constexpr std::size_t kPromptTemplateTokens = 12U;
 constexpr std::size_t kHashCopyChunkBytes = 4U * 1024U * 1024U;
 constexpr std::size_t kKvHeadCount = 4U;
 constexpr std::size_t kKvHeadDimension = 256U;
+constexpr std::size_t kQueryHeadCount = 24U;
+constexpr std::size_t kQueryElementsPerToken =
+    kQueryHeadCount * kKvHeadDimension;
+constexpr std::size_t kKvElementsPerToken =
+    kKvHeadCount * kKvHeadDimension;
+constexpr std::size_t kLayer3AttentionOracleTokens = 513U;
+constexpr std::size_t kLayer3AttentionOracleQueryElements =
+    kLayer3AttentionOracleTokens * kQueryElementsPerToken;
+constexpr std::size_t kLayer3AttentionOracleKvElements =
+    kLayer3AttentionOracleTokens * kKvElementsPerToken;
 constexpr std::size_t kBf16Bytes = sizeof(std::uint16_t);
+
+class DeviceBf16Buffer final {
+ public:
+  DeviceBf16Buffer() = default;
+  ~DeviceBf16Buffer() {
+    if (data_ != nullptr) {
+      (void)cudaFree(data_);
+    }
+  }
+  DeviceBf16Buffer(const DeviceBf16Buffer&) = delete;
+  DeviceBf16Buffer& operator=(const DeviceBf16Buffer&) = delete;
+
+  [[nodiscard]] cudaError_t allocate(const std::size_t elements) noexcept {
+    if (data_ != nullptr || elements == 0U) {
+      return cudaErrorInvalidValue;
+    }
+    const cudaError_t status =
+        cudaMalloc(reinterpret_cast<void**>(&data_),
+                   elements * sizeof(std::uint16_t));
+    if (status != cudaSuccess) {
+      return status;
+    }
+    elements_ = elements;
+    return cudaSuccess;
+  }
+
+  [[nodiscard]] std::uint16_t* data() noexcept { return data_; }
+  [[nodiscard]] const std::uint16_t* data() const noexcept { return data_; }
+  [[nodiscard]] std::size_t elements() const noexcept { return elements_; }
+
+ private:
+  std::uint16_t* data_ = nullptr;
+  std::size_t elements_ = 0U;
+};
+
+struct Layer3AttentionP513OracleCollector {
+  DeviceBf16Buffer canonical_output_device;
+  DeviceBf16Buffer group_q64_output_device;
+  DeviceBf16Buffer flashinfer_output_device;
+  DeviceBf16Buffer query_snapshot_device;
+  DeviceBf16Buffer gate_snapshot_device;
+  DeviceBf16Buffer key_snapshot_device;
+  DeviceBf16Buffer value_snapshot_device;
+
+  std::vector<std::uint16_t> canonical_output;
+  std::vector<std::uint16_t> group_q64_output;
+  std::vector<std::uint16_t> flashinfer_output;
+  std::vector<std::uint16_t> query_before;
+  std::vector<std::uint16_t> query_after;
+  std::vector<std::uint16_t> gate_before;
+  std::vector<std::uint16_t> gate_after;
+  std::vector<std::uint16_t> key_before;
+  std::vector<std::uint16_t> key_after;
+  std::vector<std::uint16_t> value_before;
+  std::vector<std::uint16_t> value_after;
+
+  std::size_t hook_calls = 0U;
+  bool prepared = false;
+  bool completed = false;
+  const char* failed_operation = "none";
+  int cuda_error = static_cast<int>(cudaSuccess);
+
+  [[nodiscard]] bool prepare() noexcept {
+    try {
+      canonical_output.resize(kLayer3AttentionOracleQueryElements);
+      group_q64_output.resize(kLayer3AttentionOracleQueryElements);
+      flashinfer_output.resize(kLayer3AttentionOracleQueryElements);
+      query_before.resize(kLayer3AttentionOracleQueryElements);
+      query_after.resize(kLayer3AttentionOracleQueryElements);
+      gate_before.resize(kLayer3AttentionOracleQueryElements);
+      gate_after.resize(kLayer3AttentionOracleQueryElements);
+      key_before.resize(kLayer3AttentionOracleKvElements);
+      key_after.resize(kLayer3AttentionOracleKvElements);
+      value_before.resize(kLayer3AttentionOracleKvElements);
+      value_after.resize(kLayer3AttentionOracleKvElements);
+    } catch (const std::bad_alloc&) {
+      failed_operation = "host_allocation";
+      return false;
+    } catch (const std::length_error&) {
+      failed_operation = "host_vector_length";
+      return false;
+    }
+
+    const auto allocate_device = [this](DeviceBf16Buffer& buffer,
+                                        const std::size_t elements) noexcept {
+      const cudaError_t status = buffer.allocate(elements);
+      if (status == cudaSuccess) {
+        return true;
+      }
+      failed_operation = "device_allocation";
+      cuda_error = static_cast<int>(status);
+      return false;
+    };
+    prepared = allocate_device(canonical_output_device,
+                               kLayer3AttentionOracleQueryElements) &&
+               allocate_device(group_q64_output_device,
+                               kLayer3AttentionOracleQueryElements) &&
+               allocate_device(flashinfer_output_device,
+                               kLayer3AttentionOracleQueryElements) &&
+               allocate_device(query_snapshot_device,
+                               kLayer3AttentionOracleQueryElements) &&
+               allocate_device(gate_snapshot_device,
+                               kLayer3AttentionOracleQueryElements) &&
+               allocate_device(key_snapshot_device,
+                               kLayer3AttentionOracleKvElements) &&
+               allocate_device(value_snapshot_device,
+                               kLayer3AttentionOracleKvElements);
+    if (!prepared) {
+      failed_operation = "device_allocation";
+    }
+    return prepared;
+  }
+};
+
+[[nodiscard]] bool record_oracle_cuda(
+    Layer3AttentionP513OracleCollector& collector,
+    const cudaError_t status, const char* const operation) noexcept {
+  if (status == cudaSuccess) {
+    return true;
+  }
+  collector.failed_operation = operation;
+  collector.cuda_error = static_cast<int>(status);
+  return false;
+}
+
+void collect_layer3_attention_p513_oracle(
+    const runner_detail::PrefillLayer3AttentionP513OracleView& view,
+    void* const context) noexcept {
+  auto* const collector =
+      static_cast<Layer3AttentionP513OracleCollector*>(context);
+  if (collector == nullptr) {
+    return;
+  }
+  ++collector->hook_calls;
+  if (!collector->prepared || collector->hook_calls != 1U ||
+      view.layer != 3U || view.first_position != 0U ||
+      view.token_count != kLayer3AttentionOracleTokens ||
+      view.processed_query == nullptr || view.key_cache == nullptr ||
+      view.value_cache == nullptr || view.packed_gate == nullptr) {
+    collector->failed_operation = "hook_contract";
+    collector->cuda_error = static_cast<int>(cudaErrorInvalidValue);
+    return;
+  }
+
+  const auto stream = static_cast<cudaStream_t>(view.cuda_stream);
+  constexpr std::size_t kQueryBytes =
+      kLayer3AttentionOracleQueryElements * sizeof(std::uint16_t);
+  constexpr std::size_t kKvBytes =
+      kLayer3AttentionOracleKvElements * sizeof(std::uint16_t);
+  if (!record_oracle_cuda(
+          *collector,
+          cudaMemcpyAsync(collector->query_snapshot_device.data(),
+                          view.processed_query, kQueryBytes,
+                          cudaMemcpyDeviceToDevice, stream),
+          "snapshot_query") ||
+      !record_oracle_cuda(
+          *collector,
+          cudaMemcpyAsync(collector->gate_snapshot_device.data(),
+                          view.packed_gate, kQueryBytes,
+                          cudaMemcpyDeviceToDevice, stream),
+          "snapshot_gate") ||
+      !record_oracle_cuda(
+          *collector,
+          cudaMemcpyAsync(collector->key_snapshot_device.data(), view.key_cache,
+                          kKvBytes, cudaMemcpyDeviceToDevice, stream),
+          "snapshot_key") ||
+      !record_oracle_cuda(
+          *collector,
+          cudaMemcpyAsync(collector->value_snapshot_device.data(),
+                          view.value_cache, kKvBytes,
+                          cudaMemcpyDeviceToDevice, stream),
+          "snapshot_value")) {
+    return;
+  }
+
+  const runtime::LayerMajorPrefillArithmeticSpanLedger ledger =
+      runtime::make_layer_major_prefill_arithmetic_span_ledger(
+          kLayer3AttentionOracleTokens);
+  if (!runtime::is_valid_layer_major_prefill_arithmetic_span_ledger(ledger) ||
+      ledger.span_count != 2U || ledger.spans[0U].token_offset != 0U ||
+      ledger.spans[0U].token_count != 257U ||
+      ledger.spans[1U].token_offset != 257U ||
+      ledger.spans[1U].token_count != 256U) {
+    collector->failed_operation = "canonical_span_ledger";
+    collector->cuda_error = static_cast<int>(cudaErrorInvalidValue);
+    return;
+  }
+  for (std::size_t span_index = 0U; span_index < ledger.span_count;
+       ++span_index) {
+    const runtime::LayerMajorPrefillArithmeticSpan& span =
+        ledger.spans[span_index];
+    const std::size_t query_offset =
+        static_cast<std::size_t>(span.token_offset) * kQueryElementsPerToken;
+    const int launch_status = runtime::
+        launch_bulk_causal_gqa_sigmoid_gate_24_4_256_fixed_cuda(
+            view.processed_query + query_offset, view.key_cache,
+            view.value_cache, view.packed_gate + query_offset,
+            view.first_position + span.token_offset, span.token_count,
+            collector->canonical_output_device.data() + query_offset,
+            view.cuda_stream);
+    if (!record_oracle_cuda(*collector,
+                            static_cast<cudaError_t>(launch_status),
+                            span_index == 0U ? "canonical_span_257"
+                                             : "canonical_span_256")) {
+      return;
+    }
+  }
+
+  const int group_status = runtime::
+      launch_bulk_causal_gqa_sigmoid_gate_24_4_256_group_q64_panel_fixed_cuda(
+          view.processed_query, view.key_cache, view.value_cache,
+          view.packed_gate, view.first_position, view.token_count,
+          collector->group_q64_output_device.data(), view.cuda_stream);
+  if (!record_oracle_cuda(*collector,
+                          static_cast<cudaError_t>(group_status),
+                          "group_q64_panel")) {
+    return;
+  }
+  const int flashinfer_status = runtime::
+      launch_bulk_causal_gqa_sigmoid_gate_24_4_256_flashinfer_exact_panel_fixed_cuda(
+          view.processed_query, view.key_cache, view.value_cache,
+          view.packed_gate, view.first_position, view.token_count,
+          collector->flashinfer_output_device.data(), view.cuda_stream);
+  if (!record_oracle_cuda(*collector,
+                          static_cast<cudaError_t>(flashinfer_status),
+                          "flashinfer_panel") ||
+      !record_oracle_cuda(*collector, cudaStreamSynchronize(stream),
+                          "oracle_synchronize")) {
+    return;
+  }
+
+  const auto copy_to_host = [&collector](
+                                std::vector<std::uint16_t>& destination,
+                                const std::uint16_t* const source,
+                                const std::size_t bytes,
+                                const char* const operation) noexcept {
+    return record_oracle_cuda(
+        *collector,
+        cudaMemcpy(destination.data(), source, bytes, cudaMemcpyDeviceToHost),
+        operation);
+  };
+  if (!copy_to_host(collector->canonical_output,
+                    collector->canonical_output_device.data(), kQueryBytes,
+                    "copy_canonical_output") ||
+      !copy_to_host(collector->group_q64_output,
+                    collector->group_q64_output_device.data(), kQueryBytes,
+                    "copy_group_q64_output") ||
+      !copy_to_host(collector->flashinfer_output,
+                    collector->flashinfer_output_device.data(), kQueryBytes,
+                    "copy_flashinfer_output") ||
+      !copy_to_host(collector->query_before,
+                    collector->query_snapshot_device.data(), kQueryBytes,
+                    "copy_query_before") ||
+      !copy_to_host(collector->query_after, view.processed_query, kQueryBytes,
+                    "copy_query_after") ||
+      !copy_to_host(collector->gate_before,
+                    collector->gate_snapshot_device.data(), kQueryBytes,
+                    "copy_gate_before") ||
+      !copy_to_host(collector->gate_after, view.packed_gate, kQueryBytes,
+                    "copy_gate_after") ||
+      !copy_to_host(collector->key_before,
+                    collector->key_snapshot_device.data(), kKvBytes,
+                    "copy_key_before") ||
+      !copy_to_host(collector->key_after, view.key_cache, kKvBytes,
+                    "copy_key_after") ||
+      !copy_to_host(collector->value_before,
+                    collector->value_snapshot_device.data(), kKvBytes,
+                    "copy_value_before") ||
+      !copy_to_host(collector->value_after, view.value_cache, kKvBytes,
+                    "copy_value_after")) {
+    return;
+  }
+  collector->completed = true;
+}
+
+class ScopedLayer3AttentionP513Oracle final {
+ public:
+  explicit ScopedLayer3AttentionP513Oracle(
+      Layer3AttentionP513OracleCollector& collector) noexcept
+      : previous_(runner_detail::
+                      exchange_prefill_layer3_attention_p513_oracle_hook(
+                          {collect_layer3_attention_p513_oracle,
+                           &collector})) {}
+
+  ~ScopedLayer3AttentionP513Oracle() {
+    (void)runner_detail::exchange_prefill_layer3_attention_p513_oracle_hook(
+        previous_);
+  }
+  ScopedLayer3AttentionP513Oracle(
+      const ScopedLayer3AttentionP513Oracle&) = delete;
+  ScopedLayer3AttentionP513Oracle& operator=(
+      const ScopedLayer3AttentionP513Oracle&) = delete;
+
+ private:
+  runner_detail::PrefillLayer3AttentionP513OracleHook previous_{};
+};
+
+[[nodiscard]] std::string bf16_hex(const std::uint16_t bits) {
+  constexpr char kHex[] = "0123456789abcdef";
+  std::string result = "0x0000";
+  result[2U] = kHex[(bits >> 12U) & 0xFU];
+  result[3U] = kHex[(bits >> 8U) & 0xFU];
+  result[4U] = kHex[(bits >> 4U) & 0xFU];
+  result[5U] = kHex[bits & 0xFU];
+  return result;
+}
+
+struct FirstBf16Mismatch {
+  bool found = false;
+  std::size_t index = 0U;
+};
+
+[[nodiscard]] FirstBf16Mismatch first_bf16_mismatch(
+    const std::vector<std::uint16_t>& left,
+    const std::vector<std::uint16_t>& right) noexcept {
+  const std::size_t count = std::min(left.size(), right.size());
+  for (std::size_t index = 0U; index < count; ++index) {
+    if (left[index] != right[index]) {
+      return {true, index};
+    }
+  }
+  return {};
+}
+
+[[nodiscard]] float bf16_to_float(const std::uint16_t bits) noexcept {
+  const std::uint32_t float_bits = static_cast<std::uint32_t>(bits) << 16U;
+  float value = 0.0F;
+  static_assert(sizeof(value) == sizeof(float_bits));
+  std::memcpy(&value, &float_bits, sizeof(value));
+  return value;
+}
+
+struct Bf16PairNumericMetrics {
+  std::size_t elements = 0U;
+  std::size_t mismatch_count = 0U;
+  long double max_abs = 0.0L;
+  long double mean_abs = 0.0L;
+  long double nrmse_reference_rms = 0.0L;
+  long double cosine = 0.0L;
+  bool finite = false;
+};
+
+[[nodiscard]] Bf16PairNumericMetrics compute_bf16_pair_numeric_metrics(
+    const std::vector<std::uint16_t>& reference,
+    const std::vector<std::uint16_t>& candidate,
+    const std::size_t token_begin, const std::size_t token_count) noexcept {
+  Bf16PairNumericMetrics metrics;
+  if (token_count == 0U ||
+      token_begin > kLayer3AttentionOracleTokens ||
+      token_count > kLayer3AttentionOracleTokens - token_begin) {
+    return metrics;
+  }
+  const std::size_t begin = token_begin * kQueryElementsPerToken;
+  const std::size_t count = token_count * kQueryElementsPerToken;
+  if (reference.size() < begin + count || candidate.size() < begin + count) {
+    return metrics;
+  }
+
+  long double absolute_sum = 0.0L;
+  long double squared_error_sum = 0.0L;
+  long double reference_squared_sum = 0.0L;
+  long double candidate_squared_sum = 0.0L;
+  long double dot_sum = 0.0L;
+  for (std::size_t index = begin; index < begin + count; ++index) {
+    const long double reference_value =
+        static_cast<long double>(bf16_to_float(reference[index]));
+    const long double candidate_value =
+        static_cast<long double>(bf16_to_float(candidate[index]));
+    if (!std::isfinite(reference_value) ||
+        !std::isfinite(candidate_value)) {
+      return metrics;
+    }
+    const long double difference = candidate_value - reference_value;
+    const long double absolute = std::fabs(difference);
+    metrics.max_abs = std::max(metrics.max_abs, absolute);
+    absolute_sum += absolute;
+    squared_error_sum += difference * difference;
+    reference_squared_sum += reference_value * reference_value;
+    candidate_squared_sum += candidate_value * candidate_value;
+    dot_sum += reference_value * candidate_value;
+    metrics.mismatch_count += reference[index] != candidate[index] ? 1U : 0U;
+  }
+
+  metrics.elements = count;
+  metrics.mean_abs = absolute_sum / static_cast<long double>(count);
+  const long double rmse =
+      std::sqrt(squared_error_sum / static_cast<long double>(count));
+  const long double reference_rms =
+      std::sqrt(reference_squared_sum / static_cast<long double>(count));
+  if (reference_rms == 0.0L) {
+    if (rmse != 0.0L) {
+      return metrics;
+    }
+    metrics.nrmse_reference_rms = 0.0L;
+  } else {
+    metrics.nrmse_reference_rms = rmse / reference_rms;
+  }
+  const long double cosine_denominator =
+      std::sqrt(reference_squared_sum * candidate_squared_sum);
+  if (cosine_denominator == 0.0L) {
+    if (reference_squared_sum != 0.0L || candidate_squared_sum != 0.0L) {
+      return metrics;
+    }
+    metrics.cosine = 1.0L;
+  } else {
+    metrics.cosine = dot_sum / cosine_denominator;
+  }
+  metrics.finite = std::isfinite(metrics.max_abs) &&
+                   std::isfinite(metrics.mean_abs) &&
+                   std::isfinite(metrics.nrmse_reference_rms) &&
+                   std::isfinite(metrics.cosine);
+  return metrics;
+}
+
+[[nodiscard]] bool hash_host_bf16_output(
+    const std::vector<std::uint16_t>& output,
+    core::Sha256Digest& digest) noexcept {
+  if (output.size() != kLayer3AttentionOracleQueryElements) {
+    return false;
+  }
+  core::Sha256 hash;
+  if (!hash.update(output.data(), output.size() * sizeof(output.front()))) {
+    return false;
+  }
+  digest = hash.finalize();
+  return true;
+}
+
+[[nodiscard]] bool print_bf16_pair_numeric_metrics(
+    const std::string_view pair,
+    const std::vector<std::uint16_t>& reference,
+    const std::vector<std::uint16_t>& candidate) {
+  struct Segment {
+    const char* name;
+    std::size_t token_begin;
+    std::size_t token_count;
+  };
+  constexpr std::array<Segment, 3U> kSegments{{
+      {"tokens_0_512", 0U, 513U},
+      {"tokens_0_256", 0U, 257U},
+      {"tokens_257_512", 257U, 256U},
+  }};
+  for (const Segment& segment : kSegments) {
+    const Bf16PairNumericMetrics metrics =
+        compute_bf16_pair_numeric_metrics(reference, candidate,
+                                          segment.token_begin,
+                                          segment.token_count);
+    if (!metrics.finite) {
+      return false;
+    }
+    const std::ios_base::fmtflags previous_flags = std::cout.flags();
+    const std::streamsize previous_precision = std::cout.precision();
+    std::cout << "P513_ATTENTION_NUMERIC pair=" << pair
+              << " segment=" << segment.name
+              << " token_begin=" << segment.token_begin
+              << " token_end_inclusive="
+              << (segment.token_begin + segment.token_count - 1U)
+              << " elements=" << metrics.elements
+              << " bf16_mismatch_count=" << metrics.mismatch_count
+              << std::scientific
+              << std::setprecision(std::numeric_limits<long double>::max_digits10)
+              << " max_abs=" << metrics.max_abs
+              << " mean_abs=" << metrics.mean_abs
+              << " nrmse_reference_rms=" << metrics.nrmse_reference_rms
+              << " cosine=" << metrics.cosine << '\n';
+    std::cout.flags(previous_flags);
+    std::cout.precision(previous_precision);
+  }
+  return true;
+}
+
+void print_layer3_attention_first_mismatch(
+    const std::string_view pair, const FirstBf16Mismatch mismatch,
+    const Layer3AttentionP513OracleCollector& collector) {
+  std::cout << "P513_ATTENTION_FIRST pair=" << pair;
+  if (!mismatch.found) {
+    std::cout << " mismatch=false\n";
+    return;
+  }
+  const std::size_t token = mismatch.index / kQueryElementsPerToken;
+  const std::size_t in_token = mismatch.index % kQueryElementsPerToken;
+  const std::size_t head = in_token / kKvHeadDimension;
+  const std::size_t dimension = in_token % kKvHeadDimension;
+  std::cout << " mismatch=true token=" << token << " head=" << head
+            << " dim=" << dimension
+            << " canonical="
+            << bf16_hex(collector.canonical_output[mismatch.index])
+            << " group_q64="
+            << bf16_hex(collector.group_q64_output[mismatch.index])
+            << " flashinfer="
+            << bf16_hex(collector.flashinfer_output[mismatch.index]) << '\n';
+}
+
+enum class Layer3AttentionOracleReportStatus : std::uint8_t {
+  kInfrastructureFailure = 0,
+  kBitwisePass,
+  kBitwiseMismatch,
+};
+
+[[nodiscard]] Layer3AttentionOracleReportStatus
+report_layer3_attention_p513_oracle(
+    const Layer3AttentionP513OracleCollector& collector) {
+  if (!collector.prepared || !collector.completed ||
+      collector.hook_calls != 1U) {
+    std::cerr << "P513_ATTENTION_ORACLE_ERROR prepared="
+              << (collector.prepared ? "true" : "false")
+              << " completed=" << (collector.completed ? "true" : "false")
+              << " hook_calls=" << collector.hook_calls
+              << " operation=" << collector.failed_operation
+              << " cuda_error=" << collector.cuda_error << '\n';
+    return Layer3AttentionOracleReportStatus::kInfrastructureFailure;
+  }
+
+  const bool query_immutable = collector.query_before == collector.query_after;
+  const bool gate_immutable = collector.gate_before == collector.gate_after;
+  const bool key_immutable = collector.key_before == collector.key_after;
+  const bool value_immutable = collector.value_before == collector.value_after;
+  const bool inputs_immutable = query_immutable && gate_immutable &&
+                                key_immutable && value_immutable;
+
+  if (!inputs_immutable) {
+    std::cout << "P513_ATTENTION_ORACLE_SUMMARY layer=3 tokens=513"
+                 " canonical_spans=257,256 capture_status=INVALID"
+              << " query_immutable=" << (query_immutable ? "true" : "false")
+              << " key_immutable=" << (key_immutable ? "true" : "false")
+              << " value_immutable=" << (value_immutable ? "true" : "false")
+              << " gate_immutable=" << (gate_immutable ? "true" : "false")
+              << " flashinfer_bitwise_gate=NOT_RUN"
+                 " accuracy_qualification=NOT_RUN\n";
+    return Layer3AttentionOracleReportStatus::kInfrastructureFailure;
+  }
+
+  const FirstBf16Mismatch exact_group = first_bf16_mismatch(
+      collector.canonical_output, collector.group_q64_output);
+  const FirstBf16Mismatch exact_flashinfer = first_bf16_mismatch(
+      collector.canonical_output, collector.flashinfer_output);
+  const FirstBf16Mismatch group_flashinfer = first_bf16_mismatch(
+      collector.group_q64_output, collector.flashinfer_output);
+  print_layer3_attention_first_mismatch("canonical_vs_group_q64", exact_group,
+                                        collector);
+  print_layer3_attention_first_mismatch("canonical_vs_flashinfer",
+                                        exact_flashinfer, collector);
+  print_layer3_attention_first_mismatch("group_q64_vs_flashinfer",
+                                        group_flashinfer, collector);
+
+  core::Sha256Digest canonical_output_sha;
+  core::Sha256Digest group_q64_output_sha;
+  core::Sha256Digest flashinfer_output_sha;
+  if (!hash_host_bf16_output(collector.canonical_output,
+                             canonical_output_sha) ||
+      !hash_host_bf16_output(collector.group_q64_output,
+                             group_q64_output_sha) ||
+      !hash_host_bf16_output(collector.flashinfer_output,
+                             flashinfer_output_sha)) {
+    std::cerr << "P513_ATTENTION_ORACLE_ERROR operation=output_sha256\n";
+    return Layer3AttentionOracleReportStatus::kInfrastructureFailure;
+  }
+  std::cout << "P513_ATTENTION_OUTPUT_SHA256 canonical="
+            << canonical_output_sha.hex()
+            << " group_q64=" << group_q64_output_sha.hex()
+            << " flashinfer=" << flashinfer_output_sha.hex() << '\n';
+  std::cout << "P513_ATTENTION_NUMERIC_CONTRACT"
+               " nrmse=rmse_over_reference_rms"
+               " cosine=dot_over_l2_product"
+               " accumulation=long_double"
+               " bf16_decode=upper16_ieee754\n";
+  if (!print_bf16_pair_numeric_metrics(
+          "canonical_vs_group_q64", collector.canonical_output,
+          collector.group_q64_output) ||
+      !print_bf16_pair_numeric_metrics(
+          "canonical_vs_flashinfer", collector.canonical_output,
+          collector.flashinfer_output) ||
+      !print_bf16_pair_numeric_metrics(
+          "group_q64_vs_flashinfer", collector.group_q64_output,
+          collector.flashinfer_output)) {
+    std::cerr << "P513_ATTENTION_ORACLE_ERROR operation=numeric_metrics\n";
+    return Layer3AttentionOracleReportStatus::kInfrastructureFailure;
+  }
+
+  std::size_t exact_group_total = 0U;
+  std::size_t exact_flashinfer_total = 0U;
+  std::size_t group_flashinfer_total = 0U;
+  for (std::size_t token = 0U; token < kLayer3AttentionOracleTokens;
+       ++token) {
+    const std::size_t begin = token * kQueryElementsPerToken;
+    const std::size_t end = begin + kQueryElementsPerToken;
+    std::size_t exact_group_row = 0U;
+    std::size_t exact_flashinfer_row = 0U;
+    std::size_t group_flashinfer_row = 0U;
+    for (std::size_t index = begin; index < end; ++index) {
+      exact_group_row += collector.canonical_output[index] !=
+                                 collector.group_q64_output[index]
+                             ? 1U
+                             : 0U;
+      exact_flashinfer_row += collector.canonical_output[index] !=
+                                      collector.flashinfer_output[index]
+                                  ? 1U
+                                  : 0U;
+      group_flashinfer_row += collector.group_q64_output[index] !=
+                                      collector.flashinfer_output[index]
+                                  ? 1U
+                                  : 0U;
+    }
+    exact_group_total += exact_group_row;
+    exact_flashinfer_total += exact_flashinfer_row;
+    group_flashinfer_total += group_flashinfer_row;
+    std::cout << "P513_ATTENTION_ROW token=" << token
+              << " canonical_vs_group_q64=" << exact_group_row
+              << " canonical_vs_flashinfer=" << exact_flashinfer_row
+              << " group_q64_vs_flashinfer=" << group_flashinfer_row << '\n';
+  }
+
+  std::cout << "P513_ATTENTION_ORACLE_SUMMARY layer=3 tokens=513"
+               " canonical_spans=257,256"
+               " capture_status=VALID"
+            << " query_immutable=" << (query_immutable ? "true" : "false")
+            << " key_immutable=" << (key_immutable ? "true" : "false")
+            << " value_immutable=" << (value_immutable ? "true" : "false")
+            << " gate_immutable=" << (gate_immutable ? "true" : "false")
+            << " canonical_vs_group_q64=" << exact_group_total
+            << " canonical_vs_flashinfer=" << exact_flashinfer_total
+            << " group_q64_vs_flashinfer=" << group_flashinfer_total
+            << " flashinfer_bitwise_gate="
+            << (exact_flashinfer_total == 0U ? "PASS" : "FAIL")
+            << " accuracy_qualification=NOT_RUN"
+            << '\n';
+  return exact_flashinfer_total == 0U
+             ? Layer3AttentionOracleReportStatus::kBitwisePass
+             : Layer3AttentionOracleReportStatus::kBitwiseMismatch;
+}
 
 enum class SnapshotError : std::uint8_t {
   kNone = 0,
@@ -831,6 +1477,11 @@ int main(const int argc, char** const argv) {
                  "after a clean-host GPU preflight\n";
     return 77;
   }
+  const char* const layer3_attention_oracle_value =
+      std::getenv("Q3X_RUN_PREFILL_ATTENTION_LAYER3_P513_ORACLE");
+  const bool layer3_attention_oracle =
+      layer3_attention_oracle_value != nullptr &&
+      std::string_view(layer3_attention_oracle_value) == "1";
   const char* const attention_tactic =
       std::getenv("Q3X_TEST_PREFILL_ATTENTION_TACTIC");
   const bool native_group_q64_panel =
@@ -888,6 +1539,17 @@ int main(const int argc, char** const argv) {
     }
     prompt_token_counts.assign(1U, *selected);
   }
+  if (layer3_attention_oracle) {
+    if ((attention_tactic != nullptr &&
+         std::string_view(attention_tactic) != "exact-segmented") ||
+        (projection_tactic != nullptr &&
+         std::string_view(projection_tactic) != "exact-segmented")) {
+      std::cerr << "the layer3 P513 Attention oracle requires exact-segmented "
+                   "engine tactics\n";
+      return 2;
+    }
+    prompt_token_counts.assign(1U, kLayer3AttentionOracleTokens);
+  }
 
   try {
     runtime::ReferenceEngineOptions options;
@@ -930,6 +1592,36 @@ int main(const int argc, char** const argv) {
       std::cerr << "engine creation failed: ";
       print_diagnostic(created.diagnostic);
       return 1;
+    }
+
+    if (layer3_attention_oracle) {
+      Layer3AttentionP513OracleCollector collector;
+      if (!collector.prepare()) {
+        std::cerr << "failed to prepare layer3 P513 Attention oracle: "
+                  << collector.failed_operation
+                  << " cuda_error=" << collector.cuda_error << '\n';
+        return 1;
+      }
+      bool generation_passed = false;
+      {
+        const ScopedLayer3AttentionP513Oracle oracle_hook(collector);
+        generation_passed = run_case(
+            *created.value, kLayer3AttentionOracleTokens,
+            runtime::LayerMajorPrefillFullAttentionTactic::
+                kExactSegmentedC512,
+            runtime::LayerMajorPrefillProjectionTactic::kExactSegmentedC512);
+      }
+      const Layer3AttentionOracleReportStatus attention_status =
+          report_layer3_attention_p513_oracle(collector);
+      if (!generation_passed ||
+          attention_status ==
+              Layer3AttentionOracleReportStatus::kInfrastructureFailure) {
+        return 1;
+      }
+      return attention_status ==
+                     Layer3AttentionOracleReportStatus::kBitwisePass
+                 ? 0
+                 : 3;
     }
 
     for (const std::size_t prompt_tokens : prompt_token_counts) {

@@ -3,6 +3,9 @@
 #include "reference_runner_decode_gqa_policy_internal.h"
 #include "reference_runner_gdn_exact_span_policy_internal.h"
 #include "reference_runner_prompt_wide_policy_internal.h"
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+#include "reference_runner_full_attention_oracle_internal.h"
+#endif
 
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
 #if defined(Q3X_ENABLE_P40_PROJECTION_RESET_ADMISSION)
@@ -147,6 +150,9 @@ thread_local std::size_t
     g_reference_runner_prompt_wide_embedding_launch_hits_for_test = 0U;
 thread_local std::size_t
     g_reference_runner_prompt_wide_attention_launch_hits_for_test = 0U;
+thread_local reference_runner_detail::
+    PrefillLayer3AttentionP513OracleHook
+        g_prefill_layer3_attention_p513_oracle_hook{};
 #endif
 
 [[nodiscard]] reference_runner_detail::ReferenceRunnerPromptWidePolicy
@@ -1047,6 +1053,12 @@ exchange_reference_runner_prompt_wide_attention_launch_hits_for_test(
     const std::size_t hits) noexcept {
   return std::exchange(
       g_reference_runner_prompt_wide_attention_launch_hits_for_test, hits);
+}
+
+PrefillLayer3AttentionP513OracleHook
+exchange_prefill_layer3_attention_p513_oracle_hook(
+    const PrefillLayer3AttentionP513OracleHook hook) noexcept {
+  return std::exchange(g_prefill_layer3_attention_p513_oracle_hook, hook);
 }
 #endif
 
@@ -7705,6 +7717,20 @@ ReferenceRunner::enqueue_prefill_layer_panel(
         }
       }
     }
+
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+    const auto layer3_attention_oracle_hook =
+        g_prefill_layer3_attention_p513_oracle_hook;
+    if (layer == 3U && first_position == 0U && token_count == 513U &&
+        layer3_attention_oracle_hook.callback != nullptr) {
+      layer3_attention_oracle_hook.callback(
+          reference_runner_detail::PrefillLayer3AttentionP513OracleView{
+              layer, first_position, token_count, processed_q,
+              views_.key_cache[layer], views_.value_cache[layer], packed_gate,
+              stream_},
+          layer3_attention_oracle_hook.context);
+    }
+#endif
 
     if (full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
                                      kNativeFlashInferExactPanel) {

@@ -567,6 +567,7 @@ q3x_enable_warnings(q3x_text)
 add_library(q3x_kernels STATIC
   src/runtime/reference_runner.cpp
   src/runtime/reference_runner_decode_gqa_policy_internal.h
+  src/runtime/reference_runner_full_attention_oracle_internal.h
   src/runtime/reference_runner_gdn_exact_span_policy_internal.h
   src/runtime/reference_runner_prompt_wide_policy_internal.h
   src/runtime/reference_runner_layer_major_views.cpp
