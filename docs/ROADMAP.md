@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-08-22
+  last_reviewed: 2026-08-23
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -87,6 +87,17 @@ not stitched into a performance decision. The route remains accuracy-
 unqualified, non-release, non-production, and default-OFF. The exact boundary
 and bundle hashes are frozen in the
 [`P40 v10 mainline absorption record`](metadata/qwen36-27b-p40-v10-mainline-absorption-2026-08-21.json).
+
+The first resumed production-conversion batch is now closed on current main
+`c6c34ef` / tree `6a2df18`. The ordinary Release/OFF installed ELF
+`ab3492a...` retains exact-span GDN, prompt-wide preprocessing, and both
+Decode Gate/Up coupled-feed plus Down consumer-order layouts; split-KV remains
+rejected. Same-ELF Decode BCCB is positive at P1024/P4096, the corrected
+installed short EvalScope run passes 8/8, and a fresh C-only P40000 request
+reports 57.230764 exact-default prompt tok/s. These are integration and
+direction observations, not release qualification. Exact identities,
+invalid-r1 classification, metrics, and limitations are frozen in the
+[`current-main production-default closeout`](metadata/qwen36-27b-production-default-mainline-closeout-2026-08-23.json).
 
 Inside every Prefill architecture candidate, the work order is also fixed:
 
@@ -206,19 +217,22 @@ then-current mainline, select accurate positive changes into the ordinary
 Release default, and immediately return to the same installed API for
 Prefill, TTFT, Decode, startup, and memory measurement. Hardware telemetry is
 a validity/diagnostic guardrail, not the optimization objective. Unexpected
-CPU/GPU consumers may be stopped and restored for a clean measurement; the
-active thermal contract accepts temperatures through 85C and judges
-performance validity independently from actual clock/throttle evidence.
+CPU/GPU consumers may be stopped and restored for a clean measurement. The
+active thermal contract treats temperatures through 85C as normal, judges the
+band above 85C through 90C from actual clock, over-current, and throttle
+evidence, and treats above 90C as operational risk.
 
-The first active batch promotes the exact C256/C512 GDN whole-span path and
-the already-qualified prompt-wide Embedding/Attention preprocessing path into
-the sealed ordinary profile. It evaluates the proven Decode coupled-feed and
-consumer-order layouts as ordinary defaults, while explicitly rejecting the
-split-KV Decode selector after its S65 BF16 boundary oracle differed from the
-exact fallback. The P40 v10 transaction remains retained work, not an archive;
-its known Attention-state mismatch must be repaired or separately qualified
-before the historical 392.804397-token/s arithmetic can become a production
-default.
+The first active batch has promoted the exact C256/C512 GDN whole-span path
+and the already-qualified prompt-wide Embedding/Attention preprocessing path
+into the sealed ordinary profile. It retains both proven Decode coupled-feed
+and consumer-order layouts as ordinary defaults, while explicitly rejecting
+the split-KV Decode selector after its S65 BF16 boundary oracle differed from
+the exact fallback. The next P0 inside P3 is the unconverted P40 result: the
+fresh exact ordinary default reaches 57.230764 tok/s, while the retained v10
+transaction reached a historical 392.804397 tok/s. Its known Attention-state
+mismatch must be repaired or separately qualified, followed by a fresh
+current-main complete-route comparison, before that arithmetic can become a
+production default.
 
 ### Retained recovery boundary
 

@@ -6,7 +6,7 @@ q3x_document:
   owner: evaluation-maintainers
   authority: external API evaluation protocol, metric semantics, and artifact requirements
   effective: 2026-08-09
-  last_reviewed: 2026-08-22
+  last_reviewed: 2026-08-23
   supersedes: []
   superseded_by: []
   ssot_for: EvalScope and target-length external evaluation procedure
@@ -1141,6 +1141,31 @@ retain a `local_mutation`, select an `architecture_candidate`, promote a
 `release_candidate`, or replace the target-length witness set. A true
 one-token workload would require a separate hash-locked corpus and manifest;
 changing only this command-line option is insufficient.
+
+### Current installed-production short closeout
+
+For the ordinary installed sealed profile, launch the installed
+`BUILD_TESTING=OFF` server with only the model directory, loopback host, port,
+and public model name. Do not pass development capacity or tactic selectors.
+Before each fresh server, stop unexpected consumers, run `sync` followed by
+`echo 3 | sudo tee /proc/sys/vm/drop_caches`, and retain the result. Cooling is
+external: the procedure neither observes nor controls a fan. Temperatures
+through 85C are normal; above 85C through 90C, use actual clock, over-current,
+and throttle evidence to decide validity; above 90C is operational risk.
+Temperature is a validity/diagnostic guardrail, not an optimization target,
+and ownership remains an independent validity gate.
+
+Current main `c6c34ef` completed that procedure on installed ELF
+`ab3492a...` with harness SHA-256 `5c117c...` and wrapper SHA-256
+`a38f67d...`. One warmup plus eight measured requests passed 8/8. EvalScope
+reported mean TTFT 2,652.203 ms, TPOT 104.931 ms, ITL 104.920 ms, and
+recomputed prompt throughput 117.737386 tok/s; server intervals reported
+189.257892 prompt tok/s and 105.013349 ms/token / 9.522599 Decode tok/s. The
+run is a short integration proxy only. Its predecessor `r1` is explicitly
+invalid because its harness reported missing GPU-clock observations and
+identity drift; none of its timing is admissible. Exact hashes, the corrected
+`r2` bundle, resource observations, and claim boundary are frozen in the
+[`current-main production-default closeout`](metadata/qwen36-27b-production-default-mainline-closeout-2026-08-23.json).
 
 ## Capability gate: first attempt invalid
 

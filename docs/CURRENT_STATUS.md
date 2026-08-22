@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-08-22
+  last_reviewed: 2026-08-23
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-08-22.
+Snapshot date: 2026-08-23.
 
 This page is a replaceable state snapshot. It does not own architecture,
 delivery order, or experiment history. The system design is in
@@ -43,8 +43,11 @@ Decode, and short-position Graph inventory is present. This includes the
 are 18,228,101,120 bytes. Ordinary Release route composition is typed and
 does not consult `Q3X_*` environment selectors. The current batch has passed
 the Release/OFF build, install-tree consumer, help/authentication, host policy,
-exact-span GDN CUDA, Decode numerical-rejection, and package tests. The final
-same-install-artifact real-model length matrix is the active gate.
+exact-span GDN CUDA, Decode numerical-rejection, and package tests. Current
+main `c6c34ef` / tree `6a2df18` has also passed a fresh installed-artifact
+short EvalScope closeout and one exact-default P40 request. Target-length
+repetition, complete accuracy, capability, and release qualification remain
+open.
 
 By explicit project-owner direction on 2026-08-22, performance work is
 resumed with production conversion as the selection boundary. The first
@@ -55,8 +58,54 @@ generated output. The older prompt-wide Embedding and Attention preprocess
 gains remain selected. Decode split-KV is not selected despite a favorable
 API timing proxy because its direct S65 BF16 oracle differs from the exact
 fallback; S>=65 therefore remains on the exact route. The measured Gate/Up
-coupled-feed and Down consumer-order Decode layouts are selected for the final
-installed-API test, with startup failing if their exact inventory cannot fit.
+coupled-feed and Down consumer-order Decode layouts are retained together in
+the ordinary installed default, with startup failing if their exact inventory
+cannot fit.
+
+The final same-ELF Decode BCCB panel accepted 8/8 controlled requests. At
+P1024, both layouts moved server Decode from 111.134339 ms/token / 8.998120
+tok/s to 107.020180 ms/token / 9.344032 tok/s, a 3.8443% speedup. At P4096,
+they moved 122.797655 ms/token / 8.143479 tok/s to 118.573211 ms/token /
+8.433608 tok/s, a 3.5627% speedup. Prefill was neutral in both panels.
+Marginal BCCB then showed Gate/Up contributes 3.6921% at P1024 and 3.3208% at
+P4096 given Down, while Down contributes a smaller but still positive 0.2504%
+and 0.2992% given Gate/Up. All 24 requests across the combined and marginal
+panels produced the same UTF-8/SSE text hash; that is not a hidden-state,
+logit, or generated-token-ID oracle. Exact evidence and authority are frozen
+in the
+[`current-main production-default closeout`](metadata/qwen36-27b-production-default-mainline-closeout-2026-08-23.json).
+
+The fresh installed `BUILD_TESTING=OFF` server is ELF
+`ab3492a690622e63bcfeafab055081a635c4f65507fc48b9d1a1bca0c1cebe02`
+(Build ID `d8ee66d1355e05dab71a9434c537419e08e4b121`). One warmup plus
+eight measured EvalScope 1.9.1 short requests passed 8/8: mean TTFT was
+2,652.203 ms, TPOT 104.931 ms, ITL 104.920 ms, and independently recomputed
+prompt throughput 117.737386 tok/s. Server intervals reported 189.257892
+prompt tok/s and 105.013349 ms/token / 9.522599 Decode tok/s. This is a
+single-process short integration proxy, not a matched B/C speedup or a
+target-length result. Its first predecessor (`r1`) remains invalid because of
+two harness-validation failures and contributes no timing; only corrected
+`r2` is accepted.
+
+Current exact-default controlled length observations are:
+
+| Prompt | Server pure Prefill | External TTFT | Server Decode | External Decode |
+| ---: | ---: | ---: | ---: | ---: |
+| 1,024 | 183.598703 tok/s | 5,605.552 ms | 9.340364 tok/s | 9.349471 tok/s |
+| 4,096 | 192.530782 tok/s | 21,303.933 ms | 8.434443 tok/s | 8.441086 tok/s |
+| 8,192 | 153.943196 tok/s | 53,245.766 ms | 7.460155 tok/s | 7.464576 tok/s |
+| 16,384 | 107.513660 tok/s | 152,424.173 ms | 6.071000 tok/s | 6.072984 tok/s |
+| 32,768 | 66.726052 tok/s | 491,127.837 ms | 4.413194 tok/s | 4.413428 tok/s |
+| 40,000 | **57.230764 tok/s** | **698,967.822 ms** | **3.937236 tok/s** | **3.937134 tok/s** |
+
+Each row is one accepted C-only process with 16 output tokens, so the table
+reports current behavior but is not repetition or speedup qualification.
+P1024--P32768 used the runtime-identical `0e89575` installed artifact;
+P40000 is a fresh direct `c6c34ef` run. At P40 the ordinary exact default is
+only 14.5698% of the historical v10 392.804397 tok/s result, a 6.8635x gap.
+Absorbing an accuracy-admissible version of that retained route is therefore
+the next P0 inside active P3; the known P513 full-state mismatch still
+prevents copying v10 into the default.
 
 The prior pause is superseded; it did not amend the Constitution targets. The
 exact recovery anchor remains
@@ -78,8 +127,11 @@ proxy, not a performance improvement or a 32-request baseline. Peak `/proc`
 VmRSS/VmHWM was 30,703,714,304 bytes, the system `MemAvailable` drop from the
 first post-spawn sample was 23,852,707,840 bytes, and CPU/Tj and GPU remained
 below the then-declared 70C evidence gate at 69.343C and 68.250C. That
-conservative threshold is now superseded by the owner-specified 85C-inclusive
-normal range plus an independent clock-stability gate. All preflights passed,
+conservative threshold is now superseded by the owner-specified normal range
+through 85C. From above 85C through 90C validity is decided from actual clock,
+over-current, and throttle evidence; above 90C is operational risk.
+Temperature is a validity/diagnostic guardrail, not an optimization target.
+All preflights passed,
 SIGINT shutdown returned zero, and no server-owned `nvmap` residue was
 observed. The exact record and its measurement limitations are in the
 [`mainline real-model acceptance record`](metadata/qwen36-27b-mainline-real-model-acceptance-2026-08-21.json).
@@ -368,10 +420,10 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | Pure C++ tokenizer and greedy generation | Implemented | Public capability and long-run qualification remain incomplete |
 | OpenAI-compatible product API | Installed production-shaped 0.6.0 service with bounded queues, streaming, Bearer authentication, public health, and external TLS termination contract | Cancellation, multi-tenant policy, capability, and release stability remain incomplete |
 | Installed default context | Sealed P40 profile admits `prompt + output - 1 <= 44,095` with a 4,096-token output ceiling | P60 and approximately-P130 profiles remain unopened |
-| Target-length Prefill | Ordinary default includes exact prompt-wide preprocessing plus the current-main positive exact-span GDN path; the historical v10 transaction remains retained default-off work | Final installed 1K/4K/8K/16K/32K/P40 results and complete accuracy are active; P60/P130 and the 2s/4s targets remain open |
+| Target-length Prefill | Ordinary default includes exact prompt-wide preprocessing plus exact-span GDN; one accepted C-only result now exists at 1K/4K/8K/16K/32K/P40, with fresh current-main P40 at 57.230764 tok/s | Repetition, complete accuracy, P60/P130, the 2s/4s targets, and absorption of an accuracy-admissible fast P40 route remain open |
 | SM87 whole-system AOT Prefill candidate | Default-off and non-executable; real-checkpoint upload/readback/private attachment is authenticated, and the layer-0 M192 Gate+Up/Down-plus-residual candidate has passed bitwise, same-ELF SM87 resource/geometry, and immediate-snapshot lifecycle gates | Persist and directly load authenticated AOT payloads; compose all 64 layers plus FP8 QKV/Z/O, grouped online Attention, exact GDN, buffers/state/handoffs without fallback; extend complete-model accuracy; open a reviewed admission launch; then return to clean-host real-P40 API/EvalScope evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
-| Decode | Exact S>=65 fallback plus selected coupled-feed/consumer-order layouts and fixed short-position Graph cache in the sealed profile; split-KV rejected numerically | Current installed API TPOT, route hits, long-output stability, and at least 10 tok/s remain to be qualified |
+| Decode | Exact S>=65 fallback plus retained coupled-feed/consumer-order layouts and fixed short-position Graph cache in the sealed profile; split-KV rejected numerically; installed short proxy reaches 105.013349 ms/token / 9.522599 tok/s | Long-output stability, independent repetition, target-length behavior, and at least 10 tok/s remain to be qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
 | Canonical release artifact | Production-shaped 0.6.0 Release/OFF package installs the ordinary sealed v2 server and tools | Exact installed-artifact real-model/capability/repetition attestation remains incomplete, so `release_qualified=false` |
 | Automated release lane | Designed only | Local tests and policies exist, but no checked-in Orin release workflow enforces the complete gate |
@@ -388,7 +440,9 @@ Status terms are strict:
 
 ## 3. API and capacity snapshot
 
-The evaluation adapter currently defaults to:
+The ordinary installed 0.6.0 server uses the sealed P40 profile described
+above and exposes no public capacity or tactic selector. The separate
+development evaluation adapter defaults to:
 
 - loopback `127.0.0.1` binding;
 - one serialized inference worker behind bounded ingress/inference queues;
@@ -506,6 +560,9 @@ Current evidence is incomplete:
 - the absorbed Legacy-C512 Embedding and full-Attention preprocess mechanisms
   match complete persistent/used-KV state, generation, and public logits at
   P514/P4096/P8192, including 15 P4096 Decode transitions;
+- the retained Gate/Up and Down Decode sidecars reproduce one identical
+  generated UTF-8/SSE text hash across 24 controlled P1024/P4096 requests,
+  but that comparison exposes no token-ID, hidden-state, or logit oracle;
 - the short cumulative native route reproduced its comparator on 8/8 outputs;
 - the first external native/vLLM comparison matched text on 26/32 requests,
   but vLLM is not the accuracy oracle;
@@ -529,8 +586,8 @@ sequence and successor identity live exclusively in
 | --- | --- | --- |
 | Documentation-control propagation | The canonical main line now has one `AGENTS.md -> docs/README.md` Codex entry; pre-existing dirty worktrees do not receive it until explicitly integrated, because Codex reads the worktree in which a session starts | P0 |
 | Product API and long-context admission | Installed sealed P40 profile admits 40K plus normal Decode output; P60/P130 profiles and full cancellation semantics remain | P1 |
-| Exact deliverable identity | 0.6.0/v2 installed identity is implemented; installed-artifact model, route-hit, accuracy, and release evidence remain | P2 |
-| Prefill parity and physical plan | Exact-span GDN is positive at P1K/P4K/P8K and is selected into the ordinary default; v10's historical 392.804397 tok/s transaction remains tracked but its Attention arithmetic is accuracy-unqualified | P3 (active) |
+| Exact deliverable identity | Current-main 0.6.0/v2 installed ELF `ab3492a...` has passed fresh short real-model/API integration health; complete accuracy, repetition, capability, and release evidence remain | P2 |
+| Prefill parity and physical plan | Fresh exact-default P40 is 57.230764 tok/s; v10's historical 392.804397 tok/s is 6.8635x faster but remains unabsorbed because its Attention arithmetic is accuracy-unqualified | P3 (active; next P0) |
 | Accuracy, capability, stability, and release evidence | Partial oracles only; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install, startup, upgrade, or rollback lane | P5 |
 
@@ -541,8 +598,10 @@ Use the following language until this snapshot changes:
 - **Current:** installable 0.6.0 Release/OFF batch-one service with an
   authenticated, sealed P40 exact profile; exact-span GDN and prompt-wide
   preprocessing are ordinary Prefill defaults; coupled-feed/consumer-order
-  layouts are selected for final installed-API Decode testing; split-KV is
-  rejected from production. The service is production-shaped but remains
+  layouts are retained together in the ordinary Decode default; split-KV is
+  rejected from production. The fresh short installed proxy reaches 9.522599
+  Decode tok/s and the fresh exact-default P40 reaches 57.230764 prompt tok/s.
+  The service is production-shaped but remains
   `release_qualified=false` until the active installed-artifact matrix closes.
 - **Not current:** production-default P60/P130 support, the accuracy-unqualified
   FlashInfer v10 arithmetic as a default, any archived V4 construction route,

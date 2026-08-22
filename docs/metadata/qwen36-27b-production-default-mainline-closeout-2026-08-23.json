@@ -1,0 +1,331 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen36-27b-production-default-mainline-closeout-2026-08-23",
+  "record_type": "current_main_production_default_absorption_and_installed_api_closeout",
+  "created_at_utc": "2026-08-22T17:20:43Z",
+  "classification": {
+    "source_status": "pass",
+    "ordinary_default_decision": "retain_exact_span_gdn_prompt_wide_preprocessing_and_both_decode_sidecars",
+    "splitkv_decision": "rejected_from_production_for_numerical_mismatch",
+    "installed_short_evalscope_status": "valid_single_process_eight_request_integration_proxy",
+    "current_p40000_status": "valid_single_process_c_only_exact_default_observation",
+    "decode_bccb_matched_performance_comparison": true,
+    "installed_evalscope_performance_comparison": false,
+    "p40000_performance_comparison": false,
+    "accuracy_qualified": false,
+    "target_length_qualification": false,
+    "release_qualified": false,
+    "production_authority": false
+  },
+  "claim_boundary": "This record closes the first current-main production-default absorption batch on source c6c34ef/tree 6a2df18 and the exact installed BUILD_TESTING=OFF server ab3492a. The controlled BUILD_TESTING=ON BCCB panels show that retaining both Decode Gate/Up coupled feed and Down consumer order is positive at P1024 and P4096; the marginal panels show Gate/Up is the dominant contributor and Down is small but positive given Gate/Up. Exact generated UTF-8/SSE text is identical across the four route compositions, but these panels expose neither generated token IDs nor hidden-state/logit oracles. The installed short EvalScope run is integration health, not a matched speedup or target-length qualification. The fresh P40000 result is one C-only exact-default sample, not a speedup, repetition result, or accuracy oracle. The historical v10 392.804397-token/s route remains default-off and accuracy-unqualified and has not been absorbed into the ordinary production default.",
+  "source_and_artifact": {
+    "branch": "main",
+    "git_commit": "c6c34ef4854a9f987711edbc8bcd38b6d2a6ad01",
+    "git_tree": "6a2df18a76a7cb926577661620815d90a8a7cb7a",
+    "release_profile": "q3x.sm87.production.p40.legacy-c512-exact.v2",
+    "package_version": "0.6.0",
+    "build_type": "Release",
+    "build_testing": false,
+    "cuda_architecture": "87",
+    "build_elf": {
+      "sha256": "456b938ce8bf8a172754b4be0d7b99e59880bfd188856d519eb5ecdc64d35242",
+      "gnu_build_id": "d8ee66d1355e05dab71a9434c537419e08e4b121"
+    },
+    "installed_elf": {
+      "sha256": "ab3492a690622e63bcfeafab055081a635c4f65507fc48b9d1a1bca0c1cebe02",
+      "gnu_build_id": "d8ee66d1355e05dab71a9434c537419e08e4b121"
+    },
+    "install_manifest": {
+      "items": 66,
+      "sha256": "e398b49abf951515dcd9f8a13f64bc5fa3e617847b61cee2fcdf7c0dd8cb3c45",
+      "normalized_content_digest": "c23db6864f9e96c1032e8e644a68bd6a0ba327ac3f8d902a4e25c3df45f5792f"
+    },
+    "production_route": {
+      "prefill": "prompt-wide preprocessing plus exact-span GDN C256/C512",
+      "decode": "q3x.sm87.decode.coupled-feed-down-consumer-order.v1",
+      "splitkv": "rejected",
+      "release_qualified": false
+    }
+  },
+  "model": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "hf_quant_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "model_index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "shards": [
+      {
+        "name": "model-00001-of-00003.safetensors",
+        "bytes": 9965652512,
+        "sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d"
+      },
+      {
+        "name": "model-00002-of-00003.safetensors",
+        "bytes": 9985757032,
+        "sha256": "06da4242b0f491118d19d4d4c7564307a7bd6059c6bed284e08c93f6fc5a556d"
+      },
+      {
+        "name": "model-00003-of-00003.safetensors",
+        "bytes": 1970287640,
+        "sha256": "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845"
+      }
+    ],
+    "shards_runtime_hashed_before_and_after_short_evalscope": true,
+    "model_identity_stable_across_short_evalscope": true,
+    "access": "read_only_external_input"
+  },
+  "host_protocol": {
+    "unexpected_consumers": "stopped before timing and restored afterward by the quiet-host wrapper",
+    "drop_caches_before_each_fresh_server": "sync; echo 3 | sudo -n tee /proc/sys/vm/drop_caches",
+    "thermal_contract": {
+      "normal_through_c_inclusive": 85.0,
+      "diagnostic_band_above_c_through_c": [
+        85.0,
+        90.0
+      ],
+      "diagnostic_band_decision": "judge_from_actual_clock_overcurrent_and_throttle_evidence",
+      "operational_risk_above_c": 90.0
+    },
+    "temperature_role": "validity_and_diagnostic_guardrail_not_optimization_target",
+    "cooling": "external_only",
+    "fan_observation_control_or_gate": false,
+    "locked_clocks": {
+      "cpu_khz": 2201600,
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "quiet_host_wrapper_sha256": "a38f67d0859b853cdd424c5eefcfc4a11bfede44f251e3eb522bd9328bad5091"
+  },
+  "decode_same_elf_bccb": {
+    "authority": "BUILD_TESTING=ON same-ELF architecture A/B; supports ordinary-default retention but is not release qualification",
+    "testing_elf": {
+      "sha256": "2d52b025d3b61dfe684143a1aa4fb13dc6cabb11cedbf39c4e16d8993232565a",
+      "gnu_build_id": "847723f3e28b9f34f76a24961cdab1f416c38285",
+      "harness_sha256": "73baf8046cee77fb3666918620fce448b3b06f8239bebba73fdf8b9c54ada8ff"
+    },
+    "both_vs_none": {
+      "accepted_runs": 8,
+      "sequence_per_length": "BCCB",
+      "output_tokens": 16,
+      "decode_transitions_after_first": 15,
+      "exact_generated_text_sha256": "310894609190200fa283f4904c1a3453dd04a6fd337db53e65ecdbbcf42b2d03",
+      "lengths": {
+        "1024": {
+          "none_server_decode_tpot_ms": 111.13433936666667,
+          "both_server_decode_tpot_ms": 107.02017963333333,
+          "none_server_decode_tok_s": 8.998119504961174,
+          "both_server_decode_tok_s": 9.344032480555102,
+          "server_decode_speedup": 1.0384428074558474,
+          "external_decode_speedup": 1.0384991852466552,
+          "none_prefill_tok_s": 183.40880555314035,
+          "both_prefill_tok_s": 183.52034004462428,
+          "none_external_ttft_ms": 5603.6457040000005,
+          "both_external_ttft_ms": 5607.947679000001,
+          "none_peak_vmhwm_bytes": 33069074432,
+          "both_peak_vmhwm_bytes": 41825576960,
+          "none_startup_ms": 32339.358854500002,
+          "both_startup_ms": 33710.440117499995
+        },
+        "4096": {
+          "none_server_decode_tpot_ms": 122.7976548,
+          "both_server_decode_tpot_ms": 118.57321113333333,
+          "none_server_decode_tok_s": 8.143478514472257,
+          "both_server_decode_tok_s": 8.433608279293324,
+          "server_decode_speedup": 1.035627252445679,
+          "external_decode_speedup": 1.035722689757199,
+          "none_prefill_tok_s": 192.56042006779984,
+          "both_prefill_tok_s": 192.5540796170951,
+          "none_external_ttft_ms": 21293.413588,
+          "both_external_ttft_ms": 21303.3736535,
+          "none_peak_vmhwm_bytes": 33069778944,
+          "both_peak_vmhwm_bytes": 41826400256,
+          "none_startup_ms": 32286.2423055,
+          "both_startup_ms": 33630.247378500004
+        }
+      },
+      "bundle": {
+        "path": ".q3x-work/evidence/decode-sidecar-both-vs-none-main-c6c34ef-p1k-p4k-o16-bccb-r2",
+        "files": 379,
+        "bytes": 31077050,
+        "manifest_sha256": "d9b0102f7b57943ed4aabf143b63cdc46e4a8ea322cf2cc5087388f2dba48a52",
+        "summary_sha256": "857f3f68c895556bcd560d3fc711df492bb47c30c14644704a094ef07904d967",
+        "canonical_relative_inventory_digest": "5aa1df21c7ed323cd3e55ac099b8eee4a14b121bee9e4c3eb87df6657f7736cf"
+      }
+    },
+    "marginals": {
+      "accepted_runs": 16,
+      "sequence_per_panel_and_length": "BCCB",
+      "gate_given_down_server_decode_speedup": {
+        "1024": 1.0369208029270869,
+        "4096": 1.0332077827834485
+      },
+      "down_given_gate_server_decode_speedup": {
+        "1024": 1.002503503200022,
+        "4096": 1.0029915930870286
+      },
+      "decision": "retain_both_gate_up_and_down_in_ordinary_default",
+      "bundle": {
+        "path": ".q3x-work/evidence/decode-sidecar-marginals-main-c6c34ef-p1k-p4k-o16-bccb-r1",
+        "files": 755,
+        "bytes": 62497460,
+        "manifest_sha256": "7be30f5c71b2b8171e32dba44f657ba6a7a75425009f0755a1b7ce84894adbbd",
+        "summary_sha256": "c9a3dd0bcad91cf7a3d4aa5f2fa839d78bc82a329f29b2d441f2b229c3cb0505",
+        "canonical_relative_inventory_digest": "96e28d0b0af63aeb61c2cc7c010a09a4afbd16662d1eaed1c1d3406a78da087f"
+      }
+    }
+  },
+  "installed_short_evalscope": {
+    "workload": {
+      "tool": "EvalScope",
+      "version": "1.9.1",
+      "corpus_sha256": "bd2091cdc0599ac59ab881efc6d1307a03bb149f49e6fd728a99d926ccc67989",
+      "warmup_requests": 1,
+      "measured_requests": 8,
+      "measured_prompt_tokens": 3981,
+      "measured_completion_tokens": 128,
+      "decode_transitions": 120,
+      "parallel": 1
+    },
+    "invalid_r1": {
+      "accepted": false,
+      "timing_authority": false,
+      "errors": [
+        "HarnessError: GPU clock changed during the run: []",
+        "identity_after:HarnessError:binary/build/source identity changed during run"
+      ],
+      "bundle_path": ".q3x-work/evidence/production-default-evalscope-short-c6c34ef-r1",
+      "harness_sha256": "24b6e15dfd54bbab62da2d317f29135c852ca744f55e86853e7639a36f5dcf68",
+      "acceptance_summary_sha256": "7b833dba4ce65318f916048078a7cfaa943497bcff7aede017ff3a8d9f9102fa",
+      "result_use": "none"
+    },
+    "valid_r2": {
+      "accepted": true,
+      "harness_sha256": "5c117c945d4725b2665497ff9bd8138fcfe371e7bc9ecc93b3e21194bc2ad8fa",
+      "evalscope": {
+        "mean_ttft_ms": 2652.2031227505067,
+        "mean_tpot_ms": 104.9311599417706,
+        "mean_itl_ms": 104.92,
+        "prompt_throughput_tok_s": 117.73738618348953,
+        "completion_throughput_tok_s": 3.785577852671856,
+        "total_throughput_tok_s": 121.5229640361614
+      },
+      "server": {
+        "mean_pure_prefill_ms": 2629.348735875,
+        "aggregate_pure_prefill_tok_s": 189.25789234815952,
+        "mean_ttft_ms": 2646.766252,
+        "aggregate_decode_tpot_ms": 105.0133491,
+        "aggregate_decode_tok_s": 9.522598875003407
+      },
+      "auxiliary": {
+        "spawn_to_ready_ms": 33427.227441,
+        "peak_vmhwm_bytes": 41829068800,
+        "maximum_memavailable_drop_bytes": 42496536576,
+        "minimum_memavailable_bytes": 21240139776,
+        "maximum_cpu_c": 69.656,
+        "maximum_gpu_c": 68.937,
+        "maximum_tj_c": 69.593,
+        "overcurrent_event_count_delta": {
+          "oc1": 0,
+          "oc2": 0,
+          "oc3": 0
+        },
+        "drop_caches_cached_before_bytes": 22849728512,
+        "drop_caches_cached_after_bytes": 198590464
+      },
+      "historical_nonmatched_same_corpus_comparison_to_ff47f179_r5": {
+        "authority": "descriptive_only_not_a_matched_bc_speedup",
+        "evalscope_ttft_change_percent": -3.24277,
+        "evalscope_tpot_change_percent": -3.38905,
+        "evalscope_prompt_throughput_change_percent": 3.40753,
+        "server_prefill_rate_change_percent": 3.95441,
+        "server_decode_rate_change_percent": 3.51237,
+        "startup_change_ms": 7995.454,
+        "vmhwm_change_bytes": 11140157440
+      },
+      "bundle": {
+        "path": ".q3x-work/evidence/production-default-evalscope-short-c6c34ef-r2",
+        "files": 39,
+        "bytes": 4173898,
+        "acceptance_summary_sha256": "0fbf028795585424bf64e8929dfe788970666c3dbedf7394eb0c9033416a609c",
+        "canonical_relative_inventory_digest": "bd8b5cc75972dd788d65f5f7d7f354c00db15cbe40f07e0bb8b1d3adc764b91d"
+      }
+    }
+  },
+  "exact_default_length_observations": {
+    "authority": "one accepted C-only process per length; reports current exact route behavior but is not repetition, speedup, or accuracy qualification",
+    "shorter_lengths_identity_note": "P1024-P32768 were measured on 0e89575 installed ELF 05dfdc54. Current c6c34ef keeps the same d8ee66d1 Build ID and byte-identical .text, .rodata, and .nv_fatbin sections; these rows are not independent c6 reruns.",
+    "rows": {
+      "1024": {
+        "server_prefill_tok_s": 183.59870280445048,
+        "external_ttft_ms": 5605.55199,
+        "server_decode_tok_s": 9.340364143411588,
+        "external_decode_tok_s": 9.349471233735766
+      },
+      "4096": {
+        "server_prefill_tok_s": 192.53078168329955,
+        "external_ttft_ms": 21303.933187,
+        "server_decode_tok_s": 8.434442781231057,
+        "external_decode_tok_s": 8.441086256694032
+      },
+      "8192": {
+        "server_prefill_tok_s": 153.94319589234266,
+        "external_ttft_ms": 53245.765594,
+        "server_decode_tok_s": 7.460155165786509,
+        "external_decode_tok_s": 7.464576408511113
+      },
+      "16384": {
+        "server_prefill_tok_s": 107.51365959050216,
+        "external_ttft_ms": 152424.17259,
+        "server_decode_tok_s": 6.0709996635415555,
+        "external_decode_tok_s": 6.072984348558985
+      },
+      "32768": {
+        "server_prefill_tok_s": 66.72605219063436,
+        "external_ttft_ms": 491127.836873,
+        "server_decode_tok_s": 4.413193930418704,
+        "external_decode_tok_s": 4.413427950339718
+      },
+      "40000": {
+        "accepted": true,
+        "source_commit": "c6c34ef4854a9f987711edbc8bcd38b6d2a6ad01",
+        "server_pure_prefill_ms": 698924.797424,
+        "server_prefill_tok_s": 57.2307638066734,
+        "server_ttft_ms": 698965.068849,
+        "external_ttft_ms": 698967.821796,
+        "server_decode_tpot_ms": 253.98527620000002,
+        "server_decode_tok_s": 3.9372361066023083,
+        "external_decode_tok_s": 3.937134318029472,
+        "startup_ms": 33616.78659,
+        "peak_vmhwm_bytes": 41845665792,
+        "maximum_memavailable_drop_bytes": 42265079808,
+        "minimum_memavailable_bytes": 21329973248,
+        "drop_caches_page_cache_before_bytes": 61765287936,
+        "drop_caches_page_cache_after_bytes": 197844992
+      }
+    },
+    "shorter_length_bundle": {
+      "path": ".q3x-work/evidence/production-default-main-0e89575-c-only-p1k-p32k-o16-r2",
+      "manifest_sha256": "ae629caa35e197a789deed98c22f52a75989240f1a6436d4a59bca77f67c887f",
+      "summary_sha256": "b5e554f689ee228a5db81bba061c3efb7ca9a523ac01569e39067d0c70ec5231"
+    },
+    "p40000_bundle": {
+      "path": ".q3x-work/evidence/production-default-main-c6c34ef-c-only-p40k-o16-r1",
+      "files": 50,
+      "bytes": 38415733,
+      "manifest_sha256": "b255f6522b4419964be010cf95f07cfde3a17534cdf116b256897de806d913f9",
+      "summary_sha256": "319642de7756fecfa6e8bd0ce6f32468d4d2ea1e7f30f34f0bfe7a66489348b3",
+      "canonical_relative_inventory_digest": "cec951a36945b80b85a445ddb58c4a425c8b4dd7179944b574a9e78ea3cd2d7a"
+    }
+  },
+  "remaining_p0": {
+    "scope": "highest priority inside active P3",
+    "current_exact_default_p40000_tok_s": 57.2307638066734,
+    "historical_v10_p40000_tok_s": 392.804397421,
+    "current_fraction_of_historical": 0.145697869429,
+    "historical_over_current_factor": 6.863518347368,
+    "historical_v10_absorbed_into_ordinary_default": false,
+    "blocker": "v10 inherited FlashInfer Attention arithmetic has a known P513 full-state mismatch",
+    "next_action": "repair or separately qualify the v10 numerical/state boundary, then re-evaluate the complete accurate route on current main and absorb only a positive exact production-default result"
+  }
+}

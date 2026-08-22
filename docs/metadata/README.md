@@ -52,6 +52,22 @@ identities. It is a single-process historical short-proxy health result, not a
 performance improvement from the absorbed package-consumer fix, a 32-request
 baseline, a target-length witness, or release/production qualification.
 
+The resumed current-main production-default closeout is frozen in
+[`qwen36-27b-production-default-mainline-closeout-2026-08-23.json`](qwen36-27b-production-default-mainline-closeout-2026-08-23.json).
+On `c6c34ef` / tree `6a2df18`, same-ELF BCCB and marginal panels retain both
+Decode Gate/Up coupled feed and Down consumer order in the ordinary default;
+split-KV remains rejected for numerical mismatch. Corrected EvalScope `r2`
+passes 8/8 and reports 2,652.203 ms TTFT, 104.931 ms TPOT, 117.737386 prompt
+tok/s, 189.257892 server pure-Prefill tok/s, and 9.522599 server Decode tok/s;
+`r1` is invalid and has no timing authority. One fresh C-only P40 request on
+installed ELF `ab3492a...` reports 57.230764 exact-default Prefill tok/s,
+only 14.5698% of the historical accuracy-unqualified v10 392.804397 tok/s.
+Closing that 6.8635x unabsorbed gap is the next P0 inside active P3. The record
+also freezes the three model-shard hashes, harness/wrapper identities, cache
+drop, no-fan-observation, and owner thermal contract; these observations are
+not repetition, complete accuracy, target-length, release, or production
+qualification.
+
 The later owner-directed prompt-wide performance absorption is frozen in
 [`qwen36-27b-prompt-wide-mainline-absorption-2026-08-21.json`](qwen36-27b-prompt-wide-mainline-absorption-2026-08-21.json).
 It selects only allocation-free prompt-wide Embedding gather and exact
