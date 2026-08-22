@@ -864,9 +864,10 @@ std::string sha256_token_ids_u32le(
 
 std::string serialize_target_prefill_witness(
     const TargetPrefillWitnessRecord& record) {
-  const bool sealed = !record.deployment_plan_id.empty();
+  const bool whole_request_plan_sealed =
+      !record.deployment_plan_id.empty();
   const bool production_reset_v16 =
-      !sealed && record.request_state_reset.has_value() &&
+      !whole_request_plan_sealed && record.request_state_reset.has_value() &&
       record.prefill_execution_mode ==
           runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled &&
       record.request_memory_profile ==
@@ -1383,7 +1384,7 @@ std::string serialize_target_prefill_witness(
           : production_reset_v16
                 ? "{\"record\":\"target-prefill-witness-v16\","
                   "\"schema_version\":16,\"request\":{\"id\":"
-          : sealed
+          : whole_request_plan_sealed
                 ? "{\"record\":\"target-prefill-witness-v2\","
                   "\"schema_version\":2,\"request\":{\"id\":"
                 : "{\"record\":\"target-prefill-witness-v1\","
@@ -1442,7 +1443,7 @@ std::string serialize_target_prefill_witness(
             std::to_string(record.effective_prefill_chunk_size) +
             ",\"prefix_execution_count\":" +
             std::to_string(record.prefix_execution_count);
-  if (sealed) {
+  if (whole_request_plan_sealed) {
     output += ",\"execution_mode\":";
     append_json_string(
         output,
@@ -2207,7 +2208,7 @@ std::string serialize_target_prefill_witness(
             "\"scope\":\"configured_engine_fact\",\"value\":";
   append_json_string(output, runtime::to_string(record.projection_backend));
   output += "},\"deployment_plan\":{";
-  if (!sealed) {
+  if (!whole_request_plan_sealed) {
     output += "\"available\":false,\"reason\":\"not_implemented\"";
   } else {
     output += "\"available\":true,\"scope\":"

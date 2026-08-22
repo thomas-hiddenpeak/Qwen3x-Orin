@@ -36,6 +36,12 @@ Package ABI 0.6.0 also extends the public Engine load receipt for the sealed
 Decode layouts. It does not change the request-state geometry described here;
 0.x consumers must still rebuild against the exact installed package.
 
+Package ABI 0.7.0 adds the public reset mode, plan, receipt, diagnostic, and
+planning surface used by lifecycle-derived ordinary-request cleanup. It also
+changes related public runner, generation, and protocol witness object layouts.
+This is an intentional 0.x ABI break; consumers must rebuild and request the
+exact 0.7.0 installed package.
+
 ## Model-state contract
 
 The planner represents the pinned 64-layer hybrid schedule. Layers 3, 7, ...,

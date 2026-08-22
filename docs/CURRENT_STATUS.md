@@ -25,10 +25,10 @@ metadata/evidence records.
 
 ## 1. Answer-first state
 
-Qwen3x-Orin now builds and installs a production-shaped 0.6.0 service from the
+Qwen3x-Orin now builds and installs a production-shaped 0.7.0 service from the
 ordinary `orin-release` preset (`Release`, SM87, `BUILD_TESTING=OFF`). Its
 sealed default profile is
-`q3x.sm87.production.p40.legacy-c512-exact.v2`: 40,000 prompt tokens, a
+`q3x.sm87.production.p40.legacy-c512-exact.v3`: 40,000 prompt tokens, a
 4,096-token output ceiling, `prompt + output - 1 <= 44,095`, a
 3,070,908,416-byte exact request arena, Bearer authentication for non-health
 endpoints, and no public execution-tactic or arena selector. A non-loopback
@@ -36,15 +36,27 @@ listener requires an owner-only key file. The installed profile remains
 `release_qualified=false` until the exact installed artifact completes the
 current target-length, Decode, accuracy, stability, and capability matrix.
 
+Version 0.7.0 is an intentional 0.x C++ ABI transition for ordinary request
+reuse. The first request after state creation is receipted `already_clean`; a
+prior exactly committed successful Legacy-C512 request clears complete
+Conv/GDN state plus only its written K/V prefix; cancellation, poison,
+uncommitted work, position mismatch, direct runner use, and every uncertain
+boundary retain the conservative full reset. The ordinary request witness now
+records reset mode, positions, bytes, and synchronized duration in schema v16.
+The mechanism has host-policy and bounded CUDA correctness coverage, but the
+0.7.0 package has no new real-model/API B/C performance authority yet. All
+0.6.0 installed-artifact measurements below remain historical evidence for
+their exact binary and do not qualify the new ABI tuple.
+
 The ordinary profile fails before listening unless its complete Prefill,
 Decode, and short-position Graph inventory is present. This includes the
 208-projection/7,214,202,880-byte FP8 Prefill supermatrix and
 11,013,898,240 bytes of Decode layouts; total retained acceleration sidecars
 are 18,228,101,120 bytes. Ordinary Release route composition is typed and
-does not consult `Q3X_*` environment selectors. The current batch has passed
+does not consult `Q3X_*` environment selectors. The preceding 0.6.0 batch passed
 the Release/OFF build, install-tree consumer, help/authentication, host policy,
-exact-span GDN CUDA, Decode numerical-rejection, and package tests. Current
-main `c6c34ef` / tree `6a2df18` has also passed a fresh installed-artifact
+exact-span GDN CUDA, Decode numerical-rejection, and package tests. Commit
+`c6c34ef` / tree `6a2df18` also passed a fresh installed-artifact
 short EvalScope closeout and one exact-default P40 request. Target-length
 repetition, complete accuracy, capability, and release qualification remain
 open.
@@ -418,14 +430,15 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | Pinned Qwen3.6-27B NVFP4 checkpoint | Implemented | Installed artifact must bind checkpoint, binary, layouts, and DeploymentPlan in one attestation |
 | Resident loader and typed weights | Implemented | Whole-process memory and release identity remain unqualified |
 | Pure C++ tokenizer and greedy generation | Implemented | Public capability and long-run qualification remain incomplete |
-| OpenAI-compatible product API | Installed production-shaped 0.6.0 service with bounded queues, streaming, Bearer authentication, public health, and external TLS termination contract | Cancellation, multi-tenant policy, capability, and release stability remain incomplete |
+| OpenAI-compatible product API | Installed production-shaped 0.7.0 service with bounded queues, streaming, Bearer authentication, public health, and external TLS termination contract | Cancellation, multi-tenant policy, capability, and release stability remain incomplete |
 | Installed default context | Sealed P40 profile admits `prompt + output - 1 <= 44,095` with a 4,096-token output ceiling | P60 and approximately-P130 profiles remain unopened |
+| Ordinary request-state reuse | 0.7.0 derives `already_clean`, exact committed dirty-prefix, or conservative full reset from lifecycle state and exposes a schema-v16 receipt; no runtime selector exists | Matched installed real-API B/C must establish TTFT value and confirm the new package tuple before any performance or release claim |
 | Target-length Prefill | Ordinary default includes exact prompt-wide preprocessing plus exact-span GDN; one accepted C-only result now exists at 1K/4K/8K/16K/32K/P40, with fresh current-main P40 at 57.230764 tok/s | Repetition, complete accuracy, P60/P130, the 2s/4s targets, and absorption of an accuracy-admissible fast P40 route remain open |
 | SM87 whole-system AOT Prefill candidate | Default-off and non-executable; real-checkpoint upload/readback/private attachment is authenticated, and the layer-0 M192 Gate+Up/Down-plus-residual candidate has passed bitwise, same-ELF SM87 resource/geometry, and immediate-snapshot lifecycle gates | Persist and directly load authenticated AOT payloads; compose all 64 layers plus FP8 QKV/Z/O, grouped online Attention, exact GDN, buffers/state/handoffs without fallback; extend complete-model accuracy; open a reviewed admission launch; then return to clean-host real-P40 API/EvalScope evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Exact S>=65 fallback plus retained coupled-feed/consumer-order layouts and fixed short-position Graph cache in the sealed profile; split-KV rejected numerically; installed short proxy reaches 105.013349 ms/token / 9.522599 tok/s | Long-output stability, independent repetition, target-length behavior, and at least 10 tok/s remain to be qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
-| Canonical release artifact | Production-shaped 0.6.0 Release/OFF package installs the ordinary sealed v2 server and tools | Exact installed-artifact real-model/capability/repetition attestation remains incomplete, so `release_qualified=false` |
+| Canonical release artifact | Production-shaped 0.7.0 Release/OFF package installs the ordinary sealed v3 server and tools; the last real-model installed-artifact evidence belongs to the preceding 0.6.0/v2 ABI | Exact 0.7.0/v3 installed-artifact real-model/capability/repetition attestation remains incomplete, so `release_qualified=false` |
 | Automated release lane | Designed only | Local tests and policies exist, but no checked-in Orin release workflow enforces the complete gate |
 
 Status terms are strict:
@@ -440,7 +453,7 @@ Status terms are strict:
 
 ## 3. API and capacity snapshot
 
-The ordinary installed 0.6.0 server uses the sealed P40 profile described
+The ordinary installed 0.7.0 server uses the sealed P40 profile described
 above and exposes no public capacity or tactic selector. The separate
 development evaluation adapter defaults to:
 
@@ -586,7 +599,7 @@ sequence and successor identity live exclusively in
 | --- | --- | --- |
 | Documentation-control propagation | The canonical main line now has one `AGENTS.md -> docs/README.md` Codex entry; pre-existing dirty worktrees do not receive it until explicitly integrated, because Codex reads the worktree in which a session starts | P0 |
 | Product API and long-context admission | Installed sealed P40 profile admits 40K plus normal Decode output; P60/P130 profiles and full cancellation semantics remain | P1 |
-| Exact deliverable identity | Current-main 0.6.0/v2 installed ELF `ab3492a...` has passed fresh short real-model/API integration health; complete accuracy, repetition, capability, and release evidence remain | P2 |
+| Exact deliverable identity | The last real-model installed artifact is the historical 0.6.0/v2 ELF `ab3492a...`; the current 0.7.0 ABI has host/install validation but no matched real-model/API B/C result | P2 |
 | Prefill parity and physical plan | Fresh exact-default P40 is 57.230764 tok/s; v10's historical 392.804397 tok/s is 6.8635x faster but remains unabsorbed because its Attention arithmetic is accuracy-unqualified | P3 (active; next P0) |
 | Accuracy, capability, stability, and release evidence | Partial oracles only; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install, startup, upgrade, or rollback lane | P5 |
@@ -595,13 +608,14 @@ sequence and successor identity live exclusively in
 
 Use the following language until this snapshot changes:
 
-- **Current:** installable 0.6.0 Release/OFF batch-one service with an
+- **Current:** installable 0.7.0 Release/OFF batch-one service with an
   authenticated, sealed P40 exact profile; exact-span GDN and prompt-wide
   preprocessing are ordinary Prefill defaults; coupled-feed/consumer-order
-  layouts are retained together in the ordinary Decode default; split-KV is
-  rejected from production. The fresh short installed proxy reaches 9.522599
-  Decode tok/s and the fresh exact-default P40 reaches 57.230764 prompt tok/s.
-  The service is production-shaped but remains
+  layouts are retained together in the ordinary Decode default; lifecycle-
+  derived request reuse is the ordinary reset policy; split-KV is rejected
+  from production. The 9.522599 Decode tok/s short proxy and 57.230764 prompt
+  tok/s exact-default P40 observation belong to the preceding 0.6.0 installed
+  tuple and do not qualify 0.7.0. The service is production-shaped but remains
   `release_qualified=false` until the active installed-artifact matrix closes.
 - **Not current:** production-default P60/P130 support, the accuracy-unqualified
   FlashInfer v10 arithmetic as a default, any archived V4 construction route,

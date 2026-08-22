@@ -197,12 +197,13 @@ struct TargetPrefillWitnessRecord {
              runtime::kReferenceDecoderLayerCount>
       vllm_marlin_parity_layer_completion_receipts{};
   std::uint64_t vllm_marlin_parity_layer_completion_receipt_count = 0U;
-  // Empty for legacy/unsealed paths. A non-empty identifier is emitted only
-  // after a sealed whole-request generation has completed successfully.
+  // Empty for every legacy path, including the ordinary sealed P40 profile.
+  // A non-empty identifier is emitted only after a layer-major whole-request
+  // generation has completed its separate engine-lifetime plan.
   std::string deployment_plan_id;
-  // Ordinary production-only request-start cleanup receipt. Its presence
-  // upgrades the unsealed witness to v16; every historical schema remains
-  // byte-stable when this optional field is absent.
+  // Ordinary Legacy-C512 production request-start cleanup receipt. Its
+  // presence upgrades that witness to v16, including on the sealed P40
+  // profile; every historical schema remains byte-stable when absent.
   std::optional<runtime::RequestStateResetReceipt> request_state_reset;
 };
 

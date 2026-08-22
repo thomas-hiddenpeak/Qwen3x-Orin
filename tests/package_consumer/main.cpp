@@ -17,6 +17,8 @@ int main() {
   q3x::runtime::ReferenceBenchmarkOptions options;
   q3x::runtime::ReferenceEngineOptions engine_options;
   q3x::runtime::ReferenceOneShotOptions one_shot_options;
+  q3x::runtime::ReferenceGeneration generation;
+  q3x::runtime::RequestStateResetReceipt reset_receipt;
   if (error != "invalid_argument" || stop != "im_end" ||
       benchmark != "repeatability_failure" ||
       projection != "sm87_weight_only" || options.warmup_rounds != 1U ||
@@ -25,7 +27,11 @@ int main() {
           q3x::runtime::ProjectionBackend::kReference ||
       one_shot_options.projection_backend !=
           q3x::runtime::ProjectionBackend::kReference ||
-      Q3X_VERSION_MAJOR != 0 || Q3X_VERSION_MINOR != 6 ||
+      generation.request_state_reset.has_value() ||
+      reset_receipt.mode !=
+          q3x::runtime::RequestStateResetMode::kConservativeFull ||
+      q3x::runtime::to_string(reset_receipt.mode) != "conservative_full" ||
+      Q3X_VERSION_MAJOR != 0 || Q3X_VERSION_MINOR != 7 ||
       Q3X_VERSION_PATCH != 0 ||
       q3x::runtime::kMaximumRequestPrefillChunkSize != 512U) {
     return 1;

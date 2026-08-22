@@ -234,6 +234,20 @@ mismatch must be repaired or separately qualified, followed by a fresh
 current-main complete-route comparison, before that arithmetic can become a
 production default.
 
+The 0.7.0 request-reuse conversion is now compiled into the ordinary
+`q3x.sm87.production.p40.legacy-c512-exact.v3` lifecycle: creation is already
+clean, a prior exact
+successful request clears only its committed K/V prefix plus complete
+Conv/GDN state, and every uncertain boundary performs the existing full
+reset. Its reset mode, positions, bytes, and synchronized duration are emitted
+without an environment, CLI, request, or test selector. Host policy, protocol,
+package-consumer, and bounded CUDA correctness gates establish mechanism
+safety only. The planned product return is approximately 15--16 ms of
+request-start cleanup; a matched installed real-model API B/C is still required
+before retaining that timing or claiming a TTFT improvement. This bounded
+qualification does not displace the accuracy-admissible P40 v10 conversion as
+the next architecture-scale P0.
+
 ### Retained recovery boundary
 
 The exact recovery anchor is

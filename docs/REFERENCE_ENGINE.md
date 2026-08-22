@@ -29,6 +29,12 @@ is the batch-one, text-only, greedy-generation owner for the exact pinned
 `nvidia/Qwen3.6-27B-NVFP4` artifact and tokenizer. It is the in-process runtime
 used by the CLI and evaluation adapter.
 
+Package ABI 0.7.0 appends the automatic request-start reset receipt to
+`ReferenceGeneration` and changes the public runner lifecycle layout. Together
+with the public request-state reset types and protocol witness field, this is
+an intentional 0.x C++ ABI break; consumers must rebuild against the exact
+0.7.0 package.
+
 ## Ownership and creation
 
 One heap-stable implementation object owns this lifetime chain:

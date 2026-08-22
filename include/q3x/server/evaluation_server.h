@@ -81,7 +81,7 @@ struct EvaluationProductionDeploymentPlan {
 inline constexpr EvaluationProductionDeploymentPlan
     kP40ExactLegacyC512ProductionPlan{
         EvaluationProductionProfile::kP40ExactLegacyC512,
-        "q3x.sm87.production.p40.legacy-c512-exact.v2",
+        "q3x.sm87.production.p40.legacy-c512-exact.v3",
         "q3x.sm87.decode.coupled-feed-down-consumer-order.v1",
         40'000U,
         4'096U,

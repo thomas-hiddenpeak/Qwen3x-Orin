@@ -6,7 +6,7 @@ q3x_document:
   owner: project-owner
   authority: end-to-end external-to-internal runner system design
   effective: 2026-08-09
-  last_reviewed: 2026-08-22
+  last_reviewed: 2026-08-23
   supersedes: []
   superseded_by: []
   ssot_for: runner product shape, system boundaries, lifecycle, and release architecture
@@ -184,9 +184,9 @@ not invent a new route.
 ### 3.1 First installable production profile
 
 The first ordinary installed profile is
-`q3x.sm87.production.p40.legacy-c512-exact.v2`. It is built by the
+`q3x.sm87.production.p40.legacy-c512-exact.v3`. It is built by the
 `orin-release` preset as Release, SM87, and `BUILD_TESTING=OFF`, and installs
-`qwen3x-eval-server`, `qwen3x-orin`, `qwen3x-inspect`, and the versioned 0.6.0
+`qwen3x-eval-server`, `qwen3x-orin`, `qwen3x-inspect`, and the versioned 0.7.0
 package. The server profile admits `prompt + output - 1 <= 44,095`, exposes a
 40,000-token product prompt and a 4,096-token output ceiling, fixes the exact
 Legacy-C512 request arena at 3,070,908,416 bytes, and retains an 8-GiB
@@ -298,6 +298,20 @@ before observing cancellation.
 The request records queue, tokenize, admission, Prefill, state-commit, Decode,
 first-token, stream, and cleanup intervals independently. It never derives a
 pure Prefill metric from TTFT without accounting for the other intervals.
+
+Ordinary legacy request reuse is lifecycle-derived rather than caller-selected.
+A newly created or successfully full-reset arena is already clean; an exactly
+committed successful request may clear complete Conv/GDN state plus only its
+written K/V prefix; cancellation, poison, an uncommitted whole request, a
+position mismatch, or any uncertain boundary requires the conservative full
+reset. The request witness records the selected mode, cleared positions,
+zeroed bytes, and synchronized cleanup duration. This public receipt and the
+associated C++ object-layout changes define package ABI 0.7.0; 0.x consumers
+must rebuild against that exact installed version.
+
+The v3 profile identity supersedes v2 only for the current installed route.
+Version 2 remains the immutable identity of the 0.6.0 evidence tuple; it cannot
+name the 0.7.0 request-start cleanup and witness contract.
 
 ### 5.3 Engineering evolution state machine
 

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 
-project(Qwen3xOrin VERSION 0.6.0 LANGUAGES CXX CUDA)
+project(Qwen3xOrin VERSION 0.7.0 LANGUAGES CXX CUDA)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -2249,7 +2249,7 @@ if(BUILD_TESTING)
   else()
     set_tests_properties(eval_server_help PROPERTIES
       PASS_REGULAR_EXPRESSION
-        "q3x.sm87.production.p40.legacy-c512-exact.v2"
+        "q3x.sm87.production.p40.legacy-c512-exact.v3"
     )
     add_test(NAME eval_server_rejects_unbuilt_p40_v10_development_route
       COMMAND qwen3x-eval-server unused

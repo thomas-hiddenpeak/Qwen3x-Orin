@@ -330,7 +330,7 @@ void test_serialization(TestContext& test) {
   test.expect(valid_json(health) &&
                   health.find("qwen\\\"model") != std::string::npos &&
                   health.find(
-                      R"("profile":"q3x.sm87.production.p40.legacy-c512-exact.v2")") !=
+                      R"("profile":"q3x.sm87.production.p40.legacy-c512-exact.v3")") !=
                       std::string::npos &&
                   health.find(R"("target_prompt_tokens":40000)") !=
                       std::string::npos &&
@@ -1661,6 +1661,14 @@ void test_prefill_tactic_defaults_remain_exact(TestContext& test) {
       server_options.request_min_free_bytes_after_create;
   const q3x::runtime::RequestPlanResult request_plan =
       q3x::runtime::build_request_memory_plan(plan_options);
+  constexpr std::uint32_t kP40Output16DirtyPositions = 40'015U;
+  const q3x::runtime::RequestStateResetPlan p40_prefix_reset =
+      request_plan
+          ? q3x::runtime::build_request_state_reset_plan(
+                *request_plan.value,
+                q3x::runtime::RequestStateResetMode::kCommittedDirtyPrefix,
+                kP40Output16DirtyPositions)
+          : q3x::runtime::RequestStateResetPlan{};
   test.expect(
       server_options.production_profile ==
               server::EvaluationProductionProfile::kP40ExactLegacyC512 &&
@@ -1670,8 +1678,17 @@ void test_prefill_tactic_defaults_remain_exact(TestContext& test) {
           server::is_p40_exact_legacy_c512_production_profile(
               server_options) &&
           request_plan &&
+          request_plan.value->profile ==
+              q3x::runtime::RequestMemoryProfile::kLegacyC512 &&
           request_plan.value->arena_bytes ==
               server_options.request_max_arena_bytes &&
+          p40_prefix_reset.valid &&
+          p40_prefix_reset.mode ==
+              q3x::runtime::RequestStateResetMode::kCommittedDirtyPrefix &&
+          p40_prefix_reset.cleared_positions ==
+              kP40Output16DirtyPositions &&
+          p40_prefix_reset.zeroed_bytes == 2'700'869'632ULL &&
+          p40_prefix_reset.memset_operations == 33U &&
           server_options.prefill_execution_mode == q3x::runtime::
               ReferencePrefillExecutionMode::kLegacyC512Tiled &&
           server_options.prefill_full_attention_tactic == q3x::runtime::
@@ -1684,8 +1701,8 @@ void test_prefill_tactic_defaults_remain_exact(TestContext& test) {
               ReferencePrefillExecutionMode::kLegacyC512Tiled &&
           engine_options.prefill_full_attention_tactic == q3x::runtime::
               LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512,
-      "the ordinary server seals planner-exact P40 Legacy-C512/SM87 "
-      "capacity while the engine API retains exact defaults");
+      "the ordinary sealed P40 server retains exact Legacy-C512/SM87 "
+      "defaults and admits the output16 committed dirty-prefix reset");
 }
 
 void test_bearer_authorization(TestContext& test) {

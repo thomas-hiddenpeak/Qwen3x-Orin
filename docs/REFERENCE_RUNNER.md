@@ -112,9 +112,11 @@ completion boundary.
 
 `ReferencePrefillTileResult::steps` therefore has 512 entries. That public
 C512 boundary was introduced by package ABI 0.4.0 and remains unchanged
-through 0.6.0; version 0.5.0 changed the separate request-state object ABI for an isolated
-layer-major candidate. The 64-token limit on a generic projection dispatcher
-is an internal component constraint; it does **not** narrow this runner API.
+through 0.7.0; version 0.5.0 changed the separate request-state object ABI for
+an isolated layer-major candidate. Version 0.7.0 changes the runner object ABI
+for lifecycle-derived request cleanup without changing the C512 capacity. The
+64-token limit on a generic projection dispatcher is an internal component
+constraint; it does **not** narrow this runner API.
 The runner may decompose an admitted 1..512 request internally, but no
 particular decomposition, kernel, buffering pattern, or stream plan is part of
 this contract.

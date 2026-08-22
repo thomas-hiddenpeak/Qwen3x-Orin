@@ -43,9 +43,9 @@ if(Q3X_EXPECT_EVAL_SERVER)
     ERROR_VARIABLE server_help_error
   )
   if(NOT server_help_result EQUAL 0 OR
-     NOT server_help_output MATCHES "evaluation server 0\\.6\\.0" OR
+     NOT server_help_output MATCHES "evaluation server 0\\.7\\.0" OR
      NOT server_help_output MATCHES
-       "q3x\\.sm87\\.production\\.p40\\.legacy-c512-exact\\.v2")
+       "q3x\\.sm87\\.production\\.p40\\.legacy-c512-exact\\.v3")
     message(FATAL_ERROR
       "installed production server identity mismatch\n"
       "${server_help_output}${server_help_error}")
