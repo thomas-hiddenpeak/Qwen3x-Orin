@@ -5,6 +5,7 @@
 #include "reference_runner_prompt_wide_policy_internal.h"
 #if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
 #include "reference_runner_full_attention_oracle_internal.h"
+#include "reference_runner_selector_exact_persistent_attention_v1_internal.h"
 #endif
 #include "reference_runner_request_reset_policy_internal.h"
 
@@ -154,6 +155,10 @@ thread_local std::size_t
 thread_local reference_runner_detail::
     PrefillLayer3AttentionP513OracleHook
         g_prefill_layer3_attention_p513_oracle_hook{};
+thread_local bool g_selector_exact_persistent_attention_v1_for_test = false;
+thread_local reference_runner_detail::
+    SelectorExactPersistentAttentionV1RouteReceipt
+        g_selector_exact_persistent_attention_v1_route_receipt_for_test{};
 #endif
 
 [[nodiscard]] reference_runner_detail::ReferenceRunnerPromptWidePolicy
@@ -1060,6 +1065,77 @@ PrefillLayer3AttentionP513OracleHook
 exchange_prefill_layer3_attention_p513_oracle_hook(
     const PrefillLayer3AttentionP513OracleHook hook) noexcept {
   return std::exchange(g_prefill_layer3_attention_p513_oracle_hook, hook);
+}
+
+bool exchange_selector_exact_persistent_attention_v1_for_test(
+    const bool enabled) noexcept {
+  return std::exchange(g_selector_exact_persistent_attention_v1_for_test,
+                       enabled);
+}
+
+SelectorExactPersistentAttentionV1RouteReceipt
+exchange_selector_exact_persistent_attention_v1_route_receipt_for_test(
+    const SelectorExactPersistentAttentionV1RouteReceipt receipt) noexcept {
+  return std::exchange(
+      g_selector_exact_persistent_attention_v1_route_receipt_for_test,
+      receipt);
+}
+
+int launch_selector_exact_persistent_attention_v1_cuda(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    std::uint16_t* const output,
+    SelectorExactPersistentAttentionV1LaunchReceipt* const receipt,
+    void* const cuda_stream) noexcept {
+  if (receipt == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *receipt = {};
+  const SelectorExactPersistentAttentionV1Plan plan =
+      make_selector_exact_persistent_attention_v1_plan(first_position,
+                                                       token_count);
+  receipt->plan = plan;
+  if (!plan.valid || query == nullptr || key_cache == nullptr ||
+      value_cache == nullptr || gate == nullptr || output == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  constexpr std::size_t kQueryElements =
+      kFullQueryHeads * kFullHeadDimension;
+  for (std::size_t index = 0U; index < plan.group_q64_span_count; ++index) {
+    const SelectorExactPersistentAttentionV1GroupSpan& span =
+        plan.group_q64_spans[index];
+    const std::size_t element_offset =
+        static_cast<std::size_t>(span.token_offset) * kQueryElements;
+    const int status =
+        launch_bulk_causal_gqa_sigmoid_gate_24_4_256_fixed_cuda(
+            query + element_offset, key_cache, value_cache,
+            gate + element_offset, span.first_position, span.token_count,
+            output + element_offset, cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    ++receipt->group_q64_submissions;
+  }
+  const std::size_t suffix_element_offset =
+      static_cast<std::size_t>(plan.generic_suffix_token_offset) *
+      kQueryElements;
+  const int suffix_status =
+      launch_selector_exact_persistent_attention_v1_q8_generic_suffix_cuda(
+          query + suffix_element_offset, key_cache, value_cache,
+          gate + suffix_element_offset, plan.generic_suffix_first_position,
+          plan.generic_suffix_token_count, output + suffix_element_offset,
+          cuda_stream);
+  if (suffix_status != static_cast<int>(cudaSuccess)) {
+    return suffix_status;
+  }
+  receipt->generic_q8_suffix_submissions = 1U;
+  receipt->persistent_ctas = static_cast<std::uint32_t>(
+      kSelectorExactPersistentAttentionV1PersistentBlockCount);
+  return static_cast<int>(cudaSuccess);
 }
 #endif
 
@@ -6148,6 +6224,30 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         ReferenceRunnerError::kInvalidStepOptions,
         "whole_request_prefill_topology"));
   }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+  if (g_selector_exact_persistent_attention_v1_for_test) {
+    const auto candidate_plan = reference_runner_detail::
+        make_selector_exact_persistent_attention_v1_plan(
+            immutable_topology.first_position, token_count);
+    if (executor != LayerMajorLayerExecutor::kOperatorPanel ||
+        projection_tactic !=
+            LayerMajorPrefillProjectionTactic::kExactSegmentedC512 ||
+        full_attention_tactic !=
+            LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512 ||
+        immutable_topology.panel_count != 1U ||
+        immutable_topology.panels[0U].first_position != 0U ||
+        immutable_topology.panels[0U].token_count != token_count ||
+        !reference_runner_detail::
+            is_selector_exact_persistent_attention_v1_runner_prompt_tokens(
+                token_count) ||
+        !candidate_plan.valid) {
+      return fail_whole_request_prefill(runner_status(
+          ReferenceRunnerError::kInvalidStepOptions,
+          "whole_request_prefill_selector_exact_persistent_attention_v1_"
+          "admission"));
+    }
+  }
+#endif
   const bool layer_wide_p40_mlp =
       immutable_topology.mlp_schedule.tactic ==
       LayerMajorPrefillMlpScheduleTactic::kLayerWideP40ExactFullM;
@@ -6692,7 +6792,17 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
                      LayerMajorPrefillFullAttentionTactic::
                          kNativeFlashInferExactPanel) {
             ++native_flashinfer_exact_panel_hits;
-          } else {
+          }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+          else if (g_selector_exact_persistent_attention_v1_for_test &&
+                   full_attention_tactic ==
+                       LayerMajorPrefillFullAttentionTactic::
+                           kExactSegmentedC512) {
+            // The candidate has its own private physical route receipt.
+            // Its one persistent Q8 suffix is not a per-span GenericQT2 hit.
+          }
+#endif
+          else {
             const LayerMajorPrefillArithmeticSpanLedger ledger =
                 make_layer_major_prefill_arithmetic_span_ledger(
                     panel.token_count);
@@ -7878,6 +7988,60 @@ ReferenceRunner::enqueue_prefill_layer_panel(
     }
 #endif
 
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+    const bool selector_exact_persistent_attention_v1 =
+        g_selector_exact_persistent_attention_v1_for_test;
+    if (selector_exact_persistent_attention_v1 &&
+        full_attention_tactic != LayerMajorPrefillFullAttentionTactic::
+                                     kExactSegmentedC512) {
+      return fail_enqueue(runner_status(
+          ReferenceRunnerError::kInvalidStepOptions,
+          "prefill_operator_panel_selector_exact_persistent_attention_v1_"
+          "tactic",
+          layer));
+    }
+    if (selector_exact_persistent_attention_v1) {
+      reference_runner_detail::
+          SelectorExactPersistentAttentionV1LaunchReceipt candidate_receipt;
+      if (!check_cuda(
+              reference_runner_detail::
+                  launch_selector_exact_persistent_attention_v1_cuda(
+                      processed_q, views_.key_cache[layer],
+                      views_.value_cache[layer], packed_gate, first_position,
+                      token_count, core_output, &candidate_receipt, stream_),
+              "prefill_operator_panel_selector_exact_persistent_attention_"
+              "v1",
+              layer)) {
+        return fail_enqueue(launch_failure);
+      }
+      auto& route_receipt =
+          g_selector_exact_persistent_attention_v1_route_receipt_for_test;
+      ++route_receipt.panel_calls;
+      route_receipt.arithmetic_spans +=
+          candidate_receipt.plan.arithmetic_span_count;
+      route_receipt.group_q64_submissions +=
+          candidate_receipt.group_q64_submissions;
+      route_receipt.generic_qt2_spans +=
+          candidate_receipt.plan.generic_qt2_span_count;
+      route_receipt.generic_q8_suffix_submissions +=
+          candidate_receipt.generic_q8_suffix_submissions;
+      route_receipt.fallback_submissions +=
+          candidate_receipt.fallback_submissions;
+      route_receipt.persistent_ctas += candidate_receipt.persistent_ctas;
+      if (route_receipt.minimum_physical_submission_tokens == 0U ||
+          candidate_receipt.plan.minimum_physical_submission_tokens <
+              route_receipt.minimum_physical_submission_tokens) {
+        route_receipt.minimum_physical_submission_tokens =
+            candidate_receipt.plan.minimum_physical_submission_tokens;
+      }
+      route_receipt.maximum_physical_submission_tokens =
+          std::max(route_receipt.maximum_physical_submission_tokens,
+                   candidate_receipt.plan.maximum_physical_submission_tokens);
+      route_receipt.maximum_logical_panel_tokens =
+          std::max(route_receipt.maximum_logical_panel_tokens,
+                   candidate_receipt.plan.logical_panel_tokens);
+    } else
+#endif
     if (full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
                                      kNativeFlashInferExactPanel) {
       if (!can_launch_bulk_causal_gqa_flashinfer_exact_panel(

@@ -571,6 +571,7 @@ add_library(q3x_kernels STATIC
   src/runtime/reference_runner_gdn_exact_span_policy_internal.h
   src/runtime/reference_runner_prompt_wide_policy_internal.h
   src/runtime/reference_runner_request_reset_policy_internal.h
+  src/runtime/reference_runner_selector_exact_persistent_attention_v1_internal.h
   src/runtime/reference_runner_layer_major_views.cpp
   src/kernels/reference/decode_ops.cu
   src/kernels/reference/full_attention_c512_register_pipeline.cu
@@ -1060,6 +1061,8 @@ if(BUILD_TESTING)
 
   set(Q3X_E2E_MODEL_DIR "" CACHE PATH
       "Pinned Qwen3.6-27B-NVFP4 model directory for optional E2E tests")
+  set(Q3X_E2E_PREFILL_ATTENTION_CORPUS "" CACHE FILEPATH
+      "Frozen 40K Agent token corpus for optional Attention qualification tests")
   set(Q3X_REAL_PERF_MODEL_DIR "" CACHE PATH
       "Pinned Qwen3.6-27B-NVFP4 model directory for real-payload performance measurement")
   set(Q3X_REAL_PERF_CPU "11" CACHE STRING
@@ -2132,6 +2135,65 @@ if(BUILD_TESTING)
   q3x_enable_warnings(q3x_reference_runner_host_test)
   add_test(NAME reference_runner_host COMMAND q3x_reference_runner_host_test)
 
+  add_executable(
+    q3x_reference_prefill_selector_exact_persistent_attention_v1_host_test
+    tests/reference_prefill_selector_exact_persistent_attention_v1_host_test.cpp
+  )
+  target_include_directories(
+    q3x_reference_prefill_selector_exact_persistent_attention_v1_host_test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+  )
+  target_link_libraries(
+    q3x_reference_prefill_selector_exact_persistent_attention_v1_host_test
+    PRIVATE q3x::kernels
+  )
+  q3x_enable_warnings(
+    q3x_reference_prefill_selector_exact_persistent_attention_v1_host_test
+  )
+  add_test(
+    NAME reference_prefill_selector_exact_persistent_attention_v1_host
+    COMMAND
+      q3x_reference_prefill_selector_exact_persistent_attention_v1_host_test
+  )
+  set_tests_properties(
+    reference_prefill_selector_exact_persistent_attention_v1_host PROPERTIES
+    LABELS "host;prefill;attention;architecture_candidate;default_off"
+  )
+
+  add_executable(
+    q3x_reference_prefill_selector_exact_persistent_attention_v1_cuda_test
+    tests/reference_prefill_selector_exact_persistent_attention_v1_cuda_test.cu
+  )
+  target_include_directories(
+    q3x_reference_prefill_selector_exact_persistent_attention_v1_cuda_test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+  )
+  target_link_libraries(
+    q3x_reference_prefill_selector_exact_persistent_attention_v1_cuda_test
+    PRIVATE q3x::kernels CUDA::cudart
+  )
+  target_compile_options(
+    q3x_reference_prefill_selector_exact_persistent_attention_v1_cuda_test
+    PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+  )
+  q3x_enable_warnings(
+    q3x_reference_prefill_selector_exact_persistent_attention_v1_cuda_test
+  )
+  add_test(
+    NAME reference_prefill_selector_exact_persistent_attention_v1_cuda
+    COMMAND
+      q3x_reference_prefill_selector_exact_persistent_attention_v1_cuda_test
+  )
+  set_tests_properties(
+    reference_prefill_selector_exact_persistent_attention_v1_cuda PROPERTIES
+    LABELS
+      "correctness;cuda;sm87;prefill;attention;architecture_candidate;default_off"
+    RESOURCE_LOCK q3x_sm87_gpu
+    RUN_SERIAL TRUE
+    SKIP_RETURN_CODE 77
+    TIMEOUT 300
+  )
+
   add_executable(q3x_reference_runner_layer_major_views_host_test
     tests/reference_runner_layer_major_views_host_test.cpp
   )
@@ -2388,6 +2450,13 @@ if(BUILD_TESTING)
   if(NOT _q3x_e2e_model_dir)
     set(_q3x_e2e_model_dir "-")
   endif()
+  set(_q3x_e2e_prefill_attention_corpus
+      "${Q3X_E2E_PREFILL_ATTENTION_CORPUS}")
+  if(NOT _q3x_e2e_prefill_attention_corpus AND
+     DEFINED ENV{Q3X_TEST_PREFILL_ATTENTION_CORPUS})
+    set(_q3x_e2e_prefill_attention_corpus
+        "$ENV{Q3X_TEST_PREFILL_ATTENTION_CORPUS}")
+  endif()
 
   add_executable(q3x_reference_engine_e2e_test
     tests/reference_engine_e2e_test.cpp
@@ -2497,6 +2566,42 @@ if(BUILD_TESTING)
       SKIP_RETURN_CODE 77
       TIMEOUT 3600
     )
+    add_test(
+      NAME reference_prefill_selector_exact_persistent_attention_v1_layer3
+      COMMAND q3x_reference_prefill_operator_panel_equivalence_e2e_test
+              "${_q3x_e2e_model_dir}"
+    )
+    set_tests_properties(
+      reference_prefill_selector_exact_persistent_attention_v1_layer3
+      PROPERTIES
+      LABELS "e2e;model;sm87;prefill;operator_panel;architecture_candidate;bitwise;layer3"
+      ENVIRONMENT
+        "Q3X_RUN_PREFILL_OPERATOR_PANEL_EQUIVALENCE=1;Q3X_RUN_PREFILL_ATTENTION_LAYER3_P513_ORACLE=1;Q3X_TEST_PREFILL_ATTENTION_TACTIC=selector-exact-persistent-attention-v1;Q3X_TEST_PREFILL_PROJECTION_TACTIC=exact-segmented"
+      RESOURCE_LOCK q3x_sm87_gpu
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 3600
+    )
+    if(_q3x_e2e_prefill_attention_corpus)
+      foreach(_q3x_selector_prompt_tokens IN ITEMS 513 4096 8192)
+        add_test(
+          NAME reference_prefill_selector_exact_persistent_attention_v1_p${_q3x_selector_prompt_tokens}_o16
+          COMMAND q3x_reference_prefill_operator_panel_equivalence_e2e_test
+                  "${_q3x_e2e_model_dir}"
+        )
+        set_tests_properties(
+          reference_prefill_selector_exact_persistent_attention_v1_p${_q3x_selector_prompt_tokens}_o16
+          PROPERTIES
+          LABELS "e2e;model;sm87;prefill;operator_panel;architecture_candidate;bitwise;qualification"
+          ENVIRONMENT
+            "Q3X_RUN_PREFILL_ATTENTION_QUALIFICATION=1;Q3X_TEST_PREFILL_ATTENTION_TACTIC=selector-exact-persistent-attention-v1;Q3X_TEST_PREFILL_PROJECTION_TACTIC=exact-segmented;Q3X_TEST_PREFILL_PROMPT_TOKENS=${_q3x_selector_prompt_tokens};Q3X_TEST_PREFILL_ATTENTION_CORPUS=${_q3x_e2e_prefill_attention_corpus}"
+          RESOURCE_LOCK q3x_sm87_gpu
+          RUN_SERIAL TRUE
+          SKIP_RETURN_CODE 77
+          TIMEOUT 3600
+        )
+      endforeach()
+    endif()
     if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
       add_test(NAME reference_prefill_flashinfer_exact_panel_e2e
         COMMAND q3x_reference_prefill_operator_panel_equivalence_e2e_test
