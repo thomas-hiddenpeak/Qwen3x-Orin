@@ -12,6 +12,9 @@
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 #include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/p40_packed_projection_assets.h"
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+#include "q3x/runtime/prefill_workspace_plan.h"
+#endif
 #include "q3x/runtime/sm87_target_aot_projection_device_assets.h"
 #include "q3x/text/tokenizer.h"
 #include "reference_engine_decode_sidecar_policy_internal.h"
@@ -56,6 +59,11 @@ namespace {
 thread_local reference_runner_detail::
     ReferenceEngineGenerateReturnSnapshotHook
         g_reference_engine_generate_return_snapshot_hook{};
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+thread_local reference_engine_detail::
+    ReferenceEnginePrefillCommitSnapshotHook
+        g_reference_engine_prefill_commit_snapshot_hook{};
+#endif
 thread_local reference_engine_detail::
     ReferenceEnginePrefillFinalTokenPolicyForTest
         g_reference_engine_prefill_final_token_policy_for_test =
@@ -1430,6 +1438,9 @@ bool observe_committed_token(void* const opaque,
 
 struct EngineStepContext {
   ReferenceRunner* runner = nullptr;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  RequestState* request_state = nullptr;
+#endif
   std::vector<ReferenceTraceDigest>* traces = nullptr;
   const reference_engine_detail::BoundPrefillExecutionPlan*
       bound_prefill_plan = nullptr;
@@ -1482,6 +1493,57 @@ struct EngineStepContext {
   std::size_t prefill_prompt_wide_p40_bf16_ab_hits = 0U;
   std::size_t prefill_prompt_wide_p40_gdn_hits = 0U;
   std::size_t prefill_native_flashinfer_exact_whole_prompt_hits = 0U;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  std::size_t
+      prefill_selector_exact_persistent_attention_v1_full_attention_layer_hits =
+          0U;
+  std::uint64_t
+      prefill_selector_exact_persistent_attention_v1_panel_calls = 0U;
+  std::uint64_t
+      prefill_selector_exact_persistent_attention_v1_arithmetic_spans = 0U;
+  std::uint64_t
+      prefill_selector_exact_persistent_attention_v1_group_q64_submissions = 0U;
+  std::uint64_t
+      prefill_selector_exact_persistent_attention_v1_generic_qt2_spans = 0U;
+  std::uint64_t
+      prefill_selector_exact_persistent_attention_v1_generic_q8_suffix_submissions =
+          0U;
+  std::uint64_t
+      prefill_selector_exact_persistent_attention_v1_fallback_submissions = 0U;
+  std::uint64_t
+      prefill_selector_exact_persistent_attention_v1_persistent_ctas = 0U;
+  std::uint64_t
+      prefill_selector_exact_persistent_attention_v1_physical_submissions = 0U;
+  std::uint32_t
+      prefill_selector_exact_persistent_attention_v1_minimum_physical_tokens =
+          0U;
+  std::uint32_t
+      prefill_selector_exact_persistent_attention_v1_maximum_physical_tokens =
+          0U;
+  std::uint32_t
+      prefill_selector_exact_persistent_attention_v1_logical_prompt_tokens =
+          0U;
+  bool prefill_selector_exact_persistent_attention_v1_completed_physical_receipt =
+      false;
+  std::uint32_t
+      prefill_selector_exact_persistent_attention_v1_physical_submission_count_per_layer =
+          0U;
+  std::array<reference_engine_detail::NativePrefillPhysicalSubmissionReceipt,
+             3U>
+      prefill_selector_exact_persistent_attention_v1_completed_submissions{};
+  std::uint32_t
+      prefill_selector_exact_persistent_attention_v1_completed_layer_count =
+          0U;
+  std::array<
+      reference_engine_detail::NativePrefillCompletedLayerSubmissionReceipt,
+      16U>
+      prefill_selector_exact_persistent_attention_v1_completed_layers{};
+  // Completed Legacy-C512 work, observed after each real tile returns
+  // successfully. These counters are candidate-test evidence only.
+  std::uint32_t prefill_legacy_c512_completed_tile_count = 0U;
+  std::uint64_t
+      prefill_legacy_c512_completed_attention_physical_submissions = 0U;
+#endif
   std::size_t prefill_packed_nvfp4_v2_gate_up_hits = 0U;
   std::size_t prefill_packed_nvfp4_v2_down_hits = 0U;
   std::size_t prefill_packed_nvfp4_v2_physical_launches = 0U;
@@ -1630,6 +1692,11 @@ prefill_whole_request_layer_major(
           LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore ||
       p40_projection_reset || p40_packed_projection || p40_packed_nvfp4_v2 ||
       p40_vllm_marlin_parity;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const bool selector_exact_p40 =
+      immutable_topology.whole_core_schedule
+          .selector_exact_persistent_attention_v1_whole_prompt_required;
+#endif
   const std::size_t expected_submissions_per_layer =
       prompt_wide_p40_whole_core
           ? p40_projection_reset
@@ -1745,7 +1812,45 @@ prefill_whole_request_layer_major(
           0U &&
       executed.value->prompt_wide_p40_bf16_ab_hits == 0U &&
       executed.value->prompt_wide_p40_gdn_hits == 0U &&
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      executed.value->native_flashinfer_exact_whole_prompt_hits == 0U &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_full_attention_layer_hits ==
+          0U &&
+      executed.value->selector_exact_persistent_attention_v1_panel_calls ==
+          0U &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_arithmetic_spans ==
+          0U &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_group_q64_submissions ==
+          0U &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_generic_qt2_spans ==
+          0U &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_generic_q8_suffix_submissions ==
+          0U &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_fallback_submissions ==
+          0U &&
+      executed.value->selector_exact_persistent_attention_v1_persistent_ctas ==
+          0U &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_physical_submissions ==
+          0U &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_minimum_physical_tokens ==
+          0U &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_maximum_physical_tokens ==
+          0U &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_logical_prompt_tokens ==
+          0U;
+#else
       executed.value->native_flashinfer_exact_whole_prompt_hits == 0U;
+#endif
   const bool persistent_p40_witness_zero =
       executed.value->layer_wide_p40_mlp_layer_hits == 0U &&
       executed.value->persistent_p40_nvfp4_gate_up_hits == 0U &&
@@ -1835,6 +1940,68 @@ prefill_whole_request_layer_major(
                 executed.value
                         ->vllm_marlin_parity_layer_completion_receipt_count ==
                     0U;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const auto& completed_selector_tactics =
+      executed.value
+          ->selector_exact_persistent_attention_v1_physical_submission_tactics;
+  const auto& completed_selector_first_positions =
+      executed.value
+          ->selector_exact_persistent_attention_v1_physical_submission_first_positions;
+  const auto& completed_selector_token_counts =
+      executed.value
+          ->selector_exact_persistent_attention_v1_physical_submission_token_counts;
+  const bool selector_witness_valid =
+      executed.value
+              ->selector_exact_persistent_attention_v1_full_attention_layer_hits ==
+          (selector_exact_p40 ? kLayerMajorPrefillFullLayerCount : 0U) &&
+      executed.value->selector_exact_persistent_attention_v1_panel_calls ==
+          (selector_exact_p40 ? 16U : 0U) &&
+      executed.value->selector_exact_persistent_attention_v1_arithmetic_spans ==
+          (selector_exact_p40 ? 1'280U : 0U) &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_group_q64_submissions ==
+          (selector_exact_p40 ? 32U : 0U) &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_generic_qt2_spans ==
+          (selector_exact_p40 ? 1'248U : 0U) &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_generic_q8_suffix_submissions ==
+          (selector_exact_p40 ? 16U : 0U) &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_fallback_submissions ==
+          0U &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_persistent_ctas ==
+          (selector_exact_p40 ? 256U : 0U) &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_physical_submissions ==
+          (selector_exact_p40 ? 48U : 0U) &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_minimum_physical_tokens ==
+          (selector_exact_p40 ? 512U : 0U) &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_maximum_physical_tokens ==
+          (selector_exact_p40 ? 38'976U : 0U) &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_logical_prompt_tokens ==
+          (selector_exact_p40 ? 40'000U : 0U) &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_completed_physical_receipt ==
+          selector_exact_p40 &&
+      executed.value
+              ->selector_exact_persistent_attention_v1_physical_submission_count_per_layer ==
+          (selector_exact_p40 ? 3U : 0U) &&
+      (!selector_exact_p40 ||
+       (completed_selector_tactics[0U] == 1U &&
+        completed_selector_first_positions[0U] == 0U &&
+        completed_selector_token_counts[0U] == 512U &&
+        completed_selector_tactics[1U] == 1U &&
+        completed_selector_first_positions[1U] == 512U &&
+        completed_selector_token_counts[1U] == 512U &&
+        completed_selector_tactics[2U] == 2U &&
+        completed_selector_first_positions[2U] == 1'024U &&
+        completed_selector_token_counts[2U] == 38'976U));
+#endif
   const bool valid_p40_witness =
       prompt_wide_p40_whole_core
           ? executed.value->operator_panel_executor_hits == 0U &&
@@ -1885,8 +2052,16 @@ prefill_whole_request_layer_major(
                     kLayerMajorPrefillLinearLayerCount &&
                 executed.value->prompt_wide_p40_gdn_hits ==
                     kLayerMajorPrefillLinearLayerCount &&
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+                executed.value->native_flashinfer_exact_whole_prompt_hits ==
+                    (selector_exact_p40
+                         ? 0U
+                         : kLayerMajorPrefillFullLayerCount) &&
+                selector_witness_valid &&
+#else
                 executed.value->native_flashinfer_exact_whole_prompt_hits ==
                     kLayerMajorPrefillFullLayerCount &&
+#endif
                 packed_nvfp4_v2_witness_valid && parity_witness_valid
       : layer_wide_p40_mlp
           ? whole_core_witness_zero &&
@@ -1998,6 +2173,106 @@ prefill_whole_request_layer_major(
       executed.value->prompt_wide_p40_gdn_hits;
   context.prefill_native_flashinfer_exact_whole_prompt_hits =
       executed.value->native_flashinfer_exact_whole_prompt_hits;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  context
+      .prefill_selector_exact_persistent_attention_v1_full_attention_layer_hits =
+      executed.value
+          ->selector_exact_persistent_attention_v1_full_attention_layer_hits;
+  context.prefill_selector_exact_persistent_attention_v1_panel_calls =
+      executed.value->selector_exact_persistent_attention_v1_panel_calls;
+  context.prefill_selector_exact_persistent_attention_v1_arithmetic_spans =
+      executed.value->selector_exact_persistent_attention_v1_arithmetic_spans;
+  context
+      .prefill_selector_exact_persistent_attention_v1_group_q64_submissions =
+      executed.value
+          ->selector_exact_persistent_attention_v1_group_q64_submissions;
+  context.prefill_selector_exact_persistent_attention_v1_generic_qt2_spans =
+      executed.value
+          ->selector_exact_persistent_attention_v1_generic_qt2_spans;
+  context
+      .prefill_selector_exact_persistent_attention_v1_generic_q8_suffix_submissions =
+      executed.value
+          ->selector_exact_persistent_attention_v1_generic_q8_suffix_submissions;
+  context.prefill_selector_exact_persistent_attention_v1_fallback_submissions =
+      executed.value
+          ->selector_exact_persistent_attention_v1_fallback_submissions;
+  context.prefill_selector_exact_persistent_attention_v1_persistent_ctas =
+      executed.value->selector_exact_persistent_attention_v1_persistent_ctas;
+  context.prefill_selector_exact_persistent_attention_v1_physical_submissions =
+      executed.value
+          ->selector_exact_persistent_attention_v1_physical_submissions;
+  context
+      .prefill_selector_exact_persistent_attention_v1_minimum_physical_tokens =
+      executed.value
+          ->selector_exact_persistent_attention_v1_minimum_physical_tokens;
+  context
+      .prefill_selector_exact_persistent_attention_v1_maximum_physical_tokens =
+      executed.value
+          ->selector_exact_persistent_attention_v1_maximum_physical_tokens;
+  context.prefill_selector_exact_persistent_attention_v1_logical_prompt_tokens =
+      executed.value
+          ->selector_exact_persistent_attention_v1_logical_prompt_tokens;
+  context
+      .prefill_selector_exact_persistent_attention_v1_completed_physical_receipt =
+      executed.value
+          ->selector_exact_persistent_attention_v1_completed_physical_receipt;
+  context
+      .prefill_selector_exact_persistent_attention_v1_physical_submission_count_per_layer =
+      executed.value
+          ->selector_exact_persistent_attention_v1_physical_submission_count_per_layer;
+  for (std::size_t span = 0U; span < 3U; ++span) {
+    const std::uint8_t tactic =
+        executed.value
+            ->selector_exact_persistent_attention_v1_physical_submission_tactics
+                [span];
+    context.prefill_selector_exact_persistent_attention_v1_completed_submissions
+        [span] = {
+        tactic == 1U
+            ? reference_engine_detail::
+                  NativePrefillPhysicalSubmissionTactic::kGroupQ64
+            : tactic == 2U
+                  ? reference_engine_detail::
+                        NativePrefillPhysicalSubmissionTactic::
+                            kPersistentGenericQt2Q8
+                  : reference_engine_detail::
+                        NativePrefillPhysicalSubmissionTactic::kNone,
+        executed.value
+            ->selector_exact_persistent_attention_v1_physical_submission_first_positions
+                [span],
+        executed.value
+            ->selector_exact_persistent_attention_v1_physical_submission_token_counts
+                [span]};
+  }
+  context
+      .prefill_selector_exact_persistent_attention_v1_completed_layer_count =
+      executed.value
+          ->selector_exact_persistent_attention_v1_completed_layer_count;
+  for (std::size_t index = 0U; index < 16U; ++index) {
+    const auto& source =
+        executed.value
+            ->selector_exact_persistent_attention_v1_completed_layers[index];
+    auto& target = context
+                       .prefill_selector_exact_persistent_attention_v1_completed_layers
+                           [index];
+    target.layer = source.layer;
+    target.physical_submission_count = source.physical_submission_count;
+    for (std::size_t span = 0U; span < 3U; ++span) {
+      const std::uint8_t tactic = source.physical_submission_tactics[span];
+      target.physical_submissions[span] = {
+          tactic == 1U
+              ? reference_engine_detail::
+                    NativePrefillPhysicalSubmissionTactic::kGroupQ64
+              : tactic == 2U
+                    ? reference_engine_detail::
+                          NativePrefillPhysicalSubmissionTactic::
+                              kPersistentGenericQt2Q8
+                    : reference_engine_detail::
+                          NativePrefillPhysicalSubmissionTactic::kNone,
+          source.physical_submission_first_positions[span],
+          source.physical_submission_token_counts[span]};
+    }
+  }
+#endif
   context.prefill_packed_nvfp4_v2_gate_up_hits =
       executed.value->packed_nvfp4_v2_gate_up_hits;
   context.prefill_packed_nvfp4_v2_down_hits =
@@ -2091,6 +2366,217 @@ finish_whole_request_from_uncommitted_retained(
   }
   return status;
 }
+
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+inline constexpr std::uint32_t
+    kP40000LegacyC512ProductionMaxSequenceLengthForTest = 44'095U;
+inline constexpr std::uint64_t kP40000LegacyC512ProductionArenaBytesForTest =
+    3'070'908'416U;
+
+[[nodiscard]] ReferenceRunnerStatus
+capture_prefill_state_committed_for_test(
+    void* const opaque_context) noexcept {
+  if (opaque_context == nullptr) {
+    return whole_request_adapter_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "engine_prefill_commit_snapshot_context");
+  }
+  const auto snapshot_hook = g_reference_engine_prefill_commit_snapshot_hook;
+  if (snapshot_hook.callback == nullptr) {
+    return {};
+  }
+  auto& context = *static_cast<EngineStepContext*>(opaque_context);
+  if (context.runner == nullptr || context.request_state == nullptr ||
+      context.request_state->sequence_length() != 40'000U) {
+    return whole_request_adapter_status(
+        ReferenceRunnerError::kInvalidRequestState,
+        "engine_prefill_commit_snapshot_state");
+  }
+
+  reference_engine_detail::
+      P40000SelectorExactPersistentAttentionV1CompletedReceipt receipt;
+  receipt.prompt_state_committed = true;
+  receipt.required_steps =
+      kSelectorExactPersistentAttentionV1P40RequiredSteps;
+  receipt.configured_internal_rows =
+      context.request_state->max_sequence_length();
+  receipt.arena_bytes = context.request_state->arena_bytes();
+  receipt.selector_route =
+      context
+          .prefill_selector_exact_persistent_attention_v1_full_attention_layer_hits !=
+      0U;
+  receipt.legacy_c512_route = !receipt.selector_route;
+  receipt.guard_rows =
+      receipt.selector_route
+          ? kSelectorExactPersistentAttentionV1P40GuardRows
+          : 0U;
+
+  if (receipt.selector_route) {
+    if (context.bound_prefill_plan == nullptr ||
+        context.request_state->memory_profile() !=
+            RequestMemoryProfile::kLayerMajorP40WholeCore ||
+        receipt.configured_internal_rows !=
+            kSelectorExactPersistentAttentionV1P40RequestCapacityTokens ||
+        receipt.arena_bytes !=
+            kSelectorExactPersistentAttentionV1P40WholeCoreArenaBytes ||
+        !reference_engine_detail::ReferenceEnginePrefillExecutor::
+            completed_selector_attention_binding(
+                *context.bound_prefill_plan,
+                receipt.bound_attention_role)) {
+      return whole_request_adapter_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "engine_prefill_commit_selector_binding");
+    }
+    receipt.full_attention_layer_hits = context
+        .prefill_selector_exact_persistent_attention_v1_full_attention_layer_hits;
+    receipt.panel_calls = context
+        .prefill_selector_exact_persistent_attention_v1_panel_calls;
+    receipt.arithmetic_spans = context
+        .prefill_selector_exact_persistent_attention_v1_arithmetic_spans;
+    receipt.group_q64_submissions = context
+        .prefill_selector_exact_persistent_attention_v1_group_q64_submissions;
+    receipt.generic_qt2_spans = context
+        .prefill_selector_exact_persistent_attention_v1_generic_qt2_spans;
+    receipt.generic_q8_suffix_submissions = context
+        .prefill_selector_exact_persistent_attention_v1_generic_q8_suffix_submissions;
+    receipt.fallback_submissions = context
+        .prefill_selector_exact_persistent_attention_v1_fallback_submissions;
+    receipt.persistent_ctas = context
+        .prefill_selector_exact_persistent_attention_v1_persistent_ctas;
+    receipt.physical_submissions = context
+        .prefill_selector_exact_persistent_attention_v1_physical_submissions;
+    receipt.minimum_physical_tokens = context
+        .prefill_selector_exact_persistent_attention_v1_minimum_physical_tokens;
+    receipt.maximum_physical_tokens = context
+        .prefill_selector_exact_persistent_attention_v1_maximum_physical_tokens;
+    receipt.logical_prompt_tokens = context
+        .prefill_selector_exact_persistent_attention_v1_logical_prompt_tokens;
+    receipt.completed_physical_receipt = context
+        .prefill_selector_exact_persistent_attention_v1_completed_physical_receipt;
+    receipt.completed_physical_submission_count_per_layer = context
+        .prefill_selector_exact_persistent_attention_v1_physical_submission_count_per_layer;
+    receipt.completed_physical_submissions = context
+        .prefill_selector_exact_persistent_attention_v1_completed_submissions;
+    receipt.completed_layer_count = context
+        .prefill_selector_exact_persistent_attention_v1_completed_layer_count;
+    receipt.completed_layers = context
+        .prefill_selector_exact_persistent_attention_v1_completed_layers;
+    receipt.logical_panel_count =
+        receipt.completed_physical_receipt ? 1U : 0U;
+    receipt.completed_physical_submissions_per_full_attention_layer =
+        receipt.completed_layers[0U].physical_submission_count;
+    receipt.completed_physical_submissions_total =
+        receipt.physical_submissions;
+    const auto& spans = receipt.completed_physical_submissions;
+    if (receipt.full_attention_layer_hits != 16U ||
+        receipt.panel_calls != 16U || receipt.arithmetic_spans != 1'280U ||
+        receipt.group_q64_submissions != 32U ||
+        receipt.generic_qt2_spans != 1'248U ||
+        receipt.generic_q8_suffix_submissions != 16U ||
+        receipt.fallback_submissions != 0U ||
+        receipt.persistent_ctas != 256U ||
+        receipt.physical_submissions != 48U ||
+        receipt.minimum_physical_tokens != 512U ||
+        receipt.maximum_physical_tokens != 38'976U ||
+        receipt.logical_prompt_tokens != 40'000U ||
+        !receipt.completed_physical_receipt ||
+        receipt.completed_physical_submission_count_per_layer != 3U ||
+        spans[0U].tactic != reference_engine_detail::
+                                 NativePrefillPhysicalSubmissionTactic::
+                                     kGroupQ64 ||
+        spans[0U].first_position != 0U ||
+        spans[0U].token_count != 512U ||
+        spans[1U].tactic != reference_engine_detail::
+                                 NativePrefillPhysicalSubmissionTactic::
+                                     kGroupQ64 ||
+        spans[1U].first_position != 512U ||
+        spans[1U].token_count != 512U ||
+        spans[2U].tactic != reference_engine_detail::
+                                 NativePrefillPhysicalSubmissionTactic::
+                                     kPersistentGenericQt2Q8 ||
+        spans[2U].first_position != 1'024U ||
+        spans[2U].token_count != 38'976U) {
+      return whole_request_adapter_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "engine_prefill_commit_selector_completed_receipt");
+    }
+    if (receipt.completed_layer_count != receipt.completed_layers.size()) {
+      return whole_request_adapter_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "engine_prefill_commit_selector_completed_layer_count");
+    }
+    for (std::size_t index = 0U; index < receipt.completed_layers.size();
+         ++index) {
+      const auto& layer_receipt = receipt.completed_layers[index];
+      const auto& layer_spans = layer_receipt.physical_submissions;
+      if (layer_receipt.layer != 3U + 4U * index ||
+          layer_receipt.physical_submission_count != 3U ||
+          layer_spans[0U].tactic != reference_engine_detail::
+                                         NativePrefillPhysicalSubmissionTactic::
+                                             kGroupQ64 ||
+          layer_spans[0U].first_position != 0U ||
+          layer_spans[0U].token_count != 512U ||
+          layer_spans[1U].tactic != reference_engine_detail::
+                                         NativePrefillPhysicalSubmissionTactic::
+                                             kGroupQ64 ||
+          layer_spans[1U].first_position != 512U ||
+          layer_spans[1U].token_count != 512U ||
+          layer_spans[2U].tactic != reference_engine_detail::
+                                         NativePrefillPhysicalSubmissionTactic::
+                                             kPersistentGenericQt2Q8 ||
+          layer_spans[2U].first_position != 1'024U ||
+          layer_spans[2U].token_count != 38'976U) {
+        return whole_request_adapter_status(
+            ReferenceRunnerError::kRouteEvidenceFailure,
+            "engine_prefill_commit_selector_completed_layer_receipt",
+            layer_receipt.layer);
+      }
+    }
+  } else {
+    if (context.bound_prefill_plan != nullptr ||
+        context.request_state->memory_profile() !=
+            RequestMemoryProfile::kLegacyC512 ||
+        receipt.configured_internal_rows !=
+            kP40000LegacyC512ProductionMaxSequenceLengthForTest ||
+        receipt.arena_bytes !=
+            kP40000LegacyC512ProductionArenaBytesForTest ||
+        context.prefill_legacy_c512_completed_tile_count != 79U ||
+        context.prefill_legacy_c512_completed_attention_physical_submissions !=
+            1'264U) {
+      return whole_request_adapter_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "engine_prefill_commit_legacy_identity");
+    }
+    // This is a completed-transaction receipt, not a plan-admission receipt.
+    // Each successful global Legacy tile executes one physical Attention
+    // submission in each of the 16 full-Attention layers.
+    receipt.logical_panel_count = 79U;
+    receipt.completed_physical_submissions_per_full_attention_layer = 79U;
+    receipt.completed_physical_submissions_total = 1'264U;
+    receipt.bound_attention_role.role =
+        PrefillBindingRole::kExactCausalAttention;
+    receipt.bound_attention_role.tactic = reference_engine_detail::
+        NativePrefillTactic::
+            kExactCausalAttentionOracleSpanC512C16Reference256;
+    receipt.bound_attention_role.completion = reference_engine_detail::
+        NativePrefillCompletionDomain::kMainStreamBarrier;
+    receipt.bound_attention_role.maximum_logical_panel_m = 512U;
+    receipt.bound_attention_role.minimum_physical_m = 64U;
+    receipt.bound_attention_role.maximum_physical_m = 512U;
+    receipt.bound_attention_role
+        .physical_submission_count_per_logical_panel = 1U;
+  }
+
+  if (!snapshot_hook.callback(*context.request_state, receipt,
+                              snapshot_hook.context)) {
+    return whole_request_adapter_status(
+        ReferenceRunnerError::kRouteEvidenceFailure,
+        "engine_prefill_commit_snapshot_callback");
+  }
+  return {};
+}
+#endif
 
 class EngineWholeRequestTransactionGuard final {
  public:
@@ -2206,8 +2692,40 @@ class EngineWholeRequestTransactionGuard final {
     return {{}, {ReferenceRunnerError::kTraceUnavailable, 0,
                  kReferenceNoLayer, "engine_prefill_tile_trace"}};
   }
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const std::uint32_t first_position =
+      context.request_state == nullptr
+          ? 0U
+          : context.request_state->sequence_length();
+  ReferencePrefillTileOutcome outcome =
+      context.runner->prefill_prefix_tile(input_token_ids, token_count,
+                                          options);
+  if (outcome && context.request_state != nullptr &&
+      g_reference_engine_prefill_commit_snapshot_hook.callback != nullptr &&
+      context.bound_prefill_plan == nullptr &&
+      context.request_state->memory_profile() ==
+          RequestMemoryProfile::kLegacyC512) {
+    const std::uint32_t expected_first =
+        context.prefill_legacy_c512_completed_tile_count * 512U;
+    const std::size_t expected_tokens =
+        context.prefill_legacy_c512_completed_tile_count == 78U ? 64U : 512U;
+    if (context.prefill_legacy_c512_completed_tile_count >= 79U ||
+        first_position != expected_first || token_count != expected_tokens ||
+        context.request_state->sequence_length() !=
+            first_position + token_count) {
+      return {{}, whole_request_adapter_status(
+                      ReferenceRunnerError::kRouteEvidenceFailure,
+                      "engine_prefill_legacy_completed_tile_receipt")};
+    }
+    ++context.prefill_legacy_c512_completed_tile_count;
+    context.prefill_legacy_c512_completed_attention_physical_submissions +=
+        kRequestFullLayerCount;
+  }
+  return outcome;
+#else
   return context.runner->prefill_prefix_tile(input_token_ids, token_count,
                                              options);
+#endif
 }
 
 [[nodiscard]] ReferenceStepOutcome prefill_step_with_route(
@@ -4771,6 +5289,17 @@ exchange_reference_engine_generate_return_snapshot_hook(
 
 namespace reference_engine_detail {
 
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+ReferenceEnginePrefillCommitSnapshotHook
+exchange_reference_engine_prefill_commit_snapshot_hook(
+    const ReferenceEnginePrefillCommitSnapshotHook hook) noexcept {
+  return std::exchange(g_reference_engine_prefill_commit_snapshot_hook,
+                       hook);
+}
+
+#endif
+
 #if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
 ReferenceEnginePrefillFinalTokenPolicyForTest
 exchange_reference_engine_prefill_final_token_policy_for_test(
@@ -4953,21 +5482,35 @@ struct ReferenceEngine::Impl {
       return result;
     }
 #else
+    const bool incumbent_p40_attention_profile =
+        options.request_options.max_sequence_length ==
+            kLayerMajorPrefillPromptWideP40RequestCapacityTokens &&
+        options.prefill_full_attention_tactic ==
+            LayerMajorPrefillFullAttentionTactic::
+                kNativeFlashInferExactWholePrompt;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    const bool selector_p40_attention_profile =
+        is_selector_exact_persistent_attention_v1_p40_request_capacity_tokens(
+            options.request_options.max_sequence_length) &&
+        options.prefill_full_attention_tactic ==
+            LayerMajorPrefillFullAttentionTactic::
+                kSelectorExactPersistentAttentionV1WholePrompt;
+#else
+    constexpr bool selector_p40_attention_profile = false;
+#endif
     if (options.prefill_projection_tactic ==
             LayerMajorPrefillProjectionTactic::
                 kNativePromptWideP40WholeCore &&
         (options.prefill_execution_mode !=
              ReferencePrefillExecutionMode::kWholeRequestLayerMajor ||
-         options.request_options.max_sequence_length !=
-             kLayerMajorPrefillPromptWideP40RequestCapacityTokens ||
-         options.prefill_full_attention_tactic !=
-             LayerMajorPrefillFullAttentionTactic::
-                 kNativeFlashInferExactWholePrompt)) {
+         !(incumbent_p40_attention_profile ||
+           selector_p40_attention_profile))) {
       result.diagnostic = engine_diagnostic(
           ReferenceEngineError::kInvalidArgument,
           "prefill_projection_tactic",
           "the prompt-wide whole-core route admits only a cold exact "
-          "P40000 whole-request engine with whole-prompt FlashInfer");
+          "P40000 whole-request engine with a capacity-matched sealed "
+          "whole-prompt Attention tactic");
       return result;
     }
 #endif
@@ -7344,6 +7887,9 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     std::vector<ReferenceTraceDigest> traces;
     EngineStepContext step_context;
     step_context.runner = &*impl_->runner;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    step_context.request_state = &*impl_->request_state;
+#endif
     step_context.traces = &traces;
     step_context.capture_trace = options.capture_trace;
     step_context.bound_prefill_plan =
@@ -7420,6 +7966,11 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
       prefill_plan.commit_whole_request =
           commit_whole_request_layer_major;
     }
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    prefill_plan.prefill_state_committed_for_test =
+        capture_prefill_state_committed_for_test;
+#endif
 
     reference_engine_detail::DecodePlan decode_plan;
     decode_plan.context = &step_context;
@@ -7686,6 +8237,123 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     generation.prefill_native_flashinfer_exact_whole_prompt_hits =
         static_cast<std::uint64_t>(
             step_context.prefill_native_flashinfer_exact_whole_prompt_hits);
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    generation
+        .prefill_selector_exact_persistent_attention_v1_full_attention_layer_hits =
+        static_cast<std::uint64_t>(
+            step_context
+                .prefill_selector_exact_persistent_attention_v1_full_attention_layer_hits);
+    generation.prefill_selector_exact_persistent_attention_v1_panel_calls =
+        step_context
+            .prefill_selector_exact_persistent_attention_v1_panel_calls;
+    generation.prefill_selector_exact_persistent_attention_v1_arithmetic_spans =
+        step_context
+            .prefill_selector_exact_persistent_attention_v1_arithmetic_spans;
+    generation
+        .prefill_selector_exact_persistent_attention_v1_group_q64_submissions =
+        step_context
+            .prefill_selector_exact_persistent_attention_v1_group_q64_submissions;
+    generation.prefill_selector_exact_persistent_attention_v1_generic_qt2_spans =
+        step_context
+            .prefill_selector_exact_persistent_attention_v1_generic_qt2_spans;
+    generation
+        .prefill_selector_exact_persistent_attention_v1_generic_q8_suffix_submissions =
+        step_context
+            .prefill_selector_exact_persistent_attention_v1_generic_q8_suffix_submissions;
+    generation
+        .prefill_selector_exact_persistent_attention_v1_fallback_submissions =
+        step_context
+            .prefill_selector_exact_persistent_attention_v1_fallback_submissions;
+    generation.prefill_selector_exact_persistent_attention_v1_persistent_ctas =
+        step_context
+            .prefill_selector_exact_persistent_attention_v1_persistent_ctas;
+    generation.prefill_selector_exact_persistent_attention_v1_physical_submissions =
+        step_context
+            .prefill_selector_exact_persistent_attention_v1_physical_submissions;
+    generation
+        .prefill_selector_exact_persistent_attention_v1_minimum_physical_tokens =
+        step_context
+            .prefill_selector_exact_persistent_attention_v1_minimum_physical_tokens;
+    generation
+        .prefill_selector_exact_persistent_attention_v1_maximum_physical_tokens =
+        step_context
+            .prefill_selector_exact_persistent_attention_v1_maximum_physical_tokens;
+    generation.prefill_selector_exact_persistent_attention_v1_logical_prompt_tokens =
+        step_context
+            .prefill_selector_exact_persistent_attention_v1_logical_prompt_tokens;
+    if (generation
+            .prefill_selector_exact_persistent_attention_v1_full_attention_layer_hits !=
+        0U) {
+      generation.prefill_selector_exact_persistent_attention_v1_plan_id =
+          std::string(
+              kSelectorExactPersistentAttentionV1P40DeploymentPlanId);
+      generation
+          .prefill_selector_exact_persistent_attention_v1_configured_internal_rows =
+          impl_->request_state->max_sequence_length();
+      generation.prefill_selector_exact_persistent_attention_v1_required_steps =
+          kSelectorExactPersistentAttentionV1P40RequiredSteps;
+      generation.prefill_selector_exact_persistent_attention_v1_guard_rows =
+          kSelectorExactPersistentAttentionV1P40GuardRows;
+      generation.prefill_selector_exact_persistent_attention_v1_arena_bytes =
+          impl_->request_state->arena_bytes();
+      generation.prefill_selector_exact_persistent_attention_v1_completed =
+          step_context
+              .prefill_selector_exact_persistent_attention_v1_completed_physical_receipt;
+      generation
+          .prefill_selector_exact_persistent_attention_v1_completed_layer_count =
+          step_context
+              .prefill_selector_exact_persistent_attention_v1_completed_layer_count;
+      generation
+          .prefill_selector_exact_persistent_attention_v1_physical_submission_count_per_layer =
+          step_context
+              .prefill_selector_exact_persistent_attention_v1_physical_submission_count_per_layer;
+      for (std::size_t span = 0U; span < 3U; ++span) {
+        generation
+            .prefill_selector_exact_persistent_attention_v1_physical_submission_tactics
+                [span] = static_cast<std::uint8_t>(
+            step_context
+                .prefill_selector_exact_persistent_attention_v1_completed_submissions
+                    [span]
+                .tactic);
+        generation
+            .prefill_selector_exact_persistent_attention_v1_physical_submission_first_positions
+                [span] =
+            step_context
+                .prefill_selector_exact_persistent_attention_v1_completed_submissions
+                    [span]
+                .first_position;
+        generation
+            .prefill_selector_exact_persistent_attention_v1_physical_submission_token_counts
+                [span] =
+            step_context
+                .prefill_selector_exact_persistent_attention_v1_completed_submissions
+                    [span]
+                .token_count;
+      }
+      for (std::size_t index = 0U; index < 16U; ++index) {
+        const auto& source =
+            step_context
+                .prefill_selector_exact_persistent_attention_v1_completed_layers
+                    [index];
+        auto& target =
+            generation
+                .prefill_selector_exact_persistent_attention_v1_completed_layers
+                    [index];
+        target.layer = source.layer;
+        target.physical_submission_count =
+            source.physical_submission_count;
+        for (std::size_t span = 0U; span < 3U; ++span) {
+          target.physical_submission_tactics[span] =
+              static_cast<std::uint8_t>(
+                  source.physical_submissions[span].tactic);
+          target.physical_submission_first_positions[span] =
+              source.physical_submissions[span].first_position;
+          target.physical_submission_token_counts[span] =
+              source.physical_submissions[span].token_count;
+        }
+      }
+    }
+#endif
     generation.prefill_packed_nvfp4_v2_gate_up_hits =
         static_cast<std::uint64_t>(
             step_context.prefill_packed_nvfp4_v2_gate_up_hits);

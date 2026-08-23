@@ -1678,8 +1678,13 @@ build_unbound_layer_major_p40_whole_core_workspace_plan(
     const LayerMajorP40WholeCoreWorkspaceOptions& options) noexcept {
   LayerMajorP40WholeCoreWorkspacePlanResult result;
   if (options.prompt_token_count != kLayerMajorP40WholeCorePromptTokens ||
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      !is_layer_major_p40_whole_core_request_capacity(
+          options.request_sequence_capacity_tokens) ||
+#else
       options.request_sequence_capacity_tokens !=
           kLayerMajorP40WholeCoreRequestCapacityTokens ||
+#endif
       options.logical_panel_capacity_tokens !=
           kLayerMajorP40WholeCorePanelTokens ||
       options.request_arena_limit_bytes == 0U ||
@@ -1714,8 +1719,13 @@ build_unbound_layer_major_p40_whole_core_workspace_plan(
 
   LayerMajorP40WholeCoreWorkspacePlan plan;
   plan.prompt_token_count = kLayerMajorP40WholeCorePromptTokens;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  plan.request_sequence_capacity_tokens =
+      static_cast<std::uint32_t>(options.request_sequence_capacity_tokens);
+#else
   plan.request_sequence_capacity_tokens =
       kLayerMajorP40WholeCoreRequestCapacityTokens;
+#endif
   plan.logical_panel_capacity_tokens = kLayerMajorP40WholeCorePanelTokens;
   plan.logical_panel_count = kLayerMajorP40WholeCorePanelCount;
   plan.request_arena_limit_bytes = options.request_arena_limit_bytes;
@@ -1854,6 +1864,20 @@ build_unbound_layer_major_p40_whole_core_workspace_plan(
 
   plan.prompt_token_ids_u32.family_relative_offset =
       plan.linear_prompt_wide_workspace.family_relative_offset;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const std::uint64_t expected_arena_bytes =
+      layer_major_p40_whole_core_arena_bytes(
+          plan.request_sequence_capacity_tokens);
+  const std::uint64_t capacity_delta =
+      plan.request_sequence_capacity_tokens -
+      kLayerMajorP40WholeCoreRequestCapacityTokens;
+  const std::uint64_t expected_persistent_bytes =
+      2'699'952'128U + capacity_delta * 65'536U;
+  const std::uint64_t expected_prompt_residual_bytes =
+      409'610'240U + capacity_delta * 10'240U;
+  const std::uint64_t expected_rope_bytes =
+      10'240'256U + capacity_delta * 256U;
+#endif
   std::uint64_t token_ids_end = 0U;
   std::uint64_t workspace_end = 0U;
   if (!checked_add(plan.prompt_token_ids_u32.family_relative_offset,
@@ -1874,12 +1898,23 @@ build_unbound_layer_major_p40_whole_core_workspace_plan(
       plan.linear_output_bf16.family_relative_offset != 4'938'240'000U ||
       plan.whole_core_family_arena.required_bytes !=
           kLayerMajorP40WholeCoreFamilyArenaBytes ||
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      plan.persistent_and_kv.required_bytes != expected_persistent_bytes ||
+      plan.prompt_residual_bf16.required_bytes !=
+          expected_prompt_residual_bytes ||
+      plan.legacy_c512_workspace.required_bytes != 90'970'112U ||
+      plan.final_hidden_handoff_bf16.required_bytes != 10'240U ||
+      plan.rope_cos_sin_fp32.required_bytes != expected_rope_bytes ||
+      expected_arena_bytes == 0U ||
+      plan.required_bytes != expected_arena_bytes ||
+#else
       plan.persistent_and_kv.required_bytes != 2'699'952'128U ||
       plan.prompt_residual_bf16.required_bytes != 409'610'240U ||
       plan.legacy_c512_workspace.required_bytes != 90'970'112U ||
       plan.final_hidden_handoff_bf16.required_bytes != 10'240U ||
       plan.rope_cos_sin_fp32.required_bytes != 10'240'256U ||
       plan.required_bytes != 8'640'542'976U ||
+#endif
       plan.executable()) {
     result.error = PrefillWorkspacePlanError::kInvalidLayout;
     return result;

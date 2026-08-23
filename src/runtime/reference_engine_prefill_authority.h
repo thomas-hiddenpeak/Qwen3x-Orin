@@ -54,6 +54,9 @@ enum class NativePrefillTactic : std::uint8_t {
   kNativeCausalAttentionGroupQ128V4OperatorPanel,
   kNativeCausalAttentionFlashInferExactOperatorPanel,
   kNativeCausalAttentionFlashInferExactWholePrompt,
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  kSelectorExactPersistentAttentionV1WholePrompt,
+#endif
   kResidualOperatorPanel,
   kNormalizationOperatorPanel,
   kEmbeddingOperatorPanel,
@@ -84,6 +87,28 @@ enum class NativePrefillCompletionDomain : std::uint8_t {
   kAuxiliaryJoinedToMainBarrier,
 };
 
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+enum class NativePrefillPhysicalSubmissionTactic : std::uint8_t {
+  kNone = 0,
+  kGroupQ64,
+  kPersistentGenericQt2Q8,
+};
+
+struct NativePrefillPhysicalSubmissionReceipt {
+  NativePrefillPhysicalSubmissionTactic tactic =
+      NativePrefillPhysicalSubmissionTactic::kNone;
+  std::uint32_t first_position = 0U;
+  std::uint32_t token_count = 0U;
+};
+
+struct NativePrefillCompletedLayerSubmissionReceipt {
+  std::uint32_t layer = 0U;
+  std::uint32_t physical_submission_count = 0U;
+  std::array<NativePrefillPhysicalSubmissionReceipt, 3U>
+      physical_submissions{};
+};
+#endif
+
 struct NativePrefillRoleReceipt {
   PrefillBindingRole role = PrefillBindingRole::kInvalid;
   NativePrefillTactic tactic =
@@ -98,7 +123,72 @@ struct NativePrefillRoleReceipt {
   std::uint32_t maximum_logical_panel_m = 0U;
   std::uint32_t minimum_physical_m = 0U;
   std::uint32_t maximum_physical_m = 0U;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  std::uint32_t physical_submission_count_per_logical_panel = 0U;
+  std::array<NativePrefillPhysicalSubmissionReceipt, 3U>
+      physical_submissions{};
+#endif
 };
+
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+// Candidate-private completed receipt. The binding fields are copied from
+// the engine-lifetime authority only after the request has committed, while
+// launch counters/spans are copied from the synchronized runner result. This
+// type and its TLS hook are absent from ordinary OFF headers and objects.
+struct P40000SelectorExactPersistentAttentionV1CompletedReceipt {
+  bool prompt_state_committed = false;
+  bool legacy_c512_route = false;
+  bool selector_route = false;
+  std::uint32_t configured_internal_rows = 0U;
+  std::uint32_t required_steps = 0U;
+  std::uint32_t guard_rows = 0U;
+  std::uint64_t arena_bytes = 0U;
+  // Completed whole-transaction Attention geometry. These counts are
+  // published only after the real route reaches PrefillStateCommitted. They
+  // stay separate from the bound role's per-logical-panel submission count.
+  std::uint32_t logical_panel_count = 0U;
+  std::uint32_t
+      completed_physical_submissions_per_full_attention_layer = 0U;
+  std::uint64_t completed_physical_submissions_total = 0U;
+  NativePrefillRoleReceipt bound_attention_role{};
+  std::uint64_t full_attention_layer_hits = 0U;
+  std::uint64_t panel_calls = 0U;
+  std::uint64_t arithmetic_spans = 0U;
+  std::uint64_t group_q64_submissions = 0U;
+  std::uint64_t generic_qt2_spans = 0U;
+  std::uint64_t generic_q8_suffix_submissions = 0U;
+  std::uint64_t fallback_submissions = 0U;
+  std::uint64_t persistent_ctas = 0U;
+  std::uint64_t physical_submissions = 0U;
+  std::uint32_t minimum_physical_tokens = 0U;
+  std::uint32_t maximum_physical_tokens = 0U;
+  std::uint32_t logical_prompt_tokens = 0U;
+  bool completed_physical_receipt = false;
+  std::uint32_t completed_physical_submission_count_per_layer = 0U;
+  std::array<NativePrefillPhysicalSubmissionReceipt, 3U>
+      completed_physical_submissions{};
+  std::uint32_t completed_layer_count = 0U;
+  std::array<NativePrefillCompletedLayerSubmissionReceipt, 16U>
+      completed_layers{};
+};
+
+// Common BUILD_TESTING-only prompt boundary. It fires after either a real
+// Legacy-C512 all-prompt transaction or a whole-request transaction has
+// committed and before the first generated token is published/decoded.
+using ReferenceEnginePrefillCommitSnapshotCallback = bool (*)(
+    const RequestState& state,
+    const P40000SelectorExactPersistentAttentionV1CompletedReceipt& receipt,
+    void* context) noexcept;
+
+struct ReferenceEnginePrefillCommitSnapshotHook {
+  ReferenceEnginePrefillCommitSnapshotCallback callback = nullptr;
+  void* context = nullptr;
+};
+
+[[nodiscard]] ReferenceEnginePrefillCommitSnapshotHook
+exchange_reference_engine_prefill_commit_snapshot_hook(
+    ReferenceEnginePrefillCommitSnapshotHook hook) noexcept;
+#endif
 
 class BoundPrefillExecutionPlan final {
  public:
@@ -241,6 +331,11 @@ class ReferenceEnginePrefillExecutor final {
       BoundPrefillRequestReceipt& receipt,
       const PrefillExecutionPlan& geometry,
       const PrefillExecutionProgress& progress) noexcept;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  [[nodiscard]] static bool completed_selector_attention_binding(
+      const BoundPrefillExecutionPlan& plan,
+      NativePrefillRoleReceipt& attention) noexcept;
+#endif
 
  private:
   [[nodiscard]] static bool plan_matches_runner(

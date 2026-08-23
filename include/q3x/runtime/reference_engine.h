@@ -461,6 +461,65 @@ struct ReferenceGeneration {
   std::uint64_t prefill_prompt_wide_p40_bf16_ab_hits = 0U;
   std::uint64_t prefill_prompt_wide_p40_gdn_hits = 0U;
   std::uint64_t prefill_native_flashinfer_exact_whole_prompt_hits = 0U;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  // Candidate-profile public acceptance receipt. These fields are absent
+  // from ordinary OFF headers and are copied only from a synchronized,
+  // committed whole-request result; plan admission cannot synthesize them.
+  std::string prefill_selector_exact_persistent_attention_v1_plan_id;
+  std::uint32_t
+      prefill_selector_exact_persistent_attention_v1_configured_internal_rows =
+          0U;
+  std::uint32_t
+      prefill_selector_exact_persistent_attention_v1_required_steps = 0U;
+  std::uint32_t prefill_selector_exact_persistent_attention_v1_guard_rows = 0U;
+  std::uint64_t prefill_selector_exact_persistent_attention_v1_arena_bytes =
+      0U;
+  std::uint64_t
+      prefill_selector_exact_persistent_attention_v1_full_attention_layer_hits =
+          0U;
+  std::uint64_t prefill_selector_exact_persistent_attention_v1_panel_calls =
+      0U;
+  std::uint64_t
+      prefill_selector_exact_persistent_attention_v1_arithmetic_spans = 0U;
+  std::uint64_t
+      prefill_selector_exact_persistent_attention_v1_group_q64_submissions =
+          0U;
+  std::uint64_t
+      prefill_selector_exact_persistent_attention_v1_generic_qt2_spans = 0U;
+  std::uint64_t
+      prefill_selector_exact_persistent_attention_v1_generic_q8_suffix_submissions =
+          0U;
+  std::uint64_t
+      prefill_selector_exact_persistent_attention_v1_fallback_submissions = 0U;
+  std::uint64_t
+      prefill_selector_exact_persistent_attention_v1_persistent_ctas = 0U;
+  std::uint64_t
+      prefill_selector_exact_persistent_attention_v1_physical_submissions = 0U;
+  std::uint32_t
+      prefill_selector_exact_persistent_attention_v1_minimum_physical_tokens =
+          0U;
+  std::uint32_t
+      prefill_selector_exact_persistent_attention_v1_maximum_physical_tokens =
+          0U;
+  std::uint32_t
+      prefill_selector_exact_persistent_attention_v1_logical_prompt_tokens =
+          0U;
+  bool prefill_selector_exact_persistent_attention_v1_completed = false;
+  std::uint32_t
+      prefill_selector_exact_persistent_attention_v1_completed_layer_count =
+          0U;
+  std::uint32_t
+      prefill_selector_exact_persistent_attention_v1_physical_submission_count_per_layer =
+          0U;
+  std::array<std::uint8_t, 3U>
+      prefill_selector_exact_persistent_attention_v1_physical_submission_tactics{};
+  std::array<std::uint32_t, 3U>
+      prefill_selector_exact_persistent_attention_v1_physical_submission_first_positions{};
+  std::array<std::uint32_t, 3U>
+      prefill_selector_exact_persistent_attention_v1_physical_submission_token_counts{};
+  std::array<ReferenceP40000SelectorCompletedLayerReceipt, 16U>
+      prefill_selector_exact_persistent_attention_v1_completed_layers{};
+#endif
   // Packed-NVFP4-v2 executor evidence is additive to the common P40 packed
   // FP8 and whole-core counters above. Selector admission never creates hits.
   std::uint64_t prefill_packed_nvfp4_v2_gate_up_hits = 0U;
@@ -1080,6 +1139,14 @@ using PrefillPromptFunction = PrefillPromptOutcome (*)(
 using PrefillCommitFunction = ReferenceRunnerStatus (*)(
     void* context, const PrefillExecutionPlan& unbound_immutable_topology,
     const PrefillExecutionProgress& completed_uncommitted_progress) noexcept;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+// Candidate-profile observation seam at the common PrefillStateCommitted
+// boundary. It runs after either the real Legacy-C512 finalizer or the
+// whole-request commit, and before the first generated token is published.
+// Ordinary builds do not expose this callback or change PrefillPlan layout.
+using PrefillStateCommittedForTestFunction = ReferenceRunnerStatus (*)(
+    void* context) noexcept;
+#endif
 using CommittedTokenFunction = bool (*)(
     void* context, std::uint32_t token_id, std::size_t token_index,
     double elapsed_milliseconds) noexcept;
@@ -1110,6 +1177,10 @@ struct PrefillPlan {
   // state; commit_whole_request is the sole publication transition.
   StepFunction finish_whole_request_from_uncommitted_retained = nullptr;
   PrefillCommitFunction commit_whole_request = nullptr;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  PrefillStateCommittedForTestFunction prefill_state_committed_for_test =
+      nullptr;
+#endif
 };
 
 struct DecodePlan {

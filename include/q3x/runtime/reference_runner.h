@@ -363,6 +363,19 @@ struct ReferenceP40VllmMarlinParityLayerCompletionReceipt {
 static_assert(
     sizeof(ReferenceP40VllmMarlinParityLayerCompletionReceipt) == 4U);
 
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+// Candidate-profile public completion evidence. Tactics are typed as
+// 1=GroupQ64 and 2=PersistentGenericQT2Q8. Every entry is populated from the
+// corresponding launcher receipt and is published only after stream sync.
+struct ReferenceP40000SelectorCompletedLayerReceipt {
+  std::uint32_t layer = 0U;
+  std::uint32_t physical_submission_count = 0U;
+  std::array<std::uint8_t, 3U> physical_submission_tactics{};
+  std::array<std::uint32_t, 3U> physical_submission_first_positions{};
+  std::array<std::uint32_t, 3U> physical_submission_token_counts{};
+};
+#endif
+
 struct ReferenceWholeRequestPrefillResult {
   std::uint32_t first_position = 0U;
   std::uint32_t final_position = 0U;
@@ -415,6 +428,49 @@ struct ReferenceWholeRequestPrefillResult {
   std::size_t prompt_wide_p40_bf16_ab_hits = 0U;
   std::size_t prompt_wide_p40_gdn_hits = 0U;
   std::size_t native_flashinfer_exact_whole_prompt_hits = 0U;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  // BUILD_TESTING-only selector-exact P40000 route. One hit is one committed
+  // full-Attention layer prompt core; the detailed 3-submission receipt is
+  // owned by the qualification harness.
+  std::size_t
+      selector_exact_persistent_attention_v1_full_attention_layer_hits = 0U;
+  std::uint64_t selector_exact_persistent_attention_v1_panel_calls = 0U;
+  std::uint64_t selector_exact_persistent_attention_v1_arithmetic_spans = 0U;
+  std::uint64_t
+      selector_exact_persistent_attention_v1_group_q64_submissions = 0U;
+  std::uint64_t selector_exact_persistent_attention_v1_generic_qt2_spans = 0U;
+  std::uint64_t
+      selector_exact_persistent_attention_v1_generic_q8_suffix_submissions =
+          0U;
+  std::uint64_t selector_exact_persistent_attention_v1_fallback_submissions =
+      0U;
+  std::uint64_t selector_exact_persistent_attention_v1_persistent_ctas = 0U;
+  std::uint64_t selector_exact_persistent_attention_v1_physical_submissions =
+      0U;
+  std::uint32_t
+      selector_exact_persistent_attention_v1_minimum_physical_tokens = 0U;
+  std::uint32_t
+      selector_exact_persistent_attention_v1_maximum_physical_tokens = 0U;
+  std::uint32_t selector_exact_persistent_attention_v1_logical_prompt_tokens =
+      0U;
+  bool selector_exact_persistent_attention_v1_completed_physical_receipt =
+      false;
+  std::uint32_t
+      selector_exact_persistent_attention_v1_physical_submission_count_per_layer =
+          0U;
+  // 1=GroupQ64, 2=PersistentGenericQT2Q8. Values are candidate-private and
+  // are copied from completed launcher receipts, not inferred from admission.
+  std::array<std::uint8_t, 3U>
+      selector_exact_persistent_attention_v1_physical_submission_tactics{};
+  std::array<std::uint32_t, 3U>
+      selector_exact_persistent_attention_v1_physical_submission_first_positions{};
+  std::array<std::uint32_t, 3U>
+      selector_exact_persistent_attention_v1_physical_submission_token_counts{};
+  std::uint32_t
+      selector_exact_persistent_attention_v1_completed_layer_count = 0U;
+  std::array<ReferenceP40000SelectorCompletedLayerReceipt, 16U>
+      selector_exact_persistent_attention_v1_completed_layers{};
+#endif
   std::size_t packed_nvfp4_v2_gate_up_hits = 0U;
   std::size_t packed_nvfp4_v2_down_hits = 0U;
   std::size_t packed_nvfp4_v2_physical_launches = 0U;

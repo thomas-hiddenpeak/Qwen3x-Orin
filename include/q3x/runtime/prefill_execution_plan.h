@@ -47,6 +47,42 @@ inline constexpr std::uint32_t
 inline constexpr std::uint32_t
     kLayerMajorPrefillPromptWideP40RequestCapacityTokens =
         kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+// Candidate-only P40000+O16 numerical profile. The public request contract
+// requires P + O - 1 == 40015 live rows. This profile deliberately provisions
+// one additional internal guard row, so configured rows are 40016 and the
+// guard-row count is 1. It is a distinct testing identity from P40001/O1 and
+// is not the minimum API capacity.
+inline constexpr std::uint32_t
+    kSelectorExactPersistentAttentionV1P40RequestCapacityTokens = 40'016U;
+inline constexpr std::uint32_t
+    kSelectorExactPersistentAttentionV1P40RequiredSteps = 40'015U;
+inline constexpr std::uint32_t
+    kSelectorExactPersistentAttentionV1P40GuardRows = 1U;
+inline constexpr std::string_view
+    kSelectorExactPersistentAttentionV1P40DeploymentPlanId =
+        "q3x.sm87.testing.p40000-o16.selector-exact-persistent-attention-v1";
+#endif
+
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+[[nodiscard]] constexpr bool
+is_prompt_wide_p40_whole_core_request_capacity_tokens(
+    const std::size_t capacity_tokens) noexcept {
+  if (capacity_tokens ==
+      kLayerMajorPrefillPromptWideP40RequestCapacityTokens) {
+    return true;
+  }
+  return capacity_tokens ==
+         kSelectorExactPersistentAttentionV1P40RequestCapacityTokens;
+}
+
+[[nodiscard]] constexpr bool
+is_selector_exact_persistent_attention_v1_p40_request_capacity_tokens(
+    const std::size_t capacity_tokens) noexcept {
+  return capacity_tokens ==
+         kSelectorExactPersistentAttentionV1P40RequestCapacityTokens;
+}
+#endif
 // The projection-reset candidate preserves the same exact P40000 request
 // boundary, but replaces the old five-panel FP8 physical inventory with one
 // grouped full-prompt input launch and one full-prompt O launch per layer.
@@ -267,6 +303,11 @@ enum class LayerMajorPrefillFullAttentionTactic : std::uint8_t {
   // Complete cold P40000 Attention ownership. This is distinct from the
   // logical-panel FlashInfer tactic and cannot be selected by it implicitly.
   kNativeFlashInferExactWholePrompt,
+  // BUILD_TESTING-only P40000 whole-prompt selector: two exact GroupQ64
+  // prefix submissions followed by one persistent GenericQT2/Q8 suffix.
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  kSelectorExactPersistentAttentionV1WholePrompt,
+#endif
 };
 
 [[nodiscard]] constexpr bool
@@ -280,8 +321,15 @@ is_valid_layer_major_prefill_full_attention_tactic(
                        kNativeGroupQ128V4Panel ||
          tactic == LayerMajorPrefillFullAttentionTactic::
                        kNativeFlashInferExactPanel ||
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+         tactic == LayerMajorPrefillFullAttentionTactic::
+                       kNativeFlashInferExactWholePrompt ||
+         tactic == LayerMajorPrefillFullAttentionTactic::
+                       kSelectorExactPersistentAttentionV1WholePrompt;
+#else
          tactic == LayerMajorPrefillFullAttentionTactic::
                        kNativeFlashInferExactWholePrompt;
+#endif
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -298,6 +346,11 @@ is_valid_layer_major_prefill_full_attention_tactic(
     case LayerMajorPrefillFullAttentionTactic::
         kNativeFlashInferExactWholePrompt:
       return "native-flashinfer-exact-whole-prompt";
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    case LayerMajorPrefillFullAttentionTactic::
+        kSelectorExactPersistentAttentionV1WholePrompt:
+      return "selector-exact-persistent-attention-v1-whole-prompt";
+#endif
   }
   return "unknown";
 }
@@ -1404,6 +1457,9 @@ struct PrefillWholeCoreSchedulePlan {
   bool bf16_ab_prompt_wide_required = false;
   bool gdn_prompt_wide_required = false;
   bool flashinfer_whole_prompt_required = false;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  bool selector_exact_persistent_attention_v1_whole_prompt_required = false;
+#endif
 };
 
 // Exact-P40000 projection ownership for the reset architecture. The five

@@ -128,8 +128,19 @@ prompt_wide_p40_vllm_marlin_parity_build_enabled() noexcept {
            !schedule.fp8_single_launch_per_projection_required &&
            !schedule.bf16_ab_prompt_wide_required &&
            !schedule.gdn_prompt_wide_required &&
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+           !schedule.flashinfer_whole_prompt_required &&
+           !schedule
+                .selector_exact_persistent_attention_v1_whole_prompt_required;
+#else
            !schedule.flashinfer_whole_prompt_required;
+#endif
   }
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const bool selector_exact_p40 =
+      is_selector_exact_persistent_attention_v1_p40_request_capacity_tokens(
+          schedule.request_capacity_tokens);
+#endif
   return schedule.enabled &&
          plan.first_position == 0U &&
          plan.prompt_token_count == kLayerMajorPrefillPromptWideP40Tokens &&
@@ -143,13 +154,25 @@ prompt_wide_p40_vllm_marlin_parity_build_enabled() noexcept {
              kLayerMajorPrefillPromptWideP40PanelTokens &&
          schedule.prompt_core_token_count ==
              kLayerMajorPrefillPromptWideP40Tokens &&
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+         is_prompt_wide_p40_whole_core_request_capacity_tokens(
+             schedule.request_capacity_tokens) &&
+#else
          schedule.request_capacity_tokens ==
              kLayerMajorPrefillPromptWideP40RequestCapacityTokens &&
+#endif
          schedule.route_pass_count == 1U &&
          schedule.fp8_single_launch_per_projection_required &&
          schedule.bf16_ab_prompt_wide_required &&
          schedule.gdn_prompt_wide_required &&
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+         schedule.flashinfer_whole_prompt_required == !selector_exact_p40 &&
+         schedule
+                 .selector_exact_persistent_attention_v1_whole_prompt_required ==
+             selector_exact_p40;
+#else
          schedule.flashinfer_whole_prompt_required;
+#endif
 }
 
 [[nodiscard]] bool valid_projection_reset_schedule(
@@ -843,9 +866,18 @@ PrefillExecutionPlanResult build_unbound_layer_major_prefill_execution_plan(
            0U)) {
     return plan_failure(PrefillExecutionPlanError::kInvalidArgument);
   }
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  if (fixed_p40_geometry &&
+      (whole_core
+           ? !is_prompt_wide_p40_whole_core_request_capacity_tokens(
+                 options.max_sequence_length)
+           : options.max_sequence_length !=
+                 kLayerMajorPrefillPromptWideP40RequestCapacityTokens)) {
+#else
   if (fixed_p40_geometry &&
       options.max_sequence_length !=
           kLayerMajorPrefillPromptWideP40RequestCapacityTokens) {
+#endif
     return plan_failure(PrefillExecutionPlanError::kInvalidArgument);
   }
 
@@ -959,12 +991,27 @@ PrefillExecutionPlanResult build_unbound_layer_major_prefill_execution_plan(
     plan.whole_core_schedule.prompt_core_token_count =
         kLayerMajorPrefillPromptWideP40Tokens;
     plan.whole_core_schedule.request_capacity_tokens =
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+        static_cast<std::uint32_t>(options.max_sequence_length);
+#else
         kLayerMajorPrefillPromptWideP40RequestCapacityTokens;
+#endif
     plan.whole_core_schedule.route_pass_count = 1U;
     plan.whole_core_schedule.fp8_single_launch_per_projection_required = true;
     plan.whole_core_schedule.bf16_ab_prompt_wide_required = true;
     plan.whole_core_schedule.gdn_prompt_wide_required = true;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    const bool selector_exact_p40 =
+        is_selector_exact_persistent_attention_v1_p40_request_capacity_tokens(
+            options.max_sequence_length);
+    plan.whole_core_schedule.flashinfer_whole_prompt_required =
+        !selector_exact_p40;
+    plan.whole_core_schedule
+        .selector_exact_persistent_attention_v1_whole_prompt_required =
+        selector_exact_p40;
+#else
     plan.whole_core_schedule.flashinfer_whole_prompt_required = true;
+#endif
   }
   if (projection_reset) {
     plan.projection_reset_schedule.enabled = true;

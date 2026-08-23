@@ -1,5 +1,7 @@
 #pragma once
 
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+
 #include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/prefill_execution_plan.h"
 
@@ -66,9 +68,24 @@ is_selector_exact_persistent_attention_v1_plan_prompt_tokens(
 [[nodiscard]] inline bool
 is_selector_exact_persistent_attention_v1_runner_prompt_tokens(
     const std::size_t token_count) noexcept {
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  return token_count == 513U || token_count == 4'096U ||
+         token_count == 8'192U ||
+         token_count == kSelectorExactPersistentAttentionV1P40PromptTokens;
+#else
   return token_count == 513U || token_count == 4'096U ||
          token_count == 8'192U;
+#endif
 }
+
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+[[nodiscard]] inline bool
+is_selector_exact_persistent_attention_v1_p40_runner_profile(
+    const std::size_t request_capacity_tokens) noexcept {
+  return request_capacity_tokens ==
+         kSelectorExactPersistentAttentionV1P40RequestCapacityTokens;
+}
+#endif
 
 [[nodiscard]] inline SelectorExactPersistentAttentionV1Plan
 make_selector_exact_persistent_attention_v1_plan(
@@ -203,12 +220,41 @@ make_selector_exact_persistent_attention_v1_plan(
   return plan;
 }
 
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+enum class SelectorExactPersistentAttentionV1PhysicalSubmissionTactic
+    : std::uint8_t {
+  kNone = 0U,
+  kGroupQ64 = 1U,
+  kPersistentGenericQt2Q8 = 2U,
+};
+
+struct SelectorExactPersistentAttentionV1PhysicalSubmissionReceipt {
+  SelectorExactPersistentAttentionV1PhysicalSubmissionTactic tactic =
+      SelectorExactPersistentAttentionV1PhysicalSubmissionTactic::kNone;
+  std::uint32_t first_position = 0U;
+  std::uint32_t token_count = 0U;
+};
+
+struct SelectorExactPersistentAttentionV1LayerSubmissionReceipt {
+  std::uint32_t layer = 0U;
+  std::uint32_t physical_submission_count = 0U;
+  std::array<SelectorExactPersistentAttentionV1PhysicalSubmissionReceipt, 3U>
+      physical_submissions{};
+};
+#endif
+
 struct SelectorExactPersistentAttentionV1LaunchReceipt {
   SelectorExactPersistentAttentionV1Plan plan{};
   std::uint32_t group_q64_submissions = 0U;
   std::uint32_t generic_q8_suffix_submissions = 0U;
   std::uint32_t fallback_submissions = 0U;
   std::uint32_t persistent_ctas = 0U;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  bool completed_physical_receipt = false;
+  std::uint32_t physical_submission_count = 0U;
+  std::array<SelectorExactPersistentAttentionV1PhysicalSubmissionReceipt, 3U>
+      physical_submissions{};
+#endif
 };
 
 struct SelectorExactPersistentAttentionV1RouteReceipt {
@@ -222,7 +268,35 @@ struct SelectorExactPersistentAttentionV1RouteReceipt {
   std::uint32_t minimum_physical_submission_tokens = 0U;
   std::uint32_t maximum_physical_submission_tokens = 0U;
   std::uint32_t maximum_logical_panel_tokens = 0U;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  bool completed_physical_receipt = false;
+  std::uint32_t physical_submission_count_per_panel = 0U;
+  std::array<SelectorExactPersistentAttentionV1PhysicalSubmissionReceipt, 3U>
+      physical_submissions{};
+  std::uint32_t issued_layer_count = 0U;
+  std::uint32_t completed_layer_count = 0U;
+  std::array<SelectorExactPersistentAttentionV1LayerSubmissionReceipt, 16U>
+      completed_layers{};
+#endif
 };
+
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+// One synchronized Legacy-C512 residual chunk at its absolute prompt rows.
+// The callback must consume the device pointer synchronously; it is reused by
+// the next tile. Ordinary OFF binaries contain neither this type nor TLS hook.
+using ReferenceLegacyPrefillResidualChunkCallback = bool (*)(
+    const std::uint16_t* residual_bf16, std::uint32_t first_position,
+    std::uint32_t token_count, std::size_t elements, void* context) noexcept;
+
+struct ReferenceLegacyPrefillResidualChunkHook {
+  ReferenceLegacyPrefillResidualChunkCallback callback = nullptr;
+  void* context = nullptr;
+};
+
+[[nodiscard]] ReferenceLegacyPrefillResidualChunkHook
+exchange_reference_legacy_prefill_residual_chunk_hook(
+    ReferenceLegacyPrefillResidualChunkHook hook) noexcept;
+#endif
 
 struct SelectorExactPersistentAttentionV1Resources {
   int registers_per_thread = 0;
@@ -260,3 +334,5 @@ query_selector_exact_persistent_attention_v1_q8_resources_cuda(
     SelectorExactPersistentAttentionV1Resources* resources) noexcept;
 
 }  // namespace q3x::runtime::reference_runner_detail
+
+#endif

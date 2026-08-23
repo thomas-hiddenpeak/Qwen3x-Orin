@@ -189,6 +189,38 @@ inline constexpr std::uint32_t kLayerMajorP40WholeCorePanelTokens = 8'000U;
 inline constexpr std::uint32_t kLayerMajorP40WholeCorePanelCount = 5U;
 inline constexpr std::uint64_t kLayerMajorP40WholeCoreFamilyArenaBytes =
     5'429'760'000U;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+inline constexpr std::uint64_t kLayerMajorP40WholeCoreArenaBytes =
+    8'640'542'976U;
+inline constexpr std::uint32_t
+    kSelectorExactPersistentAttentionV1P40WholeCoreRequestCapacityTokens =
+        40'016U;
+inline constexpr std::uint64_t
+    kSelectorExactPersistentAttentionV1P40WholeCoreArenaBytes =
+        8'641'683'456U;
+
+[[nodiscard]] constexpr bool is_layer_major_p40_whole_core_request_capacity(
+    const std::uint64_t capacity_tokens) noexcept {
+  if (capacity_tokens == kLayerMajorP40WholeCoreRequestCapacityTokens) {
+    return true;
+  }
+  return capacity_tokens ==
+         kSelectorExactPersistentAttentionV1P40WholeCoreRequestCapacityTokens;
+}
+
+[[nodiscard]] constexpr std::uint64_t
+layer_major_p40_whole_core_arena_bytes(
+    const std::uint64_t capacity_tokens) noexcept {
+  if (capacity_tokens == kLayerMajorP40WholeCoreRequestCapacityTokens) {
+    return kLayerMajorP40WholeCoreArenaBytes;
+  }
+  if (capacity_tokens ==
+      kSelectorExactPersistentAttentionV1P40WholeCoreRequestCapacityTokens) {
+    return kSelectorExactPersistentAttentionV1P40WholeCoreArenaBytes;
+  }
+  return 0U;
+}
+#endif
 
 // Exact family-relative typed-view ledger for the default-off P40000
 // stock-vLLM-Marlin parity MLP. The whole-core family arena is owned by the

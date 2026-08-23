@@ -82,6 +82,10 @@ option(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE
   "Build the default-off, accuracy-unqualified P40 whole-core development route"
   OFF
 )
+option(Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING
+  "Build the BUILD_TESTING-only P40000+O16 selector-exact persistent Attention profile"
+  OFF
+)
 option(Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION
   "Build the test-only exact-P40000 persistent S2R projection reset"
   OFF
@@ -124,6 +128,52 @@ option(Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION
 # the single bundle remains the user-facing control, while the individual
 # test admissions remain OFF in the cache and cannot be enabled separately in
 # a BUILD_TESTING=OFF build.  Do not FORCE-write the cache here.
+if(Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  set(_q3x_selector_p40_competing_cache_options
+    Q3X_BUILD_GDN_B8_ADMISSION
+    Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION
+    Q3X_BUILD_GDN_CHUNK64_REFERENCE_ADMISSION
+    Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION
+    Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION
+    Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION
+    Q3X_BUILD_NVFP4_TRUE_LARGE_M_PREFILL_ADMISSION
+    Q3X_BUILD_NVFP4_G2_D2_PREFILL_ADMISSION
+    Q3X_BUILD_NVFP4_SHAPE_WIDE_PREFILL_ADMISSION
+    Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION
+    Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION
+    Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION
+    Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION
+    Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION
+    Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION
+    Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE
+    Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION
+    Q3X_BUILD_P40_PHASE_BF16_PROJECTION_ADMISSION
+    Q3X_BUILD_P40_PACKED_PROJECTION_ADMISSION
+    Q3X_BUILD_P40_PACKED_NVFP4_V2_ADMISSION
+    Q3X_BUILD_P40_VLLM_MARLIN_PARITY_ADMISSION
+    Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION
+    Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION
+    Q3X_BUILD_SM87_TARGET_AOT_DEVICE_ASSETS_V1_ADMISSION
+    Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION
+  )
+  foreach(_q3x_competing_option IN LISTS
+          _q3x_selector_p40_competing_cache_options)
+    if(${_q3x_competing_option})
+      message(FATAL_ERROR
+        "${_q3x_competing_option} must remain OFF in the selector-exact P40000 testing cache; the profile enables only its private non-cache composition inventory"
+      )
+    endif()
+  endforeach()
+  unset(_q3x_competing_option)
+  unset(_q3x_selector_p40_competing_cache_options)
+endif()
+if(Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING AND
+   (Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE OR
+    Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION))
+  message(FATAL_ERROR
+    "The selector-exact P40000 testing profile owns Attention exclusively and cannot coexist with the P40 development bundle or FlashInfer Attention admission"
+  )
+endif()
 if(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   set(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION ON)
   set(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION ON)
@@ -136,6 +186,26 @@ if(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   set(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION ON)
   message(STATUS
     "P40 whole-core v10 development inventory enabled (accuracy-unqualified; installation disabled)"
+  )
+endif()
+if(Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  # The numerical-screen profile reuses the retained whole-core fill/drain,
+  # GDN, and MLP inventory.  Its only runtime delta is the exact Attention
+  # prompt core, and its P40016 request arena is deliberately unavailable to
+  # BUILD_TESTING=OFF binaries.
+  set(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION ON)
+  set(Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION ON)
+  set(Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION ON)
+  set(Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION ON)
+  set(Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION ON)
+  set(Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION ON)
+  set(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION ON)
+  set(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION ON)
+endif()
+if(Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING is test-only and requires BUILD_TESTING=ON"
   )
 endif()
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
@@ -269,13 +339,21 @@ if(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION AND
    (NOT Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION OR
     NOT Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION OR
     NOT Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION OR
-    NOT Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION OR
+    (NOT Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION AND
+     NOT Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING) OR
     NOT Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION OR
     NOT Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION OR
     NOT Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION OR
     NOT Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION))
   message(FATAL_ERROR
-    "Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION requires the FP8/NVFP4 Marlin, BF16 A/B, FlashInfer, native prompt-wide GDN, layer-wide P40, and persistent NVFP4 admission inventories"
+    "Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION requires the FP8/NVFP4 Marlin, BF16 A/B, one sealed whole-prompt Attention owner, native prompt-wide GDN, layer-wide P40, and persistent NVFP4 admission inventories"
+  )
+endif()
+if(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION AND
+   Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING AND
+   Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
+  message(FATAL_ERROR
+    "P40 whole-core requires exactly one Attention owner; selector-exact and FlashInfer cannot both be admitted"
   )
 endif()
 if(Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION AND NOT BUILD_TESTING)
@@ -467,6 +545,15 @@ if(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION)
     Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  # This PUBLIC bit changes the private testing ABI of the planner, request
+  # state, bound execution plan, runner, engine, and numerical harness as one
+  # indivisible profile.  It is never defined by the ordinary Release or the
+  # retained v10 development build.
+  target_compile_definitions(q3x_core PUBLIC
+    Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING=1
+  )
+endif()
 if(Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION)
   # The reset adds a distinct plan/tactic, runner schedule, engine authority,
   # and CUDA inventory.  Propagate one definition through every consumer so a
@@ -571,7 +658,6 @@ add_library(q3x_kernels STATIC
   src/runtime/reference_runner_gdn_exact_span_policy_internal.h
   src/runtime/reference_runner_prompt_wide_policy_internal.h
   src/runtime/reference_runner_request_reset_policy_internal.h
-  src/runtime/reference_runner_selector_exact_persistent_attention_v1_internal.h
   src/runtime/reference_runner_layer_major_views.cpp
   src/kernels/reference/decode_ops.cu
   src/kernels/reference/full_attention_c512_register_pipeline.cu
@@ -598,6 +684,12 @@ add_library(q3x_kernels STATIC
   src/kernels/sm87/weight_only_gemv.cu
 )
 add_library(q3x::kernels ALIAS q3x_kernels)
+if(Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  target_sources(q3x_kernels PRIVATE
+    src/runtime/reference_runner_selector_exact_persistent_attention_v1_internal.h
+    src/kernels/reference/selector_exact_persistent_attention_v1_q8.cu
+  )
+endif()
 set_target_properties(q3x_kernels PROPERTIES
   EXPORT_NAME kernels
   POSITION_INDEPENDENT_CODE ON
@@ -839,10 +931,24 @@ if(BUILD_TESTING)
 endif()
 q3x_enable_warnings(q3x_engine)
 
+if(Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  add_executable(q3x_reference_p40000_o16_strict_capture_test
+    tests/reference_p40000_o16_strict_capture_test.cpp
+  )
+  target_include_directories(q3x_reference_p40000_o16_strict_capture_test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+  )
+  target_link_libraries(q3x_reference_p40000_o16_strict_capture_test
+    PRIVATE q3x::engine q3x::core
+  )
+  q3x_enable_warnings(q3x_reference_p40000_o16_strict_capture_test)
+endif()
+
 # Internal, deliberately narrow OpenAI/EvalScope evaluation adapter. It is
 # kept separate from q3x_engine so the core runtime has no HTTP/protocol
 # dependency and external evaluation cannot become a hidden production
 # fallback path.
+if(NOT Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
 add_library(q3x_eval_gateway STATIC
   src/server/openai_protocol.cpp
   src/server/evaluation_server.cpp
@@ -906,8 +1012,10 @@ q3x_enable_warnings(qwen3x-orin)
 add_executable(qwen3x-inspect tools/q3x-inspect/main.cpp)
 target_link_libraries(qwen3x-inspect PRIVATE q3x::core)
 q3x_enable_warnings(qwen3x-inspect)
+endif()
 
-if(BUILD_TESTING)
+if(BUILD_TESTING AND
+   NOT Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
   find_package(Python3 QUIET COMPONENTS Interpreter)
   if(Python3_Interpreter_FOUND)
     add_test(
@@ -1061,8 +1169,6 @@ if(BUILD_TESTING)
 
   set(Q3X_E2E_MODEL_DIR "" CACHE PATH
       "Pinned Qwen3.6-27B-NVFP4 model directory for optional E2E tests")
-  set(Q3X_E2E_PREFILL_ATTENTION_CORPUS "" CACHE FILEPATH
-      "Frozen 40K Agent token corpus for optional Attention qualification tests")
   set(Q3X_REAL_PERF_MODEL_DIR "" CACHE PATH
       "Pinned Qwen3.6-27B-NVFP4 model directory for real-payload performance measurement")
   set(Q3X_REAL_PERF_CPU "11" CACHE STRING
@@ -2135,65 +2241,6 @@ if(BUILD_TESTING)
   q3x_enable_warnings(q3x_reference_runner_host_test)
   add_test(NAME reference_runner_host COMMAND q3x_reference_runner_host_test)
 
-  add_executable(
-    q3x_reference_prefill_selector_exact_persistent_attention_v1_host_test
-    tests/reference_prefill_selector_exact_persistent_attention_v1_host_test.cpp
-  )
-  target_include_directories(
-    q3x_reference_prefill_selector_exact_persistent_attention_v1_host_test
-    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
-  )
-  target_link_libraries(
-    q3x_reference_prefill_selector_exact_persistent_attention_v1_host_test
-    PRIVATE q3x::kernels
-  )
-  q3x_enable_warnings(
-    q3x_reference_prefill_selector_exact_persistent_attention_v1_host_test
-  )
-  add_test(
-    NAME reference_prefill_selector_exact_persistent_attention_v1_host
-    COMMAND
-      q3x_reference_prefill_selector_exact_persistent_attention_v1_host_test
-  )
-  set_tests_properties(
-    reference_prefill_selector_exact_persistent_attention_v1_host PROPERTIES
-    LABELS "host;prefill;attention;architecture_candidate;default_off"
-  )
-
-  add_executable(
-    q3x_reference_prefill_selector_exact_persistent_attention_v1_cuda_test
-    tests/reference_prefill_selector_exact_persistent_attention_v1_cuda_test.cu
-  )
-  target_include_directories(
-    q3x_reference_prefill_selector_exact_persistent_attention_v1_cuda_test
-    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
-  )
-  target_link_libraries(
-    q3x_reference_prefill_selector_exact_persistent_attention_v1_cuda_test
-    PRIVATE q3x::kernels CUDA::cudart
-  )
-  target_compile_options(
-    q3x_reference_prefill_selector_exact_persistent_attention_v1_cuda_test
-    PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
-  )
-  q3x_enable_warnings(
-    q3x_reference_prefill_selector_exact_persistent_attention_v1_cuda_test
-  )
-  add_test(
-    NAME reference_prefill_selector_exact_persistent_attention_v1_cuda
-    COMMAND
-      q3x_reference_prefill_selector_exact_persistent_attention_v1_cuda_test
-  )
-  set_tests_properties(
-    reference_prefill_selector_exact_persistent_attention_v1_cuda PROPERTIES
-    LABELS
-      "correctness;cuda;sm87;prefill;attention;architecture_candidate;default_off"
-    RESOURCE_LOCK q3x_sm87_gpu
-    RUN_SERIAL TRUE
-    SKIP_RETURN_CODE 77
-    TIMEOUT 300
-  )
-
   add_executable(q3x_reference_runner_layer_major_views_host_test
     tests/reference_runner_layer_major_views_host_test.cpp
   )
@@ -2450,14 +2497,6 @@ if(BUILD_TESTING)
   if(NOT _q3x_e2e_model_dir)
     set(_q3x_e2e_model_dir "-")
   endif()
-  set(_q3x_e2e_prefill_attention_corpus
-      "${Q3X_E2E_PREFILL_ATTENTION_CORPUS}")
-  if(NOT _q3x_e2e_prefill_attention_corpus AND
-     DEFINED ENV{Q3X_TEST_PREFILL_ATTENTION_CORPUS})
-    set(_q3x_e2e_prefill_attention_corpus
-        "$ENV{Q3X_TEST_PREFILL_ATTENTION_CORPUS}")
-  endif()
-
   add_executable(q3x_reference_engine_e2e_test
     tests/reference_engine_e2e_test.cpp
   )
@@ -2566,42 +2605,6 @@ if(BUILD_TESTING)
       SKIP_RETURN_CODE 77
       TIMEOUT 3600
     )
-    add_test(
-      NAME reference_prefill_selector_exact_persistent_attention_v1_layer3
-      COMMAND q3x_reference_prefill_operator_panel_equivalence_e2e_test
-              "${_q3x_e2e_model_dir}"
-    )
-    set_tests_properties(
-      reference_prefill_selector_exact_persistent_attention_v1_layer3
-      PROPERTIES
-      LABELS "e2e;model;sm87;prefill;operator_panel;architecture_candidate;bitwise;layer3"
-      ENVIRONMENT
-        "Q3X_RUN_PREFILL_OPERATOR_PANEL_EQUIVALENCE=1;Q3X_RUN_PREFILL_ATTENTION_LAYER3_P513_ORACLE=1;Q3X_TEST_PREFILL_ATTENTION_TACTIC=selector-exact-persistent-attention-v1;Q3X_TEST_PREFILL_PROJECTION_TACTIC=exact-segmented"
-      RESOURCE_LOCK q3x_sm87_gpu
-      RUN_SERIAL TRUE
-      SKIP_RETURN_CODE 77
-      TIMEOUT 3600
-    )
-    if(_q3x_e2e_prefill_attention_corpus)
-      foreach(_q3x_selector_prompt_tokens IN ITEMS 513 4096 8192)
-        add_test(
-          NAME reference_prefill_selector_exact_persistent_attention_v1_p${_q3x_selector_prompt_tokens}_o16
-          COMMAND q3x_reference_prefill_operator_panel_equivalence_e2e_test
-                  "${_q3x_e2e_model_dir}"
-        )
-        set_tests_properties(
-          reference_prefill_selector_exact_persistent_attention_v1_p${_q3x_selector_prompt_tokens}_o16
-          PROPERTIES
-          LABELS "e2e;model;sm87;prefill;operator_panel;architecture_candidate;bitwise;qualification"
-          ENVIRONMENT
-            "Q3X_RUN_PREFILL_ATTENTION_QUALIFICATION=1;Q3X_TEST_PREFILL_ATTENTION_TACTIC=selector-exact-persistent-attention-v1;Q3X_TEST_PREFILL_PROJECTION_TACTIC=exact-segmented;Q3X_TEST_PREFILL_PROMPT_TOKENS=${_q3x_selector_prompt_tokens};Q3X_TEST_PREFILL_ATTENTION_CORPUS=${_q3x_e2e_prefill_attention_corpus}"
-          RESOURCE_LOCK q3x_sm87_gpu
-          RUN_SERIAL TRUE
-          SKIP_RETURN_CODE 77
-          TIMEOUT 3600
-        )
-      endforeach()
-    endif()
     if(Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION)
       add_test(NAME reference_prefill_flashinfer_exact_panel_e2e
         COMMAND q3x_reference_prefill_operator_panel_equivalence_e2e_test
@@ -3460,23 +3463,26 @@ if(BUILD_TESTING)
     PROPERTIES WILL_FAIL TRUE
   )
 
-  if(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
-    set(q3x_package_expect_eval_server OFF)
-  else()
-    set(q3x_package_expect_eval_server ON)
+  if(NOT Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    if(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+      set(q3x_package_expect_eval_server OFF)
+    else()
+      set(q3x_package_expect_eval_server ON)
+    endif()
+    add_test(NAME package_consumer
+      COMMAND ${CMAKE_COMMAND}
+        -DQ3X_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DQ3X_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+        -DQ3X_GENERATOR=${CMAKE_GENERATOR}
+        -DQ3X_CONFIG=$<CONFIG>
+        -DQ3X_INSTALL_BINDIR=${CMAKE_INSTALL_BINDIR}
+        -DQ3X_EXPECT_EVAL_SERVER=${q3x_package_expect_eval_server}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/package_consumer_test.cmake
+    )
   endif()
-  add_test(NAME package_consumer
-    COMMAND ${CMAKE_COMMAND}
-      -DQ3X_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
-      -DQ3X_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
-      -DQ3X_GENERATOR=${CMAKE_GENERATOR}
-      -DQ3X_CONFIG=$<CONFIG>
-      -DQ3X_INSTALL_BINDIR=${CMAKE_INSTALL_BINDIR}
-      -DQ3X_EXPECT_EVAL_SERVER=${q3x_package_expect_eval_server}
-      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/package_consumer_test.cmake
-  )
 endif()
 
+if(NOT Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
 install(TARGETS q3x_core q3x_text q3x_kernels q3x_engine
                 qwen3x-orin qwen3x-inspect
   EXPORT Qwen3xOrinTargets
@@ -3512,3 +3518,4 @@ install(FILES
   ${CMAKE_CURRENT_BINARY_DIR}/generated/Qwen3xOrinConfigVersion.cmake
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Qwen3xOrin
 )
+endif()

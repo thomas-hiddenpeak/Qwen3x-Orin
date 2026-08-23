@@ -27,6 +27,18 @@
         "Q3X_CUDA_ARCHITECTURES": "87",
         "Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE": "ON"
       }
+    },
+    {
+      "name": "orin-selector-exact-persistent-attention-v1-p40-testing",
+      "displayName": "Jetson Orin selector-exact P40000+O16 numerical profile",
+      "description": "BUILD_TESTING-only P40016 whole-core numerical profile; never installed or production",
+      "binaryDir": "${sourceDir}/.q3x-work/build/orin-selector-exact-persistent-attention-v1-p40-testing",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "ON",
+        "Q3X_CUDA_ARCHITECTURES": "87",
+        "Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -38,6 +50,11 @@
       "name": "orin-p40-whole-core-dev",
       "configurePreset": "orin-p40-whole-core-dev",
       "targets": ["qwen3x-eval-server"]
+    },
+    {
+      "name": "orin-selector-exact-persistent-attention-v1-p40-testing",
+      "configurePreset": "orin-selector-exact-persistent-attention-v1-p40-testing",
+      "targets": ["q3x_reference_p40000_o16_strict_capture_test"]
     }
   ],
   "testPresets": [

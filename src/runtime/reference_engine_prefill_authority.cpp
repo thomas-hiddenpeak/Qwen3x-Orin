@@ -1429,10 +1429,14 @@ whole_core_compile_inventory_enabled() noexcept {
     defined(Q3X_ENABLE_LAYER_WIDE_P40_MLP_ADMISSION) && \
     defined(Q3X_ENABLE_NVFP4_PERSISTENT_PREFILL_ADMISSION) && \
     defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION) && \
-    defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION) && \
     defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION) && \
     defined(Q3X_ENABLE_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION)
+#if defined(Q3X_ENABLE_FLASHINFER_PREFILL_ATTENTION_ADMISSION) || \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
   return true;
+#else
+  return false;
+#endif
 #else
   return false;
 #endif
@@ -1702,8 +1706,17 @@ complete_exact_gdn_chunk64_native_inventory(
           right.whole_core_schedule.bf16_ab_prompt_wide_required ||
       left.whole_core_schedule.gdn_prompt_wide_required !=
           right.whole_core_schedule.gdn_prompt_wide_required ||
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
       left.whole_core_schedule.flashinfer_whole_prompt_required !=
           right.whole_core_schedule.flashinfer_whole_prompt_required ||
+      left.whole_core_schedule
+              .selector_exact_persistent_attention_v1_whole_prompt_required !=
+          right.whole_core_schedule
+              .selector_exact_persistent_attention_v1_whole_prompt_required ||
+#else
+      left.whole_core_schedule.flashinfer_whole_prompt_required !=
+          right.whole_core_schedule.flashinfer_whole_prompt_required ||
+#endif
       left.projection_reset_schedule.enabled !=
           right.projection_reset_schedule.enabled ||
       left.projection_reset_schedule.input_preparation_panel_count_per_layer !=
@@ -2005,6 +2018,12 @@ complete_exact_gdn_chunk64_native_inventory(
         kNativeFlashInferExactWholePrompt:
       return NativePrefillTactic::
           kNativeCausalAttentionFlashInferExactWholePrompt;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    case LayerMajorPrefillFullAttentionTactic::
+        kSelectorExactPersistentAttentionV1WholePrompt:
+      return NativePrefillTactic::
+          kSelectorExactPersistentAttentionV1WholePrompt;
+#endif
     case LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512:
     default:
       return NativePrefillTactic::
@@ -2016,6 +2035,11 @@ complete_exact_gdn_chunk64_native_inventory(
     const LayerMajorPrefillFullAttentionTactic tactic) noexcept {
   return tactic == LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512
              ? kPrefillPhysicalSegmentMaximumTokens
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+         : tactic == LayerMajorPrefillFullAttentionTactic::
+                       kSelectorExactPersistentAttentionV1WholePrompt
+             ? 38'976U
+#endif
          : tactic == LayerMajorPrefillFullAttentionTactic::
                        kNativeFlashInferExactWholePrompt
              ? kLayerMajorPrefillPromptWideP40Tokens
@@ -2109,12 +2133,27 @@ inline constexpr std::uint64_t kPromptWideP40WholeCoreArenaBytes =
   const LayerMajorP40WholeCoreLinearPhaseViews& linear = whole.linear;
   const LayerMajorP40WholeCoreFullAttentionPhaseViews& full =
       whole.full_attention;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const std::uint32_t request_capacity_tokens =
+      views.descriptor.p40_whole_core.request_capacity_tokens;
+  const std::uint64_t expected_arena_bytes =
+      layer_major_p40_whole_core_arena_bytes(request_capacity_tokens);
+#endif
   return views.descriptor.profile ==
              RequestMemoryProfile::kLayerMajorP40WholeCore &&
          views.descriptor.layout ==
              LayerMajorRequestLayout::kP40WholeCorePromptWide &&
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+         is_prompt_wide_p40_whole_core_request_capacity_tokens(
+             views.descriptor.max_sequence_length) &&
+#else
          views.descriptor.max_sequence_length ==
              kLayerMajorPrefillPromptWideP40RequestCapacityTokens &&
+#endif
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+         request_capacity_tokens ==
+             views.descriptor.max_sequence_length &&
+#endif
          views.descriptor.operator_panel_capacity_tokens ==
              kLayerMajorPrefillPromptWideP40PanelTokens &&
          views.descriptor.mlp_capacity_tokens ==
@@ -2128,10 +2167,19 @@ inline constexpr std::uint64_t kPromptWideP40WholeCoreArenaBytes =
          (!vllm_marlin_parity ||
           valid_reference_p40_vllm_marlin_parity_lock_lifetime_descriptor(
               views.descriptor)) &&
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+         expected_arena_bytes != 0U &&
+         views.descriptor.arena_bytes == expected_arena_bytes &&
+#else
          views.descriptor.arena_bytes == kPromptWideP40WholeCoreArenaBytes &&
+#endif
          exact_matrix_view(
              views.prompt_residual_bf16,
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+             request_capacity_tokens,
+#else
              kLayerMajorPrefillPromptWideP40RequestCapacityTokens,
+#endif
              kReferenceHiddenSize) &&
          exact_matrix_view(whole.prompt_token_ids_u32,
                            kLayerMajorPrefillPromptWideP40Tokens, 1U,
@@ -2351,9 +2399,19 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
       interleaved_p40_projection || any_packed_projection;
   const bool layer_wide_p40_memory =
       persistent_p40_projection || vllm_marlin_parity;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const bool selector_exact_attention =
+      full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
+                                   kSelectorExactPersistentAttentionV1WholePrompt;
+  const bool whole_prompt_attention =
+      selector_exact_attention ||
+      full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
+                                   kNativeFlashInferExactWholePrompt;
+#else
   const bool whole_prompt_attention =
       full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
                                    kNativeFlashInferExactWholePrompt;
+#endif
   const LayerMajorPrefillMlpScheduleTactic mlp_schedule_tactic =
       vllm_marlin_parity
           ? LayerMajorPrefillMlpScheduleTactic::
@@ -2389,6 +2447,20 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                         ReferenceRunnerError::kInvalidDependency,
                         "bound_prefill_dependencies");
   }
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  if (prompt_wide_p40_projection &&
+      (selector_exact_attention
+           ? (!whole_core_projection ||
+              !is_selector_exact_persistent_attention_v1_p40_request_capacity_tokens(
+                  state->max_sequence_length()))
+           : state->max_sequence_length() !=
+                 kLayerMajorPrefillPromptWideP40RequestCapacityTokens)
+  ) {
+    return plan_failure(BoundPrefillPlanError::kInvalidDependency,
+                        ReferenceRunnerError::kInvalidDependency,
+                        "bound_prefill_whole_prompt_attention_profile");
+  }
+#endif
   const RequestMemoryProfile expected_memory_profile =
       prompt_wide_p40_projection
           ? RequestMemoryProfile::kLayerMajorP40WholeCore
@@ -2436,11 +2508,26 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                ? LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan
                : LayerMajorRequestMlpLayout::kPanelLocalThreeSpan) ||
       (layer_wide_p40_memory &&
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+       (prompt_wide_p40_projection
+            ? !is_prompt_wide_p40_whole_core_request_capacity_tokens(
+                  runner->layer_major_request_views_->descriptor
+                      .max_sequence_length)
+            : runner->layer_major_request_views_->descriptor
+                      .max_sequence_length !=
+                  kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens)) ||
+      (prompt_wide_p40_projection &&
+       runner->layer_major_request_views_->descriptor.arena_bytes !=
+           layer_major_p40_whole_core_arena_bytes(
+               runner->layer_major_request_views_->descriptor
+                   .max_sequence_length)) ||
+#else
        runner->layer_major_request_views_->descriptor.max_sequence_length !=
            kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens) ||
       (prompt_wide_p40_projection &&
        runner->layer_major_request_views_->descriptor.arena_bytes !=
            kPromptWideP40WholeCoreArenaBytes) ||
+#endif
       runner->layer_major_request_views_->prompt_residual_bf16.storage
               .device_data == nullptr ||
       runner->layer_major_request_views_->final_hidden_bf16.storage
@@ -2562,7 +2649,11 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                         ReferenceRunnerError::kInvalidDependency,
                         "bound_prefill_flashinfer_exact_panel_binary");
   }
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  if (prompt_wide_p40_projection && !selector_exact_attention &&
+#else
   if (prompt_wide_p40_projection &&
+#endif
       !complete_flashinfer_whole_prompt_p40_capability()) {
     return plan_failure(
         BoundPrefillPlanError::kUnsupportedBinary,
@@ -2705,8 +2796,30 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
         const std::uint32_t maximum_physical_m,
         const void* const auxiliary_workspace = nullptr,
         const std::uint64_t auxiliary_workspace_bytes = 0U,
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+        const std::uint32_t maximum_logical_m =
+            kLayerMajorPrefillPromptWideP40Tokens,
+        const std::uint32_t physical_submission_count_per_logical_panel =
+            1U) noexcept {
+#else
         const std::uint32_t maximum_logical_m =
             kLayerMajorPrefillPromptWideP40Tokens) noexcept {
+#endif
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      return NativePrefillRoleReceipt{
+          role,
+          tactic,
+          NativePrefillCompletionDomain::kMainStreamBarrier,
+          artifact,
+          workspace,
+          workspace_bytes,
+          auxiliary_workspace,
+          auxiliary_workspace_bytes,
+          maximum_logical_m,
+          minimum_physical_m,
+          maximum_physical_m,
+          physical_submission_count_per_logical_panel};
+#else
       return NativePrefillRoleReceipt{
           role,
           tactic,
@@ -2719,6 +2832,7 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
           maximum_logical_m,
           minimum_physical_m,
           maximum_physical_m};
+#endif
     };
     std::array<NativePrefillRoleReceipt,
                kLayerMajorPrefillRequiredOperatorRoleCount>
@@ -2878,6 +2992,31 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                 kLayerMajorPrefillPromptWideP40Tokens);
     roles[static_cast<std::size_t>(
         PrefillBindingRole::kExactCausalAttention)] =
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+        receipt(
+            PrefillBindingRole::kExactCausalAttention,
+            native_attention_tactic(full_attention_tactic),
+            attention->q_norm.data,
+            whole.full_attention.core_output_bf16.storage.device_data,
+            whole.full_attention.core_output_bf16.storage.byte_size,
+            selector_exact_attention ? 512U
+                                     : kLayerMajorPrefillPromptWideP40Tokens,
+            selector_exact_attention ? 38'976U
+                                     : kLayerMajorPrefillPromptWideP40Tokens,
+            nullptr, 0U, kLayerMajorPrefillPromptWideP40Tokens
+            , selector_exact_attention ? 3U : 1U
+        );
+    if (selector_exact_attention) {
+      auto& attention_receipt = roles[static_cast<std::size_t>(
+          PrefillBindingRole::kExactCausalAttention)];
+      attention_receipt.physical_submissions = {{
+          {NativePrefillPhysicalSubmissionTactic::kGroupQ64, 0U, 512U},
+          {NativePrefillPhysicalSubmissionTactic::kGroupQ64, 512U, 512U},
+          {NativePrefillPhysicalSubmissionTactic::kPersistentGenericQt2Q8,
+           1'024U, 38'976U},
+      }};
+    }
+#else
         receipt(
             PrefillBindingRole::kExactCausalAttention,
             NativePrefillTactic::kNativeCausalAttentionFlashInferExactWholePrompt,
@@ -2886,6 +3025,7 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
             whole.full_attention.core_output_bf16.storage.byte_size,
             kLayerMajorPrefillPromptWideP40Tokens,
             kLayerMajorPrefillPromptWideP40Tokens);
+#endif
     roles[static_cast<std::size_t>(PrefillBindingRole::kResidual)] =
         receipt(PrefillBindingRole::kResidual,
                 NativePrefillTactic::kResidualOperatorPanel, weights,
@@ -2942,7 +3082,30 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                                                          packed_projection) ||
           role.minimum_physical_m == 0U ||
           role.minimum_physical_m > role.maximum_physical_m ||
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
           role.maximum_physical_m > role.maximum_logical_panel_m ||
+          role.physical_submission_count_per_logical_panel == 0U ||
+          (role_identity == PrefillBindingRole::kExactCausalAttention &&
+           role.physical_submission_count_per_logical_panel !=
+               (selector_exact_attention ? 3U : 1U)) ||
+          (selector_exact_attention &&
+           role_identity == PrefillBindingRole::kExactCausalAttention &&
+           (role.physical_submissions[0U].tactic !=
+                NativePrefillPhysicalSubmissionTactic::kGroupQ64 ||
+            role.physical_submissions[0U].first_position != 0U ||
+            role.physical_submissions[0U].token_count != 512U ||
+            role.physical_submissions[1U].tactic !=
+                NativePrefillPhysicalSubmissionTactic::kGroupQ64 ||
+            role.physical_submissions[1U].first_position != 512U ||
+            role.physical_submissions[1U].token_count != 512U ||
+            role.physical_submissions[2U].tactic !=
+                NativePrefillPhysicalSubmissionTactic::
+                    kPersistentGenericQt2Q8 ||
+            role.physical_submissions[2U].first_position != 1'024U ||
+            role.physical_submissions[2U].token_count != 38'976U)) ||
+#else
+          role.maximum_physical_m > role.maximum_logical_panel_m ||
+#endif
           role.completion !=
               NativePrefillCompletionDomain::kMainStreamBarrier) {
         return plan_failure(BoundPrefillPlanError::kIncompleteNativeRole,
@@ -3600,6 +3763,17 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
   const bool prompt_wide_p40_projection =
       whole_core_projection || projection_reset || any_packed_projection ||
       vllm_marlin_parity;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const bool selector_exact_attention =
+      plan.full_attention_tactic_ == LayerMajorPrefillFullAttentionTactic::
+                                         kSelectorExactPersistentAttentionV1WholePrompt;
+#else
+  constexpr bool selector_exact_attention = false;
+#endif
+  const bool whole_prompt_attention =
+      selector_exact_attention ||
+      plan.full_attention_tactic_ == LayerMajorPrefillFullAttentionTactic::
+                                         kNativeFlashInferExactWholePrompt;
   const bool persistent_nvfp4_kernel_projection =
       layer_wide_p40_projection || whole_core_projection;
   const bool interleaved_p40_projection =
@@ -3642,10 +3816,20 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
           plan.projection_tactic_) ||
       !is_valid_layer_major_prefill_full_attention_tactic(
           plan.full_attention_tactic_) ||
-      (plan.full_attention_tactic_ ==
-           LayerMajorPrefillFullAttentionTactic::
-               kNativeFlashInferExactWholePrompt) !=
-          prompt_wide_p40_projection ||
+      whole_prompt_attention != prompt_wide_p40_projection ||
+      (prompt_wide_p40_projection &&
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+       (selector_exact_attention
+            ? (!whole_core_projection ||
+               !is_selector_exact_persistent_attention_v1_p40_request_capacity_tokens(
+                   plan.state_->max_sequence_length()))
+            : plan.state_->max_sequence_length() !=
+                  kLayerMajorPrefillPromptWideP40RequestCapacityTokens)
+#else
+       plan.state_->max_sequence_length() !=
+           kLayerMajorPrefillPromptWideP40RequestCapacityTokens
+#endif
+       ) ||
       plan.mlp_schedule_tactic_ != expected_mlp_schedule ||
       plan.main_stream_ != runner.stream_ ||
       plan.auxiliary_stream_ != runner.prefill_auxiliary_stream_ ||
@@ -3670,7 +3854,8 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
                                       kNativeNvfp4G2D2LargeMOperatorPanel;
   if (whole_core_projection &&
       (!whole_core_compile_inventory_enabled() ||
-       !complete_flashinfer_whole_prompt_p40_capability() ||
+       (!selector_exact_attention &&
+        !complete_flashinfer_whole_prompt_p40_capability()) ||
        !complete_bf16_ab_prompt_wide_p40_capability() ||
        !complete_gdn_prompt_wide_p40_capability())) {
     return false;
@@ -3808,7 +3993,12 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
         plan.memory_plan_ == nullptr ||
         plan.memory_plan_->layout !=
             LayerMajorRequestLayout::kP40WholeCorePromptWide ||
-        plan.arena_bytes_ != kPromptWideP40WholeCoreArenaBytes ||
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+        plan.arena_bytes_ != layer_major_p40_whole_core_arena_bytes(
+                                 plan.state_->max_sequence_length()) ||
+#else
+        plan.arena_bytes_ != 8'640'542'976U ||
+#endif
         !complete_prompt_wide_p40_whole_core_views(
             views, vllm_marlin_parity) ||
         !complete_exact_gdn_chunk64_native_inventory(*runner.weights_)) {
@@ -3848,7 +4038,14 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
                              const void* const auxiliary_workspace = nullptr,
                              const std::uint64_t auxiliary_workspace_bytes = 0U,
                              const std::uint32_t maximum_logical_m =
-                                 kLayerMajorPrefillPromptWideP40Tokens) noexcept {
+                                 kLayerMajorPrefillPromptWideP40Tokens
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+                             ,
+                             const std::uint32_t
+                                 physical_submission_count_per_logical_panel =
+                                     1U
+#endif
+                             ) noexcept {
       const NativePrefillRoleReceipt& receipt =
           plan.roles_[static_cast<std::size_t>(role)];
       return receipt.role == role && receipt.tactic == tactic &&
@@ -3862,7 +4059,13 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
                  auxiliary_workspace_bytes &&
              receipt.maximum_logical_panel_m == maximum_logical_m &&
              receipt.minimum_physical_m == minimum_physical_m &&
-             receipt.maximum_physical_m == maximum_physical_m;
+             receipt.maximum_physical_m == maximum_physical_m
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+             &&
+             receipt.physical_submission_count_per_logical_panel ==
+                 physical_submission_count_per_logical_panel
+#endif
+          ;
     };
     constexpr std::uint64_t kGateUpScaleBytes =
         static_cast<std::uint64_t>(kReferenceHiddenSize) *
@@ -3973,7 +4176,38 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
                       kLayerMajorPrefillPromptWideP40Tokens,
                       kLayerMajorPrefillPromptWideP40Tokens,
                       down->prefill_marlin_global_scale, sizeof(float));
-    return nvfp4_receipts_match &&
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    const auto& physical_attention =
+        plan.roles_[static_cast<std::size_t>(
+            PrefillBindingRole::kExactCausalAttention)]
+            .physical_submissions;
+    const bool physical_attention_receipt_matches =
+        selector_exact_attention
+            ? physical_attention[0U].tactic ==
+                      NativePrefillPhysicalSubmissionTactic::kGroupQ64 &&
+                  physical_attention[0U].first_position == 0U &&
+                  physical_attention[0U].token_count == 512U &&
+                  physical_attention[1U].tactic ==
+                      NativePrefillPhysicalSubmissionTactic::kGroupQ64 &&
+                  physical_attention[1U].first_position == 512U &&
+                  physical_attention[1U].token_count == 512U &&
+                  physical_attention[2U].tactic ==
+                      NativePrefillPhysicalSubmissionTactic::
+                          kPersistentGenericQt2Q8 &&
+                  physical_attention[2U].first_position == 1'024U &&
+                  physical_attention[2U].token_count == 38'976U
+            : std::all_of(
+                  physical_attention.begin(), physical_attention.end(),
+                  [](const NativePrefillPhysicalSubmissionReceipt& span) {
+                    return span.tactic ==
+                               NativePrefillPhysicalSubmissionTactic::kNone &&
+                           span.first_position == 0U &&
+                           span.token_count == 0U;
+                  });
+#else
+    constexpr bool physical_attention_receipt_matches = true;
+#endif
+    return physical_attention_receipt_matches && nvfp4_receipts_match &&
            fp8_matches(PrefillBindingRole::kLinearFp8Qkv, *linear_qkv) &&
            fp8_matches(PrefillBindingRole::kLinearFp8Z, *linear_z) &&
            fp8_matches(PrefillBindingRole::kLinearFp8O, *linear_o) &&
@@ -4005,13 +4239,21 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
                kLayerMajorPrefillPromptWideP40Tokens) &&
            matches(
                PrefillBindingRole::kExactCausalAttention,
-               NativePrefillTactic::
-                   kNativeCausalAttentionFlashInferExactWholePrompt,
+               native_attention_tactic(plan.full_attention_tactic_),
                attention->q_norm.data,
                whole.full_attention.core_output_bf16.storage.device_data,
                whole.full_attention.core_output_bf16.storage.byte_size,
-               kLayerMajorPrefillPromptWideP40Tokens,
-               kLayerMajorPrefillPromptWideP40Tokens) &&
+               selector_exact_attention
+                   ? 512U
+                   : kLayerMajorPrefillPromptWideP40Tokens,
+               selector_exact_attention
+                   ? 38'976U
+                   : kLayerMajorPrefillPromptWideP40Tokens,
+               nullptr, 0U, kLayerMajorPrefillPromptWideP40Tokens
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+               , selector_exact_attention ? 3U : 1U
+#endif
+               ) &&
            matches(PrefillBindingRole::kResidual,
                    NativePrefillTactic::kResidualOperatorPanel,
                    runner.weights_,
@@ -4466,6 +4708,16 @@ std::string_view ReferenceEnginePrefillExecutor::deployment_plan_id(
   }
   if (plan.projection_tactic_ ==
       LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore) {
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    if (plan.full_attention_tactic_ ==
+            LayerMajorPrefillFullAttentionTactic::
+                kSelectorExactPersistentAttentionV1WholePrompt &&
+        plan.state_ != nullptr &&
+        is_selector_exact_persistent_attention_v1_p40_request_capacity_tokens(
+            plan.state_->max_sequence_length())) {
+      return kSelectorExactPersistentAttentionV1P40DeploymentPlanId;
+    }
+#endif
     return plan.full_attention_tactic_ ==
                    LayerMajorPrefillFullAttentionTactic::
                        kNativeFlashInferExactWholePrompt
@@ -4554,6 +4806,51 @@ std::string_view ReferenceEnginePrefillExecutor::deployment_plan_id(
       return kLayerMajorOperatorPanelDeploymentPlanId;
   }
 }
+
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+bool ReferenceEnginePrefillExecutor::completed_selector_attention_binding(
+    const BoundPrefillExecutionPlan& plan,
+    NativePrefillRoleReceipt& attention) noexcept {
+  attention = {};
+  if (plan.state_ == nullptr ||
+      plan.projection_tactic_ != LayerMajorPrefillProjectionTactic::
+                                     kNativePromptWideP40WholeCore ||
+      plan.full_attention_tactic_ != LayerMajorPrefillFullAttentionTactic::
+                                         kSelectorExactPersistentAttentionV1WholePrompt ||
+      !is_selector_exact_persistent_attention_v1_p40_request_capacity_tokens(
+          plan.state_->max_sequence_length())) {
+    return false;
+  }
+  const NativePrefillRoleReceipt& bound =
+      plan.roles_[static_cast<std::size_t>(
+          PrefillBindingRole::kExactCausalAttention)];
+  if (bound.role != PrefillBindingRole::kExactCausalAttention ||
+      bound.tactic !=
+          NativePrefillTactic::kSelectorExactPersistentAttentionV1WholePrompt ||
+      bound.completion !=
+          NativePrefillCompletionDomain::kMainStreamBarrier ||
+      bound.maximum_logical_panel_m != 40'000U ||
+      bound.minimum_physical_m != 512U ||
+      bound.maximum_physical_m != 38'976U ||
+      bound.physical_submission_count_per_logical_panel != 3U ||
+      bound.physical_submissions[0U].tactic !=
+          NativePrefillPhysicalSubmissionTactic::kGroupQ64 ||
+      bound.physical_submissions[0U].first_position != 0U ||
+      bound.physical_submissions[0U].token_count != 512U ||
+      bound.physical_submissions[1U].tactic !=
+          NativePrefillPhysicalSubmissionTactic::kGroupQ64 ||
+      bound.physical_submissions[1U].first_position != 512U ||
+      bound.physical_submissions[1U].token_count != 512U ||
+      bound.physical_submissions[2U].tactic !=
+          NativePrefillPhysicalSubmissionTactic::kPersistentGenericQt2Q8 ||
+      bound.physical_submissions[2U].first_position != 1'024U ||
+      bound.physical_submissions[2U].token_count != 38'976U) {
+    return false;
+  }
+  attention = bound;
+  return true;
+}
+#endif
 
 ReferenceWholeRequestPrefillOutcome ReferenceEnginePrefillExecutor::execute(
     const BoundPrefillExecutionPlan& plan, ReferenceRunner& runner,

@@ -407,13 +407,24 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
                              kLayerWideP40MarlinParityMergedGateUp;
   if (plan.layout != LayerMajorRequestLayout::kP40WholeCorePromptWide ||
       plan.common.profile != RequestMemoryProfile::kLayerMajorP40WholeCore ||
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      !is_layer_major_p40_whole_core_request_capacity(
+          plan.common.max_sequence_length) ||
+#else
       plan.common.max_sequence_length !=
           kLayerMajorP40WholeCoreRequestCapacityTokens ||
+#endif
       plan.operator_panel_capacity_tokens !=
           kLayerMajorP40WholeCorePanelTokens ||
       plan.mlp_capacity_tokens != kLayerMajorP40WholeCorePromptTokens ||
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      !valid_p40_mlp_layout ||
+      plan.common.arena_bytes != layer_major_p40_whole_core_arena_bytes(
+                                     plan.common.max_sequence_length)) {
+#else
       !valid_p40_mlp_layout ||
       plan.common.arena_bytes != 8'640'542'976U) {
+#endif
     return false;
   }
 
@@ -426,8 +437,12 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
            region.arena_offset - family.arena_offset == expected;
   };
   if (whole.prompt_token_count != kLayerMajorP40WholeCorePromptTokens ||
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      whole.request_capacity_tokens != plan.common.max_sequence_length ||
+#else
       whole.request_capacity_tokens !=
           kLayerMajorP40WholeCoreRequestCapacityTokens ||
+#endif
       whole.logical_panel_capacity_tokens !=
           kLayerMajorP40WholeCorePanelTokens ||
       whole.logical_panel_count != kLayerMajorP40WholeCorePanelCount ||
@@ -1032,8 +1047,13 @@ build_reference_layer_major_candidate_binding_descriptor(
       whole_core_p40
           ? plan.operator_panel_capacity_tokens ==
                     kLayerMajorP40WholeCorePanelTokens &&
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+                is_layer_major_p40_whole_core_request_capacity(
+                    plan.common.max_sequence_length) &&
+#else
                 plan.common.max_sequence_length ==
                     kLayerMajorP40WholeCoreRequestCapacityTokens &&
+#endif
                 plan.mlp_capacity_tokens ==
                     kLayerMajorP40WholeCorePromptTokens &&
                 ((plan.mlp_layout == LayerMajorRequestMlpLayout::

@@ -8,7 +8,6 @@
 #include "reference_engine_prefill_authority.h"
 #include "reference_runner_full_attention_oracle_internal.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
-#include "reference_runner_selector_exact_persistent_attention_v1_internal.h"
 
 #include <cuda_runtime_api.h>
 
@@ -107,7 +106,6 @@ struct Layer3AttentionP513OracleCollector {
   DeviceBf16Buffer canonical_output_device;
   DeviceBf16Buffer group_q64_output_device;
   DeviceBf16Buffer flashinfer_output_device;
-  DeviceBf16Buffer selector_exact_persistent_output_device;
   DeviceBf16Buffer query_snapshot_device;
   DeviceBf16Buffer gate_snapshot_device;
   DeviceBf16Buffer key_snapshot_device;
@@ -116,7 +114,6 @@ struct Layer3AttentionP513OracleCollector {
   std::vector<std::uint16_t> canonical_output;
   std::vector<std::uint16_t> group_q64_output;
   std::vector<std::uint16_t> flashinfer_output;
-  std::vector<std::uint16_t> selector_exact_persistent_output;
   std::vector<std::uint16_t> query_before;
   std::vector<std::uint16_t> query_after;
   std::vector<std::uint16_t> gate_before;
@@ -127,9 +124,6 @@ struct Layer3AttentionP513OracleCollector {
   std::vector<std::uint16_t> value_after;
 
   std::size_t hook_calls = 0U;
-  runner_detail::SelectorExactPersistentAttentionV1LaunchReceipt
-      selector_exact_persistent_receipt{};
-  bool selector_exact_persistent_gate = false;
   bool prepared = false;
   bool completed = false;
   const char* failed_operation = "none";
@@ -140,10 +134,6 @@ struct Layer3AttentionP513OracleCollector {
       canonical_output.resize(kLayer3AttentionOracleQueryElements);
       group_q64_output.resize(kLayer3AttentionOracleQueryElements);
       flashinfer_output.resize(kLayer3AttentionOracleQueryElements);
-      if (selector_exact_persistent_gate) {
-        selector_exact_persistent_output.resize(
-            kLayer3AttentionOracleQueryElements);
-      }
       query_before.resize(kLayer3AttentionOracleQueryElements);
       query_after.resize(kLayer3AttentionOracleQueryElements);
       gate_before.resize(kLayer3AttentionOracleQueryElements);
@@ -176,9 +166,6 @@ struct Layer3AttentionP513OracleCollector {
                                kLayer3AttentionOracleQueryElements) &&
                allocate_device(flashinfer_output_device,
                                kLayer3AttentionOracleQueryElements) &&
-               (!selector_exact_persistent_gate ||
-                allocate_device(selector_exact_persistent_output_device,
-                                kLayer3AttentionOracleQueryElements)) &&
                allocate_device(query_snapshot_device,
                                kLayer3AttentionOracleQueryElements) &&
                allocate_device(gate_snapshot_device,
@@ -305,23 +292,8 @@ void collect_layer3_attention_p513_oracle(
           collector->flashinfer_output_device.data(), view.cuda_stream);
   if (!record_oracle_cuda(*collector,
                           static_cast<cudaError_t>(flashinfer_status),
-                          "flashinfer_panel")) {
-    return;
-  }
-  if (collector->selector_exact_persistent_gate) {
-    const int selector_status = runner_detail::
-        launch_selector_exact_persistent_attention_v1_cuda(
-            view.processed_query, view.key_cache, view.value_cache,
-            view.packed_gate, view.first_position, view.token_count,
-            collector->selector_exact_persistent_output_device.data(),
-            &collector->selector_exact_persistent_receipt, view.cuda_stream);
-    if (!record_oracle_cuda(*collector,
-                            static_cast<cudaError_t>(selector_status),
-                            "selector_exact_persistent_attention_v1")) {
-      return;
-    }
-  }
-  if (!record_oracle_cuda(*collector, cudaStreamSynchronize(stream),
+                          "flashinfer_panel") ||
+      !record_oracle_cuda(*collector, cudaStreamSynchronize(stream),
                           "oracle_synchronize")) {
     return;
   }
@@ -365,13 +337,6 @@ void collect_layer3_attention_p513_oracle(
                     "copy_value_before") ||
       !copy_to_host(collector->value_after, view.value_cache, kKvBytes,
                     "copy_value_after")) {
-    return;
-  }
-  if (collector->selector_exact_persistent_gate &&
-      !copy_to_host(collector->selector_exact_persistent_output,
-                    collector->selector_exact_persistent_output_device.data(),
-                    kQueryBytes,
-                    "copy_selector_exact_persistent_output")) {
     return;
   }
   collector->completed = true;
@@ -604,15 +569,7 @@ void print_layer3_attention_first_mismatch(
             << " group_q64="
             << bf16_hex(collector.group_q64_output[mismatch.index])
             << " flashinfer="
-            << bf16_hex(collector.flashinfer_output[mismatch.index]);
-  if (mismatch.index < collector.selector_exact_persistent_output.size()) {
-    std::cout << " selector_exact_persistent_v1="
-              << bf16_hex(
-                     collector.selector_exact_persistent_output[mismatch.index]);
-  } else {
-    std::cout << " selector_exact_persistent_v1=NOT_RUN";
-  }
-  std::cout << '\n';
+            << bf16_hex(collector.flashinfer_output[mismatch.index]) << '\n';
 }
 
 enum class Layer3AttentionOracleReportStatus : std::uint8_t {
@@ -623,9 +580,7 @@ enum class Layer3AttentionOracleReportStatus : std::uint8_t {
 
 [[nodiscard]] Layer3AttentionOracleReportStatus
 report_layer3_attention_p513_oracle(
-    const Layer3AttentionP513OracleCollector& collector,
-    const bool selector_exact_persistent_gate,
-    const bool selector_runner_route_valid) {
+    const Layer3AttentionP513OracleCollector& collector) {
   if (!collector.prepared || !collector.completed ||
       collector.hook_calls != 1U) {
     std::cerr << "P513_ATTENTION_ORACLE_ERROR prepared="
@@ -652,9 +607,6 @@ report_layer3_attention_p513_oracle(
               << " value_immutable=" << (value_immutable ? "true" : "false")
               << " gate_immutable=" << (gate_immutable ? "true" : "false")
               << " flashinfer_bitwise_gate=NOT_RUN"
-                 " selector_exact_persistent_v1_bitwise_gate=NOT_RUN"
-                 " selector_exact_persistent_v1_second_span_bitwise_gate="
-                 "NOT_RUN"
                  " accuracy_qualification=NOT_RUN\n";
     return Layer3AttentionOracleReportStatus::kInfrastructureFailure;
   }
@@ -665,51 +617,29 @@ report_layer3_attention_p513_oracle(
       collector.canonical_output, collector.flashinfer_output);
   const FirstBf16Mismatch group_flashinfer = first_bf16_mismatch(
       collector.group_q64_output, collector.flashinfer_output);
-  const FirstBf16Mismatch exact_selector =
-      selector_exact_persistent_gate
-          ? first_bf16_mismatch(
-                collector.canonical_output,
-                collector.selector_exact_persistent_output)
-          : FirstBf16Mismatch{};
   print_layer3_attention_first_mismatch("canonical_vs_group_q64", exact_group,
                                         collector);
   print_layer3_attention_first_mismatch("canonical_vs_flashinfer",
                                         exact_flashinfer, collector);
   print_layer3_attention_first_mismatch("group_q64_vs_flashinfer",
                                         group_flashinfer, collector);
-  if (selector_exact_persistent_gate) {
-    print_layer3_attention_first_mismatch(
-        "canonical_vs_selector_exact_persistent_v1", exact_selector,
-        collector);
-  }
 
   core::Sha256Digest canonical_output_sha;
   core::Sha256Digest group_q64_output_sha;
   core::Sha256Digest flashinfer_output_sha;
-  core::Sha256Digest selector_exact_persistent_output_sha;
   if (!hash_host_bf16_output(collector.canonical_output,
                              canonical_output_sha) ||
       !hash_host_bf16_output(collector.group_q64_output,
                              group_q64_output_sha) ||
       !hash_host_bf16_output(collector.flashinfer_output,
-                             flashinfer_output_sha) ||
-      (selector_exact_persistent_gate &&
-       !hash_host_bf16_output(collector.selector_exact_persistent_output,
-                              selector_exact_persistent_output_sha))) {
+                             flashinfer_output_sha)) {
     std::cerr << "P513_ATTENTION_ORACLE_ERROR operation=output_sha256\n";
     return Layer3AttentionOracleReportStatus::kInfrastructureFailure;
   }
   std::cout << "P513_ATTENTION_OUTPUT_SHA256 canonical="
             << canonical_output_sha.hex()
             << " group_q64=" << group_q64_output_sha.hex()
-            << " flashinfer=" << flashinfer_output_sha.hex();
-  if (selector_exact_persistent_gate) {
-    std::cout << " selector_exact_persistent_v1="
-              << selector_exact_persistent_output_sha.hex();
-  } else {
-    std::cout << " selector_exact_persistent_v1=NOT_RUN";
-  }
-  std::cout << '\n';
+            << " flashinfer=" << flashinfer_output_sha.hex() << '\n';
   std::cout << "P513_ATTENTION_NUMERIC_CONTRACT"
                " nrmse=rmse_over_reference_rms"
                " cosine=dot_over_l2_product"
@@ -723,12 +653,7 @@ report_layer3_attention_p513_oracle(
           collector.flashinfer_output) ||
       !print_bf16_pair_numeric_metrics(
           "group_q64_vs_flashinfer", collector.group_q64_output,
-          collector.flashinfer_output) ||
-      (selector_exact_persistent_gate &&
-       !print_bf16_pair_numeric_metrics(
-           "canonical_vs_selector_exact_persistent_v1",
-           collector.canonical_output,
-           collector.selector_exact_persistent_output))) {
+          collector.flashinfer_output)) {
     std::cerr << "P513_ATTENTION_ORACLE_ERROR operation=numeric_metrics\n";
     return Layer3AttentionOracleReportStatus::kInfrastructureFailure;
   }
@@ -736,8 +661,6 @@ report_layer3_attention_p513_oracle(
   std::size_t exact_group_total = 0U;
   std::size_t exact_flashinfer_total = 0U;
   std::size_t group_flashinfer_total = 0U;
-  std::size_t exact_selector_total = 0U;
-  std::size_t exact_selector_second_span_total = 0U;
   for (std::size_t token = 0U; token < kLayer3AttentionOracleTokens;
        ++token) {
     const std::size_t begin = token * kQueryElementsPerToken;
@@ -745,7 +668,6 @@ report_layer3_attention_p513_oracle(
     std::size_t exact_group_row = 0U;
     std::size_t exact_flashinfer_row = 0U;
     std::size_t group_flashinfer_row = 0U;
-    std::size_t exact_selector_row = 0U;
     for (std::size_t index = begin; index < end; ++index) {
       exact_group_row += collector.canonical_output[index] !=
                                  collector.group_q64_output[index]
@@ -759,53 +681,15 @@ report_layer3_attention_p513_oracle(
                                       collector.flashinfer_output[index]
                                   ? 1U
                                   : 0U;
-      if (selector_exact_persistent_gate) {
-        exact_selector_row +=
-            collector.canonical_output[index] !=
-                    collector.selector_exact_persistent_output[index]
-                ? 1U
-                : 0U;
-      }
     }
     exact_group_total += exact_group_row;
     exact_flashinfer_total += exact_flashinfer_row;
     group_flashinfer_total += group_flashinfer_row;
-    exact_selector_total += exact_selector_row;
-    if (token >= 257U) {
-      exact_selector_second_span_total += exact_selector_row;
-    }
     std::cout << "P513_ATTENTION_ROW token=" << token
               << " canonical_vs_group_q64=" << exact_group_row
               << " canonical_vs_flashinfer=" << exact_flashinfer_row
-              << " group_q64_vs_flashinfer=" << group_flashinfer_row;
-    if (selector_exact_persistent_gate) {
-      std::cout << " canonical_vs_selector_exact_persistent_v1="
-                << exact_selector_row;
-    } else {
-      std::cout << " canonical_vs_selector_exact_persistent_v1=NOT_RUN";
-    }
-    std::cout << '\n';
+              << " group_q64_vs_flashinfer=" << group_flashinfer_row << '\n';
   }
-
-  const auto& selector_receipt =
-      collector.selector_exact_persistent_receipt;
-  const bool selector_receipt_valid =
-      selector_exact_persistent_gate && selector_receipt.plan.valid &&
-      selector_receipt.plan.token_count == kLayer3AttentionOracleTokens &&
-      selector_receipt.plan.arithmetic_span_count == 2U &&
-      selector_receipt.plan.group_q64_span_count == 1U &&
-      selector_receipt.plan.generic_qt2_span_count == 1U &&
-      selector_receipt.plan.generic_suffix_token_offset == 257U &&
-      selector_receipt.plan.generic_suffix_token_count == 256U &&
-      selector_receipt.plan.physical_submission_count == 2U &&
-      selector_receipt.plan.minimum_physical_submission_tokens == 256U &&
-      selector_receipt.plan.maximum_physical_submission_tokens == 257U &&
-      selector_receipt.group_q64_submissions == 1U &&
-      selector_receipt.generic_q8_suffix_submissions == 1U &&
-      selector_receipt.fallback_submissions == 0U &&
-      selector_receipt.persistent_ctas ==
-          runner_detail::
-              kSelectorExactPersistentAttentionV1PersistentBlockCount;
 
   std::cout << "P513_ATTENTION_ORACLE_SUMMARY layer=3 tokens=513"
                " canonical_spans=257,256"
@@ -817,52 +701,11 @@ report_layer3_attention_p513_oracle(
             << " canonical_vs_group_q64=" << exact_group_total
             << " canonical_vs_flashinfer=" << exact_flashinfer_total
             << " group_q64_vs_flashinfer=" << group_flashinfer_total
-            << " canonical_vs_selector_exact_persistent_v1=";
-  if (selector_exact_persistent_gate) {
-    std::cout << exact_selector_total;
-  } else {
-    std::cout << "NOT_RUN";
-  }
-  std::cout
             << " flashinfer_bitwise_gate="
             << (exact_flashinfer_total == 0U ? "PASS" : "FAIL")
-            << " selector_exact_persistent_v1_receipt="
-            << (selector_exact_persistent_gate
-                    ? (selector_receipt_valid ? "VALID" : "INVALID")
-                    : "NOT_RUN")
-            << " selector_exact_persistent_v1_runner_route="
-            << (selector_exact_persistent_gate
-                    ? (selector_runner_route_valid ? "VALID" : "INVALID")
-                    : "NOT_RUN")
-            << " selector_exact_persistent_v1_bitwise_gate="
-            << (selector_exact_persistent_gate
-                    ? (selector_receipt_valid &&
-                               selector_runner_route_valid &&
-                               exact_selector_total == 0U
-                           ? "PASS"
-                           : "FAIL")
-                    : "NOT_RUN")
-            << " selector_exact_persistent_v1_second_span_bitwise_gate="
-            << (selector_exact_persistent_gate
-                    ? (selector_receipt_valid &&
-                               selector_runner_route_valid &&
-                               exact_selector_second_span_total == 0U
-                           ? "PASS"
-                           : "FAIL")
-                    : "NOT_RUN")
             << " accuracy_qualification=NOT_RUN"
             << '\n';
-  const bool selected_gate_passed =
-      selector_exact_persistent_gate
-          ? selector_receipt_valid && selector_runner_route_valid &&
-                exact_selector_total == 0U &&
-                exact_selector_second_span_total == 0U
-          : exact_flashinfer_total == 0U;
-  if (selector_exact_persistent_gate &&
-      (!selector_receipt_valid || !selector_runner_route_valid)) {
-    return Layer3AttentionOracleReportStatus::kInfrastructureFailure;
-  }
-  return selected_gate_passed
+  return exact_flashinfer_total == 0U
              ? Layer3AttentionOracleReportStatus::kBitwisePass
              : Layer3AttentionOracleReportStatus::kBitwiseMismatch;
 }
@@ -1171,27 +1014,6 @@ class ScopedCompatibilityOracle final {
   ScopedCompatibilityOracle(const ScopedCompatibilityOracle&) = delete;
   ScopedCompatibilityOracle& operator=(const ScopedCompatibilityOracle&) =
       delete;
-
- private:
-  bool previous_ = false;
-};
-
-class ScopedSelectorExactPersistentAttentionV1 final {
- public:
-  explicit ScopedSelectorExactPersistentAttentionV1(
-      const bool enabled) noexcept
-      : previous_(runner_detail::
-                      exchange_selector_exact_persistent_attention_v1_for_test(
-                          enabled)) {}
-
-  ~ScopedSelectorExactPersistentAttentionV1() {
-    (void)runner_detail::
-        exchange_selector_exact_persistent_attention_v1_for_test(previous_);
-  }
-  ScopedSelectorExactPersistentAttentionV1(
-      const ScopedSelectorExactPersistentAttentionV1&) = delete;
-  ScopedSelectorExactPersistentAttentionV1& operator=(
-      const ScopedSelectorExactPersistentAttentionV1&) = delete;
 
  private:
   bool previous_ = false;
@@ -1660,49 +1482,6 @@ using QualificationLogitSteps =
   return same;
 }
 
-[[nodiscard]] bool empty_selector_exact_persistent_attention_v1_receipt(
-    const runner_detail::SelectorExactPersistentAttentionV1RouteReceipt&
-        receipt) noexcept {
-  return receipt.panel_calls == 0U && receipt.arithmetic_spans == 0U &&
-         receipt.group_q64_submissions == 0U &&
-         receipt.generic_qt2_spans == 0U &&
-         receipt.generic_q8_suffix_submissions == 0U &&
-         receipt.fallback_submissions == 0U &&
-         receipt.persistent_ctas == 0U &&
-         receipt.minimum_physical_submission_tokens == 0U &&
-         receipt.maximum_physical_submission_tokens == 0U &&
-         receipt.maximum_logical_panel_tokens == 0U;
-}
-
-[[nodiscard]] bool valid_selector_exact_persistent_attention_v1_receipt(
-    const runner_detail::SelectorExactPersistentAttentionV1RouteReceipt&
-        receipt,
-    const std::size_t prompt_tokens) noexcept {
-  const auto plan =
-      runner_detail::make_selector_exact_persistent_attention_v1_plan(
-          0U, prompt_tokens);
-  constexpr std::uint64_t kFullAttentionLayerCalls =
-      runtime::kRequestFullLayerCount;
-  return plan.valid && receipt.panel_calls == kFullAttentionLayerCalls &&
-         receipt.arithmetic_spans ==
-             kFullAttentionLayerCalls * plan.arithmetic_span_count &&
-         receipt.group_q64_submissions ==
-             kFullAttentionLayerCalls * plan.group_q64_span_count &&
-         receipt.generic_qt2_spans ==
-             kFullAttentionLayerCalls * plan.generic_qt2_span_count &&
-         receipt.generic_q8_suffix_submissions ==
-             kFullAttentionLayerCalls &&
-         receipt.fallback_submissions == 0U &&
-         receipt.persistent_ctas ==
-             kFullAttentionLayerCalls * runner_detail::
-                 kSelectorExactPersistentAttentionV1PersistentBlockCount &&
-         receipt.minimum_physical_submission_tokens ==
-             plan.minimum_physical_submission_tokens &&
-         receipt.maximum_physical_submission_tokens ==
-             plan.maximum_physical_submission_tokens &&
-         receipt.maximum_logical_panel_tokens == plan.logical_panel_tokens;
-}
-
 void write_json_string(std::ostream& output, const std::string_view value) {
   constexpr char kHex[] = "0123456789abcdef";
   output.put('"');
@@ -1848,32 +1627,6 @@ void write_json_route_evidence(
   output << "]}";
 }
 
-void write_json_selector_exact_persistent_attention_v1_receipt(
-    std::ostream& output,
-    const runner_detail::SelectorExactPersistentAttentionV1RouteReceipt&
-        receipt) {
-  output << "{\"route_identity\":";
-  write_json_string(
-      output,
-      runner_detail::kSelectorExactPersistentAttentionV1RouteIdentity);
-  output << ",\"panel_calls\":" << receipt.panel_calls
-         << ",\"arithmetic_spans\":" << receipt.arithmetic_spans
-         << ",\"group_q64_submissions\":"
-         << receipt.group_q64_submissions
-         << ",\"generic_qt2_spans\":" << receipt.generic_qt2_spans
-         << ",\"generic_q8_suffix_submissions\":"
-         << receipt.generic_q8_suffix_submissions
-         << ",\"fallback_submissions\":"
-         << receipt.fallback_submissions
-         << ",\"persistent_ctas\":" << receipt.persistent_ctas
-         << ",\"minimum_physical_submission_tokens\":"
-         << receipt.minimum_physical_submission_tokens
-         << ",\"maximum_physical_submission_tokens\":"
-         << receipt.maximum_physical_submission_tokens
-         << ",\"maximum_logical_panel_tokens\":"
-         << receipt.maximum_logical_panel_tokens << '}';
-}
-
 [[nodiscard]] bool run_qualification_generation(
     runtime::ReferenceEngine& engine,
     const std::vector<std::uint32_t>& prompt_token_ids,
@@ -1917,8 +1670,7 @@ void write_json_selector_exact_persistent_attention_v1_receipt(
 
 [[nodiscard]] int run_attention_qualification(
     runtime::ReferenceEngine& engine, const AttentionQualificationCorpus& corpus,
-    const std::size_t prompt_tokens,
-    const bool selector_exact_persistent_attention_v1) {
+    const std::size_t prompt_tokens) {
   if (prompt_tokens > corpus.tokens.size() ||
       prompt_tokens > std::numeric_limits<std::size_t>::max() -
                           kAttentionQualificationDecodeTransitions) {
@@ -1942,32 +1694,14 @@ void write_json_selector_exact_persistent_attention_v1_receipt(
   QualificationTokenCollector flashinfer_token_events;
   runtime::ReferenceGenerateResult exact_result;
   runtime::ReferenceGenerateResult flashinfer_result;
-  (void)runner_detail::
-      exchange_selector_exact_persistent_attention_v1_route_receipt_for_test(
-          {});
-  {
-    const ScopedSelectorExactPersistentAttentionV1 exact_route(false);
-    if (!run_qualification_generation(
-            engine, prompt_token_ids, true, exact_snapshot, exact_token_events,
-            exact_result)) {
-      return 1;
-    }
+  if (!run_qualification_generation(
+          engine, prompt_token_ids, true, exact_snapshot, exact_token_events,
+          exact_result) ||
+      !run_qualification_generation(
+          engine, prompt_token_ids, false, flashinfer_snapshot,
+          flashinfer_token_events, flashinfer_result)) {
+    return 1;
   }
-  const auto exact_selector_receipt = runner_detail::
-      exchange_selector_exact_persistent_attention_v1_route_receipt_for_test(
-          {});
-  {
-    const ScopedSelectorExactPersistentAttentionV1 candidate_route(
-        selector_exact_persistent_attention_v1);
-    if (!run_qualification_generation(
-            engine, prompt_token_ids, false, flashinfer_snapshot,
-            flashinfer_token_events, flashinfer_result)) {
-      return 1;
-    }
-  }
-  const auto candidate_selector_receipt = runner_detail::
-      exchange_selector_exact_persistent_attention_v1_route_receipt_for_test(
-          {});
 
   const runtime::ReferenceGeneration& exact = *exact_result.value;
   const runtime::ReferenceGeneration& flashinfer = *flashinfer_result.value;
@@ -2001,15 +1735,12 @@ void write_json_selector_exact_persistent_attention_v1_receipt(
   const std::uint64_t logical_panels = topology.value->panel_count;
   const bool routes_same = same_route(exact.prefill_route_evidence,
                                       flashinfer.prefill_route_evidence);
-  const std::string_view expected_deployment_plan_id =
-      selector_exact_persistent_attention_v1
-          ? runtime::kLayerMajorOperatorPanelDeploymentPlanId
-          : runtime::kLayerMajorNativeFlashInferExactPanelDeploymentPlanId;
-  const bool common_route_contract =
+  const bool route_contract =
       exact.prefill_execution_mode ==
           runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
       flashinfer.prefill_execution_mode == exact.prefill_execution_mode &&
-      exact.prefill_deployment_plan_id == expected_deployment_plan_id &&
+      exact.prefill_deployment_plan_id ==
+          runtime::kLayerMajorNativeFlashInferExactPanelDeploymentPlanId &&
       flashinfer.prefill_deployment_plan_id ==
           exact.prefill_deployment_plan_id &&
       exact.prefill_logical_panel_count == logical_panels &&
@@ -2026,77 +1757,29 @@ void write_json_selector_exact_persistent_attention_v1_receipt(
           runtime::kReferenceDecoderLayerCount * logical_panels &&
       flashinfer.prefill_native_group_q64_panel_hits == 0U &&
       flashinfer.prefill_native_group_q128_v4_panel_hits == 0U &&
+      flashinfer.prefill_native_flashinfer_exact_panel_hits ==
+          runtime::kRequestFullLayerCount * logical_panels &&
       flashinfer.prefill_generic_qt2_hits == 0U &&
       exact.prefill_segmented_panel_projection_hits == 0U &&
       flashinfer.prefill_segmented_panel_projection_hits == 0U &&
       exact.prefill_native_large_m_projection_hits == 0U &&
       flashinfer.prefill_native_large_m_projection_hits == 0U;
-  const bool candidate_route_contract =
-      selector_exact_persistent_attention_v1
-          ? flashinfer.prefill_native_flashinfer_exact_panel_hits == 0U &&
-                empty_selector_exact_persistent_attention_v1_receipt(
-                    exact_selector_receipt) &&
-                valid_selector_exact_persistent_attention_v1_receipt(
-                    candidate_selector_receipt, prompt_tokens)
-          : flashinfer.prefill_native_flashinfer_exact_panel_hits ==
-                    runtime::kRequestFullLayerCount * logical_panels &&
-                empty_selector_exact_persistent_attention_v1_receipt(
-                    exact_selector_receipt) &&
-                empty_selector_exact_persistent_attention_v1_receipt(
-                    candidate_selector_receipt);
-  const bool route_contract =
-      common_route_contract && candidate_route_contract;
 
   bool logit_argmax_exact =
       exact_logit_steps.size() == flashinfer_logit_steps.size();
-  bool logit_metrics_finite = true;
-  bool logit_full_statistics_bitwise_exact = logit_argmax_exact;
-  const auto same_float_bits = [](const float left,
-                                  const float right) noexcept {
-    static_assert(sizeof(left) == sizeof(std::uint32_t));
-    std::uint32_t left_bits = 0U;
-    std::uint32_t right_bits = 0U;
-    std::memcpy(&left_bits, &left, sizeof(left_bits));
-    std::memcpy(&right_bits, &right, sizeof(right_bits));
-    return left_bits == right_bits;
-  };
-  const auto same_double_bits = [](const double left,
-                                   const double right) noexcept {
-    static_assert(sizeof(left) == sizeof(std::uint64_t));
-    std::uint64_t left_bits = 0U;
-    std::uint64_t right_bits = 0U;
-    std::memcpy(&left_bits, &left, sizeof(left_bits));
-    std::memcpy(&right_bits, &right, sizeof(right_bits));
-    return left_bits == right_bits;
-  };
+  bool logit_metrics_finite = logit_argmax_exact;
   for (std::size_t index = 0U;
        index < exact_logit_steps.size() &&
        index < flashinfer_logit_steps.size();
        ++index) {
-    const runtime::ReferenceStepResult& exact_step =
-        *exact_logit_steps[index];
-    const runtime::ReferenceStepResult& flashinfer_step =
-        *flashinfer_logit_steps[index];
     const runtime::ReferenceStepLogits& exact_logits =
-        *exact_step.logits;
+        *exact_logit_steps[index]->logits;
     const runtime::ReferenceStepLogits& flashinfer_logits =
-        *flashinfer_step.logits;
+        *flashinfer_logit_steps[index]->logits;
     logit_argmax_exact =
         logit_argmax_exact &&
         exact_logits.predicted_token_id ==
             flashinfer_logits.predicted_token_id;
-    logit_full_statistics_bitwise_exact =
-        logit_full_statistics_bitwise_exact &&
-        exact_step.position == flashinfer_step.position &&
-        exact_step.input_token_id == flashinfer_step.input_token_id &&
-        exact_logits.predicted_token_id ==
-            flashinfer_logits.predicted_token_id &&
-        same_float_bits(exact_logits.chosen_logit,
-                        flashinfer_logits.chosen_logit) &&
-        same_double_bits(exact_logits.logsumexp,
-                         flashinfer_logits.logsumexp) &&
-        same_double_bits(exact_logits.max_log_probability,
-                         flashinfer_logits.max_log_probability);
     const long double chosen_delta =
         static_cast<long double>(flashinfer_logits.chosen_logit) -
         static_cast<long double>(exact_logits.chosen_logit);
@@ -2140,21 +1823,12 @@ void write_json_selector_exact_persistent_attention_v1_receipt(
   const bool infrastructure_valid = route_contract && logit_metrics_finite &&
                                     final_hidden_metrics.finite;
   const bool screen_passed =
-      infrastructure_valid && behavior_exact && final_hidden_screen &&
-      (!selector_exact_persistent_attention_v1 ||
-       (state_exact && logit_full_statistics_bitwise_exact));
+      infrastructure_valid && behavior_exact && final_hidden_screen;
 
   std::ostringstream report;
   report << std::setprecision(
       std::numeric_limits<long double>::max_digits10);
-  report << "{\"schema\":";
-  write_json_string(
-      report,
-      selector_exact_persistent_attention_v1
-          ? std::string_view(
-                "q3x.prefill_attention.exact_candidate_bitwise_screen.v1")
-          : std::string_view("q3x.prefill_attention.numerical_screen.v1"));
-  report <<
+  report << "{\"schema\":\"q3x.prefill_attention.numerical_screen.v1\""
             ",\"phase\":\"same_engine_compatibility_numerical_screen\""
             ",\"authority\":\"REAL_MODEL_NUMERICAL_SCREEN_ONLY\""
             ",\"accuracy_qualification\":\"NOT_RUN\""
@@ -2178,32 +1852,12 @@ void write_json_selector_exact_persistent_attention_v1_receipt(
   report << ",\"prefix_token_u32le_sha256\":";
   write_json_string(report, prompt_token_sha256.hex());
   report << "},\"pair\":{\"same_engine\":true"
-            ",\"configured_attention\":";
-  write_json_string(
-      report,
-      selector_exact_persistent_attention_v1
-          ? runner_detail::kSelectorExactPersistentAttentionV1RouteIdentity
-          : std::string_view("native-flashinfer-exact-panel"));
-  if (selector_exact_persistent_attention_v1) {
-    report << ",\"candidate_kernel\":";
-    write_json_string(
-        report,
-        runner_detail::kSelectorExactPersistentAttentionV1RouteIdentity);
-  }
-  report << ",\"projection\":\"exact-segmented\""
+            ",\"configured_attention\":\"native-flashinfer-exact-panel\""
+            ",\"projection\":\"exact-segmented\""
             ",\"exact_observer\":\"ScopedCompatibilityOracle=true\""
             ",\"candidate_observer\":\"ScopedCompatibilityOracle=false\""
-            ",\"production_qualification\":\"NOT_RUN\"}";
-  if (selector_exact_persistent_attention_v1) {
-    report << ",\"kernel_receipt\":{\"exact\":";
-    write_json_selector_exact_persistent_attention_v1_receipt(
-        report, exact_selector_receipt);
-    report << ",\"candidate\":";
-    write_json_selector_exact_persistent_attention_v1_receipt(
-        report, candidate_selector_receipt);
-    report << '}';
-  }
-  report << ",\"behavior\":{\"exact\":"
+            ",\"production_qualification\":\"NOT_RUN\"}"
+         << ",\"behavior\":{\"exact\":"
          << (behavior_exact ? "true" : "false")
          << ",\"token_ids_exact\":"
          << (token_ids_exact ? "true" : "false")
@@ -2214,16 +1868,7 @@ void write_json_selector_exact_persistent_attention_v1_receipt(
          << ",\"token_events_exact\":"
          << (token_events_exact ? "true" : "false")
          << ",\"logit_argmax_exact\":"
-         << (logit_argmax_exact ? "true" : "false");
-  if (selector_exact_persistent_attention_v1) {
-    report << ",\"full_statistics_bitwise_exact\":"
-           << (logit_full_statistics_bitwise_exact ? "true" : "false")
-           << ",\"selector_bitwise_gate\":\""
-           << (state_exact && logit_full_statistics_bitwise_exact ? "PASS"
-                                                                   : "FAIL")
-           << '"';
-  }
-  report << '}';
+         << (logit_argmax_exact ? "true" : "false") << '}';
 
   const auto write_generation = [&report](
                                     const runtime::ReferenceGeneration& value,
@@ -2240,16 +1885,12 @@ void write_json_selector_exact_persistent_attention_v1_receipt(
   };
   report << ",\"exact_generation\":";
   write_generation(exact, exact_token_events);
-  report << (selector_exact_persistent_attention_v1
-                 ? ",\"candidate_generation\":"
-                 : ",\"flashinfer_generation\":");
+  report << ",\"flashinfer_generation\":";
   write_generation(flashinfer, flashinfer_token_events);
 
   report << ",\"logit_metrics_finite\":"
          << (logit_metrics_finite ? "true" : "false")
          << ",\"full_statistics_steps\":[";
-  const std::string_view candidate_json_name =
-      selector_exact_persistent_attention_v1 ? "candidate" : "flashinfer";
   for (std::size_t index = 0U; index < exact_logit_steps.size(); ++index) {
     if (index != 0U) {
       report.put(',');
@@ -2264,30 +1905,26 @@ void write_json_selector_exact_persistent_attention_v1_receipt(
     report << "{\"ordinal\":" << index << ",\"phase\":\""
            << (index == 0U ? "prefill_final" : "decode")
            << "\",\"exact_position\":" << exact_step.position
-           << ",\"" << candidate_json_name
-           << "_position\":" << flashinfer_step.position
+           << ",\"flashinfer_position\":" << flashinfer_step.position
            << ",\"exact_input_token_id\":" << exact_step.input_token_id
-           << ",\"" << candidate_json_name << "_input_token_id\":"
+           << ",\"flashinfer_input_token_id\":"
            << flashinfer_step.input_token_id
            << ",\"exact_predicted_token_id\":"
            << exact_logits.predicted_token_id
-           << ",\"" << candidate_json_name << "_predicted_token_id\":"
+           << ",\"flashinfer_predicted_token_id\":"
            << flashinfer_logits.predicted_token_id
            << ",\"chosen_logit\":{\"exact\":"
-           << exact_logits.chosen_logit << ",\"" << candidate_json_name
-           << "\":"
+           << exact_logits.chosen_logit << ",\"flashinfer\":"
            << flashinfer_logits.chosen_logit << ",\"delta\":"
            << static_cast<long double>(flashinfer_logits.chosen_logit) -
                   static_cast<long double>(exact_logits.chosen_logit)
            << "},\"logsumexp\":{\"exact\":"
-           << exact_logits.logsumexp << ",\"" << candidate_json_name
-           << "\":"
+           << exact_logits.logsumexp << ",\"flashinfer\":"
            << flashinfer_logits.logsumexp << ",\"delta\":"
            << static_cast<long double>(flashinfer_logits.logsumexp) -
                   static_cast<long double>(exact_logits.logsumexp)
            << "},\"max_log_probability\":{\"exact\":"
-           << exact_logits.max_log_probability << ",\""
-           << candidate_json_name << "\":"
+           << exact_logits.max_log_probability << ",\"flashinfer\":"
            << flashinfer_logits.max_log_probability << ",\"delta\":"
            << static_cast<long double>(
                   flashinfer_logits.max_log_probability) -
@@ -2319,7 +1956,7 @@ void write_json_selector_exact_persistent_attention_v1_receipt(
   report << ",\"state\":{\"bitwise_exact\":"
          << (state_exact ? "true" : "false") << ",\"exact\":";
   write_json_state_snapshot(report, exact_snapshot);
-  report << ",\"" << candidate_json_name << "\":";
+  report << ",\"flashinfer\":";
   write_json_state_snapshot(report, flashinfer_snapshot);
   report << "}";
 
@@ -2343,7 +1980,7 @@ void write_json_selector_exact_persistent_attention_v1_receipt(
          << ",\"logical_evidence_same\":"
          << (routes_same ? "true" : "false") << ",\"exact\":";
   write_tactic_route(exact);
-  report << ",\"" << candidate_json_name << "\":";
+  report << ",\"flashinfer\":";
   write_tactic_route(flashinfer);
   report << "}}";
 
@@ -2360,9 +1997,7 @@ void write_json_selector_exact_persistent_attention_v1_receipt(
                             const runtime::LayerMajorPrefillFullAttentionTactic
                                 attention_tactic,
                             const runtime::LayerMajorPrefillProjectionTactic
-                                projection_tactic,
-                            const bool selector_exact_persistent_attention_v1 =
-                                false) {
+                                projection_tactic) {
   const bool native_group_q64_panel =
       attention_tactic == runtime::LayerMajorPrefillFullAttentionTactic::
                               kNativeGroupQ64Panel;
@@ -2426,20 +2061,11 @@ void write_json_selector_exact_persistent_attention_v1_receipt(
   StateSnapshot panel_snapshot(prompt_tokens);
   runtime::ReferenceGenerateResult oracle_result;
   runtime::ReferenceGenerateResult panel_result;
-  {
-    const ScopedSelectorExactPersistentAttentionV1 exact_route(false);
-    if (!run_generation(engine, prompt, prompt_tokens, true, oracle_snapshot,
-                        oracle_result)) {
-      return false;
-    }
-  }
-  {
-    const ScopedSelectorExactPersistentAttentionV1 candidate_route(
-        selector_exact_persistent_attention_v1);
-    if (!run_generation(engine, prompt, prompt_tokens, false, panel_snapshot,
-                        panel_result)) {
-      return false;
-    }
+  if (!run_generation(engine, prompt, prompt_tokens, true, oracle_snapshot,
+                      oracle_result) ||
+      !run_generation(engine, prompt, prompt_tokens, false, panel_snapshot,
+                      panel_result)) {
+    return false;
   }
 
   const runtime::ReferenceGeneration& oracle = *oracle_result.value;
@@ -2737,26 +2363,14 @@ int main(const int argc, char** const argv) {
       attention_tactic != nullptr &&
       std::string_view(attention_tactic) ==
           "native-flashinfer-exact-panel";
-  const bool selector_exact_persistent_attention_v1 =
-      attention_tactic != nullptr &&
-      std::string_view(attention_tactic) ==
-          runner_detail::kSelectorExactPersistentAttentionV1RouteIdentity;
   if (attention_tactic != nullptr && !native_group_q64_panel &&
       !native_group_q128_v4_panel &&
       !native_flashinfer_exact_panel &&
-      !selector_exact_persistent_attention_v1 &&
       std::string_view(attention_tactic) != "exact-segmented") {
     std::cerr << "Q3X_TEST_PREFILL_ATTENTION_TACTIC must be "
                  "exact-segmented, native-group-q64-panel, or "
                  "native-group-q128-v4-panel, or "
-                 "native-flashinfer-exact-panel, or "
-                 "selector-exact-persistent-attention-v1\n";
-    return 2;
-  }
-  if (selector_exact_persistent_attention_v1 &&
-      !attention_qualification && !layer3_attention_oracle) {
-    std::cerr << "selector-exact-persistent-attention-v1 is restricted to "
-                 "the attention qualification or layer3 P513 oracle\n";
+                 "native-flashinfer-exact-panel\n";
     return 2;
   }
   const char* const projection_tactic =
@@ -2778,12 +2392,11 @@ int main(const int argc, char** const argv) {
     return 2;
   }
   if (attention_qualification &&
-      ((attention_tactic != nullptr && !native_flashinfer_exact_panel &&
-        !selector_exact_persistent_attention_v1) ||
+      ((attention_tactic != nullptr && !native_flashinfer_exact_panel) ||
        (projection_tactic != nullptr &&
         std::string_view(projection_tactic) != "exact-segmented"))) {
-    std::cerr << "the attention qualification requires a supported "
-                 "Attention candidate and exact-segmented projection\n";
+    std::cerr << "the attention qualification requires a FlashInfer-configured "
+                 "engine and exact-segmented projection\n";
     return 2;
   }
   std::vector<std::size_t> prompt_token_counts(kPromptTokenCounts.begin(),
@@ -2823,8 +2436,7 @@ int main(const int argc, char** const argv) {
   }
   if (layer3_attention_oracle) {
     if ((attention_tactic != nullptr &&
-         std::string_view(attention_tactic) != "exact-segmented" &&
-         !selector_exact_persistent_attention_v1) ||
+         std::string_view(attention_tactic) != "exact-segmented") ||
         (projection_tactic != nullptr &&
          std::string_view(projection_tactic) != "exact-segmented")) {
       std::cerr << "the layer3 P513 Attention oracle requires exact-segmented "
@@ -2867,9 +2479,7 @@ int main(const int argc, char** const argv) {
     options.projection_backend = runtime::ProjectionBackend::kSm87WeightOnly;
     options.prefill_execution_mode =
         runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
-    if ((attention_qualification &&
-         !selector_exact_persistent_attention_v1) ||
-        native_flashinfer_exact_panel) {
+    if (attention_qualification || native_flashinfer_exact_panel) {
       options.prefill_full_attention_tactic = runtime::
           LayerMajorPrefillFullAttentionTactic::
               kNativeFlashInferExactPanel;
@@ -2905,14 +2515,11 @@ int main(const int argc, char** const argv) {
 
     if (attention_qualification) {
       return run_attention_qualification(
-          *created.value, qualification_corpus, prompt_token_counts.front(),
-          selector_exact_persistent_attention_v1);
+          *created.value, qualification_corpus, prompt_token_counts.front());
     }
 
     if (layer3_attention_oracle) {
       Layer3AttentionP513OracleCollector collector;
-      collector.selector_exact_persistent_gate =
-          selector_exact_persistent_attention_v1;
       if (!collector.prepare()) {
         std::cerr << "failed to prepare layer3 P513 Attention oracle: "
                   << collector.failed_operation
@@ -2920,31 +2527,16 @@ int main(const int argc, char** const argv) {
         return 1;
       }
       bool generation_passed = false;
-      (void)runner_detail::
-          exchange_selector_exact_persistent_attention_v1_route_receipt_for_test(
-              {});
       {
         const ScopedLayer3AttentionP513Oracle oracle_hook(collector);
         generation_passed = run_case(
             *created.value, kLayer3AttentionOracleTokens,
             runtime::LayerMajorPrefillFullAttentionTactic::
                 kExactSegmentedC512,
-            runtime::LayerMajorPrefillProjectionTactic::kExactSegmentedC512,
-            selector_exact_persistent_attention_v1);
+            runtime::LayerMajorPrefillProjectionTactic::kExactSegmentedC512);
       }
-      const auto runner_route_receipt = runner_detail::
-          exchange_selector_exact_persistent_attention_v1_route_receipt_for_test(
-              {});
-      const bool runner_route_valid =
-          selector_exact_persistent_attention_v1
-              ? valid_selector_exact_persistent_attention_v1_receipt(
-                    runner_route_receipt, kLayer3AttentionOracleTokens)
-              : empty_selector_exact_persistent_attention_v1_receipt(
-                    runner_route_receipt);
       const Layer3AttentionOracleReportStatus attention_status =
-          report_layer3_attention_p513_oracle(
-              collector, selector_exact_persistent_attention_v1,
-              runner_route_valid);
+          report_layer3_attention_p513_oracle(collector);
       if (!generation_passed ||
           attention_status ==
               Layer3AttentionOracleReportStatus::kInfrastructureFailure) {
@@ -2956,8 +2548,6 @@ int main(const int argc, char** const argv) {
                  : 3;
     }
 
-    const ScopedSelectorExactPersistentAttentionV1 candidate_route(
-        selector_exact_persistent_attention_v1);
     for (const std::size_t prompt_tokens : prompt_token_counts) {
       if (!run_case(*created.value, prompt_tokens,
                     options.prefill_full_attention_tactic,

@@ -712,10 +712,20 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
         (marlin_parity_merged_gate_up_p40_mlp && !whole_core_p40) ||
         (marlin_parity_merged_gate_up_p40_mlp &&
          !prompt_wide_p40_vllm_marlin_parity_prefill_plan_enabled()) ||
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+        (layer_wide_p40_mlp &&
+         (!layer_wide_p40_mlp_prefill_plan_enabled() ||
+          (whole_core_p40
+               ? !is_layer_major_p40_whole_core_request_capacity(
+                     options.max_sequence_length)
+               : options.max_sequence_length !=
+                     kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens))) ||
+#else
         (layer_wide_p40_mlp &&
          (!layer_wide_p40_mlp_prefill_plan_enabled() ||
           options.max_sequence_length !=
               kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens)) ||
+#endif
         (whole_core_p40 &&
          (!prompt_wide_p40_whole_core_prefill_plan_enabled() ||
           !layer_wide_p40_mlp))) {
@@ -974,8 +984,13 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     if (whole_core_p40) {
         LayerMajorP40WholeCoreRegions& whole = plan.p40_whole_core;
         whole.prompt_token_count = kLayerMajorP40WholeCorePromptTokens;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+        whole.request_capacity_tokens =
+            static_cast<std::uint32_t>(options.max_sequence_length);
+#else
         whole.request_capacity_tokens =
             kLayerMajorP40WholeCoreRequestCapacityTokens;
+#endif
         whole.logical_panel_capacity_tokens =
             kLayerMajorP40WholeCorePanelTokens;
         whole.logical_panel_count = kLayerMajorP40WholeCorePanelCount;

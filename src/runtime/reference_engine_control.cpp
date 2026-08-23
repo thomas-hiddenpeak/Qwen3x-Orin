@@ -691,6 +691,18 @@ GenerationControlResult run_generation_control_impl(
       }
     }
 
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    if (prefill_plan.prefill_state_committed_for_test != nullptr) {
+      const ReferenceRunnerStatus committed_status =
+          prefill_plan.prefill_state_committed_for_test(
+              prefill_plan.context);
+      if (!committed_status) {
+        return failure(GenerationControlError::kRunnerFailure,
+                       committed_status);
+      }
+    }
+#endif
+
     control.timing.time_to_first_token_milliseconds =
         control.timing.prompt_prefill_milliseconds;
     control.timing.total_generation_milliseconds =
