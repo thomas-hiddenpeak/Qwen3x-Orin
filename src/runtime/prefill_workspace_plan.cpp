@@ -1743,6 +1743,11 @@ build_unbound_layer_major_p40_whole_core_workspace_plan(
   std::uint64_t legacy_projection_elements = 0U;
   std::uint64_t legacy_scalar_elements = 0U;
   std::uint64_t legacy_probability_elements = 0U;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const std::uint64_t legacy_probability_tokens =
+      layer_major_p40_whole_core_gqa_scratch_capacity_tokens(
+          plan.request_sequence_capacity_tokens);
+#endif
   std::uint64_t legacy_bytes = 0U;
   std::uint64_t rope_elements = 0U;
   std::uint64_t family_cursor = 0U;
@@ -1828,8 +1833,14 @@ build_unbound_layer_major_p40_whole_core_workspace_plan(
                    legacy_projection_elements) ||
       !checked_mul(2U * kLegacyPanelTokens, kLinearScalarChannels,
                    legacy_scalar_elements) ||
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      legacy_probability_tokens == 0U ||
+      !checked_mul(legacy_probability_tokens, kQueryHeads,
+                   legacy_probability_elements) ||
+#else
       !checked_mul(plan.prompt_token_count, kQueryHeads,
                    legacy_probability_elements) ||
+#endif
       !checked_sum(std::array<std::uint64_t, 4U>{
                        legacy_hidden_elements * kBf16,
                        legacy_projection_elements * kBf16,
@@ -1877,6 +1888,9 @@ build_unbound_layer_major_p40_whole_core_workspace_plan(
       409'610'240U + capacity_delta * 10'240U;
   const std::uint64_t expected_rope_bytes =
       10'240'256U + capacity_delta * 256U;
+  const std::uint64_t expected_legacy_workspace_bytes =
+      layer_major_p40_whole_core_legacy_c512_workspace_bytes(
+          plan.request_sequence_capacity_tokens);
 #endif
   std::uint64_t token_ids_end = 0U;
   std::uint64_t workspace_end = 0U;
@@ -1902,7 +1916,9 @@ build_unbound_layer_major_p40_whole_core_workspace_plan(
       plan.persistent_and_kv.required_bytes != expected_persistent_bytes ||
       plan.prompt_residual_bf16.required_bytes !=
           expected_prompt_residual_bytes ||
-      plan.legacy_c512_workspace.required_bytes != 90'970'112U ||
+      expected_legacy_workspace_bytes == 0U ||
+      plan.legacy_c512_workspace.required_bytes !=
+          expected_legacy_workspace_bytes ||
       plan.final_hidden_handoff_bf16.required_bytes != 10'240U ||
       plan.rope_cos_sin_fp32.required_bytes != expected_rope_bytes ||
       expected_arena_bytes == 0U ||

@@ -1,7 +1,9 @@
 #include "q3x/core/sha256.h"
 #include "q3x/io/json.h"
 #include "q3x/runtime/prefill_execution_plan.h"
+#include "q3x/runtime/prefill_workspace_plan.h"
 #include "q3x/runtime/reference_engine.h"
+#include "q3x/runtime/reference_runner.h"
 
 #include "reference_engine_final_token_policy_internal.h"
 #include "reference_engine_prefill_authority.h"
@@ -60,7 +62,7 @@ constexpr std::uint32_t kRequiredSteps = 40'015U;
 constexpr std::uint32_t kLegacyCapacity = 44'095U;
 constexpr std::uint32_t kSelectorCapacity = 40'016U;
 constexpr std::uint64_t kLegacyArenaBytes = 3'070'908'416ULL;
-constexpr std::uint64_t kSelectorArenaBytes = 8'641'683'456ULL;
+constexpr std::uint64_t kSelectorArenaBytes = 8'641'684'992ULL;
 constexpr std::uint32_t kStopTokenId = 248'056U;
 constexpr std::size_t kHiddenSize = runtime::kReferenceHiddenSize;
 constexpr std::size_t kBf16Bytes = sizeof(std::uint16_t);
@@ -75,6 +77,18 @@ constexpr std::size_t kFullAttentionLayerCount =
 static_assert(kFullAttentionLayerCount == 16U);
 static_assert(kPromptResidualBytes == 409'600'000U);
 static_assert(kRequiredSteps == kPromptTokens + kMaxNewTokens - 1U);
+static_assert(
+    kRequiredSteps ==
+    runtime::kSelectorExactPersistentAttentionV1P40RequiredSteps);
+static_assert(
+    kSelectorCapacity ==
+    runtime::kSelectorExactPersistentAttentionV1P40WholeCoreRequestCapacityTokens);
+static_assert(
+    kSelectorArenaBytes ==
+    runtime::kSelectorExactPersistentAttentionV1P40WholeCoreArenaBytes);
+static_assert(
+    runtime::layer_major_p40_whole_core_gqa_scratch_capacity_tokens(
+        kSelectorCapacity) == kSelectorCapacity);
 
 struct CheckpointFileContract {
   std::string_view relative_path;
@@ -2224,6 +2238,123 @@ void print_diagnostic(const runtime::ReferenceEngineDiagnostic& diagnostic) {
             << " operation=" << diagnostic.operation << '\n';
 }
 
+bool validate_selector_host_memory_contract(std::string& error) {
+  runtime::LayerMajorP40WholeCoreWorkspaceOptions workspace_options;
+  workspace_options.request_sequence_capacity_tokens = kSelectorCapacity;
+  workspace_options.request_arena_limit_bytes = kSelectorArenaBytes;
+  const runtime::LayerMajorP40WholeCoreWorkspacePlanResult workspace_result =
+      runtime::build_unbound_layer_major_p40_whole_core_workspace_plan(
+          workspace_options);
+  if (!workspace_result ||
+      workspace_result.value->persistent_and_kv.required_bytes !=
+          2'700'935'168U ||
+      workspace_result.value->prompt_residual_bf16.required_bytes !=
+          409'763'840U ||
+      workspace_result.value->legacy_c512_workspace.required_bytes !=
+          90'971'648U ||
+      workspace_result.value->rope_cos_sin_fp32.required_bytes !=
+          10'244'096U ||
+      workspace_result.value->required_bytes != kSelectorArenaBytes ||
+      workspace_result.value->capacity !=
+          runtime::PrefillMemoryCapacityVerdict::kFitsDeclaredLimit) {
+    error = "selector workspace planner disagrees with the P40016 arena ledger";
+    return false;
+  }
+
+  runtime::LayerMajorP40WholeCoreWorkspaceOptions invalid_capacity =
+      workspace_options;
+  invalid_capacity.request_sequence_capacity_tokens = kRequiredSteps;
+  const runtime::LayerMajorP40WholeCoreWorkspacePlanResult invalid_workspace =
+      runtime::build_unbound_layer_major_p40_whole_core_workspace_plan(
+          invalid_capacity);
+  if (invalid_workspace ||
+      invalid_workspace.error !=
+          runtime::PrefillWorkspacePlanError::kInvalidArgument) {
+    error = "selector workspace planner accepted P40015 as configured capacity";
+    return false;
+  }
+
+  runtime::LayerMajorRequestMemoryOptions request_options;
+  request_options.max_sequence_length = kSelectorCapacity;
+  request_options.max_arena_bytes = kSelectorArenaBytes;
+  request_options.layout =
+      runtime::LayerMajorRequestLayout::kP40WholeCorePromptWide;
+  request_options.mlp_layout =
+      runtime::LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan;
+  const runtime::LayerMajorRequestPlanResult request_result =
+      runtime::build_layer_major_request_memory_plan(request_options);
+  if (!request_result) {
+    error = "selector RequestState planner rejected the exact P40016 ledger";
+    return false;
+  }
+  const runtime::LayerMajorRequestMemoryPlan& request = *request_result.value;
+  const runtime::LayerMajorLegacyC512Regions& legacy = request.legacy_c512;
+  if (request.common.max_sequence_length != kSelectorCapacity ||
+      request.common.persistent_bytes != 2'700'935'168U ||
+      request.prompt_residual_bf16.row_capacity != kSelectorCapacity ||
+      request.prompt_residual_bf16.storage.byte_size != 409'763'840U ||
+      request.p40_whole_core.family_phase_arena.arena_offset !=
+          3'110'699'008U ||
+      legacy.hidden_bf16.front().storage.arena_offset != 8'540'459'008U ||
+      legacy.fp32_scratch.arena_offset != 8'627'589'120U ||
+      legacy.fp32_scratch.element_capacity != 960'384U ||
+      legacy.fp32_scratch.byte_size != 3'841'536U ||
+      legacy.gqa_probability_scratch.arena_offset !=
+          legacy.fp32_scratch.arena_offset ||
+      legacy.gqa_probability_scratch.element_capacity != 960'384U ||
+      legacy.gqa_probability_scratch.byte_size != 3'841'536U ||
+      request.final_hidden_bf16.storage.arena_offset != 8'631'430'656U ||
+      request.common.workspace_bytes != 5'930'505'728U ||
+      request.common.rope_cos_fp32.arena_offset != 8'631'440'896U ||
+      request.common.rope_sin_fp32.arena_offset != 8'636'562'944U ||
+      request.common.rope_bytes != 10'244'096U ||
+      request.common.arena_bytes != kSelectorArenaBytes) {
+    error = "selector RequestState typed views disagree with the P40016 ledger";
+    return false;
+  }
+
+  const runtime::ReferenceLayerMajorRequestDescriptorOutcome descriptor =
+      runtime::build_reference_layer_major_candidate_binding_descriptor(
+          request);
+  if (!descriptor ||
+      descriptor.value->legacy_c512.fp32_scratch.element_capacity !=
+          960'384U ||
+      descriptor.value->legacy_c512.gqa_probability_scratch.element_capacity !=
+          960'384U) {
+    error = "selector layer-major descriptor rejected the exact GQA scratch";
+    return false;
+  }
+
+  runtime::LayerMajorRequestMemoryPlan short_scratch = request;
+  --short_scratch.legacy_c512.fp32_scratch.element_capacity;
+  short_scratch.legacy_c512.fp32_scratch.byte_size -= sizeof(float);
+  short_scratch.legacy_c512.gqa_probability_scratch =
+      short_scratch.legacy_c512.fp32_scratch;
+  short_scratch.common.fp32_scratch =
+      short_scratch.legacy_c512.fp32_scratch;
+  short_scratch.common.gqa_probability_scratch =
+      short_scratch.legacy_c512.gqa_probability_scratch;
+  const runtime::ReferenceLayerMajorRequestDescriptorOutcome rejected =
+      runtime::build_reference_layer_major_candidate_binding_descriptor(
+          short_scratch);
+  if (rejected || rejected.status.operation == nullptr ||
+      std::string_view(rejected.status.operation) !=
+          "layer_major_legacy_c512_views") {
+    error = "selector layer-major descriptor accepted a short GQA scratch";
+    return false;
+  }
+
+  request_options.max_arena_bytes = kSelectorArenaBytes - 1U;
+  const runtime::LayerMajorRequestPlanResult short_arena =
+      runtime::build_layer_major_request_memory_plan(request_options);
+  if (short_arena || short_arena.diagnostic.code !=
+                         runtime::RequestErrorCode::kArenaLimitExceeded) {
+    error = "selector RequestState planner accepted a one-byte-short arena";
+    return false;
+  }
+  return true;
+}
+
 int run_capture(const std::filesystem::path& model_directory,
                 const std::filesystem::path& corpus_path,
                 const bool selector) {
@@ -2345,9 +2476,20 @@ int run_capture(const std::filesystem::path& model_directory,
 }  // namespace
 
 int main(const int argc, char** const argv) {
+  std::string host_memory_error;
+  if (!validate_selector_host_memory_contract(host_memory_error)) {
+    std::cerr << "selector host memory contract rejected: "
+              << host_memory_error << '\n';
+    return 1;
+  }
+  if (argc == 2 && argv[1] != nullptr &&
+      std::string_view(argv[1]) == "--host-memory-contract-only") {
+    std::cout << "P40016_HOST_MEMORY_CONTRACT_OK\n";
+    return 0;
+  }
   if (argc != 2 || argv[1] == nullptr || argv[1][0] == '\0') {
     std::cerr << "usage: q3x_reference_p40000_o16_strict_capture_test "
-                 "MODEL_DIR\n";
+                 "MODEL_DIR|--host-memory-contract-only\n";
     return 2;
   }
   const char* const enabled = std::getenv("Q3X_RUN_P40000_STRICT_CAPTURE");

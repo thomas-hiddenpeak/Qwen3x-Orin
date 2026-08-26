@@ -1252,6 +1252,27 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     }
     common.linear_a_bf16 = plan.legacy_c512.linear_a_bf16.storage;
     common.linear_b_bf16 = plan.legacy_c512.linear_b_bf16.storage;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    const std::uint64_t whole_core_gqa_scratch_tokens =
+        whole_core_p40
+            ? layer_major_p40_whole_core_gqa_scratch_capacity_tokens(
+                  options.max_sequence_length)
+            : 0U;
+    if (whole_core_p40 && whole_core_gqa_scratch_tokens == 0U) {
+        return layer_major_plan_failure(make_diagnostic(
+            RequestErrorCode::kInvalidLayerSchedule,
+            "P40 whole-core GQA scratch capacity is undefined",
+            "legacy_c512"));
+    }
+    const std::uint64_t legacy_fp32_elements =
+        whole_core_p40
+            ? whole_core_gqa_scratch_tokens * kQueryHeadCount
+            : legacy_shape.fp32_scratch.element_capacity;
+    const std::uint64_t legacy_gqa_probability_elements =
+        whole_core_p40
+            ? whole_core_gqa_scratch_tokens * kQueryHeadCount
+            : legacy_shape.gqa_probability_scratch.element_capacity;
+#else
     const std::uint64_t legacy_fp32_elements =
         whole_core_p40
             ? static_cast<std::uint64_t>(
@@ -1262,6 +1283,7 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
             ? static_cast<std::uint64_t>(
                   kLayerMajorP40WholeCorePromptTokens) * kQueryHeadCount
             : legacy_shape.gqa_probability_scratch.element_capacity;
+#endif
     if (!builder.add(legacy_fp32_elements,
                      kFp32Bytes, plan.legacy_c512.fp32_scratch)) {
         return layer_major_plan_failure(make_diagnostic(

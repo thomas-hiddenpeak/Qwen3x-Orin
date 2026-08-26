@@ -748,12 +748,26 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
 
   std::uint64_t probability_elements = 0U;
   std::uint64_t expected_scratch_bytes = 0U;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const std::uint64_t probability_tokens =
+      plan.layout == LayerMajorRequestLayout::kP40WholeCorePromptWide
+          ? layer_major_p40_whole_core_gqa_scratch_capacity_tokens(
+                common.max_sequence_length)
+          : common.max_sequence_length;
+#else
   const std::uint64_t probability_tokens =
       plan.layout == LayerMajorRequestLayout::kP40WholeCorePromptWide
           ? kLayerMajorP40WholeCorePromptTokens
           : common.max_sequence_length;
+#endif
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  if (probability_tokens == 0U ||
+      !checked_multiply(probability_tokens, 24U,
+                        probability_elements)) {
+#else
   if (!checked_multiply(probability_tokens, 24U,
                         probability_elements)) {
+#endif
     return false;
   }
   const std::uint64_t expected_scratch_elements =

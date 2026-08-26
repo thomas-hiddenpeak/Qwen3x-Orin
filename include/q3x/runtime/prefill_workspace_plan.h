@@ -197,7 +197,10 @@ inline constexpr std::uint32_t
         40'016U;
 inline constexpr std::uint64_t
     kSelectorExactPersistentAttentionV1P40WholeCoreArenaBytes =
-        8'641'683'456U;
+        8'641'684'992U;
+inline constexpr std::uint64_t
+    kSelectorExactPersistentAttentionV1P40WholeCoreLegacyC512WorkspaceBytes =
+        90'971'648U;
 
 [[nodiscard]] constexpr bool is_layer_major_p40_whole_core_request_capacity(
     const std::uint64_t capacity_tokens) noexcept {
@@ -220,6 +223,67 @@ layer_major_p40_whole_core_arena_bytes(
   }
   return 0U;
 }
+
+// The retained P40001/O1 layout never enters a Decode transition, so its
+// historical 40000-position probability workspace remains byte-identical.
+// The selector P40016 descriptor instead provisions its complete configured
+// capacity, including the unused guard row. The O16 workload currently tops
+// out at sequence length 40015, but sizing to descriptor.max keeps every
+// layer-major validator and Decode fallback safely within the same bound at
+// no additional aligned-arena cost.
+[[nodiscard]] constexpr std::uint32_t
+layer_major_p40_whole_core_gqa_scratch_capacity_tokens(
+    const std::uint64_t request_capacity_tokens) noexcept {
+  if (request_capacity_tokens ==
+      kLayerMajorP40WholeCoreRequestCapacityTokens) {
+    return kLayerMajorP40WholeCorePromptTokens;
+  }
+  if (request_capacity_tokens ==
+      kSelectorExactPersistentAttentionV1P40WholeCoreRequestCapacityTokens) {
+    return kSelectorExactPersistentAttentionV1P40WholeCoreRequestCapacityTokens;
+  }
+  return 0U;
+}
+
+[[nodiscard]] constexpr std::uint64_t
+layer_major_p40_whole_core_legacy_c512_workspace_bytes(
+    const std::uint64_t request_capacity_tokens) noexcept {
+  if (request_capacity_tokens ==
+      kLayerMajorP40WholeCoreRequestCapacityTokens) {
+    return 90'970'112U;
+  }
+  if (request_capacity_tokens ==
+      kSelectorExactPersistentAttentionV1P40WholeCoreRequestCapacityTokens) {
+    return
+        kSelectorExactPersistentAttentionV1P40WholeCoreLegacyC512WorkspaceBytes;
+  }
+  return 0U;
+}
+
+static_assert(layer_major_p40_whole_core_gqa_scratch_capacity_tokens(
+                  kLayerMajorP40WholeCoreRequestCapacityTokens) ==
+              kLayerMajorP40WholeCorePromptTokens);
+static_assert(layer_major_p40_whole_core_legacy_c512_workspace_bytes(
+                  kLayerMajorP40WholeCoreRequestCapacityTokens) ==
+              90'970'112U);
+static_assert(layer_major_p40_whole_core_gqa_scratch_capacity_tokens(
+                  kSelectorExactPersistentAttentionV1P40WholeCoreRequestCapacityTokens) ==
+              kSelectorExactPersistentAttentionV1P40WholeCoreRequestCapacityTokens);
+static_assert(layer_major_p40_whole_core_gqa_scratch_capacity_tokens(
+                  kSelectorExactPersistentAttentionV1P40RequiredSteps) == 0U);
+static_assert(layer_major_p40_whole_core_gqa_scratch_capacity_tokens(40'017U) ==
+              0U);
+static_assert(layer_major_p40_whole_core_legacy_c512_workspace_bytes(
+                  kSelectorExactPersistentAttentionV1P40WholeCoreRequestCapacityTokens) ==
+              kSelectorExactPersistentAttentionV1P40WholeCoreLegacyC512WorkspaceBytes);
+static_assert(
+    kSelectorExactPersistentAttentionV1P40WholeCoreArenaBytes ==
+    kLayerMajorP40WholeCoreArenaBytes +
+        (kSelectorExactPersistentAttentionV1P40WholeCoreRequestCapacityTokens -
+         kLayerMajorP40WholeCoreRequestCapacityTokens) *
+            (65'536U + 10'240U + 256U) +
+        (kSelectorExactPersistentAttentionV1P40WholeCoreLegacyC512WorkspaceBytes -
+         90'970'112U));
 #endif
 
 // Exact family-relative typed-view ledger for the default-off P40000
