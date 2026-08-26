@@ -656,6 +656,7 @@ add_library(q3x_kernels STATIC
   src/runtime/reference_runner_decode_gqa_policy_internal.h
   src/runtime/reference_runner_full_attention_oracle_internal.h
   src/runtime/reference_runner_gdn_exact_span_policy_internal.h
+  src/runtime/reference_runner_layer_wide_p40_mlp_policy_internal.h
   src/runtime/reference_runner_prompt_wide_policy_internal.h
   src/runtime/reference_runner_request_reset_policy_internal.h
   src/runtime/reference_runner_layer_major_views.cpp
@@ -942,6 +943,31 @@ if(Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
     PRIVATE q3x::engine q3x::core
   )
   q3x_enable_warnings(q3x_reference_p40000_o16_strict_capture_test)
+endif()
+
+if(BUILD_TESTING AND
+   NOT Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  add_executable(q3x_reference_runner_layer_wide_p40_mlp_policy_internal_test
+    tests/reference_runner_layer_wide_p40_mlp_policy_internal_test.cpp
+  )
+  target_include_directories(
+    q3x_reference_runner_layer_wide_p40_mlp_policy_internal_test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+  )
+  target_link_libraries(
+    q3x_reference_runner_layer_wide_p40_mlp_policy_internal_test
+    PRIVATE q3x::core
+  )
+  q3x_enable_warnings(
+    q3x_reference_runner_layer_wide_p40_mlp_policy_internal_test
+  )
+  add_test(NAME reference_runner_layer_wide_p40_mlp_policy_internal
+    COMMAND q3x_reference_runner_layer_wide_p40_mlp_policy_internal_test
+  )
+  set_tests_properties(
+    reference_runner_layer_wide_p40_mlp_policy_internal PROPERTIES
+    LABELS "host;runtime;prefill;policy"
+  )
 endif()
 
 # Internal, deliberately narrow OpenAI/EvalScope evaluation adapter. It is

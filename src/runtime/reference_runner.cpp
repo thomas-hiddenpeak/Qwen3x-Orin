@@ -2,6 +2,7 @@
 
 #include "reference_runner_decode_gqa_policy_internal.h"
 #include "reference_runner_gdn_exact_span_policy_internal.h"
+#include "reference_runner_layer_wide_p40_mlp_policy_internal.h"
 #include "reference_runner_prompt_wide_policy_internal.h"
 #if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
 #include "reference_runner_full_attention_oracle_internal.h"
@@ -9352,13 +9353,25 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
       projection_package == PromptWideP40ProjectionPackage::kPackedNvfp4V2;
   const bool use_any_packed_projection =
       use_packed_projection || use_packed_nvfp4_v2;
+  reference_runner_detail::LayerWideP40MlpDescriptorPolicyInput
+      descriptor_policy;
+  descriptor_policy.mlp_layout = request_views.descriptor.mlp_layout;
+  descriptor_policy.max_sequence_length =
+      request_views.descriptor.max_sequence_length;
+  descriptor_policy.mlp_capacity_tokens =
+      request_views.descriptor.mlp_capacity_tokens;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  descriptor_policy.whole_core_projection_package =
+      projection_package == PromptWideP40ProjectionPackage::kWholeCoreV10;
+  descriptor_policy.profile = request_views.descriptor.profile;
+  descriptor_policy.layout = request_views.descriptor.layout;
+  descriptor_policy.whole_core_request_capacity_tokens =
+      request_views.descriptor.p40_whole_core.request_capacity_tokens;
+  descriptor_policy.arena_bytes = request_views.descriptor.arena_bytes;
+#endif
   if (layer >= kReferenceDecoderLayerCount ||
-      request_views.descriptor.mlp_layout !=
-          LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan ||
-      request_views.descriptor.mlp_capacity_tokens !=
-          kLayerMajorPrefillLayerWideMlpP40Tokens ||
-      request_views.descriptor.max_sequence_length !=
-          kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens) {
+      !reference_runner_detail::valid_layer_wide_p40_mlp_descriptor_policy(
+          descriptor_policy)) {
     return runner_status(ReferenceRunnerError::kInvalidRequestState,
                          "prefill_layer_wide_p40_mlp_descriptor", layer);
   }
@@ -9377,8 +9390,8 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
   };
   if (residual_view.storage.device_data == nullptr ||
       residual_view.storage.element_size_bytes != sizeof(std::uint16_t) ||
-      residual_view.row_capacity !=
-          kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens ||
+      !reference_runner_detail::valid_layer_wide_p40_mlp_residual_capacity(
+          descriptor_policy, residual_view.row_capacity) ||
       residual_view.columns != kReferenceHiddenSize ||
       residual_view.row_stride_elements != kReferenceHiddenSize ||
       !exact_bf16_matrix(mlp.normalized_input_bf16,
