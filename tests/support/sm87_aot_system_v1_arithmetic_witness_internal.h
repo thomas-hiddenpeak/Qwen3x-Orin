@@ -4,6 +4,7 @@
 #error "The SM87 AOT arithmetic witness is a private, default-off test admission"
 #endif
 
+#include "q3x/core/sha256.h"
 #include "q3x/runtime/sm87_aot_prefill_system_plan.h"
 
 #include <array>
@@ -93,7 +94,6 @@ struct OperandInstanceIdentity {
   OperandCapturePoint capture_point = OperandCapturePoint::kInvalid;
   std::size_t model_layer_index =
       runtime::kSm87AotPrefillSystemLayerCount;
-  std::array<std::uint8_t, 32U> payload_sha256{};
   bool checkpoint_identity_authenticated = false;
   bool route_identity_authenticated = false;
   bool capture_boundary_authenticated = false;
@@ -150,13 +150,23 @@ struct OperandDomainSummary {
   std::size_t panel_count = 0U;
   std::size_t instance_count = 0U;
   std::uint64_t model_layer_mask = 0U;
+  std::uint64_t layer_payload_digest_mask = 0U;
   std::array<std::array<std::uint8_t, 32U>,
              runtime::kSm87AotPrefillSystemLayerCount>
       layer_payload_sha256{};
+  std::array<std::uint8_t, 32U> payload_inventory_sha256{};
+  std::array<std::uint8_t, 32U> analysis_inventory_sha256{};
   CellDomainSummary k16{};
   CellDomainSummary k64{};
   bool capture_identity_authenticated = false;
-  bool complete = false;
+  bool payload_digest_present = false;
+  bool payload_inventory_digest_present = false;
+  bool analysis_inventory_digest_present = false;
+  bool instance_complete = false;
+  // Means every expected model layer for this role is present for the
+  // self-described rows/columns.  It is not a P40000 qualification claim;
+  // the evaluator separately requires the exact P40 geometry.
+  bool layer_inventory_complete = false;
   bool valid = false;
 };
 
@@ -166,6 +176,10 @@ class Bf16OperandAccumulator {
                          std::size_t expected_rows,
                          std::size_t input_features) noexcept;
 
+  // `bits` must remain stable and exclusively readable until this call
+  // returns.  A future online joint enumerator must be invoked from this same
+  // call path before the source buffer can be reused; a second, independently
+  // scheduled consumer cannot establish same-byte-stream evidence.
   [[nodiscard]] bool consume_panel(std::size_t first_row,
                                    const std::uint16_t* bits,
                                    std::size_t row_count,
@@ -175,6 +189,11 @@ class Bf16OperandAccumulator {
 
  private:
   OperandDomainSummary summary_{};
+  core::Sha256 payload_hasher_{};
+  std::uint64_t expected_logical_value_count_ = 0U;
+  std::uint64_t hashed_logical_value_count_ = 0U;
+  bool source_identity_authenticated_ = false;
+  bool payload_hash_initialized_ = false;
   bool failed_ = false;
   bool finalized_ = false;
 };

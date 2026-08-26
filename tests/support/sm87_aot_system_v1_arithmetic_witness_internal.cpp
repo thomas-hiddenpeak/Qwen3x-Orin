@@ -153,14 +153,247 @@ struct DecodedBf16 {
 
 [[nodiscard]] std::uint64_t payload_digest_layer_mask(
     const OperandDomainSummary& summary) noexcept {
-  std::uint64_t result = 0U;
-  for (std::size_t layer = 0U; layer < summary.layer_payload_sha256.size();
-       ++layer) {
-    if (digest_is_nonzero(summary.layer_payload_sha256[layer])) {
-      result |= 1ULL << layer;
+  return summary.layer_payload_digest_mask;
+}
+
+constexpr std::string_view kOperandPayloadDigestDomain =
+    "q3x.sm87-aot-system-v1/bf16-operand-digest/v1";
+constexpr std::string_view kOperandInventoryDigestDomain =
+    "q3x.sm87-aot-system-v1/bf16-inventory-digest/v1";
+constexpr std::string_view kOperandAnalysisDigestDomain =
+    "q3x.sm87-aot-system-v1/bf16-analysis-digest/v1";
+
+[[nodiscard]] std::uint8_t role_wire_id(const OperandRole role) noexcept {
+  switch (role) {
+    case OperandRole::kNvFp4GateUp:
+      return 1U;
+    case OperandRole::kNvFp4Down:
+      return 2U;
+    case OperandRole::kFp8GdnQkvZ:
+      return 3U;
+    case OperandRole::kFp8FullQkv:
+      return 4U;
+    case OperandRole::kFp8AttentionOutput:
+      return 5U;
+    case OperandRole::kInvalid:
+    case OperandRole::kCount:
+      return 0U;
+  }
+  return 0U;
+}
+
+[[nodiscard]] std::uint8_t capture_wire_id(
+    const OperandCapturePoint capture) noexcept {
+  switch (capture) {
+    case OperandCapturePoint::kGateUpInputAfterPostAttentionNorm:
+      return 1U;
+    case OperandCapturePoint::kDownInputAfterGatedActivation:
+      return 2U;
+    case OperandCapturePoint::kGdnQkvZInputAfterInputNorm:
+      return 3U;
+    case OperandCapturePoint::kFullQkvInputAfterInputNorm:
+      return 4U;
+    case OperandCapturePoint::kAttentionOutputInputAfterPinnedCore:
+      return 5U;
+    case OperandCapturePoint::kInvalid:
+      return 0U;
+  }
+  return 0U;
+}
+
+[[nodiscard]] bool hash_u8(core::Sha256& hasher,
+                           const std::uint8_t value) noexcept {
+  return hasher.update(&value, sizeof(value));
+}
+
+[[nodiscard]] bool hash_u16le(core::Sha256& hasher,
+                              const std::uint16_t value) noexcept {
+  const std::array<std::uint8_t, 2U> bytes{{
+      static_cast<std::uint8_t>(value),
+      static_cast<std::uint8_t>(value >> 8U),
+  }};
+  return hasher.update(bytes.data(), bytes.size());
+}
+
+[[nodiscard]] bool hash_u32le(core::Sha256& hasher,
+                              const std::uint32_t value) noexcept {
+  std::array<std::uint8_t, 4U> bytes{};
+  for (std::size_t index = 0U; index < bytes.size(); ++index) {
+    bytes[index] = static_cast<std::uint8_t>(value >> (8U * index));
+  }
+  return hasher.update(bytes.data(), bytes.size());
+}
+
+[[nodiscard]] bool hash_u64le(core::Sha256& hasher,
+                              const std::uint64_t value) noexcept {
+  std::array<std::uint8_t, 8U> bytes{};
+  for (std::size_t index = 0U; index < bytes.size(); ++index) {
+    bytes[index] = static_cast<std::uint8_t>(value >> (8U * index));
+  }
+  return hasher.update(bytes.data(), bytes.size());
+}
+
+[[nodiscard]] bool hash_string(core::Sha256& hasher,
+                               const std::string_view value) noexcept {
+  return value.size() <= std::numeric_limits<std::uint32_t>::max() &&
+         hash_u32le(hasher, static_cast<std::uint32_t>(value.size())) &&
+         hasher.update(value.data(), value.size());
+}
+
+template <std::size_t Size>
+[[nodiscard]] bool hash_u64_array(
+    core::Sha256& hasher,
+    const std::array<std::uint64_t, Size>& values) noexcept {
+  for (const std::uint64_t value : values) {
+    if (!hash_u64le(hasher, value)) {
+      return false;
     }
   }
-  return result;
+  return true;
+}
+
+[[nodiscard]] bool initialize_payload_hash(
+    core::Sha256& hasher, const OperandInstanceIdentity& identity,
+    const std::size_t rows, const std::size_t columns,
+    std::uint64_t& logical_values) noexcept {
+  const std::uint8_t role_id = role_wire_id(identity.role);
+  const std::uint8_t capture_id = capture_wire_id(identity.capture_point);
+  if (role_id == 0U || capture_id == 0U ||
+      identity.model_layer_index >
+          std::numeric_limits<std::uint32_t>::max() ||
+      rows > std::numeric_limits<std::uint64_t>::max() ||
+      columns > std::numeric_limits<std::uint64_t>::max() ||
+      !checked_multiply(static_cast<std::uint64_t>(rows),
+                        static_cast<std::uint64_t>(columns),
+                        logical_values)) {
+    return false;
+  }
+  return hash_string(hasher, kOperandPayloadDigestDomain) &&
+         hash_string(hasher, runtime::kSm87AotPrefillSystemCandidateId) &&
+         hash_string(hasher, runtime::kSm87AotPrefillSystemP40PlanId) &&
+         hash_u8(hasher, role_id) && hash_u8(hasher, capture_id) &&
+         hash_u32le(
+             hasher,
+             static_cast<std::uint32_t>(identity.model_layer_index)) &&
+         hash_u64le(hasher, static_cast<std::uint64_t>(rows)) &&
+         hash_u64le(hasher, static_cast<std::uint64_t>(columns)) &&
+         hash_u64le(hasher, logical_values);
+}
+
+[[nodiscard]] bool hash_bf16_row_u16le(core::Sha256& hasher,
+                                       const std::uint16_t* bits,
+                                       const std::size_t count) noexcept {
+  if (bits == nullptr && count != 0U) {
+    return false;
+  }
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && \
+    __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+  std::size_t bytes = 0U;
+  return checked_multiply_size(count, sizeof(std::uint16_t), bytes) &&
+         hasher.update(bits, bytes);
+#else
+  for (std::size_t index = 0U; index < count; ++index) {
+    if (!hash_u16le(hasher, bits[index])) {
+      return false;
+    }
+  }
+  return true;
+#endif
+}
+
+[[nodiscard]] bool hash_cell_summary(core::Sha256& hasher,
+                                     const CellDomainSummary& cells,
+                                     const std::uint8_t cell_width) noexcept {
+  return hash_u8(hasher, cell_width) &&
+         hash_u64le(hasher, cells.cell_count) &&
+         hash_u64le(hasher, cells.value_count) &&
+         hash_u64le(hasher, cells.finite_nonzero_count) &&
+         hash_u64le(hasher, cells.zero_count) &&
+         hash_u64le(hasher, cells.negative_zero_count) &&
+         hash_u64le(hasher, cells.subnormal_count) &&
+         hash_u64le(hasher, cells.infinity_count) &&
+         hash_u64le(hasher, cells.nan_count) &&
+         hash_u64le(hasher, cells.special_cell_count) &&
+         hash_u32le(hasher, cells.maximum_exponent_span) &&
+         hash_u32le(hasher, cells.maximum_aligned_bit_span) &&
+         hash_u32le(hasher, cells.maximum_int8_limb_count) &&
+         hash_u32le(hasher, cells.maximum_int4_limb_count) &&
+         hash_u64le(hasher, cells.residual_plane_set_bits) &&
+         hash_u64le(hasher, cells.residual_plane_slots) &&
+         hash_u64le(hasher,
+                    cells.exact_bit_plane_two_of_four_groups) &&
+         hash_u64le(hasher,
+                    cells.occupied_bit_plane_two_of_four_groups) &&
+         hash_u64_array(hasher, cells.exponent_span_histogram) &&
+         hash_u64_array(hasher, cells.aligned_bit_span_histogram) &&
+         hash_u64_array(hasher, cells.int8_limb_histogram) &&
+         hash_u64_array(hasher, cells.int4_limb_histogram) &&
+         hash_u64_array(hasher,
+                        cells.significand_trailing_zero_histogram);
+}
+
+[[nodiscard]] bool compute_payload_inventory_digest(
+    const OperandDomainSummary& summary,
+    std::array<std::uint8_t, 32U>& digest) noexcept {
+  const std::uint8_t role_id = role_wire_id(summary.role);
+  const std::uint8_t capture_id = capture_wire_id(summary.capture_point);
+  if (role_id == 0U || capture_id == 0U ||
+      summary.expected_rows > std::numeric_limits<std::uint64_t>::max() ||
+      summary.input_features > std::numeric_limits<std::uint64_t>::max() ||
+      summary.instance_count > std::numeric_limits<std::uint32_t>::max() ||
+      summary.model_layer_mask != expected_model_layer_mask(summary.role) ||
+      summary.layer_payload_digest_mask !=
+          summary.model_layer_mask ||
+      summary.instance_count != expected_role_instances(summary.role)) {
+    return false;
+  }
+  core::Sha256 hasher;
+  bool valid =
+      hash_string(hasher, kOperandInventoryDigestDomain) &&
+      hash_string(hasher, runtime::kSm87AotPrefillSystemCandidateId) &&
+      hash_string(hasher, runtime::kSm87AotPrefillSystemP40PlanId) &&
+      hash_u8(hasher, role_id) && hash_u8(hasher, capture_id) &&
+      hash_u64le(hasher,
+                 static_cast<std::uint64_t>(summary.expected_rows)) &&
+      hash_u64le(hasher,
+                 static_cast<std::uint64_t>(summary.input_features)) &&
+      hash_u32le(hasher,
+                 static_cast<std::uint32_t>(summary.instance_count)) &&
+      hash_u64le(hasher, summary.model_layer_mask);
+  for (std::size_t layer = 0U;
+       valid && layer < summary.layer_payload_sha256.size(); ++layer) {
+    if ((summary.model_layer_mask & (1ULL << layer)) == 0U) {
+      continue;
+    }
+    valid = hash_u32le(hasher, static_cast<std::uint32_t>(layer)) &&
+            hasher.update(summary.layer_payload_sha256[layer].data(),
+                          summary.layer_payload_sha256[layer].size());
+  }
+  if (!valid) {
+    return false;
+  }
+  digest = hasher.finalize().bytes;
+  return true;
+}
+
+[[nodiscard]] bool compute_analysis_inventory_digest(
+    const OperandDomainSummary& summary,
+    std::array<std::uint8_t, 32U>& digest) noexcept {
+  if (!summary.payload_inventory_digest_present) {
+    return false;
+  }
+  core::Sha256 hasher;
+  if (!hash_string(hasher, kOperandAnalysisDigestDomain) ||
+      !hash_string(hasher, runtime::kSm87AotPrefillSystemCandidateId) ||
+      !hash_string(hasher, runtime::kSm87AotPrefillSystemP40PlanId) ||
+      !hasher.update(summary.payload_inventory_sha256.data(),
+                     summary.payload_inventory_sha256.size()) ||
+      !hash_cell_summary(hasher, summary.k16, 16U) ||
+      !hash_cell_summary(hasher, summary.k64, 64U)) {
+    return false;
+  }
+  digest = hasher.finalize().bytes;
+  return true;
 }
 
 [[nodiscard]] bool update_max(std::uint32_t& target,
@@ -688,6 +921,45 @@ template <std::size_t Size>
              result);
 }
 
+[[nodiscard]] bool expected_summary_geometry(
+    const OperandDomainSummary& summary, std::size_t& next_row,
+    std::size_t& panel_count, std::uint64_t& value_count,
+    std::uint64_t& k16_cells, std::uint64_t& k64_cells) noexcept {
+  std::uint64_t intermediate = 0U;
+  std::uint64_t rows = 0U;
+  std::uint64_t panels = 0U;
+  if (summary.expected_rows == 0U || summary.input_features == 0U ||
+      summary.expected_rows % kMmaRows != 0U ||
+      summary.input_features % kK64 != 0U ||
+      !checked_multiply_size(summary.expected_rows, summary.instance_count,
+                             next_row) ||
+      !checked_multiply_size(
+          (summary.expected_rows + kPanelRows - 1U) / kPanelRows,
+          summary.instance_count, panel_count) ||
+      !checked_multiply(static_cast<std::uint64_t>(summary.expected_rows),
+                        static_cast<std::uint64_t>(summary.instance_count),
+                        rows) ||
+      !checked_multiply(rows,
+                        static_cast<std::uint64_t>(summary.input_features),
+                        value_count) ||
+      !checked_multiply(
+          rows / kMmaRows,
+          static_cast<std::uint64_t>(summary.input_features / kK16),
+          k16_cells) ||
+      !checked_multiply(
+          static_cast<std::uint64_t>(
+              (summary.expected_rows + kPanelRows - 1U) / kPanelRows),
+          static_cast<std::uint64_t>(summary.instance_count), panels) ||
+      !checked_multiply(
+          panels,
+          static_cast<std::uint64_t>(summary.input_features / kK64),
+          intermediate)) {
+    return false;
+  }
+  k64_cells = intermediate;
+  return true;
+}
+
 [[nodiscard]] OperandDomainSummary synthetic_complete_summary(
     const OperandRole role, const std::size_t limb_count,
     const std::uint64_t special_cells = 0U) {
@@ -702,6 +974,7 @@ template <std::size_t Size>
   result.next_row *= result.instance_count;
   result.panel_count *= result.instance_count;
   result.model_layer_mask = expected_model_layer_mask(role);
+  result.layer_payload_digest_mask = result.model_layer_mask;
   for (std::size_t layer = 0U;
        layer < runtime::kSm87AotPrefillSystemLayerCount; ++layer) {
     if ((result.model_layer_mask & (1ULL << layer)) != 0U) {
@@ -710,7 +983,8 @@ template <std::size_t Size>
     }
   }
   result.capture_identity_authenticated = true;
-  result.complete = true;
+  result.payload_digest_present = true;
+  result.layer_inventory_complete = true;
   result.valid = true;
   std::uint64_t value_count = 0U;
   if (!expected_operand_value_count(role, value_count) ||
@@ -718,7 +992,7 @@ template <std::size_t Size>
       limb_count >= kInt8LimbHistogramSize ||
       limb_count >= kInt4LimbHistogramSize) {
     result.valid = false;
-    result.complete = false;
+    result.layer_inventory_complete = false;
     return result;
   }
   const std::uint64_t finite_nonzero =
@@ -726,7 +1000,7 @@ template <std::size_t Size>
   const std::uint64_t special_values = special_cells;
   if (finite_nonzero + special_values > value_count) {
     result.valid = false;
-    result.complete = false;
+    result.layer_inventory_complete = false;
     return result;
   }
   const auto populate = [&](CellDomainSummary& cells,
@@ -753,6 +1027,15 @@ template <std::size_t Size>
   };
   populate(result.k16, expected_k16_cells(role));
   populate(result.k64, expected_k64_cells(role));
+  result.payload_inventory_digest_present =
+      compute_payload_inventory_digest(result,
+                                       result.payload_inventory_sha256);
+  result.analysis_inventory_digest_present =
+      result.payload_inventory_digest_present &&
+      compute_analysis_inventory_digest(result,
+                                        result.analysis_inventory_sha256);
+  result.valid = result.valid && result.analysis_inventory_digest_present;
+  result.layer_inventory_complete = result.valid;
   return result;
 }
 
@@ -774,20 +1057,20 @@ Bf16OperandAccumulator::Bf16OperandAccumulator(
                    identity.role != OperandRole::kCount &&
                    identity.capture_point ==
                        expected_capture_point(identity.role) &&
-                   layer_in_role && digest_is_nonzero(identity.payload_sha256) &&
-                   identity.checkpoint_identity_authenticated &&
-                   identity.route_identity_authenticated &&
-                   identity.capture_boundary_authenticated &&
-                   expected_rows != 0U &&
+                   layer_in_role && expected_rows != 0U &&
                    expected_rows % kMmaRows == 0U && input_features != 0U &&
                    input_features % kK64 == 0U;
   if (summary_.valid) {
     summary_.model_layer_mask = 1ULL << identity.model_layer_index;
-    summary_.layer_payload_sha256[identity.model_layer_index] =
-        identity.payload_sha256;
-    summary_.capture_identity_authenticated = true;
+    source_identity_authenticated_ =
+        identity.checkpoint_identity_authenticated &&
+        identity.route_identity_authenticated &&
+        identity.capture_boundary_authenticated;
+    payload_hash_initialized_ = initialize_payload_hash(
+        payload_hasher_, identity, expected_rows, input_features,
+        expected_logical_value_count_);
   }
-  failed_ = !summary_.valid;
+  failed_ = !summary_.valid || !payload_hash_initialized_;
 }
 
 bool Bf16OperandAccumulator::consume_panel(
@@ -803,9 +1086,31 @@ bool Bf16OperandAccumulator::consume_panel(
   const std::size_t remaining = summary_.expected_rows - first_row;
   const std::size_t expected_panel_rows =
       std::min(kPanelRows, remaining);
-  if (row_count != expected_panel_rows || row_count % kMmaRows != 0U) {
+  std::size_t final_row_offset = 0U;
+  if (row_count != expected_panel_rows || row_count % kMmaRows != 0U ||
+      !checked_multiply_size(row_count - 1U, row_stride_elements,
+                             final_row_offset) ||
+      summary_.input_features >
+          std::numeric_limits<std::size_t>::max() - final_row_offset) {
     failed_ = true;
     return false;
+  }
+
+  std::uint64_t panel_values = 0U;
+  if (!checked_multiply(static_cast<std::uint64_t>(row_count),
+                        static_cast<std::uint64_t>(summary_.input_features),
+                        panel_values) ||
+      !checked_add(hashed_logical_value_count_, panel_values)) {
+    failed_ = true;
+    return false;
+  }
+  for (std::size_t row = 0U; row < row_count; ++row) {
+    if (!hash_bf16_row_u16le(
+            payload_hasher_, bits + row * row_stride_elements,
+            summary_.input_features)) {
+      failed_ = true;
+      return false;
+    }
   }
 
   for (std::size_t row = 0U; row < row_count; row += kMmaRows) {
@@ -836,8 +1141,29 @@ OperandDomainSummary Bf16OperandAccumulator::finalize() noexcept {
     failed_ = true;
   }
   finalized_ = true;
-  summary_.complete = !failed_ && summary_.next_row == summary_.expected_rows;
-  summary_.valid = summary_.valid && summary_.complete;
+  summary_.instance_complete =
+      !failed_ && summary_.next_row == summary_.expected_rows &&
+      hashed_logical_value_count_ == expected_logical_value_count_;
+  failed_ = failed_ || !summary_.instance_complete;
+  summary_.valid = summary_.valid && summary_.instance_complete;
+  if (summary_.valid) {
+    std::size_t layer = 0U;
+    while (layer < runtime::kSm87AotPrefillSystemLayerCount &&
+           (summary_.model_layer_mask & (1ULL << layer)) == 0U) {
+      ++layer;
+    }
+    if (layer == runtime::kSm87AotPrefillSystemLayerCount) {
+      summary_.valid = false;
+      summary_.instance_complete = false;
+    } else {
+      summary_.layer_payload_sha256[layer] =
+          payload_hasher_.finalize().bytes;
+      summary_.layer_payload_digest_mask = 1ULL << layer;
+      summary_.payload_digest_present = true;
+      summary_.capture_identity_authenticated =
+          source_identity_authenticated_;
+    }
+  }
   summary_.instance_count = summary_.valid ? 1U : 0U;
   return summary_;
 }
@@ -853,26 +1179,32 @@ bool OperandDomainMerger::add(
           0U;
   const bool payload_inventory_matches =
       payload_digest_layer_mask(instance) == instance.model_layer_mask;
-  if (failed_ || finalized_ || !instance.valid || !instance.complete ||
+  if (failed_ || finalized_ || !instance.valid ||
+      !instance.instance_complete || instance.layer_inventory_complete ||
+      !instance.payload_digest_present ||
+      instance.payload_inventory_digest_present ||
+      instance.analysis_inventory_digest_present ||
       instance.instance_count != 1U ||
       instance.next_row != instance.expected_rows || !layer_in_role ||
       !payload_inventory_matches ||
-      !instance.capture_identity_authenticated ||
       instance.role == OperandRole::kInvalid ||
       instance.role == OperandRole::kCount ||
       instance.capture_point != expected_capture_point(instance.role)) {
     failed_ = true;
     summary_.valid = false;
-    summary_.complete = false;
+    summary_.instance_complete = false;
+    summary_.layer_inventory_complete = false;
     return false;
   }
   if (!started_) {
     summary_ = instance;
+    summary_.instance_complete = false;
     started_ = true;
     return true;
   }
   OperandDomainSummary candidate = summary_;
-  if (!candidate.valid || !candidate.complete ||
+  if (!candidate.valid || candidate.instance_complete ||
+      candidate.layer_inventory_complete ||
       candidate.role != instance.role ||
       candidate.capture_point != instance.capture_point ||
       candidate.expected_rows != instance.expected_rows ||
@@ -885,17 +1217,20 @@ bool OperandDomainMerger::add(
       !merge_cell_summary(candidate.k64, instance.k64)) {
     failed_ = true;
     summary_.valid = false;
-    summary_.complete = false;
+    summary_.instance_complete = false;
+    summary_.layer_inventory_complete = false;
     return false;
   }
   for (std::size_t layer = 0U;
        layer < candidate.layer_payload_sha256.size(); ++layer) {
-    if (digest_is_nonzero(instance.layer_payload_sha256[layer])) {
+    if ((instance.layer_payload_digest_mask & (1ULL << layer)) != 0U) {
       candidate.layer_payload_sha256[layer] =
           instance.layer_payload_sha256[layer];
     }
   }
   candidate.model_layer_mask |= instance.model_layer_mask;
+  candidate.layer_payload_digest_mask |=
+      instance.layer_payload_digest_mask;
   candidate.capture_identity_authenticated =
       candidate.capture_identity_authenticated &&
       instance.capture_identity_authenticated;
@@ -907,7 +1242,40 @@ OperandDomainSummary OperandDomainMerger::finalize() noexcept {
   if (finalized_ || failed_ || !started_) {
     failed_ = true;
     summary_.valid = false;
-    summary_.complete = false;
+    summary_.layer_inventory_complete = false;
+  } else {
+    std::size_t expected_next_row = 0U;
+    std::size_t expected_panel_count = 0U;
+    std::uint64_t expected_values = 0U;
+    std::uint64_t expected_k16 = 0U;
+    std::uint64_t expected_k64 = 0U;
+    const bool complete_inventory =
+        summary_.model_layer_mask == expected_model_layer_mask(summary_.role) &&
+        summary_.layer_payload_digest_mask == summary_.model_layer_mask &&
+        summary_.instance_count == expected_role_instances(summary_.role) &&
+        expected_summary_geometry(summary_, expected_next_row,
+                                  expected_panel_count, expected_values,
+                                  expected_k16, expected_k64) &&
+        summary_.next_row == expected_next_row &&
+        summary_.panel_count == expected_panel_count &&
+        validate_cell_summary(summary_.k16, expected_k16,
+                              expected_values) &&
+        validate_cell_summary(summary_.k64, expected_k64,
+                              expected_values) &&
+        same_value_classification(summary_.k16, summary_.k64);
+    summary_.layer_inventory_complete = complete_inventory;
+    summary_.payload_inventory_digest_present =
+        complete_inventory &&
+        compute_payload_inventory_digest(
+            summary_, summary_.payload_inventory_sha256);
+    summary_.analysis_inventory_digest_present =
+        summary_.payload_inventory_digest_present &&
+        compute_analysis_inventory_digest(
+            summary_, summary_.analysis_inventory_sha256);
+    summary_.valid = summary_.valid &&
+                     summary_.analysis_inventory_digest_present;
+    summary_.layer_inventory_complete = summary_.valid;
+    failed_ = !summary_.layer_inventory_complete;
   }
   finalized_ = true;
   return summary_;
@@ -1146,9 +1514,32 @@ static DecisionReceipt evaluate_provisional_for_self_test(
                               expected_k64_cells(mapping.role),
                               expected_values) &&
         same_value_classification(cells, mapping.operand.k64);
+    std::array<std::uint8_t, 32U> expected_payload_inventory{};
+    std::array<std::uint8_t, 32U> expected_analysis_inventory{};
+    OperandDomainSummary canonical_operand = mapping.operand;
+    const bool payload_inventory_digest_valid =
+        mapping.operand.payload_inventory_digest_present &&
+        compute_payload_inventory_digest(mapping.operand,
+                                         expected_payload_inventory) &&
+        expected_payload_inventory ==
+            mapping.operand.payload_inventory_sha256;
+    canonical_operand.payload_inventory_sha256 =
+        expected_payload_inventory;
+    canonical_operand.payload_inventory_digest_present =
+        payload_inventory_digest_valid;
+    const bool analysis_inventory_digest_valid =
+        mapping.operand.analysis_inventory_digest_present &&
+        payload_inventory_digest_valid &&
+        compute_analysis_inventory_digest(canonical_operand,
+                                          expected_analysis_inventory) &&
+        expected_analysis_inventory ==
+            mapping.operand.analysis_inventory_sha256;
     const bool geometry_valid =
         mapping.operand.role == mapping.role && mapping.operand.valid &&
-        mapping.operand.complete &&
+        !mapping.operand.instance_complete &&
+        mapping.operand.layer_inventory_complete &&
+        mapping.operand.payload_digest_present &&
+        payload_inventory_digest_valid && analysis_inventory_digest_valid &&
         mapping.operand.capture_point == expected_capture_point(mapping.role) &&
         mapping.operand.expected_rows == kP40Tokens &&
         mapping.operand.input_features == expected_input_features(mapping.role) &&
@@ -1420,7 +1811,6 @@ bool run_self_test() noexcept {
     result.role = role;
     result.capture_point = expected_capture_point(role);
     result.model_layer_index = layer;
-    result.payload_sha256[0U] = static_cast<std::uint8_t>(layer + 1U);
     result.checkpoint_identity_authenticated = true;
     result.route_identity_authenticated = true;
     result.capture_boundary_authenticated = true;
@@ -1461,7 +1851,13 @@ bool run_self_test() noexcept {
       identity(OperandRole::kNvFp4GateUp, 0U), kRows, kColumns);
   expect(accumulator.consume_panel(0U, values.data(), kRows, kColumns));
   const OperandDomainSummary analyzed = accumulator.finalize();
-  expect(analyzed.valid && analyzed.complete && analyzed.panel_count == 1U);
+  expect(analyzed.valid && analyzed.instance_complete &&
+         !analyzed.layer_inventory_complete &&
+         analyzed.payload_digest_present &&
+         !analyzed.payload_inventory_digest_present &&
+         !analyzed.analysis_inventory_digest_present &&
+         analyzed.layer_payload_digest_mask == 1U &&
+         analyzed.panel_count == 1U);
   expect(analyzed.k16.cell_count == 32U &&
          analyzed.k64.cell_count == 1U);
   expect(analyzed.k16.maximum_exponent_span == 1U &&
@@ -1472,27 +1868,137 @@ bool run_self_test() noexcept {
          analyzed.k16.infinity_count == 0U && analyzed.k16.nan_count == 0U);
   expect(analyzed.k16.exact_bit_plane_two_of_four_groups ==
          analyzed.k16.occupied_bit_plane_two_of_four_groups);
+  expect(!accumulator.consume_panel(0U, values.data(), kRows, kColumns));
+  expect(!accumulator.finalize().valid);
+  Bf16OperandAccumulator duplicate_panel_accumulator(
+      identity(OperandRole::kNvFp4GateUp, 0U), kRows, kColumns);
+  expect(duplicate_panel_accumulator.consume_panel(0U, values.data(), kRows,
+                                                   kColumns));
+  expect(!duplicate_panel_accumulator.consume_panel(0U, values.data(), kRows,
+                                                    kColumns));
+  expect(!duplicate_panel_accumulator.finalize().valid);
+  Bf16OperandAccumulator short_panel_accumulator(
+      identity(OperandRole::kNvFp4GateUp, 0U), kRows, kColumns);
+  expect(!short_panel_accumulator.consume_panel(0U, values.data(),
+                                                kRows / 2U, kColumns));
+  expect(!short_panel_accumulator.finalize().valid);
   Bf16OperandAccumulator layer_one_accumulator(
       identity(OperandRole::kNvFp4GateUp, 1U), kRows, kColumns);
   expect(layer_one_accumulator.consume_panel(0U, values.data(), kRows,
                                              kColumns));
   const OperandDomainSummary layer_one = layer_one_accumulator.finalize();
-  OperandDomainMerger merger;
-  expect(merger.add(analyzed));
-  expect(merger.add(layer_one));
-  const OperandDomainSummary merged = merger.finalize();
-  expect(merged.valid && merged.complete && merged.instance_count == 2U &&
-         merged.next_row == 2U * kRows && merged.panel_count == 2U &&
-         merged.model_layer_mask == 3U &&
-         merged.k16.cell_count == 2U * analyzed.k16.cell_count &&
-         merged.k64.cell_count == 2U * analyzed.k64.cell_count);
+  expect(layer_one.valid && layer_one.instance_complete &&
+         layer_one.layer_payload_sha256[1U] !=
+             analyzed.layer_payload_sha256[0U]);
+
+  std::vector<std::uint16_t> padded_values(
+      kRows * (kColumns + 8U), 0xa5a5U);
+  for (std::size_t row = 0U; row < kRows; ++row) {
+    std::copy_n(values.data() + row * kColumns, kColumns,
+                padded_values.data() + row * (kColumns + 8U));
+  }
+  Bf16OperandAccumulator padded_accumulator(
+      identity(OperandRole::kNvFp4GateUp, 0U), kRows, kColumns);
+  expect(padded_accumulator.consume_panel(0U, padded_values.data(), kRows,
+                                          kColumns + 8U));
+  const OperandDomainSummary padded = padded_accumulator.finalize();
+  expect(padded.valid && padded.layer_payload_sha256[0U] ==
+                             analyzed.layer_payload_sha256[0U]);
+  padded_values[kColumns] ^= 0xffffU;
+  Bf16OperandAccumulator changed_padding_accumulator(
+      identity(OperandRole::kNvFp4GateUp, 0U), kRows, kColumns);
+  expect(changed_padding_accumulator.consume_panel(
+      0U, padded_values.data(), kRows, kColumns + 8U));
+  expect(changed_padding_accumulator.finalize()
+             .layer_payload_sha256[0U] ==
+         analyzed.layer_payload_sha256[0U]);
+  padded_values[0U] ^= 1U;
+  Bf16OperandAccumulator changed_payload_accumulator(
+      identity(OperandRole::kNvFp4GateUp, 0U), kRows, kColumns);
+  expect(changed_payload_accumulator.consume_panel(
+      0U, padded_values.data(), kRows, kColumns + 8U));
+  expect(changed_payload_accumulator.finalize()
+             .layer_payload_sha256[0U] !=
+         analyzed.layer_payload_sha256[0U]);
+  Bf16OperandAccumulator changed_role_accumulator(
+      identity(OperandRole::kNvFp4Down, 0U), kRows, kColumns);
+  expect(changed_role_accumulator.consume_panel(0U, values.data(), kRows,
+                                                kColumns));
+  expect(changed_role_accumulator.finalize().layer_payload_sha256[0U] !=
+         analyzed.layer_payload_sha256[0U]);
+  std::vector<std::uint16_t> wider_values(kRows * (2U * kColumns), 0U);
+  for (std::size_t row = 0U; row < kRows; ++row) {
+    std::copy_n(values.data() + row * kColumns, kColumns,
+                wider_values.data() + row * 2U * kColumns);
+  }
+  Bf16OperandAccumulator changed_shape_accumulator(
+      identity(OperandRole::kNvFp4GateUp, 0U), kRows, 2U * kColumns);
+  expect(changed_shape_accumulator.consume_panel(
+      0U, wider_values.data(), kRows, 2U * kColumns));
+  expect(changed_shape_accumulator.finalize().layer_payload_sha256[0U] !=
+         analyzed.layer_payload_sha256[0U]);
+
+  core::Sha256 encoded_u16;
+  core::Sha256 golden_u16;
+  const std::array<std::uint8_t, 2U> golden_u16_bytes{{0x34U, 0x12U}};
+  expect(hash_u16le(encoded_u16, 0x1234U) &&
+         golden_u16.update(golden_u16_bytes.data(),
+                           golden_u16_bytes.size()) &&
+         encoded_u16.finalize() == golden_u16.finalize());
+
+  std::array<OperandDomainSummary,
+             runtime::kSm87AotPrefillSystemLayerCount>
+      gate_instances{};
+  gate_instances[0U] = analyzed;
+  gate_instances[1U] = layer_one;
+  for (std::size_t layer = 2U; layer < gate_instances.size(); ++layer) {
+    Bf16OperandAccumulator layer_accumulator(
+        identity(OperandRole::kNvFp4GateUp, layer), kRows, kColumns);
+    expect(layer_accumulator.consume_panel(0U, values.data(), kRows,
+                                           kColumns));
+    gate_instances[layer] = layer_accumulator.finalize();
+    expect(gate_instances[layer].valid);
+  }
+  OperandDomainMerger forward_merger;
+  for (const OperandDomainSummary& instance : gate_instances) {
+    expect(forward_merger.add(instance));
+  }
+  const OperandDomainSummary merged = forward_merger.finalize();
+  expect(merged.valid && !merged.instance_complete &&
+         merged.layer_inventory_complete && merged.payload_digest_present &&
+         merged.payload_inventory_digest_present &&
+         merged.analysis_inventory_digest_present &&
+         merged.instance_count == gate_instances.size() &&
+         merged.next_row == gate_instances.size() * kRows &&
+         merged.panel_count == gate_instances.size() &&
+         merged.model_layer_mask == std::numeric_limits<std::uint64_t>::max() &&
+         merged.layer_payload_digest_mask == merged.model_layer_mask &&
+         merged.k16.cell_count ==
+             gate_instances.size() * analyzed.k16.cell_count &&
+         merged.k64.cell_count ==
+             gate_instances.size() * analyzed.k64.cell_count);
+  OperandDomainMerger reverse_merger;
+  for (std::size_t layer = gate_instances.size(); layer-- > 0U;) {
+    expect(reverse_merger.add(gate_instances[layer]));
+  }
+  const OperandDomainSummary reverse_merged = reverse_merger.finalize();
+  expect(reverse_merged.valid &&
+         reverse_merged.payload_inventory_sha256 ==
+             merged.payload_inventory_sha256 &&
+         reverse_merged.analysis_inventory_sha256 ==
+             merged.analysis_inventory_sha256);
   OperandDomainMerger duplicate_layer;
   expect(duplicate_layer.add(analyzed));
   expect(!duplicate_layer.add(analyzed));
   expect(!duplicate_layer.finalize().valid);
+  OperandDomainMerger missing_layer;
+  for (std::size_t layer = 0U; layer + 1U < gate_instances.size(); ++layer) {
+    expect(missing_layer.add(gate_instances[layer]));
+  }
+  expect(!missing_layer.finalize().valid && missing_layer.failed());
   OperandDomainMerger invalid_first;
   OperandDomainSummary partial = analyzed;
-  partial.complete = false;
+  partial.instance_complete = false;
   partial.valid = false;
   expect(!invalid_first.add(partial));
   expect(!invalid_first.add(analyzed));
@@ -1518,6 +2024,10 @@ bool run_self_test() noexcept {
   expect(!wrong_sequence.consume_panel(kPanelRows, values.data(), kRows,
                                        kColumns));
   expect(!wrong_sequence.finalize().valid);
+  Bf16OperandAccumulator incomplete_sequence(
+      identity(OperandRole::kNvFp4GateUp, 0U), kRows, kColumns);
+  expect(!incomplete_sequence.finalize().valid &&
+         incomplete_sequence.failed());
   Bf16OperandAccumulator wrong_family_layer(
       identity(OperandRole::kFp8FullQkv, 0U), kRows, kColumns);
   expect(wrong_family_layer.failed() &&
@@ -1542,6 +2052,21 @@ bool run_self_test() noexcept {
              special_summary.k16.cell_count &&
          special_summary.k16.residual_plane_slots == 0U &&
          special_summary.k16.occupied_bit_plane_two_of_four_groups == 0U);
+  values[1U] = 0x7fc2U;
+  Bf16OperandAccumulator changed_nan_payload(
+      identity(OperandRole::kNvFp4GateUp, 0U), kRows, kColumns);
+  expect(changed_nan_payload.consume_panel(0U, values.data(), kRows,
+                                           kColumns));
+  expect(changed_nan_payload.finalize().layer_payload_sha256[0U] !=
+         special_summary.layer_payload_sha256[0U]);
+  values[1U] = 0x7fc1U;
+  values[2U] = 0x0000U;
+  Bf16OperandAccumulator changed_signed_zero(
+      identity(OperandRole::kNvFp4GateUp, 0U), kRows, kColumns);
+  expect(changed_signed_zero.consume_panel(0U, values.data(), kRows,
+                                           kColumns));
+  expect(changed_signed_zero.finalize().layer_payload_sha256[0U] !=
+         special_summary.layer_payload_sha256[0U]);
 
   // Bit-plane 2:4 is intentionally not a limb-digit sparsity claim. These
   // values occupy all four lanes as signed limbs, while every individual
@@ -1613,6 +2138,13 @@ bool run_self_test() noexcept {
     cost.representation_seconds_lower = 0.001;
     cost.representation_seconds_upper = 0.002;
   }
+  Assessment toy_inventory = complete;
+  toy_inventory.roles[0U].operand = merged;
+  const DecisionReceipt toy_inventory_result =
+      evaluate_provisional_for_self_test(toy_inventory);
+  expect(toy_inventory.roles[0U].operand.layer_inventory_complete &&
+         (toy_inventory_result.issues & kWitnessIssueMissingP40Coverage) !=
+             0U);
   std::size_t synthetic_projection_instances = 0U;
   for (std::size_t index = 0U; index < kOperandRoleCount; ++index) {
     synthetic_projection_instances += expected_role_instances(
@@ -1760,6 +2292,18 @@ bool run_self_test() noexcept {
   expect((evaluate_provisional_for_self_test(corrupt_k64).issues &
           kWitnessIssueMissingP40Coverage) != 0U);
 
+  Assessment changed_payload_inventory = complete;
+  changed_payload_inventory.roles[0U]
+      .operand.layer_payload_sha256[0U][0U] ^= 1U;
+  expect((evaluate_provisional_for_self_test(changed_payload_inventory).issues &
+          kWitnessIssueMissingP40Coverage) != 0U);
+  Assessment changed_analysis_inventory = complete;
+  changed_analysis_inventory.roles[0U]
+      .operand.analysis_inventory_sha256[0U] ^= 1U;
+  expect((evaluate_provisional_for_self_test(changed_analysis_inventory)
+              .issues &
+          kWitnessIssueMissingP40Coverage) != 0U);
+
   Assessment duplicate_layer_inventory = complete;
   duplicate_layer_inventory.roles[0U].operand.model_layer_mask &= ~1ULL;
   const DecisionReceipt duplicate_layer_receipt =
@@ -1771,6 +2315,10 @@ bool run_self_test() noexcept {
   const DecisionReceipt public_unissued = evaluate(complete);
   expect(public_unissued.decision == Decision::kInconclusive &&
          (public_unissued.issues &
+          kWitnessIssueMissingAuthoritativeEvidenceReader) != 0U);
+  const DecisionReceipt public_rejection_is_unissued = evaluate(too_slow);
+  expect(public_rejection_is_unissued.decision == Decision::kInconclusive &&
+         (public_rejection_is_unissued.issues &
           kWitnessIssueMissingAuthoritativeEvidenceReader) != 0U);
 
   return passed;
