@@ -2968,6 +2968,7 @@ if(BUILD_TESTING)
 
   if(Q3X_BUILD_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
     add_executable(q3x_sm87_aot_system_v1_arithmetic_witness_probe
+      src/core/sha256.cpp
       tests/sm87_aot_system_v1_arithmetic_witness_probe.cpp
       tests/support/sm87_aot_system_v1_arithmetic_witness_internal.cpp
     )
