@@ -106,6 +106,10 @@ option(Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION
   "Build the test-only host admission schema for AC-PREFILL-SM87-AOT-SYSTEM-v1"
   OFF
 )
+option(Q3X_BUILD_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS
+  "Build the host-only real-P40 arithmetic-class witness for AC-PREFILL-SM87-AOT-SYSTEM-v1"
+  OFF
+)
 option(Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION
   "Build the test-only byte-authenticated host transform, device-receipt schema, and compile-only NVFP4 CUDA feed for AC-PREFILL-SM87-AOT-SYSTEM-v1"
   OFF
@@ -334,6 +338,18 @@ endif()
 if(Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION is a host-only test admission and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS AND
+   NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS AND
+   NOT Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION)
+  message(FATAL_ERROR
+    "Q3X_BUILD_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS requires the host-only SM87 AOT system-v1 schema admission"
   )
 endif()
 if(Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION AND NOT BUILD_TESTING)
@@ -2949,6 +2965,34 @@ if(BUILD_TESTING)
   set_tests_properties(sm87_aot_prefill_system_plan PROPERTIES
     LABELS "host;sm87;prefill;architecture_design;non_executable;system;plan"
   )
+
+  if(Q3X_BUILD_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
+    add_executable(q3x_sm87_aot_system_v1_arithmetic_witness_probe
+      tests/sm87_aot_system_v1_arithmetic_witness_probe.cpp
+      tests/support/sm87_aot_system_v1_arithmetic_witness_internal.cpp
+    )
+    target_include_directories(
+      q3x_sm87_aot_system_v1_arithmetic_witness_probe PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/include"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/support"
+    )
+    target_compile_features(
+      q3x_sm87_aot_system_v1_arithmetic_witness_probe PRIVATE cxx_std_17
+    )
+    target_compile_definitions(
+      q3x_sm87_aot_system_v1_arithmetic_witness_probe PRIVATE
+      Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ADMISSION=1
+      Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS=1
+    )
+    q3x_enable_warnings(q3x_sm87_aot_system_v1_arithmetic_witness_probe)
+    add_test(NAME sm87_aot_system_v1_arithmetic_witness_self_test
+      COMMAND q3x_sm87_aot_system_v1_arithmetic_witness_probe --self-test
+    )
+    set_tests_properties(
+      sm87_aot_system_v1_arithmetic_witness_self_test PROPERTIES
+      LABELS "host;sm87;prefill;target_aot;arithmetic_class;witness;default_off"
+    )
+  endif()
 
   if(Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION)
     add_executable(q3x_sm87_target_aot_projection_assets_test
