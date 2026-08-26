@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-08-23.
+Snapshot date: 2026-08-27.
 
 This page is a replaceable state snapshot. It does not own architecture,
 delivery order, or experiment history. The system design is in
@@ -142,9 +142,33 @@ reports current behavior but is not repetition or speedup qualification.
 P1024--P32768 used the runtime-identical `0e89575` installed artifact;
 P40000 is a fresh direct `c6c34ef` run. At P40 the ordinary exact default is
 only 14.5698% of the historical v10 392.804397 tok/s result, a 6.8635x gap.
-Absorbing an accuracy-admissible version of that retained route is therefore
-the next P0 inside active P3; the known P513 full-state mismatch still
-prevents copying v10 into the default.
+
+The subsequent selector-exact persistent-Attention v1 composition did not
+close that gap. Candidate `e325c6ba` / tree `7423cd2f`, built as fresh
+candidate-only ELF `f427c85b...` (Build ID `a2b5ca47...`), completed both
+fresh P40000/O16 arms but returned `rc=3` / `valid_mismatch`. All 37 retained
+Prefill-commit state-digest comparisons, all 37 generation-return state-digest
+comparisons, and 80 generation comparisons differed; exposed step-0 logit
+statistics, four generated token IDs, and final text had already diverged. The
+comparison is
+infrastructure-valid and has no timing authority. It rejects the complete
+whole-core selector v1 composition without proving one kernel as the root
+cause; the branch remains unmerged, default-off, and non-production, and its
+candidate-only P40016 capacity fixes are not ordinary-mainline changes. Exact
+identities, state boundaries, route receipts, hashes, and claim limits are
+frozen in the
+[`selector v1 rejection record`](metadata/qwen36-27b-selector-exact-persistent-attention-v1-rejection-2026-08-27.json).
+
+The remaining P40 architecture gap therefore returns, in the order owned by
+the Roadmap, to the already tracked default-off
+`AC-PREFILL-SM87-AOT-SYSTEM-v1`. Its next admission is the real-P40 exact
+arithmetic-class witness from the mathematical ledger: projection exponent
+spans, exact limb/bit-plane and fallback pass counts, ordered FP32
+partial/scale rejoin, and BF16 publication bits must fit the 5.0-second
+projection allocation before further CUDA implementation. The frozen v1
+descriptor still names grouped-online Attention; replacing that route with an
+exact-qualified composition requires a successor candidate and plan identity
+rather than inheriting v1 evidence authority.
 
 The prior pause is superseded; it did not amend the Constitution targets. The
 exact recovery anchor remains
@@ -460,8 +484,8 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | OpenAI-compatible product API | Installed production-shaped 0.7.0 service with bounded queues, streaming, Bearer authentication, public health, and external TLS termination contract | Cancellation, multi-tenant policy, capability, and release stability remain incomplete |
 | Installed default context | Sealed P40 profile admits `prompt + output - 1 <= 44,095` with a 4,096-token output ceiling | P60 and approximately-P130 profiles remain unopened |
 | Ordinary request-state reuse | Installed 0.7.0 derives `already_clean`, exact committed dirty-prefix, or conservative full reset from lifecycle state and exposes a schema-v16 receipt; no runtime selector exists. Matched P1024/P4096/P8192 BCCB and a same-server P40000 lifecycle support retaining it across the verified lengths | Complete accuracy, independent-process target-length repetition, capability, and release qualification remain open; no material TTFT/throughput claim is attached to reset |
-| Target-length Prefill | Ordinary default includes exact prompt-wide preprocessing plus exact-span GDN; the preceding 0.6.0 P40 observation is 57.230764 tok/s and the 0.7.0 same-server lifecycle samples 57.391208--57.585234 tok/s without a throughput-comparison claim | Repetition, complete accuracy, P60/P130, the 2s/4s targets, and absorption of an accuracy-admissible fast P40 route remain open |
-| SM87 whole-system AOT Prefill candidate | Default-off and non-executable; real-checkpoint upload/readback/private attachment is authenticated, and the layer-0 M192 Gate+Up/Down-plus-residual candidate has passed bitwise, same-ELF SM87 resource/geometry, and immediate-snapshot lifecycle gates | Persist and directly load authenticated AOT payloads; compose all 64 layers plus FP8 QKV/Z/O, grouped online Attention, exact GDN, buffers/state/handoffs without fallback; extend complete-model accuracy; open a reviewed admission launch; then return to clean-host real-P40 API/EvalScope evidence |
+| Target-length Prefill | Ordinary default includes exact prompt-wide preprocessing plus exact-span GDN; the preceding 0.6.0 P40 observation is 57.230764 tok/s and the 0.7.0 same-server lifecycle samples 57.391208--57.585234 tok/s without a throughput-comparison claim. The complete selector/whole-core v1 candidate is rejected for a valid P40000/O16 state/logit/token/text mismatch | Repetition, complete accuracy, P60/P130, the 2s/4s targets, and an accuracy-admissible fast P40 architecture remain open |
+| SM87 whole-system AOT Prefill candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` is default-off and non-executable; real-checkpoint upload/readback/private attachment is authenticated, and the layer-0 M192 Gate+Up/Down-plus-residual candidate has passed bitwise, same-ELF SM87 resource/geometry, and immediate-snapshot lifecycle gates | First complete the real-P40 exact arithmetic-class pass-count/fallback witness and prove it fits the 5.0-second projection allocation; then persist and directly load authenticated AOT payloads, compose all 64 layers plus FP8 QKV/Z/O, an exact-qualified Attention/GDN route under a matching versioned plan identity, buffers/state/handoffs without fallback, extend complete-model accuracy, open a reviewed admission launch, and return to real-P40 API evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Exact S>=65 fallback plus retained coupled-feed/consumer-order layouts and fixed short-position Graph cache in the sealed profile; split-KV rejected numerically; installed short proxy reaches 105.013349 ms/token / 9.522599 tok/s | Long-output stability, independent repetition, target-length behavior, and at least 10 tok/s remain to be qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
@@ -556,13 +580,15 @@ real-API return point are owned only by [`ROADMAP.md`](ROADMAP.md).
 ## 5. Retained and rejected Prefill code
 
 The following selected routes are the minimum set needed to interpret the
-current incumbent and the closed v11--v15 projection lineage. This is not an
-experiment inventory; other earlier screens remain only in frozen evidence.
-None below is a production path or an active parameter scan.
+current incumbent, the closed v11--v15 projection lineage, and the formal
+selector v1 rejection. This is not an experiment inventory; other earlier
+screens remain only in frozen evidence. None below is a production path or an
+active parameter scan.
 
 | Route | P40 pure prompt throughput | Current disposition |
 | --- | ---: | --- |
 | v10 whole-core substrate | historical max-clock 392.804397 tok/s; current-main strict sustainable 325.983493208 tok/s | Retained default-off, accuracy-unqualified infrastructure; current-main integration health passes, historical max-clock not reproduced |
+| selector-exact persistent-Attention v1 whole-core composition | not reported; formal P40000/O16 comparison has `timing_authority=false` | Rejected; fresh same-ELF full-model state/logit/token/text mismatch, unmerged and default-off |
 | Shape-wide NVFP4 v3 replacement | 376.030675 tok/s | Rejected; temporary runner overlay removed |
 | v11 grouped projection reset | 205.951777 tok/s | Rejected |
 | v12 phase-local BF16 projection | 320.472999 tok/s | Rejected; unsealed historical direction |
@@ -578,7 +604,9 @@ Exact negative observations and route limitations are frozen in the
 [`v14`](metadata/qwen36-27b-prefill-p40k-packed-nvfp4-v2-rejection-2026-08-11.json),
 and [`v15`](metadata/qwen36-27b-prefill-p40k-vllm-marlin-parity-rejection-2026-08-11.json)
 records. They remain evidence for their exact protocols; they do not select
-the next architecture.
+the next architecture. The later composed whole-core rejection is frozen in
+the
+[`selector v1 rejection record`](metadata/qwen36-27b-selector-exact-persistent-attention-v1-rejection-2026-08-27.json).
 
 A previously discussed Factorized-R1 research direction changes the numerical
 trajectory. No tracked qualification/evidence record currently gives it
@@ -607,7 +635,10 @@ Current evidence is incomplete:
 - the first external native/vLLM comparison matched text on 26/32 requests,
   but vLLM is not the accuracy oracle;
 - the retained FlashInfer P40 direction has a known P513 full-state mismatch;
-  and
+- the later selector-exact persistent-Attention v1 whole-core composition is
+  formally rejected at P40000/O16 because Prefill-commit state,
+  generation-return state, exposed logits, token IDs, and text differ from
+  the Legacy exact comparator; and
 - the first public C-Eval attempt produced no parseable answer within its cap,
   so the zero score is a protocol failure rather than a model-capability
   measurement.
@@ -627,7 +658,7 @@ sequence and successor identity live exclusively in
 | Documentation-control propagation | The canonical main line now has one `AGENTS.md -> docs/README.md` Codex entry; pre-existing dirty worktrees do not receive it until explicitly integrated, because Codex reads the worktree in which a session starts | P0 |
 | Product API and long-context admission | Installed sealed P40 profile admits 40K plus normal Decode output; P60/P130 profiles and full cancellation semantics remain | P1 |
 | Exact deliverable identity | Installed 0.7.0/v3 ELF `d70ba913...` now has matched P1024/P4096/P8192 and same-server P40000 real-model/API reset evidence; the remaining matrix is accuracy, capability, independent-process target-length repetition, and stability | P2/P4 |
-| Prefill parity and physical plan | Current 0.7 same-server exact-default P40 lifecycle samples are 57.391208--57.585234 tok/s without throughput-comparison authority; v10's historical 392.804397 tok/s region remains unabsorbed because its Attention arithmetic is accuracy-unqualified | P3 (active; next P0) |
+| Prefill parity and physical plan | Current 0.7 same-server exact-default P40 lifecycle samples are 57.391208--57.585234 tok/s without throughput-comparison authority; selector/whole-core v1 is now formally rejected by a valid full-model P40000/O16 mismatch, while the existing whole-system AOT candidate has only preparation and layer-0 M192 authority | P3 (active; next P0 is the AOT exact arithmetic-class gate) |
 | Accuracy, capability, stability, and release evidence | Partial oracles only; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install, startup, upgrade, or rollback lane | P5 |
 
@@ -648,9 +679,10 @@ Use the following language until this snapshot changes:
   production-shaped but remains `release_qualified=false` until the active
   accuracy, capability, repetition, stability, and target-length matrix closes.
 - **Not current:** production-default P60/P130 support, the accuracy-unqualified
-  FlashInfer v10 arithmetic as a default, any archived V4 construction route,
-  lossless Factorized-R1 Prefill, vLLM parity, or a fully qualified 10-token/s
-  Decode release.
+  FlashInfer v10 arithmetic as a default, the rejected selector-exact
+  persistent-Attention v1 composition or its candidate-only P40016 capacity
+  fixes, any archived V4 construction route, lossless Factorized-R1 Prefill,
+  vLLM parity, or a fully qualified 10-token/s Decode release.
 - **Target:** the accuracy-preserving, non-MTP, OpenAI-compatible runner and
   performance region locked by the Constitution.
 

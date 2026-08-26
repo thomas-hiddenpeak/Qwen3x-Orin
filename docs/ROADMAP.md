@@ -114,6 +114,16 @@ accuracy, release, or production qualification. Exact invalid-run boundaries,
 identities, metrics, and bundle hashes are frozen in the
 [`request-reset mainline closeout`](metadata/qwen36-27b-request-reset-mainline-closeout-2026-08-23.json).
 
+The subsequent selector-exact persistent-Attention v1 architecture version is
+also closed. Its fresh same-ELF P40000/O16 Legacy-versus-whole-core comparison
+completed both arms but returned `valid_mismatch`: Prefill-commit state,
+generation-return state, exposed logits, token IDs, and final text differ.
+The candidate remains unmerged and default-off; its capacity fixes and
+non-authoritative elapsed direction are not promoted. This complete negative
+composition ends v1 without a profiler extension. Exact identities and claim
+limits are frozen in the
+[`selector v1 rejection record`](metadata/qwen36-27b-selector-exact-persistent-attention-v1-rejection-2026-08-27.json).
+
 Inside every Prefill architecture candidate, the work order is also fixed:
 
 ```text
@@ -244,12 +254,12 @@ and the already-qualified prompt-wide Embedding/Attention preprocessing path
 into the sealed ordinary profile. It retains both proven Decode coupled-feed
 and consumer-order layouts as ordinary defaults, while explicitly rejecting
 the split-KV Decode selector after its S65 BF16 boundary oracle differed from
-the exact fallback. The next P0 inside P3 is the unconverted P40 result: the
-current 0.7 same-server exact route samples 57.391208--57.585234 tok/s without
-throughput-comparison authority, while the retained v10 transaction reached a
-historical 392.804397 tok/s. Its known Attention-state mismatch must be
-repaired or separately qualified, followed by a fresh current-main complete-
-route comparison, before that arithmetic can become a production default.
+the exact fallback. The attempted P40 selector/whole-core v1 composition has
+now returned a valid full-model numerical and behavioral rejection, so it is
+not repaired, profiled, or promoted in place. The next P0 inside P3 is the
+current-main resumption of the already tracked
+`AC-PREFILL-SM87-AOT-SYSTEM-v1`, beginning with the mathematical ledger's
+real-P40 exact arithmetic-class gate before any additional CUDA mapping.
 
 The 0.7.0 request-reuse conversion is now compiled into the ordinary
 `q3x.sm87.production.p40.legacy-c512-exact.v3` lifecycle: creation is already
@@ -266,7 +276,7 @@ full reset. Output, SSE, usage, finish, and route receipts remain exact. The
 policy is therefore retained as the ordinary default across those lengths;
 the evidence deliberately makes no material TTFT, Prefill-throughput, Decode,
 accuracy, release, or production claim. This bounded qualification does not
-displace the accuracy-admissible P40 v10 conversion as the next architecture-
+displace the whole-system AOT arithmetic-class gate as the next architecture-
 scale P0.
 
 ### Retained recovery boundary
@@ -293,21 +303,30 @@ that eligible Legacy-C512 scope and use its
 [`closeout record`](metadata/qwen36-27b-prompt-wide-mainline-absorption-2026-08-21.json)
 instead of reopening the rejected final-token route or repeating branch-local
 qualification by assumption.
-The frozen first sequence is:
 
-1. fixed normal 64-layer by five-C8000-panel loop plus the Embedding edge and
-   complete failure/cancellation rollback;
-2. exact epoch-five B-to-A/FinalPublish/sequence fence, successful-request
-   reuse, and independent Control events around canonical
-   `PrefillStateCommitted`;
-3. preserve and reconcile the strict lifetime failure if formal lifecycle
-   acceptance is needed, then run the remaining proportional real-checkpoint
-   numerical gates; and
-4. use the now-tracked, default-off `p40-whole-core-v10` development artifact
-   as the exact historical-route recovery surface and complete one valid
-   clean-host direction witness before any performance conclusion. The invalid
-   2026-08-21 B1 diagnostic does not satisfy this step. A negative or small
-   valid result reopens the global dataflow, never a local parameter scan.
+That recovery sequence has now reached its whole-product stop gate. The
+selector-exact persistent-Attention v1 composition completed a valid fresh
+P40000/O16 comparison and failed the exact state/logit/token/text contract.
+It is closed without another full-model cell or diagnostic profile. The
+active successor is not selector v2 or an Attention parameter scan; it is the
+existing default-off `AC-PREFILL-SM87-AOT-SYSTEM-v1`, whose authenticated
+real-checkpoint preparation and layer-0 M192 Gate+Up/Down oracle are retained
+as bounded prerequisites rather than whole-model authority.
+
+Before further CUDA implementation, that candidate must execute
+[`the exact arithmetic-class qualification gate`](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md#53-exact-arithmetic-class-qualification-gate)
+over pinned real-P40 projection operands. It records K16/K64 exponent spans,
+minimum exact limb or bit-plane counts, residual-plane and exact-fallback
+fractions, ordered FP32 partial/scale-rejoin preservation, BF16 publication
+bits, and average physical MMA pass count for Gate/Up, Down, and FP8 QKV/Z/O.
+The arithmetic class advances only if the measured mapping can fit the
+5.0-second P40 projection allocation. A failure closes the class before CUDA;
+a pass unlocks completion of the role-specific packed-resident projection
+plan and the finite-precision selection of an exact-qualified Attention/GDN
+composition. The frozen v1 descriptor uses grouped-online Attention; replacing
+that descriptor requires a new versioned candidate and plan identity before
+the 64-layer composition, followed immediately by the fresh P40000 full-state
+and whole-API return gates.
 
 ### Promotion and stop gates
 

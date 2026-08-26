@@ -1,0 +1,255 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen36-27b-selector-exact-persistent-attention-v1-rejection-2026-08-27",
+  "classification": "architecture-candidate-rejection",
+  "measured_at_utc": "2026-08-26T20:58:08.210199+00:00",
+  "reviewed_at_local_date": "2026-08-27",
+  "timezone": "Asia/Shanghai",
+  "product_constraint": {
+    "prompt_tokens": 40000,
+    "max_new_tokens": 16,
+    "public_live_sequence_length": 40015,
+    "candidate_internal_row_capacity": 40016,
+    "candidate_guard_rows": 1,
+    "guard_row_compared": false,
+    "accuracy_gate": "all captured Prefill-commit state, generation-return state, exposed logit statistics, token events, token IDs, text, and stop semantics must equal the Legacy exact comparator",
+    "return_point": "fresh same-ELF full-model B-to-C comparison"
+  },
+  "candidate_identity": {
+    "runtime_base_commit": "7a7a32e36838238f9ebf5f79cbc2683129fcb496",
+    "runtime_base_tree": "ef0d4eb0c364520e6b83c31ae479718146692276",
+    "candidate_commit": "e325c6ba7045eb7313f51ed4b2abd480a14e3dc7",
+    "candidate_tree": "7423cd2fe1221befed8e24db421f302b0ef75605",
+    "candidate_commits": [
+      "1e2af97b42dead324cc1c6968232690962d954d6",
+      "3f0a2e648f7b9b5e747b8da8c1390f2634a23054",
+      "42361abbba54e5e53c414e8820b3f0317a9b3fd3",
+      "e325c6ba7045eb7313f51ed4b2abd480a14e3dc7"
+    ],
+    "candidate_branch": "codex/selector-exact-persistent-attention-v1",
+    "candidate_worktree_clean": true,
+    "ordinary_main_changed": false,
+    "installed_or_default_route_changed": false,
+    "build_testing_only": true,
+    "merge_disposition": "rejected-do-not-merge"
+  },
+  "controlled_artifact": {
+    "build_type": "Release",
+    "cuda_architecture": 87,
+    "build_testing": true,
+    "only_candidate_option_enabled": "Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING",
+    "capture_elf_sha256": "f427c85bf64fdfd9e72efb1297633800eaa9c03c8a97d13e28a1e10366df49df",
+    "capture_elf_build_id": "a2b5ca472e48a12fddf48fe43a7dded337929621",
+    "capture_elf_bytes": 12389728,
+    "fresh_build_origin_sha256": "7a5432231bba829e0faf796e9aabf67f6b714b780ac0fd5a82b0808fa7612c4f",
+    "identity_manifest_sha256": "383ad60983832b1354e03bfbc0d37fbe0d2f7e8649bc240eff0ed8527662b601",
+    "parent_harness_sha256": "3980d3d6ee1dc872564c98fa367cb3897c46f6d0e6ffc4476482875e29174766",
+    "control_plane_safe_wrapper_sha256": "f8ebfb76c2fa92e7f739cd7ffcb61fd85794954b126a79d27cc46921fb812fee",
+    "cubin_count": 20,
+    "cubin_architectures": [87],
+    "controlled_fresh_build_no_work_verified": true,
+    "registered_ctest_count": 0,
+    "ordinary_runtime_or_install_surface_present": false
+  },
+  "checkpoint_and_corpus": {
+    "checkpoint_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "checkpoint_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "checkpoint_file_count": 7,
+    "checkpoint_identity_stable": true,
+    "corpus_sha256": "8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844",
+    "token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "prompt_tokens": 40000,
+    "model_and_corpus_stable_before_after": true
+  },
+  "protocol": {
+    "schema": "q3x.p40000-o16.strict-fresh-child-bc.v1",
+    "arm_order": [
+      "legacy-c512-exact",
+      "p40016-whole-core-selector"
+    ],
+    "same_elf_fresh_child": true,
+    "b_must_fully_validate_before_c": true,
+    "sync_then_drop_caches_3_before_each_child": true,
+    "drop_caches_receipts_accepted": 2,
+    "child_timeout_seconds": 3600,
+    "fan_interface_observed_or_mutated": false,
+    "timing_authority": false
+  },
+  "result": {
+    "status": "valid_mismatch",
+    "exit_code": 3,
+    "infrastructure_valid": true,
+    "strict_equal": false,
+    "mismatch_count_retained": 154,
+    "mismatch_output_truncated": false,
+    "component_mismatch_counts": {
+      "prefill_commit_state": 37,
+      "generation_return_state": 37,
+      "generation": 80
+    },
+    "state_mismatch_shape": {
+      "per_state_stage": {
+        "aggregate_sha256": 1,
+        "conv_state_sha256": 1,
+        "gdn_state_sha256": 1,
+        "prompt_residual_sha256": 1,
+        "final_hidden_sha256": 1,
+        "used_key_cache_layer_sha256": 16,
+        "used_value_cache_layer_sha256": 16
+      },
+      "prefill_sequence_length": 40000,
+      "generation_return_sequence_length": 40015,
+      "shape_bytes_domain_and_layer_ids_equal": true,
+      "all_retained_numerical_digests_equal": false
+    },
+    "generation": {
+      "full_statistics_steps_per_arm": 16,
+      "token_events_per_arm": 16,
+      "generated_tokens_per_arm": 16,
+      "sequence_length_equal": true,
+      "stop_reason_equal": true,
+      "stop_reason": "max_new_tokens",
+      "first_exposed_logit_difference_step": 0,
+      "step_0_baseline_chosen_logit_f32_bits": "0x41820000",
+      "step_0_candidate_chosen_logit_f32_bits": "0x41a30000",
+      "first_token_id_difference_ordinal": 3,
+      "first_token_id_difference_model_position": 40002,
+      "different_token_ordinals": [3, 4, 5, 15],
+      "equal_token_count": 12,
+      "baseline_token_ids": [27775, 383, 279, 3766, 12182, 9017, 11, 1532, 369, 279, 6157, 314, 279, 1428, 1528, 321],
+      "candidate_token_ids": [27775, 383, 279, 12182, 9017, 3766, 11, 1532, 369, 279, 6157, 314, 279, 1428, 1528, 11],
+      "baseline_text": "Based on the provided repository documents, here is the analysis of the current state and",
+      "candidate_text": "Based on the repository documents provided, here is the analysis of the current state,"
+    }
+  },
+  "route_receipts": {
+    "baseline": {
+      "legacy_global_tiles": 79,
+      "legacy_route_layer_passes": 79,
+      "complete_64_layer_route": true,
+      "attention_production_hits": 1264,
+      "forbidden_hits": 0,
+      "selector_hits": 0,
+      "flashinfer_hits": 0,
+      "whole_core_hits": 0
+    },
+    "candidate": {
+      "whole_core_layer_hits": 64,
+      "fill_panel_hits": 320,
+      "drain_panel_hits": 320,
+      "fp8_projection_hits": 1040,
+      "persistent_nvfp4_physical_launches": 128,
+      "selector_full_attention_layers": 16,
+      "selector_physical_submissions": 48,
+      "selector_group_q64_submissions": 32,
+      "selector_generic_qt2_spans": 1248,
+      "selector_q8_suffix_submissions": 16,
+      "selector_fallback_submissions": 0,
+      "flashinfer_hits": 0,
+      "forbidden_hits": 0
+    }
+  },
+  "causal_boundary": {
+    "earliest_captured_difference": "PrefillStateCommitted",
+    "lowest_indexed_differing_per_layer_kv_digest_layer": 3,
+    "layer_3_key_and_value_rows_covered": [0, 39999],
+    "first_different_row_known": false,
+    "single_operator_root_cause_proven": false,
+    "selector_attention_core_proven_as_the_first_cause": false,
+    "capacity_fixes_proven_as_the_first_cause": false,
+    "single_component_exclusion_proven": false,
+    "reason": "the first retained state snapshot follows the complete composed Prefill route; the candidate simultaneously changes FP8 QKV/Z/O, GDN, NVFP4 Gate/Up/Down, Attention, traversal, and ownership, so the evidence rejects the composition without assigning or excluding one component as the first cause",
+    "additional_gpu_profile_authorized_for_v1": false
+  },
+  "elapsed_direction_only": {
+    "timing_authority": false,
+    "baseline_child_elapsed_ms": 1010158.443882,
+    "candidate_child_elapsed_ms": 1676330.653672,
+    "candidate_minus_baseline_ms": 666172.20979,
+    "candidate_over_baseline_ratio": 1.659472990425072,
+    "candidate_elapsed_increase_percent": 65.9472990425072,
+    "claim": "engineering direction context only; not a benchmark, throughput, TTFT, or release-performance result"
+  },
+  "reproducibility": {
+    "baseline_stdout_sha256": "3ee26ce25afe95b73804281c05da2a7e2250bb2651b822c6dacd0d31ad91d4cc",
+    "baseline_identical_marker_observations": 4,
+    "candidate_stdout_sha256": "7c3ab3bf7fc801c4cbec70addaadb101303089e299d868ba8f2421bd063d5bd2",
+    "candidate_matches_prior_c_only_marker": true,
+    "baseline_canonical_capture_sha256": "31db16f0ee71137da1c412a291f2336cd6aadda7ac62d6e19164ac2a8752b8c9",
+    "candidate_canonical_capture_sha256": "c9eff85644fcaed49a8899bdb435d082d4d64a46d06182d1682e67116ba91158"
+  },
+  "resource_closure": {
+    "baseline_child_returncode": 0,
+    "candidate_child_returncode": 0,
+    "stderr_empty_for_both": true,
+    "preflight_before_accepted_for_both": true,
+    "postflight_accepted_for_both": true,
+    "continuous_core_ownership_accepted_for_both": true,
+    "raw_monitor_only_natural_exit_warning": true,
+    "ancillary_warnings_affect_numerical_equality": false,
+    "nvmap_closure_accepted_for_both": true,
+    "owned_child_pids_absent_after_exit": true,
+    "page_pool_delta_bytes_per_arm": 0,
+    "baseline_maximum_temperature_c": {
+      "cpu": 79.375,
+      "gpu": 76.312,
+      "tj": 79.375
+    },
+    "candidate_maximum_temperature_c": {
+      "cpu": 75.593,
+      "gpu": 75.812,
+      "tj": 75.812
+    },
+    "operational_risk_observed": false,
+    "fan_interface_observed_or_mutated": false
+  },
+  "evidence": {
+    "workspace_relative_root": ".q3x-work/evidence/p40000-o16-strict-e325c6b-proportional-run-001",
+    "result_json_sha256": "eb2dd1815c051281535059a824f6f465d37ae96f282b1852068caf00a01ad5da",
+    "file_count": 59,
+    "total_bytes": 83988911,
+    "relative_catalog_schema": "q3x.relative-file-catalog.len64le-path-len64le-bytes-sha256.v1",
+    "relative_catalog_sha256": "a28501fa2fddddf995018cd6bce738f6b00b09ca40946dcce5fb70c1585afa35",
+    "baseline_validated_capture_sha256": "747aa4d6c8d44cac28ffe9c0a5131b7084c797dcb68c8ea374d75d613e8c0ad5",
+    "candidate_validated_capture_sha256": "e13b39b86ef798dbf7ff940be52a8622631b005e90c43136879dda8f654662aa"
+  },
+  "decision": {
+    "close_selector_exact_persistent_attention_v1": true,
+    "merge_to_main": false,
+    "make_default": false,
+    "promote_or_release": false,
+    "run_nsys_or_ncu_for_v1": false,
+    "run_another_full_model_v1_cell": false,
+    "retain_capacity_fixes_as_production_changes": false,
+    "retain_branch_and_evidence_as_rejected_reference": true,
+    "reason": "the complete composition violates the hard full-model numerical and behavioral gate, while its non-authoritative elapsed direction is also negative"
+  },
+  "next_architecture_gate": {
+    "identity": "AC-PREFILL-SM87-AOT-SYSTEM-v1",
+    "resume_from": "current-main",
+    "scope": "resume the existing default-off projection-dominant whole-system AOT work package from current main rather than create another Attention identity or tile scan",
+    "existing_evidence": [
+      "qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12",
+      "qwen36-27b-sm87-target-aot-layer0-m192-oracle-2026-08-12"
+    ],
+    "existing_authority_boundary": "the preparation source probe remains fail; the retained records grant authenticated packed real-checkpoint preparation plus layer-0 M192 Gate/Up and Down-plus-residual bitwise/resource and bounded lifecycle-diagnostic authority only, with no complete-model, public-launcher, generation, API, performance, release, or production authority",
+    "pre_cuda_witness": "measure real P40 projection-boundary exponent spans, exact limb or bit-plane pass counts, exact-fallback fraction, ordered FP32 partial and scale-rejoin preservation, and BF16 publication-bit preservation",
+    "pre_cuda_budget": "the measured projection mapping must fit the 5.0-second P40 projection allocation before a CUDA implementation is authorized",
+    "planned_composition_after_gate": "role-specific packed Gate/Up, FP8 QKV/Z/O, and Down producer-consumer residency plus exact-qualified Attention, exact GDN, and 64-layer ownership; this is a current Roadmap planning constraint rather than inherited evidence authority, and replacing the frozen v1 grouped-online Attention descriptor requires a new versioned candidate/plan identity",
+    "return_gate": "fresh P40000 full-state/logit/token/text comparison followed immediately by a whole-product API direction comparison",
+    "prohibited_shortcut": "no selector-v2 continuation, Attention parameter scan, wholesale archive merge, or performance profiling before the arithmetic-class gate"
+  },
+  "claim_boundary": {
+    "authorized": [
+      "the e325c6b candidate artifact includes the bounded P40016 Prefill and Decode capacity changes, and both fresh children completed and emitted valid records",
+      "the composed P40000/O16 selector whole-core v1 candidate is not numerically or behaviorally equivalent to the Legacy exact comparator",
+      "selector whole-core v1 is rejected and remains default-off and unmerged"
+    ],
+    "not_authorized": [
+      "a single-kernel Attention root-cause claim",
+      "a performance, throughput, TTFT, Decode, release, production, or capability claim",
+      "promotion of the candidate, its P40016 arena, or either bounded capacity fix into the ordinary mainline",
+      "a changed accuracy contract"
+    ]
+  }
+}

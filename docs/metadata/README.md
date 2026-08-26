@@ -62,10 +62,12 @@ tok/s, 189.257892 server pure-Prefill tok/s, and 9.522599 server Decode tok/s;
 `r1` is invalid and has no timing authority. One fresh C-only P40 request on
 installed ELF `ab3492a...` reports 57.230764 exact-default Prefill tok/s,
 only 14.5698% of the historical accuracy-unqualified v10 392.804397 tok/s.
-Closing that 6.8635x unabsorbed gap is the next P0 inside active P3. The record
-also freezes the three model-shard hashes, harness/wrapper identities, cache
-drop, no-fan-observation, and owner thermal contract; these observations are
-not repetition, complete accuracy, target-length, release, or production
+At that closeout, closing the 6.8635x unabsorbed gap became the next P0 inside
+active P3; the later selector record below closes one attempted composition
+without closing the product gap. This record also freezes the three
+model-shard hashes, harness/wrapper identities, cache drop,
+no-fan-observation, and owner thermal contract; these observations are not
+repetition, complete accuracy, target-length, release, or production
 qualification.
 
 The subsequent installed-API qualification of lifecycle-derived ordinary
@@ -128,6 +130,20 @@ thermal, ownership, cleanup, and root-`tegrastats` observational boundaries.
 The one-token workload has no Decode transition. The route remains T3
 integration health only, accuracy-unqualified, non-release, non-production,
 and does not resume paused P3.
+
+The later selector-exact persistent-Attention v1 composition is closed in
+[`qwen36-27b-selector-exact-persistent-attention-v1-rejection-2026-08-27.json`](qwen36-27b-selector-exact-persistent-attention-v1-rejection-2026-08-27.json).
+After two candidate-only capacity fixes allowed both fresh P40000/O16 children
+to finish, the same-ELF comparison returned `valid_mismatch`: all 37 retained
+Prefill-commit state-digest comparisons, all 37 generation-return state-digest
+comparisons, and 80 generation comparisons differed, including exposed
+step-0 logit statistics, four generated token IDs, and final text. The
+evidence is infrastructure-valid but has no timing authority; it rejects the
+complete selector/whole-core v1 composition without assigning the first cause
+to one kernel. The branch stays
+unmerged, default-off, and non-production. This result closes that architecture
+version and returns P3 to the existing `AC-PREFILL-SM87-AOT-SYSTEM-v1`
+whole-system work rather than another Attention variant.
 
 The first real-checkpoint preparation of the default-off SM87 whole-system AOT
 candidate is frozen in
