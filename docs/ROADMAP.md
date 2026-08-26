@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-08-23
+  last_reviewed: 2026-08-27
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -230,12 +230,14 @@ Status: **resumed by explicit project-owner direction on 2026-08-22**. Work is
 conversion-first: inventory retained real-API gains, re-evaluate them on the
 then-current mainline, select accurate positive changes into the ordinary
 Release default, and immediately return to the same installed API for
-Prefill, TTFT, Decode, startup, and memory measurement. Hardware telemetry is
-a validity/diagnostic guardrail, not the optimization objective. Unexpected
-CPU/GPU consumers may be stopped and restored for a clean measurement. The
-active thermal contract treats temperatures through 85C as normal, judges the
-band above 85C through 90C from actual clock, over-current, and throttle
-evidence, and treats above 90C as operational risk.
+Prefill, TTFT, Decode, startup, and memory measurement. Ordinary P3 iteration
+advances on the smallest decision-complete current-main API comparison;
+hardware telemetry records and diagnoses the environment but does not become
+the optimization objective or a blanket veto. Only confirmed interfering
+workloads are quiesced, and the active control path remains available.
+Architecture selection and release qualification pay the strict environment
+and repetition cost defined by the
+[`real-model performance policy`](REAL_MODEL_PERFORMANCE_POLICY.md).
 
 The first active batch has promoted the exact C256/C512 GDN whole-span path
 and the already-qualified prompt-wide Embedding/Attention preprocessing path

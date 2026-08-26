@@ -6,7 +6,7 @@ q3x_document:
   owner: evaluation-maintainers
   authority: external API evaluation protocol, metric semantics, and artifact requirements
   effective: 2026-08-09
-  last_reviewed: 2026-08-23
+  last_reviewed: 2026-08-27
   supersedes: []
   superseded_by: []
   ssot_for: EvalScope and target-length external evaluation procedure
@@ -68,13 +68,24 @@ The commands below assume that `Q3X_WORK` remains set. They redirect the tool
 cache and temporary directory so neither `$HOME` nor `/tmp` accumulates
 project-owned EvalScope state.
 
-Before every timed request set or profiler capture, perform the mandatory
-fail-closed clean-host preflight. On Jetson, retain `tegrastats` observations,
-CPU/process state, and GPU device-handle ownership with the run. Do not use the
-Jetson `nvidia-smi` implementation to decide idleness or attribute GPU users.
-An unexpected CPU/GPU consumer invalidates the run; discard its timing rather
-than averaging or reporting it, wait for exclusive ownership, and start a new
-run. Store the preflight record below `.q3x-work/` beside the evaluation
+Before every timed request set or profiler capture, record the decision-class
+host/device preflight from the
+[`real-model performance policy`](REAL_MODEL_PERFORMANCE_POLICY.md). On
+Jetson, retain `tegrastats` observations, CPU/process state, and GPU
+device-handle ownership; do not use the incomplete Jetson `nvidia-smi` view to
+decide idleness or attribute GPU users. An unowned GPU handle or confirmed
+material contention invalidates timing. Other environment observations
+qualify an ordinary direction record; architecture-selection and release runs
+use their strict predeclared envelope.
+
+Before each fresh server process, quiesce only confirmed interfering
+workloads, run `sync`, and attempt
+`echo 3 | sudo -n tee /proc/sys/vm/drop_caches`; retain the command result and
+memory state. Keep the active control/recovery path alive. Cooling is external:
+do not inspect, control, or gate on fan/controller state. Temperatures through
+85C are normal; above 85C through 90C, actual clock, over-current, and throttle
+observations qualify timing; above 90C is an operational stop. Store all
+permitted preflight and run artifacts below `.q3x-work/` beside the evaluation
 artifacts.
 
 ## Evaluation-adapter procedure (not the product API)
@@ -1158,16 +1169,16 @@ changing only this command-line option is insufficient.
 
 ### Preceding 0.6.0 installed-production short closeout
 
-For the ordinary installed sealed profile, launch the installed
-`BUILD_TESTING=OFF` server with only the model directory, loopback host, port,
-and public model name. Do not pass development capacity or tactic selectors.
-Before each fresh server, stop unexpected consumers, run `sync` followed by
-`echo 3 | sudo tee /proc/sys/vm/drop_caches`, and retain the result. Cooling is
-external: the procedure neither observes nor controls a fan. Temperatures
-through 85C are normal; above 85C through 90C, use actual clock, over-current,
-and throttle evidence to decide validity; above 90C is operational risk.
-Temperature is a validity/diagnostic guardrail, not an optimization target,
-and ownership remains an independent validity gate.
+The closeout launched the ordinary installed `BUILD_TESTING=OFF` server with
+only the model directory, loopback host, port, and public model name; it passed
+no development capacity or tactic selectors. Before each fresh server it
+stopped the then-identified interfering consumers, ran `sync` followed by
+`echo 3 | sudo tee /proc/sys/vm/drop_caches`, and retained the result. Cooling
+was external and the procedure neither observed nor controlled a fan. The run
+used the normal-through-85C, actual-clock/over-current/throttle context through
+90C, and above-90C operational-risk convention. Temperature was a diagnostic
+guardrail rather than an optimization target, while ownership remained an
+independent validity gate.
 
 The 0.6.0 mainline at `c6c34ef` completed that procedure on installed ELF
 `ab3492a...` with harness SHA-256 `5c117c...` and wrapper SHA-256

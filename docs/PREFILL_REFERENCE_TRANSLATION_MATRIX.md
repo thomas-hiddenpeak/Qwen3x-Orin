@@ -6,7 +6,7 @@ q3x_document:
   owner: prefill-maintainers
   authority: paused source-to-SM87 translation and recovery record for WP-PREFILL-REFERENCE-TRANSLATION-v1
   effective: 2026-08-12
-  last_reviewed: 2026-08-22
+  last_reviewed: 2026-08-27
   supersedes: []
   superseded_by: []
   ssot_for: the paused Prefill reference-translation recovery record only
@@ -44,7 +44,7 @@ stable system boundary returns to the SDD.
 | Incumbent | The historical max-clock 392.804397-token/s v10 observation remains unreproduced; the typed current-main artifact has a strict sustainable BCCB at 325.983493208 candidate tok/s versus 326.111753524 baseline, while near-max valid C cells average 375.956428659 tok/s descriptively without a complete strict BCCB |
 | Numerical boundary | [Prefill mathematical-equivalence ledger](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md) |
 | Production exclusions | No MTP, cuBLASLt production path, silent fallback, approximate mainline, request-time JIT/repack/autotune, or full-model BF16 weight copy |
-| First return point | Current-main sustainable integration health is closed; any resumed competitive package must return through a newly predeclared clean-host, real-checkpoint, cold/no-cache P40 OpenAI API witness while retaining the 85C-inclusive gate, above-90C risk boundary, independent sysfs/cooling/over-current/ownership checks, and observational `tegrastats` GPU effective distribution |
+| First return point | Current-main sustainable integration health is closed; any resumed competitive package must return through a newly predeclared, decision-class real-checkpoint cold/no-cache P40 OpenAI API witness under `REAL_MODEL_PERFORMANCE_POLICY.md`: ownership and material contention are hard gates, other environment telemetry is context, temperatures through 85C are normal, 85C--90C uses actual clock/over-current/throttle context, above 90C stops, and fan/controller state is neither observed nor controlled |
 | Stop condition | Close or redesign the complete architecture after one negative composition and at most one predeclared causal profile; do not turn it into a tile scan |
 
 ## 2. Control model and current Q3X plant
@@ -60,7 +60,7 @@ the complete runner as the controlled system:
 | State | Resident weights and sidecars, residual, KV, GDN/convolution state, arenas, progress, and route identity |
 | Actuators | Operand layout, physical work grain, CTA/warp ownership, pipeline, buffering, fusion, and AOT tactic selection |
 | Observables | Exact route receipts, consumed-token count, state/oracle result, pure Prefill, TTFT, Decode, memory, and clean-host resource state |
-| Disturbance rejection | Fail closed on foreign CPU/GPU consumers, cache/protocol mismatch, fallback, late compilation/allocation, or artifact drift |
+| Disturbance rejection | Fail closed on unowned GPU use, confirmed material contention, cache/protocol mismatch, fallback, late compilation/allocation, or artifact drift; other environment observations qualify ordinary direction evidence under the performance policy |
 
 The tracked, typed P40 v10 development controller is structurally layer-major
 and Prefill/Decode are logically separate. Its per-layer GPU submission graph
@@ -530,19 +530,18 @@ mapped ELF hash, and build ID. This is load-time identity evidence, not a
 claim that DeepGEMM executes on SM87: the pinned vLLM platform gate enables it
 only for SM90, SM100, or SM120 families.
 
-Before the run, the Jetson clean-host preflight must pass with `tegrastats`,
-CPU/process inspection, and GPU-device-handle ownership. If another workload
-owns a critical resource, the run does not start and no timing is retained.
-Thermal admission uses hysteresis for repeatability rather than inventing a
-hardware limit: three consecutive five-second cooldown samples at or below
-65C are required only to make B/C starting states comparable
-before server startup, before the measured request, and before post-release
-admission. Timed samples are accepted through `85C`; temperatures above `90C`
-are an informational throttle-risk condition. The stock-vLLM witness audits
-CPU and EMC clocks continuously, checks the GPU sysfs lock at performance-lane
-boundaries, and retains request-window GPU effective MHz as a distribution
-rather than treating it as the fixed lock. The native v10 retest harness adds
-continuous request-window GPU sysfs, cooling-device, and over-current gates.
+On any future resume, the run records the decision-class Jetson preflight from
+[`REAL_MODEL_PERFORMANCE_POLICY.md`](REAL_MODEL_PERFORMANCE_POLICY.md) using
+`tegrastats`, CPU/process inspection, and GPU-device-handle ownership. An
+unowned GPU holder or confirmed material contention prevents retained timing.
+Other environment observations qualify the result instead of automatically
+stopping ordinary engineering. Temperatures through 85C are normal; above 85C
+through 90C, actual clock, over-current, and throttle observations provide
+context; above 90C stops the run. Cooling is external, so neither the stock-
+vLLM witness nor the native retest may observe, control, or gate on fan or
+cooling-controller state. The retained legacy launcher still contains such a
+gate and therefore cannot produce new admissible evidence until that behavior
+is removed; this forward constraint does not rewrite its historical records.
 
 ### 9.1 First target-first execution feedback
 

@@ -6,7 +6,7 @@ q3x_document:
   owner: project-owner
   authority: highest project engineering authority below an explicit current owner direction
   effective: 2026-08-09
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-08-27
   supersedes: []
   superseded_by: []
   ssot_for: mission, locked product constraints, and engineering philosophy
@@ -199,6 +199,35 @@ complete qualification. A negative composition stops or redesigns that
 architecture version; bounded profiling is optional when it answers a named
 causal question.
 
+### Engineering delivery and proportional validation
+
+Qwen3x-Orin is an engineering-delivery program, not an evidence-production
+program. Evidence exists to reduce the risk of an engineering decision;
+collecting increasingly laboratory-like evidence is not an independent
+project objective. Once the declared question is answered, the work must move
+to implementation, composition, retention, rejection, or the next
+product-facing decision.
+
+Validation depth, repetition, environmental control, and retained artifacts
+must be proportional to the reversibility and blast radius of the decision.
+Ordinary iterations use the minimum safe, product-connected validation needed
+to advance or reject a direction. Architecture selection and release
+promotion receive the strict repeated protocol. Accuracy, numerical, API,
+capacity, route, ownership, and resource-safety contracts are never weakened
+by this proportionality rule.
+
+Environmental telemetry is recorded and used to qualify confidence and
+explain anomalies. During ordinary engineering iteration, an auxiliary
+observation does not by itself stop work or invalidate an otherwise valid
+direction. It becomes a hard gate when it identifies a material safety,
+correctness, device-ownership, cleanup, or metric-attribution problem, or when
+the run is a predeclared architecture-selection or final-qualification test.
+
+Whole-product fitness resolves conflicts between a locally favorable result
+and the composed runner. No local optimum, profiler result, or volume of
+evidence may outrank production usability or keep a globally negative
+architecture alive.
+
 ## 5. Architecture before parameter scanning
 
 1. When the whole-product gap is at least 2x, or the target requires a
@@ -338,12 +367,19 @@ specialization to exceed that general engine while preserving accuracy.
    files, worktree registrations, and storage use. Retain material evidence
    inside the workspace and remove only artifacts whose ownership and
    recoverability are established.
-5. Before every performance timing or profiler capture, run and retain a
-   clean-host resource preflight. On Jetson, `tegrastats`, CPU/process
-   sampling, and GPU-device handle inspection are the authority for load and
-   ownership. The platform's incomplete `nvidia-smi` must not be used to
-   declare the GPU idle or identify all GPU consumers. Any unexpected CPU or
-   GPU consumer invalidates the run; abort before timing or discard the result.
+5. Before every real-model performance timing or profiler capture, record a
+   host/device resource preflight. On Jetson, `tegrastats`, CPU/process
+   sampling, and GPU-device handle inspection establish load and ownership;
+   the incomplete `nvidia-smi` process view does not. An unowned GPU handle or
+   confirmed material contention invalidates timing, but ordinary environment
+   telemetry otherwise has the proportional authority defined by the
+   real-model performance policy. Do not sacrifice the active collaboration or
+   recovery control path to manufacture an idle-host appearance.
+6. Cooling is external to this project. Project code and harnesses do not read,
+   modify, or gate on fan/controller state. Fresh real-model timing processes
+   quiesce only confirmed interfering workloads, synchronize storage, attempt
+   a page-cache drop, and record memory before and after; a failure narrows the
+   cold-cache claim rather than erasing unaffected engineering evidence.
 
 ## Amendments
 
@@ -381,3 +417,12 @@ specialization to exceed that general engine while preserving accuracy.
   Added computation is admissible only when it removes a larger measured
   movement or publication cost without creating a new critical bottleneck,
   and the real API remains the selection surface.
+- **2026-08-27:** Engineering-delivery and proportional-validation amendment.
+  Evidence and environment controls now scale with decision risk: ordinary
+  iterations use the minimum safe product-connected check, while architecture
+  selection and release qualification retain strict protocols. Environmental
+  telemetry remains required context but is not an independent optimization
+  objective or blanket veto. This amendment refines the blanket invalidation
+  authority of the 2026-08-09 resource gate without weakening device ownership
+  or safety. Whole-product fitness, not a local optimum or evidence volume,
+  continues to select production.

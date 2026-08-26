@@ -6,7 +6,7 @@ q3x_document:
   owner: project-owner
   authority: end-to-end external-to-internal runner system design
   effective: 2026-08-09
-  last_reviewed: 2026-08-23
+  last_reviewed: 2026-08-27
   supersedes: []
   superseded_by: []
   ssot_for: runner product shape, system boundaries, lifecycle, and release architecture
@@ -555,9 +555,14 @@ when the complete Prefill state is visible to Decode. Logger-window throughput
 is labelled as windowed aggregate telemetry and never substituted for a
 single-request pure interval.
 
-Missing identity, unexpected route, hidden fallback, incomplete stream,
-unowned resource consumer, or timing overlap ambiguity invalidates the
-performance record.
+Missing identity, unexpected route, hidden fallback, or an incomplete stream
+invalidates that request's timing, selection, and promotion record; only
+independently attributable non-performance diagnostics may remain. An unowned
+GPU consumer, confirmed material contention, or timing-overlap ambiguity also
+invalidates timing. Supporting host telemetry otherwise qualifies ordinary
+engineering evidence under the decision class in
+[`REAL_MODEL_PERFORMANCE_POLICY.md`](REAL_MODEL_PERFORMANCE_POLICY.md); it does
+not independently erase unaffected correctness, route, state, or output facts.
 
 ## 11. Release attestation
 
@@ -588,10 +593,13 @@ immutable but cannot automatically qualify a new tuple.
 
 Performance begins on the real model's production generation/API path.
 Synthetic matrices have correctness, robustness, and device-health roles only.
-Real-model runs and profiler captures must fail closed on clean-host
-preflight. On Jetson, idleness and ownership are established with
-`tegrastats`, CPU/process inspection, and GPU-device handle inspection; the
-incomplete Jetson `nvidia-smi` is not an ownership authority.
+Real-model runs and profiler captures record host/device preflight. On Jetson,
+load and ownership are established with `tegrastats`, CPU/process inspection,
+and GPU-device handle inspection; the incomplete Jetson `nvidia-smi` is not an
+ownership authority. Device ownership, safety, and confirmed material
+contention remain hard gates. Other environment observations qualify ordinary
+direction evidence, while architecture-selection and release records fail
+closed on the stricter protocol defined by the real-model performance policy.
 
 All generated builds, profiles, temporary sources, evaluation state, and tool
 environments stay under the repository's ignored `.q3x-work/` tree. User model

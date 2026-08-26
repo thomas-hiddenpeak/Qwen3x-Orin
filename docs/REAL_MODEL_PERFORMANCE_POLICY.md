@@ -6,7 +6,7 @@ q3x_document:
   owner: project-owner
   authority: performance evidence, candidate selection, retention, and release promotion
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-08-27
   supersedes: []
   superseded_by: []
   ssot_for: performance evidence tiers and decision-unit lifecycle
@@ -71,6 +71,40 @@ development architecture but cannot change production. T3 gains production
 authority only after the formal correctness, noise, repetition, and promotion
 protocol completes for a frozen `release_candidate`.
 
+## Decision proportionality and environment authority
+
+Evidence cost follows decision authority. An ordinary engineering direction
+screen uses the minimum safe real-payload check that can decide the next
+reversible step. A target-length architecture witness pays for a matched,
+predeclared whole-product comparison. Release qualification pays for the full
+repeated artifact, environment, accuracy, capability, resource, and packaging
+protocol. Release-grade ceremony must not be imposed on every implementation
+iteration, and a direction screen must not be relabelled as release evidence.
+
+Core decision facts and supporting environment context are distinct. Model,
+binary, workload and route identity; numerical/output correctness; API and
+capacity semantics; fallback behavior; device ownership; resource safety; and
+the metric named by the decision are core. Temperature, clock samples,
+over-current and throttle counters, memory snapshots, utilization traces, and
+similar host observations are normally supporting context. Record them when
+available and use them to explain anomalies, but a benign deviation or a
+missing auxiliary sample does not by itself stop ordinary engineering or
+erase unaffected correctness, route, state, or output evidence.
+
+Environment state becomes a hard invalidator when it demonstrates a material
+safety risk, an unowned GPU consumer, confirmed workload contention, OOM or
+device failure, actual throttle/downclock that destroys timing attribution, a
+resource leak, or another major fault. It is also a hard gate when required by
+a predeclared architecture-selection or release-qualification protocol. A
+failure in an auxiliary monitor narrows the claims that depend on that monitor;
+it does not automatically null the whole run.
+
+The purpose of a measurement is to make an engineering decision. When the
+stated question has been answered, stop collecting evidence and implement,
+compose, retain, or reject the direction. A local result may select a local
+mechanism only; it cannot override a negative composed API result or keep the
+project optimizing a local maximum while the global product remains behind.
+
 ## Candidate units and decision authority
 
 Every performance change belongs to exactly one of these units:
@@ -78,7 +112,7 @@ Every performance change belongs to exactly one of these units:
 | Unit | Meaning | May be selected by | Authority it never has by itself |
 |---|---|---|---|
 | `local_mutation` | One mechanism or an intentionally coupled mechanism bundle inside a named local optimization work package | A same-binary, real-payload T2 comparison or a more representative T3 comparison against the package's frozen local incumbent | global priority, architecture selection, production dispatch, or a product-performance claim |
-| `architecture_candidate` | A coherent executable dataflow whose mechanisms are connected on the real generation route, including their layouts, ownership, synchronization, state, and fallback contract | A clean-host T3 target-length API witness against the current native architecture | production promotion before complete release qualification |
+| `architecture_candidate` | A coherent executable dataflow whose mechanisms are connected on the real generation route, including their layouts, ownership, synchronization, state, and fallback contract | A predeclared T3 target-length API selection witness against the current native architecture | production promotion before complete release qualification |
 | `release_candidate` | A frozen production binary, deployment plan, configuration, API contract, and model-artifact set | The complete repeated T3 release protocol plus accuracy, capability, resource, and packaging gates | changing the constitutional product or numerical contract |
 
 The unit may grow only through an explicit transition recorded in evidence:
@@ -284,27 +318,52 @@ pass.  Suggested labels are `correctness;synthetic`,
 `correctness;checkpoint`, `performance;checkpoint;sm87;retention`,
 `performance;checkpoint;sm87;promotion`, and `profile;checkpoint`.
 
-The Orin performance lane requires the pinned checkpoint, strict evidence
-validation, fixed GPU and EMC clocks, CPU affinity, and serialized ownership
-of the GPU.  Kernel, selector, pipeline, cache-policy, or threshold changes
-may not claim a performance completion without evidence from this lane.
-Development retention and production promotion are separate test labels and
-decisions.  Release promotion requires both T2 and T3 results.
+The Orin lane always records the pinned checkpoint, actual CPU/GPU/EMC state,
+CPU affinity, and serialized GPU ownership. Ordinary direction screens may use
+that lane with environment observations as supporting context. Architecture-
+selection and release-promotion jobs additionally use their predeclared strict
+clock, repetition, and host-envelope contracts. Kernel, selector, pipeline,
+cache-policy, or threshold changes may not claim more authority than the lane
+mode completed. Development retention and production promotion are separate
+labels and decisions; release promotion requires both T2 and T3 results.
 
-## Clean-host preflight
+## Host preparation and environment observations
 
-Every retained performance timing and every profiler capture requires a
-fail-closed clean-host preflight immediately before the run. On Jetson the
-record must use `tegrastats`, CPU/process inspection, and GPU device-handle
-ownership inspection. Jetson's incomplete `nvidia-smi` implementation is not
-an idle detector and must not be used to attribute GPU consumers.
+Every real-model timing and profiler process begins with a recorded host/device
+preflight. On Jetson the record uses `tegrastats`, CPU/process inspection, and
+GPU device-handle ownership inspection. Jetson's incomplete `nvidia-smi`
+implementation is not an idle detector and must not attribute GPU consumers.
+The runner must own the GPU; an unowned device handle or confirmed material
+CPU/GPU contention invalidates timing. Benign background activity and other
+environment observations follow the proportional authority above.
 
-The preflight record must capture at least the observed processes and device
-handles, CPU activity, GPU/EMC activity, memory pressure, thermal/clocks state,
-and the identity of the runner that is about to own the device. Any unexpected
-CPU or GPU consumer invalidates the run. Do not retain, average, compare, or
-report its timing; wait for ownership to become clean and begin a new run.
-Profiler setup does not waive this rule.
+Quiesce only identified interfering workloads and preserve an independent,
+recoverable control path. The active Codex/SSH session, evidence writer, and
+recovery-critical services must not be suspended or terminated to make the
+host appear idle. Before each fresh real-model performance or external-
+evaluation process, run `sync` and attempt
+`echo 3 | sudo -n tee /proc/sys/vm/drop_caches`; record the command result and
+memory before and after. If it fails, do not claim cold-cache timing, but
+unaffected correctness, route, state, and output observations may still guide
+engineering.
+
+Cooling is externally controlled. Harnesses must not inspect, modify, or gate
+on system fan/controller state, and must remove incidental fan fields from
+retained telemetry. Temperatures at or below 85C are normal. Above 85C through
+90C, use actual clocks, over-current, and throttle observations to qualify
+timing; temperature alone is not a rejection gate. Above 90C is an operational
+stop. Final selection or release protocols may predeclare stricter matched-
+start, clock, ownership, cache, and repetition requirements, but they may not
+lower the normal-through-85C band or make a temperature in the 85C--90C band or
+an isolated over-current counter change the sole rejection reason.
+
+An ordinary direction screen with an auxiliary telemetry gap remains eligible
+to direct the next implementation step when its core identity, correctness,
+route, ownership, and metric are intact; label the affected timing authority.
+Architecture-selection, release-promotion, and publication-grade comparisons
+fail closed on their complete predeclared environment protocol. Profiler
+attribution also fails closed when foreign ownership or overlap makes its
+counters ambiguous.
 
 Store preflight and run artifacts below `.q3x-work/` with the evidence record.
 Do not create project-owned monitoring output in the project owner's home
@@ -334,7 +393,7 @@ payloads. Development uses different rules for different decision units.
 For a `local_mutation` inside a named work package:
 
 1. Freeze the package-local incumbent, real payload manifest, applicable layer
-   panel, environment, measurement protocol, and clean-host preflight before
+   panel, decision-class environment record, and measurement protocol before
    inspecting the mutation.
 2. Complete the minimum safe admission before the first device run: build and
    launch contracts, bounds/resource sanity, route isolation, and at least one

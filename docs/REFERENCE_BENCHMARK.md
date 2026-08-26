@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: internal reference repeatability benchmark procedure
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-08-27
   supersedes: []
   superseded_by: []
   ssot_for: reference benchmark setup, execution, output, and repeatability checks
@@ -151,12 +151,14 @@ peak inside one generation.
 
 ## CLI
 
-Before a timed run, apply the clean-host preflight from
+Before a timed run, apply the decision-class host preparation from
 [`REAL_MODEL_PERFORMANCE_POLICY.md`](REAL_MODEL_PERFORMANCE_POLICY.md). On
 Jetson, establish CPU/GPU idleness and ownership with `tegrastats`, process
 inspection, and GPU-device handle inspection; do not use the incomplete
-Jetson `nvidia-smi` as the idle-host authority. A run with an unexpected
-resource consumer is invalid and must not be retained or reported.
+Jetson `nvidia-smi` as the idle-host authority. Unowned GPU use or confirmed
+material contention invalidates timing. Other environment observations
+annotate an ordinary engineering record; only the stricter predeclared
+architecture-selection or release protocol grants higher authority.
 
 ```bash
 qwen3x-orin benchmark MODEL_DIR \

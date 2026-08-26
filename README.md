@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: product introduction, bounded evaluation quick start, and high-level navigation
   effective: 2026-08-09
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-08-27
   supersedes: []
   superseded_by: []
   ssot_for: concise project introduction and bounded functional evaluation entry; dynamic state remains in docs/CURRENT_STATUS.md
@@ -186,9 +186,12 @@ Architecture selection begins with the pinned real model on the real API path:
   a named work package, not product-performance substitutes.
 - Synthetic payloads are for exhaustive correctness and smoke coverage, never
   performance selection.
-- A Jetson timing run is valid only after clean-host `tegrastats`, process, and
+- Every Jetson timing run records a decision-class `tegrastats`, process, and
   GPU-device-handle preflight; the incomplete Jetson `nvidia-smi` view is not
-  an idle-resource authority.
+  an idle-resource authority. Unowned GPU use or confirmed material contention
+  invalidates timing. Other environment telemetry annotates ordinary
+  engineering work, while architecture selection and release qualification
+  use their strict predeclared envelope.
 - Production paths preserve the declared numerical/state contract, exclude
   MTP from the current target, and keep cuBLASLt reference-only.
 

@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-08-23
+  last_reviewed: 2026-08-27
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -654,6 +654,6 @@ Use the following language until this snapshot changes:
 - **Target:** the accuracy-preserving, non-MTP, OpenAI-compatible runner and
   performance region locked by the Constitution.
 
-Before any performance run or profiler capture, the clean-host preflight must
-pass using `tegrastats`, CPU/process inspection, and GPU-device-handle
-ownership. Jetson `nvidia-smi` is not an idle or attribution authority.
+Performance-evidence authority and host-preparation rules are owned by
+[`REAL_MODEL_PERFORMANCE_POLICY.md`](REAL_MODEL_PERFORMANCE_POLICY.md); this
+status snapshot does not duplicate or alter them.
