@@ -1,9 +1,11 @@
 #include "sm87_aot_system_v1_arithmetic_witness_internal.h"
+#include "sm87_aot_system_v1_checkpoint_reader_internal.h"
 
 #include <iostream>
 #include <string_view>
 
 namespace witness = q3x::test::sm87_aot_arithmetic_witness;
+namespace checkpoint_reader = q3x::test::sm87_aot_checkpoint_reader;
 
 namespace {
 
@@ -43,12 +45,19 @@ void write_description() {
 
 int main(const int argc, char** argv) {
   if (argc == 2 && std::string_view(argv[1]) == "--self-test") {
-    const bool passed = witness::run_self_test();
+    const bool witness_passed = witness::run_self_test();
+    const bool reader_passed =
+        checkpoint_reader::run_checkpoint_reader_self_test();
+    const bool passed = witness_passed && reader_passed;
     std::cout
         << "{\"schema\":\"q3x.sm87.aot-system-v1.arithmetic-witness.self-test.v1\","
         << "\"candidate\":\""
         << q3x::runtime::kSm87AotPrefillSystemCandidateId << "\","
         << "\"self_test\":\"" << (passed ? "pass" : "fail") << "\","
+        << "\"witness_self_test\":\""
+        << (witness_passed ? "pass" : "fail") << "\","
+        << "\"checkpoint_reader_self_test\":\""
+        << (reader_passed ? "pass" : "fail") << "\","
         << "\"real_operand_authority\":false,"
         << "\"cuda_or_model_run\":false}\n";
     return passed ? 0 : 1;

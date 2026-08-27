@@ -155,6 +155,16 @@ struct ReadOptions {
     json::ParseOptions json_options;
 };
 
+#if defined(Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
+// Private test-admission seam for a caller that already consumed the prefix
+// from an authenticated file descriptor. This deliberately shares the exact
+// document validator used by read_header(); it does not perform file I/O.
+[[nodiscard]] Result<Header> parse_header_text(
+    std::string_view header_text,
+    std::uint64_t file_size,
+    const ReadOptions& options = {});
+#endif
+
 // Reads and validates only the prefix/header; tensor payload bytes are never
 // copied. Validation includes exact shape*dtype sizing, checked arithmetic,
 // in-range non-overlapping offsets, and complete coverage of the data buffer.
