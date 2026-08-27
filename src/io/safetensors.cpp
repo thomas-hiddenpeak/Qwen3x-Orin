@@ -507,6 +507,60 @@ Result<Index> parse_index_document(const json::Value& document,
 
 }  // namespace
 
+#if defined(Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
+Result<Header> parse_header_text(const std::string_view header_text,
+                                 const std::uint64_t file_size,
+                                 const ReadOptions& options) {
+    try {
+        if (file_size > options.max_file_bytes) {
+            return failure<Header>(ErrorCode::kFileTooLarge);
+        }
+        if (file_size < 8U) {
+            return failure<Header>(ErrorCode::kFileTooSmall, file_size);
+        }
+        if (header_text.size() > options.max_header_bytes ||
+            header_text.size() >
+                static_cast<std::size_t>(
+                    std::numeric_limits<std::uint64_t>::max())) {
+            return failure<Header>(ErrorCode::kHeaderTooLarge, 0U);
+        }
+
+        const std::uint64_t header_size =
+            static_cast<std::uint64_t>(header_text.size());
+        std::uint64_t data_offset = 0U;
+        if (!checked_add(8U, header_size, data_offset) ||
+            data_offset > file_size) {
+            return failure<Header>(ErrorCode::kInvalidHeaderLength, 0U);
+        }
+        if (header_text.empty() || header_text.front() != '{') {
+            return failure<Header>(ErrorCode::kInvalidHeaderStart, 8U);
+        }
+
+        const auto parsed = json::parse(header_text, options.json_options);
+        if (!parsed) {
+            std::uint64_t error_offset = 8U;
+            if (!checked_add(
+                    error_offset,
+                    static_cast<std::uint64_t>(parsed.error.offset),
+                    error_offset)) {
+                error_offset = kUnknownOffset;
+            }
+            return failure<Header>(ErrorCode::kInvalidJson,
+                                   error_offset,
+                                   std::string(parsed.error.message()));
+        }
+        return parse_header_document(*parsed.value,
+                                     file_size,
+                                     header_size,
+                                     options);
+    } catch (const std::bad_alloc&) {
+        return failure<Header>(ErrorCode::kAllocationFailure);
+    } catch (const std::length_error&) {
+        return failure<Header>(ErrorCode::kAllocationFailure);
+    }
+}
+#endif
+
 const TensorInfo* Header::find_tensor(std::string_view name) const noexcept {
     const auto entry = tensors.find(name);
     return entry == tensors.end() ? nullptr : &entry->second;
