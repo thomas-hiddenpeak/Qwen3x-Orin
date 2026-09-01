@@ -469,7 +469,7 @@ void write_p40000_kill_test(
       provenance::kBuildTesting &&
       std::string_view(provenance::kCxxCompilerId) == "GNU" &&
       std::string_view(provenance::kCudaCompilerId) == "NVIDIA" &&
-      std::string_view(provenance::kCudaToolkitVersion) == "13.3.33" &&
+      std::string_view(provenance::kCudaToolkitVersion) == "13.3.73" &&
       std::string_view(provenance::kQ3xCudaArchitectures) == "87" &&
       std::string_view(provenance::kEffectiveCudaArchitectures) == "87" &&
       provenance::kAotSystemAdmission &&
