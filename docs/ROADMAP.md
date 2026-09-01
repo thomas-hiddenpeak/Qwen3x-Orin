@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-08-27
+  last_reviewed: 2026-09-01
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -313,7 +313,20 @@ existing default-off `AC-PREFILL-SM87-AOT-SYSTEM-v1`, whose authenticated
 real-checkpoint preparation and layer-0 M192 Gate+Up/Down oracle are retained
 as bounded prerequisites rather than whole-model authority.
 
-Before further CUDA implementation, that candidate must execute
+The owner-directed minimal real-P40 kill test has now closed one implementation
+shortcut before further scaffolding. On clean `e61cff9`, the current NVFP4
+M128N256K64 persistent16 BF16-HMMA GateUp+SiLU and Down+residual skeleton
+completed its prerequisite M192 bitwise gate and two P40000 device samples.
+The optimistic minimum pair was 17,919.347656 ms; charging only 63 full MLP
+layers and treating terminal M1 plus every omitted projection as free still
+projects to 1,128.918902 s, or 225.7838x the complete 5.0-second projection
+allocation. The result therefore rejects that skeleton without repetition,
+profiler work, FP8/Attention/GDN scaffolding, or a whole-runner cell. It does
+not reject AOT loading or another exact arithmetic/dataflow class. The exact
+boundary is frozen in the
+[`P40000 quick-kill record`](metadata/qwen36-27b-sm87-target-aot-p40000-quick-kill-2026-09-01.json).
+
+Before any successor CUDA mapping, the candidate must execute
 [`the exact arithmetic-class qualification gate`](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md#53-exact-arithmetic-class-qualification-gate)
 over pinned real-P40 projection operands. It records K16/K64 exponent spans,
 minimum exact limb or bit-plane counts, residual-plane and exact-fallback
