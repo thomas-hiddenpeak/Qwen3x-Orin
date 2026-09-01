@@ -1,0 +1,325 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen36-27b-sm87-target-aot-real-p40-arithmetic-mapping-v2-rejection-2026-09-02",
+  "classification": "exact-arithmetic-mapping-class-rejection",
+  "measured_at_utc": {
+    "preflight_created": "2026-09-01T20:21:11.132483+00:00",
+    "evidence_completed_file_mtime": "2026-09-01T20:37:10.689474240+00:00"
+  },
+  "reviewed_at_local_date": "2026-09-02",
+  "timezone": "Asia/Shanghai",
+  "decision_unit": {
+    "kind": "arithmetic_mapping_class",
+    "id": "bmma-static-support-k16-parent-zero-fill-v2",
+    "work_package_id": "P3",
+    "architecture_candidate_id": "AC-PREFILL-SM87-AOT-SYSTEM-v1",
+    "mapping_identity": "q3x.sm87-aot-system-v1/bmma-static-support-k16-parent-zero-fill/v2",
+    "evidence_tier": "T3-derived real-model real-prompt ordinary-generation-route arithmetic gate",
+    "authority": "strict early-stop lower-bound rejection for the frozen mapping only"
+  },
+  "product_constraint": {
+    "workload": "pinned real-model P40000 Legacy-C512 Prefill path",
+    "locked_external_target": "cold/no-cache 40K--60K first visible generated token within 2 seconds",
+    "downward_budget": {
+      "all_p40_projections_seconds": 5.0,
+      "source": "docs/PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md section 5.3"
+    },
+    "return_point_if_admitted": "role-specific CUDA mapping, complete exact Prefill composition, then the real OpenAI-compatible P40000 API witness",
+    "stop_condition": "reject before CUDA when the authenticated monotone physical-instruction lower bound exceeds the complete five-second projection allocation"
+  },
+  "candidate_identity": {
+    "branch": "codex/p3-real-p40-arithmetic-witness-v2",
+    "implementation_commits": [
+      "0332ee61aab475206f7d8f556e0b478c1cd2d490",
+      "96a8bb6cfb362a1dfe79a5342ad39f4f4ec68eec",
+      "5c6bebe9c93f380172c25719015a747221d68cf4",
+      "6a48363ce691ba756949d642dfbe95ebb593c71e"
+    ],
+    "measured_commit": "6a48363ce691ba756949d642dfbe95ebb593c71e",
+    "measured_tree": "414587654d360edb9bdc0e34656091e476085036",
+    "clean_at_build": true,
+    "status_porcelain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ordinary_default_route_changed": false,
+    "public_api_changed": false,
+    "release_artifact_changed": false,
+    "source_local_test_admission_only": true
+  },
+  "controlled_artifact": {
+    "build_type": "Release",
+    "build_testing": true,
+    "cuda_architecture": 87,
+    "cuda_toolkit_version": "13.3.73",
+    "enabled_q3x_build_options": [
+      "Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION",
+      "Q3X_BUILD_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS"
+    ],
+    "build_receipt_sha256": "d89606a7c30ddf94abeafd8cc611d0faaa24cb3d5455546571cb90cdff78bee2",
+    "elf_sha256": "ab8d97828a17f78b56ada957c1dcad3c144c7ffff7bcbea83121f0ccc756ef82",
+    "elf_build_id": "c1bce1c39bc632a735dee018ed6540260219e541",
+    "elf_bytes": 9109680,
+    "launcher_sha256": "9b2f4413f465cd023d4bed6e384d26ae85d5d1cbea5cb5979b689c5b81312221",
+    "source_preflight_sha256": "049a5290f0c8c35982e9172740424a4b6f68a535e8b8bfa5f5a1cd49fb22ebf2"
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "metadata_authenticated": true,
+    "metadata": [
+      {
+        "filename": "config.json",
+        "sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338"
+      },
+      {
+        "filename": "hf_quant_config.json",
+        "sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1"
+      },
+      {
+        "filename": "model.safetensors.index.json",
+        "sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2"
+      }
+    ],
+    "shards": [
+      {
+        "filename": "model-00001-of-00003.safetensors",
+        "file_bytes": 9965652512,
+        "sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d"
+      },
+      {
+        "filename": "model-00002-of-00003.safetensors",
+        "file_bytes": 9985757032,
+        "sha256": "06da4242b0f491118d19d4d4c7564307a7bd6059c6bed284e08c93f6fc5a556d"
+      },
+      {
+        "filename": "model-00003-of-00003.safetensors",
+        "file_bytes": 1970287640,
+        "sha256": "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845"
+      }
+    ],
+    "loaded_shard_manifest_sha256": "fce5769f323c5f4a7bbbae3dde0fae6e6561843df6b74cd573324652059d9c0f"
+  },
+  "corpus": {
+    "description": "q3x repository-agent-context P40000 one-token JSONL",
+    "file_bytes": 181244,
+    "file_sha256": "8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844",
+    "prompt_tokens": 40000,
+    "prompt_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "authenticated": true
+  },
+  "real_path": {
+    "api": "ReferenceEngine::generate_prompt_token_ids",
+    "execution_mode": "LegacyC512Tiled",
+    "runner_boundary": "ReferenceRunner::enqueue_prefill_layer_segment",
+    "backend": "sm87_weight_only",
+    "configured_max_sequence_length": 40000,
+    "prefill_chunk_size": 512,
+    "max_new_tokens": 1,
+    "target_aot_assets_absent": true,
+    "ambient_q3x_environment_clean": true,
+    "route_sha256": "ccbbbd494ad2baf515de7c5390df1164eddcb3b9c3647586b9553499b5cb56d5",
+    "route_authenticated": true
+  },
+  "projection_catalog": {
+    "domain": "q3x.sm87.aot-system-v1.p40-projection-tensor-catalog.v1",
+    "sha256": "d33bef97d9971068cb3abd979e25c79b7f57aa07e5763ef77561269f244be868",
+    "authenticated": true,
+    "module_count": 400,
+    "tensor_count": 1392,
+    "payload_sha256_count": 1392,
+    "scalar_fp32_raw_bits_count": 800,
+    "module_role_counts": {
+      "nvfp4_gate_up": 128,
+      "nvfp4_down": 64,
+      "fp8_gdn_qkv_z": 96,
+      "fp8_full_qkv": 48,
+      "fp8_attention_output": 64
+    },
+    "each_shard_read_sequentially_once_for_catalog": true,
+    "shard_receipts_committed": 3,
+    "engine_independently_authenticated_and_loaded_shards": true
+  },
+  "mapping_contract": {
+    "instruction": "mma.sync.aligned.m16n8k256.row.col.s32.b1.b1.s32.and.popc",
+    "support_active_parent_predicate": "a_m16_k16_support_mask_eq_0xffff_and_b_n8_k16_support_mask_ne_0",
+    "parent_shape": "M16xN8xK16",
+    "physical_shape": "M16xN8xK256",
+    "zero_fill_factor": 16,
+    "physical_instructions_per_active_joint_k16_cell": 1,
+    "one_parent_per_instruction": true,
+    "cross_parent_packing_forbidden": true,
+    "cross_parent_common_subexpression_elimination_forbidden": true,
+    "result_aware_parent_elision_forbidden": true,
+    "all_additional_exactness_passes_charged_free": true,
+    "terminal_scalar_and_incomplete_m16_tail_charged_free": true,
+    "maximum_warp_instructions_per_sm_cycle": 4,
+    "sm_count": 16,
+    "maximum_gpu_frequency_hz": 1300500000
+  },
+  "activation_evidence": {
+    "chain_domain": "q3x.sm87.aot.real-p40.activation-support-mask-chain.v2",
+    "call_domain": "q3x.sm87.aot.real-p40.activation-support-mask-call.v2",
+    "source_dtype": "BF16",
+    "payload_dtype": "UINT16_LE",
+    "payload_definition": "canonical nonzero/finite support mask per M16xK16 source cell",
+    "all_processed_call_payloads_authenticated": true,
+    "raw_bf16_activation_payload_authenticated": false,
+    "authority_limit": "the retained mask is sufficient only for the frozen static-support predicate and cannot support a different data-dependent predicate"
+  },
+  "coverage": {
+    "frozen_prefix_segments": 79,
+    "frozen_prefix_rows": 39999,
+    "completed_segments": 69,
+    "covered_prompt_rows": 35328,
+    "early_reject_before_finalize": true,
+    "all_processed_subsets_complete": true,
+    "all_processed_evidence_authenticated": true,
+    "exceptional_operand_detected": false,
+    "collector_failure": false,
+    "role_activation": [
+      {
+        "role": "nvfp4_gate_up",
+        "call_count": 4416,
+        "mask_elements": 45219840,
+        "active_joint_k16_cells": 196796743680,
+        "geometric_joint_k16_cells": 196796743680
+      },
+      {
+        "role": "nvfp4_down",
+        "call_count": 4416,
+        "mask_elements": 153747456,
+        "active_joint_k16_cells": 98398371840,
+        "geometric_joint_k16_cells": 98398371840
+      },
+      {
+        "role": "fp8_gdn_qkvz",
+        "call_count": 3312,
+        "mask_elements": 33914880,
+        "active_joint_k16_cells": 69457674240,
+        "geometric_joint_k16_cells": 69457674240
+      },
+      {
+        "role": "fp8_full_qkv",
+        "call_count": 1104,
+        "mask_elements": 11304960,
+        "active_joint_k16_cells": 20258488320,
+        "geometric_joint_k16_cells": 20258488320
+      },
+      {
+        "role": "fp8_attention_output",
+        "call_count": 4416,
+        "mask_elements": 54263808,
+        "active_joint_k16_cells": 34728837120,
+        "geometric_joint_k16_cells": 34728837120
+      }
+    ]
+  },
+  "result": {
+    "status": "valid_mapping_class_reject",
+    "semantic_exit_code": 3,
+    "decision": "reject-bmma-static-support-k16-parent-zero-fill-v2",
+    "expected_complete_p40_joint_k16_cells": 475136000000,
+    "covered_geometric_joint_k16_cells": 419640115200,
+    "proven_active_joint_k16_cells": 419640115200,
+    "proven_warp_instruction_lower_bound": 419640115200,
+    "absolute_warp_instructions_per_second": 83232000000,
+    "five_second_absolute_instruction_capacity": 416160000000,
+    "capacity_excess_instructions": 3480115200,
+    "capacity_excess_percent": 0.836244521338,
+    "optimistic_seconds_lower_bound": 5.0418122260668969,
+    "budget_excess_seconds": 0.0418122260668969,
+    "diagnostic_wall_milliseconds": 959477,
+    "timing_authority": false,
+    "generation_completed": false,
+    "expected_early_stop_sentinel_observed": true,
+    "output_or_api_authority": false
+  },
+  "environment_and_resource_boundary": {
+    "preflight_result": "pass",
+    "hard_stop_clear": true,
+    "sync_completed": true,
+    "cache_drop_attempted": true,
+    "cache_drop_succeeded": true,
+    "complete_gpu_handle_audit": true,
+    "unowned_gpu_handle_count": 0,
+    "material_contention_detected": false,
+    "temperature_operational_stop": false,
+    "maximum_temperature_celsius": 62.75,
+    "gpu_frequency_hz": 1300500000,
+    "emc_frequency_hz": 3200000000,
+    "nvpmodel": "MAXN",
+    "fan_fields_sanitized": true,
+    "auxiliary_observations_complete": true
+  },
+  "verification": {
+    "clean_focused_ctest": {
+      "passed": 4,
+      "failed": 0,
+      "tests": [
+        "sm87_aot_real_p40_arithmetic_witness_launcher_host",
+        "sm87_aot_system_v1_arithmetic_witness_self_test",
+        "sm87_aot_system_v1_active_cell_cuda",
+        "sm87_aot_system_v1_real_p40_arithmetic_witness_protocol"
+      ]
+    },
+    "launcher_host_tests": {
+      "passed": 11,
+      "failed": 0
+    },
+    "orin_preflight_host_tests": {
+      "passed": 15,
+      "failed": 0
+    },
+    "default_off_release_build": "pass; no witness target, compile definition, or symbol in the ordinary q3x_engine artifact",
+    "negative_configuration_tests": [
+      "witness with BUILD_TESTING=OFF rejected at configure time",
+      "witness without the system-v1 admission rejected at configure time"
+    ],
+    "independent_code_reviews": {
+      "completed": 2,
+      "blocker_high_or_medium_findings": 0
+    },
+    "profiler_run": false,
+    "second_real_model_process": false
+  },
+  "evidence": {
+    "workspace_relative_root": ".q3x-work/evidence/p3-real-p40-arithmetic-witness-v2/run-6a48363-20260902-a",
+    "raw_evidence_file_bytes": 830052,
+    "raw_evidence_sha256": "0296f297762fdb859c0aa461de3508f0e512051bf7852d760bfd013cb7cf41b7",
+    "preflight_file_bytes": 29026,
+    "preflight_sha256": "5512db9c978796333ae7d121d1c01672bd7aeb3e81ede1c3604812a7f3b2ebdf",
+    "raw_workspace_artifacts_are_ignored_and_noncontrolling": true,
+    "this_tracked_record_is_the_normalized_claim_source": true
+  },
+  "decision": {
+    "close_mapping_v2": true,
+    "implement_cuda_for_mapping_v2": false,
+    "profile_mapping_v2": false,
+    "repeat_mapping_v2": false,
+    "merge_witness_into_ordinary_runner": false,
+    "change_default_route": false,
+    "change_release_or_production_claim": false,
+    "close_aot_asset_loading_as_a_prerequisite": false,
+    "close_aot_as_a_general_strategy": false,
+    "reason": "the strict authenticated lower bound already exceeds the complete projection allocation while additional exactness work, terminal scalar work, incomplete tails, and the unprocessed suffix are treated as free"
+  },
+  "next_boundary": {
+    "current_mapping_has_no_cuda_successor": true,
+    "automatic_successor_mapping_authorized": false,
+    "required_next_decision": "either name a materially different exact arithmetic/dataflow class with a new bounded pre-kernel budget proof, or close AC-PREFILL-SM87-AOT-SYSTEM-v1 and activate the next whole-runner architecture candidate",
+    "prohibited_continuation": "no parameter scan, profiler extension, CUDA skeleton, AOT loading polish, or whole-runner scaffolding may be justified by this rejected mapping"
+  },
+  "claim_boundary": {
+    "authorized": [
+      "the frozen static-support K16-parent to zero-filled K256 mapping is arithmetically incapable of fitting the five-second complete P40 projection allocation under its own mandatory-issue rules",
+      "the mapping closes before CUDA implementation, repetition, or profiling",
+      "the real Legacy-C512 route, pinned model, prompt, projection catalog, processed support-mask payloads, device envelope, and lower-bound receipt are authenticated",
+      "the ordinary runner, release artifact, and production route remain unchanged"
+    ],
+    "not_authorized": [
+      "a hardware ceiling or impossibility claim",
+      "rejection of result-aware parent elision, cross-parent packing, cross-parent common-subexpression elimination, or another exact arithmetic/dataflow class",
+      "rejection of AOT loading, startup assets, or AOT as a whole",
+      "a completed-model output, token, state, API, TTFT, throughput, Decode, release, or production claim",
+      "use of the retained support masks to evaluate any predicate other than the frozen static-support predicate"
+    ]
+  }
+}

@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-09-01
+  last_reviewed: 2026-09-02
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-09-01.
+Snapshot date: 2026-09-02.
 
 This page is a replaceable state snapshot. It does not own architecture,
 delivery order, or experiment history. The system design is in
@@ -173,16 +173,43 @@ and tuning of that BF16-HMMA skeleton; exact identities and claim limits are
 frozen in the
 [`P40000 quick-kill record`](metadata/qwen36-27b-sm87-target-aot-p40000-quick-kill-2026-09-01.json).
 
-The local rejection does not close AOT asset loading, a different exact
-arithmetic/dataflow class, or `AC-PREFILL-SM87-AOT-SYSTEM-v1` as a whole. In
-the order owned by the Roadmap, its next admission remains the real-P40 exact
-arithmetic-class witness from the mathematical ledger: projection exponent
-spans, exact limb/bit-plane and fallback pass counts, ordered FP32
-partial/scale rejoin, and BF16 publication bits must fit the 5.0-second
-projection allocation before any successor CUDA skeleton. The frozen v1
-descriptor still names grouped-online Attention; replacing that route with an
-exact-qualified composition requires a successor candidate and plan identity
-rather than inheriting v1 evidence authority.
+The subsequent clean-commit, mapping-v2-specific real-P40 arithmetic witness
+has now closed one such exact mapping before CUDA. Release/SM87 test-admission
+ELF `ab8d9782...`
+(Build ID `c1bce1c...`) ran the ordinary Legacy-C512 generation path on the
+pinned 40,000-token Agent corpus, authenticated all three checkpoint shards
+plus a 400-module/1,392-tensor projection catalog, and bound every processed
+call's canonical BF16 support-mask payload. After 69 of 79 Prefix segments
+and 35,328 of 39,999 live Prefix rows, the frozen static-support K16-parent to
+zero-filled K256 BMMA mapping had already proved a mandatory lower bound of
+419,640,115,200 warp instructions. The absolute five-second issue capacity
+under the mapping's own optimistic 4 instructions/SM-cycle, 16-SM,
+1.3005-GHz model is 416,160,000,000. The lower bound therefore exceeds the
+complete projection allocation by 3,480,115,200 instructions, or 0.8362%,
+and implies at least 5.041812 seconds while the remaining Prefix, terminal
+scalar, incomplete M16 tails, every additional exactness pass, and all
+non-projection work are free.
+
+The launcher returned `rc=3` / `valid_mapping_class_reject`; no second run or
+profiler is required. This closes only
+`bmma-static-support-k16-parent-zero-fill-v2` and gives it no CUDA successor.
+It does not reject result-aware parent elision, cross-parent packing/CSE, a
+materially different exact arithmetic/dataflow class, authenticated AOT
+loading, or AOT as a whole. It also grants no completed generation, output,
+API, TTFT, throughput, release, or production authority. The activation
+evidence authenticates only the canonical UINT16 support-mask payload consumed
+by this predicate, not the full raw BF16 activation payload. Exact identities,
+counts, hashes, environment qualification, and claim limits are frozen in the
+[`real-P40 arithmetic mapping-v2 rejection record`](metadata/qwen36-27b-sm87-target-aot-real-p40-arithmetic-mapping-v2-rejection-2026-09-02.json).
+
+`AC-PREFILL-SM87-AOT-SYSTEM-v1` consequently remains default-off with useful
+loading and layer-0 oracle prerequisites but no admitted projection arithmetic
+mapping. The Roadmap's next P0 is architecture-level convergence rather than
+another implementation iteration: either name a materially different exact
+class with a new bounded pre-kernel proof that clears the five-second
+allocation, or close this candidate and activate the next whole-runner
+architecture. No tuning, profiling, CUDA skeleton, or loading polish around
+the rejected mapping is authorized.
 
 The prior pause is superseded; it did not amend the Constitution targets. The
 exact recovery anchor remains
@@ -402,9 +429,10 @@ envelope, so it changes neither the invalid run's status nor the 4.3K tok/s
 owner-established starting line. Exact formulas and raw hashes are frozen in
 the [`warmup metric reconciliation`](metadata/qwen36-27b-vllm-p40-warmup-metric-reconciliation-2026-08-12.json).
 
-A default-off, host-only descriptor now freezes the next whole-system AOT
-candidate for P40/P60/approximately-P130: the exact 64-layer GDN/Attention
-schedule, 14 physical groups, five projection roles, paired BF16 A/B producer,
+A default-off, host-only descriptor freezes the existing whole-system AOT
+candidate lineage for P40/P60/approximately-P130: the exact 64-layer
+GDN/Attention schedule, 14 physical groups, five projection roles, paired BF16
+A/B producer,
 Q128/KV32 online-softmax Attention, and per-token-BF16 GDN transaction are
 represented as one typed DAG with 39 resource and 13 event edge classes. A
 second host-only contract freezes actual NVFP4/FP8-Marlin projection arithmetic,
@@ -499,7 +527,7 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | Installed default context | Sealed P40 profile admits `prompt + output - 1 <= 44,095` with a 4,096-token output ceiling | P60 and approximately-P130 profiles remain unopened |
 | Ordinary request-state reuse | Installed 0.7.0 derives `already_clean`, exact committed dirty-prefix, or conservative full reset from lifecycle state and exposes a schema-v16 receipt; no runtime selector exists. Matched P1024/P4096/P8192 BCCB and a same-server P40000 lifecycle support retaining it across the verified lengths | Complete accuracy, independent-process target-length repetition, capability, and release qualification remain open; no material TTFT/throughput claim is attached to reset |
 | Target-length Prefill | Ordinary default includes exact prompt-wide preprocessing plus exact-span GDN; the preceding 0.6.0 P40 observation is 57.230764 tok/s and the 0.7.0 same-server lifecycle samples 57.391208--57.585234 tok/s without a throughput-comparison claim. The complete selector/whole-core v1 candidate is rejected for a valid P40000/O16 state/logit/token/text mismatch | Repetition, complete accuracy, P60/P130, the 2s/4s targets, and an accuracy-admissible fast P40 architecture remain open |
-| SM87 whole-system AOT Prefill candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` is default-off and non-executable; real-checkpoint upload/readback/private attachment is authenticated, the layer-0 M192 Gate+Up/Down-plus-residual candidate has passed bitwise and same-ELF SM87 gates, and the current P40000 BF16-HMMA skeleton is rejected by a valid 225.7838x-over-budget optimistic lower-bound screen | Complete the real-P40 exact arithmetic-class pass-count/fallback witness and prove it fits the 5.0-second projection allocation before another CUDA skeleton; only then persist/direct-load authenticated AOT payloads, compose FP8 QKV/Z/O plus exact-qualified Attention/GDN and all live layer/state/handoff work without fallback, extend complete-model accuracy, open a reviewed admission launch, and return to real-P40 API evidence |
+| SM87 whole-system AOT Prefill candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` remains default-off and has no admitted projection arithmetic mapping. Authenticated real-checkpoint loading and the layer-0 M192 bitwise oracle remain bounded prerequisites; the BF16-HMMA skeleton is rejected at 225.7838x over budget, and static-support K16-parent to zero-filled K256 mapping v2 is separately rejected after its authenticated 35,328-row lower bound reaches 5.041812 seconds against the complete 5.0-second projection allocation | Converge at architecture level: either name a materially different exact arithmetic/dataflow class and clear a new bounded pre-kernel budget proof, or close this candidate and activate the next whole-runner candidate. A positive proof must return to the Roadmap for explicit activation of a versioned architecture candidate and named local work package before any role-specific CUDA, persisted/direct-loaded assets, complete FP8/Attention/GDN composition, full-model accuracy, or real-P40 API return |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Exact S>=65 fallback plus retained coupled-feed/consumer-order layouts and fixed short-position Graph cache in the sealed profile; split-KV rejected numerically; installed short proxy reaches 105.013349 ms/token / 9.522599 tok/s | Long-output stability, independent repetition, target-length behavior, and at least 10 tok/s remain to be qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
@@ -672,7 +700,7 @@ sequence and successor identity live exclusively in
 | Documentation-control propagation | The canonical main line now has one `AGENTS.md -> docs/README.md` Codex entry; pre-existing dirty worktrees do not receive it until explicitly integrated, because Codex reads the worktree in which a session starts | P0 |
 | Product API and long-context admission | Installed sealed P40 profile admits 40K plus normal Decode output; P60/P130 profiles and full cancellation semantics remain | P1 |
 | Exact deliverable identity | Installed 0.7.0/v3 ELF `d70ba913...` now has matched P1024/P4096/P8192 and same-server P40000 real-model/API reset evidence; the remaining matrix is accuracy, capability, independent-process target-length repetition, and stability | P2/P4 |
-| Prefill parity and physical plan | Current 0.7 same-server exact-default P40 lifecycle samples are 57.391208--57.585234 tok/s without throughput-comparison authority; selector/whole-core v1 is rejected by a valid full-model P40000/O16 mismatch, and the current AOT BF16-HMMA projection skeleton is separately rejected by a checkpoint-weight-only 225.7838x-over-budget optimistic screen | P3 (active; the next P0 remains the AOT exact arithmetic-class gate, not tuning or profiling the rejected skeleton) |
+| Prefill parity and physical plan | Current 0.7 same-server exact-default P40 lifecycle samples are 57.391208--57.585234 tok/s without throughput-comparison authority; selector/whole-core v1 is rejected by a valid full-model P40000/O16 mismatch, the AOT BF16-HMMA skeleton is rejected by a 225.7838x-over-budget screen, and static-support zero-fill BMMA mapping v2 is rejected by an authenticated real-P40 5.041812-second optimistic arithmetic lower bound against the complete 5.0-second projection allocation | P3 (active; next P0 is architecture-level convergence: admit a materially different exact class from a new pre-kernel proof, or close `AC-PREFILL-SM87-AOT-SYSTEM-v1` and select the next whole-runner candidate) |
 | Accuracy, capability, stability, and release evidence | Partial oracles only; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install, startup, upgrade, or rollback lane | P5 |
 
@@ -695,8 +723,9 @@ Use the following language until this snapshot changes:
 - **Not current:** production-default P60/P130 support, the accuracy-unqualified
   FlashInfer v10 arithmetic as a default, the rejected selector-exact
   persistent-Attention v1 composition or its candidate-only P40016 capacity
-  fixes, any archived V4 construction route, lossless Factorized-R1 Prefill,
-  vLLM parity, or a fully qualified 10-token/s Decode release.
+  fixes, the rejected static-support K16-parent to zero-filled K256 BMMA
+  mapping, any archived V4 construction route, lossless Factorized-R1
+  Prefill, vLLM parity, or a fully qualified 10-token/s Decode release.
 - **Target:** the accuracy-preserving, non-MTP, OpenAI-compatible runner and
   performance region locked by the Constitution.
 

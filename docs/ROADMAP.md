@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-09-01
+  last_reviewed: 2026-09-02
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -256,10 +256,15 @@ and consumer-order layouts as ordinary defaults, while explicitly rejecting
 the split-KV Decode selector after its S65 BF16 boundary oracle differed from
 the exact fallback. The attempted P40 selector/whole-core v1 composition has
 now returned a valid full-model numerical and behavioral rejection, so it is
-not repaired, profiled, or promoted in place. The next P0 inside P3 is the
-current-main resumption of the already tracked
-`AC-PREFILL-SM87-AOT-SYSTEM-v1`, beginning with the mathematical ledger's
-real-P40 exact arithmetic-class gate before any additional CUDA mapping.
+not repaired, profiled, or promoted in place. The subsequent real-P40
+arithmetic gate also rejects the static-support K16-parent to zero-filled K256
+BMMA mapping before CUDA. `AC-PREFILL-SM87-AOT-SYSTEM-v1` therefore has no
+admitted projection arithmetic mapping and is no longer in continued-
+implementation state. The next P0 inside P3 is bounded architecture-level
+convergence: admit a materially different, versioned exact arithmetic/dataflow
+class through a new pre-kernel budget proof, or close this architecture
+candidate and select the next whole-runner candidate. Candidate space is not
+implementation authorization.
 
 The 0.7.0 request-reuse conversion is now compiled into the ordinary
 `q3x.sm87.production.p40.legacy-c512-exact.v3` lifecycle: creation is already
@@ -276,8 +281,7 @@ full reset. Output, SSE, usage, finish, and route receipts remain exact. The
 policy is therefore retained as the ordinary default across those lengths;
 the evidence deliberately makes no material TTFT, Prefill-throughput, Decode,
 accuracy, release, or production claim. This bounded qualification does not
-displace the whole-system AOT arithmetic-class gate as the next architecture-
-scale P0.
+displace the architecture-level convergence gate above as the next P0.
 
 ### Retained recovery boundary
 
@@ -308,10 +312,11 @@ That recovery sequence has now reached its whole-product stop gate. The
 selector-exact persistent-Attention v1 composition completed a valid fresh
 P40000/O16 comparison and failed the exact state/logit/token/text contract.
 It is closed without another full-model cell or diagnostic profile. The
-active successor is not selector v2 or an Attention parameter scan; it is the
-existing default-off `AC-PREFILL-SM87-AOT-SYSTEM-v1`, whose authenticated
-real-checkpoint preparation and layer-0 M192 Gate+Up/Down oracle are retained
-as bounded prerequisites rather than whole-model authority.
+bounded successor was the existing default-off
+`AC-PREFILL-SM87-AOT-SYSTEM-v1`; its authenticated real-checkpoint preparation
+and layer-0 M192 Gate+Up/Down oracle remain useful prerequisites, but the
+candidate has now reached the arithmetic stop gate below and has no automatic
+successor implementation.
 
 The owner-directed minimal real-P40 kill test has now closed one implementation
 shortcut before further scaffolding. On clean `e61cff9`, the current NVFP4
@@ -326,20 +331,46 @@ not reject AOT loading or another exact arithmetic/dataflow class. The exact
 boundary is frozen in the
 [`P40000 quick-kill record`](metadata/qwen36-27b-sm87-target-aot-p40000-quick-kill-2026-09-01.json).
 
-Before any successor CUDA mapping, the candidate must execute
-[`the exact arithmetic-class qualification gate`](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md#53-exact-arithmetic-class-qualification-gate)
-over pinned real-P40 projection operands. It records K16/K64 exponent spans,
-minimum exact limb or bit-plane counts, residual-plane and exact-fallback
-fractions, ordered FP32 partial/scale-rejoin preservation, BF16 publication
-bits, and average physical MMA pass count for Gate/Up, Down, and FP8 QKV/Z/O.
-The arithmetic class advances only if the measured mapping can fit the
-5.0-second P40 projection allocation. A failure closes the class before CUDA;
-a pass unlocks completion of the role-specific packed-resident projection
-plan and the finite-precision selection of an exact-qualified Attention/GDN
-composition. The frozen v1 descriptor uses grouped-online Attention; replacing
-that descriptor requires a new versioned candidate and plan identity before
-the 64-layer composition, followed immediately by the fresh P40000 full-state
-and whole-API return gates.
+The mapping-v2-specific static-support lower-bound instantiation of the
+[`exact arithmetic-class qualification gate`](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md#53-exact-arithmetic-class-qualification-gate)
+has now terminated in a monotone rejection on the clean `6a48363`
+Release/SM87 test-admission artifact through the ordinary Legacy-C512 P40000
+generation route. It authenticates the pinned model and prompt, all three
+loaded shards, a 400-module/1,392-tensor projection catalog, and every
+processed canonical activation support mask. At 69 of 79 Prefix segments and
+the contiguous `[0, 35,328)` rows, the static-support K16-parent to zero-filled
+K256 BMMA mapping already requires at least 419,640,115,200 warp instructions.
+Under this frozen mapping's deliberately optimistic allowance of 4 warp
+instructions/SM-cycle across 16 SMs at 1.3005 GHz, the five-second issue
+capacity is 416,160,000,000. The mapping-specific lower bound is therefore
+5.041812 seconds before the remaining Prefix, terminal scalar, incomplete M16
+tails, additional exactness passes, and all non-projection work. The strict
+result is `valid_mapping_class_reject` / `rc=3`; exact evidence is frozen in the
+[`real-P40 arithmetic mapping-v2 rejection record`](metadata/qwen36-27b-sm87-target-aot-real-p40-arithmetic-mapping-v2-rejection-2026-09-02.json).
+
+This result closes only
+`bmma-static-support-k16-parent-zero-fill-v2`. It receives no CUDA
+implementation, repetition, profiler, loader-polish, or whole-runner extension.
+It does not reject result-aware parent elision, cross-parent packing/CSE,
+another exact arithmetic/dataflow class, authenticated AOT loading, or AOT as
+a whole. Those possibilities are a design search space, not an authorized
+implementation queue.
+
+The next P0 is therefore one bounded architecture decision. Freeze a
+materially different exact arithmetic/dataflow decision unit, its complete
+projection budget, finite-precision boundary, representation/fallback
+overhead, composition point, stop condition, and real-P40 API return gate in a
+new pre-kernel proof. A positive proof returns to this Roadmap; it does not
+authorize implementation. The Roadmap must then explicitly name and activate
+a versioned `architecture_candidate` and named local work package before any
+role-specific CUDA, loading, or exact-qualified Attention/GDN composition. If
+no such decision unit is named, close `AC-PREFILL-SM87-AOT-SYSTEM-v1` and
+activate the next complete whole-runner candidate. A local AOT-loading or
+chunkwise/GDN prerequisite cannot bypass this decision or become production
+by itself. Any replacement of the frozen grouped-online Attention descriptor
+also requires a new versioned candidate and plan identity before 64-layer
+composition, followed immediately by fresh P40000 full-state and whole-API
+return gates.
 
 ### Promotion and stop gates
 

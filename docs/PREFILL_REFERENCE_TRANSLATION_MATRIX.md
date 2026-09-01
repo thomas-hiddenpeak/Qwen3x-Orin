@@ -6,7 +6,7 @@ q3x_document:
   owner: prefill-maintainers
   authority: paused source-to-SM87 translation and recovery record for WP-PREFILL-REFERENCE-TRANSLATION-v1
   effective: 2026-08-12
-  last_reviewed: 2026-08-27
+  last_reviewed: 2026-09-02
   supersedes: []
   superseded_by: []
   ssot_for: the paused Prefill reference-translation recovery record only
@@ -16,9 +16,9 @@ q3x_document:
 # Prefill reference-to-SM87 translation matrix
 
 This lifecycle-active document is the current mainline reference for the
-paused `WP-PREFILL-REFERENCE-TRANSLATION-v1` lineage under the former
-`AC-PREFILL-SM87-AOT-SYSTEM-v1`; document lifecycle does not make the package
-execution-active. The exact later checkpoint is
+paused `WP-PREFILL-REFERENCE-TRANSLATION-v1` lineage associated with the
+redesign-required `AC-PREFILL-SM87-AOT-SYSTEM-v1`; document lifecycle does not
+make the package execution-active. The exact later checkpoint is
 `archive/v4-construction-ownership-20260820@f3545240075651eaa54a5bea6c0f15ee9dfd9a3e`
 and is not part of this mainline. Every `must`, `next`, `run`, and closure
 instruction below is resume-only and grants no present implementation,
@@ -40,7 +40,7 @@ stable system boundary returns to the SDD.
 | --- | --- |
 | Product symptom | Cold/no-cache, single-request 40K--60K and approximately 130K Prefill remains below the owner-set API target and useful vLLM starting line |
 | Parent candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` |
-| Package state | Paused; no active local optimization package |
+| Package state | Paused; no active local optimization package. The parent candidate has no admitted projection arithmetic mapping and is at the Roadmap architecture-reselection checkpoint |
 | Incumbent | The historical max-clock 392.804397-token/s v10 observation remains unreproduced; the typed current-main artifact has a strict sustainable BCCB at 325.983493208 candidate tok/s versus 326.111753524 baseline, while near-max valid C cells average 375.956428659 tok/s descriptively without a complete strict BCCB |
 | Numerical boundary | [Prefill mathematical-equivalence ledger](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md) |
 | Production exclusions | No MTP, cuBLASLt production path, silent fallback, approximate mainline, request-time JIT/repack/autotune, or full-model BF16 weight copy |
@@ -411,14 +411,22 @@ freezes the numerical, resource, lifecycle, and source-status boundaries.
 
 No admission contains a production selector, API wiring, public execution
 route, or production dispatch authority. The narrow M192 result does not
-qualify the complete model. The next implementation step is persisted direct
-loading followed by the complete 64-layer FP8/Attention/GDN/buffer/state/
-handoff composition, not another isolated loader or local tile scan. Neither
-payload authentication, lifetime attachment, nor this narrow Oracle can
-promote the production path.
+qualify the complete model. The previously recorded next implementation step
+of persisted direct loading followed by complete 64-layer composition is
+superseded. The current BF16-HMMA projection skeleton is rejected by the
+[`P40000 quick-kill record`](metadata/qwen36-27b-sm87-target-aot-p40000-quick-kill-2026-09-01.json),
+and the subsequent static-support K16-parent to zero-filled K256 mapping is
+rejected before CUDA by the
+[`real-P40 arithmetic mapping-v2 record`](metadata/qwen36-27b-sm87-target-aot-real-p40-arithmetic-mapping-v2-rejection-2026-09-02.json).
+The parent candidate therefore has no admitted projection mapping. Persisted
+loading, authentication, and the narrow Oracle remain reusable default-off
+prerequisites, not an implementation queue. Only the Roadmap may name and
+activate a versioned successor architecture candidate and local work package
+after a materially different exact class returns with a positive bounded
+pre-kernel proof.
 
-The pre-CUDA implementation contract is now frozen as a second host-only
-milestone:
+The retained pre-CUDA descriptor freezes these host-only constraints for any
+explicitly activated successor that reuses them:
 
 - NVFP4 and admitted FP8-Marlin projection paths have distinct decode, scale,
   MMA, full-K accumulation, exceptional-encoding, and BF16 publication
@@ -442,17 +450,20 @@ milestone:
   the admitted Marlin raw-code semantics. A metadata-derived pseudo-digest is
   not an authenticated payload.
 
-These declarations are implementation constraints. The new asset builder
+These declarations are retained implementation constraints, not current
+implementation authorization. The asset builder
 proves that supplied byte intervals can
 be hashed, domain-scanned, permuted and replayed bit-exactly; its synthetic
-host tests do not authenticate the deployed checkpoint. The unexecuted,
-compiled NVFP4 bodies encode the intended three-stage K64 feed, decoded-B
-register double buffer, full-K FP32 ownership, same-CTA Gate/Up BF16 lifetime
-and Down residual boundary. Static compilation currently reports Gate+Up at
-246 registers/thread and Down at 210, both with zero stack and zero spill,
-using 76,800 bytes of dynamic shared memory; SASS contains `LDGSTS`, `LDSM`,
-and BF16 `HMMA`. The later real-checkpoint M192 execution qualifies these
-resource and geometry facts only for that private layer-0 Oracle and same ELF.
+host tests do not authenticate the deployed checkpoint. The compiled NVFP4
+bodies encode the intended three-stage K64 feed, decoded-B register double
+buffer, full-K FP32 ownership, same-CTA Gate/Up BF16 lifetime and Down residual
+boundary. Static compilation reports Gate+Up at 246 registers/thread and Down
+at 210, both with zero stack and zero spill, using 76,800 bytes of dynamic
+shared memory; SASS contains `LDGSTS`, `LDSM`, and BF16 `HMMA`. The
+real-checkpoint M192 execution qualifies these resource and geometry facts
+only for that private layer-0 Oracle and same ELF. The later P40000 quick-kill
+rejects this BF16-HMMA skeleton and grants it no further implementation or
+profiling work.
 A typed
 device-upload receipt is now issued only by the default-off loader after
 binding the authenticated host digest to an owned allocation and exact payload
@@ -460,18 +471,19 @@ subrange, observing upload completion, reading the exact device range back,
 and matching its SHA-256. The public schema and binder remain non-authoritative
 and cannot manufacture those facts from a raw pointer. Real-checkpoint
 preparation, readback, and private attachment have executed under the bounded
-evidence above; they grant no execution authority. The CUDA bodies must pass
-complete-composition and complete-model accuracy gates beyond the already
-passed narrow layer-0 M192 Oracle, and a separately reviewed admission launcher
-must reach the real API before any performance or production qualification bit
+evidence above; they grant no execution authority. A separately versioned and
+Roadmap-activated successor would still have to pass complete-composition and
+complete-model accuracy gates, then reach the real API through a reviewed
+admission launcher before any performance or production qualification bit
 changes.
 
 The preparation probe reported
 `target_prepare_attach_milliseconds=699705.551133`. This is diagnostic timing
-from a correctness-only run, not a startup or model-performance baseline. It
-does establish that production cannot repack and independently reread all
-9.626 GB online: the authenticated payload catalog must be persisted by an
-offline AOT step and loaded directly at startup under the DeploymentPlan.
+from a correctness-only run, not a startup or model-performance baseline. If
+an eventual Roadmap-selected candidate consumes the same assets, it cannot
+repack and independently reread all 9.626 GB online: the authenticated payload
+catalog would have to be persisted by an offline AOT step and loaded directly
+at startup under the DeploymentPlan.
 
 ## 9. One bounded reference-geometry witness
 
