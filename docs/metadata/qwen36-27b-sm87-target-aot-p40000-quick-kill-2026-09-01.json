@@ -1,0 +1,212 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen36-27b-sm87-target-aot-p40000-quick-kill-2026-09-01",
+  "classification": "local-kernel-skeleton-rejection",
+  "measured_at_utc": {
+    "started": "2026-09-01T11:22:17.278Z",
+    "finished": "2026-09-01T11:35:15.271Z"
+  },
+  "reviewed_at_local_date": "2026-09-01",
+  "timezone": "Asia/Shanghai",
+  "decision_unit": {
+    "kind": "local_mutation",
+    "work_package_id": "WP-PREFILL-SM87-AOT-P40000-QUICK-KILL-v1",
+    "architecture_candidate_id": "AC-PREFILL-SM87-AOT-SYSTEM-v1",
+    "scope": "current NVFP4 M128N256K64 persistent16 BF16-HMMA GateUp+SiLU and Down+residual kernel skeleton",
+    "evidence_tier": "T2-checkpoint-weight-only",
+    "authority": "optimistic early-stop only"
+  },
+  "product_constraint": {
+    "workload": "cold/no-cache P40000 Prefill",
+    "locked_external_target": "first visible generated token within 2 seconds",
+    "downward_budget": {
+      "all_p40_projections_seconds": 5.0,
+      "source": "docs/PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md section 5.3"
+    },
+    "return_point_if_admitted": "broader composed real-P40 validation, then the real API",
+    "stop_condition": "reject the current kernel skeleton when an optimistic MLP-only projection already exceeds the complete projection allocation"
+  },
+  "candidate_identity": {
+    "branch": "codex/sm87-aot-kill-test-v1",
+    "implementation_commit": "97b1495e7bafd675ef45b5aa2d31e4de22688498",
+    "implementation_tree": "000599d976e9e38001a0cf19404ef32ebecd344b",
+    "measured_commit": "e61cff905cd4a234dc1f67ffe31b980434f1c1d5",
+    "measured_tree": "fe159f653188e0ade3c1a8ef50c107f7f237e508",
+    "clean_at_build": true,
+    "ordinary_runner_changed": false,
+    "public_launcher_changed": false,
+    "default_route_changed": false,
+    "build_testing_only": true
+  },
+  "controlled_artifact": {
+    "build_type": "Release",
+    "build_testing": true,
+    "cuda_architecture": 87,
+    "cuda_toolkit_version": "13.3.73",
+    "elf_sha256": "b860ccc20453b671dfd08dad61de62fb1daae37afd36aca63243c502aa423586",
+    "elf_build_id": "a54dd4214b3c94fef17a0ee217c5f70be2c78ba6",
+    "elf_bytes": 10076312,
+    "admissions": {
+      "aot_system": true,
+      "target_projection": true,
+      "target_device_assets": true,
+      "target_layer0_m192_oracle": true,
+      "fp8_marlin_prefill": false,
+      "nvfp4_marlin_prefill": false,
+      "p40_packed_projection": false,
+      "p40_packed_nvfp4_v2": false,
+      "p40_vllm_marlin_parity": false
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "shards": [
+      {
+        "filename": "model-00001-of-00003.safetensors",
+        "sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d"
+      },
+      {
+        "filename": "model-00002-of-00003.safetensors",
+        "sha256": "06da4242b0f491118d19d4d4c7564307a7bd6059c6bed284e08c93f6fc5a556d"
+      },
+      {
+        "filename": "model-00003-of-00003.safetensors",
+        "sha256": "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845"
+      }
+    ],
+    "target_aot_sources": 192,
+    "target_aot_artifacts": 128,
+    "target_aot_device_arena_bytes": 9625927680,
+    "verified_payload_catalog_sha256": "367572d8f5aab87c655695fc621562e0e88cb5d1a9656370353d55ab1c4ebdbe"
+  },
+  "protocol": {
+    "token_count": 40000,
+    "model_layers": 64,
+    "full_prompt_mlp_layers_charged": 63,
+    "terminal_layer_m1_cost_assumed_seconds": 0.0,
+    "fixture": "all-zero BF16 activation and residual",
+    "fixture_rationale": "the dense kernel schedule is value-independent; treating the terminal M1 and every omitted projection family as free makes rejection conservative",
+    "warmup_pairs": 1,
+    "measured_pairs": 2,
+    "timing_surface": "three same-stream CUDA events around GateUp, Down, and the pair",
+    "selection_statistic": "minimum pair time",
+    "full_output_publication_check": "poison-before-run plus device-wide all-zero verification accepting BF16 positive and negative zero",
+    "cache_drop_succeeded": true,
+    "fan_interface_observed_or_mutated": false
+  },
+  "admission": {
+    "layer0_m192_gate_up_elements": 3342336,
+    "layer0_m192_down_residual_elements": 983040,
+    "layer0_m192_total_mismatches": 0,
+    "layer0_m192_bitwise_exact": true,
+    "p40000_inputs_remained_zero": true,
+    "p40000_outputs_all_zero": true,
+    "p40000_guards_intact": true,
+    "timing_events_destroyed": true,
+    "cuda_errors": 0,
+    "device_buffer_frees_succeeded": 16,
+    "device_buffer_frees_attempted": 16,
+    "stream_destroyed": true
+  },
+  "result": {
+    "status": "reject",
+    "semantic_exit_code": 3,
+    "decision": "reject-current-nvfp4-bf16-hmma-kernel-skeleton",
+    "samples": [
+      {
+        "gate_up_milliseconds": 12009.1533203125,
+        "down_milliseconds": 5910.19384765625,
+        "pair_milliseconds": 17919.34765625
+      },
+      {
+        "gate_up_milliseconds": 12009.5732421875,
+        "down_milliseconds": 5910.2099609375,
+        "pair_milliseconds": 17919.783203125
+      }
+    ],
+    "optimistic_pair_milliseconds": 17919.34765625,
+    "optimistic_full_prompt_mlp_seconds": 1128.91890234375,
+    "complete_projection_budget_seconds": 5.0,
+    "budget_excess_seconds": 1123.91890234375,
+    "budget_excess_ratio": 225.78378046875,
+    "probe_wall_milliseconds": 777993,
+    "online_prepare_attach_milliseconds": 700255.611061,
+    "timing_authority": "checkpoint-weight-only local early-stop"
+  },
+  "environment_and_resource_boundary": {
+    "preflight_result": "pass",
+    "preflight_complete_gpu_handle_audit": true,
+    "preflight_gpu_holders": [],
+    "preflight_gr3d_max_percent": 0.0,
+    "postflight_result": "pass",
+    "postflight_complete_gpu_handle_audit": true,
+    "postflight_gpu_holders": [],
+    "immediate_cuda_free_memory_before_bytes": 59160215552,
+    "immediate_cuda_free_memory_after_engine_destroy_bytes": 50665631744,
+    "immediate_cuda_free_memory_gap_bytes": 8494583808,
+    "immediate_memory_recovery_gate_passed": false,
+    "memory_recovery_effect_on_decision": "none; quick-kill validity does not claim lifecycle qualification, while all owned CUDA buffers and the stream were released and the complete postflight handle audit passed",
+    "no_owner_leak_classification_claimed": false
+  },
+  "invalid_attempts": [
+    {
+      "source_commit": "97b1495e7bafd675ef45b5aa2d31e4de22688498",
+      "status": "invalid",
+      "engine_created": false,
+      "timing_authority": false,
+      "reason": "the clean build reported CUDA 13.3.73 while the inherited probe still required exact CUDA 13.3.33",
+      "resolution": "commit e61cff905cd4a234dc1f67ffe31b980434f1c1d5 pins the current exact CUDA 13.3.73 compiler identity; it does not accept an arbitrary toolkit",
+      "raw_evidence_sha256": "1472478bb85e411c3f322c5385867d1a2cb0a654a9ec3effec33efc6a1aaef28"
+    }
+  ],
+  "verification": {
+    "admission_build_tests": {
+      "passed": 7,
+      "failed": 0
+    },
+    "default_off_isolation_tests": {
+      "passed": 2,
+      "failed": 0
+    }
+  },
+  "evidence": {
+    "workspace_relative_root": ".q3x-work/evidence/aot-kill-v1-20260901T111820Z",
+    "valid_raw_evidence_sha256": "9758c981a60e0b72ec5149c51ee12e63071fba01ac47e642fda452d22221d99f",
+    "preflight_sha256": "041dc439bbc791b3f76ef53bedbe0ca71ca6c7c0f04aeac9b0350ada0b2b8242",
+    "postflight_sha256": "3a0c8091c30cfa94a23c3c8c0498ba7bfb8d8e6d53df5eef1c5ab6533eed6d0b",
+    "cache_drop_receipt_sha256": "1121cfccd5913f0a63fec40a6ffd44ea64f9dc135c66634ba001d10bcf4302a2",
+    "memory_before_cache_drop_sha256": "e6aeb55c9c5d168e83abcc18f747fc08ffeb561ed82f45725bec6238c85a95b7",
+    "memory_after_cache_drop_sha256": "fa9fb4e97764f1b1db73db30fef43f06ba6ce4ab48c641987871cb9e278d4a10"
+  },
+  "decision": {
+    "close_current_kernel_skeleton": true,
+    "run_profiler_for_current_skeleton": false,
+    "run_repeated_or_precision_timing_for_current_skeleton": false,
+    "merge_into_ordinary_runner": false,
+    "change_default_route": false,
+    "change_production_claim": false,
+    "reason": "even an optimistic MLP-only lower-bound projection exceeds the complete P40 projection allocation by 225.78x"
+  },
+  "next_boundary": {
+    "aot_system_candidate_closed": false,
+    "aot_loading_and_startup_direction_closed": false,
+    "exact_integer_limb_or_bit_plane_arithmetic_class_closed": false,
+    "fp8_projection_attention_gdn_or_whole_runner_measured": false,
+    "permitted_successor": "return to the Roadmap-owned real-P40 exact arithmetic-class witness before any alternative CUDA skeleton; persist and directly load authenticated AOT assets only if a viable composed arithmetic/dataflow remains",
+    "prohibited_continuation": "no tuning, profiling, repetition, or complete-runner scaffolding around the rejected BF16-HMMA skeleton"
+  },
+  "claim_boundary": {
+    "authorized": [
+      "the exact measured BF16-HMMA GateUp+SiLU and Down+residual P40000 kernel skeleton is not viable for the five-second complete projection allocation",
+      "the current kernel skeleton is closed without profiler or precision follow-up",
+      "the ordinary runner and production route remain unchanged"
+    ],
+    "not_authorized": [
+      "a hardware ceiling or impossibility claim",
+      "rejection of AOT loading, direct-startup assets, exact integer-limb or bit-plane execution, FP8 projections, Attention, GDN, or another architecture skeleton",
+      "a real-activation, complete-model, generation, API, throughput, TTFT, Decode, release, or production-performance claim",
+      "a no-owner-leak lifecycle classification"
+    ]
+  }
+}

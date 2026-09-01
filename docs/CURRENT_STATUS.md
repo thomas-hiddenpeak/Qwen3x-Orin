@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-08-27
+  last_reviewed: 2026-09-01
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-08-27.
+Snapshot date: 2026-09-01.
 
 This page is a replaceable state snapshot. It does not own architecture,
 delivery order, or experiment history. The system design is in
@@ -159,13 +159,27 @@ identities, state boundaries, route receipts, hashes, and claim limits are
 frozen in the
 [`selector v1 rejection record`](metadata/qwen36-27b-selector-exact-persistent-attention-v1-rejection-2026-08-27.json).
 
-The remaining P40 architecture gap therefore returns, in the order owned by
-the Roadmap, to the already tracked default-off
-`AC-PREFILL-SM87-AOT-SYSTEM-v1`. Its next admission is the real-P40 exact
+An owner-directed fail-fast checkpoint-weight-only P40000 screen at clean
+`e61cff9` has now rejected the current NVFP4 M128N256K64 persistent16
+BF16-HMMA GateUp+SiLU and Down+residual kernel skeleton. Its two single-layer
+CUDA-event pairs were 17,919.347656 and 17,919.783203 ms. The more favorable
+sample, charged to only 63 complete P40 MLP layers while treating the terminal
+M1 work and every other projection family as free, projects to 1,128.918902 s
+against the complete 5.0-second P40 projection allocation: a 225.7838x
+excess. The prerequisite real-weight M192 bitwise gate, full-output poison/
+zero check, input preservation, guards, CUDA cleanup, and complete pre/post
+device-handle audits pass. This valid negative result ends timing, profiling,
+and tuning of that BF16-HMMA skeleton; exact identities and claim limits are
+frozen in the
+[`P40000 quick-kill record`](metadata/qwen36-27b-sm87-target-aot-p40000-quick-kill-2026-09-01.json).
+
+The local rejection does not close AOT asset loading, a different exact
+arithmetic/dataflow class, or `AC-PREFILL-SM87-AOT-SYSTEM-v1` as a whole. In
+the order owned by the Roadmap, its next admission remains the real-P40 exact
 arithmetic-class witness from the mathematical ledger: projection exponent
 spans, exact limb/bit-plane and fallback pass counts, ordered FP32
 partial/scale rejoin, and BF16 publication bits must fit the 5.0-second
-projection allocation before further CUDA implementation. The frozen v1
+projection allocation before any successor CUDA skeleton. The frozen v1
 descriptor still names grouped-online Attention; replacing that route with an
 exact-qualified composition requires a successor candidate and plan identity
 rather than inheriting v1 evidence authority.
@@ -485,7 +499,7 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | Installed default context | Sealed P40 profile admits `prompt + output - 1 <= 44,095` with a 4,096-token output ceiling | P60 and approximately-P130 profiles remain unopened |
 | Ordinary request-state reuse | Installed 0.7.0 derives `already_clean`, exact committed dirty-prefix, or conservative full reset from lifecycle state and exposes a schema-v16 receipt; no runtime selector exists. Matched P1024/P4096/P8192 BCCB and a same-server P40000 lifecycle support retaining it across the verified lengths | Complete accuracy, independent-process target-length repetition, capability, and release qualification remain open; no material TTFT/throughput claim is attached to reset |
 | Target-length Prefill | Ordinary default includes exact prompt-wide preprocessing plus exact-span GDN; the preceding 0.6.0 P40 observation is 57.230764 tok/s and the 0.7.0 same-server lifecycle samples 57.391208--57.585234 tok/s without a throughput-comparison claim. The complete selector/whole-core v1 candidate is rejected for a valid P40000/O16 state/logit/token/text mismatch | Repetition, complete accuracy, P60/P130, the 2s/4s targets, and an accuracy-admissible fast P40 architecture remain open |
-| SM87 whole-system AOT Prefill candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` is default-off and non-executable; real-checkpoint upload/readback/private attachment is authenticated, and the layer-0 M192 Gate+Up/Down-plus-residual candidate has passed bitwise, same-ELF SM87 resource/geometry, and immediate-snapshot lifecycle gates | First complete the real-P40 exact arithmetic-class pass-count/fallback witness and prove it fits the 5.0-second projection allocation; then persist and directly load authenticated AOT payloads, compose all 64 layers plus FP8 QKV/Z/O, an exact-qualified Attention/GDN route under a matching versioned plan identity, buffers/state/handoffs without fallback, extend complete-model accuracy, open a reviewed admission launch, and return to real-P40 API evidence |
+| SM87 whole-system AOT Prefill candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` is default-off and non-executable; real-checkpoint upload/readback/private attachment is authenticated, the layer-0 M192 Gate+Up/Down-plus-residual candidate has passed bitwise and same-ELF SM87 gates, and the current P40000 BF16-HMMA skeleton is rejected by a valid 225.7838x-over-budget optimistic lower-bound screen | Complete the real-P40 exact arithmetic-class pass-count/fallback witness and prove it fits the 5.0-second projection allocation before another CUDA skeleton; only then persist/direct-load authenticated AOT payloads, compose FP8 QKV/Z/O plus exact-qualified Attention/GDN and all live layer/state/handoff work without fallback, extend complete-model accuracy, open a reviewed admission launch, and return to real-P40 API evidence |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Exact S>=65 fallback plus retained coupled-feed/consumer-order layouts and fixed short-position Graph cache in the sealed profile; split-KV rejected numerically; installed short proxy reaches 105.013349 ms/token / 9.522599 tok/s | Long-output stability, independent repetition, target-length behavior, and at least 10 tok/s remain to be qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
@@ -658,7 +672,7 @@ sequence and successor identity live exclusively in
 | Documentation-control propagation | The canonical main line now has one `AGENTS.md -> docs/README.md` Codex entry; pre-existing dirty worktrees do not receive it until explicitly integrated, because Codex reads the worktree in which a session starts | P0 |
 | Product API and long-context admission | Installed sealed P40 profile admits 40K plus normal Decode output; P60/P130 profiles and full cancellation semantics remain | P1 |
 | Exact deliverable identity | Installed 0.7.0/v3 ELF `d70ba913...` now has matched P1024/P4096/P8192 and same-server P40000 real-model/API reset evidence; the remaining matrix is accuracy, capability, independent-process target-length repetition, and stability | P2/P4 |
-| Prefill parity and physical plan | Current 0.7 same-server exact-default P40 lifecycle samples are 57.391208--57.585234 tok/s without throughput-comparison authority; selector/whole-core v1 is now formally rejected by a valid full-model P40000/O16 mismatch, while the existing whole-system AOT candidate has only preparation and layer-0 M192 authority | P3 (active; next P0 is the AOT exact arithmetic-class gate) |
+| Prefill parity and physical plan | Current 0.7 same-server exact-default P40 lifecycle samples are 57.391208--57.585234 tok/s without throughput-comparison authority; selector/whole-core v1 is rejected by a valid full-model P40000/O16 mismatch, and the current AOT BF16-HMMA projection skeleton is separately rejected by a checkpoint-weight-only 225.7838x-over-budget optimistic screen | P3 (active; the next P0 remains the AOT exact arithmetic-class gate, not tuning or profiling the rejected skeleton) |
 | Accuracy, capability, stability, and release evidence | Partial oracles only; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install, startup, upgrade, or rollback lane | P5 |
 
