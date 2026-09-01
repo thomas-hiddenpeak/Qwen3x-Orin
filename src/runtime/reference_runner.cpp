@@ -3,6 +3,9 @@
 #include "reference_runner_decode_gqa_policy_internal.h"
 #include "reference_runner_gdn_exact_span_policy_internal.h"
 #include "reference_runner_prompt_wide_policy_internal.h"
+#if defined(Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
+#include "reference_runner_aot_arithmetic_witness_internal.h"
+#endif
 #if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
 #include "reference_runner_full_attention_oracle_internal.h"
 #endif
@@ -154,6 +157,11 @@ thread_local std::size_t
 thread_local reference_runner_detail::
     PrefillLayer3AttentionP513OracleHook
         g_prefill_layer3_attention_p513_oracle_hook{};
+#endif
+
+#if defined(Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
+thread_local reference_runner_detail::AotArithmeticWitnessAOperandHook
+    g_aot_arithmetic_witness_a_operand_hook{};
 #endif
 
 [[nodiscard]] reference_runner_detail::ReferenceRunnerPromptWidePolicy
@@ -1033,6 +1041,14 @@ ConstBf16Span ReferenceTraceView::final_norm() const noexcept {
 }
 
 namespace reference_runner_detail {
+
+#if defined(Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
+AotArithmeticWitnessAOperandHook
+exchange_aot_arithmetic_witness_a_operand_hook(
+    const AotArithmeticWitnessAOperandHook hook) noexcept {
+  return std::exchange(g_aot_arithmetic_witness_a_operand_hook, hook);
+}
+#endif
 
 #if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
 ReferenceRunnerPromptWidePolicyForTest
@@ -9105,6 +9121,56 @@ ReferenceRunner::enqueue_prefill_layer_segment(
                                    operation, layer, status);
     return false;
   };
+#if defined(Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
+  const auto observe_aot_arithmetic_a_operand =
+      [this, prompt_wide_scope, prompt_wide_policy, sealed_exact_arithmetic,
+       first_position, token_count, &check_cuda](
+          const reference_runner_detail::AotArithmeticWitnessProjectionRole
+              role,
+          const std::size_t layer, const std::size_t k, const std::size_t n,
+          const std::uint16_t* const activation_bf16,
+          const std::size_t activation_row_stride_elements,
+          const std::array<const LinearWeight*, 3U>& partitions,
+          const std::size_t partition_count,
+          const char* const operation) noexcept {
+        // This witness belongs only to the ordinary production-shaped SM87
+        // Legacy-C512 scope. Reference-backend, whole-request, and sealed
+        // candidate controls share this executor but are not this route.
+        if (!prompt_wide_scope || sealed_exact_arithmetic ||
+            !prompt_wide_policy.embedding ||
+            !prompt_wide_policy.full_attention_preprocess) {
+          return true;
+        }
+        const auto hook = g_aot_arithmetic_witness_a_operand_hook;
+        if (hook.callback == nullptr) {
+          return true;
+        }
+        reference_runner_detail::AotArithmeticWitnessAOperandView view;
+        view.role = role;
+        view.scope = reference_runner_detail::
+            AotArithmeticWitnessCaptureScope::
+                kLegacyPrefixLayerSegmentFinalScalarExcluded;
+        view.layer = layer;
+        view.first_position = first_position;
+        view.token_count = token_count;
+        view.k = k;
+        view.n = n;
+        view.activation_bf16 = activation_bf16;
+        view.activation_row_stride_elements =
+            activation_row_stride_elements;
+        view.partitions = partitions;
+        view.partition_count = partition_count;
+        view.cuda_stream = stream_;
+        view.ordinary_sm87_legacy_c512_scope = true;
+        view.production_final_scalar_excluded = true;
+        if (!reference_runner_detail::
+                is_valid_aot_arithmetic_witness_a_operand_view(view)) {
+          return check_cuda(static_cast<int>(cudaErrorInvalidValue), operation,
+                            layer);
+        }
+        return check_cuda(hook.callback(view, hook.context), operation, layer);
+      };
+#endif
   bool fp8_marlin_tile_enabled = false;
   std::int32_t* fp8_marlin_locks = nullptr;
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
@@ -9593,6 +9659,19 @@ ReferenceRunner::enqueue_prefill_layer_segment(
             ReferenceRunnerError::kInvalidLayerSchedule,
             "prefill_linear_attention_variant", layer));
       }
+#if defined(Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
+      if (!observe_aot_arithmetic_a_operand(
+              reference_runner_detail::
+                  AotArithmeticWitnessProjectionRole::kFp8GdnQkvZ,
+              layer, kReferenceHiddenSize,
+              kLinearQkvElements + kLinearValueElements,
+              execution_views.hidden[1], kReferenceHiddenSize,
+              std::array<const LinearWeight*, 3U>{
+                  {&attention->in_proj_qkv, &attention->in_proj_z, nullptr}},
+              2U, "prefill_aot_arithmetic_witness_gdn_qkvz")) {
+        return fail_enqueue(launch_failure);
+      }
+#endif
       bool linear_qkvz_projected = false;
       PrefillProjectionExecution linear_qkv_route =
           PrefillProjectionExecution::kUnknown;
@@ -9977,6 +10056,18 @@ ReferenceRunner::enqueue_prefill_layer_segment(
               "prefill_linear_output_norm_gate", layer)) {
         return fail_enqueue(launch_failure);
       }
+#if defined(Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
+      if (!observe_aot_arithmetic_a_operand(
+              reference_runner_detail::
+                  AotArithmeticWitnessProjectionRole::kFp8AttentionOutput,
+              layer, kLinearValueElements, kReferenceHiddenSize,
+              execution_views.projection[2], kLinearValueElements,
+              std::array<const LinearWeight*, 3U>{
+                  {&attention->out_proj, nullptr, nullptr}},
+              1U, "prefill_aot_arithmetic_witness_gdn_output")) {
+        return fail_enqueue(launch_failure);
+      }
+#endif
       PrefillProjectionExecution linear_o_route =
           PrefillProjectionExecution::kUnknown;
       if (!project_attention_output(
@@ -10038,6 +10129,20 @@ ReferenceRunner::enqueue_prefill_layer_segment(
           PrefillProjectionExecution::kUnknown;
       PrefillProjectionExecution full_v_route =
           PrefillProjectionExecution::kUnknown;
+#if defined(Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
+      if (!observe_aot_arithmetic_a_operand(
+              reference_runner_detail::
+                  AotArithmeticWitnessProjectionRole::kFp8FullQkv,
+              layer, kReferenceHiddenSize,
+              kFullQGateElements + 2U * kFullKvElements,
+              execution_views.hidden[1], kReferenceHiddenSize,
+              std::array<const LinearWeight*, 3U>{
+                  {&attention->q_proj, &attention->k_proj,
+                   &attention->v_proj}},
+              3U, "prefill_aot_arithmetic_witness_full_qkv")) {
+        return fail_enqueue(launch_failure);
+      }
+#endif
       if (has_fp8_prefill_supermatrix_sidecar(attention->q_proj) &&
           has_fp8_prefill_supermatrix_sidecar(attention->k_proj) &&
           has_fp8_prefill_supermatrix_sidecar(attention->v_proj)) {
@@ -10277,6 +10382,18 @@ ReferenceRunner::enqueue_prefill_layer_segment(
           return fail_enqueue(launch_failure);
         }
       }
+#if defined(Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
+      if (!observe_aot_arithmetic_a_operand(
+              reference_runner_detail::
+                  AotArithmeticWitnessProjectionRole::kFp8AttentionOutput,
+              layer, kFullQueryElements, kReferenceHiddenSize,
+              execution_views.projection[1], kFullQueryElements,
+              std::array<const LinearWeight*, 3U>{
+                  {&attention->o_proj, nullptr, nullptr}},
+              1U, "prefill_aot_arithmetic_witness_full_output")) {
+        return fail_enqueue(launch_failure);
+      }
+#endif
       PrefillProjectionExecution full_o_route =
           PrefillProjectionExecution::kUnknown;
       if (!project_attention_output(
@@ -10325,6 +10442,19 @@ ReferenceRunner::enqueue_prefill_layer_segment(
         return fail_enqueue(launch_failure);
       }
     }
+#if defined(Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
+    if (!observe_aot_arithmetic_a_operand(
+            reference_runner_detail::AotArithmeticWitnessProjectionRole::
+                kNvFp4GateUp,
+            layer, kReferenceHiddenSize, 2U * kReferenceIntermediateSize,
+            execution_views.hidden[1], kReferenceHiddenSize,
+            std::array<const LinearWeight*, 3U>{
+                {&layer_weights.mlp.gate_proj, &layer_weights.mlp.up_proj,
+                 nullptr}},
+            2U, "prefill_aot_arithmetic_witness_mlp_gate_up")) {
+      return fail_enqueue(launch_failure);
+    }
+#endif
     bool marlin_mlp_completed = false;
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
     const auto* const marlin_gate =
@@ -10416,6 +10546,16 @@ ReferenceRunner::enqueue_prefill_layer_segment(
                              execution_views.projection[0], token_count,
                              execution_views.projection[2], stream_),
                          "prefill_marlin_gate_up_silu", layer))) ||
+#if defined(Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
+            !observe_aot_arithmetic_a_operand(
+                reference_runner_detail::AotArithmeticWitnessProjectionRole::
+                    kNvFp4Down,
+                layer, kReferenceIntermediateSize, kReferenceHiddenSize,
+                execution_views.projection[2], kReferenceIntermediateSize,
+                std::array<const LinearWeight*, 3U>{
+                    {&layer_weights.mlp.down_proj, nullptr, nullptr}},
+                1U, "prefill_aot_arithmetic_witness_marlin_mlp_down") ||
+#endif
             !check_cuda(
                 kernels::launch_sm87_nvfp4_marlin_down_cuda(
                     execution_views.projection[2],
@@ -10519,6 +10659,18 @@ ReferenceRunner::enqueue_prefill_layer_segment(
                     "prefill_mlp_silu_mul", layer)) {
         return fail_enqueue(launch_failure);
       }
+#if defined(Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
+      if (!observe_aot_arithmetic_a_operand(
+              reference_runner_detail::AotArithmeticWitnessProjectionRole::
+                  kNvFp4Down,
+              layer, kReferenceIntermediateSize, kReferenceHiddenSize,
+              execution_views.projection[0], kReferenceIntermediateSize,
+              std::array<const LinearWeight*, 3U>{
+                  {&layer_weights.mlp.down_proj, nullptr, nullptr}},
+              1U, "prefill_aot_arithmetic_witness_generic_mlp_down")) {
+        return fail_enqueue(launch_failure);
+      }
+#endif
       if (!project_down(layer_weights.mlp.down_proj, execution_views.projection[0],
                         execution_views.hidden[1], "prefill_mlp_down_projection",
                         layer)) {

@@ -107,7 +107,7 @@ option(Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION
   OFF
 )
 option(Q3X_BUILD_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS
-  "Build the host-only real-P40 arithmetic-class witness for AC-PREFILL-SM87-AOT-SYSTEM-v1"
+  "Build the test-only host contracts and real-P40 arithmetic-class witness for AC-PREFILL-SM87-AOT-SYSTEM-v1"
   OFF
 )
 option(Q3X_BUILD_SM87_TARGET_AOT_PROJECTION_V1_ADMISSION
@@ -767,6 +767,14 @@ if(Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION)
     Q3X_ENABLE_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
+  target_sources(q3x_kernels PRIVATE
+    src/runtime/reference_runner_aot_arithmetic_witness_internal.h
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS=1
+  )
+endif()
 if(BUILD_TESTING)
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS=1
@@ -973,6 +981,19 @@ if(BUILD_TESTING)
     set_tests_properties(orin_perf_preflight_host PROPERTIES
       LABELS "performance;preflight;host"
     )
+    if(Q3X_BUILD_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS)
+      add_test(
+        NAME sm87_aot_real_p40_arithmetic_witness_launcher_host
+        COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
+                "${Python3_EXECUTABLE}" -m unittest
+                tests.run_sm87_aot_real_p40_arithmetic_witness_test
+      )
+      set_tests_properties(
+        sm87_aot_real_p40_arithmetic_witness_launcher_host PROPERTIES
+        LABELS "performance;preflight;host;sm87;target_aot;arithmetic_class;default_off"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+      )
+    endif()
     add_test(
       NAME target_aot_nvmap_recovery_host
       COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
@@ -2974,6 +2995,7 @@ if(BUILD_TESTING)
       tests/sm87_aot_system_v1_arithmetic_witness_probe.cpp
       tests/support/sm87_aot_system_v1_checkpoint_reader_internal.cpp
       tests/support/sm87_aot_system_v1_arithmetic_witness_internal.cpp
+      tests/support/sm87_aot_system_v1_bmma_lower_bound_internal.cpp
     )
     target_include_directories(
       q3x_sm87_aot_system_v1_arithmetic_witness_probe PRIVATE
@@ -2987,6 +3009,7 @@ if(BUILD_TESTING)
       q3x_sm87_aot_system_v1_arithmetic_witness_probe PRIVATE
       Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ADMISSION=1
       Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS=1
+      Q3X_ENABLE_SM87_AOT_SYSTEM_V1_BMMA_LOWER_BOUND=1
     )
     q3x_enable_warnings(q3x_sm87_aot_system_v1_arithmetic_witness_probe)
     add_test(NAME sm87_aot_system_v1_arithmetic_witness_self_test
@@ -2995,6 +3018,123 @@ if(BUILD_TESTING)
     set_tests_properties(
       sm87_aot_system_v1_arithmetic_witness_self_test PROPERTIES
       LABELS "host;sm87;prefill;target_aot;arithmetic_class;witness;default_off"
+    )
+
+    add_executable(q3x_sm87_aot_system_v1_active_cell_cuda_test
+      tests/sm87_aot_system_v1_active_cell_cuda_test.cu
+      tests/support/sm87_aot_system_v1_active_cell_cuda.cu
+    )
+    target_include_directories(
+      q3x_sm87_aot_system_v1_active_cell_cuda_test PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/support"
+    )
+    target_compile_definitions(
+      q3x_sm87_aot_system_v1_active_cell_cuda_test PRIVATE
+      Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS=1
+    )
+    target_link_libraries(
+      q3x_sm87_aot_system_v1_active_cell_cuda_test PRIVATE CUDA::cudart
+    )
+    q3x_enable_warnings(q3x_sm87_aot_system_v1_active_cell_cuda_test)
+    add_test(NAME sm87_aot_system_v1_active_cell_cuda
+      COMMAND q3x_sm87_aot_system_v1_active_cell_cuda_test
+    )
+    set_tests_properties(sm87_aot_system_v1_active_cell_cuda PROPERTIES
+      LABELS "cuda;sm87;prefill;target_aot;arithmetic_class;witness;correctness;default_off"
+      SKIP_RETURN_CODE 77
+    )
+
+    add_executable(
+      q3x_sm87_aot_system_v1_real_p40_arithmetic_witness_probe
+      src/io/safetensors.cpp
+      tests/sm87_aot_system_v1_real_p40_arithmetic_witness_probe.cpp
+      tests/support/sm87_aot_system_v1_active_cell_cuda.cu
+      tests/support/sm87_aot_system_v1_bmma_lower_bound_internal.cpp
+      tests/support/sm87_aot_system_v1_checkpoint_reader_internal.cpp
+      tests/support/sm87_aot_system_v1_p40_projection_catalog_internal.cpp
+      tests/support/sm87_aot_system_v1_real_p40_active_cell_witness_internal.cpp
+    )
+    find_package(Git REQUIRED)
+    get_cmake_property(q3x_cache_variables CACHE_VARIABLES)
+    set(q3x_enabled_build_options)
+    foreach(q3x_cache_variable IN LISTS q3x_cache_variables)
+      if(q3x_cache_variable MATCHES "^Q3X_BUILD_" AND
+         ${q3x_cache_variable})
+        list(APPEND q3x_enabled_build_options "${q3x_cache_variable}")
+      endif()
+    endforeach()
+    list(SORT q3x_enabled_build_options)
+    list(JOIN q3x_enabled_build_options "," q3x_enabled_build_options_csv)
+    set(real_p40_arithmetic_witness_provenance_header
+      "${CMAKE_CURRENT_BINARY_DIR}/generated/tests/sm87_aot_real_p40_arithmetic_witness_provenance.h"
+    )
+    add_custom_target(q3x_sm87_aot_real_p40_arithmetic_witness_provenance
+      COMMAND "${CMAKE_COMMAND}"
+        "-DQ3X_PROVENANCE_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        "-DQ3X_PROVENANCE_GIT_EXECUTABLE=${GIT_EXECUTABLE}"
+        "-DQ3X_PROVENANCE_TEMPLATE=${CMAKE_SOURCE_DIR}/cmake/sm87_aot_real_p40_arithmetic_witness_provenance.h.in"
+        "-DQ3X_PROVENANCE_OUTPUT=${real_p40_arithmetic_witness_provenance_header}"
+        "-DQ3X_PROVENANCE_CMAKE_VERSION=${CMAKE_VERSION}"
+        "-DQ3X_PROVENANCE_GENERATOR=${CMAKE_GENERATOR}"
+        "-DQ3X_PROVENANCE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+        "-DQ3X_PROVENANCE_BUILD_TESTING=${BUILD_TESTING}"
+        "-DQ3X_PROVENANCE_Q3X_CUDA_ARCHITECTURES=${Q3X_CUDA_ARCHITECTURES}"
+        "-DQ3X_PROVENANCE_EFFECTIVE_CUDA_ARCHITECTURES=${CMAKE_CUDA_ARCHITECTURES}"
+        "-DQ3X_PROVENANCE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "-DQ3X_PROVENANCE_CXX_COMPILER_ID=${CMAKE_CXX_COMPILER_ID}"
+        "-DQ3X_PROVENANCE_CXX_COMPILER_VERSION=${CMAKE_CXX_COMPILER_VERSION}"
+        "-DQ3X_PROVENANCE_CUDA_COMPILER=${CMAKE_CUDA_COMPILER}"
+        "-DQ3X_PROVENANCE_CUDA_COMPILER_ID=${CMAKE_CUDA_COMPILER_ID}"
+        "-DQ3X_PROVENANCE_CUDA_COMPILER_VERSION=${CMAKE_CUDA_COMPILER_VERSION}"
+        "-DQ3X_PROVENANCE_CUDA_TOOLKIT_VERSION=${CUDAToolkit_VERSION}"
+        "-DQ3X_PROVENANCE_CXX_RELEASE_FLAGS=${CMAKE_CXX_FLAGS_RELEASE}"
+        "-DQ3X_PROVENANCE_CUDA_RELEASE_FLAGS=${CMAKE_CUDA_FLAGS_RELEASE}"
+        "-DQ3X_PROVENANCE_CXX_GLOBAL_FLAGS=${CMAKE_CXX_FLAGS}"
+        "-DQ3X_PROVENANCE_CUDA_GLOBAL_FLAGS=${CMAKE_CUDA_FLAGS}"
+        "-DQ3X_PROVENANCE_LAUNCHER_SOURCE=${CMAKE_SOURCE_DIR}/tools/evaluation/run_sm87_aot_real_p40_arithmetic_witness.py"
+        "-DQ3X_PROVENANCE_PREFLIGHT_SOURCE=${CMAKE_SOURCE_DIR}/tools/evaluation/orin_perf_preflight.py"
+        "-DQ3X_PROVENANCE_ENABLED_Q3X_BUILD_OPTIONS=${q3x_enabled_build_options_csv}"
+        "-DQ3X_PROVENANCE_AOT_SYSTEM_ADMISSION=${Q3X_BUILD_SM87_AOT_SYSTEM_V1_ADMISSION}"
+        "-DQ3X_PROVENANCE_ARITHMETIC_WITNESS_ADMISSION=${Q3X_BUILD_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS}"
+        -P "${CMAKE_SOURCE_DIR}/cmake/GenerateSm87AotRealP40ArithmeticWitnessProvenance.cmake"
+      BYPRODUCTS "${real_p40_arithmetic_witness_provenance_header}"
+      VERBATIM
+    )
+    add_dependencies(
+      q3x_sm87_aot_system_v1_real_p40_arithmetic_witness_probe
+      q3x_sm87_aot_real_p40_arithmetic_witness_provenance
+    )
+    target_include_directories(
+      q3x_sm87_aot_system_v1_real_p40_arithmetic_witness_probe PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/support"
+      "${CMAKE_CURRENT_BINARY_DIR}/generated/tests"
+    )
+    target_compile_features(
+      q3x_sm87_aot_system_v1_real_p40_arithmetic_witness_probe PRIVATE cxx_std_17
+    )
+    target_compile_definitions(
+      q3x_sm87_aot_system_v1_real_p40_arithmetic_witness_probe PRIVATE
+      Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ADMISSION=1
+      Q3X_ENABLE_SM87_AOT_SYSTEM_V1_ARITHMETIC_WITNESS=1
+      Q3X_ENABLE_SM87_AOT_SYSTEM_V1_BMMA_LOWER_BOUND=1
+    )
+    target_link_libraries(
+      q3x_sm87_aot_system_v1_real_p40_arithmetic_witness_probe PRIVATE
+      q3x::engine
+      CUDA::cudart
+    )
+    q3x_enable_warnings(
+      q3x_sm87_aot_system_v1_real_p40_arithmetic_witness_probe
+    )
+    add_test(NAME sm87_aot_system_v1_real_p40_arithmetic_witness_protocol
+      COMMAND q3x_sm87_aot_system_v1_real_p40_arithmetic_witness_probe
+              --self-test
+    )
+    set_tests_properties(
+      sm87_aot_system_v1_real_p40_arithmetic_witness_protocol PROPERTIES
+      LABELS "host;sm87;prefill;target_aot;arithmetic_class;witness;protocol;default_off"
     )
   endif()
 

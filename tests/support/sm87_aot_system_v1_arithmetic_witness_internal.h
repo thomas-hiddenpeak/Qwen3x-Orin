@@ -19,6 +19,7 @@ inline constexpr std::size_t kPanelRows = 128U;
 inline constexpr std::size_t kMmaRows = 16U;
 inline constexpr std::size_t kK16 = 16U;
 inline constexpr std::size_t kK64 = 64U;
+inline constexpr std::size_t kJointOutputTileColumns = 8U;
 inline constexpr double kProjectionBudgetSeconds = 5.0;
 
 inline constexpr std::size_t kExponentSpanHistogramSize = 256U;
@@ -39,6 +40,8 @@ enum class OperandRole : std::uint8_t {
 
 inline constexpr std::size_t kOperandRoleCount =
     static_cast<std::size_t>(OperandRole::kCount) - 1U;
+inline constexpr std::size_t kMaximumJointPartitions =
+    kernels::kSm87TargetAotProjectionMaximumPartitions;
 
 enum class Decision : std::uint8_t {
   kInconclusive = 0U,
@@ -211,6 +214,19 @@ class OperandDomainMerger {
   bool finalized_ = false;
 };
 
+struct JointPartitionReceipt {
+  kernels::Sm87TargetAotLogicalRole logical_role =
+      kernels::Sm87TargetAotLogicalRole::kInvalid;
+  std::uint32_t partition_index = 0U;
+  std::uint32_t n8_tile_count = 0U;
+  std::uint64_t joint_mapping_cells = 0U;
+  std::uint64_t direct_mapping_cells = 0U;
+  std::uint64_t fallback_mapping_cells = 0U;
+  std::uint64_t exact_direct_physical_ops = 0U;
+  std::array<std::uint8_t, 32U> mapping_sha256{};
+  bool enumeration_complete = false;
+};
+
 struct JointPassReceipt {
   // This is a joint activation x checkpoint-weight enumeration.  It must be
   // accumulated at the real (role, partition, selected K16/K64 alignment
@@ -219,11 +235,18 @@ struct JointPassReceipt {
   // bit-plane encoding, sign/carry metadata, fallback, and rejoin order.
   OperandRole role = OperandRole::kInvalid;
   ArithmeticClass arithmetic_class = ArithmeticClass::kInvalid;
+  // Activation-only alignment cells. This binds the joint enumerator back to
+  // the exact operand-domain inventory but is not itself a joint-cell count.
   std::uint64_t source_alignment_cells = 0U;
+  // Joint cells include every (activation alignment cell, partition, N8
+  // output tile) combination. A single activation cell may therefore be
+  // direct for one weight tile and fallback for another.
+  std::uint64_t joint_mapping_cells = 0U;
   std::uint64_t direct_alignment_cells = 0U;
   std::uint64_t fallback_alignment_cells = 0U;
   std::uint64_t exact_direct_physical_ops = 0U;
-  std::size_t partition_count = 0U;
+  std::uint32_t partition_count = 0U;
+  std::array<JointPartitionReceipt, kMaximumJointPartitions> partitions{};
   std::array<std::uint8_t, 32U> arithmetic_mapping_sha256{};
   std::array<std::uint8_t, 32U> checkpoint_manifest_sha256{};
   std::array<std::uint8_t, 32U> pass_receipt_sha256{};
@@ -295,6 +318,7 @@ struct DecisionReceipt {
   std::uint64_t direct_physical_ops = 0U;
   std::uint64_t ordered_bf16_physical_ops = 0U;
   std::array<std::uint64_t, kOperandRoleCount> role_source_alignment_cells{};
+  std::array<std::uint64_t, kOperandRoleCount> role_joint_mapping_cells{};
   std::array<std::uint64_t, kOperandRoleCount> role_direct_alignment_cells{};
   std::array<std::uint64_t, kOperandRoleCount> role_fallback_alignment_cells{};
   std::array<std::uint64_t, kOperandRoleCount> role_physical_ops{};
@@ -322,6 +346,9 @@ struct DecisionReceipt {
 
 [[nodiscard]] std::size_t expected_role_instances(OperandRole role) noexcept;
 [[nodiscard]] std::size_t expected_input_features(OperandRole role) noexcept;
+[[nodiscard]] std::size_t expected_output_features(OperandRole role) noexcept;
+[[nodiscard]] std::uint64_t expected_joint_mapping_cells(
+    OperandRole role, ArithmeticClass arithmetic_class) noexcept;
 [[nodiscard]] OperandCapturePoint expected_capture_point(
     OperandRole role) noexcept;
 [[nodiscard]] std::uint64_t expected_model_layer_mask(

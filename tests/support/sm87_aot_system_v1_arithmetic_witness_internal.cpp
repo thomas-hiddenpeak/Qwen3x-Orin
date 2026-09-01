@@ -697,6 +697,33 @@ using PlaneBits = std::array<std::uint64_t, kPlaneWords>;
          (features / kK64);
 }
 
+[[nodiscard]] bool expected_output_tile_count(
+    const OperandRole role, std::uint64_t& result) noexcept {
+  const auto plan = kernels::sm87_target_aot_projection_plan(
+      projection_role(role), kP40Tokens);
+  if (!plan.valid() || plan.partition_count == 0U ||
+      plan.partition_count > plan.partitions.size()) {
+    return false;
+  }
+  result = 0U;
+  std::size_t expected_offset = 0U;
+  for (std::size_t index = 0U; index < plan.partition_count; ++index) {
+    const auto& partition = plan.partitions[index];
+    if (partition.output_offset != expected_offset ||
+        partition.output_features == 0U ||
+        partition.output_features % kJointOutputTileColumns != 0U ||
+        !checked_add(result,
+                     static_cast<std::uint64_t>(partition.output_features /
+                                                kJointOutputTileColumns))) {
+      return false;
+    }
+    if (!checked_add_size(expected_offset, partition.output_features)) {
+      return false;
+    }
+  }
+  return expected_offset == plan.projected_output_features && result != 0U;
+}
+
 [[nodiscard]] bool finite_nonnegative(const double value) noexcept {
   return std::isfinite(value) && value >= 0.0;
 }
@@ -1037,6 +1064,99 @@ template <std::size_t Size>
   result.valid = result.valid && result.analysis_inventory_digest_present;
   result.layer_inventory_complete = result.valid;
   return result;
+}
+
+[[nodiscard]] bool populate_synthetic_joint_pass(
+    RoleMapping& mapping) noexcept {
+  if (!arithmetic_class_valid(mapping.arithmetic_class)) {
+    return false;
+  }
+  const auto plan = kernels::sm87_target_aot_projection_plan(
+      projection_role(mapping.role), kP40Tokens);
+  const CellDomainSummary& execution_cells =
+      arithmetic_class_uses_k16(mapping.arithmetic_class)
+          ? mapping.operand.k16
+          : mapping.operand.k64;
+  if (!plan.valid() || plan.partition_count == 0U ||
+      plan.partition_count > mapping.joint_pass.partitions.size() ||
+      execution_cells.cell_count == 0U) {
+    return false;
+  }
+
+  JointPassReceipt receipt;
+  receipt.role = mapping.role;
+  receipt.arithmetic_class = mapping.arithmetic_class;
+  receipt.source_alignment_cells = execution_cells.cell_count;
+  receipt.partition_count = static_cast<std::uint32_t>(plan.partition_count);
+  for (std::size_t index = 0U; index < plan.partition_count; ++index) {
+    const auto& expected = plan.partitions[index];
+    JointPartitionReceipt& partition = receipt.partitions[index];
+    std::uint64_t n8_tiles = 0U;
+    std::uint64_t special_fallback_cells = 0U;
+    std::uint64_t direct_cells = 0U;
+    std::uint64_t physical_ops = 0U;
+    std::uint64_t intermediate = 0U;
+    if (expected.output_features == 0U ||
+        expected.output_features % kJointOutputTileColumns != 0U) {
+      return false;
+    }
+    n8_tiles = expected.output_features / kJointOutputTileColumns;
+    if (n8_tiles > std::numeric_limits<std::uint32_t>::max() ||
+        !checked_multiply(execution_cells.cell_count, n8_tiles,
+                          partition.joint_mapping_cells) ||
+        !checked_multiply(execution_cells.special_cell_count, n8_tiles,
+                          special_fallback_cells) ||
+        special_fallback_cells > partition.joint_mapping_cells) {
+      return false;
+    }
+    direct_cells = partition.joint_mapping_cells - special_fallback_cells;
+    if (!checked_multiply(2U * kP40Tokens,
+                          static_cast<std::uint64_t>(plan.input_features),
+                          intermediate) ||
+        !checked_multiply(
+            intermediate,
+            static_cast<std::uint64_t>(expected.output_features),
+            intermediate) ||
+        !checked_multiply(
+            intermediate,
+            static_cast<std::uint64_t>(expected_role_instances(mapping.role)),
+            physical_ops)) {
+      return false;
+    }
+    partition.logical_role = expected.role;
+    partition.partition_index = static_cast<std::uint32_t>(index);
+    partition.n8_tile_count = static_cast<std::uint32_t>(n8_tiles);
+    partition.direct_mapping_cells = direct_cells;
+    partition.fallback_mapping_cells = special_fallback_cells;
+    partition.exact_direct_physical_ops = physical_ops;
+    partition.mapping_sha256[0U] =
+        static_cast<std::uint8_t>(0x70U + index);
+    partition.enumeration_complete = true;
+    if (!checked_add(receipt.joint_mapping_cells,
+                     partition.joint_mapping_cells) ||
+        !checked_add(receipt.direct_alignment_cells,
+                     partition.direct_mapping_cells) ||
+        !checked_add(receipt.fallback_alignment_cells,
+                     partition.fallback_mapping_cells) ||
+        !checked_add(receipt.exact_direct_physical_ops,
+                     partition.exact_direct_physical_ops)) {
+      return false;
+    }
+  }
+  receipt.arithmetic_mapping_sha256[0U] = 0xa5U;
+  receipt.checkpoint_manifest_sha256[0U] = 0xc1U;
+  receipt.pass_receipt_sha256[0U] = 0xd1U;
+  receipt.activation_weight_joint_enumeration_complete = true;
+  receipt.checkpoint_weights_authenticated = true;
+  receipt.partition_inventory_complete = true;
+  receipt.encoding_metadata_complete = true;
+  receipt.pass_accounting_authenticated = true;
+  mapping.joint_pass = receipt;
+  return receipt.joint_mapping_cells ==
+             expected_joint_mapping_cells(mapping.role,
+                                          mapping.arithmetic_class) &&
+         receipt.exact_direct_physical_ops ==
+             role_logical_projection_ops(mapping.role);
 }
 
 }  // namespace
@@ -1386,6 +1506,31 @@ std::size_t expected_input_features(const OperandRole role) noexcept {
   return plan.valid() ? plan.input_features : 0U;
 }
 
+std::size_t expected_output_features(const OperandRole role) noexcept {
+  const auto plan = kernels::sm87_target_aot_projection_plan(
+      projection_role(role), kP40Tokens);
+  return plan.valid() ? plan.projected_output_features : 0U;
+}
+
+std::uint64_t expected_joint_mapping_cells(
+    const OperandRole role,
+    const ArithmeticClass arithmetic_class) noexcept {
+  if (!arithmetic_class_valid(arithmetic_class)) {
+    return 0U;
+  }
+  std::uint64_t output_tiles = 0U;
+  std::uint64_t result = 0U;
+  const std::uint64_t activation_cells =
+      arithmetic_class_uses_k16(arithmetic_class) ? expected_k16_cells(role)
+                                                  : expected_k64_cells(role);
+  if (activation_cells == 0U ||
+      !expected_output_tile_count(role, output_tiles) ||
+      !checked_multiply(activation_cells, output_tiles, result)) {
+    return 0U;
+  }
+  return result;
+}
+
 std::size_t expected_partition_count(const OperandRole role) noexcept {
   const auto plan = kernels::sm87_target_aot_projection_plan(
       projection_role(role), kP40Tokens);
@@ -1565,20 +1710,96 @@ static DecisionReceipt evaluate_provisional_for_self_test(
         arithmetic_class_uses_k16(mapping.arithmetic_class)
             ? mapping.operand.k16
             : mapping.operand.k64;
-    std::uint64_t accounted_joint_cells =
-        mapping.joint_pass.direct_alignment_cells;
+    const auto projection_plan = kernels::sm87_target_aot_projection_plan(
+        projection_role(mapping.role), kP40Tokens);
+    const std::uint64_t expected_joint_cells =
+        expected_joint_mapping_cells(mapping.role, mapping.arithmetic_class);
+    std::uint64_t accounted_joint_cells = 0U;
+    std::uint64_t accounted_direct_cells = 0U;
+    std::uint64_t accounted_fallback_cells = 0U;
+    std::uint64_t accounted_direct_physical_ops = 0U;
+    bool partition_receipts_valid =
+        projection_plan.valid() && projection_plan.partition_count != 0U &&
+        projection_plan.partition_count <=
+            mapping.joint_pass.partitions.size();
+    for (std::size_t partition_index = 0U;
+         partition_index < mapping.joint_pass.partitions.size();
+         ++partition_index) {
+      const JointPartitionReceipt& receipt =
+          mapping.joint_pass.partitions[partition_index];
+      if (partition_index >= projection_plan.partition_count) {
+        partition_receipts_valid =
+            partition_receipts_valid &&
+            receipt.logical_role ==
+                kernels::Sm87TargetAotLogicalRole::kInvalid &&
+            receipt.n8_tile_count == 0U &&
+            receipt.joint_mapping_cells == 0U &&
+            receipt.direct_mapping_cells == 0U &&
+            receipt.fallback_mapping_cells == 0U &&
+            receipt.exact_direct_physical_ops == 0U &&
+            !digest_is_nonzero(receipt.mapping_sha256) &&
+            !receipt.enumeration_complete;
+        continue;
+      }
+      const auto& expected_partition =
+          projection_plan.partitions[partition_index];
+      const std::uint64_t n8_tiles =
+          expected_partition.output_features / kJointOutputTileColumns;
+      std::uint64_t expected_partition_cells = 0U;
+      std::uint64_t expected_special_fallback_cells = 0U;
+      std::uint64_t partition_cell_sum = receipt.direct_mapping_cells;
+      const bool partition_arithmetic_valid =
+          expected_partition.output_features != 0U &&
+          expected_partition.output_features % kJointOutputTileColumns == 0U &&
+          n8_tiles <= std::numeric_limits<std::uint32_t>::max() &&
+          checked_multiply(execution_cells.cell_count, n8_tiles,
+                           expected_partition_cells) &&
+          checked_multiply(execution_cells.special_cell_count, n8_tiles,
+                           expected_special_fallback_cells) &&
+          checked_add(partition_cell_sum,
+                      receipt.fallback_mapping_cells);
+      partition_receipts_valid =
+          partition_receipts_valid && partition_arithmetic_valid &&
+          receipt.partition_index == partition_index &&
+          receipt.logical_role == expected_partition.role &&
+          receipt.n8_tile_count == n8_tiles &&
+          receipt.joint_mapping_cells == expected_partition_cells &&
+          partition_cell_sum == expected_partition_cells &&
+          receipt.fallback_mapping_cells >=
+              expected_special_fallback_cells &&
+          digest_is_nonzero(receipt.mapping_sha256) &&
+          receipt.enumeration_complete &&
+          checked_add(accounted_joint_cells, receipt.joint_mapping_cells) &&
+          checked_add(accounted_direct_cells, receipt.direct_mapping_cells) &&
+          checked_add(accounted_fallback_cells,
+                      receipt.fallback_mapping_cells) &&
+          checked_add(accounted_direct_physical_ops,
+                      receipt.exact_direct_physical_ops);
+    }
+    std::uint64_t partition_joint_sum = accounted_direct_cells;
+    std::uint64_t top_joint_sum = mapping.joint_pass.direct_alignment_cells;
     const bool joint_cell_sum_valid =
-        checked_add(accounted_joint_cells,
+        checked_add(partition_joint_sum, accounted_fallback_cells) &&
+        checked_add(top_joint_sum,
                     mapping.joint_pass.fallback_alignment_cells);
     const bool joint_valid =
         mapping.joint_pass.role == mapping.role &&
         mapping.joint_pass.arithmetic_class == mapping.arithmetic_class &&
         mapping.joint_pass.source_alignment_cells ==
             execution_cells.cell_count &&
+        expected_joint_cells != 0U &&
+        mapping.joint_pass.joint_mapping_cells == expected_joint_cells &&
+        partition_receipts_valid &&
+        accounted_joint_cells == expected_joint_cells &&
+        accounted_direct_cells ==
+            mapping.joint_pass.direct_alignment_cells &&
+        accounted_fallback_cells ==
+            mapping.joint_pass.fallback_alignment_cells &&
+        accounted_direct_physical_ops ==
+            mapping.joint_pass.exact_direct_physical_ops &&
         joint_cell_sum_valid &&
-        accounted_joint_cells == execution_cells.cell_count &&
-        mapping.joint_pass.fallback_alignment_cells >=
-            execution_cells.special_cell_count &&
+        partition_joint_sum == expected_joint_cells &&
+        top_joint_sum == expected_joint_cells &&
         mapping.joint_pass.partition_count ==
             expected_partition_count(mapping.role) &&
         digest_is_nonzero(mapping.joint_pass.arithmetic_mapping_sha256) &&
@@ -1604,6 +1825,8 @@ static DecisionReceipt evaluate_provisional_for_self_test(
         mapping.joint_pass.exact_direct_physical_ops;
     result.role_source_alignment_cells[index] =
         mapping.joint_pass.source_alignment_cells;
+    result.role_joint_mapping_cells[index] =
+        mapping.joint_pass.joint_mapping_cells;
     result.role_direct_alignment_cells[index] =
         mapping.joint_pass.direct_alignment_cells;
     result.role_fallback_alignment_cells[index] =
@@ -1821,6 +2044,41 @@ bool run_self_test() noexcept {
   expect(runtime::kSm87AotPrefillSystemCandidateId ==
          "AC-PREFILL-SM87-AOT-SYSTEM-v1");
   expect(total_logical_projection_ops() == 1'948'044'492'800'000ULL);
+  expect(expected_output_features(OperandRole::kNvFp4GateUp) == 34'816U &&
+         expected_output_features(OperandRole::kNvFp4Down) == 5'120U &&
+         expected_output_features(OperandRole::kFp8GdnQkvZ) == 16'384U &&
+         expected_output_features(OperandRole::kFp8FullQkv) == 14'336U &&
+         expected_output_features(OperandRole::kFp8AttentionOutput) == 5'120U);
+  expect(expected_joint_mapping_cells(
+             OperandRole::kNvFp4GateUp,
+             ArithmeticClass::kK16ExactBitPlanes) == 222'822'400'000ULL &&
+         expected_joint_mapping_cells(
+             OperandRole::kNvFp4Down,
+             ArithmeticClass::kK16ExactBitPlanes) == 111'411'200'000ULL &&
+         expected_joint_mapping_cells(
+             OperandRole::kFp8GdnQkvZ,
+             ArithmeticClass::kK16ExactBitPlanes) == 78'643'200'000ULL &&
+         expected_joint_mapping_cells(
+             OperandRole::kFp8FullQkv,
+             ArithmeticClass::kK16ExactBitPlanes) == 22'937'600'000ULL &&
+         expected_joint_mapping_cells(
+             OperandRole::kFp8AttentionOutput,
+             ArithmeticClass::kK16ExactBitPlanes) == 39'321'600'000ULL);
+  expect(expected_joint_mapping_cells(
+             OperandRole::kNvFp4GateUp,
+             ArithmeticClass::kK64ExactBitPlanes) == 6'974'341'120ULL &&
+         expected_joint_mapping_cells(
+             OperandRole::kNvFp4Down,
+             ArithmeticClass::kK64ExactBitPlanes) == 3'487'170'560ULL &&
+         expected_joint_mapping_cells(
+             OperandRole::kFp8GdnQkvZ,
+             ArithmeticClass::kK64ExactBitPlanes) == 2'461'532'160ULL &&
+         expected_joint_mapping_cells(
+             OperandRole::kFp8FullQkv,
+             ArithmeticClass::kK64ExactBitPlanes) == 717'946'880ULL &&
+         expected_joint_mapping_cells(
+             OperandRole::kFp8AttentionOutput,
+             ArithmeticClass::kK64ExactBitPlanes) == 1'230'766'080ULL);
   expect(population_count(expected_model_layer_mask(
              OperandRole::kFp8GdnQkvZ)) ==
              runtime::kSm87AotPrefillSystemGdnLayerCount &&
@@ -2101,24 +2359,11 @@ bool run_self_test() noexcept {
     mapping.role = static_cast<OperandRole>(index + 1U);
     mapping.arithmetic_class = ArithmeticClass::kK16SignedInt8Limbs;
     mapping.operand = synthetic_complete_summary(mapping.role, 1U);
-    mapping.joint_pass.role = mapping.role;
-    mapping.joint_pass.arithmetic_class = mapping.arithmetic_class;
-    mapping.joint_pass.source_alignment_cells = mapping.operand.k16.cell_count;
-    mapping.joint_pass.direct_alignment_cells = mapping.operand.k16.cell_count;
-    mapping.joint_pass.exact_direct_physical_ops =
-        role_logical_projection_ops(mapping.role);
-    mapping.joint_pass.partition_count =
-        expected_partition_count(mapping.role);
+    expect(populate_synthetic_joint_pass(mapping));
     mapping.joint_pass.arithmetic_mapping_sha256[0U] =
         static_cast<std::uint8_t>(index + 1U);
-    mapping.joint_pass.checkpoint_manifest_sha256[0U] = 0xc1U;
     mapping.joint_pass.pass_receipt_sha256[0U] =
         static_cast<std::uint8_t>(0xd0U + index);
-    mapping.joint_pass.activation_weight_joint_enumeration_complete = true;
-    mapping.joint_pass.checkpoint_weights_authenticated = true;
-    mapping.joint_pass.partition_inventory_complete = true;
-    mapping.joint_pass.encoding_metadata_complete = true;
-    mapping.joint_pass.pass_accounting_authenticated = true;
 
     CostEnvelope& cost = complete.role_costs[index];
     cost.scope = CostScope::kProjectionRole;
@@ -2234,11 +2479,9 @@ bool run_self_test() noexcept {
   Assessment fallback = complete;
   fallback.roles[0U].operand =
       synthetic_complete_summary(fallback.roles[0U].role, 1U, 1U);
-  fallback.roles[0U].joint_pass.source_alignment_cells =
-      fallback.roles[0U].operand.k16.cell_count;
-  fallback.roles[0U].joint_pass.direct_alignment_cells =
-      fallback.roles[0U].operand.k16.cell_count - 1U;
-  fallback.roles[0U].joint_pass.fallback_alignment_cells = 1U;
+  expect(populate_synthetic_joint_pass(fallback.roles[0U]));
+  fallback.role_costs[0U].arithmetic_mapping_sha256 =
+      fallback.roles[0U].joint_pass.arithmetic_mapping_sha256;
   fallback.role_costs[0U].charged_fallback_cells = 0U;
   const DecisionReceipt uncharged_fallback =
       evaluate_provisional_for_self_test(fallback);
@@ -2272,19 +2515,34 @@ bool run_self_test() noexcept {
   Assessment k64_mapping = complete;
   k64_mapping.roles[0U].arithmetic_class =
       ArithmeticClass::kK64SignedInt8Limbs;
-  k64_mapping.roles[0U].joint_pass.arithmetic_class =
-      ArithmeticClass::kK64SignedInt8Limbs;
-  k64_mapping.roles[0U].joint_pass.source_alignment_cells =
-      k64_mapping.roles[0U].operand.k64.cell_count;
-  k64_mapping.roles[0U].joint_pass.direct_alignment_cells =
-      k64_mapping.roles[0U].operand.k64.cell_count;
+  expect(populate_synthetic_joint_pass(k64_mapping.roles[0U]));
   k64_mapping.role_costs[0U].arithmetic_class =
       ArithmeticClass::kK64SignedInt8Limbs;
+  k64_mapping.role_costs[0U].arithmetic_mapping_sha256 =
+      k64_mapping.roles[0U].joint_pass.arithmetic_mapping_sha256;
   expect(evaluate_provisional_for_self_test(k64_mapping).decision ==
          Decision::kPass);
   k64_mapping.roles[0U].joint_pass.source_alignment_cells =
       k64_mapping.roles[0U].operand.k16.cell_count;
   expect((evaluate_provisional_for_self_test(k64_mapping).issues &
+          kWitnessIssueMissingJointPassReceipt) != 0U);
+
+  Assessment n256_under_count = complete;
+  n256_under_count.roles[0U].joint_pass.joint_mapping_cells /= 32U;
+  expect((evaluate_provisional_for_self_test(n256_under_count).issues &
+          kWitnessIssueMissingJointPassReceipt) != 0U);
+
+  Assessment missing_partition = complete;
+  missing_partition.roles[0U].joint_pass.partitions[1U] = {};
+  expect((evaluate_provisional_for_self_test(missing_partition).issues &
+          kWitnessIssueMissingJointPassReceipt) != 0U);
+
+  Assessment swapped_partition_roles = complete;
+  std::swap(swapped_partition_roles.roles[0U]
+                .joint_pass.partitions[0U].logical_role,
+            swapped_partition_roles.roles[0U]
+                .joint_pass.partitions[1U].logical_role);
+  expect((evaluate_provisional_for_self_test(swapped_partition_roles).issues &
           kWitnessIssueMissingJointPassReceipt) != 0U);
 
   Assessment corrupt_k64 = complete;
