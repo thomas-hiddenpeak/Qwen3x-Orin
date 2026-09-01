@@ -130,6 +130,7 @@ void write_boolean(std::ostream& output, const bool value) {
 
 struct ProbeEvidence final {
   bool passed = false;
+  bool p40000_quick_kill_requested = false;
   std::filesystem::path model_directory;
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
   std::string child_started_at_utc;
@@ -334,7 +335,104 @@ void write_artifact(
   write_boolean(output, value.exact);
   output << '}';
 }
+
+void write_p40000_kill_test(
+    std::ostream& output,
+    const oracle::Sm87TargetAotP40000KillTestEvidence& value) {
+  output << "{\n        \"authority\": ";
+  write_json_string(output, value.authority);
+  output << ",\n        \"kernel_skeleton\": ";
+  write_json_string(output, value.kernel_skeleton);
+  output << ",\n        \"decision\": ";
+  write_json_string(output, value.decision);
+  output << ",\n        \"token_count\": " << value.token_count
+         << ",\n        \"model_layers\": " << value.model_layers
+         << ",\n        \"full_prompt_mlp_layers\": "
+         << value.full_prompt_mlp_layers
+         << ",\n        \"warmup_pairs\": " << value.warmup_pairs
+         << ",\n        \"measured_pairs\": " << value.measured_pairs
+         << ",\n        \"samples\": [";
+  for (std::size_t index = 0U; index < value.pair_milliseconds.size();
+       ++index) {
+    output << (index == 0U ? "\n" : ",\n")
+           << "          {\"index\": " << index
+           << ", \"gate_up_milliseconds\": " << std::setprecision(17)
+           << value.gate_up_milliseconds[index]
+           << ", \"down_milliseconds\": "
+           << value.down_milliseconds[index]
+           << ", \"pair_milliseconds\": "
+           << value.pair_milliseconds[index] << '}';
+  }
+  output << "\n        ],\n        \"budget\": {"
+            "\"whole_product_projection_seconds\": "
+         << value.whole_product_projection_budget_seconds
+         << ", \"optimistic_pair_milliseconds\": "
+         << value.optimistic_pair_milliseconds
+         << ", \"optimistic_full_prompt_mlp_seconds\": "
+         << value.optimistic_full_prompt_mlp_seconds
+         << ", \"exceeded\": ";
+  write_boolean(output, value.budget_exceeded);
+  output << "},\n        \"zero\": {\"activation_fixture\": ";
+  write_boolean(output, value.zero_activation_fixture);
+  output << ", \"residual_fixture\": ";
+  write_boolean(output, value.zero_residual_fixture);
+  output << ", \"inputs_remained_zero\": ";
+  write_boolean(output, value.inputs_remained_zero);
+  output << ", \"outputs_all_zero\": ";
+  write_boolean(output, value.outputs_all_zero);
+  output << "},\n        \"guard\": {\"intact\": ";
+  write_boolean(output, value.guards_intact);
+  output << "},\n        \"events\": {\"destroyed\": ";
+  write_boolean(output, value.timing_events_destroyed);
+  output << "},\n        \"attempted\": ";
+  write_boolean(output, value.attempted);
+  output << ",\n        \"completed\": ";
+  write_boolean(output, value.completed);
+  output << "\n      }";
+}
 #endif
+
+[[nodiscard]] std::string_view quick_kill_status(
+    const ProbeEvidence& evidence) {
+#if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
+  if (!evidence.p40000_quick_kill_requested ||
+      !evidence.layer0_m192_oracle.value.has_value()) {
+    return "invalid";
+  }
+  const auto& result = *evidence.layer0_m192_oracle.value;
+  const auto& kill_test = result.p40000_kill_test;
+  const bool valid =
+      evidence.execution_identity_valid &&
+      evidence.source_build_provenance_valid &&
+      evidence.binary_provenance_valid && evidence.exact_target_inventory &&
+      evidence.mutually_exclusive_prefill_sidecars_empty &&
+      evidence.layer0_m192_oracle.ok() && evidence.synchronize_attempted &&
+      evidence.synchronize_cuda_error == 0 &&
+      evidence.engine_destroy_completed && kill_test.attempted &&
+      kill_test.completed &&
+      kill_test.token_count == 40'000U && kill_test.model_layers == 64U &&
+      kill_test.full_prompt_mlp_layers == 63U &&
+      kill_test.warmup_pairs != 0U && kill_test.measured_pairs == 2U &&
+      kill_test.zero_activation_fixture && kill_test.zero_residual_fixture &&
+      kill_test.inputs_remained_zero && kill_test.outputs_all_zero &&
+      kill_test.guards_intact && kill_test.timing_events_destroyed;
+  if (!valid) {
+    return "invalid";
+  }
+  if (kill_test.decision ==
+          "reject-current-nvfp4-bf16-hmma-kernel-skeleton" &&
+      kill_test.budget_exceeded) {
+    return "reject";
+  }
+  if (kill_test.decision == "continue-to-broader-composed-validation" &&
+      !kill_test.budget_exceeded) {
+    return "continue";
+  }
+#else
+  (void)evidence;
+#endif
+  return "invalid";
+}
 
 [[nodiscard]] bool capture_provenance(ProbeEvidence& evidence) {
   std::error_code error;
@@ -426,16 +524,31 @@ void write_artifact(
                                   const ProbeEvidence& evidence) {
   std::ostringstream output;
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
-  output << "{\n  \"schema_version\": 3,\n  \"artifact\": "
-            "\"q3x_sm87_target_aot_real_checkpoint_preparation\",\n"
-            "  \"status\": \""
-         << (evidence.passed ? "pass" : "fail")
-         << "\",\n  \"claim_boundary\": "
-            "\"prepare, authenticated device readback, private attachment, "
-            "fixed-M192 layer-0 numerical/resource oracle, and destruction "
-            "only; no generation, timing/performance, runner, public-launcher, "
-            "or production-route authority\",\n"
-            "  \"model_directory\": ";
+  if (evidence.p40000_quick_kill_requested) {
+    output << "{\n  \"schema_version\": 1,\n  \"artifact\": "
+              "\"q3x_sm87_target_aot_p40000_quick_kill\",\n"
+              "  \"status\": \""
+           << quick_kill_status(evidence)
+           << "\",\n  \"claim_boundary\": "
+              "\"checkpoint-weight-only optimistic early-stop authority for "
+              "the current NVFP4 M128N256K64 persistent16 BF16-HMMA "
+              "GateUp+SiLU and Down+residual kernel skeleton only; no real-"
+              "activation, FP8-projection, Attention, GDN, whole-runner, "
+              "generation, public-launcher, production-route, hardware-bound, "
+              "or AOT-class authority\",\n"
+              "  \"model_directory\": ";
+  } else {
+    output << "{\n  \"schema_version\": 3,\n  \"artifact\": "
+              "\"q3x_sm87_target_aot_real_checkpoint_preparation\",\n"
+              "  \"status\": \""
+           << (evidence.passed ? "pass" : "fail")
+           << "\",\n  \"claim_boundary\": "
+              "\"prepare, authenticated device readback, private attachment, "
+              "fixed-M192 layer-0 numerical/resource oracle, and destruction "
+              "only; no generation, timing/performance, runner, public-launcher, "
+              "or production-route authority\",\n"
+              "  \"model_directory\": ";
+  }
   write_json_string(output, evidence.model_directory.string());
   output << ",\n  \"execution_identity\": {\n    \"boot_id\": ";
   write_json_string(output, evidence.boot_id);
@@ -448,15 +561,29 @@ void write_artifact(
   write_boolean(output, evidence.execution_identity_valid);
   output << "\n  },\n  \"source\": {\n    \"git_commit\": ";
 #else
-  output << "{\n  \"schema_version\": 2,\n  \"artifact\": "
-            "\"q3x_sm87_target_aot_real_checkpoint_preparation\",\n"
-            "  \"status\": \""
-         << (evidence.passed ? "pass" : "fail")
-         << "\",\n  \"claim_boundary\": "
-            "\"prepare, authenticated device readback, private attachment, "
-            "and destruction only; no launcher, generation, numerical, "
-            "performance, or production-route authority\",\n"
-            "  \"model_directory\": ";
+  if (evidence.p40000_quick_kill_requested) {
+    output << "{\n  \"schema_version\": 1,\n  \"artifact\": "
+              "\"q3x_sm87_target_aot_p40000_quick_kill\",\n"
+              "  \"status\": \"invalid\",\n"
+              "  \"claim_boundary\": "
+              "\"checkpoint-weight-only optimistic early-stop authority for "
+              "the current NVFP4 M128N256K64 persistent16 BF16-HMMA "
+              "GateUp+SiLU and Down+residual kernel skeleton only; no real-"
+              "activation, FP8-projection, Attention, GDN, whole-runner, "
+              "generation, public-launcher, production-route, hardware-bound, "
+              "or AOT-class authority\",\n"
+              "  \"model_directory\": ";
+  } else {
+    output << "{\n  \"schema_version\": 2,\n  \"artifact\": "
+              "\"q3x_sm87_target_aot_real_checkpoint_preparation\",\n"
+              "  \"status\": \""
+           << (evidence.passed ? "pass" : "fail")
+           << "\",\n  \"claim_boundary\": "
+              "\"prepare, authenticated device readback, private attachment, "
+              "and destruction only; no launcher, generation, numerical, "
+              "performance, or production-route authority\",\n"
+              "  \"model_directory\": ";
+  }
   write_json_string(output, evidence.model_directory.string());
   output << ",\n  \"source\": {\n    \"git_commit\": ";
 #endif
@@ -789,6 +916,10 @@ void write_artifact(
     write_boundary(output, value.gate_up);
     output << ",\n      \"down_residual\": ";
     write_boundary(output, value.down_residual);
+    if (evidence.p40000_quick_kill_requested) {
+      output << ",\n      \"p40000_kill_test\": ";
+      write_p40000_kill_test(output, value.p40000_kill_test);
+    }
     output << ",\n      \"cleanup\": {\"synchronize_attempted\": ";
     write_boolean(output, value.cleanup.synchronize_attempted);
     output << ", \"synchronize_cuda_error\": "
@@ -840,15 +971,19 @@ void write_artifact(
 }  // namespace
 
 int main(const int argc, char** argv) {
-  if (argc != 3) {
+  const bool p40000_quick_kill_requested =
+      argc == 4 && std::string_view(argv[3]) == "--p40000-quick-kill";
+  if (argc != 3 && !p40000_quick_kill_requested) {
     std::cerr << "usage: " << argv[0]
-              << " MODEL_DIRECTORY EVIDENCE_JSON\n";
+              << " MODEL_DIRECTORY EVIDENCE_JSON "
+                 "[--p40000-quick-kill]\n";
     return 2;
   }
 
   static_assert(
       runtime::sm87_target_aot_projection_device_assets_compiled());
   ProbeEvidence evidence;
+  evidence.p40000_quick_kill_requested = p40000_quick_kill_requested;
   evidence.model_directory = argv[1];
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
   evidence.child_started_at_utc = utc_now();
@@ -980,9 +1115,15 @@ int main(const int argc, char** argv) {
       if (evidence.exact_target_inventory &&
           evidence.mutually_exclusive_prefill_sidecars_empty) {
         evidence.layer0_m192_oracle_attempted = true;
-        evidence.layer0_m192_oracle =
-            oracle::Sm87TargetAotLayer0M192OracleAccess::screen(
-                *created.value);
+        if (evidence.p40000_quick_kill_requested) {
+          evidence.layer0_m192_oracle =
+              oracle::Sm87TargetAotLayer0M192OracleAccess::screen(
+                  *created.value, true);
+        } else {
+          evidence.layer0_m192_oracle =
+              oracle::Sm87TargetAotLayer0M192OracleAccess::screen(
+                  *created.value, false);
+        }
         if (!evidence.layer0_m192_oracle) {
           evidence.diagnostic = evidence.layer0_m192_oracle.diagnostic;
         }
@@ -1068,7 +1209,19 @@ int main(const int argc, char** argv) {
   if (!write_evidence(evidence_path, evidence)) {
     std::cerr << "failed to publish create-only evidence: " << evidence_path
               << '\n';
-    return 3;
+    return evidence.p40000_quick_kill_requested ? 4 : 3;
+  }
+  if (evidence.p40000_quick_kill_requested) {
+    const std::string_view status = quick_kill_status(evidence);
+    std::cout << "target_aot_p40000_quick_kill=" << status << '\n'
+              << "evidence=" << evidence_path << '\n';
+    if (status == "continue") {
+      return 0;
+    }
+    if (status == "reject") {
+      return 3;
+    }
+    return 1;
   }
   std::cout << "target_aot_real_checkpoint_prepare="
             << (evidence.passed ? "pass" : "fail") << '\n'

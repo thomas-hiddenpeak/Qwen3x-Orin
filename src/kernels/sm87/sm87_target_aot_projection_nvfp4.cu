@@ -857,6 +857,26 @@ void sm87_target_aot_nvfp4_down_m192_oracle_kernel(
     __syncthreads();
   }
 }
+
+__global__ void sm87_target_aot_bf16_all_zero_check_kernel(
+    const std::uint16_t* __restrict__ values,
+    const std::size_t element_count,
+    std::uint32_t* __restrict__ nonzero_flag) {
+  const std::size_t first =
+      static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const std::size_t stride =
+      static_cast<std::size_t>(gridDim.x) * blockDim.x;
+  bool found_nonzero = false;
+  for (std::size_t index = first;
+       index < element_count && !found_nonzero; index += stride) {
+    // BF16 +0 and -0 differ only by their sign bit. All other encodings,
+    // including NaNs and infinities, are numerically non-zero for this check.
+    found_nonzero = (values[index] & 0x7FFFU) != 0U;
+  }
+  if (found_nonzero) {
+    atomicExch(nonzero_flag, 1U);
+  }
+}
 #endif
 
 [[nodiscard]] cudaError_t query_kernel_resources(
@@ -949,13 +969,16 @@ namespace {
          attributes.device == device_ordinal;
 }
 
-[[nodiscard]] bool fixed_m192_arguments_valid(
+[[nodiscard]] bool fixed_oracle_arguments_valid(
     const Sm87TargetAotProjectionRole role,
+    const std::size_t token_count,
     const std::uint16_t* const input,
     const Sm87TargetAotNvFp4CudaAssetView& asset,
     const std::uint16_t* const residual,
     std::uint16_t* const output) noexcept {
-  if (!sm87_target_aot_nvfp4_cuda_role(role) ||
+  if ((token_count != kTokenCount &&
+       token_count != kKillTestTokenCount) ||
+      !sm87_target_aot_nvfp4_cuda_role(role) ||
       !sm87_target_aot_nvfp4_cuda_asset_valid(asset) ||
       asset.payload.role != role || input == nullptr ||
       output == nullptr ||
@@ -978,15 +1001,15 @@ namespace {
           ? kSm87TargetAotProjectionIntermediate
           : kSm87TargetAotProjectionHidden;
   const auto input_range = sm87_target_aot_nvfp4_cuda_byte_range(
-      input, kTokenCount * input_features * sizeof(std::uint16_t));
+      input, token_count * input_features * sizeof(std::uint16_t));
   const auto output_range = sm87_target_aot_nvfp4_cuda_byte_range(
       output,
-      kTokenCount * output_features * sizeof(std::uint16_t));
+      token_count * output_features * sizeof(std::uint16_t));
   const auto residual_range =
       residual == nullptr
           ? Sm87TargetAotNvFp4CudaByteRange{}
           : sm87_target_aot_nvfp4_cuda_byte_range(
-                residual, kTokenCount * kSm87TargetAotProjectionHidden *
+                residual, token_count * kSm87TargetAotProjectionHidden *
                               sizeof(std::uint16_t));
   const auto& upload = asset.device_upload_receipt;
   const Sm87TargetAotNvFp4CudaByteRange allocation_range{
@@ -1031,6 +1054,48 @@ namespace {
     }
   }
   return true;
+}
+
+[[nodiscard]] cudaError_t launch_fixed_oracle(
+    const Sm87TargetAotProjectionRole role,
+    const std::size_t token_count,
+    const std::uint16_t* const input,
+    const Sm87TargetAotNvFp4CudaAssetView& authenticated_asset,
+    const std::uint16_t* const residual,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (!fixed_oracle_arguments_valid(role, token_count, input,
+                                    authenticated_asset, residual, output)) {
+    return cudaErrorInvalidValue;
+  }
+  cudaError_t status = set_oracle_dynamic_shared_attribute(role);
+  if (status != cudaSuccess) {
+    return status;
+  }
+  float scale0 = 0.0F;
+  float scale1 = 0.0F;
+  std::memcpy(&scale0, &authenticated_asset.tensor_scale_bits[0U],
+              sizeof(scale0));
+  if (authenticated_asset.tensor_scale_count == 2U) {
+    std::memcpy(&scale1, &authenticated_asset.tensor_scale_bits[1U],
+                sizeof(scale1));
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  const auto* const payload = reinterpret_cast<const std::uint8_t*>(
+      authenticated_asset.payload.begin);
+  (void)cudaGetLastError();
+  if (role == Sm87TargetAotProjectionRole::kNvFp4GateUp) {
+    sm87_target_aot_nvfp4_gate_up_kernel
+        <<<kPersistentCtas, kThreads, kSm87TargetAotNvFp4SharedBytes,
+           stream>>>(input, payload, static_cast<unsigned int>(token_count),
+                     scale0, scale1, output);
+  } else {
+    sm87_target_aot_nvfp4_down_m192_oracle_kernel
+        <<<kPersistentCtas, kThreads, kSm87TargetAotNvFp4SharedBytes,
+           stream>>>(input, payload, static_cast<unsigned int>(token_count),
+                     scale0, residual, output);
+  }
+  return cudaGetLastError();
 }
 
 }  // namespace
@@ -1105,37 +1170,57 @@ int launch(const Sm87TargetAotProjectionRole role,
            const std::uint16_t* const residual,
            std::uint16_t* const output,
            void* const cuda_stream) noexcept {
-  if (!fixed_m192_arguments_valid(role, input, authenticated_asset, residual,
-                                  output)) {
+  return static_cast<int>(launch_fixed_oracle(
+      role, kTokenCount, input, authenticated_asset, residual, output,
+      cuda_stream));
+}
+
+int launch_kill_test(
+    const Sm87TargetAotProjectionRole role,
+    const std::uint16_t* const input,
+    const Sm87TargetAotNvFp4CudaAssetView& authenticated_asset,
+    const std::uint16_t* const residual,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  return static_cast<int>(launch_fixed_oracle(
+      role, kKillTestTokenCount, input, authenticated_asset, residual, output,
+      cuda_stream));
+}
+
+int launch_all_zero_check(const std::uint16_t* const values,
+                          const std::size_t element_count,
+                          std::uint32_t* const nonzero_flag,
+                          void* const cuda_stream) noexcept {
+  if (values == nullptr || element_count == 0U || nonzero_flag == nullptr ||
+      reinterpret_cast<std::uintptr_t>(values) % alignof(std::uint16_t) !=
+          0U ||
+      reinterpret_cast<std::uintptr_t>(nonzero_flag) %
+              alignof(std::uint32_t) !=
+          0U) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
-  cudaError_t status = set_oracle_dynamic_shared_attribute(role);
-  if (status != cudaSuccess) {
-    return static_cast<int>(status);
+  const auto values_range = sm87_target_aot_nvfp4_cuda_byte_range(
+      values, element_count * sizeof(std::uint16_t));
+  const auto flag_range = sm87_target_aot_nvfp4_cuda_byte_range(
+      nonzero_flag, sizeof(*nonzero_flag));
+  int active_device = -1;
+  if (!values_range.valid || !flag_range.valid ||
+      sm87_target_aot_nvfp4_cuda_ranges_overlap(values_range, flag_range) ||
+      cudaGetDevice(&active_device) != cudaSuccess ||
+      !exact_device_pointer(values, active_device) ||
+      !exact_device_pointer(nonzero_flag, active_device)) {
+    return static_cast<int>(cudaErrorInvalidValue);
   }
-  float scale0 = 0.0F;
-  float scale1 = 0.0F;
-  std::memcpy(&scale0, &authenticated_asset.tensor_scale_bits[0U],
-              sizeof(scale0));
-  if (authenticated_asset.tensor_scale_count == 2U) {
-    std::memcpy(&scale1, &authenticated_asset.tensor_scale_bits[1U],
-                sizeof(scale1));
-  }
+
+  constexpr std::size_t kMaximumBlocks = 256U;
+  const std::size_t requested_blocks =
+      element_count / kThreads + (element_count % kThreads != 0U ? 1U : 0U);
+  const auto blocks = static_cast<unsigned int>(
+      requested_blocks < kMaximumBlocks ? requested_blocks : kMaximumBlocks);
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  const auto* const payload = reinterpret_cast<const std::uint8_t*>(
-      authenticated_asset.payload.begin);
   (void)cudaGetLastError();
-  if (role == Sm87TargetAotProjectionRole::kNvFp4GateUp) {
-    sm87_target_aot_nvfp4_gate_up_kernel
-        <<<kPersistentCtas, kThreads, kSm87TargetAotNvFp4SharedBytes,
-           stream>>>(input, payload, static_cast<unsigned int>(kTokenCount),
-                     scale0, scale1, output);
-  } else {
-    sm87_target_aot_nvfp4_down_m192_oracle_kernel
-        <<<kPersistentCtas, kThreads, kSm87TargetAotNvFp4SharedBytes,
-           stream>>>(input, payload, static_cast<unsigned int>(kTokenCount),
-                     scale0, residual, output);
-  }
+  sm87_target_aot_bf16_all_zero_check_kernel
+      <<<blocks, kThreads, 0U, stream>>>(values, element_count, nonzero_flag);
   return static_cast<int>(cudaGetLastError());
 }
 

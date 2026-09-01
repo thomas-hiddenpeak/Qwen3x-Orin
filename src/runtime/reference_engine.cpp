@@ -275,6 +275,52 @@ struct TargetAotOracleDeviceBuffer final {
   }
 };
 
+struct TargetAotOracleTimingEvents final {
+  cudaEvent_t start = nullptr;
+  cudaEvent_t gate_up_done = nullptr;
+  cudaEvent_t stop = nullptr;
+
+  TargetAotOracleTimingEvents() noexcept = default;
+  TargetAotOracleTimingEvents(const TargetAotOracleTimingEvents&) = delete;
+  TargetAotOracleTimingEvents& operator=(
+      const TargetAotOracleTimingEvents&) = delete;
+  ~TargetAotOracleTimingEvents() { (void)release(); }
+
+  [[nodiscard]] cudaError_t create() noexcept {
+    cudaError_t status = cudaEventCreate(&start);
+    if (status == cudaSuccess) {
+      status = cudaEventCreate(&gate_up_done);
+    }
+    if (status == cudaSuccess) {
+      status = cudaEventCreate(&stop);
+    }
+    return status;
+  }
+
+  [[nodiscard]] cudaError_t release() noexcept {
+    cudaError_t first_error = cudaSuccess;
+    const auto destroy = [&first_error](cudaEvent_t& event) {
+      if (event == nullptr) {
+        return;
+      }
+      const cudaError_t status = cudaEventDestroy(event);
+      if (status == cudaSuccess) {
+        event = nullptr;
+      } else if (first_error == cudaSuccess) {
+        first_error = status;
+      }
+    };
+    destroy(stop);
+    destroy(gate_up_done);
+    destroy(start);
+    return first_error;
+  }
+
+  [[nodiscard]] bool empty() const noexcept {
+    return start == nullptr && gate_up_done == nullptr && stop == nullptr;
+  }
+};
+
 [[nodiscard]] std::string target_aot_oracle_sha256(
     const std::vector<std::uint16_t>& values) {
   core::Sha256 hasher;
@@ -6182,13 +6228,28 @@ std::uint32_t ReferenceEngine::max_sequence_length() const noexcept {
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
 reference_engine_test_detail::Sm87TargetAotLayer0M192OracleOutcome
 reference_engine_test_detail::Sm87TargetAotLayer0M192OracleAccess::screen(
-    ReferenceEngine& engine) {
+    ReferenceEngine& engine, const bool run_p40000_kill_test) {
   Sm87TargetAotLayer0M192OracleOutcome outcome;
   Sm87TargetAotLayer0M192OracleResult result;
   result.layer_index = 0U;
   result.token_count = 192U;
   result.full_token_count = 128U;
   result.tail_token_count = 64U;
+  if (run_p40000_kill_test) {
+    result.p40000_kill_test.authority =
+        "checkpoint-weight-only-optimistic-early-stop";
+    result.p40000_kill_test.kernel_skeleton =
+        "nvfp4-m128n256k64-persistent16-bf16-hmma-gate-up-silu-down-residual";
+    result.p40000_kill_test.decision = "not-completed";
+    result.p40000_kill_test.token_count = 40'000U;
+    result.p40000_kill_test.model_layers = 64U;
+    // Layer 63 publishes K/V for all rows but only its final-row MLP remains
+    // live for ordinary next-token generation. Treat that M1 work as free so
+    // this early-stop projection is an optimistic lower bound.
+    result.p40000_kill_test.full_prompt_mlp_layers = 63U;
+    result.p40000_kill_test.whole_product_projection_budget_seconds = 5.0;
+    result.p40000_kill_test.attempted = true;
+  }
   using Role = kernels::Sm87TargetAotProjectionRole;
   using PrivateResources =
       kernels::sm87_target_aot_layer0_m192_oracle_detail::KernelResources;
@@ -6204,6 +6265,14 @@ reference_engine_test_detail::Sm87TargetAotLayer0M192OracleAccess::screen(
       kActivationElements * sizeof(std::uint16_t);
   constexpr std::size_t kGateUpBytes =
       kGateUpElements * sizeof(std::uint16_t);
+  constexpr std::size_t kKillTokens = kernels::
+      sm87_target_aot_layer0_m192_oracle_detail::kKillTestTokenCount;
+  constexpr std::size_t kKillHiddenElements = kKillTokens * kHidden;
+  constexpr std::size_t kKillGateUpElements = kKillTokens * kIntermediate;
+  constexpr std::size_t kKillHiddenBytes =
+      kKillHiddenElements * sizeof(std::uint16_t);
+  constexpr std::size_t kKillGateUpBytes =
+      kKillGateUpElements * sizeof(std::uint16_t);
 
   TargetAotOracleStream stream;
   TargetAotOracleDeviceBuffer activation;
@@ -6217,7 +6286,12 @@ reference_engine_test_detail::Sm87TargetAotLayer0M192OracleAccess::screen(
   TargetAotOracleDeviceBuffer candidate_down_residual;
   TargetAotOracleDeviceBuffer replay_gate_up;
   TargetAotOracleDeviceBuffer replay_down_residual;
-  std::array<TargetAotOracleDeviceBuffer*, 11U> buffers{{
+  TargetAotOracleDeviceBuffer kill_activation;
+  TargetAotOracleDeviceBuffer kill_residual;
+  TargetAotOracleDeviceBuffer kill_gate_up;
+  TargetAotOracleDeviceBuffer kill_down_residual;
+  TargetAotOracleDeviceBuffer kill_zero_check;
+  std::array<TargetAotOracleDeviceBuffer*, 16U> buffers{{
       &activation,
       &residual_fixture,
       &baseline_gate,
@@ -6229,7 +6303,14 @@ reference_engine_test_detail::Sm87TargetAotLayer0M192OracleAccess::screen(
       &candidate_down_residual,
       &replay_gate_up,
       &replay_down_residual,
+      &kill_activation,
+      &kill_residual,
+      &kill_gate_up,
+      &kill_down_residual,
+      &kill_zero_check,
   }};
+  const std::size_t active_buffer_count =
+      run_p40000_kill_test ? buffers.size() : 11U;
   bool cleanup_completed = false;
   const auto cleanup = [&]() {
     if (cleanup_completed) {
@@ -6241,7 +6322,8 @@ reference_engine_test_detail::Sm87TargetAotLayer0M192OracleAccess::screen(
       evidence.synchronize_cuda_error =
           static_cast<int>(cudaStreamSynchronize(stream.value));
     }
-    for (TargetAotOracleDeviceBuffer* const buffer : buffers) {
+    for (std::size_t index = 0U; index < active_buffer_count; ++index) {
+      TargetAotOracleDeviceBuffer* const buffer = buffers[index];
       if (buffer->allocation == nullptr) {
         continue;
       }
@@ -6261,8 +6343,10 @@ reference_engine_test_detail::Sm87TargetAotLayer0M192OracleAccess::screen(
     }
     evidence.passed = evidence.synchronize_attempted &&
                       evidence.synchronize_cuda_error == 0 &&
-                      evidence.device_frees_attempted == buffers.size() &&
-                      evidence.device_frees_succeeded == buffers.size() &&
+                      evidence.device_frees_attempted ==
+                          active_buffer_count &&
+                      evidence.device_frees_succeeded ==
+                          active_buffer_count &&
                       evidence.first_device_free_cuda_error == 0 &&
                       evidence.stream_destroy_attempted &&
                       evidence.stream_destroy_cuda_error == 0;
@@ -6683,6 +6767,21 @@ reference_engine_test_detail::Sm87TargetAotLayer0M192OracleAccess::screen(
     if (cuda_status == cudaSuccess) {
       cuda_status = allocate(replay_down_residual, kHiddenBytes);
     }
+    if (cuda_status == cudaSuccess && run_p40000_kill_test) {
+      cuda_status = allocate(kill_activation, kKillHiddenBytes);
+    }
+    if (cuda_status == cudaSuccess && run_p40000_kill_test) {
+      cuda_status = allocate(kill_residual, kKillHiddenBytes);
+    }
+    if (cuda_status == cudaSuccess && run_p40000_kill_test) {
+      cuda_status = allocate(kill_gate_up, kKillGateUpBytes);
+    }
+    if (cuda_status == cudaSuccess && run_p40000_kill_test) {
+      cuda_status = allocate(kill_down_residual, kKillHiddenBytes);
+    }
+    if (cuda_status == cudaSuccess && run_p40000_kill_test) {
+      cuda_status = allocate(kill_zero_check, sizeof(std::uint32_t));
+    }
     if (cuda_status != cudaSuccess) {
       return fail(ReferenceEngineError::kAllocationFailure,
                   "target_aot_layer0_m192_oracle_buffers",
@@ -6691,7 +6790,7 @@ reference_engine_test_detail::Sm87TargetAotLayer0M192OracleAccess::screen(
     }
 
     bool oracle_allocations_disjoint = owner_end_fits;
-    for (std::size_t index = 0U; index < buffers.size(); ++index) {
+    for (std::size_t index = 0U; index < active_buffer_count; ++index) {
       const auto* const buffer = buffers[index];
       const std::uintptr_t begin =
           reinterpret_cast<std::uintptr_t>(buffer->allocation);
@@ -6780,10 +6879,23 @@ reference_engine_test_detail::Sm87TargetAotLayer0M192OracleAccess::screen(
           residual_fixture.data, residual_host.data(), kHiddenBytes,
           cudaMemcpyHostToDevice, stream.value);
     }
+    if (cuda_status == cudaSuccess && run_p40000_kill_test) {
+      cuda_status = cudaMemsetAsync(kill_activation.data, 0,
+                                    kKillHiddenBytes, stream.value);
+    }
+    if (cuda_status == cudaSuccess && run_p40000_kill_test) {
+      result.p40000_kill_test.zero_activation_fixture = true;
+      cuda_status = cudaMemsetAsync(kill_residual.data, 0,
+                                    kKillHiddenBytes, stream.value);
+    }
+    if (cuda_status == cudaSuccess && run_p40000_kill_test) {
+      result.p40000_kill_test.zero_residual_fixture = true;
+    }
     if (cuda_status != cudaSuccess) {
       return fail(ReferenceEngineError::kRunnerStepFailure,
                   "target_aot_layer0_m192_oracle_fixture_upload",
-                  "could not upload deterministic finite BF16 fixtures",
+                  "could not upload deterministic finite BF16 fixtures or "
+                  "initialize the exact-P40000 early-stop fixtures",
                   static_cast<int>(cuda_status));
     }
 
@@ -7006,6 +7118,226 @@ reference_engine_test_detail::Sm87TargetAotLayer0M192OracleAccess::screen(
         baseline_down_host, candidate_down_host, replay_down_host, kHidden,
         baseline_down_guards, candidate_down_guards, replay_down_guards,
         result.down_residual);
+
+    const bool m192_correctness_valid =
+        result.activation_preserved_after_candidate &&
+        result.residual_preserved_after_candidate &&
+        result.activation_preserved_after_replay &&
+        result.residual_preserved_after_replay &&
+        result.gate_up.bitwise_exact && result.down_residual.bitwise_exact;
+    if (!m192_correctness_valid) {
+      return fail(ReferenceEngineError::kRunnerStepFailure,
+                  "target_aot_layer0_m192_oracle_correctness_gate",
+                  "the fixed-M192 real-weight correctness gate failed; the "
+                  "P40000 performance kill test was not run");
+    }
+
+    if (run_p40000_kill_test) {
+      auto& kill_test = result.p40000_kill_test;
+      const auto launch_kill_gate_up = [&]() {
+        return kernels::sm87_target_aot_layer0_m192_oracle_detail::
+            launch_kill_test(Role::kNvFp4GateUp, kill_activation.data,
+                             gate_up_asset->view, nullptr, kill_gate_up.data,
+                             static_cast<void*>(stream.value));
+      };
+      const auto launch_kill_down = [&]() {
+        return kernels::sm87_target_aot_layer0_m192_oracle_detail::
+            launch_kill_test(Role::kNvFp4Down, kill_gate_up.data,
+                             down_asset->view, kill_residual.data,
+                             kill_down_residual.data,
+                             static_cast<void*>(stream.value));
+      };
+
+      // This dense kernel has no value-dependent path. Zero activation is an
+      // intentionally optimistic fixture: rejection remains valid even if it
+      // happens to produce the most favorable clock or cache behavior.
+      status = launch_kill_gate_up();
+      if (status == static_cast<int>(cudaSuccess)) {
+        status = launch_kill_down();
+      }
+      if (status != static_cast<int>(cudaSuccess)) {
+        return fail(ReferenceEngineError::kRunnerStepFailure,
+                    "target_aot_p40000_kill_test_warmup",
+                    "the exact-P40000 candidate warmup failed", status);
+      }
+      ++kill_test.warmup_pairs;
+      cuda_status = cudaStreamSynchronize(stream.value);
+      if (cuda_status != cudaSuccess) {
+        return fail(ReferenceEngineError::kRunnerStepFailure,
+                    "target_aot_p40000_kill_test_warmup_synchronize",
+                    "the exact-P40000 candidate warmup did not complete",
+                    static_cast<int>(cuda_status));
+      }
+
+      TargetAotOracleTimingEvents timing;
+      cuda_status = timing.create();
+      if (cuda_status != cudaSuccess) {
+        return fail(ReferenceEngineError::kAllocationFailure,
+                    "target_aot_p40000_kill_test_events",
+                    "could not create the three CUDA timing events",
+                    static_cast<int>(cuda_status));
+      }
+      for (std::size_t sample = 0U;
+           sample < kill_test.pair_milliseconds.size(); ++sample) {
+        cuda_status = cudaEventRecord(timing.start, stream.value);
+        if (cuda_status == cudaSuccess) {
+          status = launch_kill_gate_up();
+        }
+        if (cuda_status == cudaSuccess &&
+            status == static_cast<int>(cudaSuccess)) {
+          cuda_status = cudaEventRecord(timing.gate_up_done, stream.value);
+        }
+        if (cuda_status == cudaSuccess &&
+            status == static_cast<int>(cudaSuccess)) {
+          status = launch_kill_down();
+        }
+        if (cuda_status == cudaSuccess &&
+            status == static_cast<int>(cudaSuccess)) {
+          cuda_status = cudaEventRecord(timing.stop, stream.value);
+        }
+        if (cuda_status == cudaSuccess &&
+            status == static_cast<int>(cudaSuccess)) {
+          cuda_status = cudaEventSynchronize(timing.stop);
+        }
+        float gate_up_ms = 0.0F;
+        float down_ms = 0.0F;
+        float pair_ms = 0.0F;
+        if (cuda_status == cudaSuccess &&
+            status == static_cast<int>(cudaSuccess)) {
+          cuda_status = cudaEventElapsedTime(
+              &gate_up_ms, timing.start, timing.gate_up_done);
+        }
+        if (cuda_status == cudaSuccess) {
+          cuda_status = cudaEventElapsedTime(
+              &down_ms, timing.gate_up_done, timing.stop);
+        }
+        if (cuda_status == cudaSuccess) {
+          cuda_status = cudaEventElapsedTime(&pair_ms, timing.start,
+                                             timing.stop);
+        }
+        if (status != static_cast<int>(cudaSuccess) ||
+            cuda_status != cudaSuccess || !std::isfinite(gate_up_ms) ||
+            !std::isfinite(down_ms) || !std::isfinite(pair_ms) ||
+            gate_up_ms <= 0.0F || down_ms <= 0.0F || pair_ms <= 0.0F) {
+          const int failure = status != static_cast<int>(cudaSuccess)
+                                  ? status
+                                  : static_cast<int>(cuda_status);
+          return fail(ReferenceEngineError::kRunnerStepFailure,
+                      "target_aot_p40000_kill_test_timing",
+                      "an exact-P40000 CUDA-event sample failed", failure);
+        }
+        kill_test.gate_up_milliseconds[sample] = gate_up_ms;
+        kill_test.down_milliseconds[sample] = down_ms;
+        kill_test.pair_milliseconds[sample] = pair_ms;
+        ++kill_test.measured_pairs;
+      }
+      cuda_status = timing.release();
+      kill_test.timing_events_destroyed =
+          cuda_status == cudaSuccess && timing.empty();
+      if (!kill_test.timing_events_destroyed) {
+        return fail(ReferenceEngineError::kRunnerStepFailure,
+                    "target_aot_p40000_kill_test_event_cleanup",
+                    "the exact-P40000 timing events were not destroyed",
+                    static_cast<int>(cuda_status));
+      }
+
+      std::uint32_t input_nonzero = 1U;
+      std::uint32_t output_nonzero = 1U;
+      auto* const zero_check =
+          reinterpret_cast<std::uint32_t*>(kill_zero_check.data);
+      cuda_status = cudaMemsetAsync(zero_check, 0, sizeof(*zero_check),
+                                    stream.value);
+      if (cuda_status == cudaSuccess) {
+        status = kernels::sm87_target_aot_layer0_m192_oracle_detail::
+            launch_all_zero_check(kill_activation.data, kKillHiddenElements,
+                                  zero_check,
+                                  static_cast<void*>(stream.value));
+      }
+      if (cuda_status == cudaSuccess &&
+          status == static_cast<int>(cudaSuccess)) {
+        status = kernels::sm87_target_aot_layer0_m192_oracle_detail::
+            launch_all_zero_check(kill_residual.data, kKillHiddenElements,
+                                  zero_check,
+                                  static_cast<void*>(stream.value));
+      }
+      if (cuda_status == cudaSuccess &&
+          status == static_cast<int>(cudaSuccess)) {
+        cuda_status = cudaMemcpyAsync(&input_nonzero, zero_check,
+                                      sizeof(input_nonzero),
+                                      cudaMemcpyDeviceToHost, stream.value);
+      }
+      if (cuda_status == cudaSuccess &&
+          status == static_cast<int>(cudaSuccess)) {
+        cuda_status = cudaMemsetAsync(zero_check, 0, sizeof(*zero_check),
+                                      stream.value);
+      }
+      if (cuda_status == cudaSuccess &&
+          status == static_cast<int>(cudaSuccess)) {
+        status = kernels::sm87_target_aot_layer0_m192_oracle_detail::
+            launch_all_zero_check(kill_gate_up.data, kKillGateUpElements,
+                                  zero_check,
+                                  static_cast<void*>(stream.value));
+      }
+      if (cuda_status == cudaSuccess &&
+          status == static_cast<int>(cudaSuccess)) {
+        status = kernels::sm87_target_aot_layer0_m192_oracle_detail::
+            launch_all_zero_check(kill_down_residual.data,
+                                  kKillHiddenElements, zero_check,
+                                  static_cast<void*>(stream.value));
+      }
+      if (cuda_status == cudaSuccess &&
+          status == static_cast<int>(cudaSuccess)) {
+        cuda_status = cudaMemcpyAsync(&output_nonzero, zero_check,
+                                      sizeof(output_nonzero),
+                                      cudaMemcpyDeviceToHost, stream.value);
+      }
+      if (cuda_status == cudaSuccess &&
+          status == static_cast<int>(cudaSuccess)) {
+        cuda_status = cudaStreamSynchronize(stream.value);
+      }
+      if (status != static_cast<int>(cudaSuccess) ||
+          cuda_status != cudaSuccess) {
+        const int failure = status != static_cast<int>(cudaSuccess)
+                                ? status
+                                : static_cast<int>(cuda_status);
+        return fail(ReferenceEngineError::kRunnerStepFailure,
+                    "target_aot_p40000_kill_test_zero_check",
+                    "the exact-P40000 complete-publication check failed",
+                    failure);
+      }
+      kill_test.inputs_remained_zero = input_nonzero == 0U;
+      kill_test.outputs_all_zero = output_nonzero == 0U;
+      kill_test.guards_intact =
+          kill_activation.guards_intact() && kill_residual.guards_intact() &&
+          kill_gate_up.guards_intact() &&
+          kill_down_residual.guards_intact() &&
+          kill_zero_check.guards_intact();
+      kill_test.optimistic_pair_milliseconds = std::min(
+          kill_test.pair_milliseconds[0U], kill_test.pair_milliseconds[1U]);
+      kill_test.optimistic_full_prompt_mlp_seconds =
+          kill_test.optimistic_pair_milliseconds *
+          static_cast<double>(kill_test.full_prompt_mlp_layers) / 1000.0;
+      kill_test.completed =
+          kill_test.zero_activation_fixture &&
+          kill_test.zero_residual_fixture && kill_test.inputs_remained_zero &&
+          kill_test.outputs_all_zero && kill_test.guards_intact &&
+          kill_test.timing_events_destroyed &&
+          kill_test.warmup_pairs == 1U &&
+          kill_test.measured_pairs == kill_test.pair_milliseconds.size();
+      if (!kill_test.completed) {
+        return fail(ReferenceEngineError::kRunnerStepFailure,
+                    "target_aot_p40000_kill_test_validity_gate",
+                    "the exact-P40000 optimistic early-stop result was not "
+                    "valid");
+      }
+      kill_test.budget_exceeded =
+          kill_test.optimistic_full_prompt_mlp_seconds >
+          kill_test.whole_product_projection_budget_seconds;
+      kill_test.decision =
+          kill_test.budget_exceeded
+              ? "reject-current-nvfp4-bf16-hmma-kernel-skeleton"
+              : "continue-to-broader-composed-validation";
+    }
     cleanup();
     result.passed = result.owner_attachment_authenticated &&
                     result.receipt.attachment_exact &&
@@ -7033,13 +7365,16 @@ reference_engine_test_detail::Sm87TargetAotLayer0M192OracleAccess::screen(
                     result.residual_preserved_after_replay &&
                     result.gate_up.bitwise_exact &&
                     result.down_residual.bitwise_exact &&
+                    (!run_p40000_kill_test ||
+                     result.p40000_kill_test.completed) &&
                     result.cleanup.passed;
     outcome.value = result;
     if (!result.passed) {
       outcome.diagnostic = engine_diagnostic(
           ReferenceEngineError::kRunnerStepFailure,
           "target_aot_layer0_m192_oracle_gate",
-          "real-weight M192 full/tail, guard, replay, or bitwise gate failed");
+          "real-weight M192 correctness or exact-P40000 early-stop validity "
+          "gate failed");
       return outcome;
     }
     return outcome;

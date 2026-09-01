@@ -2,6 +2,7 @@
 
 #include "q3x/runtime/reference_engine.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -143,6 +144,32 @@ struct Sm87TargetAotLayer0M192CleanupEvidence final {
   bool passed = false;
 };
 
+struct Sm87TargetAotP40000KillTestEvidence final {
+  std::string authority;
+  std::string kernel_skeleton;
+  std::string decision;
+  std::size_t token_count = 0U;
+  std::size_t model_layers = 0U;
+  std::size_t full_prompt_mlp_layers = 0U;
+  std::size_t warmup_pairs = 0U;
+  std::size_t measured_pairs = 0U;
+  double whole_product_projection_budget_seconds = 0.0;
+  std::array<double, 2U> gate_up_milliseconds{};
+  std::array<double, 2U> down_milliseconds{};
+  std::array<double, 2U> pair_milliseconds{};
+  double optimistic_pair_milliseconds = 0.0;
+  double optimistic_full_prompt_mlp_seconds = 0.0;
+  bool zero_activation_fixture = false;
+  bool zero_residual_fixture = false;
+  bool inputs_remained_zero = false;
+  bool outputs_all_zero = false;
+  bool guards_intact = false;
+  bool timing_events_destroyed = false;
+  bool attempted = false;
+  bool completed = false;
+  bool budget_exceeded = false;
+};
+
 struct Sm87TargetAotLayer0M192OracleResult final {
   std::size_t layer_index = 0U;
   std::size_t token_count = 0U;
@@ -168,6 +195,7 @@ struct Sm87TargetAotLayer0M192OracleResult final {
   Sm87TargetAotLayer0M192KernelResourceEvidence down_resources;
   Sm87TargetAotLayer0M192BoundaryEvidence gate_up;
   Sm87TargetAotLayer0M192BoundaryEvidence down_residual;
+  Sm87TargetAotP40000KillTestEvidence p40000_kill_test;
   Sm87TargetAotLayer0M192CleanupEvidence cleanup;
   bool passed = false;
 };
@@ -189,7 +217,7 @@ class Sm87TargetAotLayer0M192OracleAccess final {
   // definition exists only in an explicit admission build and never installs
   // a runner selector or public kernel launch.
   [[nodiscard]] static Sm87TargetAotLayer0M192OracleOutcome screen(
-      ReferenceEngine& engine);
+      ReferenceEngine& engine, bool run_p40000_kill_test = false);
 };
 
 }  // namespace q3x::runtime::reference_engine_test_detail

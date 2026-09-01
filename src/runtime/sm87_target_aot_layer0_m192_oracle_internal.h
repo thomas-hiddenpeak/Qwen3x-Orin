@@ -7,11 +7,12 @@
 
 // Source-private seam for the real-checkpoint layer-0 numerical/resource
 // oracle. This is deliberately outside the installed include tree. It admits
-// exactly M192 and cannot be reached by a runner, selector, or public launch
-// surface.
+// exactly M192, plus an explicitly requested exact-P40000 quick-kill screen,
+// and cannot be reached by a runner, selector, or public launch surface.
 namespace q3x::kernels::sm87_target_aot_layer0_m192_oracle_detail {
 
 inline constexpr std::size_t kTokenCount = 192U;
+inline constexpr std::size_t kKillTestTokenCount = 40'000U;
 inline constexpr std::size_t kFullTokenCount = 128U;
 inline constexpr std::size_t kTailTokenCount = 64U;
 inline constexpr int kThreads = 256;
@@ -47,5 +48,21 @@ struct KernelResources final {
     const Sm87TargetAotNvFp4CudaAssetView& authenticated_asset,
     const std::uint16_t* residual, std::uint16_t* output,
     void* cuda_stream) noexcept;
+
+// Optional exact-P40000 quick-kill launch. It is source-private, accepts the
+// same authenticated real-checkpoint assets as launch(), and never changes
+// the fail-closed public launcher.
+[[nodiscard]] int launch_kill_test(
+    Sm87TargetAotProjectionRole role, const std::uint16_t* input,
+    const Sm87TargetAotNvFp4CudaAssetView& authenticated_asset,
+    const std::uint16_t* residual, std::uint16_t* output,
+    void* cuda_stream) noexcept;
+
+// Sets nonzero_flag atomically if any BF16 value is numerically non-zero.
+// Both +0 and -0 are accepted as zero. The caller owns initialization and
+// readback of the device flag.
+[[nodiscard]] int launch_all_zero_check(
+    const std::uint16_t* values, std::size_t element_count,
+    std::uint32_t* nonzero_flag, void* cuda_stream) noexcept;
 
 }  // namespace q3x::kernels::sm87_target_aot_layer0_m192_oracle_detail
