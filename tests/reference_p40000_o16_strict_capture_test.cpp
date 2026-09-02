@@ -66,8 +66,12 @@ constexpr std::uint64_t kLegacyArenaBytes = 3'070'908'416ULL;
 constexpr std::uint64_t kSelectorArenaBytes = 8'641'684'992ULL;
 constexpr std::uint32_t kStopTokenId = 248'056U;
 constexpr std::size_t kHiddenSize = runtime::kReferenceHiddenSize;
+constexpr std::size_t kIntermediateSize = runtime::kReferenceIntermediateSize;
 constexpr std::size_t kFullQueryElements = 24U * 256U;
 constexpr std::size_t kFullKvElements = 4U * 256U;
+constexpr std::size_t kLinearQkvElements = 10'240U;
+constexpr std::size_t kLinearValueElements = 6'144U;
+constexpr std::size_t kLinearScalarElements = 48U;
 constexpr std::size_t kBf16Bytes = sizeof(std::uint16_t);
 constexpr std::size_t kHiddenRowBytes = kHiddenSize * kBf16Bytes;
 constexpr std::size_t kPromptResidualBytes =
@@ -334,6 +338,30 @@ const char* boundary_role_name(
       return "post_attention_residual";
     case Role::kLayerOutput:
       return "layer_output";
+    case Role::kEmbedding:
+      return "embedding";
+    case Role::kInputNorm:
+      return "input_norm";
+    case Role::kRawQkv:
+      return "raw_qkv";
+    case Role::kZ:
+      return "z";
+    case Role::kA:
+      return "a";
+    case Role::kB:
+      return "b";
+    case Role::kConvQkv:
+      return "conv_qkv";
+    case Role::kGdnOutput:
+      return "gdn_output";
+    case Role::kOBranch:
+      return "o_branch";
+    case Role::kPostOperatorResidual:
+      return "post_operator_residual";
+    case Role::kMlpNormalized:
+      return "mlp_normalized";
+    case Role::kGateUpActivated:
+      return "gate_up_activated";
     case Role::kCount:
       break;
   }
@@ -354,7 +382,23 @@ std::size_t boundary_role_columns(
     case Role::kAttentionBranchOutput:
     case Role::kPostAttentionResidual:
     case Role::kLayerOutput:
+    case Role::kEmbedding:
+    case Role::kInputNorm:
+    case Role::kOBranch:
+    case Role::kPostOperatorResidual:
+    case Role::kMlpNormalized:
       return kHiddenSize;
+    case Role::kRawQkv:
+    case Role::kConvQkv:
+      return kLinearQkvElements;
+    case Role::kZ:
+    case Role::kGdnOutput:
+      return kLinearValueElements;
+    case Role::kA:
+    case Role::kB:
+      return kLinearScalarElements;
+    case Role::kGateUpActivated:
+      return kIntermediateSize;
     case Role::kCount:
       break;
   }
@@ -365,8 +409,64 @@ bool boundary_role_expected(
     const runner_detail::PrefillP40000BoundaryTensorRole role,
     const std::size_t layer) noexcept {
   using Role = runner_detail::PrefillP40000BoundaryTensorRole;
-  return (role == Role::kLayerOutput && layer < kBoundaryLayerCount) ||
-         (role != Role::kLayerOutput && role != Role::kCount && layer == 3U);
+  if (role == Role::kLayerOutput) {
+    return layer < kBoundaryLayerCount;
+  }
+  if (layer == 0U) {
+    switch (role) {
+      case Role::kEmbedding:
+      case Role::kInputNorm:
+      case Role::kRawQkv:
+      case Role::kZ:
+      case Role::kA:
+      case Role::kB:
+      case Role::kConvQkv:
+      case Role::kGdnOutput:
+      case Role::kOBranch:
+      case Role::kPostOperatorResidual:
+      case Role::kMlpNormalized:
+      case Role::kGateUpActivated:
+        return true;
+      case Role::kAttentionProcessedQuery:
+      case Role::kAttentionKey:
+      case Role::kAttentionValue:
+      case Role::kAttentionGate:
+      case Role::kAttentionCoreOutput:
+      case Role::kAttentionBranchOutput:
+      case Role::kPostAttentionResidual:
+      case Role::kLayerOutput:
+      case Role::kCount:
+        return false;
+    }
+  }
+  if (layer == 3U) {
+    switch (role) {
+      case Role::kAttentionProcessedQuery:
+      case Role::kAttentionKey:
+      case Role::kAttentionValue:
+      case Role::kAttentionGate:
+      case Role::kAttentionCoreOutput:
+      case Role::kAttentionBranchOutput:
+      case Role::kPostAttentionResidual:
+        return true;
+      case Role::kLayerOutput:
+      case Role::kEmbedding:
+      case Role::kInputNorm:
+      case Role::kRawQkv:
+      case Role::kZ:
+      case Role::kA:
+      case Role::kB:
+      case Role::kConvQkv:
+      case Role::kGdnOutput:
+      case Role::kOBranch:
+      case Role::kPostOperatorResidual:
+      case Role::kMlpNormalized:
+      case Role::kGateUpActivated:
+      case Role::kCount:
+        return false;
+    }
+  }
+  return false;
 }
 
 bool collect_prefill_p40000_boundary_tensor(

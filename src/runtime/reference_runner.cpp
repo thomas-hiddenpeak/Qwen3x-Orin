@@ -6899,6 +6899,30 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         }
       }
 
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (layer == 0U) {
+        const auto& linear_phase = layer_major.p40_whole_core.linear;
+        if (!publish_prefill_p40000_boundary_tensor(
+                reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                    kEmbedding,
+                layer, 0U, kPromptWideP40WholeCorePromptTokens,
+                kReferenceHiddenSize, prompt_residual_base, stream_) ||
+            !publish_prefill_p40000_boundary_tensor(
+                reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                    kInputNorm,
+                layer, 0U, kPromptWideP40WholeCorePromptTokens,
+                kReferenceHiddenSize,
+                static_cast<const std::uint16_t*>(
+                    linear_phase.normalized_input_bf16.storage.device_data),
+                stream_)) {
+          return fail_whole_request_prefill(runner_status(
+              ReferenceRunnerError::kRouteEvidenceFailure,
+              "whole_request_prefill_layer0_fill_boundary", layer));
+        }
+      }
+#endif
+
       ReferenceRunnerStatus status = make_submission_room();
       if (!status) {
         return fail_whole_request_prefill(status);
@@ -6910,6 +6934,61 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
       if (!status) {
         return fail_whole_request_prefill(status);
       }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (layer == 0U) {
+        const auto& linear_phase = layer_major.p40_whole_core.linear;
+        if (!publish_prefill_p40000_boundary_tensor(
+                reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                    kRawQkv,
+                layer, 0U, kPromptWideP40WholeCorePromptTokens,
+                kLinearQkvElements,
+                static_cast<const std::uint16_t*>(
+                    linear_phase.raw_qkv_bf16.storage.device_data),
+                stream_) ||
+            !publish_prefill_p40000_boundary_tensor(
+                reference_runner_detail::PrefillP40000BoundaryTensorRole::kZ,
+                layer, 0U, kPromptWideP40WholeCorePromptTokens,
+                kLinearValueElements,
+                static_cast<const std::uint16_t*>(
+                    linear_phase.z_bf16.storage.device_data),
+                stream_) ||
+            !publish_prefill_p40000_boundary_tensor(
+                reference_runner_detail::PrefillP40000BoundaryTensorRole::kA,
+                layer, 0U, kPromptWideP40WholeCorePromptTokens,
+                kLinearScalarElements,
+                static_cast<const std::uint16_t*>(
+                    linear_phase.a_bf16.storage.device_data),
+                stream_) ||
+            !publish_prefill_p40000_boundary_tensor(
+                reference_runner_detail::PrefillP40000BoundaryTensorRole::kB,
+                layer, 0U, kPromptWideP40WholeCorePromptTokens,
+                kLinearScalarElements,
+                static_cast<const std::uint16_t*>(
+                    linear_phase.b_bf16.storage.device_data),
+                stream_) ||
+            !publish_prefill_p40000_boundary_tensor(
+                reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                    kConvQkv,
+                layer, 0U, kPromptWideP40WholeCorePromptTokens,
+                kLinearQkvElements,
+                static_cast<const std::uint16_t*>(
+                    linear_phase.conv_qkv_bf16.storage.device_data),
+                stream_) ||
+            !publish_prefill_p40000_boundary_tensor(
+                reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                    kGdnOutput,
+                layer, 0U, kPromptWideP40WholeCorePromptTokens,
+                kLinearValueElements,
+                static_cast<const std::uint16_t*>(
+                    linear_phase.output_bf16.storage.device_data),
+                stream_)) {
+          return fail_whole_request_prefill(runner_status(
+              ReferenceRunnerError::kRouteEvidenceFailure,
+              "whole_request_prefill_layer0_core_boundary", layer));
+        }
+      }
+#endif
       ++prompt_wide_p40_prompt_core_hits;
       if (reference_runner_detail::expected_reference_layer_type(layer) ==
           model::LayerType::kLinearAttention) {
@@ -6954,6 +7033,26 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
 
 #if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
     defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (layer == 0U) {
+        const auto& linear_phase = layer_major.p40_whole_core.linear;
+        if (!publish_prefill_p40000_boundary_tensor(
+                reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                    kOBranch,
+                layer, 0U, kPromptWideP40WholeCorePromptTokens,
+                kReferenceHiddenSize,
+                static_cast<const std::uint16_t*>(
+                    linear_phase.branch_output_bf16.storage.device_data),
+                stream_) ||
+            !publish_prefill_p40000_boundary_tensor(
+                reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                    kPostOperatorResidual,
+                layer, 0U, kPromptWideP40WholeCorePromptTokens,
+                kReferenceHiddenSize, prompt_residual_base, stream_)) {
+          return fail_whole_request_prefill(runner_status(
+              ReferenceRunnerError::kRouteEvidenceFailure,
+              "whole_request_prefill_layer0_drain_boundary", layer));
+        }
+      }
       if (layer == 3U) {
         const auto& full_phase =
             layer_major.p40_whole_core.full_attention;
@@ -6997,6 +7096,29 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
       }
 #if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
     defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (layer == 0U) {
+        const auto& mlp_phase = layer_major.mlp;
+        if (!publish_prefill_p40000_boundary_tensor(
+                reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                    kMlpNormalized,
+                layer, 0U, kPromptWideP40WholeCorePromptTokens,
+                kReferenceHiddenSize,
+                static_cast<const std::uint16_t*>(
+                    mlp_phase.normalized_input_bf16.storage.device_data),
+                stream_) ||
+            !publish_prefill_p40000_boundary_tensor(
+                reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                    kGateUpActivated,
+                layer, 0U, kPromptWideP40WholeCorePromptTokens,
+                kReferenceIntermediateSize,
+                static_cast<const std::uint16_t*>(
+                    mlp_phase.gate_bf16.storage.device_data),
+                stream_)) {
+          return fail_whole_request_prefill(runner_status(
+              ReferenceRunnerError::kRouteEvidenceFailure,
+              "whole_request_prefill_layer0_mlp_boundary", layer));
+        }
+      }
       if (layer <= 3U &&
           !publish_prefill_p40000_boundary_tensor(
               reference_runner_detail::PrefillP40000BoundaryTensorRole::
@@ -10228,6 +10350,18 @@ ReferenceRunner::enqueue_prefill_layer_segment(
         }
       }
     }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    if (!publish_prefill_p40000_boundary_tensor(
+            reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                kEmbedding,
+            0U, first_position, token_count, kReferenceHiddenSize,
+            execution_views.hidden[0], stream_)) {
+      return fail_enqueue(runner_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "prefill_legacy_layer0_embedding_boundary", 0U));
+    }
+#endif
   }
 
   for (std::size_t layer = control.layer_begin; layer < control.layer_end;
@@ -10250,6 +10384,19 @@ ReferenceRunner::enqueue_prefill_layer_segment(
                     "prefill_input_layernorm", layer)) {
       return fail_enqueue(launch_failure);
     }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    if (layer == 0U &&
+        !publish_prefill_p40000_boundary_tensor(
+            reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                kInputNorm,
+            layer, first_position, token_count, kReferenceHiddenSize,
+            execution_views.hidden[1], stream_)) {
+      return fail_enqueue(runner_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "prefill_legacy_layer0_input_norm_boundary", layer));
+    }
+#endif
 
     const model::LayerType expected =
         reference_runner_detail::expected_reference_layer_type(layer);
@@ -10290,6 +10437,23 @@ ReferenceRunner::enqueue_prefill_layer_segment(
                     layer, &linear_z_route))) {
         return fail_enqueue(launch_failure);
       }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (layer == 0U &&
+          (!publish_prefill_p40000_boundary_tensor(
+               reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                   kRawQkv,
+               layer, first_position, token_count, kLinearQkvElements,
+               execution_views.projection[0], stream_) ||
+           !publish_prefill_p40000_boundary_tensor(
+               reference_runner_detail::PrefillP40000BoundaryTensorRole::kZ,
+               layer, first_position, token_count, kLinearValueElements,
+               execution_views.projection[1], stream_))) {
+        return fail_enqueue(runner_status(
+            ReferenceRunnerError::kRouteEvidenceFailure,
+            "prefill_legacy_layer0_qkvz_boundary", layer));
+      }
+#endif
       if (!record_projection_route(PrefillLayerRouteSlot::kQOrLinearQkv,
                                    linear_qkv_route) ||
           !record_projection_route(PrefillLayerRouteSlot::kLinearZ,
@@ -10314,6 +10478,22 @@ ReferenceRunner::enqueue_prefill_layer_segment(
                           layer)) {
         return fail_enqueue(launch_failure);
       }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (layer == 0U &&
+          (!publish_prefill_p40000_boundary_tensor(
+               reference_runner_detail::PrefillP40000BoundaryTensorRole::kA,
+               layer, first_position, token_count, kLinearScalarElements,
+               execution_views.linear_a, stream_) ||
+           !publish_prefill_p40000_boundary_tensor(
+               reference_runner_detail::PrefillP40000BoundaryTensorRole::kB,
+               layer, first_position, token_count, kLinearScalarElements,
+               execution_views.linear_b, stream_))) {
+        return fail_enqueue(runner_status(
+            ReferenceRunnerError::kRouteEvidenceFailure,
+            "prefill_legacy_layer0_ab_boundary", layer));
+      }
+#endif
       const bool use_gdn_c16_norm_gate =
           should_use_prefill_gdn_c16_norm_gate(
               enable_gdn_c16_norm_gate_admission, projection_backend_,
@@ -10330,6 +10510,7 @@ ReferenceRunner::enqueue_prefill_layer_segment(
 #endif
       bool gdn_output_is_normalized = false;
       PrefillGdnExecution gdn_execution = PrefillGdnExecution::kUnknown;
+      const std::uint16_t* conv_qkv_boundary = execution_views.projection[0];
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
       const bool use_gdn_chunk64_native =
           use_prefill_gdn_chunk64_native_admission(
@@ -10349,6 +10530,7 @@ ReferenceRunner::enqueue_prefill_layer_segment(
         std::uint16_t* const conv_qkv =
             use_token_parallel_conv ? execution_views.projection[3]
                                     : execution_views.projection[0];
+        conv_qkv_boundary = conv_qkv;
         // Convolution is exact for arbitrary C32..C512 admitted tiles and owns
         // a separate recurrent state. Execute it once over the complete
         // runner tile; the native hierarchy pads only its final C64 chunk.
@@ -10645,6 +10827,24 @@ ReferenceRunner::enqueue_prefill_layer_segment(
               "prefill_linear_output_norm_gate", layer)) {
         return fail_enqueue(launch_failure);
       }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (layer == 0U &&
+          (!publish_prefill_p40000_boundary_tensor(
+               reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                   kConvQkv,
+               layer, first_position, token_count, kLinearQkvElements,
+               conv_qkv_boundary, stream_) ||
+           !publish_prefill_p40000_boundary_tensor(
+               reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                   kGdnOutput,
+               layer, first_position, token_count, kLinearValueElements,
+               execution_views.projection[2], stream_))) {
+        return fail_enqueue(runner_status(
+            ReferenceRunnerError::kRouteEvidenceFailure,
+            "prefill_legacy_layer0_gdn_boundary", layer));
+      }
+#endif
       PrefillProjectionExecution linear_o_route =
           PrefillProjectionExecution::kUnknown;
       if (!project_attention_output(
@@ -10652,6 +10852,19 @@ ReferenceRunner::enqueue_prefill_layer_segment(
               "prefill_linear_output_projection", layer, &linear_o_route)) {
         return fail_enqueue(launch_failure);
       }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (layer == 0U &&
+          !publish_prefill_p40000_boundary_tensor(
+              reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                  kOBranch,
+              layer, first_position, token_count, kReferenceHiddenSize,
+              execution_views.hidden[1], stream_)) {
+        return fail_enqueue(runner_status(
+            ReferenceRunnerError::kRouteEvidenceFailure,
+            "prefill_legacy_layer0_o_boundary", layer));
+      }
+#endif
       if (!record_projection_route(PrefillLayerRouteSlot::kO,
                                    linear_o_route)) {
         return fail_enqueue(runner_status(
@@ -11041,6 +11254,21 @@ ReferenceRunner::enqueue_prefill_layer_segment(
     }
 #if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
     defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    if (layer == 0U &&
+        (!publish_prefill_p40000_boundary_tensor(
+             reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                 kPostOperatorResidual,
+             layer, first_position, token_count, kReferenceHiddenSize,
+             execution_views.hidden[2], stream_) ||
+         !publish_prefill_p40000_boundary_tensor(
+             reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                 kMlpNormalized,
+             layer, first_position, token_count, kReferenceHiddenSize,
+             execution_views.hidden[1], stream_))) {
+      return fail_enqueue(runner_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "prefill_legacy_layer0_residual_mlp_norm_boundary", layer));
+    }
     if (layer == 3U &&
         !publish_prefill_p40000_boundary_tensor(
             reference_runner_detail::PrefillP40000BoundaryTensorRole::
@@ -11052,6 +11280,7 @@ ReferenceRunner::enqueue_prefill_layer_segment(
           "prefill_legacy_layer3_residual_boundary", layer));
     }
 #endif
+    const std::uint16_t* mlp_activated_boundary = nullptr;
     bool marlin_mlp_completed = false;
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
     const auto* const marlin_gate =
@@ -11157,6 +11386,7 @@ ReferenceRunner::enqueue_prefill_layer_segment(
       }
       ++g_nvfp4_marlin_prefill_admission_hits;
       marlin_mlp_completed = true;
+      mlp_activated_boundary = execution_views.projection[2];
     }
 #endif
 
@@ -11246,12 +11476,27 @@ ReferenceRunner::enqueue_prefill_layer_segment(
                     "prefill_mlp_silu_mul", layer)) {
         return fail_enqueue(launch_failure);
       }
+      mlp_activated_boundary = execution_views.projection[0];
       if (!project_down(layer_weights.mlp.down_proj, execution_views.projection[0],
                         execution_views.hidden[1], "prefill_mlp_down_projection",
                         layer)) {
         return fail_enqueue(launch_failure);
       }
     }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    if (layer == 0U &&
+        (mlp_activated_boundary == nullptr ||
+         !publish_prefill_p40000_boundary_tensor(
+             reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                 kGateUpActivated,
+             layer, first_position, token_count, kReferenceIntermediateSize,
+             mlp_activated_boundary, stream_))) {
+      return fail_enqueue(runner_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "prefill_legacy_layer0_gate_up_boundary", layer));
+    }
+#endif
     const bool nvfp4_mlp_weights =
         std::holds_alternative<NvFp4LinearWeight>(
             layer_weights.mlp.gate_proj) &&

@@ -46,6 +46,18 @@ enum class PrefillP40000BoundaryTensorRole : std::uint8_t {
   kAttentionBranchOutput,
   kPostAttentionResidual,
   kLayerOutput,
+  kEmbedding,
+  kInputNorm,
+  kRawQkv,
+  kZ,
+  kA,
+  kB,
+  kConvQkv,
+  kGdnOutput,
+  kOBranch,
+  kPostOperatorResidual,
+  kMlpNormalized,
+  kGateUpActivated,
   kCount,
 };
 
