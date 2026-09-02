@@ -158,6 +158,8 @@ thread_local std::size_t
 thread_local reference_runner_detail::
     PrefillLayer3AttentionP513OracleHook
         g_prefill_layer3_attention_p513_oracle_hook{};
+thread_local reference_runner_detail::PrefillP40000BoundaryTensorHook
+    g_prefill_p40000_boundary_tensor_hook{};
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
 thread_local bool g_selector_exact_persistent_attention_v1_for_test = false;
 thread_local reference_runner_detail::
@@ -166,6 +168,20 @@ thread_local reference_runner_detail::
 thread_local reference_runner_detail::ReferenceLegacyPrefillResidualChunkHook
     g_reference_legacy_prefill_residual_chunk_hook{};
 #endif
+
+[[nodiscard]] bool publish_prefill_p40000_boundary_tensor(
+    const reference_runner_detail::PrefillP40000BoundaryTensorRole role,
+    const std::size_t layer, const std::size_t first_position,
+    const std::size_t token_count, const std::size_t columns,
+    const std::uint16_t* const data, void* const cuda_stream) noexcept {
+  const auto hook = g_prefill_p40000_boundary_tensor_hook;
+  return hook.callback == nullptr ||
+         hook.callback(
+             reference_runner_detail::PrefillP40000BoundaryTensorView{
+                 role, layer, first_position, token_count, columns, data,
+                 cuda_stream},
+             hook.context);
+}
 #endif
 
 [[nodiscard]] reference_runner_detail::ReferenceRunnerPromptWidePolicy
@@ -1072,6 +1088,12 @@ PrefillLayer3AttentionP513OracleHook
 exchange_prefill_layer3_attention_p513_oracle_hook(
     const PrefillLayer3AttentionP513OracleHook hook) noexcept {
   return std::exchange(g_prefill_layer3_attention_p513_oracle_hook, hook);
+}
+
+PrefillP40000BoundaryTensorHook
+exchange_prefill_p40000_boundary_tensor_hook(
+    const PrefillP40000BoundaryTensorHook hook) noexcept {
+  return std::exchange(g_prefill_p40000_boundary_tensor_hook, hook);
 }
 
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
@@ -5841,6 +5863,53 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_prompt_core(
       if (!candidate_status) {
         return candidate_status;
       }
+      if (layer == 3U &&
+          (!publish_prefill_p40000_boundary_tensor(
+               reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                   kAttentionProcessedQuery,
+               layer, 0U, kPromptWideP40WholeCorePromptTokens,
+               kFullQueryElements,
+               static_cast<const std::uint16_t*>(
+                   phase.processed_q_bf16.storage.device_data),
+               stream_) ||
+           !publish_prefill_p40000_boundary_tensor(
+               reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                   kAttentionKey,
+               layer, 0U, kPromptWideP40WholeCorePromptTokens,
+               kFullKvElements,
+               static_cast<const std::uint16_t*>(
+                   request_views.persistent.key_cache_bf16[slot.slot]
+                       .device_data),
+               stream_) ||
+           !publish_prefill_p40000_boundary_tensor(
+               reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                   kAttentionValue,
+               layer, 0U, kPromptWideP40WholeCorePromptTokens,
+               kFullKvElements,
+               static_cast<const std::uint16_t*>(
+                   request_views.persistent.value_cache_bf16[slot.slot]
+                       .device_data),
+               stream_) ||
+           !publish_prefill_p40000_boundary_tensor(
+               reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                   kAttentionGate,
+               layer, 0U, kPromptWideP40WholeCorePromptTokens,
+               kFullQueryElements,
+               static_cast<const std::uint16_t*>(
+                   phase.packed_gate_bf16.storage.device_data),
+               stream_) ||
+           !publish_prefill_p40000_boundary_tensor(
+               reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                   kAttentionCoreOutput,
+               layer, 0U, kPromptWideP40WholeCorePromptTokens,
+               kFullQueryElements,
+               static_cast<const std::uint16_t*>(
+                   phase.core_output_bf16.storage.device_data),
+               stream_))) {
+        return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                             "prefill_whole_core_layer3_boundary_capture",
+                             layer);
+      }
       const auto& completed_spans = candidate_receipt.physical_submissions;
       if (!candidate_receipt.completed_physical_receipt ||
           candidate_receipt.physical_submission_count != 3U ||
@@ -6883,6 +6952,31 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         }
       }
 
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (layer == 3U) {
+        const auto& full_phase =
+            layer_major.p40_whole_core.full_attention;
+        if (!publish_prefill_p40000_boundary_tensor(
+                reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                    kAttentionBranchOutput,
+                layer, 0U, kPromptWideP40WholeCorePromptTokens,
+                kReferenceHiddenSize,
+                static_cast<const std::uint16_t*>(
+                    full_phase.branch_output_bf16.storage.device_data),
+                stream_) ||
+            !publish_prefill_p40000_boundary_tensor(
+                reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                    kPostAttentionResidual,
+                layer, 0U, kPromptWideP40WholeCorePromptTokens,
+                kReferenceHiddenSize, prompt_residual_base, stream_)) {
+          return fail_whole_request_prefill(runner_status(
+              ReferenceRunnerError::kRouteEvidenceFailure,
+              "whole_request_prefill_layer3_drain_boundary", layer));
+        }
+      }
+#endif
+
       status = make_submission_room();
       if (!status) {
         return fail_whole_request_prefill(status);
@@ -6901,6 +6995,19 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
       if (!status) {
         return fail_whole_request_prefill(status);
       }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (layer <= 3U &&
+          !publish_prefill_p40000_boundary_tensor(
+              reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                  kLayerOutput,
+              layer, 0U, kPromptWideP40WholeCorePromptTokens,
+              kReferenceHiddenSize, prompt_residual_base, stream_)) {
+        return fail_whole_request_prefill(runner_status(
+            ReferenceRunnerError::kRouteEvidenceFailure,
+            "whole_request_prefill_layer_output_boundary", layer));
+      }
+#endif
       ++layer_wide_p40_mlp_layer_hits;
       if (use_vllm_marlin_parity) {
         parity_receipt->request_lock_clear_operations =
@@ -10838,6 +10945,39 @@ ReferenceRunner::enqueue_prefill_layer_segment(
           return fail_enqueue(launch_failure);
         }
       }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (layer == 3U &&
+          (!publish_prefill_p40000_boundary_tensor(
+               reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                   kAttentionProcessedQuery,
+               layer, first_position, token_count, kFullQueryElements,
+               tile_query, stream_) ||
+           !publish_prefill_p40000_boundary_tensor(
+               reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                   kAttentionKey,
+               layer, first_position, token_count, kFullKvElements,
+               tile_key, stream_) ||
+           !publish_prefill_p40000_boundary_tensor(
+               reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                   kAttentionValue,
+               layer, first_position, token_count, kFullKvElements,
+               tile_value, stream_) ||
+           !publish_prefill_p40000_boundary_tensor(
+               reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                   kAttentionGate,
+               layer, first_position, token_count, kFullQueryElements,
+               packed_gates, stream_) ||
+           !publish_prefill_p40000_boundary_tensor(
+               reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                   kAttentionCoreOutput,
+               layer, first_position, token_count, kFullQueryElements,
+               execution_views.projection[1], stream_))) {
+        return fail_enqueue(runner_status(
+            ReferenceRunnerError::kRouteEvidenceFailure,
+            "prefill_legacy_layer3_attention_boundary", layer));
+      }
+#endif
       PrefillProjectionExecution full_o_route =
           PrefillProjectionExecution::kUnknown;
       if (!project_attention_output(
@@ -10845,6 +10985,19 @@ ReferenceRunner::enqueue_prefill_layer_segment(
               "prefill_full_output_projection", layer, &full_o_route)) {
         return fail_enqueue(launch_failure);
       }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (layer == 3U &&
+          !publish_prefill_p40000_boundary_tensor(
+              reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                  kAttentionBranchOutput,
+              layer, first_position, token_count, kReferenceHiddenSize,
+              execution_views.hidden[1], stream_)) {
+        return fail_enqueue(runner_status(
+            ReferenceRunnerError::kRouteEvidenceFailure,
+            "prefill_legacy_layer3_o_boundary", layer));
+      }
+#endif
       if (!record_projection_route(PrefillLayerRouteSlot::kO,
                                    full_o_route) ||
           !record_layer_route(
@@ -10886,6 +11039,19 @@ ReferenceRunner::enqueue_prefill_layer_segment(
         return fail_enqueue(launch_failure);
       }
     }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    if (layer == 3U &&
+        !publish_prefill_p40000_boundary_tensor(
+            reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                kPostAttentionResidual,
+            layer, first_position, token_count, kReferenceHiddenSize,
+            execution_views.hidden[2], stream_)) {
+      return fail_enqueue(runner_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "prefill_legacy_layer3_residual_boundary", layer));
+    }
+#endif
     bool marlin_mlp_completed = false;
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
     const auto* const marlin_gate =
@@ -11129,6 +11295,19 @@ ReferenceRunner::enqueue_prefill_layer_segment(
                            "prefill_layer_residual", layer)) {
       return fail_enqueue(launch_failure);
     }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    if (layer <= 3U &&
+        !publish_prefill_p40000_boundary_tensor(
+            reference_runner_detail::PrefillP40000BoundaryTensorRole::
+                kLayerOutput,
+            layer, first_position, token_count, kReferenceHiddenSize,
+            execution_views.hidden[0], stream_)) {
+      return fail_enqueue(runner_status(
+          ReferenceRunnerError::kRouteEvidenceFailure,
+          "prefill_legacy_layer_output_boundary", layer));
+    }
+#endif
     const ReferenceRunnerStatus route_status =
         collapse_prefill_layer_route_fragment(layer_route_fragment,
                                               legacy_layer_pass);

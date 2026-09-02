@@ -7,6 +7,7 @@
 
 #include "reference_engine_final_token_policy_internal.h"
 #include "reference_engine_prefill_authority.h"
+#include "reference_runner_full_attention_oracle_internal.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
 #include "reference_runner_selector_exact_persistent_attention_v1_internal.h"
 
@@ -65,6 +66,8 @@ constexpr std::uint64_t kLegacyArenaBytes = 3'070'908'416ULL;
 constexpr std::uint64_t kSelectorArenaBytes = 8'641'684'992ULL;
 constexpr std::uint32_t kStopTokenId = 248'056U;
 constexpr std::size_t kHiddenSize = runtime::kReferenceHiddenSize;
+constexpr std::size_t kFullQueryElements = 24U * 256U;
+constexpr std::size_t kFullKvElements = 4U * 256U;
 constexpr std::size_t kBf16Bytes = sizeof(std::uint16_t);
 constexpr std::size_t kHiddenRowBytes = kHiddenSize * kBf16Bytes;
 constexpr std::size_t kPromptResidualBytes =
@@ -173,6 +176,33 @@ struct LegacyPromptResidualCapture {
   LegacyPromptResidualCapture() : scratch(kCopyChunkBytes) {}
 };
 
+constexpr std::size_t kBoundaryRoleCount = static_cast<std::size_t>(
+    runner_detail::PrefillP40000BoundaryTensorRole::kCount);
+constexpr std::size_t kBoundaryLayerCount = 4U;
+
+struct BoundaryTensorCapture {
+  core::Sha256 hash;
+  core::Sha256Digest digest;
+  std::size_t calls = 0U;
+  std::size_t rows = 0U;
+  std::size_t bytes = 0U;
+  bool finalized = false;
+};
+
+struct BoundaryCapture {
+  std::array<std::array<BoundaryTensorCapture, kBoundaryRoleCount>,
+             kBoundaryLayerCount>
+      tensors{};
+  std::vector<std::uint8_t> scratch;
+  int cuda_error = static_cast<int>(cudaSuccess);
+  bool selector_arm = false;
+  bool failed = false;
+  bool finalized = false;
+
+  explicit BoundaryCapture(const bool selector)
+      : scratch(kCopyChunkBytes), selector_arm(selector) {}
+};
+
 struct StateSnapshot {
   std::uint32_t expected_sequence_length = 0U;
   std::uint32_t sequence_length = 0U;
@@ -227,10 +257,14 @@ struct TokenCollector {
 
 struct StrictCaptureContext {
   explicit StrictCaptureContext(const bool selector)
-      : selector_arm(selector), prefill(kPromptTokens), returned(kRequiredSteps) {}
+      : selector_arm(selector),
+        boundaries(selector),
+        prefill(kPromptTokens),
+        returned(kRequiredSteps) {}
 
   bool selector_arm = false;
   LegacyPromptResidualCapture legacy_residual;
+  BoundaryCapture boundaries;
   StateSnapshot prefill;
   StateSnapshot returned;
   core::Sha256Digest prompt_digest;
@@ -278,6 +312,179 @@ bool hash_device(const std::uint8_t* const source, const std::size_t bytes,
   }
   digest = hash.finalize();
   return true;
+}
+
+const char* boundary_role_name(
+    const runner_detail::PrefillP40000BoundaryTensorRole role) noexcept {
+  using Role = runner_detail::PrefillP40000BoundaryTensorRole;
+  switch (role) {
+    case Role::kAttentionProcessedQuery:
+      return "attention_processed_q";
+    case Role::kAttentionKey:
+      return "attention_k";
+    case Role::kAttentionValue:
+      return "attention_v";
+    case Role::kAttentionGate:
+      return "attention_gate";
+    case Role::kAttentionCoreOutput:
+      return "attention_core";
+    case Role::kAttentionBranchOutput:
+      return "attention_o_branch";
+    case Role::kPostAttentionResidual:
+      return "post_attention_residual";
+    case Role::kLayerOutput:
+      return "layer_output";
+    case Role::kCount:
+      break;
+  }
+  return "unknown";
+}
+
+std::size_t boundary_role_columns(
+    const runner_detail::PrefillP40000BoundaryTensorRole role) noexcept {
+  using Role = runner_detail::PrefillP40000BoundaryTensorRole;
+  switch (role) {
+    case Role::kAttentionProcessedQuery:
+    case Role::kAttentionGate:
+    case Role::kAttentionCoreOutput:
+      return kFullQueryElements;
+    case Role::kAttentionKey:
+    case Role::kAttentionValue:
+      return kFullKvElements;
+    case Role::kAttentionBranchOutput:
+    case Role::kPostAttentionResidual:
+    case Role::kLayerOutput:
+      return kHiddenSize;
+    case Role::kCount:
+      break;
+  }
+  return 0U;
+}
+
+bool boundary_role_expected(
+    const runner_detail::PrefillP40000BoundaryTensorRole role,
+    const std::size_t layer) noexcept {
+  using Role = runner_detail::PrefillP40000BoundaryTensorRole;
+  return (role == Role::kLayerOutput && layer < kBoundaryLayerCount) ||
+         (role != Role::kLayerOutput && role != Role::kCount && layer == 3U);
+}
+
+bool collect_prefill_p40000_boundary_tensor(
+    const runner_detail::PrefillP40000BoundaryTensorView& view,
+    void* const opaque) noexcept {
+  auto* const capture = static_cast<BoundaryCapture*>(opaque);
+  const std::size_t role = static_cast<std::size_t>(view.role);
+  if (capture == nullptr || capture->failed || capture->finalized ||
+      view.layer >= kBoundaryLayerCount || role >= kBoundaryRoleCount ||
+      !boundary_role_expected(view.role, view.layer) ||
+      view.columns != boundary_role_columns(view.role) || view.data == nullptr ||
+      view.cuda_stream == nullptr || view.token_count == 0U ||
+      view.first_position > kPromptTokens ||
+      view.token_count > kPromptTokens - view.first_position ||
+      view.token_count > std::numeric_limits<std::size_t>::max() /
+                             (view.columns * kBf16Bytes)) {
+    if (capture != nullptr) {
+      capture->failed = true;
+    }
+    return false;
+  }
+  BoundaryTensorCapture& tensor = capture->tensors[view.layer][role];
+  const std::size_t expected_legacy_rows = tensor.calls * 512U;
+  const std::size_t expected_legacy_count =
+      tensor.calls + 1U == kLegacyTileCount ? 64U : 512U;
+  const bool physical_shape_matches =
+      capture->selector_arm
+          ? tensor.calls == 0U && view.first_position == 0U &&
+                view.token_count == kPromptTokens
+          : tensor.calls < kLegacyTileCount &&
+                view.first_position == expected_legacy_rows &&
+                view.token_count == expected_legacy_count;
+  if (!physical_shape_matches || view.first_position != tensor.rows ||
+      tensor.finalized) {
+    capture->failed = true;
+    return false;
+  }
+  const cudaError_t synchronized = cudaStreamSynchronize(
+      static_cast<cudaStream_t>(view.cuda_stream));
+  if (synchronized != cudaSuccess) {
+    capture->cuda_error = static_cast<int>(synchronized);
+    capture->failed = true;
+    return false;
+  }
+  const std::size_t bytes =
+      view.token_count * view.columns * kBf16Bytes;
+  if (!update_sha_from_device(
+          reinterpret_cast<const std::uint8_t*>(view.data), bytes,
+          capture->scratch, tensor.hash, capture->cuda_error)) {
+    capture->failed = true;
+    return false;
+  }
+  ++tensor.calls;
+  tensor.rows += view.token_count;
+  tensor.bytes += bytes;
+  return true;
+}
+
+bool finalize_prefill_p40000_boundaries(BoundaryCapture& capture) noexcept {
+  if (capture.failed || capture.finalized) {
+    return false;
+  }
+  using Role = runner_detail::PrefillP40000BoundaryTensorRole;
+  for (std::size_t layer = 0U; layer < kBoundaryLayerCount; ++layer) {
+    for (std::size_t role_index = 0U; role_index < kBoundaryRoleCount;
+         ++role_index) {
+      const auto role = static_cast<Role>(role_index);
+      BoundaryTensorCapture& tensor = capture.tensors[layer][role_index];
+      const bool expected = boundary_role_expected(role, layer);
+      const std::size_t expected_calls =
+          capture.selector_arm ? 1U : kLegacyTileCount;
+      if (expected != (tensor.calls != 0U) ||
+          (expected &&
+           (tensor.calls != expected_calls || tensor.rows != kPromptTokens ||
+            tensor.bytes != static_cast<std::size_t>(kPromptTokens) *
+                                boundary_role_columns(role) * kBf16Bytes))) {
+        capture.failed = true;
+        return false;
+      }
+      if (expected) {
+        tensor.digest = tensor.hash.finalize();
+        tensor.finalized = true;
+      }
+    }
+  }
+  capture.finalized = true;
+  return true;
+}
+
+void write_prefill_p40000_boundaries(const BoundaryCapture& capture,
+                                     const bool selector) {
+  using Role = runner_detail::PrefillP40000BoundaryTensorRole;
+  std::cerr << "P40000_BOUNDARY_CAPTURE_JSON {\"arm\":\""
+            << (selector ? kArmSelector : kArmLegacy)
+            << "\",\"tensors\":[";
+  bool first = true;
+  for (std::size_t layer = 0U; layer < kBoundaryLayerCount; ++layer) {
+    for (std::size_t role_index = 0U; role_index < kBoundaryRoleCount;
+         ++role_index) {
+      const auto role = static_cast<Role>(role_index);
+      if (!boundary_role_expected(role, layer)) {
+        continue;
+      }
+      const BoundaryTensorCapture& tensor =
+          capture.tensors[layer][role_index];
+      if (!first) {
+        std::cerr << ',';
+      }
+      first = false;
+      std::cerr << "{\"layer\":" << layer << ",\"role\":\""
+                << boundary_role_name(role) << "\",\"rows\":"
+                << tensor.rows << ",\"columns\":"
+                << boundary_role_columns(role) << ",\"calls\":"
+                << tensor.calls << ",\"sha256\":\""
+                << tensor.digest.hex() << "\"}";
+    }
+  }
+  std::cerr << "]}\n";
 }
 
 bool region_source(const runtime::RequestState& state,
@@ -709,6 +916,22 @@ class ScopedLegacyResidualHook final {
 
  private:
   runner_detail::ReferenceLegacyPrefillResidualChunkHook previous_{};
+};
+
+class ScopedBoundaryHook final {
+ public:
+  explicit ScopedBoundaryHook(BoundaryCapture& capture) noexcept
+      : previous_(runner_detail::exchange_prefill_p40000_boundary_tensor_hook(
+            {collect_prefill_p40000_boundary_tensor, &capture})) {}
+  ~ScopedBoundaryHook() {
+    (void)runner_detail::exchange_prefill_p40000_boundary_tensor_hook(
+        previous_);
+  }
+  ScopedBoundaryHook(const ScopedBoundaryHook&) = delete;
+  ScopedBoundaryHook& operator=(const ScopedBoundaryHook&) = delete;
+
+ private:
+  runner_detail::PrefillP40000BoundaryTensorHook previous_{};
 };
 
 class ScopedPrefillHook final {
@@ -2420,6 +2643,7 @@ int run_capture(const std::filesystem::path& model_directory,
                   kAllPromptTiles);
     const ScopedLegacyResidualHook residual_hook(
         selector ? nullptr : &context.legacy_residual);
+    const ScopedBoundaryHook boundary_hook(context.boundaries);
     const ScopedPrefillHook prefill_hook(context);
     const ScopedReturnHook return_hook(context);
     runtime::ReferenceGenerateOptions options;
@@ -2441,6 +2665,11 @@ int run_capture(const std::filesystem::path& model_directory,
   if (!generated) {
     std::cerr << "strict generation failed: ";
     print_diagnostic(generated.diagnostic);
+    return 1;
+  }
+  if (!finalize_prefill_p40000_boundaries(context.boundaries)) {
+    std::cerr << "P40000 boundary capture failed cuda="
+              << context.boundaries.cuda_error << '\n';
     return 1;
   }
   if (!context.prefill_hook_completed || !context.return_hook_completed ||
@@ -2468,6 +2697,7 @@ int run_capture(const std::filesystem::path& model_directory,
     std::cerr << "strict generation witness rejected: " << error << '\n';
     return 1;
   }
+  write_prefill_p40000_boundaries(context.boundaries, selector);
   write_record(std::cout, selector, checkpoint, corpus, context, generation,
                token_collector, logit_steps);
   return 0;
