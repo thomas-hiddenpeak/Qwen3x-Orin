@@ -1236,7 +1236,9 @@ bool exact_operator_counts(const runtime::PrefillRouteEvidence& evidence,
   constexpr std::array<std::uint64_t, runtime::kPrefillOperatorRoleCount>
       kLegacyFallback{{5'056U, 5'056U, 96U, 48U, 0U, 0U, 48U}};
   constexpr std::array<std::uint64_t, runtime::kPrefillOperatorRoleCount>
-      kSelectorProduction{{64U, 64U, 96U, 48U, 64U, 16U, 48U}};
+      kSelectorProduction{{0U, 0U, 0U, 0U, 0U, 16U, 0U}};
+  constexpr std::array<std::uint64_t, runtime::kPrefillOperatorRoleCount>
+      kSelectorFallback{{64U, 64U, 96U, 48U, 64U, 0U, 48U}};
   const std::uint64_t expected_passes = selector_arm ? 1U : 79U;
   if (!evidence.complete || !evidence.valid || evidence.request_active ||
       evidence.error != runtime::PrefillRouteEvidenceError::kNone ||
@@ -1256,7 +1258,8 @@ bool exact_operator_counts(const runtime::PrefillRouteEvidence& evidence,
             (selector_arm ? kSelectorProduction[role]
                           : kLegacyProduction[role]) ||
         count.exact_fallback_hits !=
-            (selector_arm ? 0U : kLegacyFallback[role]) ||
+            (selector_arm ? kSelectorFallback[role]
+                          : kLegacyFallback[role]) ||
         count.forbidden_hits != 0U) {
       return false;
     }
@@ -1306,6 +1309,189 @@ bool empty_native_span(
          span.first_position == 0U && span.token_count == 0U;
 }
 
+bool valid_selector_bf16_binding(
+    const engine_detail::NativePrefillRoleReceipt& receipt,
+    const runtime::PrefillBindingRole expected_role) noexcept {
+  if (receipt.role != expected_role ||
+      receipt.tactic != engine_detail::NativePrefillTactic::
+                            kBf16AbLegacyM16BodyP40000 ||
+      receipt.completion != engine_detail::NativePrefillCompletionDomain::
+                                kMainStreamBarrier ||
+      receipt.artifact_owner == nullptr || receipt.workspace_owner == nullptr ||
+      receipt.workspace_bytes != 3'840'000U ||
+      receipt.auxiliary_workspace_owner != nullptr ||
+      receipt.auxiliary_workspace_bytes != 0U ||
+      receipt.maximum_logical_panel_m != kPromptTokens ||
+      receipt.minimum_physical_m != kPromptTokens ||
+      receipt.maximum_physical_m != kPromptTokens ||
+      receipt.physical_submission_count_per_logical_panel != 1U) {
+    return false;
+  }
+  return std::all_of(receipt.physical_submissions.begin(),
+                     receipt.physical_submissions.end(), empty_native_span);
+}
+
+bool valid_selector_linear_qkvz_binding(
+    const engine_detail::NativePrefillRoleReceipt& receipt,
+    const bool qkv_role) noexcept {
+  const runtime::PrefillBindingRole expected_role =
+      qkv_role ? runtime::PrefillBindingRole::kLinearFp8Qkv
+               : runtime::PrefillBindingRole::kLinearFp8Z;
+  const engine_detail::NativePrefillTactic expected_tactic =
+      qkv_role
+          ? engine_detail::NativePrefillTactic::
+                kFp8LinearQkvLegacyGroupedC512C32TailP40000
+          : engine_detail::NativePrefillTactic::
+                kFp8LinearZLegacyGroupedC512C32TailP40000;
+  const std::uint64_t expected_workspace_bytes =
+      qkv_role ? 819'200'000ULL : 491'520'000ULL;
+  if (receipt.role != expected_role || receipt.tactic != expected_tactic ||
+      receipt.completion != engine_detail::NativePrefillCompletionDomain::
+                                kMainStreamBarrier ||
+      receipt.artifact_owner == nullptr || receipt.workspace_owner == nullptr ||
+      receipt.workspace_bytes != expected_workspace_bytes ||
+      receipt.auxiliary_workspace_owner == nullptr ||
+      receipt.auxiliary_workspace_bytes == 0U ||
+      receipt.maximum_logical_panel_m != kPromptTokens ||
+      receipt.minimum_physical_m != 32U ||
+      receipt.maximum_physical_m != 512U ||
+      receipt.physical_submission_count_per_logical_panel !=
+          runtime::
+              kSelectorExactPersistentAttentionV1LinearQkvZRoleSubmissionsPerLayer) {
+    return false;
+  }
+  return std::all_of(receipt.physical_submissions.begin(),
+                     receipt.physical_submissions.end(), empty_native_span);
+}
+
+bool valid_selector_full_qkv_binding(
+    const engine_detail::NativePrefillRoleReceipt& receipt,
+    const runtime::PrefillBindingRole expected_role) noexcept {
+  const std::uint64_t expected_workspace_bytes =
+      expected_role == runtime::PrefillBindingRole::kFullFp8Q
+          ? 983'040'000ULL
+      : expected_role == runtime::PrefillBindingRole::kFullFp8K ||
+              expected_role == runtime::PrefillBindingRole::kFullFp8V
+          ? 81'920'000ULL
+          : 0U;
+  if (expected_workspace_bytes == 0U || receipt.role != expected_role ||
+      receipt.tactic != engine_detail::NativePrefillTactic::
+                            kFp8FullQkvLegacyGroupedC512C32TailP40000 ||
+      receipt.completion != engine_detail::NativePrefillCompletionDomain::
+                                kMainStreamBarrier ||
+      receipt.artifact_owner == nullptr || receipt.workspace_owner == nullptr ||
+      receipt.workspace_bytes != expected_workspace_bytes ||
+      receipt.auxiliary_workspace_owner == nullptr ||
+      receipt.auxiliary_workspace_bytes == 0U ||
+      receipt.maximum_logical_panel_m != kPromptTokens ||
+      receipt.minimum_physical_m != 32U ||
+      receipt.maximum_physical_m != 512U ||
+      receipt.physical_submission_count_per_logical_panel !=
+          runtime::
+              kSelectorExactPersistentAttentionV1FullQkvRoleSubmissionsPerLayer) {
+    return false;
+  }
+  return std::all_of(receipt.physical_submissions.begin(),
+                     receipt.physical_submissions.end(), empty_native_span);
+}
+
+bool valid_selector_gdn_binding(
+    const engine_detail::NativePrefillRoleReceipt& receipt) noexcept {
+  if (receipt.role != runtime::PrefillBindingRole::kExactGdn ||
+      receipt.tactic != engine_detail::NativePrefillTactic::
+                            kExactGdnLegacyC512ScheduleP40000 ||
+      receipt.completion != engine_detail::NativePrefillCompletionDomain::
+                                kMainStreamBarrier ||
+      receipt.artifact_owner == nullptr || receipt.workspace_owner == nullptr ||
+      receipt.workspace_bytes == 0U ||
+      receipt.auxiliary_workspace_owner != nullptr ||
+      receipt.auxiliary_workspace_bytes != 0U ||
+      receipt.maximum_logical_panel_m != kPromptTokens ||
+      receipt.minimum_physical_m != 64U ||
+      receipt.maximum_physical_m != 512U ||
+      receipt.physical_submission_count_per_logical_panel !=
+          runtime::
+              kSelectorExactPersistentAttentionV1GdnLegacyC512SpansPerLayer) {
+    return false;
+  }
+  return std::all_of(receipt.physical_submissions.begin(),
+                     receipt.physical_submissions.end(), empty_native_span);
+}
+
+bool valid_selector_o_binding(
+    const engine_detail::NativePrefillRoleReceipt& receipt,
+    const runtime::PrefillBindingRole expected_role) noexcept {
+  if (receipt.role != expected_role ||
+      receipt.tactic !=
+          engine_detail::NativePrefillTactic::
+              kFp8OLegacyWholeChunkC512M64TailP40000 ||
+      receipt.completion != engine_detail::NativePrefillCompletionDomain::
+                                kMainStreamBarrier ||
+      receipt.artifact_owner == nullptr || receipt.workspace_owner == nullptr ||
+      receipt.workspace_bytes != sizeof(float) ||
+      receipt.auxiliary_workspace_owner != nullptr ||
+      receipt.auxiliary_workspace_bytes != 0U ||
+      receipt.maximum_logical_panel_m != kPromptTokens ||
+      receipt.minimum_physical_m != 64U ||
+      receipt.maximum_physical_m != 512U ||
+      receipt.physical_submission_count_per_logical_panel !=
+          runtime::
+              kSelectorExactPersistentAttentionV1OLegacyLaunchesPerLayer) {
+    return false;
+  }
+  return std::all_of(receipt.physical_submissions.begin(),
+                     receipt.physical_submissions.end(), empty_native_span);
+}
+
+bool valid_selector_mlp_binding(
+    const engine_detail::NativePrefillRoleReceipt& receipt,
+    const runtime::PrefillBindingRole expected_role,
+    const engine_detail::NativePrefillTactic expected_tactic,
+    const std::uint32_t expected_minimum_physical_m,
+    const std::uint32_t expected_submission_count,
+    const std::uint64_t expected_auxiliary_bytes) noexcept {
+  const bool auxiliary_valid =
+      expected_auxiliary_bytes == 0U
+          ? receipt.auxiliary_workspace_owner == nullptr &&
+                receipt.auxiliary_workspace_bytes == 0U
+          : receipt.auxiliary_workspace_owner != nullptr &&
+                receipt.auxiliary_workspace_bytes == expected_auxiliary_bytes;
+  if (receipt.role != expected_role || receipt.tactic != expected_tactic ||
+      receipt.completion != engine_detail::NativePrefillCompletionDomain::
+                                kMainStreamBarrier ||
+      receipt.artifact_owner == nullptr || receipt.workspace_owner == nullptr ||
+      receipt.workspace_bytes == 0U || !auxiliary_valid ||
+      receipt.maximum_logical_panel_m != kPromptTokens ||
+      receipt.minimum_physical_m != expected_minimum_physical_m ||
+      receipt.maximum_physical_m != 512U ||
+      receipt.physical_submission_count_per_logical_panel !=
+          expected_submission_count) {
+    return false;
+  }
+  return std::all_of(receipt.physical_submissions.begin(),
+                     receipt.physical_submissions.end(), empty_native_span);
+}
+
+bool empty_native_role(
+    const engine_detail::NativePrefillRoleReceipt& receipt) noexcept {
+  if (receipt.role != runtime::PrefillBindingRole::kInvalid ||
+      receipt.tactic != engine_detail::NativePrefillTactic::kFinalHandoff ||
+      receipt.completion != engine_detail::NativePrefillCompletionDomain::
+                                kMainStreamBarrier ||
+      receipt.artifact_owner != nullptr || receipt.workspace_owner != nullptr ||
+      receipt.workspace_bytes != 0U ||
+      receipt.auxiliary_workspace_owner != nullptr ||
+      receipt.auxiliary_workspace_bytes != 0U ||
+      receipt.maximum_logical_panel_m != 0U ||
+      receipt.minimum_physical_m != 0U ||
+      receipt.maximum_physical_m != 0U ||
+      receipt.physical_submission_count_per_logical_panel != 0U) {
+    return false;
+  }
+  return std::all_of(receipt.physical_submissions.begin(),
+                     receipt.physical_submissions.end(), empty_native_span);
+}
+
 bool empty_private_span(
     const runner_detail::
         SelectorExactPersistentAttentionV1PhysicalSubmissionReceipt& span)
@@ -1344,16 +1530,17 @@ bool valid_selector_generation(
           runtime::LayerMajorPrefillMlpScheduleTactic::
               kPromptWideP40WholeCore ||
       generation.prefill_layer_wide_p40_mlp_layer_hits != 64U ||
-      generation.prefill_persistent_p40_nvfp4_gate_up_hits != 64U ||
-      generation.prefill_persistent_p40_nvfp4_down_residual_hits != 64U ||
-      generation.prefill_persistent_p40_nvfp4_physical_launches != 128U ||
+      generation.prefill_persistent_p40_nvfp4_gate_up_hits != 0U ||
+      generation.prefill_persistent_p40_nvfp4_down_residual_hits != 0U ||
+      generation.prefill_persistent_p40_nvfp4_physical_launches != 0U ||
       generation.prefill_prompt_wide_p40_whole_core_layer_hits != 64U ||
       generation.prefill_prompt_wide_p40_fill_panel_hits != 320U ||
       generation.prefill_prompt_wide_p40_prompt_core_hits != 64U ||
       generation.prefill_prompt_wide_p40_drain_panel_hits != 320U ||
       generation.prefill_prompt_wide_p40_fp8_projection_hits != 1'040U ||
       generation.prefill_prompt_wide_p40_fp8_projection_physical_launches !=
-          1'040U ||
+          runtime::
+              kSelectorExactPersistentAttentionV1P40Fp8PhysicalLaunches ||
       generation.prefill_prompt_wide_p40_bf16_ab_hits != 48U ||
       generation.prefill_prompt_wide_p40_gdn_hits != 48U ||
       generation.prefill_selector_exact_persistent_attention_v1_plan_id !=
@@ -1408,6 +1595,67 @@ bool valid_selector_generation(
       generation
               .prefill_selector_exact_persistent_attention_v1_physical_submission_count_per_layer !=
           3U ||
+      private_receipt.linear_qkvz_grouped_c512_submissions !=
+          runtime::
+              kSelectorExactPersistentAttentionV1LinearQkvZGroupedC512LaunchesPerRequest ||
+      private_receipt.linear_qkvz_generic_c32_submissions !=
+          runtime::
+              kSelectorExactPersistentAttentionV1LinearQkvZGenericC32LaunchesPerRequest ||
+      private_receipt.linear_qkvz_completed_layers !=
+          runtime::
+              kSelectorExactPersistentAttentionV1LinearQkvZCompletedLayers ||
+      private_receipt.linear_qkvz_completed_layer_mask !=
+          0x7777'7777'7777'7777ULL ||
+      private_receipt.full_qkv_grouped_c512_submissions !=
+          runtime::
+              kSelectorExactPersistentAttentionV1FullQkvGroupedC512LaunchesPerRequest ||
+      private_receipt.full_qkv_generic_c32_submissions !=
+          runtime::
+              kSelectorExactPersistentAttentionV1FullQkvGenericC32LaunchesPerRequest ||
+      private_receipt.full_qkv_completed_layers !=
+          runtime::kSelectorExactPersistentAttentionV1FullQkvCompletedLayers ||
+      private_receipt.full_qkv_completed_layer_mask !=
+          0x8888'8888'8888'8888ULL ||
+      private_receipt.legacy_exact_bf16_ab_layers != 48U ||
+      private_receipt.legacy_exact_gdn_layers != 48U ||
+      private_receipt.legacy_exact_gdn_spans !=
+          runtime::
+              kSelectorExactPersistentAttentionV1GdnLegacyC512SpansPerRequest ||
+      private_receipt.legacy_exact_o_whole_chunk_c512_submissions !=
+          runtime::kReferenceDecoderLayerCount *
+              runtime::
+                  kSelectorExactPersistentAttentionV1OWholeChunkC512LaunchesPerLayer ||
+      private_receipt.legacy_exact_o_canonical_m64_submissions !=
+          runtime::kReferenceDecoderLayerCount *
+              runtime::
+                  kSelectorExactPersistentAttentionV1OCanonicalM64TailLaunchesPerLayer ||
+      private_receipt.legacy_exact_o_completed_layers !=
+          runtime::kReferenceDecoderLayerCount ||
+      private_receipt.legacy_exact_mlp_gate_c512_submissions !=
+          runtime::kReferenceDecoderLayerCount *
+              runtime::
+                  kSelectorExactPersistentAttentionV1MlpWholeChunkC512SpansPerLayer ||
+      private_receipt.legacy_exact_mlp_gate_m32_tail_submissions !=
+          runtime::kReferenceDecoderLayerCount * 2U ||
+      private_receipt.legacy_exact_mlp_up_c512_submissions !=
+          runtime::kReferenceDecoderLayerCount *
+              runtime::
+                  kSelectorExactPersistentAttentionV1MlpWholeChunkC512SpansPerLayer ||
+      private_receipt.legacy_exact_mlp_up_m32_tail_submissions !=
+          runtime::kReferenceDecoderLayerCount * 2U ||
+      private_receipt.legacy_exact_mlp_silu_submissions !=
+          runtime::kSelectorExactPersistentAttentionV1MlpSiluSubmissionsPerRequest ||
+      private_receipt.legacy_exact_mlp_down_c512_submissions !=
+          runtime::kReferenceDecoderLayerCount *
+              runtime::
+                  kSelectorExactPersistentAttentionV1MlpDownC512SubmissionsPerLayer ||
+      private_receipt.legacy_exact_mlp_down_m64_tail_submissions !=
+          runtime::kReferenceDecoderLayerCount ||
+      private_receipt.legacy_exact_mlp_residual_submissions !=
+          runtime::
+              kSelectorExactPersistentAttentionV1MlpResidualSubmissionsPerRequest ||
+      private_receipt.legacy_exact_mlp_completed_layers !=
+          runtime::kReferenceDecoderLayerCount ||
       !receipt.prompt_state_committed || !receipt.selector_route ||
       receipt.legacy_c512_route || !receipt.completed_physical_receipt ||
       receipt.configured_internal_rows != kSelectorCapacity ||
@@ -1443,6 +1691,57 @@ bool valid_selector_generation(
       private_receipt.physical_submission_count_per_panel != 3U ||
       private_receipt.issued_layer_count != 16U ||
       private_receipt.completed_layer_count != 16U ||
+      !valid_selector_linear_qkvz_binding(
+          receipt.bound_linear_qkv_role, true) ||
+      !valid_selector_linear_qkvz_binding(
+          receipt.bound_linear_z_role, false) ||
+      !valid_selector_full_qkv_binding(
+          receipt.bound_full_q_role,
+          runtime::PrefillBindingRole::kFullFp8Q) ||
+      !valid_selector_full_qkv_binding(
+          receipt.bound_full_k_role,
+          runtime::PrefillBindingRole::kFullFp8K) ||
+      !valid_selector_full_qkv_binding(
+          receipt.bound_full_v_role,
+          runtime::PrefillBindingRole::kFullFp8V) ||
+      !valid_selector_bf16_binding(
+          receipt.bound_linear_a_role,
+          runtime::PrefillBindingRole::kLinearBf16A) ||
+      !valid_selector_bf16_binding(
+          receipt.bound_linear_b_role,
+          runtime::PrefillBindingRole::kLinearBf16B) ||
+      !valid_selector_gdn_binding(receipt.bound_gdn_role) ||
+      !valid_selector_o_binding(receipt.bound_linear_o_role,
+                                runtime::PrefillBindingRole::kLinearFp8O) ||
+      !valid_selector_o_binding(receipt.bound_full_o_role,
+                                runtime::PrefillBindingRole::kFullFp8O) ||
+      !valid_selector_mlp_binding(
+          receipt.bound_gate_up_role,
+          runtime::PrefillBindingRole::kNvfp4GateUp,
+          engine_detail::NativePrefillTactic::
+              kNvfp4GateUpLegacyWholeChunkC512M32TailP40000,
+          32U,
+          runtime::
+              kSelectorExactPersistentAttentionV1MlpGateUpSubmissionsPerLayer,
+          sizeof(runtime::NvFp4LinearWeight)) ||
+      !valid_selector_mlp_binding(
+          receipt.bound_down_role,
+          runtime::PrefillBindingRole::kNvfp4Down,
+          engine_detail::NativePrefillTactic::
+              kNvfp4DownLegacyWholeChunkC512M64TailP40000,
+          64U,
+          runtime::
+              kSelectorExactPersistentAttentionV1MlpDownSubmissionsPerLayer,
+          0U) ||
+      !valid_selector_mlp_binding(
+          receipt.bound_residual_role,
+          runtime::PrefillBindingRole::kResidual,
+          engine_detail::NativePrefillTactic::
+              kResidualLegacyC512M64TailP40000,
+          64U,
+          runtime::
+              kSelectorExactPersistentAttentionV1MlpLogicalSpansPerLayer,
+          0U) ||
       receipt.bound_attention_role.role !=
           runtime::PrefillBindingRole::kExactCausalAttention ||
       receipt.bound_attention_role.tactic !=
@@ -1627,6 +1926,42 @@ bool empty_selector_generation_receipt(
       receipt.completed_physical_receipt ||
       receipt.completed_physical_submission_count_per_layer != 0U ||
       receipt.completed_layer_count != 0U ||
+      !empty_native_role(receipt.bound_linear_qkv_role) ||
+      !empty_native_role(receipt.bound_linear_z_role) ||
+      !empty_native_role(receipt.bound_full_q_role) ||
+      !empty_native_role(receipt.bound_full_k_role) ||
+      !empty_native_role(receipt.bound_full_v_role) ||
+      !empty_native_role(receipt.bound_linear_a_role) ||
+      !empty_native_role(receipt.bound_linear_b_role) ||
+      !empty_native_role(receipt.bound_gdn_role) ||
+      !empty_native_role(receipt.bound_linear_o_role) ||
+      !empty_native_role(receipt.bound_full_o_role) ||
+      !empty_native_role(receipt.bound_gate_up_role) ||
+      !empty_native_role(receipt.bound_down_role) ||
+      !empty_native_role(receipt.bound_residual_role) ||
+      private_receipt.linear_qkvz_grouped_c512_submissions != 0U ||
+      private_receipt.linear_qkvz_generic_c32_submissions != 0U ||
+      private_receipt.linear_qkvz_completed_layers != 0U ||
+      private_receipt.linear_qkvz_completed_layer_mask != 0U ||
+      private_receipt.full_qkv_grouped_c512_submissions != 0U ||
+      private_receipt.full_qkv_generic_c32_submissions != 0U ||
+      private_receipt.full_qkv_completed_layers != 0U ||
+      private_receipt.full_qkv_completed_layer_mask != 0U ||
+      private_receipt.legacy_exact_bf16_ab_layers != 0U ||
+      private_receipt.legacy_exact_gdn_layers != 0U ||
+      private_receipt.legacy_exact_gdn_spans != 0U ||
+      private_receipt.legacy_exact_o_whole_chunk_c512_submissions != 0U ||
+      private_receipt.legacy_exact_o_canonical_m64_submissions != 0U ||
+      private_receipt.legacy_exact_o_completed_layers != 0U ||
+      private_receipt.legacy_exact_mlp_gate_c512_submissions != 0U ||
+      private_receipt.legacy_exact_mlp_gate_m32_tail_submissions != 0U ||
+      private_receipt.legacy_exact_mlp_up_c512_submissions != 0U ||
+      private_receipt.legacy_exact_mlp_up_m32_tail_submissions != 0U ||
+      private_receipt.legacy_exact_mlp_silu_submissions != 0U ||
+      private_receipt.legacy_exact_mlp_down_c512_submissions != 0U ||
+      private_receipt.legacy_exact_mlp_down_m64_tail_submissions != 0U ||
+      private_receipt.legacy_exact_mlp_residual_submissions != 0U ||
+      private_receipt.legacy_exact_mlp_completed_layers != 0U ||
       private_receipt.panel_calls != 0U ||
       private_receipt.arithmetic_spans != 0U ||
       private_receipt.group_q64_submissions != 0U ||
@@ -2341,6 +2676,218 @@ const char* attention_completion_string(
              : "invalid";
 }
 
+void write_linear_qkvz_binding(
+    std::ostream& output,
+    const engine_detail::NativePrefillRoleReceipt& receipt) {
+  const bool qkv =
+      receipt.role == runtime::PrefillBindingRole::kLinearFp8Qkv;
+  const bool z = receipt.role == runtime::PrefillBindingRole::kLinearFp8Z;
+  output << "{\"role\":";
+  write_json_string(output, qkv ? "linear-fp8-qkv"
+                                : z ? "linear-fp8-z" : "invalid");
+  output << ",\"tactic\":";
+  write_json_string(
+      output,
+      qkv && receipt.tactic ==
+                 engine_detail::NativePrefillTactic::
+                     kFp8LinearQkvLegacyGroupedC512C32TailP40000
+          ? "legacy-grouped-c512-c32-tail-p40000"
+      : z && receipt.tactic ==
+                 engine_detail::NativePrefillTactic::
+                     kFp8LinearZLegacyGroupedC512C32TailP40000
+          ? "legacy-grouped-c512-c32-tail-p40000"
+          : "invalid");
+  output << ",\"completion\":";
+  write_json_string(output,
+                    attention_completion_string(receipt.completion));
+  output << ",\"maximum_logical_panel_m\":"
+         << receipt.maximum_logical_panel_m
+         << ",\"minimum_physical_m\":" << receipt.minimum_physical_m
+         << ",\"maximum_physical_m\":" << receipt.maximum_physical_m
+         << ",\"physical_submission_count_per_logical_panel\":"
+         << receipt.physical_submission_count_per_logical_panel << '}';
+}
+
+const char* full_qkv_role_string(
+    const runtime::PrefillBindingRole role) noexcept {
+  switch (role) {
+    case runtime::PrefillBindingRole::kFullFp8Q:
+      return "full-fp8-q";
+    case runtime::PrefillBindingRole::kFullFp8K:
+      return "full-fp8-k";
+    case runtime::PrefillBindingRole::kFullFp8V:
+      return "full-fp8-v";
+    default:
+      return "invalid";
+  }
+}
+
+void write_full_qkv_binding(
+    std::ostream& output,
+    const engine_detail::NativePrefillRoleReceipt& receipt) {
+  output << "{\"role\":";
+  write_json_string(output, full_qkv_role_string(receipt.role));
+  output << ",\"tactic\":";
+  write_json_string(
+      output,
+      receipt.tactic ==
+              engine_detail::NativePrefillTactic::
+                  kFp8FullQkvLegacyGroupedC512C32TailP40000
+          ? "legacy-grouped-c512-c32-tail-p40000"
+          : "invalid");
+  output << ",\"completion\":";
+  write_json_string(output,
+                    attention_completion_string(receipt.completion));
+  output << ",\"maximum_logical_panel_m\":"
+         << receipt.maximum_logical_panel_m
+         << ",\"minimum_physical_m\":" << receipt.minimum_physical_m
+         << ",\"maximum_physical_m\":" << receipt.maximum_physical_m
+         << ",\"physical_submission_count_per_logical_panel\":"
+         << receipt.physical_submission_count_per_logical_panel << '}';
+}
+
+const char* bf16_ab_role_string(
+    const runtime::PrefillBindingRole role) noexcept {
+  switch (role) {
+    case runtime::PrefillBindingRole::kLinearBf16A:
+      return "linear-bf16-a";
+    case runtime::PrefillBindingRole::kLinearBf16B:
+      return "linear-bf16-b";
+    default:
+      return "invalid";
+  }
+}
+
+const char* bf16_ab_tactic_string(
+    const engine_detail::NativePrefillTactic tactic) noexcept {
+  return tactic ==
+                 engine_detail::NativePrefillTactic::
+                     kBf16AbLegacyM16BodyP40000
+             ? "legacy-m16-body-p40000"
+             : "invalid";
+}
+
+void write_bf16_ab_binding(
+    std::ostream& output,
+    const engine_detail::NativePrefillRoleReceipt& receipt) {
+  output << "{\"role\":";
+  write_json_string(output, bf16_ab_role_string(receipt.role));
+  output << ",\"tactic\":";
+  write_json_string(output, bf16_ab_tactic_string(receipt.tactic));
+  output << ",\"completion\":";
+  write_json_string(output,
+                    attention_completion_string(receipt.completion));
+  output << ",\"maximum_logical_panel_m\":"
+         << receipt.maximum_logical_panel_m
+         << ",\"minimum_physical_m\":" << receipt.minimum_physical_m
+         << ",\"maximum_physical_m\":" << receipt.maximum_physical_m
+         << ",\"physical_submission_count_per_logical_panel\":"
+         << receipt.physical_submission_count_per_logical_panel << '}';
+}
+
+void write_gdn_binding(
+    std::ostream& output,
+    const engine_detail::NativePrefillRoleReceipt& receipt) {
+  output << "{\"role\":\"exact-gdn\",\"tactic\":";
+  write_json_string(
+      output,
+      receipt.tactic == engine_detail::NativePrefillTactic::
+                            kExactGdnLegacyC512ScheduleP40000
+          ? "legacy-c512-schedule-p40000"
+          : "invalid");
+  output << ",\"completion\":";
+  write_json_string(output,
+                    attention_completion_string(receipt.completion));
+  output << ",\"maximum_logical_panel_m\":"
+         << receipt.maximum_logical_panel_m
+         << ",\"minimum_physical_m\":" << receipt.minimum_physical_m
+         << ",\"maximum_physical_m\":" << receipt.maximum_physical_m
+         << ",\"physical_submission_count_per_logical_panel\":"
+         << receipt.physical_submission_count_per_logical_panel << '}';
+}
+
+const char* o_role_string(const runtime::PrefillBindingRole role) noexcept {
+  switch (role) {
+    case runtime::PrefillBindingRole::kLinearFp8O:
+      return "linear-fp8-o";
+    case runtime::PrefillBindingRole::kFullFp8O:
+      return "full-fp8-o";
+    default:
+      return "invalid";
+  }
+}
+
+void write_o_binding(
+    std::ostream& output,
+    const engine_detail::NativePrefillRoleReceipt& receipt) {
+  output << "{\"role\":";
+  write_json_string(output, o_role_string(receipt.role));
+  output << ",\"tactic\":";
+  write_json_string(
+      output,
+      receipt.tactic ==
+              engine_detail::NativePrefillTactic::
+                  kFp8OLegacyWholeChunkC512M64TailP40000
+          ? "legacy-whole-chunk-c512-m64-tail-p40000"
+          : "invalid");
+  output << ",\"completion\":";
+  write_json_string(output,
+                    attention_completion_string(receipt.completion));
+  output << ",\"maximum_logical_panel_m\":"
+         << receipt.maximum_logical_panel_m
+         << ",\"minimum_physical_m\":" << receipt.minimum_physical_m
+         << ",\"maximum_physical_m\":" << receipt.maximum_physical_m
+         << ",\"physical_submission_count_per_logical_panel\":"
+         << receipt.physical_submission_count_per_logical_panel << '}';
+}
+
+const char* mlp_role_string(const runtime::PrefillBindingRole role) noexcept {
+  switch (role) {
+    case runtime::PrefillBindingRole::kNvfp4GateUp:
+      return "nvfp4-gate-up";
+    case runtime::PrefillBindingRole::kNvfp4Down:
+      return "nvfp4-down";
+    case runtime::PrefillBindingRole::kResidual:
+      return "residual";
+    default:
+      return "invalid";
+  }
+}
+
+const char* mlp_tactic_string(
+    const engine_detail::NativePrefillTactic tactic) noexcept {
+  switch (tactic) {
+    case engine_detail::NativePrefillTactic::
+        kNvfp4GateUpLegacyWholeChunkC512M32TailP40000:
+      return "legacy-whole-chunk-c512-m32-tail-p40000";
+    case engine_detail::NativePrefillTactic::
+        kNvfp4DownLegacyWholeChunkC512M64TailP40000:
+      return "legacy-whole-chunk-c512-m64-tail-p40000";
+    case engine_detail::NativePrefillTactic::kResidualLegacyC512M64TailP40000:
+      return "legacy-c512-m64-tail-p40000";
+    default:
+      return "invalid";
+  }
+}
+
+void write_mlp_binding(
+    std::ostream& output,
+    const engine_detail::NativePrefillRoleReceipt& receipt) {
+  output << "{\"role\":";
+  write_json_string(output, mlp_role_string(receipt.role));
+  output << ",\"tactic\":";
+  write_json_string(output, mlp_tactic_string(receipt.tactic));
+  output << ",\"completion\":";
+  write_json_string(output,
+                    attention_completion_string(receipt.completion));
+  output << ",\"maximum_logical_panel_m\":"
+         << receipt.maximum_logical_panel_m
+         << ",\"minimum_physical_m\":" << receipt.minimum_physical_m
+         << ",\"maximum_physical_m\":" << receipt.maximum_physical_m
+         << ",\"physical_submission_count_per_logical_panel\":"
+         << receipt.physical_submission_count_per_logical_panel << '}';
+}
+
 void write_route(std::ostream& output,
                  const runtime::ReferenceGeneration& generation,
                  const StrictCaptureContext& context) {
@@ -2394,7 +2941,129 @@ void write_route(std::ostream& output,
                 .completed_physical_submissions_per_full_attention_layer
          << ",\"physical_submissions_total\":"
          << completed.completed_physical_submissions_total << '}';
-  output << "},\"private_selector_receipt\":{";
+  output.put('}');
+  output << ",\"bound_linear_qkvz_roles\":";
+  if (selector) {
+    output << "{\"qkv\":";
+    write_linear_qkvz_binding(output, completed.bound_linear_qkv_role);
+    output << ",\"z\":";
+    write_linear_qkvz_binding(output, completed.bound_linear_z_role);
+    output.put('}');
+  } else {
+    output << "null";
+  }
+  output << ",\"bound_full_qkv_roles\":";
+  if (selector) {
+    output << "{\"q\":";
+    write_full_qkv_binding(output, completed.bound_full_q_role);
+    output << ",\"k\":";
+    write_full_qkv_binding(output, completed.bound_full_k_role);
+    output << ",\"v\":";
+    write_full_qkv_binding(output, completed.bound_full_v_role);
+    output.put('}');
+  } else {
+    output << "null";
+  }
+  output << ",\"bound_bf16_ab_roles\":";
+  if (selector) {
+    output << "{\"a\":";
+    write_bf16_ab_binding(output, completed.bound_linear_a_role);
+    output << ",\"b\":";
+    write_bf16_ab_binding(output, completed.bound_linear_b_role);
+    output.put('}');
+  } else {
+    output << "null";
+  }
+  output << ",\"bound_gdn_role\":";
+  if (selector) {
+    write_gdn_binding(output, completed.bound_gdn_role);
+  } else {
+    output << "null";
+  }
+  output << ",\"bound_o_roles\":";
+  if (selector) {
+    output << "{\"linear\":";
+    write_o_binding(output, completed.bound_linear_o_role);
+    output << ",\"full\":";
+    write_o_binding(output, completed.bound_full_o_role);
+    output.put('}');
+  } else {
+    output << "null";
+  }
+  output << ",\"bound_mlp_roles\":";
+  if (selector) {
+    output << "{\"gate_up\":";
+    write_mlp_binding(output, completed.bound_gate_up_role);
+    output << ",\"down\":";
+    write_mlp_binding(output, completed.bound_down_role);
+    output << ",\"residual\":";
+    write_mlp_binding(output, completed.bound_residual_role);
+    output.put('}');
+  } else {
+    output << "null";
+  }
+  output << ",\"private_selector_receipt\":{";
+  output << "\"linear_qkvz_grouped_c512_submissions\":"
+         << context.private_selector_receipt
+                .linear_qkvz_grouped_c512_submissions
+         << ",\"linear_qkvz_generic_c32_submissions\":"
+         << context.private_selector_receipt
+                .linear_qkvz_generic_c32_submissions
+         << ",\"linear_qkvz_completed_layers\":"
+         << context.private_selector_receipt.linear_qkvz_completed_layers
+         << ",\"linear_qkvz_completed_layer_mask\":"
+         << context.private_selector_receipt.linear_qkvz_completed_layer_mask
+         << ",\"full_qkv_grouped_c512_submissions\":"
+         << context.private_selector_receipt
+                .full_qkv_grouped_c512_submissions
+         << ",\"full_qkv_generic_c32_submissions\":"
+         << context.private_selector_receipt
+                .full_qkv_generic_c32_submissions
+         << ",\"full_qkv_completed_layers\":"
+         << context.private_selector_receipt.full_qkv_completed_layers
+         << ",\"full_qkv_completed_layer_mask\":"
+         << context.private_selector_receipt.full_qkv_completed_layer_mask
+         << ",\"legacy_exact_bf16_ab_layers\":"
+         << context.private_selector_receipt.legacy_exact_bf16_ab_layers
+         << ",\"legacy_exact_gdn_layers\":"
+         << context.private_selector_receipt.legacy_exact_gdn_layers
+         << ",\"legacy_exact_gdn_spans\":"
+         << context.private_selector_receipt.legacy_exact_gdn_spans
+         << ",\"legacy_exact_o_whole_chunk_c512_submissions\":"
+         << context.private_selector_receipt
+                .legacy_exact_o_whole_chunk_c512_submissions
+         << ",\"legacy_exact_o_canonical_m64_submissions\":"
+         << context.private_selector_receipt
+                .legacy_exact_o_canonical_m64_submissions
+         << ",\"legacy_exact_o_completed_layers\":"
+         << context.private_selector_receipt.legacy_exact_o_completed_layers
+         << ",\"legacy_exact_mlp_gate_c512_submissions\":"
+         << context.private_selector_receipt
+                .legacy_exact_mlp_gate_c512_submissions
+         << ",\"legacy_exact_mlp_gate_m32_tail_submissions\":"
+         << context.private_selector_receipt
+                .legacy_exact_mlp_gate_m32_tail_submissions
+         << ",\"legacy_exact_mlp_up_c512_submissions\":"
+         << context.private_selector_receipt
+                .legacy_exact_mlp_up_c512_submissions
+         << ",\"legacy_exact_mlp_up_m32_tail_submissions\":"
+         << context.private_selector_receipt
+                .legacy_exact_mlp_up_m32_tail_submissions
+         << ",\"legacy_exact_mlp_silu_submissions\":"
+         << context.private_selector_receipt.legacy_exact_mlp_silu_submissions
+         << ",\"legacy_exact_mlp_down_c512_submissions\":"
+         << context.private_selector_receipt
+                .legacy_exact_mlp_down_c512_submissions
+         << ",\"legacy_exact_mlp_down_m64_tail_submissions\":"
+         << context.private_selector_receipt
+                .legacy_exact_mlp_down_m64_tail_submissions
+         << ",\"legacy_exact_mlp_residual_submissions\":"
+         << context.private_selector_receipt
+                .legacy_exact_mlp_residual_submissions
+         << ",\"legacy_exact_mlp_completed_layers\":"
+         << context.private_selector_receipt
+                .legacy_exact_mlp_completed_layers
+         << ',';
   write_selector_totals(
       output, private_selector_totals(context.private_selector_receipt));
   output << "},\"completed_selector_receipt\":{";

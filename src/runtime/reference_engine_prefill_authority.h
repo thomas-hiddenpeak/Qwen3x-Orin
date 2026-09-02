@@ -47,8 +47,21 @@ enum class NativePrefillTactic : std::uint8_t {
   kFp8PromptWideP40FillDrain,
   kBf16AbOracleSpanEstablishedM32,
   kBf16AbPromptWideP40,
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  kFp8LinearQkvLegacyGroupedC512C32TailP40000,
+  kFp8LinearZLegacyGroupedC512C32TailP40000,
+  kFp8FullQkvLegacyGroupedC512C32TailP40000,
+  kBf16AbLegacyM16BodyP40000,
+  kFp8OLegacyWholeChunkC512M64TailP40000,
+  kNvfp4GateUpLegacyWholeChunkC512M32TailP40000,
+  kNvfp4DownLegacyWholeChunkC512M64TailP40000,
+  kResidualLegacyC512M64TailP40000,
+#endif
   kExactGdnOracleSpanWholeRawQkvC512,
   kExactGdnPromptWideP40ChunkGraph,
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  kExactGdnLegacyC512ScheduleP40000,
+#endif
   kExactCausalAttentionOracleSpanC512C16Reference256,
   kNativeCausalAttentionGroupQ64OperatorPanel,
   kNativeCausalAttentionGroupQ128V4OperatorPanel,
@@ -150,6 +163,19 @@ struct P40000SelectorExactPersistentAttentionV1CompletedReceipt {
   std::uint32_t
       completed_physical_submissions_per_full_attention_layer = 0U;
   std::uint64_t completed_physical_submissions_total = 0U;
+  NativePrefillRoleReceipt bound_linear_qkv_role{};
+  NativePrefillRoleReceipt bound_linear_z_role{};
+  NativePrefillRoleReceipt bound_full_q_role{};
+  NativePrefillRoleReceipt bound_full_k_role{};
+  NativePrefillRoleReceipt bound_full_v_role{};
+  NativePrefillRoleReceipt bound_linear_a_role{};
+  NativePrefillRoleReceipt bound_linear_b_role{};
+  NativePrefillRoleReceipt bound_gdn_role{};
+  NativePrefillRoleReceipt bound_linear_o_role{};
+  NativePrefillRoleReceipt bound_full_o_role{};
+  NativePrefillRoleReceipt bound_gate_up_role{};
+  NativePrefillRoleReceipt bound_down_role{};
+  NativePrefillRoleReceipt bound_residual_role{};
   NativePrefillRoleReceipt bound_attention_role{};
   std::uint64_t full_attention_layer_hits = 0U;
   std::uint64_t panel_calls = 0U;
@@ -332,8 +358,21 @@ class ReferenceEnginePrefillExecutor final {
       const PrefillExecutionPlan& geometry,
       const PrefillExecutionProgress& progress) noexcept;
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
-  [[nodiscard]] static bool completed_selector_attention_binding(
+  [[nodiscard]] static bool completed_selector_bindings(
       const BoundPrefillExecutionPlan& plan,
+      NativePrefillRoleReceipt& linear_qkv,
+      NativePrefillRoleReceipt& linear_z,
+      NativePrefillRoleReceipt& full_q,
+      NativePrefillRoleReceipt& full_k,
+      NativePrefillRoleReceipt& full_v,
+      NativePrefillRoleReceipt& linear_a,
+      NativePrefillRoleReceipt& linear_b,
+      NativePrefillRoleReceipt& gdn,
+      NativePrefillRoleReceipt& linear_o,
+      NativePrefillRoleReceipt& full_o,
+      NativePrefillRoleReceipt& gate_up,
+      NativePrefillRoleReceipt& down,
+      NativePrefillRoleReceipt& residual,
       NativePrefillRoleReceipt& attention) noexcept;
 #endif
 

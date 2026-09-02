@@ -131,6 +131,13 @@ prompt_wide_p40_vllm_marlin_parity_build_enabled() noexcept {
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
            !schedule.flashinfer_whole_prompt_required &&
            !schedule
+                .selector_linear_qkvz_legacy_global_c512_required &&
+           !schedule.selector_full_qkv_legacy_global_c512_required &&
+           !schedule.selector_bf16_ab_legacy_exact_required &&
+           !schedule.selector_gdn_legacy_c512_exact_required &&
+           !schedule.selector_o_legacy_global_c512_required &&
+           !schedule.selector_mlp_legacy_c512_exact_required &&
+           !schedule
                 .selector_exact_persistent_attention_v1_whole_prompt_required;
 #else
            !schedule.flashinfer_whole_prompt_required;
@@ -162,11 +169,28 @@ prompt_wide_p40_vllm_marlin_parity_build_enabled() noexcept {
              kLayerMajorPrefillPromptWideP40RequestCapacityTokens &&
 #endif
          schedule.route_pass_count == 1U &&
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+         schedule.fp8_single_launch_per_projection_required ==
+             !selector_exact_p40 &&
+#else
          schedule.fp8_single_launch_per_projection_required &&
+#endif
          schedule.bf16_ab_prompt_wide_required &&
          schedule.gdn_prompt_wide_required &&
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
          schedule.flashinfer_whole_prompt_required == !selector_exact_p40 &&
+         schedule.selector_linear_qkvz_legacy_global_c512_required ==
+             selector_exact_p40 &&
+         schedule.selector_full_qkv_legacy_global_c512_required ==
+             selector_exact_p40 &&
+         schedule.selector_bf16_ab_legacy_exact_required ==
+             selector_exact_p40 &&
+         schedule.selector_gdn_legacy_c512_exact_required ==
+             selector_exact_p40 &&
+         schedule.selector_o_legacy_global_c512_required ==
+             selector_exact_p40 &&
+         schedule.selector_mlp_legacy_c512_exact_required ==
+             selector_exact_p40 &&
          schedule
                  .selector_exact_persistent_attention_v1_whole_prompt_required ==
              selector_exact_p40;
@@ -997,19 +1021,34 @@ PrefillExecutionPlanResult build_unbound_layer_major_prefill_execution_plan(
         kLayerMajorPrefillPromptWideP40RequestCapacityTokens;
 #endif
     plan.whole_core_schedule.route_pass_count = 1U;
-    plan.whole_core_schedule.fp8_single_launch_per_projection_required = true;
     plan.whole_core_schedule.bf16_ab_prompt_wide_required = true;
     plan.whole_core_schedule.gdn_prompt_wide_required = true;
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
     const bool selector_exact_p40 =
         is_selector_exact_persistent_attention_v1_p40_request_capacity_tokens(
             options.max_sequence_length);
+    plan.whole_core_schedule.fp8_single_launch_per_projection_required =
+        !selector_exact_p40;
     plan.whole_core_schedule.flashinfer_whole_prompt_required =
         !selector_exact_p40;
+    plan.whole_core_schedule
+        .selector_linear_qkvz_legacy_global_c512_required =
+        selector_exact_p40;
+    plan.whole_core_schedule.selector_full_qkv_legacy_global_c512_required =
+        selector_exact_p40;
+    plan.whole_core_schedule.selector_bf16_ab_legacy_exact_required =
+        selector_exact_p40;
+    plan.whole_core_schedule.selector_gdn_legacy_c512_exact_required =
+        selector_exact_p40;
+    plan.whole_core_schedule.selector_o_legacy_global_c512_required =
+        selector_exact_p40;
+    plan.whole_core_schedule.selector_mlp_legacy_c512_exact_required =
+        selector_exact_p40;
     plan.whole_core_schedule
         .selector_exact_persistent_attention_v1_whole_prompt_required =
         selector_exact_p40;
 #else
+    plan.whole_core_schedule.fp8_single_launch_per_projection_required = true;
     plan.whole_core_schedule.flashinfer_whole_prompt_required = true;
 #endif
   }

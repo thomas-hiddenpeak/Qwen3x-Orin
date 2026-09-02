@@ -19,6 +19,11 @@ constexpr std::size_t kMaximumPairTokens = 16U;
 constexpr unsigned int kBf16M16Tokens = 16U;
 constexpr unsigned int kBf16M16Rows = 48U;
 constexpr unsigned int kBf16M16Columns = 5120U;
+constexpr unsigned int kBf16P40000Tokens = 40'000U;
+constexpr unsigned int kBf16P40000M16Tiles =
+    kBf16P40000Tokens / kBf16M16Tokens;
+static_assert(kBf16P40000Tokens % kBf16M16Tokens == 0U);
+static_assert(kBf16P40000M16Tiles == 2'500U);
 constexpr std::size_t kMaximumGridX =
     static_cast<std::size_t>(std::numeric_limits<int>::max());
 
@@ -253,6 +258,7 @@ __global__ void bf16_gemv_pair_m16_projection_fused_kernel(
       partial[2U][kBf16M16Tokens][kThreads];
 
   const unsigned int row = blockIdx.x;
+  const unsigned int first_token = blockIdx.y * kBf16M16Tokens;
   const std::uint16_t* const first_row_weights =
       first_weights + row * kBf16M16Columns;
   const std::uint16_t* const second_row_weights =
@@ -263,13 +269,13 @@ __global__ void bf16_gemv_pair_m16_projection_fused_kernel(
        column < kBf16M16Columns; column += kThreads) {
     const float first_weight =
         decode_bf16_device(first_row_weights[column]);
-    const float second_weight =
-        decode_bf16_device(second_row_weights[column]);
+      const float second_weight =
+          decode_bf16_device(second_row_weights[column]);
 #pragma unroll
     for (unsigned int token = 0U; token < kBf16M16Tokens;
          ++token) {
       const float activation = decode_bf16_device(
-          input[token * kBf16M16Columns + column]);
+          input[(first_token + token) * kBf16M16Columns + column]);
       first_sums[token] =
           fmaf(first_weight, activation, first_sums[token]);
       second_sums[token] =
@@ -303,7 +309,7 @@ __global__ void bf16_gemv_pair_m16_projection_fused_kernel(
     for (unsigned int token = 0U; token < kBf16M16Tokens;
          ++token) {
       const unsigned int output_index =
-          token * kBf16M16Rows + row;
+          (first_token + token) * kBf16M16Rows + row;
       first_output[output_index] =
           encode_bf16_device(partial[0U][token][0U]);
       second_output[output_index] =
@@ -552,6 +558,54 @@ int launch_bf16_gemv_pair_m16_projection_fused_cuda(
   }
 
   const dim3 blocks(kBf16M16Rows, 1U, 1U);
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  bf16_gemv_pair_m16_projection_fused_kernel<<<blocks, kThreads, 0U, stream>>>(
+      first_weights, second_weights, input, first_output, second_output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_bf16_gemv_pair_p40000_projection_fused_cuda(
+    const std::uint16_t* const first_weights,
+    const std::uint16_t* const second_weights,
+    const std::uint16_t* const input,
+    const std::size_t token_count,
+    std::uint16_t* const first_output,
+    std::uint16_t* const second_output,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kWeightElements =
+      static_cast<std::size_t>(kBf16M16Rows) * kBf16M16Columns;
+  constexpr std::size_t kInputElements =
+      static_cast<std::size_t>(kBf16P40000Tokens) * kBf16M16Columns;
+  constexpr std::size_t kOutputElements =
+      static_cast<std::size_t>(kBf16P40000Tokens) * kBf16M16Rows;
+  constexpr std::size_t kWeightBytes =
+      kWeightElements * sizeof(std::uint16_t);
+  constexpr std::size_t kInputBytes =
+      kInputElements * sizeof(std::uint16_t);
+  constexpr std::size_t kOutputBytes =
+      kOutputElements * sizeof(std::uint16_t);
+
+  if (token_count != kBf16P40000Tokens || first_weights == nullptr ||
+      second_weights == nullptr || input == nullptr ||
+      first_output == nullptr || second_output == nullptr ||
+      byte_range_overflows(first_weights, kWeightBytes) ||
+      byte_range_overflows(second_weights, kWeightBytes) ||
+      byte_range_overflows(input, kInputBytes) ||
+      byte_range_overflows(first_output, kOutputBytes) ||
+      byte_range_overflows(second_output, kOutputBytes) ||
+      ranges_overlap(first_output, kOutputBytes, first_weights, kWeightBytes) ||
+      ranges_overlap(first_output, kOutputBytes, second_weights, kWeightBytes) ||
+      ranges_overlap(first_output, kOutputBytes, input, kInputBytes) ||
+      ranges_overlap(second_output, kOutputBytes, first_weights, kWeightBytes) ||
+      ranges_overlap(second_output, kOutputBytes, second_weights, kWeightBytes) ||
+      ranges_overlap(second_output, kOutputBytes, input, kInputBytes) ||
+      ranges_overlap(first_output, kOutputBytes, second_output,
+                     kOutputBytes)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const dim3 blocks(kBf16M16Rows, kBf16P40000M16Tiles, 1U);
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
   bf16_gemv_pair_m16_projection_fused_kernel<<<blocks, kThreads, 0U, stream>>>(

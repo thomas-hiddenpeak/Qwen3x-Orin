@@ -226,6 +226,61 @@ thread_local bool
          weight.prefill_marlin_global_scale == nullptr;
 }
 
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+// The selector repair executes the canonical Legacy NVFP4 payload directly.
+// Its admission must therefore authenticate those sources on every layer;
+// the presence of a separate persistent-Marlin sidecar is neither ownership
+// nor arithmetic evidence for this route.
+[[nodiscard]] bool valid_selector_legacy_exact_nvfp4_source(
+    const NvFp4LinearWeight& weight,
+    const std::size_t expected_output_size,
+    const std::size_t expected_input_size) noexcept {
+  const auto aligned = [](const void* const pointer,
+                          const std::size_t alignment) noexcept {
+    return pointer != nullptr &&
+           reinterpret_cast<std::uintptr_t>(pointer) % alignment == 0U;
+  };
+  return aligned(weight.packed_weight, 16U) &&
+         aligned(weight.block_scale, alignof(std::uint16_t)) &&
+         weight.weight_scale_2_device != nullptr &&
+         weight.input_scale_device != nullptr &&
+         std::isfinite(weight.weight_scale_2) &&
+         weight.weight_scale_2 >= 0.0F &&
+         std::isfinite(weight.input_scale) && weight.input_scale >= 0.0F &&
+         weight.output_size == expected_output_size &&
+         weight.input_size == expected_input_size &&
+         weight.input_size % 16U == 0U;
+}
+
+// Full and linear selector projections consume the authenticated canonical
+// FP8 tensor through engine-owned equal-byte supermatrices.  None of the
+// mutually exclusive ModelWeights-attached Prefill layouts may stand in for
+// that source inventory.
+[[nodiscard]] bool valid_selector_legacy_exact_fp8_source(
+    const Fp8LinearWeight& weight,
+    const std::size_t expected_output_size,
+    const std::size_t expected_input_size) noexcept {
+  const auto aligned = [](const void* const pointer,
+                          const std::size_t alignment) noexcept {
+    return pointer != nullptr &&
+           reinterpret_cast<std::uintptr_t>(pointer) % alignment == 0U;
+  };
+  return aligned(weight.weight, 16U) &&
+         aligned(weight.weight_scale_device, alignof(float)) &&
+         aligned(weight.input_scale_device, alignof(float)) &&
+         std::isfinite(weight.weight_scale) && weight.weight_scale >= 0.0F &&
+         std::isfinite(weight.input_scale) && weight.input_scale >= 0.0F &&
+         weight.output_size == expected_output_size &&
+         weight.input_size == expected_input_size &&
+         weight.input_size % 16U == 0U &&
+         weight.prefill_supermatrix_sidecar == nullptr &&
+         weight.prefill_marlin_weight == nullptr &&
+         weight.prefill_marlin_scales == nullptr &&
+         empty_p40_packed_artifact_view(weight.prefill_p40_packed_artifact);
+}
+
+#endif
+
 [[nodiscard]] bool valid_p40_packed_fp8_source(
     const Fp8LinearWeight& weight,
     const std::size_t expected_output_size,
@@ -790,7 +845,8 @@ thread_local bool
     const NvFp4MarlinGateUpLayout expected_gate_up_layout,
     const bool use_projection_reset,
     const bool use_packed_nvfp4,
-    const bool use_vllm_marlin_parity = false) noexcept {
+    const bool use_vllm_marlin_parity = false,
+    const bool use_selector_legacy_exact_sources = false) noexcept {
 #if !defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION) || \
     !defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION) || \
     !defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
@@ -799,21 +855,34 @@ thread_local bool
   (void)use_projection_reset;
   (void)use_packed_nvfp4;
   (void)use_vllm_marlin_parity;
+  (void)use_selector_legacy_exact_sources;
   return false;
 #else
   if (use_vllm_marlin_parity &&
       !complete_p40_vllm_marlin_parity_inventory(weights)) {
     return false;
   }
-  const auto valid_fp8 = [use_projection_reset, use_packed_nvfp4](
+  const auto valid_fp8 = [use_projection_reset, use_packed_nvfp4,
+                          use_selector_legacy_exact_sources](
                              const LinearWeight& weight,
                              const std::size_t output_size,
                              const std::size_t input_size) noexcept {
     const auto* const fp8 = std::get_if<Fp8LinearWeight>(&weight);
-    return (use_projection_reset
-                ? valid_fp8_supermatrix_binding(weight, output_size,
-                                                 input_size)
-                : valid_fp8_marlin_binding(weight, output_size, input_size)) &&
+    return (
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+               use_selector_legacy_exact_sources
+                   ? (fp8 != nullptr &&
+                      valid_selector_legacy_exact_fp8_source(
+                          *fp8, output_size, input_size))
+                   :
+#else
+               (void)use_selector_legacy_exact_sources,
+#endif
+               use_projection_reset
+                   ? valid_fp8_supermatrix_binding(weight, output_size,
+                                                    input_size)
+                   : valid_fp8_marlin_binding(weight, output_size,
+                                              input_size)) &&
            (!use_packed_nvfp4 ||
             (fp8 != nullptr &&
              empty_p40_packed_artifact_view(
@@ -831,6 +900,20 @@ thread_local bool
     if (gate == nullptr || up == nullptr || down == nullptr) {
       return false;
     }
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    if (use_selector_legacy_exact_sources) {
+      if (!valid_selector_legacy_exact_nvfp4_source(
+              *gate, kReferenceIntermediateSize, kReferenceHiddenSize) ||
+          !valid_selector_legacy_exact_nvfp4_source(
+              *up, kReferenceIntermediateSize, kReferenceHiddenSize) ||
+          !valid_selector_legacy_exact_nvfp4_source(
+              *down, kReferenceHiddenSize, kReferenceIntermediateSize)) {
+        return false;
+      }
+    } else
+#else
+    (void)use_selector_legacy_exact_sources;
+#endif
     if (use_packed_nvfp4 || use_vllm_marlin_parity) {
       if (!valid_p40_packed_nvfp4_source(
               *gate, kReferenceIntermediateSize, kReferenceHiddenSize) ||
@@ -1710,6 +1793,22 @@ complete_exact_gdn_chunk64_native_inventory(
       left.whole_core_schedule.flashinfer_whole_prompt_required !=
           right.whole_core_schedule.flashinfer_whole_prompt_required ||
       left.whole_core_schedule
+              .selector_linear_qkvz_legacy_global_c512_required !=
+          right.whole_core_schedule
+              .selector_linear_qkvz_legacy_global_c512_required ||
+      left.whole_core_schedule
+              .selector_full_qkv_legacy_global_c512_required !=
+          right.whole_core_schedule
+              .selector_full_qkv_legacy_global_c512_required ||
+      left.whole_core_schedule.selector_bf16_ab_legacy_exact_required !=
+          right.whole_core_schedule.selector_bf16_ab_legacy_exact_required ||
+      left.whole_core_schedule.selector_gdn_legacy_c512_exact_required !=
+          right.whole_core_schedule.selector_gdn_legacy_c512_exact_required ||
+      left.whole_core_schedule.selector_o_legacy_global_c512_required !=
+          right.whole_core_schedule.selector_o_legacy_global_c512_required ||
+      left.whole_core_schedule.selector_mlp_legacy_c512_exact_required !=
+          right.whole_core_schedule.selector_mlp_legacy_c512_exact_required ||
+      left.whole_core_schedule
               .selector_exact_persistent_attention_v1_whole_prompt_required !=
           right.whole_core_schedule
               .selector_exact_persistent_attention_v1_whole_prompt_required ||
@@ -2272,9 +2371,20 @@ inline constexpr std::uint64_t kPromptWideP40WholeCoreArenaBytes =
 [[nodiscard]] constexpr std::uint32_t
 prompt_wide_p40_role_maximum_logical_m(
     const PrefillBindingRole role,
-    const bool fp8_uses_full_prompt_projection) noexcept {
+    const bool fp8_uses_full_prompt_projection,
+    const bool selector_exact_legacy_fp8_projection = false) noexcept {
   if (role == PrefillBindingRole::kFinalHandoff) {
     return 1U;
+  }
+  if (selector_exact_legacy_fp8_projection &&
+      (role == PrefillBindingRole::kLinearFp8Qkv ||
+       role == PrefillBindingRole::kLinearFp8Z ||
+       role == PrefillBindingRole::kLinearFp8O ||
+       role == PrefillBindingRole::kFullFp8Q ||
+       role == PrefillBindingRole::kFullFp8K ||
+       role == PrefillBindingRole::kFullFp8V ||
+       role == PrefillBindingRole::kFullFp8O)) {
+    return kLayerMajorPrefillPromptWideP40Tokens;
   }
   return prompt_wide_p40_fp8_role(role) &&
                  !fp8_uses_full_prompt_projection
@@ -2408,6 +2518,7 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
       full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
                                    kNativeFlashInferExactWholePrompt;
 #else
+  constexpr bool selector_exact_attention = false;
   const bool whole_prompt_attention =
       full_attention_tactic == LayerMajorPrefillFullAttentionTactic::
                                    kNativeFlashInferExactWholePrompt;
@@ -2588,13 +2699,13 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
   }
 #endif
 #if !defined(Q3X_ENABLE_NVFP4_PERSISTENT_PREFILL_ADMISSION)
-  if (persistent_nvfp4_kernel_projection) {
+  if (persistent_nvfp4_kernel_projection && !selector_exact_attention) {
     return plan_failure(BoundPrefillPlanError::kUnsupportedBinary,
                         ReferenceRunnerError::kInvalidDependency,
                         "bound_prefill_nvfp4_persistent_p40_binary");
   }
 #else
-  if (persistent_nvfp4_kernel_projection &&
+  if (persistent_nvfp4_kernel_projection && !selector_exact_attention &&
       !complete_nvfp4_persistent_p40_capability()) {
     return plan_failure(
         BoundPrefillPlanError::kUnsupportedBinary,
@@ -2679,7 +2790,8 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
           ? complete_p40_packed_projection_inventory(*weights)
           : complete_installed_projection_inventory(
                 *weights, expected_gate_up_layout, projection_reset,
-                packed_nvfp4_v2, vllm_marlin_parity) &&
+                packed_nvfp4_v2, vllm_marlin_parity,
+                selector_exact_attention) &&
                 (!packed_nvfp4_v2 ||
                  complete_p40_packed_nvfp4_inventory(*weights));
   if (!projection_inventory_complete) {
@@ -2775,7 +2887,8 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                              : std::get_if<Fp8LinearWeight>(&attention->o_proj);
     if (linear == nullptr || attention == nullptr || gate == nullptr ||
         up == nullptr || down == nullptr ||
-        (!any_packed_projection && !vllm_marlin_parity &&
+        (!selector_exact_attention && !any_packed_projection &&
+         !vllm_marlin_parity &&
          (gate->prefill_marlin_gate_up_layout != expected_gate_up_layout ||
           up->prefill_marlin_gate_up_layout !=
               gate->prefill_marlin_gate_up_layout)) ||
@@ -2843,6 +2956,31 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
     constexpr std::uint64_t kDownScaleBytes =
         static_cast<std::uint64_t>(kReferenceIntermediateSize) *
         kReferenceHiddenSize / 16U;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    if (selector_exact_attention) {
+      roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4GateUp)] =
+          receipt(
+              PrefillBindingRole::kNvfp4GateUp,
+              NativePrefillTactic::
+                  kNvfp4GateUpLegacyWholeChunkC512M32TailP40000,
+              gate, views.mlp.gate_bf16.storage.device_data,
+              views.mlp.gate_bf16.storage.byte_size, 32U, 512U, up,
+              sizeof(NvFp4LinearWeight),
+              kLayerMajorPrefillPromptWideP40Tokens,
+              kSelectorExactPersistentAttentionV1MlpGateUpSubmissionsPerLayer);
+      roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4Down)] =
+          receipt(
+              PrefillBindingRole::kNvfp4Down,
+              NativePrefillTactic::
+                  kNvfp4DownLegacyWholeChunkC512M64TailP40000,
+              down,
+              views.legacy_c512.hidden_bf16[1U].storage.device_data,
+              views.legacy_c512.hidden_bf16[1U].storage.byte_size, 64U,
+              512U, nullptr, 0U,
+              kLayerMajorPrefillPromptWideP40Tokens,
+              kSelectorExactPersistentAttentionV1MlpDownSubmissionsPerLayer);
+    } else
+#endif
     if (vllm_marlin_parity) {
       const NvFp4MarlinP40ParityDeviceView& gate_up_view =
           gate->prefill_p40_vllm_marlin_parity;
@@ -2921,10 +3059,90 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
         views.legacy_c512.fp32_scratch;
     const DeviceBufferView& fp8_locks =
         views.legacy_c512.projection_bf16[3U].storage;
-    const auto fp8_receipt = [&receipt, &fp8_reduction, &fp8_locks,
-                              projection_reset, packed_projection](
+    const auto fp8_receipt = [&receipt, &fp8_reduction, &fp8_locks, &views,
+                              runner,
+                              projection_reset, packed_projection,
+                              selector_exact_attention](
                                  const PrefillBindingRole role,
                                  const Fp8LinearWeight& weight) noexcept {
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (selector_exact_attention &&
+          (role == PrefillBindingRole::kLinearFp8Qkv ||
+           role == PrefillBindingRole::kLinearFp8Z)) {
+        const bool qkv_role = role == PrefillBindingRole::kLinearFp8Qkv;
+        const DeviceMatrixView& publication =
+            qkv_role ? views.p40_whole_core.linear.raw_qkv_bf16
+                     : views.p40_whole_core.linear.z_bf16;
+        return receipt(
+            role,
+            qkv_role
+                ? NativePrefillTactic::
+                      kFp8LinearQkvLegacyGroupedC512C32TailP40000
+                : NativePrefillTactic::
+                      kFp8LinearZLegacyGroupedC512C32TailP40000,
+            qkv_role
+                ? static_cast<const void*>(
+                      runner->selector_linear_qkv_supermatrices_.data())
+                : static_cast<const void*>(
+                      runner->selector_linear_z_supermatrices_.data()),
+            publication.storage.device_data,
+            publication.storage.byte_size, 32U, 512U,
+            fp8_reduction.device_data, fp8_reduction.byte_size,
+            kLayerMajorPrefillPromptWideP40Tokens,
+            kSelectorExactPersistentAttentionV1LinearQkvZRoleSubmissionsPerLayer);
+      }
+      if (selector_exact_attention &&
+          (role == PrefillBindingRole::kFullFp8Q ||
+           role == PrefillBindingRole::kFullFp8K ||
+           role == PrefillBindingRole::kFullFp8V)) {
+        constexpr std::uint64_t kFullKvPublicationBytes =
+            static_cast<std::uint64_t>(
+                kLayerMajorPrefillPromptWideP40Tokens) *
+            1'024U * sizeof(std::uint16_t);
+        const bool q_role = role == PrefillBindingRole::kFullFp8Q;
+        const bool k_role = role == PrefillBindingRole::kFullFp8K;
+        const void* const artifact =
+            q_role
+                ? static_cast<const void*>(
+                      runner->selector_full_q_supermatrices_.data())
+            : k_role
+                ? static_cast<const void*>(
+                      runner->selector_full_k_supermatrices_.data())
+                : static_cast<const void*>(
+                      runner->selector_full_v_supermatrices_.data());
+        const void* const publication =
+            q_role
+                ? views.p40_whole_core.full_attention.raw_q_gate_bf16.storage
+                      .device_data
+            : k_role ? static_cast<const void*>(runner->views_.key_cache[3U])
+                     : static_cast<const void*>(
+                           runner->views_.value_cache[3U]);
+        const std::uint64_t publication_bytes =
+            q_role
+                ? views.p40_whole_core.full_attention.raw_q_gate_bf16.storage
+                      .byte_size
+                : kFullKvPublicationBytes;
+        return receipt(
+            role,
+            NativePrefillTactic::
+                kFp8FullQkvLegacyGroupedC512C32TailP40000,
+            artifact, publication, publication_bytes, 32U, 512U,
+            fp8_reduction.device_data, fp8_reduction.byte_size,
+            kLayerMajorPrefillPromptWideP40Tokens,
+            kSelectorExactPersistentAttentionV1FullQkvRoleSubmissionsPerLayer);
+      }
+      if (selector_exact_attention &&
+          (role == PrefillBindingRole::kLinearFp8O ||
+           role == PrefillBindingRole::kFullFp8O)) {
+        return receipt(
+            role,
+            NativePrefillTactic::
+                kFp8OLegacyWholeChunkC512M64TailP40000,
+            weight.weight, weight.weight_scale_device, sizeof(float), 64U,
+            512U, nullptr, 0U, kLayerMajorPrefillPromptWideP40Tokens,
+            kSelectorExactPersistentAttentionV1OLegacyLaunchesPerLayer);
+      }
+#endif
       if (packed_projection) {
         return receipt(
             role, NativePrefillTactic::kFp8P40PackedProjection,
@@ -2966,9 +3184,18 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
         fp8_receipt(PrefillBindingRole::kFullFp8O, *full_o);
 
     const LayerMajorP40WholeCoreViews& whole = views.p40_whole_core;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    const NativePrefillTactic bf16_ab_tactic =
+        selector_exact_attention
+            ? NativePrefillTactic::kBf16AbLegacyM16BodyP40000
+            : NativePrefillTactic::kBf16AbPromptWideP40;
+#else
+    constexpr NativePrefillTactic bf16_ab_tactic =
+        NativePrefillTactic::kBf16AbPromptWideP40;
+#endif
     roles[static_cast<std::size_t>(PrefillBindingRole::kLinearBf16A)] =
         receipt(PrefillBindingRole::kLinearBf16A,
-                NativePrefillTactic::kBf16AbPromptWideP40,
+                bf16_ab_tactic,
                 linear_a->weight,
                 whole.linear.a_bf16.storage.device_data,
                 whole.linear.a_bf16.storage.byte_size,
@@ -2976,20 +3203,41 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                 kLayerMajorPrefillPromptWideP40Tokens);
     roles[static_cast<std::size_t>(PrefillBindingRole::kLinearBf16B)] =
         receipt(PrefillBindingRole::kLinearBf16B,
-                NativePrefillTactic::kBf16AbPromptWideP40,
+                bf16_ab_tactic,
                 linear_b->weight,
                 whole.linear.b_bf16.storage.device_data,
                 whole.linear.b_bf16.storage.byte_size,
                 kLayerMajorPrefillPromptWideP40Tokens,
                 kLayerMajorPrefillPromptWideP40Tokens);
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    const NativePrefillTactic gdn_tactic =
+        selector_exact_attention
+            ? NativePrefillTactic::kExactGdnLegacyC512ScheduleP40000
+            : NativePrefillTactic::kExactGdnPromptWideP40ChunkGraph;
+#else
+    constexpr NativePrefillTactic gdn_tactic =
+        NativePrefillTactic::kExactGdnPromptWideP40ChunkGraph;
+#endif
     roles[static_cast<std::size_t>(PrefillBindingRole::kExactGdn)] =
-        receipt(PrefillBindingRole::kExactGdn,
-                NativePrefillTactic::kExactGdnPromptWideP40ChunkGraph,
+        receipt(PrefillBindingRole::kExactGdn, gdn_tactic,
                 linear->conv1d.data,
                 whole.linear.prompt_wide_workspace.device_data,
-                kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes,
-                kLayerMajorPrefillPromptWideP40Tokens,
-                kLayerMajorPrefillPromptWideP40Tokens);
+                selector_exact_attention
+                    ? gdn_prefill_chunk64_native_detail::workspace_bytes()
+                    : kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes,
+                selector_exact_attention
+                    ? 64U
+                    : kLayerMajorPrefillPromptWideP40Tokens,
+                selector_exact_attention
+                    ? kLayerMajorPrefillLegacyPublicTileTokens
+                    : kLayerMajorPrefillPromptWideP40Tokens,
+                nullptr, 0U, kLayerMajorPrefillPromptWideP40Tokens
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+                , selector_exact_attention
+                      ? kSelectorExactPersistentAttentionV1GdnLegacyC512SpansPerLayer
+                      : 1U
+#endif
+        );
     roles[static_cast<std::size_t>(
         PrefillBindingRole::kExactCausalAttention)] =
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
@@ -3027,6 +3275,18 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
             kLayerMajorPrefillPromptWideP40Tokens);
 #endif
     roles[static_cast<std::size_t>(PrefillBindingRole::kResidual)] =
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+        selector_exact_attention
+            ? receipt(
+                  PrefillBindingRole::kResidual,
+                  NativePrefillTactic::kResidualLegacyC512M64TailP40000,
+                  weights,
+                  views.prompt_residual_bf16.storage.device_data,
+                  views.prompt_residual_bf16.storage.byte_size, 64U, 512U,
+                  nullptr, 0U, kLayerMajorPrefillPromptWideP40Tokens,
+                  kSelectorExactPersistentAttentionV1MlpLogicalSpansPerLayer)
+            :
+#endif
         receipt(PrefillBindingRole::kResidual,
                 NativePrefillTactic::kResidualOperatorPanel, weights,
                 views.prompt_residual_bf16.storage.device_data,
@@ -3079,7 +3339,8 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
           role.maximum_logical_panel_m !=
               prompt_wide_p40_role_maximum_logical_m(role_identity,
                                                      projection_reset ||
-                                                         packed_projection) ||
+                                                         packed_projection,
+                                                     selector_exact_attention) ||
           role.minimum_physical_m == 0U ||
           role.minimum_physical_m > role.maximum_physical_m ||
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
@@ -3310,7 +3571,8 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                            : std::get_if<Fp8LinearWeight>(&attention->o_proj);
   if (linear == nullptr || attention == nullptr || gate == nullptr ||
       up == nullptr || down == nullptr ||
-      (!any_packed_projection && !vllm_marlin_parity &&
+      (!selector_exact_attention && !any_packed_projection &&
+       !vllm_marlin_parity &&
        (gate->prefill_marlin_gate_up_layout != expected_gate_up_layout ||
         up->prefill_marlin_gate_up_layout !=
             gate->prefill_marlin_gate_up_layout)) ||
@@ -3903,11 +4165,11 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
   }
 #endif
 #if !defined(Q3X_ENABLE_NVFP4_PERSISTENT_PREFILL_ADMISSION)
-  if (persistent_nvfp4_kernel_projection) {
+  if (persistent_nvfp4_kernel_projection && !selector_exact_attention) {
     return false;
   }
 #else
-  if (persistent_nvfp4_kernel_projection &&
+  if (persistent_nvfp4_kernel_projection && !selector_exact_attention &&
       !complete_nvfp4_persistent_p40_capability()) {
     return false;
   }
@@ -3931,7 +4193,8 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
           ? complete_p40_packed_projection_inventory(*runner.weights_)
           : complete_installed_projection_inventory(
                 *runner.weights_, expected_gate_up_layout, projection_reset,
-                packed_nvfp4_v2, vllm_marlin_parity) &&
+                packed_nvfp4_v2, vllm_marlin_parity,
+                selector_exact_attention) &&
                 (!packed_nvfp4_v2 ||
                  complete_p40_packed_nvfp4_inventory(*runner.weights_));
   if (!projection_inventory_complete) {
@@ -3978,7 +4241,8 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
       std::get_if<NvFp4LinearWeight>(&linear_layer.mlp.down_proj);
   if (linear == nullptr || attention == nullptr || gate == nullptr ||
       up == nullptr || down == nullptr ||
-      (!any_packed_projection && !vllm_marlin_parity &&
+      (!selector_exact_attention && !any_packed_projection &&
+       !vllm_marlin_parity &&
        (gate->prefill_marlin_gate_up_layout != expected_gate_up_layout ||
         up->prefill_marlin_gate_up_layout !=
             gate->prefill_marlin_gate_up_layout)) ||
@@ -4076,10 +4340,89 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
     const DeviceBufferView& reduction = views.legacy_c512.fp32_scratch;
     const DeviceBufferView& locks =
         views.legacy_c512.projection_bf16[3U].storage;
-    const auto fp8_matches = [&matches, &reduction, &locks,
-                              projection_reset, packed_projection](
+    const auto fp8_matches = [&matches, &reduction, &locks, &views, &runner,
+                              projection_reset, packed_projection,
+                              selector_exact_attention](
                                  const PrefillBindingRole role,
                                  const Fp8LinearWeight& weight) noexcept {
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (selector_exact_attention &&
+          (role == PrefillBindingRole::kLinearFp8Qkv ||
+           role == PrefillBindingRole::kLinearFp8Z)) {
+        const bool qkv_role = role == PrefillBindingRole::kLinearFp8Qkv;
+        const DeviceMatrixView& publication =
+            qkv_role ? views.p40_whole_core.linear.raw_qkv_bf16
+                     : views.p40_whole_core.linear.z_bf16;
+        return matches(
+            role,
+            qkv_role
+                ? NativePrefillTactic::
+                      kFp8LinearQkvLegacyGroupedC512C32TailP40000
+                : NativePrefillTactic::
+                      kFp8LinearZLegacyGroupedC512C32TailP40000,
+            qkv_role
+                ? static_cast<const void*>(
+                      runner.selector_linear_qkv_supermatrices_.data())
+                : static_cast<const void*>(
+                      runner.selector_linear_z_supermatrices_.data()),
+            publication.storage.device_data,
+            publication.storage.byte_size, 32U, 512U,
+            reduction.device_data, reduction.byte_size,
+            kLayerMajorPrefillPromptWideP40Tokens,
+            kSelectorExactPersistentAttentionV1LinearQkvZRoleSubmissionsPerLayer);
+      }
+      if (selector_exact_attention &&
+          (role == PrefillBindingRole::kFullFp8Q ||
+           role == PrefillBindingRole::kFullFp8K ||
+           role == PrefillBindingRole::kFullFp8V)) {
+        constexpr std::uint64_t kFullKvPublicationBytes =
+            static_cast<std::uint64_t>(
+                kLayerMajorPrefillPromptWideP40Tokens) *
+            1'024U * sizeof(std::uint16_t);
+        const bool q_role = role == PrefillBindingRole::kFullFp8Q;
+        const bool k_role = role == PrefillBindingRole::kFullFp8K;
+        const void* const artifact =
+            q_role
+                ? static_cast<const void*>(
+                      runner.selector_full_q_supermatrices_.data())
+            : k_role
+                ? static_cast<const void*>(
+                      runner.selector_full_k_supermatrices_.data())
+                : static_cast<const void*>(
+                      runner.selector_full_v_supermatrices_.data());
+        const void* const publication =
+            q_role
+                ? views.p40_whole_core.full_attention.raw_q_gate_bf16.storage
+                      .device_data
+            : k_role ? static_cast<const void*>(runner.views_.key_cache[3U])
+                     : static_cast<const void*>(
+                           runner.views_.value_cache[3U]);
+        const std::uint64_t publication_bytes =
+            q_role
+                ? views.p40_whole_core.full_attention.raw_q_gate_bf16.storage
+                      .byte_size
+                : kFullKvPublicationBytes;
+        return matches(
+            role,
+            NativePrefillTactic::
+                kFp8FullQkvLegacyGroupedC512C32TailP40000,
+            artifact, publication, publication_bytes, 32U, 512U,
+            reduction.device_data, reduction.byte_size,
+            kLayerMajorPrefillPromptWideP40Tokens,
+            kSelectorExactPersistentAttentionV1FullQkvRoleSubmissionsPerLayer);
+      }
+      if (selector_exact_attention &&
+          (role == PrefillBindingRole::kLinearFp8O ||
+           role == PrefillBindingRole::kFullFp8O)) {
+        return matches(
+            role,
+            NativePrefillTactic::
+                kFp8OLegacyWholeChunkC512M64TailP40000,
+            weight.weight, weight.weight_scale_device, sizeof(float), 64U,
+            512U, nullptr, 0U, kLayerMajorPrefillPromptWideP40Tokens,
+            kSelectorExactPersistentAttentionV1OLegacyLaunchesPerLayer);
+      }
+#endif
       if (packed_projection) {
         return matches(
             role, NativePrefillTactic::kFp8P40PackedProjection,
@@ -4106,11 +4449,52 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
           kLayerMajorPrefillPromptWideP40PanelTokens);
     };
     const LayerMajorP40WholeCoreViews& whole = views.p40_whole_core;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    const NativePrefillTactic bf16_ab_tactic =
+        selector_exact_attention
+            ? NativePrefillTactic::kBf16AbLegacyM16BodyP40000
+            : NativePrefillTactic::kBf16AbPromptWideP40;
+#else
+    constexpr NativePrefillTactic bf16_ab_tactic =
+        NativePrefillTactic::kBf16AbPromptWideP40;
+#endif
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    const NativePrefillTactic gdn_tactic =
+        selector_exact_attention
+            ? NativePrefillTactic::kExactGdnLegacyC512ScheduleP40000
+            : NativePrefillTactic::kExactGdnPromptWideP40ChunkGraph;
+#else
+    constexpr NativePrefillTactic gdn_tactic =
+        NativePrefillTactic::kExactGdnPromptWideP40ChunkGraph;
+#endif
     void* const parity_reduction =
         views.mlp.gate_up_projection_temporary.device_data;
     void* const parity_locks =
         views.legacy_c512.projection_bf16[3U].storage.device_data;
     const bool nvfp4_receipts_match =
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+        selector_exact_attention
+            ? matches(
+                  PrefillBindingRole::kNvfp4GateUp,
+                  NativePrefillTactic::
+                      kNvfp4GateUpLegacyWholeChunkC512M32TailP40000,
+                  gate, views.mlp.gate_bf16.storage.device_data,
+                  views.mlp.gate_bf16.storage.byte_size, 32U, 512U, up,
+                  sizeof(NvFp4LinearWeight),
+                  kLayerMajorPrefillPromptWideP40Tokens,
+                  kSelectorExactPersistentAttentionV1MlpGateUpSubmissionsPerLayer) &&
+                  matches(
+                      PrefillBindingRole::kNvfp4Down,
+                      NativePrefillTactic::
+                          kNvfp4DownLegacyWholeChunkC512M64TailP40000,
+                      down,
+                      views.legacy_c512.hidden_bf16[1U].storage.device_data,
+                      views.legacy_c512.hidden_bf16[1U].storage.byte_size,
+                      64U, 512U, nullptr, 0U,
+                      kLayerMajorPrefillPromptWideP40Tokens,
+                      kSelectorExactPersistentAttentionV1MlpDownSubmissionsPerLayer)
+            :
+#endif
         vllm_marlin_parity
             ? matches(
                   PrefillBindingRole::kNvfp4GateUp,
@@ -4216,14 +4600,14 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
            fp8_matches(PrefillBindingRole::kFullFp8V, *full_v) &&
            fp8_matches(PrefillBindingRole::kFullFp8O, *full_o) &&
            matches(PrefillBindingRole::kLinearBf16A,
-                   NativePrefillTactic::kBf16AbPromptWideP40,
+                   bf16_ab_tactic,
                    linear_a->weight,
                    whole.linear.a_bf16.storage.device_data,
                    whole.linear.a_bf16.storage.byte_size,
                    kLayerMajorPrefillPromptWideP40Tokens,
                    kLayerMajorPrefillPromptWideP40Tokens) &&
            matches(PrefillBindingRole::kLinearBf16B,
-                   NativePrefillTactic::kBf16AbPromptWideP40,
+                   bf16_ab_tactic,
                    linear_b->weight,
                    whole.linear.b_bf16.storage.device_data,
                    whole.linear.b_bf16.storage.byte_size,
@@ -4231,12 +4615,25 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
                    kLayerMajorPrefillPromptWideP40Tokens) &&
            matches(
                PrefillBindingRole::kExactGdn,
-               NativePrefillTactic::kExactGdnPromptWideP40ChunkGraph,
+               gdn_tactic,
                linear->conv1d.data,
                whole.linear.prompt_wide_workspace.device_data,
-               kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes,
-               kLayerMajorPrefillPromptWideP40Tokens,
-               kLayerMajorPrefillPromptWideP40Tokens) &&
+               selector_exact_attention
+                   ? gdn_prefill_chunk64_native_detail::workspace_bytes()
+                   : kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes,
+               selector_exact_attention
+                   ? 64U
+                   : kLayerMajorPrefillPromptWideP40Tokens,
+               selector_exact_attention
+                   ? kLayerMajorPrefillLegacyPublicTileTokens
+                   : kLayerMajorPrefillPromptWideP40Tokens,
+               nullptr, 0U, kLayerMajorPrefillPromptWideP40Tokens
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+               , selector_exact_attention
+                     ? kSelectorExactPersistentAttentionV1GdnLegacyC512SpansPerLayer
+                     : 1U
+#endif
+               ) &&
            matches(
                PrefillBindingRole::kExactCausalAttention,
                native_attention_tactic(plan.full_attention_tactic_),
@@ -4254,13 +4651,36 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
                , selector_exact_attention ? 3U : 1U
 #endif
                ) &&
-           matches(PrefillBindingRole::kResidual,
-                   NativePrefillTactic::kResidualOperatorPanel,
-                   runner.weights_,
-                   views.prompt_residual_bf16.storage.device_data,
-                   views.prompt_residual_bf16.storage.byte_size,
-                   kLayerMajorPrefillPromptWideP40PanelTokens,
-                   kLayerMajorPrefillPromptWideP40PanelTokens) &&
+           matches(
+               PrefillBindingRole::kResidual,
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+               selector_exact_attention
+                   ? NativePrefillTactic::kResidualLegacyC512M64TailP40000
+                   :
+#endif
+                     NativePrefillTactic::kResidualOperatorPanel,
+               runner.weights_,
+               views.prompt_residual_bf16.storage.device_data,
+               views.prompt_residual_bf16.storage.byte_size,
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+               selector_exact_attention
+                   ? 64U
+                   :
+#endif
+                     kLayerMajorPrefillPromptWideP40PanelTokens,
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+               selector_exact_attention
+                   ? 512U
+                   :
+#endif
+                     kLayerMajorPrefillPromptWideP40PanelTokens,
+               nullptr, 0U, kLayerMajorPrefillPromptWideP40Tokens
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+               , selector_exact_attention
+                     ? kSelectorExactPersistentAttentionV1MlpLogicalSpansPerLayer
+                     : 1U
+#endif
+               ) &&
            matches(
                PrefillBindingRole::kNormalization,
                NativePrefillTactic::kNormalizationOperatorPanel,
@@ -4808,46 +5228,397 @@ std::string_view ReferenceEnginePrefillExecutor::deployment_plan_id(
 }
 
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
-bool ReferenceEnginePrefillExecutor::completed_selector_attention_binding(
+bool ReferenceEnginePrefillExecutor::completed_selector_bindings(
     const BoundPrefillExecutionPlan& plan,
+    NativePrefillRoleReceipt& linear_qkv,
+    NativePrefillRoleReceipt& linear_z,
+    NativePrefillRoleReceipt& full_q,
+    NativePrefillRoleReceipt& full_k,
+    NativePrefillRoleReceipt& full_v,
+    NativePrefillRoleReceipt& linear_a,
+    NativePrefillRoleReceipt& linear_b,
+    NativePrefillRoleReceipt& gdn,
+    NativePrefillRoleReceipt& linear_o,
+    NativePrefillRoleReceipt& full_o,
+    NativePrefillRoleReceipt& gate_up,
+    NativePrefillRoleReceipt& down,
+    NativePrefillRoleReceipt& residual,
     NativePrefillRoleReceipt& attention) noexcept {
+  linear_qkv = {};
+  linear_z = {};
+  full_q = {};
+  full_k = {};
+  full_v = {};
+  linear_a = {};
+  linear_b = {};
+  gdn = {};
+  linear_o = {};
+  full_o = {};
+  gate_up = {};
+  down = {};
+  residual = {};
   attention = {};
   if (plan.state_ == nullptr ||
+      plan.runner_ == nullptr ||
+      !plan.runner_->selector_linear_qkvz_legacy_exact_required_ ||
+      !plan.runner_->selector_full_qkv_legacy_exact_required_ ||
+      !plan.runner_->selector_mlp_legacy_exact_required_ ||
       plan.projection_tactic_ != LayerMajorPrefillProjectionTactic::
                                      kNativePromptWideP40WholeCore ||
+      plan.mlp_schedule_tactic_ !=
+          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore ||
       plan.full_attention_tactic_ != LayerMajorPrefillFullAttentionTactic::
                                          kSelectorExactPersistentAttentionV1WholePrompt ||
       !is_selector_exact_persistent_attention_v1_p40_request_capacity_tokens(
           plan.state_->max_sequence_length())) {
     return false;
   }
-  const NativePrefillRoleReceipt& bound =
+  const NativePrefillRoleReceipt& bound_linear_a =
+      plan.roles_[static_cast<std::size_t>(
+          PrefillBindingRole::kLinearBf16A)];
+  const NativePrefillRoleReceipt& bound_linear_qkv =
+      plan.roles_[static_cast<std::size_t>(
+          PrefillBindingRole::kLinearFp8Qkv)];
+  const NativePrefillRoleReceipt& bound_linear_z =
+      plan.roles_[static_cast<std::size_t>(
+          PrefillBindingRole::kLinearFp8Z)];
+  const NativePrefillRoleReceipt& bound_full_q =
+      plan.roles_[static_cast<std::size_t>(PrefillBindingRole::kFullFp8Q)];
+  const NativePrefillRoleReceipt& bound_full_k =
+      plan.roles_[static_cast<std::size_t>(PrefillBindingRole::kFullFp8K)];
+  const NativePrefillRoleReceipt& bound_full_v =
+      plan.roles_[static_cast<std::size_t>(PrefillBindingRole::kFullFp8V)];
+  const NativePrefillRoleReceipt& bound_linear_b =
+      plan.roles_[static_cast<std::size_t>(
+          PrefillBindingRole::kLinearBf16B)];
+  const NativePrefillRoleReceipt& bound_gdn =
+      plan.roles_[static_cast<std::size_t>(PrefillBindingRole::kExactGdn)];
+  const NativePrefillRoleReceipt& bound_linear_o =
+      plan.roles_[static_cast<std::size_t>(PrefillBindingRole::kLinearFp8O)];
+  const NativePrefillRoleReceipt& bound_full_o =
+      plan.roles_[static_cast<std::size_t>(PrefillBindingRole::kFullFp8O)];
+  const NativePrefillRoleReceipt& bound_gate_up =
+      plan.roles_[static_cast<std::size_t>(PrefillBindingRole::kNvfp4GateUp)];
+  const NativePrefillRoleReceipt& bound_down =
+      plan.roles_[static_cast<std::size_t>(PrefillBindingRole::kNvfp4Down)];
+  const NativePrefillRoleReceipt& bound_residual =
+      plan.roles_[static_cast<std::size_t>(PrefillBindingRole::kResidual)];
+  const NativePrefillRoleReceipt& bound_attention =
       plan.roles_[static_cast<std::size_t>(
           PrefillBindingRole::kExactCausalAttention)];
-  if (bound.role != PrefillBindingRole::kExactCausalAttention ||
-      bound.tactic !=
+  const auto empty_physical_spans = [](
+                                        const NativePrefillRoleReceipt& role) {
+    return std::all_of(
+        role.physical_submissions.begin(), role.physical_submissions.end(),
+        [](const NativePrefillPhysicalSubmissionReceipt& span) {
+          return span.tactic == NativePrefillPhysicalSubmissionTactic::kNone &&
+                 span.first_position == 0U && span.token_count == 0U;
+        });
+  };
+  const auto valid_linear = [&empty_physical_spans](
+                                const NativePrefillRoleReceipt& bound,
+                                const PrefillBindingRole expected_role) {
+    return bound.role == expected_role &&
+           bound.tactic ==
+               NativePrefillTactic::kBf16AbLegacyM16BodyP40000 &&
+           bound.completion ==
+               NativePrefillCompletionDomain::kMainStreamBarrier &&
+           bound.artifact_owner != nullptr && bound.workspace_owner != nullptr &&
+           bound.workspace_bytes != 0U &&
+           bound.auxiliary_workspace_owner == nullptr &&
+           bound.auxiliary_workspace_bytes == 0U &&
+           bound.maximum_logical_panel_m == 40'000U &&
+           bound.minimum_physical_m == 40'000U &&
+           bound.maximum_physical_m == 40'000U &&
+           bound.physical_submission_count_per_logical_panel == 1U &&
+           empty_physical_spans(bound);
+  };
+  const bool valid_gdn =
+      bound_gdn.role == PrefillBindingRole::kExactGdn &&
+      bound_gdn.tactic ==
+          NativePrefillTactic::kExactGdnLegacyC512ScheduleP40000 &&
+      bound_gdn.completion ==
+          NativePrefillCompletionDomain::kMainStreamBarrier &&
+      bound_gdn.artifact_owner != nullptr &&
+      bound_gdn.workspace_owner != nullptr &&
+      bound_gdn.workspace_bytes ==
+          gdn_prefill_chunk64_native_detail::workspace_bytes() &&
+      bound_gdn.auxiliary_workspace_owner == nullptr &&
+      bound_gdn.auxiliary_workspace_bytes == 0U &&
+      bound_gdn.maximum_logical_panel_m == 40'000U &&
+      bound_gdn.minimum_physical_m == 64U &&
+      bound_gdn.maximum_physical_m == 512U &&
+      bound_gdn.physical_submission_count_per_logical_panel ==
+          kSelectorExactPersistentAttentionV1GdnLegacyC512SpansPerLayer &&
+      empty_physical_spans(bound_gdn);
+  const auto* const linear_attention =
+      plan.weights_ == nullptr
+          ? nullptr
+          : std::get_if<LinearAttentionWeights>(
+                &plan.weights_->layer(0U).attention);
+  const auto* const full_attention =
+      plan.weights_ == nullptr
+          ? nullptr
+          : std::get_if<FullAttentionWeights>(
+                &plan.weights_->layer(3U).attention);
+  const auto* const expected_linear_o =
+      linear_attention == nullptr
+          ? nullptr
+          : std::get_if<Fp8LinearWeight>(&linear_attention->out_proj);
+  const auto* const expected_full_o =
+      full_attention == nullptr
+          ? nullptr
+          : std::get_if<Fp8LinearWeight>(&full_attention->o_proj);
+  const DecoderLayerWeights* const first_layer =
+      plan.weights_ == nullptr ? nullptr : &plan.weights_->layer(0U);
+  const auto* const expected_gate =
+      first_layer == nullptr
+          ? nullptr
+          : std::get_if<NvFp4LinearWeight>(&first_layer->mlp.gate_proj);
+  const auto* const expected_up =
+      first_layer == nullptr
+          ? nullptr
+          : std::get_if<NvFp4LinearWeight>(&first_layer->mlp.up_proj);
+  const auto* const expected_down =
+      first_layer == nullptr
+          ? nullptr
+          : std::get_if<NvFp4LinearWeight>(&first_layer->mlp.down_proj);
+  const ReferenceLayerMajorRequestViews* const views =
+      plan.runner_ != nullptr && plan.runner_->layer_major_request_views_.has_value()
+          ? &*plan.runner_->layer_major_request_views_
+          : nullptr;
+  const auto valid_linear_qkvz = [&empty_physical_spans, &plan, views](
+                                      const NativePrefillRoleReceipt& bound,
+                                      const bool qkv_role) {
+    if (views == nullptr || plan.runner_ == nullptr) {
+      return false;
+    }
+    const DeviceMatrixView& publication =
+        qkv_role ? views->p40_whole_core.linear.raw_qkv_bf16
+                 : views->p40_whole_core.linear.z_bf16;
+    return bound.role ==
+               (qkv_role ? PrefillBindingRole::kLinearFp8Qkv
+                         : PrefillBindingRole::kLinearFp8Z) &&
+           bound.tactic ==
+               (qkv_role
+                    ? NativePrefillTactic::
+                          kFp8LinearQkvLegacyGroupedC512C32TailP40000
+                    : NativePrefillTactic::
+                          kFp8LinearZLegacyGroupedC512C32TailP40000) &&
+           bound.completion ==
+               NativePrefillCompletionDomain::kMainStreamBarrier &&
+           bound.artifact_owner ==
+               (qkv_role
+                    ? static_cast<const void*>(
+                          plan.runner_
+                              ->selector_linear_qkv_supermatrices_.data())
+                    : static_cast<const void*>(
+                          plan.runner_
+                              ->selector_linear_z_supermatrices_.data())) &&
+           bound.workspace_owner == publication.storage.device_data &&
+           bound.workspace_bytes == publication.storage.byte_size &&
+           bound.auxiliary_workspace_owner ==
+               views->legacy_c512.fp32_scratch.device_data &&
+           bound.auxiliary_workspace_bytes ==
+               views->legacy_c512.fp32_scratch.byte_size &&
+           bound.maximum_logical_panel_m == 40'000U &&
+           bound.minimum_physical_m == 32U &&
+           bound.maximum_physical_m == 512U &&
+           bound.physical_submission_count_per_logical_panel ==
+               kSelectorExactPersistentAttentionV1LinearQkvZRoleSubmissionsPerLayer &&
+           empty_physical_spans(bound);
+  };
+  const auto valid_full_qkv = [&empty_physical_spans, &plan, views](
+                                  const NativePrefillRoleReceipt& bound,
+                                  const PrefillBindingRole expected_role) {
+    if (views == nullptr || plan.runner_ == nullptr ||
+        (expected_role != PrefillBindingRole::kFullFp8Q &&
+         expected_role != PrefillBindingRole::kFullFp8K &&
+         expected_role != PrefillBindingRole::kFullFp8V)) {
+      return false;
+    }
+    constexpr std::uint64_t kFullKvPublicationBytes =
+        static_cast<std::uint64_t>(
+            kLayerMajorPrefillPromptWideP40Tokens) *
+        1'024U * sizeof(std::uint16_t);
+    const bool q_role = expected_role == PrefillBindingRole::kFullFp8Q;
+    const bool k_role = expected_role == PrefillBindingRole::kFullFp8K;
+    const void* const expected_artifact =
+        q_role
+            ? static_cast<const void*>(
+                  plan.runner_->selector_full_q_supermatrices_.data())
+        : k_role
+            ? static_cast<const void*>(
+                  plan.runner_->selector_full_k_supermatrices_.data())
+            : static_cast<const void*>(
+                  plan.runner_->selector_full_v_supermatrices_.data());
+    const void* const expected_publication =
+        q_role
+            ? views->p40_whole_core.full_attention.raw_q_gate_bf16.storage
+                  .device_data
+        : k_role
+            ? static_cast<const void*>(plan.runner_->views_.key_cache[3U])
+            : static_cast<const void*>(plan.runner_->views_.value_cache[3U]);
+    const std::uint64_t expected_publication_bytes =
+        q_role
+            ? views->p40_whole_core.full_attention.raw_q_gate_bf16.storage
+                  .byte_size
+            : kFullKvPublicationBytes;
+    return bound.role == expected_role &&
+           bound.tactic ==
+               NativePrefillTactic::
+                   kFp8FullQkvLegacyGroupedC512C32TailP40000 &&
+           bound.completion ==
+               NativePrefillCompletionDomain::kMainStreamBarrier &&
+           bound.artifact_owner == expected_artifact &&
+           bound.workspace_owner == expected_publication &&
+           bound.workspace_bytes == expected_publication_bytes &&
+           bound.auxiliary_workspace_owner ==
+               views->legacy_c512.fp32_scratch.device_data &&
+           bound.auxiliary_workspace_bytes ==
+               views->legacy_c512.fp32_scratch.byte_size &&
+           bound.maximum_logical_panel_m == 40'000U &&
+           bound.minimum_physical_m == 32U &&
+           bound.maximum_physical_m == 512U &&
+           bound.physical_submission_count_per_logical_panel ==
+               kSelectorExactPersistentAttentionV1FullQkvRoleSubmissionsPerLayer &&
+           empty_physical_spans(bound);
+  };
+  const auto valid_o = [&empty_physical_spans](
+                           const NativePrefillRoleReceipt& bound,
+                           const PrefillBindingRole expected_role,
+                           const Fp8LinearWeight* const expected_weight) {
+    return expected_weight != nullptr &&
+           bound.role == expected_role &&
+           bound.tactic ==
+               NativePrefillTactic::
+                   kFp8OLegacyWholeChunkC512M64TailP40000 &&
+           bound.completion ==
+               NativePrefillCompletionDomain::kMainStreamBarrier &&
+           bound.artifact_owner == expected_weight->weight &&
+           bound.workspace_owner == expected_weight->weight_scale_device &&
+           bound.workspace_bytes == sizeof(float) &&
+           bound.auxiliary_workspace_owner == nullptr &&
+           bound.auxiliary_workspace_bytes == 0U &&
+           bound.maximum_logical_panel_m == 40'000U &&
+           bound.minimum_physical_m == 64U &&
+           bound.maximum_physical_m == 512U &&
+           bound.physical_submission_count_per_logical_panel ==
+               kSelectorExactPersistentAttentionV1OLegacyLaunchesPerLayer &&
+           empty_physical_spans(bound);
+  };
+  const bool valid_gate_up =
+      views != nullptr && expected_gate != nullptr && expected_up != nullptr &&
+      bound_gate_up.role == PrefillBindingRole::kNvfp4GateUp &&
+      bound_gate_up.tactic ==
+          NativePrefillTactic::
+              kNvfp4GateUpLegacyWholeChunkC512M32TailP40000 &&
+      bound_gate_up.completion ==
+          NativePrefillCompletionDomain::kMainStreamBarrier &&
+      bound_gate_up.artifact_owner == expected_gate &&
+      bound_gate_up.workspace_owner ==
+          views->mlp.gate_bf16.storage.device_data &&
+      bound_gate_up.workspace_bytes ==
+          views->mlp.gate_bf16.storage.byte_size &&
+      bound_gate_up.auxiliary_workspace_owner == expected_up &&
+      bound_gate_up.auxiliary_workspace_bytes == sizeof(NvFp4LinearWeight) &&
+      bound_gate_up.maximum_logical_panel_m == 40'000U &&
+      bound_gate_up.minimum_physical_m == 32U &&
+      bound_gate_up.maximum_physical_m == 512U &&
+      bound_gate_up.physical_submission_count_per_logical_panel ==
+          kSelectorExactPersistentAttentionV1MlpGateUpSubmissionsPerLayer &&
+      empty_physical_spans(bound_gate_up);
+  const bool valid_down =
+      views != nullptr && expected_down != nullptr &&
+      bound_down.role == PrefillBindingRole::kNvfp4Down &&
+      bound_down.tactic ==
+          NativePrefillTactic::
+              kNvfp4DownLegacyWholeChunkC512M64TailP40000 &&
+      bound_down.completion ==
+          NativePrefillCompletionDomain::kMainStreamBarrier &&
+      bound_down.artifact_owner == expected_down &&
+      bound_down.workspace_owner ==
+          views->legacy_c512.hidden_bf16[1U].storage.device_data &&
+      bound_down.workspace_bytes ==
+          views->legacy_c512.hidden_bf16[1U].storage.byte_size &&
+      bound_down.auxiliary_workspace_owner == nullptr &&
+      bound_down.auxiliary_workspace_bytes == 0U &&
+      bound_down.maximum_logical_panel_m == 40'000U &&
+      bound_down.minimum_physical_m == 64U &&
+      bound_down.maximum_physical_m == 512U &&
+      bound_down.physical_submission_count_per_logical_panel ==
+          kSelectorExactPersistentAttentionV1MlpDownSubmissionsPerLayer &&
+      empty_physical_spans(bound_down);
+  const bool valid_residual =
+      views != nullptr && plan.weights_ != nullptr &&
+      bound_residual.role == PrefillBindingRole::kResidual &&
+      bound_residual.tactic ==
+          NativePrefillTactic::kResidualLegacyC512M64TailP40000 &&
+      bound_residual.completion ==
+          NativePrefillCompletionDomain::kMainStreamBarrier &&
+      bound_residual.artifact_owner == plan.weights_ &&
+      bound_residual.workspace_owner ==
+          views->prompt_residual_bf16.storage.device_data &&
+      bound_residual.workspace_bytes ==
+          views->prompt_residual_bf16.storage.byte_size &&
+      bound_residual.auxiliary_workspace_owner == nullptr &&
+      bound_residual.auxiliary_workspace_bytes == 0U &&
+      bound_residual.maximum_logical_panel_m == 40'000U &&
+      bound_residual.minimum_physical_m == 64U &&
+      bound_residual.maximum_physical_m == 512U &&
+      bound_residual.physical_submission_count_per_logical_panel ==
+          kSelectorExactPersistentAttentionV1MlpLogicalSpansPerLayer &&
+      empty_physical_spans(bound_residual);
+  if (!valid_linear_qkvz(bound_linear_qkv, true) ||
+      !valid_linear_qkvz(bound_linear_z, false) ||
+      !valid_full_qkv(bound_full_q, PrefillBindingRole::kFullFp8Q) ||
+      !valid_full_qkv(bound_full_k, PrefillBindingRole::kFullFp8K) ||
+      !valid_full_qkv(bound_full_v, PrefillBindingRole::kFullFp8V) ||
+      !valid_linear(bound_linear_a, PrefillBindingRole::kLinearBf16A) ||
+      !valid_linear(bound_linear_b, PrefillBindingRole::kLinearBf16B) ||
+      !valid_gdn ||
+      !valid_o(bound_linear_o, PrefillBindingRole::kLinearFp8O,
+               expected_linear_o) ||
+      !valid_o(bound_full_o, PrefillBindingRole::kFullFp8O,
+               expected_full_o) ||
+      !valid_gate_up || !valid_down || !valid_residual ||
+      bound_attention.role != PrefillBindingRole::kExactCausalAttention ||
+      bound_attention.tactic !=
           NativePrefillTactic::kSelectorExactPersistentAttentionV1WholePrompt ||
-      bound.completion !=
+      bound_attention.completion !=
           NativePrefillCompletionDomain::kMainStreamBarrier ||
-      bound.maximum_logical_panel_m != 40'000U ||
-      bound.minimum_physical_m != 512U ||
-      bound.maximum_physical_m != 38'976U ||
-      bound.physical_submission_count_per_logical_panel != 3U ||
-      bound.physical_submissions[0U].tactic !=
+      bound_attention.maximum_logical_panel_m != 40'000U ||
+      bound_attention.minimum_physical_m != 512U ||
+      bound_attention.maximum_physical_m != 38'976U ||
+      bound_attention.physical_submission_count_per_logical_panel != 3U ||
+      bound_attention.physical_submissions[0U].tactic !=
           NativePrefillPhysicalSubmissionTactic::kGroupQ64 ||
-      bound.physical_submissions[0U].first_position != 0U ||
-      bound.physical_submissions[0U].token_count != 512U ||
-      bound.physical_submissions[1U].tactic !=
+      bound_attention.physical_submissions[0U].first_position != 0U ||
+      bound_attention.physical_submissions[0U].token_count != 512U ||
+      bound_attention.physical_submissions[1U].tactic !=
           NativePrefillPhysicalSubmissionTactic::kGroupQ64 ||
-      bound.physical_submissions[1U].first_position != 512U ||
-      bound.physical_submissions[1U].token_count != 512U ||
-      bound.physical_submissions[2U].tactic !=
+      bound_attention.physical_submissions[1U].first_position != 512U ||
+      bound_attention.physical_submissions[1U].token_count != 512U ||
+      bound_attention.physical_submissions[2U].tactic !=
           NativePrefillPhysicalSubmissionTactic::kPersistentGenericQt2Q8 ||
-      bound.physical_submissions[2U].first_position != 1'024U ||
-      bound.physical_submissions[2U].token_count != 38'976U) {
+      bound_attention.physical_submissions[2U].first_position != 1'024U ||
+      bound_attention.physical_submissions[2U].token_count != 38'976U) {
     return false;
   }
-  attention = bound;
+  linear_qkv = bound_linear_qkv;
+  linear_z = bound_linear_z;
+  full_q = bound_full_q;
+  full_k = bound_full_k;
+  full_v = bound_full_v;
+  linear_a = bound_linear_a;
+  linear_b = bound_linear_b;
+  gdn = bound_gdn;
+  linear_o = bound_linear_o;
+  full_o = bound_full_o;
+  gate_up = bound_gate_up;
+  down = bound_down;
+  residual = bound_residual;
+  attention = bound_attention;
   return true;
 }
 #endif

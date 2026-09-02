@@ -62,6 +62,115 @@ inline constexpr std::uint32_t
 inline constexpr std::string_view
     kSelectorExactPersistentAttentionV1P40DeploymentPlanId =
         "q3x.sm87.testing.p40000-o16.selector-exact-persistent-attention-v1";
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1LinearQkvZGroupedC512LaunchesPerLayer =
+        78U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1LinearQkvZGroupedC512LaunchesPerRequest =
+        48U *
+        kSelectorExactPersistentAttentionV1LinearQkvZGroupedC512LaunchesPerLayer;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1LinearQkvZGenericC32LaunchesPerLayer =
+        4U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1LinearQkvZGenericC32LaunchesPerRequest =
+        48U *
+        kSelectorExactPersistentAttentionV1LinearQkvZGenericC32LaunchesPerLayer;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1LinearQkvZRoleSubmissionsPerLayer =
+        kSelectorExactPersistentAttentionV1LinearQkvZGroupedC512LaunchesPerLayer +
+        2U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1LinearQkvZCompletedLayers = 48U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1LinearQkvZSupermatrixArtifacts = 96U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1LinearQkvZSupermatrixBytes =
+        4'026'531'840ULL;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1FullQkvGroupedC512LaunchesPerLayer =
+        78U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1FullQkvGroupedC512LaunchesPerRequest =
+        16U *
+        kSelectorExactPersistentAttentionV1FullQkvGroupedC512LaunchesPerLayer;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1FullQkvGenericC32LaunchesPerLayer = 6U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1FullQkvGenericC32LaunchesPerRequest =
+        16U *
+        kSelectorExactPersistentAttentionV1FullQkvGenericC32LaunchesPerLayer;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1FullQkvCompletedLayers = 16U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1FullQkvSupermatrixArtifacts = 48U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1FullQkvSupermatrixBytes =
+        1'174'405'120ULL;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1FullQkvRoleSubmissionsPerLayer = 80U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1AttentionInputsSupermatrixArtifacts =
+        kSelectorExactPersistentAttentionV1LinearQkvZSupermatrixArtifacts +
+        kSelectorExactPersistentAttentionV1FullQkvSupermatrixArtifacts;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1AttentionInputsSupermatrixBytes =
+        kSelectorExactPersistentAttentionV1LinearQkvZSupermatrixBytes +
+        kSelectorExactPersistentAttentionV1FullQkvSupermatrixBytes;
+static_assert(
+    kSelectorExactPersistentAttentionV1AttentionInputsSupermatrixArtifacts ==
+    144U);
+static_assert(
+    kSelectorExactPersistentAttentionV1AttentionInputsSupermatrixBytes ==
+    5'200'936'960ULL);
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1P40Fp8PhysicalLaunches = 10'336U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1OWholeChunkC512LaunchesPerLayer = 78U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1OCanonicalM64TailLaunchesPerLayer = 1U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1OLegacyLaunchesPerLayer =
+        kSelectorExactPersistentAttentionV1OWholeChunkC512LaunchesPerLayer +
+        kSelectorExactPersistentAttentionV1OCanonicalM64TailLaunchesPerLayer;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1OLegacyLaunchesPerRequest =
+        64U * kSelectorExactPersistentAttentionV1OLegacyLaunchesPerLayer;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1GdnLegacyC512SpansPerLayer = 79U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1GdnLegacyC512SpansPerRequest =
+        48U * kSelectorExactPersistentAttentionV1GdnLegacyC512SpansPerLayer;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1MlpWholeChunkC512SpansPerLayer = 78U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1MlpLogicalSpansPerLayer = 79U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1MlpGateUpC512SubmissionsPerLayer = 156U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1MlpGateUpM32TailSubmissionsPerLayer = 4U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1MlpGateUpSubmissionsPerLayer = 160U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1MlpDownC512SubmissionsPerLayer = 78U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1MlpDownM64TailSubmissionsPerLayer = 1U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1MlpDownSubmissionsPerLayer = 79U;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1MlpProjectionSubmissionsPerLayer =
+        kSelectorExactPersistentAttentionV1MlpGateUpSubmissionsPerLayer +
+        kSelectorExactPersistentAttentionV1MlpDownSubmissionsPerLayer;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1MlpProjectionSubmissionsPerRequest =
+        64U *
+        kSelectorExactPersistentAttentionV1MlpProjectionSubmissionsPerLayer;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1MlpSiluSubmissionsPerRequest =
+        64U * kSelectorExactPersistentAttentionV1MlpLogicalSpansPerLayer;
+inline constexpr std::size_t
+    kSelectorExactPersistentAttentionV1MlpResidualSubmissionsPerRequest =
+        64U * kSelectorExactPersistentAttentionV1MlpLogicalSpansPerLayer;
 #endif
 
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
@@ -1458,6 +1567,32 @@ struct PrefillWholeCoreSchedulePlan {
   bool gdn_prompt_wide_required = false;
   bool flashinfer_whole_prompt_required = false;
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  // The selector repair retains the five M8000 progress panels while
+  // restoring Legacy's global 78xC512+C64 arithmetic geometry for QKV/Z on
+  // all 48 linear layers. Ordinary v10 still requires one M8000 launch per
+  // role.
+  bool selector_linear_qkvz_legacy_global_c512_required = false;
+  // The same exact geometry applies to Q/K/V on all 16 full-attention
+  // layers: 78 grouped C512 submissions followed by Q/K/V C32x2 tails.
+  bool selector_full_qkv_legacy_global_c512_required = false;
+  // The selector uses one P40000 grid whose per-output arithmetic body is
+  // identical to Legacy's M16 BF16 A/B projection pair on all 48 linear
+  // layers. Ordinary v10 retains the Tensor Core prompt-wide producer.
+  bool selector_bf16_ab_legacy_exact_required = false;
+  // The selector restores Legacy's exact C512x78+C64 recurrence schedule on
+  // every linear layer. The outer prompt-core transaction still owns the
+  // complete P40000 logical phase; ordinary v10 retains the prompt-wide GDN
+  // chunk graph.
+  bool selector_gdn_legacy_c512_exact_required = false;
+  // All 64 output projections restore Legacy's global 78xC512+C64 exact
+  // arithmetic geometry while the five drain panels remain progress and
+  // residual-publication boundaries.
+  bool selector_o_legacy_global_c512_required = false;
+  // All 64 MLPs restore Legacy's canonical Gate, Up, SiLU, Down, and
+  // residual schedule over 78 C512 spans plus the final C64 tail. The route
+  // consumes canonical NVFP4 payloads and the existing Legacy-C512 scratch;
+  // it owns no persistent-Marlin sidecar.
+  bool selector_mlp_legacy_c512_exact_required = false;
   bool selector_exact_persistent_attention_v1_whole_prompt_required = false;
 #endif
 };

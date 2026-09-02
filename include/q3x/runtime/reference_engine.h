@@ -559,6 +559,10 @@ struct ReferenceEngineLoadStats {
   double nvfp4_gate_up_coupled_feed_milliseconds = 0.0;
   double fp8_prefill_qkv_sidecar_milliseconds = 0.0;
   double fp8_prefill_supermatrix_sidecar_milliseconds = 0.0;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  double selector_attention_inputs_supermatrix_milliseconds = 0.0;
+  double selector_linear_qkvz_supermatrix_milliseconds = 0.0;
+#endif
   double fp8_marlin_prefill_sidecar_milliseconds = 0.0;
   double nvfp4_marlin_prefill_sidecar_milliseconds = 0.0;
   double p40_packed_projection_asset_milliseconds = 0.0;
@@ -649,6 +653,23 @@ struct ReferenceEngineLoadStats {
   bool fp8_prefill_supermatrix_sidecars_enabled = false;
   std::size_t fp8_prefill_supermatrix_sidecar_projections = 0U;
   std::uint64_t fp8_prefill_supermatrix_sidecar_bytes = 0U;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  // Selector-private Legacy-exact Attention-input package. One contiguous
+  // arena owns the 48 linear-layer QKV/Z pairs followed by the 16
+  // full-Attention Q/K/V triples. It never attaches to ModelWeights or
+  // claims the ordinary 208-projection production route.
+  bool selector_attention_inputs_supermatrix_enabled = false;
+  std::size_t selector_attention_inputs_supermatrix_projections = 0U;
+  std::uint64_t selector_attention_inputs_supermatrix_bytes = 0U;
+  bool selector_linear_qkvz_supermatrix_enabled = false;
+  std::size_t selector_linear_qkvz_supermatrix_layers = 0U;
+  std::size_t selector_linear_qkvz_supermatrix_projections = 0U;
+  std::uint64_t selector_linear_qkvz_supermatrix_bytes = 0U;
+  bool selector_full_qkv_supermatrix_enabled = false;
+  std::size_t selector_full_qkv_supermatrix_layers = 0U;
+  std::size_t selector_full_qkv_supermatrix_projections = 0U;
+  std::uint64_t selector_full_qkv_supermatrix_bytes = 0U;
+#endif
   // Populated only by the direct W8A16 test-admission build. The retained
   // compact weight and BF16 channel-scale arenas replace the equal-byte
   // production supermatrix arena; disposable transpose scratch is excluded.

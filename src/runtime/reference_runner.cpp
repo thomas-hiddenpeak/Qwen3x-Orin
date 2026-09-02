@@ -12,6 +12,7 @@
 #endif
 #include "reference_runner_request_reset_policy_internal.h"
 
+#include "q3x/kernels/reference_gemv.h"
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
 #if defined(Q3X_ENABLE_P40_PROJECTION_RESET_ADMISSION)
 #include "q3x/kernels/sm87_p40_projection_reset.h"
@@ -2208,6 +2209,555 @@ exact_marlin_operator_panel_plan(
 #endif
 }
 
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+// Restores the actual Legacy arithmetic for QKV/Z on every linear layer
+// without changing the five-panel progress topology. C512 spans are global
+// across P40000 rather than restarted at each M8000 boundary; the final C64
+// preserves Legacy's QKV-C32x2 then Z-C32x2 publication order.
+[[nodiscard]] int launch_selector_linear_legacy_exact_qkvz_panel(
+    const ProjectionBackend backend, const LinearWeight& qkv_weight,
+    const LinearWeight& z_weight,
+    const std::uint8_t* const qkv_supermatrix,
+    const std::uint8_t* const z_supermatrix,
+    const std::uint16_t* const normalized_base,
+    std::uint16_t* const raw_qkv_base, std::uint16_t* const z_base,
+    const std::size_t layer, const std::size_t panel_ordinal,
+    float* const fp32_scratch,
+    const std::size_t fp32_scratch_elements,
+    std::size_t& physical_launches, void* const cuda_stream) noexcept {
+  constexpr std::size_t kPromptTokens = 40'000U;
+  constexpr std::size_t kPanelTokens = 8'000U;
+  constexpr std::size_t kC512 = 512U;
+  constexpr std::size_t kC32 = 32U;
+  constexpr std::size_t kTailFirstPosition = 39'936U;
+  constexpr std::array<std::size_t, 5U> kGroupedLaunchesPerPanel{{
+      15U, 16U, 15U, 16U, 16U}};
+  static_assert(kTailFirstPosition + 2U * kC32 == kPromptTokens);
+
+  const auto* const qkv = std::get_if<Fp8LinearWeight>(&qkv_weight);
+  const auto* const z = std::get_if<Fp8LinearWeight>(&z_weight);
+  if (backend != ProjectionBackend::kSm87WeightOnly || qkv == nullptr ||
+      z == nullptr || qkv_supermatrix == nullptr ||
+      z_supermatrix == nullptr || normalized_base == nullptr ||
+      raw_qkv_base == nullptr || z_base == nullptr ||
+      layer >= kReferenceDecoderLayerCount ||
+      reference_runner_detail::expected_reference_layer_type(layer) !=
+          model::LayerType::kLinearAttention ||
+      panel_ordinal >= kGroupedLaunchesPerPanel.size() ||
+      qkv->output_size != 10'240U || qkv->input_size != 5'120U ||
+      z->output_size != 6'144U || z->input_size != 5'120U ||
+      !std::isfinite(qkv->weight_scale) || qkv->weight_scale < 0.0F ||
+      !std::isfinite(z->weight_scale) || z->weight_scale < 0.0F ||
+      (reinterpret_cast<std::uintptr_t>(qkv_supermatrix) % 16U) != 0U ||
+      (reinterpret_cast<std::uintptr_t>(z_supermatrix) % 16U) != 0U ||
+      fp32_scratch == nullptr || fp32_scratch_elements == 0U) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t ready_begin = panel_ordinal * kPanelTokens;
+  const std::size_t ready_end = ready_begin + kPanelTokens;
+  const std::size_t first_span = ready_begin / kC512;
+  const std::size_t end_span = ready_end / kC512;
+  if (end_span - first_span !=
+      kGroupedLaunchesPerPanel[panel_ordinal]) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  for (std::size_t span = first_span; span < end_span; ++span) {
+    const std::size_t absolute = span * kC512;
+    std::array<kernels::Sm87Fp8PrefillSupermatrixPartition, 2U>
+        partitions{{
+            {qkv_supermatrix, qkv->weight_scale, qkv->output_size,
+             raw_qkv_base + absolute * qkv->output_size},
+            {z_supermatrix, z->weight_scale, z->output_size,
+             z_base + absolute * z->output_size},
+        }};
+    const int status =
+        kernels::launch_sm87_fp8_prefill_supermatrix_gemm_bf16_cuda(
+            partitions.data(), partitions.size(),
+            normalized_base + absolute * qkv->input_size, kC512,
+            qkv->input_size, cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    ++physical_launches;
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+      ++g_selector_exact_persistent_attention_v1_route_receipt_for_test
+          .linear_qkvz_grouped_c512_submissions;
+#endif
+  }
+
+  if (panel_ordinal + 1U != kGroupedLaunchesPerPanel.size()) {
+    return static_cast<int>(cudaSuccess);
+  }
+
+  const auto launch_tail = [&](const LinearWeight& weight,
+                               std::uint16_t* const output,
+                               const std::size_t output_columns,
+                               const std::size_t local) noexcept {
+    const int status = launch_projection_tile_to_bf16_cuda(
+        backend, weight,
+        normalized_base + (kTailFirstPosition + local) * 5'120U, kC32,
+        fp32_scratch, fp32_scratch_elements,
+        output + (kTailFirstPosition + local) * output_columns, cuda_stream);
+    if (status == static_cast<int>(cudaSuccess)) {
+      ++physical_launches;
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+      ++g_selector_exact_persistent_attention_v1_route_receipt_for_test
+            .linear_qkvz_generic_c32_submissions;
+#endif
+    }
+    return status;
+  };
+  constexpr std::array<std::size_t, 2U> kTailOffsets{{0U, kC32}};
+  for (const std::size_t local : kTailOffsets) {
+    const int status = launch_tail(qkv_weight, raw_qkv_base,
+                                   qkv->output_size, local);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+  }
+  for (const std::size_t local : kTailOffsets) {
+    const int status = launch_tail(z_weight, z_base, z->output_size, local);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+  }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+  auto& receipt =
+      g_selector_exact_persistent_attention_v1_route_receipt_for_test;
+  const std::uint64_t layer_bit = std::uint64_t{1U} << layer;
+  if ((receipt.linear_qkvz_completed_layer_mask & layer_bit) != 0U) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  receipt.linear_qkvz_completed_layer_mask |= layer_bit;
+  ++receipt.linear_qkvz_completed_layers;
+#endif
+  return static_cast<int>(cudaSuccess);
+}
+
+// Restores the actual Legacy arithmetic for Q/K/V on every full-Attention
+// layer while preserving the five-panel normalization/projection progress.
+// Each global C512 span shares one three-partition supermatrix submission;
+// the final C64 preserves Legacy's Q-C32x2, K-C32x2, V-C32x2 order. Because
+// a global C512 span can cross an M8000 boundary, the caller preprocesses the
+// five exact P8000 ranges only after the final panel completes every Q/K/V
+// row. The completed-layer receipt below covers Q/K/V publication itself.
+[[nodiscard]] int launch_selector_full_legacy_exact_qkv_panel(
+    const ProjectionBackend backend, const LinearWeight& q_weight,
+    const LinearWeight& k_weight, const LinearWeight& v_weight,
+    const std::uint8_t* const q_supermatrix,
+    const std::uint8_t* const k_supermatrix,
+    const std::uint8_t* const v_supermatrix,
+    const std::uint16_t* const normalized_base,
+    std::uint16_t* const raw_q_gate_base, std::uint16_t* const key_base,
+    std::uint16_t* const value_base, const std::size_t layer,
+    const std::size_t panel_ordinal, float* const fp32_scratch,
+    const std::size_t fp32_scratch_elements,
+    std::size_t& physical_launches, void* const cuda_stream) noexcept {
+  constexpr std::size_t kPromptTokens = 40'000U;
+  constexpr std::size_t kPanelTokens = 8'000U;
+  constexpr std::size_t kC512 = 512U;
+  constexpr std::size_t kC32 = 32U;
+  constexpr std::size_t kTailFirstPosition = 39'936U;
+  constexpr std::array<std::size_t, 5U> kGroupedLaunchesPerPanel{{
+      15U, 16U, 15U, 16U, 16U}};
+  static_assert(kTailFirstPosition + 2U * kC32 == kPromptTokens);
+
+  const auto* const q = std::get_if<Fp8LinearWeight>(&q_weight);
+  const auto* const k = std::get_if<Fp8LinearWeight>(&k_weight);
+  const auto* const v = std::get_if<Fp8LinearWeight>(&v_weight);
+  if (backend != ProjectionBackend::kSm87WeightOnly || q == nullptr ||
+      k == nullptr || v == nullptr || q_supermatrix == nullptr ||
+      k_supermatrix == nullptr || v_supermatrix == nullptr ||
+      normalized_base == nullptr || raw_q_gate_base == nullptr ||
+      key_base == nullptr || value_base == nullptr ||
+      layer >= kReferenceDecoderLayerCount ||
+      reference_runner_detail::expected_reference_layer_type(layer) !=
+          model::LayerType::kFullAttention ||
+      panel_ordinal >= kGroupedLaunchesPerPanel.size() ||
+      q->output_size != kFullQGateElements ||
+      q->input_size != kReferenceHiddenSize ||
+      k->output_size != kFullKvElements ||
+      k->input_size != kReferenceHiddenSize ||
+      v->output_size != kFullKvElements ||
+      v->input_size != kReferenceHiddenSize ||
+      !std::isfinite(q->weight_scale) || q->weight_scale < 0.0F ||
+      !std::isfinite(k->weight_scale) || k->weight_scale < 0.0F ||
+      !std::isfinite(v->weight_scale) || v->weight_scale < 0.0F ||
+      (reinterpret_cast<std::uintptr_t>(q_supermatrix) % 16U) != 0U ||
+      (reinterpret_cast<std::uintptr_t>(k_supermatrix) % 16U) != 0U ||
+      (reinterpret_cast<std::uintptr_t>(v_supermatrix) % 16U) != 0U ||
+      fp32_scratch == nullptr || fp32_scratch_elements == 0U) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t ready_begin = panel_ordinal * kPanelTokens;
+  const std::size_t ready_end = ready_begin + kPanelTokens;
+  const std::size_t first_span = ready_begin / kC512;
+  const std::size_t end_span = ready_end / kC512;
+  if (end_span - first_span !=
+      kGroupedLaunchesPerPanel[panel_ordinal]) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  for (std::size_t span = first_span; span < end_span; ++span) {
+    const std::size_t absolute = span * kC512;
+    std::array<kernels::Sm87Fp8PrefillSupermatrixPartition, 3U>
+        partitions{{
+            {q_supermatrix, q->weight_scale, q->output_size,
+             raw_q_gate_base + absolute * q->output_size},
+            {k_supermatrix, k->weight_scale, k->output_size,
+             key_base + absolute * k->output_size},
+            {v_supermatrix, v->weight_scale, v->output_size,
+             value_base + absolute * v->output_size},
+        }};
+    const int status =
+        kernels::launch_sm87_fp8_prefill_supermatrix_gemm_bf16_cuda(
+            partitions.data(), partitions.size(),
+            normalized_base + absolute * q->input_size, kC512,
+            q->input_size, cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    ++physical_launches;
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+    ++g_selector_exact_persistent_attention_v1_route_receipt_for_test
+          .full_qkv_grouped_c512_submissions;
+#endif
+  }
+
+  if (panel_ordinal + 1U != kGroupedLaunchesPerPanel.size()) {
+    return static_cast<int>(cudaSuccess);
+  }
+
+  const auto launch_tail = [&](const LinearWeight& weight,
+                               std::uint16_t* const output,
+                               const std::size_t output_columns,
+                               const std::size_t local) noexcept {
+    const int status = launch_projection_tile_to_bf16_cuda(
+        backend, weight,
+        normalized_base +
+            (kTailFirstPosition + local) * kReferenceHiddenSize,
+        kC32, fp32_scratch, fp32_scratch_elements,
+        output + (kTailFirstPosition + local) * output_columns, cuda_stream);
+    if (status == static_cast<int>(cudaSuccess)) {
+      ++physical_launches;
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+      ++g_selector_exact_persistent_attention_v1_route_receipt_for_test
+            .full_qkv_generic_c32_submissions;
+#endif
+    }
+    return status;
+  };
+  constexpr std::array<std::size_t, 2U> kTailOffsets{{0U, kC32}};
+  for (const std::size_t local : kTailOffsets) {
+    const int status = launch_tail(q_weight, raw_q_gate_base,
+                                   q->output_size, local);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+  }
+  for (const std::size_t local : kTailOffsets) {
+    const int status = launch_tail(k_weight, key_base, k->output_size, local);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+  }
+  for (const std::size_t local : kTailOffsets) {
+    const int status = launch_tail(v_weight, value_base, v->output_size, local);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+  }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+  auto& receipt =
+      g_selector_exact_persistent_attention_v1_route_receipt_for_test;
+  const std::uint64_t layer_bit = std::uint64_t{1U} << layer;
+  if ((receipt.full_qkv_completed_layer_mask & layer_bit) != 0U) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  receipt.full_qkv_completed_layer_mask |= layer_bit;
+  ++receipt.full_qkv_completed_layers;
+#endif
+  return static_cast<int>(cudaSuccess);
+}
+
+// Restores the incumbent O projection arithmetic after the complete
+// whole-prompt operator core is ready. The five drain panels remain residual
+// publication boundaries; they are not allowed to restart C512 arithmetic at
+// M8000 boundaries.
+[[nodiscard]] int launch_selector_legacy_exact_o(
+    const ProjectionBackend backend, const LinearWeight& weight,
+    const std::uint16_t* const input_base,
+    std::uint16_t* const output_base,
+    std::size_t& physical_launches, void* const cuda_stream) noexcept {
+  constexpr std::size_t kPromptTokens = 40'000U;
+  constexpr std::size_t kC512 = 512U;
+  constexpr std::size_t kTailFirstPosition = 39'936U;
+  constexpr std::size_t kTailTokens = 64U;
+  static_assert(kTailFirstPosition / kC512 ==
+                kSelectorExactPersistentAttentionV1OWholeChunkC512LaunchesPerLayer);
+  static_assert(kTailFirstPosition + kTailTokens == kPromptTokens);
+
+  const auto* const fp8 = std::get_if<Fp8LinearWeight>(&weight);
+  if (backend != ProjectionBackend::kSm87WeightOnly || fp8 == nullptr ||
+      fp8->weight == nullptr || input_base == nullptr ||
+      output_base == nullptr || fp8->output_size != 5'120U ||
+      fp8->input_size != 6'144U || !std::isfinite(fp8->weight_scale) ||
+      fp8->weight_scale < 0.0F) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  // Authenticate the complete 79-launch route before enqueueing its first
+  // chunk. A near-miss may not silently change the claimed Legacy schedule.
+  for (std::size_t first = 0U; first < kTailFirstPosition; first += kC512) {
+    if (!reference_runner_detail::use_fp8_whole_chunk_prefill_projection(
+            backend, weight, input_base + first * fp8->input_size,
+            output_base + first * fp8->output_size, kC512)) {
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+  }
+  if (!reference_runner_detail::
+          use_fp8_m64_prefill_attention_output_projection(
+              backend, weight,
+              input_base + kTailFirstPosition * fp8->input_size,
+              output_base + kTailFirstPosition * fp8->output_size,
+              kTailTokens)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  for (std::size_t first = 0U; first < kTailFirstPosition; first += kC512) {
+    const int status = launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+        backend, weight, input_base + first * fp8->input_size, kC512,
+        output_base + first * fp8->output_size, cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    ++physical_launches;
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+    ++g_selector_exact_persistent_attention_v1_route_receipt_for_test
+          .legacy_exact_o_whole_chunk_c512_submissions;
+#endif
+  }
+
+  const int tail_status = launch_projection_tile_to_bf16_cuda(
+      backend, weight, input_base + kTailFirstPosition * fp8->input_size,
+      kTailTokens, nullptr, 0U,
+      output_base + kTailFirstPosition * fp8->output_size, cuda_stream);
+  if (tail_status != static_cast<int>(cudaSuccess)) {
+    return tail_status;
+  }
+  ++physical_launches;
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+  ++g_selector_exact_persistent_attention_v1_route_receipt_for_test
+        .legacy_exact_o_canonical_m64_submissions;
+  ++g_selector_exact_persistent_attention_v1_route_receipt_for_test
+        .legacy_exact_o_completed_layers;
+#endif
+  return static_cast<int>(cudaSuccess);
+}
+
+// Restores the incumbent canonical NVFP4 MLP arithmetic without retaining
+// the persistent-Marlin sidecar route. Gate publishes directly into its
+// final P40000 activation span, Up and Down reuse the existing Legacy-C512
+// tile buffers, and every residual span is consumed before that buffer is
+// reused. The complete route is authenticated before its first enqueue.
+[[nodiscard]] bool valid_selector_legacy_exact_mlp(
+    const ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight, const LinearWeight& down_weight,
+    const std::uint16_t* const normalized_base,
+    std::uint16_t* const activated_base,
+    std::uint16_t* const up_temporary,
+    std::uint16_t* const down_temporary,
+    std::uint16_t* const residual_base) noexcept {
+  constexpr std::size_t kPromptTokens = 40'000U;
+  constexpr std::size_t kC512 = 512U;
+  constexpr std::size_t kTailFirstPosition = 39'936U;
+  constexpr std::size_t kTailTokens = 64U;
+  constexpr std::size_t kNormalizedBytes =
+      kPromptTokens * kReferenceHiddenSize * sizeof(std::uint16_t);
+  constexpr std::size_t kActivatedBytes =
+      kPromptTokens * kReferenceIntermediateSize * sizeof(std::uint16_t);
+  constexpr std::size_t kUpTemporaryBytes =
+      kC512 * kReferenceIntermediateSize * sizeof(std::uint16_t);
+  constexpr std::size_t kDownTemporaryBytes =
+      kC512 * kReferenceHiddenSize * sizeof(std::uint16_t);
+  static_assert(kTailFirstPosition / kC512 ==
+                kSelectorExactPersistentAttentionV1MlpWholeChunkC512SpansPerLayer);
+  static_assert(kTailFirstPosition + kTailTokens == kPromptTokens);
+
+  if (!valid_linear_payload(gate_weight, kReferenceIntermediateSize,
+                            kReferenceHiddenSize) ||
+      !valid_linear_payload(up_weight, kReferenceIntermediateSize,
+                            kReferenceHiddenSize) ||
+      !valid_linear_payload(down_weight, kReferenceHiddenSize,
+                            kReferenceIntermediateSize) ||
+      normalized_base == nullptr || activated_base == nullptr ||
+      up_temporary == nullptr || down_temporary == nullptr ||
+      residual_base == nullptr ||
+      !byte_ranges_are_pairwise_disjoint(
+          std::array<ByteSpan, 5U>{{
+              {normalized_base, kNormalizedBytes},
+              {activated_base, kActivatedBytes},
+              {up_temporary, kUpTemporaryBytes},
+              {down_temporary, kDownTemporaryBytes},
+              {residual_base, kNormalizedBytes},
+          }})) {
+    return false;
+  }
+
+  for (std::size_t first = 0U; first < kTailFirstPosition; first += kC512) {
+    const auto* const input =
+        normalized_base + first * kReferenceHiddenSize;
+    auto* const gate_output =
+        activated_base + first * kReferenceIntermediateSize;
+    if (!reference_runner_detail::
+            use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
+                backend, gate_weight, up_weight, input, gate_output,
+                up_temporary, kC512) ||
+        !reference_runner_detail::
+            use_nvfp4_whole_chunk_prefill_down_projection(
+                backend, down_weight, gate_output, down_temporary, kC512)) {
+      return false;
+    }
+  }
+
+  const auto* const tail_input =
+      normalized_base + kTailFirstPosition * kReferenceHiddenSize;
+  auto* const tail_gate =
+      activated_base + kTailFirstPosition * kReferenceIntermediateSize;
+  const auto* const down = std::get_if<NvFp4LinearWeight>(&down_weight);
+  const auto aligned = [](const void* const pointer,
+                          const std::size_t alignment) noexcept {
+    return pointer != nullptr &&
+           reinterpret_cast<std::uintptr_t>(pointer) % alignment == 0U;
+  };
+  return reference_runner_detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+             backend, gate_weight, up_weight, tail_input, tail_gate,
+             up_temporary, kTailTokens) &&
+         down != nullptr && down->output_size == kReferenceHiddenSize &&
+         down->input_size == kReferenceIntermediateSize &&
+         aligned(down->packed_weight, 16U) &&
+         aligned(down->block_scale, alignof(std::uint16_t)) &&
+         aligned(tail_gate, alignof(std::uint64_t)) &&
+         aligned(down_temporary, alignof(std::uint16_t));
+}
+
+[[nodiscard]] int launch_selector_legacy_exact_mlp(
+    const ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight, const LinearWeight& down_weight,
+    const std::uint16_t* const normalized_base,
+    std::uint16_t* const activated_base,
+    std::uint16_t* const up_temporary,
+    std::uint16_t* const down_temporary,
+    std::uint16_t* const residual_base, void* const cuda_stream) noexcept {
+  constexpr std::size_t kC512 = 512U;
+  constexpr std::size_t kTailFirstPosition = 39'936U;
+  constexpr std::size_t kTailTokens = 64U;
+  if (!valid_selector_legacy_exact_mlp(
+          backend, gate_weight, up_weight, down_weight, normalized_base,
+          activated_base, up_temporary, down_temporary, residual_base)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  auto& receipt =
+      g_selector_exact_persistent_attention_v1_route_receipt_for_test;
+  for (std::size_t first = 0U; first < kTailFirstPosition; first += kC512) {
+    const auto* const input =
+        normalized_base + first * kReferenceHiddenSize;
+    auto* const gate_output =
+        activated_base + first * kReferenceIntermediateSize;
+    auto* const residual = residual_base + first * kReferenceHiddenSize;
+    int status = launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+        backend, gate_weight, input, kC512, gate_output, cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    ++receipt.legacy_exact_mlp_gate_c512_submissions;
+
+    status = launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+        backend, up_weight, input, kC512, up_temporary, cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    ++receipt.legacy_exact_mlp_up_c512_submissions;
+
+    status = launch_silu_mul_reference_cuda(
+        gate_output, up_temporary,
+        kC512 * kReferenceIntermediateSize, gate_output, cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    ++receipt.legacy_exact_mlp_silu_submissions;
+
+    status = launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+        backend, down_weight, gate_output, kC512, down_temporary,
+        cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    ++receipt.legacy_exact_mlp_down_c512_submissions;
+
+    status = launch_residual_add_reference_cuda(
+        residual, down_temporary, kC512 * kReferenceHiddenSize, residual,
+        cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    ++receipt.legacy_exact_mlp_residual_submissions;
+  }
+
+  const auto* const tail_input =
+      normalized_base + kTailFirstPosition * kReferenceHiddenSize;
+  auto* const tail_gate =
+      activated_base + kTailFirstPosition * kReferenceIntermediateSize;
+  auto* const tail_residual =
+      residual_base + kTailFirstPosition * kReferenceHiddenSize;
+  int status = launch_projection_tile_to_bf16_cuda(
+      backend, gate_weight, tail_input, kTailTokens, nullptr, 0U, tail_gate,
+      cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  receipt.legacy_exact_mlp_gate_m32_tail_submissions += 2U;
+
+  status = launch_projection_tile_to_bf16_cuda(
+      backend, up_weight, tail_input, kTailTokens, nullptr, 0U, up_temporary,
+      cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  receipt.legacy_exact_mlp_up_m32_tail_submissions += 2U;
+
+  status = launch_silu_mul_reference_cuda(
+      tail_gate, up_temporary, kTailTokens * kReferenceIntermediateSize,
+      tail_gate, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  ++receipt.legacy_exact_mlp_silu_submissions;
+
+  status = launch_projection_tile_to_bf16_cuda(
+      backend, down_weight, tail_gate, kTailTokens, nullptr, 0U,
+      down_temporary, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  ++receipt.legacy_exact_mlp_down_m64_tail_submissions;
+
+  status = launch_residual_add_reference_cuda(
+      tail_residual, down_temporary,
+      kTailTokens * kReferenceHiddenSize, tail_residual, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  ++receipt.legacy_exact_mlp_residual_submissions;
+  ++receipt.legacy_exact_mlp_completed_layers;
+  return static_cast<int>(cudaSuccess);
+}
+#endif
+
 // Exact-P40000 whole-core projection primitive. Each logical fill/drain
 // projection owns exactly one M8000, M64-aligned Marlin grid. This deliberately does
 // not call the historical shape-aware host segmenter and has no partial-panel
@@ -2852,6 +3402,31 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
   release();
   weights_ = std::exchange(other.weights_, nullptr);
   state_ = std::exchange(other.state_, nullptr);
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  selector_linear_qkvz_legacy_exact_required_ = std::exchange(
+      other.selector_linear_qkvz_legacy_exact_required_, false);
+  selector_linear_qkv_supermatrices_ = std::exchange(
+      other.selector_linear_qkv_supermatrices_,
+      std::array<const std::uint8_t*, kReferenceDecoderLayerCount>{});
+  selector_linear_z_supermatrices_ = std::exchange(
+      other.selector_linear_z_supermatrices_,
+      std::array<const std::uint8_t*, kReferenceDecoderLayerCount>{});
+  selector_full_qkv_legacy_exact_required_ = std::exchange(
+      other.selector_full_qkv_legacy_exact_required_, false);
+  selector_full_q_supermatrices_ = std::exchange(
+      other.selector_full_q_supermatrices_,
+      std::array<const std::uint8_t*, kReferenceDecoderLayerCount>{});
+  selector_full_k_supermatrices_ = std::exchange(
+      other.selector_full_k_supermatrices_,
+      std::array<const std::uint8_t*, kReferenceDecoderLayerCount>{});
+  selector_full_v_supermatrices_ = std::exchange(
+      other.selector_full_v_supermatrices_,
+      std::array<const std::uint8_t*, kReferenceDecoderLayerCount>{});
+  selector_o_legacy_exact_required_ = std::exchange(
+      other.selector_o_legacy_exact_required_, false);
+  selector_mlp_legacy_exact_required_ = std::exchange(
+      other.selector_mlp_legacy_exact_required_, false);
+#endif
   stream_ = std::exchange(other.stream_, nullptr);
   prefill_auxiliary_stream_ =
       std::exchange(other.prefill_auxiliary_stream_, nullptr);
@@ -2917,6 +3492,32 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
 ReferenceRunner::operator bool() const noexcept {
   bool ready = weights_ != nullptr && state_ != nullptr &&
                stream_ != nullptr && pinned_logits_ != nullptr;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  if (selector_linear_qkvz_legacy_exact_required_) {
+    for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount;
+         ++layer) {
+      const bool linear =
+          reference_runner_detail::expected_reference_layer_type(layer) ==
+          model::LayerType::kLinearAttention;
+      ready = ready &&
+              (selector_linear_qkv_supermatrices_[layer] != nullptr) ==
+                  linear &&
+              (selector_linear_z_supermatrices_[layer] != nullptr) == linear;
+    }
+  }
+  if (selector_full_qkv_legacy_exact_required_) {
+    for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount;
+         ++layer) {
+      const bool full =
+          reference_runner_detail::expected_reference_layer_type(layer) ==
+          model::LayerType::kFullAttention;
+      ready = ready &&
+              (selector_full_q_supermatrices_[layer] != nullptr) == full &&
+              (selector_full_k_supermatrices_[layer] != nullptr) == full &&
+              (selector_full_v_supermatrices_[layer] != nullptr) == full;
+    }
+  }
+#endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_REFERENCE_ADMISSION)
   ready = ready && prefill_gdn_chunk64_reference_context_ != nullptr &&
           prefill_gdn_chunk64_reference_workspace_ != nullptr &&
@@ -2999,6 +3600,17 @@ void ReferenceRunner::release() noexcept {
   }
   weights_ = nullptr;
   state_ = nullptr;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  selector_linear_qkvz_legacy_exact_required_ = false;
+  selector_linear_qkv_supermatrices_ = {};
+  selector_linear_z_supermatrices_ = {};
+  selector_full_qkv_legacy_exact_required_ = false;
+  selector_full_q_supermatrices_ = {};
+  selector_full_k_supermatrices_ = {};
+  selector_full_v_supermatrices_ = {};
+  selector_o_legacy_exact_required_ = false;
+  selector_mlp_legacy_exact_required_ = false;
+#endif
   stream_ = nullptr;
   prefill_auxiliary_stream_ = nullptr;
   prefill_branch_ready_event_ = nullptr;
@@ -5321,11 +5933,28 @@ bool ReferenceRunner::valid_prompt_wide_p40_whole_core_runner_contract(
       schedule.request_capacity_tokens != max_sequence_length ||
 #endif
       schedule.route_pass_count != 1U ||
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      schedule.fp8_single_launch_per_projection_required ==
+          selector_exact_p40 ||
+#else
       !schedule.fp8_single_launch_per_projection_required ||
+#endif
       !schedule.bf16_ab_prompt_wide_required ||
       !schedule.gdn_prompt_wide_required ||
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
       schedule.flashinfer_whole_prompt_required == selector_exact_p40 ||
+      schedule.selector_linear_qkvz_legacy_global_c512_required !=
+          selector_exact_p40 ||
+      schedule.selector_full_qkv_legacy_global_c512_required !=
+          selector_exact_p40 ||
+      schedule.selector_bf16_ab_legacy_exact_required !=
+          selector_exact_p40 ||
+      schedule.selector_gdn_legacy_c512_exact_required !=
+          selector_exact_p40 ||
+      schedule.selector_o_legacy_global_c512_required !=
+          selector_exact_p40 ||
+      schedule.selector_mlp_legacy_c512_exact_required !=
+          selector_exact_p40 ||
       schedule
               .selector_exact_persistent_attention_v1_whole_prompt_required !=
           selector_exact_p40)) {
@@ -5472,14 +6101,16 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
       return runner_status(ReferenceRunnerError::kInvalidRequestState,
                            "prefill_whole_core_linear_fill_views", layer);
     }
-    auto* const normalized = static_cast<std::uint16_t*>(
-        phase.normalized_input_bf16.storage.device_data) +
-        offset * kReferenceHiddenSize;
-    auto* const raw_qkv = static_cast<std::uint16_t*>(
-        phase.raw_qkv_bf16.storage.device_data) +
-        offset * kLinearQkvElements;
-    auto* const z = static_cast<std::uint16_t*>(
-        phase.z_bf16.storage.device_data) + offset * kLinearValueElements;
+    auto* const normalized_base = static_cast<std::uint16_t*>(
+        phase.normalized_input_bf16.storage.device_data);
+    auto* const raw_qkv_base = static_cast<std::uint16_t*>(
+        phase.raw_qkv_bf16.storage.device_data);
+    auto* const z_base = static_cast<std::uint16_t*>(
+        phase.z_bf16.storage.device_data);
+    auto* const normalized =
+        normalized_base + offset * kReferenceHiddenSize;
+    auto* const raw_qkv = raw_qkv_base + offset * kLinearQkvElements;
+    auto* const z = z_base + offset * kLinearValueElements;
     ReferenceRunnerStatus status = check(
         launch_headwise_centered_rms_norm_reference_cuda(
             residual, layer_weights.input_layernorm.data, panel.token_count,
@@ -5491,6 +6122,34 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
     if (use_projection_reset || use_packed_projection) {
       return {};
     }
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    const bool selector_linear_legacy_exact_qkvz =
+        selector_linear_qkvz_legacy_exact_required_ &&
+        projection_package == PromptWideP40ProjectionPackage::kWholeCoreV10 &&
+        state_ != nullptr &&
+        reference_runner_detail::
+            is_selector_exact_persistent_attention_v1_p40_runner_profile(
+                state_->max_sequence_length());
+    if (selector_linear_legacy_exact_qkvz) {
+      status = check(
+          launch_selector_linear_legacy_exact_qkvz_panel(
+              projection_backend_, attention->in_proj_qkv,
+              attention->in_proj_z,
+              selector_linear_qkv_supermatrices_[layer],
+              selector_linear_z_supermatrices_[layer], normalized_base,
+              raw_qkv_base, z_base, layer, panel.ordinal,
+              static_cast<float*>(
+                  request_views.legacy_c512.fp32_scratch.device_data),
+              request_views.legacy_c512.fp32_scratch.element_capacity,
+              fp8_physical_launches, stream_),
+          "prefill_whole_core_linear_fill_legacy_exact_qkvz");
+      if (!status) {
+        return status;
+      }
+      fp8_projection_hits += 2U;
+      return {};
+    }
+#endif
     status = check(launch_prompt_wide_p40_fp8_projection(
                        projection_backend_, attention->in_proj_qkv,
                        normalized, raw_qkv, panel.token_count, workspace,
@@ -5539,24 +6198,28 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
       return runner_status(ReferenceRunnerError::kInvalidRequestState,
                            "prefill_whole_core_attention_fill_views", layer);
     }
-    auto* const normalized = static_cast<std::uint16_t*>(
-        phase.normalized_input_bf16.storage.device_data) +
-        offset * kReferenceHiddenSize;
-    auto* const raw_q_gate = static_cast<std::uint16_t*>(
-        phase.raw_q_gate_bf16.storage.device_data) +
-        offset * kFullQGateElements;
-    auto* const processed_q = static_cast<std::uint16_t*>(
-        phase.processed_q_bf16.storage.device_data) +
-        offset * kFullQueryElements;
-    auto* const packed_gate = static_cast<std::uint16_t*>(
-        phase.packed_gate_bf16.storage.device_data) +
-        offset * kFullQueryElements;
-    auto* const key = static_cast<std::uint16_t*>(
-        request_views.persistent.key_cache_bf16[slot.slot].device_data) +
-        offset * kFullKvElements;
-    auto* const value = static_cast<std::uint16_t*>(
-        request_views.persistent.value_cache_bf16[slot.slot].device_data) +
-        offset * kFullKvElements;
+    auto* const normalized_base = static_cast<std::uint16_t*>(
+        phase.normalized_input_bf16.storage.device_data);
+    auto* const raw_q_gate_base = static_cast<std::uint16_t*>(
+        phase.raw_q_gate_bf16.storage.device_data);
+    auto* const normalized =
+        normalized_base + offset * kReferenceHiddenSize;
+    auto* const raw_q_gate =
+        raw_q_gate_base + offset * kFullQGateElements;
+    auto* const processed_q_base = static_cast<std::uint16_t*>(
+        phase.processed_q_bf16.storage.device_data);
+    auto* const packed_gate_base = static_cast<std::uint16_t*>(
+        phase.packed_gate_bf16.storage.device_data);
+    auto* const processed_q =
+        processed_q_base + offset * kFullQueryElements;
+    auto* const packed_gate =
+        packed_gate_base + offset * kFullQueryElements;
+    auto* const key_base = static_cast<std::uint16_t*>(
+        request_views.persistent.key_cache_bf16[slot.slot].device_data);
+    auto* const value_base = static_cast<std::uint16_t*>(
+        request_views.persistent.value_cache_bf16[slot.slot].device_data);
+    auto* const key = key_base + offset * kFullKvElements;
+    auto* const value = value_base + offset * kFullKvElements;
     ReferenceRunnerStatus status = check(
         launch_headwise_centered_rms_norm_reference_cuda(
             residual, layer_weights.input_layernorm.data, panel.token_count,
@@ -5568,6 +6231,63 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
     if (use_projection_reset || use_packed_projection) {
       return {};
     }
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    const bool selector_full_legacy_exact_qkv =
+        selector_full_qkv_legacy_exact_required_ &&
+        projection_package == PromptWideP40ProjectionPackage::kWholeCoreV10 &&
+        state_ != nullptr &&
+        reference_runner_detail::
+            is_selector_exact_persistent_attention_v1_p40_runner_profile(
+                state_->max_sequence_length());
+    if (selector_full_legacy_exact_qkv) {
+      status = check(
+          launch_selector_full_legacy_exact_qkv_panel(
+              projection_backend_, attention->q_proj, attention->k_proj,
+              attention->v_proj, selector_full_q_supermatrices_[layer],
+              selector_full_k_supermatrices_[layer],
+              selector_full_v_supermatrices_[layer], normalized_base,
+              raw_q_gate_base, key_base, value_base, layer, panel.ordinal,
+              static_cast<float*>(
+                  request_views.legacy_c512.fp32_scratch.device_data),
+              request_views.legacy_c512.fp32_scratch.element_capacity,
+              fp8_physical_launches, stream_),
+          "prefill_whole_core_attention_fill_legacy_exact_qkv");
+      if (!status) {
+        return status;
+      }
+      fp8_projection_hits += 3U;
+      if (panel.ordinal + 1U < kPromptWideP40WholeCorePanelCount) {
+        return {};
+      }
+      for (std::size_t preprocess_panel = 0U;
+           preprocess_panel < kPromptWideP40WholeCorePanelCount;
+           ++preprocess_panel) {
+        const std::size_t preprocess_offset =
+            preprocess_panel * kPromptWideP40WholeCorePanelTokens;
+        status = check(
+            launch_full_attention_preprocess_24_4_256_64_prompt_wide_p8000_cuda(
+                raw_q_gate_base +
+                    preprocess_offset * kFullQGateElements,
+                key_base + preprocess_offset * kFullKvElements,
+                attention->q_norm.data, attention->k_norm.data, kRmsEpsilon,
+                processed_q_base +
+                    preprocess_offset * kFullQueryElements,
+                packed_gate_base +
+                    preprocess_offset * kFullQueryElements,
+                static_cast<const float*>(
+                    request_views.persistent.rope_cos_fp32.device_data),
+                static_cast<const float*>(
+                    request_views.persistent.rope_sin_fp32.device_data),
+                static_cast<std::uint32_t>(preprocess_offset),
+                kPromptWideP40WholeCorePanelTokens, stream_),
+            "prefill_whole_core_attention_fill_legacy_exact_preprocess");
+        if (!status) {
+          return status;
+        }
+      }
+      return {};
+    } else {
+#endif
     const auto project = [&](const LinearWeight& weight,
                              std::uint16_t* const output,
                              const char* const operation) noexcept {
@@ -5596,6 +6316,9 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
     if (!status) {
       return status;
     }
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    }
+#endif
     return check(
         launch_full_attention_preprocess_24_4_256_64_prompt_wide_p8000_cuda(
             raw_q_gate, key, attention->q_norm.data,
@@ -5712,40 +6435,157 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_prompt_core(
       }
       fp8_projection_hits += 2U;
     }
-    ReferenceRunnerStatus status = check(
-        kernels::launch_sm87_bf16_ab_prompt_wide_p40_cuda(
-            first->weight, second->weight, normalized,
-            kPromptWideP40WholeCorePromptTokens, a, b, stream_),
-        "prefill_whole_core_linear_ab");
+    bool selector_legacy_exact_linear_core = false;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    selector_legacy_exact_linear_core =
+        projection_package == PromptWideP40ProjectionPackage::kWholeCoreV10 &&
+        state_ != nullptr &&
+        reference_runner_detail::
+            is_selector_exact_persistent_attention_v1_p40_runner_profile(
+                state_->max_sequence_length());
+#endif
+    const int ab_status =
+        selector_legacy_exact_linear_core
+            ? kernels::launch_bf16_gemv_pair_p40000_projection_fused_cuda(
+                  first->weight, second->weight, normalized,
+                  kPromptWideP40WholeCorePromptTokens, a, b, stream_)
+            : kernels::launch_sm87_bf16_ab_prompt_wide_p40_cuda(
+                  first->weight, second->weight, normalized,
+                  kPromptWideP40WholeCorePromptTokens, a, b, stream_);
+    ReferenceRunnerStatus status =
+        check(ab_status,
+              selector_legacy_exact_linear_core
+                  ? "prefill_whole_core_linear_ab_legacy_exact"
+                  : "prefill_whole_core_linear_ab");
     if (!status) {
       return status;
+    }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    if (selector_legacy_exact_linear_core) {
+      ++g_selector_exact_persistent_attention_v1_route_receipt_for_test
+            .legacy_exact_bf16_ab_layers;
+    }
+#endif
+    const auto* const raw_qkv = static_cast<const std::uint16_t*>(
+        phase.raw_qkv_bf16.storage.device_data);
+    auto* const conv_qkv = static_cast<std::uint16_t*>(
+        phase.conv_qkv_bf16.storage.device_data);
+    const auto* const z = static_cast<const std::uint16_t*>(
+        phase.z_bf16.storage.device_data);
+    auto* const output = static_cast<std::uint16_t*>(
+        phase.output_bf16.storage.device_data);
+    auto* const conv_state = static_cast<std::uint16_t*>(
+        request_views.persistent.conv_state_bf16[slot.slot].device_data);
+    auto* const gdn_state = static_cast<std::uint16_t*>(
+        request_views.persistent.gdn_state_bf16[slot.slot].device_data);
+    if (selector_legacy_exact_linear_core) {
+      for (std::size_t token_offset = 0U;
+           token_offset < kPromptWideP40WholeCorePromptTokens;
+           token_offset += kLayerMajorPrefillLegacyPublicTileTokens) {
+        const std::size_t span_tokens = std::min<std::size_t>(
+            kLayerMajorPrefillLegacyPublicTileTokens,
+            kPromptWideP40WholeCorePromptTokens - token_offset);
+        const auto* const raw_span =
+            raw_qkv + token_offset * kLinearQkvElements;
+        auto* const conv_span =
+            conv_qkv + token_offset * kLinearQkvElements;
+        const auto* const a_span =
+            a + token_offset * kLinearScalarElements;
+        const auto* const b_span =
+            b + token_offset * kLinearScalarElements;
+        const auto* const z_span =
+            z + token_offset * kLinearValueElements;
+        auto* const output_span =
+            output + token_offset * kLinearValueElements;
+        if (span_tokens == kLayerMajorPrefillLegacyPublicTileTokens) {
+          status = check(
+              gdn_prefill_whole_span_conv_detail::
+                  launch_causal_conv1d_silu_update_whole_span_exact_cuda(
+                      raw_span, span_tokens, attention->conv1d.data,
+                      conv_state, conv_span, stream_),
+              "prefill_whole_core_linear_conv_legacy_exact_span");
+          if (!status) {
+            return status;
+          }
+          status = check(
+              gdn_prefill_exact_span_detail::launch_row16_register_baton(
+                  conv_span, span_tokens, a_span, b_span,
+                  attention->a_log.data, attention->dt_bias.data, gdn_state,
+                  gdn_state, kRmsEpsilon, output_span, stream_),
+              "prefill_whole_core_linear_gdn_legacy_exact_span");
+          if (!status) {
+            return status;
+          }
+        } else {
+          if (span_tokens == 0U ||
+              span_tokens % kPrefillKernelTileMaximumTokens != 0U) {
+            return runner_status(
+                ReferenceRunnerError::kInvalidLayerSchedule,
+                "prefill_whole_core_linear_gdn_legacy_tail", layer);
+          }
+          for (std::size_t local_offset = 0U; local_offset < span_tokens;
+               local_offset += kPrefillKernelTileMaximumTokens) {
+            status = check(
+                launch_causal_conv1d_silu_update_tile_reference_cuda(
+                    raw_span + local_offset * kLinearQkvElements,
+                    kPrefillKernelTileMaximumTokens, attention->conv1d.data,
+                    conv_state,
+                    conv_span + local_offset * kLinearQkvElements, {},
+                    stream_),
+                "prefill_whole_core_linear_conv_legacy_tail");
+            if (!status) {
+              return status;
+            }
+            status = check(
+                launch_gated_delta_net_update_tile_warp_parallel_cuda(
+                    conv_span + local_offset * kLinearQkvElements,
+                    kPrefillKernelTileMaximumTokens,
+                    a_span + local_offset * kLinearScalarElements,
+                    b_span + local_offset * kLinearScalarElements,
+                    attention->a_log.data, attention->dt_bias.data, gdn_state,
+                    gdn_state, kRmsEpsilon,
+                    output_span + local_offset * kLinearValueElements, {},
+                    stream_),
+                "prefill_whole_core_linear_gdn_legacy_tail");
+            if (!status) {
+              return status;
+            }
+          }
+        }
+        status = check(
+            launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
+                output_span, attention->norm.data, z_span,
+                span_tokens * kGdnValueHeadCount, kGdnHeadDimension,
+                kRmsEpsilon, output_span, stream_),
+            "prefill_whole_core_linear_gdn_legacy_norm_gate");
+        if (!status) {
+          return status;
+        }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+        ++g_selector_exact_persistent_attention_v1_route_receipt_for_test
+              .legacy_exact_gdn_spans;
+#endif
+      }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      ++g_selector_exact_persistent_attention_v1_route_receipt_for_test
+            .legacy_exact_gdn_layers;
+#endif
+      return {};
     }
     return check(
         gdn_prefill_prompt_wide_chunk_graph_detail::launch(
             phase.prompt_wide_workspace.device_data,
             static_cast<std::size_t>(phase.prompt_wide_workspace.byte_size),
-            static_cast<const std::uint16_t*>(
-                phase.raw_qkv_bf16.storage.device_data),
+            raw_qkv,
             kPromptWideP40WholeCorePromptTokens, attention->conv1d.data,
-            static_cast<std::uint16_t*>(
-                request_views.persistent.conv_state_bf16[slot.slot]
-                    .device_data),
-            static_cast<std::uint16_t*>(
-                phase.conv_qkv_bf16.storage.device_data),
+            conv_state, conv_qkv,
             a, b, attention->a_log.data, attention->dt_bias.data,
-            static_cast<const std::uint16_t*>(
-                request_views.persistent.gdn_state_bf16[slot.slot]
-                    .device_data),
-            static_cast<std::uint16_t*>(
-                request_views.persistent.gdn_state_bf16[slot.slot]
-                    .device_data),
+            gdn_state, gdn_state,
             kRmsEpsilon, attention->norm.data,
-            static_cast<const std::uint16_t*>(
-                phase.z_bf16.storage.device_data),
-            kRmsEpsilon,
-            static_cast<std::uint16_t*>(
-                phase.output_bf16.storage.device_data),
-            stream_),
+            z, kRmsEpsilon, output, stream_),
         "prefill_whole_core_linear_gdn");
   }
   if (expected == model::LayerType::kFullAttention) {
@@ -6054,6 +6894,15 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_drain_panel(
       projection_package == PromptWideP40ProjectionPackage::kProjectionResetV11;
   const bool use_packed_projection =
       projection_package == PromptWideP40ProjectionPackage::kPackedV1;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const bool selector_legacy_exact_o =
+      selector_o_legacy_exact_required_ && state_ != nullptr &&
+      reference_runner_detail::
+          is_selector_exact_persistent_attention_v1_p40_runner_profile(
+              state_->max_sequence_length());
+#else
+  constexpr bool selector_legacy_exact_o = false;
+#endif
   if (layer >= kReferenceDecoderLayerCount ||
       panel.ordinal >= kPromptWideP40WholeCorePanelCount ||
       panel.first_position !=
@@ -6127,7 +6976,20 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_drain_panel(
   std::uint16_t* const branch_output =
       branch_output_base + offset * kReferenceHiddenSize;
   int status = static_cast<int>(cudaSuccess);
-  if (use_projection_reset || use_packed_projection) {
+  if (selector_legacy_exact_o) {
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    if (panel.ordinal == 0U) {
+      status = launch_selector_legacy_exact_o(
+          projection_backend_, *output_weight, core_output_base,
+          branch_output_base, fp8_physical_launches, stream_);
+    }
+    if (status == static_cast<int>(cudaSuccess)) {
+      ++fp8_projection_hits;
+    }
+#else
+    status = static_cast<int>(cudaErrorNotSupported);
+#endif
+  } else if (use_projection_reset || use_packed_projection) {
     if (panel.ordinal == 0U) {
       const LinearWeight* const group_weights[1U] = {output_weight};
       std::uint16_t* const group_outputs[1U] = {branch_output_base};
@@ -6449,6 +7311,15 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
           immutable_topology, state_->memory_profile(),
           state_->max_sequence_length(), executor, projection_tactic,
           full_attention_tactic);
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const bool selector_linear_qkvz_legacy_exact_profile =
+      prompt_wide_p40_whole_core &&
+      reference_runner_detail::
+          is_selector_exact_persistent_attention_v1_p40_runner_profile(
+              state_->max_sequence_length());
+  const bool selector_full_qkv_legacy_exact_profile =
+      selector_linear_qkvz_legacy_exact_profile;
+#endif
 #if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && \
     defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
   if (prompt_wide_p40_whole_core &&
@@ -6483,6 +7354,12 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
   if (!layer_major_request_views_.has_value() ||
       any_prompt_wide_p40_whole_core_identity !=
           prompt_wide_p40_whole_core ||
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      selector_linear_qkvz_legacy_exact_profile !=
+          selector_linear_qkvz_legacy_exact_required_ ||
+      selector_full_qkv_legacy_exact_profile !=
+          selector_full_qkv_legacy_exact_required_ ||
+#endif
       (!prompt_wide_p40_whole_core &&
        state_->memory_profile() != RequestMemoryProfile::kLayerMajorC8192) ||
       !is_valid_layer_major_prefill_projection_tactic(projection_tactic) ||
@@ -7146,9 +8023,17 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         vllm_marlin_parity_standalone_residual_launches +=
             parity_receipt->standalone_residual_launches;
       } else {
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+        if (!reference_runner_detail::
+                is_selector_exact_persistent_attention_v1_p40_runner_profile(
+                    state_->max_sequence_length())) {
+#endif
         ++persistent_p40_nvfp4_gate_up_hits;
         ++persistent_p40_nvfp4_down_residual_hits;
         persistent_p40_nvfp4_physical_launches += 2U;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+        }
+#endif
       }
       if (use_packed_nvfp4_v2) {
         ++packed_nvfp4_v2_gate_up_hits;
@@ -7172,6 +8057,35 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
               PrefillRouteDisposition::kProduction;
         }
       }
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (state_ != nullptr &&
+          reference_runner_detail::
+              is_selector_exact_persistent_attention_v1_p40_runner_profile(
+                  state_->max_sequence_length())) {
+        const auto mark_exact_fallback =
+            [&full_layer_fragment](const PrefillLayerRouteSlot slot) noexcept {
+              const std::size_t index = static_cast<std::size_t>(slot);
+              if ((full_layer_fragment.recorded_slots &
+                   static_cast<std::uint16_t>(1U << index)) != 0U) {
+                full_layer_fragment.dispositions[index] =
+                    PrefillRouteDisposition::kExactFallback;
+              }
+            };
+        mark_exact_fallback(PrefillLayerRouteSlot::kNvFp4GateUp);
+        mark_exact_fallback(PrefillLayerRouteSlot::kNvFp4Down);
+        mark_exact_fallback(PrefillLayerRouteSlot::kO);
+        mark_exact_fallback(PrefillLayerRouteSlot::kGdn);
+        if (reference_runner_detail::expected_reference_layer_type(layer) ==
+            model::LayerType::kLinearAttention) {
+          mark_exact_fallback(PrefillLayerRouteSlot::kQOrLinearQkv);
+          mark_exact_fallback(PrefillLayerRouteSlot::kLinearZ);
+        } else {
+          mark_exact_fallback(PrefillLayerRouteSlot::kQOrLinearQkv);
+          mark_exact_fallback(PrefillLayerRouteSlot::kFullK);
+          mark_exact_fallback(PrefillLayerRouteSlot::kFullV);
+        }
+      }
+#endif
       status = collapse_layer_wide_p40_prefill_layer_route_fragment(
           full_layer_fragment, layer_wide_p40_request_pass);
       if (!status) {
@@ -7614,6 +8528,57 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
         g_selector_exact_persistent_attention_v1_route_receipt_for_test;
     if (selector_exact_persistent_attention_v1_full_attention_layer_hits !=
             kLayerMajorPrefillFullLayerCount ||
+        selector_receipt.linear_qkvz_grouped_c512_submissions !=
+            kSelectorExactPersistentAttentionV1LinearQkvZGroupedC512LaunchesPerRequest ||
+        selector_receipt.linear_qkvz_generic_c32_submissions !=
+            kSelectorExactPersistentAttentionV1LinearQkvZGenericC32LaunchesPerRequest ||
+        selector_receipt.linear_qkvz_completed_layers !=
+            kSelectorExactPersistentAttentionV1LinearQkvZCompletedLayers ||
+        selector_receipt.linear_qkvz_completed_layer_mask !=
+            0x7777'7777'7777'7777ULL ||
+        selector_receipt.full_qkv_grouped_c512_submissions !=
+            kSelectorExactPersistentAttentionV1FullQkvGroupedC512LaunchesPerRequest ||
+        selector_receipt.full_qkv_generic_c32_submissions !=
+            kSelectorExactPersistentAttentionV1FullQkvGenericC32LaunchesPerRequest ||
+        selector_receipt.full_qkv_completed_layers !=
+            kSelectorExactPersistentAttentionV1FullQkvCompletedLayers ||
+        selector_receipt.full_qkv_completed_layer_mask !=
+            0x8888'8888'8888'8888ULL ||
+        selector_receipt.legacy_exact_bf16_ab_layers !=
+            kRequestLinearLayerCount ||
+        selector_receipt.legacy_exact_gdn_layers !=
+            kRequestLinearLayerCount ||
+        selector_receipt.legacy_exact_gdn_spans !=
+            kSelectorExactPersistentAttentionV1GdnLegacyC512SpansPerRequest ||
+        selector_receipt.legacy_exact_o_whole_chunk_c512_submissions !=
+            kReferenceDecoderLayerCount *
+                kSelectorExactPersistentAttentionV1OWholeChunkC512LaunchesPerLayer ||
+        selector_receipt.legacy_exact_o_canonical_m64_submissions !=
+            kReferenceDecoderLayerCount *
+                kSelectorExactPersistentAttentionV1OCanonicalM64TailLaunchesPerLayer ||
+        selector_receipt.legacy_exact_o_completed_layers !=
+            kReferenceDecoderLayerCount ||
+        selector_receipt.legacy_exact_mlp_gate_c512_submissions !=
+            kReferenceDecoderLayerCount *
+                kSelectorExactPersistentAttentionV1MlpWholeChunkC512SpansPerLayer ||
+        selector_receipt.legacy_exact_mlp_gate_m32_tail_submissions !=
+            kReferenceDecoderLayerCount * 2U ||
+        selector_receipt.legacy_exact_mlp_up_c512_submissions !=
+            kReferenceDecoderLayerCount *
+                kSelectorExactPersistentAttentionV1MlpWholeChunkC512SpansPerLayer ||
+        selector_receipt.legacy_exact_mlp_up_m32_tail_submissions !=
+            kReferenceDecoderLayerCount * 2U ||
+        selector_receipt.legacy_exact_mlp_silu_submissions !=
+            kSelectorExactPersistentAttentionV1MlpSiluSubmissionsPerRequest ||
+        selector_receipt.legacy_exact_mlp_down_c512_submissions !=
+            kReferenceDecoderLayerCount *
+                kSelectorExactPersistentAttentionV1MlpDownC512SubmissionsPerLayer ||
+        selector_receipt.legacy_exact_mlp_down_m64_tail_submissions !=
+            kReferenceDecoderLayerCount ||
+        selector_receipt.legacy_exact_mlp_residual_submissions !=
+            kSelectorExactPersistentAttentionV1MlpResidualSubmissionsPerRequest ||
+        selector_receipt.legacy_exact_mlp_completed_layers !=
+            kReferenceDecoderLayerCount ||
         selector_receipt.panel_calls != kLayerMajorPrefillFullLayerCount ||
         selector_receipt.arithmetic_spans != 1'280U ||
         selector_receipt.group_q64_submissions != 32U ||
@@ -9582,6 +10547,16 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
       projection_package == PromptWideP40ProjectionPackage::kPackedNvfp4V2;
   const bool use_any_packed_projection =
       use_packed_projection || use_packed_nvfp4_v2;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const bool use_selector_legacy_exact_mlp =
+      selector_mlp_legacy_exact_required_ &&
+      projection_package == PromptWideP40ProjectionPackage::kWholeCoreV10 &&
+      reference_runner_detail::
+          is_selector_exact_persistent_attention_v1_p40_runner_profile(
+              request_views.descriptor.max_sequence_length);
+#else
+  constexpr bool use_selector_legacy_exact_mlp = false;
+#endif
   reference_runner_detail::LayerWideP40MlpDescriptorPolicyInput
       descriptor_policy;
   descriptor_policy.mlp_layout = request_views.descriptor.mlp_layout;
@@ -9628,7 +10603,14 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
                          kReferenceHiddenSize) ||
       !exact_bf16_matrix(mlp.gate_bf16,
                          kLayerMajorPrefillLayerWideMlpP40Tokens,
-                         kReferenceIntermediateSize)) {
+                         kReferenceIntermediateSize) ||
+      (use_selector_legacy_exact_mlp &&
+       (!exact_bf16_matrix(request_views.legacy_c512.projection_bf16[1U],
+                           kMaximumRequestPrefillChunkSize,
+                           kReferenceIntermediateSize) ||
+        !exact_bf16_matrix(request_views.legacy_c512.hidden_bf16[1U],
+                           kMaximumRequestPrefillChunkSize,
+                           kReferenceHiddenSize)))) {
     return runner_status(ReferenceRunnerError::kInvalidRequestState,
                          "prefill_layer_wide_p40_mlp_views", layer);
   }
@@ -9642,7 +10624,17 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
   if (gate == nullptr || up == nullptr || down == nullptr ||
       !valid_vector(layer_weights.post_attention_layernorm,
                     kReferenceHiddenSize) ||
-      (use_any_packed_projection
+      (use_selector_legacy_exact_mlp
+           ? (!valid_linear_payload(layer_weights.mlp.gate_proj,
+                                    kReferenceIntermediateSize,
+                                    kReferenceHiddenSize) ||
+              !valid_linear_payload(layer_weights.mlp.up_proj,
+                                    kReferenceIntermediateSize,
+                                    kReferenceHiddenSize) ||
+              !valid_linear_payload(layer_weights.mlp.down_proj,
+                                    kReferenceHiddenSize,
+                                    kReferenceIntermediateSize))
+       : use_any_packed_projection
 #if defined(Q3X_ENABLE_P40_PACKED_PROJECTION_ADMISSION)
            ? !valid_p40_packed_nvfp4_mlp_weights(*gate, *up, *down)
 #else
@@ -9658,6 +10650,12 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
       mlp.normalized_input_bf16.storage.device_data);
   auto* const activated = static_cast<std::uint16_t*>(
       mlp.gate_bf16.storage.device_data);
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  auto* const selector_up_temporary = static_cast<std::uint16_t*>(
+      request_views.legacy_c512.projection_bf16[1U].storage.device_data);
+  auto* const selector_down_temporary = static_cast<std::uint16_t*>(
+      request_views.legacy_c512.hidden_bf16[1U].storage.device_data);
+#endif
   constexpr std::size_t kResidualBytes =
       static_cast<std::size_t>(kLayerMajorPrefillLayerWideMlpP40Tokens) *
       kReferenceHiddenSize * sizeof(std::uint16_t);
@@ -9672,6 +10670,18 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
     return runner_status(ReferenceRunnerError::kInvalidRequestState,
                          "prefill_layer_wide_p40_mlp_alias", layer);
   }
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  if (use_selector_legacy_exact_mlp &&
+      !valid_selector_legacy_exact_mlp(
+          projection_backend_, layer_weights.mlp.gate_proj,
+          layer_weights.mlp.up_proj, layer_weights.mlp.down_proj, normalized,
+          activated, selector_up_temporary, selector_down_temporary,
+          residual)) {
+    return runner_status(ReferenceRunnerError::kInvalidRequestState,
+                         "prefill_selector_legacy_exact_mlp_contract",
+                         layer);
+  }
+#endif
   const int norm_status =
       launch_headwise_centered_rms_norm_reference_cuda(
           residual, layer_weights.post_attention_layernorm.data,
@@ -9682,6 +10692,21 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
                          "prefill_layer_wide_p40_post_attention_norm", layer,
                          norm_status);
   }
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  if (use_selector_legacy_exact_mlp) {
+    const int exact_status = launch_selector_legacy_exact_mlp(
+        projection_backend_, layer_weights.mlp.gate_proj,
+        layer_weights.mlp.up_proj, layer_weights.mlp.down_proj, normalized,
+        activated, selector_up_temporary, selector_down_temporary, residual,
+        stream_);
+    if (exact_status != static_cast<int>(cudaSuccess)) {
+      return runner_status(ReferenceRunnerError::kCudaFailure,
+                           "prefill_selector_legacy_exact_mlp", layer,
+                           exact_status);
+    }
+    return {};
+  }
+#endif
   int gate_up_status = static_cast<int>(cudaErrorNotSupported);
   if (use_packed_nvfp4_v2) {
 #if defined(Q3X_ENABLE_P40_PACKED_NVFP4_V2_ADMISSION)
@@ -12174,11 +13199,209 @@ ReferenceRunnerFactoryResult create_reference_runner(
     result.diagnostic = weights_status;
     return result;
   }
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const auto all_null = [](const auto& pointers) noexcept {
+    return std::all_of(pointers.begin(), pointers.end(),
+                       [](const std::uint8_t* const pointer) noexcept {
+                         return pointer == nullptr;
+                       });
+  };
+  const bool selector_assets_empty =
+      all_null(options.selector_linear_qkv_supermatrices) &&
+      all_null(options.selector_linear_z_supermatrices) &&
+      all_null(options.selector_full_q_supermatrices) &&
+      all_null(options.selector_full_k_supermatrices) &&
+      all_null(options.selector_full_v_supermatrices) &&
+      options.selector_attention_inputs_supermatrix_bytes == 0U;
+  const std::uintptr_t selector_arena_address =
+      reinterpret_cast<std::uintptr_t>(
+          options.selector_linear_qkv_supermatrices[0U]);
+  bool selector_assets_exact =
+      selector_arena_address != 0U &&
+      options.selector_attention_inputs_supermatrix_bytes ==
+          kSelectorExactPersistentAttentionV1AttentionInputsSupermatrixBytes &&
+      (selector_arena_address % 16U) == 0U &&
+      selector_arena_address <=
+          std::numeric_limits<std::uintptr_t>::max() -
+              kSelectorExactPersistentAttentionV1AttentionInputsSupermatrixBytes;
+  std::size_t selector_offset = 0U;
+  std::size_t selector_linear_layers = 0U;
+  for (std::size_t layer = 0U;
+       selector_assets_exact && layer < kReferenceDecoderLayerCount;
+       ++layer) {
+    const bool linear =
+        reference_runner_detail::expected_reference_layer_type(layer) ==
+        model::LayerType::kLinearAttention;
+    const std::uintptr_t qkv_address = reinterpret_cast<std::uintptr_t>(
+        options.selector_linear_qkv_supermatrices[layer]);
+    const std::uintptr_t z_address = reinterpret_cast<std::uintptr_t>(
+        options.selector_linear_z_supermatrices[layer]);
+    const bool full_assets_null =
+        options.selector_full_q_supermatrices[layer] == nullptr &&
+        options.selector_full_k_supermatrices[layer] == nullptr &&
+        options.selector_full_v_supermatrices[layer] == nullptr;
+    if (!linear) {
+      selector_assets_exact = qkv_address == 0U && z_address == 0U;
+      continue;
+    }
+    const auto* const linear_weights =
+        std::get_if<LinearAttentionWeights>(&weights->layer(layer).attention);
+    const auto* const qkv =
+        linear_weights == nullptr
+            ? nullptr
+            : std::get_if<Fp8LinearWeight>(&linear_weights->in_proj_qkv);
+    const auto* const z =
+        linear_weights == nullptr
+            ? nullptr
+            : std::get_if<Fp8LinearWeight>(&linear_weights->in_proj_z);
+    selector_assets_exact =
+        qkv != nullptr && z != nullptr && qkv->output_size == 10'240U &&
+        qkv->input_size == 5'120U && z->output_size == 6'144U &&
+        z->input_size == 5'120U &&
+        qkv_address == selector_arena_address + selector_offset &&
+        z_address == qkv_address + kFp8PrefillLinearQkvBytes &&
+        (qkv_address % 16U) == 0U && (z_address % 16U) == 0U &&
+        full_assets_null;
+    selector_offset +=
+        kFp8PrefillLinearQkvBytes + kFp8PrefillLinearZBytes;
+    ++selector_linear_layers;
+  }
+  selector_assets_exact =
+      selector_assets_exact &&
+      selector_linear_layers ==
+          kSelectorExactPersistentAttentionV1LinearQkvZCompletedLayers &&
+      selector_offset ==
+          kSelectorExactPersistentAttentionV1LinearQkvZSupermatrixBytes;
+  std::size_t selector_full_layers = 0U;
+  for (std::size_t layer = 0U;
+       selector_assets_exact && layer < kReferenceDecoderLayerCount;
+       ++layer) {
+    const bool full =
+        reference_runner_detail::expected_reference_layer_type(layer) ==
+        model::LayerType::kFullAttention;
+    const std::uintptr_t q_address = reinterpret_cast<std::uintptr_t>(
+        options.selector_full_q_supermatrices[layer]);
+    const std::uintptr_t k_address = reinterpret_cast<std::uintptr_t>(
+        options.selector_full_k_supermatrices[layer]);
+    const std::uintptr_t v_address = reinterpret_cast<std::uintptr_t>(
+        options.selector_full_v_supermatrices[layer]);
+    if (!full) {
+      selector_assets_exact =
+          q_address == 0U && k_address == 0U && v_address == 0U;
+      continue;
+    }
+    const auto* const full_weights =
+        std::get_if<FullAttentionWeights>(&weights->layer(layer).attention);
+    const auto* const q =
+        full_weights == nullptr
+            ? nullptr
+            : std::get_if<Fp8LinearWeight>(&full_weights->q_proj);
+    const auto* const k =
+        full_weights == nullptr
+            ? nullptr
+            : std::get_if<Fp8LinearWeight>(&full_weights->k_proj);
+    const auto* const v =
+        full_weights == nullptr
+            ? nullptr
+            : std::get_if<Fp8LinearWeight>(&full_weights->v_proj);
+    selector_assets_exact =
+        q != nullptr && k != nullptr && v != nullptr &&
+        q->output_size == kFullQGateElements &&
+        q->input_size == kReferenceHiddenSize &&
+        k->output_size == kFullKvElements &&
+        k->input_size == kReferenceHiddenSize &&
+        v->output_size == kFullKvElements &&
+        v->input_size == kReferenceHiddenSize &&
+        q_address == selector_arena_address + selector_offset &&
+        k_address == q_address + kFp8PrefillFullQueryBytes &&
+        v_address == k_address + kFp8PrefillFullKvBytes &&
+        (q_address % 16U) == 0U && (k_address % 16U) == 0U &&
+        (v_address % 16U) == 0U;
+    selector_offset +=
+        kFp8PrefillFullQueryBytes + 2U * kFp8PrefillFullKvBytes;
+    ++selector_full_layers;
+  }
+  selector_assets_exact =
+      selector_assets_exact &&
+      selector_full_layers ==
+          kSelectorExactPersistentAttentionV1FullQkvCompletedLayers &&
+      selector_offset ==
+          kSelectorExactPersistentAttentionV1AttentionInputsSupermatrixBytes;
+  int selector_asset_cuda_error = 0;
+  bool selector_assets_are_current_device_allocation = false;
+  if (selector_assets_exact) {
+    int current_device = -1;
+    std::array<cudaPointerAttributes, 3U> attributes{};
+    const std::array<const void*, 3U> range_probes{{
+        options.selector_linear_qkv_supermatrices[0U],
+        options.selector_full_q_supermatrices[3U],
+        reinterpret_cast<const void*>(
+            selector_arena_address +
+            kSelectorExactPersistentAttentionV1AttentionInputsSupermatrixBytes -
+            1U),
+    }};
+    cudaError_t selector_status = cudaGetDevice(&current_device);
+    for (std::size_t index = 0U;
+         selector_status == cudaSuccess && index < range_probes.size();
+         ++index) {
+      selector_status =
+          cudaPointerGetAttributes(&attributes[index], range_probes[index]);
+    }
+    if (selector_status == cudaSuccess) {
+      selector_assets_are_current_device_allocation =
+          std::all_of(attributes.begin(), attributes.end(),
+                      [current_device](const cudaPointerAttributes& item) {
+                        return item.type == cudaMemoryTypeDevice &&
+                               item.device == current_device;
+                      });
+    } else {
+      selector_asset_cuda_error = static_cast<int>(selector_status);
+      (void)cudaGetLastError();
+    }
+  }
+  const bool selector_attention_inputs_required =
+      options.selector_linear_qkvz_legacy_exact_required &&
+      options.selector_full_qkv_legacy_exact_required;
+  if (options.selector_linear_qkvz_legacy_exact_required !=
+          options.selector_full_qkv_legacy_exact_required ||
+      (selector_attention_inputs_required
+           ? (options.projection_backend !=
+                  ProjectionBackend::kSm87WeightOnly ||
+              !selector_assets_exact ||
+              !selector_assets_are_current_device_allocation)
+           : !selector_assets_empty)) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "selector_attention_inputs_legacy_exact_assets", kReferenceNoLayer,
+        selector_asset_cuda_error);
+    return result;
+  }
+#endif
 
   ReferenceRunner runner;
   runner.weights_ = weights;
   runner.state_ = state;
   runner.projection_backend_ = options.projection_backend;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  runner.selector_linear_qkvz_legacy_exact_required_ =
+      options.selector_linear_qkvz_legacy_exact_required;
+  runner.selector_linear_qkv_supermatrices_ =
+      options.selector_linear_qkv_supermatrices;
+  runner.selector_linear_z_supermatrices_ =
+      options.selector_linear_z_supermatrices;
+  runner.selector_full_qkv_legacy_exact_required_ =
+      options.selector_full_qkv_legacy_exact_required;
+  runner.selector_full_q_supermatrices_ =
+      options.selector_full_q_supermatrices;
+  runner.selector_full_k_supermatrices_ =
+      options.selector_full_k_supermatrices;
+  runner.selector_full_v_supermatrices_ =
+      options.selector_full_v_supermatrices;
+  runner.selector_o_legacy_exact_required_ =
+      options.selector_o_legacy_exact_required;
+  runner.selector_mlp_legacy_exact_required_ =
+      options.selector_mlp_legacy_exact_required;
+#endif
   ReferenceRunnerStatus state_status;
   if (state == nullptr) {
     // Preserve the legacy null-dependency diagnostic and avoid reading a
@@ -12214,6 +13437,42 @@ ReferenceRunnerFactoryResult create_reference_runner(
     result.diagnostic = state_status;
     return result;
   }
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const bool selector_state_requires_linear_qkvz_legacy_exact =
+      state->memory_profile() ==
+          RequestMemoryProfile::kLayerMajorP40WholeCore &&
+      reference_runner_detail::
+          is_selector_exact_persistent_attention_v1_p40_runner_profile(
+              state->max_sequence_length());
+  if (selector_state_requires_linear_qkvz_legacy_exact !=
+      options.selector_linear_qkvz_legacy_exact_required) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "selector_linear_qkvz_legacy_exact_profile_binding");
+    return result;
+  }
+  if (selector_state_requires_linear_qkvz_legacy_exact !=
+      options.selector_full_qkv_legacy_exact_required) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "selector_full_qkv_legacy_exact_profile_binding");
+    return result;
+  }
+  if (selector_state_requires_linear_qkvz_legacy_exact !=
+      options.selector_o_legacy_exact_required) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "selector_o_legacy_exact_profile_binding");
+    return result;
+  }
+  if (selector_state_requires_linear_qkvz_legacy_exact !=
+      options.selector_mlp_legacy_exact_required) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency,
+        "selector_mlp_legacy_exact_profile_binding");
+    return result;
+  }
+#endif
 
   cudaStream_t stream = nullptr;
   cudaError_t status =

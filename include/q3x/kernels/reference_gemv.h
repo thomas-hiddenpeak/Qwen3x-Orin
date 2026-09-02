@@ -103,6 +103,17 @@ enum class GemvStatus : std::uint8_t {
     std::uint16_t* first_output, std::uint16_t* second_output,
     void* cuda_stream = nullptr) noexcept;
 
+// Exact P40000/N48/K5120 projection pair. This is the same per-row, per-M16
+// arithmetic body as launch_bf16_gemv_pair_m16_projection_fused_cuda, with
+// all 2,500 independent M16 tiles submitted in one two-dimensional grid.
+// Consequently each output preserves the Legacy scalar-FMA column order,
+// 256-thread FP32 reduction tree, and BF16 RNE without 2,500 host launches.
+[[nodiscard]] int launch_bf16_gemv_pair_p40000_projection_fused_cuda(
+    const std::uint16_t* first_weights,
+    const std::uint16_t* second_weights, const std::uint16_t* input,
+    std::size_t token_count, std::uint16_t* first_output,
+    std::uint16_t* second_output, void* cuda_stream = nullptr) noexcept;
+
 // Kernel resource probes used by the exact-route and regression gates.
 // active_blocks_per_sm uses a 256-thread block and zero dynamic shared memory;
 // all destinations are required.

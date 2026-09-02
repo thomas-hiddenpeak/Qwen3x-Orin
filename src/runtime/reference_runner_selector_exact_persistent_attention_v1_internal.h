@@ -258,6 +258,43 @@ struct SelectorExactPersistentAttentionV1LaunchReceipt {
 };
 
 struct SelectorExactPersistentAttentionV1RouteReceipt {
+  // Candidate-only correctness repair receipts. Linear QKV/Z and full Q/K/V
+  // each attest their Legacy global C512 geometry separately from Attention
+  // submissions, so a completed real request cannot hide a projection
+  // fallback behind the whole-prompt Attention receipt.
+  std::uint64_t linear_qkvz_grouped_c512_submissions = 0U;
+  std::uint64_t linear_qkvz_generic_c32_submissions = 0U;
+  std::uint32_t linear_qkvz_completed_layers = 0U;
+  std::uint64_t linear_qkvz_completed_layer_mask = 0U;
+  std::uint64_t full_qkv_grouped_c512_submissions = 0U;
+  std::uint64_t full_qkv_generic_c32_submissions = 0U;
+  std::uint32_t full_qkv_completed_layers = 0U;
+  std::uint64_t full_qkv_completed_layer_mask = 0U;
+  // All 48 linear layers use the one-grid M16 arithmetic body that is
+  // bitwise-equivalent to the Legacy A/B producer.
+  std::uint32_t legacy_exact_bf16_ab_layers = 0U;
+  // All 48 linear layers advance the recurrent core through the same
+  // 78xC512 exact-span plus C64 warp-exact tail schedule as Legacy.
+  std::uint32_t legacy_exact_gdn_layers = 0U;
+  std::uint64_t legacy_exact_gdn_spans = 0U;
+  // All 64 decoder layers restore the incumbent O projection's 78 canonical
+  // whole-chunk C512 launches and one exact C64 tail.
+  std::uint64_t legacy_exact_o_whole_chunk_c512_submissions = 0U;
+  std::uint64_t legacy_exact_o_canonical_m64_submissions = 0U;
+  std::uint32_t legacy_exact_o_completed_layers = 0U;
+  // Canonical Legacy MLP schedule over all 64 layers. Gate and Up each own
+  // 78 whole-chunk C512 launches plus two M32 tail launches. Down owns 78
+  // C512 launches plus one M64 tail; SiLU and residual publish once per
+  // logical C512/C64 span.
+  std::uint64_t legacy_exact_mlp_gate_c512_submissions = 0U;
+  std::uint64_t legacy_exact_mlp_gate_m32_tail_submissions = 0U;
+  std::uint64_t legacy_exact_mlp_up_c512_submissions = 0U;
+  std::uint64_t legacy_exact_mlp_up_m32_tail_submissions = 0U;
+  std::uint64_t legacy_exact_mlp_silu_submissions = 0U;
+  std::uint64_t legacy_exact_mlp_down_c512_submissions = 0U;
+  std::uint64_t legacy_exact_mlp_down_m64_tail_submissions = 0U;
+  std::uint64_t legacy_exact_mlp_residual_submissions = 0U;
+  std::uint32_t legacy_exact_mlp_completed_layers = 0U;
   std::uint64_t panel_calls = 0U;
   std::uint64_t arithmetic_spans = 0U;
   std::uint64_t group_q64_submissions = 0U;

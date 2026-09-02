@@ -620,6 +620,61 @@ struct Sm87Fp8PrefillSupermatrixPreparation {
   std::string message;
 };
 
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+struct Sm87Fp8PrefillSelectorAttentionInputSidecars {
+  std::uint8_t* data = nullptr;
+  std::size_t bytes = 0U;
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount> qkv_by_layer{};
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount> z_by_layer{};
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount> q_by_layer{};
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount> k_by_layer{};
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount> v_by_layer{};
+
+  Sm87Fp8PrefillSelectorAttentionInputSidecars() noexcept = default;
+  Sm87Fp8PrefillSelectorAttentionInputSidecars(
+      const Sm87Fp8PrefillSelectorAttentionInputSidecars&) = delete;
+  Sm87Fp8PrefillSelectorAttentionInputSidecars& operator=(
+      const Sm87Fp8PrefillSelectorAttentionInputSidecars&) = delete;
+
+  ~Sm87Fp8PrefillSelectorAttentionInputSidecars() { (void)release(); }
+
+  cudaError_t release() noexcept {
+    if (data == nullptr) {
+      bytes = 0U;
+      qkv_by_layer = {};
+      z_by_layer = {};
+      q_by_layer = {};
+      k_by_layer = {};
+      v_by_layer = {};
+      return cudaSuccess;
+    }
+    const cudaError_t status = cudaFree(data);
+    if (status == cudaSuccess) {
+      data = nullptr;
+      bytes = 0U;
+      qkv_by_layer = {};
+      z_by_layer = {};
+      q_by_layer = {};
+      k_by_layer = {};
+      v_by_layer = {};
+    }
+    return status;
+  }
+};
+
+struct Sm87Fp8PrefillSelectorAttentionInputPreparation {
+  bool enabled = false;
+  bool hard_failure = false;
+  std::size_t linear_layers = 0U;
+  std::size_t full_layers = 0U;
+  std::size_t projections = 0U;
+  std::uint64_t bytes = 0U;
+  int cuda_error = 0;
+  std::string message;
+};
+
+#endif
+
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
 struct Sm87Fp8MarlinPrefillSidecars {
   std::uint8_t* weights = nullptr;
@@ -1790,6 +1845,10 @@ prefill_whole_request_layer_major(
       : p40_vllm_marlin_parity
           ? immutable_topology.vllm_marlin_parity_schedule
                 .fp8_physical_launches_per_request
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      : selector_exact_p40
+          ? kSelectorExactPersistentAttentionV1P40Fp8PhysicalLaunches
+#endif
           : expected_prompt_wide_fp8_hits;
   const std::size_t bulk_panel_count = [&immutable_topology]() noexcept {
     std::size_t count = 0U;
@@ -2007,7 +2066,7 @@ prefill_whole_request_layer_major(
           ? executed.value->operator_panel_executor_hits == 0U &&
                 executed.value->layer_wide_p40_mlp_layer_hits ==
                     kReferenceDecoderLayerCount &&
-                (p40_vllm_marlin_parity
+                (p40_vllm_marlin_parity || selector_exact_p40
                      ? executed.value->persistent_p40_nvfp4_gate_up_hits ==
                                0U &&
                            executed.value
@@ -2421,8 +2480,21 @@ capture_prefill_state_committed_for_test(
         receipt.arena_bytes !=
             kSelectorExactPersistentAttentionV1P40WholeCoreArenaBytes ||
         !reference_engine_detail::ReferenceEnginePrefillExecutor::
-            completed_selector_attention_binding(
+            completed_selector_bindings(
                 *context.bound_prefill_plan,
+                receipt.bound_linear_qkv_role,
+                receipt.bound_linear_z_role,
+                receipt.bound_full_q_role,
+                receipt.bound_full_k_role,
+                receipt.bound_full_v_role,
+                receipt.bound_linear_a_role,
+                receipt.bound_linear_b_role,
+                receipt.bound_gdn_role,
+                receipt.bound_linear_o_role,
+                receipt.bound_full_o_role,
+                receipt.bound_gate_up_role,
+                receipt.bound_down_role,
+                receipt.bound_residual_role,
                 receipt.bound_attention_role)) {
       return whole_request_adapter_status(
           ReferenceRunnerError::kRouteEvidenceFailure,
@@ -3706,6 +3778,481 @@ prepare_sm87_fp8_prefill_qkv_sidecars(
   result.bytes = kArenaBytes;
   return result;
 }
+
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+[[nodiscard]] Sm87Fp8PrefillSelectorAttentionInputPreparation
+prepare_sm87_fp8_prefill_selector_attention_input_sidecars(
+    const ModelWeights& model_weights,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    Sm87Fp8PrefillSelectorAttentionInputSidecars& owner) {
+  Sm87Fp8PrefillSelectorAttentionInputPreparation result;
+  const auto retain_cleanup_failure =
+      [&result](const cudaError_t status, const char* const operation) {
+        if (status == cudaSuccess) {
+          return;
+        }
+        if (result.cuda_error == 0) {
+          result.cuda_error = static_cast<int>(status);
+        }
+        if (!result.message.empty()) {
+          result.message += "; ";
+        }
+        result.message += operation;
+        result.message += " failed during cleanup with CUDA error ";
+        result.message += std::to_string(static_cast<int>(status));
+      };
+  constexpr std::size_t kLinearBytesPerLayer =
+      kFp8PrefillLinearQkvBytes + kFp8PrefillLinearZBytes;
+  constexpr std::size_t kFullBytesPerLayer =
+      kFp8PrefillFullQueryBytes + 2U * kFp8PrefillFullKvBytes;
+  constexpr std::size_t kLinearArenaBytes =
+      kSelectorExactPersistentAttentionV1LinearQkvZSupermatrixBytes;
+  constexpr std::size_t kFullArenaBytes =
+      kSelectorExactPersistentAttentionV1FullQkvSupermatrixBytes;
+  constexpr std::size_t kArenaBytes =
+      kLinearArenaBytes + kFullArenaBytes;
+  constexpr std::size_t kProjectionCount =
+      kSelectorExactPersistentAttentionV1LinearQkvZSupermatrixArtifacts +
+      kSelectorExactPersistentAttentionV1FullQkvSupermatrixArtifacts;
+  static_assert(kLinearBytesPerLayer == 83'886'080U);
+  static_assert(kFullBytesPerLayer == 73'400'320U);
+  static_assert(
+      kLinearArenaBytes ==
+      kSelectorExactPersistentAttentionV1LinearQkvZCompletedLayers *
+          kLinearBytesPerLayer);
+  static_assert(
+      kFullArenaBytes ==
+      kSelectorExactPersistentAttentionV1FullQkvCompletedLayers *
+          kFullBytesPerLayer);
+  static_assert(kArenaBytes == 5'200'936'960ULL);
+  static_assert(kProjectionCount == 144U);
+  const auto any_owner_pointer = [](const auto& pointers) noexcept {
+    return std::any_of(pointers.begin(), pointers.end(),
+                       [](const std::uint8_t* const pointer) noexcept {
+                         return pointer != nullptr;
+                       });
+  };
+  if (owner.data != nullptr || owner.bytes != 0U ||
+      any_owner_pointer(owner.qkv_by_layer) ||
+      any_owner_pointer(owner.z_by_layer) ||
+      any_owner_pointer(owner.q_by_layer) ||
+      any_owner_pointer(owner.k_by_layer) ||
+      any_owner_pointer(owner.v_by_layer)) {
+    result.hard_failure = true;
+    result.message =
+        "selector Attention-input supermatrix owner was not empty before "
+        "prepare";
+    return result;
+  }
+
+  const auto valid_projection = [](const Fp8LinearWeight* const projection,
+                                   const std::size_t rows) noexcept {
+    return projection != nullptr && projection->weight != nullptr &&
+           projection->weight_scale_device != nullptr &&
+           projection->input_scale_device != nullptr &&
+           std::isfinite(projection->weight_scale) &&
+           projection->weight_scale >= 0.0F &&
+           std::isfinite(projection->input_scale) &&
+           projection->input_scale >= 0.0F &&
+           projection->output_size == rows &&
+           projection->input_size == 5'120U &&
+           projection->prefill_qkv_register_feed_sidecar == nullptr &&
+           projection->prefill_supermatrix_sidecar == nullptr &&
+           projection->prefill_marlin_weight == nullptr &&
+           projection->prefill_marlin_scales == nullptr &&
+           (reinterpret_cast<std::uintptr_t>(projection->weight) % 16U) ==
+               0U;
+  };
+
+  struct LinearLayerPlan {
+    std::size_t layer = 0U;
+    const Fp8LinearWeight* qkv = nullptr;
+    const Fp8LinearWeight* z = nullptr;
+  };
+  struct FullLayerPlan {
+    std::size_t layer = 0U;
+    const Fp8LinearWeight* q = nullptr;
+    const Fp8LinearWeight* k = nullptr;
+    const Fp8LinearWeight* v = nullptr;
+  };
+  std::array<LinearLayerPlan,
+             kSelectorExactPersistentAttentionV1LinearQkvZCompletedLayers>
+      linear_plans{};
+  std::array<FullLayerPlan,
+             kSelectorExactPersistentAttentionV1FullQkvCompletedLayers>
+      full_plans{};
+  std::size_t linear_plan_count = 0U;
+  std::size_t full_plan_count = 0U;
+  for (std::size_t layer_index = 0U;
+       layer_index < kReferenceDecoderLayerCount; ++layer_index) {
+    const DecoderLayerWeights& layer = model_weights.layer(layer_index);
+    const bool expected_full_attention = ((layer_index + 1U) % 4U) == 0U;
+    const auto* const linear =
+        std::get_if<LinearAttentionWeights>(&layer.attention);
+    const auto* const full =
+        std::get_if<FullAttentionWeights>(&layer.attention);
+    if (expected_full_attention) {
+      if (linear != nullptr || full == nullptr) {
+        result.hard_failure = true;
+        result.message =
+            "selector Attention-input inventory found a noncanonical "
+            "full-Attention layer schedule at layer " +
+            std::to_string(layer_index);
+        return result;
+      }
+      const auto* const q = std::get_if<Fp8LinearWeight>(&full->q_proj);
+      const auto* const k = std::get_if<Fp8LinearWeight>(&full->k_proj);
+      const auto* const v = std::get_if<Fp8LinearWeight>(&full->v_proj);
+      if (full_plan_count >= full_plans.size() ||
+          !valid_projection(q, 12'288U) ||
+          !valid_projection(k, 1'024U) ||
+          !valid_projection(v, 1'024U)) {
+        result.hard_failure = true;
+        result.message =
+            "selector full Q/K/V canonical FP8 inventory was ineligible at "
+            "layer " +
+            std::to_string(layer_index);
+        return result;
+      }
+      full_plans[full_plan_count++] =
+          FullLayerPlan{layer_index, q, k, v};
+    } else {
+      if (linear == nullptr || full != nullptr) {
+        result.hard_failure = true;
+        result.message =
+            "selector Attention-input inventory found a noncanonical "
+            "linear-Attention layer schedule at layer " +
+            std::to_string(layer_index);
+        return result;
+      }
+      const auto* const qkv =
+          std::get_if<Fp8LinearWeight>(&linear->in_proj_qkv);
+      const auto* const z =
+          std::get_if<Fp8LinearWeight>(&linear->in_proj_z);
+      if (linear_plan_count >= linear_plans.size() ||
+          !valid_projection(qkv, 10'240U) ||
+          !valid_projection(z, 6'144U)) {
+        result.hard_failure = true;
+        result.message =
+            "selector linear QKV/Z canonical FP8 inventory was ineligible "
+            "at layer " +
+            std::to_string(layer_index);
+        return result;
+      }
+      linear_plans[linear_plan_count++] =
+          LinearLayerPlan{layer_index, qkv, z};
+    }
+  }
+  if (linear_plan_count != linear_plans.size() ||
+      full_plan_count != full_plans.size()) {
+    result.hard_failure = true;
+    result.message =
+        "selector Attention-input inventory did not cover exactly 48 "
+        "linear layers and 16 full layers";
+    return result;
+  }
+
+  (void)cudaGetLastError();
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaMemGetInfo failed before selector Attention-input supermatrix "
+        "prepare";
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  if (kArenaBytes > free_u64 ||
+      minimum_free_bytes_after_prepare > free_u64 - kArenaBytes) {
+    result.hard_failure = true;
+    result.message =
+        "insufficient device-memory margin for selector Attention-input "
+        "supermatrix";
+    return result;
+  }
+
+  Sm87Fp8PrefillSelectorAttentionInputSidecars staged;
+  void* allocation = nullptr;
+  status = cudaMalloc(&allocation, kArenaBytes);
+  if (status != cudaSuccess || allocation == nullptr) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaMalloc failed for selector Attention-input supermatrix arena";
+    return result;
+  }
+  staged.data = static_cast<std::uint8_t*>(allocation);
+  staged.bytes = kArenaBytes;
+  const auto release_staged = [&staged, &retain_cleanup_failure]() {
+    retain_cleanup_failure(staged.release(),
+                           "cudaFree(selector Attention-input arena)");
+  };
+  if ((reinterpret_cast<std::uintptr_t>(staged.data) % 16U) != 0U) {
+    result.hard_failure = true;
+    result.message =
+        "cudaMalloc returned a misaligned selector Attention-input "
+        "supermatrix arena";
+    release_staged();
+    return result;
+  }
+
+  std::size_t remaining_free_bytes = 0U;
+  std::size_t remaining_total_bytes = 0U;
+  status = cudaMemGetInfo(&remaining_free_bytes, &remaining_total_bytes);
+  (void)remaining_total_bytes;
+  if (status != cudaSuccess ||
+      static_cast<std::uint64_t>(remaining_free_bytes) <
+          minimum_free_bytes_after_prepare) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        status != cudaSuccess
+            ? "cudaMemGetInfo failed after selector Attention-input "
+              "supermatrix allocation"
+            : "selector Attention-input supermatrix allocation violated the "
+              "post-create memory margin";
+    release_staged();
+    return result;
+  }
+
+  cudaStream_t stream = nullptr;
+  status = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaStreamCreateWithFlags failed for selector Attention-input "
+        "supermatrix packing";
+    release_staged();
+    return result;
+  }
+
+  std::size_t offset = 0U;
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount>
+      prepared_qkv_by_layer{};
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount>
+      prepared_z_by_layer{};
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount>
+      prepared_q_by_layer{};
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount>
+      prepared_k_by_layer{};
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount>
+      prepared_v_by_layer{};
+  for (const LinearLayerPlan& plan : linear_plans) {
+    const std::array<const Fp8LinearWeight*, 2U> projections{{plan.qkv,
+                                                              plan.z}};
+    std::array<const std::uint8_t*, 2U> destinations{};
+    for (std::size_t index = 0U; index < projections.size(); ++index) {
+      const Fp8LinearWeight& projection = *projections[index];
+      destinations[index] = staged.data + offset;
+      status = static_cast<cudaError_t>(
+          kernels::launch_sm87_fp8_prefill_supermatrix_pack_cuda(
+              projection.weight, staged.data + offset,
+              projection.output_size, projection.input_size,
+              static_cast<void*>(stream)));
+      if (status != cudaSuccess) {
+        result.hard_failure = true;
+        result.cuda_error = static_cast<int>(status);
+        result.message =
+            "selector linear QKV/Z supermatrix pack launch failed at layer " +
+            std::to_string(plan.layer) + " projection " +
+            std::to_string(index);
+        retain_cleanup_failure(
+            cudaStreamSynchronize(stream),
+            "cudaStreamSynchronize(selector Attention-input pack)");
+        retain_cleanup_failure(cudaStreamDestroy(stream),
+                               "cudaStreamDestroy(selector Attention-input pack)");
+        release_staged();
+        return result;
+      }
+      offset += projection.output_size * projection.input_size;
+    }
+    prepared_qkv_by_layer[plan.layer] = destinations[0U];
+    prepared_z_by_layer[plan.layer] = destinations[1U];
+  }
+  if (offset != kLinearArenaBytes) {
+    result.hard_failure = true;
+    result.message =
+        "selector linear QKV/Z supermatrix prefix did not close at its "
+        "declared byte boundary";
+    retain_cleanup_failure(cudaStreamSynchronize(stream),
+                           "cudaStreamSynchronize(selector Attention-input pack)");
+    retain_cleanup_failure(cudaStreamDestroy(stream),
+                           "cudaStreamDestroy(selector Attention-input pack)");
+    release_staged();
+    return result;
+  }
+  for (const FullLayerPlan& plan : full_plans) {
+    const std::array<const Fp8LinearWeight*, 3U> projections{{plan.q, plan.k,
+                                                              plan.v}};
+    std::array<const std::uint8_t*, 3U> destinations{};
+    for (std::size_t index = 0U; index < projections.size(); ++index) {
+      const Fp8LinearWeight& projection = *projections[index];
+      destinations[index] = staged.data + offset;
+      status = static_cast<cudaError_t>(
+          kernels::launch_sm87_fp8_prefill_supermatrix_pack_cuda(
+              projection.weight, staged.data + offset,
+              projection.output_size, projection.input_size,
+              static_cast<void*>(stream)));
+      if (status != cudaSuccess) {
+        result.hard_failure = true;
+        result.cuda_error = static_cast<int>(status);
+        result.message =
+            "selector full Q/K/V supermatrix pack launch failed at layer " +
+            std::to_string(plan.layer) + " projection " +
+            std::to_string(index);
+        retain_cleanup_failure(
+            cudaStreamSynchronize(stream),
+            "cudaStreamSynchronize(selector Attention-input pack)");
+        retain_cleanup_failure(cudaStreamDestroy(stream),
+                               "cudaStreamDestroy(selector Attention-input pack)");
+        release_staged();
+        return result;
+      }
+      offset += projection.output_size * projection.input_size;
+    }
+    prepared_q_by_layer[plan.layer] = destinations[0U];
+    prepared_k_by_layer[plan.layer] = destinations[1U];
+    prepared_v_by_layer[plan.layer] = destinations[2U];
+  }
+  if (offset != kArenaBytes) {
+    result.hard_failure = true;
+    result.message =
+        "selector Attention-input supermatrix pack offset did not close the "
+        "combined arena";
+    retain_cleanup_failure(cudaStreamSynchronize(stream),
+                           "cudaStreamSynchronize(selector Attention-input pack)");
+    retain_cleanup_failure(cudaStreamDestroy(stream),
+                           "cudaStreamDestroy(selector Attention-input pack)");
+    release_staged();
+    return result;
+  }
+
+  status = cudaStreamSynchronize(stream);
+  const cudaError_t destroy_status = cudaStreamDestroy(stream);
+  if (status != cudaSuccess || destroy_status != cudaSuccess) {
+    const cudaError_t failure =
+        status != cudaSuccess ? status : destroy_status;
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(failure);
+    result.message =
+        "selector Attention-input supermatrix pack stream failed to "
+        "synchronize or destroy";
+    release_staged();
+    return result;
+  }
+
+  std::size_t expected_offset = 0U;
+  for (const LinearLayerPlan& plan : linear_plans) {
+    if (prepared_qkv_by_layer[plan.layer] != staged.data + expected_offset) {
+      result.hard_failure = true;
+      result.message =
+          "selector linear QKV supermatrix layout validation failed at "
+          "layer " +
+          std::to_string(plan.layer);
+      release_staged();
+      return result;
+    }
+    expected_offset += kFp8PrefillLinearQkvBytes;
+    if (prepared_z_by_layer[plan.layer] != staged.data + expected_offset) {
+      result.hard_failure = true;
+      result.message =
+          "selector linear Z supermatrix layout validation failed at layer " +
+          std::to_string(plan.layer);
+      release_staged();
+      return result;
+    }
+    expected_offset += kFp8PrefillLinearZBytes;
+  }
+  if (expected_offset != kLinearArenaBytes) {
+    result.hard_failure = true;
+    result.message =
+        "selector linear QKV/Z validated layout did not close its prefix";
+    release_staged();
+    return result;
+  }
+  for (const FullLayerPlan& plan : full_plans) {
+    if (prepared_q_by_layer[plan.layer] != staged.data + expected_offset) {
+      result.hard_failure = true;
+      result.message =
+          "selector full Q supermatrix layout validation failed at layer " +
+          std::to_string(plan.layer);
+      release_staged();
+      return result;
+    }
+    expected_offset += kFp8PrefillFullQueryBytes;
+    if (prepared_k_by_layer[plan.layer] != staged.data + expected_offset) {
+      result.hard_failure = true;
+      result.message =
+          "selector full K supermatrix layout validation failed at layer " +
+          std::to_string(plan.layer);
+      release_staged();
+      return result;
+    }
+    expected_offset += kFp8PrefillFullKvBytes;
+    if (prepared_v_by_layer[plan.layer] != staged.data + expected_offset) {
+      result.hard_failure = true;
+      result.message =
+          "selector full V supermatrix layout validation failed at layer " +
+          std::to_string(plan.layer);
+      release_staged();
+      return result;
+    }
+    expected_offset += kFp8PrefillFullKvBytes;
+  }
+  if (expected_offset != kArenaBytes) {
+    result.hard_failure = true;
+    result.message =
+        "selector Attention-input validated layout did not close the arena";
+    release_staged();
+    return result;
+  }
+  for (std::size_t layer_index = 0U;
+       layer_index < kReferenceDecoderLayerCount; ++layer_index) {
+    const bool full = ((layer_index + 1U) % 4U) == 0U;
+    const bool valid_slot =
+        full
+            ? prepared_qkv_by_layer[layer_index] == nullptr &&
+                  prepared_z_by_layer[layer_index] == nullptr &&
+                  prepared_q_by_layer[layer_index] != nullptr &&
+                  prepared_k_by_layer[layer_index] != nullptr &&
+                  prepared_v_by_layer[layer_index] != nullptr
+            : prepared_qkv_by_layer[layer_index] != nullptr &&
+                  prepared_z_by_layer[layer_index] != nullptr &&
+                  prepared_q_by_layer[layer_index] == nullptr &&
+                  prepared_k_by_layer[layer_index] == nullptr &&
+                  prepared_v_by_layer[layer_index] == nullptr;
+    if (!valid_slot) {
+      result.hard_failure = true;
+      result.message =
+          "selector Attention-input per-layer layout validation failed at "
+          "layer " +
+          std::to_string(layer_index);
+      release_staged();
+      return result;
+    }
+  }
+
+  owner.data = std::exchange(staged.data, nullptr);
+  owner.bytes = std::exchange(staged.bytes, 0U);
+  owner.qkv_by_layer = prepared_qkv_by_layer;
+  owner.z_by_layer = prepared_z_by_layer;
+  owner.q_by_layer = prepared_q_by_layer;
+  owner.k_by_layer = prepared_k_by_layer;
+  owner.v_by_layer = prepared_v_by_layer;
+  result.enabled = true;
+  result.linear_layers = linear_plans.size();
+  result.full_layers = full_plans.size();
+  result.projections = kProjectionCount;
+  result.bytes = kArenaBytes;
+  return result;
+}
+
+#endif
 
 [[nodiscard]] Sm87Fp8PrefillSupermatrixPreparation
 prepare_sm87_fp8_prefill_supermatrix_sidecars(
@@ -5325,6 +5872,10 @@ struct ReferenceEngine::Impl {
   Sm87NvFp4GateUpCoupledFeedSidecars nvfp4_gate_up_coupled_feed_sidecars;
   Sm87Fp8PrefillQkvSidecars fp8_prefill_qkv_sidecars;
   Sm87Fp8PrefillSupermatrixSidecars fp8_prefill_supermatrix_sidecars;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  Sm87Fp8PrefillSelectorAttentionInputSidecars
+      fp8_prefill_selector_attention_input_sidecars;
+#endif
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
   Sm87Fp8MarlinPrefillSidecars fp8_marlin_prefill_sidecars;
 #endif
@@ -5846,6 +6397,18 @@ struct ReferenceEngine::Impl {
             impl->request_state->memory_profile();
       }
 
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      const bool selector_linear_qkvz_legacy_exact_required =
+          options.prefill_projection_tactic ==
+              LayerMajorPrefillProjectionTactic::
+                  kNativePromptWideP40WholeCore &&
+          is_selector_exact_persistent_attention_v1_p40_request_capacity_tokens(
+              options.request_options.max_sequence_length) &&
+          options.prefill_full_attention_tactic ==
+              LayerMajorPrefillFullAttentionTactic::
+                  kSelectorExactPersistentAttentionV1WholePrompt;
+#endif
+
       if (options.projection_backend ==
           ProjectionBackend::kSm87WeightOnly) {
         const bool ordinary_decode_production_route =
@@ -5974,16 +6537,32 @@ struct ReferenceEngine::Impl {
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
           const bool prepare_fp8_supermatrix =
               !options.prepare_sm87_target_aot_projection_device_assets &&
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+              !selector_linear_qkvz_legacy_exact_required &&
+#endif
               options.prefill_projection_tactic ==
               LayerMajorPrefillProjectionTactic::
                   kNativePromptWideP40ProjectionReset;
 #else
           const bool prepare_fp8_supermatrix =
-              !options.prepare_sm87_target_aot_projection_device_assets;
+              !options.prepare_sm87_target_aot_projection_device_assets
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+              && !selector_linear_qkvz_legacy_exact_required
+#endif
+              ;
+#endif
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+          const bool prepare_selector_attention_inputs_supermatrix =
+              !options.prepare_sm87_target_aot_projection_device_assets &&
+              selector_linear_qkvz_legacy_exact_required;
 #endif
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
           if (!options.prepare_sm87_target_aot_projection_device_assets &&
-              !prepare_fp8_supermatrix) {
+              !prepare_fp8_supermatrix
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+              && !prepare_selector_attention_inputs_supermatrix
+#endif
+          ) {
             const Clock::time_point fp8_marlin_begin = Clock::now();
             const Sm87Fp8MarlinPrefillPreparation fp8_marlin_preparation =
                 prepare_sm87_fp8_marlin_prefill_sidecars(
@@ -6012,6 +6591,65 @@ struct ReferenceEngine::Impl {
                 fp8_marlin_preparation.projections;
             impl->load.fp8_marlin_prefill_sidecar_bytes =
                 fp8_marlin_preparation.bytes;
+          }
+#endif
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+          if (prepare_selector_attention_inputs_supermatrix) {
+            const Clock::time_point selector_inputs_begin = Clock::now();
+            const Sm87Fp8PrefillSelectorAttentionInputPreparation
+                preparation =
+                prepare_sm87_fp8_prefill_selector_attention_input_sidecars(
+                    *impl->model_weights,
+                    options.request_options.min_free_bytes_after_create,
+                    impl->fp8_prefill_selector_attention_input_sidecars);
+            const double preparation_milliseconds =
+                elapsed_milliseconds(selector_inputs_begin);
+            impl->load.selector_attention_inputs_supermatrix_milliseconds =
+                preparation_milliseconds;
+            // Retain the existing field as a compatibility view of the one
+            // combined preparation transaction.
+            impl->load.selector_linear_qkvz_supermatrix_milliseconds =
+                preparation_milliseconds;
+            if (preparation.hard_failure || !preparation.enabled ||
+                preparation.linear_layers !=
+                    kSelectorExactPersistentAttentionV1LinearQkvZCompletedLayers ||
+                preparation.full_layers !=
+                    kSelectorExactPersistentAttentionV1FullQkvCompletedLayers ||
+                preparation.projections !=
+                    kSelectorExactPersistentAttentionV1LinearQkvZSupermatrixArtifacts +
+                        kSelectorExactPersistentAttentionV1FullQkvSupermatrixArtifacts ||
+                preparation.bytes !=
+                    kSelectorExactPersistentAttentionV1LinearQkvZSupermatrixBytes +
+                        kSelectorExactPersistentAttentionV1FullQkvSupermatrixBytes) {
+              result.diagnostic = engine_diagnostic(
+                  ReferenceEngineError::kRunnerFactoryFailure,
+                  "selector_attention_inputs_supermatrix_prepare",
+                  preparation.message.empty()
+                      ? "the selector Attention-input repair did not "
+                        "publish its exact 64-layer arena"
+                      : preparation.message);
+              result.diagnostic.cuda_error = preparation.cuda_error;
+              return result;
+            }
+            impl->load.selector_attention_inputs_supermatrix_enabled = true;
+            impl->load.selector_attention_inputs_supermatrix_projections =
+                preparation.projections;
+            impl->load.selector_attention_inputs_supermatrix_bytes =
+                preparation.bytes;
+            impl->load.selector_linear_qkvz_supermatrix_enabled = true;
+            impl->load.selector_linear_qkvz_supermatrix_layers =
+                preparation.linear_layers;
+            impl->load.selector_linear_qkvz_supermatrix_projections =
+                kSelectorExactPersistentAttentionV1LinearQkvZSupermatrixArtifacts;
+            impl->load.selector_linear_qkvz_supermatrix_bytes =
+                kSelectorExactPersistentAttentionV1LinearQkvZSupermatrixBytes;
+            impl->load.selector_full_qkv_supermatrix_enabled = true;
+            impl->load.selector_full_qkv_supermatrix_layers =
+                preparation.full_layers;
+            impl->load.selector_full_qkv_supermatrix_projections =
+                kSelectorExactPersistentAttentionV1FullQkvSupermatrixArtifacts;
+            impl->load.selector_full_qkv_supermatrix_bytes =
+                kSelectorExactPersistentAttentionV1FullQkvSupermatrixBytes;
           }
 #endif
           if (prepare_fp8_supermatrix) {
@@ -6047,7 +6685,11 @@ struct ReferenceEngine::Impl {
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
           if (!options.prepare_sm87_target_aot_projection_device_assets &&
               !prepare_p40_packed_nvfp4_v2 &&
-              !prepare_p40_vllm_marlin_parity) {
+              !prepare_p40_vllm_marlin_parity
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+              && !selector_linear_qkvz_legacy_exact_required
+#endif
+          ) {
             const Clock::time_point marlin_begin = Clock::now();
             // The sealed layer-major arithmetic contract always launches the
             // ordinary Gate+Up producer followed by its standalone SiLU. Its
@@ -6352,6 +6994,29 @@ struct ReferenceEngine::Impl {
         ReferenceRunnerOptions runner_options;
         runner_options.enable_trace = options.enable_trace;
         runner_options.projection_backend = options.projection_backend;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+        runner_options.selector_linear_qkvz_legacy_exact_required =
+            selector_linear_qkvz_legacy_exact_required;
+        if (runner_options.selector_linear_qkvz_legacy_exact_required) {
+          runner_options.selector_linear_qkv_supermatrices =
+              impl->fp8_prefill_selector_attention_input_sidecars.qkv_by_layer;
+          runner_options.selector_linear_z_supermatrices =
+              impl->fp8_prefill_selector_attention_input_sidecars.z_by_layer;
+          runner_options.selector_full_qkv_legacy_exact_required = true;
+          runner_options.selector_full_q_supermatrices =
+              impl->fp8_prefill_selector_attention_input_sidecars.q_by_layer;
+          runner_options.selector_full_k_supermatrices =
+              impl->fp8_prefill_selector_attention_input_sidecars.k_by_layer;
+          runner_options.selector_full_v_supermatrices =
+              impl->fp8_prefill_selector_attention_input_sidecars.v_by_layer;
+          runner_options.selector_attention_inputs_supermatrix_bytes =
+              impl->fp8_prefill_selector_attention_input_sidecars.bytes;
+        }
+        runner_options.selector_o_legacy_exact_required =
+            selector_linear_qkvz_legacy_exact_required;
+        runner_options.selector_mlp_legacy_exact_required =
+            selector_linear_qkvz_legacy_exact_required;
+#endif
         const Clock::time_point begin = Clock::now();
         ReferenceRunnerFactoryResult runner = create_reference_runner(
             &*impl->model_weights, &*impl->request_state, runner_options);

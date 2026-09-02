@@ -75,6 +75,31 @@ struct ReferenceRunnerOptions {
   // Explicitly opt into the SM87 weight-only projection kernels. Correctness
   // reference dispatch remains the stable default.
   ProjectionBackend projection_backend = ProjectionBackend::kReference;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  // Candidate-only, engine-owned equal-byte supermatrix views for the exact
+  // Attention-input repair. Linear QKV/Z and full Q/K/V occupy one fixed,
+  // contiguous arena; inapplicable layer slots remain null and the complete
+  // arrays plus total byte count are one all-or-none lifetime contract.
+  bool selector_linear_qkvz_legacy_exact_required = false;
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount>
+      selector_linear_qkv_supermatrices{};
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount>
+      selector_linear_z_supermatrices{};
+  bool selector_full_qkv_legacy_exact_required = false;
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount>
+      selector_full_q_supermatrices{};
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount>
+      selector_full_k_supermatrices{};
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount>
+      selector_full_v_supermatrices{};
+  std::size_t selector_attention_inputs_supermatrix_bytes = 0U;
+  // Candidate-only activation of the incumbent all-prompt O schedule. The
+  // route consumes each layer's canonical FP8 weight; it owns no sidecar.
+  bool selector_o_legacy_exact_required = false;
+  // Candidate-only activation of the incumbent all-prompt MLP schedule. The
+  // route consumes canonical NVFP4 weights and existing Legacy-C512 scratch.
+  bool selector_mlp_legacy_exact_required = false;
+#endif
 };
 
 enum class ReferenceLogitsMode : std::uint8_t {
@@ -1345,6 +1370,22 @@ class ReferenceRunner {
 
   const ModelWeights* weights_ = nullptr;
   RequestState* state_ = nullptr;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  bool selector_linear_qkvz_legacy_exact_required_ = false;
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount>
+      selector_linear_qkv_supermatrices_{};
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount>
+      selector_linear_z_supermatrices_{};
+  bool selector_full_qkv_legacy_exact_required_ = false;
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount>
+      selector_full_q_supermatrices_{};
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount>
+      selector_full_k_supermatrices_{};
+  std::array<const std::uint8_t*, kReferenceDecoderLayerCount>
+      selector_full_v_supermatrices_{};
+  bool selector_o_legacy_exact_required_ = false;
+  bool selector_mlp_legacy_exact_required_ = false;
+#endif
   void* stream_ = nullptr;
   void* prefill_auxiliary_stream_ = nullptr;
   void* prefill_branch_ready_event_ = nullptr;
