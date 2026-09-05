@@ -3222,9 +3222,13 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
         receipt(PrefillBindingRole::kExactGdn, gdn_tactic,
                 linear->conv1d.data,
                 whole.linear.prompt_wide_workspace.device_data,
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
                 selector_exact_attention
                     ? gdn_prefill_chunk64_native_detail::workspace_bytes()
                     : kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes,
+#else
+                kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes,
+#endif
                 selector_exact_attention
                     ? 64U
                     : kLayerMajorPrefillPromptWideP40Tokens,
@@ -4618,9 +4622,13 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
                gdn_tactic,
                linear->conv1d.data,
                whole.linear.prompt_wide_workspace.device_data,
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
                selector_exact_attention
                    ? gdn_prefill_chunk64_native_detail::workspace_bytes()
                    : kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes,
+#else
+               kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes,
+#endif
                selector_exact_attention
                    ? 64U
                    : kLayerMajorPrefillPromptWideP40Tokens,

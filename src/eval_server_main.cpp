@@ -29,6 +29,9 @@ void PrintUsage(std::ostream& output) {
       << "Usage:\n"
 #if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
       << "  qwen3x-eval-server-p40-v10-dev MODEL_DIR [options]\n\n"
+#elif defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      << "  qwen3x-eval-server-selector-exact-p40000-o16-test MODEL_DIR "
+         "[options]\n\n"
 #else
       << "  qwen3x-eval-server MODEL_DIR [options]\n\n"
 #endif
@@ -41,6 +44,10 @@ void PrintUsage(std::ostream& output) {
   output
       << "  --development-route p40-whole-core-v10\n"
       << "                              Accuracy-unqualified exact-P40000 baseline\n";
+#elif defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  output
+      << "  --development-route selector-exact-p40000-o16\n"
+      << "                              Test-only exact P40000/O16 selector route\n";
 #else
   output
       << "  Deployment profile: "
@@ -85,9 +92,13 @@ void PrintUsage(std::ostream& output) {
       << "  --min-free-bytes N          Required free CUDA bytes after arena\n";
 #endif
   output
-      << "  --nvtx-phase-ranges        Emit generation/Prefill/Decode ranges\n"
+      << "  --nvtx-phase-ranges        Emit generation/Prefill/Decode ranges\n";
+#if !defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  output
       << "  --queue-capacity N          Bounded inference queue, max 62 (default 8)\n"
-      << "  --ingress-threads N         Fixed HTTP threads, queue+2 min (default 10)\n"
+      << "  --ingress-threads N         Fixed HTTP threads, queue+2 min (default 10)\n";
+#endif
+  output
       << "  --help                      Show this help\n\n"
       << "The gateway is intentionally batch-one and greedy. Unsupported sampling,\n"
       << "tools, media, and custom stop semantics fail closed. /healthz remains\n"
@@ -127,8 +138,9 @@ template <typename T>
     error = "MODEL_DIR must not be empty";
     return false;
   }
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
-  bool p40_whole_core_v10_requested = false;
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE) || \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  bool development_route_requested = false;
   bool development_profile_override_seen = false;
 #endif
   bool api_key_file_seen = false;
@@ -149,11 +161,24 @@ template <typename T>
         error = "--development-route must be p40-whole-core-v10";
         return false;
       }
-      if (p40_whole_core_v10_requested) {
+      if (development_route_requested) {
         error = "--development-route may be specified only once";
         return false;
       }
-      p40_whole_core_v10_requested = true;
+      development_route_requested = true;
+      continue;
+    }
+#elif defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    if (argument == "--development-route") {
+      if (value != "selector-exact-p40000-o16") {
+        error = "--development-route must be selector-exact-p40000-o16";
+        return false;
+      }
+      if (development_route_requested) {
+        error = "--development-route may be specified only once";
+        return false;
+      }
+      development_route_requested = true;
       continue;
     }
 #endif
@@ -316,7 +341,8 @@ template <typename T>
       }
 #endif
     } else if (argument == "--queue-capacity") {
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE) || \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
       development_profile_override_seen = true;
 #endif
       if (!ParseUnsigned(value, options.inference_queue_capacity) ||
@@ -325,7 +351,8 @@ template <typename T>
         return false;
       }
     } else if (argument == "--ingress-threads") {
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE) || \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
       development_profile_override_seen = true;
 #endif
       if (!ParseUnsigned(value, options.ingress_threads) ||
@@ -369,7 +396,7 @@ template <typename T>
     }
   }
 #if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
-  if (p40_whole_core_v10_requested) {
+  if (development_route_requested) {
     if (development_profile_override_seen) {
       error = "--development-route is atomic and cannot be combined with "
               "individual execution, capacity, memory, or queue options";
@@ -393,6 +420,37 @@ template <typename T>
     options.projection_backend =
         q3x::runtime::ProjectionBackend::kSm87WeightOnly;
     options.request_max_arena_bytes = 8'640'542'976ULL;
+    options.request_min_free_bytes_after_create =
+        4ULL * 1024ULL * 1024ULL * 1024ULL;
+    options.inference_queue_capacity = 1U;
+    options.ingress_threads = 3U;
+  }
+#elif defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  if (development_route_requested) {
+    if (development_profile_override_seen) {
+      error = "--development-route is atomic and cannot be combined with "
+              "individual execution, capacity, memory, or queue options";
+      return false;
+    }
+    options.development_route = q3x::server::
+        EvaluationDevelopmentRoute::kSelectorExactP40000O16;
+    options.production_profile =
+        q3x::server::EvaluationProductionProfile::kNone;
+    options.max_sequence_length = q3x::runtime::
+        kSelectorExactPersistentAttentionV1P40RequestCapacityTokens;
+    options.maximum_output_tokens = 16U;
+    options.prefill_chunk_size =
+        q3x::runtime::kMaximumRequestPrefillChunkSize;
+    options.prefill_execution_mode = q3x::runtime::
+        ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+    options.prefill_full_attention_tactic = q3x::runtime::
+        LayerMajorPrefillFullAttentionTactic::
+            kSelectorExactPersistentAttentionV1WholePrompt;
+    options.prefill_projection_tactic = q3x::runtime::
+        LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore;
+    options.projection_backend =
+        q3x::runtime::ProjectionBackend::kSm87WeightOnly;
+    options.request_max_arena_bytes = 8'641'684'992ULL;
     options.request_min_free_bytes_after_create =
         4ULL * 1024ULL * 1024ULL * 1024ULL;
     options.inference_queue_capacity = 1U;

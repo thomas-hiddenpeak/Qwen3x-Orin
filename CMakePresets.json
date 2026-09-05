@@ -54,7 +54,11 @@
     {
       "name": "orin-selector-exact-persistent-attention-v1-p40-testing",
       "configurePreset": "orin-selector-exact-persistent-attention-v1-p40-testing",
-      "targets": ["q3x_reference_p40000_o16_strict_capture_test"]
+      "targets": [
+        "q3x_reference_p40000_o16_strict_capture_test",
+        "q3x_openai_protocol_test",
+        "qwen3x-eval-server"
+      ]
     }
   ],
   "testPresets": [

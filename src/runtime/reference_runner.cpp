@@ -6603,14 +6603,23 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_prompt_core(
 #else
     constexpr bool selector_exact_p40 = false;
 #endif
+    bool attention_plan_valid = false;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    attention_plan_valid =
+        selector_exact_p40
+            ? reference_runner_detail::
+                  make_selector_exact_persistent_attention_v1_plan(
+                      0U, kPromptWideP40WholeCorePromptTokens)
+                  .valid
+            : can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(
+                  0U, kPromptWideP40WholeCorePromptTokens);
+#else
+    attention_plan_valid =
+        can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(
+            0U, kPromptWideP40WholeCorePromptTokens);
+#endif
     if (attention == nullptr || slot.slot >= kRequestFullLayerCount ||
-        (selector_exact_p40
-             ? !reference_runner_detail::
-                    make_selector_exact_persistent_attention_v1_plan(
-                        0U, kPromptWideP40WholeCorePromptTokens)
-                    .valid
-             : !can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(
-                   0U, kPromptWideP40WholeCorePromptTokens))) {
+        !attention_plan_valid) {
       return runner_status(ReferenceRunnerError::kInvalidRequestState,
                            "prefill_whole_core_attention_core_views", layer);
     }

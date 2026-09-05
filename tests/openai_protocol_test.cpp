@@ -2,6 +2,7 @@
 #include "q3x/server/evaluation_server.h"
 #include "q3x/server/openai_protocol.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -452,6 +453,58 @@ void test_serialization(TestContext& test) {
               std::string::npos,
       "P40 v10 health is valid JSON and binds its unqualified route to the "
       "retained historical evidence");
+
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const std::string selector_models =
+      server::serialize_selector_exact_p40000_o16_models_response(
+          "qwen\"model", 1234);
+  test.expect(
+      valid_json(selector_models) &&
+          selector_models.find("qwen\\\"model") != std::string::npos &&
+          selector_models.find(
+              R"("q3x_test_route":{"id":"selector-exact-p40000-o16","identity":"test-only-selector-route","test_only":true,"BUILD_TESTING":true)") !=
+              std::string::npos &&
+          selector_models.find(
+              R"("deployment_plan":"q3x.sm87.testing.p40000-o16.selector-exact-persistent-attention-v1")") !=
+              std::string::npos &&
+          selector_models.find(
+              R"("capacity":{"target_prompt_tokens":40000,"maximum_output_tokens":16,"max_sequence_length":40016,"request_arena_bytes":8641684992})") !=
+              std::string::npos &&
+          selector_models.find(
+              R"("workload_correctness":{"qualified":true,"scope":"strict-p40000-o16-live-state-logit-token-text-oracle"})") !=
+              std::string::npos &&
+          selector_models.find(
+              R"("qualification":"test-only-selector-exact-p40000-o16-correctness-qualified-performance-candidate")") !=
+              std::string::npos &&
+          selector_models.find(R"("release_qualified":false)") !=
+              std::string::npos &&
+          selector_models.find(R"("production_eligible":false)") !=
+              std::string::npos &&
+          selector_models.find("q3x_production") == std::string::npos,
+      "selector models discovery exposes only its correctness-qualified "
+      "test route and fixed P40000/O16 capacity");
+
+  const std::string selector_health =
+      server::serialize_selector_exact_p40000_o16_health_response(
+          "qwen\"model");
+  test.expect(
+      valid_json(selector_health) &&
+          selector_health.find(R"("status":"ok","ready":true)") !=
+              std::string::npos &&
+          selector_health.find(
+              R"("identity":"test-only-selector-route")") !=
+              std::string::npos &&
+          selector_health.find(
+              R"("reason":"p40000-o16-strict-oracle-passed-release-qualification-incomplete")") !=
+              std::string::npos &&
+          selector_health.find(R"("release_qualified":false)") !=
+              std::string::npos &&
+          selector_health.find(R"("production_eligible":false)") !=
+              std::string::npos &&
+          selector_health.find("q3x_production") == std::string::npos,
+      "selector health remains an independently named test-only readiness "
+      "receipt rather than a production identity");
+#endif
 }
 
 void test_target_prefill_witness_evidence(TestContext& test) {
@@ -1650,6 +1703,203 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               "invalid route evidence remains parseable JSON");
 }
 
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+void test_selector_exact_p40000_o16_witness(TestContext& test) {
+  server::TargetPrefillWitnessRecord record;
+  record.request_id = "cmpl-selector-p40000-o16";
+  record.request_body_sha256 = "selector-request-body-sha256";
+  record.model = "qwen3.6-27b-nvfp4";
+  record.endpoint = server::OpenAIEndpoint::kCompletions;
+  record.prompt_kind = server::OpenAIPromptKind::kTokenIds;
+  record.prompt_tokens = 40'000U;
+  record.prompt_token_ids_u32le_sha256 =
+      "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f";
+  record.consumed_prompt_tokens = 40'000U;
+  record.full_prompt_consumed = true;
+  record.completion_tokens = 16U;
+  record.requested_prefill_chunk_size =
+      q3x::runtime::kMaximumRequestPrefillChunkSize;
+  record.effective_prefill_chunk_size =
+      q3x::runtime::kMaximumRequestPrefillChunkSize;
+  record.prefix_execution_count = 1U;
+  record.projection_backend =
+      q3x::runtime::ProjectionBackend::kSm87WeightOnly;
+  record.prefill_execution_mode = q3x::runtime::
+      ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+  record.prefill_logical_panel_count = 5U;
+  record.request_memory_profile =
+      q3x::runtime::RequestMemoryProfile::kLayerMajorP40WholeCore;
+  record.bounded_submission_window = true;
+  record.submission_window_retirements = 768U;
+  record.mlp_schedule_tactic = q3x::runtime::
+      LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore;
+  record.route_layer_pass_count = 1U;
+  record.layer_wide_p40_mlp_layer_hits = 64U;
+  record.prompt_wide_p40_whole_core_layer_hits = 64U;
+  record.prompt_wide_p40_fill_panel_hits = 320U;
+  record.prompt_wide_p40_prompt_core_hits = 64U;
+  record.prompt_wide_p40_drain_panel_hits = 320U;
+  record.prompt_wide_p40_fp8_projection_hits = 1'040U;
+  record.prompt_wide_p40_fp8_projection_physical_launches = 10'336U;
+  record.prompt_wide_p40_bf16_ab_hits = 48U;
+  record.prompt_wide_p40_gdn_hits = 48U;
+
+  record.prefill_route_evidence.valid = true;
+  record.prefill_route_evidence.complete = true;
+  record.prefill_route_evidence.request_active = false;
+  record.prefill_route_evidence.completed_layer_passes = 1U;
+  record.prefill_route_evidence.expected_layer_passes = 1U;
+  const auto role_index = [](const q3x::runtime::PrefillOperatorRole role) {
+    return static_cast<std::size_t>(role);
+  };
+  record.prefill_route_evidence
+      .operators[role_index(q3x::runtime::PrefillOperatorRole::kNvFp4GateUp)]
+      .exact_fallback_hits = 64U;
+  record.prefill_route_evidence
+      .operators[role_index(q3x::runtime::PrefillOperatorRole::kNvFp4Down)]
+      .exact_fallback_hits = 64U;
+  record.prefill_route_evidence
+      .operators[role_index(q3x::runtime::PrefillOperatorRole::kFp8Qkv)]
+      .exact_fallback_hits = 96U;
+  record.prefill_route_evidence
+      .operators[role_index(q3x::runtime::PrefillOperatorRole::kFp8Z)]
+      .exact_fallback_hits = 48U;
+  record.prefill_route_evidence
+      .operators[role_index(q3x::runtime::PrefillOperatorRole::kFp8O)]
+      .exact_fallback_hits = 64U;
+  record.prefill_route_evidence
+      .operators[role_index(q3x::runtime::PrefillOperatorRole::kAttention)]
+      .production_hits = 16U;
+  record.prefill_route_evidence
+      .operators[role_index(q3x::runtime::PrefillOperatorRole::kGdn)]
+      .exact_fallback_hits = 48U;
+
+  record.deployment_plan_id = std::string(
+      q3x::runtime::kSelectorExactPersistentAttentionV1P40DeploymentPlanId);
+  record.selector_exact_persistent_attention_v1_plan_id =
+      record.deployment_plan_id;
+  record.selector_exact_persistent_attention_v1_configured_internal_rows =
+      40'016U;
+  record.selector_exact_persistent_attention_v1_required_steps = 40'015U;
+  record.selector_exact_persistent_attention_v1_guard_rows = 1U;
+  record.selector_exact_persistent_attention_v1_arena_bytes =
+      8'641'684'992ULL;
+  record.selector_exact_persistent_attention_v1_full_attention_layer_hits =
+      16U;
+  record.selector_exact_persistent_attention_v1_panel_calls = 16U;
+  record.selector_exact_persistent_attention_v1_arithmetic_spans = 1'280U;
+  record.selector_exact_persistent_attention_v1_group_q64_submissions = 32U;
+  record.selector_exact_persistent_attention_v1_generic_qt2_spans = 1'248U;
+  record
+      .selector_exact_persistent_attention_v1_generic_q8_suffix_submissions =
+      16U;
+  record.selector_exact_persistent_attention_v1_fallback_submissions = 0U;
+  record.selector_exact_persistent_attention_v1_persistent_ctas = 256U;
+  record.selector_exact_persistent_attention_v1_physical_submissions = 48U;
+  record.selector_exact_persistent_attention_v1_minimum_physical_tokens =
+      512U;
+  record.selector_exact_persistent_attention_v1_maximum_physical_tokens =
+      38'976U;
+  record.selector_exact_persistent_attention_v1_logical_prompt_tokens =
+      40'000U;
+  record.selector_exact_persistent_attention_v1_completed = true;
+  record.selector_exact_persistent_attention_v1_completed_layer_count = 16U;
+  record
+      .selector_exact_persistent_attention_v1_physical_submission_count_per_layer =
+      3U;
+  record.selector_exact_persistent_attention_v1_physical_submission_tactics =
+      {1U, 1U, 2U};
+  record
+      .selector_exact_persistent_attention_v1_physical_submission_first_positions =
+      {0U, 512U, 1'024U};
+  record
+      .selector_exact_persistent_attention_v1_physical_submission_token_counts =
+      {512U, 512U, 38'976U};
+  for (std::size_t index = 0U;
+       index <
+       record.selector_exact_persistent_attention_v1_completed_layers.size();
+       ++index) {
+    auto& receipt =
+        record.selector_exact_persistent_attention_v1_completed_layers[index];
+    receipt.layer = static_cast<std::uint32_t>(3U + 4U * index);
+    receipt.physical_submission_count = 3U;
+    receipt.physical_submission_tactics = {1U, 1U, 2U};
+    receipt.physical_submission_first_positions = {0U, 512U, 1'024U};
+    receipt.physical_submission_token_counts = {512U, 512U, 38'976U};
+  }
+
+  const std::string serialized =
+      server::serialize_target_prefill_witness(record);
+  test.expect(
+      valid_json(serialized) &&
+          serialized.find(
+              R"("record":"target-prefill-witness-v17","schema_version":17)") !=
+              std::string::npos &&
+          serialized.find(R"("completion":{"tokens":16})") !=
+              std::string::npos &&
+          serialized.find(
+              R"("attention_tactic":"selector-exact-persistent-attention-v1-whole-prompt","package_complete":true)") !=
+              std::string::npos &&
+          serialized.find(
+              R"("prompt_wide_p40_fp8_projection_physical_launches":10336)") !=
+              std::string::npos &&
+          serialized.find(
+              R"("selector_exact_persistent_attention_v1_configured_internal_rows":40016,"selector_exact_persistent_attention_v1_required_steps":40015,"selector_exact_persistent_attention_v1_guard_rows":1,"selector_exact_persistent_attention_v1_arena_bytes":8641684992)") !=
+              std::string::npos &&
+          serialized.find(
+              R"("selector_exact_persistent_attention_v1_physical_submission_tactics":[1,1,2],"selector_exact_persistent_attention_v1_physical_submission_first_positions":[0,512,1024],"selector_exact_persistent_attention_v1_physical_submission_token_counts":[512,512,38976])") !=
+              std::string::npos &&
+          serialized.find(
+              R"({"layer":63,"physical_submission_count":3,"physical_submission_tactics":[1,1,2],"physical_submission_first_positions":[0,512,1024],"physical_submission_token_counts":[512,512,38976]})") !=
+              std::string::npos &&
+          serialized.find(
+              R"("fp8_qkv":{"completed_production_hits":0,"completed_exact_fallback_hits":96,"completed_forbidden_hits":0})") !=
+              std::string::npos &&
+          serialized.find(
+              R"("attention":{"completed_production_hits":16,"completed_exact_fallback_hits":0,"completed_forbidden_hits":0})") !=
+              std::string::npos &&
+          serialized.find(
+              R"("qualification":"test-only-selector-exact-p40000-o16-correctness-qualified-performance-candidate")") !=
+              std::string::npos &&
+          serialized.find(
+              R"("workload_correctness_qualified":true,"workload_correctness_scope":"strict-p40000-o16-live-state-logit-token-text-oracle")") !=
+              std::string::npos &&
+          serialized.find(
+              R"("scope":"test_only_selector_exact_performance_candidate")") !=
+              std::string::npos &&
+          serialized.find("target-prefill-witness-v2") ==
+              std::string::npos &&
+          serialized.find(R"("scope":"production_contract")") ==
+              std::string::npos &&
+          serialized.find(R"("release_qualified":false)") !=
+              std::string::npos &&
+          serialized.find(R"("production_eligible":false)") !=
+              std::string::npos,
+      "selector v17 binds the exact P40000/O16 route, physical Attention "
+      "receipts, and test-only correctness-qualified identity");
+
+  server::TargetPrefillWitnessRecord invalid_receipt = record;
+  --invalid_receipt
+        .selector_exact_persistent_attention_v1_completed_layers[15U]
+        .physical_submission_token_counts[2U];
+  const std::string invalid_serialized =
+      server::serialize_target_prefill_witness(invalid_receipt);
+  test.expect(
+      valid_json(invalid_serialized) &&
+          invalid_serialized.find(
+              R"("record":"target-prefill-witness-v17","schema_version":17)") !=
+              std::string::npos &&
+          invalid_serialized.find(R"("package_complete":false)") !=
+              std::string::npos &&
+          invalid_serialized.find("target-prefill-witness-v2") ==
+              std::string::npos &&
+          invalid_serialized.find(R"("scope":"production_contract")") ==
+              std::string::npos,
+      "an incomplete selector receipt stays independently identified and "
+      "fails package completeness without becoming generic or production");
+}
+#endif
+
 void test_prefill_tactic_defaults_remain_exact(TestContext& test) {
   const server::EvaluationServerOptions server_options;
   const q3x::runtime::ReferenceEngineOptions engine_options;
@@ -1970,6 +2220,9 @@ int main(const int argc, char** const argv) {
   test_fail_closed_parameters(test);
   test_serialization(test);
   test_target_prefill_witness_evidence(test);
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  test_selector_exact_p40000_o16_witness(test);
+#endif
   test_prefill_tactic_defaults_remain_exact(test);
   test_bearer_authorization(test);
   test_api_key_file_loading(test, argv[1]);

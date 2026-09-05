@@ -2,6 +2,7 @@
 
 #include "q3x/core/sha256.h"
 #include "q3x/io/json.h"
+#include "q3x/runtime/prefill_workspace_plan.h"
 
 #include <algorithm>
 #include <array>
@@ -183,6 +184,42 @@ void append_production_identity(
   output += "}";
 }
 
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+void append_selector_exact_p40000_o16_test_identity(std::string& output) {
+  output +=
+      "{\"id\":\"selector-exact-p40000-o16\","
+      "\"identity\":\"test-only-selector-route\","
+      "\"test_only\":true,\"BUILD_TESTING\":true,\"deployment_plan\":";
+  append_json_string(
+      output,
+      runtime::kSelectorExactPersistentAttentionV1P40DeploymentPlanId);
+  output +=
+      ",\"capacity\":{\"target_prompt_tokens\":40000,"
+      "\"maximum_output_tokens\":16,\"max_sequence_length\":" +
+      std::to_string(
+          runtime::kSelectorExactPersistentAttentionV1P40RequestCapacityTokens) +
+      ",\"request_arena_bytes\":" +
+      std::to_string(runtime::
+                         kSelectorExactPersistentAttentionV1P40WholeCoreArenaBytes) +
+      "},\"workload_correctness\":{\"qualified\":true,\"scope\":";
+  append_json_string(
+      output, "strict-p40000-o16-live-state-logit-token-text-oracle");
+  output +=
+      "},\"numerical_contract\":{\"qualified\":false,\"reason\":";
+  append_json_string(
+      output,
+      "p40000-o16-strict-oracle-passed-release-qualification-incomplete");
+  output +=
+      "},\"qualification\":";
+  append_json_string(
+      output,
+      "test-only-selector-exact-p40000-o16-correctness-qualified-performance-"
+      "candidate");
+  output +=
+      ",\"release_qualified\":false,\"production_eligible\":false}";
+}
+#endif
+
 void append_phase_evidence(std::string& output,
                            const std::string_view name,
                            const RequestPhaseEvidence& phase) {
@@ -301,6 +338,242 @@ void append_prefill_route_evidence(
           boundary(runtime::PrefillForbiddenBoundary::kApproximateNumerics)) +
       "}}";
 }
+
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+inline constexpr std::array<std::uint8_t, 3U>
+    kSelectorExactP40000SubmissionTactics{{1U, 1U, 2U}};
+inline constexpr std::array<std::uint32_t, 3U>
+    kSelectorExactP40000SubmissionFirstPositions{{0U, 512U, 1'024U}};
+inline constexpr std::array<std::uint32_t, 3U>
+    kSelectorExactP40000SubmissionTokenCounts{{512U, 512U, 38'976U}};
+
+[[nodiscard]] bool selector_exact_p40000_route_counts_complete(
+    const runtime::PrefillRouteEvidence& evidence) noexcept {
+  if (!evidence.valid || !evidence.complete || evidence.request_active ||
+      evidence.completed_layer_passes != 1U ||
+      evidence.expected_layer_passes != 1U) {
+    return false;
+  }
+  constexpr std::array<std::uint64_t, runtime::kPrefillOperatorRoleCount>
+      kExpectedProductionHits{{0U, 0U, 0U, 0U, 0U, 16U, 0U}};
+  constexpr std::array<std::uint64_t, runtime::kPrefillOperatorRoleCount>
+      kExpectedExactFallbackHits{{64U, 64U, 96U, 48U, 64U, 0U, 48U}};
+  for (std::size_t index = 0U; index < runtime::kPrefillOperatorRoleCount;
+       ++index) {
+    const runtime::PrefillOperatorRouteCounts& counts =
+        evidence.operators[index];
+    if (counts.production_hits != kExpectedProductionHits[index] ||
+        counts.exact_fallback_hits != kExpectedExactFallbackHits[index] ||
+        counts.forbidden_hits != 0U) {
+      return false;
+    }
+  }
+  return std::all_of(evidence.forbidden_boundary_hits.begin(),
+                     evidence.forbidden_boundary_hits.end(),
+                     [](const std::uint64_t hits) { return hits == 0U; });
+}
+
+[[nodiscard]] bool complete_selector_exact_p40000_attention_receipts(
+    const TargetPrefillWitnessRecord& record) noexcept {
+  if (record.selector_exact_persistent_attention_v1_completed_layer_count !=
+          record.selector_exact_persistent_attention_v1_completed_layers
+              .size() ||
+      record
+              .selector_exact_persistent_attention_v1_physical_submission_count_per_layer !=
+          kSelectorExactP40000SubmissionTactics.size() ||
+      record.selector_exact_persistent_attention_v1_physical_submission_tactics !=
+          kSelectorExactP40000SubmissionTactics ||
+      record
+              .selector_exact_persistent_attention_v1_physical_submission_first_positions !=
+          kSelectorExactP40000SubmissionFirstPositions ||
+      record.selector_exact_persistent_attention_v1_physical_submission_token_counts !=
+          kSelectorExactP40000SubmissionTokenCounts) {
+    return false;
+  }
+  for (std::size_t index = 0U;
+       index < record.selector_exact_persistent_attention_v1_completed_layers
+                   .size();
+       ++index) {
+    const runtime::ReferenceP40000SelectorCompletedLayerReceipt& receipt =
+        record.selector_exact_persistent_attention_v1_completed_layers[index];
+    if (receipt.layer != 3U + 4U * index ||
+        receipt.physical_submission_count !=
+            kSelectorExactP40000SubmissionTactics.size() ||
+        receipt.physical_submission_tactics !=
+            kSelectorExactP40000SubmissionTactics ||
+        receipt.physical_submission_first_positions !=
+            kSelectorExactP40000SubmissionFirstPositions ||
+        receipt.physical_submission_token_counts !=
+            kSelectorExactP40000SubmissionTokenCounts) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template <typename Value, std::size_t Size>
+void append_integral_array(std::string& output,
+                           const std::array<Value, Size>& values) {
+  output.push_back('[');
+  for (std::size_t index = 0U; index < values.size(); ++index) {
+    if (index != 0U) {
+      output.push_back(',');
+    }
+    output += std::to_string(static_cast<std::uint64_t>(values[index]));
+  }
+  output.push_back(']');
+}
+
+void append_selector_exact_p40000_completed_layers(
+    std::string& output, const TargetPrefillWitnessRecord& record) {
+  output.push_back('[');
+  for (std::size_t index = 0U;
+       index < record.selector_exact_persistent_attention_v1_completed_layers
+                   .size();
+       ++index) {
+    if (index != 0U) {
+      output.push_back(',');
+    }
+    const runtime::ReferenceP40000SelectorCompletedLayerReceipt& receipt =
+        record.selector_exact_persistent_attention_v1_completed_layers[index];
+    output += "{\"layer\":" + std::to_string(receipt.layer) +
+              ",\"physical_submission_count\":" +
+              std::to_string(receipt.physical_submission_count) +
+              ",\"physical_submission_tactics\":";
+    append_integral_array(output, receipt.physical_submission_tactics);
+    output += ",\"physical_submission_first_positions\":";
+    append_integral_array(output,
+                          receipt.physical_submission_first_positions);
+    output += ",\"physical_submission_token_counts\":";
+    append_integral_array(output, receipt.physical_submission_token_counts);
+    output.push_back('}');
+  }
+  output.push_back(']');
+}
+
+void append_selector_exact_p40000_o16_prefill_witness(
+    std::string& output, const TargetPrefillWitnessRecord& record,
+    const bool package_complete) {
+  output += ",\"projection_tactic\":";
+  append_json_string(output, "native-prompt-wide-p40-whole-core");
+  output += ",\"mlp_schedule\":";
+  append_json_string(output, "prompt-wide-p40-whole-core");
+  output += ",\"attention_tactic\":";
+  append_json_string(
+      output, "selector-exact-persistent-attention-v1-whole-prompt");
+  output += ",\"package_complete\":";
+  output += package_complete ? "true" : "false";
+  output +=
+      ",\"route_layer_pass_count\":" +
+      std::to_string(record.route_layer_pass_count) +
+      ",\"operator_panel_executor_hits\":" +
+      std::to_string(record.operator_panel_executor_hits) +
+      ",\"prompt_wide_p40_whole_core_layer_hits\":" +
+      std::to_string(record.prompt_wide_p40_whole_core_layer_hits) +
+      ",\"prompt_wide_p40_fill_panel_hits\":" +
+      std::to_string(record.prompt_wide_p40_fill_panel_hits) +
+      ",\"prompt_wide_p40_prompt_core_hits\":" +
+      std::to_string(record.prompt_wide_p40_prompt_core_hits) +
+      ",\"prompt_wide_p40_drain_panel_hits\":" +
+      std::to_string(record.prompt_wide_p40_drain_panel_hits) +
+      ",\"prompt_wide_p40_fp8_projection_hits\":" +
+      std::to_string(record.prompt_wide_p40_fp8_projection_hits) +
+      ",\"prompt_wide_p40_fp8_projection_physical_launches\":" +
+      std::to_string(
+          record.prompt_wide_p40_fp8_projection_physical_launches) +
+      ",\"prompt_wide_p40_bf16_ab_hits\":" +
+      std::to_string(record.prompt_wide_p40_bf16_ab_hits) +
+      ",\"prompt_wide_p40_gdn_hits\":" +
+      std::to_string(record.prompt_wide_p40_gdn_hits) +
+      ",\"native_flashinfer_exact_whole_prompt_hits\":" +
+      std::to_string(record.native_flashinfer_exact_whole_prompt_hits) +
+      ",\"layer_wide_p40_mlp_layer_hits\":" +
+      std::to_string(record.layer_wide_p40_mlp_layer_hits) +
+      ",\"persistent_p40_nvfp4_gate_up_hits\":" +
+      std::to_string(record.persistent_p40_nvfp4_gate_up_hits) +
+      ",\"persistent_p40_nvfp4_down_residual_hits\":" +
+      std::to_string(record.persistent_p40_nvfp4_down_residual_hits) +
+      ",\"persistent_p40_nvfp4_physical_launches\":" +
+      std::to_string(record.persistent_p40_nvfp4_physical_launches) +
+      ",\"selector_exact_persistent_attention_v1_plan_id\":";
+  append_json_string(
+      output, record.selector_exact_persistent_attention_v1_plan_id);
+  output +=
+      ",\"selector_exact_persistent_attention_v1_configured_internal_rows\":" +
+      std::to_string(record
+                         .selector_exact_persistent_attention_v1_configured_internal_rows) +
+      ",\"selector_exact_persistent_attention_v1_required_steps\":" +
+      std::to_string(
+          record.selector_exact_persistent_attention_v1_required_steps) +
+      ",\"selector_exact_persistent_attention_v1_guard_rows\":" +
+      std::to_string(record.selector_exact_persistent_attention_v1_guard_rows) +
+      ",\"selector_exact_persistent_attention_v1_arena_bytes\":" +
+      std::to_string(record.selector_exact_persistent_attention_v1_arena_bytes) +
+      ",\"selector_exact_persistent_attention_v1_full_attention_layer_hits\":" +
+      std::to_string(record
+                         .selector_exact_persistent_attention_v1_full_attention_layer_hits) +
+      ",\"selector_exact_persistent_attention_v1_panel_calls\":" +
+      std::to_string(record.selector_exact_persistent_attention_v1_panel_calls) +
+      ",\"selector_exact_persistent_attention_v1_arithmetic_spans\":" +
+      std::to_string(
+          record.selector_exact_persistent_attention_v1_arithmetic_spans) +
+      ",\"selector_exact_persistent_attention_v1_group_q64_submissions\":" +
+      std::to_string(record
+                         .selector_exact_persistent_attention_v1_group_q64_submissions) +
+      ",\"selector_exact_persistent_attention_v1_generic_qt2_spans\":" +
+      std::to_string(
+          record.selector_exact_persistent_attention_v1_generic_qt2_spans) +
+      ",\"selector_exact_persistent_attention_v1_generic_q8_suffix_submissions\":" +
+      std::to_string(record
+                         .selector_exact_persistent_attention_v1_generic_q8_suffix_submissions) +
+      ",\"selector_exact_persistent_attention_v1_fallback_submissions\":" +
+      std::to_string(record
+                         .selector_exact_persistent_attention_v1_fallback_submissions) +
+      ",\"selector_exact_persistent_attention_v1_persistent_ctas\":" +
+      std::to_string(
+          record.selector_exact_persistent_attention_v1_persistent_ctas) +
+      ",\"selector_exact_persistent_attention_v1_physical_submissions\":" +
+      std::to_string(record
+                         .selector_exact_persistent_attention_v1_physical_submissions) +
+      ",\"selector_exact_persistent_attention_v1_minimum_physical_tokens\":" +
+      std::to_string(record
+                         .selector_exact_persistent_attention_v1_minimum_physical_tokens) +
+      ",\"selector_exact_persistent_attention_v1_maximum_physical_tokens\":" +
+      std::to_string(record
+                         .selector_exact_persistent_attention_v1_maximum_physical_tokens) +
+      ",\"selector_exact_persistent_attention_v1_logical_prompt_tokens\":" +
+      std::to_string(record
+                         .selector_exact_persistent_attention_v1_logical_prompt_tokens) +
+      ",\"selector_exact_persistent_attention_v1_completed\":";
+  output += record.selector_exact_persistent_attention_v1_completed ? "true"
+                                                                     : "false";
+  output +=
+      ",\"selector_exact_persistent_attention_v1_completed_layer_count\":" +
+      std::to_string(record
+                         .selector_exact_persistent_attention_v1_completed_layer_count) +
+      ",\"selector_exact_persistent_attention_v1_physical_submission_count_per_layer\":" +
+      std::to_string(record
+                         .selector_exact_persistent_attention_v1_physical_submission_count_per_layer) +
+      ",\"selector_exact_persistent_attention_v1_physical_submission_tactics\":";
+  append_integral_array(
+      output,
+      record.selector_exact_persistent_attention_v1_physical_submission_tactics);
+  output +=
+      ",\"selector_exact_persistent_attention_v1_physical_submission_first_positions\":";
+  append_integral_array(
+      output, record
+                  .selector_exact_persistent_attention_v1_physical_submission_first_positions);
+  output +=
+      ",\"selector_exact_persistent_attention_v1_physical_submission_token_counts\":";
+  append_integral_array(
+      output,
+      record
+          .selector_exact_persistent_attention_v1_physical_submission_token_counts);
+  output +=
+      ",\"selector_exact_persistent_attention_v1_completed_layers\":";
+  append_selector_exact_p40000_completed_layers(output, record);
+}
+#endif
 
 [[nodiscard]] bool complete_vllm_marlin_parity_layer_receipts(
     const TargetPrefillWitnessRecord& record) noexcept {
@@ -841,6 +1114,30 @@ std::string serialize_p40_whole_core_v10_health_response(
   return output;
 }
 
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+std::string serialize_selector_exact_p40000_o16_models_response(
+    const std::string_view served_model, const std::int64_t created) {
+  std::string output = "{\"object\":\"list\",\"data\":[{\"id\":";
+  append_json_string(output, served_model);
+  output += ",\"object\":\"model\",\"created\":" +
+            std::to_string(created) +
+            ",\"owned_by\":\"qwen3x-orin\",\"q3x_test_route\":";
+  append_selector_exact_p40000_o16_test_identity(output);
+  output += "}]}";
+  return output;
+}
+
+std::string serialize_selector_exact_p40000_o16_health_response(
+    const std::string_view served_model) {
+  std::string output = "{\"status\":\"ok\",\"ready\":true,\"model\":";
+  append_json_string(output, served_model);
+  output += ",\"q3x_test_route\":";
+  append_selector_exact_p40000_o16_test_identity(output);
+  output += "}";
+  return output;
+}
+#endif
+
 std::string sha256_token_ids_u32le(
     const std::vector<std::uint32_t>& token_ids) {
   q3x::core::Sha256 hash;
@@ -988,6 +1285,13 @@ std::string serialize_target_prefill_witness(
   const bool p40_vllm_marlin_parity_candidate_v15 =
       record.deployment_plan_id == runtime::
           kLayerMajorNativePromptWideP40VllmMarlinParityDeploymentPlanId;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const bool selector_exact_p40000_o16_candidate_v17 =
+      record.deployment_plan_id ==
+      runtime::kSelectorExactPersistentAttentionV1P40DeploymentPlanId;
+#else
+  constexpr bool selector_exact_p40000_o16_candidate_v17 = false;
+#endif
   constexpr std::uint64_t kLayerCount = 64U;
   constexpr std::uint64_t kLinearAttentionLayerCount = 48U;
   constexpr std::uint64_t kAttentionLayerCount = 16U;
@@ -1334,6 +1638,125 @@ std::string serialize_target_prefill_witness(
       record.packed_nvfp4_v2_gate_up_hits == 0U &&
       record.packed_nvfp4_v2_down_hits == 0U &&
       record.packed_nvfp4_v2_physical_launches == 0U;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  const bool selector_exact_p40000_o16_package_counts_complete =
+      selector_exact_p40000_o16_candidate_v17 &&
+      record.endpoint == OpenAIEndpoint::kCompletions &&
+      record.prompt_kind == OpenAIPromptKind::kTokenIds &&
+      record.prompt_tokens == 40'000U && record.full_prompt_consumed &&
+      record.consumed_prompt_tokens == record.prompt_tokens &&
+      record.completion_tokens == 16U &&
+      record.requested_prefill_chunk_size ==
+          runtime::kMaximumRequestPrefillChunkSize &&
+      record.effective_prefill_chunk_size ==
+          runtime::kMaximumRequestPrefillChunkSize &&
+      record.prefix_execution_count == 1U &&
+      record.projection_backend == runtime::ProjectionBackend::kSm87WeightOnly &&
+      record.prefill_execution_mode == runtime::
+          ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
+      record.prefill_logical_panel_count == kP40LogicalPanelCount &&
+      record.request_memory_profile ==
+          runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
+      record.bounded_submission_window &&
+      record.submission_window_retirements ==
+          kP40WholeCoreExpectedSubmissionRetirements &&
+      record.mlp_schedule_tactic == runtime::
+          LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore &&
+      record.route_layer_pass_count == 1U &&
+      selector_exact_p40000_route_counts_complete(
+          record.prefill_route_evidence) &&
+      record.prompt_wide_p40_whole_core_layer_hits == kLayerCount &&
+      record.prompt_wide_p40_fill_panel_hits ==
+          kP40WholeCoreExpectedPanelPhaseHits &&
+      record.prompt_wide_p40_prompt_core_hits == kLayerCount &&
+      record.prompt_wide_p40_drain_panel_hits ==
+          kP40WholeCoreExpectedPanelPhaseHits &&
+      record.prompt_wide_p40_fp8_projection_hits ==
+          kP40WholeCoreExpectedFp8ProjectionHits &&
+      record.prompt_wide_p40_fp8_projection_physical_launches == runtime::
+          kSelectorExactPersistentAttentionV1P40Fp8PhysicalLaunches &&
+      record.prompt_wide_p40_bf16_ab_hits == kLinearAttentionLayerCount &&
+      record.prompt_wide_p40_gdn_hits == kLinearAttentionLayerCount &&
+      record.native_flashinfer_exact_whole_prompt_hits == 0U &&
+      record.layer_wide_p40_mlp_layer_hits == kLayerCount &&
+      record.operator_panel_executor_hits == 0U &&
+      record.native_group_q64_panel_hits == 0U &&
+      record.native_group_q128_v4_panel_hits == 0U &&
+      record.native_flashinfer_exact_panel_hits == 0U &&
+      record.generic_qt2_hits == 0U &&
+      record.segmented_panel_projection_hits == 0U &&
+      record.segmented_panel_projection_physical_launches == 0U &&
+      record.native_large_m_projection_hits == 0U &&
+      record.native_large_m_projection_bulk_hits == 0U &&
+      record.native_large_m_projection_oracle_partial_hits == 0U &&
+      record.native_large_m_projection_physical_launches == 0U &&
+      record.nvfp4_true_large_m_route_fp8_projection_hits == 0U &&
+      record.nvfp4_true_large_m_route_fp8_projection_bulk_hits == 0U &&
+      record
+              .nvfp4_true_large_m_route_fp8_projection_oracle_partial_hits ==
+          0U &&
+      record
+              .nvfp4_true_large_m_route_fp8_projection_physical_launches ==
+          0U &&
+      record.native_nvfp4_true_large_m_projection_hits == 0U &&
+      record.native_nvfp4_true_large_m_gate_up_hits == 0U &&
+      record.native_nvfp4_true_large_m_down_hits == 0U &&
+      record.native_nvfp4_true_large_m_physical_launches == 0U &&
+      record.persistent_p40_fp8_projection_hits == 0U &&
+      record.persistent_p40_fp8_projection_bulk_hits == 0U &&
+      record.persistent_p40_fp8_projection_oracle_partial_hits == 0U &&
+      record.persistent_p40_fp8_projection_physical_launches == 0U &&
+      record.persistent_p40_nvfp4_gate_up_hits == 0U &&
+      record.persistent_p40_nvfp4_down_residual_hits == 0U &&
+      record.persistent_p40_nvfp4_physical_launches == 0U &&
+      record.packed_nvfp4_v2_gate_up_hits == 0U &&
+      record.packed_nvfp4_v2_down_hits == 0U &&
+      record.packed_nvfp4_v2_physical_launches == 0U &&
+      record.vllm_marlin_parity_gate_up_hits == 0U &&
+      record.vllm_marlin_parity_down_hits == 0U &&
+      record.vllm_marlin_parity_physical_launches == 0U &&
+      record.vllm_marlin_parity_standalone_silu_launches == 0U &&
+      record.vllm_marlin_parity_standalone_residual_launches == 0U &&
+      record.vllm_marlin_parity_lock_clear_operations == 0U &&
+      record.vllm_marlin_parity_layer_completion_receipt_count == 0U &&
+      record.selector_exact_persistent_attention_v1_plan_id ==
+          runtime::kSelectorExactPersistentAttentionV1P40DeploymentPlanId &&
+      record.selector_exact_persistent_attention_v1_configured_internal_rows ==
+          runtime::kSelectorExactPersistentAttentionV1P40RequestCapacityTokens &&
+      record.selector_exact_persistent_attention_v1_required_steps ==
+          runtime::kSelectorExactPersistentAttentionV1P40RequiredSteps &&
+      record.selector_exact_persistent_attention_v1_guard_rows ==
+          runtime::kSelectorExactPersistentAttentionV1P40GuardRows &&
+      record.selector_exact_persistent_attention_v1_arena_bytes == runtime::
+          kSelectorExactPersistentAttentionV1P40WholeCoreArenaBytes &&
+      record
+              .selector_exact_persistent_attention_v1_full_attention_layer_hits ==
+          kAttentionLayerCount &&
+      record.selector_exact_persistent_attention_v1_panel_calls ==
+          kAttentionLayerCount &&
+      record.selector_exact_persistent_attention_v1_arithmetic_spans ==
+          1'280U &&
+      record.selector_exact_persistent_attention_v1_group_q64_submissions ==
+          32U &&
+      record.selector_exact_persistent_attention_v1_generic_qt2_spans ==
+          1'248U &&
+      record
+              .selector_exact_persistent_attention_v1_generic_q8_suffix_submissions ==
+          16U &&
+      record.selector_exact_persistent_attention_v1_fallback_submissions ==
+          0U &&
+      record.selector_exact_persistent_attention_v1_persistent_ctas == 256U &&
+      record.selector_exact_persistent_attention_v1_physical_submissions ==
+          48U &&
+      record.selector_exact_persistent_attention_v1_minimum_physical_tokens ==
+          512U &&
+      record.selector_exact_persistent_attention_v1_maximum_physical_tokens ==
+          38'976U &&
+      record.selector_exact_persistent_attention_v1_logical_prompt_tokens ==
+          40'000U &&
+      record.selector_exact_persistent_attention_v1_completed &&
+      complete_selector_exact_p40000_attention_receipts(record);
+#endif
   const bool accuracy_unqualified_candidate =
       candidate_v3 || projection_candidate_v4 ||
       native_large_m_candidate_v5 || flashinfer_exact_candidate_v6 ||
@@ -1345,6 +1768,12 @@ std::string serialize_target_prefill_witness(
       p40_packed_nvfp4_v2_candidate_v14 ||
       p40_vllm_marlin_parity_candidate_v15;
   std::string output =
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      selector_exact_p40000_o16_candidate_v17
+          ? "{\"record\":\"target-prefill-witness-v17\","
+            "\"schema_version\":17,\"request\":{\"id\":"
+          :
+#endif
       p40_vllm_marlin_parity_candidate_v15
           ? "{\"record\":\"target-prefill-witness-v15\","
             "\"schema_version\":15,\"request\":{\"id\":"
@@ -1470,7 +1899,14 @@ std::string serialize_target_prefill_witness(
     output += record.bounded_submission_window ? "true" : "false";
     output += ",\"submission_window_retirements\":" +
               std::to_string(record.submission_window_retirements);
-    if (p40_vllm_marlin_parity_candidate_v15) {
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    if (selector_exact_p40000_o16_candidate_v17) {
+      append_selector_exact_p40000_o16_prefill_witness(
+          output, record,
+          selector_exact_p40000_o16_package_counts_complete);
+    } else
+#endif
+        if (p40_vllm_marlin_parity_candidate_v15) {
       const bool parity_receipts_complete =
           complete_vllm_marlin_parity_layer_receipts(record);
       output += ",\"projection_tactic\":";
@@ -2214,7 +2650,24 @@ std::string serialize_target_prefill_witness(
     output += "\"available\":true,\"scope\":"
               "\"engine_lifetime_sealed_native_plan\",\"id\":";
     append_json_string(output, record.deployment_plan_id);
-    if (accuracy_unqualified_candidate) {
+    if (selector_exact_p40000_o16_candidate_v17) {
+      output += ",\"qualification\":";
+      append_json_string(
+          output,
+          "test-only-selector-exact-p40000-o16-correctness-qualified-"
+          "performance-candidate");
+      output += ",\"workload_correctness_qualified\":true,"
+                "\"workload_correctness_scope\":";
+      append_json_string(
+          output, "strict-p40000-o16-live-state-logit-token-text-oracle");
+      output +=
+          ",\"numerical_contract\":{\"qualified\":false,\"reason\":";
+      append_json_string(
+          output,
+          "p40000-o16-strict-oracle-passed-release-qualification-incomplete");
+      output += "},\"release_qualified\":false,"
+                "\"production_eligible\":false";
+    } else if (accuracy_unqualified_candidate) {
       output += ",\"qualification\":";
       append_json_string(output,
                          "accuracy-unqualified-architecture-candidate");
@@ -2230,13 +2683,18 @@ std::string serialize_target_prefill_witness(
       ","
       "\"cache_hits\":{\"available\":false,\"reason\":"
       "\"not_instrumented\"},\"disabled_boundaries\":{\"scope\":";
-  append_json_string(output, accuracy_unqualified_candidate
-                                 ? "architecture_candidate_unqualified"
-                                 : "production_contract");
+  append_json_string(
+      output,
+      selector_exact_p40000_o16_candidate_v17
+          ? "test_only_selector_exact_performance_candidate"
+      : accuracy_unqualified_candidate ? "architecture_candidate_unqualified"
+                                       : "production_contract");
   output +=
       ",\"prefix_cache\":true,\"mtp\":true,"
       "\"cublaslt_production\":true,\"approximate_numerics\":";
-  output += accuracy_unqualified_candidate ? "false" : "true";
+  output += selector_exact_p40000_o16_candidate_v17
+                ? "true"
+                : accuracy_unqualified_candidate ? "false" : "true";
   output += "}}}";
   return output;
 }

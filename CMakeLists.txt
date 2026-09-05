@@ -974,7 +974,6 @@ endif()
 # kept separate from q3x_engine so the core runtime has no HTTP/protocol
 # dependency and external evaluation cannot become a hidden production
 # fallback path.
-if(NOT Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
 add_library(q3x_eval_gateway STATIC
   src/server/openai_protocol.cpp
   src/server/evaluation_server.cpp
@@ -1011,7 +1010,14 @@ q3x_enable_warnings(q3x_eval_gateway)
 
 add_executable(qwen3x-eval-server src/eval_server_main.cpp)
 target_link_libraries(qwen3x-eval-server PRIVATE q3x_eval_gateway)
-if(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+if(Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  # Test-only API composition point for the workload-correctness-qualified
+  # P40000/O16 performance candidate. It remains excluded from every install
+  # rule below and is not release-qualified.
+  set_target_properties(qwen3x-eval-server PROPERTIES
+    OUTPUT_NAME qwen3x-eval-server-selector-exact-p40000-o16-test
+  )
+elseif(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   target_compile_definitions(qwen3x-eval-server PRIVATE
     Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE=1
     Q3X_ENABLE_P40_WHOLE_CORE_TACTIC_CLI=1
@@ -1029,6 +1035,64 @@ elseif(BUILD_TESTING AND Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION)
 endif()
 q3x_enable_warnings(qwen3x-eval-server)
 
+if(Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  add_executable(q3x_openai_protocol_test
+    tests/openai_protocol_test.cpp
+  )
+  target_link_libraries(q3x_openai_protocol_test
+    PRIVATE q3x_eval_gateway q3x::core
+  )
+  q3x_enable_warnings(q3x_openai_protocol_test)
+  add_test(NAME openai_protocol_selector_exact_p40000_o16
+    COMMAND q3x_openai_protocol_test
+            "${CMAKE_CURRENT_SOURCE_DIR}/.q3x-work/tests/openai-protocol-selector"
+  )
+  set_tests_properties(openai_protocol_selector_exact_p40000_o16 PROPERTIES
+    LABELS "host;server;protocol;selector;testing"
+  )
+  add_test(NAME eval_server_selector_exact_p40000_o16_help
+    COMMAND qwen3x-eval-server --help
+  )
+  set_tests_properties(eval_server_selector_exact_p40000_o16_help PROPERTIES
+    PASS_REGULAR_EXPRESSION "development-route selector-exact-p40000-o16"
+    LABELS "host;server;prefill;selector;testing"
+  )
+  add_test(NAME eval_server_selector_exact_p40000_o16_rejects_missing_route
+    COMMAND qwen3x-eval-server unused
+  )
+  add_test(NAME eval_server_selector_exact_p40000_o16_rejects_override
+    COMMAND qwen3x-eval-server unused
+            --development-route selector-exact-p40000-o16
+            --queue-capacity 2
+  )
+  add_test(NAME eval_server_selector_exact_p40000_o16_rejects_profile_after
+    COMMAND qwen3x-eval-server unused
+            --development-route selector-exact-p40000-o16
+            --max-sequence-length 40016
+  )
+  add_test(NAME eval_server_selector_exact_p40000_o16_rejects_profile_before
+    COMMAND qwen3x-eval-server unused
+            --max-sequence-length 40016
+            --development-route selector-exact-p40000-o16
+  )
+  add_test(NAME eval_server_selector_exact_p40000_o16_rejects_route_environment
+    COMMAND ${CMAKE_COMMAND} -E env Q3X_SELECTOR_OVERRIDE=1
+            $<TARGET_FILE:qwen3x-eval-server> unused
+            --development-route selector-exact-p40000-o16
+  )
+  set_tests_properties(
+    eval_server_selector_exact_p40000_o16_rejects_missing_route
+    eval_server_selector_exact_p40000_o16_rejects_override
+    eval_server_selector_exact_p40000_o16_rejects_profile_after
+    eval_server_selector_exact_p40000_o16_rejects_profile_before
+    eval_server_selector_exact_p40000_o16_rejects_route_environment
+    PROPERTIES
+      WILL_FAIL TRUE
+      LABELS "host;server;prefill;selector;testing"
+  )
+endif()
+
+if(NOT Q3X_BUILD_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
 add_executable(qwen3x-orin src/main.cpp)
 target_link_libraries(qwen3x-orin
   PRIVATE q3x::engine q3x::text q3x::core q3x::kernels

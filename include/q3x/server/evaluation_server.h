@@ -159,12 +159,14 @@ static_assert(
 enum class EvaluationDevelopmentRoute : std::uint8_t {
   kNone = 0,
   kP40WholeCoreV10,
+  kSelectorExactP40000O16,
 };
 
 [[nodiscard]] constexpr bool is_valid_evaluation_development_route(
     const EvaluationDevelopmentRoute route) noexcept {
   return route == EvaluationDevelopmentRoute::kNone ||
-         route == EvaluationDevelopmentRoute::kP40WholeCoreV10;
+         route == EvaluationDevelopmentRoute::kP40WholeCoreV10 ||
+         route == EvaluationDevelopmentRoute::kSelectorExactP40000O16;
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -174,6 +176,8 @@ enum class EvaluationDevelopmentRoute : std::uint8_t {
       return "none";
     case EvaluationDevelopmentRoute::kP40WholeCoreV10:
       return "p40-whole-core-v10";
+    case EvaluationDevelopmentRoute::kSelectorExactP40000O16:
+      return "selector-exact-p40000-o16";
   }
   return "unknown";
 }
@@ -307,6 +311,45 @@ class EvaluationProductionRuntimeHealth final {
          request.prompt_token_ids.size() == 40'000U &&
          request.max_tokens == 1U && request.stream && request.include_usage;
 }
+
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+// One closed test-only composition profile. The API route cannot alter any
+// execution, capacity, queue, or memory member independently.
+[[nodiscard]] inline bool is_selector_exact_p40000_o16_fixed_profile(
+    const EvaluationServerOptions& options) noexcept {
+  return options.development_route ==
+             EvaluationDevelopmentRoute::kSelectorExactP40000O16 &&
+         options.production_profile == EvaluationProductionProfile::kNone &&
+         options.max_sequence_length == runtime::
+             kSelectorExactPersistentAttentionV1P40RequestCapacityTokens &&
+         options.maximum_output_tokens == 16U &&
+         options.prefill_chunk_size ==
+             runtime::kMaximumRequestPrefillChunkSize &&
+         options.prefill_execution_mode == runtime::
+             ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
+         options.prefill_full_attention_tactic == runtime::
+             LayerMajorPrefillFullAttentionTactic::
+                 kSelectorExactPersistentAttentionV1WholePrompt &&
+         options.prefill_projection_tactic == runtime::
+             LayerMajorPrefillProjectionTactic::
+                 kNativePromptWideP40WholeCore &&
+         options.projection_backend ==
+             runtime::ProjectionBackend::kSm87WeightOnly &&
+         options.request_max_arena_bytes == 8'641'684'992ULL &&
+         options.request_min_free_bytes_after_create ==
+             4ULL * 1024ULL * 1024ULL * 1024ULL &&
+         options.inference_queue_capacity == 1U &&
+         options.ingress_threads == 3U;
+}
+
+[[nodiscard]] inline bool is_selector_exact_p40000_o16_request(
+    const OpenAIRequest& request) noexcept {
+  return request.endpoint == OpenAIEndpoint::kCompletions &&
+         request.prompt_kind == OpenAIPromptKind::kTokenIds &&
+         request.prompt_token_ids.size() == 40'000U &&
+         request.max_tokens == 16U && request.stream && request.include_usage;
+}
+#endif
 
 // Loads one resident model, starts a bounded HTTP ingress and exactly one
 // inference worker, and blocks until stop_requested becomes true or a fatal

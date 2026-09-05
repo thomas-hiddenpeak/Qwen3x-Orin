@@ -34,7 +34,8 @@
 #include <utility>
 #include <vector>
 
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE) || \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
 extern "C" {
 extern char** environ;
 }
@@ -53,7 +54,8 @@ inline constexpr bool kEvaluationGatewayBuildTesting =
 
 using Clock = std::chrono::steady_clock;
 
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE) || \
+    defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
 [[nodiscard]] std::optional<std::string> first_q3x_environment_variable() {
   // This deliberately rejects the complete project-specific namespace.  The
   // v10 development baseline is a closed typed profile; both current and
@@ -297,6 +299,55 @@ class UniqueFd final {
     const EvaluationServerOptions& options,
     const runtime::ReferenceEngineLoadStats& load,
     std::string& error) {
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  if (options.development_route ==
+      EvaluationDevelopmentRoute::kSelectorExactP40000O16) {
+    if (load.projection_backend != runtime::ProjectionBackend::kSm87WeightOnly ||
+        load.request_max_sequence_length != runtime::
+            kSelectorExactPersistentAttentionV1P40RequestCapacityTokens ||
+        load.request_prefill_chunk_size !=
+            runtime::kMaximumRequestPrefillChunkSize ||
+        load.request_arena_bytes != 8'641'684'992ULL ||
+        load.request_memory_profile !=
+            runtime::RequestMemoryProfile::kLayerMajorP40WholeCore ||
+        !load.selector_attention_inputs_supermatrix_enabled ||
+        load.selector_attention_inputs_supermatrix_projections != runtime::
+            kSelectorExactPersistentAttentionV1AttentionInputsSupermatrixArtifacts ||
+        load.selector_attention_inputs_supermatrix_bytes != runtime::
+            kSelectorExactPersistentAttentionV1AttentionInputsSupermatrixBytes ||
+        !load.selector_linear_qkvz_supermatrix_enabled ||
+        load.selector_linear_qkvz_supermatrix_layers != runtime::
+            kSelectorExactPersistentAttentionV1LinearQkvZCompletedLayers ||
+        load.selector_linear_qkvz_supermatrix_projections != runtime::
+            kSelectorExactPersistentAttentionV1LinearQkvZSupermatrixArtifacts ||
+        load.selector_linear_qkvz_supermatrix_bytes != runtime::
+            kSelectorExactPersistentAttentionV1LinearQkvZSupermatrixBytes ||
+        !load.selector_full_qkv_supermatrix_enabled ||
+        load.selector_full_qkv_supermatrix_layers != runtime::
+            kSelectorExactPersistentAttentionV1FullQkvCompletedLayers ||
+        load.selector_full_qkv_supermatrix_projections != runtime::
+            kSelectorExactPersistentAttentionV1FullQkvSupermatrixArtifacts ||
+        load.selector_full_qkv_supermatrix_bytes != runtime::
+            kSelectorExactPersistentAttentionV1FullQkvSupermatrixBytes ||
+        load.fp8_prefill_qkv_sidecars_enabled ||
+        load.fp8_prefill_qkv_sidecar_layers != 0U ||
+        load.fp8_prefill_qkv_sidecar_bytes != 0U ||
+        load.fp8_prefill_supermatrix_sidecars_enabled ||
+        load.fp8_prefill_supermatrix_sidecar_projections != 0U ||
+        load.fp8_prefill_supermatrix_sidecar_bytes != 0U ||
+        load.fp8_marlin_prefill_sidecars_enabled ||
+        load.fp8_marlin_prefill_sidecar_projections != 0U ||
+        load.fp8_marlin_prefill_sidecar_bytes != 0U ||
+        load.nvfp4_marlin_prefill_sidecars_enabled ||
+        load.nvfp4_marlin_prefill_sidecar_layers != 0U ||
+        load.nvfp4_marlin_prefill_sidecar_bytes != 0U) {
+      error = "selector-exact-p40000-o16 did not publish its complete "
+              "P40016 selector-only resident inventory";
+      return false;
+    }
+    return true;
+  }
+#endif
   if (options.development_route != EvaluationDevelopmentRoute::kNone) {
     return true;
   }
@@ -1277,6 +1328,79 @@ void emit_target_prefill_witness(
         generation.prefill_prompt_wide_p40_gdn_hits;
     record.native_flashinfer_exact_whole_prompt_hits =
         generation.prefill_native_flashinfer_exact_whole_prompt_hits;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    record.selector_exact_persistent_attention_v1_plan_id =
+        generation.prefill_selector_exact_persistent_attention_v1_plan_id;
+    record.selector_exact_persistent_attention_v1_configured_internal_rows =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_configured_internal_rows;
+    record.selector_exact_persistent_attention_v1_required_steps =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_required_steps;
+    record.selector_exact_persistent_attention_v1_guard_rows =
+        generation.prefill_selector_exact_persistent_attention_v1_guard_rows;
+    record.selector_exact_persistent_attention_v1_arena_bytes =
+        generation.prefill_selector_exact_persistent_attention_v1_arena_bytes;
+    record.selector_exact_persistent_attention_v1_full_attention_layer_hits =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_full_attention_layer_hits;
+    record.selector_exact_persistent_attention_v1_panel_calls =
+        generation.prefill_selector_exact_persistent_attention_v1_panel_calls;
+    record.selector_exact_persistent_attention_v1_arithmetic_spans =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_arithmetic_spans;
+    record.selector_exact_persistent_attention_v1_group_q64_submissions =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_group_q64_submissions;
+    record.selector_exact_persistent_attention_v1_generic_qt2_spans =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_generic_qt2_spans;
+    record
+        .selector_exact_persistent_attention_v1_generic_q8_suffix_submissions =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_generic_q8_suffix_submissions;
+    record.selector_exact_persistent_attention_v1_fallback_submissions =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_fallback_submissions;
+    record.selector_exact_persistent_attention_v1_persistent_ctas =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_persistent_ctas;
+    record.selector_exact_persistent_attention_v1_physical_submissions =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_physical_submissions;
+    record.selector_exact_persistent_attention_v1_minimum_physical_tokens =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_minimum_physical_tokens;
+    record.selector_exact_persistent_attention_v1_maximum_physical_tokens =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_maximum_physical_tokens;
+    record.selector_exact_persistent_attention_v1_logical_prompt_tokens =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_logical_prompt_tokens;
+    record.selector_exact_persistent_attention_v1_completed =
+        generation.prefill_selector_exact_persistent_attention_v1_completed;
+    record.selector_exact_persistent_attention_v1_completed_layer_count =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_completed_layer_count;
+    record
+        .selector_exact_persistent_attention_v1_physical_submission_count_per_layer =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_physical_submission_count_per_layer;
+    record.selector_exact_persistent_attention_v1_physical_submission_tactics =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_physical_submission_tactics;
+    record
+        .selector_exact_persistent_attention_v1_physical_submission_first_positions =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_physical_submission_first_positions;
+    record
+        .selector_exact_persistent_attention_v1_physical_submission_token_counts =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_physical_submission_token_counts;
+    record.selector_exact_persistent_attention_v1_completed_layers =
+        generation
+            .prefill_selector_exact_persistent_attention_v1_completed_layers;
+#endif
     record.packed_nvfp4_v2_gate_up_hits =
         generation.prefill_packed_nvfp4_v2_gate_up_hits;
     record.packed_nvfp4_v2_down_hits =
@@ -1702,13 +1826,22 @@ void handle_connection(
                                   options.write_timeout_milliseconds);
         return;
       }
-      const std::string body =
-          options.development_route ==
-                  EvaluationDevelopmentRoute::kP40WholeCoreV10
-              ? serialize_p40_whole_core_v10_health_response(
-                    options.served_model)
-              : serialize_health_response(options.served_model,
-                                            production_identity(options));
+      std::string body;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (options.development_route ==
+          EvaluationDevelopmentRoute::kSelectorExactP40000O16) {
+        body = serialize_selector_exact_p40000_o16_health_response(
+            options.served_model);
+      } else
+#endif
+      if (options.development_route ==
+          EvaluationDevelopmentRoute::kP40WholeCoreV10) {
+        body = serialize_p40_whole_core_v10_health_response(
+            options.served_model);
+      } else {
+        body = serialize_health_response(options.served_model,
+                                         production_identity(options));
+      }
       if (!send_fixed_response(connection.get(), 200, body,
                                !final_connection_request,
                                options.write_timeout_milliseconds) ||
@@ -1743,13 +1876,22 @@ void handle_connection(
           std::chrono::duration_cast<std::chrono::seconds>(
               std::chrono::system_clock::now().time_since_epoch())
               .count());
-      const std::string body =
-          options.development_route ==
-                  EvaluationDevelopmentRoute::kP40WholeCoreV10
-              ? serialize_p40_whole_core_v10_models_response(
-                    options.served_model, created)
-              : serialize_models_response(options.served_model, created,
-                                           production_identity(options));
+      std::string body;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+      if (options.development_route ==
+          EvaluationDevelopmentRoute::kSelectorExactP40000O16) {
+        body = serialize_selector_exact_p40000_o16_models_response(
+            options.served_model, created);
+      } else
+#endif
+      if (options.development_route ==
+          EvaluationDevelopmentRoute::kP40WholeCoreV10) {
+        body = serialize_p40_whole_core_v10_models_response(
+            options.served_model, created);
+      } else {
+        body = serialize_models_response(options.served_model, created,
+                                         production_identity(options));
+      }
       if (!send_fixed_response(connection.get(), 200, body,
                                !final_connection_request,
                                options.write_timeout_milliseconds) ||
@@ -1818,6 +1960,25 @@ void handle_connection(
       }
       continue;
     }
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+    if (options.development_route ==
+            EvaluationDevelopmentRoute::kSelectorExactP40000O16 &&
+        !is_selector_exact_p40000_o16_request(*parsed.value)) {
+      const OpenAIProtocolError error = simple_error(
+          400, "selector_exact_p40000_o16_contract",
+          "the selector-exact-p40000-o16 test route accepts only streaming "
+          "/v1/completions requests with exactly 40000 token IDs and "
+          "max_tokens=16 plus stream_options.include_usage=true");
+      if (!send_fixed_response(connection.get(), error.http_status,
+                               serialize_openai_error(error),
+                               !final_connection_request,
+                               options.write_timeout_milliseconds) ||
+          final_connection_request) {
+        return;
+      }
+      continue;
+    }
+#endif
     const Clock::time_point admitted_at = Clock::now();
 
     auto job = std::make_shared<InferenceJob>();
@@ -2000,15 +2161,20 @@ void ingress_worker(
   const bool p40_whole_core_v10_selected =
       options.development_route ==
       EvaluationDevelopmentRoute::kP40WholeCoreV10;
+  const bool selector_exact_p40000_o16_selected =
+      options.development_route ==
+      EvaluationDevelopmentRoute::kSelectorExactP40000O16;
+  const bool whole_core_development_route_selected =
+      p40_whole_core_v10_selected || selector_exact_p40000_o16_selected;
   const bool p40_whole_core_v10_tactic =
       options.prefill_projection_tactic == runtime::
           LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore;
-  if (p40_whole_core_v10_selected != p40_whole_core_v10_tactic) {
-    error = "the p40 whole-core v10 tactic requires the single explicit "
-            "p40-whole-core-v10 development-route acknowledgement";
+  if (whole_core_development_route_selected != p40_whole_core_v10_tactic) {
+    error = "the P40 whole-core tactic requires exactly one matching "
+            "typed development-route acknowledgement";
     return false;
   }
-  if (!p40_whole_core_v10_selected) {
+  if (!whole_core_development_route_selected) {
     if (!is_p40_exact_legacy_c512_production_profile(options)) {
       error = "the ordinary server requires the sealed P40 exact "
               "Legacy-C512/SM87 deployment profile";
@@ -2033,32 +2199,49 @@ void ingress_worker(
       return false;
     }
   }
-#if !defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
-  if (p40_whole_core_v10_selected) {
-    error = "this binary does not contain the default-off P40 whole-core "
-            "development route";
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  if (!selector_exact_p40000_o16_selected ||
+      p40_whole_core_v10_selected) {
+    error = "the selector test binary requires the explicit "
+            "selector-exact-p40000-o16 development-route selector";
     return false;
   }
-#else
-  if (!p40_whole_core_v10_selected) {
+  if (!is_selector_exact_p40000_o16_fixed_profile(options)) {
+    error = "selector-exact-p40000-o16 requires its fixed P40000/O16/"
+            "P40016/C512/SM87/8641684992-byte request profile";
+    return false;
+  }
+  const std::optional<std::string> hostile_environment =
+      first_q3x_environment_variable();
+  if (hostile_environment.has_value()) {
+    error = "selector-exact-p40000-o16 rejects route-changing environment " +
+            *hostile_environment;
+    return false;
+  }
+#elif defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+  if (!p40_whole_core_v10_selected ||
+      selector_exact_p40000_o16_selected) {
     error = "the P40 development binary requires the explicit "
             "p40-whole-core-v10 development-route selector";
     return false;
   }
-  if (p40_whole_core_v10_selected &&
-      !is_p40_whole_core_v10_fixed_profile(options)) {
+  if (!is_p40_whole_core_v10_fixed_profile(options)) {
     error = "p40-whole-core-v10 requires its fixed P40000/output-one/"
             "C512/SM87/8.64GB request profile";
     return false;
   }
-  if (p40_whole_core_v10_selected) {
-    const std::optional<std::string> hostile_environment =
-        first_q3x_environment_variable();
-    if (hostile_environment.has_value()) {
-      error = "p40-whole-core-v10 rejects route-changing environment " +
-              *hostile_environment;
-      return false;
-    }
+  const std::optional<std::string> hostile_environment =
+      first_q3x_environment_variable();
+  if (hostile_environment.has_value()) {
+    error = "p40-whole-core-v10 rejects route-changing environment " +
+            *hostile_environment;
+    return false;
+  }
+#else
+  if (whole_core_development_route_selected) {
+    error = "this binary does not contain the default-off P40 whole-core "
+            "development route";
+    return false;
   }
 #endif
   in_addr parsed_bind_address{};
@@ -2294,18 +2477,36 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << to_string(options.production_profile)
             << " decode_route="
             << kP40ExactLegacyC512ProductionPlan.decode_route_id
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+            << (options.development_route == EvaluationDevelopmentRoute::
+                        kSelectorExactP40000O16
+                    ? " deployment_plan="
+                    : "")
+            << (options.development_route == EvaluationDevelopmentRoute::
+                        kSelectorExactP40000O16
+                    ? runtime::
+                          kSelectorExactPersistentAttentionV1P40DeploymentPlanId
+                    : std::string_view{})
+#endif
             << " development_route="
             << to_string(options.development_route)
             << " numerical_contract="
             << (options.development_route ==
-                        EvaluationDevelopmentRoute::kP40WholeCoreV10
-                    ? "known-p513-full-state-mismatch"
-                    : "evaluation-route-not-release-qualified")
+                        EvaluationDevelopmentRoute::kSelectorExactP40000O16
+                    ? "test-only-workload-correctness-qualified-"
+                      "performance-release-unqualified"
+                    : options.development_route ==
+                              EvaluationDevelopmentRoute::kP40WholeCoreV10
+                          ? "known-p513-full-state-mismatch"
+                          : "evaluation-route-not-release-qualified")
             << " p40000_full_state="
             << (options.development_route ==
-                        EvaluationDevelopmentRoute::kP40WholeCoreV10
-                    ? "not-measured"
-                    : "not-applicable")
+                        EvaluationDevelopmentRoute::kSelectorExactP40000O16
+                    ? "strict-live-state-logit-token-text-oracle-passed"
+                    : options.development_route ==
+                              EvaluationDevelopmentRoute::kP40WholeCoreV10
+                          ? "not-measured"
+                          : "not-applicable")
             << " BUILD_TESTING="
             << (kEvaluationGatewayBuildTesting ? 1 : 0)
             << " release_qualified=0 production_eligible="

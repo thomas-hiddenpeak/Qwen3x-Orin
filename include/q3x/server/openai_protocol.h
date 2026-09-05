@@ -181,6 +181,53 @@ struct TargetPrefillWitnessRecord {
   std::uint64_t prompt_wide_p40_bf16_ab_hits = 0U;
   std::uint64_t prompt_wide_p40_gdn_hits = 0U;
   std::uint64_t native_flashinfer_exact_whole_prompt_hits = 0U;
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+  // Test-only selector-exact P40000/O16 completion witness. Names mirror the
+  // committed ReferenceGeneration fields with only the `prefill_` prefix
+  // removed, so the API adapter can copy the synchronized receipt directly.
+  std::string selector_exact_persistent_attention_v1_plan_id;
+  std::uint32_t
+      selector_exact_persistent_attention_v1_configured_internal_rows = 0U;
+  std::uint32_t selector_exact_persistent_attention_v1_required_steps = 0U;
+  std::uint32_t selector_exact_persistent_attention_v1_guard_rows = 0U;
+  std::uint64_t selector_exact_persistent_attention_v1_arena_bytes = 0U;
+  std::uint64_t
+      selector_exact_persistent_attention_v1_full_attention_layer_hits = 0U;
+  std::uint64_t selector_exact_persistent_attention_v1_panel_calls = 0U;
+  std::uint64_t selector_exact_persistent_attention_v1_arithmetic_spans = 0U;
+  std::uint64_t
+      selector_exact_persistent_attention_v1_group_q64_submissions = 0U;
+  std::uint64_t selector_exact_persistent_attention_v1_generic_qt2_spans =
+      0U;
+  std::uint64_t
+      selector_exact_persistent_attention_v1_generic_q8_suffix_submissions =
+          0U;
+  std::uint64_t selector_exact_persistent_attention_v1_fallback_submissions =
+      0U;
+  std::uint64_t selector_exact_persistent_attention_v1_persistent_ctas = 0U;
+  std::uint64_t selector_exact_persistent_attention_v1_physical_submissions =
+      0U;
+  std::uint32_t
+      selector_exact_persistent_attention_v1_minimum_physical_tokens = 0U;
+  std::uint32_t
+      selector_exact_persistent_attention_v1_maximum_physical_tokens = 0U;
+  std::uint32_t
+      selector_exact_persistent_attention_v1_logical_prompt_tokens = 0U;
+  bool selector_exact_persistent_attention_v1_completed = false;
+  std::uint32_t
+      selector_exact_persistent_attention_v1_completed_layer_count = 0U;
+  std::uint32_t
+      selector_exact_persistent_attention_v1_physical_submission_count_per_layer =
+          0U;
+  std::array<std::uint8_t, 3U>
+      selector_exact_persistent_attention_v1_physical_submission_tactics{};
+  std::array<std::uint32_t, 3U>
+      selector_exact_persistent_attention_v1_physical_submission_first_positions{};
+  std::array<std::uint32_t, 3U>
+      selector_exact_persistent_attention_v1_physical_submission_token_counts{};
+  std::array<runtime::ReferenceP40000SelectorCompletedLayerReceipt, 16U>
+      selector_exact_persistent_attention_v1_completed_layers{};
+#endif
   std::uint64_t packed_nvfp4_v2_gate_up_hits = 0U;
   std::uint64_t packed_nvfp4_v2_down_hits = 0U;
   std::uint64_t packed_nvfp4_v2_physical_launches = 0U;
@@ -240,6 +287,17 @@ enum class OpenAIFinishReason : std::uint8_t {
     std::string_view served_model, std::int64_t created);
 [[nodiscard]] std::string serialize_p40_whole_core_v10_health_response(
     std::string_view served_model);
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+// Test-only selector-exact P40000/O16 discovery receipts. These are distinct
+// from both the ordinary production identity and the accuracy-unqualified v10
+// development route, and cannot be linked into non-selector builds.
+[[nodiscard]] std::string
+serialize_selector_exact_p40000_o16_models_response(
+    std::string_view served_model, std::int64_t created);
+[[nodiscard]] std::string
+serialize_selector_exact_p40000_o16_health_response(
+    std::string_view served_model);
+#endif
 // Hashes the canonical concatenation of every token id encoded as four
 // little-endian bytes. The definition is host-endian independent and streams
 // without allocating a prompt-sized copy.

@@ -1751,6 +1751,8 @@ prefill_whole_request_layer_major(
   const bool selector_exact_p40 =
       immutable_topology.whole_core_schedule
           .selector_exact_persistent_attention_v1_whole_prompt_required;
+#else
+  constexpr bool selector_exact_p40 = false;
 #endif
   const std::size_t expected_submissions_per_layer =
       prompt_wide_p40_whole_core
