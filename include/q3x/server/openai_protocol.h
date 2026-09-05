@@ -219,11 +219,14 @@ struct TargetPrefillWitnessRecord {
   std::uint32_t
       selector_exact_persistent_attention_v1_physical_submission_count_per_layer =
           0U;
-  std::array<std::uint8_t, 3U>
+  std::array<std::uint8_t,
+             runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
       selector_exact_persistent_attention_v1_physical_submission_tactics{};
-  std::array<std::uint32_t, 3U>
+  std::array<std::uint32_t,
+             runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
       selector_exact_persistent_attention_v1_physical_submission_first_positions{};
-  std::array<std::uint32_t, 3U>
+  std::array<std::uint32_t,
+             runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
       selector_exact_persistent_attention_v1_physical_submission_token_counts{};
   std::array<runtime::ReferenceP40000SelectorCompletedLayerReceipt, 16U>
       selector_exact_persistent_attention_v1_completed_layers{};

@@ -458,14 +458,18 @@ void test_serialization(TestContext& test) {
   const std::string selector_models =
       server::serialize_selector_exact_p40000_o16_models_response(
           "qwen\"model", 1234);
+  const std::string selector_deployment_plan =
+      "\"deployment_plan\":\"" +
+      std::string(q3x::runtime::
+                      kSelectorExactSpanAttentionV2P40DeploymentPlanId) +
+      "\"";
   test.expect(
       valid_json(selector_models) &&
           selector_models.find("qwen\\\"model") != std::string::npos &&
           selector_models.find(
               R"("q3x_test_route":{"id":"selector-exact-p40000-o16","identity":"test-only-selector-route","test_only":true,"BUILD_TESTING":true)") !=
               std::string::npos &&
-          selector_models.find(
-              R"("deployment_plan":"q3x.sm87.testing.p40000-o16.selector-exact-persistent-attention-v1")") !=
+          selector_models.find(selector_deployment_plan) !=
               std::string::npos &&
           selector_models.find(
               R"("capacity":{"target_prompt_tokens":40000,"maximum_output_tokens":16,"max_sequence_length":40016,"request_arena_bytes":8641684992})") !=
@@ -1705,6 +1709,38 @@ void test_target_prefill_witness_evidence(TestContext& test) {
 
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
 void test_selector_exact_p40000_o16_witness(TestContext& test) {
+  constexpr std::size_t kPhysicalSubmissionsPerLayer =
+      q3x::runtime::
+          kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer;
+  constexpr std::size_t kPhysicalSubmissionsTotal =
+      q3x::runtime::kRequestFullLayerCount * kPhysicalSubmissionsPerLayer;
+  constexpr std::size_t kGroupQ64SubmissionsTotal =
+      q3x::runtime::kRequestFullLayerCount * 2U;
+  constexpr std::size_t kGenericQt2SubmissionsTotal =
+      kPhysicalSubmissionsTotal - kGroupQ64SubmissionsTotal;
+  const auto expected_array = [](const auto member) {
+    std::string result{"["};
+    for (std::size_t index = 0U;
+         index < q3x::runtime::
+                     kSelectorExactSpanAttentionV2ExpectedPhysicalSpans.size();
+         ++index) {
+      if (index != 0U) {
+        result.push_back(',');
+      }
+      result += std::to_string(member(
+          q3x::runtime::
+              kSelectorExactSpanAttentionV2ExpectedPhysicalSpans[index]));
+    }
+    result.push_back(']');
+    return result;
+  };
+  const std::string expected_tactics = expected_array(
+      [](const auto& span) { return span.tactic; });
+  const std::string expected_first_positions = expected_array(
+      [](const auto& span) { return span.first_position; });
+  const std::string expected_token_counts = expected_array(
+      [](const auto& span) { return span.token_count; });
+
   server::TargetPrefillWitnessRecord record;
   record.request_id = "cmpl-selector-p40000-o16";
   record.request_body_sha256 = "selector-request-body-sha256";
@@ -1775,7 +1811,7 @@ void test_selector_exact_p40000_o16_witness(TestContext& test) {
       .exact_fallback_hits = 48U;
 
   record.deployment_plan_id = std::string(
-      q3x::runtime::kSelectorExactPersistentAttentionV1P40DeploymentPlanId);
+      q3x::runtime::kSelectorExactSpanAttentionV2P40DeploymentPlanId);
   record.selector_exact_persistent_attention_v1_plan_id =
       record.deployment_plan_id;
   record.selector_exact_persistent_attention_v1_configured_internal_rows =
@@ -1785,36 +1821,49 @@ void test_selector_exact_p40000_o16_witness(TestContext& test) {
   record.selector_exact_persistent_attention_v1_arena_bytes =
       8'641'684'992ULL;
   record.selector_exact_persistent_attention_v1_full_attention_layer_hits =
-      16U;
-  record.selector_exact_persistent_attention_v1_panel_calls = 16U;
-  record.selector_exact_persistent_attention_v1_arithmetic_spans = 1'280U;
-  record.selector_exact_persistent_attention_v1_group_q64_submissions = 32U;
-  record.selector_exact_persistent_attention_v1_generic_qt2_spans = 1'248U;
+      q3x::runtime::kRequestFullLayerCount;
+  record.selector_exact_persistent_attention_v1_panel_calls =
+      q3x::runtime::kRequestFullLayerCount;
+  record.selector_exact_persistent_attention_v1_arithmetic_spans =
+      kPhysicalSubmissionsTotal;
+  record.selector_exact_persistent_attention_v1_group_q64_submissions =
+      kGroupQ64SubmissionsTotal;
+  record.selector_exact_persistent_attention_v1_generic_qt2_spans =
+      kGenericQt2SubmissionsTotal;
   record
       .selector_exact_persistent_attention_v1_generic_q8_suffix_submissions =
-      16U;
+      0U;
   record.selector_exact_persistent_attention_v1_fallback_submissions = 0U;
-  record.selector_exact_persistent_attention_v1_persistent_ctas = 256U;
-  record.selector_exact_persistent_attention_v1_physical_submissions = 48U;
+  record.selector_exact_persistent_attention_v1_persistent_ctas = 0U;
+  record.selector_exact_persistent_attention_v1_physical_submissions =
+      kPhysicalSubmissionsTotal;
   record.selector_exact_persistent_attention_v1_minimum_physical_tokens =
-      512U;
+      q3x::runtime::kSelectorExactSpanAttentionV2MinimumPhysicalTokens;
   record.selector_exact_persistent_attention_v1_maximum_physical_tokens =
-      38'976U;
+      q3x::runtime::kSelectorExactSpanAttentionV2MaximumPhysicalTokens;
   record.selector_exact_persistent_attention_v1_logical_prompt_tokens =
       40'000U;
   record.selector_exact_persistent_attention_v1_completed = true;
   record.selector_exact_persistent_attention_v1_completed_layer_count = 16U;
   record
       .selector_exact_persistent_attention_v1_physical_submission_count_per_layer =
-      3U;
-  record.selector_exact_persistent_attention_v1_physical_submission_tactics =
-      {1U, 1U, 2U};
-  record
-      .selector_exact_persistent_attention_v1_physical_submission_first_positions =
-      {0U, 512U, 1'024U};
-  record
-      .selector_exact_persistent_attention_v1_physical_submission_token_counts =
-      {512U, 512U, 38'976U};
+      kPhysicalSubmissionsPerLayer;
+  for (std::size_t span_index = 0U;
+       span_index <
+       q3x::runtime::kSelectorExactSpanAttentionV2ExpectedPhysicalSpans.size();
+       ++span_index) {
+    const auto& span = q3x::runtime::
+        kSelectorExactSpanAttentionV2ExpectedPhysicalSpans[span_index];
+    record
+        .selector_exact_persistent_attention_v1_physical_submission_tactics
+            [span_index] = span.tactic;
+    record
+        .selector_exact_persistent_attention_v1_physical_submission_first_positions
+            [span_index] = span.first_position;
+    record
+        .selector_exact_persistent_attention_v1_physical_submission_token_counts
+            [span_index] = span.token_count;
+  }
   for (std::size_t index = 0U;
        index <
        record.selector_exact_persistent_attention_v1_completed_layers.size();
@@ -1822,11 +1871,33 @@ void test_selector_exact_p40000_o16_witness(TestContext& test) {
     auto& receipt =
         record.selector_exact_persistent_attention_v1_completed_layers[index];
     receipt.layer = static_cast<std::uint32_t>(3U + 4U * index);
-    receipt.physical_submission_count = 3U;
-    receipt.physical_submission_tactics = {1U, 1U, 2U};
-    receipt.physical_submission_first_positions = {0U, 512U, 1'024U};
-    receipt.physical_submission_token_counts = {512U, 512U, 38'976U};
+    receipt.physical_submission_count = kPhysicalSubmissionsPerLayer;
+    receipt.physical_submission_tactics =
+        record
+            .selector_exact_persistent_attention_v1_physical_submission_tactics;
+    receipt.physical_submission_first_positions =
+        record
+            .selector_exact_persistent_attention_v1_physical_submission_first_positions;
+    receipt.physical_submission_token_counts =
+        record
+            .selector_exact_persistent_attention_v1_physical_submission_token_counts;
   }
+
+  const std::string expected_submission_arrays =
+      "\"selector_exact_persistent_attention_v1_physical_submission_tactics\":" +
+      expected_tactics +
+      ",\"selector_exact_persistent_attention_v1_physical_submission_first_positions\":" +
+      expected_first_positions +
+      ",\"selector_exact_persistent_attention_v1_physical_submission_token_counts\":" +
+      expected_token_counts;
+  const std::string expected_last_layer =
+      "{\"layer\":63,\"physical_submission_count\":" +
+      std::to_string(kPhysicalSubmissionsPerLayer) +
+      ",\"physical_submission_tactics\":" + expected_tactics +
+      ",\"physical_submission_first_positions\":" +
+      expected_first_positions +
+      ",\"physical_submission_token_counts\":" + expected_token_counts +
+      "}";
 
   const std::string serialized =
       server::serialize_target_prefill_witness(record);
@@ -1838,7 +1909,7 @@ void test_selector_exact_p40000_o16_witness(TestContext& test) {
           serialized.find(R"("completion":{"tokens":16})") !=
               std::string::npos &&
           serialized.find(
-              R"("attention_tactic":"selector-exact-persistent-attention-v1-whole-prompt","package_complete":true)") !=
+              R"("attention_tactic":"selector-exact-span-attention-v2-whole-prompt","package_complete":true)") !=
               std::string::npos &&
           serialized.find(
               R"("prompt_wide_p40_fp8_projection_physical_launches":10336)") !=
@@ -1846,12 +1917,8 @@ void test_selector_exact_p40000_o16_witness(TestContext& test) {
           serialized.find(
               R"("selector_exact_persistent_attention_v1_configured_internal_rows":40016,"selector_exact_persistent_attention_v1_required_steps":40015,"selector_exact_persistent_attention_v1_guard_rows":1,"selector_exact_persistent_attention_v1_arena_bytes":8641684992)") !=
               std::string::npos &&
-          serialized.find(
-              R"("selector_exact_persistent_attention_v1_physical_submission_tactics":[1,1,2],"selector_exact_persistent_attention_v1_physical_submission_first_positions":[0,512,1024],"selector_exact_persistent_attention_v1_physical_submission_token_counts":[512,512,38976])") !=
-              std::string::npos &&
-          serialized.find(
-              R"({"layer":63,"physical_submission_count":3,"physical_submission_tactics":[1,1,2],"physical_submission_first_positions":[0,512,1024],"physical_submission_token_counts":[512,512,38976]})") !=
-              std::string::npos &&
+          serialized.find(expected_submission_arrays) != std::string::npos &&
+          serialized.find(expected_last_layer) != std::string::npos &&
           serialized.find(
               R"("fp8_qkv":{"completed_production_hits":0,"completed_exact_fallback_hits":96,"completed_forbidden_hits":0})") !=
               std::string::npos &&
@@ -1881,7 +1948,7 @@ void test_selector_exact_p40000_o16_witness(TestContext& test) {
   server::TargetPrefillWitnessRecord invalid_receipt = record;
   --invalid_receipt
         .selector_exact_persistent_attention_v1_completed_layers[15U]
-        .physical_submission_token_counts[2U];
+        .physical_submission_token_counts.back();
   const std::string invalid_serialized =
       server::serialize_target_prefill_witness(invalid_receipt);
   test.expect(

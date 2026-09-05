@@ -48,6 +48,76 @@ namespace {
 thread_local bool
     g_reference_engine_prefill_compatibility_oracle_for_test = false;
 
+#if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
+[[nodiscard]] constexpr NativePrefillPhysicalSubmissionTactic
+selector_exact_native_physical_tactic(const std::uint8_t tactic) noexcept {
+  switch (tactic) {
+    case kSelectorExactSpanAttentionV2GroupQ64PhysicalTactic:
+      return NativePrefillPhysicalSubmissionTactic::kGroupQ64;
+    case kSelectorExactSpanAttentionV2PersistentGenericQt2Q8PhysicalTactic:
+      return NativePrefillPhysicalSubmissionTactic::kPersistentGenericQt2Q8;
+    case kSelectorExactSpanAttentionV2GenericQt2PhysicalTactic:
+      return NativePrefillPhysicalSubmissionTactic::kGenericQt2;
+    default:
+      return NativePrefillPhysicalSubmissionTactic::kNone;
+  }
+}
+
+[[nodiscard]] constexpr std::array<
+    NativePrefillPhysicalSubmissionReceipt,
+    kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
+make_selector_exact_span_attention_v2_native_physical_spans() noexcept {
+  std::array<NativePrefillPhysicalSubmissionReceipt,
+             kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
+      spans{};
+  for (std::size_t index = 0U;
+       index < kSelectorExactSpanAttentionV2ExpectedPhysicalSpans.size();
+       ++index) {
+    const auto& expected =
+        kSelectorExactSpanAttentionV2ExpectedPhysicalSpans[index];
+    spans[index] = {selector_exact_native_physical_tactic(expected.tactic),
+                    expected.first_position, expected.token_count};
+  }
+  return spans;
+}
+
+inline constexpr auto kSelectorExactSpanAttentionV2NativePhysicalSpans =
+    make_selector_exact_span_attention_v2_native_physical_spans();
+
+[[nodiscard]] bool selector_exact_span_attention_v2_physical_spans_match(
+    const std::array<
+        NativePrefillPhysicalSubmissionReceipt,
+        kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>&
+        spans) noexcept {
+  for (std::size_t index = 0U;
+       index < kSelectorExactSpanAttentionV2NativePhysicalSpans.size();
+       ++index) {
+    const auto& actual = spans[index];
+    const auto& expected =
+        kSelectorExactSpanAttentionV2NativePhysicalSpans[index];
+    if (actual.tactic != expected.tactic ||
+        actual.first_position != expected.first_position ||
+        actual.token_count != expected.token_count) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool selector_exact_physical_spans_empty(
+    const std::array<
+        NativePrefillPhysicalSubmissionReceipt,
+        kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>&
+        spans) noexcept {
+  return std::all_of(
+      spans.begin(), spans.end(),
+      [](const NativePrefillPhysicalSubmissionReceipt& span) noexcept {
+        return span.tactic == NativePrefillPhysicalSubmissionTactic::kNone &&
+               span.first_position == 0U && span.token_count == 0U;
+      });
+}
+#endif
+
 [[nodiscard]] BoundPrefillPlanResult plan_failure(
     const BoundPrefillPlanError error,
     const ReferenceRunnerError runner_error,
@@ -2137,7 +2207,7 @@ complete_exact_gdn_chunk64_native_inventory(
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
          : tactic == LayerMajorPrefillFullAttentionTactic::
                        kSelectorExactPersistentAttentionV1WholePrompt
-             ? 38'976U
+             ? kSelectorExactSpanAttentionV2MaximumPhysicalTokens
 #endif
          : tactic == LayerMajorPrefillFullAttentionTactic::
                        kNativeFlashInferExactWholePrompt
@@ -3251,22 +3321,22 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
             attention->q_norm.data,
             whole.full_attention.core_output_bf16.storage.device_data,
             whole.full_attention.core_output_bf16.storage.byte_size,
-            selector_exact_attention ? 512U
+            selector_exact_attention
+                ? kSelectorExactSpanAttentionV2MinimumPhysicalTokens
                                      : kLayerMajorPrefillPromptWideP40Tokens,
-            selector_exact_attention ? 38'976U
+            selector_exact_attention
+                ? kSelectorExactSpanAttentionV2MaximumPhysicalTokens
                                      : kLayerMajorPrefillPromptWideP40Tokens,
             nullptr, 0U, kLayerMajorPrefillPromptWideP40Tokens
-            , selector_exact_attention ? 3U : 1U
+            , selector_exact_attention
+                  ? kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer
+                  : 1U
         );
     if (selector_exact_attention) {
       auto& attention_receipt = roles[static_cast<std::size_t>(
           PrefillBindingRole::kExactCausalAttention)];
-      attention_receipt.physical_submissions = {{
-          {NativePrefillPhysicalSubmissionTactic::kGroupQ64, 0U, 512U},
-          {NativePrefillPhysicalSubmissionTactic::kGroupQ64, 512U, 512U},
-          {NativePrefillPhysicalSubmissionTactic::kPersistentGenericQt2Q8,
-           1'024U, 38'976U},
-      }};
+      attention_receipt.physical_submissions =
+          kSelectorExactSpanAttentionV2NativePhysicalSpans;
     }
 #else
         receipt(
@@ -3352,22 +3422,13 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
           role.physical_submission_count_per_logical_panel == 0U ||
           (role_identity == PrefillBindingRole::kExactCausalAttention &&
            role.physical_submission_count_per_logical_panel !=
-               (selector_exact_attention ? 3U : 1U)) ||
+               (selector_exact_attention
+                    ? kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer
+                    : 1U)) ||
           (selector_exact_attention &&
            role_identity == PrefillBindingRole::kExactCausalAttention &&
-           (role.physical_submissions[0U].tactic !=
-                NativePrefillPhysicalSubmissionTactic::kGroupQ64 ||
-            role.physical_submissions[0U].first_position != 0U ||
-            role.physical_submissions[0U].token_count != 512U ||
-            role.physical_submissions[1U].tactic !=
-                NativePrefillPhysicalSubmissionTactic::kGroupQ64 ||
-            role.physical_submissions[1U].first_position != 512U ||
-            role.physical_submissions[1U].token_count != 512U ||
-            role.physical_submissions[2U].tactic !=
-                NativePrefillPhysicalSubmissionTactic::
-                    kPersistentGenericQt2Q8 ||
-            role.physical_submissions[2U].first_position != 1'024U ||
-            role.physical_submissions[2U].token_count != 38'976U)) ||
+           !selector_exact_span_attention_v2_physical_spans_match(
+               role.physical_submissions)) ||
 #else
           role.maximum_physical_m > role.maximum_logical_panel_m ||
 #endif
@@ -4571,27 +4632,9 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
             .physical_submissions;
     const bool physical_attention_receipt_matches =
         selector_exact_attention
-            ? physical_attention[0U].tactic ==
-                      NativePrefillPhysicalSubmissionTactic::kGroupQ64 &&
-                  physical_attention[0U].first_position == 0U &&
-                  physical_attention[0U].token_count == 512U &&
-                  physical_attention[1U].tactic ==
-                      NativePrefillPhysicalSubmissionTactic::kGroupQ64 &&
-                  physical_attention[1U].first_position == 512U &&
-                  physical_attention[1U].token_count == 512U &&
-                  physical_attention[2U].tactic ==
-                      NativePrefillPhysicalSubmissionTactic::
-                          kPersistentGenericQt2Q8 &&
-                  physical_attention[2U].first_position == 1'024U &&
-                  physical_attention[2U].token_count == 38'976U
-            : std::all_of(
-                  physical_attention.begin(), physical_attention.end(),
-                  [](const NativePrefillPhysicalSubmissionReceipt& span) {
-                    return span.tactic ==
-                               NativePrefillPhysicalSubmissionTactic::kNone &&
-                           span.first_position == 0U &&
-                           span.token_count == 0U;
-                  });
+            ? selector_exact_span_attention_v2_physical_spans_match(
+                  physical_attention)
+            : selector_exact_physical_spans_empty(physical_attention);
 #else
     constexpr bool physical_attention_receipt_matches = true;
 #endif
@@ -4649,14 +4692,16 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
                whole.full_attention.core_output_bf16.storage.device_data,
                whole.full_attention.core_output_bf16.storage.byte_size,
                selector_exact_attention
-                   ? 512U
+                   ? kSelectorExactSpanAttentionV2MinimumPhysicalTokens
                    : kLayerMajorPrefillPromptWideP40Tokens,
                selector_exact_attention
-                   ? 38'976U
+                   ? kSelectorExactSpanAttentionV2MaximumPhysicalTokens
                    : kLayerMajorPrefillPromptWideP40Tokens,
                nullptr, 0U, kLayerMajorPrefillPromptWideP40Tokens
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
-               , selector_exact_attention ? 3U : 1U
+               , selector_exact_attention
+                     ? kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer
+                     : 1U
 #endif
                ) &&
            matches(
@@ -5596,21 +5641,14 @@ bool ReferenceEnginePrefillExecutor::completed_selector_bindings(
       bound_attention.completion !=
           NativePrefillCompletionDomain::kMainStreamBarrier ||
       bound_attention.maximum_logical_panel_m != 40'000U ||
-      bound_attention.minimum_physical_m != 512U ||
-      bound_attention.maximum_physical_m != 38'976U ||
-      bound_attention.physical_submission_count_per_logical_panel != 3U ||
-      bound_attention.physical_submissions[0U].tactic !=
-          NativePrefillPhysicalSubmissionTactic::kGroupQ64 ||
-      bound_attention.physical_submissions[0U].first_position != 0U ||
-      bound_attention.physical_submissions[0U].token_count != 512U ||
-      bound_attention.physical_submissions[1U].tactic !=
-          NativePrefillPhysicalSubmissionTactic::kGroupQ64 ||
-      bound_attention.physical_submissions[1U].first_position != 512U ||
-      bound_attention.physical_submissions[1U].token_count != 512U ||
-      bound_attention.physical_submissions[2U].tactic !=
-          NativePrefillPhysicalSubmissionTactic::kPersistentGenericQt2Q8 ||
-      bound_attention.physical_submissions[2U].first_position != 1'024U ||
-      bound_attention.physical_submissions[2U].token_count != 38'976U) {
+      bound_attention.minimum_physical_m !=
+          kSelectorExactSpanAttentionV2MinimumPhysicalTokens ||
+      bound_attention.maximum_physical_m !=
+          kSelectorExactSpanAttentionV2MaximumPhysicalTokens ||
+      bound_attention.physical_submission_count_per_logical_panel !=
+          kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer ||
+      !selector_exact_span_attention_v2_physical_spans_match(
+          bound_attention.physical_submissions)) {
     return false;
   }
   linear_qkv = bound_linear_qkv;

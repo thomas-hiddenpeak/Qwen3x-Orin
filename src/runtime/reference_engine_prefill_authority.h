@@ -103,8 +103,9 @@ enum class NativePrefillCompletionDomain : std::uint8_t {
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
 enum class NativePrefillPhysicalSubmissionTactic : std::uint8_t {
   kNone = 0,
-  kGroupQ64,
-  kPersistentGenericQt2Q8,
+  kGroupQ64 = 1,
+  kPersistentGenericQt2Q8 = 2,
+  kGenericQt2 = 3,
 };
 
 struct NativePrefillPhysicalSubmissionReceipt {
@@ -117,7 +118,8 @@ struct NativePrefillPhysicalSubmissionReceipt {
 struct NativePrefillCompletedLayerSubmissionReceipt {
   std::uint32_t layer = 0U;
   std::uint32_t physical_submission_count = 0U;
-  std::array<NativePrefillPhysicalSubmissionReceipt, 3U>
+  std::array<NativePrefillPhysicalSubmissionReceipt,
+             kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
       physical_submissions{};
 };
 #endif
@@ -138,7 +140,8 @@ struct NativePrefillRoleReceipt {
   std::uint32_t maximum_physical_m = 0U;
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
   std::uint32_t physical_submission_count_per_logical_panel = 0U;
-  std::array<NativePrefillPhysicalSubmissionReceipt, 3U>
+  std::array<NativePrefillPhysicalSubmissionReceipt,
+             kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
       physical_submissions{};
 #endif
 };
@@ -191,7 +194,8 @@ struct P40000SelectorExactPersistentAttentionV1CompletedReceipt {
   std::uint32_t logical_prompt_tokens = 0U;
   bool completed_physical_receipt = false;
   std::uint32_t completed_physical_submission_count_per_layer = 0U;
-  std::array<NativePrefillPhysicalSubmissionReceipt, 3U>
+  std::array<NativePrefillPhysicalSubmissionReceipt,
+             kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
       completed_physical_submissions{};
   std::uint32_t completed_layer_count = 0U;
   std::array<NativePrefillCompletedLayerSubmissionReceipt, 16U>

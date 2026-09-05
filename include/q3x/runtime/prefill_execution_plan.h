@@ -61,7 +61,81 @@ inline constexpr std::uint32_t
     kSelectorExactPersistentAttentionV1P40GuardRows = 1U;
 inline constexpr std::string_view
     kSelectorExactPersistentAttentionV1P40DeploymentPlanId =
-        "q3x.sm87.testing.p40000-o16.selector-exact-persistent-attention-v1";
+        "q3x.sm87.testing.p40000-o16.selector-exact-span-attention-v2";
+inline constexpr std::string_view
+    kSelectorExactSpanAttentionV2P40DeploymentPlanId =
+        kSelectorExactPersistentAttentionV1P40DeploymentPlanId;
+// The span-Attention v2 physical ledger divides each of the five M8000
+// prompt panels into fourteen C512 spans and two C416 spans.  Tactic bytes
+// remain stable across the public runner/engine/server receipts: the rejected
+// persistent-Q8 value is retained as 2, while the exact GenericQT2 span path
+// receives the new value 3.
+inline constexpr std::uint8_t
+    kSelectorExactSpanAttentionV2GroupQ64PhysicalTactic = 1U;
+inline constexpr std::uint8_t
+    kSelectorExactSpanAttentionV2PersistentGenericQt2Q8PhysicalTactic = 2U;
+inline constexpr std::uint8_t
+    kSelectorExactSpanAttentionV2GenericQt2PhysicalTactic = 3U;
+inline constexpr std::size_t
+    kSelectorExactSpanAttentionV2PhysicalSubmissionsPerPanel = 16U;
+inline constexpr std::size_t
+    kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer =
+        kLayerMajorPrefillPromptWideP40PanelCount *
+        kSelectorExactSpanAttentionV2PhysicalSubmissionsPerPanel;
+inline constexpr std::uint32_t
+    kSelectorExactSpanAttentionV2MinimumPhysicalTokens = 416U;
+inline constexpr std::uint32_t
+    kSelectorExactSpanAttentionV2MaximumPhysicalTokens = 512U;
+
+struct SelectorExactSpanAttentionV2ExpectedPhysicalSpan {
+  std::uint8_t tactic = 0U;
+  std::uint32_t first_position = 0U;
+  std::uint32_t token_count = 0U;
+};
+
+[[nodiscard]] constexpr std::array<
+    SelectorExactSpanAttentionV2ExpectedPhysicalSpan,
+    kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
+make_selector_exact_span_attention_v2_expected_physical_spans() noexcept {
+  std::array<SelectorExactSpanAttentionV2ExpectedPhysicalSpan,
+             kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
+      spans{};
+  std::size_t index = 0U;
+  for (std::size_t panel = 0U;
+       panel < kLayerMajorPrefillPromptWideP40PanelCount; ++panel) {
+    const std::uint32_t panel_first =
+        static_cast<std::uint32_t>(panel) *
+        kLayerMajorPrefillPromptWideP40PanelTokens;
+    for (std::uint32_t span = 0U; span < 14U; ++span) {
+      spans[index++] = {
+          kSelectorExactSpanAttentionV2GenericQt2PhysicalTactic,
+          panel_first + span * kPrefillPhysicalSegmentMaximumTokens,
+          kPrefillPhysicalSegmentMaximumTokens};
+    }
+    for (std::uint32_t span = 0U; span < 2U; ++span) {
+      spans[index++] = {
+          kSelectorExactSpanAttentionV2GenericQt2PhysicalTactic,
+          panel_first + 14U * kPrefillPhysicalSegmentMaximumTokens +
+              span * kSelectorExactSpanAttentionV2MinimumPhysicalTokens,
+          kSelectorExactSpanAttentionV2MinimumPhysicalTokens};
+    }
+  }
+  spans[0U].tactic = kSelectorExactSpanAttentionV2GroupQ64PhysicalTactic;
+  spans[1U].tactic = kSelectorExactSpanAttentionV2GroupQ64PhysicalTactic;
+  return spans;
+}
+
+inline constexpr auto kSelectorExactSpanAttentionV2ExpectedPhysicalSpans =
+    make_selector_exact_span_attention_v2_expected_physical_spans();
+static_assert(kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer ==
+              80U);
+static_assert(
+    kSelectorExactSpanAttentionV2ExpectedPhysicalSpans.front().first_position ==
+    0U);
+static_assert(
+    kSelectorExactSpanAttentionV2ExpectedPhysicalSpans.back().first_position +
+        kSelectorExactSpanAttentionV2ExpectedPhysicalSpans.back().token_count ==
+    kLayerMajorPrefillPromptWideP40Tokens);
 inline constexpr std::size_t
     kSelectorExactPersistentAttentionV1LinearQkvZGroupedC512LaunchesPerLayer =
         78U;
@@ -412,8 +486,8 @@ enum class LayerMajorPrefillFullAttentionTactic : std::uint8_t {
   // Complete cold P40000 Attention ownership. This is distinct from the
   // logical-panel FlashInfer tactic and cannot be selected by it implicitly.
   kNativeFlashInferExactWholePrompt,
-  // BUILD_TESTING-only P40000 whole-prompt selector: two exact GroupQ64
-  // prefix submissions followed by one persistent GenericQT2/Q8 suffix.
+  // BUILD_TESTING-only P40000 whole-prompt selector. Span-Attention v2 owns
+  // the public 5xM8000 / 80-submission physical ledger above.
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
   kSelectorExactPersistentAttentionV1WholePrompt,
 #endif
@@ -458,7 +532,7 @@ is_valid_layer_major_prefill_full_attention_tactic(
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
     case LayerMajorPrefillFullAttentionTactic::
         kSelectorExactPersistentAttentionV1WholePrompt:
-      return "selector-exact-persistent-attention-v1-whole-prompt";
+      return "selector-exact-span-attention-v2-whole-prompt";
 #endif
   }
   return "unknown";

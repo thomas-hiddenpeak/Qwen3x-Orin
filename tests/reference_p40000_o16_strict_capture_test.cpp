@@ -97,6 +97,48 @@ static_assert(
     runtime::layer_major_p40_whole_core_gqa_scratch_capacity_tokens(
         kSelectorCapacity) == kSelectorCapacity);
 
+[[nodiscard]] constexpr bool valid_span_attention_v2_ledger() noexcept {
+  const auto& spans =
+      runtime::kSelectorExactSpanAttentionV2ExpectedPhysicalSpans;
+  std::size_t index = 0U;
+  for (std::size_t panel = 0U;
+       panel < runtime::kLayerMajorPrefillPromptWideP40PanelCount; ++panel) {
+    const std::uint32_t panel_first =
+        static_cast<std::uint32_t>(
+            panel * runtime::kLayerMajorPrefillPromptWideP40PanelTokens);
+    for (std::size_t local = 0U;
+         local < runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerPanel;
+         ++local, ++index) {
+      const bool c512 = local < 14U;
+      const std::uint32_t expected_tokens =
+          c512 ? runtime::kSelectorExactSpanAttentionV2MaximumPhysicalTokens
+               : runtime::kSelectorExactSpanAttentionV2MinimumPhysicalTokens;
+      const std::uint32_t expected_first =
+          panel_first +
+          (c512 ? static_cast<std::uint32_t>(local) * expected_tokens
+                : 14U *
+                          runtime::
+                              kSelectorExactSpanAttentionV2MaximumPhysicalTokens +
+                      static_cast<std::uint32_t>(local - 14U) *
+                          expected_tokens);
+      const std::uint8_t expected_tactic =
+          index < 2U
+              ? runtime::kSelectorExactSpanAttentionV2GroupQ64PhysicalTactic
+              : runtime::kSelectorExactSpanAttentionV2GenericQt2PhysicalTactic;
+      if (index >= spans.size() || spans[index].tactic != expected_tactic ||
+          spans[index].first_position != expected_first ||
+          spans[index].token_count != expected_tokens) {
+        return false;
+      }
+    }
+  }
+  return index == spans.size();
+}
+
+static_assert(runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer ==
+              80U);
+static_assert(valid_span_attention_v2_ledger());
+
 struct CheckpointFileContract {
   std::string_view relative_path;
   std::uint64_t bytes = 0U;
@@ -1270,35 +1312,30 @@ bool exact_operator_counts(const runtime::PrefillRouteEvidence& evidence,
 bool valid_selector_span(
     const engine_detail::NativePrefillPhysicalSubmissionReceipt& span,
     const std::size_t index) noexcept {
-  if (index == 0U || index == 1U) {
-    return span.tactic ==
-               engine_detail::NativePrefillPhysicalSubmissionTactic::
-                   kGroupQ64 &&
-           span.first_position == index * 512U && span.token_count == 512U;
+  if (index >=
+      runtime::kSelectorExactSpanAttentionV2ExpectedPhysicalSpans.size()) {
+    return false;
   }
-  return index == 2U &&
-         span.tactic == engine_detail::NativePrefillPhysicalSubmissionTactic::
-                            kPersistentGenericQt2Q8 &&
-         span.first_position == 1'024U && span.token_count == 38'976U;
+  const auto& expected =
+      runtime::kSelectorExactSpanAttentionV2ExpectedPhysicalSpans[index];
+  return static_cast<std::uint8_t>(span.tactic) == expected.tactic &&
+         span.first_position == expected.first_position &&
+         span.token_count == expected.token_count;
 }
 
 bool valid_selector_span(
     const runner_detail::
         SelectorExactPersistentAttentionV1PhysicalSubmissionReceipt& span,
     const std::size_t index) noexcept {
-  if (index == 0U || index == 1U) {
-    return span.tactic ==
-               runner_detail::
-                   SelectorExactPersistentAttentionV1PhysicalSubmissionTactic::
-                       kGroupQ64 &&
-           span.first_position == index * 512U && span.token_count == 512U;
+  if (index >=
+      runtime::kSelectorExactSpanAttentionV2ExpectedPhysicalSpans.size()) {
+    return false;
   }
-  return index == 2U &&
-         span.tactic ==
-             runner_detail::
-                 SelectorExactPersistentAttentionV1PhysicalSubmissionTactic::
-                     kPersistentGenericQt2Q8 &&
-         span.first_position == 1'024U && span.token_count == 38'976U;
+  const auto& expected =
+      runtime::kSelectorExactSpanAttentionV2ExpectedPhysicalSpans[index];
+  return static_cast<std::uint8_t>(span.tactic) == expected.tactic &&
+         span.first_position == expected.first_position &&
+         span.token_count == expected.token_count;
 }
 
 bool empty_native_span(
@@ -1511,7 +1548,7 @@ bool valid_selector_generation(
   if (generation.prefill_execution_mode !=
           runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor ||
       generation.prefill_deployment_plan_id !=
-          runtime::kSelectorExactPersistentAttentionV1P40DeploymentPlanId ||
+          runtime::kSelectorExactSpanAttentionV2P40DeploymentPlanId ||
       generation.requested_prefill_chunk_size != 512U ||
       generation.effective_prefill_chunk_size != 512U ||
       !generation.all_prompt_tokens_prefilled_by_tiles ||
@@ -1544,7 +1581,7 @@ bool valid_selector_generation(
       generation.prefill_prompt_wide_p40_bf16_ab_hits != 48U ||
       generation.prefill_prompt_wide_p40_gdn_hits != 48U ||
       generation.prefill_selector_exact_persistent_attention_v1_plan_id !=
-          runtime::kSelectorExactPersistentAttentionV1P40DeploymentPlanId ||
+          runtime::kSelectorExactSpanAttentionV2P40DeploymentPlanId ||
       generation
               .prefill_selector_exact_persistent_attention_v1_configured_internal_rows !=
           kSelectorCapacity ||
@@ -1570,21 +1607,22 @@ bool valid_selector_generation(
           1'248U ||
       generation
               .prefill_selector_exact_persistent_attention_v1_generic_q8_suffix_submissions !=
-          16U ||
+          0U ||
       generation
               .prefill_selector_exact_persistent_attention_v1_fallback_submissions !=
           0U ||
       generation.prefill_selector_exact_persistent_attention_v1_persistent_ctas !=
-          256U ||
+          0U ||
       generation
               .prefill_selector_exact_persistent_attention_v1_physical_submissions !=
-          48U ||
+          kFullAttentionLayerCount *
+              runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer ||
       generation
               .prefill_selector_exact_persistent_attention_v1_minimum_physical_tokens !=
-          512U ||
+          runtime::kSelectorExactSpanAttentionV2MinimumPhysicalTokens ||
       generation
               .prefill_selector_exact_persistent_attention_v1_maximum_physical_tokens !=
-          38'976U ||
+          runtime::kSelectorExactSpanAttentionV2MaximumPhysicalTokens ||
       generation
               .prefill_selector_exact_persistent_attention_v1_logical_prompt_tokens !=
           kPromptTokens ||
@@ -1594,7 +1632,7 @@ bool valid_selector_generation(
           16U ||
       generation
               .prefill_selector_exact_persistent_attention_v1_physical_submission_count_per_layer !=
-          3U ||
+          runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer ||
       private_receipt.linear_qkvz_grouped_c512_submissions !=
           runtime::
               kSelectorExactPersistentAttentionV1LinearQkvZGroupedC512LaunchesPerRequest ||
@@ -1662,33 +1700,44 @@ bool valid_selector_generation(
       receipt.required_steps != kRequiredSteps || receipt.guard_rows != 1U ||
       receipt.arena_bytes != kSelectorArenaBytes ||
       receipt.logical_panel_count != 1U ||
-      receipt.completed_physical_submissions_per_full_attention_layer != 3U ||
-      receipt.completed_physical_submissions_total != 48U ||
+      receipt.completed_physical_submissions_per_full_attention_layer !=
+          runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer ||
+      receipt.completed_physical_submissions_total !=
+          kFullAttentionLayerCount *
+              runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer ||
       receipt.full_attention_layer_hits != 16U ||
       receipt.panel_calls != 16U || receipt.arithmetic_spans != 1'280U ||
       receipt.group_q64_submissions != 32U ||
       receipt.generic_qt2_spans != 1'248U ||
-      receipt.generic_q8_suffix_submissions != 16U ||
+      receipt.generic_q8_suffix_submissions != 0U ||
       receipt.fallback_submissions != 0U ||
-      receipt.persistent_ctas != 256U ||
-      receipt.physical_submissions != 48U ||
-      receipt.minimum_physical_tokens != 512U ||
-      receipt.maximum_physical_tokens != 38'976U ||
+      receipt.persistent_ctas != 0U ||
+      receipt.physical_submissions !=
+          kFullAttentionLayerCount *
+              runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer ||
+      receipt.minimum_physical_tokens !=
+          runtime::kSelectorExactSpanAttentionV2MinimumPhysicalTokens ||
+      receipt.maximum_physical_tokens !=
+          runtime::kSelectorExactSpanAttentionV2MaximumPhysicalTokens ||
       receipt.logical_prompt_tokens != kPromptTokens ||
-      receipt.completed_physical_submission_count_per_layer != 3U ||
+      receipt.completed_physical_submission_count_per_layer !=
+          runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer ||
       receipt.completed_layer_count != 16U ||
       private_receipt.panel_calls != 16U ||
       private_receipt.arithmetic_spans != 1'280U ||
       private_receipt.group_q64_submissions != 32U ||
       private_receipt.generic_qt2_spans != 1'248U ||
-      private_receipt.generic_q8_suffix_submissions != 16U ||
+      private_receipt.generic_q8_suffix_submissions != 0U ||
       private_receipt.fallback_submissions != 0U ||
-      private_receipt.persistent_ctas != 256U ||
-      private_receipt.minimum_physical_submission_tokens != 512U ||
-      private_receipt.maximum_physical_submission_tokens != 38'976U ||
+      private_receipt.persistent_ctas != 0U ||
+      private_receipt.minimum_physical_submission_tokens !=
+          runtime::kSelectorExactSpanAttentionV2MinimumPhysicalTokens ||
+      private_receipt.maximum_physical_submission_tokens !=
+          runtime::kSelectorExactSpanAttentionV2MaximumPhysicalTokens ||
       private_receipt.maximum_logical_panel_tokens != kPromptTokens ||
       !private_receipt.completed_physical_receipt ||
-      private_receipt.physical_submission_count_per_panel != 3U ||
+      private_receipt.physical_submission_count_per_panel !=
+          runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer ||
       private_receipt.issued_layer_count != 16U ||
       private_receipt.completed_layer_count != 16U ||
       !valid_selector_linear_qkvz_binding(
@@ -1750,13 +1799,18 @@ bool valid_selector_generation(
       receipt.bound_attention_role.completion !=
           engine_detail::NativePrefillCompletionDomain::kMainStreamBarrier ||
       receipt.bound_attention_role.maximum_logical_panel_m != kPromptTokens ||
-      receipt.bound_attention_role.minimum_physical_m != 512U ||
-      receipt.bound_attention_role.maximum_physical_m != 38'976U ||
-      receipt.bound_attention_role.physical_submission_count_per_logical_panel !=
-          3U) {
+      receipt.bound_attention_role.minimum_physical_m !=
+          runtime::kSelectorExactSpanAttentionV2MinimumPhysicalTokens ||
+      receipt.bound_attention_role.maximum_physical_m !=
+          runtime::kSelectorExactSpanAttentionV2MaximumPhysicalTokens ||
+      receipt.bound_attention_role
+              .physical_submission_count_per_logical_panel !=
+          runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer) {
     return false;
   }
-  for (std::size_t span = 0U; span < 3U; ++span) {
+  for (std::size_t span = 0U;
+       span < runtime::kSelectorExactSpanAttentionV2ExpectedPhysicalSpans.size();
+       ++span) {
     if (!valid_selector_span(receipt.bound_attention_role.physical_submissions[span],
                              span) ||
         !valid_selector_span(receipt.completed_physical_submissions[span],
@@ -1796,14 +1850,20 @@ bool valid_selector_generation(
     const auto& public_completed = generation
         .prefill_selector_exact_persistent_attention_v1_completed_layers[index];
     if (completed.layer != 3U + 4U * index ||
-        completed.physical_submission_count != 3U ||
+        completed.physical_submission_count !=
+            runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer ||
         private_completed.layer != completed.layer ||
-        private_completed.physical_submission_count != 3U ||
+        private_completed.physical_submission_count !=
+            runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer ||
         public_completed.layer != completed.layer ||
-        public_completed.physical_submission_count != 3U) {
+        public_completed.physical_submission_count !=
+            runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer) {
       return false;
     }
-    for (std::size_t span = 0U; span < 3U; ++span) {
+    for (std::size_t span = 0U;
+         span <
+         runtime::kSelectorExactSpanAttentionV2ExpectedPhysicalSpans.size();
+         ++span) {
       if (!valid_selector_span(completed.physical_submissions[span], span) ||
           !valid_selector_span(private_completed.physical_submissions[span],
                                span) ||
@@ -1978,7 +2038,9 @@ bool empty_selector_generation_receipt(
       private_receipt.completed_layer_count != 0U) {
     return false;
   }
-  for (std::size_t span = 0U; span < 3U; ++span) {
+  for (std::size_t span = 0U;
+       span < runtime::kSelectorExactSpanAttentionV2ExpectedPhysicalSpans.size();
+       ++span) {
     if (generation
                 .prefill_selector_exact_persistent_attention_v1_physical_submission_tactics
                     [span] != 0U ||
@@ -2008,7 +2070,10 @@ bool empty_selector_generation_receipt(
         private_layer.physical_submission_count != 0U) {
       return false;
     }
-    for (std::size_t span = 0U; span < 3U; ++span) {
+    for (std::size_t span = 0U;
+         span <
+         runtime::kSelectorExactSpanAttentionV2ExpectedPhysicalSpans.size();
+         ++span) {
       if (public_layer.physical_submission_tactics[span] != 0U ||
           public_layer.physical_submission_first_positions[span] != 0U ||
           public_layer.physical_submission_token_counts[span] != 0U ||
@@ -2553,6 +2618,8 @@ const char* span_tactic(
     case engine_detail::NativePrefillPhysicalSubmissionTactic::
         kPersistentGenericQt2Q8:
       return "persistent-generic-qt2-q8";
+    case engine_detail::NativePrefillPhysicalSubmissionTactic::kGenericQt2:
+      return "generic-qt2";
     case engine_detail::NativePrefillPhysicalSubmissionTactic::kNone:
       return "none";
   }
@@ -2602,7 +2669,7 @@ SelectorTotals private_selector_totals(
           receipt.fallback_submissions,
           receipt.persistent_ctas,
           receipt.group_q64_submissions +
-              receipt.generic_q8_suffix_submissions,
+              receipt.generic_qt2_spans,
           receipt.minimum_physical_submission_tokens,
           receipt.maximum_physical_submission_tokens,
           receipt.maximum_logical_panel_tokens};
@@ -2661,7 +2728,7 @@ const char* attention_tactic_string(
       return "legacy-c512-exact";
     case engine_detail::NativePrefillTactic::
         kSelectorExactPersistentAttentionV1WholePrompt:
-      return "selector-exact-persistent-attention-v1-whole-prompt";
+      return "selector-exact-span-attention-v2-whole-prompt";
     default:
       return "invalid";
   }
@@ -3168,7 +3235,7 @@ void write_profile(std::ostream& output, const bool selector) {
          << ",\"deployment_plan_id\":";
   write_json_string(
       output, selector
-                  ? runtime::kSelectorExactPersistentAttentionV1P40DeploymentPlanId
+                  ? runtime::kSelectorExactSpanAttentionV2P40DeploymentPlanId
                   : std::string_view{});
   output << ",\"ordinary_profile_id\":";
   write_json_string(output, selector ? std::string_view{}

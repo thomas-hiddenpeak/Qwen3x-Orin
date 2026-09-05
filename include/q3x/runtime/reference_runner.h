@@ -390,14 +390,21 @@ static_assert(
 
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
 // Candidate-profile public completion evidence. Tactics are typed as
-// 1=GroupQ64 and 2=PersistentGenericQT2Q8. Every entry is populated from the
-// corresponding launcher receipt and is published only after stream sync.
+// 1=GroupQ64, 2=PersistentGenericQT2Q8 (retired v1), and 3=GenericQT2.
+// Every entry is populated from the corresponding launcher receipt and is
+// published only after stream sync.
 struct ReferenceP40000SelectorCompletedLayerReceipt {
   std::uint32_t layer = 0U;
   std::uint32_t physical_submission_count = 0U;
-  std::array<std::uint8_t, 3U> physical_submission_tactics{};
-  std::array<std::uint32_t, 3U> physical_submission_first_positions{};
-  std::array<std::uint32_t, 3U> physical_submission_token_counts{};
+  std::array<std::uint8_t,
+             kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
+      physical_submission_tactics{};
+  std::array<std::uint32_t,
+             kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
+      physical_submission_first_positions{};
+  std::array<std::uint32_t,
+             kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
+      physical_submission_token_counts{};
 };
 #endif
 
@@ -483,13 +490,16 @@ struct ReferenceWholeRequestPrefillResult {
   std::uint32_t
       selector_exact_persistent_attention_v1_physical_submission_count_per_layer =
           0U;
-  // 1=GroupQ64, 2=PersistentGenericQT2Q8. Values are candidate-private and
+  // Tactic bytes follow the public span-Attention-v2 physical ledger. Values
   // are copied from completed launcher receipts, not inferred from admission.
-  std::array<std::uint8_t, 3U>
+  std::array<std::uint8_t,
+             kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
       selector_exact_persistent_attention_v1_physical_submission_tactics{};
-  std::array<std::uint32_t, 3U>
+  std::array<std::uint32_t,
+             kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
       selector_exact_persistent_attention_v1_physical_submission_first_positions{};
-  std::array<std::uint32_t, 3U>
+  std::array<std::uint32_t,
+             kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
       selector_exact_persistent_attention_v1_physical_submission_token_counts{};
   std::uint32_t
       selector_exact_persistent_attention_v1_completed_layer_count = 0U;

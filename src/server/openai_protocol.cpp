@@ -340,12 +340,33 @@ void append_prefill_route_evidence(
 }
 
 #if defined(Q3X_ENABLE_SELECTOR_EXACT_PERSISTENT_ATTENTION_V1_P40_TESTING)
-inline constexpr std::array<std::uint8_t, 3U>
-    kSelectorExactP40000SubmissionTactics{{1U, 1U, 2U}};
-inline constexpr std::array<std::uint32_t, 3U>
-    kSelectorExactP40000SubmissionFirstPositions{{0U, 512U, 1'024U}};
-inline constexpr std::array<std::uint32_t, 3U>
-    kSelectorExactP40000SubmissionTokenCounts{{512U, 512U, 38'976U}};
+[[nodiscard]] bool selector_exact_p40000_physical_spans_match(
+    const std::array<
+        std::uint8_t,
+        runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>&
+        tactics,
+    const std::array<
+        std::uint32_t,
+        runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>&
+        first_positions,
+    const std::array<
+        std::uint32_t,
+        runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>&
+        token_counts) noexcept {
+  for (std::size_t index = 0U;
+       index <
+       runtime::kSelectorExactSpanAttentionV2ExpectedPhysicalSpans.size();
+       ++index) {
+    const auto& expected =
+        runtime::kSelectorExactSpanAttentionV2ExpectedPhysicalSpans[index];
+    if (tactics[index] != expected.tactic ||
+        first_positions[index] != expected.first_position ||
+        token_counts[index] != expected.token_count) {
+      return false;
+    }
+  }
+  return true;
+}
 
 [[nodiscard]] bool selector_exact_p40000_route_counts_complete(
     const runtime::PrefillRouteEvidence& evidence) noexcept {
@@ -380,14 +401,14 @@ inline constexpr std::array<std::uint32_t, 3U>
               .size() ||
       record
               .selector_exact_persistent_attention_v1_physical_submission_count_per_layer !=
-          kSelectorExactP40000SubmissionTactics.size() ||
-      record.selector_exact_persistent_attention_v1_physical_submission_tactics !=
-          kSelectorExactP40000SubmissionTactics ||
-      record
-              .selector_exact_persistent_attention_v1_physical_submission_first_positions !=
-          kSelectorExactP40000SubmissionFirstPositions ||
-      record.selector_exact_persistent_attention_v1_physical_submission_token_counts !=
-          kSelectorExactP40000SubmissionTokenCounts) {
+          runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer ||
+      !selector_exact_p40000_physical_spans_match(
+          record
+              .selector_exact_persistent_attention_v1_physical_submission_tactics,
+          record
+              .selector_exact_persistent_attention_v1_physical_submission_first_positions,
+          record
+              .selector_exact_persistent_attention_v1_physical_submission_token_counts)) {
     return false;
   }
   for (std::size_t index = 0U;
@@ -398,13 +419,11 @@ inline constexpr std::array<std::uint32_t, 3U>
         record.selector_exact_persistent_attention_v1_completed_layers[index];
     if (receipt.layer != 3U + 4U * index ||
         receipt.physical_submission_count !=
-            kSelectorExactP40000SubmissionTactics.size() ||
-        receipt.physical_submission_tactics !=
-            kSelectorExactP40000SubmissionTactics ||
-        receipt.physical_submission_first_positions !=
-            kSelectorExactP40000SubmissionFirstPositions ||
-        receipt.physical_submission_token_counts !=
-            kSelectorExactP40000SubmissionTokenCounts) {
+            runtime::kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer ||
+        !selector_exact_p40000_physical_spans_match(
+            receipt.physical_submission_tactics,
+            receipt.physical_submission_first_positions,
+            receipt.physical_submission_token_counts)) {
       return false;
     }
   }
@@ -460,7 +479,7 @@ void append_selector_exact_p40000_o16_prefill_witness(
   append_json_string(output, "prompt-wide-p40-whole-core");
   output += ",\"attention_tactic\":";
   append_json_string(
-      output, "selector-exact-persistent-attention-v1-whole-prompt");
+      output, "selector-exact-span-attention-v2-whole-prompt");
   output += ",\"package_complete\":";
   output += package_complete ? "true" : "false";
   output +=
@@ -1742,16 +1761,16 @@ std::string serialize_target_prefill_witness(
           1'248U &&
       record
               .selector_exact_persistent_attention_v1_generic_q8_suffix_submissions ==
-          16U &&
+          0U &&
       record.selector_exact_persistent_attention_v1_fallback_submissions ==
           0U &&
-      record.selector_exact_persistent_attention_v1_persistent_ctas == 256U &&
+      record.selector_exact_persistent_attention_v1_persistent_ctas == 0U &&
       record.selector_exact_persistent_attention_v1_physical_submissions ==
-          48U &&
+          1'280U &&
       record.selector_exact_persistent_attention_v1_minimum_physical_tokens ==
-          512U &&
+          runtime::kSelectorExactSpanAttentionV2MinimumPhysicalTokens &&
       record.selector_exact_persistent_attention_v1_maximum_physical_tokens ==
-          38'976U &&
+          runtime::kSelectorExactSpanAttentionV2MaximumPhysicalTokens &&
       record.selector_exact_persistent_attention_v1_logical_prompt_tokens ==
           40'000U &&
       record.selector_exact_persistent_attention_v1_completed &&

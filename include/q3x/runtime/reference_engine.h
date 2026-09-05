@@ -511,11 +511,14 @@ struct ReferenceGeneration {
   std::uint32_t
       prefill_selector_exact_persistent_attention_v1_physical_submission_count_per_layer =
           0U;
-  std::array<std::uint8_t, 3U>
+  std::array<std::uint8_t,
+             kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
       prefill_selector_exact_persistent_attention_v1_physical_submission_tactics{};
-  std::array<std::uint32_t, 3U>
+  std::array<std::uint32_t,
+             kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
       prefill_selector_exact_persistent_attention_v1_physical_submission_first_positions{};
-  std::array<std::uint32_t, 3U>
+  std::array<std::uint32_t,
+             kSelectorExactSpanAttentionV2PhysicalSubmissionsPerLayer>
       prefill_selector_exact_persistent_attention_v1_physical_submission_token_counts{};
   std::array<ReferenceP40000SelectorCompletedLayerReceipt, 16U>
       prefill_selector_exact_persistent_attention_v1_completed_layers{};
