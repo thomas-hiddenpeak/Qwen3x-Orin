@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-09-01
+  last_reviewed: 2026-09-05
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -123,6 +123,21 @@ non-authoritative elapsed direction are not promoted. This complete negative
 composition ends v1 without a profiler extension. Exact identities and claim
 limits are frozen in the
 [`selector v1 rejection record`](metadata/qwen36-27b-selector-exact-persistent-attention-v1-rejection-2026-08-27.json).
+
+The later owner-directed correctness follow-up does not reopen that lineage.
+It fixed the actual P40000/O16 state/capacity/receipt defects, passed the
+complete strict state/logit/token/text oracle, and returned the corrected
+test-only artifact to one cold/no-cache streaming OpenAI API request. The
+request and v17 route witness passed, but pure Prefill fell to 27.961188 tok/s:
+51.1431% below the frozen ordinary exact P40000/O16 observation and 14.0482x
+slower than the historical v10 direction. The raw monitor's only rejection
+was the protected Codex app-server control process; a non-destructive derived
+classification preserves that raw result and confirms owned-GPU, safety,
+route, output, and cleanup authority for the ordinary direction decision.
+This gross product-path loss closes the corrected selector v1 branch without
+repetition or profiling and sends no code to main. The exact boundary is
+frozen in the
+[`corrected selector API performance rejection`](metadata/qwen36-27b-selector-exact-persistent-attention-v1-api-performance-rejection-2026-09-03.json).
 
 Inside every Prefill architecture candidate, the work order is also fixed:
 
@@ -255,9 +270,11 @@ into the sealed ordinary profile. It retains both proven Decode coupled-feed
 and consumer-order layouts as ordinary defaults, while explicitly rejecting
 the split-KV Decode selector after its S65 BF16 boundary oracle differed from
 the exact fallback. The attempted P40 selector/whole-core v1 composition has
-now returned a valid full-model numerical and behavioral rejection, so it is
-not repaired, profiled, or promoted in place. The next P0 inside P3 is the
-current-main resumption of the already tracked
+returned a valid full-model numerical and behavioral rejection. A later
+test-only correction repaired those actual errors, passed the strict
+P40000/O16 oracle and real API contract, then failed the performance return at
+27.961188 tok/s. It is therefore neither repeated, profiled, nor promoted.
+The next P0 inside P3 remains the current-main resumption of the already tracked
 `AC-PREFILL-SM87-AOT-SYSTEM-v1`, beginning with the mathematical ledger's
 real-P40 exact arithmetic-class gate before any additional CUDA mapping.
 
@@ -307,9 +324,11 @@ qualification by assumption.
 That recovery sequence has now reached its whole-product stop gate. The
 selector-exact persistent-Attention v1 composition completed a valid fresh
 P40000/O16 comparison and failed the exact state/logit/token/text contract.
-It is closed without another full-model cell or diagnostic profile. The
-active successor is not selector v2 or an Attention parameter scan; it is the
-existing default-off `AC-PREFILL-SM87-AOT-SYSTEM-v1`, whose authenticated
+The corrective branch later passed that exact scope and one real API request,
+but its 51.1431% throughput regression against the ordinary exact observation
+closes the same lineage without another full-model cell or diagnostic profile.
+The active successor is not selector v2 or an Attention parameter scan; it is
+the existing default-off `AC-PREFILL-SM87-AOT-SYSTEM-v1`, whose authenticated
 real-checkpoint preparation and layer-0 M192 Gate+Up/Down oracle are retained
 as bounded prerequisites rather than whole-model authority.
 

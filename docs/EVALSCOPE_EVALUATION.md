@@ -6,7 +6,7 @@ q3x_document:
   owner: evaluation-maintainers
   authority: external API evaluation protocol, metric semantics, and artifact requirements
   effective: 2026-08-09
-  last_reviewed: 2026-08-27
+  last_reviewed: 2026-09-05
   supersedes: []
   superseded_by: []
   ssot_for: EvalScope and target-length external evaluation procedure
@@ -975,6 +975,65 @@ numerical/state/SASS qualification, P60, or P130. The route remains default-
 off, accuracy-unqualified, and non-production. Exact hashes, preflights,
 counters, metrics, and cleanup facts are frozen in the
 [v15 rejection record](metadata/qwen36-27b-prefill-p40k-vllm-marlin-parity-rejection-2026-08-11.json).
+
+### Completed v17 corrected selector-exact P40000/O16 API rejection
+
+`target-prefill-witness-v17` is reserved for the corrected, test-only
+selector-exact persistent-Attention v1 P40000/O16 route. It cannot deserialize
+as or borrow authority from v10--v16. A conforming record requires the
+separately named
+`qwen3x-eval-server-selector-exact-p40000-o16-test` artifact, explicit
+`--development-route selector-exact-p40000-o16`, and DeploymentPlan
+`q3x.sm87.testing.p40000-o16.selector-exact-persistent-attention-v1`.
+The artifact is `BUILD_TESTING=ON`, has no installation rule, accepts only the
+fixed P40000/O16/P40016/C512/8,641,684,992-byte profile, and rejects ambient
+`Q3X_*` controls or individual profile overrides. Version 17 is therefore an
+architecture-correction direction witness, never a release or production
+identity.
+
+Before timing, the exact artifact must pass the strict P40000/O16 live-state,
+logit, token, and text comparison against the Legacy exact generation route.
+The v17 request then uses the frozen 40,000 token-ID prompt, 16 greedy streamed
+tokens, concurrency one, no warmup, and one direct OpenAI-compatible
+`POST /v1/completions`. A dedicated client is allowed instead of EvalScope
+only when it preserves the same JSON serialization and additionally retains
+the raw SSE stream, exact 16 choice events, one usage event, one `[DONE]`,
+`finish_reason=length`, response ID, request hash, and first non-empty choice
+timestamp. Health/model GETs do not count as model requests.
+
+The route witness must attest one 64-layer pass; 320 fill, 64 core, 320 drain,
+and 64 MLP phases; 768 bounded-window retirements; 1,040 logical and 10,336
+physical FP8 launches; 48 BF16 A/B and 48 GDN hits; and 16 completed selector
+Attention layers. The selector ledger requires 32 grouped-Q64 submissions,
+1,248 generic-QT2 spans, 16 exact suffix submissions, 48 physical submissions,
+256 persistent CTAs, and zero selector fallback. All forbidden Prefix-cache,
+MTP, cuBLASLt, external-reference, and approximate-route counters remain zero.
+The exact non-Attention operator fallback receipts stay explicit; version 17
+does not relabel them as production kernels.
+
+The completed request passed HTTP, SSE, usage, output, full-prompt, witness,
+cache-drop, device-ownership, hardware-attribution, shutdown, port, and
+post-exit resource checks. It reported 1,430,589.247472 ms client TTFT and
+1,430,554.392873 ms server pure Prefill, or 27.961188 prompt tok/s. The
+generated text and all 16 token IDs match the strict oracle. Against the
+frozen ordinary exact P40000/O16 observation at 57.230764 tok/s, this is a
+51.1431% throughput regression and a 2.0468x pure-Prefill latency ratio; it is
+14.0482x slower than the historical accuracy-unqualified v10 direction.
+This gross real-API loss closes the corrected selector v1 artifact without a
+repeat, profiler capture, P60/P130 extension, or mainline promotion.
+
+The immutable raw result says `accepted=false` because the generic continuous
+CPU monitor reported only the active
+`codex -c features.code_mode_host=true app-server --listen unix://` recovery
+and control process above its local threshold. Do not rewrite that source.
+For this ordinary engineering direction, a separate derived record classifies
+that exact process as supporting context because the only GPU device holder is
+the owned server and no scanner, safety, actual downclock/throttle, thermal,
+over-current, or cleanup failure occurred. That derived classification grants
+direction-decision authority only; it does not create release-grade absolute
+timing or permit an arbitrary process or foreign GPU holder. Exact hashes and
+the raw/derived boundary are frozen in the
+[`corrected selector API performance rejection`](metadata/qwen36-27b-selector-exact-persistent-attention-v1-api-performance-rejection-2026-09-03.json).
 
 The first WP-V2-C1-v3 direction reused the exact v10 host schedule and route
 counters through a binary-pinned, default-off overlay; the binary hash, not a

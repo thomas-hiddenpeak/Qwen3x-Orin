@@ -145,6 +145,20 @@ unmerged, default-off, and non-production. This result closes that architecture
 version and returns P3 to the existing `AC-PREFILL-SM87-AOT-SYSTEM-v1`
 whole-system work rather than another Attention variant.
 
+The owner-directed corrective closeout is frozen separately in
+[`qwen36-27b-selector-exact-persistent-attention-v1-api-performance-rejection-2026-09-03.json`](qwen36-27b-selector-exact-persistent-attention-v1-api-performance-rejection-2026-09-03.json).
+It preserves the original mismatching artifact above, then records the later
+`ff7f374` strict P40000/O16 state/logit/token/text pass and the exact tracked
+test-only API source at `bc3869b`. One cold/no-cache streaming OpenAI request
+passed output, usage, route, cache, ownership, hardware, and cleanup gates but
+reached only 27.961188 pure-Prefill tok/s: 51.1431% below the frozen ordinary
+exact P40000/O16 observation and 14.0482x slower than historical v10. The raw
+result remains `accepted=false` solely because the generic CPU monitor counted
+the protected Codex app-server control path; the hash-frozen derived record
+separates that context from intact GPU ownership and safety. This result
+rejects the corrected selector branch without repetition, profiling, merge,
+release, or production authority.
+
 The first real-checkpoint preparation of the default-off SM87 whole-system AOT
 candidate is frozen in
 [`qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12.json`](qwen36-27b-sm87-target-aot-real-checkpoint-preparation-2026-08-12.json).

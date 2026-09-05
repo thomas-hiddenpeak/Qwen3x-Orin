@@ -1,0 +1,309 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen36-27b-selector-exact-persistent-attention-v1-api-performance-rejection-2026-09-03",
+  "measured_at_utc": {
+    "start": "2026-09-02T17:00:05.643019+00:00",
+    "completion": "2026-09-02T17:24:44.433899+00:00"
+  },
+  "measured_at_local_date": "2026-09-03",
+  "reviewed_at_local_date": "2026-09-05",
+  "timezone": "Asia/Shanghai",
+  "classification": "real-api-candidate-direction-performance-rejection",
+  "decision_unit": {
+    "type": "architecture_candidate_correction_closeout",
+    "id": "selector-exact-persistent-attention-v1-p40000-o16",
+    "authority": "one cold no-cache real OpenAI API direction screen",
+    "production_or_release_authority": false
+  },
+  "product_constraint": {
+    "workload": "real pinned Qwen3.6-27B NVFP4 P40000/O16 OpenAI completions request",
+    "originating_gap": "ordinary exact P40000 Prefill remained far below the locked product target after the original selector v1 composition failed correctness",
+    "downward_contract": "repair actual numerical and capacity errors, prove the complete generation route, then reject immediately if the corrected real API direction is not positive",
+    "api_return_point": "one streaming POST /v1/completions through the test-only corrected selector route"
+  },
+  "lineage": {
+    "predecessor_record": "qwen36-27b-selector-exact-persistent-attention-v1-rejection-2026-08-27",
+    "predecessor_artifact_result": "valid_mismatch",
+    "predecessor_remains_valid_for_its_exact_artifact": true,
+    "correction_result": "the later branch repairs the observed P40000/O16 live-state, logit, token, and text mismatch before performance is read",
+    "supersession_scope": "this record closes only the corrected artifact and does not rewrite the predecessor measurement"
+  },
+  "candidate_identity": {
+    "branch": "codex/v10-correctness-fix-20260902",
+    "measurement_parent_commit": "ff7f374c3c410caa7b7a980b2cc7dd68673885f8",
+    "measurement_parent_tree": "edbf55398252a0bc494477299ad213cad99ac6e3",
+    "measurement_worktree_diff_sha256": "10a63d647a018102c76aa7c1cc260ffc30822e03242773659dbeebcc7595433c",
+    "tracked_candidate_commit": "bc3869b5a04b49e4124fce51a209a3a05e986808",
+    "tracked_candidate_tree": "c2da8c15f126bf74d610eb4bddefc4e15235943f",
+    "tracked_parent_to_candidate_diff_sha256": "10a63d647a018102c76aa7c1cc260ffc30822e03242773659dbeebcc7595433c",
+    "measurement_source_exactly_matches_tracked_candidate": true,
+    "ordinary_main_commit_during_closeout": "1688f50ecc46e6e7c5696bcae541593c1aed6e2f",
+    "ordinary_main_changed": false,
+    "merge_disposition": "rejected-do-not-merge"
+  },
+  "controlled_artifact": {
+    "binary": "qwen3x-eval-server-selector-exact-p40000-o16-test",
+    "build_type": "Release",
+    "cuda_architecture": 87,
+    "build_testing": true,
+    "test_only": true,
+    "installed": false,
+    "route_acknowledgement": "selector-exact-p40000-o16",
+    "deployment_plan": "q3x.sm87.testing.p40000-o16.selector-exact-persistent-attention-v1",
+    "elf_bytes": 12678016,
+    "elf_sha256": "3cc440f38f014bb72c82df5bb414c7b31299a1753c5b20a06a2add239a7e67e3",
+    "elf_build_id": "4a2d82a43a753fadfe02a976e7b2d2c5ef619b02",
+    "cmake_cache_sha256": "0d3b39069f3fce6e1241e05923b29ea52df491699c82215d19071dd6a3e3f780",
+    "compile_commands_sha256": "eee3d1c67cddea96c754d20f5c4406fd62cb39a873e3da15aa2f3a3f19e77244",
+    "source_and_binary_stable_during_request": true
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "hf_quant_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "model_index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "access": "read_only_external_input"
+  },
+  "correctness_admission": {
+    "strict_oracle_status": "passed",
+    "strict_oracle_evidence_path": ".q3x-work/evidence/r12/result.json",
+    "strict_oracle_result_sha256": "cd010a7f983588e7e22ca334d119000a23cf1a607b16f7dc86e5b64be4248592",
+    "strict_oracle_canonical_capture_sha256": "7b69463b5d8c90cb53d7d1b0b5200736d1fb8c365ecc59dd5850f2e3330897a2",
+    "actual_generation_path": true,
+    "complete_prefill_commit_state_equal": true,
+    "complete_generation_return_state_equal": true,
+    "step_logits_equal": true,
+    "generated_token_ids_equal": true,
+    "generated_text_equal": true,
+    "generated_token_ids": [
+      27775,
+      383,
+      279,
+      3766,
+      12182,
+      9017,
+      11,
+      1532,
+      369,
+      279,
+      6157,
+      314,
+      279,
+      1428,
+      1528,
+      321
+    ],
+    "generated_text_sha256": "a759537d2d68c99ffc1f6a84bf398aa04360b818c6d188463f1e6f682da37500",
+    "timing_authority": false
+  },
+  "protocol": {
+    "real_openai_api": true,
+    "endpoint": "/v1/completions",
+    "request_count": 1,
+    "warmup_requests": 0,
+    "concurrency": 1,
+    "stream": true,
+    "temperature": 0,
+    "prompt_tokens": 40000,
+    "completion_tokens": 16,
+    "maximum_sequence_length": 40016,
+    "request_arena_bytes": 8641684992,
+    "request_body_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "corpus_sha256": "41d9d7ba3c30238b3283d0e7f877b346cb615d566ba8776939bb11882d919253",
+    "source_p40000_corpus_sha256": "8970ac50693f49d1b27d35a0610ecbe5072594330d69b301f4dab731789b6844",
+    "prompt_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "sync_and_drop_caches_accepted": true,
+    "cold_cache_claim": true,
+    "evalscope": false,
+    "evalscope_serialization_equivalent": true
+  },
+  "api_and_output_result": {
+    "accepted": true,
+    "http_status": 200,
+    "response_id": "cmpl-q3x-1",
+    "choice_events": 16,
+    "usage_events": 1,
+    "done_events": 1,
+    "finish_reason": "length",
+    "usage": {
+      "prompt_tokens": 40000,
+      "completion_tokens": 16,
+      "total_tokens": 40016
+    },
+    "generated_text": "Based on the provided repository documents, here is the analysis of the current state and",
+    "generated_text_sha256": "a759537d2d68c99ffc1f6a84bf398aa04360b818c6d188463f1e6f682da37500",
+    "raw_sse_sha256": "0b8ef98a07e8922bb071d7eec2a4b106478f2a3789ccdce397bdafcd89bac237",
+    "witness_gate_accepted": true
+  },
+  "performance_result": {
+    "spawn_to_owned_health_ms": 34404.378463,
+    "client_ttft_ms": 1430589.247472,
+    "client_total_ms": 1434469.41416,
+    "server_ttft_ms": 1430586.195827,
+    "server_pure_prefill_ms": 1430554.392873,
+    "server_pure_prefill_tok_s": 27.96118777397028,
+    "decision": "negative",
+    "repeat_required": false,
+    "profile_required": false
+  },
+  "comparators": {
+    "ordinary_exact_p40000_o16_observation": {
+      "record": "qwen36-27b-production-default-mainline-closeout-2026-08-23",
+      "source_commit": "c6c34ef4854a9f987711edbc8bcd38b6d2a6ad01",
+      "installed_elf_sha256": "ab3492a690622e63bcfeafab055081a635c4f65507fc48b9d1a1bca0c1cebe02",
+      "server_pure_prefill_ms": 698924.797424,
+      "server_pure_prefill_tok_s": 57.2307638066734,
+      "external_ttft_ms": 698967.821796,
+      "candidate_latency_ratio": 2.0467930142778434,
+      "candidate_latency_increase_percent": 104.67930142778434,
+      "candidate_throughput_ratio": 0.4885691875164151,
+      "candidate_throughput_regression_percent": 51.14308124835849,
+      "candidate_external_ttft_ratio": 2.0467168914816374
+    },
+    "historical_accuracy_unqualified_v10": {
+      "record": "qwen36-27b-prefill-p40k-whole-core-direction-2026-08-10",
+      "server_pure_prefill_ms": 101831.853876,
+      "server_pure_prefill_tok_s": 392.804397,
+      "candidate_latency_ratio": 14.048201406752124,
+      "candidate_throughput_ratio": 0.07118348976620616,
+      "candidate_throughput_regression_percent": 92.88165102337939,
+      "v10_throughput_multiple_over_candidate": 14.048201391704495,
+      "authority_boundary": "historical dirty-tree, default-off, accuracy-unqualified direction only"
+    }
+  },
+  "route_receipts": {
+    "witness_schema": "target-prefill-witness-v17",
+    "prompt_fully_consumed": true,
+    "route_layer_passes": 1,
+    "whole_core_layers": 64,
+    "fill_panels": 320,
+    "prompt_core_phases": 64,
+    "drain_panels": 320,
+    "submission_window_retirements": 768,
+    "fp8_logical_projection_hits": 1040,
+    "fp8_physical_launches": 10336,
+    "bf16_ab_hits": 48,
+    "gdn_hits": 48,
+    "mlp_layer_hits": 64,
+    "selector_exact_attention": {
+      "completed_layers": 16,
+      "panel_calls": 16,
+      "arithmetic_spans": 1280,
+      "group_q64_submissions": 32,
+      "generic_qt2_spans": 1248,
+      "generic_q8_suffix_submissions": 16,
+      "fallback_submissions": 0,
+      "persistent_ctas": 256,
+      "physical_submissions": 48,
+      "physical_submission_token_counts": [
+        512,
+        512,
+        38976
+      ]
+    },
+    "logical_operator_coverage_complete": true,
+    "attention_production_hits": 16,
+    "other_operator_exact_fallback_hits": {
+      "fp8_qkv": 96,
+      "fp8_z": 48,
+      "fp8_o": 64,
+      "gdn": 48,
+      "nvfp4_gate_up": 64,
+      "nvfp4_down": 64
+    },
+    "forbidden_hits": {
+      "approximate_numerics": 0,
+      "cublaslt": 0,
+      "external_reference": 0,
+      "mtp": 0,
+      "prefix_cache": 0
+    }
+  },
+  "environment_and_resource_boundary": {
+    "raw_result_accepted": false,
+    "raw_result_error_count": 0,
+    "raw_result_errors": [],
+    "raw_monitor_rejection_only": "unexpected_cpu_consumers",
+    "unexpected_cpu_process": {
+      "pid": 200530,
+      "ppid": 1,
+      "comm": "codex",
+      "cmdline": "codex -c features.code_mode_host=true app-server --listen unix://",
+      "cwd": "/home/rm01",
+      "maximum_percent_of_one_core": 127.89325542651643
+    },
+    "derived_classification": {
+      "raw_monitor_preserved": true,
+      "core_device_ownership_and_safety_accepted": true,
+      "ordinary_direction_timing_accepted": true,
+      "codex_control_path_is_supporting_context": true,
+      "hard_reasons": []
+    },
+    "only_gpu_holder_pid": 797653,
+    "only_gpu_holder_is_owned_server": true,
+    "actual_throttle_or_downclock_observed": false,
+    "overcurrent_event_count_delta": {
+      "oc1": 0,
+      "oc2": 0,
+      "oc3": 0
+    },
+    "maximum_cpu_tj_c": 72.875,
+    "maximum_gpu_c": 72.437,
+    "operational_risk": false,
+    "server_sigint_returncode": 0,
+    "server_session_residual": false,
+    "port_reusable": true,
+    "nvmap_post_exit_accepted": true
+  },
+  "evidence": {
+    "root": ".q3x-work/evidence/selector-api-p40000-o16-r1",
+    "raw_result_sha256": "b0df6731d66b03d95f418193d82f9a51bc30054b8691037746265e4bc8d50036",
+    "derived_classification_sha256": "d3bdfe07148f746df71ac287603885f8ad36fe6725d8a878231fcd060bdd8eb7",
+    "request_body_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "raw_sse_sha256": "0b8ef98a07e8922bb071d7eec2a4b106478f2a3789ccdce397bdafcd89bac237",
+    "server_stderr_sha256": "47c85ed4b9227ca70c37ff7e2acd79e1ca0dcb5df0503ff5f06e5ca9877ea2b8",
+    "server_stdout_sha256": "6b33e507c17f8ae833ab7bd1536e8d7acd6718d308dfba893ee9cbc15490b08b",
+    "preflight_sha256": "fbcdcc75b7c4dbbafc4c9e17d0b6862377e9c830efcae704c5a57ec6c8210b0b",
+    "drop_caches_sha256": "e2dcfa746a86d7977f2226e32ad117ecc70eca29db100f73b63ea9c35ce4f9cf",
+    "post_exit_nvmap_sha256": "8f83b022cbec2b41fbd28dfca8c0aad523b293b51116892b2644b3302962bc99",
+    "run_harness_sha256": "70c5628c0fedcec4a99d7ad5c1e7cc5ef52f80d033f6521f0d37e8a9c94c70fa",
+    "corrected_future_harness_sha256": "8b2d96c71a5ee6f803a4ae15556d55db8c37ab265491e6c992a1b8e7556c7c27",
+    "wrapper_sha256": "f8ebfb76c2fa92e7f739cd7ffcb61fd85794954b126a79d27cc46921fb812fee"
+  },
+  "decision": {
+    "actual_business_api_and_output_passed": true,
+    "correctness_error_repaired": true,
+    "performance_direction_passed": false,
+    "close_corrected_selector_v1_branch": true,
+    "repeat_request": false,
+    "profile_candidate": false,
+    "merge_candidate_to_main": false,
+    "change_ordinary_default": false,
+    "promote_or_release": false,
+    "reason": "the corrected route is exact for the declared P40000/O16 workload but loses 51.1431 percent of pure-Prefill throughput to the frozen ordinary exact observation and is 14.0482x slower than the historical v10 direction"
+  },
+  "next_boundary": {
+    "identity": "AC-PREFILL-SM87-AOT-SYSTEM-v1",
+    "resume_from": "current main",
+    "first_gate": "real-P40 exact arithmetic-class pass-count, fallback, ordered FP32 rejoin, and BF16 publication witness against the 5.0-second projection allocation",
+    "prohibited_continuation": "no selector-v2 parameter scan, repeat of this request, or profiler extension",
+    "api_return_gate": "after a successor arithmetic/dataflow class passes its pre-CUDA gate and composes, return immediately to the real P40000 API path"
+  },
+  "claim_boundary": {
+    "authorized": [
+      "the actual P40000/O16 OpenAI API request succeeded with exact output and complete v17 route receipts",
+      "the corrected selector v1 implementation is a gross negative direction against the ordinary exact P40000/O16 observation",
+      "the protected Codex app-server CPU observation is supporting context while GPU ownership, safety, clocks, and cleanup remain intact",
+      "the corrected selector v1 branch is rejected without repetition or profiling"
+    ],
+    "not_authorized": [
+      "release or production qualification",
+      "promotion of the test-only artifact or its fixed capacity into main",
+      "publication-grade absolute timing",
+      "a claim that exact Attention or the hardware target is generally incapable",
+      "a change to the owner-set product target"
+    ]
+  }
+}
