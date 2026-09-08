@@ -10614,6 +10614,8 @@ void test_bulk_gqa_score_feed_exact(TestContext& test, cudaStream_t stream) {
                   resources.maximum_threads >= 384 &&
                   resources.active_blocks_per_multiprocessor >= 1,
               "score-feed bounded launch resources");
+  test.expect(resources.static_shared_bytes == 34'304U,
+              "raw-score v2 owns only double-buffered K/V plus FP32 scores");
   std::cout << "BULK_GQA_SCORE_FEED_RESOURCES: registers=" << resources.registers
             << " static_shared=" << resources.static_shared_bytes
             << " local=" << resources.local_bytes

@@ -370,6 +370,28 @@ authenticated model, request/token hashes, live-state/output comparison, and
 the actual OFF API witness; these draft schema descriptions supply none of
 those results by themselves.
 
+**Unique raw-score correction v2 (2026-09-09).** The closed v1 identities
+above remain immutable for their retained source/ELF/evidence. The isolated
+successor retains the v21 envelope and canonical counts, but replaces exactly
+these compiled-policy values:
+
+- profile: `q3x.sm87.candidate.p40.legacy-c512-terminal-score-feed.v2`;
+- `deployment_plan.id`:
+  `q3x.sm87.legacy-c512.terminal-elision-score-feed.v2`; and
+- `ordinary_attention_policy.nonfixed_generic_suffix`:
+  `exact_qt2_raw_score_feed_k16_v2`.
+
+Health/models/readiness carry the new profile/plan values wherever the same
+members are exposed. All other fields, liveness counts, canonical schedule,
+`compiled_source_policy_not_kernel_counts` scope, unavailable physical launch
+counts, unchanged GroupQ64/fixed/scalar routes, `production_eligible=false`,
+and `release_qualified=false` remain as above. Existing v16/v20 paths are
+unchanged. The [component contract](DECODE_REFERENCE_OPS.md#scoped-ordinary-prefill-raw-score-feed-v2)
+defines raw-score production and the original ordered softmax/PV consumer.
+V1 numerical or API success supplies no v2 qualification. The same-ELF v2
+P40000/O16 numerical and actual installed OFF API gates remain required; the
+unchanged OFF startup contract below is not waived.
+
 The candidate's **capture schema 3** is a separate `BUILD_TESTING=ON`,
 numerical-only protocol, not an API witness version. It admits only
 P576/P1089/P40000 with O16 and the canonical ordinary P-1 schedule. Every

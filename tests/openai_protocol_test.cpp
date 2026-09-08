@@ -332,7 +332,7 @@ void test_serialization(TestContext& test) {
   test.expect(valid_json(health) &&
                   health.find("qwen\\\"model") != std::string::npos &&
                   health.find(
-                      R"("profile":"q3x.sm87.candidate.p40.legacy-c512-terminal-score-feed.v1")") !=
+                      R"("profile":"q3x.sm87.candidate.p40.legacy-c512-terminal-score-feed.v2")") !=
                       std::string::npos &&
                   health.find(R"("target_prompt_tokens":40000)") !=
                       std::string::npos &&
@@ -592,6 +592,16 @@ void test_target_prefill_witness_evidence(TestContext& test) {
                       R"("record":"target-prefill-witness-v21","schema_version":21)") !=
                       std::string::npos &&
                   compiled_serialized.find(
+                      R"("id":"q3x.sm87.legacy-c512.terminal-elision-score-feed.v2")") !=
+                      std::string::npos &&
+                  compiled_serialized.find(
+                      R"("nonfixed_generic_suffix":"exact_qt2_raw_score_feed_k16_v2")") !=
+                      std::string::npos &&
+                  compiled_serialized.find("terminal-elision-score-feed.v1") ==
+                      std::string::npos &&
+                  compiled_serialized.find("exact_qt2_score_feed_k16") ==
+                      std::string::npos &&
+                  compiled_serialized.find(
                       R"("scope":"compiled_source_policy_not_kernel_counts")") !=
                       std::string::npos &&
                   compiled_serialized.find(
@@ -602,7 +612,7 @@ void test_target_prefill_witness_evidence(TestContext& test) {
                       std::string::npos &&
                   compiled_serialized.find("engine_lifetime_sealed_native_plan") ==
                       std::string::npos,
-              "v21 names compiled ordinary policy without claiming observed kernel counts or layer-major sealing");
+              "v21 names the distinct v2 raw-score policy without v1 identity, observed kernel counts or layer-major sealing");
   auto exact_fallback_compiled = compiled_record;
   for (auto& counts : exact_fallback_compiled.prefill_route_evidence.operators) {
     counts.exact_fallback_hits += counts.production_hits;

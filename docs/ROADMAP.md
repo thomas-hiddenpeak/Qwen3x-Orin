@@ -332,6 +332,28 @@ motivated by a concrete correctness or causal finding. No predicted timing,
 synthetic performance screen, AOT exploration, or revival of the rejected
 Q4/P39936/canonical-traits-v2 versions belongs to this window.
 
+The score-feed v1 composition at `09de111` has now completed its actual
+P40000/O16 OFF API return and is negative. That version is closed without
+repetition, profiling, parameter scanning, or mainline absorption. Its source,
+installed ELF and raw evidence remain retained separately.
+
+The owner activates the package's **one permitted correction**, raw-score
+feed v2, in `codex/exact-score-feed-correction-20260909`. Source inspection
+shows that v1 still performs the ordered maximum/denominator/exponential
+recurrence in the QK producer; its consumer receives coefficients and advances
+PV only. This is a concrete incomplete separation relative to the original
+package design, not a profiled or quantified cause of v1's measured regression.
+The correction moves the complete original ordered softmax/PV into the
+consumer and publishes only the exact raw scaled FP32 score from the producer.
+The [component contract](DECODE_REFERENCE_OPS.md#scoped-ordinary-prefill-raw-score-feed-v2)
+binds the finite-precision tree and buffer lifetime. QT2, KV16 double buffering,
+six producer/six consumer warps, GroupQ64, fixed/scalar launchers, liveness,
+startup and all global storage stay unchanged. No global-scratch alternative,
+tile/stage/cache scan, timing prediction, or further correction is admitted.
+V2 must return through the new same-ELF P40000/O16 numerical gate and then the
+actual installed OFF P40000/O16 API. A numerical failure or negative API
+direction closes this score-feed package entirely; no v1 result qualifies v2.
+
 Use existing harnesses and the smallest safe correctness checks, then compare
 the complete live-state/token/text and exposed-logit-stat P40000/O16 boundary
 before reading the real API performance result. A negative version closes

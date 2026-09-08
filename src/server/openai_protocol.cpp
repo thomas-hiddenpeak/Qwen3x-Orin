@@ -2341,7 +2341,7 @@ std::string serialize_target_prefill_witness(
   if (ordinary_score_feed_v21) {
     output += ",\"ordinary_attention_policy\":{"
               "\"scope\":\"compiled_source_policy_not_kernel_counts\","
-              "\"nonfixed_generic_suffix\":\"exact_qt2_score_feed_k16\","
+              "\"nonfixed_generic_suffix\":\"exact_qt2_raw_score_feed_k16_v2\","
               "\"group_q64_prefix\":\"unchanged\","
               "\"fixed_launcher\":\"incumbent_qt2_or_group_q64\","
               "\"scalar_final_and_decode\":\"unchanged\","

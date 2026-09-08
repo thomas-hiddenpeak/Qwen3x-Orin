@@ -10,7 +10,7 @@ namespace q3x::runtime::reference_runner_detail {
 // This source-private identity is a compiled policy fact, not a kernel hit.
 inline constexpr bool kOrdinaryExactAttentionScoreFeedEnabled = true;
 inline constexpr const char* kOrdinaryExactScoreFeedPlanId =
-    "q3x.sm87.legacy-c512.terminal-elision-score-feed.v1";
+    "q3x.sm87.legacy-c512.terminal-elision-score-feed.v2";
 
 // Definitions exist only in BUILD_TESTING. Explicit oracle overrides are
 // owned by the calling thread; an untouched worker uses the compiled policy.

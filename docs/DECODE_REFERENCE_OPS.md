@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: Decode common-operation numerical and dimension contract
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-09-09
   supersedes: []
   superseded_by: []
   ssot_for: reference Decode common-op dimensions, arithmetic, and error behavior
@@ -107,3 +107,63 @@ nine-element CTA tail, and requires bitwise agreement for out-of-place, exact
 left-alias, and exact right-alias execution. Both exact aliases are also
 captured and replayed twice as one-kernel CUDA Graphs with guard regions and
 peer-input preservation.
+
+## Scoped ordinary Prefill raw-score feed v2
+
+The isolated `WP-EXACT-ATTENTION-SCORE-FEED-20260909` correction is subordinate
+to the [active package](ROADMAP.md#2026-09-09-bounded-engineering-window).
+It changes only the ordinary nonfixed generic QT2 suffix. The original QT2
+remains the explicit test oracle and fixed-launcher implementation; GroupQ64,
+scalar final prompt/Decode, liveness, state/reset, and startup are unchanged.
+This is the package's unique correction, not a selected production route.
+
+Each CTA retains two query tokens, one KV head, six producer warps and six
+consumer warps, with the existing two KV16 buffers. Producer lane ownership
+and the eight ordered `fmaf(Q_i, K_i, score)` updates per lane are unchanged.
+The masked warp reduction is still 16, 8, 4, 2, 1; lane zero multiplies that
+same FP32 sum by `1/16` and stores the raw FP32 result to shared memory. The
+store/load adds no dtype conversion or arithmetic. Producers perform no
+maximum, denominator, exponential, or PV recurrence.
+
+Every consumer lane owns its original eight value dimensions and replicates
+the original QT2 scalar state. Keys and the two queries are consumed in the
+original order. Starting from `maximum=-inf`, `denominator=+0` and `PV=+0`,
+the operations are exactly:
+
+- When `score > maximum`, compute `correction=expf(maximum-score)`, update
+  `denominator=denominator*correction+1`, then
+  `PV=fmaf(PV, correction, V)` per dimension and set `maximum=score`.
+- Otherwise compute `probability=expf(score-maximum)`, add it to the
+  denominator, then use `PV=fmaf(probability, V, PV)` per dimension.
+- After the final key, divide by that consumer's denominator, publish BF16,
+  decode that rounded value, apply the unchanged two-branch sigmoid gate,
+  and publish BF16 again.
+
+The comparison, two FMA operand orders, exponential expression, denominator
+update, final division, and BF16 boundaries must not be unified or
+reassociated. Infinity, NaN, subnormal, signed-zero, odd-query, and causal-tail
+paths retain those same operations and predicates. An invalid/masked query-key
+pair is neither written nor read. The source equivalence argument is not a
+substitute for the existing focused CUDA and complete live-state P40000/O16
+oracles on the new ELF.
+
+At iteration `n`, every thread loads K/V slot `n&1`; the top CTA barrier makes
+those words visible. Producers publish scores for tile `n` while consumers
+read scores/V for tile `n-1`. The bottom CTA barrier both publishes tile `n`
+and retires tile `n-1` before its slot can be overwritten at `n+1`. Priming and
+draining retain both barriers for every thread. The only shared objects are
+the two packed K/V buffers (32,768 bytes) and two FP32 score buffers (1,536
+bytes), totaling 34,304 bytes. No global workspace, allocation, lock, new
+stream, or public ABI is added. All other launch validation and zero-enqueue
+failure behavior is unchanged.
+
+The existing `q3x_decode_ops_cuda_test --bulk-score-feed-exact-only` mode
+retains its eleven bitwise/guard/special-value/Graph/route fixtures and adds
+the exact shared-layout assertion. Ordinary ON explicit `baseline`/`liveness`
+still select incumbent QT2; `score-feed` selects v2, and `combined` selects the
+same compiled default as OFF. Mutable selectors and hit/resource seams remain
+test-only. The distinct profile, plan and v21 policy values are owned by the
+[external witness contract](EVALSCOPE_EVALUATION.md); compiled policy is not an
+observed launch count. Only a passing same-ELF P40000/O16 live-state comparison
+followed by the actual installed OFF API can determine this correction's
+fitness; it remains production-ineligible and release-unqualified meanwhile.

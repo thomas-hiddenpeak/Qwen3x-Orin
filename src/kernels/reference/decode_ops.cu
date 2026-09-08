@@ -1590,16 +1590,17 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_kernel(
   }
 }
 
-// WP-EXACT-ATTENTION-SCORE-FEED-20260909. The two-query numerical tree is
-// unchanged: six producer warps compute its original eight-FMA / 16->1 warp
-// scores, and lane zero advances each query's ordered softmax scalar state.
-// Six consumer warps advance the original per-dimension PV recurrence from
-// those FP32 coefficients. A producer works on tile n while its consumer
-// works on tile n-1; neither key order nor an arithmetic publication changes.
+// WP-EXACT-ATTENTION-SCORE-FEED-20260909, unique v2 correction. Six producer
+// warps perform only the original eight-FMA / 16->1 QK reduction and publish
+// its scaled FP32 result without conversion. Six consumer warps perform the
+// complete original ordered max/den/exp/PV recurrence, identically in every
+// lane as in QT2. QK production therefore has no softmax loop-carried state.
+// A producer works on tile n while its consumer works on tile n-1; key order
+// and arithmetic rounding/publication boundaries are unchanged.
 // In particular, the two PV branches are NOT replaced by a unified affine
 // update: their FMA operand order and exceptional-value behavior differ.
 __global__ __launch_bounds__(kBulkGqaScoreFeedThreads)
-void bulk_causal_gqa_sigmoid_gate_score_feed_24_4_256_kernel(
+void bulk_causal_gqa_sigmoid_gate_raw_score_feed_v2_24_4_256_kernel(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
     const std::uint16_t* const value_cache,
@@ -1611,11 +1612,8 @@ void bulk_causal_gqa_sigmoid_gate_score_feed_24_4_256_kernel(
       key_words[2][kBulkGqaKvTile][kBulkGqaPackedDimension];
   __shared__ std::uint32_t
       value_words[2][kBulkGqaKvTile][kBulkGqaPackedDimension];
-  __shared__ float coefficients[2][kBulkGqaQueriesPerKv]
-                               [kBulkGqaQueryTile][kBulkGqaKvTile];
-  __shared__ unsigned int new_maximum[2][kBulkGqaQueriesPerKv]
-                                      [kBulkGqaQueryTile][kBulkGqaKvTile];
-  __shared__ float final_denominators[kBulkGqaQueriesPerKv][kBulkGqaQueryTile];
+  __shared__ float scores[2][kBulkGqaQueriesPerKv]
+                         [kBulkGqaQueryTile][kBulkGqaKvTile];
   constexpr unsigned int kWordsPerLane = kBulkGqaPackedDimension / 32U;
   constexpr unsigned int kValuesPerLane = 2U * kWordsPerLane;
   constexpr unsigned int kWordsPerKvTile =
@@ -1747,31 +1745,9 @@ void bulk_causal_gqa_sigmoid_gate_score_feed_24_4_256_kernel(
             }
           }
           if (lane == 0U) {
-            score *= kBulkGqaAttentionScale;
-            const bool raises_maximum = score > maxima[local_query];
-            float coefficient;
-            if (raises_maximum) {
-              coefficient = expf(maxima[local_query] - score);
-              denominators[local_query] =
-                  denominators[local_query] * coefficient + 1.0F;
-              maxima[local_query] = score;
-            } else {
-              coefficient = expf(score - maxima[local_query]);
-              denominators[local_query] += coefficient;
-            }
-            coefficients[produce_slot][head_in_group]
-                        [local_query][local_position] = coefficient;
-            new_maximum[produce_slot][head_in_group]
-                       [local_query][local_position] = raises_maximum ? 1U : 0U;
+            scores[produce_slot][head_in_group][local_query][local_position] =
+                score * kBulkGqaAttentionScale;
           }
-        }
-      }
-      if (lane == 0U && iteration + 1U == tile_count) {
-#pragma unroll
-        for (unsigned int local_query = 0U;
-             local_query < kBulkGqaQueryTile; ++local_query) {
-          final_denominators[head_in_group][local_query] =
-              denominators[local_query];
         }
       }
     } else if (!producer && iteration != 0U) {
@@ -1803,23 +1779,28 @@ void bulk_causal_gqa_sigmoid_gate_score_feed_24_4_256_kernel(
           if (token >= token_count || position > first_position + token) {
             continue;
           }
-          const float coefficient = coefficients[consume_slot][head_in_group]
-                                                [local_query][local_position];
-          if (new_maximum[consume_slot][head_in_group]
-                         [local_query][local_position] != 0U) {
+          const float score =
+              scores[consume_slot][head_in_group][local_query][local_position];
+          if (score > maxima[local_query]) {
+            const float correction = expf(maxima[local_query] - score);
+            denominators[local_query] =
+                denominators[local_query] * correction + 1.0F;
 #pragma unroll
             for (unsigned int value_slot = 0U;
                  value_slot < kValuesPerLane; ++value_slot) {
               owned_values[local_query][value_slot] =
-                  fmaf(owned_values[local_query][value_slot], coefficient,
+                  fmaf(owned_values[local_query][value_slot], correction,
                        value_values[value_slot]);
             }
+            maxima[local_query] = score;
           } else {
+            const float probability = expf(score - maxima[local_query]);
+            denominators[local_query] += probability;
 #pragma unroll
             for (unsigned int value_slot = 0U;
                  value_slot < kValuesPerLane; ++value_slot) {
               owned_values[local_query][value_slot] =
-                  fmaf(coefficient, value_values[value_slot],
+                  fmaf(probability, value_values[value_slot],
                        owned_values[local_query][value_slot]);
             }
           }
@@ -1838,7 +1819,6 @@ void bulk_causal_gqa_sigmoid_gate_score_feed_24_4_256_kernel(
     if (token >= token_count) {
       continue;
     }
-    const float denominator = final_denominators[head_in_group][local_query];
 #pragma unroll
     for (unsigned int word_slot = 0U; word_slot < kWordsPerLane; ++word_slot) {
       const unsigned int word = lane + 32U * word_slot;
@@ -1852,8 +1832,8 @@ void bulk_causal_gqa_sigmoid_gate_score_feed_24_4_256_kernel(
 #pragma unroll
       for (unsigned int pair_element = 0U; pair_element < 2U; ++pair_element) {
         const unsigned int slot = value_slot + pair_element;
-        const std::uint16_t rounded_attention =
-            encode_bf16_device(owned_values[local_query][slot] / denominator);
+        const std::uint16_t rounded_attention = encode_bf16_device(
+            owned_values[local_query][slot] / denominators[local_query]);
         const float gate_value = decode_bf16_device(
             pair_element == 0U
                 ? static_cast<std::uint16_t>(packed_gate)
@@ -2938,7 +2918,7 @@ static int launch_exact_attention_score_feed_cuda(
       kBulkGqaKvHeads, 1U);
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  bulk_causal_gqa_sigmoid_gate_score_feed_24_4_256_kernel
+  bulk_causal_gqa_sigmoid_gate_raw_score_feed_v2_24_4_256_kernel
       <<<blocks, kBulkGqaScoreFeedThreads, 0U, stream>>>(
           query, key_cache, value_cache, gate,
           static_cast<unsigned int>(first_position),
@@ -2981,13 +2961,13 @@ int reference_runner_detail::
   }
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(
-      &attributes, bulk_causal_gqa_sigmoid_gate_score_feed_24_4_256_kernel);
+      &attributes, bulk_causal_gqa_sigmoid_gate_raw_score_feed_v2_24_4_256_kernel);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-      &active_blocks, bulk_causal_gqa_sigmoid_gate_score_feed_24_4_256_kernel,
+      &active_blocks, bulk_causal_gqa_sigmoid_gate_raw_score_feed_v2_24_4_256_kernel,
       static_cast<int>(kBulkGqaScoreFeedThreads), 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);

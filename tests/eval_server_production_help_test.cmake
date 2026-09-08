@@ -14,7 +14,7 @@ if(NOT result EQUAL 0)
 endif()
 
 set(required_fragments
-  "q3x.sm87.candidate.p40.legacy-c512-terminal-score-feed.v1"
+  "q3x.sm87.candidate.p40.legacy-c512-terminal-score-feed.v2"
   "P40000 prompt, 4096 output ceiling"
   "44095 resident Legacy-C512/SM87 capacity"
   "--api-key-file PATH"
