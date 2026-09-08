@@ -73,21 +73,27 @@ inline void emit(const char* const stage, const unsigned int position,
   const bool memory_complete = read_proc("/proc/meminfo", memory);
   timespec now{};
   const bool time_valid = ::clock_gettime(CLOCK_MONOTONIC, &now) == 0;
-  char line[768]{};
+  char line[1024]{};
   const int length = std::snprintf(
       line, sizeof(line),
       "graph-startup-diagnostic stage=%s position=%u pid=%ld "
       "monotonic_seconds=%lld monotonic_nanoseconds=%ld time_valid=%d "
       "cuda_status=%d cuda_free_bytes=%zu cuda_total_bytes=%zu "
       "status_complete=%d memory_complete=%d VmRSS_kib=%lld RssAnon_kib=%lld "
-      "MemFree_kib=%lld Cached_kib=%lld NvMapMemUsed_kib=%lld\n",
+      "RssFile_kib=%lld MemFree_kib=%lld MemAvailable_kib=%lld Cached_kib=%lld "
+      "AnonPages_kib=%lld Slab_kib=%lld SUnreclaim_kib=%lld "
+      "NvMapMemUsed_kib=%lld\n",
       stage, position, static_cast<long>(::getpid()),
       static_cast<long long>(now.tv_sec), now.tv_nsec,
       static_cast<int>(time_valid), static_cast<int>(cuda_status), free_bytes,
       total_bytes, static_cast<int>(status_complete),
       static_cast<int>(memory_complete), read_kib_field(status, "VmRSS"),
-      read_kib_field(status, "RssAnon"), read_kib_field(memory, "MemFree"),
-      read_kib_field(memory, "Cached"), read_kib_field(memory, "NvMapMemUsed"));
+      read_kib_field(status, "RssAnon"), read_kib_field(status, "RssFile"),
+      read_kib_field(memory, "MemFree"),
+      read_kib_field(memory, "MemAvailable"), read_kib_field(memory, "Cached"),
+      read_kib_field(memory, "AnonPages"), read_kib_field(memory, "Slab"),
+      read_kib_field(memory, "SUnreclaim"),
+      read_kib_field(memory, "NvMapMemUsed"));
   if (length > 0 && static_cast<std::size_t>(length) < sizeof(line)) {
     ssize_t written = -1;
     do {
