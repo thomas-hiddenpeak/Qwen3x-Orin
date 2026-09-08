@@ -73,5 +73,13 @@ struct ReferenceEngineGenerateReturnSnapshotHook {
 exchange_reference_engine_generate_return_snapshot_hook(
     ReferenceEngineGenerateReturnSnapshotHook hook) noexcept;
 
+// Test-only, read-only observation after a successful scalar generation step
+// with logits. Unlike trace capture, this does not change Prefix scheduling or
+// the production final-token policy. The callback runs before the next step
+// may reuse the request's final hidden and complete BF16 logits scratch.
+[[nodiscard]] ReferenceEngineGenerateReturnSnapshotHook
+exchange_reference_engine_step_snapshot_hook(
+    ReferenceEngineGenerateReturnSnapshotHook hook) noexcept;
+
 }  // namespace reference_runner_detail
 }  // namespace q3x::runtime
