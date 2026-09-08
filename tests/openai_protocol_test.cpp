@@ -1,6 +1,7 @@
 #include "q3x/io/json.h"
 #include "q3x/server/evaluation_server.h"
 #include "q3x/server/openai_protocol.h"
+#include "../src/runtime/reference_runner_terminal_prefix_internal.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -519,6 +520,120 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               "request evidence serialization has a stable field contract");
   test.expect(valid_json(serialized),
               "request evidence serialization remains valid JSON");
+
+  auto terminal_record = record;
+  terminal_record.prompt_tokens = 40'000U;
+  terminal_record.consumed_prompt_tokens = 40'000U;
+  terminal_record.completion_tokens = 16U;
+  terminal_record.projection_backend =
+      q3x::runtime::ProjectionBackend::kSm87WeightOnly;
+  terminal_record.effective_prefill_chunk_size = 512U;
+  auto terminal_tile = route_tile;
+  for (std::size_t index = 0U; index < terminal_tile.operators.size(); ++index) {
+    if (q3x::runtime::reference_runner_detail::terminal_prefix_elides_role(
+            static_cast<q3x::runtime::PrefillOperatorRole>(index))) {
+      --terminal_tile.operators[index].production_hits;
+    }
+  }
+  const auto record_ordinary_terminal_route = [&](
+      server::TargetPrefillWitnessRecord& target) {
+    q3x::runtime::reset_prefill_route_request(target.prefill_route_evidence);
+    target.prefix_execution_count = 0U;
+    std::size_t remaining = static_cast<std::size_t>(target.prompt_tokens - 1U);
+    while (remaining != 0U) {
+      const std::size_t tile_tokens =
+          q3x::runtime::reference_engine_detail::next_prefix_tile_token_count(
+              remaining, target.effective_prefill_chunk_size);
+      test.expect(tile_tokens > 1U
+                      ? q3x::runtime::reference_runner_detail::
+                            commit_terminal_prefix_elided_layer_pass(
+                                target.prefill_route_evidence, terminal_tile)
+                      : q3x::runtime::commit_prefill_route_layer_pass(
+                            target.prefill_route_evidence, route_tile),
+                  "ordinary fixture follows canonical prefix segments and scalar tails");
+      ++target.prefix_execution_count;
+      remaining -= tile_tokens;
+    }
+    test.expect(q3x::runtime::commit_prefill_route_layer_pass(
+                    target.prefill_route_evidence, route_tile),
+                "ordinary fixture retains complete scalar-final roles");
+    target.prefill_route_evidence =
+        q3x::runtime::finalize_prefill_route_request(
+            target.prefill_route_evidence, target.prefix_execution_count + 1U);
+  };
+  record_ordinary_terminal_route(terminal_record);
+  test.expect(terminal_record.prefix_execution_count == 80U &&
+                  terminal_record.prefill_route_evidence.completed_layer_passes == 81U,
+              "P40000 is 78*C512+C32+C31 prefixes plus the unchanged scalar final");
+  const std::string terminal_serialized =
+      server::serialize_target_prefill_witness(terminal_record);
+  test.expect(valid_json(terminal_serialized) &&
+                  terminal_serialized.find(
+                      R"("record":"target-prefill-witness-v20","schema_version":20)") !=
+                      std::string::npos &&
+                  terminal_serialized.find(
+                      R"("elided_prefix_layer_passes":80,"elided_prefix_rows":39999,"retained_scalar_prefix_rows":0,"preserved_terminal_qkv_rows":40000)") !=
+                      std::string::npos &&
+                  terminal_serialized.find(
+                      R"("nvfp4_gate_up":{"completed_production_hits":5104,)") !=
+                      std::string::npos &&
+                  terminal_serialized.find(
+                      R"("attention":{"completed_production_hits":1216,)") !=
+                      std::string::npos,
+              "v20 attests terminal liveness without inventing omitted operator hits");
+  const auto rejects_terminal_receipt = [&test](
+      const server::TargetPrefillWitnessRecord& invalid_terminal) {
+    const auto value = server::serialize_target_prefill_witness(invalid_terminal);
+    test.expect(valid_json(value) &&
+                    value.find("target-prefill-witness-v20") == std::string::npos &&
+                    value.find("terminal_prefix_elision_coverage") != std::string::npos,
+                "malformed terminal coverage cannot claim v20 or available route evidence");
+  };
+  auto invalid_terminal = terminal_record;
+  --invalid_terminal.prefill_route_evidence.operators[0].production_hits;
+  rejects_terminal_receipt(invalid_terminal);
+  invalid_terminal = terminal_record;
+  --invalid_terminal.prefill_route_evidence.operators[2].production_hits;
+  rejects_terminal_receipt(invalid_terminal);
+  invalid_terminal = terminal_record;
+  invalid_terminal.projection_backend = q3x::runtime::ProjectionBackend::kReference;
+  rejects_terminal_receipt(invalid_terminal);
+  invalid_terminal = terminal_record;
+  invalid_terminal.effective_prefill_chunk_size = 256U;
+  rejects_terminal_receipt(invalid_terminal);
+  invalid_terminal = terminal_record;
+  invalid_terminal.full_prompt_consumed = false;
+  rejects_terminal_receipt(invalid_terminal);
+  invalid_terminal = terminal_record;
+  invalid_terminal.prefill_route_evidence.forbidden_boundary_hits[0] = 1U;
+  rejects_terminal_receipt(invalid_terminal);
+
+  // P514 has a complete C512 prefix, one unchanged scalar prefix tail, then
+  // the existing scalar final prompt step. Only 512 rows are elided.
+  auto scalar_tail_record = terminal_record;
+  scalar_tail_record.prompt_tokens = 514U;
+  scalar_tail_record.consumed_prompt_tokens = 514U;
+  record_ordinary_terminal_route(scalar_tail_record);
+  const auto scalar_tail_serialized =
+      server::serialize_target_prefill_witness(scalar_tail_record);
+  test.expect(scalar_tail_serialized.find(
+                  R"("elided_prefix_layer_passes":1,"elided_prefix_rows":512,"retained_scalar_prefix_rows":1,"preserved_terminal_qkv_rows":514)") !=
+                  std::string::npos,
+              "v20 distinguishes an unchanged scalar prefix tail from deleted rows");
+
+  for (const std::uint32_t cap : {128U, 192U, 320U}) {
+    auto capped_record = terminal_record;
+    capped_record.prompt_tokens = cap + 2U;
+    capped_record.consumed_prompt_tokens = cap + 2U;
+    capped_record.requested_prefill_chunk_size = cap;
+    capped_record.effective_prefill_chunk_size = cap;
+    record_ordinary_terminal_route(capped_record);
+    const auto capped_serialized = server::serialize_target_prefill_witness(capped_record);
+    test.expect(capped_record.prefix_execution_count > 2U &&
+                    capped_serialized.find("target-prefill-witness-v20") != std::string::npos &&
+                    capped_serialized.find(R"("retained_scalar_prefix_rows":1,)") != std::string::npos,
+                "noncanonical requested caps use canonical subdivisions, not ceiling division");
+  }
 
   record.request_state_reset = q3x::runtime::RequestStateResetReceipt{
       q3x::runtime::RequestStateResetMode::kCommittedDirtyPrefix,

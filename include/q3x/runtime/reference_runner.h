@@ -1006,6 +1006,10 @@ class ReferenceRunner {
     bool allow_scalar_m1_delegate = true;
     bool allow_cross_layer_m32_fusion = true;
     bool emit_commit_hooks = true;
+    // Private ordinary-generation P-1 tiles only. Keeps all terminal Q/K/V
+    // and publication; omits the dead suffix and final norm. The public tile
+    // entry always leaves this false, including retained-hidden requests.
+    bool elide_terminal_prefix_suffix = false;
     // These process-selected routes default closed so a hand-built
     // single-layer control cannot inherit an admission switch.
     // legacy_prefill_tile_execution_control() explicitly restores the
@@ -1132,7 +1136,8 @@ class ReferenceRunner {
       std::size_t layer) noexcept;
   [[nodiscard]] static ReferenceRunnerStatus
   validate_prefill_layer_route_fragment(
-      const PrefillLayerSegmentRouteFragment& fragment) noexcept;
+      const PrefillLayerSegmentRouteFragment& fragment,
+      bool terminal_prefix_elision = false) noexcept;
   [[nodiscard]] static ReferenceRunnerStatus
   validate_layer_wide_p40_prefill_layer_route_fragment(
       const PrefillLayerSegmentRouteFragment& fragment) noexcept;
@@ -1154,6 +1159,10 @@ class ReferenceRunner {
       std::uint32_t first_position,
       const PrefillTileExecutionControl& control,
       const Views& execution_views) noexcept;
+  [[nodiscard]] ReferencePrefillTileOutcome prefill_prefix_tile_impl(
+      const std::uint32_t* input_token_ids, std::size_t token_count,
+      const ReferencePrefillTileOptions& options,
+      bool terminal_prefix_elision) noexcept;
   [[nodiscard]] PrefillLayerSegmentEnqueueResult
   enqueue_prefill_layer_panel(
       const std::uint32_t* input_token_ids, std::size_t token_count,

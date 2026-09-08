@@ -1,4 +1,5 @@
 #include "q3x/runtime/prefill_route_evidence.h"
+#include "../src/runtime/reference_runner_terminal_prefix_internal.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -31,6 +32,70 @@ using q3x::runtime::PrefillRouteEvidenceError;
 }  // namespace
 
 int main() {
+  namespace terminal = q3x::runtime::reference_runner_detail;
+  const PrefillRouteEvidence full =
+      complete_tile(PrefillRouteDisposition::kProduction);
+  PrefillRouteEvidence elided = full;
+  for (std::size_t index = 0U; index < elided.operators.size(); ++index) {
+    if (terminal::terminal_prefix_elides_role(
+            static_cast<PrefillOperatorRole>(index))) {
+      --elided.operators[index].production_hits;
+    }
+  }
+  PrefillRouteEvidence terminal_request;
+  q3x::runtime::reset_prefill_route_request(terminal_request);
+  if (!terminal::commit_terminal_prefix_elided_layer_pass(terminal_request,
+                                                         elided) ||
+      !terminal::commit_terminal_prefix_elided_layer_pass(terminal_request,
+                                                         elided) ||
+      !q3x::runtime::commit_prefill_route_layer_pass(terminal_request, full)) {
+    std::cerr << "terminal prefixes plus unchanged scalar final did not commit\n";
+    return 1;
+  }
+  const auto terminal_complete = q3x::runtime::finalize_prefill_route_request(
+      terminal_request, 3U);
+  if (!terminal_complete.valid ||
+      terminal::terminal_prefix_elided_layer_passes(terminal_complete) != 2U ||
+      terminal_complete.operators[0].production_hits != 190U ||
+      terminal_complete.operators[2].production_hits != 288U) {
+    std::cerr << "terminal receipt invented hits or lost live Q/K/V\n";
+    return 1;
+  }
+  q3x::runtime::reset_prefill_route_request(terminal_request);
+  if (q3x::runtime::commit_prefill_route_layer_pass(terminal_request, elided)) {
+    std::cerr << "public full-tile commit accepted private omissions\n";
+    return 1;
+  }
+  for (std::size_t index = 0U; index < elided.operators.size(); ++index) {
+    PrefillRouteEvidence malformed = elided;
+    --malformed.operators[index].production_hits;
+    q3x::runtime::reset_prefill_route_request(terminal_request);
+    if (terminal::commit_terminal_prefix_elided_layer_pass(terminal_request,
+                                                          malformed) ||
+        terminal_request.completed_layer_passes != 0U) {
+      std::cerr << "terminal commit admitted extra or unrelated omission\n";
+      return 1;
+    }
+  }
+  q3x::runtime::reset_prefill_route_request(terminal_request);
+  if (terminal::commit_terminal_prefix_elided_layer_pass(terminal_request, full)) {
+    std::cerr << "terminal commit accepted invented full-pass hits\n";
+    return 1;
+  }
+  auto malformed_terminal = terminal_complete;
+  --malformed_terminal.operators[0].production_hits;
+  if (terminal::terminal_prefix_elided_layer_passes(malformed_terminal)) {
+    std::cerr << "inconsistent terminal role deficits were accepted\n";
+    return 1;
+  }
+  malformed_terminal = terminal_complete;
+  malformed_terminal.completed_layer_passes =
+      std::numeric_limits<std::uint64_t>::max();
+  if (terminal::terminal_prefix_elided_layer_passes(malformed_terminal)) {
+    std::cerr << "terminal receipt multiplication overflow was accepted\n";
+    return 1;
+  }
+
   PrefillRouteEvidence request;
   q3x::runtime::reset_prefill_route_request(request);
   const PrefillRouteEvidence production =

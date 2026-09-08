@@ -1,4 +1,5 @@
 #include "q3x/runtime/prefill_route_evidence.h"
+#include "reference_runner_terminal_prefix_internal.h"
 
 #include <limits>
 
@@ -32,7 +33,8 @@ void fail(PrefillRouteEvidence& evidence,
 }
 
 [[nodiscard]] bool layer_pass_is_complete(
-    const PrefillRouteEvidence& layer_pass) noexcept {
+    const PrefillRouteEvidence& layer_pass,
+    const bool terminal_prefix_elision = false) noexcept {
   if (layer_pass.error != PrefillRouteEvidenceError::kNone ||
       layer_pass.request_active || layer_pass.complete || layer_pass.valid ||
       layer_pass.completed_layer_passes != 0U ||
@@ -42,8 +44,13 @@ void fail(PrefillRouteEvidence& evidence,
   for (std::size_t index = 0U;
        index < layer_pass.operators.size(); ++index) {
     std::uint64_t observed = 0U;
+    const std::uint64_t omitted =
+        terminal_prefix_elision &&
+                reference_runner_detail::terminal_prefix_elides_role(
+                    static_cast<PrefillOperatorRole>(index))
+            ? 1U : 0U;
     if (!total(layer_pass.operators[index], observed) ||
-        observed != kExpectedPrefillLogicalOperatorsPerTile[index]) {
+        observed != kExpectedPrefillLogicalOperatorsPerTile[index] - omitted) {
       return false;
     }
   }
@@ -121,14 +128,17 @@ bool record_prefill_forbidden_boundary(
   return true;
 }
 
-bool commit_prefill_route_layer_pass(
+namespace {
+
+bool commit_layer_pass(
     PrefillRouteEvidence& request,
-    const PrefillRouteEvidence& layer_pass) noexcept {
+    const PrefillRouteEvidence& layer_pass,
+    const bool terminal_prefix_elision) noexcept {
   if (!request.request_active || request.complete) {
     fail(request, PrefillRouteEvidenceError::kInactiveRequest);
     return false;
   }
-  if (!layer_pass_is_complete(layer_pass)) {
+  if (!layer_pass_is_complete(layer_pass, terminal_prefix_elision)) {
     fail(request, PrefillRouteEvidenceError::kIncompleteTile);
     return false;
   }
@@ -168,6 +178,54 @@ bool commit_prefill_route_layer_pass(
   }
   return true;
 }
+
+}  // namespace
+
+bool commit_prefill_route_layer_pass(
+    PrefillRouteEvidence& request,
+    const PrefillRouteEvidence& layer_pass) noexcept {
+  return commit_layer_pass(request, layer_pass, false);
+}
+
+namespace reference_runner_detail {
+
+bool commit_terminal_prefix_elided_layer_pass(
+    PrefillRouteEvidence& request,
+    const PrefillRouteEvidence& layer_pass) noexcept {
+  return commit_layer_pass(request, layer_pass, true);
+}
+
+std::optional<std::uint64_t> terminal_prefix_elided_layer_passes(
+    const PrefillRouteEvidence& evidence) noexcept {
+  std::optional<std::uint64_t> omitted;
+  for (std::size_t index = 0U; index < evidence.operators.size(); ++index) {
+    const std::uint64_t per_pass =
+        kExpectedPrefillLogicalOperatorsPerTile[index];
+    if (evidence.completed_layer_passes >
+        std::numeric_limits<std::uint64_t>::max() / per_pass) {
+      return std::nullopt;
+    }
+    const std::uint64_t expected =
+        evidence.completed_layer_passes * per_pass;
+    std::uint64_t observed = 0U;
+    if (!total(evidence.operators[index], observed) || observed > expected) {
+      return std::nullopt;
+    }
+    const std::uint64_t deficit = expected - observed;
+    if (terminal_prefix_elides_role(static_cast<PrefillOperatorRole>(index))) {
+      if (deficit > evidence.completed_layer_passes ||
+          (omitted.has_value() && *omitted != deficit)) {
+        return std::nullopt;
+      }
+      omitted = deficit;
+    } else if (deficit != 0U) {
+      return std::nullopt;
+    }
+  }
+  return omitted;
+}
+
+}  // namespace reference_runner_detail
 
 PrefillRouteEvidence finalize_prefill_route_request(
     PrefillRouteEvidence& request,

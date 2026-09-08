@@ -54,8 +54,11 @@ inline constexpr std::size_t kPrefillForbiddenBoundaryCount =
     static_cast<std::size_t>(PrefillForbiddenBoundary::kCount);
 
 // The pinned Qwen3.6 schedule has 48 GDN layers and 16 full-Attention layers.
-// These are logical invocations expected from every successfully committed
-// 64-layer Prefill pass, independent of tile length or fusion choices.
+// These are logical invocations expected from an unelided, successfully
+// committed 64-layer Prefill pass, independent of tile length or fusion.
+// The public commit requires this complete shape. A source-private ordinary
+// generation topology may attest precise terminal-prefix omissions through
+// its separately versioned witness; omitted work is never recorded as a hit.
 inline constexpr std::array<std::uint64_t, kPrefillOperatorRoleCount>
     kExpectedPrefillLogicalOperatorsPerTile{{
         64U,  // NVFP4 Gate+Up
