@@ -58,6 +58,9 @@ thread_local bool g_terminal_prefix_elision_enabled_for_test = true;
 thread_local reference_runner_detail::
     ReferenceEngineGenerateReturnSnapshotHook
         g_reference_engine_generate_return_snapshot_hook{};
+thread_local reference_runner_detail::
+    ReferenceEngineGenerateReturnSnapshotHook
+        g_reference_engine_step_snapshot_hook{};
 thread_local reference_engine_detail::
     ReferenceEnginePrefillFinalTokenPolicyForTest
         g_reference_engine_prefill_final_token_policy_for_test =
@@ -1438,6 +1441,9 @@ struct EngineStepContext {
   ReferencePrefillTileOutcome (*ordinary_prefix_tile)(
       ReferenceRunner&, const std::uint32_t*, std::size_t,
       const ReferencePrefillTileOptions&) noexcept = nullptr;
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+  const RequestState* snapshot_state = nullptr;
+#endif
   std::vector<ReferenceTraceDigest>* traces = nullptr;
   const reference_engine_detail::BoundPrefillExecutionPlan*
       bound_prefill_plan = nullptr;
@@ -2150,6 +2156,13 @@ class EngineWholeRequestTransactionGuard final {
     const ReferenceStepOptions& options) {
   auto& context = *static_cast<EngineStepContext*>(opaque_context);
   ReferenceStepOutcome outcome = context.runner->step(input_token_id, options);
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+  if (outcome && options.compute_logits && context.snapshot_state != nullptr &&
+      g_reference_engine_step_snapshot_hook.callback != nullptr) {
+    g_reference_engine_step_snapshot_hook.callback(
+        *context.snapshot_state, g_reference_engine_step_snapshot_hook.context);
+  }
+#endif
   if (!outcome || !context.capture_trace) {
     return outcome;
   }
@@ -4782,6 +4795,12 @@ exchange_reference_engine_generate_return_snapshot_hook(
   return std::exchange(g_reference_engine_generate_return_snapshot_hook,
                        hook);
 }
+
+ReferenceEngineGenerateReturnSnapshotHook
+exchange_reference_engine_step_snapshot_hook(
+    const ReferenceEngineGenerateReturnSnapshotHook hook) noexcept {
+  return std::exchange(g_reference_engine_step_snapshot_hook, hook);
+}
 #endif
 
 }  // namespace reference_runner_detail
@@ -7361,6 +7380,9 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     std::vector<ReferenceTraceDigest> traces;
     EngineStepContext step_context;
     step_context.runner = &*impl_->runner;
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+    step_context.snapshot_state = &*impl_->request_state;
+#endif
     step_context.traces = &traces;
     step_context.capture_trace = options.capture_trace;
     step_context.bound_prefill_plan =
