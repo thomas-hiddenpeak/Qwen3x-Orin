@@ -430,6 +430,37 @@ The [repair record](metadata/qwen36-27b-graph-startup-initialization-repair-2026
 keeps this boundary separate from any Prefill gain. The preceding blocker is recorded in the
 [ordinary request/startup record](metadata/qwen36-27b-ordinary-p40-startup-and-request-observation-2026-09-09.json).
 
+`WP-GRAPH-TEMPLATE-LIFETIME-20260909` is one independent, bounded startup
+blocker repair, not a reopening or second version of scalar initialization.
+Two fresh installed-main starts at `edf4da2` failed the unchanged Graph memory
+increment gate before readiness, blocking selected liveness delivery. The
+downward constraint is the ordinary 25-slot/256-MiB/one-second/8-GiB readiness
+contract; the sole admitted mutation shortens source-template ownership after
+successful full-graph instantiation, upload, and synchronization. It retains
+the original graph and embedding root for parameter updates and deletes only
+the unused original non-root nodes. The full executable, instantiated-topology
+statistics, all arithmetic/arguments, startup initialization, request arena,
+slot policy, and public ABI remain unchanged. No diagnostics, allocator trim,
+threshold scan, clone/re-instantiation variant, or extra warmup is admitted.
+The [Runner ownership contract](REFERENCE_RUNNER.md#diagnostic-graph-surface)
+owns the checked removal, root identity, failure, and destruction boundaries.
+
+This isolated source change has no startup or memory qualification. In
+particular, the diagnostic process's anonymous-memory growth does not identify
+how much belongs to source templates, and deletion may not immediately return
+allocator storage to the system. The smallest existing full-model gate is
+`q3x_reference_decode_graph_production_test`: it checks the 25 short-position
+replays against serial token/text/step semantics, changed embedding inputs,
+reset reuse, and the first out-of-cache position. Its serial-only trace and
+full-statistics cases are not a Graph full-state oracle. The upward return is
+actual installed Release/OFF readiness and short-Graph/API behavior, followed
+by the pending selected-main P40000/O16 and short integration closeout. All
+admissions remain OFF, GPU runs remain serialized, and a negative resource or
+correctness result closes this one implementation without a variant scan.
+Source/build identities and raw results remain under `.q3x-work/`; source
+selection into main requires completed product-connected checks. The existing
+09:24 handoff deadline is unchanged, and score-feed work stays paused.
+
 ### Retained recovery boundary
 
 The exact recovery anchor is

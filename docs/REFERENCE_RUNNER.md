@@ -214,6 +214,28 @@ prediction-validation and commit boundary. Missing or incompatible slots are
 caller-visible conditions, not authority to redefine the default runtime
 route or Production lifecycle state.
 
+After successful capture, topology inspection, instantiation, upload, and
+stream synchronization, each prepared slot retains the full executable plus
+its original non-executable graph and original embedding root node. All other
+source-template nodes are destroyed before slot publication. Replay updates
+only that retained original node through `cudaGraphExecKernelNodeSetParams`;
+it does not instantiate or launch the reduced source template. Node statistics
+describe the complete topology captured and instantiated, not the retained
+one-node template. This follows the
+[CUDA 12.6 graph snapshot contract](https://docs.nvidia.com/cuda/archive/12.6.0/cuda-c-programming-guide/index.html#cuda-graphs)
+and the original-node lifetime requirement in the
+[CUDA Graph API](https://docs.nvidia.com/cuda/archive/12.6.0/cuda-runtime-api/group__CUDART__GRAPH.html).
+
+Every node removal and the final one-node identity check must succeed before
+publication. Failure destroys the new executable and remaining template,
+enters the existing poison/transactional preparation failure path, and does
+not replace a previously prepared slot. Clear/destruction still releases the
+executable before its retained template. This shortens unused host-template
+ownership only: executable topology, arguments, numerical work, state and
+workspace lifetimes, slot policy, startup initialization, and resource gates
+are unchanged. Neither source review nor node removal guarantees an immediate
+decrease in process RSS or Tegra's shared free-memory observation.
+
 ## Failure semantics
 
 Errors distinguish invalid dependencies, weights, request state, layer

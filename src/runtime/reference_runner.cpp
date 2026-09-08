@@ -4322,6 +4322,40 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
             upload_ready_finished - upload_ready_started)
             .count();
 
+    // Instantiation snapshots the complete graph. Replay updates only the
+    // embedding node, whose original graph and node identity must stay alive
+    // for cudaGraphExecKernelNodeSetParams. The other source-template nodes
+    // have no later consumer; deleting them does not edit captured_exec.
+    // Keep stats as the full instantiated topology, not the retained template.
+    for (std::size_t index = 0U; index < node_count; ++index) {
+      if (nodes[index] == embedding_node) {
+        continue;
+      }
+      graph_status = cudaGraphDestroyNode(nodes[index]);
+      if (graph_status != cudaSuccess) {
+        (void)cudaGraphExecDestroy(captured_exec);
+        (void)cudaGraphDestroy(captured_graph);
+        return fail_step(runner_status(
+            ReferenceRunnerError::kCudaFailure,
+            "decode_graph_p1_release_template_node", kReferenceNoLayer,
+            static_cast<int>(graph_status)));
+      }
+    }
+    std::size_t retained_node_count = nodes.size();
+    graph_status = cudaGraphGetNodes(captured_graph, nodes.data(),
+                                     &retained_node_count);
+    if (graph_status != cudaSuccess || retained_node_count != 1U ||
+        nodes[0] != embedding_node) {
+      (void)cudaGraphExecDestroy(captured_exec);
+      (void)cudaGraphDestroy(captured_graph);
+      return fail_step(runner_status(
+          graph_status == cudaSuccess
+              ? ReferenceRunnerError::kInvalidRunner
+              : ReferenceRunnerError::kCudaFailure,
+          "decode_graph_p1_retained_template", kReferenceNoLayer,
+          static_cast<int>(graph_status)));
+    }
+
     DecodeGraphP1Slot prepared_slot;
     prepared_slot.graph = captured_graph;
     prepared_slot.exec = captured_exec;

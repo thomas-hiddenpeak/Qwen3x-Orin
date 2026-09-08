@@ -80,7 +80,7 @@ authority only for its exact recorded protocol.
 | `docs/REFERENCE_ENGINE.md` | `component_contract` | active | Correctness-first engine ownership, generation, timing, trace, and verification boundary. |
 | `docs/REFERENCE_GEMV.md` | `component_contract` | active | Batch-one GEMV numerical and launch contract. |
 | `docs/REFERENCE_ORACLE.md` | `oracle_contract` | active | BF16 oracle identity, schema, trust boundary, and comparison diagnostics. |
-| `docs/REFERENCE_RUNNER.md` | `component_contract` | active | Batch-one reference runner sequence, state commit/reset, and fixture boundary. |
+| `docs/REFERENCE_RUNNER.md` | `component_contract` | active | Batch-one reference runner sequence, state commit/reset, prepared Graph executable/template ownership, and fixture boundary. |
 | `docs/REQUEST_STATE.md` | `state_contract` | active | Per-request persistent state, workspace, RoPE, memory plan, and lifecycle ownership. |
 | `docs/RESIDENT_WEIGHT_LOADER.md` | `loader_contract` | active | Authenticated resident-weight I/O, identity, memory budget, and loader boundary. |
 | `docs/TOKENIZER.md` | `tokenizer_contract` | active | Pinned tokenizer/chat formatting resource and error contract. |
