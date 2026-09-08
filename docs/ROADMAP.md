@@ -359,8 +359,11 @@ Both ON and OFF must use the same boundary; the 256-MiB increment, one-second
 Graph preparation, full topology, and 8-GiB retained-free checks remain intact.
 Complete startup wall time remains observable. This does not assume exclusive
 Graph/module attribution from Tegra's shared free-memory reading. The repair
-returns directly to actual generation/API; it opens no threshold scan, AOT
-work, or extra performance hypothesis. The actual blocker is recorded in the
+has returned successfully to actual ordinary installed P40000/O16 generation
+and is integrated into main source; fresh installed-main integration closure
+remains. It opens no threshold scan, AOT work, or extra performance hypothesis.
+The [repair record](metadata/qwen36-27b-graph-startup-initialization-repair-2026-09-09.json)
+keeps this boundary separate from any Prefill gain. The preceding blocker is recorded in the
 [ordinary request/startup record](metadata/qwen36-27b-ordinary-p40-startup-and-request-observation-2026-09-09.json).
 
 ### Retained recovery boundary

@@ -25,7 +25,20 @@ metadata/evidence records.
 
 ## 1. Answer-first state
 
-One fresh ordinary installed Release/OFF P40000/O16 request on 2026-09-09
+The bounded startup repair is now integrated into main source. It performs
+one exact scalar initialization and complete state reset before the unchanged
+Graph increment checks. Its isolated installed Release/OFF artifact completed
+the ordinary P40000/O16 API request at 57.1632374429 prompt tok/s and
+699,773.335528 ms external TTFT, with exact output, valid v16 route, complete
+SSE/usage, and clean resource closure. All 25 Graph slots passed admission;
+the recorded free-memory drop was 113,025,024 bytes and preparation took
+111.358 ms. This is a completed request and a bounded startup repair result,
+not a Prefill or startup speedup, repeated startup reliability, or release
+qualification. A fresh installed-main integration closeout remains pending.
+Neither Prefill candidate is absorbed. See the
+[startup repair record](metadata/qwen36-27b-graph-startup-initialization-repair-2026-09-09.json).
+
+The preceding ordinary installed Release/OFF P40000/O16 request on 2026-09-09
 completed at 57.2572803117 prompt tok/s and 698,623.065496 ms external TTFT.
 Output, SSE, usage, route, cache-drop, shutdown, and resource closure passed.
 The raw monitor rejection is preserved; a separate request-window review
@@ -33,8 +46,8 @@ classifies benign CPU activity as supporting context and accepts this ordinary
 request observation, not a speedup. A subsequent installed startup failed
 before readiness because its Graph preparation free-memory drop exceeded the
 existing 256-MiB check, despite complete sidecars and a 171.983-ms preparation.
-The shared-memory attribution is unresolved and startup is not yet fixed.
-Neither new Prefill candidate is absorbed. Identities and claim limits are in
+The shared-memory attribution remains unresolved; the bounded initialization
+repair above does not claim exclusive attribution. Identities and claim limits are in
 the [ordinary request/startup record](metadata/qwen36-27b-ordinary-p40-startup-and-request-observation-2026-09-09.json).
 
 The 2026-09-09 source/raw-record review does not change the installed runtime

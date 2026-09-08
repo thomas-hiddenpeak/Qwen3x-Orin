@@ -1,0 +1,78 @@
+{
+  "schema": "q3x.graph-startup-initialization-repair.v1",
+  "date": "2026-09-09",
+  "decision_unit": "bounded_runtime_repair",
+  "work_package_id": "WP-GRAPH-STARTUP-ATTRIBUTION-20260909",
+  "architecture_candidate_id": "AC-PREFILL-EXACT-P40-DATAFLOW-20260909",
+  "source_commit": "e30014e158fa69031bf551745d1c375209a61fc0",
+  "integrating_main_parent": "b8f6050",
+  "source_boundary": "The integrated engine/server source is identical to the isolated source commit. No Attention or terminal-prefix candidate is absorbed by this repair.",
+  "installed_server": {
+    "path": ".q3x-work/install/graph-startup-attribution-20260909/bin/qwen3x-eval-server",
+    "sha256": "b88b6cb0f8c42d3732cd633314a6a5684b3f4450ec3a282fd031289abf9ca811",
+    "build_id": "308c2cfe4f1a3b0eefe5185ed904dec7c782018e",
+    "build_testing": false,
+    "build_type": "Release",
+    "sm": 87,
+    "profile": "q3x.sm87.production.p40.legacy-c512-exact.v3"
+  },
+  "repair": {
+    "ordinary_scalar_initialization_steps": 1,
+    "position": 43,
+    "token_id": 0,
+    "logits_policy": "predicted_only_with_full_vocabulary_finite_validation",
+    "full_reset_required_after_step": true,
+    "graph_mask_required_before_and_after_initialization": 0,
+    "initialization_charged_to_total_engine_creation": true,
+    "unchanged_limits": {
+      "graph_positions": [19, 43],
+      "graph_slots": 25,
+      "increment_bytes": 268435456,
+      "graph_preparation_milliseconds": 1000,
+      "retained_free_bytes": 8589934592
+    }
+  },
+  "actual_api_return": {
+    "bundle": ".q3x-work/evidence/ordinary-warmed-startup-p40-api-20260909-r1",
+    "accepted": true,
+    "request_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "prompt_tokens": 40000,
+    "output_tokens": 16,
+    "final_prompt_policy": "ordinary_p_minus_1_then_scalar",
+    "witness_schema": 16,
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "model_authentication_scope": "Configured read-only checkpoint with four pinned metadata file hashes; this bundle did not independently rehash the three shard payloads. It is not a complete seven-file artifact attestation.",
+    "generated_text_sha256": "25451d25ce3799c749c8743a664277def7336b294af5ddfb238dac327058b20b",
+    "pure_prefill_milliseconds": 699750.430335,
+    "pure_prefill_tokens_per_second": 57.16323744288419,
+    "external_ttft_milliseconds": 699773.335528,
+    "decode_milliseconds_per_token": 253.77978380000002,
+    "decode_tokens_per_second": 3.9404241938675653,
+    "spawn_to_ready_milliseconds": 35368.583191,
+    "graph_preparation_milliseconds_log_precision": 111.358,
+    "graph_free_before_bytes": 20905406464,
+    "graph_free_after_bytes": 20792381440,
+    "graph_free_drop_bytes": 113025024,
+    "sse_output_usage_route_cache_drop_pass": true,
+    "sigint_exit_code": 0,
+    "resource_closure_and_nvmap_pass": true,
+    "errors": []
+  },
+  "raw_artifacts": {
+    "result.json": "48f0a22666951b6541825cd8be18563e7df42810c7bd7b8deed715bb4c895efd",
+    "server-and-profile.stdout.txt": "2ca3c2e50f337da41162058f9017da4c4830d5fcb25a32896fa8865f1a0738dd",
+    "server-and-profile.stderr.txt": "0e237ec9e29aac06ada5b4a2d95a932878b926a38efc4a83739dac042516aa3d",
+    "raw-sse.txt": "2b28574463f4ef9a37012210e8382e2d1b0955f467f3007eed5d9c2b2b1dea59"
+  },
+  "claims": {
+    "bounded_ordinary_api_return": true,
+    "main_source_integration": true,
+    "fresh_installed_main_closeout": "pending",
+    "prefill_speedup": false,
+    "startup_speedup": false,
+    "repeated_startup_reliability": false,
+    "exclusive_graph_memory_attribution": false,
+    "candidate_attention_or_liveness_qualification": false,
+    "release_qualification": false
+  }
+}

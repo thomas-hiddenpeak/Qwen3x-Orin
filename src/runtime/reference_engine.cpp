@@ -5891,6 +5891,81 @@ struct ReferenceEngine::Impl {
           const std::uint64_t expected_mask =
               decode_graph_position_mask(first_position, last_position);
 
+          if (linear_weight_kind(impl->model_weights->lm_head()) !=
+              LinearWeightKind::kBf16) {
+            // Separate ordinary kernel initialization from the Graph cache
+            // increment, as the P2 oracle already does. This one scalar step
+            // uses the same short-position route; no Graph or user request is
+            // executed. Its cost remains in load.total_milliseconds. The
+            // subsequent full reset removes every artificial KV/state row.
+            if (impl->request_state->current_position() != 0U ||
+                impl->runner->fixed_position_decode_graph_cache_mask() !=
+                    0U) {
+              result.diagnostic = engine_diagnostic(
+                  ReferenceEngineError::kRunnerFactoryFailure,
+                  "decode_graph_cache_warmup_fresh_state",
+                  "Graph initialization requires a fresh request state and "
+                  "an empty cache");
+              return result;
+            }
+            const RequestOperationStatus position_status =
+                impl->request_state->set_sequence_length(last_position);
+            if (!position_status) {
+              result.diagnostic = engine_diagnostic(
+                  ReferenceEngineError::kRunnerFactoryFailure,
+                  "decode_graph_cache_warmup_position",
+                  "could not select the admitted short warmup position");
+              result.diagnostic.cuda_error = position_status.cuda_error;
+              return result;
+            }
+            ReferenceStepOptions warmup_options;
+            warmup_options.compute_logits = true;
+            warmup_options.capture_trace = false;
+            warmup_options.measure_timing = false;
+            warmup_options.logits_mode =
+                ReferenceLogitsMode::kPredictedTokenOnly;
+            const ReferenceStepOutcome warmed = impl->runner->step(
+                kProductionDecodeGraphCaptureTokenId, warmup_options);
+            // Successful predicted-only step() has synchronized, rejected
+            // every nonfinite vocabulary logit, and committed exactly once.
+            const bool warmup_exact =
+                warmed && warmed.value->position == last_position &&
+                warmed.value->input_token_id ==
+                    kProductionDecodeGraphCaptureTokenId &&
+                warmed.value->prediction.has_value() &&
+                warmed.value->prediction->predicted_token_id <
+                    kReferenceVocabularySize &&
+                !warmed.value->logits.has_value() &&
+                impl->request_state->current_position() ==
+                    last_position + 1U;
+            // Attempt the full reset even if the warmup failed. Never use
+            // committed-prefix cleanup or leave warm state for generation.
+            const ReferenceRunnerStatus reset_status = impl->runner->reset();
+            if (!reset_status) {
+              result.diagnostic = runner_diagnostic(
+                  ReferenceEngineError::kRunnerFactoryFailure,
+                  "decode_graph_cache_warmup_reset", reset_status);
+              return result;
+            }
+            if (!warmed) {
+              result.diagnostic = runner_diagnostic(
+                  ReferenceEngineError::kRunnerFactoryFailure,
+                  "decode_graph_cache_warmup_step", warmed.status);
+              return result;
+            }
+            if (!warmup_exact ||
+                impl->request_state->current_position() != 0U ||
+                impl->runner->fixed_position_decode_graph_cache_mask() !=
+                    0U) {
+              result.diagnostic = engine_diagnostic(
+                  ReferenceEngineError::kRunnerFactoryFailure,
+                  "decode_graph_cache_warmup_contract",
+                  "short warmup did not publish one finite prediction and "
+                  "commit, or full reset did not restore the fresh boundary");
+              return result;
+            }
+          }
+
           (void)cudaGetLastError();
           std::size_t free_before = 0U;
           std::size_t total_before = 0U;

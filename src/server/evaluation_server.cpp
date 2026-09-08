@@ -439,6 +439,8 @@ class UniqueFd final {
            << load.nvfp4_down_consumer_order_production_enabled
            << ", graph_slots=" << load.decode_graph_cache_slot_count
            << ", graph_prepare_ms=" << load.decode_graph_cache_prepare_milliseconds
+           << ", graph_free_before_bytes=" << load.decode_graph_cache_free_bytes_before
+           << ", graph_free_after_bytes=" << load.decode_graph_cache_free_bytes_after
            << ", graph_free_drop_bytes=" << load.decode_graph_cache_free_drop_bytes
            << ", graph_fallback=" << load.decode_graph_cache_fallback_reason;
     error = detail.str();
@@ -2371,6 +2373,15 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << load.decode_graph_cache_last_position
             << " decode_graph_cache_slots="
             << load.decode_graph_cache_slot_count
+            << " decode_graph_cache_prepare_ms="
+            << load.decode_graph_cache_prepare_milliseconds
+            << " decode_graph_cache_free_before_bytes="
+            << load.decode_graph_cache_free_bytes_before
+            << " decode_graph_cache_free_after_bytes="
+            << load.decode_graph_cache_free_bytes_after
+            << " decode_graph_cache_free_drop_bytes="
+            << load.decode_graph_cache_free_drop_bytes
+            << " engine_create_total_ms=" << load.total_milliseconds
             << " p40_packed_projection_asset_ms="
             << load.p40_packed_projection_asset_milliseconds
             << " p40_packed_projection_assets_enabled="

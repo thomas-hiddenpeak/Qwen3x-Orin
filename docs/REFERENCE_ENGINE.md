@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: correctness-first engine ownership, generation, timing, trace, and failure contract
   effective: 2026-08-09
-  last_reviewed: 2026-08-23
+  last_reviewed: 2026-09-09
   supersedes: []
   superseded_by: []
   ssot_for: ReferenceEngine lifecycle, generation semantics, tracing, timing, and error behavior
@@ -67,6 +67,19 @@ global performance prescription.
 Creation fails closed on tokenizer, resident-load, weight-binding,
 request-state, runner-factory, capacity, arithmetic, or allocation errors. It
 does not publish a partially usable engine.
+
+For the quantized-lm-head short-position Graph policy, creation first runs
+one ordinary predicted-only scalar initialization at the last admitted short
+position, using the capture token and otherwise fresh zero state. The step
+must validate the complete vocabulary's finiteness and commit exactly once.
+Creation then attempts the conservative full runner reset, including on step
+failure, and verifies zero position and an empty Graph cache before measuring
+Graph preparation. No artificial state may reach generation. Initialization
+cost remains in total engine creation time; it is not charged to or hidden in
+the subsequent Graph increment. The existing slot/topology, one-second,
+256-MiB increment, and retained-free checks are unchanged. On Tegra, free-memory
+observations include shared system effects and do not exclusively measure
+Graph-owned allocation.
 
 `prepare_sm87_target_aot_projection_device_assets` is an append-only,
 programmatic, default-false startup option for the test admission only. A

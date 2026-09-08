@@ -2322,3 +2322,9 @@ The [ordinary P40 request/startup record](qwen36-27b-ordinary-p40-startup-and-re
 retains one completed installed P40000/O16 request, its separate proportional
 CPU review, and a concrete pre-readiness Graph resource rejection. It grants
 no speedup, full-state accuracy, candidate absorption, or release claim.
+## 2026-09-09 Graph startup initialization repair
+
+The [bounded repair record](qwen36-27b-graph-startup-initialization-repair-2026-09-09.json)
+pins the exact scalar-initialization/full-reset change and its successful
+ordinary installed P40000/O16 API return. It preserves the unchanged Graph
+limits and claims no Prefill/startup speedup or release qualification.
