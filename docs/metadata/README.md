@@ -2315,3 +2315,10 @@ revision fails closed.
 
 Model weights, tokenizers, and source configuration files remain separately
 licensed artifacts and are not copied into this repository.
+
+## 2026-09-09 ordinary request and startup observation
+
+The [ordinary P40 request/startup record](qwen36-27b-ordinary-p40-startup-and-request-observation-2026-09-09.json)
+retains one completed installed P40000/O16 request, its separate proportional
+CPU review, and a concrete pre-readiness Graph resource rejection. It grants
+no speedup, full-state accuracy, candidate absorption, or release claim.

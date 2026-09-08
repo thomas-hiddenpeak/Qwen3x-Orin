@@ -417,6 +417,31 @@ class UniqueFd final {
       !load.decode_graph_cache_fallback_reason.empty()) {
     error = "the sealed production route did not publish its exact Prefill, "
             "Decode, and short-position Graph inventory";
+    // Preserve fail-closed admission while exposing the actual rejected
+    // inventory. A generic startup error cannot distinguish a missing layout
+    // from a graph preparation/resource failure on the deployed service.
+    std::ostringstream detail;
+    detail << error
+           << "; fp8_prefill_projections="
+           << load.fp8_prefill_supermatrix_sidecar_projections
+           << ", fp8_output_layers=" << load.fp8_output_sidecar_layers
+           << ", fp8_output_fallback=" << load.fp8_output_sidecar_fallback_reason
+           << ", gate_up_layers=" << load.nvfp4_gate_up_coupled_feed_layers
+           << ", gate_up_production="
+           << load.nvfp4_gate_up_coupled_feed_production_enabled
+           << ", down_scale6_layers="
+           << load.nvfp4_down_scale6_sidecar_eligible_layers
+           << ", down_scale6_fallback="
+           << load.nvfp4_down_scale6_sidecar_fallback_reason
+           << ", down_consumer_layers="
+           << load.nvfp4_down_consumer_order_sidecar_layers
+           << ", down_consumer_production="
+           << load.nvfp4_down_consumer_order_production_enabled
+           << ", graph_slots=" << load.decode_graph_cache_slot_count
+           << ", graph_prepare_ms=" << load.decode_graph_cache_prepare_milliseconds
+           << ", graph_free_drop_bytes=" << load.decode_graph_cache_free_drop_bytes
+           << ", graph_fallback=" << load.decode_graph_cache_fallback_reason;
+    error = detail.str();
     return false;
   }
   return true;

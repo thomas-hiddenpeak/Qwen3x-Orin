@@ -350,6 +350,19 @@ results, rejected versions, and next action under the repository. Complete
 safe milestones are committed and pushed; incomplete or negative runtime
 changes remain isolated from ordinary main.
 
+`WP-GRAPH-STARTUP-ATTRIBUTION-20260909` is a bounded repair prerequisite
+inside this same window: actual ordinary OFF startup and the matched ON
+capture can fail the existing Graph free-drop check before generation.
+One lifecycle correction may complete an exact scalar startup initialization
+and full request-state reset before measuring the 25-slot Graph increment.
+Both ON and OFF must use the same boundary; the 256-MiB increment, one-second
+Graph preparation, full topology, and 8-GiB retained-free checks remain intact.
+Complete startup wall time remains observable. This does not assume exclusive
+Graph/module attribution from Tegra's shared free-memory reading. The repair
+returns directly to actual generation/API; it opens no threshold scan, AOT
+work, or extra performance hypothesis. The actual blocker is recorded in the
+[ordinary request/startup record](metadata/qwen36-27b-ordinary-p40-startup-and-request-observation-2026-09-09.json).
+
 ### Retained recovery boundary
 
 The exact recovery anchor is

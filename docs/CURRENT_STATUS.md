@@ -25,6 +25,18 @@ metadata/evidence records.
 
 ## 1. Answer-first state
 
+One fresh ordinary installed Release/OFF P40000/O16 request on 2026-09-09
+completed at 57.2572803117 prompt tok/s and 698,623.065496 ms external TTFT.
+Output, SSE, usage, route, cache-drop, shutdown, and resource closure passed.
+The raw monitor rejection is preserved; a separate request-window review
+classifies benign CPU activity as supporting context and accepts this ordinary
+request observation, not a speedup. A subsequent installed startup failed
+before readiness because its Graph preparation free-memory drop exceeded the
+existing 256-MiB check, despite complete sidecars and a 171.983-ms preparation.
+The shared-memory attribution is unresolved and startup is not yet fixed.
+Neither new Prefill candidate is absorbed. Identities and claim limits are in
+the [ordinary request/startup record](metadata/qwen36-27b-ordinary-p40-startup-and-request-observation-2026-09-09.json).
+
 The 2026-09-09 source/raw-record review does not change the installed runtime
 or establish a new performance result. It corrects three interpretation
 boundaries: the v10-to-Legacy restoration changed FP8, A/B, GDN, and MLP as
