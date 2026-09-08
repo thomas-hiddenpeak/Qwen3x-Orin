@@ -17,6 +17,7 @@
 #include "reference_engine_decode_sidecar_policy_internal.h"
 #include "reference_engine_final_token_policy_internal.h"
 #include "reference_engine_prefill_authority.h"
+#include "reference_graph_startup_diagnostic_internal.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
 #include "reference_runner_terminal_prefix_internal.h"
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
@@ -6053,6 +6054,9 @@ struct ReferenceEngine::Impl {
                         ? static_cast<std::uint64_t>(free_before - free_after)
                         : 0U;
               }
+              graph_startup_diagnostic_detail::emit(
+                  "engine_free_after", last_position, memory_after_status,
+                  free_after, total_after);
 
               bool preparation_exact = prepared.ok();
               if (preparation_exact) {

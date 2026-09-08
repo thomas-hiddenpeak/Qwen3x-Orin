@@ -8,6 +8,7 @@
 #endif
 #include "reference_runner_request_reset_policy_internal.h"
 #include "reference_runner_terminal_prefix_internal.h"
+#include "reference_graph_startup_diagnostic_internal.h"
 
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
 #if defined(Q3X_ENABLE_P40_PROJECTION_RESET_ADMISSION)
@@ -3372,6 +3373,9 @@ ReferenceRunner::prepare_fixed_position_decode_graph_cache(
   }
 
   const std::uint32_t entry_position = state_->current_position();
+  if (first_position == 19U && last_position == 43U) {
+    graph_startup_diagnostic_detail::sample("prepare_entry", first_position);
+  }
   std::array<DecodeGraphP1Slot, kReferenceDecodeGraphP2MaximumSlots>
       staged_slots{};
   ReferenceDecodeGraphCachePrepareResult prepared;
@@ -4132,6 +4136,9 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
           static_cast<int>(end_status)));
     }
     const Clock::time_point capture_finished = Clock::now();
+    if (capture_destination != nullptr && position == 19U) {
+      graph_startup_diagnostic_detail::sample("first_capture_end", position);
+    }
 
     constexpr std::size_t kMaximumDecodeGraphP1Nodes = 1'024U;
     std::size_t node_count = 0U;
@@ -4296,6 +4303,9 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
           static_cast<int>(graph_status)));
     }
     const Clock::time_point instantiate_finished = Clock::now();
+    if (capture_destination != nullptr && position == 19U) {
+      graph_startup_diagnostic_detail::sample("first_instantiate_end", position);
+    }
     stats.instantiate_milliseconds =
         std::chrono::duration<double, std::milli>(
             instantiate_finished - instantiate_started)
@@ -4317,6 +4327,11 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
           static_cast<int>(graph_status)));
     }
     const Clock::time_point upload_ready_finished = Clock::now();
+    if (capture_destination != nullptr &&
+        (position == 19U || position == 43U)) {
+      graph_startup_diagnostic_detail::sample(
+          position == 19U ? "first_upload_sync" : "last_upload_sync", position);
+    }
     stats.upload_ready_milliseconds =
         std::chrono::duration<double, std::milli>(
             upload_ready_finished - upload_ready_started)
