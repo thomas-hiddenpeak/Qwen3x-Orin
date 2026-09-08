@@ -2,8 +2,13 @@
 
 #include "q3x/runtime/prefill_route_evidence.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
+
+namespace q3x::runtime {
+class RequestState;
+}
 
 namespace q3x::runtime::reference_runner_detail {
 
@@ -46,5 +51,36 @@ terminal_prefix_elided_layer_passes(
 // Defined only in BUILD_TESTING=ON. No environment, CLI, or request selector
 // exists, and the installed ABI exports no mutable route authority.
 void set_terminal_prefix_elision_enabled_for_test(bool enabled) noexcept;
+
+// BUILD_TESTING-only synchronous observation/injection seam. The first stage
+// follows layer 62 enqueue, before layer 63 may read or write any workspace;
+// its callback must wait on cuda_stream before reading device bytes. The last
+// stage follows successful whole-tile stream/state/route commit, before the
+// next tile or scalar step. Mutable state exists solely to permit bounded
+// dead-scratch poison tests; persistent state and RoPE are never poison targets.
+enum class TerminalPrefixObservationStage : std::uint8_t {
+  kBeforeLayer63,
+  kAfterTileCommit,
+};
+
+struct TerminalPrefixObservationView {
+  RequestState* state = nullptr;
+  std::uint32_t first_position = 0U;
+  std::size_t token_count = 0U;
+  TerminalPrefixObservationStage stage =
+      TerminalPrefixObservationStage::kBeforeLayer63;
+  void* cuda_stream = nullptr;
+};
+
+struct TerminalPrefixObservationHook {
+  // False propagates through the ordinary synchronous failure/poison path;
+  // an observer error must never be silently treated as successful Prefill.
+  bool (*callback)(const TerminalPrefixObservationView&, void*) noexcept = nullptr;
+  void* context = nullptr;
+};
+
+[[nodiscard]] TerminalPrefixObservationHook
+exchange_terminal_prefix_observation_hook_for_test(
+    TerminalPrefixObservationHook hook) noexcept;
 
 }  // namespace q3x::runtime::reference_runner_detail

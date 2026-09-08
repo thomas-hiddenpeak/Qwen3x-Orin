@@ -55,6 +55,12 @@ struct FullSnapshot {
   core::Sha256Digest conv, gdn;
   std::array<core::Sha256Digest, rt::kRequestFullLayerCount> key, value;
 };
+struct PrefixObservation {
+  std::uint32_t first_position = 0U;
+  std::size_t token_count = 0U;
+  core::Sha256Digest before, after;
+  bool preserved = false;
+};
 struct Capture {
   std::vector<std::uint8_t> scratch = std::vector<std::uint8_t>(kCopyBytes);
   std::vector<std::uint16_t> logits =
@@ -63,6 +69,11 @@ struct Capture {
   FullSnapshot prefill, returned;
   std::size_t step_calls = 0U, return_calls = 0U;
   std::uint32_t prompt_tokens = 0U;
+  std::vector<PrefixObservation> prefixes;
+  std::size_t prefix_before_calls = 0U, prefix_after_calls = 0U;
+  std::size_t poisoned_tiles = 0U, scalar_guard_checks = 0U;
+  int poison_byte = -1;
+  bool scalar_guards_active = false;
   const char* error = nullptr;
   int cuda_error = 0;
 };
@@ -100,6 +111,119 @@ bool hash_region(const rt::RequestState& state, const rt::RequestRegion& value,
   const auto* source = region(state, value, bytes);
   return source != nullptr && hash_device_bytes(source, bytes, capture, digest);
 }
+bool check_scalar_hidden_guards(const rt::RequestState& state,
+                               Capture& capture) noexcept {
+  // The unchanged scalar runner may write row 0 of each hidden buffer only.
+  // Prefix rows are intentionally dead after the final elided prefix tile.
+  for (const auto& buffer : state.plan().hidden_bf16) {
+    const auto* source = region(state, buffer, buffer.byte_size);
+    if (source == nullptr || buffer.byte_size <= kHiddenBytes) return false;
+    for (std::size_t offset = kHiddenBytes; offset < buffer.byte_size;) {
+      const std::size_t count = std::min(capture.scratch.size(),
+                                        buffer.byte_size - offset);
+      const auto status = cudaMemcpy(capture.scratch.data(), source + offset,
+                                    count, cudaMemcpyDeviceToHost);
+      if (status != cudaSuccess) {
+        capture.cuda_error = static_cast<int>(status);
+        return false;
+      }
+      if (!std::all_of(capture.scratch.begin(),
+                      capture.scratch.begin() + static_cast<std::ptrdiff_t>(count),
+                      [&capture](std::uint8_t byte) {
+                        return byte == static_cast<std::uint8_t>(capture.poison_byte);
+                      })) return false;
+      offset += count;
+    }
+  }
+  ++capture.scalar_guard_checks;
+  return true;
+}
+#if defined(Q3X_CAPTURE_HAS_LIVENESS)
+bool poison_dead_workspace(rt::RequestState& state, void* cuda_stream,
+                           Capture& capture) noexcept {
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  const auto poison = [&](const rt::RequestRegion& buffer) noexcept {
+    // These exact workspace regions have no live value between an elided
+    // prefix commit and the next embedding. Never touch persistent or RoPE
+    // regions, and do not invent pointers outside the existing arena plan.
+    if (region(state, buffer, buffer.byte_size) == nullptr) return false;
+    auto* destination = static_cast<std::uint8_t*>(state.arena_data()) +
+                        buffer.arena_offset;
+    const auto status = cudaMemsetAsync(destination, capture.poison_byte,
+                                       buffer.byte_size, stream);
+    if (status == cudaSuccess) return true;
+    capture.cuda_error = static_cast<int>(status);
+    return false;
+  };
+  const auto& plan = state.plan();
+  for (const auto& buffer : plan.hidden_bf16) if (!poison(buffer)) return false;
+  for (const auto& buffer : plan.projection_bf16) if (!poison(buffer)) return false;
+  if (!poison(plan.linear_a_bf16) || !poison(plan.linear_b_bf16) ||
+      !poison(plan.fp32_scratch)) return false;
+  const auto status = cudaStreamSynchronize(stream);
+  if (status != cudaSuccess) {
+    capture.cuda_error = static_cast<int>(status);
+    return false;
+  }
+  ++capture.poisoned_tiles;
+  if (state.sequence_length() == capture.prompt_tokens - 1U)
+    capture.scalar_guards_active = true;
+  return true;
+}
+bool terminal_prefix_hook(const detail::TerminalPrefixObservationView& view,
+                          void* context) noexcept {
+  auto& capture = *static_cast<Capture*>(context);
+  const auto fail = [&capture](const char* error) noexcept {
+    capture.error = error;
+    return false;
+  };
+  if (capture.error != nullptr) return false;
+  if (view.state == nullptr || view.cuda_stream == nullptr ||
+      view.state->memory_profile() != rt::RequestMemoryProfile::kLegacyC512 ||
+      view.token_count < 2U || view.token_count > 512U ||
+      capture.prefix_after_calls >= capture.prefixes.size())
+    return fail("terminal_prefix_observation_geometry");
+  auto& expected = capture.prefixes[capture.prefix_after_calls];
+  if (view.first_position != expected.first_position ||
+      view.token_count != expected.token_count)
+    return fail("terminal_prefix_observation_schedule");
+  const std::size_t bytes = view.token_count * kHiddenBytes;
+  if (view.stage == detail::TerminalPrefixObservationStage::kBeforeLayer63) {
+    if (capture.prefix_before_calls != capture.prefix_after_calls ||
+        view.state->sequence_length() != view.first_position)
+      return fail("terminal_prefix_before_order");
+    // Layer 62 is enqueued, not yet committed. Wait on the actual owning
+    // stream before the D2H hash; a default-stream assumption is insufficient.
+    const auto status = cudaStreamSynchronize(
+        static_cast<cudaStream_t>(view.cuda_stream));
+    if (status != cudaSuccess) {
+      capture.cuda_error = static_cast<int>(status);
+      return fail("terminal_prefix_before_synchronize");
+    }
+    if (!hash_region(*view.state, view.state->plan().hidden_bf16[0], bytes,
+                     capture, expected.before))
+      return fail("terminal_prefix_before_hash");
+    ++capture.prefix_before_calls;
+    return true;
+  }
+  if (view.stage != detail::TerminalPrefixObservationStage::kAfterTileCommit ||
+      capture.prefix_before_calls != capture.prefix_after_calls + 1U ||
+      view.state->sequence_length() != view.first_position + view.token_count)
+    return fail("terminal_prefix_after_order");
+  // This hook is after whole-tile synchronization and state/route commit.
+  // Verify preservation before any opt-in poison deliberately changes it.
+  if (!hash_region(*view.state, view.state->plan().hidden_bf16[0], bytes,
+                   capture, expected.after))
+    return fail("terminal_prefix_after_hash");
+  expected.preserved = expected.before == expected.after;
+  if (!expected.preserved) return fail("terminal_prefix_residual_changed");
+  ++capture.prefix_after_calls;
+  if (capture.poison_byte >= 0 &&
+      !poison_dead_workspace(*view.state, view.cuda_stream, capture))
+    return fail("terminal_prefix_dead_workspace_poison");
+  return true;
+}
+#endif
 float bf16(std::uint16_t bits) noexcept {
   const std::uint32_t word = static_cast<std::uint32_t>(bits) << 16U;
   float result;
@@ -173,6 +297,10 @@ void step_hook(const rt::RequestState& state, void* context) noexcept {
     capture.error = "step_sequence_or_count";
     return;
   }
+  if (capture.scalar_guards_active && !check_scalar_hidden_guards(state, capture)) {
+    capture.error = "scalar_hidden_out_of_row_write";
+    return;
+  }
   if (!capture_scalar(state, capture, capture.steps[index]) ||
       (index == 0U && !capture_full(state, capture, capture.prefill)))
     capture.error = "step_snapshot";
@@ -236,22 +364,27 @@ std::size_t parse_count(std::string_view value) {
 int main(int argc, char** argv) {
   if (argc < 4) {
     std::cerr << "usage: MODEL REQUEST_JSON OUTPUT_JSON [--prompt-tokens N] "
-                 "[--variant baseline|liveness|score-feed|combined]\n";
+                 "[--variant baseline|liveness|score-feed|combined] "
+                 "[--dead-scratch-poison none|a|b]\n";
     return 2;
   }
   try {
     std::size_t selected = 0U;
     std::string variant = "baseline";
+    std::string poison_mode = "none";
     for (int i = 4; i < argc; i += 2) {
       if (i + 1 >= argc) throw std::runtime_error("missing option value");
       if (std::string_view(argv[i]) == "--prompt-tokens") selected = parse_count(argv[i + 1]);
       else if (std::string_view(argv[i]) == "--variant") variant = argv[i + 1];
+      else if (std::string_view(argv[i]) == "--dead-scratch-poison") poison_mode = argv[i + 1];
       else throw std::runtime_error("unknown option");
     }
     const bool liveness = variant == "liveness" || variant == "combined";
     const bool score_feed = variant == "score-feed" || variant == "combined";
     if (variant != "baseline" && !liveness && !score_feed)
       throw std::runtime_error("unknown variant");
+    if (poison_mode != "none" && poison_mode != "a" && poison_mode != "b")
+      throw std::runtime_error("unknown dead-scratch poison mode");
 #if !defined(Q3X_CAPTURE_HAS_LIVENESS)
     if (liveness) throw std::runtime_error("liveness unavailable in this source");
 #endif
@@ -289,6 +422,8 @@ int main(int argc, char** argv) {
     // scalar observer. P>=65 keeps the ordinary policy but captures every step.
     if (ids.size() < 65U || ids.size() > 40000U)
       throw std::runtime_error("capture prompt must be in [65,40000]");
+    if (poison_mode != "none" && (variant != "liveness" || ids.size() != 576U))
+      throw std::runtime_error("dead-scratch poison requires liveness-only P576");
     core::Sha256 prompt_hash;
     if (!prompt_hash.update(ids.data(), ids.size() * sizeof(ids[0])))
       throw std::runtime_error("prompt hash failed");
@@ -330,11 +465,32 @@ int main(int argc, char** argv) {
       throw std::runtime_error("ordinary production inventory mismatch");
     Capture capture;
     capture.prompt_tokens = static_cast<std::uint32_t>(ids.size());
+    capture.poison_byte = poison_mode == "a" ? 0x7f : poison_mode == "b" ? 0xff : -1;
+    std::size_t prefix_passes = 0U, elided_passes = 0U, generic_passes = 0U;
+    for (std::size_t position = 0U; position < ids.size() - 1U;) {
+      const std::size_t count = rt::reference_engine_detail::next_prefix_tile_token_count(
+          ids.size() - 1U - position, 512U);
+      ++prefix_passes;
+      if (count >= 2U) {
+        if (liveness) {
+          ++elided_passes;
+          capture.prefixes.push_back(
+              {static_cast<std::uint32_t>(position), count, {}, {}, false});
+        }
+        if (!rt::use_bulk_causal_gqa_group_q64_prefill(position, count)) ++generic_passes;
+      }
+      position += count;
+    }
 #if defined(Q3X_CAPTURE_HAS_SCORE_FEED)
     (void)detail::exchange_exact_attention_score_feed_launch_hits_for_test(0U);
 #endif
     const auto previous_step = detail::exchange_reference_engine_step_snapshot_hook({step_hook, &capture});
     const auto previous_return = detail::exchange_reference_engine_generate_return_snapshot_hook({return_hook, &capture});
+#if defined(Q3X_CAPTURE_HAS_LIVENESS)
+    const auto previous_prefix = detail::exchange_terminal_prefix_observation_hook_for_test(
+        liveness ? detail::TerminalPrefixObservationHook{terminal_prefix_hook, &capture}
+                 : detail::TerminalPrefixObservationHook{});
+#endif
     rt::ReferenceGenerateOptions generation_options;
     generation_options.max_new_tokens = kOutputs;
     generation_options.prefill_chunk_size = 512U;
@@ -346,20 +502,14 @@ int main(int argc, char** argv) {
 #endif
     (void)detail::exchange_reference_engine_step_snapshot_hook(previous_step);
     (void)detail::exchange_reference_engine_generate_return_snapshot_hook(previous_return);
+#if defined(Q3X_CAPTURE_HAS_LIVENESS)
+    (void)detail::exchange_terminal_prefix_observation_hook_for_test(previous_prefix);
+#endif
     if (!result) throw std::runtime_error("actual generation failed: " +
-        result.diagnostic.stage + ": " + result.diagnostic.message);
+        result.diagnostic.stage + ": " + result.diagnostic.message +
+        "; capture_error=" + (capture.error == nullptr ? "none" : capture.error) +
+        "; cuda_error=" + std::to_string(capture.cuda_error));
     const auto& generation = *result.value;
-    std::size_t prefix_passes = 0U, elided_passes = 0U, generic_passes = 0U;
-    for (std::size_t position = 0U; position < ids.size() - 1U;) {
-      const std::size_t count = rt::reference_engine_detail::next_prefix_tile_token_count(
-          ids.size() - 1U - position, 512U);
-      ++prefix_passes;
-      if (count >= 2U) {
-        if (liveness) ++elided_passes;
-        if (!rt::use_bulk_causal_gqa_group_q64_prefill(position, count)) ++generic_passes;
-      }
-      position += count;
-    }
     // C1 prefix segments and the final scalar pass are never elided. The
     // canonical decomposition includes C32/C31 at P40000, not one C63 tile.
     const std::size_t expected_passes = prefix_passes + 1U;
@@ -396,6 +546,11 @@ int main(int argc, char** argv) {
         generation.generated_token_ids.size() == kOutputs &&
         !generation.all_prompt_tokens_prefilled_by_tiles && !generation.single_arbitrary_prefill_tiles &&
         generation.decode_graph_replays == 0U && route_valid;
+    valid = valid && capture.prefix_before_calls == elided_passes &&
+        capture.prefix_after_calls == elided_passes &&
+        capture.poisoned_tiles == (capture.poison_byte >= 0 ? elided_passes : 0U) &&
+        capture.scalar_guard_checks == (capture.poison_byte >= 0 ? kOutputs : 0U);
+    for (const auto& prefix : capture.prefixes) valid = valid && prefix.preserved;
     for (std::size_t i = 0U; valid && i < kOutputs; ++i)
       valid = capture.steps[i].argmax == generation.generated_token_ids[i];
     std::vector<std::uint32_t> exposed_predictions;
@@ -412,7 +567,7 @@ int main(int argc, char** argv) {
     std::ofstream out(argv[3], std::ios::binary | std::ios::trunc);
     if (!out) throw std::runtime_error("output open failed");
     out << std::setprecision(std::numeric_limits<double>::max_digits10)
-        << "{\"schema_version\":1,\"status\":" << quoted(valid ? "pass" : "fail")
+        << "{\"schema_version\":2,\"status\":" << quoted(valid ? "pass" : "fail")
         << ",\"variant\":" << quoted(variant) << ",\"timing_authority\":false,"
         << "\"final_prompt_policy\":\"ordinary_p_minus_1_then_scalar\",\"logits_mode\":\"predicted_only\","
         << "\"request_sha256\":" << quoted(core::sha256(bytes).hex())
@@ -452,6 +607,22 @@ int main(int argc, char** argv) {
     }
     out << "]},\"score_feed_launch_hits\":" << score_feed_hits
         << ",\"expected_score_feed_launch_hits\":" << expected_score_feed_hits;
+    out << ",\"terminal_prefix_observation\":{\"before_calls\":" << capture.prefix_before_calls
+        << ",\"after_calls\":" << capture.prefix_after_calls
+        << ",\"dead_scratch_poison\":" << quoted(poison_mode)
+        << ",\"poisoned_tiles\":" << capture.poisoned_tiles
+        << ",\"scalar_hidden_guard_checks\":" << capture.scalar_guard_checks
+        << ",\"prefixes\":[";
+    for (std::size_t i = 0U; i < capture.prefixes.size(); ++i) {
+      if (i != 0U) out << ',';
+      const auto& prefix = capture.prefixes[i];
+      out << "{\"first_position\":" << prefix.first_position
+          << ",\"token_count\":" << prefix.token_count
+          << ",\"before_layer63_residual_sha256\":" << quoted(prefix.before.hex())
+          << ",\"after_elision_residual_sha256\":" << quoted(prefix.after.hex())
+          << ",\"preserved\":" << (prefix.preserved ? "true" : "false") << '}';
+    }
+    out << "]}";
     out << "}\n";
     out.flush();
     if (!out) throw std::runtime_error("output write failed");
@@ -459,7 +630,7 @@ int main(int argc, char** argv) {
   } catch (const std::exception& error) {
     std::cerr << "ordinary state capture: " << error.what() << '\n';
     std::ofstream out(argv[3], std::ios::binary | std::ios::trunc);
-    if (out) out << "{\"schema_version\":1,\"status\":\"fail\",\"timing_authority\":false,\"error\":"
+    if (out) out << "{\"schema_version\":2,\"status\":\"fail\",\"timing_authority\":false,\"error\":"
                  << quoted(error.what()) << "}\n";
     return 1;
   }
