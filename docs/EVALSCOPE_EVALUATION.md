@@ -370,6 +370,34 @@ authenticated model, request/token hashes, live-state/output comparison, and
 the actual OFF API witness; these draft schema descriptions supply none of
 those results by themselves.
 
+The candidate's **capture schema 3** is a separate `BUILD_TESTING=ON`,
+numerical-only protocol, not an API witness version. It admits only
+P576/P1089/P40000 with O16 and the canonical ordinary P-1 schedule. Every
+prefix is a multirow tile; the final prompt and 15 subsequent scalar steps
+are outside short Graph positions 19..43. Startup still requests the ordinary
+short Graph policy. Its `short_graph_cache` receipt accepts either the fully
+admitted 25-slot cache or only `device_memory_budget_exceeded` after exact
+preparation and successful synchronized Graph destruction, full state reset,
+empty-cache verification, and the unchanged retained-free reserve. Other
+preparation, topology, time, memory-probe, or rollback failures remain errors.
+The receipt preserves before/after/drop bytes and preparation time; the
+reported after value precedes any rollback. Both dispositions require the
+measured after value to retain at least 8 GiB and preparation at most one
+second. Generation explicitly retains Graph lookup, requires zero replays,
+15 scalar fallbacks, and an `already_clean` zero-byte request-start receipt.
+
+The schema-3 comparison retains the exact sidecar/arena, source/ELF/model/
+request identities, digests of complete live state and used K/V, all 16
+full-vocabulary BF16-logit digests and live final-row boundaries, route, and
+applicable prefix-preservation/
+dual-poison gates. Legal unused Graph dispositions may differ between arms;
+they are independently checked, not compared as live numerical state. This
+protocol has no timing, startup, Graph, API, capability, or release
+qualification authority. It neither reinterprets earlier capture schemas nor
+changes API v16/v20/v21. In particular, ordinary installed OFF startup still
+requires all 25 slots, exact topology, the 256-MiB increment ceiling,
+one-second preparation ceiling, and 8-GiB reserve before readiness.
+
 A successfully committed sealed layer-major request emits
 `target-prefill-witness-v2`, adding the actual
 execution mode, logical panel count, request-memory profile, bounded-window

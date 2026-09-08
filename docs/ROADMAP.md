@@ -344,6 +344,17 @@ capability or release qualification from this bounded protocol. Existing
 business-accuracy evidence may be improved through actual API responses, but
 cannot replace or silently relax the current exact contract.
 
+The isolated candidate may close only its executed numerical comparison with
+the [capture-schema-3 procedure](EVALSCOPE_EVALUATION.md): for the frozen
+P576/P1089/P40000 ordinary P-1/O16 cases, an unused short Graph cache may have
+been rejected solely by the existing increment budget and completely rolled
+back. All live-state/logit, route, identity, and applicable poison gates remain
+required. This supplies no startup or Graph qualification and does not relax
+the ordinary installed OFF requirement for 25 exact slots, a 256-MiB maximum
+increment, one-second preparation, and an 8-GiB reserve. Actual OFF startup and
+the same real P40000/O16 API remain separate required return gates; numerical
+capture success alone cannot select or absorb either Prefill candidate.
+
 Stop starting long device runs in time to leave an owned, recoverable host and
 a handoff by 09:24. Retain source, commands, exact artifact/workload identities,
 results, rejected versions, and next action under the repository. Complete

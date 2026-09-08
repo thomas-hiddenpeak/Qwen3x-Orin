@@ -418,10 +418,10 @@ int main(int argc, char** argv) {
       if (selected > ids.size()) throw std::runtime_error("prefix exceeds supplied prompt");
       ids.resize(selected);
     }
-    // The existing Graph cache covers short positions and bypasses this
-    // scalar observer. P>=65 keeps the ordinary policy but captures every step.
-    if (ids.size() < 65U || ids.size() > 40000U)
-      throw std::runtime_error("capture prompt must be in [65,40000]");
+    // These frozen ordinary P-1 schedules contain no scalar prefix. Their
+    // final prompt and Decode positions are outside the Graph window 19..43.
+    if (ids.size() != 576U && ids.size() != 1089U && ids.size() != 40000U)
+      throw std::runtime_error("capture requires P576, P1089, or P40000");
     if (poison_mode != "none" && (variant != "liveness" || ids.size() != 576U))
       throw std::runtime_error("dead-scratch poison requires liveness-only P576");
     core::Sha256 prompt_hash;
@@ -453,6 +453,34 @@ int main(int argc, char** argv) {
     if (!created) throw std::runtime_error("engine creation failed: " +
         created.diagnostic.stage + ": " + created.diagnostic.message);
     const auto& load = created.value->load_stats();
+    const bool graph_window_measured =
+        load.decode_graph_cache_requested_policy ==
+            rt::ReferenceDecodeGraphCachePolicy::kSm87ShortPositions &&
+        std::isfinite(load.decode_graph_cache_prepare_milliseconds) &&
+        load.decode_graph_cache_prepare_milliseconds >= 0.0 &&
+        load.decode_graph_cache_prepare_milliseconds <= 1000.0 &&
+        load.decode_graph_cache_free_bytes_after >= 8ULL * 1024ULL * 1024ULL * 1024ULL;
+    const bool graph_prepared =
+        graph_window_measured && load.decode_graph_cache_slot_count == 25U &&
+        load.decode_graph_cache_first_position == 19U &&
+        load.decode_graph_cache_last_position == 43U &&
+        load.decode_graph_cache_fallback_reason.empty() &&
+        load.decode_graph_cache_free_drop_bytes <= 256ULL * 1024ULL * 1024ULL &&
+        load.decode_graph_cache_effective_policy ==
+            rt::ReferenceDecodeGraphCachePolicy::kSm87ShortPositions;
+    // Numerical-only exception, never an installed-server admission. The
+    // Engine's unique budget-rejection branch follows exact preparation and
+    // returns a usable owner only after synchronized Graph destruction, full
+    // reset, empty-cache verification, and the unchanged 8-GiB reserve check.
+    // Keep the ordinary warmup/preparation/budget boundaries intact. The
+    // following long request cannot execute any of the absent short slots.
+    const bool unused_graph_budget_rejected =
+        graph_window_measured &&
+        load.decode_graph_cache_slot_count == 0U &&
+        load.decode_graph_cache_effective_policy ==
+            rt::ReferenceDecodeGraphCachePolicy::kDisabled &&
+        load.decode_graph_cache_fallback_reason == "device_memory_budget_exceeded" &&
+        load.decode_graph_cache_free_drop_bytes > 256ULL * 1024ULL * 1024ULL;
     if (load.request_arena_bytes != 3070908416ULL ||
         !load.fp8_output_sidecars_enabled || load.fp8_output_sidecar_layers != 64U ||
         !load.fp8_prefill_supermatrix_sidecars_enabled ||
@@ -461,8 +489,7 @@ int main(int argc, char** argv) {
         load.nvfp4_down_consumer_order_sidecar_layers != 53U ||
         !load.nvfp4_gate_up_coupled_feed_enabled ||
         load.nvfp4_gate_up_coupled_feed_layers != 64U ||
-        load.decode_graph_cache_slot_count != 25U ||
-        load.decode_graph_cache_effective_policy != rt::ReferenceDecodeGraphCachePolicy::kSm87ShortPositions ||
+        (!graph_prepared && !unused_graph_budget_rejected) ||
         load.fp8_marlin_prefill_sidecars_enabled || load.nvfp4_marlin_prefill_sidecars_enabled)
       {
         std::cerr << "ordinary inventory: arena=" << load.request_arena_bytes
@@ -473,10 +500,13 @@ int main(int argc, char** argv) {
                   << " graph_slots=" << load.decode_graph_cache_slot_count
                   << " graph_policy=" << static_cast<int>(load.decode_graph_cache_effective_policy)
                   << " graph_prepare_ms=" << load.decode_graph_cache_prepare_milliseconds
+                  << " graph_free_before=" << load.decode_graph_cache_free_bytes_before
+                  << " graph_free_after_before_rollback=" << load.decode_graph_cache_free_bytes_after
+                  << " graph_free_drop=" << load.decode_graph_cache_free_drop_bytes
                   << " graph_fallback=" << load.decode_graph_cache_fallback_reason
                   << " fp8_marlin=" << load.fp8_marlin_prefill_sidecars_enabled
                   << " nvfp4_marlin=" << load.nvfp4_marlin_prefill_sidecars_enabled << '\n';
-        throw std::runtime_error("ordinary production inventory mismatch");
+        throw std::runtime_error("long-request numerical inventory mismatch");
       }
     Capture capture;
     capture.prompt_tokens = static_cast<std::uint32_t>(ids.size());
@@ -485,6 +515,7 @@ int main(int argc, char** argv) {
     for (std::size_t position = 0U; position < ids.size() - 1U;) {
       const std::size_t count = rt::reference_engine_detail::next_prefix_tile_token_count(
           ids.size() - 1U - position, 512U);
+      if (count < 2U) throw std::runtime_error("scalar prefix is outside capture protocol");
       ++prefix_passes;
       if (count >= 2U) {
         if (liveness) {
@@ -510,6 +541,9 @@ int main(int argc, char** argv) {
     generation_options.max_new_tokens = kOutputs;
     generation_options.prefill_chunk_size = 512U;
     generation_options.logits_mode = rt::ReferenceLogitsMode::kPredictedTokenOnly;
+    // Preserve the ordinary lookup -> miss -> scalar bridge even when the
+    // unused cache was rolled back. No short-position replay is admitted.
+    generation_options.use_prepared_decode_graph_cache = true;
     auto result = created.value->generate_prompt_token_ids(ids, generation_options);
     std::size_t score_feed_hits = 0U;
 #if defined(Q3X_CAPTURE_HAS_SCORE_FEED)
@@ -556,11 +590,17 @@ int main(int argc, char** argv) {
           counts.exact_fallback_hits == expected_roles[i] - counts.production_hits;
     }
     for (const auto hits : route.forbidden_boundary_hits) route_valid = route_valid && hits == 0U;
+    const bool starts_clean = generation.request_state_reset.has_value() &&
+        generation.request_state_reset->mode == rt::RequestStateResetMode::kAlreadyClean &&
+        generation.request_state_reset->cleared_positions == 0U &&
+        generation.request_state_reset->zeroed_bytes == 0U;
     bool valid = capture.error == nullptr && capture.step_calls == kOutputs &&
         capture.return_calls == 1U && generation.prompt_token_ids == ids &&
         generation.generated_token_ids.size() == kOutputs &&
         !generation.all_prompt_tokens_prefilled_by_tiles && !generation.single_arbitrary_prefill_tiles &&
-        generation.decode_graph_replays == 0U && route_valid;
+        generation.decode_graph_replays == 0U &&
+        generation.decode_graph_serial_fallbacks == kOutputs - 1U &&
+        starts_clean && route_valid;
     valid = valid && capture.prefix_before_calls == elided_passes &&
         capture.prefix_after_calls == elided_passes &&
         capture.poisoned_tiles == (capture.poison_byte >= 0 ? elided_passes : 0U) &&
@@ -582,8 +622,20 @@ int main(int argc, char** argv) {
     std::ofstream out(argv[3], std::ios::binary | std::ios::trunc);
     if (!out) throw std::runtime_error("output open failed");
     out << std::setprecision(std::numeric_limits<double>::max_digits10)
-        << "{\"schema_version\":2,\"status\":" << json_quote(valid ? "pass" : "fail")
+        << "{\"schema_version\":3,\"status\":" << json_quote(valid ? "pass" : "fail")
         << ",\"variant\":" << json_quote(variant) << ",\"timing_authority\":false,"
+        << "\"short_graph_cache\":{\"scope\":\"unused_startup_inventory_not_qualified\","
+        << "\"disposition\":" << json_quote(graph_prepared ? "prepared_25_slots" : "budget_rejected_rolled_back")
+        << ",\"slots\":" << load.decode_graph_cache_slot_count
+        << ",\"prepare_milliseconds\":" << load.decode_graph_cache_prepare_milliseconds
+        << ",\"free_before_bytes\":" << load.decode_graph_cache_free_bytes_before
+        << ",\"free_after_before_possible_rollback_bytes\":" << load.decode_graph_cache_free_bytes_after
+        << ",\"free_drop_bytes\":" << load.decode_graph_cache_free_drop_bytes
+        << ",\"fallback_reason\":" << json_quote(load.decode_graph_cache_fallback_reason)
+        << ",\"minimum_scalar_position\":" << ids.size() - 1U
+        << ",\"generation_replays\":" << generation.decode_graph_replays
+        << ",\"generation_serial_fallbacks\":" << generation.decode_graph_serial_fallbacks
+        << ",\"request_starts_already_clean\":" << (starts_clean ? "true" : "false") << "},"
         << "\"final_prompt_policy\":\"ordinary_p_minus_1_then_scalar\",\"logits_mode\":\"predicted_only\","
         << "\"request_sha256\":" << json_quote(core::sha256(bytes).hex())
         << ",\"prompt_ids_u32le_sha256\":" << json_quote(prompt_hash.finalize().hex())
@@ -645,7 +697,7 @@ int main(int argc, char** argv) {
   } catch (const std::exception& error) {
     std::cerr << "ordinary state capture: " << error.what() << '\n';
     std::ofstream out(argv[3], std::ios::binary | std::ios::trunc);
-    if (out) out << "{\"schema_version\":2,\"status\":\"fail\",\"timing_authority\":false,\"error\":"
+    if (out) out << "{\"schema_version\":3,\"status\":\"fail\",\"timing_authority\":false,\"error\":"
                  << json_quote(error.what()) << "}\n";
     return 1;
   }
