@@ -143,6 +143,8 @@ enum class PrefillGdnExecution : std::uint8_t {
 }
 
 #if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+thread_local reference_runner_detail::TerminalPrefixObservationHook
+    g_terminal_prefix_observation_hook_for_test{};
 thread_local reference_runner_detail::
     ReferenceRunnerPromptWidePolicyForTest
         g_reference_runner_prompt_wide_policy_for_test =
@@ -1034,6 +1036,13 @@ ConstBf16Span ReferenceTraceView::final_norm() const noexcept {
 }
 
 namespace reference_runner_detail {
+
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+TerminalPrefixObservationHook exchange_terminal_prefix_observation_hook_for_test(
+    const TerminalPrefixObservationHook hook) noexcept {
+  return std::exchange(g_terminal_prefix_observation_hook_for_test, hook);
+}
+#endif
 
 #if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
 ReferenceRunnerPromptWidePolicyForTest
@@ -5977,6 +5986,19 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
         ReferenceRunnerError::kRouteEvidenceFailure,
         "prefill_tile_route_commit", kReferenceNoLayer));
   }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+  const auto terminal_observer = g_terminal_prefix_observation_hook_for_test;
+  if (control.elide_terminal_prefix_suffix &&
+      terminal_observer.callback != nullptr &&
+      !terminal_observer.callback(
+          {state_, first_position, token_count,
+           reference_runner_detail::TerminalPrefixObservationStage::kAfterTileCommit,
+           stream_}, terminal_observer.context)) {
+    return fail_prefill_tile(runner_status(
+        ReferenceRunnerError::kTraceUnavailable,
+        "terminal_prefix_post_commit_observation", 63U));
+  }
+#endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
   const auto native_chunk64_snapshot_hook =
       g_prefill_gdn_chunk64_native_snapshot_hook;
@@ -9620,6 +9642,19 @@ ReferenceRunner::enqueue_prefill_layer_segment(
 
   for (std::size_t layer = control.layer_begin; layer < control.layer_end;
        ++layer) {
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+    const auto terminal_observer = g_terminal_prefix_observation_hook_for_test;
+    if (control.elide_terminal_prefix_suffix && layer == 63U &&
+        terminal_observer.callback != nullptr &&
+        !terminal_observer.callback(
+            {state_, first_position, token_count,
+             reference_runner_detail::TerminalPrefixObservationStage::kBeforeLayer63,
+             stream_}, terminal_observer.context)) {
+      return fail_enqueue(runner_status(
+          ReferenceRunnerError::kTraceUnavailable,
+          "terminal_prefix_pre_layer_observation", layer));
+    }
+#endif
     layer_route_fragment = {};
     layer_route_fragment.layer = layer;
     layer_route_fragment.first_position = first_position;
