@@ -46,7 +46,10 @@ constexpr std::uint32_t kBoundaryMaxNewTokens = 27U;
 constexpr std::uint32_t kRequestMaxSequenceLength = 45U;
 constexpr std::uint32_t kPrefillChunkSize = 32U;
 constexpr std::uint32_t kBoundaryStopTokenId = 248056U;
-constexpr std::uint64_t kExpectedRequestArenaBytes = 87'846'400ULL;
+// cac6b515 raised the unconditional FP32 floor from 248320 to 262144:
+// C32/P45 adds (262144 - 248320) * 4 = 55296 bytes to the fc9547c oracle.
+// Both floors and the delta are 256-byte aligned; other regions are unchanged.
+constexpr std::uint64_t kExpectedRequestArenaBytes = 87'901'696ULL;
 constexpr double kMaximumPrepareMilliseconds = 1'000.0;
 constexpr std::uint64_t kMaximumFreeDropBytes =
     256ULL * 1024ULL * 1024ULL;
