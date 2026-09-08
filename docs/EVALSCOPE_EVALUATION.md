@@ -6,7 +6,7 @@ q3x_document:
   owner: evaluation-maintainers
   authority: external API evaluation protocol, metric semantics, and artifact requirements
   effective: 2026-08-09
-  last_reviewed: 2026-08-27
+  last_reviewed: 2026-09-09
   supersedes: []
   superseded_by: []
   ssot_for: EvalScope and target-length external evaluation procedure
@@ -302,6 +302,73 @@ identifier; that includes the ordinary sealed P40 profile. It cannot be
 selected by request input, environment, CLI, or a test admission. Missing or
 malformed receipts remain v1 and cannot claim v16. Historical v12 remains
 reserved by the removed phase-local experiment below.
+
+**Draft ordinary-candidate witness addition (2026-09-09).** The following
+v20/v21 contracts belong only to the isolated packages under
+[`AC-PREFILL-EXACT-P40-DATAFLOW-20260909`](ROADMAP.md#2026-09-09-bounded-engineering-window).
+They do not establish P40000/O16 correctness, actual-API qualification,
+mainline absorption, or release eligibility. Their matched numerical baseline
+must use ordinary P-1 tiled Prefill plus the existing scalar final prompt step,
+not the historical all-prompt-tile comparator.
+
+`target-prefill-witness-v20` independently identifies terminal-prefix
+liveness through `terminal_prefix_elision.plan_id =
+q3x.sm87.legacy-c512.terminal-prefix-elision.v1`. It is not a layer-major
+DeploymentPlan. The receipt binds terminal layer 63, elided prefix passes and
+rows, retained scalar-prefix rows, complete preserved Q/K/V rows, final query
+position and causal end, the unchanged legacy scalar final step, and the four
+omitted roles. It requires completed, inactive, valid route evidence, complete
+prompt consumption, a committed completion, zero forbidden boundaries, and
+the exact canonical controller schedule. All four role deficits must agree;
+unaffected roles must remain complete. Missing or inconsistent coverage cannot
+claim v20 or available terminal route evidence.
+
+For P40000/C512, the actual P-1 schedule is `78*C512 + C32 + C31`: 80 prefix
+executions covering 39,999 rows, then one unchanged scalar final prompt step.
+The timing vector therefore has 80 prefix entries while logical route coverage
+has 81 passes. All 80 prefixes elide only the terminal suffix; retained
+scalar-prefix rows are zero, preserved terminal Q/K/V rows are 40,000, final
+query position is 39,999, and causal end is 40,000. Counts for another length
+or chunk cap must use `next_prefix_tile_token_count`, not `ceil(P/chunk)`.
+
+For that declared ordinary native inventory, the required completed logical
+dispositions are below. These are route-validation expectations, not observed
+kernel-launch counts or a performance result. Intentional exact fallback must
+remain visible; it must not be rewritten as production execution.
+
+| Role | Production | Exact fallback | Total |
+| --- | ---: | ---: | ---: |
+| NVFP4 Gate/Up | 0 | 5,104 | 5,104 |
+| NVFP4 Down | 0 | 5,104 | 5,104 |
+| FP8 QKV | 7,488 | 288 | 7,776 |
+| FP8 Z | 3,744 | 144 | 3,888 |
+| FP8 O | 4,914 | 190 | 5,104 |
+| Attention | 1,200 | 16 | 1,216 |
+| GDN | 3,744 | 144 | 3,888 |
+
+`target-prefill-witness-v21` identifies the composed ordinary candidate with
+`deployment_plan.id = q3x.sm87.legacy-c512.terminal-elision-score-feed.v1`
+and `qualification=exact-contract-candidate-unqualified`. The identifier is
+an immutable compiled policy, not `engine_lifetime_sealed_native_plan`.
+Its `ordinary_attention_policy` names the nonfixed generic score-feed suffix,
+unchanged GroupQ64 prefix and fixed launcher, and unchanged scalar final/Decode.
+Both that field and `deployment_plan` carry
+`scope=compiled_source_policy_not_kernel_counts`; `kernel_launch_counts` is
+explicitly unavailable with reason `not_instrumented`. A static policy cannot
+prove a kernel submission or inherit the ON test counter's authority. Version
+21 requires the same canonical pass/elision and complete native-route checks;
+an invalid record cannot claim v21 or available deployment/route evidence.
+
+The isolated installed candidate advertises profile
+`q3x.sm87.candidate.p40.legacy-c512-terminal-score-feed.v1`,
+`production_eligible=false`, and `release_qualified=false`, including with
+`BUILD_TESTING=OFF`. A valid reset receipt remains available within v20/v21.
+Without the new policy identity, existing v16/v20 serialization remains
+byte-stable; ordinary v1 and the independent layer-major schemas likewise
+retain their original identities. Qualification must join exact source/ELF,
+authenticated model, request/token hashes, live-state/output comparison, and
+the actual OFF API witness; these draft schema descriptions supply none of
+those results by themselves.
 
 A successfully committed sealed layer-major request emits
 `target-prefill-witness-v2`, adding the actual
