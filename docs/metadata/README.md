@@ -2328,3 +2328,11 @@ The [bounded repair record](qwen36-27b-graph-startup-initialization-repair-2026-
 pins the exact scalar-initialization/full-reset change and its successful
 ordinary installed P40000/O16 API return. It preserves the unchanged Graph
 limits and claims no Prefill/startup speedup or release qualification.
+
+## 2026-09-09 combined ordinary score-feed v1 rejection
+
+The [combined-v1 record](qwen36-27b-ordinary-exact-score-feed-v1-api-rejection-2026-09-09.json)
+joins the exact ordinary numerical captures with the installed OFF P40000/O16
+API result: 51.1657775463 prompt tok/s, valid negative direction. It preserves
+full output, route, startup, clock, and resource evidence, closes this version
+without repetition or profiling, and grants no mainline or release authority.

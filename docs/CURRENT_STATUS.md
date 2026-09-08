@@ -40,6 +40,20 @@ current-route attribution in section 4.
 Neither Prefill candidate is absorbed. See the
 [startup repair record](metadata/qwen36-27b-graph-startup-initialization-repair-2026-09-09.json).
 
+The first combined terminal-prefix/score-feed candidate is now rejected on
+the actual installed Release/OFF P40000/O16 API. Source `09de111` / installed
+ELF `f9f08154...` passed the ordinary same-ELF numerical gate, including full
+live-state and full-vocabulary-logit digests, then completed the API at
+51.1657775463 prompt tok/s and 781,795.433639 ms external TTFT. This is
+10.4918% less throughput than the retained same-workload ordinary request
+above. Output, route, SSE, complete 25-slot startup inventory, fixed clocks,
+and resource closure pass; it is a valid negative direction, not a numerical
+or infrastructure failure. No repetition, profile, or mainline absorption is
+assigned to this version. The result does not quantify score-feed alone;
+the independent liveness path and sole bounded correction remain unselected.
+Exact identities and limitations are in the
+[combined-v1 rejection record](metadata/qwen36-27b-ordinary-exact-score-feed-v1-api-rejection-2026-09-09.json).
+
 Fresh installed main `d6565eb` / ELF `b4ccef99...` reached readiness in
 35,478.588 ms and passed EvalScope 1.9.1 on one warmup plus 8/8 measured short
 requests and a separate raw-SSE request. Mean TTFT was 2,636.723 ms, TPOT

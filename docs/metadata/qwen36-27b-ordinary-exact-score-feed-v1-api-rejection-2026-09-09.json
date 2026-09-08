@@ -1,0 +1,462 @@
+{
+  "schema": "q3x.ordinary-exact-score-feed-v1-api-rejection.v1",
+  "date": "2026-09-09",
+  "architecture_candidate_id": "AC-PREFILL-EXACT-P40-DATAFLOW-20260909",
+  "decision_unit": "architecture_candidate",
+  "decision": "reject_combined_v1_on_actual_installed_P40000_O16_API",
+  "main_runtime_changed": false,
+  "result_class": "valid_negative_engineering_direction",
+  "claim_boundary": "One complete installed Release/OFF candidate request after exact same-ELF numerical admission. Rejects this composition; not a matched repetition-qualified effect, kernel attribution, numerical rejection, complete capability result, startup reliability or release qualification.",
+  "artifact": {
+    "BUILD_TESTING": false,
+    "build_id": "77e803d76200c9eba6ffb9bac6c7e64876b350bc",
+    "build_server": {
+      "bytes": 9096752,
+      "mtime_ns": 1788895977744137700,
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/build/exact-score-feed-off-20260909-off/qwen3x-eval-server",
+      "resolved_path": "/home/rm01/Qwen3x-Orin/.q3x-work/build/exact-score-feed-off-20260909-off/qwen3x-eval-server",
+      "sha256": "a15c83db4bb6c253882a093a383c9ffa17f892efa763501b8021a896994a032d"
+    },
+    "build_type": "Release",
+    "cmake_cache": {
+      "bytes": 41158,
+      "mtime_ns": 1788895831334536700,
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/build/exact-score-feed-off-20260909-off/CMakeCache.txt",
+      "resolved_path": "/home/rm01/Qwen3x-Orin/.q3x-work/build/exact-score-feed-off-20260909-off/CMakeCache.txt",
+      "sha256": "bcf25e01d2c5970ec9992ba2d020b4d659cb316bdc4d636d983966443cb0942c"
+    },
+    "configured_install_prefix": "/home/rm01/Qwen3x-Orin/.q3x-work/install/exact-score-feed-off-20260909-off",
+    "effective_install_prefix": "/home/rm01/Qwen3x-Orin/.q3x-work/install/exact-score-feed-off-20260909-off",
+    "install_manifest": {
+      "bytes": 7653,
+      "mtime_ns": 1788899699221935400,
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/build/exact-score-feed-off-20260909-off/install_manifest.txt",
+      "resolved_path": "/home/rm01/Qwen3x-Orin/.q3x-work/build/exact-score-feed-off-20260909-off/install_manifest.txt",
+      "sha256": "c14e44281e0efd21dbe68951c00d451c5afd70888a5a146829ba45855d9f9b98"
+    },
+    "server": {
+      "bytes": 9096752,
+      "mtime_ns": 1788895977000000000,
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/install/exact-score-feed-off-20260909-off/bin/qwen3x-eval-server",
+      "resolved_path": "/home/rm01/Qwen3x-Orin/.q3x-work/install/exact-score-feed-off-20260909-off/bin/qwen3x-eval-server",
+      "sha256": "f9f08154df21424b49cf37bdd7c67c047b22045a8ae0ebf4d50dd61f9e634cbc"
+    },
+    "source": {
+      "diff_bytes": 0,
+      "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head": "09de1118aab685bc2d62cde21aadc2fa3b5d82f1",
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/worktrees/exact-score-feed-off-20260909",
+      "status": "",
+      "tree": "8c827a78f687a3a8ef5ef3d3c9b17379d93cae16"
+    }
+  },
+  "numerical_admission": {
+    "summary": {
+      "path": ".q3x-work/evidence/exact-ordinary-combined-numerical-closeout-20260909.json",
+      "sha256": "223413b21fcc08f8da3b552b0d401a9a9a0e59cebbf259e118e86848473a19e5"
+    },
+    "identity": {
+      "source_head": "09de1118aab685bc2d62cde21aadc2fa3b5d82f1",
+      "source_tree": "8c827a78f687a3a8ef5ef3d3c9b17379d93cae16",
+      "source_clean_and_unchanged_in_all_captures": true,
+      "capture_build": "Release / BUILD_TESTING=ON / SM87; all Q3X_BUILD admission options OFF",
+      "capture_binary_sha256": "4318252cc7dfafc731ec7993f965eb0de8090f7dd890ae4d0a175f59a9ebcb95",
+      "capture_binary_build_id": "e5dec5b12e063efe9aaea7397041699197465aa4",
+      "capture_binary_and_model_before_after_equal": true,
+      "model_authentication": {
+        "path": ".q3x-work/evidence/pinned-model-authentication-20260909.json",
+        "sha256": "c7c71b78ea1bbd9d911c48a3b384933242184876311dfa83c0e366b8f56e6e75",
+        "scope": "All seven pinned files, including all three checkpoint shards, were SHA-authenticated once; each capture reused that receipt with canonical non-symlink path and exact before/after dev/inode/size/mtime checks. No model files were rehashed for this summary."
+      },
+      "on_build_manifest": {
+        "path": ".q3x-work/build/exact-score-feed-off-20260909-on/schema3-build-manifest.json",
+        "sha256": "999c36042b336549c44ee9b3b7d9ac0f41552a840c8d1f5a9461da1e00dfe231"
+      },
+      "off_source_install_bridge": {
+        "path": ".q3x-work/build/exact-score-feed-off-20260909-off/schema3-source-closeout-build-manifest-r2.json",
+        "sha256": "170d306691f4460c1d97e9cbec249dfecf60cffccd3d1063a7852891c75743e8",
+        "runtime_base_commit": "8992140fa010981f96aa52a2917df11443691f54",
+        "original_off_build_manifest": ".q3x-work/build/exact-score-feed-off-20260909-off/build-manifest.json",
+        "original_off_build_manifest_sha256": "b9061cfa7abd720d55472ddf2f99ac11ffa3570a562f32a47d5c12484f5849ed",
+        "installed_server_sha256": "f9f08154df21424b49cf37bdd7c67c047b22045a8ae0ebf4d50dd61f9e634cbc",
+        "installed_server_build_id": "77e803d76200c9eba6ffb9bac6c7e64876b350bc",
+        "review": "8992140 to 09de111 changes only four documents and the numerical capture test; runtime, headers and CMake are unchanged. Incremental OFF build/install returned zero, retained artifacts and actual installed SHA/Build ID match. This is not a fresh full recompile, and the ON capture ELF is not the installed OFF server ELF. OFF startup and API fitness require their own actual installed-artifact results."
+      }
+    },
+    "workload": {
+      "request_body_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+      "p40000_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+      "output_tokens": 16,
+      "final_prompt_policy": "ordinary_p_minus_1_then_scalar",
+      "logits_mode": "predicted_only",
+      "p576_scope": "The first 576 token IDs of the same pinned request; a bounded numerical poison case, not a separate performance workload."
+    },
+    "captures": [
+      {
+        "id": "p576_baseline",
+        "path": ".q3x-work/evidence/exact-ordinary-schema3-baseline-p576-20260909-r1/capture.json",
+        "sha256": "ac1c7cafba1c4f3a500ba8da76c9338581d770dbc7c7a1e54eef89d930b94b92"
+      },
+      {
+        "id": "p576_liveness_poison_a",
+        "path": ".q3x-work/evidence/exact-ordinary-schema3-liveness-p576-poison-a-20260909-r1/capture.json",
+        "sha256": "c7153c129e3b823c68e84ec3f71f5b5de83d799e64af552d006fce162414933d"
+      },
+      {
+        "id": "p576_liveness_poison_b",
+        "path": ".q3x-work/evidence/exact-ordinary-schema3-liveness-p576-poison-b-20260909-r1/capture.json",
+        "sha256": "8bf2606d30902c55cef8485dbcc03e82230831a49aa78b6e3fe3d87115c0efc3"
+      },
+      {
+        "id": "p40000_baseline",
+        "path": ".q3x-work/evidence/exact-ordinary-schema3-baseline-p40000-20260909-r1/capture.json",
+        "sha256": "dff89597857d4293fbfb1b10ef77da7c0f6c44f598ba12f1fe0da28fb01181be"
+      },
+      {
+        "id": "p40000_combined",
+        "path": ".q3x-work/evidence/exact-ordinary-schema3-combined-p40000-20260909-r1/capture.json",
+        "sha256": "1c3ca0d17c96be9c5a9536c000c8bd41f35aa250de2d15909545b6decdb18ce0"
+      }
+    ],
+    "comparisons": [
+      {
+        "baseline": "p576_baseline",
+        "candidate": "p576_liveness_poison_a",
+        "path": ".q3x-work/evidence/exact-ordinary-schema3-liveness-p576-poison-a-20260909-comparison-r1.json",
+        "sha256": "65e9ac1cc547cfcbd54b13a56ec032db078d7ebaea92f4781cf91685293bca86",
+        "valid_comparison": true,
+        "matched": true
+      },
+      {
+        "baseline": "p576_baseline",
+        "candidate": "p576_liveness_poison_b",
+        "path": ".q3x-work/evidence/exact-ordinary-schema3-liveness-p576-poison-b-20260909-comparison-r1.json",
+        "sha256": "3c65a44cee6cf5d788d68ace530ccd03d3b19b36c8b681ac5bf63d7d65638cc5",
+        "valid_comparison": true,
+        "matched": true
+      },
+      {
+        "baseline": "p40000_baseline",
+        "candidate": "p40000_combined",
+        "path": ".q3x-work/evidence/exact-ordinary-schema3-combined-p40000-20260909-comparison-r1.json",
+        "sha256": "64dbe6bd41303cd43df0e244c62830c567fee315c3ec0120773849bb6d35c08e",
+        "valid_comparison": true,
+        "matched": true
+      }
+    ],
+    "checks": "All three same-ELF comparisons are exact: 37 live digests at Prefill commit and generation return, 16 full BF16 vocabulary-logit digests and live scalar outputs, generated IDs/text. P576 poison A and B each touch three dead prefix tiles and check 16 scalar guards. P40000 combined records 80 elisions and 1170 ON score-feed hits.",
+    "full_vectors_retained": false,
+    "unused_graph_dispositions": "All five schema3 captures use unique budget_rejected_rolled_back; no timing, startup or Graph qualification. Prior schema2 startup rejections remain unchanged."
+  },
+  "api": {
+    "bundle": ".q3x-work/evidence/exact-ordinary-combined-p40000-api-20260909-c1",
+    "result_sha256": "ddb922448b3c7247d00ce5ba9ca47a356989b6f3791520579c55fced81ca8dae",
+    "stdout_sha256": "d57fcc8943f3709ef83b4f4a7b877d43800c4dce2835ba81b5a70dbecd45857e",
+    "stderr_sha256": "eda96751395ae4cb6384c0fb63bcc5acba16dcd9d046e3dc18fd202f9a66e2ea",
+    "accepted": true,
+    "errors": [],
+    "qualifications": [],
+    "wrapper_sha256": "85bc0ff4ea42025d3cc729c9381246383b0b11dfdea510e4e37045825204e1d7",
+    "selection_predeclaration": {
+      "path": ".q3x-work/evidence/exact-ordinary-combined-api-selection-20260909.txt",
+      "sha256": "32693cbe20832a6d549b6b990d5e515e34274ee861e495090778738acf2206e9"
+    },
+    "request": "One exact frozen P40000/O16 greedy completion; no warmup, Prefix/KV reuse, MTP, cuBLASLt or development selector; not a profiler process.",
+    "body_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "response": {
+      "accepted": true,
+      "choice_events": 16,
+      "created": 1788901988,
+      "done_events": 1,
+      "event_order": [
+        "choice",
+        "choice",
+        "choice",
+        "choice",
+        "choice",
+        "choice",
+        "choice",
+        "choice",
+        "choice",
+        "choice",
+        "choice",
+        "choice",
+        "choice",
+        "choice",
+        "choice",
+        "choice",
+        "usage",
+        "done"
+      ],
+      "finish_reason": "length",
+      "generated_text": "The user wants me to act as an AI agent following the strict guidelines in `",
+      "generated_text_bytes": 76,
+      "generated_text_sha256": "25451d25ce3799c749c8743a664277def7336b294af5ddfb238dac327058b20b",
+      "raw_sse_sha256": "9e7705ece9789d038fc4ab32cee5083944090d38585ebd10fa2a341fa1dbd62b",
+      "response_id": "cmpl-q3x-1",
+      "usage": {
+        "completion_tokens": 16,
+        "prompt_tokens": 40000,
+        "total_tokens": 40016
+      },
+      "usage_events": 1
+    },
+    "metrics": {
+      "client_total_ms": 785602.095322,
+      "client_ttft_ms": 781795.433639,
+      "profiled_timing_is_diagnostic": false,
+      "server_decode_after_first_ms": 3806.404433,
+      "server_decode_tok_s": 3.940726810308441,
+      "server_decode_tpot_ms": 253.76029553333333,
+      "server_pure_prefill_ms": 781772.542473,
+      "server_pure_prefill_tok_s": 51.16577754632701,
+      "server_ttft_ms": 781792.512674,
+      "spawn_to_ready_ms": 35394.606449
+    },
+    "health_and_models_identity": {
+      "BUILD_TESTING": false,
+      "capacity": {
+        "max_sequence_length": 44095,
+        "maximum_output_tokens": 4096,
+        "request_arena_bytes": 3070908416,
+        "target_prompt_tokens": 40000
+      },
+      "decode": {
+        "down_consumer_order_layers": 53,
+        "down_consumer_order_sidecar_bytes": 2361917440,
+        "down_scale6_layers": 53,
+        "down_scale6_sidecar_bytes": 221429760,
+        "fp8_output_layers": 64,
+        "fp8_output_sidecar_bytes": 2013265920,
+        "gate_up_layers": 64,
+        "gate_up_sidecar_bytes": 6417285120,
+        "graph_cache": {
+          "first_position": 19,
+          "last_position": 43,
+          "slots": 25
+        },
+        "retained_sidecar_bytes": 11013898240,
+        "route": "q3x.sm87.decode.coupled-feed-down-consumer-order.v1"
+      },
+      "prefill": {
+        "supermatrix_projections": 208,
+        "supermatrix_sidecar_bytes": 7214202880
+      },
+      "production_eligible": false,
+      "profile": "q3x.sm87.candidate.p40.legacy-c512-terminal-score-feed.v1",
+      "release_qualified": false,
+      "retained_acceleration_sidecar_bytes": 18228101120
+    },
+    "ordinary_off_startup": {
+      "full_inventory_pass": true,
+      "graph_slots": 25,
+      "first_position": 19,
+      "last_position": 43,
+      "graph_prepare_ms": 111.362,
+      "graph_free_before_bytes": 21019029504,
+      "graph_free_after_bytes": 20823019520,
+      "graph_free_drop_bytes": 196009984,
+      "engine_create_total_ms_logged": 35228.8,
+      "exact_limits_unchanged": true,
+      "claim": "This actual OFF startup passes complete inventory; numerical-only Graph rollback is not used here. One success does not establish startup reliability or speedup."
+    },
+    "request_start": {
+      "accepted": true,
+      "bytes": 0,
+      "milliseconds": 0.041601,
+      "mode": "already_clean",
+      "positions": 0
+    },
+    "route": {
+      "witness": "target-prefill-witness-v21",
+      "passes": 81,
+      "prefix_executions": 80,
+      "terminal_prefix_elision": {
+        "available": true,
+        "elided_prefix_layer_passes": 80,
+        "elided_prefix_rows": 39999,
+        "final_prompt_causal_end": 40000,
+        "final_prompt_query_position": 39999,
+        "final_prompt_step": "unchanged_legacy_scalar",
+        "kv_publication": "existing_stream_sync_before_commit",
+        "omitted_roles": [
+          "nvfp4_gate_up",
+          "nvfp4_down",
+          "fp8_o",
+          "attention"
+        ],
+        "plan_id": "q3x.sm87.legacy-c512.terminal-prefix-elision.v1",
+        "prefix_hidden": "unobservable_layer62_residual",
+        "preserved_terminal_qkv_rows": 40000,
+        "retained_scalar_prefix_rows": 0,
+        "terminal_layer": 63
+      },
+      "deployment_plan": {
+        "available": true,
+        "id": "q3x.sm87.legacy-c512.terminal-elision-score-feed.v1",
+        "qualification": "exact-contract-candidate-unqualified",
+        "scope": "compiled_source_policy_not_kernel_counts"
+      },
+      "ordinary_attention_policy": {
+        "canonical_expected_layer_passes": 81,
+        "canonical_expected_terminal_elisions": 80,
+        "fixed_launcher": "incumbent_qt2_or_group_q64",
+        "group_q64_prefix": "unchanged",
+        "kernel_launch_counts": {
+          "available": false,
+          "reason": "not_instrumented"
+        },
+        "nonfixed_generic_suffix": "exact_qt2_score_feed_k16",
+        "scalar_final_and_decode": "unchanged",
+        "scope": "compiled_source_policy_not_kernel_counts"
+      },
+      "operators": {
+        "attention": {
+          "completed_exact_fallback_hits": 16,
+          "completed_forbidden_hits": 0,
+          "completed_production_hits": 1200
+        },
+        "fp8_o": {
+          "completed_exact_fallback_hits": 190,
+          "completed_forbidden_hits": 0,
+          "completed_production_hits": 4914
+        },
+        "fp8_qkv": {
+          "completed_exact_fallback_hits": 288,
+          "completed_forbidden_hits": 0,
+          "completed_production_hits": 7488
+        },
+        "fp8_z": {
+          "completed_exact_fallback_hits": 144,
+          "completed_forbidden_hits": 0,
+          "completed_production_hits": 3744
+        },
+        "gdn": {
+          "completed_exact_fallback_hits": 144,
+          "completed_forbidden_hits": 0,
+          "completed_production_hits": 3744
+        },
+        "nvfp4_down": {
+          "completed_exact_fallback_hits": 5104,
+          "completed_forbidden_hits": 0,
+          "completed_production_hits": 0
+        },
+        "nvfp4_gate_up": {
+          "completed_exact_fallback_hits": 5104,
+          "completed_forbidden_hits": 0,
+          "completed_production_hits": 0
+        }
+      },
+      "forbidden_boundaries": {
+        "approximate_numerics": 0,
+        "cublaslt": 0,
+        "external_reference": 0,
+        "mtp": 0,
+        "prefix_cache": 0
+      },
+      "physical_kernel_count_scope": "Not instrumented in OFF; do not borrow ON1170 as OFF physical observation."
+    },
+    "environment": {
+      "cpu_policies_0_4_8_locked_khz": 2201600,
+      "gpu_locked_hz": 1300500000,
+      "emc_locked_hz": 3200000000,
+      "cache_drop_succeeded": true,
+      "hardware_gate": {
+        "accepted": true,
+        "actual_faults": [],
+        "auxiliary_sampling_errors": [],
+        "overcurrent_delta_context": {
+          "oc1": 0,
+          "oc2": 0,
+          "oc3": 0
+        },
+        "selected_cpu_policy": "8"
+      },
+      "device_ownership_and_resource_closure_pass": true,
+      "fan_interface_observed_or_mutated": false
+    },
+    "cleanup": {
+      "accepted": true,
+      "launcher_returncode": 0,
+      "owned_before": [
+        {
+          "binding": "Popen+exec+birth",
+          "comm": "qwen3x-eval-ser",
+          "exe": "/home/rm01/Qwen3x-Orin/.q3x-work/install/exact-score-feed-off-20260909-off/bin/qwen3x-eval-server",
+          "pid": 1367403,
+          "ppid": 1367326,
+          "process_group_id": 1367403,
+          "role": "server",
+          "session_id": 1367403,
+          "start_time_ticks": 115402614,
+          "state": "S"
+        }
+      ],
+      "process_exit_success": true,
+      "residual_members": [],
+      "resource_closure_accepted": true,
+      "signals": [
+        {
+          "exe": "/home/rm01/Qwen3x-Orin/.q3x-work/install/exact-score-feed-off-20260909-off/bin/qwen3x-eval-server",
+          "pid": 1367403,
+          "pidfd_bound": true,
+          "role": "server",
+          "signal": "SIGINT",
+          "start_time_ticks": 115402614
+        }
+      ]
+    },
+    "nvmap": {
+      "accepted": true,
+      "added_orphan_rows": [],
+      "added_pids": [],
+      "after_orphan_rows": [],
+      "after_pids": [],
+      "before_orphan_rows": [],
+      "before_pids": [],
+      "owned_server_pid": 1367403,
+      "owned_server_pid_absent_after_exit": true,
+      "pagepool_absolute_available_after_bytes": 8241508352,
+      "pagepool_absolute_available_before_bytes": 8241508352,
+      "pagepool_absolute_available_delta_bytes": 0,
+      "removed_orphan_rows": [],
+      "removed_pids": []
+    }
+  },
+  "retained_ordinary_direction_reference": {
+    "record": "docs/metadata/qwen36-27b-graph-startup-initialization-repair-2026-09-09.json",
+    "bundle": ".q3x-work/evidence/ordinary-warmed-startup-p40-api-20260909-r1",
+    "result_sha256": "48f0a22666951b6541825cd8be18563e7df42810c7bd7b8deed715bb4c895efd",
+    "source": "e30014e158fa69031bf551745d1c375209a61fc0",
+    "installed_server_sha256": "b88b6cb0f8c42d3732cd633314a6a5684b3f4450ec3a282fd031289abf9ca811",
+    "metrics": {
+      "client_total_ms": 703580.271552,
+      "client_ttft_ms": 699773.335528,
+      "profiled_timing_is_diagnostic": false,
+      "server_decode_after_first_ms": 3806.696757,
+      "server_decode_tok_s": 3.9404241938675653,
+      "server_decode_tpot_ms": 253.77978380000002,
+      "server_pure_prefill_ms": 699750.430335,
+      "server_pure_prefill_tok_s": 57.16323744288419,
+      "server_ttft_ms": 699770.547184,
+      "spawn_to_ready_ms": 35368.583191
+    },
+    "boundary": "Retained same-body/tokens/O16 and same-clock ordinary installed request. Not a newly completed BCCB or a same-ELF API comparison. Main's separate d6565eb P40 Nsight attribution is diagnostic and does not supply an unprofiled comparator."
+  },
+  "direction": {
+    "pure_prefill_latency_increase_percent": 11.721623679278403,
+    "pure_prefill_throughput_change_percent": -10.491812858831985,
+    "external_ttft_increase_percent": 11.721237999031775,
+    "statistical_qualification": false,
+    "score_feed_alone_attributed": false
+  },
+  "disposition": {
+    "v1_repeated": false,
+    "v1_profiled": false,
+    "v1_absorbed": false,
+    "retained": "Original candidate source/ELFs, full numerical captures and valid negative API bundle remain isolated.",
+    "successors": "Roadmap separately admits liveness-only actual-API selection and the score-feed package's sole bounded raw-score-producer correction. Neither inherits performance or mainline authority.",
+    "causal_limit": "Source shows v1 keeps QK and max/den/exp in one producer warp. Moving the ordered softmax/PV state to the consumer removes that producer dependency; without a v1 profile this is not a quantified regression attribution and the correction must face a new exact P40/API result."
+  }
+}

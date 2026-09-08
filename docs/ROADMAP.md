@@ -342,8 +342,23 @@ motivated by a concrete correctness or causal finding. No predicted timing,
 synthetic performance screen, AOT exploration, or revival of the rejected
 Q4/P39936/canonical-traits-v2 versions belongs to this window.
 
+The first combined terminal-prefix/score-feed version has reached a valid
+negative installed API result and is closed without repetition, profiling, or
+mainline absorption; the immutable boundary is in the
+[combined-v1 rejection record](metadata/qwen36-27b-ordinary-exact-score-feed-v1-api-rejection-2026-09-09.json).
+The remaining bounded steps are independent liveness-only installed API
+selection, and the score-feed package's sole correction: the producer publishes
+raw scaled FP32 scores while the consumer owns the complete original ordered
+max/denominator/exponential/PV recurrence. Source review found that v1 retained
+that recurrence on the QK producer; this is a concrete dataflow finding, not a
+profiled quantitative attribution of its regression. QT2, KV16 buffering,
+GroupQ64, fixed/scalar paths, exact reduction/publication, and liveness scope
+remain fixed. The correction must pass a new ordinary P40000/O16 numerical
+comparison and actual installed OFF API selection. It opens no parameter scan
+or second correction and does not extend the 09:24 handoff deadline.
+
 Use existing harnesses and the smallest safe correctness checks, then compare
-the complete live-state/token/text and exposed-logit-stat P40000/O16 boundary
+the complete live-state/token/text and full-vocabulary-logit-digest P40000/O16 boundary
 before reading the real API performance result. A negative version closes
 without repetition. The incumbent capture must use the ordinary production
 final-token policy (P-1 tiled prefix plus scalar final step), not the older
