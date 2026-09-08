@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-09-01
+  last_reviewed: 2026-09-09
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -255,11 +255,25 @@ into the sealed ordinary profile. It retains both proven Decode coupled-feed
 and consumer-order layouts as ordinary defaults, while explicitly rejecting
 the split-KV Decode selector after its S65 BF16 boundary oracle differed from
 the exact fallback. The attempted P40 selector/whole-core v1 composition has
-now returned a valid full-model numerical and behavioral rejection, so it is
-not repaired, profiled, or promoted in place. The next P0 inside P3 is the
-current-main resumption of the already tracked
-`AC-PREFILL-SM87-AOT-SYSTEM-v1`, beginning with the mathematical ledger's
-real-P40 exact arithmetic-class gate before any additional CUDA mapping.
+returned a valid full-model numerical and behavioral rejection. Its corrected
+exact descendant is also closed after a gross negative real-API direction.
+Exact-span Attention repairs that selector-local regression but still provides
+no positive evidence against ordinary exact main; FP8 P39936 M128N256 then
+regresses the actual API under both dual-stream and serial MLP schedules.
+The exact-span branch's same-skeleton regular-Q4 Attention child is exact but
+regresses still further to 38.33560402225455 tok/s on the cold-cache real API.
+Neither selector scaffolding nor candidate capacity changes are promoted.
+
+The AOT BF16-HMMA skeleton and its subsequent static-support K16-parent to
+zero-filled K256 mapping v2 are also closed under their respective real-P40
+fail-fast gates. AOT payload authentication and persisted direct loading are
+retained prerequisites, not the active implementation step. The next P0
+inside P3 must name a materially different accuracy-preserving architecture or
+dataflow and return directly through strict P40000/O16 correctness followed by
+the same real OpenAI-compatible API request. Proxy-only prediction,
+P39936/dual-stream repetition, regular-Q4 repetition or profiling, a Q3--Q5
+same-skeleton Attention span scan, and further work on the rejected AOT
+mapping do not satisfy that return point.
 
 The 0.7.0 request-reuse conversion is now compiled into the ordinary
 `q3x.sm87.production.p40.legacy-c512-exact.v3` lifecycle: creation is already
@@ -276,8 +290,65 @@ full reset. Output, SSE, usage, finish, and route receipts remain exact. The
 policy is therefore retained as the ordinary default across those lengths;
 the evidence deliberately makes no material TTFT, Prefill-throughput, Decode,
 accuracy, release, or production claim. This bounded qualification does not
-displace the whole-system AOT arithmetic-class gate as the next architecture-
-scale P0.
+displace the materially different, accuracy-preserving P40000/O16 API return
+boundary above.
+
+### 2026-09-09 bounded engineering window
+
+The owner resumed implementation for an eight-hour unattended work window,
+from approximately 01:24 to 09:24 Asia/Shanghai. This is implementation and
+real-API delivery authority, not an amendment of the accuracy, numerical,
+non-MTP, no-cache, cuBLASLt, or host-safety contracts. No old approximate
+route is promoted by that instruction.
+
+The active parent is `AC-PREFILL-EXACT-P40-DATAFLOW-20260909`. Its product
+constraint is the unchanged cold/no-cache P40 first-response target; its
+immediate selection surface is the ordinary exact main P40000/O16 API route.
+Historical v10 timing and its operator shares do not describe that incumbent.
+One bounded current-main real-API Nsight capture may establish the missing
+Attention/projection/GDN attribution. It follows existing valid main API
+evidence and has diagnostic, not speedup, authority.
+
+Two bounded implementation packages may proceed independently:
+
+- `WP-EXACT-ATTENTION-SCORE-FEED-20260909`: decouple independent QK score
+  production from ordered softmax/PV consumption. Preserve each score's
+  original lane-local FP32 FMA and warp-reduction tree, key-order online
+  updates, final division, and BF16/gate publication. Use bounded on-chip
+  storage, no full prompt-squared score allocation, no change to the
+  GroupQ64-qualified prefix, no Q3--Q5 scan, and no runtime allocation.
+- `WP-TERMINAL-LAYER-LIVENESS-20260909`: delete only production-dead layer-63
+  prefix computation on ordinary next-token generation, retain every K/V
+  row and all earlier-layer state, and preserve the already-selected final
+  prompt-token arithmetic. Activation must exclude modes that expose prefix
+  hidden rows and retain the existing direct-runner contract. The liveness
+  oracle follows the mathematical ledger; dead scratch equality is not an
+  accuracy requirement. The 2.15% arithmetic count is not a latency bound.
+
+Both inherit the Prefill SDD and equivalence ledger. Their upward composition
+point is the same complete ordinary runner/API, not a component benchmark.
+Each package admits one initial architecture and at most one correction
+motivated by a concrete correctness or causal finding. No predicted timing,
+synthetic performance screen, AOT exploration, or revival of the rejected
+Q4/P39936/canonical-traits-v2 versions belongs to this window.
+
+Use existing harnesses and the smallest safe correctness checks, then compare
+the complete live-state/token/text and exposed-logit-stat P40000/O16 boundary
+before reading the real API performance result. A negative version closes
+without repetition. The incumbent capture must use the ordinary production
+final-token policy (P-1 tiled prefix plus scalar final step), not the older
+r12 all-prompt-tile comparator. A positive version receives proportionate independent
+review, exact installed Release/OFF mainline comparison, and relevant
+regression checks before absorption. It must not claim complete public
+capability or release qualification from this bounded protocol. Existing
+business-accuracy evidence may be improved through actual API responses, but
+cannot replace or silently relax the current exact contract.
+
+Stop starting long device runs in time to leave an owned, recoverable host and
+a handoff by 09:24. Retain source, commands, exact artifact/workload identities,
+results, rejected versions, and next action under the repository. Complete
+safe milestones are committed and pushed; incomplete or negative runtime
+changes remain isolated from ordinary main.
 
 ### Retained recovery boundary
 
@@ -304,47 +375,46 @@ that eligible Legacy-C512 scope and use its
 instead of reopening the rejected final-token route or repeating branch-local
 qualification by assumption.
 
-That recovery sequence has now reached its whole-product stop gate. The
-selector-exact persistent-Attention v1 composition completed a valid fresh
-P40000/O16 comparison and failed the exact state/logit/token/text contract.
-It is closed without another full-model cell or diagnostic profile. The
-active successor is not selector v2 or an Attention parameter scan; it is the
-existing default-off `AC-PREFILL-SM87-AOT-SYSTEM-v1`, whose authenticated
-real-checkpoint preparation and layer-0 M192 Gate+Up/Down oracle are retained
-as bounded prerequisites rather than whole-model authority.
+The selector/AOT/exact-span sequence has now reached its stop gates:
 
-The owner-directed minimal real-P40 kill test has now closed one implementation
-shortcut before further scaffolding. On clean `e61cff9`, the current NVFP4
-M128N256K64 persistent16 BF16-HMMA GateUp+SiLU and Down+residual skeleton
-completed its prerequisite M192 bitwise gate and two P40000 device samples.
-The optimistic minimum pair was 17,919.347656 ms; charging only 63 full MLP
-layers and treating terminal M1 plus every omitted projection as free still
-projects to 1,128.918902 s, or 225.7838x the complete 5.0-second projection
-allocation. The result therefore rejects that skeleton without repetition,
-profiler work, FP8/Attention/GDN scaffolding, or a whole-runner cell. It does
-not reject AOT loading or another exact arithmetic/dataflow class. The exact
-boundary is frozen in the
-[`P40000 quick-kill record`](metadata/qwen36-27b-sm87-target-aot-p40000-quick-kill-2026-09-01.json).
+- the original selector-exact persistent-Attention v1 composition remains
+  rejected for a fresh P40000/O16 state/logit/token/text mismatch;
+- the corrected selector artifact passes that strict workload but is closed
+  for a gross negative real-API direction;
+- the persistent16 M128N256K64 BF16-HMMA GateUp/Down skeleton is rejected by
+  its optimistic 225.7838x-over-budget real-P40 screen;
+- `bmma-static-support-k16-parent-zero-fill-v2` is rejected before CUDA after
+  its authenticated mandatory-instruction lower bound exceeds the complete
+  five-second projection allocation; the AOT line is deferred, while
+  authenticated assets and direct loading remain prerequisites only;
+- exact-span Attention is retained solely as a test baseline because it does
+  not beat ordinary exact main;
+- exact regular-Q4 Attention passes the strict oracle but falls to
+  38.33560402225455 tok/s on the cold-cache real API; it is rejected without
+  repetition or profiling, and the neighboring Q3--Q5 same-skeleton scan is
+  closed; and
+- FP8 P39936 M128N256 plus both dual-stream and serial MLP schedules are
+  rejected by the real P40000/O16 API direction and receive no repetition or
+  profile.
 
-Before any successor CUDA mapping, the candidate must execute
-[`the exact arithmetic-class qualification gate`](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md#53-exact-arithmetic-class-qualification-gate)
-over pinned real-P40 projection operands. It records K16/K64 exponent spans,
-minimum exact limb or bit-plane counts, residual-plane and exact-fallback
-fractions, ordered FP32 partial/scale-rejoin preservation, BF16 publication
-bits, and average physical MMA pass count for Gate/Up, Down, and FP8 QKV/Z/O.
-The arithmetic class advances only if the measured mapping can fit the
-5.0-second P40 projection allocation. A failure closes the class before CUDA;
-a pass unlocks completion of the role-specific packed-resident projection
-plan and the finite-precision selection of an exact-qualified Attention/GDN
-composition. The frozen v1 descriptor uses grouped-online Attention; replacing
-that descriptor requires a new versioned candidate and plan identity before
-the 64-layer composition, followed immediately by the fresh P40000 full-state
-and whole-API return gates.
+The immutable boundaries are in the
+[`selector-v1 record`](metadata/qwen36-27b-selector-exact-persistent-attention-v1-rejection-2026-08-27.json),
+[`AOT quick-kill`](metadata/qwen36-27b-sm87-target-aot-p40000-quick-kill-2026-09-01.json),
+[`mapping-v2 rejection`](metadata/qwen36-27b-sm87-target-aot-real-p40-arithmetic-mapping-v2-rejection-2026-09-02.json),
+[`Q4 rejection`](metadata/qwen36-27b-selector-exact-regular-q4-span-v3-rejection-2026-09-05.json),
+and
+[`exact-span/P39936 closeout`](metadata/qwen36-27b-exact-span-p39936-api-lineage-closeout-2026-09-05.json).
+None changes the ordinary main route. Reactivation of AOT requires a new exact
+mapping and bounded proof; reopening Attention requires a materially different
+accuracy-preserving dataflow rather than a Q3--Q5 parameter variant. In either
+case, the implementation milestone is strict P40000/O16 followed immediately
+by the same real API request, with no mainline absorption unless it is positive
+against the ordinary exact incumbent.
 
 ### Promotion and stop gates
 
-These gates remain resume-time exit criteria; they do not make P3 or any
-candidate active.
+These gates remain P3 exit criteria; they do not activate a specific
+candidate or revive a closed lineage.
 
 Before CUDA mapping, the candidate records its real-number equations,
 finite-precision reduction/publication/state boundaries,
@@ -354,12 +424,14 @@ The stable requirements are owned by the
 [Prefill subsystem SDD](PREFILL_ARCHITECTURE_RESET.md#8-stable-implementation-constraints).
 
 A P40 direction is retained locally only under the real-model performance
-policy. It advances to correctness and statistical qualification only after a
-material positive whole-API result. A negative complete composition closes its
-own version after at most one bounded causal profile. No P60, P130, EvalScope
-dataset matrix, or low-yield tile/stage/cache scan may displace that return
-point. Only a competitive, accuracy-admissible P40 result unlocks P60 and then
-the approximately-130K witness.
+policy. It must pass the smallest decision-complete exact-workload correctness
+and route gate before its actual API timing is read. A negative complete API
+composition closes its own version after at most one bounded causal profile;
+a materially positive result unlocks the remaining correctness, repetition,
+and statistical qualification. No P60, P130, EvalScope dataset matrix, or
+low-yield tile/stage/cache/span-grain scan may displace that return point. Only a
+competitive, accuracy-admissible P40 result unlocks P60 and then the
+approximately-130K witness.
 
 Every candidate must answer:
 

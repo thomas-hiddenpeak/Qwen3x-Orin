@@ -142,8 +142,52 @@ evidence is infrastructure-valid but has no timing authority; it rejects the
 complete selector/whole-core v1 composition without assigning the first cause
 to one kernel. The branch stays
 unmerged, default-off, and non-production. This result closes that architecture
-version and returns P3 to the existing `AC-PREFILL-SM87-AOT-SYSTEM-v1`
-whole-system work rather than another Attention variant.
+version. Its former scheduling handoff to
+`AC-PREFILL-SM87-AOT-SYSTEM-v1` is superseded by the later AOT mapping and
+exact-span/P39936 closeouts below; it does not reactivate itself.
+
+The owner-directed real-P40 AOT fail-fast sequence is closed in two records.
+The
+[`BF16-HMMA skeleton quick-kill`](qwen36-27b-sm87-target-aot-p40000-quick-kill-2026-09-01.json)
+rejects the persistent16 M128N256K64 GateUp/Down implementation at an
+optimistic 225.7838x over the complete five-second projection allocation. The
+subsequent
+[`static-support mapping-v2 rejection`](qwen36-27b-sm87-target-aot-real-p40-arithmetic-mapping-v2-rejection-2026-09-02.json)
+uses authenticated real-P40 route operands to prove that its mandatory
+zero-filled K256 instruction lower bound already exceeds that allocation after
+35,328 prompt rows, while additional exactness passes and the unprocessed
+suffix are charged free. It rejects only that frozen arithmetic mapping before
+CUDA, repetition, or profiling. AOT payload authentication and direct loading
+remain retained prerequisites, but AOT exploration is paused rather than the
+active next gate; neither record changes the ordinary runner or production
+route.
+
+The later exact-span/FP8-P39936 branch lineage is frozen in the
+[`P40000/O16 real-API closeout`](qwen36-27b-exact-span-p39936-api-lineage-closeout-2026-09-05.json).
+The ordinary exact main reference remains **57.2307638066734 tok/s**. The
+corrected selector's exact branch measured **27.96118777397028 tok/s**;
+exact-span Attention recovered that test-only lineage to
+**55.94887170163682 tok/s** but did not beat the ordinary main reference.
+Replacing its 10,336 FP8 physical launches with the P39936 M128N256 route then
+regressed the actual API to **51.17353679519425 tok/s** with Gate/Up dual
+streams and **51.17176853575732 tok/s** with the serial MLP schedule. All
+candidate values are strict-workload, test-only branch observations, not main
+performance. P39936 and its dual-stream rescue are closed without repetition
+or profiling; no candidate code, selector scaffolding, or P40016 capacity
+change is promoted.
+
+The exact-span branch's same-skeleton regular-Q4 Attention child is separately
+closed in the
+[`Q4 real-API rejection`](qwen36-27b-selector-exact-regular-q4-span-v3-rejection-2026-09-05.json).
+Commit `dc138cbf` / tree `02ed6dd0` passed the strict P40000/O16
+state/logit/token/text oracle and completed one cold-cache real API request,
+but measured only **38.33560402225455 tok/s**: 33.0157393% below the ordinary
+exact main reference and 31.4810060% below the exact-span QT2 parent. Its v19
+route recorded 32 GroupQ64 plus 1,248 regular-Q4 Attention submissions, with
+zero QT2, Q8-suffix, or Attention fallback submissions. This clean
+`BUILD_TESTING=ON` artifact is test-only, uninstalled, unmerged, and not main;
+the Q4 mapping closes without repetition, profiling, or a neighboring Q3--Q5
+same-skeleton scan.
 
 The first real-checkpoint preparation of the default-off SM87 whole-system AOT
 candidate is frozen in

@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: exhaustive tracked-Markdown inventory and classification
   effective: 2026-08-09
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-09-09
   supersedes: []
   superseded_by: []
   ssot_for: tracked Markdown paths, primary classes, roles, and lifecycle states

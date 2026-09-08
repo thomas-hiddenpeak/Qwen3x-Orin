@@ -6,7 +6,7 @@ q3x_document:
   owner: prefill-maintainers
   authority: paused source-to-SM87 translation and recovery record for WP-PREFILL-REFERENCE-TRANSLATION-v1
   effective: 2026-08-12
-  last_reviewed: 2026-08-27
+  last_reviewed: 2026-09-05
   supersedes: []
   superseded_by: []
   ssot_for: the paused Prefill reference-translation recovery record only
@@ -40,12 +40,23 @@ stable system boundary returns to the SDD.
 | --- | --- |
 | Product symptom | Cold/no-cache, single-request 40K--60K and approximately 130K Prefill remains below the owner-set API target and useful vLLM starting line |
 | Parent candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` |
-| Package state | Paused; no active local optimization package |
+| Package state | Paused after the BF16-HMMA skeleton and static-support mapping-v2 rejections; no active local optimization package |
 | Incumbent | The historical max-clock 392.804397-token/s v10 observation remains unreproduced; the typed current-main artifact has a strict sustainable BCCB at 325.983493208 candidate tok/s versus 326.111753524 baseline, while near-max valid C cells average 375.956428659 tok/s descriptively without a complete strict BCCB |
 | Numerical boundary | [Prefill mathematical-equivalence ledger](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md) |
 | Production exclusions | No MTP, cuBLASLt production path, silent fallback, approximate mainline, request-time JIT/repack/autotune, or full-model BF16 weight copy |
 | First return point | Current-main sustainable integration health is closed; any resumed competitive package must return through a newly predeclared, decision-class real-checkpoint cold/no-cache P40 OpenAI API witness under `REAL_MODEL_PERFORMANCE_POLICY.md`: ownership and material contention are hard gates, other environment telemetry is context, temperatures through 85C are normal, 85C--90C uses actual clock/over-current/throttle context, above 90C stops, and fan/controller state is neither observed nor controlled |
 | Stop condition | Close or redesign the complete architecture after one negative composition and at most one predeclared causal profile; do not turn it into a tile scan |
+
+The later real-P40 arithmetic work has consumed the former immediate AOT
+continuation. The persistent16 BF16-HMMA skeleton is rejected by its quick-kill
+screen, and `bmma-static-support-k16-parent-zero-fill-v2` is rejected before
+CUDA because its authenticated mandatory-instruction lower bound exceeds the
+complete projection allocation. See the
+[`mapping-v2 record`](metadata/qwen36-27b-sm87-target-aot-real-p40-arithmetic-mapping-v2-rejection-2026-09-02.json).
+The authenticated payload catalog and persisted direct-loading design remain
+retained prerequisites if a materially different AOT successor is explicitly
+reactivated; they are not an active implementation step or permission to
+continue the rejected mapping.
 
 ## 2. Control model and current Q3X plant
 
@@ -246,6 +257,11 @@ L2/DRAM traffic fell, HMMA and `cp.async` are active, and register/shared
 pressure did not create a new critical bottleneck. A same-skeleton Q64 rewrite
 or broad tile scan is outside this package.
 
+The later exact regular-Q4 same-skeleton child passed the strict P40000/O16
+oracle but fell to 38.33560402225455 tok/s on the cold-cache real API, so that
+mapping and the neighboring Q3--Q5 scan are closed without repetition or
+profiling and do not reactivate this paused package.
+
 The direct FlashInfer path does not quantize Q/K/V or intentionally truncate
 the Attention formula, but it remains accuracy-unqualified because its
 full-state oracle differs from the incumbent. A translated Attention route
@@ -411,11 +427,11 @@ freezes the numerical, resource, lifecycle, and source-status boundaries.
 
 No admission contains a production selector, API wiring, public execution
 route, or production dispatch authority. The narrow M192 result does not
-qualify the complete model. The next implementation step is persisted direct
-loading followed by the complete 64-layer FP8/Attention/GDN/buffer/state/
-handoff composition, not another isolated loader or local tile scan. Neither
-payload authentication, lifetime attachment, nor this narrow Oracle can
-promote the production path.
+qualify the complete model. Persisted direct loading and the complete 64-layer
+FP8/Attention/GDN/buffer/state/handoff composition are retained prerequisites
+only if a materially different AOT successor is explicitly resumed; they are
+not the current next implementation step. Neither payload authentication,
+lifetime attachment, nor this narrow Oracle can promote the production path.
 
 The pre-CUDA implementation contract is now frozen as a second host-only
 milestone:
@@ -469,9 +485,11 @@ changes.
 The preparation probe reported
 `target_prepare_attach_milliseconds=699705.551133`. This is diagnostic timing
 from a correctness-only run, not a startup or model-performance baseline. It
-does establish that production cannot repack and independently reread all
-9.626 GB online: the authenticated payload catalog must be persisted by an
-offline AOT step and loaded directly at startup under the DeploymentPlan.
+does establish a retained constraint for any resumed AOT successor: production
+cannot repack and independently reread all 9.626 GB online, so the
+authenticated payload catalog would need to be persisted offline and loaded
+directly at startup under the DeploymentPlan. This constraint does not itself
+schedule that work.
 
 ## 9. One bounded reference-geometry witness
 

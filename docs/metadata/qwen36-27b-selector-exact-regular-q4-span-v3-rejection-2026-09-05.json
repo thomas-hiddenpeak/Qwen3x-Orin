@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "record_id": "qwen36-27b-selector-exact-regular-q4-span-v3-rejection-2026-09-05",
+  "classification": "real-api-exact-attention-regular-q4-rejection",
+  "reviewed_at_local_date": "2026-09-05",
+  "timezone": "Asia/Shanghai",
+  "decision_unit": {
+    "kind": "architecture_candidate_version",
+    "id": "selector-exact-regular-q4-span-v3",
+    "parent_lineage": "selector-exact-span-attention-v2",
+    "work_package_id": "P3",
+    "authority": "candidate-only strict-correctness and real-API direction closure; no release or production authority"
+  },
+  "product_constraint": {
+    "workload": "pinned Qwen3.6-27B-NVFP4 P40000/O16 through POST /v1/completions",
+    "locked_external_target": "accuracy-preserving cold/no-cache 40K--60K first visible generated token within 2 seconds",
+    "selection_boundary": "strict P40000/O16 state, logit, token, and text equality followed by the complete real OpenAI-compatible API request",
+    "ordinary_main_reference": "57.2307638066734 prompt token/s",
+    "parent_exact_span_reference": "55.94887170163682 prompt token/s"
+  },
+  "common_workload": {
+    "model": {
+      "repository": "nvidia/Qwen3.6-27B-NVFP4",
+      "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+      "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+      "hf_quant_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+      "model_index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+      "tokenizer_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+      "access": "read_only_external_input"
+    },
+    "prompt_tokens": 40000,
+    "completion_tokens": 16,
+    "total_tokens": 40016,
+    "prompt_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "request_body_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "concurrency": 1,
+    "warmup_requests": 0,
+    "cache_policy": "cold/no-prefix-cache",
+    "mtp": false,
+    "cublaslt_production": false,
+    "generated_text": "Based on the provided repository documents, here is the analysis of the current state and",
+    "generated_text_sha256": "a759537d2d68c99ffc1f6a84bf398aa04360b818c6d188463f1e6f682da37500",
+    "finish_reason": "length",
+    "choice_events": 16,
+    "usage_events": 1,
+    "done_events": 1
+  },
+  "ordinary_main_reference": {
+    "identity": "ordinary-installed-exact-p40000-o16",
+    "branch": "main",
+    "source_commit": "c6c34ef4854a9f987711edbc8bcd38b6d2a6ad01",
+    "source_tree": "6a2df18a76a7cb926577661620815d90a8a7cb7a",
+    "build_testing": false,
+    "installed_elf_sha256": "ab3492a690622e63bcfeafab055081a635c4f65507fc48b9d1a1bca0c1cebe02",
+    "installed_elf_build_id": "d8ee66d1355e05dab71a9434c537419e08e4b121",
+    "server_pure_prefill_ms": 698924.797424,
+    "server_pure_prefill_tok_s": 57.2307638066734,
+    "record": "docs/metadata/qwen36-27b-production-default-mainline-closeout-2026-08-23.json",
+    "record_sha256": "99a97ceffb00d19efb920b47947ddaec3cff29ed701e7e874b7aa63ed0767369",
+    "authority": "one accepted C-only ordinary exact process; comparison reference, not repetition or release qualification"
+  },
+  "parent_exact_span_reference": {
+    "identity": "selector-exact-span-attention-v2-p40000-o16",
+    "branch": "codex/v10-fast-exact-dual-stream-20260905",
+    "commit": "cbf19460cc40ed0316c59c7585a7f6dc631eae89",
+    "tree": "c1b87fd1c67a71dd83bb840ab439e6d4741ea71a",
+    "attention_tactic": "selector-exact-span-attention-v2-whole-prompt",
+    "attention_group_q64_submissions": 32,
+    "attention_generic_qt2_submissions": 1248,
+    "attention_physical_submissions": 1280,
+    "server_pure_prefill_ms": 714938.456906,
+    "server_pure_prefill_tok_s": 55.94887170163682,
+    "record": "docs/metadata/qwen36-27b-exact-span-p39936-api-lineage-closeout-2026-09-05.json",
+    "authority": "exact test-only branch baseline; not main, installed, release-qualified, or production"
+  },
+  "candidate": {
+    "identity": "selector-exact-regular-q4-span-v3-p40000-o16",
+    "branch": "codex/exact-attention-q4-api-20260905",
+    "parent_commit": "cbf19460cc40ed0316c59c7585a7f6dc631eae89",
+    "commit": "dc138cbf3ab004deacefc2368df853208e651816",
+    "tree": "02ed6dd094f95e0e786e14e18b43cd4cf0beec66",
+    "parent_to_candidate_diff_sha256": "8b3b117185575f0db6ab2645aed667fb29e4c25a502c91d0f75f071654b3f027",
+    "source_clean_before_and_after": true,
+    "artifact": {
+      "binary": "qwen3x-eval-server-selector-exact-p40000-o16-test",
+      "build_type": "Release",
+      "build_testing": true,
+      "test_only": true,
+      "installed": false,
+      "production_eligible": false,
+      "release_qualified": false,
+      "elf_sha256": "4bf845d8b75eed4d000b6ba88daac089eb9c0a8c008224ee4e1dee3fca5e7934",
+      "elf_build_id": "29a62c8780f5cf05659413e65e038852dd671379"
+    },
+    "route": {
+      "witness_record": "target-prefill-witness-v19",
+      "witness_schema_version": 19,
+      "deployment_plan": "q3x.sm87.testing.p40000-o16.selector-exact-regular-q4-span-v3",
+      "attention_tactic": "selector-exact-regular-q4-span-v3-whole-prompt",
+      "projection_tactic": "native-prompt-wide-p40-whole-core",
+      "mlp_schedule": "prompt-wide-p40-whole-core",
+      "attention_layers": 16,
+      "attention_physical_submissions": 1280,
+      "attention_physical_submissions_per_layer": 80,
+      "attention_group_q64_submissions": 32,
+      "attention_regular_q4_submissions": 1248,
+      "attention_regular_q4_submissions_per_layer": 78,
+      "attention_generic_qt2_submissions": 0,
+      "attention_generic_q8_suffix_submissions": 0,
+      "attention_selector_fallback_submissions": 0,
+      "fp8_logical_projection_hits": 1040,
+      "fp8_physical_launches": 10336,
+      "forbidden_route_hits": {
+        "approximate_numerics": 0,
+        "cublaslt": 0,
+        "external_reference": 0,
+        "mtp": 0,
+        "prefix_cache": 0
+      }
+    },
+    "strict_correctness": {
+      "status": "exact_passed",
+      "actual_generation_path": true,
+      "strict_state_logit_token_text_equal_to_frozen_r12": true,
+      "route_receipt_validated": true,
+      "component_mismatches": {
+        "prefill_commit_state": [],
+        "generation_return_state": [],
+        "generation": []
+      },
+      "identity_mismatches": [],
+      "strict_capture_elf_sha256": "13d5156e1d5df206f95f5c4fe5b6f21650e5a885a5fff2bb280089e71ce852a4",
+      "strict_capture_elf_build_id": "1c6b1cf197d23bb10cd307c3d991a0187e221e5f",
+      "result_sha256": "ae927c3fe5055e76f4033962106049f4a12544f84f1d39bff4ecd18c83a79de4",
+      "comparison_sha256": "0358e53fef70e10b4b828f464674f79d0590eb6e75b70b895cbcf7a201b019a6",
+      "canonical_capture_sha256": "2761fb22e5a1a5b782a63624e15c38edd90d0e072bab3c48928a7cab66430acb"
+    },
+    "api": {
+      "accepted": true,
+      "http_status": 200,
+      "cold_cache_timing_authority": true,
+      "server_pure_prefill_ms": 1043416.453717,
+      "server_pure_prefill_tok_s": 38.33560402225455,
+      "server_ttft_ms": 1043455.099098,
+      "client_ttft_ms": 1043456.543913,
+      "client_total_ms": 1047348.493532,
+      "raw_sse_sha256": "069d0e0046c08cfd02a37b613d2d07a88f576f24bb9af5d6f418da63ecae2881"
+    },
+    "evidence": {
+      "strict_root": ".q3x-work/evidence/exact-attention-q4-correctness-r1",
+      "api_root": ".q3x-work/evidence/exact-attention-q4-api-r1",
+      "api_result_sha256": "d94ca8b20c86db9c23adf644b70679e7b7fce31bd5cabb0223539ca6d6661fc9",
+      "request_body_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+      "api_jsonl_sha256": "41d9d7ba3c30238b3283d0e7f877b346cb615d566ba8776939bb11882d919253"
+    },
+    "authority": "strict exact-workload correctness and one cold-cache real-API direction screen; rejected test-only branch evidence, not main or production"
+  },
+  "comparison": {
+    "versus_ordinary_main": {
+      "throughput_ratio": 0.6698426068845236,
+      "throughput_delta_tok_s": -18.89515978441885,
+      "throughput_delta_percent": -33.01573931154764,
+      "latency_ratio": 1.49288801536686,
+      "latency_delta_ms": 344491.656293,
+      "latency_delta_percent": 49.288801536686
+    },
+    "versus_parent_exact_span_qt2": {
+      "throughput_ratio": 0.6851899396057529,
+      "throughput_delta_tok_s": -17.61326767938227,
+      "throughput_delta_percent": -31.48100603942471,
+      "latency_ratio": 1.4594493325097326,
+      "latency_delta_ms": 328477.996811,
+      "latency_delta_percent": 45.944933250973264
+    },
+    "boundary": "single cold-cache candidate process compared with separately pinned exact-workload artifacts; sufficient to reject the gross negative direction, not repetition-qualified regression"
+  },
+  "environment_and_resource_boundary": {
+    "cache_drop_accepted_before_fresh_server": true,
+    "core_device_ownership_and_safety_accepted": true,
+    "ordinary_direction_timing_accepted": true,
+    "cold_cache_timing_authority": true,
+    "unowned_gpu_holder_observed": false,
+    "material_contention_observed": false,
+    "post_exit_cleanup_accepted": true,
+    "raw_continuous_monitor_accepted": false,
+    "raw_monitor_context": "the protected Codex app-server exceeded the old auxiliary CPU threshold; the policy-derived direction classification accepted timing because no foreign GPU holder, material contention, safety fault, route fault, output fault, or cleanup fault was present",
+    "fan_fields_retained": false
+  },
+  "decision": {
+    "ordinary_main_runtime_changed": false,
+    "main_head_before_docs_closeout": "1688f50ecc46e6e7c5696bcae541593c1aed6e2f",
+    "origin_main_head_before_docs_closeout": "1688f50ecc46e6e7c5696bcae541593c1aed6e2f",
+    "merge_candidate": false,
+    "close_exact_regular_q4_mapping": true,
+    "repeat_candidate": false,
+    "profile_candidate": false,
+    "scan_same_skeleton_q3_through_q5": false,
+    "reason": "the candidate is exact and completes the real API request, but its 38.33560402225455 token/s result is 33.01573931154764% below ordinary exact main and 31.48100603942471% below the exact-span QT2 parent"
+  },
+  "next_boundary": {
+    "required": "name and implement a materially different accuracy-preserving architecture/dataflow whose value returns directly to strict P40000/O16 and then the same real OpenAI-compatible API request",
+    "prohibited": "no repeat, profile, Q3--Q5 same-skeleton Attention span scan, proxy-only prediction, or candidate-code absorption from this rejected Q4 line",
+    "mainline_absorption_gate": "strict exact-workload correctness and no Prefill regression against the ordinary exact 57.2307638066734-token/s reference"
+  },
+  "claim_boundary": {
+    "authorized": [
+      "the regular-Q4 Attention mapping is bit-exact on the strict P40000/O16 oracle",
+      "the candidate completed one cold-cache real P40000/O16 API request at 38.33560402225455 prompt token/s",
+      "the same-skeleton regular-Q4 mapping is rejected and requires no repetition, profiling, or neighboring Q3--Q5 scan",
+      "ordinary main remains unchanged at its separately pinned 57.2307638066734-token/s reference"
+    ],
+    "not_authorized": [
+      "a mainline, release-qualified, or production performance claim for the Q4 branch",
+      "a repetition-qualified regression claim",
+      "a hardware ceiling or impossibility claim for exact Attention",
+      "a general rejection of all larger-query, parallel, or materially different Attention dataflows",
+      "promotion of Q4 code, test-only selector scaffolding, or candidate-only capacity changes into main"
+    ]
+  }
+}

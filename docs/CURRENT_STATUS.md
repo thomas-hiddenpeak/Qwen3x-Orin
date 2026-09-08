@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-09-01
+  last_reviewed: 2026-09-09
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-09-01.
+Snapshot date: 2026-09-09.
 
 This page is a replaceable state snapshot. It does not own architecture,
 delivery order, or experiment history. The system design is in
@@ -24,6 +24,20 @@ delivery order, or experiment history. The system design is in
 metadata/evidence records.
 
 ## 1. Answer-first state
+
+The 2026-09-09 source/raw-record review does not change the installed runtime
+or establish a new performance result. It corrects three interpretation
+boundaries: the v10-to-Legacy restoration changed FP8, A/B, GDN, and MLP as
+well as Attention; strict P40000/O16 captures contain exposed logit statistics,
+not the complete vocabulary-logit vector; and numerical disagreement with
+Legacy alone is not a demonstrated business-capability regression. The frozen
+r12 strict comparator explicitly uses all-prompt tiles, whereas ordinary main
+uses a P-1 tiled prefix plus the existing scalar final prompt step. A new
+ordinary-route change therefore needs a matched production-policy comparator;
+r12 cannot silently qualify that different boundary. Existing exact gates
+remain in force. The newly authorized engineering window and its
+bounded real-API implementation packages are owned by
+[`ROADMAP.md`](ROADMAP.md#2026-09-09-bounded-engineering-window).
 
 Qwen3x-Orin now builds and installs a production-shaped 0.7.0 service from the
 ordinary `orin-release` preset (`Release`, SM87, `BUILD_TESTING=OFF`). Its
@@ -173,18 +187,59 @@ and tuning of that BF16-HMMA skeleton; exact identities and claim limits are
 frozen in the
 [`P40000 quick-kill record`](metadata/qwen36-27b-sm87-target-aot-p40000-quick-kill-2026-09-01.json).
 
-The local rejection does not close AOT asset loading, a different exact
-arithmetic/dataflow class, or `AC-PREFILL-SM87-AOT-SYSTEM-v1` as a whole. In
-the order owned by the Roadmap, its next admission remains the real-P40 exact
-arithmetic-class witness from the mathematical ledger: projection exponent
-spans, exact limb/bit-plane and fallback pass counts, ordered FP32
-partial/scale rejoin, and BF16 publication bits must fit the 5.0-second
-projection allocation before any successor CUDA skeleton. The frozen v1
-descriptor still names grouped-online Attention; replacing that route with an
-exact-qualified composition requires a successor candidate and plan identity
-rather than inheriting v1 evidence authority.
+The required successor arithmetic gate has also completed and rejected the
+frozen `bmma-static-support-k16-parent-zero-fill-v2` mapping before CUDA. Its
+authenticated real-P40 route reached 35,328 prompt rows and proved
+419,640,115,200 mandatory zero-filled K256 warp instructions, already
+3,480,115,200 instructions or 0.8362445% above the absolute five-second
+capacity while every additional exactness pass, incomplete tail, terminal
+scalar path, and unprocessed suffix was charged free. This closes mapping v2
+without implementation, repetition, or profiling; it is not a hardware
+ceiling and does not reject a materially different exact arithmetic/dataflow
+class. Exact identities and limits are frozen in the
+[`mapping-v2 rejection record`](metadata/qwen36-27b-sm87-target-aot-real-p40-arithmetic-mapping-v2-rejection-2026-09-02.json).
 
-The prior pause is superseded; it did not amend the Constitution targets. The
+AOT payload authentication and persisted direct loading remain useful
+architecture prerequisites, but AOT exploration is deferred rather than the
+active next gate. `AC-PREFILL-SM87-AOT-SYSTEM-v1` receives no CUDA successor
+by default; resumption requires a materially different exact mapping with a
+new bounded proof or an explicit successor architecture. This scheduling
+change does not alter the Constitution targets or grant AOT numerical,
+generation, API, performance, release, or production authority.
+
+The later exact-span/P39936 branch sequence is now closed on the real
+P40000/O16 API path. The corrected exact selector measured
+27.96118777397028 tok/s. Replacing its persistent Q8 Attention suffix with 80
+exact spans per full-Attention layer recovered the test-only branch to
+55.94887170163682 tok/s, still 2.239865% below the ordinary exact main
+reference of 57.2307638066734 tok/s. Replacing 10,336 FP8 physical launches
+with the P39936 M128N256 route then regressed to 51.17353679519425 tok/s with
+5,056 Gate/Up dual-stream pairs and 51.17176853575732 tok/s with the serial
+MLP schedule. All candidates passed the separate strict P40000/O16
+state/logit/token/text oracle and completed the actual API request; they are
+`BUILD_TESTING=ON`, test-only, uninstalled branch artifacts and are not main.
+The P39936 route and its dual-stream rescue are rejected without repetition
+or profiling; exact-span is retained only as a test baseline and supplies no
+mainline absorption. The exact source, binary, route, output, metric, and
+authority boundaries are frozen in the
+[`exact-span/P39936 closeout`](metadata/qwen36-27b-exact-span-p39936-api-lineage-closeout-2026-09-05.json).
+
+The exact-span branch's final same-skeleton regular-Q4 Attention child is also
+closed on the strict P40000/O16 and real API path. Clean candidate commit
+`dc138cbf` / tree `02ed6dd0` passed the complete state/logit/token/text oracle,
+then completed one cold-cache API request at 1,043,416.453717 ms /
+38.33560402225455 tok/s pure Prefill. That is 33.0157393% lower throughput and
+49.2888015% higher latency than the separately pinned ordinary exact main
+reference, and 31.4810060% lower throughput than the exact-span QT2 parent.
+Its v19 route recorded 32 GroupQ64 plus 1,248 regular-Q4 Attention
+submissions, with zero QT2, Q8-suffix, or Attention fallback submissions.
+The artifact is `BUILD_TESTING=ON`, test-only, uninstalled, unmerged, and not
+main. Regular Q4 receives no repetition or profile, the same-skeleton Q3--Q5
+span scan is closed, and no code is absorbed. Exact identities and claim
+limits are frozen in the
+[`Q4 rejection record`](metadata/qwen36-27b-selector-exact-regular-q4-span-v3-rejection-2026-09-05.json).
+
+This AOT deferral does not amend the Constitution targets. The
 exact recovery anchor remains
 `archive/v4-construction-ownership-20260820@f3545240075651eaa54a5bea6c0f15ee9dfd9a3e`;
 it is an incomplete, default-off archive and is not part of this mainline. Its
@@ -402,7 +457,7 @@ envelope, so it changes neither the invalid run's status nor the 4.3K tok/s
 owner-established starting line. Exact formulas and raw hashes are frozen in
 the [`warmup metric reconciliation`](metadata/qwen36-27b-vllm-p40-warmup-metric-reconciliation-2026-08-12.json).
 
-A default-off, host-only descriptor now freezes the next whole-system AOT
+A default-off, host-only descriptor retains the paused whole-system AOT
 candidate for P40/P60/approximately-P130: the exact 64-layer GDN/Attention
 schedule, 14 physical groups, five projection roles, paired BF16 A/B producer,
 Q128/KV32 online-softmax Attention, and per-token-BF16 GDN transaction are
@@ -452,10 +507,11 @@ does not authorize a launcher or bind a runner/API route, and the public
 launcher remains deliberately fail-closed. There is still no target-AOT
 numerical, generation, API, performance, release, or production authority.
 The observed 699,705.551133 ms online prepare/attach time is a correctness-run
-startup diagnostic, not a performance baseline; it makes offline-persisted,
-authenticated AOT payload generation plus direct startup loading an explicit
-implementation requirement. The historical max-clock incumbent remains
-392.804397 tok/s and the installed route is unchanged.
+startup diagnostic, not a performance baseline. Offline-persisted,
+authenticated payload generation plus direct startup loading remains a
+retained prerequisite if an AOT successor is explicitly resumed; it is not
+the active next implementation step. The historical max-clock incumbent
+remains 392.804397 tok/s and the installed route is unchanged.
 
 A clean Release/SM87 probe at `9d0613a` has now closed the next narrow gate on
 the same pinned checkpoint. The private layer-0 M192 candidate covers one full
@@ -498,8 +554,8 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | OpenAI-compatible product API | Installed production-shaped 0.7.0 service with bounded queues, streaming, Bearer authentication, public health, and external TLS termination contract | Cancellation, multi-tenant policy, capability, and release stability remain incomplete |
 | Installed default context | Sealed P40 profile admits `prompt + output - 1 <= 44,095` with a 4,096-token output ceiling | P60 and approximately-P130 profiles remain unopened |
 | Ordinary request-state reuse | Installed 0.7.0 derives `already_clean`, exact committed dirty-prefix, or conservative full reset from lifecycle state and exposes a schema-v16 receipt; no runtime selector exists. Matched P1024/P4096/P8192 BCCB and a same-server P40000 lifecycle support retaining it across the verified lengths | Complete accuracy, independent-process target-length repetition, capability, and release qualification remain open; no material TTFT/throughput claim is attached to reset |
-| Target-length Prefill | Ordinary default includes exact prompt-wide preprocessing plus exact-span GDN; the preceding 0.6.0 P40 observation is 57.230764 tok/s and the 0.7.0 same-server lifecycle samples 57.391208--57.585234 tok/s without a throughput-comparison claim. The complete selector/whole-core v1 candidate is rejected for a valid P40000/O16 state/logit/token/text mismatch | Repetition, complete accuracy, P60/P130, the 2s/4s targets, and an accuracy-admissible fast P40 architecture remain open |
-| SM87 whole-system AOT Prefill candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` is default-off and non-executable; real-checkpoint upload/readback/private attachment is authenticated, the layer-0 M192 Gate+Up/Down-plus-residual candidate has passed bitwise and same-ELF SM87 gates, and the current P40000 BF16-HMMA skeleton is rejected by a valid 225.7838x-over-budget optimistic lower-bound screen | Complete the real-P40 exact arithmetic-class pass-count/fallback witness and prove it fits the 5.0-second projection allocation before another CUDA skeleton; only then persist/direct-load authenticated AOT payloads, compose FP8 QKV/Z/O plus exact-qualified Attention/GDN and all live layer/state/handoff work without fallback, extend complete-model accuracy, open a reviewed admission launch, and return to real-P40 API evidence |
+| Target-length Prefill | Ordinary default includes exact prompt-wide preprocessing plus exact-span GDN; the preceding 0.6.0 P40 observation remains 57.2307638066734 tok/s and the 0.7.0 same-server lifecycle samples 57.391208--57.585234 tok/s without a throughput-comparison claim. The repaired test-only selector is exact but slow at 27.96118777397028 tok/s; exact-span recovers it only to 55.94887170163682 tok/s, both P39936 schedules regress further to approximately 51.17 tok/s, and the exact regular-Q4 Attention child falls to 38.33560402225455 tok/s. None is main | Repetition, complete accuracy, P60/P130, the 2s/4s targets, and a materially different accuracy-preserving P40 architecture remain open; the next implementation returns directly to strict P40000/O16 and the real API, without a Q3--Q5 same-skeleton scan |
+| SM87 whole-system AOT Prefill candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` is default-off, non-executable, and paused. Real-checkpoint upload/readback/private attachment plus the layer-0 M192 Oracle remain retained prerequisites. The P40000 BF16-HMMA skeleton is rejected at 225.7838x over budget, and `bmma-static-support-k16-parent-zero-fill-v2` is separately rejected before CUDA after its authenticated mandatory-instruction lower bound exceeds the complete five-second projection allocation | No active AOT implementation gate. Resumption requires an explicitly named materially different exact arithmetic/dataflow class with a new bounded proof or a successor architecture; persisted direct loading remains prerequisite work only after such a resumption |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
 | Decode | Exact S>=65 fallback plus retained coupled-feed/consumer-order layouts and fixed short-position Graph cache in the sealed profile; split-KV rejected numerically; installed short proxy reaches 105.013349 ms/token / 9.522599 tok/s | Long-output stability, independent repetition, target-length behavior, and at least 10 tok/s remain to be qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
@@ -594,15 +650,20 @@ real-API return point are owned only by [`ROADMAP.md`](ROADMAP.md).
 ## 5. Retained and rejected Prefill code
 
 The following selected routes are the minimum set needed to interpret the
-current incumbent, the closed v11--v15 projection lineage, and the formal
-selector v1 rejection. This is not an experiment inventory; other earlier
-screens remain only in frozen evidence. None below is a production path or an
-active parameter scan.
+current incumbent, the closed v11--v15 projection lineage, and the closed
+selector/exact-span/Q4/P39936 branches. This is not an experiment inventory;
+other earlier screens remain only in frozen evidence. None below is a
+production path or an active parameter scan.
 
 | Route | P40 pure prompt throughput | Current disposition |
 | --- | ---: | --- |
 | v10 whole-core substrate | historical max-clock 392.804397 tok/s; current-main strict sustainable 325.983493208 tok/s | Retained default-off, accuracy-unqualified infrastructure; current-main integration health passes, historical max-clock not reproduced |
 | selector-exact persistent-Attention v1 whole-core composition | not reported; formal P40000/O16 comparison has `timing_authority=false` | Rejected; fresh same-ELF full-model state/logit/token/text mismatch, unmerged and default-off |
+| corrected selector-exact persistent-Attention v1 | 27.96118777397028 tok/s | Exact P40000/O16 test-only branch; gross negative API direction, closed and unmerged |
+| selector exact-span Attention v2 | 55.94887170163682 tok/s | Exact test-only branch baseline; recovers the corrected selector but remains below ordinary exact main, so no mainline absorption |
+| selector exact regular-Q4 Attention v3 | 38.33560402225455 tok/s | Strict-exact, cold-cache real-API test-only branch; rejected 33.0157393% below ordinary exact main, with no repeat, profile, or Q3--Q5 same-skeleton scan |
+| FP8 P39936 M128N256 plus Gate/Up dual stream | 51.17353679519425 tok/s | Exact test-only branch; rejected on the real API, dual stream does not rescue P39936 |
+| FP8 P39936 M128N256 plus serial MLP | 51.17176853575732 tok/s | Exact clean-commit test-only branch; rejected on the real API and closes P39936 without profiling or repetition |
 | Shape-wide NVFP4 v3 replacement | 376.030675 tok/s | Rejected; temporary runner overlay removed |
 | v11 grouped projection reset | 205.951777 tok/s | Rejected |
 | v12 phase-local BF16 projection | 320.472999 tok/s | Rejected; unsealed historical direction |
@@ -621,6 +682,11 @@ records. They remain evidence for their exact protocols; they do not select
 the next architecture. The later composed whole-core rejection is frozen in
 the
 [`selector v1 rejection record`](metadata/qwen36-27b-selector-exact-persistent-attention-v1-rejection-2026-08-27.json).
+The later exact branch metrics, strict-oracle joins, route counts, artifact
+hashes, and non-main boundary are frozen in the
+[`exact-span/P39936 closeout`](metadata/qwen36-27b-exact-span-p39936-api-lineage-closeout-2026-09-05.json).
+The regular-Q4 child and its no-scan boundary are frozen separately in the
+[`Q4 rejection record`](metadata/qwen36-27b-selector-exact-regular-q4-span-v3-rejection-2026-09-05.json).
 
 A previously discussed Factorized-R1 research direction changes the numerical
 trajectory. No tracked qualification/evidence record currently gives it
@@ -652,7 +718,13 @@ Current evidence is incomplete:
 - the later selector-exact persistent-Attention v1 whole-core composition is
   formally rejected at P40000/O16 because Prefill-commit state,
   generation-return state, exposed logits, token IDs, and text differ from
-  the Legacy exact comparator; and
+  the Legacy exact comparator;
+- the corrected selector artifact and its later exact-span, regular-Q4, and
+  P39936 descendants each pass the separate strict P40000/O16
+  actual-generation state/logit/token/text comparison to the frozen exact
+  oracle, but remain test-only, uninstalled, non-main artifacts; regular Q4
+  and both P39936 routes are performance-rejected, and the server plan's
+  release self-qualification remains pending; and
 - the first public C-Eval attempt produced no parseable answer within its cap,
   so the zero score is a protocol failure rather than a model-capability
   measurement.
@@ -672,7 +744,7 @@ sequence and successor identity live exclusively in
 | Documentation-control propagation | The canonical main line now has one `AGENTS.md -> docs/README.md` Codex entry; pre-existing dirty worktrees do not receive it until explicitly integrated, because Codex reads the worktree in which a session starts | P0 |
 | Product API and long-context admission | Installed sealed P40 profile admits 40K plus normal Decode output; P60/P130 profiles and full cancellation semantics remain | P1 |
 | Exact deliverable identity | Installed 0.7.0/v3 ELF `d70ba913...` now has matched P1024/P4096/P8192 and same-server P40000 real-model/API reset evidence; the remaining matrix is accuracy, capability, independent-process target-length repetition, and stability | P2/P4 |
-| Prefill parity and physical plan | Current 0.7 same-server exact-default P40 lifecycle samples are 57.391208--57.585234 tok/s without throughput-comparison authority; selector/whole-core v1 is rejected by a valid full-model P40000/O16 mismatch, and the current AOT BF16-HMMA projection skeleton is separately rejected by a checkpoint-weight-only 225.7838x-over-budget optimistic screen | P3 (active; the next P0 remains the AOT exact arithmetic-class gate, not tuning or profiling the rejected skeleton) |
+| Prefill parity and physical plan | The ordinary exact reference remains 57.2307638066734 tok/s. Corrected selector v1 reaches 27.96118777397028 tok/s, exact-span recovers only to 55.94887170163682 tok/s, P39936 dual/serial routes regress to 51.17353679519425/51.17176853575732 tok/s, and exact regular-Q4 Attention falls to 38.33560402225455 tok/s; all are exact-workload test-only branches, not main. The AOT BF16-HMMA skeleton and static-support mapping v2 are separately closed, and AOT is deferred with direct loading retained only as a prerequisite | P3 (active; next is a materially different accuracy-preserving architecture with strict P40000/O16 and immediate real-API return, not an AOT gate, P39936 tuning, Q3--Q5 same-skeleton span scan, or proxy-only work) |
 | Accuracy, capability, stability, and release evidence | Partial oracles only; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install, startup, upgrade, or rollback lane | P5 |
 
@@ -692,11 +764,16 @@ Use the following language until this snapshot changes:
   exact-default P40 observation remain historical 0.6.0 facts. The service is
   production-shaped but remains `release_qualified=false` until the active
   accuracy, capability, repetition, stability, and target-length matrix closes.
+  No corrected-selector, exact-span, regular-Q4, P39936, or AOT candidate code
+  has changed this ordinary route.
 - **Not current:** production-default P60/P130 support, the accuracy-unqualified
   FlashInfer v10 arithmetic as a default, the rejected selector-exact
-  persistent-Attention v1 composition or its candidate-only P40016 capacity
-  fixes, any archived V4 construction route, lossless Factorized-R1 Prefill,
-  vLLM parity, or a fully qualified 10-token/s Decode release.
+  persistent-Attention v1 composition, the test-only exact-span result, the
+  rejected regular-Q4 result or Q3--Q5 same-skeleton span scan, either rejected
+  P39936 route, their candidate-only P40016 capacity fixes, an active AOT
+  implementation gate, any archived V4 construction route, lossless
+  Factorized-R1 Prefill, vLLM parity, or a fully qualified 10-token/s Decode
+  release.
 - **Target:** the accuracy-preserving, non-MTP, OpenAI-compatible runner and
   performance region locked by the Constitution.
 
