@@ -4,6 +4,7 @@
 #include "q3x/io/json.h"
 #include "q3x/runtime/decode_ops.h"
 #include "../runtime/reference_runner_terminal_prefix_internal.h"
+#include "../runtime/reference_runner_exact_attention_score_feed_internal.h"
 
 #include <algorithm>
 #include <array>
@@ -870,8 +871,11 @@ std::string sha256_token_ids_u32le(
 
 std::string serialize_target_prefill_witness(
     const TargetPrefillWitnessRecord& record) {
+  const bool ordinary_score_feed_plan =
+      record.deployment_plan_id ==
+          runtime::reference_runner_detail::kOrdinaryExactScoreFeedPlanId;
   const bool whole_request_plan_sealed =
-      !record.deployment_plan_id.empty();
+      !record.deployment_plan_id.empty() && !ordinary_score_feed_plan;
   const bool production_reset_v16 =
       !whole_request_plan_sealed && record.request_state_reset.has_value() &&
       record.prefill_execution_mode ==
@@ -888,7 +892,8 @@ std::string serialize_target_prefill_witness(
   std::uint64_t expected_ordinary_passes = 0U;
   std::uint64_t retained_scalar_prefix_rows = 0U;
   if (!whole_request_plan_sealed && terminal_elided_passes.has_value() &&
-      *terminal_elided_passes != 0U && prefix_chunk >= 2U &&
+      (*terminal_elided_passes != 0U || ordinary_score_feed_plan) &&
+      prefix_chunk >= (ordinary_score_feed_plan ? 1U : 2U) &&
       prefix_chunk <= runtime::kMaximumRequestPrefillChunkSize &&
       record.prompt_tokens <= runtime::kBulkCausalGqaMaximumSequenceLength) {
     // Reuse the exact controller subdivision, not ceil(P/chunk). In
@@ -942,6 +947,30 @@ std::string serialize_target_prefill_witness(
   const bool terminal_coverage_valid =
       terminal_elided_passes.has_value() &&
       (*terminal_elided_passes == 0U || terminal_prefix_v20);
+  const bool ordinary_score_feed_v21 =
+      ordinary_score_feed_plan && terminal_coverage_valid &&
+      *terminal_elided_passes == expected_elided_passes &&
+      record.projection_backend == runtime::ProjectionBackend::kSm87WeightOnly &&
+      record.prefill_execution_mode ==
+          runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled &&
+      record.request_memory_profile == runtime::RequestMemoryProfile::kLegacyC512 &&
+      record.prompt_tokens != 0U && record.full_prompt_consumed &&
+      record.consumed_prompt_tokens == record.prompt_tokens &&
+      record.completion_tokens != 0U && expected_ordinary_passes != 0U &&
+      record.prefix_execution_count == expected_ordinary_passes - 1U &&
+      record.prefill_route_evidence.valid &&
+      record.prefill_route_evidence.complete &&
+      !record.prefill_route_evidence.request_active &&
+      record.prefill_route_evidence.completed_layer_passes == expected_ordinary_passes &&
+      record.prefill_route_evidence.expected_layer_passes == expected_ordinary_passes &&
+      std::all_of(record.prefill_route_evidence.operators.begin(),
+                  record.prefill_route_evidence.operators.end(),
+                  [](const runtime::PrefillOperatorRouteCounts& counts) {
+                    return counts.forbidden_hits == 0U;
+                  }) &&
+      std::all_of(record.prefill_route_evidence.forbidden_boundary_hits.begin(),
+                  record.prefill_route_evidence.forbidden_boundary_hits.end(),
+                  [](const std::uint64_t hits) { return hits == 0U; });
   const bool candidate_q64_v3 =
       record.deployment_plan_id ==
       runtime::kLayerMajorNativeGroupQ64PanelDeploymentPlanId;
@@ -1414,7 +1443,10 @@ std::string serialize_target_prefill_witness(
       p40_packed_nvfp4_v2_candidate_v14 ||
       p40_vllm_marlin_parity_candidate_v15;
   std::string output =
-      terminal_prefix_v20
+      ordinary_score_feed_v21
+          ? "{\"record\":\"target-prefill-witness-v21\","
+            "\"schema_version\":21,\"request\":{\"id\":"
+      : terminal_prefix_v20
           ? "{\"record\":\"target-prefill-witness-v20\","
             "\"schema_version\":20,\"request\":{\"id\":"
       : p40_vllm_marlin_parity_candidate_v15
@@ -2280,7 +2312,13 @@ std::string serialize_target_prefill_witness(
             "\"scope\":\"configured_engine_fact\",\"value\":";
   append_json_string(output, runtime::to_string(record.projection_backend));
   output += "},\"deployment_plan\":{";
-  if (!whole_request_plan_sealed) {
+  if (ordinary_score_feed_plan) {
+    output += "\"available\":";
+    output += ordinary_score_feed_v21 ? "true" : "false";
+    output += ",\"scope\":\"compiled_source_policy_not_kernel_counts\",\"id\":";
+    append_json_string(output, record.deployment_plan_id);
+    output += ",\"qualification\":\"exact-contract-candidate-unqualified\"";
+  } else if (!whole_request_plan_sealed) {
     output += "\"available\":false,\"reason\":\"not_implemented\"";
   } else {
     output += "\"available\":true,\"scope\":"
@@ -2298,7 +2336,22 @@ std::string serialize_target_prefill_witness(
   }
   output += "},\"per_operator_route_hits\":";
   append_prefill_route_evidence(output, record.prefill_route_evidence,
-                                terminal_coverage_valid);
+                                terminal_coverage_valid &&
+                                    (!ordinary_score_feed_plan || ordinary_score_feed_v21));
+  if (ordinary_score_feed_v21) {
+    output += ",\"ordinary_attention_policy\":{"
+              "\"scope\":\"compiled_source_policy_not_kernel_counts\","
+              "\"nonfixed_generic_suffix\":\"exact_qt2_score_feed_k16\","
+              "\"group_q64_prefix\":\"unchanged\","
+              "\"fixed_launcher\":\"incumbent_qt2_or_group_q64\","
+              "\"scalar_final_and_decode\":\"unchanged\","
+              "\"kernel_launch_counts\":{\"available\":false,"
+              "\"reason\":\"not_instrumented\"},"
+              "\"canonical_expected_layer_passes\":" +
+              std::to_string(expected_ordinary_passes) +
+              ",\"canonical_expected_terminal_elisions\":" +
+              std::to_string(expected_elided_passes) + "}";
+  }
   if (terminal_prefix_v20) {
     output += ",\"terminal_prefix_elision\":{\"available\":true,\"plan_id\":";
     append_json_string(output, runtime::reference_runner_detail::

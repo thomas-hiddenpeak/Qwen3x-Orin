@@ -436,9 +436,11 @@ int main(int argc, char** argv) {
     detail::set_terminal_prefix_elision_enabled_for_test(liveness);
 #endif
 #if defined(Q3X_CAPTURE_HAS_SCORE_FEED)
-    (void)detail::exchange_exact_attention_score_feed_for_test(score_feed
-        ? detail::ExactAttentionScoreFeedForTest::kScoreFeed
-        : detail::ExactAttentionScoreFeedForTest::kIncumbentQt2);
+    (void)detail::exchange_exact_attention_score_feed_for_test(
+        variant == "combined"
+            ? detail::ExactAttentionScoreFeedForTest::kCompiledDefault
+            : score_feed ? detail::ExactAttentionScoreFeedForTest::kScoreFeed
+                         : detail::ExactAttentionScoreFeedForTest::kIncumbentQt2);
     (void)detail::exchange_exact_attention_score_feed_launch_hits_for_test(0U);
 #endif
     rt::ReferenceEngineOptions options;

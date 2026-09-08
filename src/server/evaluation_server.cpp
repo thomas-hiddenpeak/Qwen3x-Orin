@@ -2,6 +2,7 @@
 
 #include "q3x/core/sha256.h"
 #include "q3x/server/openai_protocol.h"
+#include "../runtime/reference_runner_exact_attention_score_feed_internal.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -288,7 +289,8 @@ class UniqueFd final {
   identity.build_testing = kEvaluationGatewayBuildTesting;
   identity.production_eligible =
       !identity.build_testing &&
-      is_p40_exact_legacy_c512_production_profile(options);
+      is_p40_exact_legacy_c512_production_profile(options) &&
+      !runtime::reference_runner_detail::kOrdinaryExactAttentionScoreFeedEnabled;
   identity.release_qualified = false;
   return identity;
 }
@@ -1327,6 +1329,17 @@ void emit_target_prefill_witness(
     record.vllm_marlin_parity_layer_completion_receipt_count =
         generation.prefill_vllm_marlin_parity_layer_completion_receipt_count;
     record.deployment_plan_id = generation.prefill_deployment_plan_id;
+    if (runtime::reference_runner_detail::kOrdinaryExactAttentionScoreFeedEnabled &&
+        record.deployment_plan_id.empty() &&
+        record.projection_backend == runtime::ProjectionBackend::kSm87WeightOnly &&
+        record.prefill_execution_mode ==
+            runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled &&
+        record.request_memory_profile == runtime::RequestMemoryProfile::kLegacyC512) {
+      // The inference worker has no mutable production route selector. This
+      // attests its compiled ordinary policy, not observed kernel launches.
+      record.deployment_plan_id =
+          runtime::reference_runner_detail::kOrdinaryExactScoreFeedPlanId;
+    }
     record.request_state_reset = generation.request_state_reset;
     std::cerr << serialize_target_prefill_witness(record) << '\n';
   } catch (...) {
@@ -2321,6 +2334,12 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << to_string(options.production_profile)
             << " decode_route="
             << kP40ExactLegacyC512ProductionPlan.decode_route_id
+            << " ordinary_prefill_compiled_policy="
+            << (options.projection_backend == runtime::ProjectionBackend::kSm87WeightOnly &&
+                        options.prefill_execution_mode ==
+                            runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled
+                    ? runtime::reference_runner_detail::kOrdinaryExactScoreFeedPlanId
+                    : "not_applicable")
             << " development_route="
             << to_string(options.development_route)
             << " numerical_contract="

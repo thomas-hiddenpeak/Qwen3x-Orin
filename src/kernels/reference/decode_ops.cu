@@ -86,11 +86,11 @@ constexpr unsigned int kBulkGqaThreads =
 constexpr std::size_t kBulkGqaMaximumSequence =
     kBulkCausalGqaMaximumSequenceLength;
 constexpr float kBulkGqaAttentionScale = 1.0F / 16.0F;
-#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
 constexpr unsigned int kBulkGqaScoreFeedThreads = 2U * kBulkGqaThreads;
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
 thread_local reference_runner_detail::ExactAttentionScoreFeedForTest
     exact_attention_score_feed_selection =
-        reference_runner_detail::ExactAttentionScoreFeedForTest::kIncumbentQt2;
+        reference_runner_detail::ExactAttentionScoreFeedForTest::kCompiledDefault;
 thread_local std::size_t exact_attention_score_feed_launch_hits = 0U;
 #endif
 constexpr std::size_t kQkRopeQueryHeads = 24U;
@@ -1590,7 +1590,6 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_kernel(
   }
 }
 
-#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
 // WP-EXACT-ATTENTION-SCORE-FEED-20260909. The two-query numerical tree is
 // unchanged: six producer warps compute its original eight-FMA / 16->1 warp
 // scores, and lane zero advances each query's ordered softmax scalar state.
@@ -1872,7 +1871,6 @@ void bulk_causal_gqa_sigmoid_gate_score_feed_24_4_256_kernel(
     }
   }
 }
-#endif
 
 // Test-only predecessor retained for direct production comparisons. Each CTA
 // owns one query head, and every position uses the original block-wide shared
@@ -2906,7 +2904,8 @@ reference_runner_detail::exchange_exact_attention_score_feed_for_test(
       exact_attention_score_feed_selection;
   // Unknown values cannot admit the candidate.
   exact_attention_score_feed_selection =
-      selection == ExactAttentionScoreFeedForTest::kScoreFeed
+      selection == ExactAttentionScoreFeedForTest::kScoreFeed ||
+              selection == ExactAttentionScoreFeedForTest::kCompiledDefault
           ? selection : ExactAttentionScoreFeedForTest::kIncumbentQt2;
   return previous;
 }
@@ -2918,8 +2917,9 @@ std::size_t reference_runner_detail::
   exact_attention_score_feed_launch_hits = hits;
   return previous;
 }
+#endif
 
-int reference_runner_detail::launch_exact_attention_score_feed_for_test_cuda(
+static int launch_exact_attention_score_feed_cuda(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
     const std::uint16_t* const value_cache,
@@ -2944,10 +2944,27 @@ int reference_runner_detail::launch_exact_attention_score_feed_for_test_cuda(
           static_cast<unsigned int>(first_position),
           static_cast<unsigned int>(token_count), output);
   const cudaError_t status = cudaGetLastError();
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
   if (status == cudaSuccess) {
     ++exact_attention_score_feed_launch_hits;
   }
+#endif
   return static_cast<int>(status);
+}
+
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+int reference_runner_detail::launch_exact_attention_score_feed_for_test_cuda(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  return launch_exact_attention_score_feed_cuda(
+      query, key_cache, value_cache, gate, first_position, token_count,
+      output, cuda_stream);
 }
 
 int reference_runner_detail::
@@ -3008,14 +3025,20 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
         query, key_cache, value_cache, gate, first_position, token_count,
         output, cuda_stream);
   }
+  bool score_feed =
+      reference_runner_detail::kOrdinaryExactAttentionScoreFeedEnabled;
 #if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
-  if (exact_attention_score_feed_selection ==
-      reference_runner_detail::ExactAttentionScoreFeedForTest::kScoreFeed) {
-    return reference_runner_detail::launch_exact_attention_score_feed_for_test_cuda(
+  if (exact_attention_score_feed_selection !=
+      reference_runner_detail::ExactAttentionScoreFeedForTest::kCompiledDefault) {
+    score_feed = exact_attention_score_feed_selection ==
+        reference_runner_detail::ExactAttentionScoreFeedForTest::kScoreFeed;
+  }
+#endif
+  if (score_feed) {
+    return launch_exact_attention_score_feed_cuda(
         query, key_cache, value_cache, gate, first_position, token_count,
         output, cuda_stream);
   }
-#endif
   bulk_causal_gqa_sigmoid_gate_24_4_256_kernel
       <<<blocks, kBulkGqaThreads, 0U, stream>>>(
           query, key_cache, value_cache, gate,
@@ -3048,14 +3071,8 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_fixed_cuda(
   if (tactic != FixedBulkCausalGqaPrefillTactic::kGenericQt2) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
-#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
-  if (exact_attention_score_feed_selection ==
-      reference_runner_detail::ExactAttentionScoreFeedForTest::kScoreFeed) {
-    return reference_runner_detail::launch_exact_attention_score_feed_for_test_cuda(
-        query, key_cache, value_cache, gate, first_position, token_count,
-        output, cuda_stream);
-  }
-#endif
+  // Sealed layer-major plans retain their independently qualified QT2 tree
+  // and kernel inventory, even when a test overrides the ordinary route.
   const dim3 blocks(
       static_cast<unsigned int>((token_count + kBulkGqaQueryTile - 1U) /
                                 kBulkGqaQueryTile),

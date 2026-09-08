@@ -2,6 +2,7 @@
 #include "q3x/server/evaluation_server.h"
 #include "q3x/server/openai_protocol.h"
 #include "../src/runtime/reference_runner_terminal_prefix_internal.h"
+#include "../src/runtime/reference_runner_exact_attention_score_feed_internal.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -331,7 +332,7 @@ void test_serialization(TestContext& test) {
   test.expect(valid_json(health) &&
                   health.find("qwen\\\"model") != std::string::npos &&
                   health.find(
-                      R"("profile":"q3x.sm87.production.p40.legacy-c512-exact.v3")") !=
+                      R"("profile":"q3x.sm87.candidate.p40.legacy-c512-terminal-score-feed.v1")") !=
                       std::string::npos &&
                   health.find(R"("target_prompt_tokens":40000)") !=
                       std::string::npos &&
@@ -581,6 +582,62 @@ void test_target_prefill_witness_evidence(TestContext& test) {
                       R"("attention":{"completed_production_hits":1216,)") !=
                       std::string::npos,
               "v20 attests terminal liveness without inventing omitted operator hits");
+  auto compiled_record = terminal_record;
+  compiled_record.deployment_plan_id = q3x::runtime::reference_runner_detail::
+      kOrdinaryExactScoreFeedPlanId;
+  const auto compiled_serialized =
+      server::serialize_target_prefill_witness(compiled_record);
+  test.expect(valid_json(compiled_serialized) &&
+                  compiled_serialized.find(
+                      R"("record":"target-prefill-witness-v21","schema_version":21)") !=
+                      std::string::npos &&
+                  compiled_serialized.find(
+                      R"("scope":"compiled_source_policy_not_kernel_counts")") !=
+                      std::string::npos &&
+                  compiled_serialized.find(
+                      R"("kernel_launch_counts":{"available":false,"reason":"not_instrumented"})") !=
+                      std::string::npos &&
+                  compiled_serialized.find(
+                      R"("canonical_expected_layer_passes":81,"canonical_expected_terminal_elisions":80)") !=
+                      std::string::npos &&
+                  compiled_serialized.find("engine_lifetime_sealed_native_plan") ==
+                      std::string::npos,
+              "v21 names compiled ordinary policy without claiming observed kernel counts or layer-major sealing");
+  auto exact_fallback_compiled = compiled_record;
+  for (auto& counts : exact_fallback_compiled.prefill_route_evidence.operators) {
+    counts.exact_fallback_hits += counts.production_hits;
+    counts.production_hits = 0U;
+  }
+  test.expect(server::serialize_target_prefill_witness(exact_fallback_compiled)
+                      .find("target-prefill-witness-v21") != std::string::npos,
+              "v21 preserves intentional exact fallback instead of claiming every role is production");
+  const auto rejects_compiled_receipt = [&test](
+      const server::TargetPrefillWitnessRecord& invalid_compiled) {
+    const auto value = server::serialize_target_prefill_witness(invalid_compiled);
+    test.expect(valid_json(value) &&
+                    value.find("target-prefill-witness-v21") == std::string::npos &&
+                    value.find(R"("deployment_plan":{"available":false)") !=
+                        std::string::npos &&
+                    value.find(R"("per_operator_route_hits":{"available":false)") !=
+                        std::string::npos,
+                "invalid ordinary policy receipt cannot claim v21 or available route evidence");
+  };
+  auto invalid_compiled = compiled_record;
+  --invalid_compiled.prefix_execution_count;
+  rejects_compiled_receipt(invalid_compiled);
+  invalid_compiled = compiled_record;
+  invalid_compiled.prefill_route_evidence.forbidden_boundary_hits[0] = 1U;
+  rejects_compiled_receipt(invalid_compiled);
+  invalid_compiled = compiled_record;
+  invalid_compiled.projection_backend = q3x::runtime::ProjectionBackend::kReference;
+  rejects_compiled_receipt(invalid_compiled);
+  invalid_compiled = compiled_record;
+  --invalid_compiled.prefill_route_evidence.operators[2].production_hits;
+  rejects_compiled_receipt(invalid_compiled);
+  compiled_record.deployment_plan_id.clear();
+  test.expect(server::serialize_target_prefill_witness(compiled_record) ==
+                  terminal_serialized,
+              "v20 bytes remain unchanged when the ordinary compiled-policy identity is absent");
   const auto rejects_terminal_receipt = [&test](
       const server::TargetPrefillWitnessRecord& invalid_terminal) {
     const auto value = server::serialize_target_prefill_witness(invalid_terminal);
@@ -620,6 +677,16 @@ void test_target_prefill_witness_evidence(TestContext& test) {
                   R"("elided_prefix_layer_passes":1,"elided_prefix_rows":512,"retained_scalar_prefix_rows":1,"preserved_terminal_qkv_rows":514)") !=
                   std::string::npos,
               "v20 distinguishes an unchanged scalar prefix tail from deleted rows");
+  scalar_tail_record.deployment_plan_id = q3x::runtime::reference_runner_detail::
+      kOrdinaryExactScoreFeedPlanId;
+  const auto compiled_scalar_tail =
+      server::serialize_target_prefill_witness(scalar_tail_record);
+  test.expect(compiled_scalar_tail.find("target-prefill-witness-v21") !=
+                  std::string::npos &&
+                  compiled_scalar_tail.find(
+                      R"("canonical_expected_layer_passes":3,"canonical_expected_terminal_elisions":1)") !=
+                      std::string::npos,
+              "v21 canonical counts retain both scalar prefix and final prompt steps");
 
   for (const std::uint32_t cap : {128U, 192U, 320U}) {
     auto capped_record = terminal_record;
@@ -649,6 +716,13 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               R"("request_state_reset":{"mode":"committed_dirty_prefix","positions":40015,"bytes":2700869632,"milliseconds":15.625000})") !=
               std::string::npos,
       "ordinary production witness v16 publishes exact reset mode, positions, bytes, and synchronized timing");
+  auto unchanged_reset_record = record;
+  unchanged_reset_record.deployment_plan_id =
+      q3x::runtime::reference_runner_detail::kOrdinaryExactScoreFeedPlanId;
+  unchanged_reset_record.deployment_plan_id.clear();
+  test.expect(server::serialize_target_prefill_witness(unchanged_reset_record) ==
+                  reset_serialized,
+              "v16 bytes remain unchanged for the prior ordinary policy");
 
   server::TargetPrefillWitnessRecord invalid_reset_record = record;
   ++invalid_reset_record.request_state_reset->zeroed_bytes;

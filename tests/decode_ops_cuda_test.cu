@@ -9900,8 +9900,8 @@ void test_bulk_gqa_near_max_graph_contract(TestContext& test,
     test.expect(topology.node_count == 1U,
                 label + " admits the final legal append as one node");
     test.expect(topology.grid.x == token_count / 2U &&
-                    topology.grid.y == 4U && topology.block.x == 192U,
-                label + " preserves the fixed bulk topology");
+                    topology.grid.y == 4U && topology.block.x == 384U,
+                label + " preserves the compiled ordinary score-feed topology");
   }
 }
 
@@ -10185,7 +10185,7 @@ void run_bulk_gqa_correctness_case(
           : candidate_topology.grid.x == (token_count + 1U) / 2U &&
                 candidate_topology.grid.y == 4U &&
                 candidate_topology.grid.z == 1U &&
-                candidate_topology.block.x == 192U &&
+                candidate_topology.block.x == 384U &&
                 candidate_topology.block.y == 1U &&
                 candidate_topology.block.z == 1U &&
                 candidate_topology.dynamic_shared_bytes == 0U;
@@ -10195,7 +10195,7 @@ void run_bulk_gqa_correctness_case(
                        ? " candidate graph has FlashInfer grouped-Q64 topology"
                        : tensor_core_group_q64
                        ? " candidate graph has grouped-Q64 Tensor Core topology"
-                       : " candidate graph has fixed QT2 topology"));
+                       : " candidate graph has ordinary score-feed QT2 topology"));
   if (flashinfer_direct) {
     const bool expected_gate_topology =
         candidate_topology.secondary_function != nullptr &&
@@ -10492,25 +10492,27 @@ void run_bulk_gqa_score_feed_exact_case(
   ready = test.cuda_ok(static_cast<cudaError_t>(launch_route(candidate, false)),
                        label + " ordinary candidate") && ready;
   ready = test.cuda_ok(static_cast<cudaError_t>(launch_route(fixed, true)),
-                       label + " sealed candidate") && ready;
+                       label + " unchanged fixed launcher") && ready;
   ready = test.cuda_ok(cudaStreamSynchronize(stream), label + " candidate sync") &&
           ready;
   BulkGqaGraphTopology topology;
+  (void)detail::exchange_exact_attention_score_feed_for_test(
+      Selection::kCompiledDefault);
   ready = capture_bulk_gqa_graph(test, stream, label + " graph", [&]() {
-    return launch_route(replay, true);
+    return launch_route(replay, false);
   }, true, topology) && ready;
   const std::size_t candidate_hits =
       detail::exchange_exact_attention_score_feed_launch_hits_for_test(0U);
   (void)detail::exchange_exact_attention_score_feed_for_test(previous);
-  test.expect(candidate_hits == (group_prefix ? 0U : 3U),
-              label + " exact accepted candidate count / GroupQ64 exclusion");
+  test.expect(candidate_hits == (group_prefix ? 0U : 2U),
+              label + " explicit/default candidate count / fixed and GroupQ64 exclusion");
   if (!group_prefix) {
     test.expect(topology.node_count == 1U && topology.kernel_node_count == 1U &&
                     topology.grid.x == (token_count + 1U) / 2U &&
                     topology.grid.y == 4U && topology.grid.z == 1U &&
                     topology.block.x == 384U && topology.block.y == 1U &&
                     topology.block.z == 1U && topology.dynamic_shared_bytes == 0U,
-                label + " one fixed score-feed kernel, no scratch allocation");
+                label + " one ordinary default score-feed kernel, no scratch allocation");
   }
   if (ready) {
     expect_bf16_bits_equal(test, candidate, oracle, query_elements,
