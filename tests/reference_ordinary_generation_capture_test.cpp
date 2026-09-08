@@ -327,7 +327,20 @@ int main(int argc, char** argv) {
         load.decode_graph_cache_slot_count != 25U ||
         load.decode_graph_cache_effective_policy != rt::ReferenceDecodeGraphCachePolicy::kSm87ShortPositions ||
         load.fp8_marlin_prefill_sidecars_enabled || load.nvfp4_marlin_prefill_sidecars_enabled)
-      throw std::runtime_error("ordinary production inventory mismatch");
+      {
+        std::cerr << "ordinary inventory: arena=" << load.request_arena_bytes
+                  << " fp8_output=" << load.fp8_output_sidecars_enabled << '/' << load.fp8_output_sidecar_layers
+                  << " fp8_prefill=" << load.fp8_prefill_supermatrix_sidecars_enabled << '/' << load.fp8_prefill_supermatrix_sidecar_projections
+                  << " down_consumer=" << load.nvfp4_down_consumer_order_sidecars_enabled << '/' << load.nvfp4_down_consumer_order_sidecar_layers
+                  << " gate_up=" << load.nvfp4_gate_up_coupled_feed_enabled << '/' << load.nvfp4_gate_up_coupled_feed_layers
+                  << " graph_slots=" << load.decode_graph_cache_slot_count
+                  << " graph_policy=" << static_cast<int>(load.decode_graph_cache_effective_policy)
+                  << " graph_prepare_ms=" << load.decode_graph_cache_prepare_milliseconds
+                  << " graph_fallback=" << load.decode_graph_cache_fallback_reason
+                  << " fp8_marlin=" << load.fp8_marlin_prefill_sidecars_enabled
+                  << " nvfp4_marlin=" << load.nvfp4_marlin_prefill_sidecars_enabled << '\n';
+        throw std::runtime_error("ordinary production inventory mismatch");
+      }
     Capture capture;
     capture.prompt_tokens = static_cast<std::uint32_t>(ids.size());
 #if defined(Q3X_CAPTURE_HAS_SCORE_FEED)
