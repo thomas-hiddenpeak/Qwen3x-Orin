@@ -18,6 +18,7 @@
 #include "reference_engine_final_token_policy_internal.h"
 #include "reference_engine_prefill_authority.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
+#include "reference_runner_terminal_prefix_internal.h"
 #if defined(Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
 #include "sm87_target_aot_layer0_m192_oracle_internal.h"
 #include "sm87_target_aot_layer0_m192_oracle_evidence_internal.h"
@@ -53,9 +54,13 @@ namespace q3x::runtime {
 namespace {
 
 #if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+thread_local bool g_terminal_prefix_elision_enabled_for_test = true;
 thread_local reference_runner_detail::
     ReferenceEngineGenerateReturnSnapshotHook
         g_reference_engine_generate_return_snapshot_hook{};
+thread_local reference_runner_detail::
+    ReferenceEngineGenerateReturnSnapshotHook
+        g_reference_engine_step_snapshot_hook{};
 thread_local reference_engine_detail::
     ReferenceEnginePrefillFinalTokenPolicyForTest
         g_reference_engine_prefill_final_token_policy_for_test =
@@ -1430,6 +1435,15 @@ bool observe_committed_token(void* const opaque,
 
 struct EngineStepContext {
   ReferenceRunner* runner = nullptr;
+  // Installed generation supplies private liveness authority only after the
+  // final-token policy and observable scope are resolved. Direct runner calls
+  // and all other Engine adapters retain their original full-tile entry.
+  ReferencePrefillTileOutcome (*ordinary_prefix_tile)(
+      ReferenceRunner&, const std::uint32_t*, std::size_t,
+      const ReferencePrefillTileOptions&) noexcept = nullptr;
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+  const RequestState* snapshot_state = nullptr;
+#endif
   std::vector<ReferenceTraceDigest>* traces = nullptr;
   const reference_engine_detail::BoundPrefillExecutionPlan*
       bound_prefill_plan = nullptr;
@@ -2142,6 +2156,13 @@ class EngineWholeRequestTransactionGuard final {
     const ReferenceStepOptions& options) {
   auto& context = *static_cast<EngineStepContext*>(opaque_context);
   ReferenceStepOutcome outcome = context.runner->step(input_token_id, options);
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+  if (outcome && options.compute_logits && context.snapshot_state != nullptr &&
+      g_reference_engine_step_snapshot_hook.callback != nullptr) {
+    g_reference_engine_step_snapshot_hook.callback(
+        *context.snapshot_state, g_reference_engine_step_snapshot_hook.context);
+  }
+#endif
   if (!outcome || !context.capture_trace) {
     return outcome;
   }
@@ -2205,6 +2226,10 @@ class EngineWholeRequestTransactionGuard final {
   if (context.capture_trace) {
     return {{}, {ReferenceRunnerError::kTraceUnavailable, 0,
                  kReferenceNoLayer, "engine_prefill_tile_trace"}};
+  }
+  if (context.ordinary_prefix_tile != nullptr) {
+    return context.ordinary_prefix_tile(*context.runner, input_token_ids,
+                                        token_count, options);
   }
   return context.runner->prefill_prefix_tile(input_token_ids, token_count,
                                              options);
@@ -4759,11 +4784,22 @@ prepare_sm87_nvfp4_marlin_p40_parity_sidecars(
 namespace reference_runner_detail {
 
 #if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+void set_terminal_prefix_elision_enabled_for_test(
+    const bool enabled) noexcept {
+  g_terminal_prefix_elision_enabled_for_test = enabled;
+}
+
 ReferenceEngineGenerateReturnSnapshotHook
 exchange_reference_engine_generate_return_snapshot_hook(
     const ReferenceEngineGenerateReturnSnapshotHook hook) noexcept {
   return std::exchange(g_reference_engine_generate_return_snapshot_hook,
                        hook);
+}
+
+ReferenceEngineGenerateReturnSnapshotHook
+exchange_reference_engine_step_snapshot_hook(
+    const ReferenceEngineGenerateReturnSnapshotHook hook) noexcept {
+  return std::exchange(g_reference_engine_step_snapshot_hook, hook);
 }
 #endif
 
@@ -7419,6 +7455,9 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
     std::vector<ReferenceTraceDigest> traces;
     EngineStepContext step_context;
     step_context.runner = &*impl_->runner;
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+    step_context.snapshot_state = &*impl_->request_state;
+#endif
     step_context.traces = &traces;
     step_context.capture_trace = options.capture_trace;
     step_context.bound_prefill_plan =
@@ -7463,6 +7502,27 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
         final_token_selection.all_prompt_tokens;
     control_options.prefill_single_arbitrary_tile =
         final_token_selection.single_arbitrary_tile;
+    bool terminal_prefix_elision =
+        reference_runner_detail::is_terminal_prefix_elision_scope(
+            impl_->runner->projection_backend_ ==
+                ProjectionBackend::kSm87WeightOnly,
+            impl_->request_state->memory_profile() ==
+                RequestMemoryProfile::kLegacyC512,
+            whole_request_layer_major, options.capture_trace,
+            final_token_selection.all_prompt_tokens);
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+    terminal_prefix_elision = terminal_prefix_elision &&
+                             g_terminal_prefix_elision_enabled_for_test;
+#endif
+    if (terminal_prefix_elision) {
+      step_context.ordinary_prefix_tile = [](
+          ReferenceRunner& runner, const std::uint32_t* tokens,
+          const std::size_t count,
+          const ReferencePrefillTileOptions& tile_options) noexcept {
+        return runner.prefill_prefix_tile_impl(tokens, count, tile_options,
+                                               true);
+      };
+    }
     control_options.prefill_whole_request_layer_major =
         whole_request_layer_major;
     control_options.prefill_mlp_schedule_tactic =

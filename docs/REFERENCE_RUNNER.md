@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: batch-one CUDA runner state, numerical, ownership, and failure contract
   effective: 2026-08-09
-  last_reviewed: 2026-08-23
+  last_reviewed: 2026-09-09
   supersedes: []
   superseded_by: []
   ssot_for: ReferenceRunner public execution, commit, poison, reset, trace, and dependency behavior
@@ -128,6 +128,45 @@ lm-head/logits analysis, does not rerun decoder layers, does not update
 persistent state, and does not advance logical length. Any mismatch, reset,
 intervening incompatible operation, or failed tile invalidates that retained
 boundary.
+
+### Private terminal-prefix execution
+
+The `WP-TERMINAL-LAYER-LIVENESS-20260909` topology adds an
+Engine-only prefix path; it does not weaken `prefill_prefix_tile()` above.
+The public method always retains full non-logit execution. The private path
+requires legacy control, SM87WeightOnly, Legacy-C512 state, and no
+`retain_last_hidden_for_logits`; incompatible scope fails through the checked
+prefix failure boundary. M1 delegates to the unchanged scalar step.
+
+For C2..C512, layers 0..62 and all layer-63 input normalization, Q/K/V
+projections, Q/K preprocessing, RoPE, and K/V stores remain unchanged. After
+those stores, only the dead layer-63 prefix Attention, O, residual,
+post-Attention norm, MLP, and final norm are omitted. This initial candidate
+does not delete Q/gate projection. Every used K/V row and all Conv/GDN state
+remain live; the tile-local residual rows remain at their layer-62 values.
+The existing scalar final prompt step computes the live final row without
+substituting a new Decode arithmetic tree. No dead prefix hidden row is
+retained for logits or exported as an observable.
+
+The owning stream must complete before sequence-length and route commit.
+Private route validation accepts only the layer-63 Q/K/V fragment and the
+matching Gate/Up, Down, O, and Attention omissions; all earlier-layer coverage
+and the ordinary public full-pass validator remain strict. Omitted work is
+never counted as an executed production operator. Enqueue, synchronization,
+state, route, or observation failure drains through the ordinary prefix
+failure path and poisons the runner. Already submitted state may have changed;
+there is no rollback claim, and successful reset remains required for reuse.
+
+The liveness oracle follows
+[the ledger](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md#73-liveness-aware-oracle):
+compare complete live state and final-row outputs, not absent prefix outputs.
+Test-only hooks observe the residual before layer 63 and after whole-tile
+commit, before the next tile. Bounded dual-poison/canary checks may touch only
+dead workspace, never persistent state or RoPE; callback failure is an
+execution failure. Hook storage and calls are absent with `BUILD_TESTING=OFF`.
+These are execution obligations, not a P40000/O16, API, performance, release,
+or mainline qualification claim. Activation and qualification state are owned
+by [Current Status](CURRENT_STATUS.md).
 
 ## Poison, reset, and trace
 

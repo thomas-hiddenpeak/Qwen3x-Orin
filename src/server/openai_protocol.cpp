@@ -2,6 +2,8 @@
 
 #include "q3x/core/sha256.h"
 #include "q3x/io/json.h"
+#include "q3x/runtime/decode_ops.h"
+#include "../runtime/reference_runner_terminal_prefix_internal.h"
 
 #include <algorithm>
 #include <array>
@@ -241,11 +243,13 @@ void append_phase_evidence(std::string& output,
 }
 
 void append_prefill_route_evidence(
-    std::string& output, const runtime::PrefillRouteEvidence& evidence) {
+    std::string& output, const runtime::PrefillRouteEvidence& evidence,
+    const bool terminal_coverage_valid = true) {
   const bool count_matches =
       evidence.completed_layer_passes == evidence.expected_layer_passes;
   const bool available = evidence.valid && evidence.complete &&
-                         !evidence.request_active && count_matches;
+                         !evidence.request_active && count_matches &&
+                         terminal_coverage_valid;
   output += "{\"available\":";
   output += available ? "true" : "false";
   output +=
@@ -255,6 +259,8 @@ void append_prefill_route_evidence(
   output += ",\"reason\":";
   if (available) {
     output += "null";
+  } else if (!terminal_coverage_valid) {
+    append_json_string(output, "terminal_prefix_elision_coverage");
   } else if (!count_matches) {
     append_json_string(output, "unexpected_layer_pass_count");
   } else {
@@ -873,6 +879,69 @@ std::string serialize_target_prefill_witness(
       record.request_memory_profile ==
           runtime::RequestMemoryProfile::kLegacyC512 &&
       valid_request_state_reset_receipt(*record.request_state_reset);
+  const auto terminal_elided_passes = runtime::reference_runner_detail::
+      terminal_prefix_elided_layer_passes(record.prefill_route_evidence);
+  const std::uint64_t prefix_rows =
+      record.prompt_tokens == 0U ? 0U : record.prompt_tokens - 1U;
+  const std::size_t prefix_chunk = record.effective_prefill_chunk_size;
+  std::uint64_t expected_elided_passes = 0U;
+  std::uint64_t expected_ordinary_passes = 0U;
+  std::uint64_t retained_scalar_prefix_rows = 0U;
+  if (!whole_request_plan_sealed && terminal_elided_passes.has_value() &&
+      *terminal_elided_passes != 0U && prefix_chunk >= 2U &&
+      prefix_chunk <= runtime::kMaximumRequestPrefillChunkSize &&
+      record.prompt_tokens <= runtime::kBulkCausalGqaMaximumSequenceLength) {
+    // Reuse the exact controller subdivision, not ceil(P/chunk). In
+    // particular, P40000 uses 78*C512 + C32 + C31 before the scalar final.
+    // This bounded walk also handles noncanonical requested chunk caps.
+    std::size_t remaining = static_cast<std::size_t>(prefix_rows);
+    expected_ordinary_passes = 1U;  // existing scalar final prompt step
+    while (remaining != 0U) {
+      const std::size_t tile_tokens =
+          runtime::reference_engine_detail::next_prefix_tile_token_count(
+              remaining, prefix_chunk);
+      ++expected_ordinary_passes;
+      if (tile_tokens > 1U) {
+        ++expected_elided_passes;
+      } else {
+        ++retained_scalar_prefix_rows;
+      }
+      remaining -= tile_tokens;
+    }
+  }
+  const bool terminal_prefix_v20 =
+      !whole_request_plan_sealed && terminal_elided_passes.has_value() &&
+      *terminal_elided_passes != 0U &&
+      *terminal_elided_passes == expected_elided_passes &&
+      prefix_chunk <= runtime::kMaximumRequestPrefillChunkSize &&
+      record.projection_backend == runtime::ProjectionBackend::kSm87WeightOnly &&
+      record.prefill_execution_mode ==
+          runtime::ReferencePrefillExecutionMode::kLegacyC512Tiled &&
+      record.request_memory_profile == runtime::RequestMemoryProfile::kLegacyC512 &&
+      record.full_prompt_consumed &&
+      record.consumed_prompt_tokens == record.prompt_tokens &&
+      record.completion_tokens != 0U &&
+      // Prefix timings exclude the scalar final prompt step; route passes
+      // include it. Do not conflate those two existing counter contracts.
+      record.prefix_execution_count == expected_ordinary_passes - 1U &&
+      record.prefill_route_evidence.valid &&
+      record.prefill_route_evidence.complete &&
+      !record.prefill_route_evidence.request_active &&
+      record.prefill_route_evidence.completed_layer_passes ==
+          expected_ordinary_passes &&
+      record.prefill_route_evidence.expected_layer_passes ==
+          expected_ordinary_passes &&
+      std::all_of(record.prefill_route_evidence.operators.begin(),
+                  record.prefill_route_evidence.operators.end(),
+                  [](const runtime::PrefillOperatorRouteCounts& counts) {
+                    return counts.forbidden_hits == 0U;
+                  }) &&
+      std::all_of(record.prefill_route_evidence.forbidden_boundary_hits.begin(),
+                  record.prefill_route_evidence.forbidden_boundary_hits.end(),
+                  [](const std::uint64_t hits) { return hits == 0U; });
+  const bool terminal_coverage_valid =
+      terminal_elided_passes.has_value() &&
+      (*terminal_elided_passes == 0U || terminal_prefix_v20);
   const bool candidate_q64_v3 =
       record.deployment_plan_id ==
       runtime::kLayerMajorNativeGroupQ64PanelDeploymentPlanId;
@@ -1345,7 +1414,10 @@ std::string serialize_target_prefill_witness(
       p40_packed_nvfp4_v2_candidate_v14 ||
       p40_vllm_marlin_parity_candidate_v15;
   std::string output =
-      p40_vllm_marlin_parity_candidate_v15
+      terminal_prefix_v20
+          ? "{\"record\":\"target-prefill-witness-v20\","
+            "\"schema_version\":20,\"request\":{\"id\":"
+      : p40_vllm_marlin_parity_candidate_v15
           ? "{\"record\":\"target-prefill-witness-v15\","
             "\"schema_version\":15,\"request\":{\"id\":"
       : p40_packed_nvfp4_v2_candidate_v14
@@ -2225,7 +2297,30 @@ std::string serialize_target_prefill_witness(
     }
   }
   output += "},\"per_operator_route_hits\":";
-  append_prefill_route_evidence(output, record.prefill_route_evidence);
+  append_prefill_route_evidence(output, record.prefill_route_evidence,
+                                terminal_coverage_valid);
+  if (terminal_prefix_v20) {
+    output += ",\"terminal_prefix_elision\":{\"available\":true,\"plan_id\":";
+    append_json_string(output, runtime::reference_runner_detail::
+                                  kTerminalPrefixElisionPlanId);
+    output += ",\"terminal_layer\":63,\"elided_prefix_layer_passes\":" +
+              std::to_string(*terminal_elided_passes) +
+              ",\"elided_prefix_rows\":" +
+              std::to_string(prefix_rows - retained_scalar_prefix_rows) +
+              ",\"retained_scalar_prefix_rows\":" +
+              std::to_string(retained_scalar_prefix_rows) +
+              ",\"preserved_terminal_qkv_rows\":" +
+              std::to_string(record.prompt_tokens) +
+              ",\"final_prompt_query_position\":" +
+              std::to_string(prefix_rows) +
+              ",\"final_prompt_causal_end\":" +
+              std::to_string(record.prompt_tokens) +
+              ",\"final_prompt_step\":\"unchanged_legacy_scalar\","
+              "\"omitted_roles\":[\"nvfp4_gate_up\",\"nvfp4_down\","
+              "\"fp8_o\",\"attention\"],"
+              "\"kv_publication\":\"existing_stream_sync_before_commit\","
+              "\"prefix_hidden\":\"unobservable_layer62_residual\"}";
+  }
   output +=
       ","
       "\"cache_hits\":{\"available\":false,\"reason\":"

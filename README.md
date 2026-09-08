@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: product introduction, bounded evaluation quick start, and high-level navigation
   effective: 2026-08-09
-  last_reviewed: 2026-08-27
+  last_reviewed: 2026-09-09
   supersedes: []
   superseded_by: []
   ssot_for: concise project introduction and bounded functional evaluation entry; dynamic state remains in docs/CURRENT_STATUS.md
@@ -23,11 +23,17 @@ execution plan, and serving boundary are engineered as one system instead of
 treated as interchangeable layers.
 
 > **Project status — evaluation stage.** The repository has an implemented
-> batch-one native runner and loopback OpenAI-compatible evaluation adapter.
-> It does **not** yet have a qualified Production release or the final serving
-> API, and the current default capacity does not admit the locked long-context
-> workload. [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md) is the sole
+> batch-one native runner and production-shaped OpenAI-compatible service.
+> It does **not** yet have a qualified Production release or complete serving
+> qualification. P40 admission exists; P60/P130 and the locked latency targets
+> remain open. [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md) is the sole
 > source for current capability, routes, performance, capacity, and blockers.
+
+This source integration selects the ordinary liveness profile
+`q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1` after its matched
+P40000/O16 API panel. Fresh installed-main OFF, P40 API, and short EvalScope
+closeout remain pending. The profile remains `production_eligible=false` and
+`release_qualified=false`; source selection does not grant release qualification.
 
 Qwen3x-Orin is an independent community project. It is not an official Qwen,
 Alibaba, NVIDIA, or Jetson project and is not endorsed by those organizations.
@@ -150,11 +156,7 @@ Start the loopback evaluation adapter in one terminal:
 "$Q3X_BUILD/qwen3x-eval-server" "$Q3X_MODEL_DIR" \
   --host 127.0.0.1 \
   --port 18080 \
-  --model qwen3.6-27b-nvfp4 \
-  --max-sequence-length 4096 \
-  --max-output-tokens 256 \
-  --prefill-chunk-size 512 \
-  --projection-backend sm87
+  --model qwen3.6-27b-nvfp4
 ```
 
 After it becomes ready, exercise health and committed-token streaming from
@@ -168,8 +170,12 @@ curl -N -fsS http://127.0.0.1:18080/v1/chat/completions \
   -d '{"model":"qwen3.6-27b-nvfp4","messages":[{"role":"user","content":"你好，请用一句话介绍你自己。"}],"max_tokens":16,"temperature":0,"stream":true}'
 ```
 
-The adapter is unauthenticated, loopback-only, greedy, and serialized at the
-GPU worker. Generation requests must explicitly provide a positive
+The ordinary server fixes the exact Legacy-C512/SM87 P40 inventory and
+capacity; public tactic and arena overrides are rejected. The loopback command
+above omits authentication. `--api-key-file` enables Bearer authentication for
+models and generation; health remains public, and a non-loopback listener
+requires an owner-only key file. TLS termination is external. Execution is
+greedy and serialized at the GPU worker. Generation requests must explicitly provide a positive
 `max_tokens` or `max_completion_tokens` within the configured ceiling and use
 `temperature=0`. It is an external-evaluation instrument, not the final
 Production API. See the

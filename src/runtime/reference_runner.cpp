@@ -7,6 +7,7 @@
 #include "reference_runner_full_attention_oracle_internal.h"
 #endif
 #include "reference_runner_request_reset_policy_internal.h"
+#include "reference_runner_terminal_prefix_internal.h"
 
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
 #if defined(Q3X_ENABLE_P40_PROJECTION_RESET_ADMISSION)
@@ -142,6 +143,8 @@ enum class PrefillGdnExecution : std::uint8_t {
 }
 
 #if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+thread_local reference_runner_detail::TerminalPrefixObservationHook
+    g_terminal_prefix_observation_hook_for_test{};
 thread_local reference_runner_detail::
     ReferenceRunnerPromptWidePolicyForTest
         g_reference_runner_prompt_wide_policy_for_test =
@@ -1033,6 +1036,13 @@ ConstBf16Span ReferenceTraceView::final_norm() const noexcept {
 }
 
 namespace reference_runner_detail {
+
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+TerminalPrefixObservationHook exchange_terminal_prefix_observation_hook_for_test(
+    const TerminalPrefixObservationHook hook) noexcept {
+  return std::exchange(g_terminal_prefix_observation_hook_for_test, hook);
+}
+#endif
 
 #if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
 ReferenceRunnerPromptWidePolicyForTest
@@ -4540,6 +4550,11 @@ ReferenceRunnerStatus ReferenceRunner::select_prefill_tile_execution(
 
   const bool legacy =
       is_legacy_prefill_tile_execution_control(control);
+  if (control.elide_terminal_prefix_suffix &&
+      (!legacy || options.retain_last_hidden_for_logits)) {
+    return runner_status(ReferenceRunnerError::kInvalidStepOptions,
+                         "prefill_terminal_prefix_observable_scope");
+  }
   if (!legacy &&
       (control.allow_experimental_gdn_b8_admission ||
        control.allow_experimental_gdn_chunk64_native_admission ||
@@ -4623,7 +4638,8 @@ std::uint16_t ReferenceRunner::expected_prefill_layer_route_slots(
 }
 
 ReferenceRunnerStatus ReferenceRunner::validate_prefill_layer_route_fragment(
-    const PrefillLayerSegmentRouteFragment& fragment) noexcept {
+    const PrefillLayerSegmentRouteFragment& fragment,
+    const bool terminal_prefix_elision) noexcept {
   if (fragment.layer >= kReferenceDecoderLayerCount) {
     return runner_status(ReferenceRunnerError::kInvalidLayerSchedule,
                          "prefill_layer_route_layer", fragment.layer);
@@ -4637,8 +4653,21 @@ ReferenceRunnerStatus ReferenceRunner::validate_prefill_layer_route_fragment(
                          "prefill_layer_route_fragment_geometry",
                          fragment.layer);
   }
-  const std::uint16_t expected =
+  std::uint16_t expected =
       expected_prefill_layer_route_slots(fragment.layer);
+  if (terminal_prefix_elision) {
+    if (fragment.layer + 1U != kReferenceDecoderLayerCount ||
+        fragment.token_count < 2U ||
+        fragment.token_count > kMaximumRequestPrefillChunkSize) {
+      return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
+                           "prefill_terminal_prefix_route_geometry",
+                           fragment.layer);
+    }
+    expected = static_cast<std::uint16_t>(
+        (1U << static_cast<std::uint8_t>(PrefillLayerRouteSlot::kQOrLinearQkv)) |
+        (1U << static_cast<std::uint8_t>(PrefillLayerRouteSlot::kFullK)) |
+        (1U << static_cast<std::uint8_t>(PrefillLayerRouteSlot::kFullV)));
+  }
   if (expected == 0U || fragment.recorded_slots != expected) {
     return runner_status(ReferenceRunnerError::kRouteEvidenceFailure,
                          "prefill_layer_route_fragment_slots",
@@ -4802,9 +4831,16 @@ ReferenceRunner::collapse_validated_prefill_layer_route_fragment(
       const PrefillLayerRouteSlot slot) noexcept {
     return layer_fragment.dispositions[static_cast<std::size_t>(slot)];
   };
-  const auto record = [&collapsed, &disposition](
+  const auto record = [&collapsed, &disposition, &layer_fragment](
       const PrefillLayerRouteSlot slot,
       const PrefillOperatorRole role) noexcept {
+    // Only validated fragments reach this function. Ordinary fragments have
+    // every required slot; terminal-prefix fragments explicitly lack their
+    // four dead roles. An omitted role never becomes a production hit.
+    if ((layer_fragment.recorded_slots & static_cast<std::uint16_t>(
+             1U << static_cast<std::uint8_t>(slot))) == 0U) {
+      return true;
+    }
     return record_prefill_operator_route(collapsed, role,
                                          disposition(slot));
   };
@@ -5812,6 +5848,14 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
     const std::uint32_t* const input_token_ids,
     const std::size_t token_count,
     const ReferencePrefillTileOptions& options) noexcept {
+  return prefill_prefix_tile_impl(input_token_ids, token_count, options, false);
+}
+
+ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile_impl(
+    const std::uint32_t* const input_token_ids,
+    const std::size_t token_count,
+    const ReferencePrefillTileOptions& options,
+    const bool terminal_prefix_elision) noexcept {
   if (whole_request_prefill_active()) {
     return fail_prefill_tile(runner_status(
         ReferenceRunnerError::kInvalidStepOptions,
@@ -5852,8 +5896,16 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                         "prefill_tile_token"));
     }
   }
-  const PrefillTileExecutionControl control =
+  PrefillTileExecutionControl control =
       legacy_prefill_tile_execution_control();
+  if (terminal_prefix_elision &&
+      (projection_backend_ != ProjectionBackend::kSm87WeightOnly ||
+       state_->memory_profile() != RequestMemoryProfile::kLegacyC512)) {
+    return fail_prefill_tile(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "prefill_terminal_prefix_runner_scope"));
+  }
+  control.elide_terminal_prefix_suffix = terminal_prefix_elision;
   PrefillTileExecutionSelection execution;
   const ReferenceRunnerStatus execution_status =
       select_prefill_tile_execution(
@@ -5921,13 +5973,32 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         "prefill_tile_commit", kReferenceNoLayer,
         commit_status.cuda_error));
   }
-  if (!commit_prefill_route_layer_pass(
-          prefill_route_evidence_,
-          enqueued.route_fragment.legacy_layer_pass)) {
+  const bool route_committed =
+      control.elide_terminal_prefix_suffix
+          ? reference_runner_detail::commit_terminal_prefix_elided_layer_pass(
+                prefill_route_evidence_,
+                enqueued.route_fragment.legacy_layer_pass)
+          : commit_prefill_route_layer_pass(
+                prefill_route_evidence_,
+                enqueued.route_fragment.legacy_layer_pass);
+  if (!route_committed) {
     return fail_prefill_tile(runner_status(
         ReferenceRunnerError::kRouteEvidenceFailure,
         "prefill_tile_route_commit", kReferenceNoLayer));
   }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+  const auto terminal_observer = g_terminal_prefix_observation_hook_for_test;
+  if (control.elide_terminal_prefix_suffix &&
+      terminal_observer.callback != nullptr &&
+      !terminal_observer.callback(
+          {state_, first_position, token_count,
+           reference_runner_detail::TerminalPrefixObservationStage::kAfterTileCommit,
+           stream_}, terminal_observer.context)) {
+    return fail_prefill_tile(runner_status(
+        ReferenceRunnerError::kTraceUnavailable,
+        "terminal_prefix_post_commit_observation", 63U));
+  }
+#endif
 #if defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
   const auto native_chunk64_snapshot_hook =
       g_prefill_gdn_chunk64_native_snapshot_hook;
@@ -9004,6 +9075,13 @@ ReferenceRunner::enqueue_prefill_layer_segment(
           legacy_control,
           projection_backend_ == ProjectionBackend::kSm87WeightOnly,
           state_->memory_profile() == RequestMemoryProfile::kLegacyC512);
+  if (control.elide_terminal_prefix_suffix &&
+      (!prompt_wide_scope || token_count < 2U ||
+       token_count > kMaximumRequestPrefillChunkSize)) {
+    return fail_enqueue(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "prefill_terminal_prefix_enqueue_scope"));
+  }
   const bool use_embedding_prompt_wide =
       prompt_wide_scope && !sealed_exact_arithmetic &&
       prompt_wide_policy.embedding;
@@ -9564,6 +9642,19 @@ ReferenceRunner::enqueue_prefill_layer_segment(
 
   for (std::size_t layer = control.layer_begin; layer < control.layer_end;
        ++layer) {
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+    const auto terminal_observer = g_terminal_prefix_observation_hook_for_test;
+    if (control.elide_terminal_prefix_suffix && layer == 63U &&
+        terminal_observer.callback != nullptr &&
+        !terminal_observer.callback(
+            {state_, first_position, token_count,
+             reference_runner_detail::TerminalPrefixObservationStage::kBeforeLayer63,
+             stream_}, terminal_observer.context)) {
+      return fail_enqueue(runner_status(
+          ReferenceRunnerError::kTraceUnavailable,
+          "terminal_prefix_pre_layer_observation", layer));
+    }
+#endif
     layer_route_fragment = {};
     layer_route_fragment.layer = layer;
     layer_route_fragment.first_position = first_position;
@@ -10199,6 +10290,28 @@ ReferenceRunner::enqueue_prefill_layer_segment(
           }
         }
       }
+      if (control.elide_terminal_prefix_suffix &&
+          layer + 1U == kReferenceDecoderLayerCount) {
+        // The ordinary controller tiles only P-1 rows, then executes its
+        // original scalar final prompt step. Every Q/K/V projection and K
+        // normalization/RoPE store above is identical to the incumbent. No
+        // later Prefill layer consumes this tile's final hidden rows. Do not
+        // launch Attention/O/residual/MLP/finalnorm, or touch the layer62
+        // residual retained in hidden[0]. Stream completion below still
+        // precedes KV/state/route commit and cancellation observation.
+        const ReferenceRunnerStatus terminal_route_status =
+            validate_prefill_layer_route_fragment(layer_route_fragment, true);
+        if (!terminal_route_status) {
+          return fail_enqueue(terminal_route_status);
+        }
+        const ReferenceRunnerStatus terminal_collapse_status =
+            collapse_validated_prefill_layer_route_fragment(
+                layer_route_fragment, legacy_layer_pass);
+        if (!terminal_collapse_status) {
+          return fail_enqueue(terminal_collapse_status);
+        }
+        continue;
+      }
       const bool use_bulk_gqa_gate =
           reference_runner_detail::
               use_bulk_causal_gqa_sigmoid_gate_prefill(
@@ -10576,11 +10689,12 @@ ReferenceRunner::enqueue_prefill_layer_segment(
     }
   }
 
-  // Match the non-logit step boundary even though this output is not consumed
-  // by the following layer-major tile or by persistent state.
+  // Direct/retained tiles keep the complete non-logit step boundary. Private
+  // ordinary prefixes deliberately leave their dead final norm unmaterialized.
   // The M32-prefix plus reference-tail path folded this norm into the final
   // layer's MLP residual boundary.
-  if (control.apply_final_norm && !use_m32_residual_rms_fusion &&
+  if (control.apply_final_norm && !control.elide_terminal_prefix_suffix &&
+      !use_m32_residual_rms_fusion &&
       !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
                       execution_views.hidden[0], weights_->final_norm().data,
                       token_count, kReferenceHiddenSize, kRmsEpsilon,

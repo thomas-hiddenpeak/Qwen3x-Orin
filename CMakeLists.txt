@@ -2249,7 +2249,7 @@ if(BUILD_TESTING)
   else()
     set_tests_properties(eval_server_help PROPERTIES
       PASS_REGULAR_EXPRESSION
-        "q3x.sm87.production.p40.legacy-c512-exact.v3"
+        "q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1"
     )
     add_test(NAME eval_server_rejects_unbuilt_p40_v10_development_route
       COMMAND qwen3x-eval-server unused
@@ -2532,6 +2532,17 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
     TIMEOUT 1800
   )
+
+  add_executable(q3x_reference_ordinary_generation_capture_test
+    tests/reference_ordinary_generation_capture_test.cpp
+  )
+  target_include_directories(q3x_reference_ordinary_generation_capture_test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+  )
+  target_link_libraries(q3x_reference_ordinary_generation_capture_test
+    PRIVATE q3x::engine
+  )
+  q3x_enable_warnings(q3x_reference_ordinary_generation_capture_test)
 
   add_executable(q3x_reference_prefill_all_prompt_tokens_admission_e2e_test
     tests/reference_prefill_all_prompt_tokens_admission_e2e_test.cpp

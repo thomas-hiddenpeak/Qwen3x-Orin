@@ -1,0 +1,211 @@
+{
+  "schema": "q3x.ordinary-terminal-prefix-p40000-api-selection.v1",
+  "date": "2026-09-09",
+  "architecture_candidate_id": "AC-PREFILL-EXACT-P40-DATAFLOW-20260909",
+  "work_package_id": "WP-TERMINAL-LAYER-LIVENESS-20260909",
+  "decision_unit": "architecture_candidate",
+  "decision": "select_liveness_only_source_for_main_integration",
+  "result_class": "positive_bounded_matched_installed_API_selection",
+  "production_eligible": false,
+  "release_qualified": false,
+  "statistical_qualification": false,
+  "claim_boundary": "Two predeclared matched P40000/O16 pairs select this exact liveness-only source for integration. Same-ELF ON numerical evidence, separate installed OFF API evidence, and future installed-main closeout are distinct. No full capability, repeated startup reliability, unmeasured peak-memory, target-SLO, or release claim follows.",
+  "independent_selection_review": {
+    "path": ".q3x-work/evidence/terminal-prefix-only-p40000-selection-review-20260909.json",
+    "sha256": "3f8348f6b770d3805b0a3bf99d65d01bbcf5b2c1469e71aab93e65e4a78d88a0",
+    "bytes": 29987,
+    "status": "positive_for_main_integration",
+    "raw_reference_hashes_checked": 23,
+    "scope": "Independent reparse of all four raw SSE streams and typed witnesses, full health/models/source/ELF/model identities, 5771 cross-matched clock samples, planned resources, and owned closure. Complete raw references and all original metrics remain in this hash-frozen review."
+  },
+  "frozen_protocol": {
+    "path": ".q3x-work/evidence/terminal-prefix-only-api-selection-20260909.txt",
+    "sha256": "cdbdfb3f18d7cf12967cae0bc80e89b0ea9b8461d8f43b09c5e631de357ddc6f",
+    "baseline_docs_only_erratum": {
+      "path": ".q3x-work/evidence/terminal-prefix-only-api-selection-main-doc-erratum-20260909.txt",
+      "sha256": "0062ebf795b68b11a1450c48b750d7e2db7e71a1225bb3e9ff364096de6d3c7b"
+    },
+    "order": ["C1", "B1", "B2", "C2"],
+    "pairs": [["B1", "C1"], ["B2", "C2"]],
+    "requests_per_fresh_process": 1,
+    "warmup_requests": 0,
+    "concurrency": 1,
+    "server_cpu": 11,
+    "cold_cache_drop_passed_all_cells": true
+  },
+  "workload": {
+    "model_authentication": {
+      "path": ".q3x-work/evidence/pinned-model-authentication-20260909.json",
+      "sha256": "c7c71b78ea1bbd9d911c48a3b384933242184876311dfa83c0e366b8f56e6e75",
+      "scope": "Seven exact pinned files authenticated once by SHA-256; every run checks canonical nonsymlink paths and unchanged dev/inode/size/mtime before and after."
+    },
+    "prompt_tokens": 40000,
+    "completion_tokens": 16,
+    "temperature": 0,
+    "request_body_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "generated_text_sha256": "25451d25ce3799c749c8743a664277def7336b294af5ddfb238dac327058b20b",
+    "prefix_KV_reuse": false,
+    "MTP": false,
+    "cuBLASLt": false
+  },
+  "artifacts": {
+    "baseline": {
+      "source_head": "13be53cae8a81824d4242ed2a456e2a8909d6ebb",
+      "source_tree": "961605da9ec6a7a6b5b20c0e839b9153f85cb2c8",
+      "runtime_build_source": "d6565eb",
+      "source_bridge": "Later source changes are docs-only, including the predeclared baseline erratum; the installed ELF is unchanged.",
+      "source_clean_and_unchanged": true,
+      "BUILD_TESTING": false,
+      "build_type": "Release",
+      "installed_server": ".q3x-work/install/ordinary-main-graph-startup-20260909/bin/qwen3x-eval-server",
+      "installed_server_sha256": "b4ccef994739ee64d9c6be76b99742fc6f0056ae09456172d517b3a50007bc28",
+      "build_id": "99f5d3f0bd7ad8643c333deb279f2e7a65cb775b",
+      "profile": "q3x.sm87.production.p40.legacy-c512-exact.v3",
+      "witness_version": 16
+    },
+    "candidate": {
+      "source_head": "055fb2457ac8cf7804950cf965d83001f0305d9e",
+      "source_tree": "1bdca99cf4cbd9d73406b0df9ecdb0daf28871d1",
+      "source_clean_and_unchanged": true,
+      "BUILD_TESTING": false,
+      "build_type": "Release",
+      "installed_server": ".q3x-work/install/terminal-prefix-off-20260909-off/bin/qwen3x-eval-server",
+      "installed_server_sha256": "6eb8b1bc098f919c3dcde615a3e4b51cf38691de6910838ffed75dd997f64d28",
+      "build_id": "d51de90545c3618e86348c6edddb9ef21a8fbed8",
+      "profile": "q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1",
+      "witness_version": 20,
+      "production_eligible": false,
+      "release_qualified": false,
+      "build_manifest": {
+        "path": ".q3x-work/evidence/terminal-prefix-off-build-20260909/closeout-manifest.json",
+        "sha256": "2e08bb38790e99783968fd1a7ce6503f6333a3311139e5fd023a2a5f35e43a37",
+        "scope": "Fresh OFF configure/build/install/help, compatible OFF runner/route host checks and capture syntax pass. Original erroneous ON-only protocol test linked against OFF remains failed/unqualified; not rewritten as a pass."
+      }
+    }
+  },
+  "numerical_provenance": {
+    "source_head": "09de1118aab685bc2d62cde21aadc2fa3b5d82f1",
+    "source_tree": "8c827a78f687a3a8ef5ef3d3c9b17379d93cae16",
+    "BUILD_TESTING": true,
+    "capture_schema": 3,
+    "capture_ELF_sha256": "4318252cc7dfafc731ec7993f965eb0de8090f7dd890ae4d0a175f59a9ebcb95",
+    "capture_ELF_build_id": "e5dec5b12e063efe9aaea7397041699197465aa4",
+    "variant": "baseline versus liveness; score-feed disabled in both arms",
+    "ordinary_final_prompt_policy": "P_minus_1_tiled_prefix_then_unchanged_scalar_final",
+    "p40000_comparison": {
+      "path": ".q3x-work/evidence/exact-ordinary-schema3-liveness-p40000-20260909-comparison-r1.json",
+      "sha256": "e60727de58239c23edbfd4a96665886b0a16b225726103e19c457aa942d5211e",
+      "valid_comparison": true,
+      "matched": true
+    },
+    "p576_poison_a": {
+      "path": ".q3x-work/evidence/exact-ordinary-schema3-liveness-p576-poison-a-20260909-comparison-r1.json",
+      "sha256": "65e9ac1cc547cfcbd54b13a56ec032db078d7ebaea92f4781cf91685293bca86",
+      "valid_comparison": true,
+      "matched": true
+    },
+    "p576_poison_b": {
+      "path": ".q3x-work/evidence/exact-ordinary-schema3-liveness-p576-poison-b-20260909-comparison-r1.json",
+      "sha256": "3c65a44cee6cf5d788d68ace530ccd03d3b19b36c8b681ac5bf63d7d65638cc5",
+      "valid_comparison": true,
+      "matched": true
+    },
+    "observed_boundary": "37 complete live-state/used-KV digests at Prefill commit and 37 at generation return; all 16 full-vocabulary BF16-logit digests, live final-row residual/norm, IDs/text, exact role coverage, per-tile dead-prefix preservation and P576 two distinct poison/canary cases. Digests are not retained raw vocabulary vectors or complete public capability evidence.",
+    "OFF_bridge": "The independent 055fb245 candidate preserves the same engine, runner, elision receipt and private liveness hooks. All kernels remain incumbent main; score-feed code is absent. The capture is narrowed to baseline/liveness modes. The ON capture ELF is not the independently built installed OFF server ELF.",
+    "Graph_scope": "Schema3 validates unused short Graph dispositions independently: prepared25 or only successful budget-rejection rollback/full reset. The P40 baseline was budget-rejected-and-rolled-back while liveness prepared25; neither executes a short Graph (zero replays,15 serial fallbacks). Numerical success grants no startup/Graph qualification and never waives OFF readiness.",
+    "timing_authority": false,
+    "startup_qualified": false,
+    "graph_qualified": false
+  },
+  "actual_candidate_route": {
+    "plan_id": "q3x.sm87.legacy-c512.terminal-prefix-elision.v1",
+    "ordinary_attention": "incumbent QT2 and GroupQ64; no score-feed policy",
+    "prefix_schedule": "78*C512+C32+C31",
+    "prefix_passes": 80,
+    "total_logical_passes": 81,
+    "elided_terminal_prefix_passes": 80,
+    "elided_terminal_prefix_rows": 39999,
+    "retained_scalar_prefix_rows": 0,
+    "preserved_terminal_QKV_rows": 40000,
+    "final_query_position": 39999,
+    "causal_end": 40000,
+    "roles_production_exact_fallback": {
+      "gate_up": [0, 5104], "down": [0, 5104], "qkv": [7488, 288],
+      "z": [3744, 144], "o": [4914, 190], "attention": [1200, 16],
+      "gdn": [3744, 144]
+    },
+    "forbidden_hits": 0,
+    "physical_kernel_counts_available": false,
+    "reset": "all four fresh processes already_clean,zero positions,zero bytes"
+  },
+  "cells": {
+    "C1": {
+      "result_path": ".q3x-work/evidence/terminal-prefix-only-p40000-api-20260909-c1/result.json",
+      "result_sha256": "ff9abc89cfbd12d2654c0426b93b29f68861fc5f586907a28e3ce9f2ba8b5e66",
+      "accepted": true,
+      "pure_prefill_ms": 662237.954703, "pure_prefill_tok_s": 60.401249605119915,
+      "external_ttft_ms": 662259.305763, "decode_tpot_ms": 253.91431753333333,
+      "spawn_to_ready_ms": 35673.844436,
+      "graph_free_drop_bytes": 144523264, "graph_prepare_ms": 110.231
+    },
+    "B1": {
+      "result_path": ".q3x-work/evidence/terminal-prefix-only-p40000-api-20260909-b1/result.json",
+      "result_sha256": "475ebdb01173ddb0751e3219e8168176ebbe314654f430341b7adf158ed55ff5",
+      "accepted": true,
+      "pure_prefill_ms": 701129.276511, "pure_prefill_tok_s": 57.05081978469122,
+      "external_ttft_ms": 701151.03575, "decode_tpot_ms": 253.78349500000002,
+      "spawn_to_ready_ms": 35341.159939,
+      "graph_free_drop_bytes": 150896640, "graph_prepare_ms": 109.343
+    },
+    "B2": {
+      "result_path": ".q3x-work/evidence/terminal-prefix-only-p40000-api-20260909-b2/result.json",
+      "result_sha256": "6e2a96a869f8b24082acc2856603ce4aad3d1d39ced4098313f1afb2a2fb0dac",
+      "accepted": true,
+      "pure_prefill_ms": 698244.424088, "pure_prefill_tok_s": 57.28652978825476,
+      "external_ttft_ms": 698266.668769, "decode_tpot_ms": 253.83667766666667,
+      "spawn_to_ready_ms": 35484.412611,
+      "graph_free_drop_bytes": 248934400, "graph_prepare_ms": 109.825
+    },
+    "C2": {
+      "result_path": ".q3x-work/evidence/terminal-prefix-only-p40000-api-20260909-c2/result.json",
+      "result_sha256": "6ed30a34c197fa169d0e7204cdfa21fcbed1a5a79b727f127e59d04d7bb794ff",
+      "accepted": true,
+      "pure_prefill_ms": 662716.552923, "pure_prefill_tok_s": 60.35762925126082,
+      "external_ttft_ms": 662738.703366, "decode_tpot_ms": 253.7934636,
+      "spawn_to_ready_ms": 35484.561616,
+      "graph_free_drop_bytes": 250982400, "graph_prepare_ms": 109.42
+    }
+  },
+  "matched_effects": {
+    "C1_vs_B1": {"pure_prefill_throughput_percent": 5.87271108999512, "external_ttft_percent": -5.546840552748911, "decode_tpot_delta_ms": 0.1308225333333155, "startup_delta_ms": 332.684497000002},
+    "C2_vs_B2": {"pure_prefill_throughput_percent": 5.360945189659083, "external_ttft_percent": -5.088022526642089, "decode_tpot_delta_ms": -0.043214066666678264, "startup_delta_ms": 0.14900499999930616},
+    "interpretation": "Both pure Prefill and external TTFT pairs are positive. Decode changes are small and mixed; startup is +0.94% in the first pair and effectively unchanged in the second. No Decode/startup gain or statistical qualification is claimed."
+  },
+  "safety_and_resource_boundary": {
+    "all_cells_HTTP_200_and_complete_SSE": true,
+    "SSE_counts_each": "16 choices,1 usage,1 DONE; exact common text",
+    "all_cells_25_Graph_slots_and_unchanged_hard_gates": true,
+    "all_cells_exact_inventory_and_8GiB_reserve": true,
+    "matched_clocks": {"cpu_khz": 2201600, "gpu_hz": 1300500000, "emc_hz": 3200000000},
+    "overcurrent_deltas_all_zero": true,
+    "temperature_max_c": {"cpu": 77.968, "gpu": 75.343, "tj": 77.968},
+    "raw_monitor_rejections_preserved": true,
+    "ownership_interpretation": "Independent request-window review accepts control/journald and short B1 package/document-control CPU observations as supporting context, not a zero-contention claim. No foreign GPU owner or confirmed material contention is accepted.",
+    "all_cells_exit_zero_ports_reusable_owned_process_nvmap_closure": true,
+    "planned_request_arena_bytes": 3070908416,
+    "planned_retained_acceleration_sidecar_bytes": 18228101120,
+    "new_runtime_allocation": false,
+    "memory_claim": "Unchanged planned allocations plus actual startup and post-exit observations only. Request peak RSS/PSS/system memory were not measured; no P40 peak-memory non-regression claim is available. Tegra global free memory is not exclusive process ownership."
+  },
+  "source_integration_contract": {
+    "main_parent": "13be53cae8a81824d4242ed2a456e2a8909d6ebb",
+    "candidate_parent": "055fb2457ac8cf7804950cf965d83001f0305d9e",
+    "runtime_headers_tests_CMake": "identical to selected 055fb245; no score-feed code or public selector",
+    "main_metadata": "all pre-existing 13be53c metadata and errata preserved byte-for-byte",
+    "main_fresh_OFF_build_at_selection": "pending",
+    "main_fresh_P40000_O16_API_at_selection": "pending",
+    "main_fresh_EvalScope_1warmup_8measured_plus_raw_SSE_at_selection": "pending",
+    "future_closeout": "Use a fresh installed-main Release/OFF artifact for actual P40000/O16 API and a separate fresh server for standard EvalScope1.9.1 short integration plus raw SSE; bind exact new source/ELF/install identities and preserve false qualification flags. Record those later observations separately, not as candidate results."
+  }
+}

@@ -150,6 +150,35 @@ committed-token boundary. The terminal stop ID remains in
 `generated_token_ids` for exact replay but is omitted from `generated_text`
 only when the reported stop reason is `kImEnd`.
 
+### Ordinary terminal-prefix liveness
+
+`WP-TERMINAL-LAYER-LIVENESS-20260909`, under the active
+[Roadmap work package](ROADMAP.md#2026-09-09-bounded-engineering-window),
+defines a source-private generation adapter for SM87WeightOnly with Legacy-C512
+request state. It is excluded from whole-request execution, trace capture,
+and all-prompt-tile final-token policies. It does not expand the public API or
+select a different final-token numerical tree: the ordinary controller still
+executes the canonical P-1 prefix and its existing scalar final prompt step.
+
+Only eligible prefix tiles with at least two rows use the private liveness
+path described in [the runner contract](REFERENCE_RUNNER.md#private-terminal-prefix-execution).
+Scalar prefix tails, the final prompt step, subsequent Decode, direct runner
+calls, and retained-hidden completion keep their established contracts. Modes
+that expose prefix hidden rows cannot use this adapter. The source-private
+same-ELF A/B control exists only with `BUILD_TESTING=ON`; the ordinary OFF
+profile uses its compiled policy without an environment, CLI, or request
+selector.
+
+The adapter retains legacy per-tile completion and state publication; it is
+not a layer-major whole-request transaction. It adds no cancellation polling
+point or reusable-state authority. A failed invocation publishes no successful
+generation, and cancellation or uncertain execution retains conservative-full
+reset on the next request. This contract does not itself establish P40000/O16
+generation/API qualification or mainline activation, whose current state is
+owned by [Current Status](CURRENT_STATUS.md); the
+[equivalence ledger](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md#6-layer-63-production-liveness-deletion)
+and existing numerical gates remain controlling.
+
 ## Logits and observer semantics
 
 `ReferenceGenerateOptions::logits_mode` defaults to full statistics.

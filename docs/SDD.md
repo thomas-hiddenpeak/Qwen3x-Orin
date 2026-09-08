@@ -6,7 +6,7 @@ q3x_document:
   owner: project-owner
   authority: end-to-end external-to-internal runner system design
   effective: 2026-08-09
-  last_reviewed: 2026-08-27
+  last_reviewed: 2026-09-09
   supersedes: []
   superseded_by: []
   ssot_for: runner product shape, system boundaries, lifecycle, and release architecture
@@ -181,11 +181,10 @@ unsupported host, unknown tactic, or route-coverage gap fails closed. The
 runtime may select among predeclared plan entries using request facts; it may
 not invent a new route.
 
-### 3.1 First installable production profile
+### 3.1 Ordinary compiled profile contract
 
-The first ordinary installed profile is
-`q3x.sm87.production.p40.legacy-c512-exact.v3`. It is built by the
-`orin-release` preset as Release, SM87, and `BUILD_TESTING=OFF`, and installs
+The ordinary server is built by the `orin-release` preset as Release, SM87,
+and `BUILD_TESTING=OFF`, and installs
 `qwen3x-eval-server`, `qwen3x-orin`, `qwen3x-inspect`, and the versioned 0.7.0
 package. The server profile admits `prompt + output - 1 <= 44,095`, exposes a
 40,000-token product prompt and a 4,096-token output ceiling, fixes the exact
@@ -209,6 +208,22 @@ local reverse proxy. This profile is the installed production-shaped artifact
 used for real-model selection, but remains `release_qualified=false` until its
 installed binary passes the target-length, Decode, accuracy, stability, and
 capability gates in Sections 2.2 and 11.
+
+The terminal-prefix profile retains that complete capacity, startup inventory,
+authentication, and Decode contract. Its independent compiled identity is
+`q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1`, with
+`production_eligible=false` and `release_qualified=false`. For this profile,
+the ordinary OFF generation path uses private layer-63 prefix liveness with
+incumbent QT2/GroupQ64 Attention,
+unchanged P-1 scheduling and scalar final arithmetic. No public selector,
+score-feed kernel, new arena, or new C++ ABI is introduced. The retained
+per-tile completion, failure/poison/reset, direct-runner, trace, and hidden-row
+boundaries are owned by the [Engine](REFERENCE_ENGINE.md) and
+[Runner](REFERENCE_RUNNER.md) contracts. v20 identifies actual elision and
+logical role omissions, not kernel launches or a sealed layer-major plan.
+v1/v16 and other existing schemas remain unchanged outside their own scopes.
+Current activation, installed artifact identity, and qualification are owned
+by [Current Status](CURRENT_STATUS.md), not inferred from this profile contract.
 
 ## 4. System decomposition from the API inward
 
@@ -309,9 +324,13 @@ zeroed bytes, and synchronized cleanup duration. This public receipt and the
 associated C++ object-layout changes define package ABI 0.7.0; 0.x consumers
 must rebuild against that exact installed version.
 
-The v3 profile identity supersedes v2 only for the current installed route.
+The v3 profile identity superseded v2 for the 0.7.0 reset-policy route.
 Version 2 remains the immutable identity of the 0.6.0 evidence tuple; it cannot
 name the 0.7.0 request-start cleanup and witness contract.
+The independently named terminal-prefix profile preserves that cleanup
+contract and package version, while v20 records its distinct Prefill topology.
+An engineering-default identity never inherits release or capability
+qualification from its predecessor.
 
 ### 5.3 Engineering evolution state machine
 

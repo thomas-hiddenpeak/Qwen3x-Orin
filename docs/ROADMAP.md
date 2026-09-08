@@ -63,7 +63,7 @@ The 2026-09-09 bounded startup-repair integration closes this gate on fresh
 installed main `d6565eb` / Release-OFF ELF `b4ccef99...`: one warmup, 8/8
 measured EvalScope 1.9.1 short requests, and a separate raw-SSE request pass
 the actual v16 route/reset and owned resource-closure checks. A separate
-completed P40000/O16 profile attributes the current incumbent to QT2 Attention;
+completed P40000/O16 profile attributes that pre-elision incumbent to QT2 Attention;
 it does not select either Prefill candidate. Both observations and the limited
 warmup/output evidence are frozen in the
 [installed-main profile and short closeout record](metadata/qwen36-27b-ordinary-main-p40-nsys-attribution-2026-09-09.json).
@@ -285,8 +285,9 @@ P39936/dual-stream repetition, regular-Q4 repetition or profiling, a Q3--Q5
 same-skeleton Attention span scan, and further work on the rejected AOT
 mapping do not satisfy that return point.
 
-The 0.7.0 request-reuse conversion is now compiled into the ordinary
-`q3x.sm87.production.p40.legacy-c512-exact.v3` lifecycle: creation is already
+The 0.7.0 request-reuse conversion was qualified for retention on the ordinary
+`q3x.sm87.production.p40.legacy-c512-exact.v3` predecessor and is preserved by
+the selected terminal-prefix profile: creation is already
 clean, a prior exact
 successful request clears only its committed K/V prefix plus complete
 Conv/GDN state, and every uncertain boundary performs the existing full
@@ -346,8 +347,9 @@ The first combined terminal-prefix/score-feed version has reached a valid
 negative installed API result and is closed without repetition, profiling, or
 mainline absorption; the immutable boundary is in the
 [combined-v1 rejection record](metadata/qwen36-27b-ordinary-exact-score-feed-v1-api-rejection-2026-09-09.json).
-The remaining bounded steps are independent liveness-only installed API
-selection, and the score-feed package's sole correction: the producer publishes
+The independent liveness-only installed API panel is positive and selects its
+source integration, with installed-main closeout still pending below. The
+other bounded step is the score-feed package's sole correction: the producer publishes
 raw scaled FP32 scores while the consumer owns the complete original ordered
 max/denominator/exponential/PV recurrence. Source review found that v1 retained
 that recurrence on the QK producer; this is a concrete dataflow finding, not a
@@ -374,6 +376,40 @@ a handoff by 09:24. Retain source, commands, exact artifact/workload identities,
 results, rejected versions, and next action under the repository. Complete
 safe milestones are committed and pushed; incomplete or negative runtime
 changes remain isolated from ordinary main.
+
+The independent `WP-TERMINAL-LAYER-LIVENESS-20260909` now has a selected
+source integration that preserves main's repaired startup, complete history,
+and incumbent QT2/GroupQ64 Attention. Its compiled profile is
+`q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1`, with ordinary OFF
+compiled elision, v20 receipts, `production_eligible=false`, and
+`release_qualified=false`. No score-feed code or selector is part of this
+candidate. Both matched ordinary P40000/O16 API pairs are positive; this
+selects the source integration, not an installed-main performance result.
+The exact numerical/installed-API provenance and independent review are in
+the [selection record](metadata/qwen36-27b-terminal-prefix-p40000-api-selection-2026-09-09.json).
+Final source/metadata review precedes the integration merge. Mainline closeout
+requires both a fresh actual P40000/O16 API request and, in a separate fresh
+server lifetime using that same installed-main Release/OFF artifact, standard
+EvalScope 1.9.1 one-warmup/eight-measured requests plus raw SSE. Both retain
+exact artifact, output, route, startup, and resource-closure gates; the short
+protocol also validates dynamic v20 role counts and lifecycle-derived resets.
+Candidate-branch results do not substitute for either mainline closeout.
+Runtime, headers, tests, and
+CMake must remain identical to the selected candidate while all main metadata
+is preserved. Numerical/liveness evidence may be reused only within its exact
+source, ELF, workload, and observed-state scope. A negative selection closes
+the version; neither preparation nor a bounded positive result grants release
+or complete public-capability qualification.
+
+The existing capture schema 3 is retained for bounded numerical-only reuse at
+P576/P1089/P40000/O16. It may accept the unused short-Graph cache's unique
+memory-budget rejection only after successful synchronized rollback and full
+reset, with all live-state/logit/route gates intact; see the
+[capture contract](EVALSCOPE_EVALUATION.md). This is not startup or performance
+qualification and does not weaken installed OFF readiness: all 25 slots,
+exact topology, 256-MiB increment, one-second preparation, and 8-GiB reserve
+remain required. No P40000/API qualification is asserted by candidate source
+or host tests.
 
 `WP-GRAPH-STARTUP-ATTRIBUTION-20260909` is a bounded repair prerequisite
 inside this same window: actual ordinary OFF startup and the matched ON
