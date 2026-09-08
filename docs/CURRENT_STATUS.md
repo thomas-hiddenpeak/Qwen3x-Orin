@@ -34,9 +34,37 @@ SSE/usage, and clean resource closure. All 25 Graph slots passed admission;
 the recorded free-memory drop was 113,025,024 bytes and preparation took
 111.358 ms. This is a completed request and a bounded startup repair result,
 not a Prefill or startup speedup, repeated startup reliability, or release
-qualification. A fresh installed-main integration closeout remains pending.
+qualification. Its fresh installed-main integration closeout has now passed
+below; the installed-main P40000/O16 profile has also completed with the
+current-route attribution in section 4.
 Neither Prefill candidate is absorbed. See the
 [startup repair record](metadata/qwen36-27b-graph-startup-initialization-repair-2026-09-09.json).
+
+Fresh installed main `d6565eb` / ELF `b4ccef99...` reached readiness in
+35,478.588 ms and passed EvalScope 1.9.1 on one warmup plus 8/8 measured short
+requests and a separate raw-SSE request. Mean TTFT was 2,636.723 ms, TPOT
+104.733 ms, and independently recomputed workload prompt throughput
+118.255733 tok/s. Server phase sums gave 189.163535 prompt tok/s and
+9.540915 Decode tok/s; these use different denominators from workload
+throughput. All ten actual v16 P/O, reset, and route receipts pass, as do the
+25-slot Graph inventory, cache drop, owned shutdown, and resource closure.
+The standard client does not store the warmup finish response, so no warmup
+finish-reason claim is made. The eight measured texts match the same request
+bodies in the historical 0.6.0 short corpus, which is bounded output sanity,
+not complete accuracy or a timing comparison. This closes integration health,
+not a speedup, candidate qualification, or release gate; exact identities and
+limits are in the
+[installed-main profile and short closeout record](metadata/qwen36-27b-ordinary-main-p40-nsys-attribution-2026-09-09.json).
+
+Startup stability remains unresolved. Separate original Release/ON captures at
+`8992140` still rejected the 256-MiB Graph increment before generation: P576
+poison-A attempts r1/r2 and P40000 baseline r1 reported approximately 111 ms
+preparation, zero retained slots, and `device_memory_budget_exceeded`.
+These are startup failures, not numerical mismatches. The successful OFF
+integration above does not qualify repeated startup reliability; later
+numerical-only capture success does not qualify ordinary OFF startup or
+retroactively accept those failures. Their raw hashes and diagnostic boundary
+are retained in the same closeout record.
 
 The preceding ordinary installed Release/OFF P40000/O16 request on 2026-09-09
 completed at 57.2572803117 prompt tok/s and 698,623.065496 ms external TTFT.
@@ -641,8 +669,35 @@ exact-arithmetic and non-Legacy scopes. Their measured upward effect is the
 small controlled 4K--32K direction reported in section 1; it must not be
 added to or confused with the unrelated P40 whole-core observation below.
 
-The typed P40 v10 development artifact exposes the retained layer-major,
-single-stream route. For each of 64 layers it performs:
+### Ordinary exact main attribution, 2026-09-09
+
+The fresh installed Release/OFF main artifact at `d6565eb` (ELF
+`b4ccef99...`, Build ID `99f5d3f0...`) completed one bounded real
+P40000/O16 API profile. Its unique generation range contains 80 ordinary
+prefix tiles, the existing scalar final prompt step, and 15 Decode steps.
+QT2 Attention accounts for 557.798038208 s across 1,248 launches, or
+79.84165% of the Prefill kernel-duration sum. The complete Prefill NVTX window
+is 699.202508416 s; cross-stream kernel union is 698.508698848 s, leaving
+0.693809568 s (0.09923%) outside kernels. The 0.121739808-s Gate/Up overlap
+is counted once in that union. This establishes QT2 as the dominant current
+ordinary Prefill cost, not a candidate speedup or a performance prediction.
+
+All 332,976 generation kernels bind uniquely to the exact server process and
+leaf phase, and the official Nsight reports reproduce the per-phase kernel
+counts and nanosecond totals. The profiled engine-call wall also includes
+9.417331081 s outside the generation NVTX range; that time is not assigned to
+Decode or the in-range GPU gaps. Full roles, hashes, source/workload identity,
+cross-checks, and diagnostic-only limits are frozen in the
+[ordinary-main P40 attribution record](metadata/qwen36-27b-ordinary-main-p40-nsys-attribution-2026-09-09.json).
+The same installed-main artifact also passed the short EvalScope integration
+closeout in section 1; neither Prefill candidate is qualified or absorbed by
+these observations.
+
+### Historical v10 route only
+
+The following topology and profile describe the historical typed P40 v10
+development artifact, not the current ordinary exact main route above. Its
+retained layer-major, single-stream route performs, for each of 64 layers:
 
 ```text
 five M8000 fill panels
@@ -651,15 +706,15 @@ five M8000 fill panels
   -> one P40000 Gate+Up/SiLU and Down/residual MLP phase
 ```
 
-The runner's two-slot submission window bounds cancellation and completion
+That v10 runner's two-slot submission window bounds cancellation and completion
 retirement. It is not GPU double buffering: all kernels are submitted to one
 CUDA stream, and the P40 whole-core path does not use the older auxiliary
-branch stream. There is currently no general double- or triple-buffered
+branch stream. That v10 path has no general double- or triple-buffered
 cross-panel/cross-layer pipeline.
 
-The bounded whole-request NSys capture reports 102.121307 s around
+That historical v10 whole-request NSys capture reports 102.121307 s around
 102.113314 s of kernels; only 7.992928 ms, or 0.0078%, lies outside kernels.
-The API and host launch gaps are therefore not the active P40 bottleneck.
+It establishes kernel dominance only for that recorded v10 route.
 
 | Dominant role | Calls | Total | Request share |
 | --- | ---: | ---: | ---: |
@@ -668,9 +723,10 @@ The API and host launch gaps are therefore not the active P40 bottleneck.
 | NVFP4 Down persistent Marlin | 64 | 17,559.457280 ms | 17.19% |
 | Whole-prompt FlashInfer Attention | 16 | 13,634.170272 ms | 13.35% |
 
-These four roles account for about 92.37% of the request, and the current P40
-path is kernel-dominated. Architecture selection, composition scope, and the
-real-API return point are owned only by [`ROADMAP.md`](ROADMAP.md).
+These four roles account for about 92.37% of that historical v10 request;
+their shares must not be used to attribute current ordinary P40 behavior.
+Architecture selection, composition scope, and the real-API return point are
+owned only by [`ROADMAP.md`](ROADMAP.md).
 
 ## 5. Retained and rejected Prefill code
 

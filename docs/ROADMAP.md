@@ -59,6 +59,16 @@ qualification required by the real-model performance policy. The gate cannot
 waive P1/P2/P3 exit criteria or turn
 the loopback evaluation adapter into the final product API.
 
+The 2026-09-09 bounded startup-repair integration closes this gate on fresh
+installed main `d6565eb` / Release-OFF ELF `b4ccef99...`: one warmup, 8/8
+measured EvalScope 1.9.1 short requests, and a separate raw-SSE request pass
+the actual v16 route/reset and owned resource-closure checks. A separate
+completed P40000/O16 profile attributes the current incumbent to QT2 Attention;
+it does not select either Prefill candidate. Both observations and the limited
+warmup/output evidence are frozen in the
+[installed-main profile and short closeout record](metadata/qwen36-27b-ordinary-main-p40-nsys-attribution-2026-09-09.json).
+This closes integration health only, not P3 performance or P4 qualification.
+
 The bounded 2026-08-21 owner-directed prompt-wide absorption batch has closed
 this gate at runtime commit `ff47f179`. It selected only exact, allocation-free
 Legacy-C512 Embedding gather and full-Attention preprocessing, rejected the
@@ -360,8 +370,11 @@ Graph preparation, full topology, and 8-GiB retained-free checks remain intact.
 Complete startup wall time remains observable. This does not assume exclusive
 Graph/module attribution from Tegra's shared free-memory reading. The repair
 has returned successfully to actual ordinary installed P40000/O16 generation
-and is integrated into main source; fresh installed-main integration closure
-remains. It opens no threshold scan, AOT work, or extra performance hypothesis.
+and is integrated into main source; the fresh installed-main short integration
+closeout now passes as recorded above. Repeated startup reliability remains
+unqualified: the separate original ON captures still include Graph increment
+rejections before generation. This opens no threshold scan, AOT work, or
+extra performance hypothesis.
 The [repair record](metadata/qwen36-27b-graph-startup-initialization-repair-2026-09-09.json)
 keeps this boundary separate from any Prefill gain. The preceding blocker is recorded in the
 [ordinary request/startup record](metadata/qwen36-27b-ordinary-p40-startup-and-request-observation-2026-09-09.json).

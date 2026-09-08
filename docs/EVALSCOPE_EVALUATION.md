@@ -6,7 +6,7 @@ q3x_document:
   owner: evaluation-maintainers
   authority: external API evaluation protocol, metric semantics, and artifact requirements
   effective: 2026-08-09
-  last_reviewed: 2026-08-27
+  last_reviewed: 2026-09-09
   supersedes: []
   superseded_by: []
   ssot_for: EvalScope and target-length external evaluation procedure
@@ -1191,6 +1191,31 @@ invalid because its harness reported missing GPU-clock observations and
 identity drift; none of its timing is admissible. Exact hashes, the corrected
 `r2` bundle, resource observations, and claim boundary are frozen in the
 [`current-main production-default closeout`](metadata/qwen36-27b-production-default-mainline-closeout-2026-08-23.json).
+
+### Installed-main startup-repair integration closeout, 2026-09-09
+
+Fresh installed Release/OFF main `d6565eb`, ELF `b4ccef99...`, used the standard
+EvalScope 1.9.1 command above with one warmup and eight measured requests,
+then one separate raw-SSE request. The 8/8 measured requests consumed 3,981
+prompt and 128 completion tokens. Mean TTFT was 2,636.723 ms and TPOT
+104.733 ms; recomputed workload prompt throughput was 118.255733 tok/s.
+Server phase sums separately gave 189.163535 prompt tok/s and 9.540915 Decode
+tok/s. The written zero EvalScope Input Throughput field is not cited.
+
+All ten actual v16 P/O and canonical route receipts, the first `already_clean`
+and subsequent nine committed-prefix resets, complete measured DB outputs,
+separate SSE usage/DONE, startup inventory, ownership, cache drop, shutdown,
+and resource closure pass. Standard EvalScope does not retain the warmup
+response in its DB; its actual P482/O16 witness and the following 497-position
+reset are checked without claiming a retained warmup finish reason. The eight
+measured texts equal the same body-SHA requests in the historical 0.6.0
+closeout, which is bounded text sanity only, not a matched timing comparator
+or full state/logit/public-accuracy qualification. Exact source, installed
+artifact, workload, raw and independent-check hashes are frozen with the
+separate diagnostic P40 profile in the
+[installed-main closeout record](metadata/qwen36-27b-ordinary-main-p40-nsys-attribution-2026-09-09.json).
+This closes fresh-main integration health only; it grants no speedup,
+Prefill-candidate selection, or release authority.
 
 ### Current 0.7.0 ordinary-request reset closeout
 
