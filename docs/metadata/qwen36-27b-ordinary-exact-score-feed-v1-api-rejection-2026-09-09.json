@@ -12,7 +12,7 @@
     "build_id": "77e803d76200c9eba6ffb9bac6c7e64876b350bc",
     "build_server": {
       "bytes": 9096752,
-      "mtime_ns": 1788895977744137700,
+      "mtime_ns": 1788895977744137692,
       "path": "/home/rm01/Qwen3x-Orin/.q3x-work/build/exact-score-feed-off-20260909-off/qwen3x-eval-server",
       "resolved_path": "/home/rm01/Qwen3x-Orin/.q3x-work/build/exact-score-feed-off-20260909-off/qwen3x-eval-server",
       "sha256": "a15c83db4bb6c253882a093a383c9ffa17f892efa763501b8021a896994a032d"
@@ -20,7 +20,7 @@
     "build_type": "Release",
     "cmake_cache": {
       "bytes": 41158,
-      "mtime_ns": 1788895831334536700,
+      "mtime_ns": 1788895831334536805,
       "path": "/home/rm01/Qwen3x-Orin/.q3x-work/build/exact-score-feed-off-20260909-off/CMakeCache.txt",
       "resolved_path": "/home/rm01/Qwen3x-Orin/.q3x-work/build/exact-score-feed-off-20260909-off/CMakeCache.txt",
       "sha256": "bcf25e01d2c5970ec9992ba2d020b4d659cb316bdc4d636d983966443cb0942c"
@@ -29,7 +29,7 @@
     "effective_install_prefix": "/home/rm01/Qwen3x-Orin/.q3x-work/install/exact-score-feed-off-20260909-off",
     "install_manifest": {
       "bytes": 7653,
-      "mtime_ns": 1788899699221935400,
+      "mtime_ns": 1788899699221935264,
       "path": "/home/rm01/Qwen3x-Orin/.q3x-work/build/exact-score-feed-off-20260909-off/install_manifest.txt",
       "resolved_path": "/home/rm01/Qwen3x-Orin/.q3x-work/build/exact-score-feed-off-20260909-off/install_manifest.txt",
       "sha256": "c14e44281e0efd21dbe68951c00d451c5afd70888a5a146829ba45855d9f9b98"
@@ -451,6 +451,19 @@
     "statistical_qualification": false,
     "score_feed_alone_attributed": false
   },
+  "errata": [
+    {
+      "date": "2026-09-09",
+      "superseded_record_commit": "a1e6e9ad864fd63bdd52396cf64fd9b9540fa5ac",
+      "reason": "Independent review found JavaScript Number rounding of three copied nanosecond file identities. Restore the exact integers from the original API result; hashes, measured metrics and rejection are unchanged. No process was rerun.",
+      "source": ".q3x-work/evidence/exact-ordinary-combined-p40000-api-20260909-c1/result.json",
+      "corrections": [
+        {"field": "artifact.build_server.mtime_ns", "old_decimal": "1788895977744137700", "correct_decimal": "1788895977744137692"},
+        {"field": "artifact.cmake_cache.mtime_ns", "old_decimal": "1788895831334536700", "correct_decimal": "1788895831334536805"},
+        {"field": "artifact.install_manifest.mtime_ns", "old_decimal": "1788899699221935400", "correct_decimal": "1788899699221935264"}
+      ]
+    }
+  ],
   "disposition": {
     "v1_repeated": false,
     "v1_profiled": false,

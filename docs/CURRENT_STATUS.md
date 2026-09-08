@@ -41,9 +41,10 @@ Neither Prefill candidate is absorbed. See the
 [startup repair record](metadata/qwen36-27b-graph-startup-initialization-repair-2026-09-09.json).
 
 The first combined terminal-prefix/score-feed candidate is now rejected on
-the actual installed Release/OFF P40000/O16 API. Source `09de111` / installed
-ELF `f9f08154...` passed the ordinary same-ELF numerical gate, including full
-live-state and full-vocabulary-logit digests, then completed the API at
+the actual installed Release/OFF P40000/O16 API. Source `09de111` passed the
+ordinary same-ELF numerical gate using ON capture ELF `4318252c...`, including
+full live-state and full-vocabulary-logit digests. Its separate installed OFF
+ELF `f9f08154...` then completed the API at
 51.1657775463 prompt tok/s and 781,795.433639 ms external TTFT. This is
 10.4918% less throughput than the retained same-workload ordinary request
 above. Output, route, SSE, complete 25-slot startup inventory, fixed clocks,
