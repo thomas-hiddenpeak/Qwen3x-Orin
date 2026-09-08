@@ -286,9 +286,9 @@ class UniqueFd final {
   identity.decode_graph_slots =
       kP40ExactLegacyC512ProductionPlan.decode_graph_slots;
   identity.build_testing = kEvaluationGatewayBuildTesting;
-  identity.production_eligible =
-      !identity.build_testing &&
-      is_p40_exact_legacy_c512_production_profile(options);
+  // This branch installs a named terminal-prefix engineering candidate. OFF
+  // compilation and complete incumbent inventory do not qualify the candidate.
+  identity.production_eligible = false;
   identity.release_qualified = false;
   return identity;
 }

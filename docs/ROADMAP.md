@@ -360,6 +360,30 @@ results, rejected versions, and next action under the repository. Complete
 safe milestones are committed and pushed; incomplete or negative runtime
 changes remain isolated from ordinary main.
 
+The combined terminal-elision/score-feed version is closed after its negative
+actual P40000/O16 API return; it is not repeated or absorbed. The independently
+activated `WP-TERMINAL-LAYER-LIVENESS-20260909` now returns alone to that same
+boundary from main's repaired startup and incumbent QT2/GroupQ64 Attention.
+Its isolated installed profile is
+`q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1`, with ordinary OFF
+compiled elision, v20 receipts, `production_eligible=false`, and
+`release_qualified=false`. No score-feed code or selector is part of this
+candidate. The matched ordinary same-ELF liveness arm must pass before the
+independent installed API direction is read; existing matching liveness/poison
+checks may be reused within their exact code and workload scope. A negative
+result closes this version. A positive direction still requires proportionate
+main comparison and integration checks before any mainline absorption.
+
+The existing capture schema 3 is retained for bounded numerical-only reuse at
+P576/P1089/P40000/O16. It may accept the unused short-Graph cache's unique
+memory-budget rejection only after successful synchronized rollback and full
+reset, with all live-state/logit/route gates intact; see the
+[capture contract](EVALSCOPE_EVALUATION.md). This is not startup or performance
+qualification and does not weaken installed OFF readiness: all 25 slots,
+exact topology, 256-MiB increment, one-second preparation, and 8-GiB reserve
+remain required. No P40000/API qualification is asserted by candidate source
+or host tests.
+
 `WP-GRAPH-STARTUP-ATTRIBUTION-20260909` is a bounded repair prerequisite
 inside this same window: actual ordinary OFF startup and the matched ON
 capture can fail the existing Graph free-drop check before generation.

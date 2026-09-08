@@ -303,6 +303,91 @@ selected by request input, environment, CLI, or a test admission. Missing or
 malformed receipts remain v1 and cannot claim v16. Historical v12 remains
 reserved by the removed phase-local experiment below.
 
+**Draft ordinary-candidate witness addition (2026-09-09).** The following
+v20 contract belongs only to the isolated liveness package under
+[`AC-PREFILL-EXACT-P40-DATAFLOW-20260909`](ROADMAP.md#2026-09-09-bounded-engineering-window).
+They do not establish P40000/O16 correctness, actual-API qualification,
+mainline absorption, or release eligibility. Their matched numerical baseline
+must use ordinary P-1 tiled Prefill plus the existing scalar final prompt step,
+not the historical all-prompt-tile comparator.
+
+`target-prefill-witness-v20` independently identifies terminal-prefix
+liveness through `terminal_prefix_elision.plan_id =
+q3x.sm87.legacy-c512.terminal-prefix-elision.v1`. It is not a layer-major
+DeploymentPlan. The receipt binds terminal layer 63, elided prefix passes and
+rows, retained scalar-prefix rows, complete preserved Q/K/V rows, final query
+position and causal end, the unchanged legacy scalar final step, and the four
+omitted roles. It requires completed, inactive, valid route evidence, complete
+prompt consumption, a committed completion, zero forbidden boundaries, and
+the exact canonical controller schedule. All four role deficits must agree;
+unaffected roles must remain complete. Missing or inconsistent coverage cannot
+claim v20 or available terminal route evidence.
+
+For P40000/C512, the actual P-1 schedule is `78*C512 + C32 + C31`: 80 prefix
+executions covering 39,999 rows, then one unchanged scalar final prompt step.
+The timing vector therefore has 80 prefix entries while logical route coverage
+has 81 passes. All 80 prefixes elide only the terminal suffix; retained
+scalar-prefix rows are zero, preserved terminal Q/K/V rows are 40,000, final
+query position is 39,999, and causal end is 40,000. Counts for another length
+or chunk cap must use `next_prefix_tile_token_count`, not `ceil(P/chunk)`.
+
+For that declared ordinary native inventory, the required completed logical
+dispositions are below. These are route-validation expectations, not observed
+kernel-launch counts or a performance result. Intentional exact fallback must
+remain visible; it must not be rewritten as production execution.
+
+| Role | Production | Exact fallback | Total |
+| --- | ---: | ---: | ---: |
+| NVFP4 Gate/Up | 0 | 5,104 | 5,104 |
+| NVFP4 Down | 0 | 5,104 | 5,104 |
+| FP8 QKV | 7,488 | 288 | 7,776 |
+| FP8 Z | 3,744 | 144 | 3,888 |
+| FP8 O | 4,914 | 190 | 5,104 |
+| Attention | 1,200 | 16 | 1,216 |
+| GDN | 3,744 | 144 | 3,888 |
+
+The isolated installed liveness-only candidate advertises profile
+`q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1`,
+`production_eligible=false`, and `release_qualified=false`, including with
+`BUILD_TESTING=OFF`. Its ordinary default uses incumbent QT2/GroupQ64
+Attention and private terminal-prefix elision, not a score-feed kernel or
+public selector. The profile and elision plan identify compiled policy;
+they do not assert kernel-launch counts. The layer-major `deployment_plan`
+remains unavailable with reason `not_implemented`. A valid reset receipt
+remains available within v20. Requests outside the elision scope retain their
+original v1/v16 serialization; independent layer-major schemas are unchanged.
+Qualification must join exact source/ELF, authenticated model, request/token
+hashes, live-state/output comparison, and the actual OFF API witness. This
+draft describes obligations, not passed P40000/O16 or API results.
+
+The candidate's **capture schema 3** is a separate `BUILD_TESTING=ON`,
+numerical-only protocol, not an API witness version. It admits only
+P576/P1089/P40000 with O16 and the canonical ordinary P-1 schedule. Every
+prefix is a multirow tile; the final prompt and 15 subsequent scalar steps
+are outside short Graph positions 19..43. Startup still requests the ordinary
+short Graph policy. Its `short_graph_cache` receipt accepts either the fully
+admitted 25-slot cache or only `device_memory_budget_exceeded` after exact
+preparation and successful synchronized Graph destruction, full state reset,
+empty-cache verification, and the unchanged retained-free reserve. Other
+preparation, topology, time, memory-probe, or rollback failures remain errors.
+The receipt preserves before/after/drop bytes and preparation time; the
+reported after value precedes any rollback. Both dispositions require the
+measured after value to retain at least 8 GiB and preparation at most one
+second. Generation explicitly retains Graph lookup, requires zero replays,
+15 scalar fallbacks, and an `already_clean` zero-byte request-start receipt.
+
+The schema-3 comparison retains the exact sidecar/arena, source/ELF/model/
+request identities, digests of complete live state and used K/V, all 16
+full-vocabulary BF16-logit digests and live final-row boundaries, route, and
+applicable prefix-preservation/
+dual-poison gates. Legal unused Graph dispositions may differ between arms;
+they are independently checked, not compared as live numerical state. This
+protocol has no timing, startup, Graph, API, capability, or release
+qualification authority. It neither reinterprets earlier capture schemas nor
+changes API v16/v20. In particular, ordinary installed OFF startup still
+requires all 25 slots, exact topology, the 256-MiB increment ceiling,
+one-second preparation ceiling, and 8-GiB reserve before readiness.
+
 A successfully committed sealed layer-major request emits
 `target-prefill-witness-v2`, adding the actual
 execution mode, logical panel count, request-memory profile, bounded-window

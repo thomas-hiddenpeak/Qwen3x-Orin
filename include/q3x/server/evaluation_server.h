@@ -31,9 +31,9 @@ struct EvaluationApiKeyLoadResult {
 
 // Installed/default evaluation-server authority.  A production profile is a
 // complete execution and capacity selection, not a bag of independently
-// mutable command-line tactics.  The first profile deliberately retains the
-// accuracy-qualified Legacy-C512 arithmetic while admitting the P40000
-// product prompt together with the ordinary 4096-token output ceiling.
+// mutable command-line tactics. This isolated engineering candidate retains
+// Legacy-C512 arithmetic and incumbent Attention, adding only private terminal
+// prefix elision. Its distinct identity grants no production/release eligibility.
 enum class EvaluationProductionProfile : std::uint8_t {
   kNone = 0,
   kP40ExactLegacyC512,
@@ -81,7 +81,7 @@ struct EvaluationProductionDeploymentPlan {
 inline constexpr EvaluationProductionDeploymentPlan
     kP40ExactLegacyC512ProductionPlan{
         EvaluationProductionProfile::kP40ExactLegacyC512,
-        "q3x.sm87.production.p40.legacy-c512-exact.v3",
+        "q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1",
         "q3x.sm87.decode.coupled-feed-down-consumer-order.v1",
         40'000U,
         4'096U,

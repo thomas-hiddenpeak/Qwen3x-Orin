@@ -46,7 +46,8 @@ void PrintUsage(std::ostream& output) {
       << "  Deployment profile: "
       << q3x::server::kP40ExactLegacyC512ProductionPlan.id << "\n"
       << "                              P40000 prompt, 4096 output ceiling,\n"
-      << "                              44095 resident Legacy-C512/SM87 capacity\n";
+      << "                              44095 resident Legacy-C512/SM87 capacity\n"
+      << "                              Engineering candidate; not production/release qualified\n";
 #endif
 #if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   output

@@ -2249,7 +2249,7 @@ if(BUILD_TESTING)
   else()
     set_tests_properties(eval_server_help PROPERTIES
       PASS_REGULAR_EXPRESSION
-        "q3x.sm87.production.p40.legacy-c512-exact.v3"
+        "q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1"
     )
     add_test(NAME eval_server_rejects_unbuilt_p40_v10_development_route
       COMMAND qwen3x-eval-server unused

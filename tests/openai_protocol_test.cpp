@@ -64,7 +64,7 @@ class TestContext {
   identity.decode_graph_last_position = 43U;
   identity.decode_graph_slots = 25U;
   identity.build_testing = false;
-  identity.production_eligible = true;
+  identity.production_eligible = false;
   identity.release_qualified = false;
   return identity;
 }
@@ -331,7 +331,7 @@ void test_serialization(TestContext& test) {
   test.expect(valid_json(health) &&
                   health.find("qwen\\\"model") != std::string::npos &&
                   health.find(
-                      R"("profile":"q3x.sm87.production.p40.legacy-c512-exact.v3")") !=
+                      R"("profile":"q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1")") !=
                       std::string::npos &&
                   health.find(R"("target_prompt_tokens":40000)") !=
                       std::string::npos &&
@@ -361,7 +361,7 @@ void test_serialization(TestContext& test) {
                       std::string::npos &&
                   health.find(R"("BUILD_TESTING":false)") !=
                       std::string::npos &&
-                  health.find(R"("production_eligible":true)") !=
+                  health.find(R"("production_eligible":false)") !=
                       std::string::npos &&
                   health.find(R"("release_qualified":false)") !=
                       std::string::npos,
@@ -393,7 +393,7 @@ void test_serialization(TestContext& test) {
                       std::string::npos &&
                   models.find(R"("BUILD_TESTING":false)") !=
                       std::string::npos &&
-                  models.find(R"("production_eligible":true)") !=
+                  models.find(R"("production_eligible":false)") !=
                       std::string::npos &&
                   models.find(R"("release_qualified":false)") !=
                       std::string::npos,
