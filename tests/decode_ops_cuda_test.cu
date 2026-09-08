@@ -2,6 +2,7 @@
 #include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/layout_ops.h"
 #include "q3x/runtime/reference_runner.h"
+#include "../src/runtime/reference_runner_exact_attention_score_feed_internal.h"
 
 #include <cuda_runtime.h>
 
@@ -10368,6 +10369,268 @@ void run_bulk_gqa_correctness_case(
   }
 }
 
+// Exact-only admission for the score-feed architecture. This deliberately
+// does not call the file's legacy synthetic performance routines.
+void run_bulk_gqa_score_feed_exact_case(
+    TestContext& test, cudaStream_t stream, const std::size_t first_position,
+    const std::size_t token_count, const unsigned int fixture) {
+  namespace detail = q3x::runtime::reference_runner_detail;
+  using Selection = detail::ExactAttentionScoreFeedForTest;
+  const int failures_before = test.failures();
+  const std::string label = "score-feed exact P" +
+      std::to_string(first_position) + " C" + std::to_string(token_count) +
+      " fixture" + std::to_string(fixture);
+  const std::size_t query_elements = token_count * kBulkGqaQueryElementsPerToken;
+  const std::size_t cache_elements =
+      (first_position + token_count) * kBulkGqaKvElementsPerToken;
+  const std::size_t future_elements = 3U * kBulkGqaKvElementsPerToken;
+  // Aligned guard width is required by the packed uint32 production contract.
+  std::array<ManagedBuffer<std::uint16_t>, 8> buffers;
+  std::array<std::uint16_t*, 8> data{};
+  for (std::size_t index = 0U; index < buffers.size(); ++index) {
+    const std::size_t count = (index == 1U || index == 2U)
+        ? cache_elements + future_elements : query_elements;
+    if (!test.cuda_ok(buffers[index].allocate(count + 2U * kBulkGqaGuardElements),
+                      label + " allocate " + std::to_string(index))) {
+      return;
+    }
+    std::fill_n(buffers[index].data(), buffers[index].size(), kBulkGqaGuard);
+    data[index] = buffers[index].data() + kBulkGqaGuardElements;
+  }
+  auto* const query = data[0];
+  auto* const key = data[1];
+  auto* const value = data[2];
+  auto* const gate = data[3];
+  auto* const oracle = data[4];
+  auto* const candidate = data[5];
+  auto* const fixed = data[6];
+  auto* const replay = data[7];
+  std::uint32_t random = 0x6176'3d2bU;
+  const auto finite_value = [&]() {
+    return encode_bf16(static_cast<float>(
+        static_cast<int>(next_deterministic_random(random) % 257U) - 128) /
+        32.0F);
+  };
+  for (std::size_t index = 0U; index < query_elements; ++index) {
+    query[index] = finite_value();
+    gate[index] = fixture == 2U ? static_cast<std::uint16_t>(index)
+                              : finite_value();
+  }
+  for (std::size_t index = 0U; index < cache_elements; ++index) {
+    key[index] = finite_value();
+    value[index] = finite_value();
+  }
+  if (fixture == 1U) {
+    constexpr std::array<std::uint16_t, 16> special = {
+        0x0000U, 0x8000U, 0x0001U, 0x8001U, 0x007fU, 0x807fU,
+        0x0080U, 0x8080U, 0x7f7fU, 0xff7fU, 0x7f80U, 0xff80U,
+        0x7f81U, 0xff81U, 0x7fc1U, 0xffc1U};
+    for (std::size_t token = 0U; token < token_count; ++token) {
+      for (std::size_t head = 0U; head < kBulkGqaQueryHeads; ++head) {
+        const std::size_t offset =
+            token * kBulkGqaQueryElementsPerToken + head * kBulkGqaDimension;
+        query[offset] = special[(head + token) % special.size()];
+        for (std::size_t dimension = 0U; dimension < kBulkGqaDimension;
+             ++dimension) {
+          gate[offset + dimension] = special[dimension % special.size()];
+        }
+      }
+    }
+    for (std::size_t position = 0U;
+         position < first_position + token_count; ++position) {
+      // Separate K and V exceptional paths; leave other KV groups finite.
+      key[position * kBulkGqaKvElementsPerToken + kBulkGqaDimension] =
+          special[position % special.size()];
+      value[position * kBulkGqaKvElementsPerToken + 2U * kBulkGqaDimension] =
+          special[position % special.size()];
+    }
+  } else if (fixture == 3U) {
+    // Exact scores 0,-100,100,-100 exercise subnormal correction/probability
+    // and complete underflow in both PV branches. Large finite V makes a
+    // subnormal coefficient observable before BF16 publication.
+    std::fill_n(query, query_elements, 0x0000U);
+    std::fill_n(key, cache_elements, 0x0000U);
+    for (std::size_t row = 0U; row < token_count * kBulkGqaQueryHeads; ++row) {
+      query[row * kBulkGqaDimension] = encode_bf16(16.0F);
+    }
+    constexpr std::array<float, 4> scores = {0.0F, -100.0F, 100.0F, -100.0F};
+    constexpr std::array<std::uint16_t, 8> values = {
+        0x0000U, 0x8000U, 0x0001U, 0x8001U,
+        0x7f7fU, 0xff7fU, 0x3f80U, 0xbf80U};
+    for (std::size_t row = 0U;
+         row < (first_position + token_count) * kBulkGqaKvHeads; ++row) {
+      const std::size_t position = row / kBulkGqaKvHeads;
+      key[row * kBulkGqaDimension] = encode_bf16(scores[position % scores.size()]);
+      for (std::size_t dimension = 0U; dimension < kBulkGqaDimension; ++dimension) {
+        value[row * kBulkGqaDimension + dimension] =
+            values[(dimension + position) % values.size()];
+      }
+    }
+  }
+  std::array<std::vector<std::uint16_t>, 4> snapshots;
+  for (std::size_t index = 0U; index < snapshots.size(); ++index) {
+    snapshots[index].assign(buffers[index].data(),
+                            buffers[index].data() + buffers[index].size());
+  }
+  const bool group_prefix = q3x::runtime::use_bulk_causal_gqa_group_q64_prefill(
+      first_position, token_count);
+  const Selection previous = detail::exchange_exact_attention_score_feed_for_test(
+      Selection::kIncumbentQt2);
+  const auto launch_route = [&](std::uint16_t* output, const bool sealed) {
+    return sealed
+        ? q3x::runtime::launch_bulk_causal_gqa_sigmoid_gate_24_4_256_fixed_cuda(
+              query, key, value, gate, first_position, token_count, output, stream)
+        : q3x::runtime::launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
+              query, key, value, gate, first_position, token_count, output, stream);
+  };
+  bool ready = test.cuda_ok(static_cast<cudaError_t>(launch_route(oracle, false)),
+                            label + " incumbent");
+  ready = test.cuda_ok(cudaStreamSynchronize(stream), label + " incumbent sync") &&
+          ready;
+  (void)detail::exchange_exact_attention_score_feed_for_test(Selection::kScoreFeed);
+  (void)detail::exchange_exact_attention_score_feed_launch_hits_for_test(0U);
+  ready = test.cuda_ok(static_cast<cudaError_t>(launch_route(candidate, false)),
+                       label + " ordinary candidate") && ready;
+  ready = test.cuda_ok(static_cast<cudaError_t>(launch_route(fixed, true)),
+                       label + " sealed candidate") && ready;
+  ready = test.cuda_ok(cudaStreamSynchronize(stream), label + " candidate sync") &&
+          ready;
+  BulkGqaGraphTopology topology;
+  ready = capture_bulk_gqa_graph(test, stream, label + " graph", [&]() {
+    return launch_route(replay, true);
+  }, true, topology) && ready;
+  const std::size_t candidate_hits =
+      detail::exchange_exact_attention_score_feed_launch_hits_for_test(0U);
+  (void)detail::exchange_exact_attention_score_feed_for_test(previous);
+  test.expect(candidate_hits == (group_prefix ? 0U : 3U),
+              label + " exact accepted candidate count / GroupQ64 exclusion");
+  if (!group_prefix) {
+    test.expect(topology.node_count == 1U && topology.kernel_node_count == 1U &&
+                    topology.grid.x == (token_count + 1U) / 2U &&
+                    topology.grid.y == 4U && topology.grid.z == 1U &&
+                    topology.block.x == 384U && topology.block.y == 1U &&
+                    topology.block.z == 1U && topology.dynamic_shared_bytes == 0U,
+                label + " one fixed score-feed kernel, no scratch allocation");
+  }
+  if (ready) {
+    expect_bf16_bits_equal(test, candidate, oracle, query_elements,
+                           label + " ordinary vs original QT2/prefix");
+    expect_bf16_bits_equal(test, fixed, oracle, query_elements,
+                           label + " sealed vs original QT2/prefix");
+    expect_bf16_bits_equal(test, replay, oracle, query_elements,
+                           label + " Graph vs original QT2/prefix");
+    // Different initial output poison proves complete writes independently
+    // of the NaN guard payload used by the first launch and graph replay.
+    std::fill_n(candidate, query_elements, 0x0000U);
+    const int direct_status = group_prefix ? launch_route(candidate, false)
+        : detail::launch_exact_attention_score_feed_for_test_cuda(
+              query, key, value, gate, first_position, token_count, candidate,
+              stream);
+    ready = test.cuda_ok(static_cast<cudaError_t>(direct_status),
+                         label + " dual-poison direct launch") &&
+            test.cuda_ok(cudaStreamSynchronize(stream), label + " poison sync");
+    if (ready) {
+      expect_bf16_bits_equal(test, candidate, oracle, query_elements,
+                             label + " dual-poison exact replay");
+    }
+  }
+  for (std::size_t index = 0U; index < snapshots.size(); ++index) {
+    test.expect(std::equal(snapshots[index].begin(), snapshots[index].end(),
+                            buffers[index].data()),
+                label + " preserves input, future poison and guards " +
+                    std::to_string(index));
+  }
+  for (std::size_t index = 4U; index < buffers.size(); ++index) {
+    const auto is_guard = [](std::uint16_t bits) { return bits == kBulkGqaGuard; };
+    test.expect(std::all_of(buffers[index].data(), data[index], is_guard) &&
+                    std::all_of(data[index] + query_elements,
+                                buffers[index].data() + buffers[index].size(),
+                                is_guard),
+                label + " preserves output guards " + std::to_string(index));
+  }
+  if (first_position == 17U && token_count == 3U && fixture == 0U) {
+    // Exercise validation on the actual candidate admission, including empty
+    // captured graphs. Invalid direct calls must also leave the hit count zero.
+    const auto invalid = [&](const std::uint16_t* q, const std::uint16_t* k,
+                             const std::uint16_t* v, const std::uint16_t* g,
+                             std::size_t first, std::size_t count,
+                             std::uint16_t* out) {
+      if (!test.cuda_ok(cudaStreamBeginCapture(stream,
+                           cudaStreamCaptureModeThreadLocal),
+                        label + " invalid begin capture")) {
+        return;
+      }
+      const int status = detail::launch_exact_attention_score_feed_for_test_cuda(
+          q, k, v, g, first, count, out, stream);
+      test.expect(status == static_cast<int>(cudaErrorInvalidValue),
+                  label + " invalid direct admission rejects");
+      cudaGraph_t graph = nullptr;
+      if (test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                       label + " invalid end capture")) {
+        std::size_t nodes = 1U;
+        (void)test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &nodes),
+                           label + " invalid node count");
+        test.expect(nodes == 0U, label + " invalid zero enqueue");
+        (void)test.cuda_ok(cudaGraphDestroy(graph), label + " invalid destroy");
+      }
+    };
+    (void)detail::exchange_exact_attention_score_feed_launch_hits_for_test(0U);
+    invalid(query, key, value, gate, 17U, 1U, candidate);
+    invalid(query, key, value, gate, 17U, 513U, candidate);
+    invalid(query, key, value, gate,
+            q3x::runtime::kBulkCausalGqaMaximumSequenceLength - 2U, 3U, candidate);
+    invalid(nullptr, key, value, gate, 17U, 3U, candidate);
+    invalid(query, nullptr, value, gate, 17U, 3U, candidate);
+    invalid(query, key, nullptr, gate, 17U, 3U, candidate);
+    invalid(query, key, value, nullptr, 17U, 3U, candidate);
+    invalid(query, key, value, gate, 17U, 3U, nullptr);
+    invalid(query + 1U, key, value, gate, 17U, 3U, candidate);
+    invalid(query, key, key, gate, 17U, 3U, candidate);
+    invalid(query, key, value, gate, 17U, 3U, query);
+    test.expect(detail::exchange_exact_attention_score_feed_launch_hits_for_test(
+                    0U) == 0U, label + " rejected launches have no hit");
+  }
+  std::cout << "BULK_GQA_SCORE_FEED_EXACT: first_position=" << first_position
+            << " token_count=" << token_count << " fixture=" << fixture
+            << " candidate_hits=" << candidate_hits
+            << " gate=" << (test.failures() == failures_before ? "PASS" : "FAIL")
+            << '\n';
+}
+
+void test_bulk_gqa_score_feed_exact(TestContext& test, cudaStream_t stream) {
+  namespace detail = q3x::runtime::reference_runner_detail;
+  BulkGqaResources resources;
+  if (!test.cuda_ok(static_cast<cudaError_t>(
+          detail::query_exact_attention_score_feed_resources_for_test_cuda(
+              &resources.registers, &resources.static_shared_bytes,
+              &resources.local_bytes, &resources.maximum_threads,
+              &resources.active_blocks_per_multiprocessor)),
+          "score-feed resource query")) {
+    return;
+  }
+  test.expect(resources.static_shared_bytes <= 36U * 1024U &&
+                  resources.maximum_threads >= 384 &&
+                  resources.active_blocks_per_multiprocessor >= 1,
+              "score-feed bounded launch resources");
+  std::cout << "BULK_GQA_SCORE_FEED_RESOURCES: registers=" << resources.registers
+            << " static_shared=" << resources.static_shared_bytes
+            << " local=" << resources.local_bytes
+            << " max_threads=" << resources.maximum_threads
+            << " active_blocks=" << resources.active_blocks_per_multiprocessor
+            << '\n';
+  run_bulk_gqa_score_feed_exact_case(test, stream, 17U, 3U, 0U);
+  run_bulk_gqa_score_feed_exact_case(test, stream, 17U, 3U, 1U);
+  run_bulk_gqa_score_feed_exact_case(test, stream, 17U, 3U, 3U);
+  run_bulk_gqa_score_feed_exact_case(test, stream, 17U, 16U, 2U);
+  run_bulk_gqa_score_feed_exact_case(test, stream, 1024U, 2U, 0U);
+  run_bulk_gqa_score_feed_exact_case(test, stream, 1024U, 63U, 0U);
+  run_bulk_gqa_score_feed_exact_case(test, stream, 1024U, 416U, 0U);
+  run_bulk_gqa_score_feed_exact_case(test, stream, 1024U, 512U, 0U);
+  run_bulk_gqa_score_feed_exact_case(test, stream, 39936U, 63U, 0U);
+  run_bulk_gqa_score_feed_exact_case(test, stream, 0U, 3U, 0U);
+  run_bulk_gqa_score_feed_exact_case(test, stream, 512U, 3U, 0U);
+}
+
 void test_bulk_causal_gqa_prefill_contract(TestContext& test,
                                            cudaStream_t stream) {
   BulkGqaResources resources;
@@ -10671,7 +10934,13 @@ void test_nonfinite(TestContext& test, cudaStream_t stream) {
 
 }  // namespace
 
-int main() {
+int main(const int argc, char** argv) {
+  const bool score_feed_only = argc == 2 &&
+      std::string_view(argv[1]) == "--bulk-score-feed-exact-only";
+  if (argc != 1 && !score_feed_only) {
+    std::cerr << "Usage: q3x_decode_ops_cuda_test [--bulk-score-feed-exact-only]\n";
+    return 2;
+  }
   TestContext test;
   test_launch_validation(test);
   test_residual_add_launch_validation(test);
@@ -10697,6 +10966,12 @@ int main() {
   if (!test.cuda_ok(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
                     "create decode-op stream")) {
     return 1;
+  }
+
+  if (score_feed_only) {
+    test_bulk_gqa_score_feed_exact(test, stream);
+    (void)test.cuda_ok(cudaStreamDestroy(stream), "destroy score-feed stream");
+    return test.failures() == 0 ? 0 : 1;
   }
 
   test_embedding(test, stream);

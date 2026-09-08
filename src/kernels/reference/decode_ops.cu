@@ -1,5 +1,6 @@
 #include "q3x/runtime/decode_ops.h"
 
+#include "reference_runner_exact_attention_score_feed_internal.h"
 #include "reference_runner_prompt_wide_policy_internal.h"
 
 #include <cooperative_groups.h>
@@ -85,6 +86,13 @@ constexpr unsigned int kBulkGqaThreads =
 constexpr std::size_t kBulkGqaMaximumSequence =
     kBulkCausalGqaMaximumSequenceLength;
 constexpr float kBulkGqaAttentionScale = 1.0F / 16.0F;
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+constexpr unsigned int kBulkGqaScoreFeedThreads = 2U * kBulkGqaThreads;
+thread_local reference_runner_detail::ExactAttentionScoreFeedForTest
+    exact_attention_score_feed_selection =
+        reference_runner_detail::ExactAttentionScoreFeedForTest::kIncumbentQt2;
+thread_local std::size_t exact_attention_score_feed_launch_hits = 0U;
+#endif
 constexpr std::size_t kQkRopeQueryHeads = 24U;
 constexpr std::size_t kQkRopeKvHeads = 4U;
 constexpr std::size_t kFullPreprocessQueryHeads = 24U;
@@ -1582,6 +1590,290 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_kernel(
   }
 }
 
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+// WP-EXACT-ATTENTION-SCORE-FEED-20260909. The two-query numerical tree is
+// unchanged: six producer warps compute its original eight-FMA / 16->1 warp
+// scores, and lane zero advances each query's ordered softmax scalar state.
+// Six consumer warps advance the original per-dimension PV recurrence from
+// those FP32 coefficients. A producer works on tile n while its consumer
+// works on tile n-1; neither key order nor an arithmetic publication changes.
+// In particular, the two PV branches are NOT replaced by a unified affine
+// update: their FMA operand order and exceptional-value behavior differ.
+__global__ __launch_bounds__(kBulkGqaScoreFeedThreads)
+void bulk_causal_gqa_sigmoid_gate_score_feed_24_4_256_kernel(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::uint16_t* const gate,
+    const unsigned int first_position,
+    const unsigned int token_count,
+    std::uint16_t* const output) {
+  __shared__ std::uint32_t
+      key_words[2][kBulkGqaKvTile][kBulkGqaPackedDimension];
+  __shared__ std::uint32_t
+      value_words[2][kBulkGqaKvTile][kBulkGqaPackedDimension];
+  __shared__ float coefficients[2][kBulkGqaQueriesPerKv]
+                               [kBulkGqaQueryTile][kBulkGqaKvTile];
+  __shared__ unsigned int new_maximum[2][kBulkGqaQueriesPerKv]
+                                      [kBulkGqaQueryTile][kBulkGqaKvTile];
+  __shared__ float final_denominators[kBulkGqaQueriesPerKv][kBulkGqaQueryTile];
+  constexpr unsigned int kWordsPerLane = kBulkGqaPackedDimension / 32U;
+  constexpr unsigned int kValuesPerLane = 2U * kWordsPerLane;
+  constexpr unsigned int kWordsPerKvTile =
+      kBulkGqaKvTile * kBulkGqaPackedDimension;
+
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread >> 5U;
+  const unsigned int lane = thread & 31U;
+  const bool producer = warp < kBulkGqaQueriesPerKv;
+  const unsigned int head_in_group =
+      producer ? warp : warp - kBulkGqaQueriesPerKv;
+  const unsigned int kv_head = blockIdx.y;
+  const unsigned int query_head =
+      kv_head * kBulkGqaQueriesPerKv + head_in_group;
+  const unsigned int first_query_token = blockIdx.x * kBulkGqaQueryTile;
+
+  // The same register slots hold Q in producers and PV in consumers. Neither
+  // role needs the other's sixteen live FP32 values.
+  float owned_values[kBulkGqaQueryTile][kValuesPerLane];
+  float maxima[kBulkGqaQueryTile];
+  float denominators[kBulkGqaQueryTile];
+#pragma unroll
+  for (unsigned int local_query = 0U;
+       local_query < kBulkGqaQueryTile; ++local_query) {
+    const unsigned int token = first_query_token + local_query;
+    maxima[local_query] = -__int_as_float(0x7f800000);
+    denominators[local_query] = 0.0F;
+#pragma unroll
+    for (unsigned int word_slot = 0U; word_slot < kWordsPerLane;
+         ++word_slot) {
+      std::uint32_t packed = 0U;
+      if (producer && token < token_count) {
+        const unsigned int word = lane + 32U * word_slot;
+        const std::size_t packed_offset =
+            (static_cast<std::size_t>(token) * kBulkGqaQueryHeads +
+             query_head) * kBulkGqaPackedDimension + word;
+        packed = reinterpret_cast<const std::uint32_t*>(query)[packed_offset];
+      }
+      owned_values[local_query][2U * word_slot] =
+          decode_bf16_device(static_cast<std::uint16_t>(packed));
+      owned_values[local_query][2U * word_slot + 1U] =
+          decode_bf16_device(static_cast<std::uint16_t>(packed >> 16U));
+    }
+  }
+  const unsigned int last_query_token =
+      first_query_token + 1U < token_count ? first_query_token + 1U
+                                          : first_query_token;
+  const unsigned int causal_kv_length = first_position + last_query_token + 1U;
+  const unsigned int tile_count =
+      (causal_kv_length + kBulkGqaKvTile - 1U) / kBulkGqaKvTile;
+
+  // At the entry to iteration n, slot (n-1)&1 is published and slot n&1 has
+  // no readers. All threads load n, then producers and consumers independently
+  // process n and n-1. The bottom barrier both publishes n and retires n-1.
+  // Iteration zero primes the pipe; iteration tile_count drains it. Every
+  // thread reaches both barriers, including invalid odd-tail query lanes.
+  for (unsigned int iteration = 0U; iteration <= tile_count; ++iteration) {
+    const unsigned int produce_slot = iteration & 1U;
+    const unsigned int kv_tile_start = iteration * kBulkGqaKvTile;
+    if (iteration < tile_count) {
+      for (unsigned int packed_index = thread;
+           packed_index < 2U * kWordsPerKvTile;
+           packed_index += kBulkGqaScoreFeedThreads) {
+        const bool is_value = packed_index >= kWordsPerKvTile;
+        const unsigned int tile_index =
+            is_value ? packed_index - kWordsPerKvTile : packed_index;
+        const unsigned int local_position =
+            tile_index / kBulkGqaPackedDimension;
+        const unsigned int word = tile_index % kBulkGqaPackedDimension;
+        const unsigned int position = kv_tile_start + local_position;
+        std::uint32_t packed = 0U;
+        if (position < causal_kv_length) {
+          const std::size_t cache_offset =
+              (static_cast<std::size_t>(position) * kBulkGqaKvHeads + kv_head) *
+                  kBulkGqaPackedDimension + word;
+          packed = is_value
+                       ? reinterpret_cast<const std::uint32_t*>(value_cache)
+                             [cache_offset]
+                       : reinterpret_cast<const std::uint32_t*>(key_cache)
+                             [cache_offset];
+        }
+        if (is_value) {
+          value_words[produce_slot][local_position][word] = packed;
+        } else {
+          key_words[produce_slot][local_position][word] = packed;
+        }
+      }
+    }
+    __syncthreads();
+    if (producer && iteration < tile_count) {
+      const unsigned int remaining = causal_kv_length - kv_tile_start;
+      const unsigned int active_positions =
+          remaining < kBulkGqaKvTile ? remaining : kBulkGqaKvTile;
+#pragma unroll 1
+      for (unsigned int local_position = 0U;
+           local_position < active_positions; ++local_position) {
+        float key_values[kValuesPerLane];
+#pragma unroll
+        for (unsigned int word_slot = 0U; word_slot < kWordsPerLane;
+             ++word_slot) {
+          const unsigned int word = lane + 32U * word_slot;
+          const std::uint32_t packed =
+              key_words[produce_slot][local_position][word];
+          key_values[2U * word_slot] =
+              decode_bf16_device(static_cast<std::uint16_t>(packed));
+          key_values[2U * word_slot + 1U] =
+              decode_bf16_device(static_cast<std::uint16_t>(packed >> 16U));
+        }
+        const unsigned int position = kv_tile_start + local_position;
+#pragma unroll
+        for (unsigned int local_query = 0U;
+             local_query < kBulkGqaQueryTile; ++local_query) {
+          const unsigned int token = first_query_token + local_query;
+          if (token >= token_count || position > first_position + token) {
+            continue;
+          }
+          float score = 0.0F;
+#pragma unroll
+          for (unsigned int value_slot = 0U;
+               value_slot < kValuesPerLane; ++value_slot) {
+            score = fmaf(owned_values[local_query][value_slot],
+                         key_values[value_slot], score);
+          }
+#pragma unroll
+          for (unsigned int offset = 16U; offset != 0U; offset >>= 1U) {
+            const float other = __shfl_down_sync(0xffff'ffffU, score, offset);
+            if (lane < offset) {
+              score += other;
+            }
+          }
+          if (lane == 0U) {
+            score *= kBulkGqaAttentionScale;
+            const bool raises_maximum = score > maxima[local_query];
+            float coefficient;
+            if (raises_maximum) {
+              coefficient = expf(maxima[local_query] - score);
+              denominators[local_query] =
+                  denominators[local_query] * coefficient + 1.0F;
+              maxima[local_query] = score;
+            } else {
+              coefficient = expf(score - maxima[local_query]);
+              denominators[local_query] += coefficient;
+            }
+            coefficients[produce_slot][head_in_group]
+                        [local_query][local_position] = coefficient;
+            new_maximum[produce_slot][head_in_group]
+                       [local_query][local_position] = raises_maximum ? 1U : 0U;
+          }
+        }
+      }
+      if (lane == 0U && iteration + 1U == tile_count) {
+#pragma unroll
+        for (unsigned int local_query = 0U;
+             local_query < kBulkGqaQueryTile; ++local_query) {
+          final_denominators[head_in_group][local_query] =
+              denominators[local_query];
+        }
+      }
+    } else if (!producer && iteration != 0U) {
+      const unsigned int consume_slot = (iteration - 1U) & 1U;
+      const unsigned int consume_start = (iteration - 1U) * kBulkGqaKvTile;
+      const unsigned int remaining = causal_kv_length - consume_start;
+      const unsigned int active_positions =
+          remaining < kBulkGqaKvTile ? remaining : kBulkGqaKvTile;
+#pragma unroll 1
+      for (unsigned int local_position = 0U;
+           local_position < active_positions; ++local_position) {
+        float value_values[kValuesPerLane];
+#pragma unroll
+        for (unsigned int word_slot = 0U; word_slot < kWordsPerLane;
+             ++word_slot) {
+          const unsigned int word = lane + 32U * word_slot;
+          const std::uint32_t packed =
+              value_words[consume_slot][local_position][word];
+          value_values[2U * word_slot] =
+              decode_bf16_device(static_cast<std::uint16_t>(packed));
+          value_values[2U * word_slot + 1U] =
+              decode_bf16_device(static_cast<std::uint16_t>(packed >> 16U));
+        }
+        const unsigned int position = consume_start + local_position;
+#pragma unroll
+        for (unsigned int local_query = 0U;
+             local_query < kBulkGqaQueryTile; ++local_query) {
+          const unsigned int token = first_query_token + local_query;
+          if (token >= token_count || position > first_position + token) {
+            continue;
+          }
+          const float coefficient = coefficients[consume_slot][head_in_group]
+                                                [local_query][local_position];
+          if (new_maximum[consume_slot][head_in_group]
+                         [local_query][local_position] != 0U) {
+#pragma unroll
+            for (unsigned int value_slot = 0U;
+                 value_slot < kValuesPerLane; ++value_slot) {
+              owned_values[local_query][value_slot] =
+                  fmaf(owned_values[local_query][value_slot], coefficient,
+                       value_values[value_slot]);
+            }
+          } else {
+#pragma unroll
+            for (unsigned int value_slot = 0U;
+                 value_slot < kValuesPerLane; ++value_slot) {
+              owned_values[local_query][value_slot] =
+                  fmaf(coefficient, value_values[value_slot],
+                       owned_values[local_query][value_slot]);
+            }
+          }
+        }
+      }
+    }
+    __syncthreads();
+  }
+  if (producer) {
+    return;
+  }
+#pragma unroll
+  for (unsigned int local_query = 0U;
+       local_query < kBulkGqaQueryTile; ++local_query) {
+    const unsigned int token = first_query_token + local_query;
+    if (token >= token_count) {
+      continue;
+    }
+    const float denominator = final_denominators[head_in_group][local_query];
+#pragma unroll
+    for (unsigned int word_slot = 0U; word_slot < kWordsPerLane; ++word_slot) {
+      const unsigned int word = lane + 32U * word_slot;
+      const unsigned int value_slot = 2U * word_slot;
+      const std::size_t packed_offset =
+          (static_cast<std::size_t>(token) * kBulkGqaQueryHeads + query_head) *
+              kBulkGqaPackedDimension + word;
+      const std::uint32_t packed_gate =
+          reinterpret_cast<const std::uint32_t*>(gate)[packed_offset];
+      std::uint32_t packed_output = 0U;
+#pragma unroll
+      for (unsigned int pair_element = 0U; pair_element < 2U; ++pair_element) {
+        const unsigned int slot = value_slot + pair_element;
+        const std::uint16_t rounded_attention =
+            encode_bf16_device(owned_values[local_query][slot] / denominator);
+        const float gate_value = decode_bf16_device(
+            pair_element == 0U
+                ? static_cast<std::uint16_t>(packed_gate)
+                : static_cast<std::uint16_t>(packed_gate >> 16U));
+        const float sigmoid =
+            gate_value >= 0.0F
+                ? 1.0F / (1.0F + expf(-gate_value))
+                : expf(gate_value) / (1.0F + expf(gate_value));
+        const std::uint16_t gated = encode_bf16_device(
+            decode_bf16_device(rounded_attention) * sigmoid);
+        packed_output |= static_cast<std::uint32_t>(gated)
+                         << (16U * pair_element);
+      }
+      reinterpret_cast<std::uint32_t*>(output)[packed_offset] = packed_output;
+    }
+  }
+}
+#endif
+
 // Test-only predecessor retained for direct production comparisons. Each CTA
 // owns one query head, and every position uses the original block-wide shared
 // reduction tree. The remaining softmax, value, BF16 boundary, probability-
@@ -2606,6 +2898,92 @@ int query_attention_values_exact_24_4_256_test_cuda_resources(
   return static_cast<int>(cudaSuccess);
 }
 
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+reference_runner_detail::ExactAttentionScoreFeedForTest
+reference_runner_detail::exchange_exact_attention_score_feed_for_test(
+    const ExactAttentionScoreFeedForTest selection) noexcept {
+  const ExactAttentionScoreFeedForTest previous =
+      exact_attention_score_feed_selection;
+  // Unknown values cannot admit the candidate.
+  exact_attention_score_feed_selection =
+      selection == ExactAttentionScoreFeedForTest::kScoreFeed
+          ? selection : ExactAttentionScoreFeedForTest::kIncumbentQt2;
+  return previous;
+}
+
+std::size_t reference_runner_detail::
+    exchange_exact_attention_score_feed_launch_hits_for_test(
+        const std::size_t hits) noexcept {
+  const std::size_t previous = exact_attention_score_feed_launch_hits;
+  exact_attention_score_feed_launch_hits = hits;
+  return previous;
+}
+
+int reference_runner_detail::launch_exact_attention_score_feed_for_test_cuda(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (!valid_bulk_causal_gqa_arguments(query, key_cache, value_cache, gate,
+                                       first_position, token_count, output)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const dim3 blocks(
+      static_cast<unsigned int>((token_count + kBulkGqaQueryTile - 1U) /
+                                kBulkGqaQueryTile),
+      kBulkGqaKvHeads, 1U);
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  bulk_causal_gqa_sigmoid_gate_score_feed_24_4_256_kernel
+      <<<blocks, kBulkGqaScoreFeedThreads, 0U, stream>>>(
+          query, key_cache, value_cache, gate,
+          static_cast<unsigned int>(first_position),
+          static_cast<unsigned int>(token_count), output);
+  const cudaError_t status = cudaGetLastError();
+  if (status == cudaSuccess) {
+    ++exact_attention_score_feed_launch_hits;
+  }
+  return static_cast<int>(status);
+}
+
+int reference_runner_detail::
+    query_exact_attention_score_feed_resources_for_test_cuda(
+        int* const registers,
+        std::size_t* const static_shared_bytes,
+        std::size_t* const local_bytes,
+        int* const maximum_threads,
+        int* const active_blocks_per_multiprocessor) noexcept {
+  if (registers == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads == nullptr ||
+      active_blocks_per_multiprocessor == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes, bulk_causal_gqa_sigmoid_gate_score_feed_24_4_256_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks, bulk_causal_gqa_sigmoid_gate_score_feed_24_4_256_kernel,
+      static_cast<int>(kBulkGqaScoreFeedThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads = attributes.maxThreadsPerBlock;
+  *active_blocks_per_multiprocessor = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+#endif
+
 int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
@@ -2630,6 +3008,14 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
         query, key_cache, value_cache, gate, first_position, token_count,
         output, cuda_stream);
   }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+  if (exact_attention_score_feed_selection ==
+      reference_runner_detail::ExactAttentionScoreFeedForTest::kScoreFeed) {
+    return reference_runner_detail::launch_exact_attention_score_feed_for_test_cuda(
+        query, key_cache, value_cache, gate, first_position, token_count,
+        output, cuda_stream);
+  }
+#endif
   bulk_causal_gqa_sigmoid_gate_24_4_256_kernel
       <<<blocks, kBulkGqaThreads, 0U, stream>>>(
           query, key_cache, value_cache, gate,
@@ -2662,6 +3048,14 @@ int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_fixed_cuda(
   if (tactic != FixedBulkCausalGqaPrefillTactic::kGenericQt2) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+  if (exact_attention_score_feed_selection ==
+      reference_runner_detail::ExactAttentionScoreFeedForTest::kScoreFeed) {
+    return reference_runner_detail::launch_exact_attention_score_feed_for_test_cuda(
+        query, key_cache, value_cache, gate, first_position, token_count,
+        output, cuda_stream);
+  }
+#endif
   const dim3 blocks(
       static_cast<unsigned int>((token_count + kBulkGqaQueryTile - 1U) /
                                 kBulkGqaQueryTile),
