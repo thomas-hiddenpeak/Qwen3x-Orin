@@ -4,6 +4,7 @@
 #include "reference_runner_decode_gqa_policy_internal.h"
 #include "reference_runner_gdn_exact_span_policy_internal.h"
 #include "reference_runner_request_reset_policy_internal.h"
+#include "reference_runner_terminal_prefix_internal.h"
 
 #include <algorithm>
 #include <array>
@@ -34,6 +35,7 @@ struct ReferenceRunnerPrefillControlTestPeer {
     bool allow_scalar_m1_delegate = true;
     bool allow_cross_layer_m32_fusion = true;
     bool emit_commit_hooks = true;
+    bool elide_terminal_prefix_suffix = false;
     bool allow_experimental_gdn_b8_admission = false;
     bool allow_experimental_gdn_chunk64_native_admission = false;
     bool allow_experimental_gdn_chunk64_reference_admission = false;
@@ -339,6 +341,8 @@ struct ReferenceRunnerPrefillControlTestPeer {
     control.allow_cross_layer_m32_fusion =
         requested.allow_cross_layer_m32_fusion;
     control.emit_commit_hooks = requested.emit_commit_hooks;
+    control.elide_terminal_prefix_suffix =
+        requested.elide_terminal_prefix_suffix;
     control.allow_experimental_gdn_b8_admission =
         requested.allow_experimental_gdn_b8_admission;
     control.allow_experimental_gdn_chunk64_native_admission =
@@ -359,6 +363,12 @@ struct ReferenceRunnerPrefillControlTestPeer {
         ReferenceRunner::legacy_prefill_tile_execution_control(),
         current_position, max_sequence_length, workspace_token_capacity,
         token_count, options);
+  }
+
+  [[nodiscard]] static ReferenceRunnerStatus validate_terminal_fragment(
+      const LayerRouteFragment& fragment, const bool terminal) noexcept {
+    return ReferenceRunner::validate_prefill_layer_route_fragment(fragment,
+                                                                  terminal);
   }
 
  private:
@@ -413,6 +423,7 @@ struct ReferenceRunnerPrefillControlTestPeer {
         control.allow_scalar_m1_delegate,
         control.allow_cross_layer_m32_fusion,
         control.emit_commit_hooks,
+        control.elide_terminal_prefix_suffix,
         control.allow_experimental_gdn_b8_admission,
         control.allow_experimental_gdn_chunk64_native_admission,
         control.allow_experimental_gdn_chunk64_reference_admission};
@@ -1894,6 +1905,56 @@ void test_prefill_tile_execution_control(TestContext& test) {
       Peer::legacy_defaults(17U, 100U, 512U, 1U);
   test.expect(legacy_m1.status.ok() && legacy_m1.delegate_scalar_m1,
               "only the complete legacy M1 path delegates to step");
+  test.expect(!legacy.selected_control.elide_terminal_prefix_suffix,
+              "public runner retains every terminal hidden row");
+  Peer::Control terminal = legacy.selected_control;
+  terminal.elide_terminal_prefix_suffix = true;
+  const auto terminal_tile = Peer::select(terminal, 17U, 100U, 512U, 32U);
+  const auto terminal_m1 = Peer::select(terminal, 17U, 100U, 512U, 1U);
+  test.expect(terminal_tile.status.ok() && terminal_tile.legacy_control &&
+                  terminal_m1.status.ok() && terminal_m1.delegate_scalar_m1,
+              "private terminal prefixes keep legacy dispatch and scalar tails");
+  runtime::ReferencePrefillTileOptions retained;
+  retained.retain_last_hidden_for_logits = true;
+  test.expect(!Peer::select(terminal, 17U, 100U, 512U, 32U, retained).status,
+              "terminal deletion cannot expose retained hidden rows");
+  test.expect(detail::is_terminal_prefix_elision_scope(true, true, false,
+                                                      false, false) &&
+                  !detail::is_terminal_prefix_elision_scope(false, true, false,
+                                                           false, false) &&
+                  !detail::is_terminal_prefix_elision_scope(true, false, false,
+                                                           false, false) &&
+                  !detail::is_terminal_prefix_elision_scope(true, true, true,
+                                                           false, false) &&
+                  !detail::is_terminal_prefix_elision_scope(true, true, false,
+                                                           true, false) &&
+                  !detail::is_terminal_prefix_elision_scope(true, true, false,
+                                                           false, true),
+              "terminal scope excludes alternate backend/profile, whole-request, trace, and all-prompt observables");
+  Peer::LayerRouteFragment terminal_fragment;
+  terminal_fragment.layer = 63U;
+  terminal_fragment.token_count = 512U;
+  for (const auto slot : {Peer::LayerRouteSlot::kQOrLinearQkv,
+                          Peer::LayerRouteSlot::kFullK,
+                          Peer::LayerRouteSlot::kFullV}) {
+    terminal_fragment.recorded_slots |= static_cast<std::uint16_t>(
+        1U << static_cast<std::uint8_t>(slot));
+  }
+  test.expect(Peer::validate_terminal_fragment(terminal_fragment, true).ok() &&
+                  !Peer::validate_terminal_fragment(terminal_fragment, false),
+              "only private terminal validation accepts exact Q/K/V-only coverage");
+  terminal_fragment.layer = 59U;
+  test.expect(!Peer::validate_terminal_fragment(terminal_fragment, true),
+              "earlier Attention layers may not omit suffixes");
+  terminal_fragment.layer = 63U;
+  terminal_fragment.token_count = 1U;
+  test.expect(!Peer::validate_terminal_fragment(terminal_fragment, true),
+              "scalar M1 retains full numerical and route behavior");
+  terminal_fragment.token_count = 512U;
+  terminal_fragment.recorded_slots &= static_cast<std::uint16_t>(
+      ~(1U << static_cast<std::uint8_t>(Peer::LayerRouteSlot::kFullK)));
+  test.expect(!Peer::validate_terminal_fragment(terminal_fragment, true),
+              "terminal deletion cannot omit persistent K publication");
 
   Peer::Control candidate;
   candidate.first_position_override = 513U;
@@ -1907,6 +1968,10 @@ void test_prefill_tile_execution_control(TestContext& test) {
   candidate.allow_scalar_m1_delegate = false;
   candidate.allow_cross_layer_m32_fusion = false;
   candidate.emit_commit_hooks = false;
+  candidate.elide_terminal_prefix_suffix = true;
+  test.expect(!Peer::select(candidate, 8'000U, 8'192U, 512U, 32U).status,
+              "whole-request layer segments cannot inherit ordinary terminal authority");
+  candidate.elide_terminal_prefix_suffix = false;
   const Peer::Result candidate_m1 =
       Peer::select(candidate, 8'000U, 8'192U, 512U, 1U);
   test.expect(candidate_m1.status.ok() && !candidate_m1.legacy_control &&
