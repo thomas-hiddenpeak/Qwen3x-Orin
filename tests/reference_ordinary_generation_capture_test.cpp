@@ -1,5 +1,6 @@
 #include "q3x/core/sha256.h"
 #include "q3x/io/json.h"
+#include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/reference_engine.h"
 #include "reference_engine_final_token_policy_internal.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
@@ -339,16 +340,62 @@ int main(int argc, char** argv) {
     generation_options.prefill_chunk_size = 512U;
     generation_options.logits_mode = rt::ReferenceLogitsMode::kPredictedTokenOnly;
     auto result = created.value->generate_prompt_token_ids(ids, generation_options);
+    std::size_t score_feed_hits = 0U;
+#if defined(Q3X_CAPTURE_HAS_SCORE_FEED)
+    score_feed_hits = detail::exchange_exact_attention_score_feed_launch_hits_for_test(0U);
+#endif
     (void)detail::exchange_reference_engine_step_snapshot_hook(previous_step);
     (void)detail::exchange_reference_engine_generate_return_snapshot_hook(previous_return);
     if (!result) throw std::runtime_error("actual generation failed: " +
         result.diagnostic.stage + ": " + result.diagnostic.message);
     const auto& generation = *result.value;
+    std::size_t prefix_passes = 0U, elided_passes = 0U, generic_passes = 0U;
+    for (std::size_t position = 0U; position < ids.size() - 1U;) {
+      const std::size_t count = rt::reference_engine_detail::next_prefix_tile_token_count(
+          ids.size() - 1U - position, 512U);
+      ++prefix_passes;
+      if (count >= 2U) {
+        if (liveness) ++elided_passes;
+        if (!rt::use_bulk_causal_gqa_group_q64_prefill(position, count)) ++generic_passes;
+      }
+      position += count;
+    }
+    // C1 prefix segments and the final scalar pass are never elided. The
+    // canonical decomposition includes C32/C31 at P40000, not one C63 tile.
+    const std::size_t expected_passes = prefix_passes + 1U;
+    const std::size_t expected_score_feed_hits = score_feed
+        ? generic_passes * (rt::kRequestFullLayerCount - (liveness ? 1U : 0U)) : 0U;
+    const auto& route = generation.prefill_route_evidence;
+    bool route_valid = route.valid && route.complete && !route.request_active &&
+        route.error == rt::PrefillRouteEvidenceError::kNone &&
+        route.completed_layer_passes == expected_passes &&
+        route.expected_layer_passes == expected_passes &&
+        generation.prefill_execution_mode == rt::ReferencePrefillExecutionMode::kLegacyC512Tiled &&
+        generation.requested_prefill_chunk_size == 512U &&
+        generation.effective_prefill_chunk_size == 512U &&
+        generation.timing.prefix_execution_milliseconds.size() == prefix_passes &&
+        score_feed_hits == expected_score_feed_hits;
+    std::array<std::uint64_t, rt::kPrefillOperatorRoleCount> expected_roles{};
+    for (std::size_t i = 0U; i < route.operators.size(); ++i) {
+      const auto role = static_cast<rt::PrefillOperatorRole>(i);
+      const bool omitted = role == rt::PrefillOperatorRole::kNvFp4GateUp ||
+          role == rt::PrefillOperatorRole::kNvFp4Down ||
+          role == rt::PrefillOperatorRole::kFp8O || role == rt::PrefillOperatorRole::kAttention;
+      expected_roles[i] = rt::kExpectedPrefillLogicalOperatorsPerTile[i] * expected_passes -
+          (omitted ? elided_passes : 0U);
+      const auto& counts = route.operators[i];
+      // Ordinary exact C31/scalar and non-Marlin MLP fallbacks are real
+      // executions, not production hits. Attest their combined logical total.
+      route_valid = route_valid && counts.forbidden_hits == 0U &&
+          counts.production_hits <= expected_roles[i] &&
+          counts.exact_fallback_hits == expected_roles[i] - counts.production_hits;
+    }
+    for (const auto hits : route.forbidden_boundary_hits) route_valid = route_valid && hits == 0U;
     bool valid = capture.error == nullptr && capture.step_calls == kOutputs &&
         capture.return_calls == 1U && generation.prompt_token_ids == ids &&
         generation.generated_token_ids.size() == kOutputs &&
         !generation.all_prompt_tokens_prefilled_by_tiles && !generation.single_arbitrary_prefill_tiles &&
-        generation.decode_graph_replays == 0U && generation.prefill_route_evidence.valid;
+        generation.decode_graph_replays == 0U && route_valid;
     for (std::size_t i = 0U; valid && i < kOutputs; ++i)
       valid = capture.steps[i].argmax == generation.generated_token_ids[i];
     std::vector<std::uint32_t> exposed_predictions;
@@ -385,13 +432,16 @@ int main(int argc, char** argv) {
       if (i != 0U) out << ',';
       write_scalar(out, capture.steps[i]);
     }
-    const auto& route = generation.prefill_route_evidence;
-    out << "],\"route\":{\"completed_passes\":" << route.completed_layer_passes
-        << ",\"expected_passes\":" << route.expected_layer_passes << ",\"operators\":[";
+    out << "],\"route\":{\"variant_gate\":" << (route_valid ? "true" : "false")
+        << ",\"completed_passes\":" << route.completed_layer_passes
+        << ",\"expected_passes\":" << route.expected_layer_passes
+        << ",\"canonical_expected_passes\":" << expected_passes
+        << ",\"expected_elided_prefix_passes\":" << elided_passes << ",\"operators\":[";
     for (std::size_t i = 0U; i < route.operators.size(); ++i) {
       if (i != 0U) out << ',';
       const auto& counts = route.operators[i];
       out << "{\"role\":" << quoted(rt::to_string(static_cast<rt::PrefillOperatorRole>(i)))
+          << ",\"expected_total\":" << expected_roles[i]
           << ",\"production\":" << counts.production_hits << ",\"exact_fallback\":"
           << counts.exact_fallback_hits << ",\"forbidden\":" << counts.forbidden_hits << '}';
     }
@@ -400,12 +450,8 @@ int main(int argc, char** argv) {
       if (i != 0U) out << ',';
       out << route.forbidden_boundary_hits[i];
     }
-    out << "]},\"score_feed_launch_hits\":";
-#if defined(Q3X_CAPTURE_HAS_SCORE_FEED)
-    out << detail::exchange_exact_attention_score_feed_launch_hits_for_test(0U);
-#else
-    out << 0;
-#endif
+    out << "]},\"score_feed_launch_hits\":" << score_feed_hits
+        << ",\"expected_score_feed_launch_hits\":" << expected_score_feed_hits;
     out << "}\n";
     out.flush();
     if (!out) throw std::runtime_error("output write failed");
