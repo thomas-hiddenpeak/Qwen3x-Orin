@@ -315,7 +315,7 @@ void return_hook(const rt::RequestState& state, void* context) noexcept {
   if (capture.error == nullptr && !capture_full(state, capture, capture.returned))
     capture.error = "return_snapshot";
 }
-std::string quoted(std::string_view input) {
+std::string json_quote(std::string_view input) {
   static constexpr char digits[] = "0123456789abcdef";
   std::string out = "\"";
   for (const unsigned char c : input) {
@@ -328,22 +328,22 @@ std::string quoted(std::string_view input) {
 }
 void write_scalar(std::ostream& out, const ScalarSnapshot& value) {
   out << "{\"sequence_length\":" << value.sequence
-      << ",\"normalized_hidden_sha256\":" << quoted(value.hidden.hex())
-      << ",\"residual_sha256\":" << quoted(value.residual.hex())
-      << ",\"full_bf16_logits_sha256\":" << quoted(value.logits.hex())
+      << ",\"normalized_hidden_sha256\":" << json_quote(value.hidden.hex())
+      << ",\"residual_sha256\":" << json_quote(value.residual.hex())
+      << ",\"full_bf16_logits_sha256\":" << json_quote(value.logits.hex())
       << ",\"host_derived_argmax\":" << value.argmax
       << ",\"host_derived_chosen_logit\":" << value.chosen_logit
       << ",\"host_derived_logsumexp\":" << value.logsumexp << '}';
 }
 void write_full(std::ostream& out, const FullSnapshot& value) {
   out << "{\"scalar\":"; write_scalar(out, value.scalar);
-  out << ",\"conv_sha256\":" << quoted(value.conv.hex())
-      << ",\"gdn_sha256\":" << quoted(value.gdn.hex()) << ",\"kv\":[";
+  out << ",\"conv_sha256\":" << json_quote(value.conv.hex())
+      << ",\"gdn_sha256\":" << json_quote(value.gdn.hex()) << ",\"kv\":[";
   for (std::size_t slot = 0U; slot < value.key.size(); ++slot) {
     if (slot != 0U) out << ',';
     out << "{\"layer\":" << 4U * slot + 3U << ",\"key_sha256\":"
-        << quoted(value.key[slot].hex()) << ",\"value_sha256\":"
-        << quoted(value.value[slot].hex()) << '}';
+        << json_quote(value.key[slot].hex()) << ",\"value_sha256\":"
+        << json_quote(value.value[slot].hex()) << '}';
   }
   out << "]}";
 }
@@ -580,19 +580,19 @@ int main(int argc, char** argv) {
     std::ofstream out(argv[3], std::ios::binary | std::ios::trunc);
     if (!out) throw std::runtime_error("output open failed");
     out << std::setprecision(std::numeric_limits<double>::max_digits10)
-        << "{\"schema_version\":2,\"status\":" << quoted(valid ? "pass" : "fail")
-        << ",\"variant\":" << quoted(variant) << ",\"timing_authority\":false,"
+        << "{\"schema_version\":2,\"status\":" << json_quote(valid ? "pass" : "fail")
+        << ",\"variant\":" << json_quote(variant) << ",\"timing_authority\":false,"
         << "\"final_prompt_policy\":\"ordinary_p_minus_1_then_scalar\",\"logits_mode\":\"predicted_only\","
-        << "\"request_sha256\":" << quoted(core::sha256(bytes).hex())
-        << ",\"prompt_ids_u32le_sha256\":" << quoted(prompt_hash.finalize().hex())
-        << ",\"capture_error\":" << (capture.error == nullptr ? "null" : quoted(capture.error))
+        << "\"request_sha256\":" << json_quote(core::sha256(bytes).hex())
+        << ",\"prompt_ids_u32le_sha256\":" << json_quote(prompt_hash.finalize().hex())
+        << ",\"capture_error\":" << (capture.error == nullptr ? "null" : json_quote(capture.error))
         << ",\"cuda_error\":" << capture.cuda_error << ",\"prompt_ids\":";
     write_ids(out, ids); out << ",\"generated_ids\":";
     write_ids(out, generation.generated_token_ids);
     out << ",\"exposed_prediction_ids\":";
     write_ids(out, exposed_predictions);
-    out << ",\"generated_text\":" << quoted(generation.generated_text)
-        << ",\"generated_text_sha256\":" << quoted(core::sha256(generation.generated_text).hex())
+    out << ",\"generated_text\":" << json_quote(generation.generated_text)
+        << ",\"generated_text_sha256\":" << json_quote(core::sha256(generation.generated_text).hex())
         << ",\"prefill_commit\":"; write_full(out, capture.prefill);
     out << ",\"generation_return\":"; write_full(out, capture.returned);
     out << ",\"steps\":[";
@@ -608,7 +608,7 @@ int main(int argc, char** argv) {
     for (std::size_t i = 0U; i < route.operators.size(); ++i) {
       if (i != 0U) out << ',';
       const auto& counts = route.operators[i];
-      out << "{\"role\":" << quoted(rt::to_string(static_cast<rt::PrefillOperatorRole>(i)))
+      out << "{\"role\":" << json_quote(rt::to_string(static_cast<rt::PrefillOperatorRole>(i)))
           << ",\"expected_total\":" << expected_roles[i]
           << ",\"production\":" << counts.production_hits << ",\"exact_fallback\":"
           << counts.exact_fallback_hits << ",\"forbidden\":" << counts.forbidden_hits << '}';
@@ -622,7 +622,7 @@ int main(int argc, char** argv) {
         << ",\"expected_score_feed_launch_hits\":" << expected_score_feed_hits;
     out << ",\"terminal_prefix_observation\":{\"before_calls\":" << capture.prefix_before_calls
         << ",\"after_calls\":" << capture.prefix_after_calls
-        << ",\"dead_scratch_poison\":" << quoted(poison_mode)
+        << ",\"dead_scratch_poison\":" << json_quote(poison_mode)
         << ",\"poisoned_tiles\":" << capture.poisoned_tiles
         << ",\"scalar_hidden_guard_checks\":" << capture.scalar_guard_checks
         << ",\"prefixes\":[";
@@ -631,8 +631,8 @@ int main(int argc, char** argv) {
       const auto& prefix = capture.prefixes[i];
       out << "{\"first_position\":" << prefix.first_position
           << ",\"token_count\":" << prefix.token_count
-          << ",\"before_layer63_residual_sha256\":" << quoted(prefix.before.hex())
-          << ",\"after_elision_residual_sha256\":" << quoted(prefix.after.hex())
+          << ",\"before_layer63_residual_sha256\":" << json_quote(prefix.before.hex())
+          << ",\"after_elision_residual_sha256\":" << json_quote(prefix.after.hex())
           << ",\"preserved\":" << (prefix.preserved ? "true" : "false") << '}';
     }
     out << "]}";
@@ -644,7 +644,7 @@ int main(int argc, char** argv) {
     std::cerr << "ordinary state capture: " << error.what() << '\n';
     std::ofstream out(argv[3], std::ios::binary | std::ios::trunc);
     if (out) out << "{\"schema_version\":2,\"status\":\"fail\",\"timing_authority\":false,\"error\":"
-                 << quoted(error.what()) << "}\n";
+                 << json_quote(error.what()) << "}\n";
     return 1;
   }
 }
