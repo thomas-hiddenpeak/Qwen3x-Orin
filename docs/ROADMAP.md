@@ -347,17 +347,23 @@ The first combined terminal-prefix/score-feed version has reached a valid
 negative installed API result and is closed without repetition, profiling, or
 mainline absorption; the immutable boundary is in the
 [combined-v1 rejection record](metadata/qwen36-27b-ordinary-exact-score-feed-v1-api-rejection-2026-09-09.json).
-The independent liveness-only installed API panel is positive and selects its
-source integration, with installed-main closeout still pending below. The
-other bounded step is the score-feed package's sole correction: the producer publishes
+The independent liveness-only installed API panel selected its source
+integration, and fresh installed-main P40 and short closeout now pass below.
+The score-feed package's sole correction remains isolated and paused: the producer publishes
 raw scaled FP32 scores while the consumer owns the complete original ordered
 max/denominator/exponential/PV recurrence. Source review found that v1 retained
 that recurrence on the QK producer; this is a concrete dataflow finding, not a
 profiled quantitative attribution of its regression. QT2, KV16 buffering,
 GroupQ64, fixed/scalar paths, exact reduction/publication, and liveness scope
-remain fixed. The correction must pass a new ordinary P40000/O16 numerical
-comparison and actual installed OFF API selection. It opens no parameter scan
-or second correction and does not extend the 09:24 handoff deadline.
+remain fixed. Its focused 11-case gate does not establish full-model or API
+qualification, and no further run starts in this window. Resumption must first
+merge the accepted main Graph ownership repair and fixture into the isolated
+v2 source, preserving main metadata, then freeze a new source/ON ELF for the
+ordinary P40000/O16 baseline-to-v2 complete live-state/full-vocabulary-logit
+comparison. Only a pass permits a fresh installed OFF API comparison against
+current main `270a6bb4...`. Do not repeat the completed liveness CBBC, Graph r2,
+or old diagnostic. No parameter scan, second correction, or deadline extension
+is opened.
 
 Use existing harnesses and the smallest safe correctness checks, then compare
 the complete live-state/token/text and full-vocabulary-logit-digest P40000/O16 boundary
@@ -387,13 +393,19 @@ candidate. Both matched ordinary P40000/O16 API pairs are positive; this
 selects the source integration, not an installed-main performance result.
 The exact numerical/installed-API provenance and independent review are in
 the [selection record](metadata/qwen36-27b-terminal-prefix-p40000-api-selection-2026-09-09.json).
-The selected liveness merge is `edf4da2`. Mainline closeout
-requires both a fresh actual P40000/O16 API request and, in a separate fresh
+The selected liveness merge is `edf4da2`. Mainline closeout required
+both a fresh actual P40000/O16 API request and, in a separate fresh
 server lifetime using that same installed-main Release/OFF artifact, standard
 EvalScope 1.9.1 one-warmup/eight-measured requests plus raw SSE. Both retain
 exact artifact, output, route, startup, and resource-closure gates; the short
 protocol also validates dynamic v20 role counts and lifecycle-derived resets.
 Candidate-branch results do not substitute for either mainline closeout.
+Both checks now pass on fresh main `230eac1` / installed Release/OFF ELF
+`270a6bb4...`; the separate
+[mainline closeout record](metadata/qwen36-27b-terminal-prefix-mainline-closeout-2026-09-09.json)
+freezes the build, two process lifetimes, output/route/reset, and resource
+results. This closes the selected batch's integration gates, not release,
+complete capability, repeated startup reliability, or a new matched speedup.
 At that merge, runtime, headers, tests, and CMake were identical to selected
 `055fb245`, with all earlier main metadata preserved. The independent
 `WP-GRAPH-TEMPLATE-LIFETIME-20260909` below subsequently changes runner host
@@ -462,7 +474,7 @@ replays against serial token/text/step semantics, changed embedding inputs,
 reset reuse, and the first out-of-cache position. Its serial-only trace and
 full-statistics cases are not a Graph full-state oracle. The upward return is
 actual installed Release/OFF readiness and short-Graph/API behavior, followed
-by the pending selected-main P40000/O16 and short integration closeout. All
+by the now-completed selected-main P40000/O16 and short integration closeout. All
 admissions remain OFF, GPU runs remain serialized, and a negative resource or
 correctness result closes this one implementation without a variant scan.
 The original `edf4da2` main startup failures, separate diagnostic, fixture
@@ -473,8 +485,10 @@ route, startup inventory, and owned closure. Its raw CPU-identity rejection and
 absent timing authority remain unchanged. Independent review selects this
 bounded repair only on unaffected functional/resource facts plus the existing
 Graph test, not C1 speed or repeated startup reliability. That scoped selection
-does not substitute for subsequent fresh installed-main P40000/O16 and separate
-short EvalScope/raw-SSE closeout.
+does not substitute for fresh installed-main P40000/O16 and separate short
+EvalScope/raw-SSE checks; those have now passed independently on the new main
+artifact in the final closeout record above. The old selection record retains
+its original pending state and rejected C1 timing unchanged.
 No extra performance hypothesis or variant is opened; the existing 09:24
 handoff deadline is unchanged, and score-feed stays paused.
 

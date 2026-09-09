@@ -25,7 +25,7 @@ metadata/evidence records.
 
 ## 1. Answer-first state
 
-**Liveness source selected; independent startup repair awaits main closeout.**
+**Liveness is integrated and installed-main closeout passes; release remains unqualified.**
 The original integration `edf4da2` combined main `13be53c` with liveness-only
 `055fb245` after both matched P40000/O16 API pairs improved pure Prefill and
 external TTFT.
@@ -67,12 +67,38 @@ resource-closure facts together with the Graph test as grounds for this bounded
 source repair. No C1 speed, memory improvement, or repeated reliability is
 claimed, and the original rejected record is unchanged.
 
-Fresh installed-main OFF build, actual P40000/O16 API, and a separate fresh
-server's standard one-warmup/eight-measured EvalScope plus raw-SSE closeout
-for the repaired source remain pending. No new main installed ELF or successful
-request is inferred from the Graph test or scoped candidate acceptance. Exact
-attempt and source-bridge boundaries are in the
+The original attempt and source-bridge boundaries remain frozen in the
 [Graph lifetime selection record](metadata/qwen36-27b-graph-template-lifetime-selection-2026-09-09.json).
+
+Fresh installed main `230eac1` / tree `f3b76a8` now closes both required API
+checks on Release/OFF ELF
+`270a6bb46b6e9862d3c75f757e30a78a12867a049a0f02735ba8e44558bc9cbc`
+(Build ID `78402841bace909f054fe0a1924189a99c9f46b6`). The actual cold/no-cache
+P40000/O16 request reports 663,663.424828 ms pure Prefill /
+**60.271514903 prompt tok/s**, 663,686.007987 ms external TTFT, and
+253.827138333 ms/token / 3.939689060 Decode tok/s. Spawn-to-ready was
+35,317.616175 ms. Exact output, complete SSE/usage, v20 native role/reset
+receipts, 25-slot startup inventory, and owned resource closure pass.
+
+A separate fresh server using the same installed artifact passes standard
+EvalScope 1.9.1 one warmup plus 8/8 measured requests and an additional raw-SSE
+request. Mean TTFT is 2,610.732378 ms, TPOT 104.590151 ms, and independently
+recomputed workload prompt throughput 119.051974290 tok/s. Server phase sums
+give 191.054002986 prompt tok/s and 9.553634715 Decode tok/s, with different
+denominators. All ten dynamic v20 P/O and reset receipts pass; the standard
+client does not retain the warmup finish reason, so that field remains
+unavailable. Short spawn-to-ready was 35,487.076225 ms.
+All eight measured outputs and P/O counts match the prior `d6565eb` short
+main run by exact request-body SHA. This is bounded text/usage agreement,
+not a full capability, state, or logit oracle.
+
+These are completed current-main integration observations, not a new matched
+speedup, Graph-memory improvement, complete capability result, or repeated
+startup-reliability qualification. The original candidate CBBC improvement
+remains limited to its 5.36%--5.87% panel. Exact new artifact/results and all
+limitations are in the separate
+[mainline closeout record](metadata/qwen36-27b-terminal-prefix-mainline-closeout-2026-09-09.json);
+neither earlier selection record is overwritten.
 
 The selected 0.7.0 source profile retains 40,000 prompt tokens, a 4,096-token
 output ceiling, `prompt + output - 1 <= 44,095`, the 3,070,908,416-byte exact
@@ -704,14 +730,14 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | Pure C++ tokenizer and greedy generation | Implemented | Public capability and long-run qualification remain incomplete |
 | OpenAI-compatible product API | Installed production-shaped 0.7.0 service with bounded queues, streaming, Bearer authentication, public health, and external TLS termination contract | Cancellation, multi-tenant policy, capability, and release stability remain incomplete |
 | Installed default context | Sealed P40 profile admits `prompt + output - 1 <= 44,095` with a 4,096-token output ceiling | P60 and approximately-P130 profiles remain unopened |
-| Terminal-prefix source integration | Selected ordinary OFF liveness-only profile and v20 receipts; kernel arithmetic/Decode, startup inventory/admission and 0.7.0 ABI are unchanged. A separately admitted host Graph-template lifetime repair is identified above; both matched liveness API pairs are positive and production/release flags remain false | Fresh installed-main OFF build, P40000/O16 API, and separate fresh-server short integration for the repaired source remain pending; candidate results are not mainline installed-artifact results |
-| Ordinary request-state reuse | Preserved 0.7.0 lifecycle derives `already_clean`, exact committed dirty-prefix, or conservative full reset; v20 carries the receipt in the selected liveness scope, while original v1/v16 scopes remain unchanged. Historical v3 P1024/P4096/P8192 BCCB and same-server P40000 lifecycle support reset retention, not a new-default artifact claim | Fresh main integration, complete accuracy, independent-process target-length repetition, capability, and release qualification remain open; no Prefill-throughput claim is attached to reset |
-| Target-length Prefill | Selected source adds terminal layer-63 prefix elision to ordinary exact prompt-wide preprocessing and exact-span GDN, with incumbent QT2/GroupQ64. Its separate installed candidate passes both matched P40 API pairs; the actual installed-main result is pending. Closed selector/Q4/P39936 and AOT routes remain excluded | Fresh-main P40 and short closeout, complete accuracy, P60/P130, the 2s/4s targets, and further accuracy-preserving whole-product optimization remain open; no same-skeleton span scan is activated |
+| Terminal-prefix source integration | Integrated ordinary OFF liveness-only profile and v20 receipts, with the separately identified host Graph-template repair; fresh main `230eac1` / ELF `270a6bb4...` passes P40000/O16 and separate short integration | Complete capability, repeated startup reliability, and release qualification remain open; original candidate-panel gains are not a new main speedup |
+| Ordinary request-state reuse | Preserved 0.7.0 lifecycle and original v1/v16 scopes; current-main v20 P40 and ten short P/O/reset receipts pass. Historical v3 BCCB/lifecycle evidence remains separately scoped | Complete accuracy, independent-process target-length repetition, capability, and release qualification remain open; no Prefill-throughput claim is attached to reset |
+| Target-length Prefill | Current installed main executes terminal layer-63 prefix elision with incumbent QT2/GroupQ64, exact-span GDN, and prompt-wide preprocessing; its actual P40000/O16 request reports 60.271514903 prompt tok/s | Complete accuracy, P60/P130, the 2s/4s targets, and further accuracy-preserving whole-product optimization remain open; closed lineages and same-skeleton span scans remain excluded |
 | SM87 whole-system AOT Prefill candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` is default-off, non-executable, and paused. Real-checkpoint upload/readback/private attachment plus the layer-0 M192 Oracle remain retained prerequisites. The P40000 BF16-HMMA skeleton is rejected at 225.7838x over budget, and `bmma-static-support-k16-parent-zero-fill-v2` is separately rejected before CUDA after its authenticated mandatory-instruction lower bound exceeds the complete five-second projection allocation | No active AOT implementation gate. Resumption requires an explicitly named materially different exact arithmetic/dataflow class with a new bounded proof or a successor architecture; persisted direct loading remains prerequisite work only after such a resumption |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
-| Decode | Exact S>=65 fallback plus retained coupled-feed/consumer-order layouts and fixed short-position Graph cache in the sealed profile; split-KV rejected numerically; installed short proxy reaches 105.013349 ms/token / 9.522599 tok/s | Long-output stability, independent repetition, target-length behavior, and at least 10 tok/s remain to be qualified |
+| Decode | Exact S>=65 fallback plus retained coupled-feed/consumer-order layouts and fixed short-position Graph cache; current-main short integration reports 9.553634715 tok/s and P40 reports 3.939689060 tok/s | Long-output stability, independent repetition, target-length behavior, and at least 10 tok/s remain to be qualified |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
-| Canonical release artifact | Selected 0.7.0 Release/OFF source installs the independently named terminal-prefix.v1 server and tools, with `production_eligible=false` and `release_qualified=false`; old v3 ELF identities remain historical | Fresh main artifact/build identity, P40 API, and short integration pending; complete accuracy, capability, target-length repetition, and stability attestation remain incomplete |
+| Canonical release artifact | Fresh main `230eac1` installs 0.7.0 Release/OFF terminal-prefix.v1 ELF `270a6bb4...`; P40 and short integration pass with `production_eligible=false` and `release_qualified=false` | Complete accuracy, capability, target-length repetition, and stability/release attestation remain incomplete |
 | Automated release lane | Designed only | Local tests and policies exist, but no checked-in Orin release workflow enforces the complete gate |
 
 Status terms are strict:
@@ -728,7 +754,7 @@ Status terms are strict:
 
 The selected ordinary 0.7.0 source uses the terminal-prefix P40 profile
 described above and exposes no public capacity or tactic selector. Its fresh
-main installation and API closeout remain pending. The separate
+main installation and P40/short API closeout now pass as recorded above. The separate
 development evaluation adapter defaults to:
 
 - loopback `127.0.0.1` binding;
@@ -913,7 +939,8 @@ Current evidence is incomplete:
   full live-state/used-KV and 16 full-vocabulary-logit-digest comparison plus
   P576 dual-poison/canary evidence; the separate OFF candidate also preserves
   exact API text across the matched panel. This is not complete capability
-  qualification or the still-pending installed-main closeout;
+  qualification. Fresh installed-main P40 and short integration also pass, but
+  do not expand those numerical or public-capability scopes;
 - the absorbed Legacy-C512 Embedding and full-Attention preprocess mechanisms
   match complete persistent/used-KV state, generation, and public logits at
   P514/P4096/P8192, including 15 P4096 Decode transitions;
@@ -952,8 +979,8 @@ sequence and successor identity live exclusively in
 | --- | --- | --- |
 | Documentation-control propagation | The canonical main line now has one `AGENTS.md -> docs/README.md` Codex entry; pre-existing dirty worktrees do not receive it until explicitly integrated, because Codex reads the worktree in which a session starts | P0 |
 | Product API and long-context admission | Installed sealed P40 profile admits 40K plus normal Decode output; P60/P130 profiles and full cancellation semantics remain | P1 |
-| Exact deliverable identity | Selected source is 0.7.0/terminal-prefix.v1 with false production/release flags; fresh installed-main OFF identity, P40 API, and short closeout remain pending. The old v3 reset and startup tuples are historical | P2/P4 |
-| Prefill parity and physical plan | Both matched candidate P40000/O16 API pairs improve pure Prefill and TTFT and select liveness-only source integration; no new installed-main throughput is claimed yet. The locked target remains open, and all rejected combined-v1, selector/Q4/P39936, and AOT lineages remain excluded | P3 (active; first close selected source on fresh installed main, then preserve strict P40000/O16 and real-API return for any further bounded accuracy-preserving architecture) |
+| Exact deliverable identity | Fresh installed-main 0.7.0/terminal-prefix.v1 OFF identity and both P40/short closeouts pass; production/release flags remain false and earlier v3 tuples remain historical | P2/P4 |
+| Prefill parity and physical plan | Current installed-main P40 reports 60.271514903 prompt tok/s; the original matched candidate panel remains separately scoped. The locked target remains open; rejected combined-v1, selector/Q4/P39936 and AOT lineages stay excluded, and isolated score-feed v2 stays paused | P3 (active after this window's completed integration handoff; any successor retains strict P40000/O16 and real-API return) |
 | Accuracy, capability, stability, and release evidence | Partial oracles only; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install, startup, upgrade, or rollback lane | P5 |
 
@@ -966,8 +993,9 @@ Use the following language until this snapshot changes:
   elision and v20 route/reset receipts, with incumbent QT2/GroupQ64 and retained
   exact-span GDN, prompt-wide preprocessing, Decode layouts, request reuse, and
   startup repair. Both matched candidate P40000/O16 API pairs are positive;
-  fresh installed-main OFF build, P40 API, and separate short integration remain
-  pending. `production_eligible=false` and `release_qualified=false` are unchanged.
+  fresh main `230eac1` / installed OFF ELF `270a6bb4...` now passes P40 API and
+  separate short integration. `production_eligible=false` and
+  `release_qualified=false` are unchanged. This is not a new matched speedup.
   No score-feed code, numerical relaxation, public tactic selector, or new
   capacity enters this source integration. Previous v3/v16 installed-artifact
   results qualify only their historical scopes, not the new main artifact.

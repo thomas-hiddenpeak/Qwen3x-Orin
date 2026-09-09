@@ -2349,3 +2349,14 @@ Graph test. It selects only the bounded host ownership repair; new
 installed-main OFF/P40000/O16 and short EvalScope/raw-SSE
 checks remain pending at selection. This record is not later overwritten with
 those main results; final mainline closeout receives a separate immutable record.
+
+## 2026-09-09 terminal-prefix installed-main closeout
+
+The [mainline closeout record](qwen36-27b-terminal-prefix-mainline-closeout-2026-09-09.json)
+freezes fresh main `230eac1`, installed Release/OFF ELF `270a6bb4...`, and its
+successful P40000/O16 API plus separate standard EvalScope one-warmup/eight-
+measured/raw-SSE integration. Exact output, v20 route/reset, startup inventory,
+and owned closure pass. Earlier selection and failure records stay immutable.
+This is bounded main integration, not a new matched speedup, Graph-memory
+improvement, repeated startup reliability, public capability, or release
+qualification; production and release flags remain false.

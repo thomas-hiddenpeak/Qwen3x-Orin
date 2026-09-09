@@ -33,8 +33,9 @@ This source integration selects the ordinary liveness profile
 `q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1` after its matched
 P40000/O16 API panel. A separate Graph source-template lifetime repair retains
 the full Graph executable and all numerical, route, and startup admission gates.
-Fresh installed-main OFF, P40 API, and short EvalScope closeout for that source
-remain pending. The profile remains `production_eligible=false` and
+Fresh installed-main OFF, P40000/O16 API, and standard short EvalScope plus
+raw-SSE integration closeout now pass on `230eac1` / installed ELF `270a6bb4...`.
+The profile remains `production_eligible=false` and
 `release_qualified=false`; source selection does not grant release qualification.
 
 Qwen3x-Orin is an independent community project. It is not an official Qwen,

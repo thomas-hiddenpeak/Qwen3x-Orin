@@ -362,7 +362,7 @@ original v1/v16 serialization; independent layer-major schemas are unchanged.
 Qualification must join exact source/ELF, authenticated model, request/token
 hashes, live-state/output comparison, and the actual OFF API witness. This
 contract describes obligations, not qualification by itself. Matched source
-selection and the still-pending installed-main OFF/P40/short closeout after the
+selection and the completed installed-main OFF/P40/short closeout after the
 independent Graph source-template lifetime repair are recorded in
 [Current Status](CURRENT_STATUS.md). The repair preserves full executable
 topology, numerical arguments, compiled profile/v20 identity, and the ordinary
@@ -383,6 +383,12 @@ actual `consumed_prompt + completion - 1`; they do not assume an unrecorded
 warmup finish reason. Full measured DB/raw-SSE checks, fresh installed-main
 OFF identity, authenticated model, cache/ownership/cleanup, and all 25 startup
 Graph slots remain required. Host fixtures are not an integration result.
+The `230eac1` / installed `270a6bb4...` batch has passed both actual main
+checks; exact observations and limitations are frozen in the separate
+[mainline closeout record](metadata/qwen36-27b-terminal-prefix-mainline-closeout-2026-09-09.json).
+This does not broaden the procedure into complete capability, repeated startup
+reliability, or release qualification, and does not rewrite earlier selection
+records or their originally pending main checks.
 
 The candidate's **capture schema 3** is a separate `BUILD_TESTING=ON`,
 numerical-only protocol, not an API witness version. It admits only
