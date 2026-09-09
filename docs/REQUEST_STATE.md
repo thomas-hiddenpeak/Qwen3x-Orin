@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: per-request state, workspace, memory-plan, and lifecycle ownership contract
   effective: 2026-08-09
-  last_reviewed: 2026-08-23
+  last_reviewed: 2026-09-09
   supersedes: []
   superseded_by: []
   ssot_for: RequestState persistent state, workspace, RoPE, allocation, and lifecycle behavior
@@ -71,7 +71,7 @@ contains:
 - three independent BF16 `[C,5120]` hidden/residual buffers;
 - four independent BF16 `[C,17408]` projection buffers;
 - independent BF16 `[C,48]` linear-attention `a` and `b` buffers;
-- FP32 scratch with capacity `max(248320, 24 * max_seq)` elements; and
+- FP32 scratch with capacity `max(262144, 24 * max_seq)` elements; and
 - a logical `[24,max_seq]` GQA probability view that aliases that FP32 scratch.
 
 The FP32/GQA pair is the only documented alias. Every owning region begins at
@@ -135,11 +135,16 @@ The stable option limits are:
 - caller-controlled arena and post-create free-memory limits.
 
 The default plan is `max_sequence_length=128`, `prefill_chunk_size=1`, and
-88,031,744 arena bytes. The largest public plan, sequence 262,144 with C512
+88,087,040 arena bytes. The largest public plan, sequence 262,144 with C512
 workspace, is 17,437,720,576 bytes and therefore requires an explicit arena
 limit above the default 2 GiB. These are deterministic planner outputs, not
 claims that a current product configuration admits those capacities; see
 [`CURRENT_STATUS.md`](CURRENT_STATUS.md) for that distinction.
+
+The FP32 floor and default total above correct stale documentation to the
+existing planner, whose unconditional floor became 262,144 elements in
+`cac6b515`. This is not an allocation, ABI, or runtime change. Historical
+evidence retains its original source-specific values.
 
 For the fixed layer-major strategy, exact 40K/60K/130K request-arena totals
 are 4,066,344,960, 5,588,904,960, and 10,917,864,960 bytes. These are isolated

@@ -387,19 +387,24 @@ candidate. Both matched ordinary P40000/O16 API pairs are positive; this
 selects the source integration, not an installed-main performance result.
 The exact numerical/installed-API provenance and independent review are in
 the [selection record](metadata/qwen36-27b-terminal-prefix-p40000-api-selection-2026-09-09.json).
-Final source/metadata review precedes the integration merge. Mainline closeout
+The selected liveness merge is `edf4da2`. Mainline closeout
 requires both a fresh actual P40000/O16 API request and, in a separate fresh
 server lifetime using that same installed-main Release/OFF artifact, standard
 EvalScope 1.9.1 one-warmup/eight-measured requests plus raw SSE. Both retain
 exact artifact, output, route, startup, and resource-closure gates; the short
 protocol also validates dynamic v20 role counts and lifecycle-derived resets.
 Candidate-branch results do not substitute for either mainline closeout.
-Runtime, headers, tests, and
-CMake must remain identical to the selected candidate while all main metadata
-is preserved. Numerical/liveness evidence may be reused only within its exact
-source, ELF, workload, and observed-state scope. A negative selection closes
-the version; neither preparation nor a bounded positive result grants release
-or complete public-capability qualification.
+At that merge, runtime, headers, tests, and CMake were identical to selected
+`055fb245`, with all earlier main metadata preserved. The independent
+`WP-GRAPH-TEMPLATE-LIFETIME-20260909` below subsequently changes runner host
+ownership, not the selected liveness arithmetic. Its `0816bb20` successor also
+corrects only the existing Graph test's expected arena to the unchanged planner
+output. The final runtime/test differences must remain explicit; headers,
+CMake, kernels, and liveness dataflow are unchanged. Numerical/liveness evidence
+may be reused only within its exact source, ELF, workload, and observed-state
+scope; previous timing is never relabelled as a new main artifact result.
+Neither preparation nor a bounded positive result grants release or complete
+public-capability qualification.
 
 The existing capture schema 3 is retained for bounded numerical-only reuse at
 P576/P1089/P40000/O16. It may accept the unused short-Graph cache's unique
@@ -445,7 +450,10 @@ threshold scan, clone/re-instantiation variant, or extra warmup is admitted.
 The [Runner ownership contract](REFERENCE_RUNNER.md#diagnostic-graph-surface)
 owns the checked removal, root identity, failure, and destruction boundaries.
 
-This isolated source change has no startup or memory qualification. In
+The existing C32/P45 real-model Graph test passes on `0816bb20`; its preceding
+stale expected-arena failure remains a separate pre-model fixture failure.
+This is bounded Graph correctness/resource admission, not ordinary P40 API,
+full-state Graph, repeated-startup, or memory-improvement qualification. In
 particular, the diagnostic process's anonymous-memory growth does not identify
 how much belongs to source templates, and deletion may not immediately return
 allocator storage to the system. The smallest existing full-model gate is
@@ -457,9 +465,18 @@ actual installed Release/OFF readiness and short-Graph/API behavior, followed
 by the pending selected-main P40000/O16 and short integration closeout. All
 admissions remain OFF, GPU runs remain serialized, and a negative resource or
 correctness result closes this one implementation without a variant scan.
-Source/build identities and raw results remain under `.q3x-work/`; source
-selection into main requires completed product-connected checks. The existing
-09:24 handoff deadline is unchanged, and score-feed work stays paused.
+The original `edf4da2` main startup failures, separate diagnostic, fixture
+failure, corrected Graph test, and exact source/build bridge are preserved in
+the [Graph lifetime selection record](metadata/qwen36-27b-graph-template-lifetime-selection-2026-09-09.json).
+The actual installed candidate P40000/O16 request completed with exact output,
+route, startup inventory, and owned closure. Its raw CPU-identity rejection and
+absent timing authority remain unchanged. Independent review selects this
+bounded repair only on unaffected functional/resource facts plus the existing
+Graph test, not C1 speed or repeated startup reliability. That scoped selection
+does not substitute for subsequent fresh installed-main P40000/O16 and separate
+short EvalScope/raw-SSE closeout.
+No extra performance hypothesis or variant is opened; the existing 09:24
+handoff deadline is unchanged, and score-feed stays paused.
 
 ### Retained recovery boundary
 

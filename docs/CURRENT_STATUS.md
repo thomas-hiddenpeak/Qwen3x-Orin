@@ -25,9 +25,10 @@ metadata/evidence records.
 
 ## 1. Answer-first state
 
-**Liveness-only source integration selected; installed-main closeout pending.**
-The integration combines main `13be53c` with liveness-only `055fb245` after
-both matched P40000/O16 API pairs improved pure Prefill and external TTFT.
+**Liveness source selected; independent startup repair awaits main closeout.**
+The original integration `edf4da2` combined main `13be53c` with liveness-only
+`055fb245` after both matched P40000/O16 API pairs improved pure Prefill and
+external TTFT.
 The selected source's ordinary compiled profile is
 `q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1`, with
 `production_eligible=false`, `release_qualified=false`, and v20 elision
@@ -35,10 +36,43 @@ receipts. It preserves incumbent QT2/GroupQ64 Attention, scalar final/Decode,
 the complete startup repair and inventory, and all existing main metadata.
 Score-feed kernels and selectors are absent. The candidate branch's installed
 OFF artifact, not a new main artifact, supplied the matched API result.
+That merge preserved runtime, headers, tests, and CMake exactly as `055fb245`.
+The separately admitted `396ce977` repair changes only the runner's host-side
+source-Graph lifetime after full executable upload/synchronization; it keeps
+the original embedding node, complete executable, numerical kernels, arguments,
+liveness dataflow, arena, and startup thresholds. Successor `0816bb20` changes
+only the existing Graph test's stale arena constant and explanatory comment.
+The resulting runtime and test source are therefore not wholly identical to
+`055fb245`; the earlier numerical and matched-performance evidence remains
+bound to its recorded artifacts.
+
+The first `edf4da2` installed-main OFF build passed, but both fresh P40 startup
+attempts failed before readiness with `device_memory_budget_exceeded` and no
+request or timing result. The original failures remain recorded: observed
+Graph free drops were 292,073,472 and 320,229,376 bytes, with 113.616 and
+110.735 ms preparation. A separate instrumented diagnostic is not an API
+result. The repaired source's existing C32/P45 real-model Graph test now passes
+serial/replay/reset/trace/P44 boundary checks with 25 slots and the unchanged
+resource gates. Its first attempt failed the stale fixture before model load,
+not the ownership repair. This is bounded Graph correctness, not a full-state
+Graph oracle, repeated startup reliability, or performance qualification.
+
+The repair's separate installed OFF P40000/O16 request completed exact output,
+v20 route/reset, complete startup inventory, and owned cleanup. Its raw parent
+remains `accepted=false` with no timing authority: one post-readiness CPU
+sample lost the command line of an already-exited process and produced two
+duplicate identity rejection reasons. The process is not identified by guess.
+Independent review accepts only the unaffected startup, output, route, and
+resource-closure facts together with the Graph test as grounds for this bounded
+source repair. No C1 speed, memory improvement, or repeated reliability is
+claimed, and the original rejected record is unchanged.
+
 Fresh installed-main OFF build, actual P40000/O16 API, and a separate fresh
 server's standard one-warmup/eight-measured EvalScope plus raw-SSE closeout
-remain pending. No current-main installed ELF or result is inferred from
-source selection.
+for the repaired source remain pending. No new main installed ELF or successful
+request is inferred from the Graph test or scoped candidate acceptance. Exact
+attempt and source-bridge boundaries are in the
+[Graph lifetime selection record](metadata/qwen36-27b-graph-template-lifetime-selection-2026-09-09.json).
 
 The selected 0.7.0 source profile retains 40,000 prompt tokens, a 4,096-token
 output ceiling, `prompt + output - 1 <= 44,095`, the 3,070,908,416-byte exact
@@ -670,7 +704,7 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | Pure C++ tokenizer and greedy generation | Implemented | Public capability and long-run qualification remain incomplete |
 | OpenAI-compatible product API | Installed production-shaped 0.7.0 service with bounded queues, streaming, Bearer authentication, public health, and external TLS termination contract | Cancellation, multi-tenant policy, capability, and release stability remain incomplete |
 | Installed default context | Sealed P40 profile admits `prompt + output - 1 <= 44,095` with a 4,096-token output ceiling | P60 and approximately-P130 profiles remain unopened |
-| Terminal-prefix source integration | Selected ordinary OFF liveness-only profile, v20 receipts, unchanged kernel arithmetic/startup/Decode and 0.7.0 ABI; both matched P40000/O16 API pairs are positive and production/release flags remain false | Fresh installed-main OFF build, P40000/O16 API, and separate fresh-server short integration remain pending; candidate results are not mainline installed-artifact results |
+| Terminal-prefix source integration | Selected ordinary OFF liveness-only profile and v20 receipts; kernel arithmetic/Decode, startup inventory/admission and 0.7.0 ABI are unchanged. A separately admitted host Graph-template lifetime repair is identified above; both matched liveness API pairs are positive and production/release flags remain false | Fresh installed-main OFF build, P40000/O16 API, and separate fresh-server short integration for the repaired source remain pending; candidate results are not mainline installed-artifact results |
 | Ordinary request-state reuse | Preserved 0.7.0 lifecycle derives `already_clean`, exact committed dirty-prefix, or conservative full reset; v20 carries the receipt in the selected liveness scope, while original v1/v16 scopes remain unchanged. Historical v3 P1024/P4096/P8192 BCCB and same-server P40000 lifecycle support reset retention, not a new-default artifact claim | Fresh main integration, complete accuracy, independent-process target-length repetition, capability, and release qualification remain open; no Prefill-throughput claim is attached to reset |
 | Target-length Prefill | Selected source adds terminal layer-63 prefix elision to ordinary exact prompt-wide preprocessing and exact-span GDN, with incumbent QT2/GroupQ64. Its separate installed candidate passes both matched P40 API pairs; the actual installed-main result is pending. Closed selector/Q4/P39936 and AOT routes remain excluded | Fresh-main P40 and short closeout, complete accuracy, P60/P130, the 2s/4s targets, and further accuracy-preserving whole-product optimization remain open; no same-skeleton span scan is activated |
 | SM87 whole-system AOT Prefill candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` is default-off, non-executable, and paused. Real-checkpoint upload/readback/private attachment plus the layer-0 M192 Oracle remain retained prerequisites. The P40000 BF16-HMMA skeleton is rejected at 225.7838x over budget, and `bmma-static-support-k16-parent-zero-fill-v2` is separately rejected before CUDA after its authenticated mandatory-instruction lower bound exceeds the complete five-second projection allocation | No active AOT implementation gate. Resumption requires an explicitly named materially different exact arithmetic/dataflow class with a new bounded proof or a successor architecture; persisted direct loading remains prerequisite work only after such a resumption |
@@ -714,10 +748,17 @@ The current exact M512 request-state planner reports:
 
 | Maximum sequence length | Planned request arena |
 | ---: | ---: |
-| 8,192 | 705,331,200 bytes |
+| 8,192 | 705,593,344 bytes |
 | 40,000 | 2,801,096,704 bytes |
 | 60,000 | 4,118,856,704 bytes |
 | 130,000 | 8,731,016,704 bytes |
+
+The P8192 row is a source-derived planning correction, not a new allocation or
+measurement: 615,317,504 persistent bytes + 88,178,688 C512 workspace bytes +
+2,097,152 RoPE bytes. FP32 capacity is `max(262144, 24 * max_seq)` elements.
+The prior 705,331,200-byte row is 262,144 bytes short: the 196,608-element GQA
+view at this length does not replace the larger FP32 capacity floor.
+Historical evidence is unchanged. P40/P60/P130 totals are unaffected.
 
 The 2 GiB default therefore rejects P40 before performance is considered.
 Raising the command-line limit alone is not a capacity qualification: the

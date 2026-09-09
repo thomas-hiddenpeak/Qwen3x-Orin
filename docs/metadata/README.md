@@ -2336,3 +2336,16 @@ joins the exact ordinary numerical captures with the installed OFF P40000/O16
 API result: 51.1657775463 prompt tok/s, valid negative direction. It preserves
 full output, route, startup, clock, and resource evidence, closes this version
 without repetition or profiling, and grants no mainline or release authority.
+
+## 2026-09-09 Graph source-template lifetime selection
+
+The [Graph lifetime selection record](qwen36-27b-graph-template-lifetime-selection-2026-09-09.json)
+freezes the original installed-main startup failures, separate diagnostic,
+stale Graph-test fixture failure and corrected real-model test, candidate OFF
+API decision, and exact source/build bridge. The original C1 `accepted=false`
+and absent timing authority remain unchanged; separately named functional
+acceptance uses only unaffected startup/output/route/closure facts and the
+Graph test. It selects only the bounded host ownership repair; new
+installed-main OFF/P40000/O16 and short EvalScope/raw-SSE
+checks remain pending at selection. This record is not later overwritten with
+those main results; final mainline closeout receives a separate immutable record.

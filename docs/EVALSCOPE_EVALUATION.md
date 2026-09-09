@@ -362,8 +362,12 @@ original v1/v16 serialization; independent layer-major schemas are unchanged.
 Qualification must join exact source/ELF, authenticated model, request/token
 hashes, live-state/output comparison, and the actual OFF API witness. This
 contract describes obligations, not qualification by itself. Matched source
-selection and the still-pending installed-main OFF/P40/short closeout are
-recorded in [Current Status](CURRENT_STATUS.md).
+selection and the still-pending installed-main OFF/P40/short closeout after the
+independent Graph source-template lifetime repair are recorded in
+[Current Status](CURRENT_STATUS.md). The repair preserves full executable
+topology, numerical arguments, compiled profile/v20 identity, and the ordinary
+25-slot/256-MiB/one-second/8-GiB startup gates. Its separate C32/P45 Graph test
+does not qualify P40 API behavior or waive an installed-main check.
 
 Mainline closeout requires a fresh actual P40000/O16 API request and a
 separate fresh-server short integration on that same installed-main OFF

@@ -1,0 +1,672 @@
+{
+  "schema": "q3x.graph-template-lifetime-selection.v1",
+  "status": "selected_for_main_source_integration_on_scoped_functional_evidence",
+  "date": "2026-09-09",
+  "decision": {
+    "work_package_id": "WP-GRAPH-TEMPLATE-LIFETIME-20260909",
+    "parent_architecture_id": "AC-PREFILL-EXACT-P40-DATAFLOW-20260909",
+    "product_constraint": "Restore usable ordinary installed startup for the selected liveness P40000/O16 path without changing numerical, capacity, route or existing Graph admission contracts.",
+    "selected_source": "0816bb201dd8460440441e4d64ea65d57a4b6340",
+    "selected_tree": "2c227dea00ff0468a2738c9b0b01065ed052d560",
+    "grounds": "Completed existing real-model Graph correctness/resource test plus separately scoped unaffected candidate OFF startup, output, route and owned-closure facts. The raw C1 rejected status and absent timing authority are unchanged.",
+    "actual_repaired_main_absorbed_at_selection": false,
+    "production_eligible": false,
+    "release_qualified": false,
+    "performance_improvement_claim": false,
+    "memory_improvement_claim": false,
+    "repeated_startup_reliability_qualified": false
+  },
+  "prior_liveness_selection": {
+    "path": "docs/metadata/qwen36-27b-terminal-prefix-p40000-api-selection-2026-09-09.json",
+    "sha256": "333a3c1d1bd03db7d24e655dc4eef34ac32b2fa21723e6391edd8f54ea0215cb"
+  },
+  "source_bridge": {
+    "liveness_selected_source": "055fb2457ac8cf7804950cf965d83001f0305d9e",
+    "liveness_main_merge": "edf4da25f303dede3831e88c4ff82bf691b6f8b8",
+    "liveness_main_tree": "c51b8241fa307c68d37f32a10a9e743218488002",
+    "liveness_merge_identity": "At edf4da2, runtime, headers, tests and CMake are identical to selected055fb245; all prior main13be53c metadata is preserved. That historical selection/merge identity is unchanged.",
+    "independent_graph_lifetime_candidate": "396ce977e3d33a560f450c89ed4bf4bbac940866",
+    "independent_graph_lifetime_tree": "2752e28286e16b3cf232671962785032ca6f81f9",
+    "parent": "edf4da25f303dede3831e88c4ff82bf691b6f8b8",
+    "candidate_runtime_delta": "Only src/runtime/reference_runner.cpp gains34lines releasing unused original non-root Graph template nodes after full instantiation/upload/synchronization. The original graph/embedding node and full executable remain. Kernels, arguments, numerical reductions, request/state buffers, headers, tests and CMake are unchanged.",
+    "candidate_nonruntime_delta": [
+      "docs/REFERENCE_RUNNER.md",
+      "docs/ROADMAP.md",
+      "docs/DOCUMENT_REGISTRY.md"
+    ],
+    "qualification_boundary": "The final runtime must not be called wholly byte-identical to055after the independent host-template repair. Prior P40 ON exact/liveness and OFF matched-performance records retain their exact artifacts. Unchanged kernel/liveness source supports bounded numerical reuse; the new Graph ownership path requires its own existing production Graph test and actual installed API checks. Earlier timing does not become timing of a new ELF.",
+    "fixture_successor": "0816bb201dd8460440441e4d64ea65d57a4b6340",
+    "fixture_successor_delta": "Only tests/reference_decode_graph_production_test.cpp: expected C32/P45 arena87846400 to87901696 plus explanatory comment. Runtime source is unchanged from396ce977.",
+    "installed_OFF_build_source": "396ce977e3d33a560f450c89ed4bf4bbac940866",
+    "installed_OFF_build_tree": "2752e28286e16b3cf232671962785032ca6f81f9",
+    "observed_C1_checkout": "0816bb201dd8460440441e4d64ea65d57a4b6340",
+    "observed_C1_checkout_tree": "2c227dea00ff0468a2738c9b0b01065ed052d560",
+    "cross_source_scope": "OFF was not rebuilt after the test-only0816 change. Its preserved build manifest remains bound to396. The source bridge is an explicit exact diff, not borrowed ELF equivalence."
+  },
+  "candidate_build": {
+    "manifest": {
+      "path": ".q3x-work/build/graph-template-lifetime-20260909-off/preserved-396ce977-c9782b26/build-manifest.json",
+      "sha256": "c01a971414641702c02e473a30b8134eb4097290cbe90aa05311574dc8dc8331"
+    },
+    "fixture_refresh": {
+      "path": ".q3x-work/build/graph-template-lifetime-20260909-on/fixture-refresh-build-manifest.json",
+      "sha256": "743512738631981ec9ca1485f79a43920dc60f3880992631c244525762b96bcd"
+    },
+    "build_type": "Release",
+    "BUILD_TESTING": false,
+    "CUDA_architecture": 87,
+    "build_id": "b2935dfda1dfe6f296e821689d9e4f869b884300",
+    "installed_server": {
+      "bytes": 9029240,
+      "mtime_ns": 1788911001000000000,
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/install/graph-template-lifetime-20260909-off/bin/qwen3x-eval-server",
+      "resolved_path": "/home/rm01/Qwen3x-Orin/.q3x-work/install/graph-template-lifetime-20260909-off/bin/qwen3x-eval-server",
+      "sha256": "c9782b26563c61e0db4e5feac2ca6ed2448461d2ee20cc1970082dd9c02cfe83"
+    },
+    "cmake_cache": {
+      "bytes": 41145,
+      "mtime_ns": 1788910850180903000,
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/build/graph-template-lifetime-20260909-off/CMakeCache.txt",
+      "resolved_path": "/home/rm01/Qwen3x-Orin/.q3x-work/build/graph-template-lifetime-20260909-off/CMakeCache.txt",
+      "sha256": "308dc010fb0fd7f2a7ab39b822480abd11ff13272fd17c122e937c9a8ece712f"
+    },
+    "install_manifest": {
+      "bytes": 7851,
+      "mtime_ns": 1788911007074841600,
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/build/graph-template-lifetime-20260909-off/install_manifest.txt",
+      "resolved_path": "/home/rm01/Qwen3x-Orin/.q3x-work/build/graph-template-lifetime-20260909-off/install_manifest.txt",
+      "sha256": "120f57d64f77b1eb4b5c15ca30020a172a413cc77dcc1ab8a700277adfce89af"
+    },
+    "host_checks_scope": "Original396 ON runner/route/protocol host tests and7 docs units; OFF three-target build/install/production help.0816 refresh rebuilt only ON Graph+host plan tests. No main build or GPU observation is inferred from host tests."
+  },
+  "first_liveness_main_OFF_build": {
+    "path": ".q3x-work/evidence/terminal-prefix-main-integration-build-20260909/manifest.json",
+    "sha256": "a2d432b4a2b43c5ddff1b5835d8cf7212418d0ea0eb07324c8c5532c31a120bf",
+    "accepted": true,
+    "installed_server_sha256": "a91205df11a0467e36ef249ccfdf7c347e6235662320a57b360b8bc98f8acac1",
+    "build_id": "b7f0618686c54127026779c62a21f3b4f6448deb"
+  },
+  "original_main_startup_failures": [
+    {
+      "id": "edf_main_r1",
+      "path": ".q3x-work/evidence/terminal-prefix-main-p40000-api-20260909-r1/result.json",
+      "sha256": "a4ad9be90820e309674d6d40065b1f4f84d32c80f34c342926e34d8ce17f7750",
+      "accepted": false,
+      "request_started": false,
+      "metrics": null,
+      "graph_free_drop_bytes": 292073472,
+      "prepare_ms": 113.616,
+      "slots": 0,
+      "reason": "device_memory_budget_exceeded",
+      "exit_code": 3,
+      "owned_resource_closure": true
+    },
+    {
+      "id": "edf_main_r2",
+      "path": ".q3x-work/evidence/terminal-prefix-main-p40000-api-20260909-r2/result.json",
+      "sha256": "0abeaaf798c541ef4a7650785912030144b9cc17a6fc5ad850fecc9e9adb56fc",
+      "accepted": false,
+      "request_started": false,
+      "metrics": null,
+      "graph_free_drop_bytes": 320229376,
+      "prepare_ms": 110.735,
+      "slots": 0,
+      "reason": "device_memory_budget_exceeded",
+      "exit_code": 3,
+      "owned_resource_closure": true
+    }
+  ],
+  "sole_stage_diagnostic": {
+    "path": ".q3x-work/evidence/graph-startup-stage-attribution-20260909-r1/result.json",
+    "sha256": "45f65947d2fa578c26e23bbd8200aab48c5c168c31e625dc9d3d946667fb2df3",
+    "source_head": "1b04b005411ed78ba0d25f6057394771a9978b19",
+    "source_tree": "d094cb04f7d255e7155e17599abb457f7bf33ceb",
+    "installed_server_sha256": "54bb297d72ad9d9887c0f4843f87134038c7a25fd83798e403ac8310c05d6224",
+    "build_id": "0bdd73d5d3d811e53166059636ca97bc6452ed90",
+    "scope_receipt": {
+      "path": ".q3x-work/evidence/graph-startup-stage-attribution-20260909-r1/diagnostic-scope.json",
+      "sha256": "a3f86c34a678046d72c2cf53665db79fb5aabc0e5092bf62e34fd5d93f1f82b8"
+    },
+    "health_receipt": {
+      "path": ".q3x-work/evidence/graph-startup-stage-attribution-20260909-r1/diagnostic-health.json",
+      "sha256": "ff5db755230e4804812269f9942676612afc9df6121a78b7837ddea07bc59413"
+    },
+    "scope": "Separate six-probe diagnostic artifact; diagnostic readiness is not successful P40 generation, repeated startup reliability, or performance evidence. The original accepted=false parent and intentional stop are preserved.",
+    "request_started": false,
+    "API_accepted": false,
+    "diagnostic_expected_stop": true,
+    "graph_slots": 25,
+    "graph_free_drop_bytes": 256503808,
+    "prepare_ms": 111.228,
+    "exit_code": 0
+  },
+  "original_Graph_fixture_failure": {
+    "source": "396ce977e3d33a560f450c89ed4bf4bbac940866",
+    "raw_reference": {
+      "path": ".q3x-work/evidence/graph-template-lifetime-production-20260909-r1/result.json",
+      "sha256": "86884b9106747b4d7861deed6ae718296824b2f9494d953bd9e7b74d835cc8c8"
+    },
+    "stderr_reference": {
+      "path": ".q3x-work/evidence/graph-template-lifetime-production-20260909-r1/child.stderr.txt",
+      "sha256": "268d70e37f0703f5f0767bfe7c2936e43cd4bae6fda2fa09287644cdad1f60f8",
+      "text": "fixed C32/P45 request arena oracle changed: actual=87901696"
+    },
+    "accepted": false,
+    "child_exit_code": 1,
+    "source_before_after_equal": true,
+    "binary_before_after_equal": true,
+    "binary_sha256": "fdac3dcbc1d48932ba5e5d067e7752720a9ab8dbb442b992221afa5175a1268e",
+    "build_id": "bbb6adcfce71ea39e728e53d35d3601d1e584b3c",
+    "owned_process_and_nvmap_closure": true,
+    "classification": "stale_expected_request_arena_fixture_rejected_before_model_or_Graph_execution",
+    "graph_lifetime_failure": false,
+    "origin_of_existing_runtime_minimum": "cac6b5156b1f381d12f1b06184884b0112d91d41 changed FP32 minimum248320 to262144 elements on2026-07-30",
+    "fixture_old_expected_arena_bytes": 87846400,
+    "actual_P45_C32_arena_bytes": 87901696,
+    "difference_bytes": 55296,
+    "successor_source": "0816bb201dd8460440441e4d64ea65d57a4b6340",
+    "successor_tree": "2c227dea00ff0468a2738c9b0b01065ed052d560",
+    "successor_parent": "396ce977e3d33a560f450c89ed4bf4bbac940866",
+    "successor_diff": "Only tests/reference_decode_graph_production_test.cpp: 4 insertions, 1 deletion. The expected arena and comment change; src/include/CMake are unchanged.",
+    "successor_Graph_test_binary_sha256": "19f15b29560be1949fa097b0f3e97f036524be863d7c09281a7e0309ea60df87",
+    "successor_Graph_test_build_id": "b08d881e4ef09e558fd6a309fa47d65cbd0b6e5f",
+    "successor_build_manifest": {
+      "path": ".q3x-work/build/graph-template-lifetime-20260909-on/fixture-refresh-build-manifest.json",
+      "sha256": "743512738631981ec9ca1485f79a43920dc60f3880992631c244525762b96bcd"
+    },
+    "successor_OFF_artifact_boundary": "The existing installed OFF server c9782b26563c61e0db4e5feac2ca6ed2448461d2ee20cc1970082dd9c02cfe83 remains compiled from396ce977, not rebuilt from0816bb20. The successor changes only the ON test fixture; original build manifests and both prior ELFs are preserved.",
+    "allowed_successor_delta": "Only production Graph test expected-arena constant and explanatory comment; no runtime, numerical, topology, Graph budget or warmup change. Raw failed attempt remains immutable."
+  },
+  "corrected_Graph_test": {
+    "path": ".q3x-work/evidence/graph-template-lifetime-production-20260909-r2/result.json",
+    "sha256": "ba6a66c0a9c52012e0d1f8a559043cd2a3d1320fbb9c226ef479cb7cd63f969a",
+    "stdout": {
+      "path": ".q3x-work/evidence/graph-template-lifetime-production-20260909-r2/child.stdout.txt",
+      "sha256": "16f66f5b7b7fe9415ba8afe3c515d03ace84f24581e3a891547890dfb6b48ff5"
+    },
+    "source_head": "0816bb201dd8460440441e4d64ea65d57a4b6340",
+    "source_tree": "2c227dea00ff0468a2738c9b0b01065ed052d560",
+    "binary_sha256": "19f15b29560be1949fa097b0f3e97f036524be863d7c09281a7e0309ea60df87",
+    "build_id": "b08d881e4ef09e558fd6a309fa47d65cbd0b6e5f",
+    "accepted": true,
+    "child_exit_code": 0,
+    "source_and_ELF_before_after_stable": true,
+    "graph_slots": 25,
+    "prepare_wall_ms": 80.878296,
+    "free_before_bytes": 39279820800,
+    "free_after_bytes": 39208923136,
+    "free_drop_bytes": 70897664,
+    "canonical_replays_fallbacks": [
+      25,
+      0
+    ],
+    "reset_replays_fallbacks": [
+      25,
+      0
+    ],
+    "P44_boundary_replays_fallbacks": [
+      25,
+      1
+    ],
+    "full_statistics_replays_fallbacks": [
+      0,
+      0
+    ],
+    "trace_replays_fallbacks": [
+      0,
+      0
+    ],
+    "all_existing_exact_gates": true,
+    "owned_process_and_nvmap_closure": true,
+    "raw_monitor_accepted": false,
+    "numerical_core_device_ownership_and_safety_accepted": true,
+    "raw_monitor_auxiliary_reasons": "Active Codex CPU and natural child exit; unchanged raw rejection retained, no numerical or resource hard reason.",
+    "scope": "Existing real-model C32/P45 token/text/step, changed-input/reset, serial full-statistics/trace and P44 fallback contract. No full-state/full-vocabulary Graph, ordinary P40 API, repeated startup, or performance qualification.",
+    "timing_authority": false,
+    "performance_authority": false
+  },
+  "candidate_C1": {
+    "raw_result": {
+      "path": ".q3x-work/evidence/graph-template-lifetime-p40000-api-20260909-c1/result.json",
+      "sha256": "0501efb68720ed027166e67df1a521b53edc5d41b69cedce63e589305147448c"
+    },
+    "raw_parent_accepted": false,
+    "raw_errors": [
+      {
+        "error": "RuntimeError('ownership/safety gate failed')",
+        "stage": "ownership"
+      }
+    ],
+    "raw_timing_authority": {
+      "causal_profile": false,
+      "cold_cache": false,
+      "direction": false,
+      "release": false
+    },
+    "raw_ownership_core_accepted": false,
+    "raw_ownership_hard_reasons": [
+      {
+        "code": "missing_cpu_process_identity"
+      },
+      {
+        "code": "missing_cpu_process_identity"
+      }
+    ],
+    "metrics_not_selected": "Raw metrics remain in the immutable result but receive no speed, startup-timing, memory-improvement, cold-cache-timing, reliability or performance-comparison claim here.",
+    "stdout": {
+      "path": ".q3x-work/evidence/graph-template-lifetime-p40000-api-20260909-c1/server-and-profile.stdout.txt",
+      "sha256": "e6e8863c6664cab6c99fa87408f28379df71894a72c7759feaba42d1fe19aef8"
+    },
+    "stderr": {
+      "path": ".q3x-work/evidence/graph-template-lifetime-p40000-api-20260909-c1/server-and-profile.stderr.txt",
+      "sha256": "1d772aea030e22db3ac8b40e22dce55ec279fc7802dba75a4cc9e39120a1e410"
+    },
+    "raw_sse": {
+      "bytes": 3070,
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/evidence/graph-template-lifetime-p40000-api-20260909-c1/raw-sse.txt",
+      "sha256": "4fa813b72f7e2e6b0e10802d196c4e5bf138d41ae3a2a1886387601442bbee05"
+    },
+    "request": {
+      "accepted": true,
+      "http_status": 200,
+      "request_count": 1,
+      "warmup_requests": 0,
+      "concurrency": 1,
+      "endpoint": "/v1/completions",
+      "request_body_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+      "request_body_bytes": 221257,
+      "sse": {
+        "accepted": true,
+        "choice_events": 16,
+        "created": 1788912024,
+        "done_events": 1,
+        "event_order": [
+          "choice",
+          "choice",
+          "choice",
+          "choice",
+          "choice",
+          "choice",
+          "choice",
+          "choice",
+          "choice",
+          "choice",
+          "choice",
+          "choice",
+          "choice",
+          "choice",
+          "choice",
+          "choice",
+          "usage",
+          "done"
+        ],
+        "finish_reason": "length",
+        "generated_text": "The user wants me to act as an AI agent following the strict guidelines in `",
+        "generated_text_bytes": 76,
+        "generated_text_sha256": "25451d25ce3799c749c8743a664277def7336b294af5ddfb238dac327058b20b",
+        "raw_sse_sha256": "4fa813b72f7e2e6b0e10802d196c4e5bf138d41ae3a2a1886387601442bbee05",
+        "response_id": "cmpl-q3x-1",
+        "usage": {
+          "completion_tokens": 16,
+          "prompt_tokens": 40000,
+          "total_tokens": 40016
+        },
+        "usage_events": 1
+      }
+    },
+    "prompt_token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "model_authentication": {
+      "bytes": 3742,
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/evidence/pinned-model-authentication-20260909.json",
+      "sha256": "c7c71b78ea1bbd9d911c48a3b384933242184876311dfa83c0e366b8f56e6e75"
+    },
+    "model_before_after_equal": true,
+    "artifact_before_after_equal": true,
+    "observed_checkout": {
+      "diff_bytes": 0,
+      "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "head": "0816bb201dd8460440441e4d64ea65d57a4b6340",
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/worktrees/graph-template-lifetime-20260909",
+      "status": "",
+      "tree": "2c227dea00ff0468a2738c9b0b01065ed052d560"
+    },
+    "installed_server": {
+      "bytes": 9029240,
+      "mtime_ns": 1788911001000000000,
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/install/graph-template-lifetime-20260909-off/bin/qwen3x-eval-server",
+      "resolved_path": "/home/rm01/Qwen3x-Orin/.q3x-work/install/graph-template-lifetime-20260909-off/bin/qwen3x-eval-server",
+      "sha256": "c9782b26563c61e0db4e5feac2ca6ed2448461d2ee20cc1970082dd9c02cfe83"
+    },
+    "build_id": "b2935dfda1dfe6f296e821689d9e4f869b884300",
+    "server_identity": {
+      "comm": "qwen3x-eval-ser",
+      "exe": "/home/rm01/Qwen3x-Orin/.q3x-work/install/graph-template-lifetime-20260909-off/bin/qwen3x-eval-server",
+      "pid": 1418754,
+      "ppid": 1418659,
+      "process_group_id": 1418754,
+      "session_id": 1418754,
+      "start_time_ticks": 116406204,
+      "stat_exe_stat_stable": true
+    },
+    "ready_monotonic_ns": 1164097538369638,
+    "ready_inventory": {
+      "BUILD_TESTING": false,
+      "capacity": {
+        "max_sequence_length": 44095,
+        "maximum_output_tokens": 4096,
+        "request_arena_bytes": 3070908416,
+        "target_prompt_tokens": 40000
+      },
+      "decode": {
+        "down_consumer_order_layers": 53,
+        "down_consumer_order_sidecar_bytes": 2361917440,
+        "down_scale6_layers": 53,
+        "down_scale6_sidecar_bytes": 221429760,
+        "fp8_output_layers": 64,
+        "fp8_output_sidecar_bytes": 2013265920,
+        "gate_up_layers": 64,
+        "gate_up_sidecar_bytes": 6417285120,
+        "graph_cache": {
+          "first_position": 19,
+          "last_position": 43,
+          "slots": 25
+        },
+        "retained_sidecar_bytes": 11013898240,
+        "route": "q3x.sm87.decode.coupled-feed-down-consumer-order.v1"
+      },
+      "prefill": {
+        "supermatrix_projections": 208,
+        "supermatrix_sidecar_bytes": 7214202880
+      },
+      "production_eligible": false,
+      "profile": "q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1",
+      "release_qualified": false,
+      "retained_acceleration_sidecar_bytes": 18228101120
+    },
+    "startup_Graph_resource_receipt": {
+      "first_position": 19,
+      "last_position": 43,
+      "slots": 25,
+      "prepare_ms": 107.854,
+      "free_before_bytes": 20896337920,
+      "free_after_bytes": 20811280384,
+      "free_drop_bytes": 85057536,
+      "scope": "Observed ready admission under unchanged256MiB/1second/8GiB gates, not a timing or memory-improvement claim."
+    },
+    "reset_receipt": {
+      "accepted": true,
+      "bytes": 0,
+      "milliseconds": 0.038527,
+      "mode": "already_clean",
+      "positions": 0
+    },
+    "completed_prefill_route": {
+      "cache_hits": {
+        "available": false,
+        "reason": "not_instrumented"
+      },
+      "deployment_plan": {
+        "available": false,
+        "reason": "not_implemented"
+      },
+      "disabled_boundaries": {
+        "approximate_numerics": true,
+        "cublaslt_production": true,
+        "mtp": true,
+        "prefix_cache": true,
+        "scope": "production_contract"
+      },
+      "per_operator_route_hits": {
+        "available": true,
+        "complete": true,
+        "coverage": {
+          "attention_layers_per_pass": 16,
+          "completed_layer_passes": 81,
+          "expected_layer_passes": 81,
+          "gdn_layers_per_pass": 48,
+          "layers_per_pass": 64
+        },
+        "forbidden_route_hits": {
+          "approximate_numerics": 0,
+          "cublaslt": 0,
+          "external_reference": 0,
+          "mtp": 0,
+          "prefix_cache": 0
+        },
+        "operators": {
+          "attention": {
+            "completed_exact_fallback_hits": 16,
+            "completed_forbidden_hits": 0,
+            "completed_production_hits": 1200
+          },
+          "fp8_o": {
+            "completed_exact_fallback_hits": 190,
+            "completed_forbidden_hits": 0,
+            "completed_production_hits": 4914
+          },
+          "fp8_qkv": {
+            "completed_exact_fallback_hits": 288,
+            "completed_forbidden_hits": 0,
+            "completed_production_hits": 7488
+          },
+          "fp8_z": {
+            "completed_exact_fallback_hits": 144,
+            "completed_forbidden_hits": 0,
+            "completed_production_hits": 3744
+          },
+          "gdn": {
+            "completed_exact_fallback_hits": 144,
+            "completed_forbidden_hits": 0,
+            "completed_production_hits": 3744
+          },
+          "nvfp4_down": {
+            "completed_exact_fallback_hits": 5104,
+            "completed_forbidden_hits": 0,
+            "completed_production_hits": 0
+          },
+          "nvfp4_gate_up": {
+            "completed_exact_fallback_hits": 5104,
+            "completed_forbidden_hits": 0,
+            "completed_production_hits": 0
+          }
+        },
+        "reason": null,
+        "scope": "request_completed_prefill_logical_operators"
+      },
+      "projection_backend": {
+        "available": true,
+        "scope": "configured_engine_fact",
+        "value": "sm87_weight_only"
+      },
+      "scope": "request_witness",
+      "terminal_prefix_elision": {
+        "available": true,
+        "elided_prefix_layer_passes": 80,
+        "elided_prefix_rows": 39999,
+        "final_prompt_causal_end": 40000,
+        "final_prompt_query_position": 39999,
+        "final_prompt_step": "unchanged_legacy_scalar",
+        "kv_publication": "existing_stream_sync_before_commit",
+        "omitted_roles": [
+          "nvfp4_gate_up",
+          "nvfp4_down",
+          "fp8_o",
+          "attention"
+        ],
+        "plan_id": "q3x.sm87.legacy-c512.terminal-prefix-elision.v1",
+        "prefix_hidden": "unobservable_layer62_residual",
+        "preserved_terminal_qkv_rows": 40000,
+        "retained_scalar_prefix_rows": 0,
+        "terminal_layer": 63
+      }
+    },
+    "hardware_gate": {
+      "accepted": true,
+      "actual_faults": [],
+      "auxiliary_sampling_errors": [],
+      "overcurrent_delta_context": {
+        "oc1": 0,
+        "oc2": 0,
+        "oc3": 0
+      },
+      "selected_cpu_policy": "8"
+    },
+    "cleanup": {
+      "accepted": true,
+      "launcher_returncode": 0,
+      "owned_before": [
+        {
+          "binding": "Popen+exec+birth",
+          "comm": "qwen3x-eval-ser",
+          "exe": "/home/rm01/Qwen3x-Orin/.q3x-work/install/graph-template-lifetime-20260909-off/bin/qwen3x-eval-server",
+          "pid": 1418754,
+          "ppid": 1418659,
+          "process_group_id": 1418754,
+          "role": "server",
+          "session_id": 1418754,
+          "start_time_ticks": 116406204,
+          "state": "S"
+        }
+      ],
+      "process_exit_success": true,
+      "residual_members": [],
+      "resource_closure_accepted": true,
+      "signals": [
+        {
+          "exe": "/home/rm01/Qwen3x-Orin/.q3x-work/install/graph-template-lifetime-20260909-off/bin/qwen3x-eval-server",
+          "pid": 1418754,
+          "pidfd_bound": true,
+          "role": "server",
+          "signal": "SIGINT",
+          "start_time_ticks": 116406204
+        }
+      ]
+    },
+    "nvmap_delta": {
+      "accepted": true,
+      "added_orphan_rows": [],
+      "added_pids": [],
+      "after_orphan_rows": [],
+      "after_pids": [],
+      "before_orphan_rows": [],
+      "before_pids": [],
+      "owned_server_pid": 1418754,
+      "owned_server_pid_absent_after_exit": true,
+      "pagepool_absolute_available_after_bytes": 8241508352,
+      "pagepool_absolute_available_before_bytes": 8241508352,
+      "pagepool_absolute_available_delta_bytes": 0,
+      "removed_orphan_rows": [],
+      "removed_pids": []
+    },
+    "port_after": {
+      "active_listener_absent": true,
+      "attempts": 1,
+      "port": 18149,
+      "probe_called_listen": true,
+      "probe_socket_option": "SO_REUSEADDR=1",
+      "tcp_state_counts_before_probe": {
+        "06": 1
+      },
+      "time_wait_is_not_listener_residue": true,
+      "wait_ms": 5.479722982272506
+    }
+  },
+  "scoped_functional_acceptance": {
+    "name": "candidate_C1_unaffected_startup_output_route_and_owned_closure",
+    "accepted": true,
+    "authority": "Bounded engineering repair selection under existing proportional-evidence policy, independently reviewed. This derivative accepts only named unaffected facts; it does not change raw parent/ownership acceptance or timing authority.",
+    "ownership_raw": {
+      "path": ".q3x-work/evidence/graph-template-lifetime-p40000-api-20260909-c1/ownership.json",
+      "sha256": "85503758e2d7471e7231c638d3bf17a626c1f0e031a925b4a3233f7da4cac25b"
+    },
+    "ownership_review": {
+      "sample_count": 1404,
+      "aggregate_error_count": 249,
+      "aggregate_error_codes": [
+        "unexpected_cpu_consumers"
+      ],
+      "observed_GPU_holder_pids": [
+        1418754
+      ],
+      "foreign_GPU_holders": 0,
+      "unique_empty_commandline_sample": 333,
+      "observed_at_utc": "2026-09-09T00:02:36.169017+00:00",
+      "monotonic_ns": 1164229464595202,
+      "seconds_after_ready": 131.926225564,
+      "cpu_interval_seconds": 0.5004521009977907,
+      "cpu_percent_of_one_core": 91.91688856593106,
+      "observed_CPU_seconds": 0.46,
+      "unknown_process": {
+        "pid": 1419547,
+        "ppid": 1419546,
+        "comm": "python3",
+        "cwd": "/home/rm01/Qwen3x-Orin",
+        "observed_commandline": "",
+        "commandline_identity": "unknown; not inferred from a matching command or time window"
+      },
+      "same_sample_exit_facts": [
+        {
+          "pid": 1419546,
+          "kind": "process_exited",
+          "identity_after_snapshot": "gone"
+        },
+        {
+          "pid": 1419547,
+          "kind": "process_exited",
+          "identity_after_snapshot": "gone"
+        }
+      ],
+      "duplicated_rejection": "One empty-commandline observation appears in aggregate and sample error paths, producing two missing_cpu_process_identity reasons.",
+      "limitation": "One short CPU observation after readiness cannot identify the process or prove zero contention. No runtime threshold, collector, helper, ownership policy or original status is changed."
+    },
+    "accepted_facts": [
+      "Complete unchanged ready inventory before the unknown CPU observation",
+      "Actual complete HTTP200/SSE16choices+usage+DONE P40000/O16 output and pinned ordinary text",
+      "Actual v20 native/fallback role counts and already_clean reset",
+      "Stable observed source/ELF/model and only owned GPU handles in all retained samples",
+      "Graceful rc0 shutdown, reusable port, no retained owned process/nvmap/orphan"
+    ],
+    "excluded_claims": [
+      "C1 timing or speedup",
+      "Memory improvement or peak-memory non-regression",
+      "Repeated startup reliability",
+      "Unknown CPU process identity",
+      "Full-state/full-vocabulary Graph oracle",
+      "Fresh repaired-main API or short integration",
+      "Release or complete capability qualification"
+    ],
+    "independent_review": "Root and audit_evidence_and_scope independently reviewed all samples and exact request/source/resource records; audit_v10_restoration independently checked raw result, startup/witness/SSE, exact source bridge and all-sample ownership summary."
+  },
+  "active_document_planner_erratum": {
+    "runtime_change": false,
+    "REQUEST_STATE_fp32_minimum_elements": {
+      "old": 248320,
+      "correct": 262144,
+      "source": "src/runtime/request_state.cpp30,527-529"
+    },
+    "REQUEST_STATE_default_arena_bytes": {
+      "old": 88031744,
+      "correct": 88087040,
+      "source": "include/q3x/runtime/request_state.h27 and tests/request_state_plan_test.cpp105-112"
+    },
+    "CURRENT_STATUS_P8192_C512_arena_bytes": {
+      "old": 705331200,
+      "correct": 705593344,
+      "persistent_bytes": 615317504,
+      "workspace_bytes": 88178688,
+      "rope_bytes": 2097152,
+      "derivation": "Current builder owns78446592+65536*8192 persistent bytes, C512 workspace88178688 (including4*max(262144,24*8192) FP32), and256*8192 RoPE bytes; all applicable boundaries are256-byte aligned. Their sum is705593344. The old row differs by262144, not55296; it numerically uses GQA-only196608 scratch elements, so its entire error must not be attributed to the minimum-capacity change."
+    },
+    "P40000_P60000_P130000": "Unchanged current host-test totals2801096704/4118856704/8731016704; GQA scratch exceeds both old and new minimum capacities. Historical evidence remains untouched."
+  },
+  "main_checks_at_selection": {
+    "point_in_time": "Pending at this repair selection; immutable historical statement, not a future-result placeholder.",
+    "required": [
+      "Fresh installed BUILD_TESTING=OFF main artifact built after source integration",
+      "Actual P40000/O16 API on that fresh installed-main artifact",
+      "Separate fresh-server standard EvalScope1.9.1 one warmup/eight measured plus raw SSE on the same installed-main artifact"
+    ],
+    "source_or_candidate_results_do_not_substitute": true
+  },
+  "evidence_lifecycle": "This selection record is frozen. Repaired-main attempts and results must receive a separate final mainline-closeout record after they occur; never overwrite this record or prior selection/failure/diagnostic evidence."
+}
