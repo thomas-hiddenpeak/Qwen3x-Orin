@@ -818,6 +818,21 @@ not OFF kernel-launch counts. No score-feed code enters this integration.
 The following earlier profile explains the pre-elision incumbent; its counts
 and percentages are not relabelled as the selected default's attribution.
 
+### Split-P tensor prefill route, 2026-09-21 (ADR-0002)
+
+By explicit owner instruction, the production prefill full-attention numerical
+class is aligned to the vLLM/FlashInfer BF16-probability deployment class. The
+dispatch predicate now routes every legal C2..C512 prefill chunk to the
+grouped-Q64 WMMA tensor kernel with split-P probability (P_hi + P_lo, two
+mma, FP32 denominator). The pinned P40000/O16 real API request on this build
+reports 219.8 s pure prefill (vs 663.7 s scalar, ~3.0x) with 16 coherent
+generated tokens. The generated text differs from the historical scalar-oracle
+text from token 0: the oracle's own BF16 logits are an exact top-2 tie at
+token 0 (margin 0.0), which any BF16-input tensor route can flip. This is
+recorded in [ADR-0002](decisions/0002-prefill-attention-vllm-numerical-alignment.md);
+the scalar kernel remains the reference oracle. The 2 s prefill target remains
+open (FLOP floor 1.14 s requires the whole-prompt large-grid architecture).
+
 ### Pre-elision ordinary main attribution, 2026-09-09
 
 The fresh installed Release/OFF main artifact at `d6565eb` (ELF
@@ -950,6 +965,12 @@ Current evidence is incomplete:
 - the short cumulative native route reproduced its comparator on 8/8 outputs;
 - the first external native/vLLM comparison matched text on 26/32 requests,
   but vLLM is not the accuracy oracle;
+- per [ADR-0002](decisions/0002-prefill-attention-vllm-numerical-alignment.md)
+  (owner instruction 2026-09-21), the prefill full-attention numerical class
+  is now the vLLM/FlashInfer BF16-probability class with split-P; token-
+  identical scalar-oracle reproduction is waived for tie-prone prompts, the
+  synthetic gate passes all legal C2..C512 shapes (nrmse <= 1.7e-4), and the
+  pinned P40000/O16 real API run is retained as the accepted evidence;
 - the retained FlashInfer P40 direction has a known P513 full-state mismatch;
 - the later selector-exact persistent-Attention v1 whole-core composition is
   formally rejected at P40000/O16 because Prefill-commit state,

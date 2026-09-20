@@ -45,6 +45,7 @@ struct ScalarSnapshot {
   std::uint32_t argmax = 0U;
   float chosen_logit = 0.0F;
   double logsumexp = 0.0;
+  std::array<std::pair<std::uint32_t, float>, 5U> top5{};
 };
 struct FullSnapshot {
   ScalarSnapshot scalar;
@@ -262,6 +263,18 @@ bool capture_scalar(const rt::RequestState& state, Capture& capture,
     denominator += std::exp(static_cast<double>(bf16(bits)) - maximum);
   out.chosen_logit = maximum;
   out.logsumexp = static_cast<double>(maximum) + std::log(denominator);
+  for (std::size_t rank = 0U; rank < 5U; ++rank) {
+    float best = -std::numeric_limits<float>::infinity();
+    std::uint32_t best_id = 0U;
+    for (std::size_t index = 0U; index < capture.logits.size(); ++index) {
+      const float value = bf16(capture.logits[index]);
+      bool seen = false;
+      for (std::size_t r = 0U; r < rank; ++r)
+        if (out.top5[r].first == index) seen = true;
+      if (!seen && value > best) { best = value; best_id = static_cast<std::uint32_t>(index); }
+    }
+    out.top5[rank] = {best_id, best};
+  }
   return true;
 }
 bool capture_full(const rt::RequestState& state, Capture& capture,
@@ -329,7 +342,14 @@ void write_scalar(std::ostream& out, const ScalarSnapshot& value) {
       << ",\"full_bf16_logits_sha256\":" << json_quote(value.logits.hex())
       << ",\"host_derived_argmax\":" << value.argmax
       << ",\"host_derived_chosen_logit\":" << value.chosen_logit
-      << ",\"host_derived_logsumexp\":" << value.logsumexp << '}';
+      << ",\"host_derived_logsumexp\":" << value.logsumexp
+      << ",\"top5\":[";
+  for (std::size_t rank = 0U; rank < value.top5.size(); ++rank) {
+    if (rank != 0U) out << ',';
+    out << "{\"id\":" << value.top5[rank].first
+        << ",\"logit\":" << value.top5[rank].second << '}';
+  }
+  out << "]}" ;
 }
 void write_full(std::ostream& out, const FullSnapshot& value) {
   out << "{\"scalar\":"; write_scalar(out, value.scalar);

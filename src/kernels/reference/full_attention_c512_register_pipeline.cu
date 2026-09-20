@@ -549,6 +549,7 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_kernel(
 
     if (current_valid) {
       __nv_bfloat16 probability_bits[8];
+      __nv_bfloat16 probability_lo_bits[8];
 #pragma unroll
       for (unsigned int reg = 0U; reg < 8U; ++reg) {
         const unsigned int row =
@@ -601,7 +602,9 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_kernel(
           const float probability =
               bulk_gqa_fast_exp(score_fragment.x[reg] - next_maximum);
           probability_bits[reg] = __float2bfloat16_rn(probability);
-          local_denominator += __bfloat162float(probability_bits[reg]);
+          probability_lo_bits[reg] = __float2bfloat16_rn(
+              probability - __bfloat162float(probability_bits[reg]));
+          local_denominator += probability;
         }
         local_denominator +=
             __shfl_xor_sync(0xffff'ffffU, local_denominator, 1U);
@@ -633,6 +636,27 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_register_pipeline_kernel(
             kBulkGqaHeadDimension);
         nvcuda::wmma::mma_sync(output_fragments[fragment],
                                probability_fragment, value_fragment,
+                               output_fragments[fragment]);
+      }
+      nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 16, 16, 16,
+                             __nv_bfloat16, nvcuda::wmma::row_major>
+          probability_lo_fragment;
+#pragma unroll
+      for (unsigned int reg = 0U;
+           reg < probability_lo_fragment.num_elements; ++reg) {
+        probability_lo_fragment.x[reg] = probability_lo_bits[reg];
+      }
+#pragma unroll
+      for (unsigned int fragment = 0U; fragment < kOutputFragments;
+           ++fragment) {
+        nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 16, 16, 16,
+                               __nv_bfloat16, nvcuda::wmma::row_major>
+            value_fragment;
+        nvcuda::wmma::load_matrix_sync(
+            value_fragment, value_bf16 + 16U * fragment,
+            kBulkGqaHeadDimension);
+        nvcuda::wmma::mma_sync(output_fragments[fragment],
+                               probability_lo_fragment, value_fragment,
                                output_fragments[fragment]);
       }
     }
@@ -1053,6 +1077,7 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
         }
 
         __nv_bfloat16 probability_bits[8];
+        __nv_bfloat16 probability_lo_bits[8];
 #pragma unroll
         for (unsigned int row_group = 0U; row_group < 2U; ++row_group) {
           const unsigned int first = 2U * row_group;
@@ -1092,7 +1117,9 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
             const float probability =
                 bulk_gqa_fast_exp(score_fragment.x[reg] - next_maximum);
             probability_bits[reg] = __float2bfloat16_rn(probability);
-            local_denominator += __bfloat162float(probability_bits[reg]);
+            probability_lo_bits[reg] = __float2bfloat16_rn(
+                probability - __bfloat162float(probability_bits[reg]));
+            local_denominator += probability;
           }
           local_denominator +=
               __shfl_xor_sync(0xffff'ffffU, local_denominator, 1U);
@@ -1126,6 +1153,32 @@ void bulk_causal_gqa_sigmoid_gate_24_4_256_c512_group_q64_kernel(
               kBulkGqaHeadDimension);
           nvcuda::wmma::mma_sync(output_fragments[fragment],
                                  probability_fragment, value_fragment,
+                                 output_fragments[fragment]);
+        }
+        nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 16, 16, 16,
+                               __nv_bfloat16,
+                               nvcuda::wmma::row_major>
+            probability_lo_fragment;
+#pragma unroll
+        for (unsigned int reg = 0U;
+             reg < probability_lo_fragment.num_elements; ++reg) {
+          probability_lo_fragment.x[reg] = probability_lo_bits[reg];
+        }
+#pragma unroll
+        for (unsigned int fragment = 0U; fragment < kOutputFragments;
+             ++fragment) {
+          nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 16, 16, 16,
+                                 __nv_bfloat16,
+                                 nvcuda::wmma::row_major>
+              value_fragment;
+          nvcuda::wmma::load_matrix_sync(
+              value_fragment,
+              value_bf16 + score * kBulkGqaTensorCoreKvTile *
+                               kBulkGqaHeadDimension +
+                  16U * fragment,
+              kBulkGqaHeadDimension);
+          nvcuda::wmma::mma_sync(output_fragments[fragment],
+                                 probability_lo_fragment, value_fragment,
                                  output_fragments[fragment]);
         }
       }

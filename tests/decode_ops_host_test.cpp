@@ -111,24 +111,23 @@ void test_fixed_bulk_causal_gqa_contract(TestContext& test) {
               FixedBulkCausalGqaPrefillTactic::kGroupQ64V3 &&
           select_fixed_bulk_causal_gqa_prefill_tactic(0U, 512U) ==
               FixedBulkCausalGqaPrefillTactic::kGroupQ64V3 &&
+          select_fixed_bulk_causal_gqa_prefill_tactic(1U, 2U) ==
+              FixedBulkCausalGqaPrefillTactic::kGroupQ64V3 &&
+          select_fixed_bulk_causal_gqa_prefill_tactic(257U, 256U) ==
+              FixedBulkCausalGqaPrefillTactic::kGroupQ64V3 &&
+          select_fixed_bulk_causal_gqa_prefill_tactic(511U, 512U) ==
+              FixedBulkCausalGqaPrefillTactic::kGroupQ64V3 &&
           select_fixed_bulk_causal_gqa_prefill_tactic(512U, 2U) ==
               FixedBulkCausalGqaPrefillTactic::kGroupQ64V3 &&
           select_fixed_bulk_causal_gqa_prefill_tactic(512U, 512U) ==
-              FixedBulkCausalGqaPrefillTactic::kGroupQ64V3,
-      "sealed bulk GQA fixes every legal P0/P512 tile to V3 group-Q64");
-  test.expect(
-      select_fixed_bulk_causal_gqa_prefill_tactic(1U, 2U) ==
-              FixedBulkCausalGqaPrefillTactic::kGenericQt2 &&
-          select_fixed_bulk_causal_gqa_prefill_tactic(257U, 256U) ==
-              FixedBulkCausalGqaPrefillTactic::kGenericQt2 &&
-          select_fixed_bulk_causal_gqa_prefill_tactic(511U, 512U) ==
-              FixedBulkCausalGqaPrefillTactic::kGenericQt2 &&
+              FixedBulkCausalGqaPrefillTactic::kGroupQ64V3 &&
           select_fixed_bulk_causal_gqa_prefill_tactic(513U, 512U) ==
-              FixedBulkCausalGqaPrefillTactic::kGenericQt2 &&
+              FixedBulkCausalGqaPrefillTactic::kGroupQ64V3 &&
           select_fixed_bulk_causal_gqa_prefill_tactic(kMaximum - 512U,
                                                       512U) ==
-              FixedBulkCausalGqaPrefillTactic::kGenericQt2,
-      "sealed bulk GQA fixes every other legal append to generic QT2");
+              FixedBulkCausalGqaPrefillTactic::kGroupQ64V3,
+      "sealed bulk GQA fixes every legal C2..C512 tile to V3 group-Q64 "
+      "with split-P");
   test.expect(
       select_fixed_bulk_causal_gqa_prefill_tactic(0U, 1U) ==
               FixedBulkCausalGqaPrefillTactic::kInvalid &&

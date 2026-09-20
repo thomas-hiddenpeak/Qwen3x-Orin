@@ -426,21 +426,20 @@ launch_gqa_attention_splitkv_sigmoid_gate_24_4_256_cuda(
 // [position, 4, 256], and first_position is the global append position of
 // tile-local token zero. Attention uses the fixed 1/sqrt(256) scale and
 // preserves the FP32 attention -> BF16 -> sigmoid Gate -> BF16 boundary.
-// All arrays must be disjoint and at least uint32_t aligned. P0/C2..C512 and
-// P512/C2..C512 continuations use the grouped-Q64 Tensor Core path; other
-// legal append positions use QT2. Both paths mask incomplete tiles. The
-// launch is asynchronous, performs no allocation or synchronization, and
-// uses no caller-visible scratch.
+// All arrays must be disjoint and at least uint32_t aligned. All legal
+// C2..C512 append positions use the grouped-Q64 Tensor Core path with
+// split-P probability (P_hi + P_lo, two WMMA mma). The launch is
+// asynchronous, performs no allocation or synchronization, and uses no
+// caller-visible scratch.
 [[nodiscard]] constexpr bool use_bulk_causal_gqa_group_q64_prefill(
     const std::size_t first_position,
     const std::size_t token_count) noexcept {
-  return (first_position == 0U || first_position == 512U) &&
-         token_count >= 2U && token_count <= 512U;
+  return token_count >= 2U && token_count <= 512U;
 }
 
 // Sealed Prefill owns an explicit, environment-independent tactic contract.
-// P0/P512 use the current production-default V3 grouped-Q64 implementation;
-// every other legal append position uses the generic QT2 implementation.
+// All legal C2..C512 append positions use the V3 grouped-Q64 implementation
+// with split-P probability (P_hi + P_lo, two WMMA mma).
 // Invalid geometry is represented explicitly so host-only binding tests can
 // prove the complete dispatch table without launching CUDA work.
 enum class FixedBulkCausalGqaPrefillTactic : std::uint8_t {

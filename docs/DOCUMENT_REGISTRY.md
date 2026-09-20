@@ -67,6 +67,7 @@ authority only for its exact recorded protocol.
 | `docs/ROADMAP.md` | `active_plan` | active | SSOT for current dependency order, milestones, and exit criteria; not an experiment ledger. |
 | `docs/SDD.md` | `system_sdd` | active | SSOT for the externally callable runner design from API and target workloads inward to kernels/deployment. |
 | `docs/decisions/0001-end-state-first-leakage.md` | `accepted_adr` | active | Accepted decision recording end-state-first/leakage as the system design and evolution model; subordinate only to normative policy. |
+| `docs/decisions/0002-prefill-attention-vllm-numerical-alignment.md` | `accepted_adr` | active | Accepted decision aligning prefill full-attention to the vLLM/FlashInfer BF16-probability numerical class with split-P tensor route; owner instruction 2026-09-21. |
 
 ## Contracts (12)
 

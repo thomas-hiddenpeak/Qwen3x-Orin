@@ -9898,9 +9898,11 @@ void test_bulk_gqa_near_max_graph_contract(TestContext& test,
     }
     test.expect(topology.node_count == 1U,
                 label + " admits the final legal append as one node");
-    test.expect(topology.grid.x == token_count / 2U &&
-                    topology.grid.y == 4U && topology.block.x == 192U,
-                label + " preserves the fixed bulk topology");
+    test.expect(topology.grid.x ==
+                    (token_count * 6U + 63U) / 64U &&
+                    topology.grid.y == 1U && topology.grid.z == 4U &&
+                    topology.block.x == 128U,
+                label + " preserves the grouped-Q64 split-P topology");
   }
 }
 
