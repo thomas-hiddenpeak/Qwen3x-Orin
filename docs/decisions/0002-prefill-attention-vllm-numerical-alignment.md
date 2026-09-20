@@ -75,11 +75,37 @@ against the FP32-probability scalar oracle on prompts with exact BF16 ties.
    decode, GDN, or projection paths; it amends only the prefill full-attention
    numerical class. Release qualification remains separately required.
 
+## Post-decision prefill attribution (nsys, 2026-09-21)
+
+An nsys profile of the split-P build on the pinned P40000/O16 request
+(evidence `.q3x-work/attention-bench/real-model-accuracy-20260920/
+nsys-splitp-20260921/attribution.json`) attributes the 219.5 s GPU prefill:
+
+| component | kernel | time | share |
+| --- | --- | --- | --- |
+| full attention (split-P tensor) | `group_q64_kernel` | 79.9 s | 36.4% |
+| MLP Gate/Up (NVFP4) | `nvfp4_w4a16_gate_c512` | 64.5 s | 29.4% |
+| QKV/O projection (FP8) | `fp8_prefill_supermatrix` | 31.5 s | 14.4% |
+| GDN linear attention | `gdn_update_exact_span` | 27.1 s | 12.3% |
+| small-M projections + norms + conv | (11 kernels) | 16.5 s | 7.5% |
+
+Attention fell from 79.8% (scalar) to 36.4% (tensor). Projections are now the
+largest cost (43.8%). The full-model FLOP floor for 40K tokens is ~5.0 s at
+BF16 peak (2 x 17.3B active params x 40K / 275 TOPS) and ~1.9 s with the
+quantized effective rates (NVFP4 MLP 4x, FP8 attention 2x, GDN BF16). The
+current 219.5 s runs at 2.3% of BF16 peak, a 116x gap to the quantized floor.
+The 2 s prefill target sits just above the quantized FLOP floor; reaching it
+requires an architecture-level dataflow change (near-roofline kernels across
+all components, whole-prompt large-grid attention), not incremental kernel
+optimization of the current 512-chunk tiled dataflow.
+
 ## Consequences
 
-- Prefill speed improves ~3x on the pinned P40000/O16 workload; the 2 s
-  prefill target remains open and requires the whole-prompt large-grid
-  architecture (FLOP floor 1.14 s).
+- Prefill speed improves ~3x on the pinned P40000/O16 workload (663.7 s ->
+  219.8 s). The 2 s prefill target sits just above the quantized FLOP floor
+  (~1.9 s) but requires a 116x efficiency gain over the current 2.3%-of-peak
+  dataflow; reaching it requires an architecture-level change, not kernel
+  optimization.
 - Any downstream consumer that pinned the historical scalar-oracle output on
   tie-prone prompts must re-baseline.
 - The synthetic accuracy gate (`q3x_decode_ops_cuda_test`) now passes for all

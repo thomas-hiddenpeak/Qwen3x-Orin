@@ -830,8 +830,15 @@ generated tokens. The generated text differs from the historical scalar-oracle
 text from token 0: the oracle's own BF16 logits are an exact top-2 tie at
 token 0 (margin 0.0), which any BF16-input tensor route can flip. This is
 recorded in [ADR-0002](decisions/0002-prefill-attention-vllm-numerical-alignment.md);
-the scalar kernel remains the reference oracle. The 2 s prefill target remains
-open (FLOP floor 1.14 s requires the whole-prompt large-grid architecture).
+the scalar kernel remains the reference oracle. An nsys profile of this build
+attributes the 219.5 s GPU prefill to 36.4% full attention (split-P tensor),
+29.4% MLP Gate/Up (NVFP4), 14.4% QKV/O projection (FP8), 12.3% GDN linear
+attention, and 7.5% small-M projections/norms/conv; projections are now the
+largest cost (43.8% combined). The 2 s prefill target sits just above the
+quantized FLOP floor (~1.9 s; BF16 peak floor ~5.0 s) but requires a 116x
+efficiency gain over the current 2.3%-of-peak 512-chunk tiled dataflow;
+reaching it requires an architecture-level dataflow change, not kernel
+optimization.
 
 ### Pre-elision ordinary main attribution, 2026-09-09
 
