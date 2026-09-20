@@ -110,14 +110,40 @@ kernel efficiency (30% toward the 65.7 s floor, realistically ~90-110 s at
 kernels across all components; the 2 s target requires a different model
 (MoE/smaller) or hardware.
 
+## Layer-major whole-core architecture result (2026-09-21)
+
+The skinny-M collapse measured above (C512 at 2.1 TFLOPS vs C8000 at 33.5) is
+the core cost of the 512-chunk tiled Legacy-C512 route. The in-tree
+layer-major whole-core architecture removes it: 5x M8000 panels, one
+whole-prompt FlashInfer attention per full-attention layer, and a persistent
+NVFP4 large-M MLP. From a clean `orin-p40-whole-core-dev` build
+(`qwen3x-eval-server-p40-v10-dev`, `--development-route p40-whole-core-v10`
+atomic acknowledgement), two clean-host real-API P40000 runs on 2026-09-21
+measured **101.34 s and 101.56 s pure prefill** (first token "Based", matching
+the split-P production output; server witness `pure_prefill` 101,344 ms, 5x
+M8000 panels, 64 whole-core layer passes, 16 whole-prompt FlashInfer hits, 64
+persistent NVFP4 Gate/Up hits, zero forbidden-route hits). That is **2.17x the
+Legacy-C512 219.76 s**, 21.7 TFLOPS effective (65% of the measured MLP-shape
+peak), and matches the historical v10 incumbent (101,831.85 ms) within 0.5%.
+The route remains **accuracy-unqualified** (inherited FlashInfer P513
+full-state mismatch; `numerical_contract.qualified=false`) and default-off;
+the production route is still the Legacy-C512 split-P build. Note: the Orin
+SM87 (Ampere) has no FP4/FP8 tensor cores, so NVFP4 weights dequantize to BF16
+for the MAC and the relevant peak is the measured 33.5 TFLOPS BF16 dense peak;
+the FLOP floor above is valid for the NVFP4 deployment.
+
 ## Consequences
 
 - Prefill speed improves ~3x on the pinned P40000/O16 workload (663.7 s ->
-  219.8 s). The 2 s prefill target is physically unreachable on Orin for this
-  27B dense model: the measured BF16 peak (27.0 TFLOPS) gives an 81.5 s FLOP
-  floor for 2.2e15 FLOPs, so 2 s would need 1100 TFLOPS (41x measured peak).
-  The achievable headroom is kernel efficiency toward that floor (~100-136 s),
-  not the 2 s target.
+  219.8 s, Legacy-C512 split-P), and the layer-major whole-core architecture
+  reaches 101.3 s (2.17x further; 6.5x total from the 663.7 s scalar baseline).
+  The 2 s prefill target is physically unreachable on Orin for this 27B dense
+  model: the measured BF16 peak (33.5 TFLOPS on the production MLP shape)
+  gives a 65.7 s FLOP floor for 2.2e15 FLOPs, so 2 s would need 1100 TFLOPS
+  (33x measured peak). The achievable headroom on the layer-major route is
+  kernel efficiency toward that floor (~66-80 s at 80-100% of peak), not the
+  2 s target. The layer-major route remains accuracy-unqualified and
+  default-off; the production route is the Legacy-C512 split-P build.
 - Any downstream consumer that pinned the historical scalar-oracle output on
   tie-prone prompts must re-baseline.
 - The synthetic accuracy gate (`q3x_decode_ops_cuda_test`) now passes for all

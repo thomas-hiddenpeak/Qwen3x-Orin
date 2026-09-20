@@ -839,10 +839,20 @@ dense peak is 33.5 TFLOPS on the production MLP shape (C8000x17408x5120) and
 26.1 TFLOPS on an 8192^3 square GEMM (MAXN power, 57 C, no throttle); P40000
 prefill of the 27B dense model is 2.2e15 FLOPs, giving a 65.7 s FLOP floor at
 the MLP-shape peak (84.6 s at the square rate, 8.0 s at the INT8-sparse
-ceiling). The current 219.5 s runs at 30% of the measured MLP-shape peak. The
-2 s prefill target would need 1100 TFLOPS (33x the measured peak) and is
-physically unreachable on Orin for this model; the achievable headroom is
-kernel efficiency toward the floor (~90-110 s at 60-75% of peak).
+ceiling). The current 219.5 s Legacy-C512 route runs at 30% of the measured
+MLP-shape peak. The 2 s prefill target would need 1100 TFLOPS (33x the measured
+peak) and is physically unreachable on Orin for this model. The layer-major
+whole-core architecture (5x M8000 panels, whole-prompt FlashInfer attention,
+persistent NVFP4 large-M MLP) was reproduced from a clean
+`orin-p40-whole-core-dev` build on 2026-09-21: 101.34 s and 101.56 s pure
+prefill over two clean-host real-API runs (first token "Based", matching the
+split-P production output), 2.17x the Legacy-C512 219.76 s. That is 21.7
+TFLOPS effective, 65% of the measured MLP-shape peak, and matches the
+historical v10 incumbent (101,831.85 ms) within 0.5%. It remains
+accuracy-unqualified (inherited FlashInfer P513 full-state mismatch) and
+default-off; the production route is still the Legacy-C512 split-P build.
+The achievable headroom on the layer-major route is kernel efficiency toward
+the floor (~66-80 s at 80-100% of peak).
 
 ### Pre-elision ordinary main attribution, 2026-09-09
 
