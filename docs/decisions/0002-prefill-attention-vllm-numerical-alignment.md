@@ -90,22 +90,34 @@ nsys-splitp-20260921/attribution.json`) attributes the 219.5 s GPU prefill:
 | small-M projections + norms + conv | (11 kernels) | 16.5 s | 7.5% |
 
 Attention fell from 79.8% (scalar) to 36.4% (tensor). Projections are now the
-largest cost (43.8%). The full-model FLOP floor for 40K tokens is ~5.0 s at
-BF16 peak (2 x 17.3B active params x 40K / 275 TOPS) and ~1.9 s with the
-quantized effective rates (NVFP4 MLP 4x, FP8 attention 2x, GDN BF16). The
-current 219.5 s runs at 2.3% of BF16 peak, a 116x gap to the quantized floor.
-The 2 s prefill target sits just above the quantized FLOP floor; reaching it
-requires an architecture-level dataflow change (near-roofline kernels across
-all components, whole-prompt large-grid attention), not incremental kernel
-optimization of the current 512-chunk tiled dataflow.
+largest cost (43.8%).
+
+Hardware floor (measured 2026-09-21, cuBLAS at MAXN power mode, 57 C, no
+throttle): the Orin's true BF16 dense peak is **33.5 TFLOPS** on the
+production MLP shape (C8000 x 17408 x 5120, K=5120 saturates the tensor
+cores better than a square GEMM) and 26.1 TFLOPS on an 8192^3 square GEMM,
+not the 275 TOPS INT8-sparse nominal that earlier estimates used. The model
+is 27B **dense** (not MoE); P40000 prefill is 2.2e15 FLOPs (23.6B projection
+params x 2 x 40K = 1.89e15 plus 0.31e15 attention scores). The FLOP floor is
+therefore **65.7 s at the measured MLP-shape peak** (84.6 s at the square
+GEMM rate, 8.0 s at the INT8-sparse theoretical ceiling). The current 219.5 s
+runs at 30% of the measured MLP-shape peak. The 2 s
+prefill target requires 1100 TFLOPS, 33x the measured MLP-shape peak (4x even
+the INT8-sparse ceiling): it is **physically unreachable on Orin for a 27B
+dense model at P40000**, independent of software. The remaining headroom is
+kernel efficiency (30% toward the 65.7 s floor, realistically ~90-110 s at
+60-75% of peak), not the 2 s target. Reaching the floor requires near-roofline
+kernels across all components; the 2 s target requires a different model
+(MoE/smaller) or hardware.
 
 ## Consequences
 
 - Prefill speed improves ~3x on the pinned P40000/O16 workload (663.7 s ->
-  219.8 s). The 2 s prefill target sits just above the quantized FLOP floor
-  (~1.9 s) but requires a 116x efficiency gain over the current 2.3%-of-peak
-  dataflow; reaching it requires an architecture-level change, not kernel
-  optimization.
+  219.8 s). The 2 s prefill target is physically unreachable on Orin for this
+  27B dense model: the measured BF16 peak (27.0 TFLOPS) gives an 81.5 s FLOP
+  floor for 2.2e15 FLOPs, so 2 s would need 1100 TFLOPS (41x measured peak).
+  The achievable headroom is kernel efficiency toward that floor (~100-136 s),
+  not the 2 s target.
 - Any downstream consumer that pinned the historical scalar-oracle output on
   tie-prone prompts must re-baseline.
 - The synthetic accuracy gate (`q3x_decode_ops_cuda_test`) now passes for all

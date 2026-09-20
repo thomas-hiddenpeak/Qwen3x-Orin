@@ -834,11 +834,15 @@ the scalar kernel remains the reference oracle. An nsys profile of this build
 attributes the 219.5 s GPU prefill to 36.4% full attention (split-P tensor),
 29.4% MLP Gate/Up (NVFP4), 14.4% QKV/O projection (FP8), 12.3% GDN linear
 attention, and 7.5% small-M projections/norms/conv; projections are now the
-largest cost (43.8% combined). The 2 s prefill target sits just above the
-quantized FLOP floor (~1.9 s; BF16 peak floor ~5.0 s) but requires a 116x
-efficiency gain over the current 2.3%-of-peak 512-chunk tiled dataflow;
-reaching it requires an architecture-level dataflow change, not kernel
-optimization.
+largest cost (43.8% combined). Measured hardware floor: the Orin's true BF16
+dense peak is 33.5 TFLOPS on the production MLP shape (C8000x17408x5120) and
+26.1 TFLOPS on an 8192^3 square GEMM (MAXN power, 57 C, no throttle); P40000
+prefill of the 27B dense model is 2.2e15 FLOPs, giving a 65.7 s FLOP floor at
+the MLP-shape peak (84.6 s at the square rate, 8.0 s at the INT8-sparse
+ceiling). The current 219.5 s runs at 30% of the measured MLP-shape peak. The
+2 s prefill target would need 1100 TFLOPS (33x the measured peak) and is
+physically unreachable on Orin for this model; the achievable headroom is
+kernel efficiency toward the floor (~90-110 s at 60-75% of peak).
 
 ### Pre-elision ordinary main attribution, 2026-09-09
 
