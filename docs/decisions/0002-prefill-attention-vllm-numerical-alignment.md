@@ -164,11 +164,47 @@ use `__bfloat16_as_ushort`. Dequant-path validation must compare against a
 CPU reference that performs the same dequant-to-BF16 rounding, or the
 expected scale-rounding is misread as a layout bug.
 
+## NVFP4 Gate/Up on-the-fly dequant + cuBLAS (2026-09-22, reverted)
+
+The largest remaining Marlin component of the layer-major route is the
+NVFP4 Gate/Up MLP (64 layers x 5 M8000 panels, fused gate+up N=34816
+K=5120, 0.91e15 FLOPs, 37.3 s in the 101.3 s profile at ~24.5 TFLOPS).
+Independent cuBLAS benchmarks measured 29.2 TFLOPS at the merged N=34816
+shape (M=40000) and 29.8-30.2 TFLOPS at M=8000, suggesting a ~1.2x GEMM
+gain. The Down projection (K=17408, N=5120) was already rejected in the
+M40000 benchmark (10.6 TFLOPS, 0.41x of Marlin) and stays on Marlin.
+
+Implementation: per-layer on-the-fly dequant of gate and up into one
+merged [34816,5120] BF16 buffer (358 MB, process-lifetime reused, NOT a
+per-layer cache), M-chunked (8000) `cublasGemmEx` BF16/FP32-accumulate,
+and a separate SiLU-mul kernel (peak transient 916 MB). Isolated
+verification against a same-dequant CPU reference passed exactly
+(maxabs/rms = 0.000000, 500 samples, M=40000).
+
+Clean-host real-API P40000 e2e: **99.28 s** pure prefill (first token
+"Based", sha256 5bf13d90..., identical) vs 98.91-99.14 s for the
+FP8-fat-N-only build - performance-neutral within run noise. nsys
+attribution confirmed the kernels ran (1040 cuBLAS GEMM = 720 FP8 +
+320 gate/up; 128 dequant_nvfp4 at 18.2 ms; 320 SiLU-mul at 9.0 ms):
+the ~1.2x GEMM gain (~31.5 s vs ~35.2 s) is cancelled by the standalone
+dequant pass (2.3 s) and the extra 916 MB transient working set (L2
+pressure on the 16-SM device).
+
+Decision: reverted. The fused Marlin kernel (dequant inside the GEMM,
+zero extra memory, ~25.9 TFLOPS) remains the gate/up route. cuBLAS wins
+only when the dequant is cheap to amortize (the FP8 fat-N case: per-
+tensor scale, 126 MB buffer) - a two-operand NVFP4 dequant is not.
+
+Full GPU kernel budget of the 98.9 s route (nsys, 2026-09-22): cuBLAS
+FP8 GEMM 46.1 s, Marlin down 17.6 s, FlashInfer attention 13.1 s, Marlin
+FP8 skinny 7.3 s, GDN kernels ~6.2 s, SiLU-mul 2.9 s, dequant 3.7 s,
+norms/other ~2.2 s.
+
 ## Consequences
 
 - Prefill speed improves ~3x on the pinned P40000/O16 workload (663.7 s ->
   219.8 s, Legacy-C512 split-P), and the layer-major whole-core architecture
-  reaches 101.3 s (2.17x further; 6.5x total from the 663.7 s scalar baseline).
+  reaches 101.3 s, then 98.9 s with the FP8 fat-N cuBLAS route (2.23x further; 6.7x total from the 663.7 s scalar baseline). A follow-on NVFP4 gate/up cuBLAS attempt was performance-neutral and reverted (see above).
   The 2 s prefill target is physically unreachable on Orin for this 27B dense
   model: the measured BF16 peak (33.5 TFLOPS on the production MLP shape)
   gives a 65.7 s FLOP floor for 2.2e15 FLOPs, so 2 s would need 1100 TFLOPS
