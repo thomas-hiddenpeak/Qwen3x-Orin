@@ -244,16 +244,22 @@ multi-chunk (M=10000, 8000+2000) paths.
 Clean-host real-API P40000 e2e: **96.23 s and 97.53 s** pure prefill (first
 token "Based", sha256 5bf13d90..., identical to the Marlin baseline) vs
 98.91-99.28 s for the FP8-fat-N-only build - a 1.8-3.1 s (~2%) improvement,
-reproducible across two runs. nsys attribution of the 96-98 s route: cuBLAS
+reproducible across two runs. The SiLU-mul kernel was then vectorized (8
+elements/thread, uint4 loads/stores; the scalar version ran at 94 GB/s, 46% of
+peak, while the vectorized version reaches 194 GB/s, 95% of peak - the pass is
+purely memory-bound, so `__expf`/`__frcp_rn` give no help). This drops the
+SiLU pass from 2.82 s to 1.38 s (64 layers x 5 chunks) and the e2e to
+**94.94 s** (first token "Based", sha256 5bf13d90..., identical). nsys attribution of the 96-98 s route: cuBLAS
 GEMM 46.7 s (1040 = 720 FP8 fat-N + 320 gate/up), Marlin down 17.6 s,
-FlashInfer attention 13.4 s, Marlin FP8 skinny 7.3 s, SiLU-mul 2.9 s,
-dequant_fp8 1.4 s, dequant_nvfp4_vec16 0.16 s, GDN/norms/other ~8 s. The
-gate/up cuBLAS path (dequant 0.16 s + GEMM ~32.3 s + SiLU 2.9 s = ~35.4 s)
-beats the Marlin gate/up (37.3 s).
+FlashInfer attention 13.4 s, Marlin FP8 skinny 7.3 s, SiLU-mul 2.9 s
+(scalar; 1.38 s after vectorization), dequant_fp8 1.4 s,
+dequant_nvfp4_vec16 0.16 s, GDN/norms/other ~8 s. The gate/up cuBLAS path
+(dequant 0.16 s + GEMM ~32.3 s + SiLU 1.38 s = ~33.9 s) beats the Marlin
+gate/up (37.3 s).
 
-The new dominant gate/up overhead is the separate SiLU-mul pass (2.9 s) plus
-the intermediate-buffer round trip (2.79 GB gate/up write + read-back +
-activated write). A fused dequant+GEMM+SiLU kernel that keeps the GEMM
+The new dominant gate/up overhead is the separate SiLU-mul pass (1.38 s
+after vectorization) plus the intermediate-buffer round trip (2.79 GB gate/up
+write + read-back + activated write). A fused dequant+GEMM+SiLU kernel that keeps the GEMM
 accumulator in registers and applies SiLU before the store is the Phase 2
 target; it must beat Marlin's 24.5 TFLOPS to win further and would remove the
 2.9 s SiLU pass plus the round-trip traffic.
@@ -276,7 +282,7 @@ device-side numeric conversion.
 
 - Prefill speed improves ~3x on the pinned P40000/O16 workload (663.7 s ->
   219.8 s, Legacy-C512 split-P), and the layer-major whole-core architecture
-  reaches 101.3 s, then 98.9 s with the FP8 fat-N cuBLAS route, then 96.2-97.5 s with the NVFP4 gate/up vec16-dequant cuBLAS route (2.28x further; 6.9x total from the 663.7 s scalar baseline). The earlier scalar-dequant gate/up attempt was performance-neutral and reverted; the vec16-dequant variant is retained (see above).
+  reaches 101.3 s, then 98.9 s with the FP8 fat-N cuBLAS route, then 94.9-97.5 s with the NVFP4 gate/up vec16-dequant cuBLAS route (vectorized SiLU; 2.31x further; 7.0x total from the 663.7 s scalar baseline). The earlier scalar-dequant gate/up attempt was performance-neutral and reverted; the vec16-dequant variant is retained (see above).
   The 2 s prefill target is physically unreachable on Orin for this 27B dense
   model: the measured BF16 peak (33.5 TFLOPS on the production MLP shape)
   gives a 65.7 s FLOP floor for 2.2e15 FLOPs, so 2 s would need 1100 TFLOPS

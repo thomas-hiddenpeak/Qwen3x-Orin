@@ -74,22 +74,40 @@ __global__ void dequant_nvfp4_vec16_kernel(
 
 // SiLU-mul: activated[m,n] = silu(gate) * up
 // gate_up_out is [M, 2N] row-major: first N cols = gate, next N = up.
+// Vectorized SiLU-mul: 8 elements/thread, 16-byte (uint4) loads/stores.
+// n must be divisible by 8 (17408 / 8 = 2176). Reinterprets BF16 bits via
+// __nv_bfloat16 (NOT a numeric uint16_t conversion - see ADR-0002 lesson).
 __global__ void silu_mul_kernel(
     const std::uint16_t* const gate_up_out, std::uint16_t* const activated,
     const long m, const long n) {
-  const long total = m * n;
+  constexpr long kVec = 8L;
+  const long nv = n / kVec;
+  const long total = m * nv;
   const long idx = static_cast<long>(blockIdx.x) * blockDim.x + threadIdx.x;
   if (idx >= total) {
     return;
   }
-  const long m_idx = idx / n;
-  const long n_idx = idx % n;
-  const float g =
-      __bfloat162float(*(__nv_bfloat16 const*)&gate_up_out[m_idx * 2L * n + n_idx]);
-  const float u =
-      __bfloat162float(*(__nv_bfloat16 const*)&gate_up_out[m_idx * 2L * n + n + n_idx]);
-  const float silu_g = g / (1.0F + expf(-g));
-  activated[idx] = __bfloat16_as_ushort(__float2bfloat16_rn(silu_g * u));
+  const long m_idx = idx / nv;
+  const long v = idx % nv;
+  const long n_idx = v * kVec;
+  const long g_off = m_idx * 2L * n + n_idx;
+  const long u_off = m_idx * 2L * n + n + n_idx;
+  const uint4 g4 = *reinterpret_cast<const uint4*>(&gate_up_out[g_off]);
+  const uint4 u4 = *reinterpret_cast<const uint4*>(&gate_up_out[u_off]);
+  const __nv_bfloat16* const gb =
+      reinterpret_cast<const __nv_bfloat16*>(&g4);
+  const __nv_bfloat16* const ub =
+      reinterpret_cast<const __nv_bfloat16*>(&u4);
+  std::uint16_t out[kVec];
+#pragma unroll
+  for (long i = 0; i < kVec; ++i) {
+    const float g = __bfloat162float(gb[i]);
+    const float u = __bfloat162float(ub[i]);
+    const float silu_g = g / (1.0F + expf(-g));
+    out[i] = __bfloat16_as_ushort(__float2bfloat16_rn(silu_g * u));
+  }
+  *reinterpret_cast<uint4*>(&activated[m_idx * n + n_idx]) =
+      *reinterpret_cast<uint4*>(out);
 }
 
 // Process-lifetime buffers (reused across all 64 layers).
@@ -205,7 +223,7 @@ int launch_nvfp4_dequant_cublas_gate_up(
     }
     // SiLU-mul: activated[mc : mc+mc_size, n] = silu(gate) * up
     {
-      const long total = static_cast<long>(mc_size) * n;
+      const long total = static_cast<long>(mc_size) * (n / 8L);
       const unsigned int blocks =
           static_cast<unsigned int>((total + kThreads - 1U) / kThreads);
       silu_mul_kernel<<<blocks, kThreads, 0U, stream>>>(
