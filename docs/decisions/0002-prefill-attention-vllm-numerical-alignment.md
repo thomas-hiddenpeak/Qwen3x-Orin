@@ -200,6 +200,28 @@ FP8 GEMM 46.1 s, Marlin down 17.6 s, FlashInfer attention 13.1 s, Marlin
 FP8 skinny 7.3 s, GDN kernels ~6.2 s, SiLU-mul 2.9 s, dequant 3.7 s,
 norms/other ~2.2 s.
 
+## Down projection cuBLAS go/no-go (2026-09-22)
+
+The Down projection (M=40000, K=17408, N=5120, 64 launches) runs the
+persistent Marlin kernel at 25.99 TFLOPS (77% of the measured 33.5 TFLOPS
+peak; 17.6 s). A full cuBLAS variant sweep on the exact shape (standard
+OP_T/OP_N, K-split x4/x8, M-split x2/x4/x5, N-split x2) measured 10.6
+TFLOPS for every variant - 41% of Marlin. cuBLAS has no configuration that
+approaches Marlin on this giant-K/skinny-N shape, so the Down route stays
+on Marlin.
+
+A custom fused kernel would need to beat Marlin's 25.99 TFLOPS to win
+anything; even at 32 TFLOPS (96% of peak) it saves only 3.3 s (3.3%).
+Combined with the gate/up result above (cuBLAS performance-neutral,
+reverted), the cuBLAS route is exhausted: it wins only on the FP8 fat-N
+projections (committed, +2.5%), not on the NVFP4 MLP.
+
+The remaining gap to the 67.5 s FLOP floor (98.9 s = 1.47x) is MLP GEMM
+efficiency (~13 s, Marlin at 77% peak) plus FlashInfer attention (13.1 s)
+plus GDN/overhead (~5 s). Closing it requires research-grade custom
+kernels that beat Marlin and replace FlashInfer; no single component
+offers a >5 s win without that effort.
+
 ## Consequences
 
 - Prefill speed improves ~3x on the pinned P40000/O16 workload (663.7 s ->
