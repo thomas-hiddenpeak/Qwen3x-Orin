@@ -277,7 +277,46 @@ isolation test (dequant byte-exact, cuBLAS layout correct, GEMM correct)
 because each was checked with a host-side bit reinterpretation that masked the
 device-side numeric conversion.
 
+## Phase 2 custom-kernel go/no-go (2026-09-22)
+
+The cuBLAS gate/up route (94.94 s) leaves a 27.4 s gap to the 67.5 s FLOP
+floor. The attribution shows the gate/up GEMM itself runs at 28.3 TFLOPS
+(84% of the measured 33.5 TFLOPS peak) - cuBLAS's BF16 GEMM is near the
+practical ceiling for this shape (M=40000, K=5120, N=34816). The remaining
+gate/up overhead is the separate SiLU pass (1.38 s, 95% of peak bandwidth)
+and dequant (0.16 s, 89% of peak bandwidth).
+
+The crucial finding: cuBLAS's separate-pass BF16 GEMM (84% peak) BEATS
+Marlin's fused NVFP4 dequant+GEMM+SiLU kernel (24.5 TFLOPS, 73% peak) for
+the gate/up shape. The fused Marlin kernel's inline E2M1-lookup + E4M3-scale
+dequant in the mma inner loop costs ~11 percentage points of peak, more than
+the 1.54 s of separate-pass traffic it saves.
+
+Custom-kernel bars (e2e seconds saved, effort):
+- Fused gate/up dequant+GEMM+SiLU: breakeven 27.0 TFLOPS (must match
+  cuBLAS's 28.3 TFLOPS GEMM efficiency while folding in the dequant+SiLU
+  work). Marlin (the proven production reference) is at 24.5 TFLOPS. At
+  28.3 TFLOPS (match cuBLAS) saves ~1.6 s; at 30 TFLOPS saves ~3.4 s. HIGH
+  effort, UNCERTAIN payoff - requires beating Marlin by 10-20% and matching
+  cuBLAS.
+- Down custom (beat Marlin's 25.99 TFLOPS, 77% peak): at 32 TFLOPS saves
+  ~3.3 s. HIGH effort - Marlin is already at 77% peak on the giant-K/skinny-N
+  shape.
+- FlashInfer attention replacement (13.4 s, 16 layers x 826 ms): halving
+  saves ~6.7 s. VERY HIGH effort - attention is a fundamentally different
+  computation, and FlashInfer is already a highly optimized library.
+
+Recommendation: the cuBLAS route is near the practical ceiling for the
+gate/up GEMM (84% peak). The fused gate/up kernel is the largest single GEMM
+component and has a clear target (>=28 TFLOPS), so it is the primary Phase 2
+research target. The architecture is to stage the NVFP4 weight tile into
+shared memory as BF16 (amortizing the dequant out of the mma inner loop) and
+run a cuBLAS-class mma loop with an in-epilogue SiLU, so the GEMM inner loop
+approaches cuBLAS's 84% peak rather than Marlin's 73%. A bounded prototype
+with a go/no-go checkpoint (>=27 TFLOPS to retain) is the next step.
+
 ## Consequences
+
 
 
 - Prefill speed improves ~3x on the pinned P40000/O16 workload (663.7 s ->
