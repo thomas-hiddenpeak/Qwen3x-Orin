@@ -132,6 +132,38 @@ SM87 (Ampere) has no FP4/FP8 tensor cores, so NVFP4 weights dequantize to BF16
 for the MAC and the relevant peak is the measured 33.5 TFLOPS BF16 dense peak;
 the FLOP floor above is valid for the NVFP4 deployment.
 
+## FP8 fat-N on-the-fly dequant + cuBLAS (2026-09-21)
+
+The 101.3 s layer-major route runs the 1040 FP8 W8A16 Marlin projections at
+22.4 TFLOPS (67% of the measured 33.5 TFLOPS peak). Independent cuBLAS
+benchmarks at the real M8000 panel shapes measured 29-30 TFLOPS on the fat-N
+projections (input_size 5120: GDN in_proj_qkv/z, full-attn q/k/v) but only
+22-23 TFLOPS on the skinny-N projections (input_size 6144: GDN out, full-attn
+o), so only the fat-N set is routed to cuBLAS.
+
+Implementation: per-panel on-the-fly dequant of the canonical FP8 E4M3
+weights into a process-lifetime reused BF16 buffer (peak 126 MB, NOT a
+per-projection cache; the earlier 14.4 GB full-cache variant OOMed under
+nsys and was reverted), followed by `cublasGemmEx` BF16/FP32-accumulate on
+the engine stream. The dequant is lossless in the BF16 sense (E4M3 mantissa
+fits the BF16 mantissa; the per-tensor scale multiply is the only rounding).
+Route evidence is unchanged: 1040 FP8 projection hits, zero forbidden-route
+hits (plain cuBLAS is not the forbidden cuBLASLt boundary).
+
+Two clean-host real-API P40000 runs on the fixed build measured **98.91 s
+and 99.14 s** pure prefill (first token "Based", sha256 5bf13d90...,
+identical to the Marlin baseline), a 2.5-2.7 s (2.5%) improvement over the
+101.3-101.6 s Marlin baseline. The route remains accuracy-unqualified
+(inherited FlashInfer P513 full-state mismatch; the dequant path was
+additionally validated against a same-dequant CPU reference at 1.5%
+maxabs/rms) and default-off.
+
+Code lessons recorded: `static_cast<std::uint16_t>(__nv_bfloat16)` yields
+0x0000 (all-zero weights, silent, produces a plausible-but-wrong token);
+use `__bfloat16_as_ushort`. Dequant-path validation must compare against a
+CPU reference that performs the same dequant-to-BF16 rounding, or the
+expected scale-rounding is misread as a layout bug.
+
 ## Consequences
 
 - Prefill speed improves ~3x on the pinned P40000/O16 workload (663.7 s ->

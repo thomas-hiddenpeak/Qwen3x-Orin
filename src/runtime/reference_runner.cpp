@@ -22,6 +22,7 @@
 #endif
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
+#include "q3x/kernels/sm87_fp8_dequant_cublas_projection.h"
 #endif
 
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
@@ -2108,7 +2109,22 @@ launch_prompt_wide_p40_fp8_projection(
       !valid_exact_prefill_projection_workspace(workspace)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
-  int status = clear_exact_prefill_projection_locks(workspace, cuda_stream);
+  // On-the-fly dequant + cuBLAS for the fat-N projections (input_size == 5120:
+  // GDN in_proj_qkv/z, full-attn q/k/v) where measured cuBLAS BF16 (29-30
+  // TFLOPS at M8000) beats the W8A16 Marlin (22.4 TFLOPS). The skinny-N
+  // projections (input_size == 6144: GDN out, full-attn o) stay on Marlin.
+  int status = static_cast<int>(cudaErrorNotSupported);
+  if (fp8->input_size == 5'120U) {
+    status = kernels::launch_fp8_dequant_cublas_projection(
+        fp8->weight, fp8->weight_scale, input, output, token_count,
+        fp8->output_size, fp8->input_size, cuda_stream);
+    if (status == static_cast<int>(cudaSuccess)) {
+      ++physical_launches;
+      ++g_fp8_marlin_prefill_admission_hits;
+    }
+    return status;
+  }
+  status = clear_exact_prefill_projection_locks(workspace, cuda_stream);
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
   }
