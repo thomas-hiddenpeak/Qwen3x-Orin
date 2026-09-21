@@ -23,6 +23,7 @@
 #if defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
 #include "q3x/kernels/sm87_fp8_marlin_w8a16.h"
 #include "q3x/kernels/sm87_fp8_dequant_cublas_projection.h"
+#include "q3x/kernels/sm87_nvfp4_dequant_cublas_gate_up.h"
 #endif
 
 #if defined(Q3X_ENABLE_NVFP4_MARLIN_PREFILL_ADMISSION)
@@ -9037,11 +9038,11 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
 #else
       ? static_cast<int>(cudaErrorNotSupported)
 #endif
-      : kernels::launch_sm87_nvfp4_persistent_prefill_gate_up_cuda(
-            normalized, gate->prefill_marlin_weight,
-            gate->prefill_marlin_scales,
-            gate->prefill_marlin_global_scale,
-            kLayerMajorPrefillLayerWideMlpP40Tokens, activated, stream_);
+      : kernels::launch_nvfp4_dequant_cublas_gate_up(
+            gate->packed_weight, gate->block_scale, gate->weight_scale_2,
+            up->packed_weight, up->block_scale, up->weight_scale_2,
+            normalized, activated, kLayerMajorPrefillLayerWideMlpP40Tokens,
+            kReferenceIntermediateSize, kReferenceHiddenSize, stream_);
   }
   if (gate_up_status != static_cast<int>(cudaSuccess)) {
     return runner_status(ReferenceRunnerError::kCudaFailure,

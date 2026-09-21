@@ -222,11 +222,61 @@ plus GDN/overhead (~5 s). Closing it requires research-grade custom
 kernels that beat Marlin and replace FlashInfer; no single component
 offers a >5 s win without that effort.
 
+## NVFP4 Gate/Up vec16 dequant + cuBLAS (2026-09-22, retained)
+
+The scalar-dequant gate/up cuBLAS attempt above was performance-neutral
+because the standalone dequant pass cost 2.3 s (42 GB/s, 21% of the 204.8
+GB/s LPDDR5 peak) and cancelled the ~1.2x GEMM gain. A vectorized dequant
+(`dequant_nvfp4_vec16_kernel`, 16 elements/thread, 8 B packed + 1 B scale ->
+32 B BF16, two uint4 stores) measures 181.8 GB/s (89% of peak) - 4.3x the
+scalar kernel - and drops the dequant to 0.16 s total (128 launches, 64
+layers x gate+up). This removes the cancellation and makes the cuBLAS GEMM
+win (28.3 TFLOPS, 84% of the measured 33.5 TFLOPS peak, vs Marlin's 24.5
+TFLOPS) net positive.
+
+Implementation: per-layer on-the-fly vec16 dequant of gate and up into one
+merged [34816,5120] BF16 buffer (process-lifetime reused), M-chunked (8000)
+`cublasGemmEx` BF16/FP32-accumulate, and a separate SiLU-mul kernel. Correctness
+is validated on controlled known-answer data (weight 0.75, input 1.0 ->
+activated 14745600, maxdiff 0.0000) for both the single-chunk (M=16) and
+multi-chunk (M=10000, 8000+2000) paths.
+
+Clean-host real-API P40000 e2e: **96.23 s and 97.53 s** pure prefill (first
+token "Based", sha256 5bf13d90..., identical to the Marlin baseline) vs
+98.91-99.28 s for the FP8-fat-N-only build - a 1.8-3.1 s (~2%) improvement,
+reproducible across two runs. nsys attribution of the 96-98 s route: cuBLAS
+GEMM 46.7 s (1040 = 720 FP8 fat-N + 320 gate/up), Marlin down 17.6 s,
+FlashInfer attention 13.4 s, Marlin FP8 skinny 7.3 s, SiLU-mul 2.9 s,
+dequant_fp8 1.4 s, dequant_nvfp4_vec16 0.16 s, GDN/norms/other ~8 s. The
+gate/up cuBLAS path (dequant 0.16 s + GEMM ~32.3 s + SiLU 2.9 s = ~35.4 s)
+beats the Marlin gate/up (37.3 s).
+
+The new dominant gate/up overhead is the separate SiLU-mul pass (2.9 s) plus
+the intermediate-buffer round trip (2.79 GB gate/up write + read-back +
+activated write). A fused dequant+GEMM+SiLU kernel that keeps the GEMM
+accumulator in registers and applies SiLU before the store is the Phase 2
+target; it must beat Marlin's 24.5 TFLOPS to win further and would remove the
+2.9 s SiLU pass plus the round-trip traffic.
+
+Code lesson recorded: `__bfloat162float(ptr[i])` where `ptr` is a
+`const std::uint16_t*` does a *numeric* conversion (the BF16 bit pattern is
+treated as a float value, then rounded to BF16), NOT a bit reinterpretation.
+For a BF16 value 3840.0 (bits 0x4570 = 17776) this silently yields 17792.0.
+The dequant kernel only *writes* BF16 (`__bfloat16_as_ushort`) so it never
+exposed this; cuBLAS reads/writes BF16 natively via `CUDA_R_16BF`; only the
+SiLU kernel that *reads* a `uint16_t` buffer must use
+`*(__nv_bfloat16 const*)&ptr[i]` to reinterpret the bits. This bug produced
+a uniform ~4.6x output error that was invisible to every per-component
+isolation test (dequant byte-exact, cuBLAS layout correct, GEMM correct)
+because each was checked with a host-side bit reinterpretation that masked the
+device-side numeric conversion.
+
 ## Consequences
+
 
 - Prefill speed improves ~3x on the pinned P40000/O16 workload (663.7 s ->
   219.8 s, Legacy-C512 split-P), and the layer-major whole-core architecture
-  reaches 101.3 s, then 98.9 s with the FP8 fat-N cuBLAS route (2.23x further; 6.7x total from the 663.7 s scalar baseline). A follow-on NVFP4 gate/up cuBLAS attempt was performance-neutral and reverted (see above).
+  reaches 101.3 s, then 98.9 s with the FP8 fat-N cuBLAS route, then 96.2-97.5 s with the NVFP4 gate/up vec16-dequant cuBLAS route (2.28x further; 6.9x total from the 663.7 s scalar baseline). The earlier scalar-dequant gate/up attempt was performance-neutral and reverted; the vec16-dequant variant is retained (see above).
   The 2 s prefill target is physically unreachable on Orin for this 27B dense
   model: the measured BF16 peak (33.5 TFLOPS on the production MLP shape)
   gives a 65.7 s FLOP floor for 2.2e15 FLOPs, so 2 s would need 1100 TFLOPS

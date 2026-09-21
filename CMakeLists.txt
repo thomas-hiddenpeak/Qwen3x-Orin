@@ -589,6 +589,7 @@ add_library(q3x_kernels STATIC
   src/kernels/sm87/decode_gqa_splitkv_sm87.cu
   src/kernels/sm87/fp8_prefill_supermatrix.cu
   src/kernels/sm87/fp8_dequant_cublas_projection.cu
+  src/kernels/sm87/nvfp4_dequant_cublas_gate_up.cu
   src/kernels/sm87/gdn_prefill_exact_span_sm87.cu
   src/kernels/sm87/gdn_prefill_exact_span_sm87.h
   src/kernels/sm87/nvfp4_marlin_w4a16.cu
