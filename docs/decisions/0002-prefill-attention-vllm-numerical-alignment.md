@@ -306,14 +306,26 @@ Custom-kernel bars (e2e seconds saved, effort):
   saves ~6.7 s. VERY HIGH effort - attention is a fundamentally different
   computation, and FlashInfer is already a highly optimized library.
 
-Recommendation: the cuBLAS route is near the practical ceiling for the
-gate/up GEMM (84% peak). The fused gate/up kernel is the largest single GEMM
-component and has a clear target (>=28 TFLOPS), so it is the primary Phase 2
-research target. The architecture is to stage the NVFP4 weight tile into
-shared memory as BF16 (amortizing the dequant out of the mma inner loop) and
-run a cuBLAS-class mma loop with an in-epilogue SiLU, so the GEMM inner loop
-approaches cuBLAS's 84% peak rather than Marlin's 73%. A bounded prototype
-with a go/no-go checkpoint (>=27 TFLOPS to retain) is the next step.
+Decision: NO-GO for the fused gate/up kernel. The arithmetic is decisive:
+the current cuBLAS route (dequant 0.16 s + GEMM 32.3 s + SiLU 1.38 s = 33.84 s)
+is already at the practical ceiling for this shape. A fused kernel replaces all
+three passes with one, so its time is FLOPs/TF: at Marlin's proven 24.5 TFLOPS
+it is 37.3 s (+3.4 s WORSE); it only wins above 27.0 TFLOPS, and even matching
+cuBLAS's 84% peak (28.3 TFLOPS) while folding in the dequant+SiLU work gains
+only ~1.6 s (1.6%). The inline NVFP4 dequant in the mma inner loop is the
+binding constraint - it costs ~11 percentage points of peak (Marlin 73% vs
+cuBLAS 84%), more than the 1.54 s of separate-pass traffic it saves. A
+bounded hand-rolled mma GEMM prototype (128x128 tile, 2-stage, no cp.async)
+measured 3.4 TFLOPS (10% of peak), confirming that a competitive GEMM requires
+cp.async + deep pipelining - a large effort whose optimistic payoff (~3.4 s,
+3.4%) is smaller than the FlashInfer attention component (13.4 s).
+
+The remaining gap to the 67.5 s FLOP floor (94.94 s = 1.41x) is: gate/up GEMM
+at 84% peak (~5 s), down Marlin at 77% peak (~4 s), FlashInfer attention
+(13.4 s, a different computation), and GDN/overhead (~8 s). Closing it
+requires either a GEMM that beats cuBLAS's 84% peak (rejected above) or a
+FlashInfer attention replacement (very high effort, different problem). The
+cuBLAS route is retained as the gate/up production path for this dev route.
 
 ## Consequences
 
@@ -321,7 +333,7 @@ with a go/no-go checkpoint (>=27 TFLOPS to retain) is the next step.
 
 - Prefill speed improves ~3x on the pinned P40000/O16 workload (663.7 s ->
   219.8 s, Legacy-C512 split-P), and the layer-major whole-core architecture
-  reaches 101.3 s, then 98.9 s with the FP8 fat-N cuBLAS route, then 94.9-97.5 s with the NVFP4 gate/up vec16-dequant cuBLAS route (vectorized SiLU; 2.31x further; 7.0x total from the 663.7 s scalar baseline). The earlier scalar-dequant gate/up attempt was performance-neutral and reverted; the vec16-dequant variant is retained (see above).
+  reaches 101.3 s, then 98.9 s with the FP8 fat-N cuBLAS route, then 94.9-97.5 s with the NVFP4 gate/up vec16-dequant cuBLAS route (vectorized SiLU; 2.31x further; 7.0x total from the 663.7 s scalar baseline). The earlier scalar-dequant gate/up attempt was performance-neutral and reverted; the vec16-dequant variant is retained (see above). A Phase 2 fused dequant+GEMM+SiLU kernel was evaluated and rejected (NO-GO): the cuBLAS separate-pass route (84% peak GEMM) already beats Marlin's fused kernel (73% peak), and a fused kernel only wins above 27 TFLOPS for a ~1.6-3.4 s payoff (see the Phase 2 go/no-go section).
   The 2 s prefill target is physically unreachable on Orin for this 27B dense
   model: the measured BF16 peak (33.5 TFLOPS on the production MLP shape)
   gives a 65.7 s FLOP floor for 2.2e15 FLOPs, so 2 s would need 1100 TFLOPS
