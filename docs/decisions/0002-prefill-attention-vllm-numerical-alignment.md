@@ -431,6 +431,27 @@ above the Marlin skinny route (7.3 s total for 96 skinny GEMMs). E2E:
 to the Marlin baseline. All FP8 projection GEMMs (fat-N + skinny) now run on
 CUTLASS sw2. Dev route remains accuracy-unqualified and default-off.
 
+### GEMM optimization complete; down GEMM no-go (2026-09-23)
+
+Fresh nsys at 89.96 s (cutlass-sw2.nsys-rep) gives the post-CUTLASS
+breakdown: CUTLASS GEMM (gate/up + fat-N + skinny) 48.5 s / 53.1%, Marlin
+down 17.6 s / 19.2%, FlashInfer attention 13.1 s / 14.4%, GDN 5.3 s / 5.8%,
+dequant_fp8 2.0 s / 2.2%, silu_mul 1.4 s / 1.5%, rms_norm 1.0 s / 1.1%,
+residual_add 0.7 s / 0.7%. Every projection GEMM is now at 82-100% of the
+33.5 TF BF16 peak (gate/up 93%, fat-N 100%, skinny 100%), so the GEMM
+optimization is at its natural boundary.
+
+The last GEMM component, the down projection (Marlin 17.6 s, 26 TF), was
+evaluated for a CUTLASS sw2 replacement: the bare GEMM would be 27.4 TF
+(16.7 s, -0.9 s), but Marlin fuses dequant + GEMM + residual-add + norm into
+one kernel, so a CUTLASS path must add back a separate dequant (~0.08 s),
+residual-add (~0.44 s), and norm (~0.29 s). Net: ~75 ms, within run-to-run
+noise. NO-GO - the fused Marlin epilogue is worth the 1.4 TF gap. The
+remaining headroom is architectural (FlashInfer attention at its causal
+floor, GDN serial recurrence), both already DEFERred, plus bandwidth-bound
+elementwise passes that are not cleanly fusible (SiLU needs cross-column
+gate/up access the CUTLASS epilogue tile cannot see).
+
 ### Phase 2 custom-kernel program - closure (2026-09-22)
 
 Phase 2 systematically assessed every remaining gap component (94.94 s vs the
