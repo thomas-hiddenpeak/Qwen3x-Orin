@@ -364,6 +364,39 @@ computation), GDN serial recurrence (5.28 s, deferred above), and GEMM
 efficiency headroom (~9 s, near the 77-84% peak ceiling, fused route rejected).
 Each requires a large research rewrite without a guaranteed >5 s payoff.
 
+### FlashInfer full-attention assessment (2026-09-22)
+
+FlashInfer full attention is 13.4 s (16 layers, 24 Q / 4 KV heads GQA,
+head_dim 256, sigmoid gating). The causal FLOP floor (QK^T + attn@V, each
+T^2/2 pairs x 2 x 256 x 24 heads x 16 layers = 314.6T) at 33.5 TF is
+**9.39 s**. FlashInfer at 13.4 s is **70% of the causal FLOP floor** - already
+good for causal attention (causal masking inherently wastes ~50% of block
+compute, and head_dim=256 limits tile size). Reaching 85-95% efficiency would
+save only 2-3.5 s, and requires a FlashAttention-class custom kernel
+(SM87 + head_dim=256 + GQA + sigmoid gating), the highest-effort direction
+identified. **DEFER**: not a clear win.
+
+### Phase 2 custom-kernel program - closure (2026-09-22)
+
+Phase 2 systematically assessed every remaining gap component (94.94 s vs the
+67.5 s FLOP floor = 27 s gap):
+
+| Component | Now | Efficiency | Custom headroom | Decision |
+|---|---|---|---|---|
+| cuBLAS GEMM (720 FP8 + gate/up) | 46.7 s | 77-84% peak | ~9 s (near ceiling, fused NO-GO) | keep cuBLAS |
+| FlashInfer attention | 13.4 s | 70% causal floor | 2-3.5 s (FA-class kernel, max effort) | DEFER |
+| Marlin down GEMM | 17.6 s | 77% peak | ~4 s (fused NO-GO) | keep Marlin |
+| GDN linear attention | 5.28 s | 5% peak (serial recurrence) | ~0-1 s (FLA scan negated by traffic) | DEFER |
+| Marlin FP8 skinny | 7.3 s | - | small | keep |
+| other (dequant/norm/residual) | ~4 s | - | small | keep |
+
+**Conclusion**: the remaining gap is entirely composed of components that are
+either near their practical ceiling or require a research-grade rewrite without
+a guaranteed >5 s payoff. Phase 1's clear win (cuBLAS dequant 10% -> 84%
+peak) is captured. Phase 2 closes here: fused gate/up NO-GO, GDN DEFER,
+FlashInfer DEFER. Further gains require committing to research-grade rewrites
+(FA-class attention, GDN parallel scan) - an owner decision.
+
 ## Consequences
 
 
