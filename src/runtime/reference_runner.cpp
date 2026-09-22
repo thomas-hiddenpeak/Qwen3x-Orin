@@ -2111,12 +2111,13 @@ launch_prompt_wide_p40_fp8_projection(
       !valid_exact_prefill_projection_workspace(workspace)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
-  // On-the-fly dequant + cuBLAS for the fat-N projections (input_size == 5120:
-  // GDN in_proj_qkv/z, full-attn q/k/v) where measured cuBLAS BF16 (29-30
-  // TFLOPS at M8000) beats the W8A16 Marlin (22.4 TFLOPS). The skinny-N
-  // projections (input_size == 6144: GDN out, full-attn o) stay on Marlin.
+  // On-the-fly dequant + CUTLASS sw2 GEMM for the projections
+  // (input_size == 5120: GDN in_proj_qkv/z, full-attn q/k/v; input_size ==
+  // 6144: GDN out, full-attn o). Measured at M8000: fat-N N=10240 -> 37.3 TF
+  // vs cuBLAS 29.7 TF (+25%) / Marlin 22.4 TF; skinny K=6144 N=5120 -> 37.5 TF
+  // vs cuBLAS 23.5 TF (+60%). Both beat the W8A16 Marlin.
   int status = static_cast<int>(cudaErrorNotSupported);
-  if (fp8->input_size == 5'120U) {
+  if (fp8->input_size == 5'120U || fp8->input_size == 6'144U) {
     status = kernels::launch_fp8_dequant_cublas_projection(
         fp8->weight, fp8->weight_scale, input, output, token_count,
         fp8->output_size, fp8->input_size, cuda_stream);

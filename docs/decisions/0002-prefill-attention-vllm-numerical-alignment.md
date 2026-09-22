@@ -420,6 +420,17 @@ to BF16, then CUTLASS GEMM). E2E: **91.67 s** (was 93.08 s), first token
 "Based", sha256 5bf13d90... identical to the Marlin baseline. Dev route
 remains accuracy-unqualified and default-off.
 
+### CUTLASS sw2 skinny projections beat Marlin (2026-09-23, retained)
+
+Extended the dequant + CUTLASS sw2 path from the fat-N projections
+(input_size==5120) to the skinny ones (input_size==6144: GDN out, full-attn
+o), which had stayed on W8A16 Marlin. Benchmarked at M=8000, K=6144, N=5120:
+CUTLASS sw2 13.4 ms / 37.5 TF vs cuBLAS 21.4 ms / 23.5 TF (+60%), and well
+above the Marlin skinny route (7.3 s total for 96 skinny GEMMs). E2E:
+**89.96 s** (was 91.67 s), first token "Based", sha256 5bf13d90... identical
+to the Marlin baseline. All FP8 projection GEMMs (fat-N + skinny) now run on
+CUTLASS sw2. Dev route remains accuracy-unqualified and default-off.
+
 ### Phase 2 custom-kernel program - closure (2026-09-22)
 
 Phase 2 systematically assessed every remaining gap component (94.94 s vs the
