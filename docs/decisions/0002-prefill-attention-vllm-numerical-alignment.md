@@ -403,6 +403,23 @@ E2E: **93.08 s** (was 94.94 s cuBLAS, 98.9 s Marlin baseline), first token
 "Based", sha256 5bf13d90... identical to the Marlin baseline. The dev route
 remains accuracy-unqualified and default-off.
 
+### CUTLASS sw2 FP8 fat-N projections beat cuBLAS (2026-09-23, retained)
+
+The same CUTLASS 128x256x64/warp 64x64/3-stage/swizzle-2 configuration that
+won gate/up also wins the 720 FP8 fat-N projection GEMMs (the largest GEMM
+component, ~35 s). Benchmarked at the exact shapes (M=8000, K=5120):
+
+| N | cuBLAS | CUTLASS sw2 | gain |
+|---|---|---|---|
+| 10240 (GDN in_proj_qkv) | 28.2 ms / 29.7 TF | 22.5 ms / 37.3 TF | +25% |
+| 12288 (full-attn qkv) | 33.2 ms / 30.3 TF | 27.5-28.6 ms / 35.2-36.6 TF | +18-21% |
+
+Stable over 3 runs. Replaced the cuBLAS call in
+`src/kernels/sm87/fp8_dequant_cublas_projection.cu` (same scalar FP8 dequant
+to BF16, then CUTLASS GEMM). E2E: **91.67 s** (was 93.08 s), first token
+"Based", sha256 5bf13d90... identical to the Marlin baseline. Dev route
+remains accuracy-unqualified and default-off.
+
 ### Phase 2 custom-kernel program - closure (2026-09-22)
 
 Phase 2 systematically assessed every remaining gap component (94.94 s vs the
