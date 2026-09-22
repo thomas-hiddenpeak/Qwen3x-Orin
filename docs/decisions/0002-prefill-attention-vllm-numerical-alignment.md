@@ -327,7 +327,45 @@ requires either a GEMM that beats cuBLAS's 84% peak (rejected above) or a
 FlashInfer attention replacement (very high effort, different problem). The
 cuBLAS route is retained as the gate/up production path for this dev route.
 
+## GDN linear-attention architecture assessment (2026-09-22)
+
+The GDN (Gated Delta Net) linear-attention path - 48 of the 64 layers, the
+AGENTS.md-named FLA/Mamba reference - accounts for 5.28 s of the 94.94 s route
+(5.5%). It is a 6-7 kernel pipeline per layer: causal_conv (0.72 s),
+chunk64_native WY+state (1.14 s), chunk_o_bv64 output (1.49 s), wy_vllm
+recompute/solve (1.27 s), rms_norm_silu (0.53 s), compact (0.10 s).
+
+The architecture-level finding: the dominant cost is the SERIAL chunk loop in
+`chunk64_native` (one CTA per value head, 48 CTAs, looping 625 chunks of 64
+tokens serially, state held in wmma register fragments). The chunked GDN FLOP
+floor is only 0.28 s (48 heads x 625 chunks x 4 dense mma products + solve), so
+the 5.28 s is 19x the FLOP floor (effective 1.8 TFLOPS, 5% of peak) - the
+limit is the serial cross-chunk state recurrence and low occupancy (48 CTAs on
+16 SMs = 25% thread occupancy), not raw FLOP or bandwidth (memory floor ~2 s).
+
+The FLA-style fix (parallelize the chunk dimension via an associative scan:
+per-chunk WY in parallel, then a scan to propagate boundary states, then
+parallel output) is NOT a clear win on this hardware. The scan must store every
+chunk's state contribution C_i (128x128 FP32 x 625 chunks x 48 heads = 1.95 GB
+per layer); writing and reading that across 48 layers is ~0.9 s of traffic that
+cancels the compute-parallelism gain (estimated FLA-style ~2.9 s vs the current
+2.63 s for the WY+output pair). The current serial design keeps the 64 KB state
+in registers precisely to avoid that traffic - a reasonable choice for a 16-SM
+device. Beating it requires either a deeper software-pipelined serial loop
+(bounded payoff, the serial dependency remains) or a scan formulation that
+avoids materializing all C_i (research-grade, unproven).
+
+Decision: DEFER. The GDN rewrite is a legitimate research-grade direction (the
+named FLA path, 5% FLOP efficiency) but its obvious algorithmic fix is negated
+by memory traffic and the remaining improvements are bounded. It is not a clear
+win comparable to the Phase 1 cuBLAS gains. The remaining gap to the 67.5 s
+FLOP floor (94.94 s = 1.41x) is: FlashInfer full-attention (13.4 s, a different
+computation), GDN serial recurrence (5.28 s, deferred above), and GEMM
+efficiency headroom (~9 s, near the 77-84% peak ceiling, fused route rejected).
+Each requires a large research rewrite without a guaranteed >5 s payoff.
+
 ## Consequences
+
 
 
 
