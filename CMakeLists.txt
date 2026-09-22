@@ -590,6 +590,7 @@ add_library(q3x_kernels STATIC
   src/kernels/sm87/fp8_prefill_supermatrix.cu
   src/kernels/sm87/fp8_dequant_cublas_projection.cu
   src/kernels/sm87/nvfp4_dequant_cublas_gate_up.cu
+  src/kernels/sm87/nvfp4_dequant_cutlass_gate_up.cu
   src/kernels/sm87/gdn_prefill_exact_span_sm87.cu
   src/kernels/sm87/gdn_prefill_exact_span_sm87.h
   src/kernels/sm87/nvfp4_marlin_w4a16.cu
@@ -611,6 +612,7 @@ target_include_directories(q3x_kernels
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cutlass/include
 )
 target_link_libraries(q3x_kernels PUBLIC q3x::core CUDA::cudart CUDA::cublas)
 target_compile_options(q3x_kernels PRIVATE

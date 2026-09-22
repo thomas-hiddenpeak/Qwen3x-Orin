@@ -376,6 +376,33 @@ save only 2-3.5 s, and requires a FlashAttention-class custom kernel
 (SM87 + head_dim=256 + GQA + sigmoid gating), the highest-effort direction
 identified. **DEFER**: not a clear win.
 
+### CUTLASS sw2 gate/up GEMM beats cuBLAS (2026-09-23, retained)
+
+The "cuBLAS is the ceiling" framing was wrong: cuBLAS 84% was a baseline,
+not a hardware bound, and the earlier NO-GO rested on Marlin's 73% (its
+in-mma dequant breaks mma throughput) plus an unfinished 10% prototype.
+Studying the proven CUTLASS path (v3.9.2 cloned, 2.x Ampere cp.async device
+API) and benchmarking at the EXACT production shape (M=8000, N=34816,
+K=5120, BF16, C=A*B^T) gave:
+
+| impl | M=8000 | M=40000 single |
+|---|---|---|
+| cuBLAS (production call) | 95.1 ms / 30.0 TF | 468.8 ms / 30.4 TF |
+| CUTLASS 128x256x64 s3 sw1 | 105.7 ms / 27.0 TF | 540.9 ms / 26.4 TF |
+| **CUTLASS 128x256x64 s3 sw2** | **90.6-91.8 ms / 31.1-31.5 TF** | - |
+| CUTLASS 128x256x64 s3 sw4 | 109.9 ms / 26.0 TF | 633.0 ms / 22.5 TF |
+
+The swizzle factor is decisive on this shape: sw2 beats cuBLAS by 4.7%
+(stable over 3 runs); sw1/sw4 lose. Note the production M-chunking is
+40000/8000 = five full M=8000 chunks (no M=4000 tail chunk exists).
+
+Integrated as `src/kernels/sm87/nvfp4_dequant_cutlass_gate_up.cu` (same
+vec16 dequant + vec8 SiLU, CUTLASS 2.x Gemm 128x256x64/warp 64x64/3 stages/
+swizzle 2, CUTLASS headers vendored at third_party/cutlass/include).
+E2E: **93.08 s** (was 94.94 s cuBLAS, 98.9 s Marlin baseline), first token
+"Based", sha256 5bf13d90... identical to the Marlin baseline. The dev route
+remains accuracy-unqualified and default-off.
+
 ### Phase 2 custom-kernel program - closure (2026-09-22)
 
 Phase 2 systematically assessed every remaining gap component (94.94 s vs the
