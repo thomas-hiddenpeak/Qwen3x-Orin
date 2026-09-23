@@ -431,6 +431,78 @@ above the Marlin skinny route (7.3 s total for 96 skinny GEMMs). E2E:
 to the Marlin baseline. All FP8 projection GEMMs (fat-N + skinny) now run on
 CUTLASS sw2. Dev route remains accuracy-unqualified and default-off.
 
+### Hardware peak calibration - correction (2026-09-23)
+
+The "33.5 TFLOPS BF16 peak" used as the denominator throughout this ADR was
+WRONG. It was derived as `16 SM x 2048 FLOP/SM/clock x 1.024 GHz`, but the
+GPU clock is pinned at **1300.5 MHz** (devfreq `min=max=cur=1300500000`,
+tegrastats `GR3D_FREQ 99%`), not 1.024 GHz. Measured on the Orin 64G under
+sustained GEMM load (tegrastats: `gpu@61-63C`, `VDD_GPU_SOC 34.4W`, no
+throttle):
+
+- Raw tensor-core ceiling (pure `mma.m16n8k16` microbenchmark, 32 warps/SM,
+  no memory traffic): **41.4 TFLOPS**. Theoretical `16 x 2048 x 1.3005 GHz =
+  42.6 TF`; measured 41.4 = 97% (normal overhead).
+- D2D bandwidth: 181 GB/s.
+
+Re-calibrated against the true 41.4 TF ceiling:
+
+| Shape | CUTLASS sw2 | /41.4 TF |
+|---|---|---|
+| skinny K=6144 N=5120 | 37.6 TF | 91% |
+| fat-N N=10240 | 37.3 TF | 90% |
+| fat-N N=12288 | 35.8 TF | 86% |
+| **gate/up M=8000 N=34816 K=5120** | **31.2 TF** | **75%** |
+| **down M=40000 N=5120 K=17408** | **27.4 TF** | **66%** |
+
+skinny/fat-N are near the hardware limit (86-91%); gate/up (75%) and down
+(66%) have real headroom. The earlier "GEMM optimization at its natural
+boundary" claim was premature - it rested on the wrong 33.5 TF denominator.
+The "1.33x FLOP floor" figure is likewise invalid; the floor must be
+recomputed against 41.4 TF. A CUTLASS 2.x tile sweep on gate/up confirmed
+31.2 TF is the CUTLASS ceiling for that shape (larger tiles fail to compile
+or run slower), so closing the 25% gap requires a hand-written persistent
+kernel, not library tuning.
+
+### Hand-written persistent GEMM kernel - experiment record (2026-09-23)
+
+Per the directive to hand-write kernels against the hardware shape and
+dataflow (not tune a library), a from-scratch persistent GEMM was built for
+the gate/up shape (M=8000, N=34816, K=5120): 16-SM persistent grid,
+128x256x64 tile, 8 warps (64x64 each), cp.async multi-stage pipeline,
+`mma.m16n8k16` bf16, ldmatrix fragments, in-kernel NVFP4 dequant of B
+(E2M1 nibbles x E4M3 block scale x ws2).
+
+Correctness methodology correction: earlier "maxrel=0.0000" passes used
+`cudaMemset` constant data, which masks any row/column offset bug (wrong
+address, same value). With RANDOM data the scalar-fragment version
+verifies maxrel=0.0000 and the ldmatrix version maxrel=0.012 (bf16
+rounding), bad=0/279367.
+
+Measured (random data, production shape, 41.4 TF raw ceiling):
+
+| Variant | TF | Notes |
+|---|---|---|
+| scalar 32-bit shared loads, 2-stage | 21.4 | verified correct |
+| ldmatrix.x4/x2, 2-stage | 21.0 | verified correct; no gain |
+| 3-stage pipeline | 23.9 | no gain |
+| issue-before-mma overlap | 24.1 | no gain |
+| software-pipelined ldmatrix | 21.1 | no gain |
+| in-kernel dequant (v2) | 11.8 | dequant ALU steals issue slots |
+| **CUTLASS 128x256x64 sw2 (production)** | **31.2** | |
+
+Conclusion: a hand-written kernel with the same tile shape reaches 21-24 TF
+(52-58% of the raw ceiling) vs CUTLASS 31.2 TF (75%). The gap is NOT
+pipeline depth, load instruction, overlap, or L2 (DRAM traffic is ~5.5 ms
+vs 68 ms compute - compute-bound). CUTLASS's advantage is accumulated
+micro-scheduling (register-level mma/ldmatrix interleaving, warp-level
+scheduling, epilogue overlap) that a single-pass hand-written loop does not
+replicate. Status: EXPERIMENT - not integrated; production keeps CUTLASS
+sw2. The hand-written path is retained as evidence that the 75% CUTLASS
+figure is a real scheduling-quality gap, not a hardware wall, and as the
+starting point if a warp-specialized producer/consumer rewrite is ever
+scoped.
+
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
 Fresh nsys at 89.96 s (cutlass-sw2.nsys-rep) gives the post-CUTLASS
