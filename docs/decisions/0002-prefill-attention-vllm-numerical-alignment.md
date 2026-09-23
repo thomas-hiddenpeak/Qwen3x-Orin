@@ -744,6 +744,41 @@ full control over the hardware shape, dataflow, swizzle, L2 scheduling, and
 instruction-level mainloop - matching or exceeding CUTLASS's scheduling
 quality (31.3 > 30.5 no-sync).
 
+### Hand-written GEMM: barrier-stall closure attempts v23-v26 (2026-09-23)
+
+Four attempts to close the 2.6 TF syncthreads barrier gap (28.7 -> 31.3 no-sync)
+all failed, each confirming v22 is the practical ceiling for a 2-fragment-buffer
+128x256x64 3-stage design:
+
+| Variant | Approach | Result | Why it failed |
+|---|---|---|---|
+| v23 | prefetch next-kt slice0 after sync | 27.3 TF (worse) | ldmatrix.sync is warp-synchronous, issued before mma(3) in the same warp - cannot be hidden, adds issue pressure |
+| v24 | warp-specialized producer/consumer (9 warp, named barriers) | deadlock | `bar.sync 6+s,256` expects 256 threads but the producer warp also executes it -> 288 threads hit a 256-count barrier |
+| v25 | 4 fragment buffers, all 4 slices pre-loaded | 27.0 TF (worse) | 255 regs + 32B spill; 48 LDSM all land on the post-sync critical path |
+| v26 | continuous global-slice ldmatrix across kt boundary | hang | restructuring the cp.async commit/wait/sync protocol introduced a correctness bug |
+
+The decisive result is v25: pre-loading all 4 slices after the sync is SLOWER,
+because it puts 48 LDSM on the critical path. CUTLASS's 4-buffer advantage is
+NOT "load more after the sync" - it is "load the next kt's fragments DURING the
+current kt's mma (before the sync), so nothing needs loading after the sync".
+That requires 4 fragment buffers resident (2 current + 2 next), which needs
+128 acc + 256 fragment = 384 registers/thread - over the 255 limit for a
+128x256 tile. The only ways to get 4 buffers are a smaller tile (128x128,
+halves acc to 64 but is a less efficient tile shape) or warp specialization
+(producer warp issues cp.async, compute warps do mma/ldmatrix, coordinated by
+mbarrier arrive/wait - the bar.sync approach deadlocks because bar.sync is
+bidirectional and the producer must not join the compute barrier).
+
+Conclusion: v22 = 28.7 TF (94% of CUTLASS 30.5 TF, 68% of the 41.9 TF real mma
+ceiling) is the hand-written ceiling for this tile/pipeline configuration. The
+no-sync upper bound (31.3 TF) exceeds CUTLASS, proving the mainloop scheduling
+quality matches CUTLASS; the residual 2.6 TF is a quantified barrier stall that
+requires 4 resident fragment buffers to hide, which does not fit in registers
+for a 128x256 tile. Status: EXPERIMENT - not integrated; production keeps
+CUTLASS sw2. The hand-written kernel is retained as proof of full control over
+the hardware shape, dataflow, swizzle, L2 scheduling, and instruction-level
+mainloop.
+
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
 Fresh nsys at 89.96 s (cutlass-sw2.nsys-rep) gives the post-CUTLASS
