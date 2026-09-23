@@ -632,6 +632,43 @@ and every major CUTLASS structure; production keeps CUTLASS sw2 (the
 hand-written kernel is slower, and the production NVFP4 path's in-kernel
 dequant would drop it to ~12 TF).
 
+### Hand-written GEMM: SASS-level comparison + swizzle/L2 interaction correction (2026-09-23)
+
+A 4-way cross (swizzle x L2 threadblock swizzle, grid=128, 3 runs each, random
+data) corrects the earlier "Swizzle<3,3,3> = NO GAIN" note, which only held
+WITHOUT the L2 threadblock swizzle:
+
+| Variant | PAD | smem swizzle | L2 swizzle | TF (avg) |
+|---|---|---|---|---|
+| v10 | 8 | none | none | 24.7 |
+| v16 | 0 | Swizzle<3,3,3> | none | 24.1 |
+| **v17** | **0** | **Swizzle<3,3,3>** | **2x2** | **27.1** |
+| v20 | 8 | none | 2x2 | 23.8 |
+
+The smem swizzle is a **prerequisite** for the L2 threadblock swizzle: without
+it, adding the L2 swizzle HURTS (23.8 < 24.7); with it, the L2 swizzle gains
++3 TF (24.1 -> 27.1). The mechanism is not fully understood but the empirical
+interaction is stable across 3 runs each.
+
+SASS comparison (v17 vs CUTLASS sw2, same 128x256x64/3-stage/warp-64x64):
+both have exactly 128 HMMA (same mma count). Per k-slice: v17 = 4 A-LDSM(x4)
++ 8 B-LDSM(x2) = 12 LDSM; CUTLASS = 4 A-LDSM(x4) + 6 B-LDSM(x2) = 10 LDSM
+(CUTLASS's B uses a 16-element vector load, so its ldmatrix pattern is more
+compact). CUTLASS also uses `LDGSTS.E.BYPASS.LTC128B.128` (cp.async with an
+L2::128B prefetch hint, `cp.async.ca`) vs my `LDGSTS.E.BYPASS.128`
+(`cp.async.cg`). Replicating the L2::128B hint (v21) HURT: 24.1 TF vs v17's
+27.1 - the `.ca` L1-caching is counterproductive for cross-CTA reuse; `.cg`
+(L2-only) is correct here.
+
+Conclusion: the residual 3.4 TF (27.1 -> 30.5) is CUTLASS's instruction-level
+mma/ldmatrix/cp.async interleaving (its mainloop keeps 15+ HMMA in flight with
+only `.reuse` register hints between them, vs my swizzle address computation
+inserting LOP3+SHF between HMMA), plus its more compact B ldmatrix pattern.
+These are codegen-quality differences, not a single removable structural item.
+Status: EXPERIMENT - not integrated; production keeps CUTLASS sw2. Hand-written
+best remains v17 = 27.1 TF (89% of CUTLASS, 65% of the 41.9 TF real mma
+ceiling).
+
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
 Fresh nsys at 89.96 s (cutlass-sw2.nsys-rep) gives the post-CUTLASS
