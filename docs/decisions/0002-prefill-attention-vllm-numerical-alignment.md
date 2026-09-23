@@ -491,6 +491,18 @@ Measured (random data, production shape, 41.4 TF raw ceiling):
 | in-kernel dequant (v2) | 11.8 | dequant ALU steals issue slots |
 | **CUTLASS 128x256x64 sw2 (production)** | **31.2** | |
 
+Performance decomposition (hw_decomp.cu, 3 modes of the same kernel, random
+data) localizes the gap: full (ldmatrix+mma+2 sync) 135.6 ms / 21.0 TF,
+mma-only (no ldmatrix) 123.0 ms / 23.2 TF, ldmatrix-only (no mma) 110.9 ms /
+25.7 TF, cuBLAS 95.0 ms / 30.0 TF. The bottleneck is NOT ldmatrix - mma-only
+is already capped at 23.2 TF. Per-stage cycle budget at 1.3 GHz: the tensor
+core is busy 2048 cycles/stage (67 ms total compute), but my kernel spends
+4133 cycles/stage (2085 cycles overhead) vs CUTLASS 2847 cycles/stage (799
+overhead). The 2.6x overhead gap comes from 2 `__syncthreads`/stage (CUTLASS
+uses 1) plus cp.async not overlapping the mma. Next: replicate the CUTLASS
+mainloop structure (3 stages, 1 syncthreads, double-buffered fragments,
+interleaved cp.async) in the hand-written kernel.
+
 Conclusion: a hand-written kernel with the same tile shape reaches 21-24 TF
 (52-58% of the raw ceiling) vs CUTLASS 31.2 TF (75%). The gap is NOT
 pipeline depth, load instruction, overlap, or L2 (DRAM traffic is ~5.5 ms
