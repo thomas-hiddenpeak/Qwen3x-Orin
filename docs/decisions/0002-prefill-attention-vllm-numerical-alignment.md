@@ -809,6 +809,29 @@ of finer scheduling plus its more compact B ldmatrix pattern (40 vs 48 LDSM,
 B uses ldmatrix.x4). Status: EXPERIMENT - not integrated; production keeps
 CUTLASS sw2. v27 is the new hand-written best.
 
+### Hand-written GEMM: v28 B ldmatrix.x4 closure - no gain, v27 is final (2026-09-23)
+
+v28 replicates CUTLASS's B ldmatrix.x4 (one x4 load covers two n-slices, 16k x
+16n) to test whether the residual 1.5 TF is the B-ldmatrix pattern. The x4
+addressing maps lanes 0-15 -> n-slice j, lanes 16-31 -> n-slice j+1 (lane>>4
+selects the n-slice pair; (lane>>3)&1 selects the k half). Correct (maxrel=
+0.0000), 248 registers no-spill, 3 runs: 28.9 / 28.5 / 29.0 TF (avg 28.8).
+
+**No gain over v27.** This falsifies the hypothesis that the residual 1.5 TF
+comes from the B-ldmatrix.x4 pattern (40 vs 48 LDSM): with the LDSM count
+matched, performance is unchanged. The LDSM issue is fully hidden by the
+cp.async + mma pipeline, so fewer LDSM instructions buy nothing. The residual
+is therefore CUTLASS's 2 extra registers of finer instruction scheduling, not
+a structural difference - a register-level micro-tuning with negligible ROI.
+
+**Hand-written GEMM program closed at v27 = 29.0 TF (95% of CUTLASS 30.5 TF).**
+Lever exhaustion (all tested, no gain or worse): full-offset swizzle, L2::128B
+hint, 16-warp, 4x4 L2 swizzle, cross-kt prefetch, 4-buffer preload, warp-
+specialized (deadlock), continuous ldmatrix (hang), B ldmatrix.x4. The no-sync
+upper bound (31.3 TF > CUTLASS 30.5 TF) proves mainloop scheduling parity; the
+1.5 TF with sync is the syncthreads stall CUTLASS hides with 2 extra registers.
+v27 is retained as the hand-written best; production keeps CUTLASS sw2.
+
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
 Fresh nsys at 89.96 s (cutlass-sw2.nsys-rep) gives the post-CUTLASS
