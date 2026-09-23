@@ -589,6 +589,49 @@ Status: EXPERIMENT - not integrated; production keeps CUTLASS sw2. The
 hand-written kernel now reaches 65% of the 41.9 TF real mma ceiling (was 59%),
 narrowing but not closing the scheduling-quality gap.
 
+### Hand-written GEMM: memory-bound decomposition + lever exhaustion (2026-09-23)
+
+A compile-time 3-mode decomposition of v17 (full / mma-only / ldmatrix-only,
+each a separate `-DMODE` build so the compiler can fully optimize) shows all
+three modes run in ~105 ms (27.0-27.1 TF): removing ALL mma, or removing ALL
+ldmatrix, changes nothing. The kernel is NOT mma-bound and NOT ldmatrix-bound -
+both are fully hidden. It is **cp.async + syncthreads bound**. This corrects
+the earlier "compute-bound, DRAM 5.5 ms vs 68 ms compute" note: that compared
+DRAM to mma, but the real limiter is the shared-memory pipeline (cp.async
+issue + L2 + the mid-loop `__syncthreads`), not DRAM and not the tensor core.
+
+`__syncthreads` cost isolated: removing it entirely (broken correctness, perf
+upper bound only) drops 106.0 -> 98.6 ms (26.9 -> 28.9 TF), so the sync barrier
+is ~2 TF (~7%) of the 3.3 TF gap to CUTLASS 30.5 TF. The remaining ~1.4 TF is
+cp.async/mma issue scheduling. Even with ALL syncthreads removed the kernel
+tops out at 28.9 TF, still below CUTLASS - confirming the residual is CUTLASS's
+generated warp-level interleaving, not a single removable barrier.
+
+Lever exhaustion (all measured, random data, gate/up shape):
+
+| Lever | TF | Verdict |
+|---|---|---|
+| v17 (8-warp + 2x2 L2 swizzle, grid=128) | **27.2** | hand-written best |
+| 16-warp (v14, no L2 swizzle) | 23.4 | 8-warp wins |
+| v19 (16-warp + 2x2 L2 swizzle) | 23.4 | L2 swizzle does not help 16-warp |
+| grid scan (16/64/128/256/512) | 24.6/26.5/27.2/26.6/26.4 | 128 optimal |
+| 4x4 L2 swizzle (v18) | 27.3 | marginal over 2x2 |
+| Swizzle<3,3,3> bank-conflict (v16) | 24.6 | no gain (hidden) |
+| no syncthreads (upper bound, broken) | 28.9 | sync is ~2 TF |
+| CUTLASS 128x256x64 sw2 (production) | 30.5 | target |
+
+Conclusion: the hand-written kernel reaches **27.2 TF (89% of CUTLASS 30.5 TF,
+65% of the 41.9 TF real mma ceiling)** by replicating every major CUTLASS
+structure (mainloop, bank-conflict swizzle, L2 threadblock swizzle). The
+residual 3.3 TF is CUTLASS's accumulated warp-level mma/ldmatrix/cp.async
+interleaving plus epilogue overlap, which a single-pass hand-written loop does
+not reproduce and which 16-warp / grid / pipeline-depth / sync-position
+variants do not recover. Status: EXPERIMENT - not integrated. The hand-written
+kernel is retained as proof of full control over the hardware shape, dataflow,
+and every major CUTLASS structure; production keeps CUTLASS sw2 (the
+hand-written kernel is slower, and the production NVFP4 path's in-kernel
+dequant would drop it to ~12 TF).
+
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
 Fresh nsys at 89.96 s (cutlass-sw2.nsys-rep) gives the post-CUTLASS
