@@ -503,6 +503,18 @@ uses 1) plus cp.async not overlapping the mma. Next: replicate the CUTLASS
 mainloop structure (3 stages, 1 syncthreads, double-buffered fragments,
 interleaved cp.async) in the hand-written kernel.
 
+Replicating the CUTLASS mainloop structure in the hand-written kernel
+(hw_gateup10.cu: 3 stages, cp.async for stage kt+2 split into 4 groups
+interleaved with the mma loop, fence+wait+1 syncthreads at ks==2,
+double-buffered ldmatrix fragments, separate prologue commits) raises the
+hand-written kernel from 21.0 TF to **24.8 TF** (verified maxrel=0.0000 on
+random data, bad=0/279367). This confirms the loop structure (cp.async
+overlap + single mid-loop sync) was the main overhead, not ldmatrix. The
+remaining gap to CUTLASS 30.5 TF (5.7 TF / 19%) is under investigation -
+candidate: 8 warps/SM occupancy (256 threads) vs a 16-warp (512-thread)
+configuration that halves per-warp mma work to hide latency, at the cost of
+register pressure (acc drops 128->64 floats).
+
 Conclusion: a hand-written kernel with the same tile shape reaches 21-24 TF
 (52-58% of the raw ceiling) vs CUTLASS 31.2 TF (75%). The gap is NOT
 pipeline depth, load instruction, overlap, or L2 (DRAM traffic is ~5.5 ms
