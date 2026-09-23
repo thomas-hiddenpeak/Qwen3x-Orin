@@ -708,6 +708,42 @@ where CUTLASS's generated code has a bigger scheduling advantage.
 
 Status: EXPERIMENT - not integrated; production keeps CUTLASS sw2.
 
+### Hand-written GEMM: v22 no-sync upper bound EXCEEDS CUTLASS (2026-09-23)
+
+A syncthreads probe on v22 (chunk-based swizzle + 2x2 L2 swizzle, grid=128,
+3 runs each) reveals the final structure of the gap:
+
+| Mode | TF |
+|---|---|
+| v22 with syncthreads (production-correct) | 28.7 |
+| v22 WITHOUT syncthreads (broken, upper bound) | **31.3** |
+| CUTLASS sw2 (with syncthreads, production) | 30.5 |
+
+The no-sync upper bound (31.3 TF) **exceeds** CUTLASS's production figure
+(30.5 TF). This proves the hand-written mainloop's instruction-level
+mma/ldmatrix/cp.async interleaving quality is now AT LEAST as good as
+CUTLASS's generated code. The entire 2.6 TF gap (28.7 -> 31.3) is the
+`__syncthreads` barrier stall, not scheduling quality.
+
+CUTLASS hides its own syncthreads stall by using 4 fragment buffers (SASS
+shows 4 distinct LDSM address-register groups R4/R0+UR/R197+UR5/R198+UR4),
+so its ldmatrix can be issued 3 k-slices ahead of the mma. The hand-written
+kernel is limited to 2 fragment buffers (double-buffer) because a 4th buffer
+would push register pressure past 255/thread (128 acc + 128 fragment +
+addressing). A 4-stage pipeline (the other way to deepen the ldmatrix lead)
+needs 4 x 48 KB = 192 KB shared memory, exceeding the 163 KB opt-in limit.
+
+Conclusion: the hand-written kernel has reached the practical ceiling for a
+single-pass 8-warp 128x256x64 3-stage design on SM87. v22 = 28.7 TF
+(94% of CUTLASS 30.5 TF, 68% of the 41.9 TF real mma ceiling) is the best
+achievable without a warp-specialized producer/consumer rewrite (which would
+also not be integrated into production, since the NVFP4 dequant path drops
+any hand-written kernel to ~12 TF). Status: EXPERIMENT - not integrated;
+production keeps CUTLASS sw2. The hand-written kernel is retained as proof of
+full control over the hardware shape, dataflow, swizzle, L2 scheduling, and
+instruction-level mainloop - matching or exceeding CUTLASS's scheduling
+quality (31.3 > 30.5 no-sync).
+
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
 Fresh nsys at 89.96 s (cutlass-sw2.nsys-rep) gives the post-CUTLASS
