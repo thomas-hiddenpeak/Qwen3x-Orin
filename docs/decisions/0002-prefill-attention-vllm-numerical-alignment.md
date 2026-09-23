@@ -546,6 +546,49 @@ figure is a real scheduling-quality gap, not a hardware wall, and as the
 starting point if a warp-specialized producer/consumer rewrite is ever
 scoped.
 
+### Hand-written GEMM: swizzle + L2 threadblock swizzle (2026-09-23)
+
+Two structural levers were isolated to close the v10 (24.8 TF) -> CUTLASS
+(30.5 TF) gap, both replicated exactly from the vendored CUTLASS v3.9.2.
+
+(1) Shared-memory bank-conflict swizzle - NO GAIN. The v10 layout used
+row-major + PAD=8 (row stride 72 elements = 144 bytes = 36 words), so
+ldmatrix.x4 rows 0 and 8 both map to banks 0-3 (a 2-way conflict). CUTLASS
+eliminates this with `cute::Swizzle<3,3,3>` on a PAD-free 128-byte row:
+`swz(o) = o ^ ((o & 0x3C0) >> 3)`, equivalently `chunk' = chunk ^ (row & 7)`.
+Applying the identical swizzle to BOTH the cp.async write and the ldmatrix
+read (required - a mismatch corrupts the data) gives v16 = 24.6 TF, verified
+maxrel=0.0000. The bank conflict was real but NOT the bottleneck: removing it
+moved nothing. The 2-way ldmatrix conflict is hidden by the mma issue
+latency.
+
+(2) L2 threadblock swizzle - REAL GAIN. v10 used a plain column-major tile
+order (tn outer, tm inner), so the 16 CTAs resident at once all read the same
+K-column of A but 16 different N-slices of B - poor L2 reuse. CUTLASS's
+`GemmIdentityThreadblockSwizzle<2>` groups tiles into 2x2 superblocks
+(log_tile=1 for tiles_n=136), so the co-resident CTAs share both an A row-band
+AND a B column-band. Replicating the exact mapping
+(`sid=t/4, tm=sm+2*(sid%sup_m), tn=sn+2*(sid/sup_m)`, total padded to the
+full superblock grid so clamped slots recompute idempotently) gives v17 =
+**27.2 TF** (grid=128, verified maxrel=0.0000, bad=0/279367). A 4x4
+superblock (v18) is marginal at 27.3 TF. Grid scan: 128 is optimal
+(16=24.6, 64=26.5, 128=27.2, 256=26.6, 512=26.4).
+
+| Variant | TF | Notes |
+|---|---|---|
+| v10 (CUTLASS mainloop, PAD=8, column-major) | 24.8 | prior best |
+| v16 (v10 + Swizzle<3,3,3>, PAD=0) | 24.6 | bank conflict removed, no gain |
+| v17 (v16 + 2x2 L2 swizzle, grid=128) | **27.2** | L2 reuse is the lever |
+| v18 (v16 + 4x4 L2 swizzle) | 27.3 | marginal over 2x2 |
+| CUTLASS 128x256x64 sw2 (production) | 30.5 | target |
+
+The remaining gap (27.2 -> 30.5 TF, ~3.3 TF / 11%) is no longer a single
+structural item; it is the accumulated warp-level mma/ldmatrix/cp.async
+interleaving and epilogue overlap that CUTLASS's generated mainloop has.
+Status: EXPERIMENT - not integrated; production keeps CUTLASS sw2. The
+hand-written kernel now reaches 65% of the 41.9 TF real mma ceiling (was 59%),
+narrowing but not closing the scheduling-quality gap.
+
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
 Fresh nsys at 89.96 s (cutlass-sw2.nsys-rep) gives the post-CUTLASS
