@@ -725,12 +725,13 @@ mma/ldmatrix/cp.async interleaving quality is now AT LEAST as good as
 CUTLASS's generated code. The entire 2.6 TF gap (28.7 -> 31.3) is the
 `__syncthreads` barrier stall, not scheduling quality.
 
-CUTLASS hides its own syncthreads stall by using 4 fragment buffers (SASS
-shows 4 distinct LDSM address-register groups R4/R0+UR/R197+UR5/R198+UR4),
-so its ldmatrix can be issued 3 k-slices ahead of the mma. The hand-written
-kernel is limited to 2 fragment buffers (double-buffer) because a 4th buffer
-would push register pressure past 255/thread (128 acc + 128 fragment +
-addressing). A 4-stage pipeline (the other way to deepen the ldmatrix lead)
+CUTLASS hides its own syncthreads stall by scheduling ldmatrix slightly
+further ahead across the barrier. (CORRECTION: an earlier draft attributed
+this to "4 fragment buffers / 384 registers" - wrong. The production CUTLASS
+config compiles to 242 registers with no spill, only 16 more than v22's 226;
+the 4 LDSM address-register groups in the SASS are the 3 pipeline-stage base
+pointers, not 4 fragment buffers. See the v23-v26 section for the full
+correction.) A 4-stage pipeline (the other way to deepen the ldmatrix lead)
 needs 4 x 48 KB = 192 KB shared memory, exceeding the 163 KB opt-in limit.
 
 Conclusion: the hand-written kernel has reached the practical ceiling for a
@@ -758,26 +759,30 @@ all failed, each confirming v22 is the practical ceiling for a 2-fragment-buffer
 | v26 | continuous global-slice ldmatrix across kt boundary | hang | restructuring the cp.async commit/wait/sync protocol introduced a correctness bug |
 
 The decisive result is v25: pre-loading all 4 slices after the sync is SLOWER,
-because it puts 48 LDSM on the critical path. CUTLASS's 4-buffer advantage is
-NOT "load more after the sync" - it is "load the next kt's fragments DURING the
-current kt's mma (before the sync), so nothing needs loading after the sync".
-That requires 4 fragment buffers resident (2 current + 2 next), which needs
-128 acc + 256 fragment = 384 registers/thread - over the 255 limit for a
-128x256 tile. The only ways to get 4 buffers are a smaller tile (128x128,
-halves acc to 64 but is a less efficient tile shape) or warp specialization
-(producer warp issues cp.async, compute warps do mma/ldmatrix, coordinated by
-mbarrier arrive/wait - the bar.sync approach deadlocks because bar.sync is
-bidirectional and the producer must not join the compute barrier).
+because it puts 48 LDSM on the critical path.
+
+CORRECTION to the earlier "CUTLASS uses 4 fragment buffers (384 registers)"
+claim: compiling the production CUTLASS config (128x256x64/64x64/3-stage/
+swizzle2) with `--ptxas-options=-v` shows it uses **242 registers, no spill**
+- NOT 384. The 4 distinct LDSM address-register groups seen in the SASS (R4 /
+R0+UR / R197+UR5 / R198+UR4) are the 3 pipeline-stage base pointers, not 4
+fragment buffers. A 4-fragment-buffer scheme (128 acc + 256 fragment) would
+need >255 registers and would spill, which CUTLASS does not do. The real
+CUTLASS-vs-v22 delta is small: 242 vs 226 registers (16 more) and 40 vs 48
+LDSM (CUTLASS's B operand uses ldmatrix.x4, so 2 fewer B-LDSM per k-slice).
+CUTLASS hides its barrier stall by scheduling ldmatrix slightly further ahead
+across the syncthreads using those 16 extra registers, not by holding 4 full
+fragment buffers.
 
 Conclusion: v22 = 28.7 TF (94% of CUTLASS 30.5 TF, 68% of the 41.9 TF real mma
-ceiling) is the hand-written ceiling for this tile/pipeline configuration. The
+ceiling) is the hand-written result for this tile/pipeline configuration. The
 no-sync upper bound (31.3 TF) exceeds CUTLASS, proving the mainloop scheduling
 quality matches CUTLASS; the residual 2.6 TF is a quantified barrier stall that
-requires 4 resident fragment buffers to hide, which does not fit in registers
-for a 128x256 tile. Status: EXPERIMENT - not integrated; production keeps
-CUTLASS sw2. The hand-written kernel is retained as proof of full control over
-the hardware shape, dataflow, swizzle, L2 scheduling, and instruction-level
-mainloop.
+CUTLASS absorbs with 16 extra registers of ldmatrix-ahead scheduling (242 vs
+226) plus a more compact B ldmatrix pattern (40 vs 48 LDSM). Status:
+EXPERIMENT - not integrated; production keeps CUTLASS sw2. The hand-written
+kernel is retained as proof of full control over the hardware shape, dataflow,
+swizzle, L2 scheduling, and instruction-level mainloop.
 
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
