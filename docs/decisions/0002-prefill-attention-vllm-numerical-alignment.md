@@ -669,6 +669,29 @@ Status: EXPERIMENT - not integrated; production keeps CUTLASS sw2. Hand-written
 best remains v17 = 27.1 TF (89% of CUTLASS, 65% of the 41.9 TF real mma
 ceiling).
 
+### Hand-written GEMM: chunk-based swizzle -> 28.5 TF (93% of CUTLASS) (2026-09-23)
+
+The SASS comparison showed CUTLASS's LDSM addresses use a base register +
+immediate offset (`LDSM ... [R0+UR5+0x3000]`), while my v17 swizzle
+`swz(o) = o ^ ((o & 0x3C0) >> 3)` applied to the FULL offset forced a per-lane
+LOP3+SHF address computation between every HMMA. The fix: the Swizzle<3,3,3>
+only permutes the 16-byte chunks WITHIN a 128-byte row - the row offset itself
+stays linear. Rewriting as `swcol(row, col) = (((col>>3) ^ (row&7)) << 3) |
+(col&7)` with `addr = As[row*TB_K + swcol(row, col)]` keeps the `row*TB_K` part
+linear, so the compiler folds the swizzle into the immediate offset.
+
+v22 (chunk-based swizzle + 2x2 L2 threadblock swizzle, grid=128, random data,
+5 runs): **28.5 TF** (28.4/28.5/28.7/28.5/28.4), verified maxrel=0.0000,
+bad=0/279367. SASS confirms LDSM is now `[R154+0x800]` (base + immediate), no
+per-lane LOP3+SHF. This raises the hand-written best from v17's 27.1 TF (89%
+of CUTLASS) to **28.5 TF (93% of CUTLASS 30.5 TF, 68% of the 41.9 TF real mma
+ceiling)**. The gap to CUTLASS narrowed from 3.4 TF to 2.0 TF.
+
+Remaining 2.0 TF: CUTLASS's B operand uses a 16-element (32-byte) vector load
+so its ldmatrix pattern is 6 B-LDSM/k-slice vs my 8 (total 10 vs 12 LDSM/
+k-slice), plus its mainloop keeps 15+ HMMA in flight with only `.reuse` hints.
+Status: EXPERIMENT - not integrated; production keeps CUTLASS sw2.
+
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
 Fresh nsys at 89.96 s (cutlass-sw2.nsys-rep) gives the post-CUTLASS
