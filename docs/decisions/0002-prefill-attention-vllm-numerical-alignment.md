@@ -784,6 +784,31 @@ EXPERIMENT - not integrated; production keeps CUTLASS sw2. The hand-written
 kernel is retained as proof of full control over the hardware shape, dataflow,
 swizzle, L2 scheduling, and instruction-level mainloop.
 
+### Hand-written GEMM: v27 3-fragment-buffer ldmatrix 2-ahead -> 29.0 TF (95% of CUTLASS) (2026-09-23)
+
+The register correction (CUTLASS = 242 regs no-spill, not 384) pointed to the
+real mechanism: CUTLASS holds ~3 fragment buffers (ldmatrix 2 k-slices ahead),
+not 4. v27 replicates this: 3 fragment buffers (A[3][4][4], B[3][8][2]),
+prologue loads slices 0+1, then `ldm(ks+2)` issued 2 slices before `mma(ks)`.
+This compiles to **240 registers, no spill** (2 fewer than CUTLASS's 242).
+
+v27 vs v22 (grid=128, 5 runs each, random data, verified maxrel=0.0000):
+
+| | run1 | run2 | run3 | run4 | run5 | avg |
+|---|---|---|---|---|---|---|
+| v22 (2-buffer) | 28.7 | 28.5 | 28.2 | 28.4 | 28.3 | 28.4 |
+| **v27 (3-buffer)** | 28.9 | 28.9 | 29.0 | 29.0 | 28.6 | **28.9** |
+
+v27 = **29.0 TF (95% of CUTLASS 30.5 TF, 69% of the 41.9 TF real mma ceiling)**,
+a stable +0.5 TF over v22. Grid scan: 192 = 29.0 TF (best), 128 = 28.7 TF.
+
+This confirms the corrected mechanism: the barrier stall is hidden by holding
+3 fragment buffers so ldmatrix for the next 2 k-slices is in flight across the
+syncthreads. The residual 1.5 TF (29.0 -> 30.5) is CUTLASS's 2 extra registers
+of finer scheduling plus its more compact B ldmatrix pattern (40 vs 48 LDSM,
+B uses ldmatrix.x4). Status: EXPERIMENT - not integrated; production keeps
+CUTLASS sw2. v27 is the new hand-written best.
+
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
 Fresh nsys at 89.96 s (cutlass-sw2.nsys-rep) gives the post-CUTLASS
