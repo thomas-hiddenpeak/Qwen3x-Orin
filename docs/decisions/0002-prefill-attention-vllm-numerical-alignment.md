@@ -692,6 +692,22 @@ so its ldmatrix pattern is 6 B-LDSM/k-slice vs my 8 (total 10 vs 12 LDSM/
 k-slice), plus its mainloop keeps 15+ HMMA in flight with only `.reuse` hints.
 Status: EXPERIMENT - not integrated; production keeps CUTLASS sw2.
 
+Cross-shape generality of v22 (chunk-based swizzle + 2x2 L2 swizzle, grid=128,
+3 runs each, random data, all verified correct):
+
+| Shape | v22 TF | CUTLASS sw2 TF | Ratio |
+|---|---|---|---|
+| gate/up M=8000 N=34816 K=5120 | 29.0 | 30.5 | 95% |
+| fat-N M=8000 N=10240 K=5120 | 29.2 | 37.3 | 78% |
+| skinny M=8000 N=5120 K=6144 | 30.1 | 37.5 | 80% |
+
+The hand-written kernel is correct and competitive across all production
+shapes. The fat-N/skinny gap is larger because those shapes are more
+memory/L2-bound (smaller N means less per-tile compute to hide the pipeline),
+where CUTLASS's generated code has a bigger scheduling advantage.
+
+Status: EXPERIMENT - not integrated; production keeps CUTLASS sw2.
+
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
 Fresh nsys at 89.96 s (cutlass-sw2.nsys-rep) gives the post-CUTLASS
