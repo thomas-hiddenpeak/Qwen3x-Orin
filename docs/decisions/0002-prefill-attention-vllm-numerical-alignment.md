@@ -464,6 +464,25 @@ recomputed against 41.4 TF. A CUTLASS 2.x tile sweep on gate/up confirmed
 or run slower), so closing the 25% gap requires a hand-written persistent
 kernel, not library tuning.
 
+### Real mma ceiling for the GEMM profile - correction (2026-09-23)
+
+The "41.4 TF raw tensor-core ceiling" was measured with mma_peak.cu at
+128 warps/SM and a single accumulator chain per warp - that hides latency
+with warp count, not with the GEMM's register file, so it does not represent
+a real GEMM. Re-measured with the real GEMM register profile (mma_peak2.cu:
+8 warps/SM, 128 accumulator registers/thread = acc[4][8][4], no spill, pure
+back-to-back mma, no ldmatrix/cp.async/syncthreads): **41.9 TF** at 8 warps
+(39.7 TF at 16 warps). This is the true mma throughput ceiling for the
+gate/up GEMM.
+
+Re-calibrated: CUTLASS 30.5 TF = **73%** of the real ceiling (not "near
+ceiling"); the hand-written v10 24.8 TF = **59%**. So CUTLASS itself leaves
+11.4 TF (27%) of ldmatrix/cp.async/syncthreads overhead un-overlapped, and
+the hand-written kernel leaves 17.1 TF (41%). The mma is NOT the bottleneck
+(pure mma hits 41.9 TF); the gap to close is overlapping ldmatrix + cp.async
++ the single mid-loop syncthreads with the mma. This is a real, closable gap
+- both CUTLASS and the hand-written kernel are below the mma ceiling.
+
 ### Hand-written persistent GEMM kernel - experiment record (2026-09-23)
 
 Per the directive to hand-write kernels against the hardware shape and
