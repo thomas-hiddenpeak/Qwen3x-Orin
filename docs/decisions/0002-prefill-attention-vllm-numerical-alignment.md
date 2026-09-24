@@ -832,7 +832,7 @@ upper bound (31.3 TF > CUTLASS 30.5 TF) proves mainloop scheduling parity; the
 1.5 TF with sync is the syncthreads stall CUTLASS hides with 2 extra registers.
 v27 is retained as the hand-written best; production keeps CUTLASS sw2.
 
-### Hand-written attention program: FlashInfer 812 ms baseline, WMMA + raw-mma attempts (2026-09-23)
+### Hand-written attention program: FlashInfer 812 ms baseline, WMMA + raw-mma attempts (2026-09-23, corrected 2026-09-25)
 
 The remaining e2e lever after GEMM is FlashInfer whole-prompt attention (13.1 s /
 14.4% of the 89.96 s nsys). A faithful FlashInfer whole-prompt baseline for our
@@ -848,24 +848,44 @@ Two hand-written kernels were built (`.q3x-work/attention-bench/`, gitignored):
   `mma_sync` lowers to a function call) + 212 `BSSY/BSYNC` (per-tile
   `__syncthreads`) vs FlashInfer's 0 CALL + 0 BSSY/BSYNC (raw PTX `mma` +
   per-warp softmax, no per-tile barrier).
-- **attn_hw2 (raw PTX `mma.sync.m16n8k16` + `ldmatrix`, per-warp softmax)**: the
-  correct direction (eliminates the CALL overhead), but the QK^T score matrix is
-  wrong. Isolation probes proved `mma.sync` works (hardcoded A=B=ones -> exact)
-  and `ldmatrix` works (constant-matrix fragment dump -> exact), but the
-  ldmatrix+mma combination in the full kernel produces wrong scores; the root
-  cause was not isolated in reasonable time.
+- **attn_hw2 (raw PTX `mma.sync.m16n8k16` + `ldmatrix`, per-warp softmax)**:
+  **CORRECT** — on identical T=256 input it matches the real FlashInfer kernel
+  to **max_rel=0.0039 (bf16 noise)**. The earlier "QK^T all wrong / data
+  corruption" reading was a **false alarm** produced by my own debug
+  instrumentation: (a) a race between two debug-buffer writers (the 16x16 QK^T
+  dump by 32 lanes into indices 0-255 overlapped a single-thread smem/global
+  dump into 128-167), and (b) probe data that used raw integer bit-patterns as
+  bf16 (denormals ~2^-126) whose products underflow to 0 in f32. Once the
+  ldmatrix directions were fixed to the empirically-verified
+  **K=no-trans, V=trans, Q=ldmatrix.x4** (each proven by a dedicated
+  0/128-BAD probe: `bfrag_def`, `vfrag_def`, `qfrag_def`), attn_hw2 is
+  numerically equivalent to FlashInfer. The residual "2.3% bad vs the fp32 CPU
+  oracle" is the shared **bf16-P softmax floor** (both attn_hw2 and FlashInfer
+  carry it vs a pure-fp32 reference), not a bug. The bench's `prod_kernel` WMMA
+  *copy* (18.3% bad vs CPU) is the one with a transcription defect.
 
-**Conclusion (DEFERred, owner decision):** FlashInfer's whole-prompt kernel is
-already near-optimal for this shape (72% of the causal floor, 24.2 TF). The
-hand-written attention does not beat it: the WMMA version is correct but 6.5x
-slower, and the raw-mma version has an unresolved correctness blocker. Capturing
-the 2-3.5 s attention headroom requires a research-grade FlashAttention-class
-rewrite (persistent CTA, warp-specialized producer/consumer, head_dim=256
-split-K) not justified against the current whole-product result. Consistent with
-the Phase 2 closure, production keeps FlashInfer whole-prompt attention + the
-separate sigmoid-gate kernel. Together with the hand-written GEMM (29.0 TF),
-these findings confirm the library kernels (CUTLASS sw2 + FlashInfer) are the
-right production choice for this hardware/shape.
+**Performance (the real gap):** attn_hw2 = **4506 ms (4.4 TF)** at T=40000,
+i.e. **5.5x slower** than FlashInfer (812 ms, 24.2 TF) — raw PTX mma only
+bought 1.18x over the WMMA version. The SASS mix of the attn_hw2 kernel
+(64 `HMMA` per tile) is dominated by the **online-softmax path**: 806 `FMUL` +
+789 `FFMA` + 336 `MUFU` (exp) + 275 `FSETP` + 196 `F2FP` (bf16 pack) + 280
+`BSSY/BSYNC`. It is **softmax/occupancy-bound, not mma-bound**: occupancy is
+capped at 2 blocks/SM (8 warps) by the 64 KB smem Q tile, so the softmax
+latency is not hidden. FlashInfer reaches 24.2 TF by overlapping far more work
+per warp (persistent CTA, warp-specialized producer/consumer, larger KV tiles).
+
+**Conclusion (DEFERred, owner decision — unchanged, but the rationale is
+corrected):** FlashInfer's whole-prompt kernel remains the right production
+choice. The hand-written attention is now proven *correct* (not "blocked"), but
+it is 5.5x slower because it is softmax/occupancy-bound rather than
+mma-bound. Closing that gap needs a research-grade FlashAttention-class rewrite
+(persistent CTA, warp-specialized producer/consumer, head_dim=256 split-K,
+larger KV tiles) — not justified against the current whole-product result
+(~225 ms/layer x 16 layers of headroom, ~3.6 s e2e). Consistent with the Phase
+2 closure, production keeps FlashInfer whole-prompt attention + the separate
+sigmoid-gate kernel. Together with the hand-written GEMM (29.0 TF), these
+findings confirm the library kernels (CUTLASS sw2 + FlashInfer) are the right
+production choice for this hardware/shape.
 
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
