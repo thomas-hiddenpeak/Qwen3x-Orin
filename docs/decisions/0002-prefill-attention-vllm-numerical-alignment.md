@@ -832,6 +832,41 @@ upper bound (31.3 TF > CUTLASS 30.5 TF) proves mainloop scheduling parity; the
 1.5 TF with sync is the syncthreads stall CUTLASS hides with 2 extra registers.
 v27 is retained as the hand-written best; production keeps CUTLASS sw2.
 
+### Hand-written attention program: FlashInfer 812 ms baseline, WMMA + raw-mma attempts (2026-09-23)
+
+The remaining e2e lever after GEMM is FlashInfer whole-prompt attention (13.1 s /
+14.4% of the 89.96 s nsys). A faithful FlashInfer whole-prompt baseline for our
+shape (24 Q heads / 4 KV heads GQA 6:1, head_dim 256, causal, sigmoid gate)
+measures **812.3 ms (24.2 TF)** at T=40000; the causal-only floor is **586.9 ms
+(33.5 TF)**, so the headroom is ~225 ms/layer.
+
+Two hand-written kernels were built (`.q3x-work/attention-bench/`, gitignored):
+
+- **attn_hw1 (WMMA, per-warp independent online softmax)**: **bit-exact** vs the
+  production kernel (correct), but **5329 ms (3.7 TF), 6.5x slower** than
+  FlashInfer. SASS instruction mix shows the cause: 161 `CALL`s (WMMA
+  `mma_sync` lowers to a function call) + 212 `BSSY/BSYNC` (per-tile
+  `__syncthreads`) vs FlashInfer's 0 CALL + 0 BSSY/BSYNC (raw PTX `mma` +
+  per-warp softmax, no per-tile barrier).
+- **attn_hw2 (raw PTX `mma.sync.m16n8k16` + `ldmatrix`, per-warp softmax)**: the
+  correct direction (eliminates the CALL overhead), but the QK^T score matrix is
+  wrong. Isolation probes proved `mma.sync` works (hardcoded A=B=ones -> exact)
+  and `ldmatrix` works (constant-matrix fragment dump -> exact), but the
+  ldmatrix+mma combination in the full kernel produces wrong scores; the root
+  cause was not isolated in reasonable time.
+
+**Conclusion (DEFERred, owner decision):** FlashInfer's whole-prompt kernel is
+already near-optimal for this shape (72% of the causal floor, 24.2 TF). The
+hand-written attention does not beat it: the WMMA version is correct but 6.5x
+slower, and the raw-mma version has an unresolved correctness blocker. Capturing
+the 2-3.5 s attention headroom requires a research-grade FlashAttention-class
+rewrite (persistent CTA, warp-specialized producer/consumer, head_dim=256
+split-K) not justified against the current whole-product result. Consistent with
+the Phase 2 closure, production keeps FlashInfer whole-prompt attention + the
+separate sigmoid-gate kernel. Together with the hand-written GEMM (29.0 TF),
+these findings confirm the library kernels (CUTLASS sw2 + FlashInfer) are the
+right production choice for this hardware/shape.
+
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
 Fresh nsys at 89.96 s (cutlass-sw2.nsys-rep) gives the post-CUTLASS
