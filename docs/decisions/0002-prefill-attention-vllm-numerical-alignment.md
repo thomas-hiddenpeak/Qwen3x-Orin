@@ -866,13 +866,35 @@ Two hand-written kernels were built (`.q3x-work/attention-bench/`, gitignored):
 
 **Performance (the real gap):** attn_hw2 = **4506 ms (4.4 TF)** at T=40000,
 i.e. **5.5x slower** than FlashInfer (812 ms, 24.2 TF) — raw PTX mma only
-bought 1.18x over the WMMA version. The SASS mix of the attn_hw2 kernel
-(64 `HMMA` per tile) is dominated by the **online-softmax path**: 806 `FMUL` +
-789 `FFMA` + 336 `MUFU` (exp) + 275 `FSETP` + 196 `F2FP` (bf16 pack) + 280
-`BSSY/BSYNC`. It is **softmax/occupancy-bound, not mma-bound**: occupancy is
-capped at 2 blocks/SM (8 warps) by the 64 KB smem Q tile, so the softmax
-latency is not hidden. FlashInfer reaches 24.2 TF by overlapping far more work
-per warp (persistent CTA, warp-specialized producer/consumer, larger KV tiles).
+bought 1.18x over the WMMA version. Root cause refined 2026-09-25 after reading
+the FlashInfer `prefill.cuh` source and running ablations attn_hw3..hw8:
+- **Not occupancy**: FlashInfer (238 regs) and the hand-written kernel
+  (252-254 regs) are BOTH register-limited to 2 blocks/SM (65536 regs / 238 /
+  32 / 4 warps = 2). Single-buffering K/V (attn_hw8, 48 KB smem) does NOT raise
+  occupancy — registers still cap it at 2 blocks/SM (attn_hw8 = 4252 ms, -5.7%).
+- **Not mma throughput**: a pure-mma microbench (the QK^T pattern, A/B in
+  registers) reaches 37.5 TF (87% of peak); both kernels emit the identical
+  `HMMA.16816.F32.BF16` instruction. The mma units are fine in isolation.
+- **It is mma stalling on memory**: the full kernel feeds the mma units only
+  4.6 TF (12%) vs FlashInfer's 24.2 TF (65%) for the same mma work — the mma
+  waits on ldmatrix/cp.async. Deeper KV prefetching helps: attn_hw5 (4-stage
+  pipeline) = 3964 ms (5.0 TF, best hand-written) vs attn_hw2 (2-stage) 4506 ms.
+  FlashInfer reaches 65% with a 2-stage pipeline, so its edge is the QUALITY of
+  the cp.async/ldmatrix/mma overlap, not prefetch depth.
+
+**Conclusion (DEFERred, owner decision — unchanged, rationale corrected):**
+FlashInfer's whole-prompt kernel remains the right production choice. The
+hand-written attention is now proven *correct* (not "blocked"), but it is 5.5x
+slower because the mma stalls on memory latency, not because of softmax,
+occupancy, or mma throughput. Closing that gap needs a research-grade
+FlashAttention-class rewrite that replicates FlashInfer's exact instruction-level
+mma/memory overlap (persistent CTA, warp-specialized producer/consumer) — not
+justified against the current whole-product result (~225 ms/layer x 16 layers of
+headroom, ~3.6 s e2e). Consistent with the Phase 2 closure, production keeps
+FlashInfer whole-prompt attention + the separate sigmoid-gate kernel. Together
+with the hand-written GEMM (29.0 TF), these findings confirm the library kernels
+(CUTLASS sw2 + FlashInfer) are the right production choice for this
+hardware/shape.
 
 **Conclusion (DEFERred, owner decision — unchanged, but the rationale is
 corrected):** FlashInfer's whole-prompt kernel remains the right production
