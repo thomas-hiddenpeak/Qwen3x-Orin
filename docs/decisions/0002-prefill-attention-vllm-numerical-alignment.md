@@ -1109,3 +1109,40 @@ FlashInfer DEFER. Further gains require committing to research-grade rewrites
   tie-prone prompts must re-baseline.
 - The synthetic accuracy gate (`q3x_decode_ops_cuda_test`) now passes for all
   legal C2..C512 shapes with split-P (nrmse <= 1.7e-4, gate 0.005).
+
+## P4 qualification of the dev whole-core route: decode path does not exist (2026-09-25)
+
+The owner directed a P4 qualification of the `p40-whole-core-v10` dev route
+before deciding whether to promote it. The first qualification step — unlocking
+the server's O1 lock (max_sequence_length 40001 -> 40016, max_output 1 -> 16)
+across the 9 constants/ledgers that pin the whole-core geometry — succeeded at
+the planner level: the engine created and the server became healthy.
+
+The real P40000/O16 API run then exposed the decisive fact:
+
+- Prefill completed in 89.86 s (matching the clean O1 reproduction) and emitted
+  the single prefill-tail token "Based" (sha256
+  `5bf13d90a021b827bdd64e04d422df4bb0850352dccf9d2f1b45c761ea8ed909`).
+- The first decode step then failed:
+  `stage=generation_control code=runner_step_failure operation=full_gqa
+  dependency_error=5 cuda_error=1 layer=3`, and the stream returned an
+  `engine_error` after that one token.
+
+Root cause: the whole-core route is **prefill-only by design**. The O1 lock
+(max_sequence_length = 40001 = 40000 prompt + 1 output) is not a server
+convenience — it is the route's actual capability boundary. The 89.7 s number
+is a pure-prefill benchmark; the single O1 token comes from the prefill tail and
+never executes a decode step. The decode path (`full_gqa` /
+`gqa_attention_reference_cuda` over `key_cache`/`value_cache` views) is a
+separate kernel set that the whole-core layer-major views never populate, so the
+first real decode step faults (CUDA invalid value) at layer 3. This corrects an
+earlier assumption in this session that "decode is the same kernel"; it is not.
+
+Consequence: the dev whole-core route **cannot be promoted as a production
+route** — it cannot serve a multi-token completion, which is the basic
+production contract. The production split-P route (219.8 s, O16-capable)
+remains the only route that satisfies the full prefill+decode contract. The
+O16 unlock was reverted (all 9 constants restored to 40001/O1); the only
+retained change is a server diagnostic enhancement that prints the failure
+`operation` and `layer` (previously only the always-empty `context` was shown),
+which is what made this root cause visible.

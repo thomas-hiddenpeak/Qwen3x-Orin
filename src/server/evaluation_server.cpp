@@ -2265,7 +2265,7 @@ int run_evaluation_server(const EvaluationServerOptions& options,
                     std::string(runtime::to_string(
                         created.diagnostic.code)) +
                     " message=" + created.diagnostic.message +
-                    " context=" + created.diagnostic.context;
+                    " context=" + created.diagnostic.context + " op=" + created.diagnostic.operation + " layer=" + std::to_string(created.diagnostic.layer);
     return 3;
   }
   runtime::ReferenceEngine engine = std::move(*created.value);
