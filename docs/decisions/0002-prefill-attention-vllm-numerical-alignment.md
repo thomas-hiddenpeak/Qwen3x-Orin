@@ -988,11 +988,41 @@ mma/ldmatrix/cp.async interleave that FlashInfer's codegen produces.
 registers to 255 with spill. KV tile size is not the lever — deeper prefetch
 (attn_hw5's 4-stage) matters more than matching FlashInfer's tile.
 
-**Conclusion (unchanged, now with SASS evidence):** the 5x gap is instruction
-scheduling / memory-pipeline overlap quality, not FALU math, occupancy, mma
-throughput, or KV tile size. Beating FlashInfer's 812 ms requires a
-warp-specialized producer/consumer rewrite (persistent CTA + dedicated load
-warps) — the research-grade direction already DEFERred above.
+**K/V-decoupled pipeline experiment (attn_ws1, 2026-09-25):** the one
+structural axis FlashInfer uses that attn_hw5 did not is *decoupling the K and
+V cp.async streams* — FlashInfer commits K and V as separate cp.async groups
+so QK^T waits only on K and PV only on V (V keeps loading during softmax).
+attn_ws1 replicates exactly that on the attn_hw5 base (tile=16, ldmatrix.x2,
+2-stage per stream, uniform `cp.async.wait_group 1`). It is **correct**
+(GPU-vs-GPU vs FlashInfer max_rel=0.003906, bf16 noise) but **slower**:
+4470.4 ms vs attn_hw5's 3964 ms (+12.8%). Decoupling forces a 2-stage
+pipeline (prefetch distance 16 KV) where attn_hw5's 4-stage keeps 48 KV in
+flight; the deeper prefetch wins, confirming the attn_hw10 finding that
+prefetch depth beats structural decoupling on this shape.
+
+**Warp-specialized producer/consumer is infeasible on sm_87 (2026-09-25):**
+a minimal mbarrier producer/consumer test fails to compile —
+`mbarrier.try_wait.parity` requires `.target sm_90 or higher`, and Orin is
+sm_87 (Ampere). This is the root cause of the earlier GEMM warp-specialized
+deadlock: the hardware has no mbarrier wait primitive, so a true
+producer/consumer split cannot be signalled. Reading the vendored FlashInfer
+`prefill.cuh` mainloop confirms FlashInfer itself uses **zero mbarriers** —
+it is a *cooperative* kernel (with `NUM_WARPS_KV=1`, `get_warp_idx_kv` is
+constant 0, so every warp both loads and computes) that overlaps via
+independent K/V cp.async commit groups + `__syncthreads`, the same primitive
+family as attn_hw5.
+
+**Conclusion (corrected, 2026-09-25):** the 5x gap is instruction scheduling /
+memory-pipeline overlap quality, not FALU math, occupancy, mma throughput, KV
+tile size, or K/V stream decoupling. The previously proposed
+warp-specialized producer/consumer rewrite is **not a viable path on sm_87**
+(mbarrier wait requires sm_90+), and FlashInfer does not use it either. The
+residual gap is the fine-grained mma/ldmatrix/cp.async interleave that
+FlashInfer's codegen produces within the same cooperative + cp.async
+mechanism; every structural lever tested (config sweep, KV tile, ldmatrix.x4,
+single-buffer, softmax removal, K/V decoupling) is closed with direct
+evidence. Production keeps FlashInfer whole-prompt + separate sigmoid-gate
+kernel.
 
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
