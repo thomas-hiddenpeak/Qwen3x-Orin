@@ -1818,7 +1818,7 @@ build_unbound_layer_major_p40_whole_core_workspace_plan(
                    legacy_projection_elements) ||
       !checked_mul(2U * kLegacyPanelTokens, kLinearScalarChannels,
                    legacy_scalar_elements) ||
-      !checked_mul(plan.prompt_token_count, kQueryHeads,
+      !checked_mul(plan.request_sequence_capacity_tokens, kQueryHeads,
                    legacy_probability_elements) ||
       !checked_sum(std::array<std::uint64_t, 4U>{
                        legacy_hidden_elements * kBf16,
@@ -1874,12 +1874,12 @@ build_unbound_layer_major_p40_whole_core_workspace_plan(
       plan.linear_output_bf16.family_relative_offset != 4'938'240'000U ||
       plan.whole_core_family_arena.required_bytes !=
           kLayerMajorP40WholeCoreFamilyArenaBytes ||
-      plan.persistent_and_kv.required_bytes != 2'699'952'128U ||
-      plan.prompt_residual_bf16.required_bytes != 409'610'240U ||
-      plan.legacy_c512_workspace.required_bytes != 90'970'112U ||
+      plan.persistent_and_kv.required_bytes != 2'700'935'168U ||
+      plan.prompt_residual_bf16.required_bytes != 409'763'840U ||
+      plan.legacy_c512_workspace.required_bytes != 90'971'648U ||
       plan.final_hidden_handoff_bf16.required_bytes != 10'240U ||
-      plan.rope_cos_sin_fp32.required_bytes != 10'240'256U ||
-      plan.required_bytes != 8'640'542'976U ||
+      plan.rope_cos_sin_fp32.required_bytes != 10'244'096U ||
+      plan.required_bytes != 8'641'684'992U ||
       plan.executable()) {
     result.error = PrefillWorkspacePlanError::kInvalidLayout;
     return result;

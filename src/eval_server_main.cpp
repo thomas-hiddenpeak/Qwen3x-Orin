@@ -380,8 +380,8 @@ template <typename T>
         q3x::server::EvaluationDevelopmentRoute::kP40WholeCoreV10;
     options.production_profile =
         q3x::server::EvaluationProductionProfile::kNone;
-    options.max_sequence_length = 40'001U;
-    options.maximum_output_tokens = 1U;
+    options.max_sequence_length = 40'016U;
+    options.maximum_output_tokens = 16U;
     options.prefill_chunk_size =
         q3x::runtime::kMaximumRequestPrefillChunkSize;
     options.prefill_execution_mode = q3x::runtime::
@@ -393,7 +393,7 @@ template <typename T>
         LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore;
     options.projection_backend =
         q3x::runtime::ProjectionBackend::kSm87WeightOnly;
-    options.request_max_arena_bytes = 8'640'542'976ULL;
+    options.request_max_arena_bytes = 8'641'684'992ULL;
     options.request_min_free_bytes_after_create =
         4ULL * 1024ULL * 1024ULL * 1024ULL;
     options.inference_queue_capacity = 1U;

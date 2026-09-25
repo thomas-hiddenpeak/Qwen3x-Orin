@@ -1339,19 +1339,19 @@ void test_p40_whole_core_request_layout(TestContext& test) {
             plan.operator_panel_capacity_tokens == 8'000U &&
             plan.mlp_capacity_tokens == 40'000U &&
             whole.prompt_token_count == 40'000U &&
-            whole.request_capacity_tokens == 40'001U &&
+            whole.request_capacity_tokens == 40'016U &&
             whole.logical_panel_capacity_tokens == 8'000U &&
             whole.logical_panel_count == 5U &&
-            common.persistent_bytes == 2'699'952'128U &&
+            common.persistent_bytes == 2'700'935'168U &&
             plan.prompt_residual_bf16.storage.arena_offset ==
-                2'699'952'128U &&
-            plan.prompt_residual_bf16.storage.byte_size == 409'610'240U &&
+                2'700'935'168U &&
+            plan.prompt_residual_bf16.storage.byte_size == 409'763'840U &&
             whole.family_phase_arena.arena_offset == family_base &&
             whole.family_phase_arena.byte_size == 5'429'760'000U &&
             common.workspace_bytes == 5'930'350'592U &&
             common.rope_offset == 8'630'302'720U &&
-            common.rope_bytes == 10'240'256U &&
-            common.arena_bytes == 8'640'542'976U && !plan.executable(),
+            common.rope_bytes == 10'244'096U &&
+            common.arena_bytes == 8'641'684'992U && !plan.executable(),
         "whole-core plan fixes exact P40000/P40001 geometry and arena ledger");
 
     test.expect(
@@ -1408,16 +1408,16 @@ void test_p40_whole_core_request_layout(TestContext& test) {
 
     test.expect(
         plan.legacy_c512.hidden_bf16.front().storage.arena_offset ==
-                8'539'322'368U &&
-            plan.legacy_c512.fp32_scratch.byte_size == 3'840'000U &&
+                8'540'459'008U &&
+            plan.legacy_c512.fp32_scratch.byte_size == 3'841'536U &&
             plan.final_hidden_bf16.storage.arena_offset ==
-                8'630'292'480U &&
-            common.rope_cos_fp32.arena_offset == 8'630'302'720U &&
-            common.rope_sin_fp32.arena_offset == 8'635'422'848U,
+                8'631'430'656U &&
+            common.rope_cos_fp32.arena_offset == 8'631'440'896U &&
+            common.rope_sin_fp32.arena_offset == 8'636'562'944U,
         "legacy, final handoff, and RoPE follow the whole-core arena exactly");
 
     runtime::LayerMajorRequestMemoryOptions one_byte_short = options;
-    one_byte_short.max_arena_bytes = 8'640'542'975U;
+    one_byte_short.max_arena_bytes = 8'641'684'991U;
     const auto rejected =
         runtime::build_layer_major_request_memory_plan(one_byte_short);
     test.expect(
@@ -1474,7 +1474,7 @@ void test_p40_marlin_parity_request_layout(TestContext& test) {
             plan.mlp_capacity_tokens == 40'000U &&
             plan.p40_whole_core.family_phase_arena.byte_size ==
                 runtime::kLayerMajorP40WholeCoreFamilyArenaBytes &&
-            plan.common.arena_bytes == 8'640'542'976U &&
+            plan.common.arena_bytes == 8'641'684'992U &&
             !plan.executable(),
         "Marlin parity has a distinct identity without changing the whole-core "
         "request high-water");

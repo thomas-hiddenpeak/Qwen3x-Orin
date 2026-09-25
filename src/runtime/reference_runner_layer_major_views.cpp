@@ -413,7 +413,7 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
           kLayerMajorP40WholeCorePanelTokens ||
       plan.mlp_capacity_tokens != kLayerMajorP40WholeCorePromptTokens ||
       !valid_p40_mlp_layout ||
-      plan.common.arena_bytes != 8'640'542'976U) {
+      plan.common.arena_bytes != 8'641'684'992U) {
     return false;
   }
 
@@ -733,10 +733,7 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
 
   std::uint64_t probability_elements = 0U;
   std::uint64_t expected_scratch_bytes = 0U;
-  const std::uint64_t probability_tokens =
-      plan.layout == LayerMajorRequestLayout::kP40WholeCorePromptWide
-          ? kLayerMajorP40WholeCorePromptTokens
-          : common.max_sequence_length;
+  const std::uint64_t probability_tokens = common.max_sequence_length;
   if (!checked_multiply(probability_tokens, 24U,
                         probability_elements)) {
     return false;

@@ -279,8 +279,8 @@ class EvaluationProductionRuntimeHealth final {
   return options.development_route ==
              EvaluationDevelopmentRoute::kP40WholeCoreV10 &&
          options.production_profile == EvaluationProductionProfile::kNone &&
-         options.max_sequence_length == 40'001U &&
-         options.maximum_output_tokens == 1U &&
+         options.max_sequence_length == 40'016U &&
+         options.maximum_output_tokens == 16U &&
          options.prefill_chunk_size ==
              runtime::kMaximumRequestPrefillChunkSize &&
          options.prefill_execution_mode == runtime::
@@ -293,7 +293,7 @@ class EvaluationProductionRuntimeHealth final {
                  kNativePromptWideP40WholeCore &&
          options.projection_backend ==
              runtime::ProjectionBackend::kSm87WeightOnly &&
-         options.request_max_arena_bytes == 8'640'542'976ULL &&
+         options.request_max_arena_bytes == 8'641'684'992ULL &&
          options.request_min_free_bytes_after_create ==
              4ULL * 1024ULL * 1024ULL * 1024ULL &&
          options.inference_queue_capacity == 1U &&
@@ -305,7 +305,7 @@ class EvaluationProductionRuntimeHealth final {
   return request.endpoint == OpenAIEndpoint::kCompletions &&
          request.prompt_kind == OpenAIPromptKind::kTokenIds &&
          request.prompt_token_ids.size() == 40'000U &&
-         request.max_tokens == 1U && request.stream && request.include_usage;
+         request.max_tokens == 16U && request.stream && request.include_usage;
 }
 
 // Loads one resident model, starts a bounded HTTP ingress and exactly one

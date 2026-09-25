@@ -2086,7 +2086,7 @@ static_assert(
     &kLayerMajorPrefillPromptWideP40PackedNvfp4V2ArithmeticContract);
 
 inline constexpr std::uint64_t kPromptWideP40WholeCoreArenaBytes =
-    8'640'542'976U;
+    8'641'684'992U;
 
 [[nodiscard]] bool exact_matrix_view(
     const DeviceMatrixView& view, const std::uint32_t rows,

@@ -1239,13 +1239,13 @@ LayerMajorRequestPlanResult build_layer_major_request_memory_plan(
     common.linear_b_bf16 = plan.legacy_c512.linear_b_bf16.storage;
     const std::uint64_t legacy_fp32_elements =
         whole_core_p40
-            ? static_cast<std::uint64_t>(
-                  kLayerMajorP40WholeCorePromptTokens) * kQueryHeadCount
+            ? whole_workspace->request_sequence_capacity_tokens *
+                  kQueryHeadCount
             : legacy_shape.fp32_scratch.element_capacity;
     const std::uint64_t legacy_gqa_probability_elements =
         whole_core_p40
-            ? static_cast<std::uint64_t>(
-                  kLayerMajorP40WholeCorePromptTokens) * kQueryHeadCount
+            ? whole_workspace->request_sequence_capacity_tokens *
+                  kQueryHeadCount
             : legacy_shape.gqa_probability_scratch.element_capacity;
     if (!builder.add(legacy_fp32_elements,
                      kFp32Bytes, plan.legacy_c512.fp32_scratch)) {

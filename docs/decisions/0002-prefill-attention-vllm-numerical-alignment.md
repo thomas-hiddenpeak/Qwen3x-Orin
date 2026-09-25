@@ -1110,39 +1110,60 @@ FlashInfer DEFER. Further gains require committing to research-grade rewrites
 - The synthetic accuracy gate (`q3x_decode_ops_cuda_test`) now passes for all
   legal C2..C512 shapes with split-P (nrmse <= 1.7e-4, gate 0.005).
 
-## P4 qualification of the dev whole-core route: decode path does not exist (2026-09-25)
+## P4 qualification of the dev whole-core route: hybrid prefill+decode works (2026-09-25)
 
 The owner directed a P4 qualification of the `p40-whole-core-v10` dev route
-before deciding whether to promote it. The first qualification step — unlocking
-the server's O1 lock (max_sequence_length 40001 -> 40016, max_output 1 -> 16)
-across the 9 constants/ledgers that pin the whole-core geometry — succeeded at
-the planner level: the engine created and the server became healthy.
+before deciding whether to promote it. An earlier section of this ADR (added
+the same day) concluded the route was "prefill-only by design" because the
+first O16 attempt failed at the first decode step
+(`operation=full_gqa dependency_error=5 cuda_error=1 layer=3`). That diagnosis
+was **wrong and is superseded**: the failure was a 96-byte scratch sizing bug,
+not a missing decode path.
 
-The real P40000/O16 API run then exposed the decisive fact:
+Corrected root cause. The decode `full_gqa` kernel
+(`launch_gqa_attention_reference_cuda`) requires
+`fp32_scratch >= query_head_count * sequence_length` (24 x 40001 = 960,024
+floats at the first decode step). The whole-core workspace plan sized the
+legacy C512 fp32 scratch from `prompt_token_count` (40000 x 24 = 960,000)
+instead of the request sequence capacity, so the launch returned
+`cudaErrorInvalidValue`. The production split-P plan sizes the same scratch
+from `sequence_capacity_tokens`, which is why the identical kernel works there.
+The decode path itself is fully shared: `map_layer_major_candidate_views`
+handles the `kLayerMajorP40WholeCore` profile and maps key/value/conv/GDN
+state into the decode views, and the GDN decode steps before the first
+full-attention layer (layer 3) succeeded, proving the GDN state layout is
+compatible.
 
-- Prefill completed in 89.86 s (matching the clean O1 reproduction) and emitted
-  the single prefill-tail token "Based" (sha256
-  `5bf13d90a021b827bdd64e04d422df4bb0850352dccf9d2f1b45c761ea8ed909`).
-- The first decode step then failed:
-  `stage=generation_control code=runner_step_failure operation=full_gqa
-  dependency_error=5 cuda_error=1 layer=3`, and the stream returned an
-  `engine_error` after that one token.
+Fix (three mirrored sizing sites synchronized to the request sequence
+capacity): `prefill_workspace_plan.cpp` (planner scratch computation plus the
+byte-exact ledger), `request_state.cpp` (RequestState mirror used by the
+scratch cross-check), and `reference_runner_layer_major_views.cpp`
+(`validate_legacy_regions`). Together with the O16 unlock
+(max_sequence_length 40001 -> 40016, max_output 1 -> 16, arena
+8'640'542'976 -> 8'641'684'992 bytes), the real P40000/O16 API run then
+completed end-to-end:
 
-Root cause: the whole-core route is **prefill-only by design**. The O1 lock
-(max_sequence_length = 40001 = 40000 prompt + 1 output) is not a server
-convenience — it is the route's actual capability boundary. The 89.7 s number
-is a pure-prefill benchmark; the single O1 token comes from the prefill tail and
-never executes a decode step. The decode path (`full_gqa` /
-`gqa_attention_reference_cuda` over `key_cache`/`value_cache` views) is a
-separate kernel set that the whole-core layer-major views never populate, so the
-first real decode step faults (CUDA invalid value) at layer 3. This corrects an
-earlier assumption in this session that "decode is the same kernel"; it is not.
+- Prefill 90.07 s (consistent with the clean 89.7 s O1 reproduction),
+  `finish_reason: length`, 16 tokens in 93.95 s wall.
+- Output: "Based on the repository documents provided, here is the analysis
+  of the current state," (sha256
+  `b46aecadac4e36e0530ef0d5f94d48cdf32b775977243fe3314d12860869fcba`).
+- The production split-P O16 baseline on the same prompt produced "Based on
+  the provided repository files, here is the analysis of the current state,"
+  — identical first 3 tokens, a 3-token divergence at tokens 4-6 (a
+  tie-prone paraphrase position, cf. the P513 exact-BF16-tie precedent), then
+  full convergence. This is the expected signature of two routes in the same
+  accepted BF16 numerical class, not a correctness failure; formal
+  classification still requires the full-state liveness oracle.
 
-Consequence: the dev whole-core route **cannot be promoted as a production
-route** — it cannot serve a multi-token completion, which is the basic
-production contract. The production split-P route (219.8 s, O16-capable)
-remains the only route that satisfies the full prefill+decode contract. The
-O16 unlock was reverted (all 9 constants restored to 40001/O1); the only
-retained change is a server diagnostic enhancement that prints the failure
-`operation` and `layer` (previously only the always-empty `context` was shown),
-which is what made this root cause visible.
+Consequence: the dev whole-core route **can** serve the full prefill+decode
+contract once the scratch sizing is corrected. The hybrid architecture
+(whole-core prefill ~90 s + production decode kernels) is viable and is the
+leading candidate for replacing the 219.8 s split-P prefill. Promotion still
+requires the remaining P4 gates: the full-state liveness oracle
+(PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md 7.3), the stability envelope, and
+the four-layer production gate (CMake admissions, compile macros, server
+gate, production plan) with an owner decision record. The changes in this
+section are currently confined to the dev route (default-off,
+`--development-route p40-whole-core-v10` acknowledgement required); the
+production plan is unchanged.

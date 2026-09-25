@@ -700,17 +700,17 @@ void test_p40_whole_core_workspace_plan(TestContext& test) {
   const runtime::LayerMajorP40WholeCoreWorkspacePlan& plan = *result.value;
   test.expect(
       plan.prompt_token_count == 40'000U &&
-          plan.request_sequence_capacity_tokens == 40'001U &&
+          plan.request_sequence_capacity_tokens == 40'016U &&
           plan.logical_panel_capacity_tokens == 8'000U &&
           plan.logical_panel_count == 5U &&
-          plan.persistent_and_kv.required_bytes == 2'699'952'128U &&
-          plan.prompt_residual_bf16.required_bytes == 409'610'240U &&
+          plan.persistent_and_kv.required_bytes == 2'700'935'168U &&
+          plan.prompt_residual_bf16.required_bytes == 409'763'840U &&
           plan.whole_core_family_arena.required_bytes ==
               runtime::kLayerMajorP40WholeCoreFamilyArenaBytes &&
-          plan.legacy_c512_workspace.required_bytes == 90'970'112U &&
+          plan.legacy_c512_workspace.required_bytes == 90'971'648U &&
           plan.final_hidden_handoff_bf16.required_bytes == 10'240U &&
-          plan.rope_cos_sin_fp32.required_bytes == 10'240'256U &&
-          plan.required_bytes == 8'640'542'976U &&
+          plan.rope_cos_sin_fp32.required_bytes == 10'244'096U &&
+          plan.required_bytes == 8'641'684'992U &&
           plan.capacity ==
               runtime::PrefillMemoryCapacityVerdict::kFitsDeclaredLimit &&
           !plan.request_arena_reservation_bound &&
@@ -794,7 +794,7 @@ void test_p40_whole_core_workspace_plan(TestContext& test) {
       limited &&
           limited.value->capacity == runtime::PrefillMemoryCapacityVerdict::
                                          kExceedsDeclaredLimit &&
-          limited.value->required_bytes == 8'640'542'976U,
+          limited.value->required_bytes == 8'641'684'992U,
       "one-byte-short arena preserves arithmetic and reports explicit overflow");
 
   runtime::LayerMajorP40WholeCoreWorkspaceOptions wrong = one_byte_short;

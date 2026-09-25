@@ -184,7 +184,7 @@ struct PrefillMemoryRequirement {
 // layout or its 8192/7712 panel geometry as this architecture.
 inline constexpr std::uint32_t kLayerMajorP40WholeCorePromptTokens = 40'000U;
 inline constexpr std::uint32_t
-    kLayerMajorP40WholeCoreRequestCapacityTokens = 40'001U;
+    kLayerMajorP40WholeCoreRequestCapacityTokens = 40'016U;
 inline constexpr std::uint32_t kLayerMajorP40WholeCorePanelTokens = 8'000U;
 inline constexpr std::uint32_t kLayerMajorP40WholeCorePanelCount = 5U;
 inline constexpr std::uint64_t kLayerMajorP40WholeCoreFamilyArenaBytes =

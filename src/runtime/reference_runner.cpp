@@ -100,7 +100,7 @@ constexpr std::size_t kFullAttentionPreprocessTileMaximumTokens =
     kFullAttentionPreprocessMaximumTokens;
 constexpr std::size_t kProductionProjectionSubtileTokens = 32U;
 constexpr std::size_t kPromptWideP40WholeCorePromptTokens = 40'000U;
-constexpr std::size_t kPromptWideP40WholeCoreRequestCapacityTokens = 40'001U;
+constexpr std::size_t kPromptWideP40WholeCoreRequestCapacityTokens = 40'016U;
 constexpr std::size_t kPromptWideP40WholeCorePanelTokens = 8'000U;
 constexpr std::size_t kPromptWideP40WholeCorePanelCount = 5U;
 constexpr std::size_t kPromptWideP40WholeCoreFillPhases = 5U;
