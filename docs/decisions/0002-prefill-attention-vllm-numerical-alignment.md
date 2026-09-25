@@ -1160,10 +1160,11 @@ Consequence: the dev whole-core route **can** serve the full prefill+decode
 contract once the scratch sizing is corrected. The hybrid architecture
 (whole-core prefill ~90 s + production decode kernels) is viable and is the
 leading candidate for replacing the 219.8 s split-P prefill. Promotion still
-requires the remaining P4 gates: the full-state liveness oracle
-(PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md 7.3), the stability envelope, and
-the four-layer production gate (CMake admissions, compile macros, server
-gate, production plan) with an owner decision record. The changes in this
+requires the remaining P4 gates: the whole-core full-state accuracy
+qualification (cross-route committed-state comparison against the accepted
+BF16 numerical class), the stability envelope, and the four-layer production
+gate (CMake admissions, compile macros, server gate, production plan) with an
+owner decision record. The changes in this
 section are currently confined to the dev route (default-off,
 `--development-route p40-whole-core-v10` acknowledgement required); the
 production plan is unchanged.
@@ -1177,22 +1178,24 @@ produced identical outputs: text sha256
 identical 16 token pieces, `finish_reason: length`. Prefill wall time was
 90.07 s and 89.83 s (0.3% variance). This satisfies the pinned-deterministic
 token oracle requirement of the P4 exit criteria for the dev route; the
-remaining P4 gates are the full-state liveness oracle (LEDGER 7.3), the
+remaining P4 gates are the whole-core full-state accuracy qualification, the
 stability envelope (long output, cancellation, malformed request, shutdown),
 and the four-layer production gate with an owner decision record.
 
-The 7.3 liveness oracle is a distinct research-scale work package: the
-existing P513 attention oracle hook
-(`g_prefill_layer3_attention_p513_oracle_hook`, gated by
-`Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS`, BUILD_TESTING only) is
-wired into the C8192 operator-panel path at layer 3 / 513 tokens only, not
-the whole-core path. A whole-core liveness oracle needs new test seams for
-the whole-core full-attention and GDN phase boundaries, a cross-route state
-comparator (GDN/conv states and K/V rows), and the guard/dual-poison tests.
-Note the 7.3 caveat applies: the liveness oracle proves state-transition
-liveness, not equivalence with a different attention reduction tree; the
-whole-core route retains its own separate accuracy boundary (same FlashInfer
-whole-prompt kernel family as production, but a different GEMM backend).
+Scope correction (2026-09-26): the full-state liveness oracle of
+PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md 7.3 is the gate of the separate
+layer-63 terminal-prefix-elision candidate on the ordinary kLegacyC512 route
+(bitwise conv/GDN/K-V state comparison plus guard/dual-poison; the elision
+requires the kLegacyC512 profile and is fail-closed on the whole-core
+profile). It is not the whole-core gate. The whole-core route's own remaining
+accuracy gate is its full-state qualification: a cross-route committed-state
+comparison (GDN/conv states and K/V rows) against the accepted BF16
+numerical class, with the P513 nrmse precedent as the tolerance reference.
+The existing capture infrastructure
+(`tests/reference_ordinary_generation_capture_test.cpp`) already implements
+the state capture and comparison machinery; it must be adapted to the
+whole-core profile (max_sequence_length 40016, arena 8'641'684'992) and run
+on both routes on the real model.
 
 ## Stability envelope: whole-core O16 dev route passes 12/12 (2026-09-25)
 
@@ -1217,8 +1220,53 @@ Evidence bundle (gitignored):
 `.q3x-work/attention-bench/real-model-accuracy-20260920/api-layermajor-o16-stability4-20260925/`
 (preflight.json, stability_results.json, server logs).
 
+## Full-state accuracy qualification: whole-core committed state is inside the accepted BF16 class (2026-09-26)
+
+The whole-core route's own accuracy gate is a cross-route committed-state
+comparison against the accepted BF16 numerical class (not the LEDGER 7.3
+liveness oracle, which belongs to the separate layer-63 elision candidate on
+the kLegacyC512 route). New test
+`tests/reference_whole_core_state_capture_test.cpp`
+(`q3x_reference_whole_core_state_capture_test`, BUILD_TESTING +
+`Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE`) runs both routes on the pinned
+P40000 prompt with the same binary and dumps the committed request state:
+full GDN state (75,497,472 B), full conv state (2,949,120 B), and the K/V
+rows of the fixed absolute prefill window [37952, 40000) for all 16
+full-attention layers (2048 B per token per layer per direction). The window
+lies inside the identical prompt, so it is directly comparable regardless of
+how many decode tokens each route produced.
+
+Real-model result (clean host, preflight 0 competing processes, sync +
+drop_caches; binary sha256 pinned in the evidence bundle):
+
+| Region | Elements | nrmse | Acceptance (nrmse <= 1e-3) | vs BF16-class floor 5.4e-4 |
+|---|---|---|---|---|
+| GDN state | 37,748,736 | 6.20e-5 | pass | below floor |
+| conv state | 1,474,560 | 1.75e-4 | pass | below floor |
+| K/V worst layer (L31 value) | 2,097,152 | 5.05e-4 | pass | below floor |
+
+All committed-state regions of the whole-core route fall inside the
+ADR-accepted BF16-probability numerical class, at or below the P513 class
+floor. The two routes are not bitwise identical (different GEMM backend:
+NVFP4 persistent gate/up vs FP8 supermatrix), which is expected and is
+exactly what the class-based acceptance covers.
+
+Token-level observation (informational, not the qualification authority):
+the routes agree on the first 3 tokens, diverge at tokens 4-6 (the
+tie-prone paraphrase position, cf. the P513 exact-BF16-tie mechanism and the
+API-level observation of the same signature), then re-converge. Aligned
+per-step argmax comparison (candidate step i vs baseline step i+1, same
+input token) matches 12 of 15 positions, with the three mismatches exactly
+at the divergence window.
+
+Evidence bundle (gitignored):
+`.q3x-work/evidence/whole-core-full-state-qualification-20260926/`
+(preflight.json, per-route run logs, state-legacy/wholecore manifests +
+gdn/conv/kv binaries, comparison.json, binary_sha256.txt).
+
 P4 gate status for the dev route: deterministic token oracle (pass),
-stability envelope (pass). Remaining: the 7.3 full-state liveness oracle
-(research-scale work package, new whole-core test seams + cross-route state
-comparator + guard/dual-poison tests) and the four-layer production gate
-with an owner decision record.
+stability envelope (pass), full-state accuracy qualification (pass).
+Remaining: the four-layer production gate (CMake admissions, compile
+macros, server gate, production plan) with an owner decision record,
+including the capacity tradeoff (fixed P40000 geometry, arena
+8'641'684'992 B vs the production plan's 3'070'908'416 B, O16 vs O4096).

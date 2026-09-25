@@ -2548,6 +2548,17 @@ if(BUILD_TESTING)
   )
   q3x_enable_warnings(q3x_reference_ordinary_generation_capture_test)
 
+  add_executable(q3x_reference_whole_core_state_capture_test
+    tests/reference_whole_core_state_capture_test.cpp
+  )
+  target_include_directories(q3x_reference_whole_core_state_capture_test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+  )
+  target_link_libraries(q3x_reference_whole_core_state_capture_test
+    PRIVATE q3x::engine
+  )
+  q3x_enable_warnings(q3x_reference_whole_core_state_capture_test)
+
   add_executable(q3x_reference_prefill_all_prompt_tokens_admission_e2e_test
     tests/reference_prefill_all_prompt_tokens_admission_e2e_test.cpp
   )
