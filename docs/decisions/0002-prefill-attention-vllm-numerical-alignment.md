@@ -881,6 +881,14 @@ the FlashInfer `prefill.cuh` source and running ablations attn_hw3..hw8:
   pipeline) = 3964 ms (5.0 TF, best hand-written) vs attn_hw2 (2-stage) 4506 ms.
   FlashInfer reaches 65% with a 2-stage pipeline, so its edge is the QUALITY of
   the cp.async/ldmatrix/mma overlap, not prefetch depth.
+- **Softmax is NOT the bottleneck (direct evidence, attn_hw9)**: attn_hw9 =
+  attn_hw5 with the entire causal-mask + online-softmax block removed (replaced
+  by a trivial scale) = 4034 ms — no faster than attn_hw5 (3964 ms). Removing
+  the softmax path gives zero gain, so the wall is the mma/ldmatrix/cp.async
+  pipeline overlap, not the softmax math. Full ablation: attn_hw3 (no rescale)
+  4364, attn_hw4 (no barriers) 4416, attn_hw5 (4-stage) 3964 (best), attn_hw6
+  (KV48) 4189, attn_hw7 (ldmatrix.x4) 4426, attn_hw8 (single-buffer) 4252,
+  attn_hw9 (no softmax) 4034 — none approach FlashInfer's 812 ms.
 
 **Conclusion (DEFERred, owner decision — unchanged, rationale corrected):**
 FlashInfer's whole-prompt kernel remains the right production choice. The
@@ -895,19 +903,6 @@ FlashInfer whole-prompt attention + the separate sigmoid-gate kernel. Together
 with the hand-written GEMM (29.0 TF), these findings confirm the library kernels
 (CUTLASS sw2 + FlashInfer) are the right production choice for this
 hardware/shape.
-
-**Conclusion (DEFERred, owner decision — unchanged, but the rationale is
-corrected):** FlashInfer's whole-prompt kernel remains the right production
-choice. The hand-written attention is now proven *correct* (not "blocked"), but
-it is 5.5x slower because it is softmax/occupancy-bound rather than
-mma-bound. Closing that gap needs a research-grade FlashAttention-class rewrite
-(persistent CTA, warp-specialized producer/consumer, head_dim=256 split-K,
-larger KV tiles) — not justified against the current whole-product result
-(~225 ms/layer x 16 layers of headroom, ~3.6 s e2e). Consistent with the Phase
-2 closure, production keeps FlashInfer whole-prompt attention + the separate
-sigmoid-gate kernel. Together with the hand-written GEMM (29.0 TF), these
-findings confirm the library kernels (CUTLASS sw2 + FlashInfer) are the right
-production choice for this hardware/shape.
 
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
