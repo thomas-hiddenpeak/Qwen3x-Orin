@@ -952,6 +952,41 @@ budget. This is a bounded, evidence-backed NO-GO for gate fusion, consistent
 with the DEFERred attention conclusion above: production keeps FlashInfer
 whole-prompt attention + the separate sigmoid-gate kernel.
 
+### SASS instruction-level diagnosis + KV-tile experiment (2026-09-25)
+
+To pin down the hand-written vs FlashInfer gap at instruction level (not the
+earlier "mma stalls on memory" heuristic), the SASS of both kernels was
+disassembled and the mainloop instruction mix compared per KV position:
+
+| Per KV pos | FlashInfer | attn_hw5 | Note |
+|---|---|---|---|
+| FALU (FADD+FMUL+FFMA) | 9.4 | 11 | comparable — NOT the bottleneck |
+| MUFU (exp/rcp) | 5.2 | 21 | hw5 uses precise-reciprocal CALLs |
+| LDG (direct global) | 0 | ~14 | hw5 reads gate directly; FI=0 |
+| total instructions | 69.8 | 384.5 | 5.5x, matches the 5x perf gap |
+
+This corrects an earlier (wrong) attribution that blamed a 12x FALU gap on the
+softmax math: the per-KV FALU is actually comparable. The real gap is
+**instruction density / scheduling quality** — FlashInfer packs 2232
+instructions with a tight mma/ldmatrix/cp.async interleave, while the
+hand-written kernel emits 6152 (5.5x per KV), inflated by 136 LDG gate reads,
+193 precise-reciprocal CALLs (Newton-Raphson, where FI uses MUFU.RCP), and
+lower mma density (4.0 vs 8.1 HMMA/KV).
+
+**KV-tile experiment (attn_hw10):** raising the hand-written KV tile from 16 to
+32 (to match FlashInfer's CTA_TILE_KV=32) was built and verified correct
+(GPU-vs-GPU vs FlashInfer max_rel=0.0039, bf16 noise) but is **slower**
+(4001.6 ms vs attn_hw5's 3964 ms): at the 64 KB smem budget, tile=32 forces a
+2-stage pipeline (prefetch distance 32 KV < attn_hw5's 48 KV) and pushes
+registers to 255 with spill. KV tile size is not the lever — deeper prefetch
+(attn_hw5's 4-stage) matters more than matching FlashInfer's tile.
+
+**Conclusion (unchanged, now with SASS evidence):** the 5x gap is instruction
+scheduling / memory-pipeline overlap quality, not FALU math, occupancy, mma
+throughput, or KV tile size. Beating FlashInfer's 812 ms requires a
+warp-specialized producer/consumer rewrite (persistent CTA + dedicated load
+warps) — the research-grade direction already DEFERred above.
+
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
 Fresh nsys at 89.96 s (cutlass-sw2.nsys-rep) gives the post-CUTLASS
