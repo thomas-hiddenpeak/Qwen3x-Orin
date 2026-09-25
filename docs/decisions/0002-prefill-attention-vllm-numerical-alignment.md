@@ -1193,3 +1193,32 @@ Note the 7.3 caveat applies: the liveness oracle proves state-transition
 liveness, not equivalence with a different attention reduction tree; the
 whole-core route retains its own separate accuracy boundary (same FlashInfer
 whole-prompt kernel family as production, but a different GEMM backend).
+
+## Stability envelope: whole-core O16 dev route passes 12/12 (2026-09-25)
+
+A clean-host stability run (preflight: 0 competing processes, 55 GB free,
+sync + drop_caches) exercised the P4 stability envelope on the hybrid
+whole-core O16 dev route. All 12 checks passed:
+
+- Three sequential P40000/O16 requests on one server instance: identical
+  output sha256 `b46aecad...` each time, `finish_reason: length`, 17 events,
+  wall 96.1/97.0/97.3 s (request-reset between requests works).
+- Mid-stream cancellation (client closed after 3 of 16 token events): the
+  server detected the disconnect, stayed healthy, and served the next full
+  request with the identical output (97.4 s).
+- Malformed requests all rejected with 400 and correct messages: invalid
+  JSON; prompt of 100 tokens (route accepts only the exact 40000-token
+  stream profile); max_tokens 32 ("must be within the configured positive
+  limit"); max_tokens 1 (route accepts only the O16 profile).
+- A full request after the malformed batch produced the identical output.
+- SIGTERM shutdown exited cleanly (exit code 0).
+
+Evidence bundle (gitignored):
+`.q3x-work/attention-bench/real-model-accuracy-20260920/api-layermajor-o16-stability4-20260925/`
+(preflight.json, stability_results.json, server logs).
+
+P4 gate status for the dev route: deterministic token oracle (pass),
+stability envelope (pass). Remaining: the 7.3 full-state liveness oracle
+(research-scale work package, new whole-core test seams + cross-route state
+comparator + guard/dual-poison tests) and the four-layer production gate
+with an owner decision record.
