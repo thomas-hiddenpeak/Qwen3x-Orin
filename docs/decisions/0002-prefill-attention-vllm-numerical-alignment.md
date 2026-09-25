@@ -904,6 +904,47 @@ with the hand-written GEMM (29.0 TF), these findings confirm the library kernels
 (CUTLASS sw2 + FlashInfer) are the right production choice for this
 hardware/shape.
 
+### Copy-FlashInfer study: exact reproduction + fused sigmoid gate (2026-09-25)
+
+Per the owner directive to copy FlashInfer verbatim before improving it, the
+in-tree kernel was manually instantiated with the exact dispatch config and the
+Qwen3.6-specific sigmoid gate was fused into its epilogue.
+
+**Exact reproduction (fi_copy):** manually instantiating
+`SinglePrefillWithKVCacheKernel<KTraits, Params>` with the dispatch-selected
+traits reproduces the library baseline to within noise: **811.8 ms** vs the
+dispatched 812.3 ms (24.2 TF) at T=40000, 239 regs, no spill. The dispatch
+config for our shape (head_dim=256, Q24/KV4 GQA 6:1, causal) is:
+CTA_TILE_Q=64, NUM_WARPS_Q=4, NUM_WARPS_KV=1, NUM_MMA_Q=1,
+NUM_MMA_D_QK=NUM_MMA_D_VO=16, **NUM_MMA_KV=2** (so CTA_TILE_KV=32 and
+SharedStorage = 32 KB q + 16 KB k + 16 KB v = **64 KB**, not the 48 KB /
+CTA_TILE_KV=16 previously assumed). NUM_MMA_KV is the dispatch's optimal
+choice: forcing 3 gives 898 ms and 4 gives 836 ms (both worse). This confirms
+the 812 ms baseline is the library's tuned point, not an artifact of the
+dispatch wrapper.
+
+**Fused sigmoid gate (fi_fused):** the verbatim mainloop plus a fused
+`o *= sigmoid(gate)` in the epilogue (after `transform_output`, before
+`write_o_reg_gmem`) is **numerically correct** — verified against a CPU
+reference `attn * sigmoid(gate)` at T=256 with **max_rel=0.0033, bad=0/1572864
+(PASS)** (the earlier "all zeros" was a defect in the *test* reference gate
+kernel, which took the address of an rvalue from `__float2bfloat16_rn`; the
+fused kernel itself was always correct). But it is **slower**: 815.5 ms vs the
+812.3 ms baseline + separate gate. The fused gate reads `gate[q, head, d]` in
+the mma C-fragment layout — one element per (mma_q, mma_d, reg_id) at an
+irregular `dpos` per lane — so the loads are scattered, whereas the separate
+`sigmoid_gate_kernel` (16.66 ms) reads a contiguous linear range (fully
+coalesced). Coalescing the gate into smem is infeasible: the per-CTA gate tile
+is CTA_TILE_Q(64) x group(6) x head_dim(256) x 2 B = **196,608 B > 167,936 B**
+available smem.
+
+**Decision:** keep the separate coalesced sigmoid-gate kernel. Fusing the gate
+into the attention epilogue is correct but costs ~3 ms (scattered gate loads
+lose to the coalesced separate pass) and cannot be coalesced within the smem
+budget. This is a bounded, evidence-backed NO-GO for gate fusion, consistent
+with the DEFERred attention conclusion above: production keeps FlashInfer
+whole-prompt attention + the separate sigmoid-gate kernel.
+
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
 Fresh nsys at 89.96 s (cutlass-sw2.nsys-rep) gives the post-CUTLASS
