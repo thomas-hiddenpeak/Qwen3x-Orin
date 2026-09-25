@@ -919,9 +919,16 @@ CTA_TILE_Q=64, NUM_WARPS_Q=4, NUM_WARPS_KV=1, NUM_MMA_Q=1,
 NUM_MMA_D_QK=NUM_MMA_D_VO=16, **NUM_MMA_KV=2** (so CTA_TILE_KV=32 and
 SharedStorage = 32 KB q + 16 KB k + 16 KB v = **64 KB**, not the 48 KB /
 CTA_TILE_KV=16 previously assumed). NUM_MMA_KV is the dispatch's optimal
-choice: forcing 3 gives 898 ms and 4 gives 836 ms (both worse). This confirms
+choice: forcing 3 gives 898 ms and 4 gives 836 ms (both worse). A full
+config sweep (fi_sweep, T=40000) over the dispatch's unexplored points confirms
+the dispatched config is the optimum of the whole config space:
+NUM_MMA_KV=2/WARPS_KV=1 (dispatch) **811.8 ms**, NUM_MMA_KV=1 963.8 ms,
+NUM_MMA_KV=4 835.6 ms, NUM_MMA_KV=2/WARPS_KV=2 931.5 ms, NUM_MMA_KV=1/WARPS_KV=2
+1118.1 ms — every alternative is slower. This confirms
 the 812 ms baseline is the library's tuned point, not an artifact of the
-dispatch wrapper.
+dispatch wrapper, and that beating it requires a structurally different kernel
+(warp-specialized producer/consumer, absent from this vendored version), not a
+config change.
 
 **Fused sigmoid gate (fi_fused):** the verbatim mainloop plus a fused
 `o *= sigmoid(gate)` in the epilogue (after `transform_output`, before
