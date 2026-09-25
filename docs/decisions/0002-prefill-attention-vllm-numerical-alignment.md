@@ -1024,6 +1024,30 @@ single-buffer, softmax removal, K/V decoupling) is closed with direct
 evidence. Production keeps FlashInfer whole-prompt + separate sigmoid-gate
 kernel.
 
+### Dev-route P40000/O1 clean reproduction + qualification boundary (2026-09-25)
+
+A fresh clean-host real-API run of the current-main development binary
+(`orin-p40-whole-core-dev` preset, `qwen3x-eval-server-p40-v10-dev`,
+`--development-route p40-whole-core-v10`) reproduced the 2026-09-21 result:
+pure Prefill **89.7 s** (first token "Based", sha256
+`5bf13d90a021b827bdd64e04d422df4bb0850352dccf9d2f1b45c761ea8ed909`, identical
+to the 2026-09-21 run and the Marlin baseline), finish_reason length, no
+competing processes, 49 GB available before, `sync` + page-cache drop
+succeeded (rc=0). Evidence: `.q3x-work/attention-bench/
+real-model-accuracy-20260920/api-layermajor-20260925/` (gitignored).
+
+Boundary, stated plainly: this is an **O1 transport-level reproduction**, not
+a P4 release qualification. The dev route is locked to P40000/O1, so it cannot
+exercise Decode; and per the liveness-aware oracle definition
+(`PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md` 7.3), "matching one generated
+token is a transport smoke result, not this oracle." The route's
+`numerical_contract.qualified=false` therefore remains honest: it inherits the
+ADR-0002-accepted BF16-probability numerical class (the P513 "mismatch" is the
+documented exact-BF16-tie mechanism, not a defect), but the full-state
+liveness oracle, stability envelope, and release packaging of P4 are separate
+and unperformed. Promoting the 89.7 s whole-core architecture into the
+ordinary production route is a P3->P4 work program, not a flag flip.
+
 ### GEMM optimization complete; down GEMM no-go (2026-09-23)
 
 Fresh nsys at 89.96 s (cutlass-sw2.nsys-rep) gives the post-CUTLASS
