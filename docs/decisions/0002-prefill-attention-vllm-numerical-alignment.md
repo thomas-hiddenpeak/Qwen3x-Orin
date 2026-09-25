@@ -1167,3 +1167,29 @@ gate, production plan) with an owner decision record. The changes in this
 section are currently confined to the dev route (default-off,
 `--development-route p40-whole-core-v10` acknowledgement required); the
 production plan is unchanged.
+
+## Determinism check: whole-core O16 is bitwise reproducible (2026-09-25)
+
+Two independent clean-host runs of the hybrid P40000/O16 request (fresh
+process, preflight 0 competing processes, sync + drop_caches before each)
+produced identical outputs: text sha256
+`b46aecadac4e36e0530ef0d5f94d48cdf32b775977243fe3314d12860869fcba` in both,
+identical 16 token pieces, `finish_reason: length`. Prefill wall time was
+90.07 s and 89.83 s (0.3% variance). This satisfies the pinned-deterministic
+token oracle requirement of the P4 exit criteria for the dev route; the
+remaining P4 gates are the full-state liveness oracle (LEDGER 7.3), the
+stability envelope (long output, cancellation, malformed request, shutdown),
+and the four-layer production gate with an owner decision record.
+
+The 7.3 liveness oracle is a distinct research-scale work package: the
+existing P513 attention oracle hook
+(`g_prefill_layer3_attention_p513_oracle_hook`, gated by
+`Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS`, BUILD_TESTING only) is
+wired into the C8192 operator-panel path at layer 3 / 513 tokens only, not
+the whole-core path. A whole-core liveness oracle needs new test seams for
+the whole-core full-attention and GDN phase boundaries, a cross-route state
+comparator (GDN/conv states and K/V rows), and the guard/dual-poison tests.
+Note the 7.3 caveat applies: the liveness oracle proves state-transition
+liveness, not equivalence with a different attention reduction tree; the
+whole-core route retains its own separate accuracy boundary (same FlashInfer
+whole-prompt kernel family as production, but a different GEMM backend).
