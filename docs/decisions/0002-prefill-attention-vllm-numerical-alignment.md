@@ -958,20 +958,27 @@ To pin down the hand-written vs FlashInfer gap at instruction level (not the
 earlier "mma stalls on memory" heuristic), the SASS of both kernels was
 disassembled and the mainloop instruction mix compared per KV position:
 
-| Per KV pos | FlashInfer | attn_hw5 | Note |
+| Per KV pos | FlashInfer (tile=32) | attn_hw5 (tile=16) | Note |
 |---|---|---|---|
-| FALU (FADD+FMUL+FFMA) | 9.4 | 11 | comparable — NOT the bottleneck |
-| MUFU (exp/rcp) | 5.2 | 21 | hw5 uses precise-reciprocal CALLs |
-| LDG (direct global) | 0 | ~14 | hw5 reads gate directly; FI=0 |
-| total instructions | 69.8 | 384.5 | 5.5x, matches the 5x perf gap |
+| total instructions | 19.1 | 37.1 | 1.94x |
+| HMMA | 4.06 | 4.00 | 1.0x — mma density identical |
+| LDSM | 2.50 | 4.00 | 1.6x — hw5 uses ldmatrix.x2, FI x4 |
+| FALU (FADD+FMUL+FFMA) | 4.69 | 11.75 | 2.5x — o_frag rescale is per-iteration, amortized over half the KV at tile=16 |
 
-This corrects an earlier (wrong) attribution that blamed a 12x FALU gap on the
-softmax math: the per-KV FALU is actually comparable. The real gap is
-**instruction density / scheduling quality** — FlashInfer packs 2232
-instructions with a tight mma/ldmatrix/cp.async interleave, while the
-hand-written kernel emits 6152 (5.5x per KV), inflated by 136 LDG gate reads,
-193 precise-reciprocal CALLs (Newton-Raphson, where FI uses MUFU.RCP), and
-lower mma density (4.0 vs 8.1 HMMA/KV).
+**Correction (2026-09-25):** an earlier revision of this section quoted
+"69.8 vs 384.5 instructions/KV (5.5x)" and "12x FALU" — both were computed over
+a wrong mainloop boundary (the epilogue was included). Measuring the true
+mainloop (the back-jump enclosing the HMMA block) gives **1.94x total
+instructions/KV**, not 5.5x. The mma density is identical (4.06 vs 4.00
+HMMA/KV); the per-KV FALU gap (2.5x) is the tile-size amortization of the
+per-iteration o_frag rescale, and the LDSM gap (1.6x) is ldmatrix.x2 vs x4.
+
+So of the 4.9x wall-clock gap (3964 ms vs 812 ms), only ~1.94x is raw
+instruction count; the remaining ~2.5x is **scheduling / memory-pipeline
+overlap quality**. Crucially, attn_hw10 (tile=32 + 2-stage, matching
+FlashInfer's structural parameters) was *slower* (4001.6 ms), so the gap is
+not closed by matching tile/stage count — it is in the fine-grained
+mma/ldmatrix/cp.async interleave that FlashInfer's codegen produces.
 
 **KV-tile experiment (attn_hw10):** raising the hand-written KV tile from 16 to
 32 (to match FlashInfer's CTA_TILE_KV=32) was built and verified correct
