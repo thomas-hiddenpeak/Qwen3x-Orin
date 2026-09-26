@@ -1,0 +1,38 @@
+{
+  "schema": "q3x.decode-longout-stability.v1",
+  "date": "2026-09-26",
+  "class": "bounded decode qualification (no route selection, no target change)",
+  "originating_constraint": "Decode row lists long-output stability / independent repetition / target-length behavior as remaining qualification; unroll-128 was only validated on 16 tokens",
+  "purpose": "stress the modified exact S>=65 values kernel (unroll-128) over ~255 decode steps at a short context, and confirm determinism + no divergence, cheaply (P1089 prefill ~4.2 s vs P40000 ~219 s)",
+  "request": {
+    "prompt": "first 1089 tokens of the P40000 terminal-prefix body (still >65, so the exact S>=65 values kernel is the production route)",
+    "max_tokens": 256,
+    "temperature": 0.0,
+    "seed": 42,
+    "stream": true,
+    "body_sha256": "6e5b16a774da4bfc"
+  },
+  "result": {
+    "runs": 2,
+    "byte_identical_across_runs": true,
+    "completion_tokens": 256,
+    "decode_steps": 255,
+    "decode_ms_per_step": [
+      106.64,
+      106.62
+    ],
+    "tok_per_s": [
+      9.38,
+      9.38
+    ],
+    "pure_prefill_ms": [
+      4231,
+      4219
+    ],
+    "contains_nan_or_inf": false,
+    "divergence": "none over 255 steps"
+  },
+  "consistency_with_hardware_bound": "short-context 9.38 tok/s is consistent with the batch-one weight-read floor of 9.85 tok/s (the gap is the S=1089 attention KV read plus launch/overhead); this independently corroborates qwen36-27b-decode-hardware-bound-2026-09-26.json",
+  "claim_limits": "qualifies the unroll-128 values kernel for long-output stability and determinism at a short context; does not change the P40000 10 tok/s target reachability conclusion (that remains below the hardware floor and is pending owner adjudication)",
+  "evidence_dir": ".q3x-work/evidence/decode-longout-stability-20260926/"
+}
