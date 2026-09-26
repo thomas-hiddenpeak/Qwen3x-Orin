@@ -1,0 +1,22 @@
+{
+  "record": "qwen36-27b-decode-premise-remeasure",
+  "date": "2026-09-27",
+  "class": "T4 premise re-measurement (no ceiling claim; verifies the two numbers the earlier ceiling analysis was built on)",
+  "motivation": "user directive: do not over-predict; accumulate data first; the premise numbers behind ceiling claims may themselves be wrong, so re-measure them",
+  "premise_1_pure_read_bandwidth": {
+    "previous_value_gbps": 182.5,
+    "remeasured_gbps": 182.7,
+    "method": "4 GB float4 read-accumulate kernel, grid 512x256, 5 reps after 3 warmup (same shape as the original measurement); 4.294967296 GB / 23.510 ms",
+    "smaller_working_set": "1 GB read-accumulate (grid 128x256) = 144.6 GB/s -- below the 4 GB figure, so the 4 GB number is the DRAM-bound value and the 1 GB number is partially L2-assisted; the values/scores kernels at S=40000 stream 1.3-7.9 GB per layer, between the two",
+    "verdict": "premise holds (182.5 -> 182.7 GB/s, 0.1% difference)"
+  },
+  "premise_2_weight_read_per_step": {
+    "previous_value_gb": 18.52,
+    "remeasured_gb": 18.529,
+    "method": "safetensors header per-tensor byte sum over the 3 shards, excluding the 2.543 GB embed full table and MTP tensors; model.* = 17.814 GB + lm_head 0.715 GB",
+    "verdict": "premise holds (18.52 -> 18.529 GB)"
+  },
+  "derived_weight_floor": "18.529 GB / 182.7 GB/s = 101.4 ms/step (9.86 tok/s) -- the derived floor inherits the measurement uncertainty of both premises; it is a ratio of two measured numbers, not an independent measurement",
+  "cross_check_against_nsys": "the same-nsys baseline decode phase shows the weight-touching GEMV kernels (gate_up 35.05 + qkv 23.17 + down 16.39 + row_quad 11.45 + codebook 4.14 + staged 3.50 + two_phase 6.82 = 100.52 ms/step) running at ~18.529 GB / 100.52 ms = 184.3 GB/s effective -- i.e. the GEMV path is already at the pure-read ceiling in the full-model nsys environment, consistent with both premises",
+  "evidence": ".q3x-work/evidence/premise-remeasure-20260927/"
+}

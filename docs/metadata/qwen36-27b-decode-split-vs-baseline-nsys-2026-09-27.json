@@ -1,0 +1,135 @@
+{
+  "record": "qwen36-27b-decode-split-vs-baseline-nsys-kernel-attribution",
+  "date": "2026-09-27",
+  "class": "T4 per-kernel attribution (same-ELF, same-nsys, back-to-back; no ceiling claim)",
+  "method": "nsys profile --trace=cuda on the orin-release ELF (commit 5f625d8); decode phase = the last 256 attention_scores calls (16 steps x 16 full-attention layers); per-kernel GPU-busy time summed inside that phase, /16 steps. Baseline = no env var (bit-exact unroll-128 values kernel); split = Q3X_ENABLE_SPLIT_VALUES=1.",
+  "request": "P40000/O16 /v1/completions, body sha256 6fb5c1ce..., max_tokens=16",
+  "decode_witness_ms": {
+    "baseline": 2940.246058,
+    "split": 2525.971931
+  },
+  "nsys_note": "nsys (CUPTI) inflates memory-bound kernels vs the non-profiled e2e runs (baseline non-profiled decode 2894.9 ms vs nsys 2940.2; split non-profiled 2478.1 vs nsys 2526.0). Absolute per-kernel values are therefore nsys-relative; only the same-environment delta is meaningful.",
+  "per_step_ms": {
+    "attention_scores_warp_positions_24_4_256": {
+      "baseline": 38.56,
+      "split": 38.55,
+      "delta": -0.01
+    },
+    "nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_coupled_feed": {
+      "baseline": 35.05,
+      "split": 35.03,
+      "delta": -0.03
+    },
+    "attention_values_exact_24_4_256": {
+      "baseline": 50.48,
+      "split": 0.0,
+      "delta": -50.48
+    },
+    "fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_pair_tail_composite_cs_test": {
+      "baseline": 23.17,
+      "split": 23.15,
+      "delta": -0.03
+    },
+    "nvfp4_w4a16_down_residual_norm_scale6_consumer_order": {
+      "baseline": 16.39,
+      "split": 16.37,
+      "delta": -0.02
+    },
+    "fp8_w8a16_gemv_bf16_row_quad_aosoa4_preswizzled_test": {
+      "baseline": 11.45,
+      "split": 11.42,
+      "delta": -0.03
+    },
+    "attention_values_split_shared_24_4_256": {
+      "baseline": 0.0,
+      "split": 22.79,
+      "delta": 22.79
+    },
+    "fp8_w8a16_gemv_bf16_q_kv_two_phase_reduction_scratch_ping_pong": {
+      "baseline": 6.82,
+      "split": 6.81,
+      "delta": -0.01
+    },
+    "nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_k5120_activation_staged": {
+      "baseline": 4.14,
+      "split": 4.12,
+      "delta": -0.01
+    },
+    "nvfp4_w4a16_down_residual_norm_activation_staged_cs_test": {
+      "baseline": 3.5,
+      "split": 3.48,
+      "delta": -0.01
+    },
+    "softmax_kernel": {
+      "baseline": 2.86,
+      "split": 2.86,
+      "delta": -0.0
+    },
+    "gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate": {
+      "baseline": 1.52,
+      "split": 1.52,
+      "delta": -0.0
+    },
+    "causal_conv1d_silu_update": {
+      "baseline": 0.23,
+      "split": 0.23,
+      "delta": -0.0
+    },
+    "full_attention_preprocess_24_4_256_64": {
+      "baseline": 0.11,
+      "split": 0.11,
+      "delta": -0.0
+    },
+    "sigmoid_gate": {
+      "baseline": 0.07,
+      "split": 0.06,
+      "delta": -0.01
+    },
+    "attention_values_split_finalize_24_4_256": {
+      "baseline": 0.0,
+      "split": 0.07,
+      "delta": 0.07
+    },
+    "rms_norm_kernel": {
+      "baseline": 0.02,
+      "split": 0.02,
+      "delta": 0.0
+    },
+    "bf16_greedy_argmax": {
+      "baseline": 0.01,
+      "split": 0.01,
+      "delta": 0.0
+    },
+    "embedding_gather": {
+      "baseline": 0.0,
+      "split": 0.0,
+      "delta": 0.0
+    },
+    "bf16_greedy_argmax_finalize": {
+      "baseline": 0.0,
+      "split": 0.0,
+      "delta": 0.0
+    }
+  },
+  "totals_ms_per_step": {
+    "all_kernels_busy": {
+      "baseline": 194.4,
+      "split": 166.62,
+      "delta": -27.79
+    },
+    "decode_phase_span": {
+      "baseline": 195.14,
+      "split": 167.47,
+      "delta": -27.67
+    }
+  },
+  "findings": [
+    "The split path is confirmed active in the full model: attention_values_exact runs 0 times under the env var, attention_values_split_shared runs 255 times (16 layers x 16 steps, minus 1 boundary).",
+    "The entire -27.79 ms/step kernel-time delta is the values-kernel swap (exact 50.48 -> split 22.79, -50.48) plus the +0.07 finalize; every other kernel moves <0.05 ms/step (noise). No hidden cost, no cross-kernel interference.",
+    "The nsys delta (-27.79 ms/step) matches the non-profiled e2e delta (2894.9-2478.1 = 416.8 ms / 15 steps = 27.8 ms/step) to within 0.1 ms, so the per-kernel attribution is consistent with the wall-clock result.",
+    "In the full model (nsys) the unroll-128 values kernel is 50.48 ms/step (3.16 ms/layer) and the split kernel is 22.79 ms/step (1.42 ms/layer). The isolated microbenchmark (2.799 / 1.689 ms/layer) is a different, lower-contention measurement; do not mix the two.",
+    "The earlier T4 figure 'values 111.7 ms/step' was the unroll-8 era (HEAD 56012ee); unroll-128 already cut it to 50.48 ms/step in this same nsys environment."
+  ],
+  "no_ceiling_claim": "This record reports measured per-kernel times and their delta only. It makes no hardware-ceiling or target-reachability claim; the premise numbers behind the earlier ceiling analysis (182.5 GB/s pure-read, 18.52 GB/step weight read, 101.5 ms floor) are themselves unverified measurements and are flagged for re-measurement rather than assumed.",
+  "evidence": ".q3x-work/evidence/split-nsys-20260927/ (split-p40.nsys-rep, split-p40.sqlite, preflight.json, response.txt) and .q3x-work/evidence/baseline-nsys-20260927/ (baseline-p40.nsys-rep, baseline-p40.sqlite, response.txt)"
+}

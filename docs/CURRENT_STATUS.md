@@ -1066,6 +1066,24 @@ ms/step (9.38 tok/s). That short-context rate independently corroborates the
 not change the P40000 10 tok/s reachability conclusion. Evidence is frozen in
 the [decode long-output stability record](metadata/qwen36-27b-decode-longout-stability-2026-09-26.json).
 
+Per-kernel nsys attribution of the split values route (2026-09-27, same-ELF
+back-to-back, no ceiling claim): in the full-model nsys environment the
+unroll-128 values kernel runs 50.48 ms/step (3.16 ms/layer) and the split
+kernel 22.79 ms/step (1.42 ms/layer); the entire -27.79 ms/step kernel-time
+delta is the values-kernel swap plus a 0.07 ms/step finalize, with every other
+kernel moving <0.05 ms/step (noise), and the delta matches the non-profiled
+e2e delta (27.8 ms/step) to within 0.1 ms. The nsys environment inflates
+memory-bound kernels relative to the isolated microbenchmark (2.799 / 1.689
+ms/layer), so the two measurement environments are kept separate. The two
+premise numbers behind the earlier ceiling arithmetic were re-measured the
+same day and hold: pure-read bandwidth 182.5 -> 182.7 GB/s (4 GB
+read-accumulate) and per-step weight read 18.52 -> 18.529 GB (safetensors
+header sum); the same-nsys GEMV kernels run at ~184 GB/s effective, i.e. at
+the pure-read ceiling. Evidence: the
+[split-vs-baseline nsys attribution record](metadata/qwen36-27b-decode-split-vs-baseline-nsys-2026-09-27.json)
+and the
+[premise re-measure record](metadata/qwen36-27b-decode-premise-remeasure-2026-09-27.json).
+
 ### Historical v10 route only
 
 The following topology and profile describe the historical typed P40 v10
