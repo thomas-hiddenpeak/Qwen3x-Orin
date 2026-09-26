@@ -1116,6 +1116,24 @@ the dominant remaining decode cost is the weight-read GEMV kernels (100.52
 ms/step, 38% of the step, already at the DRAM ceiling). Evidence: the [split
 values bandwidth record](metadata/qwen36-27b-decode-split-values-bandwidth-2026-09-27.json).
 
+Per the owner's direction (2026-09-27) to explore all adjudication directions
+except lower quantization, the three remaining directions were evaluated
+against the measured data and the SDD/ROADMAP contract: (1) batched decode --
+the engine is batch=1 by design (the oracle rejects `max_num_seqs != 1`; the
+SDD Decode target is single-request; continuous batching is deferred to ROADMAP
+P6), so it raises aggregate throughput (toward B x 9.86 tok/s) but does not
+satisfy the single-request 10 tok/s target and needs a new product contract;
+(4) non-bit-exact split for production -- a real 1.17x (6.05 tok/s) but the
+16-token completion diverges from the bit-exact baseline from token 1 (both
+coherent, non-deterministic), trading reproducibility, and still < 10 tok/s;
+(3) target re-set -- the measured batch-one weight-read floor is 9.86 tok/s,
+so 10 tok/s is below the hardware floor and the reachable single-request range
+is 5.18 (bit-exact) to 6.05 (split) tok/s. With lower quantization excluded,
+no direction reaches the single-request 10 tok/s target; the choice is a
+product decision (single-request bit-exact vs non-deterministic vs
+multi-request batching), not an engineering one. Evidence: the [directions
+evaluation record](metadata/qwen36-27b-decode-directions-evaluation-2026-09-27.json).
+
 ### Historical v10 route only
 
 The following topology and profile describe the historical typed P40 v10

@@ -1,0 +1,34 @@
+{
+  "record": "qwen36-27b-decode-directions-evaluation-2026-09-27",
+  "date": "2026-09-27",
+  "class": "T4 evaluation (data synthesis + contract analysis; no new e2e run, no ceiling claim beyond the already-measured weight-read floor)",
+  "scope": "the three owner-adjudication directions excluding lower quantization (excluded by the owner): (1) batched-decode contract change, (4) accept the non-bit-exact split route for production, (3) re-set the decode target",
+  "anchor_data": {
+    "weight_read_floor_ms_per_step": 101.4,
+    "weight_read_floor_toks": 9.86,
+    "gemv_measured_ms_per_step": 100.52,
+    "gemv_pct_of_floor": 99.1,
+    "decode_target": "SDD: single request, committed output tokens, MTP disabled, at least 10 token/s and at most 100 ms/token",
+    "note": "the 10 tok/s target is a SINGLE-REQUEST (batch-one) latency target, not an aggregate-throughput target"
+  },
+  "direction_1_batched_decode": {
+    "contract": "the engine is batch=1 by design: reference_oracle.cpp rejects max_num_seqs != 1 (pinned BF16 oracle policy); the SDD Decode target is 'single request'; continuous batching is explicitly deferred to ROADMAP P6 ('where a real product workload selects it').",
+    "gain": "amortizes the 18.529 GB/step weight read across B concurrent sequences: aggregate throughput scales toward B x 9.86 tok/s (weight read shared), while per-sequence latency stays ~101 ms/step. This is the ONLY lever that raises aggregate throughput without touching quantization.",
+    "loss": "does NOT satisfy the current single-request 10 tok/s target (per-sequence latency is unchanged); requires a new product contract (SDD change + P6 admission), a multi-sequence KV cache layout, a batched GEMV/attention kernel path, and a new accuracy/stability gate. It is an architecture work package, not a local optimization.",
+    "verdict": "not applicable to the current contract; becomes the right lever only if the product workload becomes multi-request. Owner decision: is the real workload single-request (keep batch-one) or multi-request (admit P6 batching)?"
+  },
+  "direction_4_non_bit_exact_split": {
+    "contract": "the split values path is opt-in (Q3X_ENABLE_SPLIT_VALUES) and NOT bit-exact (non-deterministic cross-chunk atomicAdd order); production default remains the bit-exact unroll-128 kernel.",
+    "gain": "165.2 ms/step = 6.05 tok/s (1.17x over the 193.0 ms/step bit-exact path) on the real P40000/O16 API.",
+    "loss": "the 16-token completion diverges from the bit-exact baseline from token 1 (baseline: 'Based on the provided repository files, here is the analysis of the current state,' vs split: 'The user wants me to act as an AI agent following the strict guidelines in `'). Both continuations are coherent and plausible for the coding-agent prompt, so the divergence is a determinism/byte-identity loss, not an obvious quality collapse -- but it is non-deterministic (reruns differ), which breaks any byte-identity or reproducibility guarantee the product may rely on.",
+    "verdict": "a real 1.17x production speedup is available, but it still does not reach 10 tok/s (6.05 < 10) and it trades determinism. Owner decision: is a non-deterministic 6.05 tok/s acceptable for production, or is byte-identity/reproducibility a hard requirement?"
+  },
+  "direction_3_reset_target": {
+    "contract": "the 10 tok/s target is locked in the SDD; the measured batch-one weight-read floor is 9.86 tok/s, so 10 tok/s is below the hardware floor for this model on this device.",
+    "gain": "aligns the target with measured reality; stops spending on an unreachable goal.",
+    "loss": "accepts < 10 tok/s as the product decode rate (bit-exact 5.18, or 6.05 with the non-bit-exact split).",
+    "verdict": "required if the owner confirms the single-request contract and excludes lower quantization: the reachable batch-one range is 5.18-6.05 tok/s (bit-exact vs split), with 9.86 tok/s as the weight-read floor that only a smaller weight volume (lower quantization) can cross."
+  },
+  "synthesis": "with lower quantization excluded, NO direction reaches the single-request 10 tok/s target: batched decode changes the contract (aggregate throughput, not single-request latency), the split route gives 6.05 tok/s non-deterministically, and the target re-set accepts < 10 tok/s. The weight-read GEMV (100.52 ms/step, 99.1% of the 101.4 ms floor) is the dominant cost and is at the DRAM ceiling, so no local kernel work closes the gap. The decision is a product decision, not an engineering one: (a) single-request + bit-exact -> re-set target to ~5.2 tok/s; (b) single-request + non-deterministic -> re-set to ~6.1 tok/s and adopt the split route; (c) multi-request workload -> admit P6 batched decode for aggregate throughput.",
+  "e2e": "none run for this record -- it synthesizes the already-committed measurements (split e2e 2026-09-26, nsys attribution + premise re-measure 2026-09-27, scores/split-values microbenchmarks 2026-09-27) and the SDD/ROADMAP contract text."
+}
