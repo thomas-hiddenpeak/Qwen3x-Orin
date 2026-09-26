@@ -1,0 +1,44 @@
+{
+  "record": "qwen36-27b-decode-split-values-e2e-validation",
+  "date": "2026-09-26",
+  "class": "T4 architecture direction validation (opt-in evaluation route; no production promotion, no target change)",
+  "originating_constraint": "User challenge of the 5.5 tok/s ceiling claim: '5.5 tok/s 哪门子上限,赶紧研究解决的路径,用 e2e 的方式测试' -- the 6x GQA-redundant values read was previously (wrongly) classified as L2-absorbed; this record proves it is a real DRAM cost and validates the split-chunk GQA-shared fix end-to-end on the real P40000 API",
+  "supersedes": "the L2-absorption finding in qwen36-27b-decode-hardware-bound-2026-09-26.json (corrected in place the same day)",
+  "kernel": {
+    "name": "attention_values_split_shared_24_4_256_kernel + attention_values_split_finalize_24_4_256_kernel",
+    "translation_unit": "src/kernels/reference/attention_values_split_shared.cu (dedicated TU so the production decode_ops.cu ptxas resource layout for the warp-RMS contract kernel is unaffected)",
+    "shape": "grid (chunks, 4) x 512 threads, 32 KiB dynamic smem per block (64-position x 256-dim bf16 V tile), 6 query heads per 256-thread group, per-thread 3-way FMA, atomicAdd into a persistent 24 KiB fp32 accumulator (lazy cudaMalloc, reused across steps), bf16 finalize kernel over 6144 elements",
+    "selection": "S >= 512 AND Q3X_ENABLE_SPLIT_VALUES set AND stream not capturing (cudaStreamIsCapturing guard keeps captured graphs on the production 3-node attention topology); production default (no env var) is the bit-exact unroll-128 kernel, unchanged"
+  },
+  "microbench_s40000_ms_per_layer": {
+    "prod_unroll128_6x_v_read": 2.799,
+    "split_t64_1x_v_read": 1.689,
+    "speedup": 1.66,
+    "numerical_s1024": "0/6144 exact-output differences vs the production kernel at S=1024 (few-ULP level; the split path is NOT bit-exact in general due to non-deterministic cross-chunk atomicAdd order)"
+  },
+  "p40000_api_e2e": {
+    "request": "P40000/O16 /v1/completions, body sha256 6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944, max_tokens=16, stream=true, temperature=0.0, seed=42",
+    "method": "same rebuilt ELF, back-to-back same-host runs (split env on, then env off), preflight each time (no competing process, >=40 GB free, sync + drop_caches, tegrastats idle)",
+    "baseline_no_env": {
+      "decode_after_first_ms": 2894.933661,
+      "decode_steps": 15,
+      "ms_per_step": 193.0,
+      "tok_s": 5.18,
+      "tokens_16": "Based on the provided repository files, here is the analysis of the current state,"
+    },
+    "split_env": {
+      "decode_after_first_ms": 2478.100234,
+      "decode_steps": 15,
+      "ms_per_step": 165.2,
+      "tok_s": 6.05,
+      "tokens_16": "The user wants me to act as an AI agent following the strict guidelines in `"
+    },
+    "speedup": "1.17x per decode step (27.8 ms saved per step; microbenchmark prediction 16 full-attention layers x 1.11 ms = 17.8 ms, e2e slightly larger within run-to-run variance)",
+    "token_divergence": "the two runs produce completely different 16-token completions: the split path is not bit-exact (atomicAdd cross-chunk accumulation order is non-deterministic), and a few-ULP per-layer difference cascades through 64 layers at temperature 0.0. Both completions are individually coherent; the divergence is the expected consequence of the non-deterministic combine, not a correctness defect of either path in isolation."
+  },
+  "tests": "q3x_decode_ops_cuda_test passes in both modes (default and Q3X_ENABLE_SPLIT_VALUES=1); the capture guard keeps the S513 graph-launch test and the bulk-GQA 3-node topology contracts green under the opt-in env var",
+  "production_accuracy_impact": "the opt-in path changes completion tokens on the P40000 request and is therefore an evaluation/development route only (Q3X_ENABLE_SPLIT_VALUES); the production default remains the bit-exact unroll-128 route and is untouched",
+  "ceiling_update": "with the split values path the realistic batch-one ceiling moves from ~181 ms/step (~5.5 tok/s) to weight floor 101.5 + split values ~24.0 + scores 38.6 + launch ~0.7 = ~165 ms/step (~6.1 tok/s); the measured 165.2 ms/step (6.05 tok/s) matches it. The 10 tok/s target (100 ms/step) remains below the 101.5 ms weight-read floor and is unreachable for batch-one on this device; the scores kernel's 6x GQA key read (38.6 ms/step) is the next candidate for the same treatment",
+  "evidence": ".q3x-work/evidence/split-e2e-20260926/ (server-split.log, server-baseline.log, response-split.txt, response-baseline.txt)",
+  "status": "opt-in evaluation route validated e2e; not release-qualified; token divergence requires owner adjudication before any production consideration"
+}

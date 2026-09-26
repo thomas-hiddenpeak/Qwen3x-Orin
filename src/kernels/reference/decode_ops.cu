@@ -3586,6 +3586,18 @@ int launch_softmax_reference_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+// Opt-in split-chunk GQA-shared values path (see
+// attention_values_split_shared.cu). Returns 0 on success, a positive CUDA
+// error, or -1 when the split path is not selected for this call.
+int launch_attention_values_split_shared_24_4_256_cuda(
+    const std::uint16_t* const value_cache,
+    float* const probabilities,
+    const unsigned int sequence_length,
+    const std::size_t query_head_count,
+    const std::size_t head_dimension,
+    std::uint16_t* const output,
+    cudaStream_t stream) noexcept;
+
 int launch_gqa_attention_reference_cuda(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
@@ -3640,6 +3652,21 @@ int launch_gqa_attention_reference_cuda(
   if (use_attention_values_exact_24_4_256(
           query_head_count, kv_head_count, sequence_length,
           head_dimension)) {
+    // Opt-in split-chunk GQA-shared values path (Q3X_ENABLE_SPLIT_VALUES,
+    // long sequences). Returns 0 on success, a positive CUDA error, or -1
+    // when not selected (short sequence / opt-in off / scratch too small).
+    const int split_status =
+        launch_attention_values_split_shared_24_4_256_cuda(
+            value_cache, probabilities_scratch,
+            static_cast<unsigned int>(sequence_length), query_head_count,
+            head_dimension, output, stream);
+    if (split_status == 0) {
+      return 0;
+    }
+    if (split_status > 0) {
+      return split_status;
+    }
+    // Split path not selected: production bit-exact kernel.
     const dim3 value_blocks(
         kExactAttentionValueQueriesPerKv,
         static_cast<unsigned int>(kExactAttentionValueKvHeads), 1U);

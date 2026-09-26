@@ -2,7 +2,7 @@
   "record": "qwen36-27b-decode-hardware-bound-analysis",
   "date": "2026-09-26",
   "class": "T4 hardware-bound diagnostic (no route selection, no target change)",
-  "originating_constraint": "P40000 decode step 207.4 ms (unroll-8) vs 10 tok/s target (100 ms/step); user question '265K \u4ee5\u5185\u7406\u8bba\u901f\u5ea6,\u627e\u95ee\u9898'",
+  "originating_constraint": "P40000 decode step 207.4 ms (unroll-8) vs 10 tok/s target (100 ms/step); user question '265K 以内理论速度,找问题'",
   "hardware": {
     "device": "Jetson AGX Orin, sm_87, 16 SMs, GPU 1300.5 MHz",
     "theoretical_l2_bandwidth_gbps": 102.4,
@@ -47,12 +47,12 @@
         "tok_s": 5.11
       }
     ],
-    "p40000_absolute_ceiling": "CORRECTED 2026-09-26: the earlier '~116 ms/step (~8.6 tok/s)' assumed the values/scores floors were DRAM-bound (7.5 + 7.2 ms). In fact both are L2-bound and already at their practical ceiling (values 40.3 ms, scores 38.6 ms at S=40000, unroll-128). The realistic batch-one ceiling is weight floor 101.5 + values 40.3 + scores 38.6 + launch ~0.7 = ~181 ms/step (~5.5 tok/s); the measured 193.0 ms/step (5.18 tok/s) is within ~6% of it. The 10 tok/s target (100 ms/step) remains below the 101.5 ms weight-read floor and is unreachable for batch-one on this device."
+    "p40000_absolute_ceiling": "CORRECTED 2026-09-26 (supersedes the L2-absorption paragraph of the same date): the 6x GQA-redundant V read in the values kernel is a REAL DRAM cost, not L2-absorbed. The values kernel's 40.3 ms/layer at S=40000 is within noise of the pure-DRAM time for its 6x requested volume (7.86 GB / 182.5 GB/s = 43 ms); the '195 GB/s' figure is requested volume divided by wall time and only marginally exceeds the 182.5 GB/s pure-read ceiling (noise range), not a proof of L2 absorption. The split-chunk GQA-shared values kernel (1x V read) measures 1.68x faster per layer in the microbenchmark and 1.17x faster per decode step on the real P40000 API (193.0 -> 165.2 ms/step), proving the redundancy is a real bandwidth cost. The realistic batch-one ceiling with the split values path is weight floor 101.5 + split values ~24.0 + scores 38.6 + launch ~0.7 = ~165 ms/step (~6.1 tok/s); the measured split-path 165.2 ms/step (6.05 tok/s) matches it. The 10 tok/s target (100 ms/step) remains below the 101.5 ms weight-read floor and is unreachable for batch-one on this device."
   },
   "target_reachability": {
     "claim": "10 tok/s (100 ms/step) is below the batch-one weight-read hardware floor of 101.5 ms (9.85 tok/s) for this model on this device",
     "evidence": "same-workload hardware bound: W=18.52 GB exact per-step read / 182.5 GB/s measured pure-read ceiling; matched profile: GEMV path runs at ~100% of the measured pure-read ceiling (floor 101.5 ms vs measured 103.17 ms intercept from 3-point fit); reconciliation: no known implementation can read 18.52 GB per step in <100 ms on this device",
-    "attention_kv_read_efficiency": "CORRECTED 2026-09-26: the earlier '9.5% of pure-read ceiling' figure divided the 6x GQA-redundant requested volume (491.5 MB/layer) by the DRAM pure-read ceiling and is misleading. The values kernel at unroll-128 sustains 195 GB/s and the scores kernel 204 GB/s of requested volume -- both ABOVE the 182.5 GB/s DRAM pure-read ceiling, which is only possible because L2 absorbs the 6x GQA redundant reads at near-zero DRAM cost (DRAM carries ~1x unique volume). The attention KV read is therefore L2-bound, not DRAM-bound, and is already at its practical ceiling."
+    "attention_kv_read_efficiency": "CORRECTED 2026-09-26 (supersedes the L2-absorption paragraph of the same date): the '195 GB/s values / 204 GB/s scores, both above the DRAM ceiling, therefore L2-absorbed' reasoning is invalid. 195 GB/s is only ~7% above the 182.5 GB/s measured pure-read ceiling -- inside the measurement noise band -- and the values kernel's 40.3 ms/layer matches the 43 ms pure-DRAM time for its 6x-redundant 7.86 GB/layer requested volume. The split-chunk GQA-shared values kernel, which reads each V row once (1.31 GB/layer), runs 1.68x faster per layer in the microbenchmark (1.689 vs 2.799 ms) and cuts the real P40000 decode step by 27.8 ms (193.0 -> 165.2 ms/step). The 6x GQA redundancy is therefore a real DRAM bandwidth cost, and the GEMV weight path (179.5 GB/s, 98.4% of the ceiling) remains the dominant DRAM-bound component."
   },
   "rejected_direction": {
     "name": "6-chain GQA-redundancy-free values merge (6144 -> 1024 threads, 6 position-chains per thread)",
@@ -80,7 +80,7 @@
   },
   "owner_decision_request": "10 tok/s target exceeds the batch-one hardware floor. Options requiring owner ruling: (a) change contract to batched decode (multiple concurrent requests amortize the 18.52 GB weight read); (b) lower weight quantization (accuracy risk, out of current production accuracy scope); (c) re-set the P40000 target to a reachable value (e.g. 8 tok/s absolute ceiling is ~8.6, realistic ~5.2 after unroll-128). This record does not select a route or change the target.",
   "l2_absorption_and_smem_merge": {
-    "finding": "The 6x GQA redundant K/V reads in the exact S>=65 attention kernels are absorbed by L2 at near-zero DRAM cost. Evidence: the values kernel (unroll-128) sustains 195 GB/s and the scores kernel 204 GB/s of requested (6x-redundant) volume per layer, both exceeding the 182.5 GB/s DRAM pure-read ceiling; only L2 hits on the 5 redundant copies explain this. The GEMV weight path runs at 179.5 GB/s (98.4% of the DRAM ceiling), the true DRAM-bound component.",
+    "finding": "CORRECTED 2026-09-26 (supersedes the L2-absorption finding of the same date): the 6x GQA redundant K/V reads are NOT absorbed by L2 at near-zero DRAM cost. The values kernel's 40.3 ms/layer at S=40000 equals, within noise, the pure-DRAM time for its 6x requested volume (7.86 GB / 182.5 GB/s = 43 ms), and the split-chunk GQA-shared kernel (1x V read, 1.31 GB/layer) is 1.68x faster per layer in the microbenchmark and 1.17x faster per decode step on the real P40000 API. The GEMV weight path runs at 179.5 GB/s (98.4% of the DRAM ceiling) and is the true DRAM-bound component; the values kernel's 6x redundancy is a second, smaller, real DRAM cost.",
     "smem_gqa_merge": {
       "name": "shared-memory GQA merge: one block per KV head serves all 6 query heads from a single smem V tile, reducing the V read from 6x to 1x",
       "bit_exact": "PASS (S=1024 vs CPU oracle, 0/6144 diff) -- the per-(query,dimension) position-ordered FMA sequence is preserved, so the BF16 output is bit-identical",
@@ -89,7 +89,27 @@
         "smem_1x_1024thr": 8.865
       },
       "occupancy": "prod 24 blocks x 256 thr (6 blocks/SM); smem 4 blocks x 1024 thr (1 block/SM, sm_87 max 1024 thr/block)",
-      "verdict": "rejected: 3.19x slower. Removing the L2 hit (forcing DRAM to supply 1x) is not worth it because (a) the 6x redundancy was already free via L2, and (b) the 1024-thread block collapses occupancy to 1 block/SM and adds per-tile __syncthreads. Confirms the attention kernels are at their practical ceiling and the 6x redundancy is not a real bandwidth cost."
+      "verdict": "re-measured 2026-09-26: the 1024-thread single-block-per-KV-head variant is indeed 3.19x slower (occupancy collapse to 1 block/SM), but the original rejection reason ('the 6x redundancy was already free via L2') is WRONG. A 512-thread split-chunk variant (grid (chunks, 4), 32 KiB dynamic smem per block, 6 query heads per 256-thread group, atomicAdd combine) reads each V row once and measures 1.68x FASTER than the production kernel in the microbenchmark (1.689 vs 2.799 ms/layer at S=40000) and 1.17x faster per decode step on the real P40000 API (165.2 vs 193.0 ms/step). The 6x redundancy is a real DRAM cost; the smem merge is the correct fix, at the cost of bit-exactness (see qwen36-27b-decode-split-values-e2e-2026-09-26.json)."
     }
+  },
+  "split_values_e2e_validation": {
+    "name": "split-chunk GQA-shared attention values kernel (opt-in Q3X_ENABLE_SPLIT_VALUES)",
+    "change": "new translation unit src/kernels/reference/attention_values_split_shared.cu (grid (chunks,4) x 512 threads, 32 KiB dynamic smem, 6 query heads per 256-thread group, atomicAdd into a persistent 24 KiB accumulator, bf16 finalize kernel); launch_gqa_attention_reference_cuda calls it for S>=512 when the opt-in env var is set and the stream is not capturing; production default (no env var) is unchanged and bit-exact",
+    "microbench_ms_per_layer_s40000": {
+      "prod_unroll128_6x": 2.799,
+      "split_t64_1x": 1.689,
+      "speedup": 1.66
+    },
+    "p40000_api_e2e": {
+      "request": "P40000/O16 /v1/completions, body sha256 6fb5c1ce..., same ELF, back-to-back same-host runs",
+      "baseline_no_env": "decode_after_first 2894.933661 ms / 15 steps = 193.0 ms/step = 5.18 tok/s",
+      "split_env": "decode_after_first 2478.100234 ms / 15 steps = 165.2 ms/step = 6.05 tok/s",
+      "speedup": "1.17x per decode step (27.8 ms saved; microbenchmark predicted 16 layers x 1.11 ms = 17.8 ms, e2e slightly larger)",
+      "tokens": "DIVERGE: baseline 'Based on the provided repository files, here is the analysis of the current state,' vs split 'The user wants me to act as an AI agent following the strict guidelines in `' -- the atomicAdd cross-chunk accumulation order is non-deterministic, a few-ULP difference per layer cascades through 64 layers at temperature 0.0",
+      "evidence": ".q3x-work/evidence/split-e2e-20260926/"
+    },
+    "tests": "q3x_decode_ops_cuda_test passes in both modes (default and Q3X_ENABLE_SPLIT_VALUES=1); the split path is guarded against CUDA graph capture (cudaStreamIsCapturing) so captured graphs keep the production 3-node attention topology",
+    "production_accuracy_impact": "NOT bit-exact. The opt-in path changes completion tokens on the P40000 request. It is an evaluation/development route only (Q3X_ENABLE_SPLIT_VALUES), not a production default; production accuracy (bit-exact unroll-128 route) is preserved by the default path.",
+    "status": "opt-in evaluation route; not release-qualified; token divergence requires owner adjudication before any production consideration"
   }
 }

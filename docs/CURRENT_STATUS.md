@@ -783,7 +783,7 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | Target-length Prefill | Current installed main executes terminal layer-63 prefix elision with incumbent QT2/GroupQ64, exact-span GDN, and prompt-wide preprocessing; its actual P40000/O16 request reports 60.271514903 prompt tok/s | Complete accuracy, P60/P130, the 2s/4s targets, and further accuracy-preserving whole-product optimization remain open; closed lineages and same-skeleton span scans remain excluded |
 | SM87 whole-system AOT Prefill candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` is default-off, non-executable, and paused. Real-checkpoint upload/readback/private attachment plus the layer-0 M192 Oracle remain retained prerequisites. The P40000 BF16-HMMA skeleton is rejected at 225.7838x over budget, and `bmma-static-support-k16-parent-zero-fill-v2` is separately rejected before CUDA after its authenticated mandatory-instruction lower bound exceeds the complete five-second projection allocation | No active AOT implementation gate. Resumption requires an explicitly named materially different exact arithmetic/dataflow class with a new bounded proof or a successor architecture; persisted direct loading remains prerequisite work only after such a resumption |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
-| Decode | Exact S>=65 fallback plus retained coupled-feed/consumer-order layouts and fixed short-position Graph cache; current-main short integration reports 9.553634715 tok/s and P40 reports 3.939689060 tok/s. The 2026-09-26 P40000 decode-step nsys attribution (T4) shows the 254 ms/token step is 58.6% exact full-attention (values kernel 111.7 ms/token, 6,144 threads, 6x GQA-redundant V loads; scores kernel 38.6 ms/token) and 38.1% weight-read GEMV at its prior ceilings; launch overhead is 0.28%. The values kernel is latency-bound, not bandwidth-bound: a matched access-pattern microbenchmark shows the serial FMA chain at unroll-4 is 6.4 ms/layer, and unroll-8 (bit-exact, same FMA order) is 3.4 ms/layer. The unroll-8 change is committed and validated on the real P40000/O16 API: decode 3,855.8 -> 3,111.4 ms for 15 steps (257.0 -> 207.4 ms/step, 3.89 -> 4.82 tok/s), prefill unchanged, 16 completion tokens byte-identical to the 44842df baseline. The follow-up unroll-8 -> 128 deepening (bit-exact, same FMA order) is committed and validated the same way: decode 3,111.4 -> 2,895.2 ms for 15 steps (207.4 -> 193.0 ms/step, 4.82 -> 5.18 tok/s), 16 completion tokens byte-identical to the unroll-8 baseline. The 2026-09-26 hardware-bound analysis (T4, no route selected) measures the pure-read ceiling at 182.5 GB/s, the exact per-step weight read at 18.52 GB, and therefore the batch-one weight-read floor at 101.5 ms/step (9.85 tok/s): the 10 tok/s locked target is below the hardware floor for this model on this device. A follow-up measurement shows the attention KV read is L2-bound (values 195 GB/s, scores 204 GB/s of requested volume, both above the 182.5 GB/s DRAM ceiling), so the realistic P40000 batch-one ceiling is ~181 ms/step (~5.5 tok/s) and the measured 193.0 ms/step (5.18 tok/s) is within ~6% of it. The bit-exact shared-memory GQA merge (1x V read) was measured and rejected (8.865 vs 2.782 ms/layer, 3.19x slower, occupancy collapse); the earlier 6-chain merge was also rejected (12.70 vs 3.44 ms/layer). Owner adjudication is requested: batched-decode contract change, lower quantization, or re-set target | Long-output stability is qualified (256-token short-context runs byte-identical, no divergence, 9.38 tok/s corroborating the floor); the 10 tok/s target and P40000 target-length behavior remain, and the hardware-bound record requests owner adjudication before further architecture work |
+| Decode | Exact S>=65 fallback plus retained coupled-feed/consumer-order layouts and fixed short-position Graph cache; current-main short integration reports 9.553634715 tok/s and P40 reports 3.939689060 tok/s. The 2026-09-26 P40000 decode-step nsys attribution (T4) shows the 254 ms/token step is 58.6% exact full-attention (values kernel 111.7 ms/token, 6,144 threads, 6x GQA-redundant V loads; scores kernel 38.6 ms/token) and 38.1% weight-read GEMV at its prior ceilings; launch overhead is 0.28%. The values kernel is latency-bound, not bandwidth-bound: a matched access-pattern microbenchmark shows the serial FMA chain at unroll-4 is 6.4 ms/layer, and unroll-8 (bit-exact, same FMA order) is 3.4 ms/layer. The unroll-8 change is committed and validated on the real P40000/O16 API: decode 3,855.8 -> 3,111.4 ms for 15 steps (257.0 -> 207.4 ms/step, 3.89 -> 4.82 tok/s), prefill unchanged, 16 completion tokens byte-identical to the 44842df baseline. The follow-up unroll-8 -> 128 deepening (bit-exact, same FMA order) is committed and validated the same way: decode 3,111.4 -> 2,895.2 ms for 15 steps (207.4 -> 193.0 ms/step, 4.82 -> 5.18 tok/s), 16 completion tokens byte-identical to the unroll-8 baseline. The 2026-09-26 hardware-bound analysis (T4, no route selected) measures the pure-read ceiling at 182.5 GB/s, the exact per-step weight read at 18.52 GB, and therefore the batch-one weight-read floor at 101.5 ms/step (9.85 tok/s): the 10 tok/s locked target is below the hardware floor for this model on this device. A follow-up measurement (2026-09-26, corrected) shows the 6x GQA-redundant values V read is a REAL DRAM cost, not L2-absorbed: the values kernel's 40.3 ms/layer at S=40000 matches the pure-DRAM time for its 6x requested volume (7.86 GB / 182.5 GB/s = 43 ms), and the earlier '195 GB/s above the ceiling, therefore L2' reasoning is inside the measurement noise band. A split-chunk GQA-shared values kernel (dedicated TU, 512 threads/block, 32 KiB smem V tile, 6 query heads per group, atomicAdd combine; opt-in Q3X_ENABLE_SPLIT_VALUES, S>=512, capture-guarded) reads each V row once and is validated end-to-end on the real P40000/O16 API: decode 2,894.9 -> 2,478.1 ms for 15 steps (193.0 -> 165.2 ms/step, 5.18 -> 6.05 tok/s, 1.17x; microbenchmark 1.66x per layer). The split path is NOT bit-exact (non-deterministic cross-chunk atomicAdd order) and the two runs produce different 16-token completions, so it is an evaluation route only; the production default remains the bit-exact unroll-128 kernel. The realistic batch-one ceiling with the split values path is ~165 ms/step (~6.1 tok/s); the scores kernel's 6x GQA key read (38.6 ms/step) is the next candidate for the same treatment. Owner adjudication is requested: batched-decode contract change, lower quantization, re-set target, or accept the non-bit-exact split route for production. Evidence: [decode split-values e2e record](metadata/qwen36-27b-decode-split-values-e2e-2026-09-26.json) | Long-output stability is qualified (256-token short-context runs byte-identical, no divergence, 9.38 tok/s corroborating the floor); the 10 tok/s target and P40000 target-length behavior remain, and the hardware-bound record requests owner adjudication before further architecture work |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
 | Canonical release artifact | Fresh main `230eac1` installs 0.7.0 Release/OFF terminal-prefix.v1 ELF `270a6bb4...`; P40 and short integration pass with `production_eligible=false` and `release_qualified=false` | Complete accuracy, capability, target-length repetition, and stability/release attestation remain incomplete |
 | Automated release lane | Designed only | Local tests and policies exist, but no checked-in Orin release workflow enforces the complete gate |
@@ -1004,17 +1004,27 @@ per-step weight read at 18.52 GB (MLP NVFP4 packed 10.16 + GDN proj FP8 5.59 +
 full-attn proj FP8 1.68 + lm_head 0.72 + norms/misc 0.38 GB, excluding the
 2.552 GB embed full table and MTP), and therefore places the batch-one
 weight-read floor at 101.5 ms/step (9.85 tok/s). The 10 tok/s locked target
-(100 ms/step) is below that floor. A follow-up measurement (2026-09-26) shows
-the attention KV read is **L2-bound, not DRAM-bound**: the values kernel
-(unroll-128) sustains 195 GB/s and the scores kernel 204 GB/s of requested
-(6x GQA-redundant) volume per layer, both *above* the 182.5 GB/s DRAM
-pure-read ceiling, which is only possible because L2 absorbs the 6x redundant
-reads at near-zero DRAM cost. The GEMV weight path is the true DRAM-bound
-component (179.5 GB/s, 98.4% of the ceiling). The realistic batch-one ceiling
-is therefore weight floor 101.5 + values 40.3 + scores 38.6 + launch ~0.7 =
-~181 ms/step (~5.5 tok/s); the measured 193.0 ms/step (5.18 tok/s) is within
-~6% of it. The short-context 9.51 tok/s measurement is consistent with the
-floor. This record requests owner adjudication among a batched-decode
+(100 ms/step) is below that floor. A follow-up measurement (2026-09-26, **corrected the same day**) shows
+the 6x GQA-redundant values V read is a **real DRAM cost, not L2-absorbed**:
+the values kernel's 40.3 ms/layer at S=40000 matches, within noise, the
+pure-DRAM time for its 6x requested volume (7.86 GB / 182.5 GB/s = 43 ms),
+and the earlier '195 GB/s above the ceiling, therefore L2' reasoning sits
+inside the measurement noise band. A split-chunk GQA-shared values kernel
+(dedicated translation unit, 512 threads/block, 32 KiB smem V tile, 6 query
+heads per group, atomicAdd combine; opt-in `Q3X_ENABLE_SPLIT_VALUES`, S>=512,
+capture-guarded) reads each V row once and is validated end-to-end on the real
+P40000/O16 API: decode 2,894.9 -> 2,478.1 ms for 15 steps (193.0 -> 165.2
+ms/step, 5.18 -> 6.05 tok/s, 1.17x; microbenchmark 1.66x per layer). The
+split path is NOT bit-exact (non-deterministic cross-chunk atomicAdd order)
+and the two runs produce different 16-token completions, so it is an
+evaluation route only; the production default remains the bit-exact
+unroll-128 kernel. The realistic batch-one ceiling with the split values path
+is weight floor 101.5 + split values ~24.0 + scores 38.6 + launch ~0.7 =
+~165 ms/step (~6.1 tok/s); the measured 165.2 ms/step (6.05 tok/s) matches
+it. The scores kernel's 6x GQA key read (38.6 ms/step) is the next candidate
+for the same treatment. The short-context 9.51 tok/s measurement is consistent
+with the floor. Evidence is frozen in the
+[decode split-values e2e record](metadata/qwen36-27b-decode-split-values-e2e-2026-09-26.json). This record requests owner adjudication among a batched-decode
 contract change (amortize the 18.52 GB weight read across concurrent
 requests), lower weight quantization (accuracy risk, outside the current
 production accuracy scope), or re-setting the P40000 target to a reachable
@@ -1025,20 +1035,26 @@ The scores kernel was examined for the same deep-unroll lever and confirmed
 **not applicable**: `attention_scores_warp_positions_24_4_256_kernel` is
 position-parallel (one warp per position) with the dimension reduction already
 a fully unrolled shuffle tree, so it has no serial position-FMA chain to
-unroll; its only redundancy is the 6x GQA key read, which is L2-absorbed.
+unroll; its only redundancy is the 6x GQA key read, which is the same kind of
+real DRAM cost as the values kernel's 6x V read (corrected above) and the
+next candidate for a split-chunk GQA-shared treatment.
 
-The 6x GQA redundancy was then attacked directly with a **bit-exact**
+The 6x GQA redundancy was first attacked with a **bit-exact**
 shared-memory merge: one block per KV head (1,024 threads, the sm_87 maximum)
 serves all six query heads from a single smem V tile, cutting the V read from
 6x to 1x while preserving each (query, dimension) position-ordered FMA
 sequence. It is bit-identical to the CPU oracle (0/6,144 diff at S=1024), but
-measured **3.19x slower** (8.865 vs 2.782 ms/layer): removing the L2 hit
-(forcing DRAM to supply 1x) is not worth it, because the 6x redundancy was
-already free via L2, and the 1,024-thread block collapses occupancy to 1
-block/SM and adds per-tile `__syncthreads`. This confirms both attention
-kernels are at their practical ceiling. The bit-exact local optimization route
-is therefore exhausted, and the remaining gap is dominated by the weight-read
-floor.
+measured **3.19x slower** (8.865 vs 2.782 ms/layer): the 1,024-thread block
+collapses occupancy to 1 block/SM and adds per-tile `__syncthreads`. (The
+original rejection reason -- 'the 6x redundancy was already free via L2' --
+was wrong and is corrected above.) The same merge re-shaped as a 512-thread
+split-chunk kernel (grid (chunks, 4), 32 KiB smem per block) removes the
+occupancy collapse and measures **1.66x faster** per layer (1.689 vs 2.799
+ms/layer at S=40000); its cost is bit-exactness (atomicAdd combine), which is
+why it ships as the opt-in evaluation route rather than the production
+default. The bit-exact local optimization route is exhausted at unroll-128;
+the non-bit-exact split route is the validated next lever, and the scores
+kernel's 6x GQA key read is the same treatment's next target.
 
 To qualify the unroll-128 values kernel beyond the 16-token check, a long-output
 stability run was performed at a short context (first 1089 tokens of the
