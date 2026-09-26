@@ -1,0 +1,50 @@
+{
+  "schema": "q3x.p40000-decode-unroll8-api-validation.v1",
+  "date": "2026-09-26",
+  "class": "T4 diagnostic + bounded bit-exact local optimization",
+  "originating_constraint": "Decode >=10 tok/s is the only reachable locked target (ADR-0003); the P40000 decode-step attribution (44842df) named the exact S>=65 values kernel as the primary attention lever",
+  "change": {
+    "file": "src/kernels/reference/decode_ops.cu",
+    "kernel": "attention_values_exact_24_4_256_kernel",
+    "edit": "#pragma unroll 4 -> #pragma unroll 8 on the serial position-ordered FMA loop",
+    "why_bit_exact": "unrolling preserves the position-ordered FMA sequence (value = fmaf(prob[pos], bf16(V), value)); it only raises memory-level parallelism so the compiler prefetches more V loads ahead of the dependency chain. No FMA reorder, no shared memory, no split-KV.",
+    "resource_delta": "registers 40 -> 36 (ATTENTION_VALUE_RESOURCES candidate_regs=36), static_shared stays 0"
+  },
+  "bit_exact_evidence": {
+    "component": "q3x_decode_ops_cuda_test: ATTENTION_VALUE_BINARY_IDENTITY finite_boundary_lengths=29 special_bf16=16 special_fp32=14 replay=enabled status=PASS; full suite 'CUDA decode-op reference tests passed'",
+    "e2e_api": "P40000/O16 /v1/completions 16 completion tokens byte-identical to the 44842df baseline: 'Based on the provided repository files, here is the analysis of the current state,'"
+  },
+  "real_api_result": {
+    "binary": ".q3x-work/build/orin-release/qwen3x-eval-server (rebuilt with unroll-8)",
+    "profile": "q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1",
+    "endpoint": "/v1/completions",
+    "body_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "prompt_tokens": 40000,
+    "completion_tokens": 16,
+    "pure_prefill_ms": 219639.56,
+    "ttft_ms": 219656.85,
+    "decode_after_first_ms": 3111.42,
+    "decode_steps": 15,
+    "decode_ms_per_step": 207.43,
+    "decode_tok_per_s": 4.82
+  },
+  "baseline_44842df": {
+    "decode_after_first_ms": 3855.8,
+    "decode_ms_per_step": 257.0,
+    "decode_tok_per_s": 3.89,
+    "pure_prefill_ms": 219500.0
+  },
+  "delta": {
+    "decode_saved_ms_total": 744.4,
+    "decode_saved_ms_per_step": 49.6,
+    "decode_speedup": 1.239,
+    "prefill_change_ms": "+139 (noise, prefill path untouched)",
+    "microbenchmark_prediction_ms_per_step": 48.0,
+    "note": "measured 49.6 ms/step saved matches the matched access-pattern microbenchmark (per-layer 6.4 -> 3.4 ms x 16 layers = 48 ms) almost exactly"
+  },
+  "claim_limits": [
+    "This is a bit-exact local optimization returned through the real P40000/O16 API, not a new production route and not a target re-scope.",
+    "Decode is 4.82 tok/s at P40000, still below the 10 tok/s locked target. The remaining gap requires reducing KV bytes read (GQA-redundant V loads) or a bit-exact position-parallel values dataflow, both of which are larger architecture changes.",
+    "No speedup is claimed for prefill; prefill is unchanged and remains hardware-bound per ADR-0003."
+  ]
+}

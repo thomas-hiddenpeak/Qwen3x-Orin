@@ -92,13 +92,16 @@
       "block": 256,
       "threads_total": 6144,
       "occupancy_note": "6144 threads / 16 SMs = 384/SM = 12 warps/SM; low occupancy for a bandwidth-bound kernel",
-      "effective_bw_gbps": 18.029556650246306,
-      "bw_utilization_of_d2d": 0.1889890634197726,
+      "effective_bw_gbps": null,
+      "bw_utilization_of_d2d": null,
       "gqa_redundancy": "kExactAttentionValuePositionStride = KvHeads(4)*HeadDim(256) = 1024; the 6 query heads per KV head each re-read the identical V row => 6x redundant global V traffic",
       "roofline_if_6x_removed": {
         "bytes": 335500000.0,
         "ms_at_95gbps": 3.5167714884696015
-      }
+      },
+      "effective_bw_note": "CORRECTION: the earlier '~2.6 GB/s / 2.7% of D2D' figure divided the unique K+V total (2.0 GB) by the values-kernel-only time, which is invalid. The values kernel reads V only: unique V per token = 16 layers x 40000 x 4 kv x 256 x 2B = 1.31 GB; with the 6x GQA redundancy that is 7.86 GB of global load requests over 111.7 ms = 70.4 GB/s if all reach DRAM (74% of the 95.4 GB/s D2D ceiling), or 11.8 GB/s if L2 absorbs all of the 6x redundancy. ncu is unavailable on Orin, so the exact DRAM traffic (and thus the redundancy's true cost) is not determined by this capture. The code-level facts are definitive: value_index is independent of query_within_kv, so the 6 query heads per KV head issue identical V loads, and the grid is only 6,144 threads (low occupancy for bandwidth work).",
+      "redundant_request_gbps_if_all_dram": 70.4,
+      "unique_v_gbps_if_l2_absorbs_all": 11.8
     },
     "scores_kernel": {
       "grid": "(24,5001,1)",
@@ -110,13 +113,14 @@
   },
   "conclusion": {
     "gap_driver": "The 2.5x P40000-vs-short decode gap (254 vs ~105 ms/token) is dominated by the two exact full-attention kernels (58.6% of the step), NOT by launch overhead (0.28%) and NOT by the fixed GEMV floor (already at its measured ceilings).",
-    "values_kernel_is_the_primary_lever": "attention_values_exact runs at ~2.6 GB/s effective (2.7% of the 95 GB/s D2D ceiling) with only 6144 threads and 6x GQA-redundant V reads. This is a kernel-efficiency defect, not a bandwidth wall.",
+    "values_kernel_is_the_primary_lever": "attention_values_exact is the largest single decode kernel (111.7 ms/token). Its value_index is independent of query_within_kv, so the 6 query heads per KV head issue identical V loads (6x redundant global requests), and its grid is only 6,144 threads. Whether that redundancy actually costs DRAM bandwidth (vs being absorbed by the 4 MB L2) is not determined by this nsys capture because ncu is unavailable on Orin. A matched access-pattern microbenchmark is the required next diagnostic before any production change.",
     "roofline": "Even reading the full 2.0 GB KV once at the 95 GB/s D2D ceiling is ~21 ms/token for attention; the GEMV weight floor (~13.5 GB at ~95 GB/s) is ~140 ms/token. So the hard P40000 floor is ~160 ms/token (~6.2 tok/s), below the 10 tok/s target. Reaching 10 tok/s at P40000 requires reducing KV bytes (FP8/quantized KV or a bandwidth-optimal attention dataflow) AND pushing the GEMV floor toward the measured read ceiling.",
     "short_context": "At short context the attention term is negligible and the ~105 ms/token is the GEMV floor; 9.51 tok/s is already ~95% of target and the remaining gap is GEMV read efficiency toward the 95 GB/s ceiling."
   },
   "rejected_or_bounded": [
     "launch-overhead / graph-cache extension to long positions: gap is 0.28%, not the lever",
     "fixed GEMV micro-optimization: ~54 prior records show these are at ceilings; not the P40000 lever",
-    "this record claims no speedup and selects no route; it names the architecture-level direction (bandwidth-optimal, GQA-redundancy-free exact attention for the S>=65 path) as the candidate to evaluate against the real P40000/O16 API"
+    "this record claims no speedup and selects no route; it names the architecture-level direction (bandwidth-optimal, GQA-redundancy-free exact attention for the S>=65 path) as the candidate to evaluate against the real P40000/O16 API",
+    "the '~2.7% of D2D ceiling' figure in the first draft of this record was an arithmetic error (unique K+V total divided by values-kernel-only time) and is superseded by the corrected values_kernel.effective_bw_note"
   ]
 }

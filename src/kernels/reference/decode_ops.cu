@@ -1331,7 +1331,13 @@ __global__ void attention_values_exact_24_4_256_kernel(
       dimension;
 
   float value = 0.0F;
-#pragma unroll 4
+  // Deeper unroll raises memory-level parallelism on the serial FMA chain
+  // without changing the position-ordered FMA sequence, so the BF16 result is
+  // bit-identical to the unroll-4 predecessor. The S>=65 exact values kernel is
+  // latency-bound (6,144 threads, one 40K-FMA dependency chain per output
+  // dimension); prefetching more V loads ahead of the chain is the only
+  // bit-exact lever that does not reorder the production numerical contract.
+#pragma unroll 8
   for (unsigned int position = 0U; position < sequence_length; ++position) {
     value = fmaf(probabilities[probability_index],
                  decode_bf16_device(value_cache[value_index]), value);
