@@ -245,46 +245,49 @@ class UniqueFd final {
 
 [[nodiscard]] OpenAIProductionIdentity production_identity(
     const EvaluationServerOptions& options) noexcept {
+  const EvaluationProductionDeploymentPlan& plan =
+      is_p40_whole_core_v1_production_profile(options)
+          ? kP40WholeCoreV1ProductionPlan
+          : plan;
   OpenAIProductionIdentity identity;
   identity.profile_id = to_string(options.production_profile);
-  identity.decode_route_id =
-      kP40ExactLegacyC512ProductionPlan.decode_route_id;
+  identity.decode_route_id = plan.decode_route_id;
   identity.target_prompt_tokens =
-      kP40ExactLegacyC512ProductionPlan.target_prompt_tokens;
+      plan.target_prompt_tokens;
   identity.maximum_output_tokens = options.maximum_output_tokens;
   identity.max_sequence_length = options.max_sequence_length;
   identity.request_arena_bytes = options.request_max_arena_bytes;
   identity.prefill_supermatrix_projections =
-      kP40ExactLegacyC512ProductionPlan.prefill_supermatrix_projections;
+      plan.prefill_supermatrix_projections;
   identity.prefill_supermatrix_sidecar_bytes =
-      kP40ExactLegacyC512ProductionPlan.prefill_supermatrix_sidecar_bytes;
+      plan.prefill_supermatrix_sidecar_bytes;
   identity.decode_fp8_output_layers =
-      kP40ExactLegacyC512ProductionPlan.decode_fp8_output_layers;
+      plan.decode_fp8_output_layers;
   identity.decode_fp8_output_sidecar_bytes =
-      kP40ExactLegacyC512ProductionPlan.decode_fp8_output_sidecar_bytes;
+      plan.decode_fp8_output_sidecar_bytes;
   identity.decode_gate_up_layers =
-      kP40ExactLegacyC512ProductionPlan.decode_gate_up_layers;
+      plan.decode_gate_up_layers;
   identity.decode_gate_up_sidecar_bytes =
-      kP40ExactLegacyC512ProductionPlan.decode_gate_up_sidecar_bytes;
+      plan.decode_gate_up_sidecar_bytes;
   identity.decode_down_scale6_layers =
-      kP40ExactLegacyC512ProductionPlan.decode_down_scale6_layers;
+      plan.decode_down_scale6_layers;
   identity.decode_down_scale6_sidecar_bytes =
-      kP40ExactLegacyC512ProductionPlan.decode_down_scale6_sidecar_bytes;
+      plan.decode_down_scale6_sidecar_bytes;
   identity.decode_down_consumer_order_layers =
-      kP40ExactLegacyC512ProductionPlan.decode_down_consumer_order_layers;
+      plan.decode_down_consumer_order_layers;
   identity.decode_down_consumer_order_sidecar_bytes =
-      kP40ExactLegacyC512ProductionPlan
+      plan
           .decode_down_consumer_order_sidecar_bytes;
   identity.decode_retained_sidecar_bytes =
-      kP40ExactLegacyC512ProductionPlan.decode_retained_sidecar_bytes;
+      plan.decode_retained_sidecar_bytes;
   identity.retained_acceleration_sidecar_bytes =
-      kP40ExactLegacyC512ProductionPlan.retained_acceleration_sidecar_bytes;
+      plan.retained_acceleration_sidecar_bytes;
   identity.decode_graph_first_position =
-      kP40ExactLegacyC512ProductionPlan.decode_graph_first_position;
+      plan.decode_graph_first_position;
   identity.decode_graph_last_position =
-      kP40ExactLegacyC512ProductionPlan.decode_graph_last_position;
+      plan.decode_graph_last_position;
   identity.decode_graph_slots =
-      kP40ExactLegacyC512ProductionPlan.decode_graph_slots;
+      plan.decode_graph_slots;
   identity.build_testing = kEvaluationGatewayBuildTesting;
   // This branch installs a named terminal-prefix engineering candidate. OFF
   // compilation and complete incumbent inventory do not qualify the candidate.
@@ -298,6 +301,70 @@ class UniqueFd final {
     const runtime::ReferenceEngineLoadStats& load,
     std::string& error) {
   if (options.development_route != EvaluationDevelopmentRoute::kNone) {
+    return true;
+  }
+  if (is_p40_whole_core_v1_production_profile(options)) {
+    const EvaluationProductionDeploymentPlan& plan =
+        kP40WholeCoreV1ProductionPlan;
+    if (load.fp8_prefill_supermatrix_sidecars_enabled ||
+        load.fp8_prefill_supermatrix_sidecar_projections != 0U ||
+        load.fp8_prefill_supermatrix_sidecar_bytes != 0U ||
+        !load.fp8_output_sidecars_enabled ||
+        load.fp8_output_sidecar_layers != plan.decode_fp8_output_layers ||
+        load.fp8_output_sidecar_bytes !=
+            plan.decode_fp8_output_sidecar_bytes ||
+        !load.fp8_output_sidecar_fallback_reason.empty() ||
+        load.nvfp4_gate_up_coupled_feed_requested ||
+        load.nvfp4_gate_up_coupled_feed_enabled ||
+        load.nvfp4_gate_up_coupled_feed_layers != 0U ||
+        load.nvfp4_gate_up_coupled_feed_bytes != 0U ||
+        load.nvfp4_gate_up_coupled_feed_production_requested ||
+        load.nvfp4_gate_up_coupled_feed_production_enabled ||
+        load.nvfp4_gate_up_coupled_feed_production_bytes != 0U ||
+        !load.nvfp4_down_scale6_sidecars_enabled ||
+        load.nvfp4_down_scale6_sidecar_eligible_layers !=
+            plan.decode_down_scale6_layers ||
+        load.nvfp4_down_scale6_sidecar_fallback_layers !=
+            runtime::kQwen36DenseLayerCount -
+                plan.decode_down_scale6_layers ||
+        load.nvfp4_down_scale6_sidecar_bytes !=
+            plan.decode_down_scale6_sidecar_bytes ||
+        !load.nvfp4_down_scale6_sidecar_fallback_reason.empty() ||
+        load.nvfp4_down_consumer_order_sidecars_requested ||
+        load.nvfp4_down_consumer_order_sidecars_enabled ||
+        load.nvfp4_down_consumer_order_sidecar_layers != 0U ||
+        load.nvfp4_down_consumer_order_sidecar_bytes != 0U ||
+        load.nvfp4_down_consumer_order_production_requested ||
+        load.nvfp4_down_consumer_order_production_enabled ||
+        load.nvfp4_down_consumer_order_production_bytes != 0U ||
+        load.decode_graph_cache_requested_policy !=
+            plan.decode_graph_cache_policy ||
+        load.decode_graph_cache_effective_policy !=
+            plan.decode_graph_cache_policy ||
+        load.decode_graph_cache_first_position !=
+            plan.decode_graph_first_position ||
+        load.decode_graph_cache_last_position !=
+            plan.decode_graph_last_position ||
+        load.decode_graph_cache_slot_count != plan.decode_graph_slots ||
+        !load.decode_graph_cache_fallback_reason.empty()) {
+      error = "the whole-core production route did not publish its exact "
+              "FP8 output, NVFP4 down scale-6, and short-position Graph "
+              "inventory";
+      std::ostringstream detail;
+      detail << error
+             << "; fp8_output_layers=" << load.fp8_output_sidecar_layers
+             << ", fp8_output_fallback="
+             << load.fp8_output_sidecar_fallback_reason
+             << ", down_scale6_layers="
+             << load.nvfp4_down_scale6_sidecar_eligible_layers
+             << ", down_scale6_fallback="
+             << load.nvfp4_down_scale6_sidecar_fallback_reason
+             << ", graph_slots=" << load.decode_graph_cache_slot_count
+             << ", graph_fallback="
+             << load.decode_graph_cache_fallback_reason;
+      error = detail.str();
+      return false;
+    }
     return true;
   }
   const EvaluationProductionDeploymentPlan& plan =
@@ -1152,6 +1219,7 @@ void emit_target_prefill_witness(
     const std::shared_ptr<InferenceJob>& job,
     const ObserverContext& observer,
     const runtime::ReferenceGeneration& generation,
+    const EvaluationServerOptions& options,
     const Clock::time_point execution_started_at,
     const Clock::time_point generation_started_at,
     const Clock::time_point generation_finished_at,
@@ -1327,6 +1395,8 @@ void emit_target_prefill_witness(
     record.vllm_marlin_parity_layer_completion_receipt_count =
         generation.prefill_vllm_marlin_parity_layer_completion_receipt_count;
     record.deployment_plan_id = generation.prefill_deployment_plan_id;
+    record.whole_core_production_qualified =
+        is_p40_whole_core_v1_production_profile(options);
     record.request_state_reset = generation.request_state_reset;
     std::cerr << serialize_target_prefill_witness(record) << '\n';
   } catch (...) {
@@ -1556,7 +1626,7 @@ void execute_job(runtime::ReferenceEngine& engine,
   }
   const Clock::time_point response_ready_at = Clock::now();
   emit_target_prefill_witness(
-      engine, job, observer, *generated.value, execution_started_at,
+      engine, job, observer, *generated.value, options, execution_started_at,
       generation_started_at, generation_finished_at, response_ready_at);
 }
 
@@ -1835,7 +1905,23 @@ void handle_connection(
           400, "p40_whole_core_v10_contract",
           "the p40-whole-core-v10 development route accepts only streaming "
           "/v1/completions requests with exactly 40000 token IDs and "
-          "max_tokens=1 plus stream_options.include_usage=true");
+          "max_tokens=16 plus stream_options.include_usage=true");
+      if (!send_fixed_response(connection.get(), error.http_status,
+                               serialize_openai_error(error),
+                               !final_connection_request,
+                               options.write_timeout_milliseconds) ||
+          final_connection_request) {
+        return;
+      }
+      continue;
+    }
+    if (is_p40_whole_core_v1_production_profile(options) &&
+        !is_p40_whole_core_v10_request(*parsed.value)) {
+      const OpenAIProtocolError error = simple_error(
+          400, "p40_whole_core_v1_contract",
+          "the p40-whole-core-v1 production profile accepts only streaming "
+          "/v1/completions requests with exactly 40000 token IDs and "
+          "max_tokens=16 plus stream_options.include_usage=true");
       if (!send_fixed_response(connection.get(), error.http_status,
                                serialize_openai_error(error),
                                !final_connection_request,
@@ -2030,12 +2116,15 @@ void ingress_worker(
   const bool p40_whole_core_v10_tactic =
       options.prefill_projection_tactic == runtime::
           LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore;
-  if (p40_whole_core_v10_selected != p40_whole_core_v10_tactic) {
+  const bool p40_whole_core_v1_production =
+      is_p40_whole_core_v1_production_profile(options);
+  if (p40_whole_core_v10_selected != p40_whole_core_v10_tactic &&
+      !p40_whole_core_v1_production) {
     error = "the p40 whole-core v10 tactic requires the single explicit "
             "p40-whole-core-v10 development-route acknowledgement";
     return false;
   }
-  if (!p40_whole_core_v10_selected) {
+  if (!p40_whole_core_v10_selected && !p40_whole_core_v1_production) {
     if (!is_p40_exact_legacy_c512_production_profile(options)) {
       error = "the ordinary server requires the sealed P40 exact "
               "Legacy-C512/SM87 deployment profile";
@@ -2066,8 +2155,14 @@ void ingress_worker(
             "development route";
     return false;
   }
+#elif defined(Q3X_ENABLE_P40_WHOLE_CORE_PRODUCTION_ROUTE)
+  if (p40_whole_core_v10_selected) {
+    error = "this binary does not contain the P40 whole-core development "
+            "route; use --production-profile p40-whole-core-v1 instead";
+    return false;
+  }
 #else
-  if (!p40_whole_core_v10_selected) {
+  if (!p40_whole_core_v10_selected && !p40_whole_core_v1_production) {
     error = "the P40 development binary requires the explicit "
             "p40-whole-core-v10 development-route selector";
     return false;

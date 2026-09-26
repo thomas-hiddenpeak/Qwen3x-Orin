@@ -37,6 +37,7 @@ struct EvaluationApiKeyLoadResult {
 enum class EvaluationProductionProfile : std::uint8_t {
   kNone = 0,
   kP40ExactLegacyC512,
+  kP40WholeCoreV1,
 };
 
 struct EvaluationProductionDeploymentPlan {
@@ -135,10 +136,96 @@ static_assert(
     kP40ExactLegacyC512ProductionPlan.prefill_supermatrix_sidecar_bytes +
         kP40ExactLegacyC512ProductionPlan.decode_retained_sidecar_bytes);
 
+// The qualified whole-core production deployment. Fixed P40000/O16 geometry
+// (whole-prompt layer-major Prefill, FlashInfer whole-prompt Attention,
+// native prompt-wide whole-core projection, 8.64 GiB request arena). It is a
+// distinct sealed plan, not a general-purpose capacity envelope: it serves
+// exactly the pinned 40000-token prompt with up to 16 output tokens and
+// trades the production plan's 4096-token output capacity for a ~2.4x faster
+// Prefill. Owner-promoted 2026-09-26 after the full-state accuracy
+// qualification (ADR-0002).
+inline constexpr EvaluationProductionDeploymentPlan
+    kP40WholeCoreV1ProductionPlan{
+        EvaluationProductionProfile::kP40WholeCoreV1,
+        "q3x.sm87.production.p40.whole-core.v1",
+        "q3x.sm87.decode.coupled-feed-down-consumer-order.v1",
+        40'000U,
+        16U,
+        40'016U,
+        runtime::kMaximumRequestPrefillChunkSize,
+        8'641'684'992ULL,
+        4ULL * 1024ULL * 1024ULL * 1024ULL,
+        0U,
+        0U,
+        runtime::kQwen36DenseLayerCount,
+        runtime::kQwen36Fp8M1OutputProjectionAosoa4PreswizzledBytes,
+        0U,
+        0U,
+        runtime::kQwen36NvFp4DownScale6LayerCount,
+        runtime::kQwen36NvFp4DownScale6SidecarBytes,
+        0U,
+        0U,
+        2'234'695'680ULL,
+        2'234'695'680ULL,
+        runtime::ReferenceDecodeGraphCachePolicy::kSm87ShortPositions,
+        19U,
+        43U,
+        25U,
+        runtime::ProjectionBackend::kSm87WeightOnly,
+        runtime::ReferencePrefillExecutionMode::kWholeRequestLayerMajor,
+        runtime::LayerMajorPrefillFullAttentionTactic::
+            kNativeFlashInferExactWholePrompt,
+        runtime::LayerMajorPrefillProjectionTactic::
+            kNativePromptWideP40WholeCore,
+    };
+
+// The whole-core planner sizes the request arena from the full
+// prompt+output capacity (40'000 + 16 = 40'016), not the legacy
+// prompt+output-1 bound: the whole-prompt Prefill consumes all 40'000
+// prompt rows and the Decode capacity must hold all 16 output rows.
+static_assert(kP40WholeCoreV1ProductionPlan.max_sequence_length ==
+              kP40WholeCoreV1ProductionPlan.target_prompt_tokens +
+                  kP40WholeCoreV1ProductionPlan.maximum_output_tokens);
+// 40'016U == runtime::kLayerMajorP40WholeCoreRequestCapacityTokens
+// (prefill_workspace_plan.h); the header is not included here.
+static_assert(kP40WholeCoreV1ProductionPlan.max_sequence_length == 40'016U);
+// Whole-core Prefill does not build the Legacy-C512 prefill supermatrix; the
+// only retained decode sidecars are the unconditional FP8 output projection
+// and the NVFP4 down scale-6 sidecar (both enabled for the SM87 weight-only
+// backend). Gate-up coupled feed and down consumer order are Legacy-C512
+// decode-route accelerations and stay zero on this route.
+static_assert(kP40WholeCoreV1ProductionPlan.prefill_supermatrix_projections == 0U);
+static_assert(kP40WholeCoreV1ProductionPlan.prefill_supermatrix_sidecar_bytes == 0U);
+static_assert(kP40WholeCoreV1ProductionPlan.decode_gate_up_layers == 0U);
+static_assert(kP40WholeCoreV1ProductionPlan.decode_gate_up_sidecar_bytes == 0U);
+static_assert(kP40WholeCoreV1ProductionPlan.decode_down_consumer_order_layers == 0U);
+static_assert(kP40WholeCoreV1ProductionPlan.decode_down_consumer_order_sidecar_bytes == 0U);
+static_assert(
+    kP40WholeCoreV1ProductionPlan.decode_fp8_output_sidecar_bytes ==
+    kP40WholeCoreV1ProductionPlan.decode_fp8_output_layers *
+        runtime::kQwen36Fp8M1OutputProjectionAosoa4PreswizzledBytes /
+        runtime::kQwen36DenseLayerCount);
+static_assert(
+    kP40WholeCoreV1ProductionPlan.decode_down_scale6_sidecar_bytes ==
+    kP40WholeCoreV1ProductionPlan.decode_down_scale6_layers *
+        runtime::kNvFp4DownScale6SidecarBytesPerProjection);
+static_assert(
+    kP40WholeCoreV1ProductionPlan.decode_retained_sidecar_bytes ==
+    kP40WholeCoreV1ProductionPlan.decode_fp8_output_sidecar_bytes +
+        kP40WholeCoreV1ProductionPlan.decode_gate_up_sidecar_bytes +
+        kP40WholeCoreV1ProductionPlan.decode_down_scale6_sidecar_bytes +
+        kP40WholeCoreV1ProductionPlan
+            .decode_down_consumer_order_sidecar_bytes);
+static_assert(
+    kP40WholeCoreV1ProductionPlan.retained_acceleration_sidecar_bytes ==
+    kP40WholeCoreV1ProductionPlan.prefill_supermatrix_sidecar_bytes +
+        kP40WholeCoreV1ProductionPlan.decode_retained_sidecar_bytes);
+
 [[nodiscard]] constexpr bool is_valid_evaluation_production_profile(
     const EvaluationProductionProfile profile) noexcept {
   return profile == EvaluationProductionProfile::kNone ||
-         profile == EvaluationProductionProfile::kP40ExactLegacyC512;
+         profile == EvaluationProductionProfile::kP40ExactLegacyC512 ||
+         profile == EvaluationProductionProfile::kP40WholeCoreV1;
 }
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -148,6 +235,8 @@ static_assert(
       return "none";
     case EvaluationProductionProfile::kP40ExactLegacyC512:
       return kP40ExactLegacyC512ProductionPlan.id;
+    case EvaluationProductionProfile::kP40WholeCoreV1:
+      return kP40WholeCoreV1ProductionPlan.id;
   }
   return "unknown";
 }
@@ -296,6 +385,31 @@ class EvaluationProductionRuntimeHealth final {
          options.request_max_arena_bytes == 8'641'684'992ULL &&
          options.request_min_free_bytes_after_create ==
              4ULL * 1024ULL * 1024ULL * 1024ULL &&
+         options.inference_queue_capacity == 1U &&
+         options.ingress_threads == 3U;
+}
+
+// Sealed production whole-core profile: same fixed geometry as the
+// development route, selected through the production profile instead of the
+// development-route acknowledgement.
+[[nodiscard]] inline bool is_p40_whole_core_v1_production_profile(
+    const EvaluationServerOptions& options) noexcept {
+  const EvaluationProductionDeploymentPlan& plan =
+      kP40WholeCoreV1ProductionPlan;
+  return options.production_profile == plan.profile &&
+         options.development_route == EvaluationDevelopmentRoute::kNone &&
+         options.max_sequence_length == plan.max_sequence_length &&
+         options.maximum_output_tokens == plan.maximum_output_tokens &&
+         options.prefill_chunk_size == plan.prefill_chunk_size &&
+         options.request_max_arena_bytes == plan.request_arena_bytes &&
+         options.request_min_free_bytes_after_create ==
+             plan.min_free_bytes_after_create &&
+         options.projection_backend == plan.projection_backend &&
+         options.prefill_execution_mode == plan.prefill_execution_mode &&
+         options.prefill_full_attention_tactic ==
+             plan.prefill_full_attention_tactic &&
+         options.prefill_projection_tactic ==
+             plan.prefill_projection_tactic &&
          options.inference_queue_capacity == 1U &&
          options.ingress_threads == 3U;
 }

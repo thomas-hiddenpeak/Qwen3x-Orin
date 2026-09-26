@@ -27,7 +27,9 @@ void PrintUsage(std::ostream& output) {
   output
       << "Qwen3x-Orin evaluation server " Q3X_VERSION_STRING "\n\n"
       << "Usage:\n"
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_PRODUCTION_ROUTE)
+      << "  qwen3x-eval-server MODEL_DIR [options]\n\n"
+#elif defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
       << "  qwen3x-eval-server-p40-v10-dev MODEL_DIR [options]\n\n"
 #else
       << "  qwen3x-eval-server MODEL_DIR [options]\n\n"
@@ -37,7 +39,17 @@ void PrintUsage(std::ostream& output) {
       << "  --port N                    TCP port (default 8000)\n"
       << "  --model ID                  Served OpenAI model id\n"
       << "  --api-key-file PATH         Owner-only 0400/0600 Bearer credential\n";
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_PRODUCTION_ROUTE)
+  output
+      << "  --production-profile p40-whole-core-v1\n"
+      << "                              Accuracy-qualified whole-core deployment:\n"
+      << "                              P40000 prompt, 16 output ceiling,\n"
+      << "                              40016 resident whole-prompt/SM87 capacity\n"
+      << "  Default deployment profile: "
+      << q3x::server::kP40ExactLegacyC512ProductionPlan.id << "\n"
+      << "                              P40000 prompt, 4096 output ceiling,\n"
+      << "                              44095 resident Legacy-C512/SM87 capacity\n";
+#elif defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   output
       << "  --development-route p40-whole-core-v10\n"
       << "                              Accuracy-unqualified exact-P40000 baseline\n";
@@ -49,7 +61,8 @@ void PrintUsage(std::ostream& output) {
       << "                              44095 resident Legacy-C512/SM87 capacity\n"
       << "                              Engineering candidate; not production/release qualified\n";
 #endif
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE) && \
+    !defined(Q3X_ENABLE_P40_WHOLE_CORE_PRODUCTION_ROUTE)
   output
       << "  --max-sequence-length N     Resident request capacity (default 8192)\n"
       << "  --max-output-tokens N       Per-request output ceiling (default 4096)\n"
@@ -130,6 +143,7 @@ template <typename T>
   }
 #if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   bool p40_whole_core_v10_requested = false;
+  bool p40_whole_core_v1_production_requested = false;
   bool development_profile_override_seen = false;
 #endif
   bool api_key_file_seen = false;
@@ -155,6 +169,18 @@ template <typename T>
         return false;
       }
       p40_whole_core_v10_requested = true;
+      continue;
+    }
+    if (argument == "--production-profile") {
+      if (value != "p40-whole-core-v1") {
+        error = "--production-profile must be p40-whole-core-v1";
+        return false;
+      }
+      if (p40_whole_core_v1_production_requested) {
+        error = "--production-profile may be specified only once";
+        return false;
+      }
+      p40_whole_core_v1_production_requested = true;
       continue;
     }
 #endif
@@ -380,6 +406,40 @@ template <typename T>
         q3x::server::EvaluationDevelopmentRoute::kP40WholeCoreV10;
     options.production_profile =
         q3x::server::EvaluationProductionProfile::kNone;
+    options.max_sequence_length = 40'016U;
+    options.maximum_output_tokens = 16U;
+    options.prefill_chunk_size =
+        q3x::runtime::kMaximumRequestPrefillChunkSize;
+    options.prefill_execution_mode = q3x::runtime::
+        ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+    options.prefill_full_attention_tactic = q3x::runtime::
+        LayerMajorPrefillFullAttentionTactic::
+            kNativeFlashInferExactWholePrompt;
+    options.prefill_projection_tactic = q3x::runtime::
+        LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore;
+    options.projection_backend =
+        q3x::runtime::ProjectionBackend::kSm87WeightOnly;
+    options.request_max_arena_bytes = 8'641'684'992ULL;
+    options.request_min_free_bytes_after_create =
+        4ULL * 1024ULL * 1024ULL * 1024ULL;
+    options.inference_queue_capacity = 1U;
+    options.ingress_threads = 3U;
+  }
+  if (p40_whole_core_v1_production_requested) {
+    if (p40_whole_core_v10_requested) {
+      error = "--production-profile and --development-route are mutually "
+              "exclusive";
+      return false;
+    }
+    if (development_profile_override_seen) {
+      error = "--production-profile is atomic and cannot be combined with "
+              "individual execution, capacity, memory, or queue options";
+      return false;
+    }
+    options.development_route =
+        q3x::server::EvaluationDevelopmentRoute::kNone;
+    options.production_profile =
+        q3x::server::EvaluationProductionProfile::kP40WholeCoreV1;
     options.max_sequence_length = 40'016U;
     options.maximum_output_tokens = 16U;
     options.prefill_chunk_size =

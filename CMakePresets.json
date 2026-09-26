@@ -27,6 +27,18 @@
         "Q3X_CUDA_ARCHITECTURES": "87",
         "Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE": "ON"
       }
+    },
+    {
+      "name": "orin-p40-whole-core-prod",
+      "displayName": "Jetson Orin P40 whole-core production deployment",
+      "description": "Owner-promoted, accuracy-qualified P40 whole-core production route; fixed P40000/O16 geometry",
+      "binaryDir": "${sourceDir}/.q3x-work/build/orin-p40-whole-core-prod",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "OFF",
+        "Q3X_CUDA_ARCHITECTURES": "87",
+        "Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -37,6 +49,11 @@
     {
       "name": "orin-p40-whole-core-dev",
       "configurePreset": "orin-p40-whole-core-dev",
+      "targets": ["qwen3x-eval-server"]
+    },
+    {
+      "name": "orin-p40-whole-core-prod",
+      "configurePreset": "orin-p40-whole-core-prod",
       "targets": ["qwen3x-eval-server"]
     }
   ],

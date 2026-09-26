@@ -1270,3 +1270,84 @@ Remaining: the four-layer production gate (CMake admissions, compile
 macros, server gate, production plan) with an owner decision record,
 including the capacity tradeoff (fixed P40000 geometry, arena
 8'641'684'992 B vs the production plan's 3'070'908'416 B, O16 vs O4096).
+
+## Production promotion: whole-core is the second qualified deployment profile (2026-09-26)
+
+Owner decision: promote the whole-core route from the accuracy-unqualified
+development baseline to a second, sealed production deployment profile,
+`kP40WholeCoreV1` (`q3x.sm87.production.p40.whole-core.v1`), alongside the
+existing Legacy-C512 production plan. The promotion is selected at process
+start with `--production-profile p40-whole-core-v1`; the default binary
+behavior and the Legacy-C512 plan are unchanged.
+
+### Capacity tradeoff (owner-accepted)
+
+- Fixed geometry: exactly 40'000 prompt tokens, up to 16 output tokens
+  (max sequence 40'016). The profile is not a general-purpose capacity
+  envelope; requests outside the P40000/O16 streaming completions contract
+  are rejected at admission.
+- Request arena 8'641'684'992 B vs the Legacy-C512 plan's 3'070'908'416 B:
+  the whole-prompt layer-major Prefill keeps all 40'000 prompt rows live for
+  one layer pass, and the decode capacity must hold all 16 output rows
+  (40'016, not the legacy prompt+output-1 bound).
+- O16 vs the production plan's O4096: the whole-core profile trades output
+  capacity for a whole-prompt Prefill that is ~2.4x faster on the pinned
+  workload. Long-output deployments continue to use the Legacy-C512 plan.
+- Retained sidecars differ by construction: whole-core Prefill does not
+  build the FP8 prefill supermatrix (0 projections), and the gate-up
+  coupled feed / down consumer order decode accelerations are Legacy-C512
+  decode-route features (0 layers). The unconditional FP8 output (64
+  layers, 2'013'265'920 B) and NVFP4 down scale-6 (53 layers,
+  221'429'760 B) sidecars are retained, for 2'234'695'680 B total.
+
+### Four-layer production gate
+
+1. **CMake**: `Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE` (default OFF)
+   shadows the same nine-item whole-core inventory; the production binary
+   keeps the canonical `qwen3x-eval-server` name (the dev artifact keeps
+   its `-p40-v10-dev` suffix). New preset `orin-p40-whole-core-prod`.
+2. **Compile macros**: `Q3X_ENABLE_P40_WHOLE_CORE_PRODUCTION_ROUTE` is
+   defined on both the gateway and the server target so the option gate in
+   `valid_options` sees the production build.
+3. **Server gate**: `valid_options` accepts exactly one of {Legacy-C512
+   production profile, whole-core production profile, dev route}; the
+   whole-core production profile is validated field-by-field against
+   `kP40WholeCoreV1ProductionPlan` (including queue capacity 1 and
+   ingress threads 3). `valid_production_load_receipt` has a dedicated
+   whole-core branch that fail-closes on any deviation from the captured
+   load inventory, and `EvaluationProductionRuntimeHealth` reuses the same
+   receipt after every request.
+4. **Witness**: the engine still emits the dev candidate plan ID (v10
+   schema stability); the server sets `whole_core_production_qualified`
+   from the sealed profile, and the witness then reports
+   `qualification: accuracy-qualified-production-deployment` with
+   `numerical_contract.qualified: true` instead of the unqualified
+   candidate block.
+
+### Real-model verification (2026-09-26)
+
+Production binary (`orin-p40-whole-core-prod`, Release, BUILD_TESTING=OFF),
+clean host preflight (0 competing processes, sync + drop_caches), P40000/O16
+streaming request:
+
+- Generation wall 94.1 s (prefill 89.98 s, decode 3.87 s); 16 tokens.
+- Output text sha256 `b46aecad...860869fcba` — **bitwise identical to the
+  dev route output** on the same request.
+- Witness (schema v10): `deployment_plan.id =
+  q3x.sm87.ac-prefill-prompt-wide-v2.native-p40-whole-core.v1`,
+  `qualification = accuracy-qualified-production-deployment`,
+  `numerical_contract.qualified = true`,
+  `disabled_boundaries.scope = production_contract`.
+- `/v1/models` identity reports the whole-core plan's exact sidecar
+  inventory (supermatrix 0, gate_up 0, down_consumer 0, fp8_output
+  64/2'013'265'920, down_scale6 53/221'429'760, retained
+  2'234'695'680, graph 19/43/25).
+- Negative tests (all rc=2, rejected before model load):
+  `--development-route` on the production binary; unknown
+  `--production-profile`; `--production-profile` combined with any
+  individual capacity/execution override; `--production-profile` combined
+  with `--development-route`.
+
+Evidence bundle (gitignored):
+`.q3x-work/evidence/whole-core-prod-gate-20260926/` (server.log,
+response.json, witness.json, verification.json, negative-tests.json).
