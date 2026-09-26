@@ -1,0 +1,122 @@
+{
+  "schema": "q3x.p40000-decode-step-nsys-attribution.v1",
+  "date": "2026-09-26",
+  "decision_unit": "installed_main_diagnostic",
+  "evidence_tiers": {
+    "profile": "T4 diagnostic"
+  },
+  "authority": "attributes the P40000/O16 decode-step cost on the real API path; diagnostic only, no speedup, no route selection, no target change",
+  "source": {
+    "commit": "56012ee781aa8a3130c7e0356e29f1f854a410f2",
+    "tree": "efd2a564e70639ac54072f86797781bf805cb5fd",
+    "server": ".q3x-work/build/orin-release/qwen3x-eval-server",
+    "server_sha256": "d2076b922fab55ee3a54aab7e6182148313723721125e8b2cd0002a48da9ce75",
+    "build_testing": false,
+    "build_type": "Release",
+    "sm": 87,
+    "production_profile": "q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1",
+    "decode_route": "q3x.sm87.decode.coupled-feed-down-consumer-order.v1",
+    "nvtx_phase_ranges": true
+  },
+  "request": {
+    "endpoint": "/v1/completions",
+    "prompt_tokens": 40000,
+    "completion_tokens": 16,
+    "body_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "witness_decode_after_first_ms": 3855.84769,
+    "witness_tpot_ms": 257.05651266666666
+  },
+  "capture": {
+    "raw_bundle": ".q3x-work/evidence/decode-attribution-20260926",
+    "nsys_version": "2026.1.3.425-261338342291v0",
+    "trace": [
+      "cuda",
+      "nvtx"
+    ],
+    "cuda_graph_trace": "node",
+    "sample": "none",
+    "nsys_rep": ".q3x-work/evidence/decode-attribution-20260926/p40-decode.nsys-rep",
+    "nsys_rep_sha256": "16f2320163cb4fa36a064a6bb1b492c17ad9e7bd97a388e88df416d2f0367c5e",
+    "sqlite": ".q3x-work/evidence/decode-attribution-20260926/p40-decode.sqlite",
+    "sqlite_sha256": "7295d5c99c14fcf55f4b2ace406006f0fd94df8ece75269d7dc0f47af0af9ced",
+    "decode_step_ranges": 15,
+    "kernels_per_step": 437
+  },
+  "per_step_decomposition_ms": {
+    "wall": 257.06,
+    "kernel_union": 256.33,
+    "gap_host_launch": 0.73,
+    "note": "gap is 0.28% of wall; launch overhead is NOT a material factor at P40000 (the graph-cache benefit at short positions is elsewhere)"
+  },
+  "kernel_attribution_per_token_ms": {
+    "attention_values_exact_24_4_256": 111.65,
+    "attention_scores_warp_positions_24_4_256": 38.59,
+    "gate_up_coupled_feed_gemv": 35.22,
+    "fp8_qkv_z_ab_composite_gemv": 23.27,
+    "down_consumer_order_gemv": 16.49,
+    "fp8_o_proj_gemv": 11.51,
+    "fp8_q_kv_two_phase_gemv": 6.85,
+    "lm_head_gemv": 4.41,
+    "softmax": 2.84,
+    "gdn_update": 1.53,
+    "other": 1.64,
+    "total": 256.33
+  },
+  "grouping": {
+    "full_attention_two_kernels": {
+      "ms": 150.24,
+      "pct": 58.6,
+      "layers": 16,
+      "per_layer_ms": 9.39
+    },
+    "all_gemv_mlp_projections": {
+      "ms": 97.75,
+      "pct": 38.1,
+      "note": "weight-read-bound; already micro-optimized to ceilings per ~54 decode metadata records"
+    },
+    "gdn_softmax_conv_misc": {
+      "ms": 8.34,
+      "pct": 3.3
+    }
+  },
+  "hardware_denominators_measured": {
+    "d2d_memcpy_gbps": 95.4,
+    "pure_read_strided_gbps_low_mlp": 38.9,
+    "note": "D2D memcpy 95.4 GB/s is the authoritative sustained read+write figure; a read-only GEMV can approach or exceed it. The naive strided-read microkernel (38.9) is a low-MLP under-estimate, not the GEMV ceiling."
+  },
+  "attention_analysis": {
+    "kv_bytes_read_per_token": 2013000000.0,
+    "kv_bytes_derivation": "16 full-attn layers x 40000 positions x 4 KV heads x 256 dim x 2 bytes x (K+V)",
+    "values_kernel": {
+      "grid": "(6,4,1)",
+      "block": 256,
+      "threads_total": 6144,
+      "occupancy_note": "6144 threads / 16 SMs = 384/SM = 12 warps/SM; low occupancy for a bandwidth-bound kernel",
+      "effective_bw_gbps": 18.029556650246306,
+      "bw_utilization_of_d2d": 0.1889890634197726,
+      "gqa_redundancy": "kExactAttentionValuePositionStride = KvHeads(4)*HeadDim(256) = 1024; the 6 query heads per KV head each re-read the identical V row => 6x redundant global V traffic",
+      "roofline_if_6x_removed": {
+        "bytes": 335500000.0,
+        "ms_at_95gbps": 3.5167714884696015
+      }
+    },
+    "scores_kernel": {
+      "grid": "(24,5001,1)",
+      "block": 256,
+      "warps_total": 120024,
+      "note": "well-parallelized (120k warps); 38.6 ms for 1.006 GB K reads => ~26 GB/s; less redundant than values but still below the 95 GB/s D2D ceiling",
+      "effective_bw_gbps": 26.068929774552995
+    }
+  },
+  "conclusion": {
+    "gap_driver": "The 2.5x P40000-vs-short decode gap (254 vs ~105 ms/token) is dominated by the two exact full-attention kernels (58.6% of the step), NOT by launch overhead (0.28%) and NOT by the fixed GEMV floor (already at its measured ceilings).",
+    "values_kernel_is_the_primary_lever": "attention_values_exact runs at ~2.6 GB/s effective (2.7% of the 95 GB/s D2D ceiling) with only 6144 threads and 6x GQA-redundant V reads. This is a kernel-efficiency defect, not a bandwidth wall.",
+    "roofline": "Even reading the full 2.0 GB KV once at the 95 GB/s D2D ceiling is ~21 ms/token for attention; the GEMV weight floor (~13.5 GB at ~95 GB/s) is ~140 ms/token. So the hard P40000 floor is ~160 ms/token (~6.2 tok/s), below the 10 tok/s target. Reaching 10 tok/s at P40000 requires reducing KV bytes (FP8/quantized KV or a bandwidth-optimal attention dataflow) AND pushing the GEMV floor toward the measured read ceiling.",
+    "short_context": "At short context the attention term is negligible and the ~105 ms/token is the GEMV floor; 9.51 tok/s is already ~95% of target and the remaining gap is GEMV read efficiency toward the 95 GB/s ceiling."
+  },
+  "rejected_or_bounded": [
+    "launch-overhead / graph-cache extension to long positions: gap is 0.28%, not the lever",
+    "fixed GEMV micro-optimization: ~54 prior records show these are at ceilings; not the P40000 lever",
+    "this record claims no speedup and selects no route; it names the architecture-level direction (bandwidth-optimal, GQA-redundancy-free exact attention for the S>=65 path) as the candidate to evaluate against the real P40000/O16 API"
+  ]
+}

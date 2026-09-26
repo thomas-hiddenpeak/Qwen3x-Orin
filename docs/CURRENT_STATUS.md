@@ -778,7 +778,7 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | Target-length Prefill | Current installed main executes terminal layer-63 prefix elision with incumbent QT2/GroupQ64, exact-span GDN, and prompt-wide preprocessing; its actual P40000/O16 request reports 60.271514903 prompt tok/s | Complete accuracy, P60/P130, the 2s/4s targets, and further accuracy-preserving whole-product optimization remain open; closed lineages and same-skeleton span scans remain excluded |
 | SM87 whole-system AOT Prefill candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` is default-off, non-executable, and paused. Real-checkpoint upload/readback/private attachment plus the layer-0 M192 Oracle remain retained prerequisites. The P40000 BF16-HMMA skeleton is rejected at 225.7838x over budget, and `bmma-static-support-k16-parent-zero-fill-v2` is separately rejected before CUDA after its authenticated mandatory-instruction lower bound exceeds the complete five-second projection allocation | No active AOT implementation gate. Resumption requires an explicitly named materially different exact arithmetic/dataflow class with a new bounded proof or a successor architecture; persisted direct loading remains prerequisite work only after such a resumption |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
-| Decode | Exact S>=65 fallback plus retained coupled-feed/consumer-order layouts and fixed short-position Graph cache; current-main short integration reports 9.553634715 tok/s and P40 reports 3.939689060 tok/s | Long-output stability, independent repetition, target-length behavior, and at least 10 tok/s remain to be qualified |
+| Decode | Exact S>=65 fallback plus retained coupled-feed/consumer-order layouts and fixed short-position Graph cache; current-main short integration reports 9.553634715 tok/s and P40 reports 3.939689060 tok/s. The 2026-09-26 P40000 decode-step nsys attribution (T4) shows the 254 ms/token step is 58.6% exact full-attention (values kernel at ~2.7% of the measured 95 GB/s D2D ceiling with 6x GQA-redundant V reads, 6,144 threads) and 38.1% weight-read GEMV at its prior ceilings; launch overhead is 0.28% | Long-output stability, independent repetition, target-length behavior, and at least 10 tok/s remain to be qualified; the named direction is a bandwidth-optimal, GQA-redundancy-free exact S>=65 attention dataflow returned through the real P40000/O16 API |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
 | Canonical release artifact | Fresh main `230eac1` installs 0.7.0 Release/OFF terminal-prefix.v1 ELF `270a6bb4...`; P40 and short integration pass with `production_eligible=false` and `release_qualified=false` | Complete accuracy, capability, target-length repetition, and stability/release attestation remain incomplete |
 | Automated release lane | Designed only | Local tests and policies exist, but no checked-in Orin release workflow enforces the complete gate |
@@ -920,6 +920,28 @@ cross-checks, and diagnostic-only limits are frozen in the
 The same installed-main artifact also passed the short EvalScope integration
 closeout in section 1; these earlier observations did not qualify or select
 either Prefill candidate.
+
+### P40000 decode-step attribution, 2026-09-26 (T4 diagnostic)
+
+A fresh nsys capture of one real P40000/O16 API request on the installed
+`orin-release` Legacy-C512 server (commit `56012ee`, `--nvtx-phase-ranges`)
+attributes the 254 ms/token decode step (15 steps, 437 kernels each, witness
+3,855.8 ms after first token). The step is 99.7% GPU kernels with a 0.28%
+host-launch gap, so launch overhead and Graph-cache extension are not the
+P40000 lever. Full attention over the 40K KV is 58.6% of the step:
+`attention_values_exact_24_4_256` at 111.7 ms/token (grid 6x4x256 = 6,144
+threads; 2.0 GB of KV read at ~2.6 GB/s effective, ~2.7% of the measured
+95.4 GB/s D2D memcpy ceiling; the 6 query heads per KV head each re-read the
+identical V row, a 6x redundancy) and
+`attention_scores_warp_positions_24_4_256` at 38.6 ms/token (well-parallelized
+at 120,024 warps, ~26 GB/s). The remaining 38.1% is the weight-read GEMV/MLP
+floor, already at its measured ceilings per the retained decode sidecar
+records. The hard P40000 floor is therefore ~160 ms/token (~6.2 tok/s) even at
+the D2D ceiling, so the 10 tok/s target at P40000 additionally requires
+reducing KV bytes read. Exact identities, per-kernel table, and claim limits
+are frozen in the
+[P40000 decode-step attribution record](metadata/qwen36-27b-p40000-decode-step-attribution-2026-09-26.json).
+This is a T4 diagnostic; it claims no speedup and selects no route.
 
 ### Historical v10 route only
 
