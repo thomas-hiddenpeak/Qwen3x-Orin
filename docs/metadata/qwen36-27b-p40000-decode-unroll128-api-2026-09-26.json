@@ -1,0 +1,39 @@
+{
+  "schema": "q3x.p40000-decode-unroll128-api-validation.v1",
+  "date": "2026-09-26",
+  "class": "bounded bit-exact local optimization",
+  "originating_constraint": "P40000 decode step 207.4 ms (unroll-8) vs 10 tok/s target; unroll-8 record named deeper unroll as the next bit-exact lever",
+  "change": {
+    "file": "src/kernels/reference/decode_ops.cu",
+    "kernel": "attention_values_exact_24_4_256_kernel",
+    "edit": "#pragma unroll 8 -> #pragma unroll 128 on the serial position-ordered FMA loop",
+    "why_bit_exact": "unrolling preserves the position-ordered FMA sequence (value = fmaf(prob[pos], bf16(V), value)); it only raises memory-level parallelism so the compiler prefetches more V loads ahead of the dependency chain. No FMA reorder, no shared memory, no split-KV.",
+    "resource_delta": "registers 40, static_shared 0, local 0, active_blocks 6 (unchanged vs unroll-8)"
+  },
+  "microbench_ms_per_token_values_kernel": {
+    "u8": 55.1,
+    "u16": 52.0,
+    "u32": 45.3,
+    "u64": 42.7,
+    "u128": 40.3
+  },
+  "bit_exact_evidence": {
+    "component": "q3x_decode_ops_cuda_test: ATTENTION_VALUE_BINARY_IDENTITY finite_boundary_lengths=29 special_bf16=16 special_fp32=14 replay=enabled status=PASS; full suite 'CUDA decode-op reference tests passed'",
+    "e2e_api": "P40000/O16 /v1/completions 16 completion tokens byte-identical to the unroll-8 baseline: 'Based on the provided repository files, here is the analysis of the current state,'"
+  },
+  "real_api_result": {
+    "binary": ".q3x-work/build/orin-release/qwen3x-eval-server (rebuilt with unroll-128)",
+    "preflight": "no competing qwen3x-eval-server process; free RAM 49 GB; sync + drop_caches succeeded; tegrastats gpu@50.1C, no throttle",
+    "request": "P40000/O16 /v1/completions, body sha256 6fb5c1cedfd37f9d (same as 20260909-r2 and unroll-8 runs)",
+    "decode_after_first_ms": 2895.22,
+    "steps": 15,
+    "ms_per_step": 193.01,
+    "tok_per_s": 5.18,
+    "baseline_unroll8_ms_per_step": 207.39,
+    "delta_ms_per_step": -14.38,
+    "microbench_prediction_ms_per_step": -14.8,
+    "pure_prefill_ms": 219631.3,
+    "evidence_dir": ".q3x-work/evidence/decode-unroll128-api-20260926/"
+  },
+  "claim_limits": "bit-exact local optimization; no route selection; no target change; the 10 tok/s target reachability question is answered by the companion hardware-bound record (qwen36-27b-decode-hardware-bound-2026-09-26.json), which requests owner adjudication"
+}

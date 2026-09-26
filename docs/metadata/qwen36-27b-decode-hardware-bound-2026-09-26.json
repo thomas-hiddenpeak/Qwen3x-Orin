@@ -1,0 +1,82 @@
+{
+  "record": "qwen36-27b-decode-hardware-bound-analysis",
+  "date": "2026-09-26",
+  "class": "T4 hardware-bound diagnostic (no route selection, no target change)",
+  "originating_constraint": "P40000 decode step 207.4 ms (unroll-8) vs 10 tok/s target (100 ms/step); user question '265K \u4ee5\u5185\u7406\u8bba\u901f\u5ea6,\u627e\u95ee\u9898'",
+  "hardware": {
+    "device": "Jetson AGX Orin, sm_87, 16 SMs, GPU 1300.5 MHz",
+    "theoretical_l2_bandwidth_gbps": 102.4,
+    "measured_pure_read_gbps": 182.5,
+    "measured_pure_read_method": "4 GB float4 read-accumulate kernel, grid 512x256, /tmp/q3x_readbw.cu (removed after use)",
+    "measured_d2d_copy_gbps": 95.4,
+    "d2d_note": "D2D memcpy is read+write bidirectional; NOT a valid pure-read denominator (earlier attribution JSON used 95.4 and understated efficiency by ~2x; corrected in qwen36-27b-p40000-decode-step-attribution-2026-09-26.json CORRECTION section)",
+    "measured_bf16_mma_tflops": 41.9
+  },
+  "weights_per_decode_step": {
+    "method": "safetensors header per-tensor sum over 3 shards, excluding embed full table (2.552 GB, not read per step) and MTP",
+    "total_model_gb": 21.921,
+    "w_per_step_gb": 18.52,
+    "breakdown_gb": {
+      "mlp_nvfp4_packed_u8": 10.16,
+      "gdn_proj_fp8": 5.59,
+      "full_attn_proj_fp8": 1.68,
+      "lm_head": 0.72,
+      "norms_misc": 0.38
+    }
+  },
+  "kv_per_position": "64 KiB (16 full layers x 2 x 4 KV heads x 256 head_dim x 2 bytes)",
+  "theoretical_curve_batch_one": {
+    "model": "step_ms = W/BW + KV_read_floor + compute_residual; W=18.52 GB, pure-read BW=182.5 GB/s",
+    "weight_read_floor_ms": 101.5,
+    "weight_read_floor_tok_s": 9.85,
+    "points": [
+      {
+        "s": 1024,
+        "tok_s": 9.82
+      },
+      {
+        "s": 4096,
+        "tok_s": 9.6
+      },
+      {
+        "s": 40000,
+        "tok_s": 8.63
+      },
+      {
+        "s": 262144,
+        "tok_s": 5.11
+      }
+    ],
+    "p40000_absolute_ceiling": "floor 101.5 + values floor 7.5 + scores floor 7.2 = ~116 ms/step = ~8.6 tok/s"
+  },
+  "target_reachability": {
+    "claim": "10 tok/s (100 ms/step) is below the batch-one weight-read hardware floor of 101.5 ms (9.85 tok/s) for this model on this device",
+    "evidence": "same-workload hardware bound: W=18.52 GB exact per-step read / 182.5 GB/s measured pure-read ceiling; matched profile: GEMV path runs at ~100% of the measured pure-read ceiling (floor 101.5 ms vs measured 103.17 ms intercept from 3-point fit); reconciliation: no known implementation can read 18.52 GB per step in <100 ms on this device",
+    "attention_kv_read_efficiency": "9.5% of pure-read ceiling (17.4 GB/s effective in values kernel at S=40000 before unroll-128)"
+  },
+  "rejected_direction": {
+    "name": "6-chain GQA-redundancy-free values merge (6144 -> 1024 threads, 6 position-chains per thread)",
+    "measured_ms_per_layer": {
+      "prod_u8": 3.44,
+      "6chain_u8": 12.7,
+      "6chain_u16": 12.28
+    },
+    "verdict": "rejected: 3.7x slower; occupancy collapse (1024 threads) dominates; ILP cannot recover; initial illegal-memory-access was a benchmark bug (probability index must advance +1 per position, not +S)"
+  },
+  "accepted_direction": {
+    "name": "deep unroll of the position-ordered FMA chain (bit-exact: FMA order unchanged)",
+    "microbench_ms_per_token": {
+      "u8": 55.1,
+      "u16": 52.0,
+      "u32": 45.3,
+      "u64": 42.7,
+      "u128": 40.3
+    },
+    "production_result": {
+      "change": "src/kernels/reference/decode_ops.cu attention_values_exact_24_4_256_kernel #pragma unroll 8 -> 128",
+      "bit_exact_test": "q3x_decode_ops_cuda_test ATTENTION_VALUE_BINARY_IDENTITY status=PASS; resources unchanged (regs=40, static_shared=0, local=0, active_blocks=6)",
+      "p40000_api": "decode_after_first 2895.22 ms / 15 steps = 193.01 ms/step = 5.18 tok/s (unroll-8: 207.39 ms/step = 4.82 tok/s); 16 completion tokens byte-identical to unroll-8 baseline; body sha256 6fb5c1ce...; evidence .q3x-work/evidence/decode-unroll128-api-20260926/"
+    }
+  },
+  "owner_decision_request": "10 tok/s target exceeds the batch-one hardware floor. Options requiring owner ruling: (a) change contract to batched decode (multiple concurrent requests amortize the 18.52 GB weight read); (b) lower weight quantization (accuracy risk, out of current production accuracy scope); (c) re-set the P40000 target to a reachable value (e.g. 8 tok/s absolute ceiling is ~8.6, realistic ~5.2 after unroll-128). This record does not select a route or change the target."
+}

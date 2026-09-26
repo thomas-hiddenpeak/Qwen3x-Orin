@@ -65,8 +65,13 @@ the hardware-bound analysis of the locked Prefill targets against the measured
 Orin SM87 ceiling (41.9 TFLOPS mma ceiling; 52.5 s FLOP floor for P40000). It
 finds the 2 s / 4 s Prefill targets require 26x / 43x the measured ceiling and
 requests owner adjudication; it changes no target, route, or priority. The
-Decode 10 tok/s target remains the one locked target with a reachable path
-(short-context 9.51 tok/s measured).
+Decode 10 tok/s target remains locked, but the 2026-09-26 hardware-bound
+analysis (see the Decode row and the unroll-128 section below) shows the
+batch-one weight-read floor is 101.5 ms/step (9.85 tok/s), i.e. 10 tok/s is
+below the hardware floor for this model on this device; the short-context
+9.51 tok/s measurement is consistent with that floor. Owner adjudication is
+requested (batched-decode contract change, lower quantization, or re-set
+target); no route is selected and no target is changed here.
 
 The original integration `edf4da2` combined main `13be53c` with liveness-only
 `055fb245` after both matched P40000/O16 API pairs improved pure Prefill and
@@ -778,7 +783,7 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | Target-length Prefill | Current installed main executes terminal layer-63 prefix elision with incumbent QT2/GroupQ64, exact-span GDN, and prompt-wide preprocessing; its actual P40000/O16 request reports 60.271514903 prompt tok/s | Complete accuracy, P60/P130, the 2s/4s targets, and further accuracy-preserving whole-product optimization remain open; closed lineages and same-skeleton span scans remain excluded |
 | SM87 whole-system AOT Prefill candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` is default-off, non-executable, and paused. Real-checkpoint upload/readback/private attachment plus the layer-0 M192 Oracle remain retained prerequisites. The P40000 BF16-HMMA skeleton is rejected at 225.7838x over budget, and `bmma-static-support-k16-parent-zero-fill-v2` is separately rejected before CUDA after its authenticated mandatory-instruction lower bound exceeds the complete five-second projection allocation | No active AOT implementation gate. Resumption requires an explicitly named materially different exact arithmetic/dataflow class with a new bounded proof or a successor architecture; persisted direct loading remains prerequisite work only after such a resumption |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
-| Decode | Exact S>=65 fallback plus retained coupled-feed/consumer-order layouts and fixed short-position Graph cache; current-main short integration reports 9.553634715 tok/s and P40 reports 3.939689060 tok/s. The 2026-09-26 P40000 decode-step nsys attribution (T4) shows the 254 ms/token step is 58.6% exact full-attention (values kernel 111.7 ms/token, 6,144 threads, 6x GQA-redundant V loads; scores kernel 38.6 ms/token) and 38.1% weight-read GEMV at its prior ceilings; launch overhead is 0.28%. The values kernel is latency-bound, not bandwidth-bound: a matched access-pattern microbenchmark shows the serial FMA chain at unroll-4 is 6.4 ms/layer, and unroll-8 (bit-exact, same FMA order) is 3.4 ms/layer. The unroll-8 change is committed and validated on the real P40000/O16 API: decode 3,855.8 -> 3,111.4 ms for 15 steps (257.0 -> 207.4 ms/step, 3.89 -> 4.82 tok/s), prefill unchanged, 16 completion tokens byte-identical to the 44842df baseline | Long-output stability, independent repetition, target-length behavior, and at least 10 tok/s remain to be qualified; the named direction is a bandwidth-optimal, GQA-redundancy-free exact S>=65 attention dataflow returned through the real P40000/O16 API |
+| Decode | Exact S>=65 fallback plus retained coupled-feed/consumer-order layouts and fixed short-position Graph cache; current-main short integration reports 9.553634715 tok/s and P40 reports 3.939689060 tok/s. The 2026-09-26 P40000 decode-step nsys attribution (T4) shows the 254 ms/token step is 58.6% exact full-attention (values kernel 111.7 ms/token, 6,144 threads, 6x GQA-redundant V loads; scores kernel 38.6 ms/token) and 38.1% weight-read GEMV at its prior ceilings; launch overhead is 0.28%. The values kernel is latency-bound, not bandwidth-bound: a matched access-pattern microbenchmark shows the serial FMA chain at unroll-4 is 6.4 ms/layer, and unroll-8 (bit-exact, same FMA order) is 3.4 ms/layer. The unroll-8 change is committed and validated on the real P40000/O16 API: decode 3,855.8 -> 3,111.4 ms for 15 steps (257.0 -> 207.4 ms/step, 3.89 -> 4.82 tok/s), prefill unchanged, 16 completion tokens byte-identical to the 44842df baseline. The follow-up unroll-8 -> 128 deepening (bit-exact, same FMA order) is committed and validated the same way: decode 3,111.4 -> 2,895.2 ms for 15 steps (207.4 -> 193.0 ms/step, 4.82 -> 5.18 tok/s), 16 completion tokens byte-identical to the unroll-8 baseline. The 2026-09-26 hardware-bound analysis (T4, no route selected) measures the pure-read ceiling at 182.5 GB/s, the exact per-step weight read at 18.52 GB, and therefore the batch-one weight-read floor at 101.5 ms/step (9.85 tok/s): the 10 tok/s locked target is below the hardware floor for this model on this device, and the P40000 absolute ceiling is ~8.6 tok/s. The 6-chain GQA-redundancy-free values merge was measured and rejected (12.70 vs 3.44 ms/layer, occupancy collapse). Owner adjudication is requested: batched-decode contract change, lower quantization, or re-set target | Long-output stability, independent repetition, target-length behavior, and the 10 tok/s target remain to be qualified; the hardware-bound record requests owner adjudication before further architecture work |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
 | Canonical release artifact | Fresh main `230eac1` installs 0.7.0 Release/OFF terminal-prefix.v1 ELF `270a6bb4...`; P40 and short integration pass with `production_eligible=false` and `release_qualified=false` | Complete accuracy, capability, target-length repetition, and stability/release attestation remain incomplete |
 | Automated release lane | Designed only | Local tests and policies exist, but no checked-in Orin release workflow enforces the complete gate |
@@ -969,6 +974,47 @@ locked target; the remaining gap needs a GQA-redundancy-free or bit-exact
 position-parallel values dataflow, a larger architecture change. Evidence is
 frozen in the
 [unroll-8 API validation record](metadata/qwen36-27b-p40000-decode-unroll8-api-2026-09-26.json).
+
+### P40000 decode values-kernel unroll-128 and hardware-bound analysis, 2026-09-26
+
+Deepening the same bit-exact lever, the matched access-pattern microbenchmark
+(S=40000, per layer) shows unroll 8 / 16 / 32 / 64 / 128 = 3.45 / 3.25 / 2.83 /
+2.67 / 2.52 ms (131.7 GB/s effective at 128, against the 182.5 GB/s measured
+pure-read ceiling). The `#pragma unroll 8 -> 128` change in
+[`attention_values_exact_24_4_256_kernel`](../src/kernels/reference/decode_ops.cu)
+is validated two ways: `q3x_decode_ops_cuda_test` reports
+`ATTENTION_VALUE_BINARY_IDENTITY ... status=PASS` with resources unchanged
+(registers 40, static shared 0, local 0, active blocks 6), and the real
+P40000/O16 `/v1/completions` API returns 16 completion tokens byte-identical to
+the unroll-8 baseline. On the real API the decode step falls from 3,111.4 ms to
+2,895.2 ms for 15 steps (207.4 -> 193.0 ms/step, 4.82 -> 5.18 tok/s, +14.4
+ms/step, matching the microbenchmark prediction of 14.8 ms/step); pure prefill
+is unchanged at ~219.6 s. The 6-chain GQA-redundancy-free values merge (6,144
+-> 1,024 threads) was measured and rejected: 12.70 ms/layer versus 3.44 ms/layer
+for the production shape, a 3.7x regression from occupancy collapse; the
+initial illegal-memory-access seen while building that benchmark was a benchmark
+indexing bug (the probability index advances +1 per position, not +S), not a
+production defect.
+
+The companion hardware-bound analysis (T4 diagnostic; claims no speedup and
+selects no route) corrects the bandwidth denominator to the measured 182.5
+GB/s pure-read ceiling (the earlier 95.4 GB/s D2D figure is read+write
+bidirectional and understates pure-read efficiency by ~2x), fixes the exact
+per-step weight read at 18.52 GB (MLP NVFP4 packed 10.16 + GDN proj FP8 5.59 +
+full-attn proj FP8 1.68 + lm_head 0.72 + norms/misc 0.38 GB, excluding the
+2.552 GB embed full table and MTP), and therefore places the batch-one
+weight-read floor at 101.5 ms/step (9.85 tok/s). The 10 tok/s locked target
+(100 ms/step) is below that floor, and the P40000 absolute ceiling is ~116
+ms/step (~8.6 tok/s: floor 101.5 + values floor 7.5 + scores floor 7.2). The
+GEMV path already runs at ~100% of the pure-read ceiling (103.17 ms measured
+intercept versus the 101.5 ms floor); the attention KV read runs at 9.5% of it
+before unroll-128. The short-context 9.51 tok/s measurement is consistent with
+the floor. This record requests owner adjudication among a batched-decode
+contract change (amortize the 18.52 GB weight read across concurrent
+requests), lower weight quantization (accuracy risk, outside the current
+production accuracy scope), or re-setting the P40000 target to a reachable
+value; it changes no target and selects no route. Evidence is frozen in the
+[decode hardware-bound analysis record](metadata/qwen36-27b-decode-hardware-bound-2026-09-26.json).
 
 ### Historical v10 route only
 

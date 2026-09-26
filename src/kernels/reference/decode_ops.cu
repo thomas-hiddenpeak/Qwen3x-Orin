@@ -1337,7 +1337,12 @@ __global__ void attention_values_exact_24_4_256_kernel(
   // latency-bound (6,144 threads, one 40K-FMA dependency chain per output
   // dimension); prefetching more V loads ahead of the chain is the only
   // bit-exact lever that does not reorder the production numerical contract.
-#pragma unroll 8
+  // 2026-09-26 matched access-pattern microbenchmark (S=40000, per layer):
+  // unroll 8 = 3.45 ms, 16 = 3.25 ms, 32 = 2.83 ms, 64 = 2.67 ms,
+  // 128 = 2.52 ms (131.7 GB/s of the 182.5 GB/s measured pure-read ceiling);
+  // the 6-chain GQA-redundancy-free variant (1,024 threads) regressed to
+  // 12.70 ms, so occupancy, not redundancy, is the binding constraint.
+#pragma unroll 128
   for (unsigned int position = 0U; position < sequence_length; ++position) {
     value = fmaf(probabilities[probability_index],
                  decode_bf16_device(value_cache[value_index]), value);
