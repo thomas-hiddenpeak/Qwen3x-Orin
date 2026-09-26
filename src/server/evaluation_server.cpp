@@ -2161,8 +2161,18 @@ void ingress_worker(
             "route; use --production-profile p40-whole-core-v1 instead";
     return false;
   }
+  if (!p40_whole_core_v1_production) {
+    error = "this production binary serves exactly one sealed deployment: "
+            "pass --production-profile p40-whole-core-v1";
+    return false;
+  }
 #else
-  if (!p40_whole_core_v10_selected && !p40_whole_core_v1_production) {
+  if (p40_whole_core_v1_production) {
+    error = "this development binary does not contain the qualified "
+            "production profile; use the orin-p40-whole-core-prod build";
+    return false;
+  }
+  if (!p40_whole_core_v10_selected) {
     error = "the P40 development binary requires the explicit "
             "p40-whole-core-v10 development-route selector";
     return false;
