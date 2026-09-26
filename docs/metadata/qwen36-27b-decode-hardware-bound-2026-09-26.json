@@ -47,12 +47,12 @@
         "tok_s": 5.11
       }
     ],
-    "p40000_absolute_ceiling": "floor 101.5 + values floor 7.5 + scores floor 7.2 = ~116 ms/step = ~8.6 tok/s"
+    "p40000_absolute_ceiling": "CORRECTED 2026-09-26: the earlier '~116 ms/step (~8.6 tok/s)' assumed the values/scores floors were DRAM-bound (7.5 + 7.2 ms). In fact both are L2-bound and already at their practical ceiling (values 40.3 ms, scores 38.6 ms at S=40000, unroll-128). The realistic batch-one ceiling is weight floor 101.5 + values 40.3 + scores 38.6 + launch ~0.7 = ~181 ms/step (~5.5 tok/s); the measured 193.0 ms/step (5.18 tok/s) is within ~6% of it. The 10 tok/s target (100 ms/step) remains below the 101.5 ms weight-read floor and is unreachable for batch-one on this device."
   },
   "target_reachability": {
     "claim": "10 tok/s (100 ms/step) is below the batch-one weight-read hardware floor of 101.5 ms (9.85 tok/s) for this model on this device",
     "evidence": "same-workload hardware bound: W=18.52 GB exact per-step read / 182.5 GB/s measured pure-read ceiling; matched profile: GEMV path runs at ~100% of the measured pure-read ceiling (floor 101.5 ms vs measured 103.17 ms intercept from 3-point fit); reconciliation: no known implementation can read 18.52 GB per step in <100 ms on this device",
-    "attention_kv_read_efficiency": "9.5% of pure-read ceiling (17.4 GB/s effective in values kernel at S=40000 before unroll-128)"
+    "attention_kv_read_efficiency": "CORRECTED 2026-09-26: the earlier '9.5% of pure-read ceiling' figure divided the 6x GQA-redundant requested volume (491.5 MB/layer) by the DRAM pure-read ceiling and is misleading. The values kernel at unroll-128 sustains 195 GB/s and the scores kernel 204 GB/s of requested volume -- both ABOVE the 182.5 GB/s DRAM pure-read ceiling, which is only possible because L2 absorbs the 6x GQA redundant reads at near-zero DRAM cost (DRAM carries ~1x unique volume). The attention KV read is therefore L2-bound, not DRAM-bound, and is already at its practical ceiling."
   },
   "rejected_direction": {
     "name": "6-chain GQA-redundancy-free values merge (6144 -> 1024 threads, 6 position-chains per thread)",
@@ -78,5 +78,18 @@
       "p40000_api": "decode_after_first 2895.22 ms / 15 steps = 193.01 ms/step = 5.18 tok/s (unroll-8: 207.39 ms/step = 4.82 tok/s); 16 completion tokens byte-identical to unroll-8 baseline; body sha256 6fb5c1ce...; evidence .q3x-work/evidence/decode-unroll128-api-20260926/"
     }
   },
-  "owner_decision_request": "10 tok/s target exceeds the batch-one hardware floor. Options requiring owner ruling: (a) change contract to batched decode (multiple concurrent requests amortize the 18.52 GB weight read); (b) lower weight quantization (accuracy risk, out of current production accuracy scope); (c) re-set the P40000 target to a reachable value (e.g. 8 tok/s absolute ceiling is ~8.6, realistic ~5.2 after unroll-128). This record does not select a route or change the target."
+  "owner_decision_request": "10 tok/s target exceeds the batch-one hardware floor. Options requiring owner ruling: (a) change contract to batched decode (multiple concurrent requests amortize the 18.52 GB weight read); (b) lower weight quantization (accuracy risk, out of current production accuracy scope); (c) re-set the P40000 target to a reachable value (e.g. 8 tok/s absolute ceiling is ~8.6, realistic ~5.2 after unroll-128). This record does not select a route or change the target.",
+  "l2_absorption_and_smem_merge": {
+    "finding": "The 6x GQA redundant K/V reads in the exact S>=65 attention kernels are absorbed by L2 at near-zero DRAM cost. Evidence: the values kernel (unroll-128) sustains 195 GB/s and the scores kernel 204 GB/s of requested (6x-redundant) volume per layer, both exceeding the 182.5 GB/s DRAM pure-read ceiling; only L2 hits on the 5 redundant copies explain this. The GEMV weight path runs at 179.5 GB/s (98.4% of the DRAM ceiling), the true DRAM-bound component.",
+    "smem_gqa_merge": {
+      "name": "shared-memory GQA merge: one block per KV head serves all 6 query heads from a single smem V tile, reducing the V read from 6x to 1x",
+      "bit_exact": "PASS (S=1024 vs CPU oracle, 0/6144 diff) -- the per-(query,dimension) position-ordered FMA sequence is preserved, so the BF16 output is bit-identical",
+      "measured_ms_per_layer": {
+        "prod_u128_6x": 2.782,
+        "smem_1x_1024thr": 8.865
+      },
+      "occupancy": "prod 24 blocks x 256 thr (6 blocks/SM); smem 4 blocks x 1024 thr (1 block/SM, sm_87 max 1024 thr/block)",
+      "verdict": "rejected: 3.19x slower. Removing the L2 hit (forcing DRAM to supply 1x) is not worth it because (a) the 6x redundancy was already free via L2, and (b) the 1024-thread block collapses occupancy to 1 block/SM and adds per-tile __syncthreads. Confirms the attention kernels are at their practical ceiling and the 6x redundancy is not a real bandwidth cost."
+    }
+  }
 }
