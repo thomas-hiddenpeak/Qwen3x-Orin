@@ -1105,6 +1105,17 @@ the direction is rejected as a production change. This corrects the prior
 than a measurement. Evidence: the [scores split microbenchmark record]
 (metadata/qwen36-27b-decode-scores-split-microbench-2026-09-27.json).
 
+A further microbenchmark (2026-09-27) measured the integrated split values
+kernel itself: at S=40000 it runs at 62 GB/s (34% of the 182.7 GB/s ceiling)
+on its 1x V volume, and the same access pattern with no FMA reaches 105 GB/s
+(58%) -- so the split values kernel is also not DRAM-bandwidth-bound, and
+ILP-2/ILP-4 reordering (independent accumulators) does not help (1.320 ->
+1.323 ms/layer). The 0.54 ms/layer gap is FMA/probability-load/store overhead
+that ILP does not remove; this kernel design is near where it will land, and
+the dominant remaining decode cost is the weight-read GEMV kernels (100.52
+ms/step, 38% of the step, already at the DRAM ceiling). Evidence: the [split
+values bandwidth record](metadata/qwen36-27b-decode-split-values-bandwidth-2026-09-27.json).
+
 ### Historical v10 route only
 
 The following topology and profile describe the historical typed P40 v10

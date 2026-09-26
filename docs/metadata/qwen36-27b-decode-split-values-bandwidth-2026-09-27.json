@@ -1,0 +1,27 @@
+{
+  "record": "qwen36-27b-decode-split-values-bandwidth-2026-09-27",
+  "date": "2026-09-27",
+  "class": "T4 microbenchmark (isolated split values kernel, S=40000; data accumulation, no e2e, no ceiling claim)",
+  "question": "the integrated split values kernel (1.17x e2e) -- is it DRAM-bandwidth-bound, and can ILP reordering close the gap?",
+  "findings": {
+    "split_v_t32_ms_per_layer": 1.412,
+    "split_v_t64_ms_per_layer": 1.32,
+    "split_v_t64_1x_v_gbps": 62.1,
+    "split_v_t64_pct_of_ceiling": 34,
+    "vread_only_t64_ms_per_layer": 0.778,
+    "vread_only_t64_1x_v_gbps": 105.3,
+    "vread_only_t64_pct_of_ceiling": 58,
+    "ilp2_t64_ms_per_layer": 1.401,
+    "ilp4_t64_ms_per_layer": 1.323,
+    "pure_read_ceiling_gbps": 182.7
+  },
+  "conclusions": [
+    "the split values kernel is NOT DRAM-bandwidth-bound: it runs at 62 GB/s (34% of the 182.7 GB/s ceiling) on its 1x V volume.",
+    "the same access pattern with NO FMA (pure read into smem) reaches 105 GB/s (58%), so the access pattern itself is not the limit either.",
+    "ILP-2 / ILP-4 reordering (independent accumulators to break the serial FMA dependency) does NOT help (1.320 -> 1.323 ms): the remaining overhead is not the serial FMA chain.",
+    "the 0.542 ms/layer gap between the pure-read version (0.778) and the full kernel (1.320) is FMA + probability-load + partial-store overhead that ILP does not remove."
+  ],
+  "implication": "the integrated split values path (165.2 ms/step e2e) is close to where this kernel design will land; further micro-optimization of this kernel is low-yield. The dominant remaining decode cost is the weight-read GEMV kernels (100.52 ms/step, 38% of the step, already at the DRAM ceiling), which require a different lever (batching, lower quantization, or a target re-set) and owner adjudication.",
+  "e2e": "not run for the ILP variants -- the microbenchmark shows no improvement, so there is no e2e candidate to validate.",
+  "evidence": "isolated microbenchmark (sources removed after use per /tmp hygiene)"
+}
