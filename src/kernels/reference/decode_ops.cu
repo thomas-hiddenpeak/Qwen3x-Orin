@@ -3598,6 +3598,18 @@ int launch_attention_values_split_shared_24_4_256_cuda(
     std::uint16_t* const output,
     cudaStream_t stream) noexcept;
 
+// Opt-in split-chunk GQA-shared scores path (see
+// attention_scores_split_shared.cu). BIT-EXACT (no atomicAdd). Returns 0 on
+// success, a positive CUDA error, or -1 when the split path is not selected
+// for this call.
+int launch_attention_scores_split_shared_24_4_256_cuda(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const unsigned int sequence_length,
+    const float attention_scale,
+    float* const scores,
+    cudaStream_t stream) noexcept;
+
 int launch_gqa_attention_reference_cuda(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
@@ -3634,10 +3646,33 @@ int launch_gqa_attention_reference_cuda(
           query_head_count, kv_head_count, sequence_length, head_dimension)
           ? AttentionScoreImplementation::kWarpPositions24_4_256
           : AttentionScoreImplementation::kReference;
-  launch_attention_scores_unchecked(
-      score_implementation, query, key_cache, query_head_count, kv_head_count,
-      sequence_length, head_dimension, attention_scale,
-      probabilities_scratch, stream);
+  if (score_implementation ==
+          AttentionScoreImplementation::kWarpPositions24_4_256) {
+    // Opt-in split-chunk GQA-shared scores path (Q3X_ENABLE_SPLIT_SCORES,
+    // long sequences). BIT-EXACT: each (query_head, position) keeps the
+    // production FMA order and shuffle tree; the K tile is read from DRAM
+    // once per chunk instead of 6x. Returns 0 on success, a positive CUDA
+    // error, or -1 when not selected (short sequence / opt-in off).
+    const int split_scores_status =
+        launch_attention_scores_split_shared_24_4_256_cuda(
+            query, key_cache, static_cast<unsigned int>(sequence_length),
+            attention_scale, probabilities_scratch, stream);
+    if (split_scores_status == 0) {
+      // scores written; continue to softmax + values.
+    } else if (split_scores_status > 0) {
+      return split_scores_status;
+    } else {
+      launch_attention_scores_unchecked(
+          score_implementation, query, key_cache, query_head_count,
+          kv_head_count, sequence_length, head_dimension, attention_scale,
+          probabilities_scratch, stream);
+    }
+  } else {
+    launch_attention_scores_unchecked(
+        score_implementation, query, key_cache, query_head_count,
+        kv_head_count, sequence_length, head_dimension, attention_scale,
+        probabilities_scratch, stream);
+  }
   cudaError_t status = cudaGetLastError();
   if (status != cudaSuccess) {
     return static_cast<int>(status);

@@ -601,6 +601,7 @@ add_library(q3x_kernels STATIC
   src/runtime/reference_runner_layer_major_views.cpp
   src/kernels/reference/decode_ops.cu
   src/kernels/reference/attention_values_split_shared.cu
+  src/kernels/reference/attention_scores_split_shared.cu
   src/kernels/reference/full_attention_c512_register_pipeline.cu
   src/kernels/reference/gdn_decode.cu
   src/kernels/reference/gdn_m16_register_state.cu
