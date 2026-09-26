@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-09-09
+  last_reviewed: 2026-09-26
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -25,7 +25,23 @@ metadata/evidence records.
 
 ## 1. Answer-first state
 
-**Liveness is integrated and installed-main closeout passes; release remains unqualified.**
+**Liveness is integrated and installed-main closeout passes; release remains unqualified. The whole-core route is now a second, accuracy-qualified production deployment profile.**
+Main `8fe4e67` (2026-09-26) promotes the layer-major whole-core route to the
+sealed production profile `q3x.sm87.production.p40.whole-core.v1`
+(`kP40WholeCoreV1`), selected at process start with
+`--production-profile p40-whole-core-v1` from the
+`orin-p40-whole-core-prod` build. It is fixed P40000/O16 geometry
+(40'016 max sequence, 8'641'684'992-byte request arena) and trades the
+default profile's 4'096-token output ceiling for a ~2.4x faster
+whole-prompt Prefill on the pinned workload. Its accuracy qualification is
+the full-state committed-state comparison against the accepted BF16 class
+(ADR-0002, 2026-09-26); real-model verification produced output bitwise
+identical to the development route with the witness
+`numerical_contract.qualified=true`. The default route, the Legacy-C512
+production plan, and the development route are unchanged; this profile
+grants no release qualification and no capability beyond the pinned
+P40000/O16 streaming contract.
+
 The original integration `edf4da2` combined main `13be53c` with liveness-only
 `055fb245` after both matched P40000/O16 API pairs improved pure Prefill and
 external TTFT.
@@ -730,6 +746,7 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | Pure C++ tokenizer and greedy generation | Implemented | Public capability and long-run qualification remain incomplete |
 | OpenAI-compatible product API | Installed production-shaped 0.7.0 service with bounded queues, streaming, Bearer authentication, public health, and external TLS termination contract | Cancellation, multi-tenant policy, capability, and release stability remain incomplete |
 | Installed default context | Sealed P40 profile admits `prompt + output - 1 <= 44,095` with a 4,096-token output ceiling | P60 and approximately-P130 profiles remain unopened |
+| Whole-core production profile | Second sealed deployment `q3x.sm87.production.p40.whole-core.v1` (main `8fe4e67`): fixed P40000/O16, whole-prompt layer-major Prefill, full-state accuracy qualified inside the accepted BF16 class, real-model output bitwise identical to the dev route | Not the default route; no release qualification; capacity is the pinned P40000/O16 streaming contract only |
 | Terminal-prefix source integration | Integrated ordinary OFF liveness-only profile and v20 receipts, with the separately identified host Graph-template repair; fresh main `230eac1` / ELF `270a6bb4...` passes P40000/O16 and separate short integration | Complete capability, repeated startup reliability, and release qualification remain open; original candidate-panel gains are not a new main speedup |
 | Ordinary request-state reuse | Preserved 0.7.0 lifecycle and original v1/v16 scopes; current-main v20 P40 and ten short P/O/reset receipts pass. Historical v3 BCCB/lifecycle evidence remains separately scoped | Complete accuracy, independent-process target-length repetition, capability, and release qualification remain open; no Prefill-throughput claim is attached to reset |
 | Target-length Prefill | Current installed main executes terminal layer-63 prefix elision with incumbent QT2/GroupQ64, exact-span GDN, and prompt-wide preprocessing; its actual P40000/O16 request reports 60.271514903 prompt tok/s | Complete accuracy, P60/P130, the 2s/4s targets, and further accuracy-preserving whole-product optimization remain open; closed lineages and same-skeleton span scans remain excluded |
