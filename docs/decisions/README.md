@@ -34,3 +34,4 @@ implementation truth remains in [Current Status](../CURRENT_STATUS.md).
 
 - [ADR-0001: End-state-first leakage and controlled evolution](0001-end-state-first-leakage.md)
 - [ADR-0002: Prefill attention aligned to the vLLM numerical class (split-P tensor route)](0002-prefill-attention-vllm-numerical-alignment.md)
+- [ADR-0003: Prefill target hardware-bound analysis and target adjudication request](0003-prefill-target-hardware-bound.md)

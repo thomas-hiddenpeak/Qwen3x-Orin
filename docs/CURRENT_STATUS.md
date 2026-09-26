@@ -60,6 +60,14 @@ contract matrix passed 6/6 and the Legacy generic-protocol matrix passed 21/21.
 This evaluation is an observation surface; it does not promote or demote any
 production route. Evidence: `.q3x-work/evidence/comprehensive-eval-20260926/`.
 
+A proposed [ADR-0003](decisions/0003-prefill-target-hardware-bound.md) records
+the hardware-bound analysis of the locked Prefill targets against the measured
+Orin SM87 ceiling (41.9 TFLOPS mma ceiling; 52.5 s FLOP floor for P40000). It
+finds the 2 s / 4 s Prefill targets require 26x / 43x the measured ceiling and
+requests owner adjudication; it changes no target, route, or priority. The
+Decode 10 tok/s target remains the one locked target with a reachable path
+(short-context 9.51 tok/s measured).
+
 The original integration `edf4da2` combined main `13be53c` with liveness-only
 `055fb245` after both matched P40000/O16 API pairs improved pure Prefill and
 external TTFT.

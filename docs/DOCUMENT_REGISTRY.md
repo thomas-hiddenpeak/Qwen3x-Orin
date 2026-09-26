@@ -56,7 +56,7 @@ authority only for its exact recorded protocol.
 | `docs/PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md` | `numerical_equivalence_policy` | active | Prefill architecture proof order, finite-precision/reduction-tree identity, P40 arithmetic ledger, and production-observable liveness eligibility. |
 | `docs/REAL_MODEL_PERFORMANCE_POLICY.md` | `evidence_policy` | active | Real-payload evidence, local retention, architecture-candidate qualification, and release promotion. |
 
-## Active first-party documents (7)
+## Active first-party documents (8)
 
 | Path | Role | Lifecycle | Authority / ownership boundary |
 | --- | --- | --- | --- |
@@ -68,6 +68,7 @@ authority only for its exact recorded protocol.
 | `docs/SDD.md` | `system_sdd` | active | SSOT for the externally callable runner design from API and target workloads inward to kernels/deployment. |
 | `docs/decisions/0001-end-state-first-leakage.md` | `accepted_adr` | active | Accepted decision recording end-state-first/leakage as the system design and evolution model; subordinate only to normative policy. |
 | `docs/decisions/0002-prefill-attention-vllm-numerical-alignment.md` | `accepted_adr` | active | Accepted decision aligning prefill full-attention to the vLLM/FlashInfer BF16-probability numerical class with split-P tensor route; owner instruction 2026-09-21. |
+| `docs/decisions/0003-prefill-target-hardware-bound.md` | `proposed_adr` | active | Proposed hardware-bound analysis reconciling the locked Prefill targets against the measured Orin SM87 ceiling; requests owner target adjudication; changes no target, route, or priority. |
 
 ## Contracts (12)
 
