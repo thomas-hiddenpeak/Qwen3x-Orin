@@ -1,0 +1,25 @@
+{
+  "record": "qwen36-27b-decode-scores-split-microbench",
+  "date": "2026-09-27",
+  "class": "T4 microbenchmark (isolated kernel, S=40000; rejected-direction data point, no e2e, no ceiling claim)",
+  "motivation": "the prior record flagged 'the scores kernel 6x GQA key read as the next candidate for the same split treatment'. Measured before integrating, per the verify-first direction.",
+  "kernel": "attention_scores_warp_positions_24_4_256_kernel (grid (24, S/8) x 256, warp per position, K read 6x) vs a split-chunk GQA-shared variant (grid (S/TILE, 4) x 512, K tile in smem read 1x, 16 warps/block iterating (position, qh) pairs)",
+  "numerical_s1024": "0/24576 exact-output differences, max rel 0.0 -- BIT-EXACT (each (query_head, position) keeps the production FMA order and shuffle tree; unlike the values split, no atomicAdd, so no token divergence)",
+  "perf_ms_per_layer_s40000": {
+    "prod_6x_k_read": 2.023,
+    "split_t32_1x_k_read": 1.781,
+    "split_t64": 1.79,
+    "split_t128": 1.885,
+    "best_speedup": 1.14
+  },
+  "bandwidth_observation": {
+    "prod_1x_k_effective_gbps": 40.5,
+    "split_t32_1x_k_effective_gbps": 46.0,
+    "pure_read_ceiling_gbps": 182.7,
+    "note": "both the production and split scores kernels run at ~40-46 GB/s of 1x K volume, far below the 182.7 GB/s pure-read ceiling. The scores kernel is NOT DRAM-bandwidth-bound; its cost is the per-position shuffle tree (8 shfl_down_sync) and FMA issue, not the 6x K read."
+  },
+  "verdict": "REJECTED as a production direction: the 6x GQA key-read redundancy is not the scores kernel's bottleneck, so removing it buys only 1.14x per layer (~2.4% of a decode step, ~4 ms/step) at the cost of another kernel, an smem tile, and launch overhead. This corrects the prior record's 'next candidate' framing, which was a prediction not backed by measurement.",
+  "contrast_with_values": "the values kernel IS bandwidth-bound (its 6x V read is the cost), so the same split treatment bought 1.66x there. The scores kernel is not, so the same treatment does not transfer. The two attention kernels have different bottlenecks; one measurement does not predict the other.",
+  "e2e": "not run -- the microbenchmark delta (1.14x, ~4 ms/step projected) is within run-to-run noise and the microbenchmark/nsys environments differ; the rejected-direction conclusion rests on the bandwidth observation, which is environment-robust.",
+  "evidence": "isolated microbenchmark (source removed after use per /tmp hygiene)"
+}

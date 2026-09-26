@@ -131,5 +131,6 @@
     "The earlier T4 figure 'values 111.7 ms/step' was the unroll-8 era (HEAD 56012ee); unroll-128 already cut it to 50.48 ms/step in this same nsys environment."
   ],
   "no_ceiling_claim": "This record reports measured per-kernel times and their delta only. It makes no hardware-ceiling or target-reachability claim; the premise numbers behind the earlier ceiling analysis (182.5 GB/s pure-read, 18.52 GB/step weight read, 101.5 ms floor) are themselves unverified measurements and are flagged for re-measurement rather than assumed.",
-  "evidence": ".q3x-work/evidence/split-nsys-20260927/ (split-p40.nsys-rep, split-p40.sqlite, preflight.json, response.txt) and .q3x-work/evidence/baseline-nsys-20260927/ (baseline-p40.nsys-rep, baseline-p40.sqlite, response.txt)"
+  "evidence": ".q3x-work/evidence/split-nsys-20260927/ (split-p40.nsys-rep, split-p40.sqlite, preflight.json, response.txt) and .q3x-work/evidence/baseline-nsys-20260927/ (baseline-p40.nsys-rep, baseline-p40.sqlite, response.txt)",
+  "scores_kernel_followup": "UPDATE 2026-09-27: the 'scores kernel as next candidate' framing was a prediction, not a measurement. The isolated microbenchmark (qwen36-27b-decode-scores-split-microbench-2026-09-27.json) shows the scores kernel is NOT DRAM-bandwidth-bound (40.5 GB/s effective 1x K vs the 182.7 GB/s ceiling); a bit-exact split-chunk variant buys only 1.14x per layer and is rejected as a production direction."
 }
