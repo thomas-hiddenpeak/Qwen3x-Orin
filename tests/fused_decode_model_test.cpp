@@ -11,6 +11,7 @@ struct AttentionCapture {
   bool restore_scalar = false;
   std::size_t first_sequence = 0;
   std::ofstream output;
+  std::string payload_prefix;
   unsigned calls = 0;
 };
 int attention_observer(const fd::Observation& view, void* context) noexcept {
@@ -57,6 +58,16 @@ int attention_observer(const fd::Observation& view, void* context) noexcept {
       if(code) return code;
       code=static_cast<int>(cudaMemcpy(value.data(),view.value,value.size()*2,cudaMemcpyDeviceToHost));
       if(code) return code;
+      // Retain the already copied real operands for bounded, same-payload
+      // diagnosis. This test-only export never changes the live device state.
+      const auto write_payload = [&](const char* role, const auto& data) {
+        const auto path=c.payload_prefix+".layer"+std::to_string(view.layer)+"."+role+".bf16";
+        std::ofstream file(path,std::ios::binary);
+        file.write(reinterpret_cast<const char*>(data.data()),data.size()*sizeof(data[0]));
+        return static_cast<bool>(file);
+      };
+      if (!write_payload("query",query) || !write_payload("key",key) ||
+          !write_payload("value",value)) return cudaErrorUnknown;
       double fused_error=0,scalar_error=0,oracle_norm=0;
       unsigned fused_round_mismatch=0,scalar_round_mismatch=0;
       for (std::size_t h : {0U,23U}) {
@@ -129,7 +140,8 @@ int main(int argc,char** argv) {
   AttentionCapture capture;
   capture.restore_scalar=std::string_view(argv[5])=="scalar";
   if(!capture.restore_scalar && std::string_view(argv[5])!="fused") return 2;
-  capture.output.open(std::string(argv[3])+".attention.jsonl");
+  capture.payload_prefix=std::string(argv[3])+".attention";
+  capture.output.open(capture.payload_prefix+".jsonl");
   if(!capture.output) return 2;
   fd::set_observer(attention_observer,&capture);
   char flag[]="--prompt-tokens", variant[]="--variant", liveness[]="liveness";

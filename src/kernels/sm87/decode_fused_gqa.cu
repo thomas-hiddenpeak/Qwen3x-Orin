@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// Internal admission wrapper. v5 preserves scalar arithmetic and pipelines KV
+// Internal admission wrapper. v7 preserves scalar arithmetic and pipelines KV
 // movement; the previous FlashInfer numerical lineage remains in Git history.
 #include "decode_fused_gqa_internal.h"
 #include "q3x/runtime/decode_ops.h"
@@ -42,10 +42,25 @@ __device__ __forceinline__ std::uint16_t encode_bf16_device(
 // Keep all six queries resident across independent positions. Each warp
 // retains the scalar 256-dimension product/add tree. K is decoded once for
 // six heads; no position sum or tensorcore/reassociated dot is introduced.
-__global__ void attention_scores_grouped_register_kernel(
+__device__ __forceinline__ void stage_keys(
+    std::uint16_t* destination, const std::uint16_t* keys,
+    unsigned int sequence, unsigned int first) {
+  const unsigned int row = threadIdx.x / 32;
+  const unsigned int column = (threadIdx.x % 32) * 8;
+  const bool valid = first + row < sequence;
+  const auto* source = keys + (valid ? (first + row) * 1024 + blockIdx.y * 256 + column : 0);
+  const auto dst = static_cast<unsigned int>(__cvta_generic_to_shared(destination + row * 256 + column));
+  asm volatile("cp.async.cg.shared.global [%0], [%1], 16, %2;" ::
+               "r"(dst), "l"(source), "r"(valid ? 16 : 0));
+  asm volatile("cp.async.commit_group;" ::);
+}
+
+__global__ void attention_scores_grouped_async_kernel(
     const std::uint16_t* query, const std::uint16_t* keys,
     unsigned int sequence, float* scores) {
   constexpr unsigned int offsets[8] = {0, 128, 64, 192, 32, 160, 96, 224};
+  __shared__ float score_tile[6][128];
+  __shared__ __align__(16) std::uint16_t key_tiles[4][8 * 256];
   const unsigned int lane = threadIdx.x & 31;
   const unsigned int warp = threadIdx.x >> 5;
   const unsigned int kv = blockIdx.y;
@@ -55,47 +70,77 @@ __global__ void attention_scores_grouped_register_kernel(
 #pragma unroll
     for (unsigned int j = 0; j < 8; ++j)
       queries[h][j] = decode_bf16_device(query[(kv * 6 + h) * 256 + lane + offsets[j]]);
+#pragma unroll
+  for (unsigned int stage = 0; stage < 3; ++stage)
+    stage_keys(key_tiles[stage], keys, sequence, blockIdx.x * 128 + stage * 8);
+  asm volatile("cp.async.wait_group 2;" ::);
+  __syncthreads();
   for (unsigned int i = 0; i < 16; ++i) {
-    const unsigned int position = blockIdx.x * 128 + i * 8 + warp;
-    if (position >= sequence) break;
-    float key[8];
+    if (i + 3 < 16)
+      stage_keys(key_tiles[(i + 3) & 3], keys, sequence, blockIdx.x * 128 + (i + 3) * 8);
+    const unsigned int column = i * 8 + warp;
+    const unsigned int position = blockIdx.x * 128 + column;
+    if (position < sequence) {
+    float key[8], sums[6];
 #pragma unroll
     for (unsigned int j = 0; j < 8; ++j)
-      key[j] = decode_bf16_device(keys[(position * 4 + kv) * 256 + lane + offsets[j]]);
+      key[j] = decode_bf16_device(key_tiles[i & 3][warp * 256 + lane + offsets[j]]);
 #pragma unroll
     for (unsigned int h = 0; h < 6; ++h) {
       float product[8];
 #pragma unroll
       for (unsigned int j = 0; j < 8; ++j)
         product[j] = fmaf(queries[h][j], key[j], 0.0f);
-      float sum = __fadd_rn(
+      sums[h] = __fadd_rn(
           __fadd_rn(__fadd_rn(product[0], product[1]), __fadd_rn(product[2], product[3])),
           __fadd_rn(__fadd_rn(product[4], product[5]), __fadd_rn(product[6], product[7])));
-#pragma unroll
-      for (unsigned int stride = 16; stride; stride >>= 1) {
-        const float rhs = __shfl_down_sync(0xffffffffU, sum, stride);
-        if (lane < stride) sum = __fadd_rn(sum, rhs);
-      }
-      if (lane == 0) scores[(kv * 6 + h) * sequence + position] = sum * 0.0625f;
     }
+    // Only lanes [0,stride) remain ancestors of the lane-zero output.
+    // Updating the other lanes removes predicated merge moves; no live
+    // operand or add changes. Interleave independent heads at each stage.
+#pragma unroll
+    for (unsigned int stride = 16; stride; stride >>= 1)
+#pragma unroll
+      for (unsigned int h = 0; h < 6; ++h)
+        sums[h] = __fadd_rn(sums[h], __shfl_down_sync(0xffffffffU, sums[h], stride));
+    if (lane == 0)
+#pragma unroll
+      for (unsigned int h = 0; h < 6; ++h)
+        score_tile[h][column] = sums[h] * 0.0625f;
+    }
+    __syncthreads();
+    if (i + 3 < 16) asm volatile("cp.async.wait_group 2;" ::);
+    else if (i + 2 < 16) asm volatile("cp.async.wait_group 1;" ::);
+    else asm volatile("cp.async.wait_group 0;" ::);
+    __syncthreads();
+  }
+  __syncthreads();
+  // Publish adjacent positions together instead of one four-byte global
+  // store per warp. Invalid tail cells are never read or published.
+  for (unsigned int i = threadIdx.x; i < 6 * 128; i += 256) {
+    const unsigned int h = i / 128;
+    const unsigned int column = i % 128;
+    const unsigned int position = blockIdx.x * 128 + column;
+    if (position < sequence)
+      scores[(kv * 6 + h) * sequence + position] = score_tile[h][column];
   }
 }
 
-// One CTA owns a KV head and 32 output dimensions. Its six consumer warps
-// retain the six independent query accumulators; producers load each V tile
+// One CTA owns a KV head and 64 output dimensions. Its six consumer warps
+// retain two independent outputs per lane; producers load each V tile
 // once, while the next tile travels directly from global to shared memory.
 // Only operand movement changes. Every accumulator consumes positions in the
 // public reference order, including the final partial tile.
 __device__ __forceinline__ void ordered_stage(
     std::uint16_t* vs, float* ps, const std::uint16_t* values,
     const float* probabilities, unsigned int sequence, unsigned int first) {
-  for (unsigned int i = threadIdx.x; i < 256; i += 192) {
-    const unsigned int row = i / 4;
-    const unsigned int column = (i % 4) * 8;
+  for (unsigned int i = threadIdx.x; i < 512; i += 192) {
+    const unsigned int row = i / 8;
+    const unsigned int column = (i % 8) * 8;
     const bool valid = first + row < sequence;
     const auto* src = values + (valid ? (first + row) * 1024 +
-        blockIdx.y * 256 + blockIdx.x * 32 + column : 0);
-    const auto dst = static_cast<unsigned int>(__cvta_generic_to_shared(vs + row * 32 + column));
+        blockIdx.y * 256 + blockIdx.x * 64 + column : 0);
+    const auto dst = static_cast<unsigned int>(__cvta_generic_to_shared(vs + row * 64 + column));
     asm volatile("cp.async.cg.shared.global [%0], [%1], 16, %2;" ::
                  "r"(dst), "l"(src), "r"(valid ? 16 : 0));
   }
@@ -112,39 +157,61 @@ __device__ __forceinline__ void ordered_stage(
   asm volatile("cp.async.commit_group;" ::);
 }
 
-__global__ void attention_values_ordered_pipeline_kernel(
+__global__ void attention_values_ordered_pair_kernel(
     const std::uint16_t* values, const float* probabilities,
     unsigned int sequence, std::uint16_t* output) {
-  __shared__ __align__(16) std::uint16_t vs[2][64 * 32];
-  __shared__ __align__(16) float ps[2][6 * 64];
+  __shared__ __align__(16) std::uint16_t vs[4][64 * 64];
+  __shared__ __align__(16) float ps[4][6 * 64];
   const unsigned int lane = threadIdx.x % 32;
   const unsigned int head = threadIdx.x / 32;
-  float accumulator = 0.0f;
-  ordered_stage(vs[0], ps[0], values, probabilities, sequence, 0);
-  asm volatile("cp.async.wait_group 0;" ::);
+  float accumulator = 0.0f, second = 0.0f;
+  // Three future groups cover operand latency; four physical buffers keep
+  // the producer disjoint from the current consumer. S >= 512 guarantees
+  // all three initial tiles exist.
+#pragma unroll
+  for (unsigned int stage = 0; stage < 3; ++stage)
+    ordered_stage(vs[stage], ps[stage], values, probabilities, sequence, stage * 64);
+  asm volatile("cp.async.wait_group 2;" ::);
   __syncthreads();
   unsigned int buffer = 0;
   for (unsigned int first = 0; first < sequence; first += 64) {
-    if (first + 64 < sequence)
-      ordered_stage(vs[buffer ^ 1], ps[buffer ^ 1], values,
-                    probabilities, sequence, first + 64);
+    if (first + 3 * 64 < sequence)
+      ordered_stage(vs[(buffer + 3) & 3], ps[(buffer + 3) & 3], values,
+                    probabilities, sequence, first + 3 * 64);
     const auto* v = vs[buffer];
     const auto* p = ps[buffer] + head * 64;
     if (first + 64 <= sequence) {
 #pragma unroll
-      for (unsigned int row = 0; row < 64; ++row)
-        accumulator = fmaf(p[row], decode_bf16_device(v[row * 32 + lane]), accumulator);
+      for (unsigned int row = 0; row < 64; ++row) {
+        const auto packed = *reinterpret_cast<const unsigned int*>(v + row * 64 + lane * 2);
+        const float probability = p[row];
+        accumulator = fmaf(probability, __uint_as_float(packed << 16), accumulator);
+        second = fmaf(probability, __uint_as_float(packed & 0xffff0000U), second);
+      }
     } else {
-      for (unsigned int row = 0; row < sequence - first; ++row)
-        accumulator = fmaf(p[row], decode_bf16_device(v[row * 32 + lane]), accumulator);
+      for (unsigned int row = 0; row < sequence - first; ++row) {
+        const auto packed = *reinterpret_cast<const unsigned int*>(v + row * 64 + lane * 2);
+        const float probability = p[row];
+        accumulator = fmaf(probability, __uint_as_float(packed << 16), accumulator);
+        second = fmaf(probability, __uint_as_float(packed & 0xffff0000U), second);
+      }
     }
     __syncthreads();
-    asm volatile("cp.async.wait_group 0;" ::);
+    // Do not wait for the younger groups while consuming the oldest one.
+    // Near the tail, shrink the allowed outstanding count so the next tile
+    // is still known complete. Every thread executes the same wait/barrier.
+    if (first + 3 * 64 < sequence)
+      asm volatile("cp.async.wait_group 2;" ::);
+    else if (first + 2 * 64 < sequence)
+      asm volatile("cp.async.wait_group 1;" ::);
+    else
+      asm volatile("cp.async.wait_group 0;" ::);
     __syncthreads();
-    buffer ^= 1;
+    buffer = (buffer + 1) & 3;
   }
-  output[(blockIdx.y * 6 + head) * 256 + blockIdx.x * 32 + lane] =
-      encode_bf16_device(accumulator);
+  const unsigned int destination = (blockIdx.y * 6 + head) * 256 + blockIdx.x * 64 + lane * 2;
+  output[destination] = encode_bf16_device(accumulator);
+  output[destination + 1] = encode_bf16_device(second);
 }
 struct Span { std::uintptr_t begin; std::size_t bytes; };
 bool valid_spans(const std::array<Span, 5>& spans) noexcept {
@@ -216,7 +283,7 @@ int launch(const std::uint16_t* query, const std::uint16_t* key,
   (void)cudaGetLastError();
   const auto stream = static_cast<cudaStream_t>(opaque);
   auto* probabilities = static_cast<float*>(workspace);
-  attention_scores_grouped_register_kernel
+  attention_scores_grouped_async_kernel
       <<<dim3((sequence + 127) / 128, 4), 256, 0, stream>>>(
           query, key, static_cast<unsigned int>(sequence), probabilities);
   auto status = cudaGetLastError();
@@ -224,7 +291,7 @@ int launch(const std::uint16_t* query, const std::uint16_t* key,
   const int softmax_status = launch_softmax_reference_cuda(
       probabilities, 24, sequence, probabilities, opaque);
   if (softmax_status) return softmax_status;
-  attention_values_ordered_pipeline_kernel<<<dim3(8, 4), 192, 0, stream>>>(
+  attention_values_ordered_pair_kernel<<<dim3(4, 4), 192, 0, stream>>>(
       value, probabilities, static_cast<unsigned int>(sequence), output);
   return static_cast<int>(cudaGetLastError());
 }

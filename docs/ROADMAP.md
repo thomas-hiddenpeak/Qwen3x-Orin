@@ -63,7 +63,8 @@ while preserving model capability, BF16 KV, weight format, non-MTP semantics
 and API capacity. Downward budget: replace the roughly 92 ms historical
 P40 scalar-attention cost with the fused dataflow observed near 14 ms; these
 are diagnostic budgets, not universal bounds. The current delivery window
-accepts approximately 8.55 tok/s without a further speed-optimization package.
+accepts approximately 8.55 tok/s. The owner reopened exact performance work
+after the numerical repair fell below this interim budget.
 Upward return: the actual accepted Prefill plus Decode API with useful output
 lengths, then installed-artifact qualification. No new parameter sweep.
 
@@ -109,6 +110,32 @@ is a separately bounded exact dataflow successor with a declared route back
 to the approximately 8.55 tok/s API budget. Numerical reassociation or the
 Prefill-only waiver is not a shortcut. Downstream composition and release
 qualification remain conditional on that whole-product result.
+
+Owner-directed performance successor: `WP-DECODE-EXACT-PERFORMANCE-20260927`
+starts from c0318dd's exact v5 and the actual P40000/O256 API gap. Keep the
+approximately 8.55 tok/s target and strict scalar numerical contract. First
+use one scoped real-Decode Nsight Systems capture to locate the cost without
+relying on the failed HWPM counter capture. Admit one coherent exact dataflow
+and at most one causally justified correction, with a 40-minute real-model
+process budget before API return or rejection. Return to the same binary's
+P1089/P8192/P40000 API, with O256 at 40K and separately reported Prefill/Decode.
+No approximate reduction, parameter sweep, Prefill arithmetic exploration or
+production promotion is authorized by a local win. Positive direction unlocks
+an independent-process target repeat and downstream composition gates. The
+completed time trace permits one privileged counter retry on the unchanged
+artifact to distinguish the measured PV/QK costs; no driver policy is changed
+and this stays inside the same budget.
+
+This package has now returned to the real API and is closed. The
+[v7 closeout](analysis/decode-exact-performance-2026-09-27/README.md) retains a
+numerically exact, direction-positive isolated implementation, but the interim
+speed goal remains unmet. Its local mutation and correction budget is spent;
+do not continue a stage/tile scan. The next performance package must begin
+with the composed v7 path, identify a measured remaining operand-feed or
+residency dependency, declare its exact-order transformation and API budget,
+and return promptly to P40000/O256. Approximately 8.55 tok/s remains the
+milestone constraint. Whole-core composition and release gates below remain
+conditional; none is waived or inferred from this incremental improvement.
 
 Ordered deliverables:
 
@@ -164,15 +191,12 @@ the 20-case direct-answer capability screen pass, but neither changes the
 production numerical contract. The version's validation work is closed;
 items 4 and 5 are conditional downstream gates and are not executed or waived.
 
-Next decision boundary: a materially changed numerical design that satisfies
-the existing contract, or a concrete proposed contract change supported by
-adequate model-capability evidence and explicit owner acceptance. The small
-screen does not justify that change on its own. No speed optimization,
-threshold relaxation, continued parameter scan, or automatic whole-core
-composition is authorized by this negative numerical result. Approximately
-8.55 tok/s remains acceptable for the current delivery goal. Preserve the
-isolated implementation and evidence for a bounded successor; do not present
-it as a production route.
+The negative v2/v3 decision boundary above is historical. The ordered repair
+subsequently satisfies the bounded strict numerical panel, and the v7
+performance closeout now defines the current exact incumbent. The next
+decision is the remaining whole-API performance gap under the current owner
+direction, followed by conditional composition and release qualification.
+No numerical tolerance relaxation or automatic promotion is authorized.
 
 The scalar unroll gains remain the regression baseline. Old scores/values split
 lineages and their 5.5/6.1/6.29 ceiling narratives are closed as planning inputs.

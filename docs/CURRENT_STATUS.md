@@ -974,6 +974,18 @@ either Prefill candidate.
 
 ### Decode convergence snapshot, 2026-09-27
 
+The [exact v7 performance successor](analysis/decode-exact-performance-2026-09-27/README.md)
+preserves the frozen scalar numerical panel and improves P40000/O256 from a
+fresh v5 control's 7.33851 to 7.87765 tok/s;
+an independent v7 process returns 7.87698 tok/s with identical
+text and usage. The same v7 API panel gives 9.6132/9.2516
+tok/s at P1089/P8192 O32. The approximately 8.55 goal remains open. Capability
+and recovery checks pass within their bounded scope. The isolated admission
+now identifies v7; ordinary scalar remains default, and the rebuilt OFF server
+is byte-identical to the previous artifact. Whole-core composition and release
+promotion remain unselected. The earlier v5 snapshot below is historical to
+that artifact; the linked v7 record owns the current measured panel.
+
 The [ordered v5 repair](analysis/decode-ordered-repair-2026-09-27/README.md)
 closes the bounded numerical discrepancy: P576/P8192/P40000 O16 each match
 all 84 raw spans, complete live-state digests and 256 Attention calls bitwise
@@ -986,7 +998,6 @@ Whole-core composition and release promotion remain unselected. One bounded
 NCU attempt failed the device HWPM secure-profiling permission check and
 provides no kernel timing or causal attribution. The earlier v2/v3 failures
 below remain historical evidence, not the current numerical result.
-
 
 The owner-directed [v3 numerical repair](analysis/decode-numerical-repair-2026-09-27/README.md)
 now keeps partition outputs and merge staging in FP32, with unchanged BF16 KV
@@ -1016,8 +1027,9 @@ recorded separately. Full public/long-context capability remains unqualified.
 The v2 version was stopped before whole-core composition and promotion;
 the v3 repair above also remains numerically unqualified. These sentences
 describe the superseded numerical lineage; v5 results are recorded above.
-Its approximately 8.55 tok/s speed is provisionally acceptable; numerical
-admission is the blocker. Reopening requires a successor numerical design or
+For that historical v2 lineage, approximately 8.55 tok/s was provisionally
+acceptable and numerical admission was the blocker. Reopening that rejected
+lineage requires a successor numerical design or
 an explicitly accepted changed contract with adequate evidence, not a new
 speed-optimization package.
 

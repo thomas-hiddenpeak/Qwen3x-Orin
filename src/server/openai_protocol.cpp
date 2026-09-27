@@ -1423,8 +1423,8 @@ std::string serialize_target_prefill_witness(
       p40_vllm_marlin_parity_candidate_v15;
   std::string output =
 #if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
-      true ? "{\"record\":\"target-prefill-witness-fused-decode-admission-v5\","
-             "\"schema_version\":5,\"decode_numerical_contract\":"
+      true ? "{\"record\":\"target-prefill-witness-fused-decode-admission-v7\","
+             "\"schema_version\":7,\"decode_numerical_contract\":"
              "\"ordered-pipeline-unqualified\",\"request\":{\"id\":" :
 #endif
       terminal_prefix_v20

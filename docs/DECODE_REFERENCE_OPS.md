@@ -117,7 +117,7 @@ interface, fixed Q24/KV4/D256 and S512..44095, and scale 1/16. The public GQA
 reference interface above continues to produce normalized probabilities and
 no longer dispatches the historical environment-selected split kernels.
 
-The v5 internal launcher reserves 4,233,120 bytes of existing request-owned
+The v7 internal launcher reserves 4,233,120 bytes of existing request-owned
 FP32 scratch (24 by maximum sequence) on the runner stream. It validates
 bounds, alignment and disjoint spans before enqueue, owns no allocation or
 mutable global buffer, and checks the fixed device at runner construction.
@@ -126,11 +126,15 @@ short Graph route is outside its sequence interval.
 
 This successor preserves the public scalar QK reduction tree, row-wise FP32
 softmax, increasing-position `fmaf` chain, and final BF16 RNE publication.
-The QK producer retains all six grouped queries across independent positions
-and reuses each decoded K vector. Six query warps share each asynchronously
-staged V tile. Double-buffered shared
-storage changes operand movement, not summation order; a partial tile consumes
-only valid positions. Probabilities occupy the existing FP32 arena, and no
+The QK producer retains all six grouped queries across independent positions,
+reads asynchronously staged K and publishes a coalesced shared score tile.
+Only lane-zero reduction ancestors are observable; every live add retains
+its original tree. Six query warps share each asynchronously staged V tile,
+and each lane retains two independent adjacent output accumulators. Four
+physical buffers keep the producer separate from the current consumer, with
+up to three future groups in flight and drained tail waits. These changes
+affect operand movement and independent-output scheduling, not summation
+order; a partial tile consumes only valid positions. Probabilities occupy the existing FP32 arena, and no
 partition result or approximate probability is introduced. Its strict oracle
 compares probability/output bits, followed by whole-model state and logits.
 It remains a non-installable admission pending whole-product selection.
