@@ -6,7 +6,7 @@ q3x_document:
   owner: prefill-maintainers
   authority: Prefill subsystem boundary, state contract, and architecture-candidate requirements
   effective: 2026-08-10
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-09-28
   supersedes: [docs/PREFILL_ARCHITECTURE_RESET_LEGACY.md, docs/PREFILL_REFERENCE_AUDIT.md]
   superseded_by: []
   ssot_for: Prefill inputs, outputs, ownership, synchronization, failure, and Decode handoff
@@ -274,6 +274,13 @@ the packed operand as a first-class execution asset:
   DeploymentPlan and runtime witness; and
 - rejected implementation mechanisms may remain as default-off correctness
   evidence but cannot remain reachable from the runner.
+
+The owner-directed corrected service in
+[SDD Section 3.2](SDD.md#32-corrected-full-range-service-profile) selects one
+explicit convergence exception: bounded request-owned BF16 dequantization
+for FP8 and Gate/Up CUTLASS inputs, with exact decoded operands and global
+scales after FP32 accumulation. This does not reclassify temporary BF16 weight
+materialization as packed residency or waive numerical/ownership qualification.
 
 This contract selects no tile, stage count, grid size, performance budget, or
 delivery order.

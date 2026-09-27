@@ -63,7 +63,7 @@ static_assert(kSm87Bf16AbPromptWideP40MaximumOutputIndex + 1U ==
               kSm87Bf16AbPromptWideP40OutputElements);
 
 [[nodiscard]] constexpr bool admits_bf16_ab_prompt_tokens(std::size_t tokens) noexcept {
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
   return tokens > 0U && tokens <= 44'096U;
 #else
   return tokens == kSm87Bf16AbPromptWideP40Tokens;

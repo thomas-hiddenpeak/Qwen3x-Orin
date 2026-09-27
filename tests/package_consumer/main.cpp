@@ -1,6 +1,8 @@
 #include "q3x/runtime/reference_benchmark.h"
 #include "q3x/runtime/reference_engine.h"
 #include "q3x/version.h"
+#include "q3x/runtime/prefill_workspace_plan.h"
+#include "q3x/runtime/whole_core_request_geometry.h"
 
 #include <iostream>
 #include <string_view>
@@ -31,11 +33,17 @@ int main() {
       reset_receipt.mode !=
           q3x::runtime::RequestStateResetMode::kConservativeFull ||
       q3x::runtime::to_string(reset_receipt.mode) != "conservative_full" ||
-      Q3X_VERSION_MAJOR != 0 || Q3X_VERSION_MINOR != 7 ||
+      Q3X_VERSION_MAJOR != 0 || Q3X_VERSION_MINOR != 8 ||
       Q3X_VERSION_PATCH != 0 ||
       q3x::runtime::kMaximumRequestPrefillChunkSize != 512U) {
     return 1;
   }
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
+  const auto plan = q3x::runtime::build_unbound_layer_major_p40_whole_core_workspace_plan();
+  if (!plan || plan.value->required_bytes !=
+                   q3x::runtime::kWholeCoreCompiledArenaBytes ||
+      q3x::runtime::kWholeCoreCompiledSequenceCapacity != 44095U) return 2;
+#endif
   std::cout << "installed q3x::engine consumer linked successfully\n";
   return 0;
 }

@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: Decode common-operation numerical and dimension contract
   effective: 2026-08-09
-  last_reviewed: 2026-09-27
+  last_reviewed: 2026-09-28
   supersedes: []
   superseded_by: []
   ssot_for: reference Decode common-op dimensions, arithmetic, and error behavior
@@ -137,7 +137,12 @@ affect operand movement and independent-output scheduling, not summation
 order; a partial tile consumes only valid positions. Probabilities occupy the existing FP32 arena, and no
 partition result or approximate probability is introduced. Its strict oracle
 compares probability/output bits, followed by whole-model state and logits.
-It remains a non-installable admission pending whole-product selection.
+The admission remains non-installable. The separately sealed corrected service
+may compile the same ordered launcher without its observer/teacher-forcing
+seams, under its own installed-artifact qualification. Independent FP64
+same-input checks assess the scalar baseline itself; they do not turn FP32
+or BF16 arithmetic into exact mathematical truth. The full-range service
+contract is owned by [the system SDD](SDD.md#32-corrected-full-range-service-profile).
 
 The previous tensorcore v3 used BF16 high plus residual probabilities and FP32
 partition/merge state. Its removed premature rounding and remaining numerical

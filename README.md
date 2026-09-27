@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: product introduction, bounded evaluation quick start, and high-level navigation
   effective: 2026-08-09
-  last_reviewed: 2026-09-09
+  last_reviewed: 2026-09-28
   supersedes: []
   superseded_by: []
   ssot_for: concise project introduction and bounded functional evaluation entry; dynamic state remains in docs/CURRENT_STATUS.md
@@ -22,21 +22,14 @@ explores what becomes possible when the model, numerical format, hardware,
 execution plan, and serving boundary are engineered as one system instead of
 treated as interchangeable layers.
 
-> **Project status — evaluation stage.** The repository has an implemented
-> batch-one native runner and production-shaped OpenAI-compatible service.
-> It does **not** yet have a qualified Production release or complete serving
-> qualification. P40 admission exists; P60/P130 and the locked latency targets
-> remain open. [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md) is the sole
-> source for current capability, routes, performance, capacity, and blockers.
-
-This source integration selects the ordinary liveness profile
-`q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1` after its matched
-P40000/O16 API panel. A separate Graph source-template lifetime repair retains
-the full Graph executable and all numerical, route, and startup admission gates.
-Fresh installed-main OFF, P40000/O16 API, and standard short EvalScope plus
-raw-SSE integration closeout now pass on `230eac1` / installed ELF `270a6bb4...`.
-The profile remains `production_eligible=false` and
-`release_qualified=false`; source selection does not grant release qualification.
+The ordinary installed service now selects corrected whole-core Prefill and
+ordered v7 Decode under profile `q3x.sm87.production.whole-core-service.v1`.
+It serves nonempty text, chat and token-ID prompts, streaming and nonstreaming,
+with outputs up to 4,096 tokens and `prompt + output - 1 <= 44,095`. Package
+version is 0.8.0. The bounded service switch is complete; future 60K/130K
+capacity and the locked latency targets remain open, so full product
+`release_qualified` remains false. [Current Status](docs/CURRENT_STATUS.md)
+owns the exact qualification, paired Prefill/Decode results and remaining gaps.
 
 Qwen3x-Orin is an independent community project. It is not an official Qwen,
 Alibaba, NVIDIA, or Jetson project and is not endorsed by those organizations.
@@ -90,7 +83,7 @@ current implementation and qualification facts.
 
 ## Functional evaluation quick start
 
-This functional smoke path exercises building the current development runner,
+This functional smoke path exercises building the current service,
 loading the pinned model, generating text, and answering through its evaluation
 adapter. It is **not** an accuracy validation, performance result, long-context
 qualification, or Production release attestation.
@@ -123,7 +116,9 @@ cmake --build "$Q3X_BUILD" --parallel \
 ```
 
 `BUILD_TESTING=OFF` excludes test-only admission paths; it does not by itself
-make this an attested release. The sole explicit exception is the default-OFF
+make this a fully qualified product release. Fresh OFF builds select the sealed
+whole-core service; test builds do not. Explicit historical reproduction must
+set `Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=OFF`. The default-OFF
 `Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE` bundle. That bundle builds the
 separately named, accuracy-unqualified
 `qwen3x-eval-server-p40-v10-dev` baseline, requires its typed
@@ -141,8 +136,9 @@ configuration. Inspect the ordinary binary and target device:
 `models` reports catalogued descriptors; a catalog entry is not a runtime
 support or qualification claim.
 
-Run one functional greedy generation while explicitly selecting the SM87
-projection backend and requesting the maximum 512-token Prefill chunk
+The diagnostic `generate` CLI retains its explicit legacy execution options;
+use the server below for the production route. For a diagnostic smoke, select the SM87
+projection backend and request the maximum 512-token Prefill chunk
 capacity:
 
 ```bash
@@ -153,10 +149,12 @@ capacity:
   --projection-backend sm87
 ```
 
-Start the loopback evaluation adapter in one terminal:
+Install and start the production service in one terminal:
 
 ```bash
-"$Q3X_BUILD/qwen3x-eval-server" "$Q3X_MODEL_DIR" \
+Q3X_INSTALL="$PWD/.q3x-work/install/quickstart"
+cmake --install "$Q3X_BUILD" --prefix "$Q3X_INSTALL"
+"$Q3X_INSTALL/bin/qwen3x-eval-server" "$Q3X_MODEL_DIR" \
   --host 127.0.0.1 \
   --port 18080 \
   --model qwen3.6-27b-nvfp4
@@ -173,15 +171,15 @@ curl -N -fsS http://127.0.0.1:18080/v1/chat/completions \
   -d '{"model":"qwen3.6-27b-nvfp4","messages":[{"role":"user","content":"你好，请用一句话介绍你自己。"}],"max_tokens":16,"temperature":0,"stream":true}'
 ```
 
-The ordinary server fixes the exact Legacy-C512/SM87 P40 inventory and
-capacity; public tactic and arena overrides are rejected. The loopback command
+The ordinary server fixes corrected whole-core Prefill, ordered v7 Decode and
+the full-range SM87 inventory; public tactic and arena overrides are rejected. The loopback command
 above omits authentication. `--api-key-file` enables Bearer authentication for
 models and generation; health remains public, and a non-loopback listener
 requires an owner-only key file. TLS termination is external. Execution is
 greedy and serialized at the GPU worker. Generation requests must explicitly provide a positive
 `max_tokens` or `max_completion_tokens` within the configured ceiling and use
-`temperature=0`. It is an external-evaluation instrument, not the final
-Production API. See the
+`temperature=0`. This is the bounded production service; full long-term product qualification
+remains separate. See the
 [`evaluation procedure`](docs/EVALSCOPE_EVALUATION.md) for supported request
 semantics and reproducible EvalScope commands.
 
@@ -236,7 +234,7 @@ src/text/          Pinned tokenizer and chat/text preprocessing
 src/model/         Model descriptors and checkpoint metadata
 src/runtime/       Weight binding, request state, reference engine, and runner
 src/kernels/       Reference and SM87-specialized CUDA kernels
-src/server/        Loopback OpenAI-compatible evaluation adapter
+src/server/        Native OpenAI-compatible service
 tools/             Inspection, evidence, reference, and evaluation tools
 tests/             Unit, numerical, route, and integration tests
 benchmarks/        Pinned benchmark and EvalScope inputs

@@ -1707,7 +1707,7 @@ bool ModelWeights::attach_nvfp4_marlin_prefill_sidecars(
   for (std::size_t index = 0U; index < descriptor_count; ++index) {
     const NvFp4MarlinPrefillSidecarDescriptor& descriptor = descriptors[index];
     const bool source_only =
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
         descriptor.gate_up_layout == NvFp4MarlinGateUpLayout::kCanonicalSourceOnly;
 #else
         false;

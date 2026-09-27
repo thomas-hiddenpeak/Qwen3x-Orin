@@ -1,0 +1,661 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-28",
+  "decision": "promote corrected full-range Prefill plus ordered v7 Decode to ordinary installed mainline service",
+  "authority": "explicit owner direction to finish numerical repair and production switch, including independent baseline assessment; bounded existing service envelope, no long-term target waiver",
+  "source_parent": "f322f104cbc2c7b28fd379697c7c95a218f68e8d",
+  "artifact": {
+    "executable": ".q3x-work/install/whole-core-service-20260928/bin/qwen3x-eval-server",
+    "sha256": "62178564d499e020a77d1753b43179fe7a6e3ad07cd9a206da153b7543368d58",
+    "package": "0.8.0",
+    "build_testing": false,
+    "cuda_architecture": "87",
+    "build_type": "Release",
+    "profile": "q3x.sm87.production.whole-core-service.v1",
+    "prefill_plan": "q3x.sm87.production.whole-core-prefill.v1",
+    "decode": "fixed-gqa-ordered-pipeline-s512-44095.v7",
+    "witness": "target-prefill-witness-whole-core-service-v1",
+    "test_hooks": false,
+    "cublaslt_dependency": false,
+    "request_workspace_growth": false
+  },
+  "source_bridge": {
+    "frozen_source_manifest": ".q3x-work/prefill-convergence-20260928/service-frozen-source.json",
+    "sha256": "1fbee2709ea872486230644b58b4c9bdfad52926addf72aeaefe04ac9e6fed55",
+    "changes_after_frozen_validation": [
+      "CMakeLists.txt",
+      "src/eval_server_main.cpp",
+      "src/server/evaluation_server.cpp"
+    ],
+    "explanation": "Configure defaults/conflict rejection and two historical-profile messages compiled out of the selected service changed; final rebuilt/installed server SHA256 equals the exact qualified artifact. Documentation and audit changes do not alter runtime."
+  },
+  "capacity": {
+    "minimum_prompt": 1,
+    "maximum_output": 4096,
+    "sequence_constraint": "P+O-1<=44095",
+    "family_rows": 44096,
+    "arena_bytes": 9508218624,
+    "minimum_free_bytes": 8589934592,
+    "worker_requests": 1,
+    "queued_requests": 1
+  },
+  "numerical": {
+    "legacy_is_model_truth": false,
+    "corrected_projection_coordinates_and_scale_placement": true,
+    "prefill_reference": "independently checked direct FP32 recurrence and independent all-layer FP32 chunk GDN; pinned vLLM/FLA cross-check",
+    "decode_reference": "independent FP64 same-input Attention over four layers and short/8K/40K contexts; scalar-equivalent ordered v7 retained",
+    "exact_logits_or_generation_equivalence_to_vllm_claimed": false,
+    "references": [
+      "docs/analysis/prefill-reference-repair-2026-09-28/README.md",
+      "docs/metadata/qwen36-27b-whole-core-capacity-baselines-2026-09-28.json",
+      "docs/analysis/whole-core-production-switch-2026-09-27/README.md"
+    ]
+  },
+  "capability": {
+    "valid": 98,
+    "native_correct": 79,
+    "vllm_correct": 79,
+    "identical_answers": 98,
+    "scope": "all98validation rows of four predeclared C-Eval subjects; five-shot direct answers; exactrequest SHA and prompt counts equal; not52subjects"
+  },
+  "performance_protocol": {
+    "order": [
+      "service-pair-b1",
+      "service-pair-c1-r2",
+      "service-pair-c2",
+      "service-pair-b2"
+    ],
+    "processes": 4,
+    "cold_os_cache_preparation": true,
+    "prefix_cache": false,
+    "mtp": false,
+    "prompt_order_identical": true,
+    "later_requests_are_first_after_startup": false,
+    "gpu_holders_before_start": 0,
+    "gpu_frequency_hz": 1300500000,
+    "thermal_stop_c": 90,
+    "margin": "installed throughput no more than3%regression vs frozen correct v9-r5 at every testedlength, Prefill and Decode separately",
+    "baseline_executable_sha256": "66405aee414b22637ca10c90cc5b67ec0408798f45ce3f4bd785184c0d9bfe54"
+  },
+  "paired_metrics": [
+    {
+      "P": 1,
+      "O": 16,
+      "output_and_request_identical": true,
+      "prefill_seconds": {
+        "candidate_baseline": [
+          0.817891631,
+          0.816923644
+        ],
+        "installed": [
+          0.820301492,
+          0.818415552
+        ],
+        "baseline_mean": 0.8174076374999999,
+        "installed_mean": 0.819358522,
+        "installed_min": 0.818415552,
+        "installed_max": 0.820301492,
+        "ratio": 1.002386672708328
+      },
+      "prefill_tok_s": {
+        "candidate_baseline": [
+          1.2226558655177144,
+          1.2241046116667422
+        ],
+        "installed": [
+          1.2190639780038337,
+          1.2218731640133838
+        ],
+        "baseline_mean": 1.2233802385922283,
+        "installed_mean": 1.2204685710086087,
+        "installed_min": 1.2190639780038337,
+        "installed_max": 1.2218731640133838,
+        "ratio": 0.9976199815137032
+      },
+      "external_ttft_seconds": {
+        "candidate_baseline": [
+          0.8363902359269559,
+          0.8355982541106641
+        ],
+        "installed": [
+          0.8390498771332204,
+          0.8376521589234471
+        ],
+        "baseline_mean": 0.83599424501881,
+        "installed_mean": 0.8383510180283338,
+        "installed_min": 0.8376521589234471,
+        "installed_max": 0.8390498771332204,
+        "ratio": 1.0028191258774404
+      },
+      "decode_tok_s": {
+        "candidate_baseline": [
+          9.678797615619175,
+          9.682844371425183
+        ],
+        "installed": [
+          9.675036368413334,
+          9.676346903461583
+        ],
+        "baseline_mean": 9.680820993522179,
+        "installed_mean": 9.675691635937458,
+        "installed_min": 9.675036368413334,
+        "installed_max": 9.676346903461583,
+        "ratio": 0.9994701526256757
+      }
+    },
+    {
+      "P": 65,
+      "O": 16,
+      "output_and_request_identical": true,
+      "prefill_seconds": {
+        "candidate_baseline": [
+          0.8762075690000001,
+          0.876236182
+        ],
+        "installed": [
+          0.883432933,
+          0.877296295
+        ],
+        "baseline_mean": 0.8762218755,
+        "installed_mean": 0.880364614,
+        "installed_min": 0.877296295,
+        "installed_max": 0.883432933,
+        "ratio": 1.0047279560301277
+      },
+      "prefill_tok_s": {
+        "candidate_baseline": [
+          74.18333543293096,
+          74.18091301781008
+        ],
+        "installed": [
+          73.57660957835267,
+          74.09127380390909
+        ],
+        "baseline_mean": 74.18212422537053,
+        "installed_mean": 73.83394169113089,
+        "installed_min": 73.57660957835267,
+        "installed_max": 74.09127380390909,
+        "ratio": 0.9953063822602082
+      },
+      "external_ttft_seconds": {
+        "candidate_baseline": [
+          0.8940254277549684,
+          0.8941956171765924
+        ],
+        "installed": [
+          0.9016207028180361,
+          0.8951950944028795
+        ],
+        "baseline_mean": 0.8941105224657804,
+        "installed_mean": 0.8984078986104578,
+        "installed_min": 0.8951950944028795,
+        "installed_max": 0.9016207028180361,
+        "ratio": 1.004806314249413
+      },
+      "decode_tok_s": {
+        "candidate_baseline": [
+          9.58675123250709,
+          9.595300476677703
+        ],
+        "installed": [
+          9.584768511575094,
+          9.588040979156748
+        ],
+        "baseline_mean": 9.591025854592397,
+        "installed_mean": 9.586404745365922,
+        "installed_min": 9.584768511575094,
+        "installed_max": 9.588040979156748,
+        "ratio": 0.9995181840507433
+      }
+    },
+    {
+      "P": 513,
+      "O": 16,
+      "output_and_request_identical": true,
+      "prefill_seconds": {
+        "candidate_baseline": [
+          1.5873365659999998,
+          1.617413014
+        ],
+        "installed": [
+          1.587075635,
+          1.587644571
+        ],
+        "baseline_mean": 1.6023747899999998,
+        "installed_mean": 1.587360103,
+        "installed_min": 1.587075635,
+        "installed_max": 1.587644571,
+        "ratio": 0.99062972839207
+      },
+      "prefill_tok_s": {
+        "candidate_baseline": [
+          323.18287815465095,
+          317.17316205544023
+        ],
+        "installed": [
+          323.23601263023613,
+          323.1201802786878
+        ],
+        "baseline_mean": 320.17802010504556,
+        "installed_mean": 323.178096454462,
+        "installed_min": 323.1201802786878,
+        "installed_max": 323.23601263023613,
+        "ratio": 1.0093700259263023
+      },
+      "external_ttft_seconds": {
+        "candidate_baseline": [
+          1.6054606051184237,
+          1.6356828529387712
+        ],
+        "installed": [
+          1.605319726280868,
+          1.6056554992683232
+        ],
+        "baseline_mean": 1.6205717290285975,
+        "installed_mean": 1.6054876127745956,
+        "installed_min": 1.605319726280868,
+        "installed_max": 1.6056554992683232,
+        "ratio": 0.9906921020626198
+      },
+      "decode_tok_s": {
+        "candidate_baseline": [
+          9.615724765484268,
+          9.620841519691348
+        ],
+        "installed": [
+          9.612219089817897,
+          9.612742571574863
+        ],
+        "baseline_mean": 9.618283142587808,
+        "installed_mean": 9.61248083069638,
+        "installed_min": 9.612219089817897,
+        "installed_max": 9.612742571574863,
+        "ratio": 0.9993967414136795
+      }
+    },
+    {
+      "P": 1089,
+      "O": 16,
+      "output_and_request_identical": true,
+      "prefill_seconds": {
+        "candidate_baseline": [
+          2.691261136,
+          2.705536599
+        ],
+        "installed": [
+          2.6960939010000002,
+          2.7053244899999997
+        ],
+        "baseline_mean": 2.6983988675,
+        "installed_mean": 2.7007091955,
+        "installed_min": 2.6960939010000002,
+        "installed_max": 2.7053244899999997,
+        "ratio": 1.0008561847649087
+      },
+      "prefill_tok_s": {
+        "candidate_baseline": [
+          404.64300748554336,
+          402.5079536541875
+        ],
+        "installed": [
+          403.9176823908404,
+          402.53951199769017
+        ],
+        "baseline_mean": 403.5754805698654,
+        "installed_mean": 403.22859719426526,
+        "installed_min": 402.53951199769017,
+        "installed_max": 403.9176823908404,
+        "ratio": 0.9991404746019001
+      },
+      "external_ttft_seconds": {
+        "candidate_baseline": [
+          2.709924574010074,
+          2.7240899922326207
+        ],
+        "installed": [
+          2.7146011306904256,
+          2.723746655974537
+        ],
+        "baseline_mean": 2.7170072831213474,
+        "installed_mean": 2.7191738933324814,
+        "installed_min": 2.7146011306904256,
+        "installed_max": 2.723746655974537,
+        "ratio": 1.0007974252496832
+      },
+      "decode_tok_s": {
+        "candidate_baseline": [
+          9.592352307577901,
+          9.597932460994999
+        ],
+        "installed": [
+          9.587364246621393,
+          9.588144052774833
+        ],
+        "baseline_mean": 9.59514238428645,
+        "installed_mean": 9.587754149698114,
+        "installed_min": 9.587364246621393,
+        "installed_max": 9.588144052774833,
+        "ratio": 0.9992300026104421
+      }
+    },
+    {
+      "P": 8192,
+      "O": 256,
+      "output_and_request_identical": true,
+      "prefill_seconds": {
+        "candidate_baseline": [
+          16.775059811,
+          16.853350072
+        ],
+        "installed": [
+          16.819969571,
+          16.834106797
+        ],
+        "baseline_mean": 16.8142049415,
+        "installed_mean": 16.827038184000003,
+        "installed_min": 16.819969571,
+        "installed_max": 16.834106797,
+        "ratio": 1.000763238139695
+      },
+      "prefill_tok_s": {
+        "candidate_baseline": [
+          488.3440114251167,
+          486.075466598781
+        ],
+        "installed": [
+          487.040120103675,
+          486.6311054566847
+        ],
+        "baseline_mean": 487.20973901194884,
+        "installed_mean": 486.8356127801799,
+        "installed_min": 486.6311054566847,
+        "installed_max": 487.040120103675,
+        "ratio": 0.9992321043653033
+      },
+      "external_ttft_seconds": {
+        "candidate_baseline": [
+          16.796505108010024,
+          16.875163565855473
+        ],
+        "installed": [
+          16.841922665946186,
+          16.855685510206968
+        ],
+        "baseline_mean": 16.83583433693275,
+        "installed_mean": 16.848804088076577,
+        "installed_min": 16.841922665946186,
+        "installed_max": 16.855685510206968,
+        "ratio": 1.0007703658092773
+      },
+      "decode_tok_s": {
+        "candidate_baseline": [
+          9.223697161888353,
+          9.224801130388782
+        ],
+        "installed": [
+          9.216398116033226,
+          9.22037215788736
+        ],
+        "baseline_mean": 9.224249146138568,
+        "installed_mean": 9.218385136960293,
+        "installed_min": 9.216398116033226,
+        "installed_max": 9.22037215788736,
+        "ratio": 0.9993642833052997
+      }
+    },
+    {
+      "P": 40000,
+      "O": 256,
+      "output_and_request_identical": true,
+      "prefill_seconds": {
+        "candidate_baseline": [
+          91.548610774,
+          92.32187342600001
+        ],
+        "installed": [
+          91.789791159,
+          92.15311746399999
+        ],
+        "baseline_mean": 91.93524210000001,
+        "installed_mean": 91.9714543115,
+        "installed_min": 91.789791159,
+        "installed_max": 92.15311746399999,
+        "ratio": 1.00039388824865
+      },
+      "prefill_tok_s": {
+        "candidate_baseline": [
+          436.9263461435297,
+          433.26677108715455
+        ],
+        "installed": [
+          435.7783092752793,
+          434.060193521138
+        ],
+        "baseline_mean": 435.09655861534213,
+        "installed_mean": 434.91925139820864,
+        "installed_min": 434.060193521138,
+        "installed_max": 435.7783092752793,
+        "ratio": 0.9995924876590664
+      },
+      "external_ttft_seconds": {
+        "candidate_baseline": [
+          91.5837806230411,
+          92.35663295304403
+        ],
+        "installed": [
+          91.8248603749089,
+          92.18844017433003
+        ],
+        "baseline_mean": 91.97020678804256,
+        "installed_mean": 92.00665027461946,
+        "installed_min": 91.8248603749089,
+        "installed_max": 92.18844017433003,
+        "ratio": 1.0003962531764323
+      },
+      "decode_tok_s": {
+        "candidate_baseline": [
+          7.864826867543075,
+          7.869114213710606
+        ],
+        "installed": [
+          7.86491693212542,
+          7.8638301403147
+        ],
+        "baseline_mean": 7.86697054062684,
+        "installed_mean": 7.864373536220061,
+        "installed_min": 7.8638301403147,
+        "installed_max": 7.86491693212542,
+        "ratio": 0.9996698850728666
+      }
+    }
+  ],
+  "long_output": {
+    "directory": "/home/rm01/Qwen3x-Orin/.q3x-work/prefill-convergence-20260928/service-installed-long-output-r2",
+    "profile": "q3x.sm87.production.whole-core-service.v1",
+    "executable_sha256": "62178564d499e020a77d1753b43179fe7a6e3ad07cd9a206da153b7543368d58",
+    "complete_witnesses": 2,
+    "metrics": [
+      {
+        "prompt_tokens": 44095,
+        "output_tokens": 1,
+        "prefill_seconds": 102.374617378,
+        "prefill_tok_s": 430.7220005246719,
+        "external_ttft_seconds": 102.412448736839,
+        "decode_tok_s": null,
+        "request_sha256": "53b74828ff55dfefd8a9a6cbe16705df250437c372532ea5d91b194273d95068",
+        "text_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+      },
+      {
+        "prompt_tokens": 40000,
+        "output_tokens": 4096,
+        "prefill_seconds": 92.091031535,
+        "prefill_tok_s": 434.35282820996144,
+        "external_ttft_seconds": 92.12565592909232,
+        "decode_tok_s": 7.791691439436683,
+        "request_sha256": "9872d791f50650b2a028c31daa463b45c792d8ccf6b0f29d404f1c52c23fc010",
+        "text_sha256": "1bb9d1082243fe5c34d8750cf1ee97cb790b8706a8a8fbd487a5171f7c2245d4"
+      }
+    ],
+    "scope": "artifact/route/API audit; selection requires the frozen qualification protocol"
+  },
+  "capability_and_api_run": {
+    "directory": "/home/rm01/Qwen3x-Orin/.q3x-work/prefill-convergence-20260928/service-installed-qualification-r1",
+    "profile": "q3x.sm87.production.whole-core-service.v1",
+    "executable_sha256": "62178564d499e020a77d1753b43179fe7a6e3ad07cd9a206da153b7543368d58",
+    "complete_witnesses": 108,
+    "metrics": [
+      {
+        "prompt_tokens": 44080,
+        "output_tokens": 16,
+        "prefill_seconds": 100.43826719,
+        "prefill_tok_s": 438.87654808513827,
+        "external_ttft_seconds": 100.47587637789547,
+        "decode_tok_s": 7.70893065714859,
+        "request_sha256": "de99453afe5c82ad6a5a9f95cc5202f1351cf122d63fdd2cb17c2f99adc03b27",
+        "text_sha256": "e4494aeef1bf2c3624f8971866fa2ab6536ee185cf0f2f09711990668deaedc6"
+      }
+    ],
+    "scope": "artifact/route/API audit; selection requires the frozen qualification protocol"
+  },
+  "evalscope": {
+    "requests": 8,
+    "success": 8,
+    "raw_sse_usage": {
+      "prompt_tokens": 606,
+      "completion_tokens": 16,
+      "total_tokens": 622
+    },
+    "corpus_sha256": "bd2091cdc0599ac59ab881efc6d1307a03bb149f49e6fd728a99d926ccc67989",
+    "checks": [
+      {
+        "request_sha256": "c7ee3301d82e0a744823f1fef1e1ebbb64e439e1b643c9b35485abb780f5c2a9",
+        "prompt_tokens": 64,
+        "output_tokens": 16,
+        "external_ttft_ms": 843.7607721425593,
+        "external_tpot_ms": 104.22675864150128,
+        "engine_prefill_ms": 824.648011,
+        "engine_prefill_tok_s": 77.60886965869369,
+        "engine_decode_tok_s": 9.594876943643497,
+        "finish": "length"
+      },
+      {
+        "request_sha256": "10f7010f5e8d0e9129076706cecaf1df96e716dfe59c7c6d5ea7374b380f0df0",
+        "prompt_tokens": 481,
+        "output_tokens": 16,
+        "external_ttft_ms": 1482.499148696661,
+        "external_tpot_ms": 105.43084675446153,
+        "engine_prefill_ms": 1462.241894,
+        "engine_prefill_tok_s": 328.94694234495785,
+        "engine_decode_tok_s": 9.485315481785792,
+        "finish": "length"
+      },
+      {
+        "request_sha256": "ac975578d2f8997a6580a47d2a4a9bc9731f5ec2d5a25d6819e60752b09f9400",
+        "prompt_tokens": 564,
+        "output_tokens": 16,
+        "external_ttft_ms": 1705.685610882938,
+        "external_tpot_ms": 103.97728107248744,
+        "engine_prefill_ms": 1685.507525,
+        "engine_prefill_tok_s": 334.61731355960575,
+        "engine_decode_tok_s": 9.618207257104219,
+        "finish": "length"
+      },
+      {
+        "request_sha256": "018df4d75aee1c022265d8e4238bc983b11207ed714a4f601fd11321ce39f4c0",
+        "prompt_tokens": 1025,
+        "output_tokens": 16,
+        "external_ttft_ms": 2666.1823471076787,
+        "external_tpot_ms": 104.2513039894402,
+        "engine_prefill_ms": 2646.240809,
+        "engine_prefill_tok_s": 387.34192160967467,
+        "engine_decode_tok_s": 9.591954894397395,
+        "finish": "length"
+      },
+      {
+        "request_sha256": "efe46288784339e200806a85ff38aef0ae965275a34d4dc34d7a4ecaa3cbe6f6",
+        "prompt_tokens": 695,
+        "output_tokens": 16,
+        "external_ttft_ms": 1951.8984039314091,
+        "external_tpot_ms": 104.01124972850084,
+        "engine_prefill_ms": 1931.817665,
+        "engine_prefill_tok_s": 359.76480213001884,
+        "engine_decode_tok_s": 9.614304201786924,
+        "finish": "length"
+      },
+      {
+        "request_sha256": "5b32059b1a0ed1674e3aa52b5ba2702f3400d524ea196da3625d6b760249c05a",
+        "prompt_tokens": 32,
+        "output_tokens": 16,
+        "external_ttft_ms": 840.4945130459964,
+        "external_tpot_ms": 102.78604527314504,
+        "engine_prefill_ms": 821.098165,
+        "engine_prefill_tok_s": 38.97219767870264,
+        "engine_decode_tok_s": 9.729832651373579,
+        "finish": "length"
+      },
+      {
+        "request_sha256": "984f91ee73e95d44da80ea210efa5b883bb0c3657ce92a0516c4ab28692ab6e0",
+        "prompt_tokens": 713,
+        "output_tokens": 16,
+        "external_ttft_ms": 1997.7328637614846,
+        "external_tpot_ms": 104.01817622284095,
+        "engine_prefill_ms": 1977.719422,
+        "engine_prefill_tok_s": 360.51625527293834,
+        "engine_decode_tok_s": 9.613601101340807,
+        "finish": "length"
+      },
+      {
+        "request_sha256": "b58781a42a1202496d2713a47f040551a991bbb7909222e8b8471f72fa16ec70",
+        "prompt_tokens": 407,
+        "output_tokens": 16,
+        "external_ttft_ms": 1383.548623882234,
+        "external_tpot_ms": 104.64736282204588,
+        "engine_prefill_ms": 1363.931441,
+        "engine_prefill_tok_s": 298.40209541734583,
+        "engine_decode_tok_s": 9.556257696705512,
+        "finish": "length"
+      }
+    ]
+  },
+  "failed_starts": [
+    "service-pair-c1: preflight rejected systemd-journald CPU activity before model launch; preserved, fresh C1-r2 passed",
+    "service-installed-long-output: preflight rejected systemd-journald CPU activity before model launch; preserved, fresh r2 run recorded separately"
+  ],
+  "service_checks": {
+    "ordinary_text_chat_token_ids": true,
+    "stream_and_nonstream": true,
+    "sse_usage_and_no_usage": true,
+    "invalid_requests_http400": true,
+    "queue_overload_http429": true,
+    "prefill_disconnect_and_reuse": true,
+    "decode_disconnect_and_reuse": true,
+    "installed_consumer": true,
+    "selector_cli_rejected": true,
+    "owned_shutdown_zero": true
+  },
+  "promotion": {
+    "ordinary_preset": "orin-release",
+    "fresh_build_testing_off_default": true,
+    "explicit_legacy_reproduction": "Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=OFF; separate build, all admissions off",
+    "production_eligible": true,
+    "release_qualified": false,
+    "remaining": [
+      "40K Decode approximately8.55token/s interim target",
+      "60K/130K capacity and2s/4sTTFT",
+      "long-term10token/s Decode",
+      "full futureproduct release qualification"
+    ]
+  },
+  "raw_manifest": {
+    "path": ".q3x-work/prefill-convergence-20260928/service-evidence-manifest.json",
+    "sha256": "b6f148e57fbaae3027cd97e8f9ac8347ef9ad642d0bba08d0bf0bfe3e04dc8a2",
+    "files": 257
+  },
+  "reproduction": {
+    "harness_note": "Retained final reproducer includes progress-only long-output logging and per-prompt output mapping; individual runs retain exact commands, HTTP bodies, identities and server phase timings.",
+    "installed_api_harness": ".q3x-work/prefill-convergence-20260928/run_service.py",
+    "paired_driver": ".q3x-work/prefill-convergence-20260928/run_service_pairs.py",
+    "validation": "python3 -B tools/evaluation/validate_whole_core_service.py RUN_DIRECTORY --output .q3x-work/service-audit.json",
+    "environment_protocol": ".q3x-work/prefill-convergence-20260928/service-protocol.json"
+  }
+}

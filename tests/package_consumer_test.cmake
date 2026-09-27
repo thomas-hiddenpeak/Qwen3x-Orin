@@ -35,6 +35,9 @@ if(NOT Q3X_EXPECT_EVAL_SERVER AND
   message(FATAL_ERROR
     "development package unexpectedly installed qwen3x-eval-server")
 endif()
+if(NOT DEFINED Q3X_EXPECT_PROFILE)
+  set(Q3X_EXPECT_PROFILE "q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1")
+endif()
 if(Q3X_EXPECT_EVAL_SERVER)
   execute_process(
     COMMAND "${prefix}/${Q3X_INSTALL_BINDIR}/qwen3x-eval-server" --help
@@ -43,9 +46,9 @@ if(Q3X_EXPECT_EVAL_SERVER)
     ERROR_VARIABLE server_help_error
   )
   if(NOT server_help_result EQUAL 0 OR
-     NOT server_help_output MATCHES "evaluation server 0\\.7\\.0" OR
+     NOT server_help_output MATCHES "evaluation server 0\\.8\\.0" OR
      NOT server_help_output MATCHES
-       "q3x\\.sm87\\.production\\.p40\\.legacy-c512-exact\\.v3")
+       "${Q3X_EXPECT_PROFILE}")
     message(FATAL_ERROR
       "installed production server identity mismatch\n"
       "${server_help_output}${server_help_error}")

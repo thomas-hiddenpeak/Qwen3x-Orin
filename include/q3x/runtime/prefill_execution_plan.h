@@ -214,7 +214,7 @@ static_assert(kLayerMajorPrefillPackedNvfp4V2ArtifactCount ==
               kLayerMajorPrefillLayerCount * 2U);
 static_assert(kLayerMajorPrefillPackedNvfp4V2AuthenticatedSourceCount ==
               kLayerMajorPrefillLayerCount * 3U);
-#if !defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if !defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
 static_assert(kLayerMajorPrefillVllmMarlinParityFullSegmentTokens *
                           kLayerMajorPrefillVllmMarlinParityFullSegmentsPerProjection +
                       kLayerMajorPrefillVllmMarlinParityTailSegmentTokens *

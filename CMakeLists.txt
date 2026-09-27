@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 
-project(Qwen3xOrin VERSION 0.7.0 LANGUAGES CXX CUDA)
+project(Qwen3xOrin VERSION 0.8.0 LANGUAGES CXX CUDA)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -82,6 +82,31 @@ option(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE
   "Build the default-off, accuracy-unqualified P40 whole-core development route"
   OFF
 )
+# Ordinary OFF builds select the qualified bounded service. Test builds retain
+# their explicit admission/default contracts; historical routes require opt-out.
+set(_q3x_service_default ON)
+if(BUILD_TESTING)
+  set(_q3x_service_default OFF)
+endif()
+option(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION
+  "Build the sealed full-range corrected Prefill and ordered Decode service"
+  ${_q3x_service_default})
+if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
+  if(BUILD_TESTING OR Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION OR
+     Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE OR
+     Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE)
+    message(FATAL_ERROR "Sealed whole-core service requires BUILD_TESTING=OFF and no competing profile or admission")
+  endif()
+  # Check explicit cache admissions before the fixed inventory shadows them.
+  get_cmake_property(_q3x_cache_variables CACHE_VARIABLES)
+  foreach(_q3x_option IN LISTS _q3x_cache_variables)
+    if(_q3x_option MATCHES "^Q3X_BUILD_.*_ADMISSION$" AND ${_q3x_option})
+      message(FATAL_ERROR "Sealed service forbids explicit ${_q3x_option}")
+    endif()
+  endforeach()
+  add_compile_definitions(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION=1)
+  set(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE ON)
+endif()
 option(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION
   "Build non-installable whole-core plus exact Decode composition" OFF)
 if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
@@ -92,8 +117,11 @@ if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
   set(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE ON)
   set(Q3X_BUILD_FUSED_DECODE_ADMISSION ON)
 endif()
+if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION OR Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  add_compile_definitions(Q3X_ENABLE_WHOLE_CORE_SERVICE=1)
+endif()
 option(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE
-  "Build the owner-promoted, accuracy-qualified P40 whole-core production route (fixed P40000/O16 geometry)"
+  "Build the historical fixed P40000/O16 profile (accuracy qualification withdrawn)"
   OFF
 )
 option(Q3X_BUILD_P40_PROJECTION_RESET_ADMISSION
@@ -148,11 +176,13 @@ if(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE)
   set(Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION ON)
   set(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION ON)
   set(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION ON)
-  if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
+    message(STATUS "Sealed corrected whole-core service inventory enabled")
+  elseif(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
     message(STATUS "Whole-core exact Decode composition inventory (unqualified; no installation)")
   else()
     message(STATUS
-      "P40 whole-core v1 production inventory enabled (accuracy-qualified; fixed P40000/O16 geometry)")
+      "Historical P40 whole-core v1 inventory enabled (qualification withdrawn; fixed P40000/O16)")
   endif()
 endif()
 if(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
@@ -579,6 +609,12 @@ if(Q3X_BUILD_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION)
     Q3X_ENABLE_SM87_TARGET_AOT_LAYER0_M192_ORACLE_ADMISSION=1
   )
 endif()
+if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION OR Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  target_compile_definitions(q3x_core PUBLIC Q3X_ENABLE_WHOLE_CORE_SERVICE=1)
+endif()
+if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
+  target_compile_definitions(q3x_core PUBLIC Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION=1)
+endif()
 q3x_enable_warnings(q3x_core)
 
 add_library(q3x_text STATIC
@@ -606,6 +642,9 @@ q3x_enable_warnings(q3x_text)
 
 option(Q3X_BUILD_FUSED_DECODE_ADMISSION
   "Build isolated fixed-plan fused Decode numerical admission (not installable)" OFF)
+if(Q3X_BUILD_FUSED_DECODE_ADMISSION OR Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
+  add_compile_definitions(Q3X_ENABLE_FUSED_DECODE=1)
+endif()
 if(Q3X_BUILD_FUSED_DECODE_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR "Fused Decode admission requires BUILD_TESTING=ON")
 endif()
@@ -692,11 +731,13 @@ target_link_libraries(q3x_kernels PUBLIC q3x::core CUDA::cudart CUDA::cublas)
 target_compile_options(q3x_kernels PRIVATE
   $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
 )
-if(Q3X_BUILD_FUSED_DECODE_ADMISSION)
+if(Q3X_BUILD_FUSED_DECODE_ADMISSION OR Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
   target_sources(q3x_kernels PRIVATE src/kernels/sm87/decode_fused_gqa.cu)
   target_include_directories(q3x_kernels SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/flashinfer/include)
-  target_compile_definitions(q3x_kernels PRIVATE Q3X_ENABLE_FUSED_DECODE_ADMISSION=1)
+  if(Q3X_BUILD_FUSED_DECODE_ADMISSION)
+    target_compile_definitions(q3x_kernels PRIVATE Q3X_ENABLE_FUSED_DECODE_ADMISSION=1)
+  endif()
 endif()
 if(Q3X_BUILD_GDN_B8_ADMISSION)
   target_compile_definitions(q3x_kernels PRIVATE
@@ -952,7 +993,7 @@ else()
     Q3X_EVAL_GATEWAY_BUILD_TESTING=0
   )
 endif()
-if(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE)
+if(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE AND NOT Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
   # The production route reuses the whole-core server surface: the fixed
   # P40000/O16 profile is selected through the sealed production profile
   # instead of the development-route acknowledgement. The PRODUCTION_ROUTE
@@ -979,8 +1020,10 @@ q3x_enable_warnings(q3x_eval_gateway)
 
 add_executable(qwen3x-eval-server src/eval_server_main.cpp)
 target_link_libraries(qwen3x-eval-server PRIVATE q3x_eval_gateway)
-if(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE)
-  # The qualified production route ships in the canonical adapter binary;
+if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
+  # Canonical executable: the sealed plan is the default; no tactic/profile CLI.
+elseif(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE)
+  # The historical production route ships in the canonical adapter binary;
   # the fixed geometry is selected with --production-profile p40-whole-core-v1.
   target_compile_definitions(qwen3x-eval-server PRIVATE
     Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE=1

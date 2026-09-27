@@ -4,7 +4,7 @@
 namespace q3x::runtime {
 // Separate compiled composition geometry. Fixed production/dev profiles keep
 // their original capacity; no existing qualification transfers to admission.
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
 inline constexpr std::uint32_t kWholeCoreCompiledSequenceCapacity = 44'095U;
 #else
 inline constexpr std::uint32_t kWholeCoreCompiledSequenceCapacity = 40'016U;
@@ -40,7 +40,7 @@ inline constexpr std::uint64_t kWholeCoreCompiledAttentionBranchOffset =
 // Actual prompt rows fit the current family arena. Down isolates a partial
 // final tile in request scratch; padding never advances model state.
 [[nodiscard]] constexpr bool whole_core_prompt_tokens_admitted(std::uint64_t tokens) noexcept {
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
   return tokens >= 1U && tokens <= kWholeCoreCompiledSequenceCapacity;
 #else
   return tokens == 40'000U;
@@ -48,7 +48,7 @@ inline constexpr std::uint64_t kWholeCoreCompiledAttentionBranchOffset =
 }
 // Projection-entry count: one Gate/Up entry plus one or two Down grids.
 [[nodiscard]] constexpr std::uint64_t whole_core_mlp_launch_count(std::uint64_t rows) noexcept {
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
   return 1U + (rows >= 64U ? 1U : 0U) + (rows % 64U ? 1U : 0U);
 #else
   (void)rows;

@@ -42,6 +42,13 @@ changes related public runner, generation, and protocol witness object layouts.
 This is an intentional 0.x ABI break; consumers must rebuild and request the
 exact 0.7.0 installed package.
 
+Package ABI 0.8.0 exports the corrected service's compiled whole-core geometry
+alongside its public planners. The full-range profile owns 44,095 sequence
+positions and 44,096 rows of aligned family scratch. Installed consumers must
+rebuild against 0.8.0; the exported compile definitions are part of this exact
+package configuration. The legacy explicit planner and reset contracts remain
+available under their own memory profiles.
+
 ## Model-state contract
 
 The planner represents the pinned 64-layer hybrid schedule. Layers 3, 7, ...,
@@ -109,8 +116,8 @@ workspace accessors reject the layer-major profile; its retained disjoint C512
 workspace is reachable only through the explicit typed bundle. Persistent,
 KV, RoPE, position, reset, and ownership operations remain common.
 
-The separately compiled whole-core/exact-Decode admission currently bounds
-actual prompt lengths to 1..44095 while reserving 44,095 sequence positions and an
+The corrected production service and its separately compiled admission bound
+actual prompt lengths to 1..44095 while reserving 44,095 sequence positions and a
 9,508,218,624-byte arena. It supports the P40000/O4096 capacity boundary
 without advancing state for the final predicted token. Family storage rounds to 44,096 rows while residual and persistent KV own
 44,095 positions. Alias checks use each allocation's actual extent; the spare

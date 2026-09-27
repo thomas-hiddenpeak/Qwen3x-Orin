@@ -339,7 +339,7 @@ launch_full_attention_preprocess_24_4_256_64_reference_256_cuda(
 can_launch_full_attention_preprocess_prompt_wide_p8000(
     const std::size_t first_position,
     const std::size_t token_count) noexcept {
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
   return token_count > 0U && token_count <= 8000U && first_position <= 44095U - token_count;
 #else
   return token_count == kFullAttentionPreprocessPromptWideP8000Tokens &&
@@ -586,7 +586,7 @@ can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(
     const std::size_t first_position,
     const std::size_t token_count) noexcept {
   return first_position == 0U &&
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
          token_count >= 1U &&
 #else
          token_count >= kBulkCausalGqaFlashInferExactWholePromptMinimumTokens &&

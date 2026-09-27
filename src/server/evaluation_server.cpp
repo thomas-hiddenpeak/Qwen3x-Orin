@@ -53,7 +53,7 @@ inline constexpr bool kEvaluationGatewayBuildTesting =
 
 using Clock = std::chrono::steady_clock;
 
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE) || defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE) || defined(Q3X_ENABLE_FUSED_DECODE)
 [[nodiscard]] std::optional<std::string> first_q3x_environment_variable() {
   // This deliberately rejects the complete project-specific namespace.  The
   // v10 development baseline is a closed typed profile; both current and
@@ -291,7 +291,11 @@ class UniqueFd final {
   identity.build_testing = kEvaluationGatewayBuildTesting;
   // This branch installs a named terminal-prefix engineering candidate. OFF
   // compilation and complete incumbent inventory do not qualify the candidate.
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+  identity.production_eligible = true;
+#else
   identity.production_eligible = false;
+#endif
   identity.release_qualified = false;
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
   identity.profile_id = kWholeCoreExactDecodeAdmissionPlan.id;
@@ -1929,9 +1933,9 @@ void handle_connection(
     if (is_p40_whole_core_v1_production_profile(options) &&
         !is_p40_whole_core_v10_request(*parsed.value)) {
       const OpenAIProtocolError error = simple_error(
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
           400, "whole_core_exact_decode_contract",
-          "the whole-core exact Decode candidate requires 1..44095 prompt tokens "
+          "the whole-core service requires 1..44095 prompt tokens "
           "and max_tokens from 1 through 4096 within the sequence capacity");
 #else
           400, "p40_whole_core_v1_contract",
@@ -2166,7 +2170,12 @@ void ingress_worker(
       return false;
     }
   }
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+  if (!p40_whole_core_v1_production || p40_whole_core_v10_selected) {
+    error = "sealed whole-core service options do not match its compiled plan";
+    return false;
+  }
+#elif defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
   if (!p40_whole_core_v1_production || p40_whole_core_v10_selected) {
     error = "this candidate binary requires --candidate-profile "
             "whole-core-exact-decode";
@@ -2191,7 +2200,7 @@ void ingress_worker(
   }
 #else
   if (p40_whole_core_v1_production) {
-    error = "this development binary does not contain the qualified "
+    error = "this development binary does not contain the historical "
             "production profile; use the orin-p40-whole-core-prod build";
     return false;
   }
@@ -2216,7 +2225,7 @@ void ingress_worker(
     }
   }
 #endif
-#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_FUSED_DECODE)
   if (const auto variable = first_q3x_environment_variable(); variable.has_value()) {
     error = "fused Decode admission rejects route-changing environment " + *variable;
     return false;
@@ -2462,10 +2471,14 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << " development_route="
             << to_string(options.development_route)
             << " numerical_contract="
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+            << "independent-reference-corrected-prefill-exact-ordered-decode"
+#else
             << (options.development_route ==
                         EvaluationDevelopmentRoute::kP40WholeCoreV10
                     ? "known-p513-full-state-mismatch"
                     : "evaluation-route-not-release-qualified")
+#endif
             << " p40000_full_state="
             << (options.development_route ==
                         EvaluationDevelopmentRoute::kP40WholeCoreV10

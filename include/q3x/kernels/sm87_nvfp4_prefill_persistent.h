@@ -204,7 +204,7 @@ sm87_nvfp4_persistent_prefill_shape_contract(
   const std::size_t aligned =
       token_count - token_count % kSm87NvFp4PersistentPrefillTileM;
   const std::size_t tail = token_count - aligned;
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
   if (token_count <= 44'096U && tail == 0U) {
 #else
   if (token_count == kSm87NvFp4PersistentPrefillP40Tokens) {

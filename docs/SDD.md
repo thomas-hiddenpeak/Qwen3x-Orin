@@ -6,7 +6,7 @@ q3x_document:
   owner: project-owner
   authority: end-to-end external-to-internal runner system design
   effective: 2026-08-09
-  last_reviewed: 2026-09-27
+  last_reviewed: 2026-09-28
   supersedes: []
   superseded_by: []
   ssot_for: runner product shape, system boundaries, lifecycle, and release architecture
@@ -181,9 +181,9 @@ unsupported host, unknown tactic, or route-coverage gap fails closed. The
 runtime may select among predeclared plan entries using request facts; it may
 not invent a new route.
 
-### 3.1 Ordinary compiled profile contract
+### 3.1 Historical Legacy compiled profile contract
 
-The ordinary server is built by the `orin-release` preset as Release, SM87,
+The predecessor server was built as Release, SM87,
 and `BUILD_TESTING=OFF`, and installs
 `qwen3x-eval-server`, `qwen3x-orin`, `qwen3x-inspect`, and the versioned 0.7.0
 package. The server profile admits `prompt + output - 1 <= 44,095`, exposes a
@@ -224,6 +224,47 @@ logical role omissions, not kernel launches or a sealed layer-major plan.
 v1/v16 and other existing schemas remain unchanged outside their own scopes.
 Current activation, installed artifact identity, and qualification are owned
 by [Current Status](CURRENT_STATUS.md), not inferred from this profile contract.
+
+### 3.2 Corrected full-range service profile
+
+The ordinary `orin-release` preset and fresh `BUILD_TESTING=OFF` build select
+`Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION`. This sealed build uses
+package ABI 0.8.0 and `BUILD_TESTING=OFF`. It fixes the corrected whole-core
+Prefill and scalar-equivalent ordered v7 Decode in one compiled plan,
+`q3x.sm87.production.whole-core-service.v1`. The normal server invocation
+uses that plan without a candidate, development or tactic selector. The installed-artifact qualification selects it as the ordinary default;
+[Current Status](CURRENT_STATUS.md) owns whether that transition is complete.
+
+The service admits nonempty text, chat and token-ID prompts, stream and
+nonstream responses, O1..4096 and `P+O-1<=44095`. Request storage is fixed at
+9,508,218,624 bytes, including family scratch rounded to 44,096 rows; only
+actual prompt rows reach model state. It requires the complete ordered Decode
+sidecars and 25 short Graph slots while retaining an 8-GiB free-memory reserve.
+The C++ export propagates the compiled geometry identity so an installed
+consumer cannot silently compile the old smaller arena layout.
+
+Admission instrumentation is separate from the shared algorithm compilation:
+forced-token callbacks, GDN-input inspection and Attention observers are absent
+from the production artifact. The server rejects individual runtime route
+composition and authenticates the same full inventory before readiness and
+at request completion. Independent FP32 GDN and FP64 Attention references,
+complete prompt-boundary tensors, public capability and actual installed API
+checks qualify the corrected numerical identity; old Legacy Prefill bitwise
+agreement is not its accuracy oracle.
+
+For this convergence profile, FP8 and Gate/Up weights are exactly decoded into
+bounded request-owned BF16 scratch before CUTLASS multiplication, with tensor
+scales applied after FP32 accumulation. This explicitly selected temporary
+materialization is an exception to the future packed-operand residency goal;
+it never grows workspace, repacks checkpoint assets or invokes cuBLASLt.
+The precision/ownership repair returns to the real API at at least the retained
+fast Prefill performance. Removing this materialization is future performance
+work and does not delay correctness or production integration.
+
+Service production eligibility and full product release qualification are
+distinct: this bounded service does not claim the future 60K/130K capacity or
+locked 2s/4s Prefill SLOs. Its request witness identifies the corrected Prefill
+contract, scalar-equivalent Decode, actual rows and physical role counts.
 
 ## 4. System decomposition from the API inward
 
@@ -321,8 +362,9 @@ written K/V prefix; cancellation, poison, an uncommitted whole request, a
 position mismatch, or any uncertain boundary requires the conservative full
 reset. The request witness records the selected mode, cleared positions,
 zeroed bytes, and synchronized cleanup duration. This public receipt and the
-associated C++ object-layout changes define package ABI 0.7.0; 0.x consumers
-must rebuild against that exact installed version.
+associated C++ object-layout changes originated in package ABI 0.7.0. The
+current service exports ABI 0.8.0; 0.x consumers must rebuild against the exact
+installed version.
 
 The v3 profile identity superseded v2 for the 0.7.0 reset-policy route.
 Version 2 remains the immutable identity of the 0.6.0 evidence tuple; it cannot
@@ -643,6 +685,9 @@ in the same atomic milestone. Context compaction or contributor handoff does
 not relax these requirements.
 
 ### Fused Decode convergence boundary, 2026-09-27
+
+The following records the retained admission construction. The selected
+production successor is defined in Section 3.2 above.
 
 The active Roadmap's fused Decode architecture first enters through a separate
 non-installable admission build. Its internal output-only Attention interface

@@ -5360,7 +5360,7 @@ struct ReferenceEngine::Impl {
                 LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512 &&
             options.prefill_projection_tactic ==
                 LayerMajorPrefillProjectionTactic::kExactSegmentedC512
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
             || (options.prefill_execution_mode ==
                     ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
                 options.prefill_full_attention_tactic ==
@@ -5586,7 +5586,7 @@ struct ReferenceEngine::Impl {
                     *impl->model_weights,
                     options.request_options.min_free_bytes_after_create,
                     interleave_gate_up,
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
                     options.prefill_projection_tactic ==
                         LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore,
 #else

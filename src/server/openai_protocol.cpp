@@ -1261,7 +1261,7 @@ std::string serialize_target_prefill_witness(
         prompt_wide_p40_whole_core_route_is_production_only &&
         boundary_hits == 0U;
   }
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
   const bool variable_whole_core = prompt_wide_p40_whole_core_candidate_v10;
 #else
   constexpr bool variable_whole_core = false;
@@ -1421,6 +1421,9 @@ std::string serialize_target_prefill_witness(
       record.packed_nvfp4_v2_down_hits == 0U &&
       record.packed_nvfp4_v2_physical_launches == 0U;
   const bool accuracy_unqualified_candidate =
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+      !prompt_wide_p40_whole_core_candidate_v10;
+#else
 #if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
       true ||
 #endif
@@ -1433,8 +1436,13 @@ std::string serialize_target_prefill_witness(
       p40_packed_projection_candidate_v13 ||
       p40_packed_nvfp4_v2_candidate_v14 ||
       p40_vllm_marlin_parity_candidate_v15;
+#endif
   std::string output =
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+      true ? "{\"record\":\"target-prefill-witness-whole-core-service-v1\","
+             "\"schema_version\":1,\"decode_numerical_contract\":"
+             "\"scalar-equivalent-ordered-fp32-v7\",\"request\":{\"id\":" :
+#elif defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
       true ? "{\"record\":\"target-prefill-witness-whole-core-exact-decode-admission-v9\","
              "\"schema_version\":2,\"decode_numerical_contract\":"
              "\"ordered-pipeline-unqualified\",\"request\":{\"id\":" :
@@ -2316,6 +2324,14 @@ std::string serialize_target_prefill_witness(
     output += "\"available\":true,\"scope\":"
               "\"engine_lifetime_sealed_native_plan\",\"id\":";
     append_json_string(output, record.deployment_plan_id);
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+    if (!accuracy_unqualified_candidate) {
+      output += ",\"qualification\":\"corrected-service-numerical-contract\","
+                "\"numerical_contract\":{\"qualified\":true,"
+                "\"reference\":\"independent-fp32-gdn-and-fp64-decode\","
+                "\"legacy_prefill_bitwise_equivalent\":false}";
+    }
+#endif
     if (accuracy_unqualified_candidate) {
       output += ",\"qualification\":";
       append_json_string(output,

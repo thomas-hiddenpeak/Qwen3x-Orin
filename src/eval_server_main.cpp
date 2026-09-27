@@ -39,14 +39,17 @@ void PrintUsage(std::ostream& output) {
       << "  --port N                    TCP port (default 8000)\n"
       << "  --model ID                  Served OpenAI model id\n"
       << "  --api-key-file PATH         Owner-only 0400/0600 Bearer credential\n";
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+  output << "  Deployment profile: " << q3x::server::kWholeCoreServiceProductionPlan.id << "\n"
+         << "  Prompt + output - 1 <= 44095; output ceiling 4096; greedy text/chat\n";
+#elif defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
   output << "  --candidate-profile whole-core-exact-decode\n"
          << "                              Non-installable P40000/O1..4096 composition;\n"
          << "                              full Decode inventory, 8-GiB reserve\n";
 #elif defined(Q3X_ENABLE_P40_WHOLE_CORE_PRODUCTION_ROUTE)
   output
       << "  --production-profile p40-whole-core-v1\n"
-      << "                              Accuracy-qualified whole-core deployment:\n"
+      << "                              Historical whole-core profile; qualification withdrawn:\n"
       << "                              P40000 prompt, 16 output ceiling,\n"
       << "                              40016 resident whole-prompt/SM87 capacity\n"
       << "  Default deployment profile: "
@@ -104,8 +107,12 @@ void PrintUsage(std::ostream& output) {
 #endif
   output
       << "  --nvtx-phase-ranges        Emit generation/Prefill/Decode ranges\n"
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+      << "  Fixed concurrency: one GPU request, one queued request, three HTTP threads\n"
+#else
       << "  --queue-capacity N          Bounded inference queue, max 62 (default 8)\n"
       << "  --ingress-threads N         Fixed HTTP threads, queue+2 min (default 10)\n"
+#endif
       << "  --help                      Show this help\n\n"
       << "The gateway is intentionally batch-one and greedy. Unsupported sampling,\n"
       << "tools, media, and custom stop semantics fail closed. /healthz remains\n"

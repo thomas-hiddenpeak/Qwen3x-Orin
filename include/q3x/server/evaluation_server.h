@@ -246,9 +246,17 @@ inline constexpr EvaluationProductionDeploymentPlan
 static_assert(kWholeCoreExactDecodeAdmissionPlan.decode_retained_sidecar_bytes ==
               11'013'898'240ULL);
 
+inline constexpr EvaluationProductionDeploymentPlan kWholeCoreServiceProductionPlan = [] {
+  auto plan = kWholeCoreExactDecodeAdmissionPlan;
+  plan.id = "q3x.sm87.production.whole-core-service.v1";
+  return plan;
+}();
+
 [[nodiscard]] constexpr const EvaluationProductionDeploymentPlan&
 selected_p40_whole_core_plan() noexcept {
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+  return kWholeCoreServiceProductionPlan;
+#elif defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
   return kWholeCoreExactDecodeAdmissionPlan;
 #else
   return kP40WholeCoreV1ProductionPlan;
@@ -301,6 +309,12 @@ enum class EvaluationDevelopmentRoute : std::uint8_t {
   return "unknown";
 }
 
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+inline constexpr auto& kDefaultProductionPlan = kWholeCoreServiceProductionPlan;
+#else
+inline constexpr auto& kDefaultProductionPlan = kP40ExactLegacyC512ProductionPlan;
+#endif
+
 struct EvaluationServerOptions {
   std::filesystem::path model_directory;
   std::filesystem::path api_key_file;
@@ -308,35 +322,35 @@ struct EvaluationServerOptions {
   std::uint16_t port = 8000U;
   std::string served_model = "qwen3.6-27b-nvfp4";
   EvaluationProductionProfile production_profile =
-      EvaluationProductionProfile::kP40ExactLegacyC512;
+      kDefaultProductionPlan.profile;
   std::uint32_t max_sequence_length =
-      kP40ExactLegacyC512ProductionPlan.max_sequence_length;
+      kDefaultProductionPlan.max_sequence_length;
   std::uint32_t maximum_output_tokens =
-      kP40ExactLegacyC512ProductionPlan.maximum_output_tokens;
+      kDefaultProductionPlan.maximum_output_tokens;
   std::uint32_t prefill_chunk_size =
-      kP40ExactLegacyC512ProductionPlan.prefill_chunk_size;
+      kDefaultProductionPlan.prefill_chunk_size;
   // One thread may wait on each admitted batch-one request. Keep enough
   // threads for the active request, every bounded queued request, and one
   // control-plane/overload response.
-  std::size_t ingress_threads = 10U;
+  std::size_t ingress_threads = kDefaultProductionPlan.profile == EvaluationProductionProfile::kP40WholeCoreV1 ? 3U : 10U;
   std::size_t accepted_connection_capacity = 16U;
-  std::size_t inference_queue_capacity = 8U;
+  std::size_t inference_queue_capacity = kDefaultProductionPlan.profile == EvaluationProductionProfile::kP40WholeCoreV1 ? 1U : 8U;
   std::size_t stream_event_capacity = 16U;
   std::uint32_t read_timeout_milliseconds = 10'000U;
   std::uint32_t write_timeout_milliseconds = 5'000U;
   std::uint64_t request_max_arena_bytes =
-      kP40ExactLegacyC512ProductionPlan.request_arena_bytes;
+      kDefaultProductionPlan.request_arena_bytes;
   std::uint64_t request_min_free_bytes_after_create =
-      kP40ExactLegacyC512ProductionPlan.min_free_bytes_after_create;
+      kDefaultProductionPlan.min_free_bytes_after_create;
   runtime::ProjectionBackend projection_backend =
-      kP40ExactLegacyC512ProductionPlan.projection_backend;
+      kDefaultProductionPlan.projection_backend;
   runtime::ReferencePrefillExecutionMode prefill_execution_mode =
-      kP40ExactLegacyC512ProductionPlan.prefill_execution_mode;
+      kDefaultProductionPlan.prefill_execution_mode;
   runtime::LayerMajorPrefillFullAttentionTactic
       prefill_full_attention_tactic =
-          kP40ExactLegacyC512ProductionPlan.prefill_full_attention_tactic;
+          kDefaultProductionPlan.prefill_full_attention_tactic;
   runtime::LayerMajorPrefillProjectionTactic prefill_projection_tactic =
-      kP40ExactLegacyC512ProductionPlan.prefill_projection_tactic;
+      kDefaultProductionPlan.prefill_projection_tactic;
   // Single typed acknowledgement for the accuracy-unqualified v10 baseline.
   // The server rejects both a route without this acknowledgement and an
   // acknowledgement whose fixed P40000 configuration has been altered.
@@ -450,7 +464,7 @@ class EvaluationProductionRuntimeHealth final {
 
 [[nodiscard]] inline bool is_p40_whole_core_v10_request(
     const OpenAIRequest& request) noexcept {
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
   // Raw text/chat are tokenized by the inference worker. The engine checks
   // actual prompt length and P + O - 1 before enqueueing model work.
   return (request.prompt_kind != OpenAIPromptKind::kTokenIds ||

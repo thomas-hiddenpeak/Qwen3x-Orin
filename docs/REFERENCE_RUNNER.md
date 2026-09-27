@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: batch-one CUDA runner state, numerical, ownership, and failure contract
   effective: 2026-08-09
-  last_reviewed: 2026-09-27
+  last_reviewed: 2026-09-28
   supersedes: []
   superseded_by: []
   ssot_for: ReferenceRunner public execution, commit, poison, reset, trace, and dependency behavior
@@ -257,7 +257,7 @@ runtime-prefix boundary includes the
 [`M17/M19..M31 runtime-masked record`](metadata/qwen36-27b-nvfp4-m17-m31-runtime-masked-m32-benchmark.json).
 Those records do not impose active runner mechanisms or promotion thresholds.
 
-## Fused Decode architecture admission
+## Fused Decode execution boundary
 
 The separately compiled, non-installable fused Decode admission calls the
 [internal output-only operation](DECODE_REFERENCE_OPS.md#isolated-fused-decode-admission)
@@ -269,3 +269,13 @@ promised by this internal path. Factory preparation fails before publishing a
 runner if the fixed device/kernel setup fails. Kernel failure uses the normal
 poison/reset boundary; it never silently switches to scalar after enqueue.
 The public scalar attention comparator remains independently callable.
+
+The sealed 0.8.0 whole-core service selects the independently qualified ordered
+v7 output-only Attention implementation through the same internal execution
+boundary. Its numerical arithmetic, bounded scratch and poison/reset semantics
+are shared with the corrected admission, while test observers, forced-token
+callbacks and input-inspection hooks are absent. The service whole-request
+Prefill path uses the full-range geometry in [Request State](REQUEST_STATE.md);
+the legacy factory and C512 methods above retain their separate explicit
+contracts. The layer-major service conservatively resets request state rather
+than borrowing the legacy prefix-reset authority.

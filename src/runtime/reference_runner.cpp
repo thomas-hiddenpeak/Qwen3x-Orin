@@ -2,7 +2,7 @@
 #include "q3x/runtime/reference_runner.h"
 
 #include "reference_runner_decode_gqa_policy_internal.h"
-#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_FUSED_DECODE)
 #include "decode_fused_gqa_internal.h"
 #endif
 #include "reference_runner_gdn_exact_span_policy_internal.h"
@@ -2098,7 +2098,7 @@ exact_marlin_operator_panel_plan(
 #endif
 }
 
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
 // Down is row-independent. Execute complete M64 tiles directly; isolate the
 // last 1..63 rows in one zero-filled physical tile, copying back actual rows
 // only. This preserves K reduction and residual publication without inventing
@@ -2166,7 +2166,7 @@ launch_prompt_wide_p40_fp8_projection(
       fp8->prefill_marlin_scales == nullptr ||
       !kernels::sm87_fp8_marlin_supports_shape(fp8->output_size,
                                                fp8->input_size) ||
-#if !defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if !defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
       !kernels::sm87_fp8_marlin_supports_operator_panel_token_count(
           token_count) ||
 #endif
@@ -2180,7 +2180,7 @@ launch_prompt_wide_p40_fp8_projection(
   // vs cuBLAS 23.5 TF (+60%). Both beat the W8A16 Marlin.
   int status = static_cast<int>(cudaErrorNotSupported);
   if (fp8->input_size == 5'120U || fp8->input_size == 6'144U) {
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
     // Token IDs share the workspace prefix and remain live until every fill
     // panel in the first layer has embedded its input. Never alias that prefix.
     constexpr std::size_t kTokenIdPrefixBytes =
@@ -2478,7 +2478,7 @@ launch_p40_projection_reset_fp8_group(
          down.output_size == kReferenceHiddenSize &&
          down.input_size == kReferenceIntermediateSize &&
          (
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
           (gate.prefill_marlin_gate_up_layout == NvFp4MarlinGateUpLayout::kCanonicalSourceOnly &&
            up.prefill_marlin_gate_up_layout == NvFp4MarlinGateUpLayout::kCanonicalSourceOnly &&
            aligned_16(gate.packed_weight) && aligned_16(gate.block_scale) &&
@@ -4089,7 +4089,7 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
                 "full_gqa_splitkv_output_gate", layer)) {
           return fail_step(launch_failure);
         }
-#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_FUSED_DECODE)
       } else if (sequence_length >= fused_decode::kMinimumSequence &&
                  sequence_length <= fused_decode::kMaximumSequence) {
         if (!check_cuda(fused_decode::launch(
@@ -4097,10 +4097,12 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
                 sequence_length, views_.fp32_scratch,
                 views_.fp32_scratch_elements * sizeof(float),
                 views_.projection[1], stream_), "full_gqa_fused_admission", layer) ||
+#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
             !check_cuda(fused_decode::observe({full_query, views_.key_cache[layer],
                 views_.value_cache[layer], sequence_length, layer,
                 views_.fp32_scratch, views_.fp32_scratch_elements,
                 views_.projection[1], stream_}), "full_gqa_fused_observer", layer) ||
+#endif
             !check_cuda(launch_sigmoid_gate_reference_cuda(
                 views_.projection[1], packed_gates, kFullQueryElements,
                 views_.projection[1], stream_), "full_output_gate", layer)) {
@@ -9189,7 +9191,7 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
 #else
       ? static_cast<int>(cudaErrorNotSupported)
 #endif
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
       : kernels::launch_nvfp4_dequant_cutlass_gate_up_with_workspace(
             gate->packed_weight, gate->block_scale, gate->weight_scale_2,
             up->packed_weight, up->block_scale, up->weight_scale_2,
@@ -9240,7 +9242,7 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
 #else
       ? static_cast<int>(cudaErrorNotSupported)
 #endif
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
       : launch_whole_core_down_rows(*down, activated, residual, token_count,
             request_views.p40_whole_core.linear.prompt_wide_workspace, stream_);
 #else
@@ -11572,7 +11574,7 @@ ReferenceRunnerFactoryResult create_reference_runner(
     return result;
   }
   runner.stream_ = reinterpret_cast<void*>(stream);
-#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_FUSED_DECODE)
   status = static_cast<cudaError_t>(fused_decode::prepare());
   if (status != cudaSuccess) {
     result.diagnostic = runner_status(

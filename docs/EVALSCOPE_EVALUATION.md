@@ -6,7 +6,7 @@ q3x_document:
   owner: evaluation-maintainers
   authority: external API evaluation protocol, metric semantics, and artifact requirements
   effective: 2026-08-09
-  last_reviewed: 2026-09-27
+  last_reviewed: 2026-09-28
   supersedes: []
   superseded_by: []
   ssot_for: EvalScope and target-length external evaluation procedure
@@ -15,7 +15,36 @@ q3x_document:
 
 # OpenAI-compatible external evaluation
 
-## Preparing whole-core default-route validation
+## Corrected whole-core service validation
+
+The ordinary Release/OFF artifact selects
+`q3x.sm87.production.whole-core-service.v1` and emits
+`target-prefill-witness-whole-core-service-v1`, binding deployment plan
+`q3x.sm87.production.whole-core-prefill.v1`. It serves every nonempty P with
+O1..4096 and `P+O-1<=44095`; O1 has no subsequent Decode rate. For
+N=ceil(P/8000), require 64*N fill and drain phases, 64*(2*N+2) retirements,
+208*N FP8 entries, 48 A/B and GDN calls, 16 full-Attention calls, and
+64*(1 + [P>=64] + [P mod 64 != 0]) MLP projection entries. The last count
+includes the actual-row Down tail; it is not every underlying CUDA launch.
+
+Audit retained process records with:
+
+```bash
+python3 -B tools/evaluation/validate_whole_core_service.py RUN_DIRECTORY \
+  --output .q3x-work/service-audit.json
+```
+
+The auditor checks installed identity, cold-cache preparation, cleanup,
+thermal/clock outcomes, usage, physical route coverage and paired phase
+metrics. It does not independently establish baseline accuracy or promotion.
+The [current qualification record](metadata/qwen36-27b-whole-core-service-production-2026-09-28.json)
+freezes commands, exact binaries, B-C-C-B requests, capability and lifecycle
+checks. Its current numerical reference is independently validated FP32 GDN
+and FP64 same-input Decode, not old Legacy per-token BF16 recurrence.
+The following historical preparation rules remain relevant only within their
+explicit route/version scope.
+
+### Historical preparation and erratum
 
 **2026-09-27 qualification correction:** the historical whole-core full-state
 pass is withdrawn by the
@@ -90,7 +119,7 @@ splitting into separate C512 calls introduces extra BF16 state publication and
 is not a bitwise oracle for that computation. This describes the experimental
 kernel's regression oracle, not an accepted production GDN numerical class.
 Component-tail checks and same-input Decode checks do not replace the full
-Prefill-state/capability gate or the per-token BF16 production contract.
+Prefill-state/capability gate or the independently declared numerical contract.
 
 Finish all heavy compilation before real-model validation, including recovery
 checks. A thermal stop during recovery is not a passed recovery test, even if
@@ -212,23 +241,11 @@ cmake --build "$Q3X_BUILD" --target qwen3x-eval-server -j
   --model qwen3.6-27b-nvfp4
 ```
 
-The ordinary executable fixes Legacy-C512, the SM87 backend, and the sealed
-P40 capacity/inventory; it exposes no tactic, chunk, or arena selector. Its
-exact profile and qualification state are owned by [Current Status](CURRENT_STATUS.md).
-The separate development layer-major route described by older invocations
-is not selectable in that ordinary executable. It fails
-closed unless the engine is configured for the SM87 backend, the fixed C512
-compatibility workspace, the layer-major request-memory profile, and both
-exact FP8 and NVFP4 Marlin Prefill inventories. It additionally requires the
-native exact C64 GDN binary capability, the real native workspace and exact
-byte capacity, and the authenticated 48-layer producer/weight shape
-inventory. Eligible M32--M512 segments must report the native GDN disposition;
-M1--M31 alone may use the sealed exact fallback. These inventories are still
-development/test admissions, so this route is an executable evaluation
-candidate rather than the installed production default. The request arena is
-reserved before GPU execution. Target-length runs must therefore also pass a
-plan-derived `--request-max-arena-bytes` value; the 2 GiB default is not valid
-for 40K, 60K, or 130K layer-major requests.
+The ordinary executable fixes the corrected whole-core SM87 service and its
+full-range capacity/inventory; it exposes no tactic, chunk or arena selector.
+The exact profile and qualification state are owned by
+[Current Status](CURRENT_STATUS.md). Historical development/admission builds
+are separate opt-in configurations and cannot qualify the installed artifact.
 
 The API is greedy only. Requests must explicitly provide a positive
 `max_tokens` (or `max_completion_tokens`) and `temperature=0`; this prevents

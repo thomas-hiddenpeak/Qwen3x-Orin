@@ -231,6 +231,7 @@ bool valid_spans(const std::array<Span, 5>& spans) noexcept {
 }  // namespace q3x::runtime::fused_decode
 
 namespace q3x::runtime::fused_decode {
+#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
 namespace {
 thread_local PredictionOverride prediction_override = nullptr;
 thread_local void* prediction_context = nullptr;
@@ -250,6 +251,8 @@ void set_observer(Observer callback, void* context) noexcept {
 int observe(const Observation& observation) noexcept {
   return observer ? observer(observation, observer_context) : 0;
 }
+
+#endif
 
 int prepare() noexcept {
   int device = 0;

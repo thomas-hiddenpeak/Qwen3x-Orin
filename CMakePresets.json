@@ -13,7 +13,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "BUILD_TESTING": "OFF",
-        "Q3X_CUDA_ARCHITECTURES": "87"
+        "Q3X_CUDA_ARCHITECTURES": "87",
+        "Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION": "ON"
       }
     },
     {
@@ -25,19 +26,21 @@
         "CMAKE_BUILD_TYPE": "Release",
         "BUILD_TESTING": "OFF",
         "Q3X_CUDA_ARCHITECTURES": "87",
-        "Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE": "ON"
+        "Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE": "ON",
+        "Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION": "OFF"
       }
     },
     {
       "name": "orin-p40-whole-core-prod",
-      "displayName": "Jetson Orin P40 whole-core production deployment",
-      "description": "Owner-promoted, accuracy-qualified P40 whole-core production route; fixed P40000/O16 geometry",
+      "displayName": "Historical fixed P40 profile (qualification withdrawn)",
+      "description": "Retained reproduction only; numerical qualification withdrawn; fixed P40000/O16",
       "binaryDir": "${sourceDir}/.q3x-work/build/orin-p40-whole-core-prod",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "BUILD_TESTING": "OFF",
         "Q3X_CUDA_ARCHITECTURES": "87",
-        "Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE": "ON"
+        "Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE": "ON",
+        "Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION": "OFF"
       }
     },
     {
@@ -49,7 +52,8 @@
         "CMAKE_BUILD_TYPE": "Release",
         "BUILD_TESTING": "ON",
         "Q3X_CUDA_ARCHITECTURES": "87",
-        "Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION": "ON"
+        "Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION": "ON",
+        "Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION": "OFF"
       }
     }
   ],

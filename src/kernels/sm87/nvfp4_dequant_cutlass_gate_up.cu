@@ -56,11 +56,11 @@ __global__ void dequant_nvfp4_vec16_kernel(
   const std::uint32_t p1 = pptr[1];
   const float bs =
       decode_e4m3fn_device(block_scale[row * (k / 16) + col / 16])
-#if !defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if !defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
       * weight_scale_2
 #endif
       ;
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
   (void)weight_scale_2;
 #endif
 
@@ -238,7 +238,7 @@ static int launch_nvfp4_gate_up_impl(
     const int M_ = static_cast<int>(mc_size);
     const int stride_n = static_cast<int>(2U * n);
     const int K_ = static_cast<int>(k);
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
     // Gate and Up have independent tensor scales. Publish BF16 only after
     // applying each scale to its complete FP32 accumulator, before SiLU.
     for (std::size_t projection = 0U; projection < 2U; ++projection) {
@@ -281,7 +281,7 @@ static int launch_nvfp4_gate_up_impl(
     if (run_status != cutlass::Status::kSuccess) {
       return static_cast<int>(cudaErrorInvalidValue);
     }
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
     }
 #endif
 

@@ -341,7 +341,7 @@ make_gdn_prompt_wide_chunk_graph_workspace_plan(
         GdnPromptWideChunkGraphPlanError::kP60PartialChunkPending;
     return plan;
   }
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
   if (token_count > 44'096U) {
 #else
   if (token_count != kGdnPromptWideChunkGraphP40Tokens) {
@@ -349,7 +349,7 @@ make_gdn_prompt_wide_chunk_graph_workspace_plan(
     plan.error = GdnPromptWideChunkGraphPlanError::kInvalidTokenCount;
     return plan;
   }
-#if !defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if !defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
   if (plan.padded_token_count != token_count) {
     plan.error = GdnPromptWideChunkGraphPlanError::kInvalidLayout;
     return plan;

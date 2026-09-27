@@ -39,11 +39,11 @@ __global__ void dequant_fp8_to_bf16_kernel(
     return;
   }
   const float value = decode_e4m3fn_device(fp8_weight[index])
-#if !defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if !defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
       * weight_scale
 #endif
       ;
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
   (void)weight_scale;
 #endif
   out_bf16[index] = __bfloat16_as_ushort(__float2bfloat16_rn(value));
@@ -127,7 +127,7 @@ static int launch_fp8_projection_impl(
   // out[M,N] row-major = input[M,K] row-major * W[N,K]^T.
   // CUTLASS: A=input (M,K) RowMajor, B=W (K,N) ColumnMajor [stored (N,K)
   // row-major], C=output (M,N) RowMajor.
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
   // Preserve FP8 operand bits; the tensor scale belongs after FP32 reduction.
   const float alpha = weight_scale;
 #else

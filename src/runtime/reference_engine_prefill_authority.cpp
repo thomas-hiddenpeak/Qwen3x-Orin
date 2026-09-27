@@ -122,7 +122,7 @@ thread_local bool
 // A whole-core Gate/Up consumer reads checkpoint NVFP4 directly. Bind its
 // actual operands, never an unused Marlin allocation, into the receipt.
 [[nodiscard]] bool source_gate_up(const NvFp4LinearWeight& weight) noexcept {
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
   return weight.prefill_marlin_gate_up_layout ==
              NvFp4MarlinGateUpLayout::kCanonicalSourceOnly &&
          weight.prefill_marlin_weight == nullptr &&
@@ -2403,7 +2403,7 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
           ? LayerMajorPrefillMlpScheduleTactic::kLayerWideP40ExactFullM
           : LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
   const NvFp4MarlinGateUpLayout expected_gate_up_layout =
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
       whole_core_projection ? NvFp4MarlinGateUpLayout::kCanonicalSourceOnly :
 #endif
       interleaved_p40_projection
@@ -2750,7 +2750,7 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
           auxiliary_workspace,
           auxiliary_workspace_bytes,
           maximum_logical_m,
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
           minimum_physical_m < 64U ? minimum_physical_m : 64U,
 #else
           minimum_physical_m,
@@ -3662,7 +3662,7 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
           ? LayerMajorPrefillMlpScheduleTactic::kLayerWideP40ExactFullM
           : LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
   const NvFp4MarlinGateUpLayout expected_gate_up_layout =
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
       whole_core_projection ? NvFp4MarlinGateUpLayout::kCanonicalSourceOnly :
 #endif
       interleaved_p40_projection
@@ -3901,7 +3901,7 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
              receipt.auxiliary_workspace_bytes ==
                  auxiliary_workspace_bytes &&
              receipt.maximum_logical_panel_m == maximum_logical_m &&
-             #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+             #if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE)
              receipt.minimum_physical_m == (minimum_physical_m < 64U ? minimum_physical_m : 64U) &&
 #else
              receipt.minimum_physical_m == minimum_physical_m &&
