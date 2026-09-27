@@ -117,23 +117,27 @@ interface, fixed Q24/KV4/D256 and S512..44095, and scale 1/16. The public GQA
 reference interface above continues to produce normalized probabilities and
 no longer dispatches the historical environment-selected split kernels.
 
-The v3 internal launcher consumes 197,376 bytes of existing request-owned scratch
-on the runner stream. It validates bounds, alignment and disjoint used spans
-before enqueue, owns no allocation or global mutable buffer, and initializes
-its fixed SM87 kernel attributes at runner construction. It uses eight or
-fewer KV partitions with a deterministic staged merge. Graph capture does not
-change its mapping or allocate resources; the ordinary short Graph route is
-outside its sequence interval.
+The v5 internal launcher reserves 4,233,120 bytes of existing request-owned
+FP32 scratch (24 by maximum sequence) on the runner stream. It validates
+bounds, alignment and disjoint spans before enqueue, owns no allocation or
+mutable global buffer, and checks the fixed device at runner construction.
+Graph capture does not change its mapping or allocate resources; the ordinary
+short Graph route is outside its sequence interval.
 
-The admitted numerical correction approximates each FP32 online probability as
-BF16 high plus BF16 residual and uses both in denominator and PV accumulation.
-QK, online state and MMA accumulation remain FP32. The numerical-repair v3
-keeps partition outputs and cross-warp merge staging in FP32 until the single
-final BF16 publication. A unique owning KV warp writes each partition result.
-This removes v2's extra BF16 partition and merge-staging rounding; the frozen
-v2 evidence remains bound to that earlier implementation. This is not bitwise
-equivalent to ordered scalar attention and has no inherited production accuracy
-qualification. The unique local template
-specialization leaves vendored FlashInfer and Prefill instantiations unchanged.
+This successor preserves the public scalar QK reduction tree, row-wise FP32
+softmax, increasing-position `fmaf` chain, and final BF16 RNE publication.
+The QK producer retains all six grouped queries across independent positions
+and reuses each decoded K vector. Six query warps share each asynchronously
+staged V tile. Double-buffered shared
+storage changes operand movement, not summation order; a partial tile consumes
+only valid positions. Probabilities occupy the existing FP32 arena, and no
+partition result or approximate probability is introduced. Its strict oracle
+compares probability/output bits, followed by whole-model state and logits.
+It remains a non-installable admission pending whole-product selection.
+
+The previous tensorcore v3 used BF16 high plus residual probabilities and FP32
+partition/merge state. Its removed premature rounding and remaining numerical
+divergence are frozen in the [v3 record](analysis/decode-numerical-repair-2026-09-27/README.md)
+and Git history; that lineage does not qualify this different dataflow.
 Device non-finites are not synchronously scanned here; output propagation and
-the runner's finite-logit failure boundary are tested separately.
+the runner's finite-logit failure boundary remain unchanged.

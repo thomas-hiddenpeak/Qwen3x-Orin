@@ -13,30 +13,139 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// Modified for the fixed Q3X SM87 Decode admission, 2026-09-27.
-// Fixed SM87 mapping of the vendored Apache-2.0 FlashInfer single-query path.
-// See third_party/flashinfer/README.q3x.md for source and license provenance.
+// Internal admission wrapper. v5 preserves scalar arithmetic and pipelines KV
+// movement; the previous FlashInfer numerical lineage remains in Git history.
 #include "decode_fused_gqa_internal.h"
-#include <cuda_bf16.h>
+#include "q3x/runtime/decode_ops.h"
 #include <cuda_runtime.h>
-#include <flashinfer/attention/default_prefill_params.cuh>
-#include <flashinfer/attention/prefill.cuh>
 #include <array>
 #include <limits>
 
 namespace q3x::runtime::fused_decode {
-using Params = flashinfer::SinglePrefillParams<__nv_bfloat16, __nv_bfloat16,
-                                             float>;
-using BaseTraits = flashinfer::KernelTraits<
-    flashinfer::MaskMode::kNone, 16, 1, 1, 16, 16, 1, 4,
-    flashinfer::PosEncodingMode::kNone, __nv_bfloat16, __nv_bfloat16,
-    float, float, typename Params::IdType,
-    flashinfer::DefaultAttention<false, false, false, false>>;
-struct Traits : BaseTraits {};
 namespace {
-static_assert(!Traits::IsInvalid());
-static_assert(Traits::NUM_THREADS == 128);
-static_assert(sizeof(typename Traits::SharedStorage) == 73760);
+__device__ __forceinline__ float decode_bf16_device(
+    const std::uint16_t value) {
+  return __uint_as_float(static_cast<unsigned int>(value) << 16U);
+}
+
+__device__ __forceinline__ std::uint16_t encode_bf16_device(
+    const float value) {
+  unsigned int bits = __float_as_uint(value);
+  const unsigned int magnitude = bits & 0x7fffffffU;
+  if (magnitude > 0x7f800000U) {
+    return static_cast<std::uint16_t>((bits >> 16U) | 0x0040U);
+  }
+  bits += 0x7fffU + ((bits >> 16U) & 1U);
+  return static_cast<std::uint16_t>(bits >> 16U);
+}
+
+// Keep all six queries resident across independent positions. Each warp
+// retains the scalar 256-dimension product/add tree. K is decoded once for
+// six heads; no position sum or tensorcore/reassociated dot is introduced.
+__global__ void attention_scores_grouped_register_kernel(
+    const std::uint16_t* query, const std::uint16_t* keys,
+    unsigned int sequence, float* scores) {
+  constexpr unsigned int offsets[8] = {0, 128, 64, 192, 32, 160, 96, 224};
+  const unsigned int lane = threadIdx.x & 31;
+  const unsigned int warp = threadIdx.x >> 5;
+  const unsigned int kv = blockIdx.y;
+  float queries[6][8];
+#pragma unroll
+  for (unsigned int h = 0; h < 6; ++h)
+#pragma unroll
+    for (unsigned int j = 0; j < 8; ++j)
+      queries[h][j] = decode_bf16_device(query[(kv * 6 + h) * 256 + lane + offsets[j]]);
+  for (unsigned int i = 0; i < 16; ++i) {
+    const unsigned int position = blockIdx.x * 128 + i * 8 + warp;
+    if (position >= sequence) break;
+    float key[8];
+#pragma unroll
+    for (unsigned int j = 0; j < 8; ++j)
+      key[j] = decode_bf16_device(keys[(position * 4 + kv) * 256 + lane + offsets[j]]);
+#pragma unroll
+    for (unsigned int h = 0; h < 6; ++h) {
+      float product[8];
+#pragma unroll
+      for (unsigned int j = 0; j < 8; ++j)
+        product[j] = fmaf(queries[h][j], key[j], 0.0f);
+      float sum = __fadd_rn(
+          __fadd_rn(__fadd_rn(product[0], product[1]), __fadd_rn(product[2], product[3])),
+          __fadd_rn(__fadd_rn(product[4], product[5]), __fadd_rn(product[6], product[7])));
+#pragma unroll
+      for (unsigned int stride = 16; stride; stride >>= 1) {
+        const float rhs = __shfl_down_sync(0xffffffffU, sum, stride);
+        if (lane < stride) sum = __fadd_rn(sum, rhs);
+      }
+      if (lane == 0) scores[(kv * 6 + h) * sequence + position] = sum * 0.0625f;
+    }
+  }
+}
+
+// One CTA owns a KV head and 32 output dimensions. Its six consumer warps
+// retain the six independent query accumulators; producers load each V tile
+// once, while the next tile travels directly from global to shared memory.
+// Only operand movement changes. Every accumulator consumes positions in the
+// public reference order, including the final partial tile.
+__device__ __forceinline__ void ordered_stage(
+    std::uint16_t* vs, float* ps, const std::uint16_t* values,
+    const float* probabilities, unsigned int sequence, unsigned int first) {
+  for (unsigned int i = threadIdx.x; i < 256; i += 192) {
+    const unsigned int row = i / 4;
+    const unsigned int column = (i % 4) * 8;
+    const bool valid = first + row < sequence;
+    const auto* src = values + (valid ? (first + row) * 1024 +
+        blockIdx.y * 256 + blockIdx.x * 32 + column : 0);
+    const auto dst = static_cast<unsigned int>(__cvta_generic_to_shared(vs + row * 32 + column));
+    asm volatile("cp.async.cg.shared.global [%0], [%1], 16, %2;" ::
+                 "r"(dst), "l"(src), "r"(valid ? 16 : 0));
+  }
+  for (unsigned int i = threadIdx.x; i < 384; i += 192) {
+    const unsigned int head = i / 64;
+    const unsigned int row = i % 64;
+    const bool valid = first + row < sequence;
+    const auto* src = probabilities + (valid ?
+        (blockIdx.y * 6 + head) * sequence + first + row : 0);
+    const auto dst = static_cast<unsigned int>(__cvta_generic_to_shared(ps + i));
+    asm volatile("cp.async.ca.shared.global [%0], [%1], 4, %2;" ::
+                 "r"(dst), "l"(src), "r"(valid ? 4 : 0));
+  }
+  asm volatile("cp.async.commit_group;" ::);
+}
+
+__global__ void attention_values_ordered_pipeline_kernel(
+    const std::uint16_t* values, const float* probabilities,
+    unsigned int sequence, std::uint16_t* output) {
+  __shared__ __align__(16) std::uint16_t vs[2][64 * 32];
+  __shared__ __align__(16) float ps[2][6 * 64];
+  const unsigned int lane = threadIdx.x % 32;
+  const unsigned int head = threadIdx.x / 32;
+  float accumulator = 0.0f;
+  ordered_stage(vs[0], ps[0], values, probabilities, sequence, 0);
+  asm volatile("cp.async.wait_group 0;" ::);
+  __syncthreads();
+  unsigned int buffer = 0;
+  for (unsigned int first = 0; first < sequence; first += 64) {
+    if (first + 64 < sequence)
+      ordered_stage(vs[buffer ^ 1], ps[buffer ^ 1], values,
+                    probabilities, sequence, first + 64);
+    const auto* v = vs[buffer];
+    const auto* p = ps[buffer] + head * 64;
+    if (first + 64 <= sequence) {
+#pragma unroll
+      for (unsigned int row = 0; row < 64; ++row)
+        accumulator = fmaf(p[row], decode_bf16_device(v[row * 32 + lane]), accumulator);
+    } else {
+      for (unsigned int row = 0; row < sequence - first; ++row)
+        accumulator = fmaf(p[row], decode_bf16_device(v[row * 32 + lane]), accumulator);
+    }
+    __syncthreads();
+    asm volatile("cp.async.wait_group 0;" ::);
+    __syncthreads();
+    buffer ^= 1;
+  }
+  output[(blockIdx.y * 6 + head) * 256 + blockIdx.x * 32 + lane] =
+      encode_bf16_device(accumulator);
+}
 struct Span { std::uintptr_t begin; std::size_t bytes; };
 bool valid_spans(const std::array<Span, 5>& spans) noexcept {
   for (std::size_t i = 0; i < spans.size(); ++i) {
@@ -53,55 +162,6 @@ bool valid_spans(const std::array<Span, 5>& spans) noexcept {
 }  // namespace
 
 }  // namespace q3x::runtime::fused_decode
-
-namespace flashinfer {
-namespace {
-// FP32 publication needs only the owning KV warp. The generic float store
-// has no CTA barriers; the already merged register state is identical in the
-// other KV warps, which must not issue duplicate global writes.
-template <>
-__device__ __forceinline__ void write_o_reg_gmem<q3x::runtime::fused_decode::Traits>(
-    float (*o)[16][8],
-    smem_t<q3x::runtime::fused_decode::Traits::SWIZZLE_MODE_Q>* smem,
-    float* output, uint32_t packed, uint32_t upper, uint32_t stride_n,
-    uint32_t stride_h, uint_fastdiv group, const dim3 tid) {
-  if (get_warp_idx_kv<q3x::runtime::fused_decode::Traits>(tid.z) == 0)
-    write_o_reg_gmem<q3x::runtime::fused_decode::BaseTraits>(
-        o, smem, output, packed, upper, stride_n, stride_h, group, tid);
-}
-// Local, uniquely typed specialization: retain a BF16 residual as well as the
-// BF16 high part. Two BF16 operands improve probability precision but do not
-// encode every FP32 value exactly. Vendored/Prefill instantiations are unchanged.
-template <>
-__device__ __forceinline__ void compute_sfm_v<q3x::runtime::fused_decode::Traits>(
-    smem_t<q3x::runtime::fused_decode::Traits::SWIZZLE_MODE_KV>* v_smem,
-    uint32_t* offset, uint8_t*, uint32_t,
-    float (*probability)[1][8], float (*output)[16][8], float (*denominator)[2]) {
-  alignas(16) __nv_bfloat16 hi[8];
-  alignas(16) __nv_bfloat16 lo[8];
-#pragma unroll
-  for (int i = 0; i < 8; ++i) {
-    hi[i] = __float2bfloat16_rn(probability[0][0][i]);
-    lo[i] = __float2bfloat16_rn(probability[0][0][i] - __bfloat162float(hi[i]));
-  }
-  mma::m16k16_rowsum_f16f16f32(denominator[0], hi);
-  mma::m16k16_rowsum_f16f16f32(denominator[0], lo);
-#pragma unroll
-  for (uint32_t d = 0; d < 16; ++d) {
-    uint32_t values[4];
-    v_smem->ldmatrix_m8n8x4_trans(*offset, values);
-    mma::mma_sync_m16n16k16_row_col_f16f16f32<__nv_bfloat16>(
-        output[0][d], reinterpret_cast<uint32_t*>(hi), values);
-    mma::mma_sync_m16n16k16_row_col_f16f16f32<__nv_bfloat16>(
-        output[0][d], reinterpret_cast<uint32_t*>(lo), values);
-    *offset = v_smem->template advance_offset_by_column<2>(*offset, d);
-  }
-  *offset = v_smem->template advance_offset_by_row<16,
-      q3x::runtime::fused_decode::Traits::UPCAST_STRIDE_V>(*offset) - 2 * 16;
-  *offset -= 16 * q3x::runtime::fused_decode::Traits::UPCAST_STRIDE_V;
-}
-}  // namespace
-}  // namespace flashinfer
 
 namespace q3x::runtime::fused_decode {
 namespace {
@@ -133,10 +193,7 @@ int prepare() noexcept {
   if (status != cudaSuccess) return static_cast<int>(status);
   if (props.major != 8 || props.minor != 7 || props.multiProcessorCount != 16)
     return static_cast<int>(cudaErrorNotSupported);
-  return static_cast<int>(cudaFuncSetAttribute(
-      flashinfer::SinglePrefillWithKVCacheKernel<Traits, Params>,
-      cudaFuncAttributeMaxDynamicSharedMemorySize,
-      sizeof(typename Traits::SharedStorage)));
+  return static_cast<int>(cudaSuccess);
 }
 
 int launch(const std::uint16_t* query, const std::uint16_t* key,
@@ -158,32 +215,17 @@ int launch(const std::uint16_t* query, const std::uint16_t* key,
     return static_cast<int>(cudaErrorInvalidValue);
   (void)cudaGetLastError();
   const auto stream = static_cast<cudaStream_t>(opaque);
-  const auto chunk_size = std::max<std::size_t>((sequence + 7) / 8, 256);
-  const auto chunks = (sequence + chunk_size - 1) / chunk_size;
-  auto* partial = static_cast<float*>(workspace);
-  auto* lse = reinterpret_cast<float*>(partial + chunks * 24 * 256);
-  Params params(reinterpret_cast<__nv_bfloat16*>(const_cast<std::uint16_t*>(query)),
-                reinterpret_cast<__nv_bfloat16*>(const_cast<std::uint16_t*>(key)),
-                reinterpret_cast<__nv_bfloat16*>(const_cast<std::uint16_t*>(value)),
-                nullptr, partial, lse, nullptr, 24, 4, 1,
-                static_cast<std::uint32_t>(sequence), 24 * 256, 256,
-                4 * 256, 256, 256, -1, 0.0f, 0.0625f, 1.0f, 10000.0f);
-  params.partition_kv = true;
-  void* args[] = {&params};
-  auto status = cudaLaunchKernel(
-      reinterpret_cast<const void*>(flashinfer::SinglePrefillWithKVCacheKernel<Traits, Params>),
-      dim3(1, static_cast<unsigned>(chunks), 4), dim3(32, 1, 4), args,
-      sizeof(typename Traits::SharedStorage), stream);
+  auto* probabilities = static_cast<float*>(workspace);
+  attention_scores_grouped_register_kernel
+      <<<dim3((sequence + 127) / 128, 4), 256, 0, stream>>>(
+          query, key, static_cast<unsigned int>(sequence), probabilities);
+  auto status = cudaGetLastError();
   if (status != cudaSuccess) return static_cast<int>(status);
-  // Fixed merge, no per-token attribute setup or dispatch search.
-  auto* merged = reinterpret_cast<__nv_bfloat16*>(output);
-  float* merged_lse = nullptr;
-  auto sets = static_cast<std::uint32_t>(chunks);
-  std::uint32_t heads = 24;
-  void* merge_args[] = {&partial, &lse, &merged, &merged_lse, &sets, &heads};
-  return static_cast<int>(cudaLaunchKernel(
-      reinterpret_cast<const void*>(flashinfer::MergeStatesLargeNumIndexSetsKernel<
-          8, 32, 4, 4, float, __nv_bfloat16>),
-      dim3(1, 24), dim3(32, 4), merge_args, 16896, stream));
+  const int softmax_status = launch_softmax_reference_cuda(
+      probabilities, 24, sequence, probabilities, opaque);
+  if (softmax_status) return softmax_status;
+  attention_values_ordered_pipeline_kernel<<<dim3(8, 4), 192, 0, stream>>>(
+      value, probabilities, static_cast<unsigned int>(sequence), output);
+  return static_cast<int>(cudaGetLastError());
 }
 }  // namespace q3x::runtime::fused_decode

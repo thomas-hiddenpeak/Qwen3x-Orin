@@ -8,7 +8,7 @@
 namespace q3x::runtime::fused_decode {
 inline constexpr std::size_t kMinimumSequence = 512;
 inline constexpr std::size_t kMaximumSequence = 44095;
-inline constexpr std::size_t kWorkspaceBytes = 8 * (24 * 256 * 4 + 24 * 4);
+inline constexpr std::size_t kWorkspaceBytes = 24 * kMaximumSequence * sizeof(float);
 // Called once during runner construction, before readiness or Graph capture.
 int prepare() noexcept;
 // Fixed Q24/KV4/D256, BF16, scale 1/16, contiguous [S,4,256] KV.

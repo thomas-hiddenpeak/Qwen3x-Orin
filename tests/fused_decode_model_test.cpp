@@ -93,7 +93,7 @@ int attention_observer(const fd::Observation& view, void* context) noexcept {
         << ",\"scalar_round_mismatches\":" << scalar_round_mismatch;
     }
     c.output << "}\n";c.output.flush();++c.calls;
-    if (nonfinite || fused!=repeat || relative>1.0/128.0) return cudaErrorInvalidValue;
+    if (nonfinite || fused!=repeat || fused!=scalar) return cudaErrorInvalidValue;
     if (!c.restore_scalar) {
       code=static_cast<int>(cudaMemcpyAsync(view.output,fused.data(),count*2,cudaMemcpyHostToDevice,stream));
       if(code) return code;

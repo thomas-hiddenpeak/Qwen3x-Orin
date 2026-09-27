@@ -22,12 +22,12 @@ document. Classes and authority rules are defined by
 ## Audit snapshot
 
 - Audit date: 2026-09-27.
-- Expected integrated-tree coverage: **75 Markdown paths**.
-- Classified: **75**.
+- Expected integrated-tree coverage: **76 Markdown paths**.
+- Classified: **76**.
 - Unclassified: **0**.
 - Duplicate registrations: **0**.
-- Automated validator: **PASS** (`75` tracked, `75` registered, `40`
-  required first-party headers, `46` headers checked, `984` local links,
+- Automated validator: **PASS** (`76` tracked, `76` registered, `40`
+  required first-party headers, `47` headers checked, `988` local links,
   `0` errors).
 - Inventory basis: every literal path from `git ls-files '*.md'` in the
   staged tree including the Decode context-scaling, retrospective, product-admission, qualification and numerical-repair records.
@@ -108,7 +108,7 @@ authority only for its exact recorded protocol.
 | `docs/PREFILL_REFERENCE_AUDIT.md` | `historical_architecture_audit` | historical | Superseded as current Prefill design authority by `docs/PREFILL_ARCHITECTURE_RESET.md`, which refines `docs/SDD.md`; retains pinned source-analysis provenance. |
 | `docs/ROADMAP_LEGACY.md` | `historical_roadmap_ledger` | historical | Superseded by concise active `docs/ROADMAP.md`; retained for linked chronology, with Git history and evidence owning exact observations. |
 
-## Evidence (33)
+## Evidence (34)
 
 | Path | Role | Lifecycle | Evidence authority |
 | --- | --- | --- | --- |
@@ -118,6 +118,7 @@ authority only for its exact recorded protocol.
 | `docs/analysis/decode-product-admission-2026-09-27/README.md` | `implementation_admission_evidence` | frozen | Compiled fused Decode numerical admission, bounded Graph ownership repair and API direction evidence; no numerical-contract change or production promotion. |
 | `docs/analysis/decode-qualification-2026-09-27/README.md` | `qualification_evidence` | frozen | Frozen short/mid/40K numerical rejection, bounded direct-answer capability and lifecycle checks; no numerical-contract waiver or production promotion. |
 | `docs/analysis/decode-numerical-repair-2026-09-27/README.md` | `numerical_repair_evidence` | frozen | FP32 partition/merge-staging correction, cancellation regression and bounded real-model/API results; remaining scalar-equivalence gap, no promotion. |
+| `docs/analysis/decode-ordered-repair-2026-09-27/README.md` | `ordered_numerical_repair_evidence` | frozen | Scalar-equivalent ordered Decode dataflow and bounded numerical/API comparison; no implicit production or release promotion. |
 | `docs/analysis/decode-performance-lessons-2026-09-27/README.md` | `retrospective_erratum` | frozen | Dated correction of Decode ceiling, causality and qualification inferences at c4c8a34; source audit only, no new performance or production selection. |
 | `docs/analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md` | `experiment_evidence` | frozen | Decode coupled-feed parity observation for its pinned real API protocol. |
 | `docs/analysis/decode-gqa-splitkv-sm87-2026-07-30/README.md` | `experiment_evidence` | frozen | Decode split-KV direction/admission evidence for the recorded build and workload. |

@@ -85,6 +85,31 @@ contract solution; any proposed numerical-class change requires explicit
 owner acceptance supported by appropriate capability evidence, and may not
 inherit the Prefill-only ADR-0002 authorization.
 
+Owner-requested completion successor: `WP-DECODE-ORDERED-PIPELINE-20260927`
+implements shared, asynchronously staged KV/probability movement while keeping
+the original QK reduction, row-wise softmax and increasing-position FP32 FMA
+sequence. The numerical gate is byte equality against the frozen scalar
+trajectory, not a relaxed approximation threshold. It admits one dataflow and
+one causally justified correction, with a 30-minute real-model device budget.
+After short/mid/40K numerical admission, return immediately to P40000/O256 API
+and capability/recovery checks. The approximately 8.55 tok/s interim goal
+remains; a slower exact candidate is not product completion. Default routing
+and the rejected tensorcore numerical versions stay separate until selection. The
+sole correction retains the six Q vectors across independent positions and
+reuses decoded K, preserving the same reduction tree; it follows an exact but
+below-target v4 API result. All experimental kernels reside in the isolated
+admission translation unit, and final checks enforce byte equality.
+
+This package is now closed: the exact numerical repair passes all three
+buckets and returns to the real API, but v5 misses the interim speed goal.
+The bounded profiler attempt fails HWPM permission admission and supplies no
+causal counters. Retain the isolated implementation and regression tests;
+do not promote or continue parameter scanning. The next engineering boundary
+is a separately bounded exact dataflow successor with a declared route back
+to the approximately 8.55 tok/s API budget. Numerical reassociation or the
+Prefill-only waiver is not a shortcut. Downstream composition and release
+qualification remain conditional on that whole-product result.
+
 Ordered deliverables:
 
 1. `WP-DECODE-FUSED-GQA-ADMISSION-20260927`: preserve scalar comparison and

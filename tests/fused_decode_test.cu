@@ -1,4 +1,5 @@
 #include "decode_fused_gqa_internal.h"
+#include "q3x/runtime/decode_ops.h"
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 #include <algorithm>
@@ -134,6 +135,43 @@ int main() {
   std::printf("independent_fp64_relative_l2=%.9g\n",relative);
   // One BF16 unit roundoff for this bounded admission; not a model threshold.
   if (relative > 1.0/128.0) return 8;
+  // The ordered successor must preserve every output AND each published
+  // FP32 probability bit for full tiles and awkward pipeline/warp tails.
+  float* reference_p{};
+  std::uint16_t* reference_o{};
+  check(cudaMalloc(&reference_p,fd::kWorkspaceBytes));
+  check(cudaMalloc(&reference_o,qn*2));
+  hk.resize(kn); hv.resize(kn);
+  std::uint32_t rng=0x94819273U;
+  auto sample=[&]() {
+    rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
+    return __float2bfloat16(static_cast<float>(static_cast<int>(rng%8191)-4095)/1024);
+  };
+  for (auto& x:hq) x=sample();
+  for (auto& x:hk) x=sample();
+  for (auto& x:hv) x=sample();
+  check(cudaMemcpyAsync(q,hq.data(),qn*2,cudaMemcpyHostToDevice,stream));
+  check(cudaMemcpyAsync(k,hk.data(),kn*2,cudaMemcpyHostToDevice,stream));
+  check(cudaMemcpyAsync(v,hv.data(),kn*2,cudaMemcpyHostToDevice,stream));
+  for (std::size_t s:{512U,513U,575U,576U,577U,2047U,8192U,40000U,44095U}) {
+    check(fd::launch(q,k,v,s,workspace,fd::kWorkspaceBytes,o,stream));
+    check(q3x::runtime::launch_gqa_attention_reference_cuda(
+        q,k,v,24,4,s,256,0.0625f,reference_p,fd::kWorkspaceBytes/4,reference_o,stream));
+    std::vector<std::uint32_t> actual_p(24*s), expected_p(24*s);
+    std::vector<std::uint16_t> actual_o(qn), expected_o(qn);
+    check(cudaMemcpyAsync(actual_p.data(),workspace,24*s*4,cudaMemcpyDeviceToHost,stream));
+    check(cudaMemcpyAsync(expected_p.data(),reference_p,24*s*4,cudaMemcpyDeviceToHost,stream));
+    check(cudaMemcpyAsync(actual_o.data(),o,qn*2,cudaMemcpyDeviceToHost,stream));
+    check(cudaMemcpyAsync(expected_o.data(),reference_o,qn*2,cudaMemcpyDeviceToHost,stream));
+    check(cudaStreamSynchronize(stream));
+    if (actual_p!=expected_p || actual_o!=expected_o) {
+      std::fprintf(stderr,"ordered scalar bit mismatch S=%zu probabilities=%d output=%d\n",
+                   s,actual_p==expected_p,actual_o==expected_o);
+      return 11;
+    }
+    std::printf("exact_scalar_probability_and_output S=%zu PASS\n",s);
+  }
+  check(cudaFree(reference_p)); check(cudaFree(reference_o));
   std::fill(hv.begin(),hv.end(),__float2bfloat16(NAN));
   check(cudaMemcpyAsync(v,hv.data(),hv.size()*2,cudaMemcpyHostToDevice,stream));
   check(fd::launch(q,k,v,rs,workspace,fd::kWorkspaceBytes,o,stream));

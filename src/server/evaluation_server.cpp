@@ -294,8 +294,8 @@ class UniqueFd final {
   identity.production_eligible = false;
   identity.release_qualified = false;
 #if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
-  identity.profile_id = "q3x.sm87.admission.fused-decode-split-p.v3";
-  identity.decode_route_id = "fixed-gqa-tensorcore-split-p-fp32-partials-s512-44095.v3";
+  identity.profile_id = "q3x.sm87.admission.ordered-decode-pipeline.v5";
+  identity.decode_route_id = "fixed-gqa-ordered-pipeline-s512-44095.v5";
 #endif
 
   return identity;
