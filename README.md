@@ -15,250 +15,188 @@ q3x_document:
 
 # Qwen3x-Orin
 
-Qwen3x-Orin is a pure C++17/CUDA runner built for one deliberately narrow
-proof vehicle: text-only execution of the exact pinned
-`nvidia/Qwen3.6-27B-NVFP4` checkpoint on NVIDIA Jetson AGX Orin (`sm_87`). It
-explores what becomes possible when the model, numerical format, hardware,
-execution plan, and serving boundary are engineered as one system instead of
-treated as interchangeable layers.
+A specialized C++17/CUDA inference service for **Qwen3.6-27B-NVFP4 on
+NVIDIA Jetson AGX Orin (SM87)**. It provides OpenAI-compatible text and chat
+endpoints with streaming, using native kernels and a fixed execution plan.
 
-The ordinary installed service now selects corrected whole-core Prefill and
-ordered v7 Decode under profile `q3x.sm87.production.whole-core-service.v1`.
-It serves nonempty text, chat and token-ID prompts, streaming and nonstreaming,
-with outputs up to 4,096 tokens and `prompt + output - 1 <= 44,095`. Package
-version is 0.8.0. The bounded service switch is complete; future 60K/130K
-capacity and the locked latency targets remain open, so full product
-`release_qualified` remains false. [Current Status](docs/CURRENT_STATUS.md)
-owns the exact qualification, paired Prefill/Decode results and remaining gaps.
+The default production service is `qwen3x-eval-server`: corrected whole-core
+Prefill plus ordered v7 Decode, packaged as **0.8.0**. The bounded production
+switch is complete. Longer-context support and the remaining performance
+and full-release goals are tracked in [Current Status](docs/CURRENT_STATUS.md)
+and the [Roadmap](docs/ROADMAP.md).
 
-Qwen3x-Orin is an independent community project. It is not an official Qwen,
-Alibaba, NVIDIA, or Jetson project and is not endorsed by those organizations.
+## Supported scope
 
-## Why a specialized runner?
-
-This project is not trying to become a universal inference framework. It
-intentionally trades unrelated model and hardware compatibility for the
-ability to co-design weight layout, state ownership, scheduling, kernels,
-admission, observability, and API behavior around one deployment target. The
-repeatable output is the engineering method and evidence chain; a delivered
-binary may correctly reject every model or device outside its contract.
-
-The intended deliverable is an externally callable OpenAI-compatible runner,
-not a loader or a collection of fast kernels:
-
-```text
-OpenAI-compatible request
-  -> tokenize and admit the complete request
-  -> exact Prefill and state commit
-  -> first useful token
-  -> exact Decode
-  -> streaming response, usage, and terminal state
-```
-
-Constraints flow downward from that boundary. Local mechanisms evolve inside
-explicit work packages, compose into an architecture candidate, and matter
-only when their value returns to the real API. The controlling design is
-[`docs/SDD.md`](docs/SDD.md); the full engineering philosophy is in the
-[`engineering constitution`](docs/ENGINEERING_CONSTITUTION.md).
-
-## Proof contract
-
-These are locked **targets**, not claims about current performance:
-
-| Scope | Required outcome |
+| Item | Current service |
 | --- | --- |
-| Cold/no-cache 40K–60K prompt | First visible committed generated token within 2 seconds |
-| Cold/no-cache approximately 130K prompt | First visible committed generated token within 4 seconds |
-| Single-request Decode | At least 10 token/s without MTP |
-| Accuracy | No Production numerical or generated-behavior regression |
-| Route integrity | No silent truncation, hidden cache reuse, or undeclared fallback |
-| Production dependency | No cuBLASLt dispatch, fallback, or runtime dependency |
-| Competitive floor | First match, then exceed matched same-workload vLLM behavior |
+| Model | Exact pinned `nvidia/Qwen3.6-27B-NVFP4` checkpoint; text only |
+| Hardware | Jetson AGX Orin, CUDA architecture `sm_87` |
+| API | `/healthz`, `/v1/models`, `/v1/completions`, `/v1/chat/completions` |
+| Input | Nonempty text, text chat messages, or token IDs for completions |
+| Output | Greedy generation; streaming or nonstreaming; optional streaming usage |
+| Capacity | `1 <= O <= 4096` and `P + O - 1 <= 44095` |
+| Concurrency | One GPU request and one queued request; overload returns HTTP 429 |
+| Deployment | Loopback by default; non-loopback requires a Bearer key file; external TLS termination |
 
-The [`engineering constitution`](docs/ENGINEERING_CONSTITUTION.md) owns these
-targets. The
-[`EvalScope procedure`](docs/EVALSCOPE_EVALUATION.md) owns the exact external
-measurement protocol, and [`Current Status`](docs/CURRENT_STATUS.md) owns the
-current implementation and qualification facts.
+`P` is the tokenized prompt length, including chat-template tokens. `O` is
+the requested output limit. For example, 40,000 prompt tokens permit 4,096
+output tokens; the maximum 44,095-token prompt permits one output token.
+Requests exceeding the capacity are rejected, never silently truncated.
+
+Sampling, tool calls, media, custom stop sequences, batching, MTP and Prefix/KV
+reuse are outside the current service contract. OpenAI compatibility covers
+the supported endpoints and parameters, not the entire OpenAI API. See the
+[API procedure](docs/EVALSCOPE_EVALUATION.md) for exact request semantics.
+
+## Measured performance
+
+Selected results from the **2026-09-28 installed-artifact qualification**:
+
+| Prompt / output tokens | Prefill tokens/s | First-token latency (s) | Decode tokens/s |
+| --- | ---: | ---: | ---: |
+| 1,089 / 16 | 403.23 | 2.719 | 9.588 |
+| 8,192 / 256 | 486.84 | 16.849 | 9.218 |
+| 40,000 / 256 | 434.92 | 92.007 | 7.864 |
+| 40,000 / 4,096 | 434.35 | 92.126 | 7.792 |
+
+The first three rows average two installed processes; the full-output row is
+a separate capacity run. These are batch-one real API results with no
+Prefix/KV reuse or MTP, an exclusive GPU at 1300.5 MHz, and recorded host/cache
+preparation. Prefill is the engine's pure interval; first-token latency is
+measured externally; Decode excludes the first token produced by Prefill.
+Startup/model loading is outside these request intervals. The
+[complete results and protocol](docs/CURRENT_STATUS.md#paired-prefill-and-decode-performance)
+own the numbers and their scope; they are not a speed guarantee for another
+host or workload.
+
+**40K Decode has not reached the interim 8.55 tokens/s target.** The service
+also does not yet support 60K/130K contexts or meet the long-term 2s/4s
+first-token targets. Its bounded production eligibility is distinct from full
+product release qualification (`release_qualified=false`).
 
 ## Functional evaluation quick start
 
-This functional smoke path exercises building the current service,
-loading the pinned model, generating text, and answering through its evaluation
-adapter. It is **not** an accuracy validation, performance result, long-context
-qualification, or Production release attestation.
+Run these commands from the repository root. This smoke test starts the
+production path; it does not reproduce the performance or accuracy panel.
 
 ### Requirements
 
-- Jetson AGX Orin with an SM87-capable Linux/CUDA development environment;
-- CMake 3.24 or newer;
-- CUDA Toolkit 12.0 or newer with a CUDA C++17 compiler;
-- a CMake-detectable system threading library;
-- ICU 74 with the `uc` and `i18n` components; and
-- the exact pinned `nvidia/Qwen3.6-27B-NVFP4` artifact described by
-  [`docs/MODEL_SUPPORT.md`](docs/MODEL_SUPPORT.md).
+- Jetson AGX Orin with enough available unified memory for the pinned weights,
+  startup sidecars, a 9,508,218,624-byte request arena and an additional 8-GiB
+  free-memory reserve. The arena alone is not the total memory requirement;
+  startup rejects insufficient memory.
+- CMake 3.24+, CUDA Toolkit 12.0+ with C++17 support, a system threading
+  library, ICU 74+ (`uc` and `i18n`), and `curl` for the examples.
+- The checkpoint pinned at revision
+  `0893e1606ff3d5f97a441f405d5fc541a6bdf404`, including its tokenizer assets.
+  Consult [Model Support](docs/MODEL_SUPPORT.md) for authenticated model facts.
+  Other catalogued models are not supported-service claims.
 
-The API smoke commands below also use `curl` as a client.
+Keep model files read-only. All generated files below stay in the ignored
+`.q3x-work/` directory.
 
-Keep the user-owned model directory read-only. Put every project-generated
-build or artifact below the ignored `.q3x-work/` tree:
+### Build and install
 
 ```bash
-Q3X_BUILD="$PWD/.q3x-work/build/quickstart"
+cmake --preset orin-release
+cmake --build --preset orin-release --parallel 3
+cmake --install .q3x-work/build/orin-release \
+  --prefix "$PWD/.q3x-work/install/orin-release"
+```
+
+The preset explicitly selects `BUILD_TESTING=OFF` and
+`Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=ON`. A fresh custom build with testing
+OFF also defaults to the service, but an existing CMake cache can retain old
+settings. Use the preset and a separate directory for experiments; do not mix
+production with admission options. C++ consumers must rebuild against the
+exact 0.8.0 installed package and its exported geometry definitions.
+
+### Start the service
+
+```bash
 Q3X_MODEL_DIR="/absolute/path/to/nvidia/Qwen3.6-27B-NVFP4"
+Q3X_SERVER="$PWD/.q3x-work/install/orin-release/bin/qwen3x-eval-server"
 
-cmake -S . -B "$Q3X_BUILD" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DBUILD_TESTING=OFF \
-  -DQ3X_CUDA_ARCHITECTURES=87
-cmake --build "$Q3X_BUILD" --parallel \
-  --target qwen3x-orin qwen3x-eval-server qwen3x-inspect
-```
-
-`BUILD_TESTING=OFF` excludes test-only admission paths; it does not by itself
-make this a fully qualified product release. Fresh OFF builds select the sealed
-whole-core service; test builds do not. Explicit historical reproduction must
-set `Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=OFF`. The default-OFF
-`Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE` bundle. That bundle builds the
-separately named, accuracy-unqualified
-`qwen3x-eval-server-p40-v10-dev` baseline, requires its typed
-`--development-route p40-whole-core-v10` selector, rejects ambient `Q3X_*`
-controls, and disables installation; it is not a release or production
-configuration. Inspect the ordinary binary and target device:
-
-```bash
-"$Q3X_BUILD/qwen3x-orin" version
-"$Q3X_BUILD/qwen3x-orin" probe
-"$Q3X_BUILD/qwen3x-orin" models
-"$Q3X_BUILD/qwen3x-inspect" manifest "$Q3X_MODEL_DIR"
-```
-
-`models` reports catalogued descriptors; a catalog entry is not a runtime
-support or qualification claim.
-
-The diagnostic `generate` CLI retains its explicit legacy execution options;
-use the server below for the production route. For a diagnostic smoke, select the SM87
-projection backend and request the maximum 512-token Prefill chunk
-capacity:
-
-```bash
-"$Q3X_BUILD/qwen3x-orin" generate "$Q3X_MODEL_DIR" \
-  --prompt "用一句话解释统一内存。" \
-  --max-tokens 16 \
-  --prefill-chunk-size 512 \
-  --projection-backend sm87
-```
-
-Install and start the production service in one terminal:
-
-```bash
-Q3X_INSTALL="$PWD/.q3x-work/install/quickstart"
-cmake --install "$Q3X_BUILD" --prefix "$Q3X_INSTALL"
-"$Q3X_INSTALL/bin/qwen3x-eval-server" "$Q3X_MODEL_DIR" \
+"$Q3X_SERVER" "$Q3X_MODEL_DIR" \
   --host 127.0.0.1 \
   --port 18080 \
   --model qwen3.6-27b-nvfp4
 ```
 
-After it becomes ready, exercise health and committed-token streaming from
-another terminal:
+Startup loads and validates weights, prepares the fixed execution resources,
+and opens the listener only after readiness. No candidate or tactic flag is
+needed. The service identity is
+`q3x.sm87.production.whole-core-service.v1`.
+
+### Send a request
+
+From another terminal:
 
 ```bash
 curl -fsS http://127.0.0.1:18080/healthz
+curl -fsS http://127.0.0.1:18080/v1/models
 
 curl -N -fsS http://127.0.0.1:18080/v1/chat/completions \
   -H 'Content-Type: application/json' \
-  -d '{"model":"qwen3.6-27b-nvfp4","messages":[{"role":"user","content":"你好，请用一句话介绍你自己。"}],"max_tokens":16,"temperature":0,"stream":true}'
+  -d '{"model":"qwen3.6-27b-nvfp4","messages":[{"role":"user","content":"你好，请用一句话介绍你自己。"}],"max_tokens":64,"temperature":0,"stream":true,"stream_options":{"include_usage":true}}'
 ```
 
-The ordinary server fixes corrected whole-core Prefill, ordered v7 Decode and
-the full-range SM87 inventory; public tactic and arena overrides are rejected. The loopback command
-above omits authentication. `--api-key-file` enables Bearer authentication for
-models and generation; health remains public, and a non-loopback listener
-requires an owner-only key file. TLS termination is external. Execution is
-greedy and serialized at the GPU worker. Generation requests must explicitly provide a positive
-`max_tokens` or `max_completion_tokens` within the configured ceiling and use
-`temperature=0`. This is the bounded production service; full long-term product qualification
-remains separate. See the
-[`evaluation procedure`](docs/EVALSCOPE_EVALUATION.md) for supported request
-semantics and reproducible EvalScope commands.
+Use `"stream":false` and omit `stream_options` for a nonstream response.
+Generation requests must explicitly specify a positive `max_tokens` or
+`max_completion_tokens`, plus `temperature:0`. Stop the foreground server
+with Ctrl-C.
 
-## How performance is judged
+For a non-loopback listener, supply `--api-key-file /path/to/key` pointing to
+an owner-only regular file (0400 or 0600). Add `Authorization: Bearer …` to
+models and generation requests; `/healthz` remains public. Put TLS termination
+in a trusted reverse proxy when exposing the service beyond the host.
 
-Architecture selection begins with the pinned real model on the real API path:
+## Numerical validation and remaining boundaries
 
-- EvalScope/user-visible TTFT selects the whole system; server-side pure
-  Prefill timing explains it but does not replace it.
-- NSys, NCU, component timing, and short prompts are attribution tools inside
-  a named work package, not product-performance substitutes.
-- Synthetic payloads are for exhaustive correctness and smoke coverage, never
-  performance selection.
-- Every Jetson timing run records a decision-class `tegrastats`, process, and
-  GPU-device-handle preflight; the incomplete Jetson `nvidia-smi` view is not
-  an idle-resource authority. Unowned GPU use or confirmed material contention
-  invalidates timing. Other environment telemetry annotates ordinary
-  engineering work, while architecture selection and release qualification
-  use their strict predeclared envelope.
-- Production paths preserve the declared numerical/state contract, exclude
-  MTP from the current target, and keep cuBLASLt reference-only.
+The selected Prefill fixes projection coordinates and tensor-scale placement.
+Its reference was independently assessed with FP32 GDN recurrence and full
+prompt-boundary state/logit comparisons. Legacy per-token BF16 Prefill is a
+regression comparator, not model truth. Ordered v7 Decode also has same-input
+FP64 Attention checks.
 
-The normative rules are in
-[`docs/REAL_MODEL_PERFORMANCE_POLICY.md`](docs/REAL_MODEL_PERFORMANCE_POLICY.md).
-Historical measurements retain only their recorded protocol and do not become
-current truth by appearing in the repository.
+On the pinned four-subject, five-shot C-Eval panel, native and vLLM answers
+match on all 98 questions, with both scoring 79/98. This is bounded capability
+evidence, not the full 52-subject benchmark or a claim that all future output
+is bitwise identical. See the [numerical decision](docs/CURRENT_STATUS.md#numerical-baseline-decision)
+and [production record](docs/metadata/qwen36-27b-whole-core-service-production-2026-09-28.json).
 
-## Start from the right document
+`qwen3x-orin generate` is a diagnostic CLI with legacy execution options. It
+is **not the default production service path**. Historical P40 development
+and fixed-profile presets exist for reproduction; their old numerical
+qualification does not transfer to the current service.
 
-| Need | Start here |
+## Development and documentation
+
+Start at [the documentation index](docs/README.md) for the required reading
+order and [AGENTS.md](AGENTS.md) for workspace and execution rules.
+
+| Task | Document |
 | --- | --- |
-| What works now? | [`Current Status`](docs/CURRENT_STATUS.md) |
-| What is the complete runner design? | [`System SDD`](docs/SDD.md) |
-| What should happen next? | [`Active Roadmap`](docs/ROADMAP.md) |
-| How is the pinned model identified? | [`Model Support`](docs/MODEL_SUPPORT.md) |
-| How do I run external evaluation? | [`EvalScope Evaluation`](docs/EVALSCOPE_EVALUATION.md) |
-| How do I contribute or optimize safely? | [`AGENTS.md`](AGENTS.md), which routes to the [`documentation index`](docs/README.md) |
-| Where is every Markdown document classified? | [`Document Registry`](docs/DOCUMENT_REGISTRY.md) |
+| Current defaults, qualification, performance and gaps | [Current Status](docs/CURRENT_STATUS.md) |
+| Remaining delivery work | [Roadmap](docs/ROADMAP.md) |
+| API-to-kernel design and lifecycle | [System SDD](docs/SDD.md) |
+| Reproducible API evaluation | [EvalScope procedure](docs/EVALSCOPE_EVALUATION.md) |
+| Performance-run requirements | [Real-model performance policy](docs/REAL_MODEL_PERFORMANCE_POLICY.md) |
+| Engineering mission and owner-set targets | [Constitution](docs/ENGINEERING_CONSTITUTION.md) |
+| Current contracts and historical evidence | [Document registry](docs/DOCUMENT_REGISTRY.md) |
 
-The documentation index owns the required reading order and routes active
-designs, contracts, decisions, immutable evidence, historical records, and
-external source studies. The root README does not duplicate those authorities.
+Code lives in `include/q3x/` and `src/`; tests in `tests/`; evaluation and
+inspection tools in `tools/`; pinned workload definitions in `benchmarks/`.
+Builds, raw results and temporary tools belong under `.q3x-work/`.
 
-## Repository map
-
-```text
-include/q3x/       C++ API plus kernel, model, runtime, and internal contracts
-src/core/          Device inspection and SHA-256 primitives
-src/io/            Bounded JSON and safetensors parsing
-src/quantization/  FP8 and NVFP4 format primitives
-src/text/          Pinned tokenizer and chat/text preprocessing
-src/model/         Model descriptors and checkpoint metadata
-src/runtime/       Weight binding, request state, reference engine, and runner
-src/kernels/       Reference and SM87-specialized CUDA kernels
-src/server/        Native OpenAI-compatible service
-tools/             Inspection, evidence, reference, and evaluation tools
-tests/             Unit, numerical, route, and integration tests
-benchmarks/        Pinned benchmark and EvalScope inputs
-third_party/       Pinned upstream source subsets and their licenses
-docs/              Governance, SDDs, contracts, plans, and evidence
-.q3x-work/         Ignored project-owned builds, profiles, and artifacts
-```
-
-Before performance or architecture work, start with [`AGENTS.md`](AGENTS.md).
-It routes contributors and Codex to [`docs/README.md`](docs/README.md). Local
-tile, cache, stream, fusion, profiler, and benchmark rules have authority only
-inside an explicitly active named optimization work package. User-owned model
-directories, virtual environments, and shared caches remain external read-only
-inputs unless the project owner explicitly requests otherwise.
+The project deliberately specializes model, numerical format, hardware and
+serving together. It is an independent community project, not an official or
+endorsed Qwen, Alibaba, NVIDIA or Jetson product.
 
 ## License and provenance
 
-Project-authored code is distributed under the
-[`Apache License 2.0`](LICENSE). The repository also contains pinned
-upstream-derived components and adaptations from vLLM Marlin, FlashInfer, and
-FlashLinearAttention; they retain their applicable notices and licenses. See
-[`NOTICE`](NOTICE) and the notices beside vendored source. This provenance does
-not introduce an external runtime backend or fallback.
-
-Model weights, tokenizers, configurations, and generated artifacts are
-distributed separately under their publishers' terms and are not covered by
-this repository's Apache-2.0 license.
+Project-authored code uses [Apache License 2.0](LICENSE). Upstream-derived
+components retain their own notices and licenses; see [NOTICE](NOTICE) and
+vendored source notices. No external inference engine or cuBLASLt runtime
+fallback is part of the production route. Model weights and tokenizer assets
+are distributed separately under their publishers' terms.

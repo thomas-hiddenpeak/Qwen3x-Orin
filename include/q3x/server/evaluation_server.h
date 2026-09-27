@@ -222,8 +222,8 @@ static_assert(
     kP40WholeCoreV1ProductionPlan.prefill_supermatrix_sidecar_bytes +
         kP40WholeCoreV1ProductionPlan.decode_retained_sidecar_bytes);
 
-// Independent experimental inventory. The qualified fixed profile above is
-// immutable; only the explicit non-installable bundle selects this composition.
+// Shared corrected inventory. The historical fixed profile above retains its
+// reproduction identity; the admission and sealed service have distinct IDs.
 inline constexpr EvaluationProductionDeploymentPlan
     kWholeCoreExactDecodeAdmissionPlan = [] {
       auto plan = kP40WholeCoreV1ProductionPlan;
@@ -437,9 +437,8 @@ class EvaluationProductionRuntimeHealth final {
          options.ingress_threads == 3U;
 }
 
-// Sealed production whole-core profile: same fixed geometry as the
-// development route, selected through the production profile instead of the
-// development-route acknowledgement.
+// Match the compiled whole-core plan: full-range service/admission or the
+// historical fixed-P40 profile. Geometry comes from the selected plan.
 [[nodiscard]] inline bool is_p40_whole_core_v1_production_profile(
     const EvaluationServerOptions& options) noexcept {
   const EvaluationProductionDeploymentPlan& plan =

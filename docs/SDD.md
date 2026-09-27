@@ -689,17 +689,18 @@ not relax these requirements.
 The following records the retained admission construction. The selected
 production successor is defined in Section 3.2 above.
 
-The active Roadmap's fused Decode architecture first enters through a separate
+The retained fused Decode construction first entered through a separate
 non-installable admission build. Its internal output-only Attention interface
 preserves the public reference probability contract, uses request-owned
 bounded scratch and fixed startup preparation, and retains the runner's
 failure/state ownership. The API identifies this numerical admission in its
 profile and Decode route fields; it cannot claim an existing production
 profile's numerical qualification. Existing short Graph, capacity and accuracy
-gates are not weakened by this boundary. Production composition requires the
-Roadmap's numerical, capability and normal-output API gates.
+gates are not weakened by this boundary. Its production successor passed the
+numerical, capability and normal-output API gates recorded in [Current Status](CURRENT_STATUS.md). The construction
+below describes historical admission stages, not outstanding delivery work.
 
-The owner-authorized whole-core composition is a distinct non-installable
+The owner-authorized whole-core composition has a distinct non-installable
 admission bundle. It binds the retained Prefill route, exact Decode and full
 Decode acceleration inventory together, keeping the ordinary 8-GiB reserve.
 Its identity and load receipts must distinguish it from both the fixed

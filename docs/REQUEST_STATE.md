@@ -40,7 +40,8 @@ Package ABI 0.7.0 adds the public reset mode, plan, receipt, diagnostic, and
 planning surface used by lifecycle-derived ordinary-request cleanup. It also
 changes related public runner, generation, and protocol witness object layouts.
 This is an intentional 0.x ABI break; consumers must rebuild and request the
-exact 0.7.0 installed package.
+exact installed package version; the 0.8.0 extension below supersedes the
+0.7.0 consumer build requirement.
 
 Package ABI 0.8.0 exports the corrected service's compiled whole-core geometry
 alongside its public planners. The full-range profile owns 44,095 sequence

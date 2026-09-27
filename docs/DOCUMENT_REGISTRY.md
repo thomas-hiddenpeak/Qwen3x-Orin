@@ -27,11 +27,12 @@ document. Classes and authority rules are defined by
 - Unclassified: **0**.
 - Duplicate registrations: **0**.
 - Automated validator: **PASS** (`80` tracked, `80` registered, `40`
-  required first-party headers, `51` headers checked, `941` local links,
+  required first-party headers, `51` headers checked, `948` local links,
   `0` errors).
 - Inventory basis: every literal path from `git ls-files '*.md'` in the
   integrated tree including the numerical repair and corrected whole-core
-  service production switch; active status/roadmap snapshots are condensed.
+  service production switch and code/documentation audit; the paused reference-
+  translation package is archived, with its original observations preserved.
 - Header transition: every registered non-evidence first-party document now
   has a standard control header and is enforced by the validator. Frozen
   evidence and third-party documents are not rewritten merely to add headers.
@@ -41,12 +42,11 @@ mentions. A dormant local design becomes active only through the named SDD and
 Roadmap work package; it never activates itself. `frozen` evidence keeps
 authority only for its exact recorded protocol.
 
-## Local work package (2)
+## Local work package (1)
 
 | Path | Role | Lifecycle | Authority / ownership boundary |
 | --- | --- | --- | --- |
 | `AGENTS.md` | `repository_work_package` | active | Repository execution and hygiene instructions; cannot amend mission, numerical contract, or business targets. |
-| `docs/PREFILL_REFERENCE_TRANSLATION_MATRIX.md` | `prefill_reference_translation_work_package` | active | Source pins, invariant-to-SM87 mapping, candidate hypotheses, and closure gates for `WP-PREFILL-REFERENCE-TRANSLATION-v1`; cannot amend the SDD, numerical contract, current status, or production route. |
 
 ## Normative (4)
 
@@ -61,7 +61,7 @@ authority only for its exact recorded protocol.
 
 | Path | Role | Lifecycle | Authority / ownership boundary |
 | --- | --- | --- | --- |
-| `README.md` | `entry_point` | active | Product overview, bounded functional evaluation quick start, and navigation; current capability and performance remain owned by Current Status. |
+| `README.md` | `entry_point` | active | Production-service overview, paired performance summary, build/API quick start, and navigation; current capability and performance remain owned by Current Status. |
 | `docs/CURRENT_STATUS.md` | `current_status` | active | SSOT for current default route, delivered capability, qualified metrics, and known gaps; replaceable, not an evidence ledger. |
 | `docs/DESIGN.md` | `subsystem_design_index` | active | Compatibility entry point and map of detailed subsystem contracts; subordinate to `docs/SDD.md`. |
 | `docs/PREFILL_ARCHITECTURE_RESET.md` | `subsystem_sdd` | active | Prefill input/output, state, ownership, synchronization, failure, handoff, and architecture-candidate contract; owns no delivery order or mechanism rule. |
@@ -99,10 +99,11 @@ authority only for its exact recorded protocol.
 | `docs/REFERENCE_BENCHMARK.md` | `benchmark_procedure` | active | Internal reference repeatability harness and CLI procedure; not product-performance authority. |
 | `docs/decisions/README.md` | `decision_index` | active | ADR naming, status, supersession, and navigation procedure. |
 
-## Historical (5)
+## Historical (6)
 
 | Path | Role | Lifecycle | Successor / authority boundary |
 | --- | --- | --- | --- |
+| `docs/PREFILL_REFERENCE_TRANSLATION_MATRIX.md` | `historical_translation_work_package` | historical | Archived reference-translation lineage, source pins and rejected candidates. Current route and numerical authority reside in Current Status and the numerical ledger; reuse requires a new Roadmap package. |
 | `docs/GDN_PREFILL_DATAFLOW.md` | `dormant_local_design` | historical | GDN mechanism/design lineage. It becomes a bounded local work package only when activated by `docs/SDD.md`, `docs/ROADMAP.md`, and the active Prefill architecture candidate. |
 | `docs/LARGE_M_PROJECTION_DATAFLOW.md` | `dormant_local_design` | historical | Large-M mechanism/design lineage. Gate/Up, Down, and FP8 rules remain dormant and role/shape scoped until explicitly activated. |
 | `docs/PREFILL_ARCHITECTURE_RESET_LEGACY.md` | `historical_prefill_design` | historical | Preserved former mixed Prefill plan, measurements, feasibility arguments, local budgets, and execution order; superseded by `docs/PREFILL_ARCHITECTURE_RESET.md` and has no current planning authority. |

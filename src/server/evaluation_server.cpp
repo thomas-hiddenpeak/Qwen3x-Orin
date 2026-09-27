@@ -289,8 +289,8 @@ class UniqueFd final {
   identity.decode_graph_slots =
       plan.decode_graph_slots;
   identity.build_testing = kEvaluationGatewayBuildTesting;
-  // This branch installs a named terminal-prefix engineering candidate. OFF
-  // compilation and complete incumbent inventory do not qualify the candidate.
+  // Only the corrected sealed service is production-eligible. Other compiled
+  // profiles retain their own evidence; none claims the full future release SLOs.
 #if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
   identity.production_eligible = true;
 #else

@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: documentation navigation
   effective: 2026-08-09
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-09-28
   supersedes: []
   superseded_by: []
   ssot_for: documentation entry points and required reading order
@@ -137,7 +137,9 @@ silently rewriting the accepted decision.
 
 [`ROADMAP_LEGACY.md`](ROADMAP_LEGACY.md),
 [`PREFILL_ARCHITECTURE_RESET_LEGACY.md`](PREFILL_ARCHITECTURE_RESET_LEGACY.md),
-and [`PREFILL_REFERENCE_AUDIT.md`](PREFILL_REFERENCE_AUDIT.md) are historical.
+[`PREFILL_REFERENCE_AUDIT.md`](PREFILL_REFERENCE_AUDIT.md), and
+[`PREFILL_REFERENCE_TRANSLATION_MATRIX.md`](PREFILL_REFERENCE_TRANSLATION_MATRIX.md)
+are historical.
 Their current decisions must be restated in an active owner document before
 they guide implementation. Vendored documentation and first-party audits of
 external implementations retain source/provenance value but have no native

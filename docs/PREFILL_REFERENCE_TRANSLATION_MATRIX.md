@@ -1,12 +1,12 @@
 ---
 q3x_document:
   id: q3x-prefill-reference-translation-matrix
-  class: local-work-package
-  status: active
+  class: historical
+  status: historical
   owner: prefill-maintainers
   authority: paused source-to-SM87 translation and recovery record for WP-PREFILL-REFERENCE-TRANSLATION-v1
   effective: 2026-08-12
-  last_reviewed: 2026-09-05
+  last_reviewed: 2026-09-28
   supersedes: []
   superseded_by: []
   ssot_for: the paused Prefill reference-translation recovery record only
@@ -15,7 +15,14 @@ q3x_document:
 
 # Prefill reference-to-SM87 translation matrix
 
-This lifecycle-active document is the current mainline reference for the
+**Archived on 2026-09-28.** This document preserves the paused translation
+lineage. Its references to “current” code, the incumbent, per-token BF16
+Prefill and future work describe its historical checkpoint. Current service
+and numerical authority are in [Current Status](CURRENT_STATUS.md) and the
+[numerical ledger](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md). Reuse requires
+a new bounded package in [Roadmap](ROADMAP.md); this archive authorizes none.
+
+This document is the historical reference for the
 paused `WP-PREFILL-REFERENCE-TRANSLATION-v1` lineage under the former
 `AC-PREFILL-SM87-AOT-SYSTEM-v1`; document lifecycle does not make the package
 execution-active. The exact later checkpoint is

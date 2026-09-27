@@ -328,7 +328,12 @@ not inherited qualification or permission to relax accuracy. Legacy remains
 available as a regression comparator. No single-layer result, first-token
 agreement, or error metric alone promotes the corrected route.
 
-### 4.3 GDN dependency width and state-residency lower bound
+### 4.3 Legacy GDN dependency width and state-residency lower bound
+
+This section derives the per-token BF16 recurrence from Section 4.2. Its
+serial edge and traffic count scope the Legacy implementation, not the
+independently qualified FP32-through-Prefill service. They cannot prohibit
+that service's chunk composition or establish its hardware bound.
 
 The recurrence is token-serial only within one value-head state chain. It is
 not one request-wide scalar dependency. The fixed model has 48 independent
@@ -433,6 +438,11 @@ cache state, token accounting, backend, and route identity. It never lowers
 the 4.3K target.
 
 ### 5.3 Exact arithmetic-class qualification gate
+
+The 5.0-second projection and 1.8-second Attention allocations below belong
+to the historical reference-translation work package. They apply only if a
+new Roadmap-selected package explicitly adopts them; they are not current
+production-switch gates or globally active optimization budgets.
 
 An order-of-magnitude successor cannot be selected from a nominal INT4, INT8,
 BF16, or sparse peak. It must first prove how the real P40 operand domain maps

@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: pinned Qwen3.5 and Qwen3.6 27B text runtime numerical and state contract
   effective: 2026-08-09
-  last_reviewed: 2026-08-23
+  last_reviewed: 2026-09-28
   supersedes: []
   superseded_by: []
   ssot_for: pinned 27B text Decode semantics, tensor boundaries, and recurrent state behavior
@@ -456,6 +456,12 @@ vLLM 允许 state dtype 配置；`auto` 时 conv state 跟随 model/cache dtype�
 累加，再量化写回 BF16。若选择 FP32 SSM state，单请求 state 总量变为 146.8125 MiB，
 且必须作为不同的数值策略单独验证。
 
+上述 BF16 逐步写回约束用于单 token Decode 和 Legacy 回归路径，不能扩展为
+Prefill 必须逐 token 舍入的模型要求。修正后的生产 Prefill 在完整 prompt 内保持
+FP32 GDN 累加，在交给 Decode 时发布 BF16 persistent state；它具有独立数值身份，
+不声称与 Legacy Prefill 逐位一致。参考基线本身的独立校验与晋级条件见
+[数值等价账本第 4.2 节](PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md#42-legacy-per-token-bf16-gdnssm-state-and-reference-authority)。
+
 ### 9.2 Full-attention KV
 
 每个 token 的 logical K/V 为：
@@ -474,14 +480,15 @@ state；只有 full-attention KV 而没有两类 linear state 不是有效 conti
 
 ## 10. 数值执行策略
 
-canonical BF16 reference 策略是：
+单 token Decode 的 BF16 reference 策略是：
 
 - activation、projection 输出和 persistent cache 基线为 BF16；
 - RMS variance、Q/K L2 norm、conv 累加、`A_log`、softplus、alpha、DeltaNet
   dot/outer update 使用 FP32 中间值；
 - centered norm 的 `weight + 1` 在 FP32 形成，再把输出转回 activation dtype；
 - full-attention score scale 是 `1/sqrt(256)`，DeltaNet Q scale 是 `1/sqrt(128)`；
-- softmax、GEMM/MMA 的具体 reduction tree 可以不同，但不得改变上述公式或 gate 顺序。
+- softmax、GEMM/MMA 的 reduction tree 变化必须声明独立数值身份并通过相应验证；
+  公式或 gate 顺序相同不足以继承原路径的精确一致性与生产资格。
 
 `beta` 的模型语义固定为 `sigmoid(b)`，但固定源码中存在一个需要 fixture 暴露的舍入差异：
 qwen35-thor 和 vLLM 通用 recurrent 路径保留 FP32 `beta`，vLLM packed decode 路径则将

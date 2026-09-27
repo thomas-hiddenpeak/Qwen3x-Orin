@@ -43,15 +43,16 @@ schedule, request workspace/cache/RoPE capacities, backend selection, and all
 required payloads before publishing a runner. Failure publishes no usable
 runner.
 
-### Layer-major candidate view seam
+### Memory-profile binding and retained candidate view seam
 
-The ordinary `create_reference_runner()` factory remains bound to the legacy
-C512 `RequestState` profile. It continues to collect the established flat
-workspace views and does not admit, reinterpret, or execute a layer-major
-state.
+`create_reference_runner()` dispatches on the explicit request memory profile.
+Legacy C512 collects flat workspace views; `kLayerMajorC8192` and
+`kLayerMajorP40WholeCore` collect and bind typed layer-major views and create
+the whole-request submission events. The sealed service uses the full-range
+whole-core profile. A successful factory validates resources; it does not
+independently qualify a numerical route or select the server default.
 
-A separate explicit candidate-only seam prepares the next integration step
-for `AC-PREFILL-LAYERMAJOR-8K-v1`. Its pure-host descriptor validates the
+The retained pure-host descriptor from `AC-PREFILL-LAYERMAJOR-8K-v1` validates the
 fixed profile, 48/16 schedule, physical tactic identities, request capacity,
 persistent GDN/KV/RoPE regions, prompt residual, token-ID staging, exact
 GDN/Attention/MLP phase topology, disjoint legacy C512 bundle, and fixed final
@@ -65,10 +66,11 @@ match the validated descriptor. Compact persistent views are indexed by the
 fixed layer-slot schedule. The collector never returns an untyped view of the
 owning C8192 family arena.
 
-This seam owns no stream, launcher, model weight, completion event, traversal,
-state publication, factory connection, engine callback, or selector. Its
-descriptor is always `kUnboundCandidateOnly`; collecting it is not an
-executable-plan attestation and changes no default or production route.
+The unbound descriptor itself owns no stream, launcher, model weight,
+completion event, traversal or state publication. Its
+`kUnboundCandidateOnly` identity describes the descriptor before runner
+binding; it does not mean the factory lacks a layer-major implementation.
+Collecting views alone is not an executable-plan or production attestation.
 
 ## Token-step semantics
 
@@ -112,7 +114,7 @@ completion boundary.
 
 `ReferencePrefillTileResult::steps` therefore has 512 entries. That public
 C512 boundary was introduced by package ABI 0.4.0 and remains unchanged
-through 0.7.0; version 0.5.0 changed the separate request-state object ABI for
+through 0.8.0; version 0.5.0 changed the separate request-state object ABI for
 an isolated layer-major candidate. Version 0.7.0 changes the runner object ABI
 for lifecycle-derived request cleanup without changing the C512 capacity. The
 64-token limit on a generic projection dispatcher is an internal component
@@ -276,6 +278,6 @@ boundary. Its numerical arithmetic, bounded scratch and poison/reset semantics
 are shared with the corrected admission, while test observers, forced-token
 callbacks and input-inspection hooks are absent. The service whole-request
 Prefill path uses the full-range geometry in [Request State](REQUEST_STATE.md);
-the legacy factory and C512 methods above retain their separate explicit
+the legacy profile binding and C512 methods retain their separate explicit
 contracts. The layer-major service conservatively resets request state rather
 than borrowing the legacy prefix-reset authority.

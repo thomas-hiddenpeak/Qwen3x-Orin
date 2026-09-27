@@ -155,6 +155,17 @@ restore a retained complete binary/plan tuple, not mix old libraries with
 new headers. Historical fixed-P40 and v10 profiles remain opt-in reproductions
 with withdrawn numerical qualification.
 
+## Code and documentation audit, 2026-09-28
+
+The [audit record](metadata/qwen36-27b-code-documentation-audit-2026-09-28.json)
+reconciles build defaults, server/diagnostic entry points, memory-profile binding,
+package ABI and numerical authority with the source and installed artifact.
+The README now starts from the production API. Stale factory/ABI claims and
+historical work-package authority are corrected; the CLI identity check now
+covers the installed service explicitly. Retained records were re-audited,
+not remeasured. Runtime changes in this audit are comments only, so the
+qualification and paired performance above retain their original scope.
+
 ## Decode convergence snapshot 2026-09-27
 
 This retained anchor now points to the

@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-28",
+  "source_base": "ab7858c7bde52ce8c4095f92305501d6f63c20d4",
+  "scope": "Focused source/documentation consistency audit of the current production entry, build/package, runner binding, numerical authority and qualification claims; not an exhaustive kernel, security or accuracy requalification.",
+  "runtime_behavior_changed": false,
+  "runtime_source_changes": "Whole-line comments only; verified remaining source lines identical to source_base.",
+  "installed_artifact": {
+    "path": ".q3x-work/install/whole-core-service-20260928/bin/qwen3x-eval-server",
+    "sha256": "62178564d499e020a77d1753b43179fe7a6e3ad07cd9a206da153b7543368d58",
+    "matches_qualified_artifact": true
+  },
+  "findings_resolved": [
+    {
+      "issue": "README interleaves diagnostic Legacy generation and historical experiments with the service quick start",
+      "resolution": "Rewrite around supported production API, preset/install/start/client commands, capacity formula, paired Prefill/Decode measurements and explicit qualification limits."
+    },
+    {
+      "issue": "Runner contract falsely says the factory rejects layer-major request state",
+      "resolution": "Document source-verified dispatch for Legacy, C8192 and whole-core profiles; distinguish an unbound view descriptor from runner binding.",
+      "source": "src/runtime/reference_runner.cpp:create_reference_runner"
+    },
+    {
+      "issue": "Engine/request-state consumer instructions still require ABI 0.7.0",
+      "resolution": "Identify ABI 0.8.0 and exported service geometry; retain version history."
+    },
+    {
+      "issue": "Decode BF16 state policy and Legacy GDN serial bound can be read as universal Prefill requirements",
+      "resolution": "Scope those statements to Decode/Legacy, cross-link independently qualified FP32-through-Prefill semantics, require separate reduction-tree identity."
+    },
+    {
+      "issue": "Paused translation work package remains lifecycle-active and contains obsolete current-baseline language",
+      "resolution": "Archive in place, preserve original observations, update registry/index and require a new Roadmap package for reuse."
+    },
+    {
+      "issue": "Historical local phase budgets and closed integration stages appear to remain active gates",
+      "resolution": "Scope numerical-ledger budgets, SDD admission construction and evaluation preparation to their historical lineage."
+    },
+    {
+      "issue": "Production-help check only recognizes the Legacy profile",
+      "resolution": "Add explicit whole-core-service expectation, retain Legacy check, reject wrong/unknown expectations and exposed profile/tactic/queue overrides."
+    },
+    {
+      "issue": "Source comments still call the old fixed profile qualified or describe current code as terminal-prefix only",
+      "resolution": "Correct comments to match selected plan and bounded production eligibility."
+    }
+  ],
+  "validation": {
+    "document_control": {
+      "passed": true,
+      "tracked_markdown": 80,
+      "registered": 80,
+      "required_headers": 40,
+      "headers_checked": 51,
+      "local_links_checked": 948,
+      "errors": 0
+    },
+    "document_control_unit_tests": 7,
+    "help_checks": [
+      {
+        "name": "service-help",
+        "passed": true,
+        "returncode": 0,
+        "binary": "/home/rm01/Qwen3x-Orin/.q3x-work/install/whole-core-service-20260928/bin/qwen3x-eval-server"
+      },
+      {
+        "name": "legacy-help",
+        "passed": true,
+        "returncode": 0,
+        "binary": "/home/rm01/Qwen3x-Orin/.q3x-work/build/terminal-prefix-graph-main-20260909-off/qwen3x-eval-server"
+      },
+      {
+        "name": "wrong-profile-rejected",
+        "passed": true,
+        "returncode": 1,
+        "binary": "/home/rm01/Qwen3x-Orin/.q3x-work/install/whole-core-service-20260928/bin/qwen3x-eval-server"
+      },
+      {
+        "name": "unknown-profile-rejected",
+        "passed": true,
+        "returncode": 1,
+        "binary": "/home/rm01/Qwen3x-Orin/.q3x-work/install/whole-core-service-20260928/bin/qwen3x-eval-server"
+      }
+    ],
+    "retained_processes": 6,
+    "retained_complete_witnesses": 144,
+    "retained_run_audits_passed": true,
+    "new_real_model_runs": 0,
+    "preset_configure": {
+      "passed": true,
+      "build_testing": false,
+      "whole_core_service_production": true,
+      "cuda_architecture": "87",
+      "build_type": "Release"
+    },
+    "diff_check": true
+  },
+  "performance": "No new measurements. Existing 2026-09-28 production record remains authoritative for both Prefill and Decode.",
+  "remaining_product_gaps": [
+    "40K Decode below interim 8.55 tokens/s",
+    "60K/130K capacity and long-term TTFT goals",
+    "Full product release qualification"
+  ],
+  "evidence_directory": ".q3x-work/code-doc-audit-20260928"
+}

@@ -27,6 +27,18 @@ N=ceil(P/8000), require 64*N fill and drain phases, 64*(2*N+2) retirements,
 64*(1 + [P>=64] + [P mod 64 != 0]) MLP projection entries. The last count
 includes the actual-row Down tail; it is not every underlying CUDA launch.
 
+Check the installed service's CLI identity without loading the model:
+
+```bash
+cmake \
+  -DQ3X_EVAL_SERVER="$PWD/.q3x-work/install/orin-release/bin/qwen3x-eval-server" \
+  -DQ3X_EXPECT_PROFILE=whole-core-service \
+  -P tests/eval_server_production_help_test.cmake
+```
+
+The explicit expectation prevents a stale Legacy binary from passing as the
+service. This host-only check does not establish runtime or numerical fitness.
+
 Audit retained process records with:
 
 ```bash
@@ -65,9 +77,10 @@ Teacher-forced subsequent-Decode comparisons must feed identical tokens to
 both routes. Post-divergence free-running states cannot isolate Prefill.
 
 The [mainline validation manifest](../benchmarks/evalscope/whole_core_mainline_validation.json)
-defines the current service-preservation panel and ordered qualification gates.
-This is default-route integration preparation, not a complete product-SLO or
-release claim. The [preparer](../tools/evaluation/prepare_prefill_mainline_validation.py)
+defines the historical integration-preparation panel and ordered gates. The
+completed installed-service protocol is frozen in the production record above;
+this earlier manifest is not an instruction to repeat completed qualification
+or a complete product-SLO release claim. The [preparer](../tools/evaluation/prepare_prefill_mainline_validation.py)
 binds actual token-prefix requests to a retained real prompt, hashes their
 exact HTTP bytes and little-endian token IDs, and audits the compiled admission
 predicate without allocating the model or starting GPU work:
@@ -1226,7 +1239,7 @@ invalid rather than slow or fast.
 
 ### Retained sealed P1025 direction screen
 
-For the current sealed-route screen and its authority, see
+For the current service and its authority, see
 [`CURRENT_STATUS.md`](CURRENT_STATUS.md). Exact identities, hashes, route
 counts, comparator differences, and limitations are frozen in
 [`metadata/qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json`](metadata/qwen36-27b-prefill-layer-major-balanced-p1025-direction-2026-08-09.json).
@@ -1448,7 +1461,7 @@ separate diagnostic P40 profile in the
 This closes fresh-main integration health only; it grants no speedup,
 Prefill-candidate selection, or release authority.
 
-### Current 0.7.0 ordinary-request reset closeout
+### Historical 0.7.0 ordinary-request reset closeout
 
 Package 0.7.0 and sealed profile v3 use the same fresh-server protocol above.
 For the matched short panel, each B or C cell starts a fresh installed

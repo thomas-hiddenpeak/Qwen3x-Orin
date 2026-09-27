@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: correctness-first engine ownership, generation, timing, trace, and failure contract
   effective: 2026-08-09
-  last_reviewed: 2026-09-27
+  last_reviewed: 2026-09-28
   supersedes: []
   superseded_by: []
   ssot_for: ReferenceEngine lifecycle, generation semantics, tracing, timing, and error behavior
@@ -29,11 +29,12 @@ is the batch-one, text-only, greedy-generation owner for the exact pinned
 `nvidia/Qwen3.6-27B-NVFP4` artifact and tokenizer. It is the in-process runtime
 used by the CLI and evaluation adapter.
 
-Package ABI 0.7.0 appends the automatic request-start reset receipt to
-`ReferenceGeneration` and changes the public runner lifecycle layout. Together
+Package ABI 0.7.0 introduced the automatic request-start reset receipt in
+`ReferenceGeneration` and changed the public runner lifecycle layout. Together
 with the public request-state reset types and protocol witness field, this is
 an intentional 0.x C++ ABI break; consumers must rebuild against the exact
-0.7.0 package.
+installed package. The current service exports 0.8.0, including its compiled
+whole-core geometry; follow [Request State](REQUEST_STATE.md) for that ABI.
 
 ## Ownership and creation
 
@@ -152,9 +153,9 @@ only when the reported stop reason is `kImEnd`.
 
 ### Ordinary terminal-prefix liveness
 
-`WP-TERMINAL-LAYER-LIVENESS-20260909`, under the active
-[Roadmap work package](ROADMAP.md#2026-09-09-bounded-engineering-window),
-defines a source-private generation adapter for SM87WeightOnly with Legacy-C512
+The closed `WP-TERMINAL-LAYER-LIVENESS-20260909`
+[Roadmap work package](ROADMAP.md#2026-09-09-bounded-engineering-window)
+retains a source-private generation adapter for SM87WeightOnly with Legacy-C512
 request state. It is excluded from whole-request execution, trace capture,
 and all-prompt-tile final-token policies. It does not expand the public API or
 select a different final-token numerical tree: the ordinary controller still
@@ -205,9 +206,10 @@ does not promote that route or change lifecycle status.
 
 `ReferencePrefillExecutionMode::kLegacyC512Tiled` is the compatibility
 default. Its route count follows the existing controller Prefix executions
-plus the separate final prompt execution when applicable. The default-off
-`kWholeRequestLayerMajor` host seam instead records exactly one aggregate
-whole-request Prefix duration while deriving route coverage from the immutable
+plus the separate final prompt execution when applicable. The following
+C8192 description applies to the retained development plan, not the sealed
+whole-core service's P8000 panels. The `kWholeRequestLayerMajor` mode records
+exactly one aggregate whole-request Prefix duration while deriving route coverage from the immutable
 C8192 topology. Thus P32, P513, P8193, and P40000 have respectively 1, 1, 2,
 and 5 logical route panels even though every whole-request timing vector has
 one entry; P8193 balances its final pair as C4097+C4096 without dropping a
@@ -221,6 +223,13 @@ record the native route; M1..M31 retains the self-owned exact fallback and
 records that fallback explicitly. A legacy-configured Engine never silently
 switches into this route. Executability remains a development fact rather
 than a Production or performance-selection claim.
+
+The production whole-core plan selects that whole-request mode with its own
+full-range geometry, actual-row tails, FP32 Prefill GDN accumulation and fixed
+ordered Decode inventory. Its numerical and service boundaries are defined by
+[SDD Section 3.2](SDD.md#32-corrected-full-range-service-profile) and
+[Request State](REQUEST_STATE.md); the C8192 fallback envelope above does not
+apply to it.
 
 Timing fields have these stable meanings:
 
