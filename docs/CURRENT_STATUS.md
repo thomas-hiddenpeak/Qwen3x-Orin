@@ -15,7 +15,8 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot date: 2026-09-09.
+Snapshot date: 2026-09-27 for Decode and delivery priority; earlier Prefill
+observations below retain their individual dates.
 
 This page is a replaceable state snapshot. It does not own architecture,
 delivery order, or experiment history. The system design is in
@@ -23,14 +24,15 @@ delivery order, or experiment history. The system design is in
 [`ROADMAP.md`](ROADMAP.md), and exact observations remain in their linked
 metadata/evidence records.
 
-> **Interpretation erratum, 2026-09-27.** The Decode sections below preserve
-> historical scalar/split-kernel observations. Their claims that 6.29 tok/s is
-> a general reachable maximum, or that a different reduction necessarily
-> requires nondeterministic atomics, are not established by those experiments.
-> See the [context-scaling investigation](analysis/decode-context-scaling-2026-09-27/README.md)
-> for source-level corrections and the separately identified research route.
-> This annotation changes no default route, numerical contract, qualification
-> state, or owner target; the historical results retain their original scope.
+The owner's 2026-09-27 direction provisionally accepts Prefill performance and
+selects convergence on fused Decode attention qualification, with a retrospective
+of misleading performance conclusions. New Prefill architecture exploration
+is paused. Targets and production numerical contracts are unchanged. The
+[active convergence slice](ROADMAP.md#2026-09-27-product-convergence--active)
+owns the next work; the
+[performance retrospective](analysis/decode-performance-lessons-2026-09-27/README.md)
+withdraws unsupported ceiling and qualification inferences without rewriting
+historical measurements.
 
 ## 1. Answer-first state
 
@@ -64,8 +66,9 @@ decode tok/s (decode identical to the 09-09 baseline; the lower TTFT reflects
 the warmed Legacy profile on the pinned workload, with short requests rejected
 by its profile contract as designed. Accuracy: the two routes produce coherent
 but token-divergent greedy output on the same P40000 request (different GEMM
-backends), each matching its own qualified lineage. Capability: the whole-core
+backends), each matching its own qualified lineage. API conformance: the whole-core
 contract matrix passed 6/6 and the Legacy generic-protocol matrix passed 21/21.
+These protocol checks are not public model-capability scores.
 This evaluation is an observation surface; it does not promote or demote any
 production route. Evidence: `.q3x-work/evidence/comprehensive-eval-20260926/`.
 
@@ -73,14 +76,16 @@ A proposed [ADR-0003](decisions/0003-prefill-target-hardware-bound.md) records
 the hardware-bound analysis of the locked Prefill targets against the measured
 Orin SM87 ceiling (41.9 TFLOPS mma ceiling; 52.5 s FLOP floor for P40000). It
 finds the 2 s / 4 s Prefill targets require 26x / 43x the measured ceiling and
-requests owner adjudication; it changes no target, route, or priority. The
-Decode 10 tok/s target remains locked, but the 2026-09-26 hardware-bound
-analysis (see the Decode row and the unroll-128 section below) shows the
-batch-one weight-read floor is 101.5 ms/step (9.85 tok/s), i.e. 10 tok/s is
-below the hardware floor for this model on this device; the short-context
-9.51 tok/s measurement is consistent with that floor. Owner adjudication is
-requested (batched-decode contract change, lower quantization, or re-set
-target); no route is selected and no target is changed here.
+requests owner adjudication; it is a proposed analysis, not an adopted hardware
+impossibility conclusion. New Prefill exploration and target adjudication are
+not the active work slice.
+
+The Decode 10 tok/s target remains open. The former 101.5 ms ratio is a
+calibration-based estimate, not an established impossibility proof; the former
+5.5/6.1/6.29 tok/s bounds describe scalar implementation versions. They no
+longer constrain planning. The separate fused-GQA experiment observes 8.56
+tok/s at P40000, with changed numerics, a module-loading-mode mismatch, no
+public quality qualification and no default-route promotion.
 
 The original integration `edf4da2` combined main `13be53c` with liveness-only
 `055fb245` after both matched P40000/O16 API pairs improved pure Prefill and
@@ -792,7 +797,7 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | Target-length Prefill | Current installed main executes terminal layer-63 prefix elision with incumbent QT2/GroupQ64, exact-span GDN, and prompt-wide preprocessing; its actual P40000/O16 request reports 60.271514903 prompt tok/s | Complete accuracy, P60/P130, the 2s/4s targets, and further accuracy-preserving whole-product optimization remain open; closed lineages and same-skeleton span scans remain excluded |
 | SM87 whole-system AOT Prefill candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` is default-off, non-executable, and paused. Real-checkpoint upload/readback/private attachment plus the layer-0 M192 Oracle remain retained prerequisites. The P40000 BF16-HMMA skeleton is rejected at 225.7838x over budget, and `bmma-static-support-k16-parent-zero-fill-v2` is separately rejected before CUDA after its authenticated mandatory-instruction lower bound exceeds the complete five-second projection allocation | No active AOT implementation gate. Resumption requires an explicitly named materially different exact arithmetic/dataflow class with a new bounded proof or a successor architecture; persisted direct loading remains prerequisite work only after such a resumption |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
-| Decode | Exact S>=65 fallback plus retained coupled-feed/consumer-order layouts and fixed short-position Graph cache; current-main short integration reports 9.553634715 tok/s and P40 reports 3.939689060 tok/s. The 2026-09-26 P40000 decode-step nsys attribution (T4) shows the 254 ms/token step is 58.6% exact full-attention (values kernel 111.7 ms/token, 6,144 threads, 6x GQA-redundant V loads; scores kernel 38.6 ms/token) and 38.1% weight-read GEMV at its prior ceilings; launch overhead is 0.28%. The values kernel is latency-bound, not bandwidth-bound: a matched access-pattern microbenchmark shows the serial FMA chain at unroll-4 is 6.4 ms/layer, and unroll-8 (bit-exact, same FMA order) is 3.4 ms/layer. The unroll-8 change is committed and validated on the real P40000/O16 API: decode 3,855.8 -> 3,111.4 ms for 15 steps (257.0 -> 207.4 ms/step, 3.89 -> 4.82 tok/s), prefill unchanged, 16 completion tokens byte-identical to the 44842df baseline. The follow-up unroll-8 -> 128 deepening (bit-exact, same FMA order) is committed and validated the same way: decode 3,111.4 -> 2,895.2 ms for 15 steps (207.4 -> 193.0 ms/step, 4.82 -> 5.18 tok/s), 16 completion tokens byte-identical to the unroll-8 baseline. The 2026-09-26 hardware-bound analysis (T4, no route selected) measures the pure-read ceiling at 182.5 GB/s, the exact per-step weight read at 18.52 GB, and therefore the batch-one weight-read floor at 101.5 ms/step (9.85 tok/s): the 10 tok/s locked target is below the hardware floor for this model on this device. A follow-up measurement (2026-09-26, corrected) shows the 6x GQA-redundant values V read is a REAL DRAM cost, not L2-absorbed: the values kernel's 40.3 ms/layer at S=40000 matches the pure-DRAM time for its 6x requested volume (7.86 GB / 182.5 GB/s = 43 ms), and the earlier '195 GB/s above the ceiling, therefore L2' reasoning is inside the measurement noise band. A split-chunk GQA-shared values kernel (dedicated TU, 512 threads/block, 32 KiB smem V tile, 6 query heads per group, atomicAdd combine; opt-in Q3X_ENABLE_SPLIT_VALUES, S>=512, capture-guarded) reads each V row once and is validated end-to-end on the real P40000/O16 API: decode 2,894.9 -> 2,478.1 ms for 15 steps (193.0 -> 165.2 ms/step, 5.18 -> 6.05 tok/s, 1.17x; microbenchmark 1.66x per layer). The split path is NOT bit-exact (non-deterministic cross-chunk atomicAdd order) and the two runs produce different 16-token completions, so it is an evaluation route only; the production default remains the bit-exact unroll-128 kernel. The realistic batch-one ceiling with the split values path is ~165 ms/step (~6.1 tok/s); a follow-up microbenchmark (2026-09-27) found the scores kernel is NOT bandwidth-bound (40.5 GB/s effective 1x K vs 182.7 GB/s ceiling), so the same split treatment buys only 1.14x there; it was still integrated (bit-exact, 0/24,576 diff, no atomicAdd, opt-in Q3X_ENABLE_SPLIT_SCORES) and measured end-to-end with both splits: decode 2,385.5 ms for 15 steps = 159.0 ms/step = 6.29 tok/s (vs 193.0 bit-exact, 165.2 values-only) -- the maximum reachable with local engineering only (GEMV floor 101.4 ms at the DRAM ceiling + split attention ~57 ms). Owner adjudication is requested: batched-decode contract change, lower quantization, re-set target, or accept the non-bit-exact split route for production. Evidence: [decode split-values e2e record](metadata/qwen36-27b-decode-split-values-e2e-2026-09-26.json) | Long-output stability is qualified (256-token short-context runs byte-identical, no divergence, 9.38 tok/s corroborating the floor); the 10 tok/s target and P40000 target-length behavior remain, and the hardware-bound record requests owner adjudication before further architecture work |
+| Decode | Ordinary unroll-128 route: P1089/O32 9.41 tok/s, P40000/O32 5.18 tok/s in the dated c4c8a34 investigation. Isolated fused-GQA research: 9.64 and 8.56 respectively, changed numerics and unmatched module-loading mode; not a production change. Earlier unroll gains remain retained; scalar split routes are historical comparators only. | Same-input numerical/logit/state and public capability checks; matched API qualification; normal-output composition with accepted Prefill; startup and route-sealing closure. Short-context O256 does not qualify long-context stability. |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
 | Canonical release artifact | Fresh main `230eac1` installs 0.7.0 Release/OFF terminal-prefix.v1 ELF `270a6bb4...`; P40 and short integration pass with `production_eligible=false` and `release_qualified=false` | Complete accuracy, capability, target-length repetition, and stability/release attestation remain incomplete |
 | Automated release lane | Designed only | Local tests and policies exist, but no checked-in Orin release workflow enforces the complete gate |
@@ -891,25 +896,24 @@ the scalar kernel remains the reference oracle. An nsys profile of this build
 attributes the 219.5 s GPU prefill to 36.4% full attention (split-P tensor),
 29.4% MLP Gate/Up (NVFP4), 14.4% QKV/O projection (FP8), 12.3% GDN linear
 attention, and 7.5% small-M projections/norms/conv; projections are now the
-largest cost (43.8% combined). Measured hardware floor: the Orin's true BF16
-dense peak is 33.5 TFLOPS on the production MLP shape (C8000x17408x5120) and
+largest cost (43.8% combined). The historical BF16 calibration measured
+dense throughput of 33.5 TFLOPS on the production MLP shape (C8000x17408x5120) and
 26.1 TFLOPS on an 8192^3 square GEMM (MAXN power, 57 C, no throttle); P40000
-prefill of the 27B dense model is 2.2e15 FLOPs, giving a 65.7 s FLOP floor at
-the MLP-shape peak (84.6 s at the square rate, 8.0 s at the INT8-sparse
-ceiling). The current 219.5 s Legacy-C512 route runs at 30% of the measured
-MLP-shape peak. The 2 s prefill target would need 1100 TFLOPS (33x the measured
-peak) and is physically unreachable on Orin for this model. The layer-major
+prefill was modeled as 2.2e15 FLOPs, yielding conditional estimates of 65.7 s
+at the MLP-shape rate and 84.6 s at the square rate. Those are estimates for
+the specified arithmetic model, not an adopted impossibility proof across
+legal quantized dataflows. The historical 219.5 s Legacy-C512 route achieved
+about 30% of that MLP-shape rate. The locked target remains unchanged. The layer-major
 whole-core architecture (5x M8000 panels, whole-prompt FlashInfer attention,
 persistent NVFP4 large-M MLP) was reproduced from a clean
 `orin-p40-whole-core-dev` build on 2026-09-21: 101.34 s and 101.56 s pure
 prefill over two clean-host real-API runs (first token "Based", matching the
 split-P production output), 2.17x the Legacy-C512 219.76 s. That is 21.7
 TFLOPS effective, 65% of the measured MLP-shape peak, and matches the
-historical v10 incumbent (101,831.85 ms) within 0.5%. It remains
-accuracy-unqualified (inherited FlashInfer P513 full-state mismatch) and
-default-off; the production route is still the Legacy-C512 split-P build.
-The achievable headroom on the layer-major route is kernel efficiency toward
-the floor (~66-80 s at 80-100% of peak).
+historical v10 incumbent (101,831.85 ms) within 0.5%. At that date it remained
+accuracy-unqualified and default-off; the separately scoped 2026-09-26
+qualification and second production profile are reported in section 1.
+The old ~66-80 s headroom estimate is not a bound on successor dataflows.
 
 ### Pre-elision ordinary main attribution, 2026-09-09
 
@@ -935,246 +939,54 @@ The same installed-main artifact also passed the short EvalScope integration
 closeout in section 1; these earlier observations did not qualify or select
 either Prefill candidate.
 
-### P40000 decode-step attribution, 2026-09-26 (T4 diagnostic)
+### Decode convergence snapshot, 2026-09-27
 
-A fresh nsys capture of one real P40000/O16 API request on the installed
-`orin-release` Legacy-C512 server (commit `56012ee`, `--nvtx-phase-ranges`)
-attributes the 254 ms/token decode step (15 steps, 437 kernels each, witness
-3,855.8 ms after first token). The step is 99.7% GPU kernels with a 0.28%
-host-launch gap, so launch overhead and Graph-cache extension are not the
-P40000 lever. Full attention over the 40K KV is 58.6% of the step:
-`attention_values_exact_24_4_256` at 111.7 ms/token (grid 6x4x256 = 6,144
-threads; its `value_index` is independent of the query-within-KV index, so the
-6 query heads per KV head each issue identical V loads, a 6x redundant global
-request pattern) and
-`attention_scores_warp_positions_24_4_256` at 38.6 ms/token (well-parallelized
-at 120,024 warps). The remaining 38.1% is the weight-read GEMV/MLP floor,
-already at its measured ceilings per the retained decode sidecar records. The
-exact DRAM traffic of the redundant loads (versus L2 absorption) is not
-determined by this capture because ncu is unavailable on Orin; a matched
-access-pattern microbenchmark is the required next diagnostic. Exact
-identities, the per-kernel table, the corrected bandwidth note, and claim
-limits are frozen in the
-[P40000 decode-step attribution record](metadata/qwen36-27b-p40000-decode-step-attribution-2026-09-26.json).
-This is a T4 diagnostic; it claims no speedup and selects no route.
+The ordinary route remains the ordered unroll-128 scalar implementation.
+The gains of [unroll-8](metadata/qwen36-27b-p40000-decode-unroll8-api-2026-09-26.json)
+and unroll-128 remain valid for their recorded artifacts; they were useful
+incremental changes, not proof that attention architecture was exhausted.
+Optional split values/scores remain unqualified research paths and are not
+selected for further tuning or production promotion.
 
-### P40000 decode values-kernel unroll-8, 2026-09-26 (bit-exact local optimization)
+The [fused-GQA investigation](analysis/decode-context-scaling-2026-09-27/README.md)
+records a separate linked research binary on the ordinary Legacy API:
 
-The matched access-pattern microbenchmark required by the attribution above
-shows the exact S>=65 values kernel is **latency-bound, not bandwidth-bound**:
-the serial position-ordered FMA chain (one 40K-FMA dependency chain per output
-dimension, 6,144 threads) runs at 6.4 ms/layer at unroll-4 and 3.4 ms/layer at
-unroll-8, while a position-parallel variant (which would reorder the FMA and is
-not bit-exact) reaches 0.4 ms/layer. The only bit-exact lever is deeper unroll,
-which raises memory-level parallelism without changing the FMA order. The
-`#pragma unroll 4 -> 8` change in
-[`attention_values_exact_24_4_256_kernel`](../src/kernels/reference/decode_ops.cu)
-is validated two ways: the component test
-`q3x_decode_ops_cuda_test` reports `ATTENTION_VALUE_BINARY_IDENTITY ...
-status=PASS` (29 boundary lengths, 16 special BF16, 14 special FP32, replay
-enabled) with registers 40 -> 36 and static shared still 0, and the real
-P40000/O16 `/v1/completions` API returns 16 completion tokens byte-identical to
-the 44842df baseline. On the real API the decode step falls from 3,855.8 ms to
-3,111.4 ms for 15 steps (257.0 -> 207.4 ms/step, 3.89 -> 4.82 tok/s, +23.9%);
-pure prefill is unchanged at ~219.6 s, confirming the gain is decode-only. The
-measured 49.6 ms/step saved matches the microbenchmark prediction (6.4 -> 3.4
-ms x 16 layers = 48 ms) almost exactly. Decode is still below the 10 tok/s
-locked target; the remaining gap needs a GQA-redundancy-free or bit-exact
-position-parallel values dataflow, a larger architecture change. Evidence is
-frozen in the
-[unroll-8 API validation record](metadata/qwen36-27b-p40000-decode-unroll8-api-2026-09-26.json).
+| Prompt / output | Original Decode tok/s | Fused research tok/s |
+| --- | ---: | ---: |
+| 1089 / 32 | 9.4069 | 9.6355 |
+| 8192 / 32 | 8.2296 | 9.4179 |
+| 40000 / 32 | 5.1826 | 8.5574 |
 
-### P40000 decode values-kernel unroll-128 and hardware-bound analysis, 2026-09-26
+This is directional evidence: module-loading modes differ because matched
+baseline startup attempts failed. All requests complete, but P40 text differs
+from the original route. The 32 shadow comparisons have maximum relative L2
+error 0.0032075 and repeat exactly; two independent fused processes reproduce
+the same 32-token P40 text. Neither fact qualifies accuracy or general
+long-output determinism. One first-step profile observes 13.7592 ms of fused
+attention/merge and 116.7289 ms total GPU kernel time. Its externally inflated
+profiled TPOT is not a performance repeat. No fresh vLLM parity result exists.
+The whole-core Prefill deployment's P40000/O16 capacity is not expanded by
+this Legacy-route experiment.
 
-Deepening the same bit-exact lever, the matched access-pattern microbenchmark
-(S=40000, per layer) shows unroll 8 / 16 / 32 / 64 / 128 = 3.45 / 3.25 / 2.83 /
-2.67 / 2.52 ms (131.7 GB/s effective at 128, against the 182.5 GB/s measured
-pure-read ceiling). The `#pragma unroll 8 -> 128` change in
-[`attention_values_exact_24_4_256_kernel`](../src/kernels/reference/decode_ops.cu)
-is validated two ways: `q3x_decode_ops_cuda_test` reports
-`ATTENTION_VALUE_BINARY_IDENTITY ... status=PASS` with resources unchanged
-(registers 40, static shared 0, local 0, active blocks 6), and the real
-P40000/O16 `/v1/completions` API returns 16 completion tokens byte-identical to
-the unroll-8 baseline. On the real API the decode step falls from 3,111.4 ms to
-2,895.2 ms for 15 steps (207.4 -> 193.0 ms/step, 4.82 -> 5.18 tok/s, +14.4
-ms/step, matching the microbenchmark prediction of 14.8 ms/step); pure prefill
-is unchanged at ~219.6 s. The 6-chain GQA-redundancy-free values merge (6,144
--> 1,024 threads) was measured and rejected: 12.70 ms/layer versus 3.44 ms/layer
-for the production shape, a 3.7x regression from occupancy collapse; the
-initial illegal-memory-access seen while building that benchmark was a benchmark
-indexing bug (the probability index advances +1 per position, not +S), not a
-production defect.
+Startup is unresolved: the same research ELF both passes and fails the
+256 MiB short-Graph increment check, and the original ELF also fails under
+EAGER loading. No threshold relaxation or EAGER-as-fix claim is selected.
+Source review additionally identifies unconditional low-level split env
+selectors beneath the ordinary sealed API and a process-static split-values
+accumulator. Route sealing and owned scratch must close before packaging the
+new candidate; this is a source finding, not a newly run release test.
 
-The companion hardware-bound analysis (T4 diagnostic; claims no speedup and
-selects no route) corrects the bandwidth denominator to the measured 182.5
-GB/s pure-read ceiling (the earlier 95.4 GB/s D2D figure is read+write
-bidirectional and understates pure-read efficiency by ~2x), fixes the exact
-per-step weight read at 18.52 GB (MLP NVFP4 packed 10.16 + GDN proj FP8 5.59 +
-full-attn proj FP8 1.68 + lm_head 0.72 + norms/misc 0.38 GB, excluding the
-2.552 GB embed full table and MTP), and therefore places the batch-one
-weight-read floor at 101.5 ms/step (9.85 tok/s). The 10 tok/s locked target
-(100 ms/step) is below that floor. A follow-up measurement (2026-09-26, **corrected the same day**) shows
-the 6x GQA-redundant values V read is a **real DRAM cost, not L2-absorbed**:
-the values kernel's 40.3 ms/layer at S=40000 matches, within noise, the
-pure-DRAM time for its 6x requested volume (7.86 GB / 182.5 GB/s = 43 ms),
-and the earlier '195 GB/s above the ceiling, therefore L2' reasoning sits
-inside the measurement noise band. A split-chunk GQA-shared values kernel
-(dedicated translation unit, 512 threads/block, 32 KiB smem V tile, 6 query
-heads per group, atomicAdd combine; opt-in `Q3X_ENABLE_SPLIT_VALUES`, S>=512,
-capture-guarded) reads each V row once and is validated end-to-end on the real
-P40000/O16 API: decode 2,894.9 -> 2,478.1 ms for 15 steps (193.0 -> 165.2
-ms/step, 5.18 -> 6.05 tok/s, 1.17x; microbenchmark 1.66x per layer). The
-split path is NOT bit-exact (non-deterministic cross-chunk atomicAdd order)
-and the two runs produce different 16-token completions, so it is an
-evaluation route only; the production default remains the bit-exact
-unroll-128 kernel. The realistic batch-one ceiling with the split values path
-is weight floor 101.5 + split values ~24.0 + scores 38.6 + launch ~0.7 =
-~165 ms/step (~6.1 tok/s); the measured 165.2 ms/step (6.05 tok/s) matches
-it. A follow-up microbenchmark (2026-09-27) then tested the same treatment on
-the scores kernel (38.55 ms/step, the largest single decode kernel): a
-bit-exact split-chunk variant (K tile in smem, 1x read, 0/24,576 diff at
-S=1024) buys only 1.14x per layer (2.023 -> 1.781 ms), because both the
-production and split scores kernels run at ~40-46 GB/s of 1x K volume, far
-below the 182.7 GB/s ceiling -- the scores kernel is not DRAM-bandwidth-bound
-(its cost is the per-position shuffle tree and FMA issue), so the direction is
-rejected as a production change. The short-context 9.51 tok/s measurement is consistent
-with the floor. Evidence is frozen in the
-[decode split-values e2e record](metadata/qwen36-27b-decode-split-values-e2e-2026-09-26.json). This record requests owner adjudication among a batched-decode
-contract change (amortize the 18.52 GB weight read across concurrent
-requests), lower weight quantization (accuracy risk, outside the current
-production accuracy scope), or re-setting the P40000 target to a reachable
-value; it changes no target and selects no route. Evidence is frozen in the
-[decode hardware-bound analysis record](metadata/qwen36-27b-decode-hardware-bound-2026-09-26.json).
-
-The scores kernel was examined for the same deep-unroll lever and confirmed
-**not applicable**: `attention_scores_warp_positions_24_4_256_kernel` is
-position-parallel (one warp per position) with the dimension reduction already
-a fully unrolled shuffle tree, so it has no serial position-FMA chain to
-unroll; its 6x GQA key read was measured (2026-09-27) with a bit-exact
-split-chunk GQA-shared variant: only 1.14x per layer, because the scores
-kernel runs at ~40-46 GB/s of 1x K volume, far below the 182.7 GB/s pure-read
-ceiling -- it is not DRAM-bandwidth-bound, so unlike the values kernel the
-redundancy is not its bottleneck and the direction is rejected.
-
-The 6x GQA redundancy was first attacked with a **bit-exact**
-shared-memory merge: one block per KV head (1,024 threads, the sm_87 maximum)
-serves all six query heads from a single smem V tile, cutting the V read from
-6x to 1x while preserving each (query, dimension) position-ordered FMA
-sequence. It is bit-identical to the CPU oracle (0/6,144 diff at S=1024), but
-measured **3.19x slower** (8.865 vs 2.782 ms/layer): the 1,024-thread block
-collapses occupancy to 1 block/SM and adds per-tile `__syncthreads`. (The
-original rejection reason -- 'the 6x redundancy was already free via L2' --
-was wrong and is corrected above.) The same merge re-shaped as a 512-thread
-split-chunk kernel (grid (chunks, 4), 32 KiB smem per block) removes the
-occupancy collapse and measures **1.66x faster** per layer (1.689 vs 2.799
-ms/layer at S=40000); its cost is bit-exactness (atomicAdd combine), which is
-why it ships as the opt-in evaluation route rather than the production
-default. The bit-exact local optimization route is exhausted at unroll-128;
-the non-bit-exact split route is the validated next lever, and the scores
-kernel's 6x GQA key read is the same treatment's next target.
-
-To qualify the unroll-128 values kernel beyond the 16-token check, a long-output
-stability run was performed at a short context (first 1089 tokens of the
-P40000 body, still on the exact S>=65 values route; `max_tokens=256`,
-`temperature=0.0`, `seed=42`): two independent 256-token runs are byte-identical,
-contain no NaN/inf, and show no divergence over 255 decode steps at 106.6
-ms/step (9.38 tok/s). That short-context rate independently corroborates the
-9.85 tok/s weight-read floor. This is a bounded decode qualification; it does
-not change the P40000 10 tok/s reachability conclusion. Evidence is frozen in
-the [decode long-output stability record](metadata/qwen36-27b-decode-longout-stability-2026-09-26.json).
-
-Per-kernel nsys attribution of the split values route (2026-09-27, same-ELF
-back-to-back, no ceiling claim): in the full-model nsys environment the
-unroll-128 values kernel runs 50.48 ms/step (3.16 ms/layer) and the split
-kernel 22.79 ms/step (1.42 ms/layer); the entire -27.79 ms/step kernel-time
-delta is the values-kernel swap plus a 0.07 ms/step finalize, with every other
-kernel moving <0.05 ms/step (noise), and the delta matches the non-profiled
-e2e delta (27.8 ms/step) to within 0.1 ms. The nsys environment inflates
-memory-bound kernels relative to the isolated microbenchmark (2.799 / 1.689
-ms/layer), so the two measurement environments are kept separate. The two
-premise numbers behind the earlier ceiling arithmetic were re-measured the
-same day and hold: pure-read bandwidth 182.5 -> 182.7 GB/s (4 GB
-read-accumulate) and per-step weight read 18.52 -> 18.529 GB (safetensors
-header sum); the same-nsys GEMV kernels run at ~184 GB/s effective, i.e. at
-the pure-read ceiling. Evidence: the
-[split-vs-baseline nsys attribution record](metadata/qwen36-27b-decode-split-vs-baseline-nsys-2026-09-27.json)
-and the
-[premise re-measure record](metadata/qwen36-27b-decode-premise-remeasure-2026-09-27.json).
-
-Before extending the split treatment to the scores kernel (38.55 ms/step, the
-largest single decode kernel), a microbenchmark was run first: a bit-exact
-split-chunk GQA-shared scores variant (K tile in smem, 1x read; 0/24,576 diff
-at S=1024, no atomicAdd so no token divergence) measures only 1.14x per layer
-(2.023 -> 1.781 ms at S=40000). Both the production and split scores kernels
-run at ~40-46 GB/s of 1x K volume, far below the 182.7 GB/s pure-read ceiling:
-the scores kernel is not DRAM-bandwidth-bound (its cost is the per-position
-shuffle tree and FMA issue), so the values-kernel result does not transfer and
-the direction is rejected as a production change. This corrects the prior
-'scores kernel is the next candidate' framing, which was a prediction rather
-than a measurement. Evidence: the [scores split microbenchmark record]
-(metadata/qwen36-27b-decode-scores-split-microbench-2026-09-27.json).
-
-A further microbenchmark (2026-09-27) measured the integrated split values
-kernel itself: at S=40000 it runs at 62 GB/s (34% of the 182.7 GB/s ceiling)
-on its 1x V volume, and the same access pattern with no FMA reaches 105 GB/s
-(58%) -- so the split values kernel is also not DRAM-bandwidth-bound, and
-ILP-2/ILP-4 reordering (independent accumulators) does not help (1.320 ->
-1.323 ms/layer). The 0.54 ms/layer gap is FMA/probability-load/store overhead
-that ILP does not remove; this kernel design is near where it will land, and
-the dominant remaining decode cost is the weight-read GEMV kernels (100.52
-ms/step, 38% of the step, already at the DRAM ceiling). Evidence: the [split
-values bandwidth record](metadata/qwen36-27b-decode-split-values-bandwidth-2026-09-27.json).
-
-Per the owner's direction (2026-09-27) to explore all adjudication directions
-except lower quantization, the three remaining directions were evaluated
-against the measured data and the SDD/ROADMAP contract: (1) batched decode --
-the engine is batch=1 by design (the oracle rejects `max_num_seqs != 1`; the
-SDD Decode target is single-request; continuous batching is deferred to ROADMAP
-P6), so it raises aggregate throughput (toward B x 9.86 tok/s) but does not
-satisfy the single-request 10 tok/s target and needs a new product contract;
-(4) non-bit-exact split for production -- a real 1.17x (6.05 tok/s) but the
-16-token completion diverges from the bit-exact baseline from token 1 (both
-coherent, non-deterministic), trading reproducibility, and still < 10 tok/s;
-(3) target re-set -- the measured batch-one weight-read floor is 9.86 tok/s,
-so 10 tok/s is below the hardware floor and the reachable single-request range
-is 5.18 (bit-exact) to 6.05 (split) tok/s. With lower quantization excluded,
-no direction reaches the single-request 10 tok/s target; the choice is a
-product decision (single-request bit-exact vs non-deterministic vs
-multi-request batching), not an engineering one. Evidence: the [directions
-evaluation record](metadata/qwen36-27b-decode-directions-evaluation-2026-09-27.json).
-
-The bit-exact scores split path (dedicated TU, opt-in
-Q3X_ENABLE_SPLIT_SCORES, S>=512, capture-guarded; 0/24,576 diff at S=1024, no
-atomicAdd) was integrated and measured end-to-end on the real P40000/O16 API
-with both splits enabled: decode 2,385.5 ms for 15 steps = 159.0 ms/step =
-6.29 tok/s (vs 193.0 bit-exact, 165.2 values-split-only). The scores split
-contributes 6.17 ms/step, matching the microbenchmark band. This is the
-maximum reachable with local engineering only: the 159.0 ms/step is the
-weight-read GEMV floor (101.4 ms, 64%, at the DRAM ceiling) plus the split
-attention (~57 ms), and neither component has further local headroom
-(measured). The reachable single-request range is 5.18 tok/s (bit-exact) to
-6.29 tok/s (both splits, non-deterministic due to the values atomicAdd). The
-e2e completion is 'Based on the provided repository documents, here is the
-analysis of the current state and' -- close to the bit-exact baseline but not
-byte-identical. Evidence: the [scores split e2e record]
-(metadata/qwen36-27b-decode-scores-split-e2e-2026-09-27.json).
-
-Per the owner's direction to complete the measurements before judging whether
-the non-bit-exact split route may become the production default, a 256-token
-short-context measurement (3 independent server runs, each idle-gated) was
-taken: the split gain is concentrated at long context (1.214x at S~40000) and
-negligible at short context (1.013x, 105.3 vs 106.7 ms/step, 9.50 vs 9.37
-tok/s at S~1089-1344). Nondeterminism quantified: baseline vs split diverge
-from token 53 (204/256 differ); two independent split runs agree for the first
-118 tokens then drift (137/256 differ). The pinned BF16 oracle gate is
-max_model_len=128, so it never exercises the split path (S>=512) -- it is not
-a blocker; the long path is already evaluation-route-not-release-qualified by
-contract. Data observation (single sample, no conclusion): in this run the
-bit-exact baseline itself degenerated into a 'vllmEvn' repeat loop from token
-55 while the split runs stayed coherent -- bit-exact is not a quality
-guarantee, but this does not make nondeterminism free. Evidence: the [split
-production-cost measurement record]
-(metadata/qwen36-27b-decode-split-production-cost-measurement-2026-09-27.json).
+The [retrospective](analysis/decode-performance-lessons-2026-09-27/README.md)
+replaces the former active ceiling narrative. Original records stay frozen:
+[hardware analysis](metadata/qwen36-27b-decode-hardware-bound-2026-09-26.json),
+[premise remeasurement](metadata/qwen36-27b-decode-premise-remeasure-2026-09-27.json),
+[split-values API](metadata/qwen36-27b-decode-split-values-e2e-2026-09-26.json),
+[split-scores API](metadata/qwen36-27b-decode-scores-split-e2e-2026-09-27.json),
+[historical profile](metadata/qwen36-27b-decode-split-vs-baseline-nsys-2026-09-27.json),
+[short O256 repeat](metadata/qwen36-27b-decode-longout-stability-2026-09-26.json),
+and [split repeat divergence](metadata/qwen36-27b-decode-split-production-cost-measurement-2026-09-27.json).
+Their measurements remain scoped to those tuples; their ceiling, universal
+DRAM-cause and expanded qualification assertions have no current authority.
 
 ### Historical v10 route only
 
@@ -1320,15 +1132,18 @@ sequence and successor identity live exclusively in
 | Documentation-control propagation | The canonical main line now has one `AGENTS.md -> docs/README.md` Codex entry; pre-existing dirty worktrees do not receive it until explicitly integrated, because Codex reads the worktree in which a session starts | P0 |
 | Product API and long-context admission | Installed sealed P40 profile admits 40K plus normal Decode output; P60/P130 profiles and full cancellation semantics remain | P1 |
 | Exact deliverable identity | Fresh installed-main 0.7.0/terminal-prefix.v1 OFF identity and both P40/short closeouts pass; production/release flags remain false and earlier v3 tuples remain historical | P2/P4 |
-| Prefill parity and physical plan | Current installed-main P40 reports 60.271514903 prompt tok/s; the original matched candidate panel remains separately scoped. The locked target remains open; rejected combined-v1, selector/Q4/P39936 and AOT lineages stay excluded, and isolated score-feed v2 stays paused | P3 (active after this window's completed integration handoff; any successor retains strict P40000/O16 and real-API return) |
+| Prefill parity and physical plan | New architecture exploration paused by owner on 2026-09-27; preserved historical installed-main P40 reports 60.271514903 prompt tok/s; the original matched candidate panel remains separately scoped. The locked target remains open; rejected combined-v1, selector/Q4/P39936 and AOT lineages stay excluded, and isolated score-feed v2 stays paused | P3 (deferred; active delivery is the 2026-09-27 Decode convergence slice) |
+| Decode convergence and startup | Positive fused-GQA research direction; numerical contract, normal-output composition, matched API selection, Graph startup reliability and route sealing remain open | 2026-09-27 convergence slice, then P4/P5 |
 | Accuracy, capability, stability, and release evidence | Partial oracles only; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install, startup, upgrade, or rollback lane | P5 |
 
 ## 8. Claim boundary
 
-Use the following language until this snapshot changes:
+The current Decode qualification and owner priority are in the 2026-09-27
+snapshot above. The following installed-main claims retain their earlier
+artifact scope; they do not qualify the new fused candidate:
 
-- **Current:** selected 0.7.0 Release/OFF source uses
+- **Earlier installed-main tuple:** selected 0.7.0 Release/OFF source uses
   `q3x.sm87.candidate.p40.legacy-c512-terminal-prefix.v1`, private terminal-prefix
   elision and v20 route/reset receipts, with incumbent QT2/GroupQ64 and retained
   exact-span GDN, prompt-wide preprocessing, Decode layouts, request reuse, and

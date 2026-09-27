@@ -1,0 +1,167 @@
+{
+  "date": "2026-09-27",
+  "revision": "c4c8a34ba39c86e18b68e6a49a401fee43a20d2d",
+  "sources_sha256_at_revision": {
+    "docs/CURRENT_STATUS.md": "5f74834664b38622dd53fc9fe2120450965eed185f8c49f0be29f9eccde2aa08",
+    "docs/ROADMAP.md": "e034829dc018509c56d031a0e4383e6b6269d9840a67fbe37a1f8789b535b307",
+    "src/kernels/reference/decode_ops.cu": "a0bf1d92651697acb541a91a697b4d23c298e3c72746fdf1b40f57b5fe66b6a6",
+    "src/kernels/reference/attention_values_split_shared.cu": "48569676b3fb72ce1462cea2a0dc914685c73b826a7e4999dc22955af86004c4",
+    "src/kernels/reference/attention_scores_split_shared.cu": "9431a97a8b4735a8e7664557b406e153f7985a2f58e8a09dbbe04e41c5db9550",
+    "src/server/evaluation_server.cpp": "d27d82c5a381a22d9ca7d927233fc45a778773d1d8a28b747b62a2c7e21fd660",
+    "docs/metadata/qwen36-27b-decode-context-scaling-investigation-2026-09-27.json": "b825b7ad75865aa615d40ba5c670276474ab279be2d36cb28eb25083907b562f",
+    "docs/metadata/qwen36-27b-decode-longout-stability-2026-09-26.json": "a66445bd9fa0368b3dfca86226f2e77562e149c2ea5c13809e9ea94ec6eb6c78",
+    "docs/metadata/qwen36-27b-decode-split-values-bandwidth-2026-09-27.json": "9148e1eace48dbc21575f7e0ff4bbab22294a63e43ec4fc0c5b1142c5c20fcd9",
+    "docs/metadata/qwen36-27b-decode-directions-evaluation-2026-09-27.json": "7f406debd24a871b049166746466b106d4a21ce85c1b093230a5831af4247e33",
+    "docs/metadata/qwen36-27b-decode-premise-remeasure-2026-09-27.json": "7d2c099c7e9620d82cdc8f8391ae14ea51a3fd78d583cc0288740f77205a142b",
+    "docs/metadata/qwen36-27b-decode-hardware-bound-2026-09-26.json": "18cbef4b5e0290ee183c7ed88e49a05bf0fd2c9ae029acb44821f73057bd4e0a",
+    "docs/metadata/qwen36-27b-decode-scores-split-e2e-2026-09-27.json": "06445d8186234d3503d71b4b5991fb8bb1da519a846c96bb1dde0a5c5e72976b",
+    "docs/metadata/qwen36-27b-decode-split-values-e2e-2026-09-26.json": "68a234ed9f757dafce63fa3e5d2ac990fcbff8d0d4f6a7502cc865a5d341c2af",
+    "docs/metadata/qwen36-27b-decode-split-production-cost-measurement-2026-09-27.json": "6d4896e54c90a02d2b652070bdd81c9a2453b11d68702534bca3fd3108b429e9",
+    "docs/metadata/qwen36-27b-decode-split-vs-baseline-nsys-2026-09-27.json": "7bb47e3c71498a67e0d1c3f01212501edd6db7d211a9b30f87752d9d70fff623",
+    "docs/decisions/0002-prefill-attention-vllm-numerical-alignment.md": "176c11acff8b96e77828dfda39216d9ce49999e20d523a23e8fe4f2a4295d683",
+    "CMakeLists.txt": "81a279bd3d7446eea32105418c41bc55764b9194000007e499c91de99c10f00f"
+  },
+  "findings": [
+    {
+      "id": "D01",
+      "title": "Moving implementation cost presented as a hardware ceiling",
+      "old_claim_summary": "The realistic batch-one ceiling is approximately 6.1 tok/s; no direction reaches single-request 10 tok/s.",
+      "correction": "A sum of incumbent kernel costs bounds that implementation, not all legal dataflows. The later fused real-API direction reaches 8.557 tok/s under its recorded unmatched loading protocol; this is sufficient to reopen architecture, not qualify 10 tok/s.",
+      "retained_evidence": "Retain measured unroll/split gains; retire 5.5/6.1/6.29 as planning ceilings.",
+      "next_action": "Qualify one composed fused architecture at the real API.",
+      "sources": [
+        "docs/metadata/qwen36-27b-decode-hardware-bound-2026-09-26.json",
+        "docs/metadata/qwen36-27b-decode-directions-evaluation-2026-09-27.json"
+      ],
+      "method": "source-and-evidence-audit; no new GPU run"
+    },
+    {
+      "id": "D02",
+      "title": "Calibration and checkpoint size promoted to a compulsory traffic bound",
+      "old_claim_summary": "18.529 GB / 182.7 GB/s gives a 101.4 ms hardware floor.",
+      "correction": "The division is a conditional estimate. A read microbenchmark is not a universal bandwidth upper bound, and checkpoint tensor bytes are not independently established mandatory DRAM transactions per step.",
+      "retained_evidence": "Retain the read calibration and tensor inventory as observations.",
+      "next_action": "Any bound needs same-workload actual traffic, operations, matched profile and known implementation reconciliation.",
+      "sources": [
+        "docs/metadata/qwen36-27b-decode-hardware-bound-2026-09-26.json",
+        "docs/metadata/qwen36-27b-decode-premise-remeasure-2026-09-27.json"
+      ],
+      "method": "source-and-evidence-audit; no new GPU run"
+    },
+    {
+      "id": "D03",
+      "title": "Opposite DRAM/L2 causal claims from the same indirect timing",
+      "old_claim_summary": "Requested throughput above read calibration proves L2 absorption; corrected timing proves sixfold real DRAM cost.",
+      "correction": "Neither conclusion follows without actual transactions/counters or a discriminating control. Source reuse also changes instruction count, occupancy and scheduling. A slower 1 GB benchmark than a 4 GB benchmark does not establish partial L2 assistance.",
+      "retained_evidence": "Retain measured times and API changes, not the asserted physical traffic cause.",
+      "next_action": "Use traffic terminology precisely; collect counters only if this cause selects the next implementation.",
+      "sources": [
+        "docs/metadata/qwen36-27b-decode-hardware-bound-2026-09-26.json",
+        "docs/metadata/qwen36-27b-decode-premise-remeasure-2026-09-27.json"
+      ],
+      "method": "source-and-evidence-audit; no new GPU run"
+    },
+    {
+      "id": "D04",
+      "title": "Sixteen-layer totals mislabeled per layer",
+      "old_claim_summary": "V unique volume 1.31 GB/layer, redundant volume 7.86 GB/layer, time 40.3 ms/layer.",
+      "correction": "At S=40000, KV heads=4, D=256, BF16: one-layer V=81920000 bytes; all 16 layers=1310720000 bytes; six logical query traversals across all layers=7864320000 bytes. The cited 40.3 ms is likewise an aggregate.",
+      "retained_evidence": "Ratios can accidentally remain plausible when numerator and denominator both contain the same factor-16 error.",
+      "next_action": "Label bytes, layer count, memory level and time scope explicitly.",
+      "sources": [
+        "docs/metadata/qwen36-27b-decode-hardware-bound-2026-09-26.json",
+        "docs/metadata/qwen36-27b-decode-premise-remeasure-2026-09-27.json"
+      ],
+      "method": "source-and-evidence-audit; no new GPU run"
+    },
+    {
+      "id": "D05",
+      "title": "Mixed-version denominators and retrospective predictions",
+      "old_claim_summary": "100.52 ms is 38% of the 165.2 ms integrated step.",
+      "correction": "100.52/165.2=60.847%; 100.52/193=52.083%. Neither is 38%. A prediction revised after observing the result is an updated model, not a successful prior prediction.",
+      "retained_evidence": "The later matched per-kernel attribution is useful recovery; keep its own artifact and denominator.",
+      "next_action": "Freeze prediction separately; do not combine costs across binary/protocol versions.",
+      "sources": [
+        "docs/metadata/qwen36-27b-decode-split-values-bandwidth-2026-09-27.json",
+        "docs/metadata/qwen36-27b-decode-scores-split-e2e-2026-09-27.json"
+      ],
+      "method": "source-and-evidence-audit; no new GPU run"
+    },
+    {
+      "id": "D06",
+      "title": "Greedy divergence, nondeterminism and capability conflated",
+      "old_claim_summary": "Changed output attributed directly to nondeterministic few-ULP accumulation.",
+      "correction": "A before/after string difference proves divergence, not repeatability failure or capability regression. Repeated identical-run divergence supports nondeterminism; same-input tensors/logits and capability evaluation address different questions.",
+      "retained_evidence": "Later repeated split runs provide stronger repeatability evidence; scalar long-output observations retain their exact context scope.",
+      "next_action": "Keep separate numerical error, repeated execution, greedy margins and public capability checks.",
+      "sources": [
+        "docs/metadata/qwen36-27b-decode-split-values-e2e-2026-09-26.json",
+        "docs/metadata/qwen36-27b-decode-longout-stability-2026-09-26.json",
+        "docs/metadata/qwen36-27b-decode-split-production-cost-measurement-2026-09-27.json"
+      ],
+      "method": "source-and-evidence-audit; no new GPU run"
+    },
+    {
+      "id": "D07",
+      "title": "A failed geometry generalized to shared GQA reuse",
+      "old_claim_summary": "The single-block-per-KV-head failure rejects GQA sharing; atomic merging is its required accuracy tradeoff.",
+      "correction": "Four-CTA geometry does not reject segmented GQA reuse. The fused candidate uses staged partials and deterministic merge rather than unordered atomic addition.",
+      "retained_evidence": "Retain negative evidence for the exact single-block geometry and split implementation.",
+      "next_action": "Select a complete dataflow before scanning parameters; do not inherit an abandoned reduction mechanism.",
+      "sources": [
+        "docs/metadata/qwen36-27b-decode-hardware-bound-2026-09-26.json"
+      ],
+      "method": "source-and-evidence-audit; no new GPU run"
+    },
+    {
+      "id": "D08",
+      "title": "Short or partial validation generalized to product qualification",
+      "old_claim_summary": "A short-context long-output run or a short oracle closes long-context decode correctness.",
+      "correction": "P1089/O256 does not cover P40 long output. max-length-128 oracles cannot exercise S>=512 split routing. Text searches for nan/inf are not tensor-finiteness checks.",
+      "retained_evidence": "Retain each actual oracle and output check at its tested scope.",
+      "next_action": "Test the selected path and useful long-context output capacity, then qualify the installed composition.",
+      "sources": [
+        "docs/metadata/qwen36-27b-decode-longout-stability-2026-09-26.json"
+      ],
+      "method": "source-and-evidence-audit; no new GPU run"
+    },
+    {
+      "id": "D09",
+      "title": "New fusion direction must not inherit old overclaim patterns",
+      "old_claim_summary": "8.56 tok/s is a production-qualified rate or the 2% screen establishes accuracy.",
+      "correction": "It is one unprofiled O32 real-API direction with default/lazy baseline versus EAGER candidate. The shadow screen is gross admission, not an approved numerical tolerance. P40 text changed. No new successful vLLM API reference or composed accepted-Prefill runner was obtained.",
+      "retained_evidence": "Keep the real direction, finite shadow tensors, repeated same-input output and diagnostic profile as bounded evidence.",
+      "next_action": "Match loading protocol, declare numerical criteria before qualification, compose accepted Prefill and useful output length.",
+      "sources": [
+        "docs/metadata/qwen36-27b-decode-context-scaling-investigation-2026-09-27.json"
+      ],
+      "method": "source-and-evidence-audit; no new GPU run"
+    },
+    {
+      "id": "D10",
+      "title": "Source contracts do not match experimental-path assurances",
+      "old_claim_summary": "Opt-in split code and sealed CLI imply production route isolation and read-once scratch ownership.",
+      "correction": "At c4c8a34 both split launchers consult getenv without a BUILD_TESTING guard; public GQA dispatch invokes them. The inspected server environment rejection is confined to the whole-core development branch. Values scratch is process-static cudaMalloc, and two thread groups write each shared tile element.",
+      "retained_evidence": "This is static source evidence, not a reproduced installed-release failure or measured physical traffic count. Prior cleared-environment timings remain scoped and unaffected.",
+      "next_action": "Seal low-level dispatch and use explicit engine-owned workspace; do not promote the legacy split implementation.",
+      "sources": [
+        "src/kernels/reference/attention_values_split_shared.cu",
+        "src/kernels/reference/attention_scores_split_shared.cu",
+        "src/kernels/reference/decode_ops.cu",
+        "src/server/evaluation_server.cpp",
+        "CMakeLists.txt"
+      ],
+      "method": "source-and-evidence-audit; no new GPU run"
+    }
+  ],
+  "calculations": {
+    "single_layer_v_bytes": 81920000,
+    "all_16_layers_v_bytes": 1310720000,
+    "all_16_layers_logical_sixfold_v_bytes": 7864320000,
+    "all_16_layers_unique_kv_bytes": 2621440000,
+    "gemv_percent_of_165_2": 60.84745762711865,
+    "gemv_percent_of_193": 52.082901554404145
+  },
+  "scope": "Historical records preserved byte-for-byte. Active planning corrected. No new performance, accuracy, racecheck or installed-route experiment.",
+  "class": "explicit retrospective erratum; no runtime promotion"
+}

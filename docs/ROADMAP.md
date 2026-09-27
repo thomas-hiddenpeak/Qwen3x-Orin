@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-09-09
+  last_reviewed: 2026-09-27
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -38,6 +38,77 @@ A local mechanism does not enter this roadmap independently. It appears only
 as a required mutation inside a named architecture candidate selected by an
 API-visible product constraint. Local work-package rules stop at that package;
 they cannot reorder the delivery slices below.
+
+### 2026-09-27 product convergence — active
+
+Owner direction: provisionally accept current Prefill performance, converge on
+the recommended fused Decode attention direction, and expose prior performance
+misconceptions so they cannot guide later work. This supersedes the old P3
+exploration priority and the expired 2026-09-09 window below. It does not lower
+locked targets, promote the 8.56 tok/s experiment or waive accuracy.
+
+The [retrospective](analysis/decode-performance-lessons-2026-09-27/README.md)
+is the dated erratum; the [current snapshot](CURRENT_STATUS.md#decode-convergence-snapshot-2026-09-27)
+owns observed rates and qualification. Prefill arithmetic and its accepted
+profile are held steady while Decode is qualified. Necessary normal-output
+capacity integration is product composition, not renewed Prefill kernel tuning.
+
+Active architecture: `AC-DECODE-FUSED-GQA-PRODUCT-20260927`.
+Product constraint: remove excessive long-context single-request Decode loss
+while preserving model capability, BF16 KV, weight format, non-MTP semantics
+and API capacity. Downward budget: replace the roughly 92 ms historical
+P40 scalar-attention cost with the fused dataflow observed near 14 ms; these
+are diagnostic budgets, not universal bounds or an amended 100 ms total target.
+Upward return: the actual accepted Prefill plus Decode API with useful output
+lengths, then installed-artifact qualification. No new parameter sweep.
+
+Ordered deliverables:
+
+1. `WP-DECODE-FUSED-GQA-ADMISSION-20260927`: preserve scalar comparison and
+   admit one separately identified internal fused launcher. Give it explicit
+   bounded scratch and cached startup planning; preserve the public GQA
+   probability-scratch postcondition by keeping the reference API separate.
+   No linker interposition as production architecture, per-request allocation,
+   unordered atomic merge or ambient route-changing env selector. Validate
+   bounds, non-finite handling, same-input repeatability and phase/route receipts.
+2. `WP-DECODE-FUSED-GQA-NUMERICS-20260927`: freeze representative short/mid/40K
+   prompts, layers and same-input teacher-forced trajectories. Compare output,
+   full logits/margins and relevant state to the scalar and an independently
+   justified reference; declare numerical acceptance criteria before reading
+   candidate results. The earlier 2% shadow screen is only gross admission;
+   neither it nor ADR-0002's Prefill thresholds automatically qualifies Decode.
+   Separate error, repeatability, greedy divergence and public model capability.
+   Complete a parseable representative capability comparison before promotion.
+3. Close blockers that prevent that comparison: the unchanged short-Graph
+   startup contract, complete route sealing down to the split launchers and
+   engine-owned scratch. Profile allocation/ownership boundaries only to answer
+   the observed startup failure. No threshold relaxation, endless clean-host
+   retries, or claim that EAGER alone repairs startup. One bounded causal repair
+   per identified fault; a second failed matched startup stops timing and returns
+   to diagnosis rather than changing either arm's environment silently.
+4. Compose the accepted Prefill profile with fused Decode and useful output
+   capacity. Whole-core's current fixed P40000/O16 profile is an explicit open
+   dependency; its 90-second Prefill and Legacy's 8.56 Decode must not be added
+   into a product result. Validate a long-context output of at least 256 tokens,
+   reuse/cancellation and exact usage, as well as short/mid contexts.
+5. Freeze one composed binary, model, route, module-loading/clock/cache protocol
+   and output workload. Obtain an unprofiled mirrored independent-process API
+   comparison; retain failures and tail latency. Then close the applicable
+   public capability, installed-route, startup/resource and packaging gates.
+
+The first engineering batch admits one fused implementation and one causal
+correction, at most 30 minutes of real-model device time before a written
+admission/negative result or API return. A correct positive batch moves to
+qualification above; it does not reopen split/unroll scans. A numerically
+inadmissible or negative composition stops that version. No old prototype's
+bit-exactness requirement is silently broadened or waived; a proposed changed
+production numerical contract must arrive with concrete numerical/capability
+evidence under the Constitution before it is adopted.
+
+The scalar unroll gains remain the regression baseline. Old scores/values split
+lineages and their 5.5/6.1/6.29 ceiling narratives are closed as planning inputs.
+The 10 tok/s target is open, not proved impossible. This ordering is the active
+work slice; the dated sections below preserve prior delivery context only.
 
 ### Post-absorption whole-product acceptance gate
 
@@ -240,13 +311,16 @@ Exit criteria:
 - health/telemetry identifies the release and route without relying on an
   experiment harness.
 
-## P3. Exact Prefill parity, then specialization advantage — active
+## P3. Exact Prefill parity, then specialization advantage — exploration paused
 
 Purpose: convert every accuracy-admissible whole-product gain into the
 ordinary installed mainline, then close the remaining gap to the locked
 Prefill targets.
 
-Status: **resumed by explicit project-owner direction on 2026-08-22**. Work is
+Status: **new Prefill exploration paused by owner direction on 2026-09-27**.
+The following conversion history and exit criteria are retained; they do not
+override the active Decode convergence slice. Earlier work was resumed on
+2026-08-22. Work is
 conversion-first: inventory retained real-API gains, re-evaluate them on the
 then-current mainline, select accurate positive changes into the ordinary
 Release default, and immediately return to the same installed API for
