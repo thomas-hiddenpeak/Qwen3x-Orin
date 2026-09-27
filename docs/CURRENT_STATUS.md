@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-09-26
+  last_reviewed: 2026-09-27
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -22,6 +22,15 @@ delivery order, or experiment history. The system design is in
 [`SDD.md`](SDD.md), the only active dependency order is in
 [`ROADMAP.md`](ROADMAP.md), and exact observations remain in their linked
 metadata/evidence records.
+
+> **Interpretation erratum, 2026-09-27.** The Decode sections below preserve
+> historical scalar/split-kernel observations. Their claims that 6.29 tok/s is
+> a general reachable maximum, or that a different reduction necessarily
+> requires nondeterministic atomics, are not established by those experiments.
+> See the [context-scaling investigation](analysis/decode-context-scaling-2026-09-27/README.md)
+> for source-level corrections and the separately identified research route.
+> This annotation changes no default route, numerical contract, qualification
+> state, or owner target; the historical results retain their original scope.
 
 ## 1. Answer-first state
 

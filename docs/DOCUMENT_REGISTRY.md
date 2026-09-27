@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: exhaustive tracked-Markdown inventory and classification
   effective: 2026-08-09
-  last_reviewed: 2026-09-09
+  last_reviewed: 2026-09-27
   supersedes: []
   superseded_by: []
   ssot_for: tracked Markdown paths, primary classes, roles, and lifecycle states
@@ -21,16 +21,16 @@ document. Classes and authority rules are defined by
 
 ## Audit snapshot
 
-- Audit date: 2026-08-12.
-- Expected integrated-tree coverage: **68 Markdown paths**.
-- Classified: **68**.
+- Audit date: 2026-09-27.
+- Expected integrated-tree coverage: **71 Markdown paths**.
+- Classified: **71**.
 - Unclassified: **0**.
 - Duplicate registrations: **0**.
-- Automated validator: **PASS** (`68` tracked, `68` registered, `38`
-  required first-party headers, `39` headers checked, `835` local links,
+- Automated validator: **PASS** (`71` tracked, `71` registered, `40`
+  required first-party headers, `42` headers checked, `935` local links,
   `0` errors).
-- Inventory basis: every literal path expected from `git ls-files '*.md'`
-  after the SDD/document-governance refactor is committed.
+- Inventory basis: every literal path from `git ls-files '*.md'` in the
+  staged tree including the Decode context-scaling evidence record.
 - Header transition: every registered non-evidence first-party document now
   has a standard control header and is enforced by the validator. Frozen
   evidence and third-party documents are not rewritten merely to add headers.
@@ -56,7 +56,7 @@ authority only for its exact recorded protocol.
 | `docs/PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md` | `numerical_equivalence_policy` | active | Prefill architecture proof order, finite-precision/reduction-tree identity, P40 arithmetic ledger, and production-observable liveness eligibility. |
 | `docs/REAL_MODEL_PERFORMANCE_POLICY.md` | `evidence_policy` | active | Real-payload evidence, local retention, architecture-candidate qualification, and release promotion. |
 
-## Active first-party documents (8)
+## Active first-party documents (9)
 
 | Path | Role | Lifecycle | Authority / ownership boundary |
 | --- | --- | --- | --- |
@@ -108,12 +108,13 @@ authority only for its exact recorded protocol.
 | `docs/PREFILL_REFERENCE_AUDIT.md` | `historical_architecture_audit` | historical | Superseded as current Prefill design authority by `docs/PREFILL_ARCHITECTURE_RESET.md`, which refines `docs/SDD.md`; retains pinned source-analysis provenance. |
 | `docs/ROADMAP_LEGACY.md` | `historical_roadmap_ledger` | historical | Superseded by concise active `docs/ROADMAP.md`; retained for linked chronology, with Git history and evidence owning exact observations. |
 
-## Evidence (28)
+## Evidence (29)
 
 | Path | Role | Lifecycle | Evidence authority |
 | --- | --- | --- | --- |
 | `docs/PERFORMANCE_BASELINE.md` | `historical_performance_ledger` | frozen | Append-only accumulated component/runner observations for their exact commits/protocols; not current status or target SSOT. |
 | `docs/PHASE0_EVIDENCE.md` | `milestone_evidence` | frozen | Phase-0 environment, checkpoint, oracle, and phase-boundary record. |
+| `docs/analysis/decode-context-scaling-2026-09-27/README.md` | `experiment_evidence` | frozen | Source audit and isolated real-API fused-GQA direction at d6d5afb; numerical research only, no production selection. |
 | `docs/analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md` | `experiment_evidence` | frozen | Decode coupled-feed parity observation for its pinned real API protocol. |
 | `docs/analysis/decode-gqa-splitkv-sm87-2026-07-30/README.md` | `experiment_evidence` | frozen | Decode split-KV direction/admission evidence for the recorded build and workload. |
 | `docs/analysis/evalscope-prefill-cumulative-19e10f6-2026-07-30/README.md` | `experiment_evidence` | frozen | Cumulative external Prefill checkpoint at the named commit/protocol. |

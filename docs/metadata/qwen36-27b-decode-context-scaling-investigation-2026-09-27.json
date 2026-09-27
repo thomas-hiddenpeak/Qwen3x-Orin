@@ -1,0 +1,1638 @@
+{
+  "record": "qwen36-27b-decode-context-scaling-investigation",
+  "date": "2026-09-27",
+  "decision": "research direction only; no production numerical-contract change, architecture selection, release or quality qualification",
+  "work_package": {
+    "id": "WP-DECODE-FUSED-GQA-20260927",
+    "architecture_candidate_id": "AC-DECODE-CONTEXT-SCALING-20260927",
+    "authority": "owner-requested exploration before product discussion; no production promotion or numerical-contract amendment",
+    "product_constraint": "single-request long-context decode must not fall from about 10 to about 5 tok/s merely because the current attention implementation scales poorly; prefill accepted provisionally by owner",
+    "downward_budget": "Explain/remove the roughly 86 ms/token context-dependent excess at P40000; keep weights, GDN, KV dtype, context and non-MTP semantics fixed",
+    "incumbent": "d6d5afb runtime / orin-release binary pinned in native/identity.json, unroll-128 values, both splits off",
+    "scope": "16 Q24/KV4/D256 full-attention layers; scalar final-prompt step and Decode; BF16 NHD QKV and output with 1/16 score scale; unchanged gate after BF16 attention output",
+    "hypothesis": "replace separate scalar QK/softmax/serial PV with the already-vendored FlashInfer tensor-core GQA online attention and deterministic split-state merge",
+    "numerical_boundary": "research-only changed reduction/probability-rounding class, not bit-exact to scalar. First shadow real API calls, compare component output and repeated execution, restore baseline output. No accuracy or production selection from coherent text.",
+    "ownership": "research linker-wrapped binary only, old artifacts unchanged. Reuse internal FP32 scratch as temporary partition output/LSE only after proving bound. No KV/state/layout or weights modification; scratch probabilities are no longer an observable in this internal runner experiment, so it is not a public gqa API replacement.",
+    "bounds": "FlashInfer chunk size >=256; tmp <=ceil(S/256)*(24*256*2+24*4) bytes <24*S*4 bytes for S>=512. Only shape24/4/256 and scale1/16 admitted. Short S stays baseline.",
+    "protocol": "same pinned real token-ID prompt prefix at 1089/8192/40000, 32 generated tokens, one serialized API request at each length. Native baseline -> separate stock-vLLM eager diagnostic -> research shadow -> same native API with wrapper. Fresh preflight for each process. Output/usage/DONE and actual wrapper counts required.",
+    "composition_limit": "one tensor-core implementation, at most one correctness/ownership repair. No tile scan. Immediate API return after safe shadow check; negative or unsafe closes. Maximum 30 minutes device time for native prototype including shadow; external startup separately bounded 20 minutes.",
+    "qualification": "one-pass engineering direction only; exact installed main, public capability, full-state/logit qualification and release excluded"
+  },
+  "source_audit": {
+    "layers": {
+      "gdn": 48,
+      "full": 16
+    },
+    "full_attention": {
+      "query_heads": 24,
+      "kv_heads": 4,
+      "head_dim": 256,
+      "kv_dtype": "BF16",
+      "query_heads_per_kv": 6
+    },
+    "p40000": {
+      "unique_kv_bytes_per_step": 2621440000,
+      "qk_pv_useful_flops_per_step": 15728640000,
+      "scores_warps_per_layer": 960000,
+      "scores_blocks_per_layer": 120000,
+      "value_ctas_per_layer": 24,
+      "value_threads_per_layer": 6144
+    },
+    "caveats": [
+      "Global load requests do not establish DRAM traffic; prior L2-absorption conclusions were not hardware-counter measurements.",
+      "Prior 120024-warps attribution confuses block count with warp count; each 256-thread block contains 8 warps.",
+      "Pure-read calibration is not a proof of universal architecture ceiling.",
+      "Independent split kernel tuning does not test fused Tensor Core attention."
+    ],
+    "reference": "vLLM FlashInfer use_tensor_cores=True; FA2 packs six GQA heads into CTA Q tile16, splits KV across CTAs, and uses deterministic MergeStates. Triton unified attention similarly uses tl.dot, online softmax, per-segment partials, reduce_segments. FLA/Mamba recurrent state remains fixed size per token."
+  },
+  "native_source_identity": {
+    "src/kernels/reference/decode_ops.cu": "a0bf1d92651697acb541a91a697b4d23c298e3c72746fdf1b40f57b5fe66b6a6",
+    "src/kernels/reference/attention_values_split_shared.cu": "48569676b3fb72ce1462cea2a0dc914685c73b826a7e4999dc22955af86004c4",
+    "src/kernels/reference/attention_scores_split_shared.cu": "9431a97a8b4735a8e7664557b406e153f7985a2f58e8a09dbbe04e41c5db9550",
+    "src/runtime/reference_runner.cpp": "f256714fc461f7b83fe5297daded97ff8a8d2fa7b7b03bf1e0aa4d0436a5fd87",
+    "third_party/flashinfer/include/flashinfer/attention/prefill.cuh": "ed83f5964cf1d815f80393248360ae525bdf64fb53bc1bfaf58bf03d42b9b464",
+    "third_party/flashinfer/include/flashinfer/attention/cascade.cuh": "3ce6de505884bbc4efc78e63b0719eef4fe31fe152defa9fa4f050898fa51210",
+    "third_party/flashinfer/include/flashinfer/utils.cuh": "3d91b642002f143d74d840861b908b985e142392ebf331a67159461162c99507",
+    "third_party/flashinfer/MANIFEST.sha256": "3774a7556993e6b7108d0d547f25438431c76bcb360b20c385d5546fbcde07e3"
+  },
+  "reference_source_identity": {
+    "sources": {
+      "vllm/v1/attention/backends/flashinfer.py": "758acb584792328cb20b05373ec8cab93aee76b48562baf1b40f8f4a55c5d054",
+      "flashinfer/decode.py": "f67c5704d8ee1c7130b97adde8df8079faa42a11f37a08afa33ab26da71c1fe7",
+      "vllm/v1/attention/ops/triton_unified_attention.py": "992a2bc892e2e2b43fbd3c8163816ccf7e97ced56cb542bd827adb0ddb2df9fa",
+      "vllm/third_party/flash_linear_attention/ops/fused_recurrent.py": "278efd898d9d1ded2f427cc943f6b746de8f2b90d73bcba9b54d6015fc9478ef",
+      "vllm/model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py": "1227d6f385a52296e9f08223544b1c5fdc7e8d9aa09a848e7a8e522a8dc51214"
+    },
+    "versions": {
+      "vllm": "0.27.1",
+      "flashinfer_python": "0.6.16.post3",
+      "torch": "2.13.0",
+      "triton": "3.7.1"
+    }
+  },
+  "prototype_build_commands": {
+    "compile": [
+      "/usr/local/cuda/bin/nvcc",
+      "-std=c++17",
+      "-O3",
+      "-DNDEBUG",
+      "-arch=sm_87",
+      "--expt-relaxed-constexpr",
+      "-Xcompiler=-fPIC",
+      "-I/home/rm01/Qwen3x-Orin/third_party/flashinfer/include",
+      "-I/home/rm01/Qwen3x-Orin/third_party/cutlass/include",
+      "-c",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/decode-context-investigation-20260927/fused_wrapper.cu",
+      "-o",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/decode-context-investigation-20260927/fused_wrapper.o"
+    ],
+    "link": [
+      "/usr/bin/c++",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/decode-context-investigation-20260927/fused_wrapper.o",
+      "-Wl,--wrap,_ZN3q3x7runtime35launch_gqa_attention_reference_cudaEPKtS2_S2_mmmmfPfmPtPv",
+      "-O3",
+      "-DNDEBUG",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-release/CMakeFiles/qwen3x-eval-server.dir/src/eval_server_main.cpp.o",
+      "-o",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/decode-context-investigation-20260927/qwen3x-decode-research",
+      "-L/usr/local/cuda/targets/sbsa-linux/lib/stubs",
+      "-L/usr/local/cuda/targets/sbsa-linux/lib",
+      "-Wl,-rpath,/usr/local/cuda-13.3/targets/sbsa-linux/lib:",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-release/libq3x_eval_gateway.a",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-release/libq3x_engine.a",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-release/libq3x_kernels.a",
+      "/usr/local/cuda-13.3/targets/sbsa-linux/lib/libcublas.so",
+      "/usr/local/cuda-13.3/targets/sbsa-linux/lib/libcublasLt.so",
+      "/usr/local/cuda-13.3/targets/sbsa-linux/lib/libculibos.a",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-release/libq3x_text.a",
+      "/usr/lib/aarch64-linux-gnu/libicuuc.so",
+      "-ldl",
+      "/usr/lib/aarch64-linux-gnu/libicui18n.so",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-release/libq3x_core.a",
+      "/usr/local/cuda-13.3/targets/sbsa-linux/lib/libcudart.so",
+      "-lcudadevrt",
+      "-lcudart_static",
+      "-lrt",
+      "-lpthread",
+      "-ldl"
+    ]
+  },
+  "prototype_build_hashes": {
+    "/home/rm01/Qwen3x-Orin/.q3x-work/decode-context-investigation-20260927/fused_wrapper.cu": "bbd170d83152223057bc6635564f9b16d72a50f8a10865851619ff6060cec852",
+    "/home/rm01/Qwen3x-Orin/.q3x-work/decode-context-investigation-20260927/fused_wrapper.o": "4f98be9098ca30b790a04fba371ba0db2a853f1de310b45df02311d77fe1856c",
+    "/home/rm01/Qwen3x-Orin/.q3x-work/decode-context-investigation-20260927/qwen3x-decode-research": "eaf2f43d36e4a4b8c1047044facff5be00767d83a4c3df0d097b626219441424",
+    "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-release/CMakeFiles/qwen3x-eval-server.dir/src/eval_server_main.cpp.o": "bf711afe5bd987fd3e29b7dc12f064e9181768dd92630f13389563581d02f1df",
+    "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-release/libq3x_eval_gateway.a": "dc8e3e43e6a3b8d7d1bd7ed477a1da1e6ceda198bcaeea7ba679d6df5f4d3f17",
+    "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-release/libq3x_engine.a": "256307d4935e90a64666f353e46dd2b6af7c8c0b6296ab99c8b53f41b4a68acc",
+    "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-release/libq3x_kernels.a": "2b1bdc91454da774dd69f906308c1929e20b0bdd0ba6f3f1a874efba8722d900",
+    "/usr/local/cuda-13.3/targets/sbsa-linux/lib/libculibos.a": "aadc057f48b97155056f2460945ca5fd6dc824771bb3932545b73ff8f2c088ff",
+    "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-release/libq3x_text.a": "569ba7048fa18b04321df13d8deea9ee5ec07f601ed0beb2006351c4c29fc3cd",
+    "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-release/libq3x_core.a": "289b1fc20ea19b81c164601fe951fc12b38f7335ca22cc1d655e81c5d479e1b7"
+  },
+  "shadow_admission": {
+    "count": 32,
+    "max_nrmse": 0.00320752053,
+    "max_abs": 0.25,
+    "max_replay_diff": 0.0,
+    "nonfinite_total": 0.0,
+    "baseline_text_exact": true,
+    "rows": [
+      {
+        "seq": 40000.0,
+        "call": 0.0,
+        "nrmse": 0.00272799437,
+        "maxabs": 0.0078125,
+        "bf16_diff": 1788.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40000.0,
+        "call": 1.0,
+        "nrmse": 0.00254975499,
+        "maxabs": 0.0078125,
+        "bf16_diff": 1836.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40000.0,
+        "call": 2.0,
+        "nrmse": 0.00282426434,
+        "maxabs": 0.015625,
+        "bf16_diff": 1841.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40000.0,
+        "call": 3.0,
+        "nrmse": 0.00268809437,
+        "maxabs": 0.015625,
+        "bf16_diff": 2106.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40000.0,
+        "call": 4.0,
+        "nrmse": 0.00284948679,
+        "maxabs": 0.03125,
+        "bf16_diff": 2343.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40000.0,
+        "call": 5.0,
+        "nrmse": 0.00308847422,
+        "maxabs": 0.015625,
+        "bf16_diff": 2396.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40000.0,
+        "call": 6.0,
+        "nrmse": 0.002994633,
+        "maxabs": 0.03125,
+        "bf16_diff": 2113.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40000.0,
+        "call": 7.0,
+        "nrmse": 0.00276256775,
+        "maxabs": 0.0625,
+        "bf16_diff": 2098.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40000.0,
+        "call": 8.0,
+        "nrmse": 0.00320752053,
+        "maxabs": 0.0625,
+        "bf16_diff": 2032.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40000.0,
+        "call": 9.0,
+        "nrmse": 0.00252133791,
+        "maxabs": 0.015625,
+        "bf16_diff": 2080.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40000.0,
+        "call": 10.0,
+        "nrmse": 0.00262936687,
+        "maxabs": 0.015625,
+        "bf16_diff": 1977.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40000.0,
+        "call": 11.0,
+        "nrmse": 0.00302356068,
+        "maxabs": 0.0625,
+        "bf16_diff": 2192.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40000.0,
+        "call": 12.0,
+        "nrmse": 0.0026054964,
+        "maxabs": 0.03125,
+        "bf16_diff": 2021.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40000.0,
+        "call": 13.0,
+        "nrmse": 0.00258244918,
+        "maxabs": 0.03125,
+        "bf16_diff": 2058.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40000.0,
+        "call": 14.0,
+        "nrmse": 0.00239312428,
+        "maxabs": 0.25,
+        "bf16_diff": 2124.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40000.0,
+        "call": 15.0,
+        "nrmse": 0.00254030641,
+        "maxabs": 0.125,
+        "bf16_diff": 1838.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40001.0,
+        "call": 16.0,
+        "nrmse": 0.00271591526,
+        "maxabs": 0.0078125,
+        "bf16_diff": 1701.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40001.0,
+        "call": 17.0,
+        "nrmse": 0.00263042118,
+        "maxabs": 0.0078125,
+        "bf16_diff": 1735.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40001.0,
+        "call": 18.0,
+        "nrmse": 0.00285193517,
+        "maxabs": 0.015625,
+        "bf16_diff": 1992.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40001.0,
+        "call": 19.0,
+        "nrmse": 0.00307731674,
+        "maxabs": 0.03125,
+        "bf16_diff": 2134.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40001.0,
+        "call": 20.0,
+        "nrmse": 0.00319972326,
+        "maxabs": 0.03125,
+        "bf16_diff": 2246.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40001.0,
+        "call": 21.0,
+        "nrmse": 0.00287397517,
+        "maxabs": 0.015625,
+        "bf16_diff": 2236.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40001.0,
+        "call": 22.0,
+        "nrmse": 0.00318702501,
+        "maxabs": 0.03125,
+        "bf16_diff": 2242.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40001.0,
+        "call": 23.0,
+        "nrmse": 0.00291362122,
+        "maxabs": 0.0625,
+        "bf16_diff": 2045.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40001.0,
+        "call": 24.0,
+        "nrmse": 0.00265270403,
+        "maxabs": 0.03125,
+        "bf16_diff": 2130.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40001.0,
+        "call": 25.0,
+        "nrmse": 0.00269843736,
+        "maxabs": 0.03125,
+        "bf16_diff": 1881.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40001.0,
+        "call": 26.0,
+        "nrmse": 0.00303257817,
+        "maxabs": 0.0625,
+        "bf16_diff": 1845.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40001.0,
+        "call": 27.0,
+        "nrmse": 0.00226666603,
+        "maxabs": 0.0625,
+        "bf16_diff": 1974.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40001.0,
+        "call": 28.0,
+        "nrmse": 0.0025695286,
+        "maxabs": 0.03125,
+        "bf16_diff": 1866.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40001.0,
+        "call": 29.0,
+        "nrmse": 0.00205253358,
+        "maxabs": 0.03125,
+        "bf16_diff": 1988.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40001.0,
+        "call": 30.0,
+        "nrmse": 0.00230699346,
+        "maxabs": 0.25,
+        "bf16_diff": 2051.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      },
+      {
+        "seq": 40001.0,
+        "call": 31.0,
+        "nrmse": 0.00253077893,
+        "maxabs": 0.125,
+        "bf16_diff": 1826.0,
+        "replay_diff": 0.0,
+        "nonfinite": 0.0
+      }
+    ]
+  },
+  "phases": {
+    "native": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-release/qwen3x-eval-server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "18871",
+          "--model",
+          "qwen3.6-27b-nvfp4"
+        ],
+        "executable_sha256": "a519d46164f4c1a86520741b6f23e959ccbdecb4612f97527a6c1a52fd5cad6a",
+        "git": "d6d5afb912c4de1cbf68ec36a811088b07e4e5f0",
+        "model_config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+        "environment_overrides": {
+          "CUDA_HOME": "/usr/local/cuda-13.3",
+          "TRITON_CACHE_DIR": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/triton",
+          "FLASHINFER_WORKSPACE_BASE": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/flashinfer",
+          "VLLM_CACHE_ROOT": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/vllm"
+        },
+        "scope": "T3 diagnostic context curve; eager vLLM reference; no release selection"
+      },
+      "results": [
+        {
+          "prompt_tokens": 1089,
+          "usage": {
+            "prompt_tokens": 1089,
+            "completion_tokens": 32,
+            "total_tokens": 1121
+          },
+          "done": true,
+          "content_events": 32,
+          "ttft_s": 4.220237513072789,
+          "last_content_s": 7.51570639712736,
+          "decode_ms_per_token": 106.30544787272811,
+          "text": " full\n> evaluation scope.\n\n> **Project boundary.** This project is **not** a general-purpose LLM\n> custom kernel library. It is a",
+          "request_sha256": "7cdc06a5c85542421111b5abe1fcc435c9aa1e2815399ca76e009476452a4b81",
+          "finish_reason": "length",
+          "decode_tokens_per_second": 9.406855622274676,
+          "server_decode_ms_per_token": 106.30759609677419,
+          "pure_prefill_ms": 4218.501305,
+          "token_ids_u32le_sha256": "c5a41ca9dd73156b2dbe6238b096eac772299c2398e7b4ecd637e3bb2104736b",
+          "text_sha256": "dcf407d4a71b45130ad140704ee233cb58d8a44c16c419f50aa83ea1cc25cc52",
+          "max_client_server_tpot_difference_ms": 0.002148224046081282
+        },
+        {
+          "prompt_tokens": 8192,
+          "usage": {
+            "prompt_tokens": 8192,
+            "completion_tokens": 32,
+            "total_tokens": 8224
+          },
+          "done": true,
+          "content_events": 32,
+          "ttft_s": 33.73235486773774,
+          "last_content_s": 37.49922958482057,
+          "decode_ms_per_token": 121.51208764783317,
+          "text": "close-to-zero activations, close-to head-tail boundary, head-tail boundary\nquantization edge cases, close-to-zero weights, close correctness,-zero\n",
+          "request_sha256": "d69158986133b66cf14c4e6e6eb545352e8850478ae2f3bc51ebdcf138b384f7",
+          "finish_reason": "length",
+          "decode_tokens_per_second": 8.22963393484115,
+          "server_decode_ms_per_token": 121.50937487096775,
+          "pure_prefill_ms": 33726.087675,
+          "token_ids_u32le_sha256": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+          "text_sha256": "d2100794233165fe43e632f6ae98fa7cca18a0a496579ade23b2b7d3ca6b205d",
+          "max_client_server_tpot_difference_ms": 0.0027127768654224838
+        },
+        {
+          "prompt_tokens": 40000,
+          "usage": {
+            "prompt_tokens": 40000,
+            "completion_tokens": 32,
+            "total_tokens": 40032
+          },
+          "done": true,
+          "content_events": 32,
+          "ttft_s": 219.58291184715927,
+          "last_content_s": 225.56441114423797,
+          "decode_ms_per_token": 192.9515902283451,
+          "text": "Based on the provided repository files, here is the analysis of the current state, the specific architectural gap, and the immediate next steps required to advance the project.",
+          "request_sha256": "2713d7c9995d01b05466bb52c5ce2ed3c371d1480ed63a74bf80e30bec3a4c90",
+          "finish_reason": "length",
+          "decode_tokens_per_second": 5.182647102397901,
+          "server_decode_ms_per_token": 192.95275977419354,
+          "pure_prefill_ms": 219560.2671,
+          "token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+          "text_sha256": "1fe8bd5030165bd77aa2fbe3dcee6391ab3c80ae6dd23e4f53c0f8eaefc45b07",
+          "max_client_server_tpot_difference_ms": 0.0011695458484268784
+        }
+      ],
+      "cleanup": {
+        "server_returncode": 0,
+        "max_temp_c": 71.687,
+        "memory": "MemTotal:       64386812 kB\nMemFree:        33535512 kB\nMemAvailable:   53500064 kB\nBuffers:           31740 kB\nCached:         21669916 kB\nSwapCached:         8240 kB\nActive:           328932 kB\nInactive:       21684932 kB\nActive(anon):      70240 kB\nInactive(anon):  1501552 kB\nActive(file):     258692 kB\nInactive(file): 20183380 kB\nUnevictable:       28628 kB\nMlocked:             608 kB\nSwapTotal:       2097148 kB\nSwapFree:        1904528 kB\nDirty:               516 kB\nWriteback:             0 kB\nAnonPages:        336180 kB\nMapped:           208848 kB\nShmem:           1231540 kB\nKReclaimable:     102168 kB\nSlab:             231356 kB\nSReclaimable:     102168 kB\nSUnreclaim:       129188 kB\nKernelStack:        6496 kB\nPageTables:        11076 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    34290552 kB\nCommitted_AS:    3082972 kB\nVmallocTotal:   133141626880 kB\nVmallocUsed:       41920 kB\nVmallocChunk:          0 kB\nPercpu:             5808 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:     20480 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:         0 kB\nFilePmdMapped:         0 kB\nCmaTotal:         524288 kB\nCmaFree:             292 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\n"
+      },
+      "wrapper_receipts": []
+    },
+    "shadow": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/decode-context-investigation-20260927/qwen3x-decode-research",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "18871",
+          "--model",
+          "qwen3.6-27b-nvfp4"
+        ],
+        "executable_sha256": "eaf2f43d36e4a4b8c1047044facff5be00767d83a4c3df0d097b626219441424",
+        "git": "d6d5afb912c4de1cbf68ec36a811088b07e4e5f0",
+        "model_config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+        "environment_overrides": {
+          "CUDA_HOME": "/usr/local/cuda-13.3",
+          "TRITON_CACHE_DIR": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/triton",
+          "FLASHINFER_WORKSPACE_BASE": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/flashinfer",
+          "VLLM_CACHE_ROOT": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/vllm"
+        },
+        "scope": "T3 diagnostic context curve; eager vLLM reference; no release selection"
+      },
+      "results": [
+        {
+          "prompt_tokens": 40000,
+          "usage": {
+            "prompt_tokens": 40000,
+            "completion_tokens": 32,
+            "total_tokens": 40032
+          },
+          "done": true,
+          "content_events": 32,
+          "ttft_s": 219.5605950411409,
+          "last_content_s": 225.56891275802627,
+          "decode_ms_per_token": 193.81670054468898,
+          "text": "Based on the provided repository files, here is the analysis of the current state, the specific architectural gap, and the immediate next steps required to advance the project.",
+          "request_sha256": "2713d7c9995d01b05466bb52c5ce2ed3c371d1480ed63a74bf80e30bec3a4c90",
+          "finish_reason": "length",
+          "decode_tokens_per_second": 5.159514103736518,
+          "server_decode_ms_per_token": 193.81818806451614,
+          "pure_prefill_ms": 219539.951471,
+          "token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+          "text_sha256": "1fe8bd5030165bd77aa2fbe3dcee6391ab3c80ae6dd23e4f53c0f8eaefc45b07",
+          "max_client_server_tpot_difference_ms": 0.001487519827151118
+        }
+      ],
+      "cleanup": {
+        "server_returncode": 0,
+        "max_temp_c": 73.343,
+        "memory": "MemTotal:       64386812 kB\nMemFree:        33914904 kB\nMemAvailable:   53540800 kB\nBuffers:           22472 kB\nCached:         21320076 kB\nSwapCached:         8116 kB\nActive:           300628 kB\nInactive:       21349788 kB\nActive(anon):      73296 kB\nInactive(anon):  1475516 kB\nActive(file):     227332 kB\nInactive(file): 19874272 kB\nUnevictable:       28628 kB\nMlocked:             608 kB\nSwapTotal:       2097148 kB\nSwapFree:        1905552 kB\nDirty:               300 kB\nWriteback:             8 kB\nAnonPages:        335200 kB\nMapped:           182012 kB\nShmem:           1212892 kB\nKReclaimable:     101692 kB\nSlab:             230952 kB\nSReclaimable:     101692 kB\nSUnreclaim:       129260 kB\nKernelStack:        6576 kB\nPageTables:        10948 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    34290552 kB\nCommitted_AS:    3064088 kB\nVmallocTotal:   133141626880 kB\nVmallocUsed:       41952 kB\nVmallocChunk:          0 kB\nPercpu:             5808 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:     16384 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:         0 kB\nFilePmdMapped:         0 kB\nCmaTotal:         524288 kB\nCmaFree:             536 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\n"
+      },
+      "wrapper_receipts": [
+        [
+          "0",
+          "32"
+        ]
+      ]
+    },
+    "fused": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/decode-context-investigation-20260927/qwen3x-decode-research",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "18871",
+          "--model",
+          "qwen3.6-27b-nvfp4"
+        ],
+        "executable_sha256": "eaf2f43d36e4a4b8c1047044facff5be00767d83a4c3df0d097b626219441424",
+        "git": "d6d5afb912c4de1cbf68ec36a811088b07e4e5f0",
+        "model_config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+        "environment_overrides": {
+          "CUDA_HOME": "/usr/local/cuda-13.3",
+          "TRITON_CACHE_DIR": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/triton",
+          "FLASHINFER_WORKSPACE_BASE": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/flashinfer",
+          "VLLM_CACHE_ROOT": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/vllm",
+          "CUDA_MODULE_LOADING": "EAGER"
+        },
+        "scope": "T3 diagnostic context curve; eager vLLM reference; no release selection"
+      },
+      "results": [
+        {
+          "prompt_tokens": 1089,
+          "usage": {
+            "prompt_tokens": 1089,
+            "completion_tokens": 32,
+            "total_tokens": 1121
+          },
+          "done": true,
+          "content_events": 32,
+          "ttft_s": 4.217393817845732,
+          "last_content_s": 7.434650712180883,
+          "decode_ms_per_token": 103.78248046242422,
+          "text": " full\n> evaluation scope.\n\n> **Project boundary.** This project is **not** a general-purpose LLM\n> custom kernel library. It is a",
+          "request_sha256": "7cdc06a5c85542421111b5abe1fcc435c9aa1e2815399ca76e009476452a4b81",
+          "finish_reason": "length",
+          "decode_tokens_per_second": 9.635537670176065,
+          "server_decode_ms_per_token": 103.78714422580646,
+          "pure_prefill_ms": 4215.477815,
+          "token_ids_u32le_sha256": "c5a41ca9dd73156b2dbe6238b096eac772299c2398e7b4ecd637e3bb2104736b",
+          "text_sha256": "dcf407d4a71b45130ad140704ee233cb58d8a44c16c419f50aa83ea1cc25cc52",
+          "max_client_server_tpot_difference_ms": 0.004663763382239949
+        },
+        {
+          "prompt_tokens": 8192,
+          "usage": {
+            "prompt_tokens": 8192,
+            "completion_tokens": 32,
+            "total_tokens": 8224
+          },
+          "done": true,
+          "content_events": 32,
+          "ttft_s": 33.726305002812296,
+          "last_content_s": 37.01792307989672,
+          "decode_ms_per_token": 106.18122829304588,
+          "text": "close-to-zero activations, close-to head-tail boundary, head-tail boundary\nquantization edge cases, close-to-zero weights, close correctness,-zero\n",
+          "request_sha256": "d69158986133b66cf14c4e6e6eb545352e8850478ae2f3bc51ebdcf138b384f7",
+          "finish_reason": "length",
+          "decode_tokens_per_second": 9.41786053971927,
+          "server_decode_ms_per_token": 106.18180529032259,
+          "pure_prefill_ms": 33720.562342,
+          "token_ids_u32le_sha256": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+          "text_sha256": "d2100794233165fe43e632f6ae98fa7cca18a0a496579ade23b2b7d3ca6b205d",
+          "max_client_server_tpot_difference_ms": 0.0005769972767097897
+        },
+        {
+          "prompt_tokens": 40000,
+          "usage": {
+            "prompt_tokens": 40000,
+            "completion_tokens": 32,
+            "total_tokens": 40032
+          },
+          "done": true,
+          "content_events": 32,
+          "ttft_s": 219.5151609168388,
+          "last_content_s": 223.13776573399082,
+          "decode_ms_per_token": 116.85821990812978,
+          "text": "The user wants me to act as an AI agent following the strict guidelines in `AGENTS.md` and the other provided documentation files.\nThe user has provided",
+          "request_sha256": "2713d7c9995d01b05466bb52c5ce2ed3c371d1480ed63a74bf80e30bec3a4c90",
+          "finish_reason": "length",
+          "decode_tokens_per_second": 8.557378340917465,
+          "server_decode_ms_per_token": 116.8602555483871,
+          "pure_prefill_ms": 219492.926453,
+          "token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+          "text_sha256": "2bd1b2bbb306b3ae6e9c11850f000afc9c1987d638efb07b55631ef6608d9220",
+          "max_client_server_tpot_difference_ms": 0.002035640257318505
+        }
+      ],
+      "cleanup": {
+        "server_returncode": 0,
+        "max_temp_c": 74.281,
+        "memory": "MemTotal:       64386812 kB\nMemFree:        33607496 kB\nMemAvailable:   53507292 kB\nBuffers:           19344 kB\nCached:         21629520 kB\nSwapCached:        13244 kB\nActive:           348556 kB\nInactive:       21604812 kB\nActive(anon):     129104 kB\nInactive(anon):  1435756 kB\nActive(file):     219452 kB\nInactive(file): 20169056 kB\nUnevictable:       28628 kB\nMlocked:             608 kB\nSwapTotal:       2097148 kB\nSwapFree:        1900432 kB\nDirty:               184 kB\nWriteback:             0 kB\nAnonPages:        327008 kB\nMapped:           191360 kB\nShmem:           1232224 kB\nKReclaimable:     100264 kB\nSlab:             229028 kB\nSReclaimable:     100264 kB\nSUnreclaim:       128764 kB\nKernelStack:        6544 kB\nPageTables:        11052 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    34290552 kB\nCommitted_AS:    3075296 kB\nVmallocTotal:   133141626880 kB\nVmallocUsed:       41936 kB\nVmallocChunk:          0 kB\nPercpu:             5808 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:     12288 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:         0 kB\nFilePmdMapped:         0 kB\nCmaTotal:         524288 kB\nCmaFree:              24 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\n"
+      },
+      "wrapper_receipts": [
+        [
+          "1536",
+          "0"
+        ]
+      ]
+    },
+    "fused-profile": {
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/decode-context-investigation-20260927/qwen3x-decode-research",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "18871",
+          "--model",
+          "qwen3.6-27b-nvfp4"
+        ],
+        "executable_sha256": "eaf2f43d36e4a4b8c1047044facff5be00767d83a4c3df0d097b626219441424",
+        "git": "d6d5afb912c4de1cbf68ec36a811088b07e4e5f0",
+        "model_config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+        "environment_overrides": {
+          "CUDA_HOME": "/usr/local/cuda-13.3",
+          "TRITON_CACHE_DIR": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/triton",
+          "FLASHINFER_WORKSPACE_BASE": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/flashinfer",
+          "VLLM_CACHE_ROOT": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/vllm",
+          "CUDA_MODULE_LOADING": "EAGER"
+        },
+        "scope": "T3 diagnostic context curve; eager vLLM reference; no release selection"
+      },
+      "results": [
+        {
+          "prompt_tokens": 40000,
+          "usage": {
+            "prompt_tokens": 40000,
+            "completion_tokens": 32,
+            "total_tokens": 40032
+          },
+          "done": true,
+          "content_events": 32,
+          "ttft_s": 219.46315233316272,
+          "last_content_s": 224.92585351411253,
+          "decode_ms_per_token": 176.21616712741314,
+          "text": "The user wants me to act as an AI agent following the strict guidelines in `AGENTS.md` and the other provided documentation files.\nThe user has provided",
+          "request_sha256": "2713d7c9995d01b05466bb52c5ce2ed3c371d1480ed63a74bf80e30bec3a4c90",
+          "finish_reason": "length",
+          "decode_tokens_per_second": 5.674848206617442,
+          "server_decode_ms_per_token": 116.99533938709678,
+          "pure_prefill_ms": 219434.437872,
+          "token_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+          "text_sha256": "2bd1b2bbb306b3ae6e9c11850f000afc9c1987d638efb07b55631ef6608d9220",
+          "max_client_server_tpot_difference_ms": 59.220827740316366
+        }
+      ],
+      "cleanup": {
+        "server_returncode": 0,
+        "max_temp_c": 73.218,
+        "memory": "MemTotal:       64386812 kB\nMemFree:        34457416 kB\nMemAvailable:   53383088 kB\nBuffers:           16380 kB\nCached:         20759048 kB\nSwapCached:         7772 kB\nActive:           470924 kB\nInactive:       20621872 kB\nActive(anon):     148096 kB\nInactive(anon):  1439140 kB\nActive(file):     322828 kB\nInactive(file): 19182732 kB\nUnevictable:       28628 kB\nMlocked:             608 kB\nSwapTotal:       2097148 kB\nSwapFree:        1893520 kB\nDirty:                36 kB\nWriteback:             4 kB\nAnonPages:        326324 kB\nMapped:           197736 kB\nShmem:           1241844 kB\nKReclaimable:     102228 kB\nSlab:             230716 kB\nSReclaimable:     102228 kB\nSUnreclaim:       128488 kB\nKernelStack:        6588 kB\nPageTables:        10984 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    34290552 kB\nCommitted_AS:    3073308 kB\nVmallocTotal:   133141626880 kB\nVmallocUsed:       42032 kB\nVmallocChunk:          0 kB\nPercpu:             5808 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:     14336 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:         0 kB\nFilePmdMapped:         0 kB\nCmaTotal:         524288 kB\nCmaFree:              84 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\n"
+      },
+      "wrapper_receipts": [
+        [
+          "512",
+          "0"
+        ]
+      ],
+      "timing_authority": "T4 only: capture termination/report handling distorts streamed TPOT; do not use as a performance repeat"
+    }
+  },
+  "profile": {
+    "nvtx_ranges": [
+      [
+        15622240,
+        133483552,
+        "q3x.decode.step"
+      ]
+    ],
+    "kernel_processes": [
+      [
+        299679883460608,
+        1085097,
+        "/home/rm01/Qwen3x-Orin/.q3x-work/decode-context-investigation-20260927/qwen3x-decode-research"
+      ]
+    ],
+    "scope": "one first Decode step after P40000, S40001; capture-range q3x.decode.step; diagnostic only, no matched baseline profile",
+    "kernels": [
+      {
+        "kernel": "q3x::kernels::<unnamed>::nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_coupled_feed_kernel(const unsigned char *, float, const unsigned char *, float, const unsigned short *, const unsigned short *, const unsigned short *, float, unsigned short *, unsigned short *)",
+        "calls": 64,
+        "gpu_ms": 35.108608
+      },
+      {
+        "kernel": "q3x::kernels::<unnamed>::fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_pair_tail_composite_cs_test_kernel(const unsigned char *, float, const unsigned char *, float, const unsigned short *, const unsigned short *, const unsigned short *, unsigned long, unsigned short *, unsigned short *, unsigned short *, unsigned short *)",
+        "calls": 48,
+        "gpu_ms": 23.2672
+      },
+      {
+        "kernel": "q3x::kernels::<unnamed>::nvfp4_w4a16_down_residual_norm_scale6_consumer_order_kernel(const uint4 *, const unsigned char *, unsigned int, float, const unsigned short *, unsigned short *, const unsigned short *, const unsigned short *, float, unsigned short *, unsigned short *)",
+        "calls": 53,
+        "gpu_ms": 16.378048
+      },
+      {
+        "kernel": "void flashinfer::SinglePrefillWithKVCacheKernel<flashinfer::KernelTraits<(flashinfer::MaskMode)0, (unsigned int)16, (unsigned int)1, (unsigned int)1, (unsigned int)16, (unsigned int)16, (unsigned int)1, (unsigned int)4, (flashinfer::PosEncodingMode)0, __nv_bfloat16, __nv_bfloat16, __nv_bfloat16, float, int, flashinfer::DefaultAttention<(bool)0, (bool)0, (bool)0, (bool)0>>, flashinfer::SinglePrefillParams<__nv_bfloat16, __nv_bfloat16, __nv_bfloat16>>(T2)",
+        "calls": 16,
+        "gpu_ms": 13.67024
+      },
+      {
+        "kernel": "q3x::kernels::<unnamed>::fp8_w8a16_gemv_bf16_row_quad_aosoa4_preswizzled_test_kernel(const uint4 *, float, const unsigned short *, unsigned long, unsigned long, unsigned short *)",
+        "calls": 64,
+        "gpu_ms": 11.444832
+      },
+      {
+        "kernel": "q3x::kernels::<unnamed>::fp8_w8a16_gemv_bf16_q_kv_two_phase_reduction_scratch_ping_pong_kernel(const unsigned char *, float, const unsigned char *, float, const unsigned char *, float, const unsigned short *, unsigned short *, unsigned short *, unsigned short *)",
+        "calls": 16,
+        "gpu_ms": 6.843456
+      },
+      {
+        "kernel": "void q3x::kernels::<unnamed>::nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_k5120_activation_staged_kernel<(unsigned long)248320, (unsigned long)5120>(const unsigned char *, const unsigned char *, float, const unsigned short *, unsigned short *)",
+        "calls": 1,
+        "gpu_ms": 4.406976
+      },
+      {
+        "kernel": "q3x::kernels::<unnamed>::nvfp4_w4a16_down_residual_norm_activation_staged_cs_test_kernel(const unsigned char *, const unsigned char *, float, const unsigned short *, unsigned short *, const unsigned short *, const unsigned short *, float, unsigned short *, unsigned short *)",
+        "calls": 11,
+        "gpu_ms": 3.51104
+      },
+      {
+        "kernel": "void q3x::runtime::<unnamed>::gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel<(bool)1>(const unsigned short *, const unsigned short *, const unsigned short *, const unsigned short *, const unsigned short *, const unsigned short *, unsigned short *, float, const unsigned short *, const unsigned short *, float, unsigned short *)",
+        "calls": 48,
+        "gpu_ms": 1.537504
+      },
+      {
+        "kernel": "q3x::runtime::<unnamed>::causal_conv1d_silu_update_kernel(const unsigned short *, const unsigned short *, unsigned short *, unsigned short *)",
+        "calls": 48,
+        "gpu_ms": 0.23632
+      },
+      {
+        "kernel": "q3x::runtime::<unnamed>::full_attention_preprocess_24_4_256_64_kernel(const unsigned short *, unsigned short *, const unsigned short *, const unsigned short *, float, unsigned short *, unsigned short *, const float *, const float *, unsigned long)",
+        "calls": 16,
+        "gpu_ms": 0.12
+      },
+      {
+        "kernel": "void flashinfer::MergeStatesLargeNumIndexSetsKernel<(unsigned int)8, (unsigned int)32, (unsigned int)4, (unsigned int)4, __nv_bfloat16, __nv_bfloat16>(T5 *, float *, T6 *, float *, unsigned int, unsigned int)",
+        "calls": 16,
+        "gpu_ms": 0.08896
+      },
+      {
+        "kernel": "q3x::runtime::<unnamed>::sigmoid_gate_kernel(const unsigned short *, const unsigned short *, unsigned long, unsigned short *)",
+        "calls": 16,
+        "gpu_ms": 0.069664
+      },
+      {
+        "kernel": "void q3x::runtime::<unnamed>::rms_norm_kernel<(bool)1>(const unsigned short *, const unsigned short *, unsigned long, float, unsigned short *)",
+        "calls": 1,
+        "gpu_ms": 0.021408
+      },
+      {
+        "kernel": "q3x::runtime::<unnamed>::bf16_greedy_argmax_kernel(const unsigned short *, unsigned long, q3x::runtime::Bf16GreedyArgmaxResult *)",
+        "calls": 1,
+        "gpu_ms": 0.01456
+      },
+      {
+        "kernel": "q3x::runtime::<unnamed>::embedding_gather_kernel(const unsigned short *, unsigned long, unsigned long, unsigned short *)",
+        "calls": 1,
+        "gpu_ms": 0.006624
+      },
+      {
+        "kernel": "q3x::runtime::<unnamed>::bf16_greedy_argmax_finalize_kernel(const unsigned short *, const q3x::runtime::Bf16GreedyArgmaxResult *, q3x::runtime::Bf16GreedyArgmaxResult *)",
+        "calls": 1,
+        "gpu_ms": 0.003456
+      }
+    ],
+    "kernel_count": 421,
+    "all_kernel_busy_sum_ms": 116.72889599999999,
+    "attention_busy_ms": 13.7592,
+    "kernel_span_ms": 117.27472,
+    "streams": [
+      [
+        21
+      ]
+    ],
+    "globalPids": [
+      [
+        299679883460608
+      ]
+    ],
+    "attention_resources_columns": [
+      "kernel",
+      "registers_per_thread",
+      "grid_x",
+      "grid_y",
+      "grid_z",
+      "block_x",
+      "block_y",
+      "block_z",
+      "dynamic_shared_bytes",
+      "local_bytes_per_thread"
+    ],
+    "attention_resources": [
+      [
+        "void flashinfer::SinglePrefillWithKVCacheKernel<flashinfer::KernelTraits<(flashinfer::MaskMode)0, (unsigned int)16, (unsigned int)1, (unsigned int)1, (unsigned int)16, (unsigned int)16, (unsigned int)1, (unsigned int)4, (flashinfer::PosEncodingMode)0, __nv_bfloat16, __nv_bfloat16, __nv_bfloat16, float, int, flashinfer::DefaultAttention<(bool)0, (bool)0, (bool)0, (bool)0>>, flashinfer::SinglePrefillParams<__nv_bfloat16, __nv_bfloat16, __nv_bfloat16>>(T2)",
+        254,
+        1,
+        8,
+        4,
+        32,
+        1,
+        4,
+        73760,
+        0
+      ],
+      [
+        "void flashinfer::MergeStatesLargeNumIndexSetsKernel<(unsigned int)8, (unsigned int)32, (unsigned int)4, (unsigned int)4, __nv_bfloat16, __nv_bfloat16>(T5 *, float *, T6 *, float *, unsigned int, unsigned int)",
+        40,
+        1,
+        24,
+        1,
+        32,
+        4,
+        1,
+        8704,
+        0
+      ]
+    ]
+  },
+  "primary_environment": "Native original/default module-loading environment versus fused CUDA_MODULE_LOADING=EAGER. Two matched EAGER native startups failed before requests; no fully environment-matched pair was obtained. Directional comparison only, not architecture selection or formal performance qualification.",
+  "final_audit": {
+    "scope": "ordinary investigation cleanup; no release qualification",
+    "raw_final_preflight": {
+      "accepted": false,
+      "collection_errors": [],
+      "reasons": [
+        {
+          "code": "unexpected_cpu_consumers",
+          "pids": [
+            872114
+          ],
+          "threshold_percent_of_one_core": 5.0
+        }
+      ],
+      "result": "reject_busy"
+    },
+    "interpretation": "only active Codex control-path CPU observation; no unexpected GPU holder or collection error",
+    "all_recorded_server_parents_exited": true,
+    "processes": [
+      {
+        "attempt": "vllm",
+        "pid": 1082195,
+        "still_present": false
+      },
+      {
+        "attempt": "native-eager-startup-rejected-r1",
+        "pid": 1084829,
+        "still_present": false
+      },
+      {
+        "attempt": "fused-profile",
+        "pid": 1085070,
+        "still_present": false
+      },
+      {
+        "attempt": "vllm-startup-rejected-r1",
+        "pid": 1081912,
+        "still_present": false
+      },
+      {
+        "attempt": "fused-startup-rejected-r2",
+        "pid": 1084164,
+        "still_present": false
+      },
+      {
+        "attempt": "fused-startup-rejected-r1",
+        "pid": 1084030,
+        "still_present": false
+      },
+      {
+        "attempt": "shadow",
+        "pid": 1083456,
+        "still_present": false
+      },
+      {
+        "attempt": "native-eager",
+        "pid": 1084973,
+        "still_present": false
+      },
+      {
+        "attempt": "native",
+        "pid": 1080895,
+        "still_present": false
+      },
+      {
+        "attempt": "fused",
+        "pid": 1084334,
+        "still_present": false
+      }
+    ],
+    "original_binary_sha256_unchanged": true,
+    "runtime_source_diff_empty": true
+  },
+  "dynamic_link_audit": {
+    "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-release/qwen3x-eval-server": {
+      "needed": [
+        "0x0000000000000001 (NEEDED)             Shared library: [libicuuc.so.74]",
+        "0x0000000000000001 (NEEDED)             Shared library: [libicui18n.so.74]",
+        "0x0000000000000001 (NEEDED)             Shared library: [libcudart.so.13]",
+        "0x0000000000000001 (NEEDED)             Shared library: [libstdc++.so.6]",
+        "0x0000000000000001 (NEEDED)             Shared library: [libm.so.6]",
+        "0x0000000000000001 (NEEDED)             Shared library: [libgcc_s.so.1]",
+        "0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]",
+        "0x0000000000000001 (NEEDED)             Shared library: [ld-linux-aarch64.so.1]"
+      ],
+      "cublas_dynamic_symbols": []
+    },
+    "/home/rm01/Qwen3x-Orin/.q3x-work/decode-context-investigation-20260927/qwen3x-decode-research": {
+      "needed": [
+        "0x0000000000000001 (NEEDED)             Shared library: [libicuuc.so.74]",
+        "0x0000000000000001 (NEEDED)             Shared library: [libicui18n.so.74]",
+        "0x0000000000000001 (NEEDED)             Shared library: [libcudart.so.13]",
+        "0x0000000000000001 (NEEDED)             Shared library: [libstdc++.so.6]",
+        "0x0000000000000001 (NEEDED)             Shared library: [libm.so.6]",
+        "0x0000000000000001 (NEEDED)             Shared library: [libgcc_s.so.1]",
+        "0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]",
+        "0x0000000000000001 (NEEDED)             Shared library: [ld-linux-aarch64.so.1]"
+      ],
+      "cublas_dynamic_symbols": []
+    }
+  },
+  "comparison": [
+    {
+      "prompt_tokens": 1089,
+      "baseline_ms": 106.30544787272811,
+      "fused_ms": 103.78248046242422,
+      "baseline_tokens_s": 9.406855622274676,
+      "fused_tokens_s": 9.635537670176065,
+      "speedup": 1.0243101475226097,
+      "text_equal": true
+    },
+    {
+      "prompt_tokens": 8192,
+      "baseline_ms": 121.51208764783317,
+      "fused_ms": 106.18122829304588,
+      "baseline_tokens_s": 8.22963393484115,
+      "fused_tokens_s": 9.41786053971927,
+      "speedup": 1.1443838953574372,
+      "text_equal": true
+    },
+    {
+      "prompt_tokens": 40000,
+      "baseline_ms": 192.9515902283451,
+      "fused_ms": 116.85821990812978,
+      "baseline_tokens_s": 5.182647102397901,
+      "fused_tokens_s": 8.557378340917465,
+      "speedup": 1.6511597590656226,
+      "text_equal": false
+    }
+  ],
+  "context_excess_ms": {
+    "baseline": 86.646142355617,
+    "fused": 13.075739445705565,
+    "reduction_fraction": 0.8490903450491827
+  },
+  "profile_process_output_equal": true,
+  "failed_attempts": {
+    "native_first_preflight": "active Codex CPU observation; no server started; qualified as ordinary diagnostic on fresh retry",
+    "vllm_first": "scheduler configuration rejected max_num_batched_tokens=40000 < max_model_len=44096; no CUDA/API timing",
+    "vllm_second": "operator-stopped after >9 minutes of maximum-size multimodal startup before ready; no reference timing",
+    "fused_first": "existing sealed startup Graph-memory increment gate rejected 360701952 B > 256 MiB; wrapper hits=0, no request or performance result",
+    "fused_second": "unchanged retry also failed Graph memory gate, 357687296 B; no request or timing",
+    "native_eager_attempts": "both baseline EAGER startups failed Graph memory gate at 336334848 and319684608 B before API readiness; no timing; EAGER is not a qualified startup repair",
+    "eager_startup": "CUDA_MODULE_LOADING=EAGER used for successful third prototype attempt; matched baseline attempts did not reach readiness; preserve loading-mode mismatch and all startup failures"
+  },
+  "limitations": [
+    "module-loading environment differs between completed native and fused arms; attempted matched control blocked at startup; gain is directional, not isolated formal timing",
+    "one pass per length, sequential lengths, no mirrored process repetition or statistical qualification",
+    "baseline Legacy-C512, not separate whole-core P40000/O16 deployment",
+    "changed numerical class and public scratch postcondition; research runner shim only",
+    "logical native route witness is unaware of link shim: final-step unchanged/exact claims in that witness are not candidate numerical attestation; wrapper receipt and linked binary identify intervention",
+    "quality, full state/logits, long output, Graph, cancellation, full context matrix and final packaging unqualified",
+    "stock-vLLM attempt produced no usable rate; no fresh vLLM parity claim",
+    "T4 historical baseline profile and new bounded candidate profile are not a matched profiling pair",
+    "no hardware ceiling or target-relaxation claim"
+  ],
+  "raw_artifacts": {
+    ".q3x-work/decode-context-investigation-20260927/build-commands.json": {
+      "sha256": "e0080abf8cb6b7b5a3a6a869a0159d7be9fdd75fd18bf5590a6ccaa17c1cf29c",
+      "bytes": 1976
+    },
+    ".q3x-work/decode-context-investigation-20260927/build-hashes.json": {
+      "sha256": "c8488d7450d0ca64d081e18fa7bee8eeea982ed9ee459355432a070fbcaed9e0",
+      "bytes": 1514
+    },
+    ".q3x-work/decode-context-investigation-20260927/build.log": {
+      "sha256": "7503c404c2ea01b71bb1b61dc5f6ee5835388b04183f1c89c7a2c985b94032ba",
+      "bytes": 22
+    },
+    ".q3x-work/decode-context-investigation-20260927/build_probe.py": {
+      "sha256": "5bd57ffa3dd5f7ca0e34981d20987b123e0530fc57a52db05858dcecbe742ddc",
+      "bytes": 1280
+    },
+    ".q3x-work/decode-context-investigation-20260927/clock-snapshot.json": {
+      "sha256": "420730d869745cc6884bfbc097c058a0810f47cefe1c1241c03e00a25d07d0b2",
+      "bytes": 419
+    },
+    ".q3x-work/decode-context-investigation-20260927/document-control-final.log": {
+      "sha256": "51067d3c409e1450b9d4efc6707c58202ba17a98400e5121cdc713103bcee5f4",
+      "bytes": 141
+    },
+    ".q3x-work/decode-context-investigation-20260927/document-control-unit-final.log": {
+      "sha256": "ffaf8347f7e1862bf96d180a130c69d3e55b66048fec84cb67a23bfeb6eddee5",
+      "bytes": 105
+    },
+    ".q3x-work/decode-context-investigation-20260927/document-control-unit-r2.log": {
+      "sha256": "1a023e5b412e92dd085f3da7389fb1d5cd615317a0ae1164d75146d8bdfd9eb6",
+      "bytes": 105
+    },
+    ".q3x-work/decode-context-investigation-20260927/document-control-unit.log": {
+      "sha256": "beac808d9b0a01025af176cc54de75ebf415b0776787a421802daa9e29b7ec5c",
+      "bytes": 865
+    },
+    ".q3x-work/decode-context-investigation-20260927/dynamic-link-audit.json": {
+      "sha256": "9418e18766fac2ba0b7d6fd8c182184903613b07833c017952d19b39d95fb5d9",
+      "bytes": 1611
+    },
+    ".q3x-work/decode-context-investigation-20260927/final-audit.json": {
+      "sha256": "5ddf1dc4affd60d18e73fa24dbe09032fd5a5aa1ad9c6d249859d69de9ee0e6c",
+      "bytes": 1626
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused/cache-preparation.json": {
+      "sha256": "e1f82388a804d98d47925170a18bed08add175ad7f36b742a733c630930228bf",
+      "bytes": 3021
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused/cleanup.json": {
+      "sha256": "7b8259be45b6bad260caa2c1270d37c6c375801a68a4c1214e3285a5317f76d2",
+      "bytes": 1539
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused/events-1089.json": {
+      "sha256": "d6a342c59768b20b74a1e1b281968240a5f375d353cc05a874f0e3418c2fb26c",
+      "bytes": 11180
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused/events-40000.json": {
+      "sha256": "277e835305f9dd73925a41898ce92300f447a51882a09ca573c0d48aae3c659b",
+      "bytes": 11225
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused/events-8192.json": {
+      "sha256": "651ec4ebffceb01675bc1465f82868dde6e3fa0b7a57fde9868e810994ddc654",
+      "bytes": 11196
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused/identity.json": {
+      "sha256": "81b239abb3b571de641d32f138a255632beb4e5af19a56e9b5e6f6c69ccb8e26",
+      "bytes": 940
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused/preflight-1790486558465557533.json": {
+      "sha256": "f280db3250df72e17554dcf8adc26b33bfe0b5f0c285c929ad4fff8247e29e31",
+      "bytes": 19993
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused/process.json": {
+      "sha256": "630a10868325540da417c1678fd94516a666e3edd6c941909769157fd127d6c6",
+      "bytes": 20
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused/request-1089.json": {
+      "sha256": "decf3610c67b64fa25f0b3442ee5fb741cc4fd957bf71f840eb0952d0b8a6c07",
+      "bytes": 10727
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused/request-40000.json": {
+      "sha256": "0a12077dde94733fc5825c39a52c980d854f84da00c8755689a991410680af0a",
+      "bytes": 381283
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused/request-8192.json": {
+      "sha256": "5bdf793cbd30845f92af1ffd2dbab11965196e5e656b8ac6b9208eaa5ae53d38",
+      "bytes": 78837
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused/results.json": {
+      "sha256": "e2935d950942082e7e4af164afc3ce8db7c0a6a5a457800914e8f1b3a315bf9d",
+      "bytes": 1687
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused/server.log": {
+      "sha256": "db20a70fee55a71b7c39e196531176c3eefe9dd5dbaee592f5e73c6c08b8ad2d",
+      "bytes": 14047
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused/telemetry.log": {
+      "sha256": "628c569afd9b639ea9971b45107a3a902ccef4dd142f51337fed1e1d8f1fcc16",
+      "bytes": 123597
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-panel-r2.log": {
+      "sha256": "7be5dea31b9e178670598f07d7262db0a655a77389637d629e5959f0870434a3",
+      "bytes": 777
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-panel-r3.log": {
+      "sha256": "3d7f19226cb46a2e31e059c624f188a9c3f8afbb906f92d7dfd460af9820f351",
+      "bytes": 1794
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-panel.log": {
+      "sha256": "c04b7c657be0e2ccb177928d7659aea8e266eefdbad02fd8d03b36709abb6c80",
+      "bytes": 777
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile/cache-preparation.json": {
+      "sha256": "018523ec217ba15cfe30ace42492e1da4188e646cbd2e3739196230b41c89690",
+      "bytes": 3021
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile/capture.nsys-rep": {
+      "sha256": "2b444159dc2c764b421c455c2510cdc302154137876d39324c108d94bddec2e6",
+      "bytes": 98876
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile/capture.sqlite": {
+      "sha256": "2725fed8419e32addb44ab95204eb9e629b333cd64af0e5572de39c236a8dcb6",
+      "bytes": 409600
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile/cleanup.json": {
+      "sha256": "1594fe90802d0a443b8490077082dbf24196b229a0356e3dd012825dedfd744b",
+      "bytes": 1539
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile/events-40000.json": {
+      "sha256": "744a96c107b69570e3e47fde0f07ebb33dd2879cc500f033709251a48700b02e",
+      "bytes": 11224
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile/export.log": {
+      "sha256": "8530261f01ef8d66116d49ab234f3c5af326763dec599080c95890f91e253ef6",
+      "bytes": 8126
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile/identity.json": {
+      "sha256": "81b239abb3b571de641d32f138a255632beb4e5af19a56e9b5e6f6c69ccb8e26",
+      "bytes": 940
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile/kernel-summary.json": {
+      "sha256": "2be4d00a32dffc151ef9c072b1e2b70ce65c8e2619990b053e0c64161cc65a30",
+      "bytes": 7012
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile/preflight-1790487014017001208.json": {
+      "sha256": "27dc73b6462d1233baf3c7a179ef60a3be092b0cc87852313dcd2f8cbfaef048",
+      "bytes": 20123
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile/process.json": {
+      "sha256": "2d7fdd77be7ceba8d0352565e1cd6faf6a536c3375b824481c234079a91b4bd2",
+      "bytes": 20
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile/profiler-command.json": {
+      "sha256": "2f352589d0368ee42db7d47292a7e86b13e79b569438b1ed0f8c62201dbc8c48",
+      "bytes": 586
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile/request-40000.json": {
+      "sha256": "0a12077dde94733fc5825c39a52c980d854f84da00c8755689a991410680af0a",
+      "bytes": 381283
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile/results.json": {
+      "sha256": "29e9a496e4ef7b3e22f39d1a7c98c171f181f95ad38b3597ea76c5c4da89070b",
+      "bytes": 575
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile/server.log": {
+      "sha256": "eaa7d40558537f41fff77bbf1f8e7b55b4a2b2b0d111cd273c5ebc554bb37f1e",
+      "bytes": 7045
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile/summary.log": {
+      "sha256": "2d875f9a80f3b3cd5010f8712a44af2463f50066521f90780ed00833f7d54f5f",
+      "bytes": 2708
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile/telemetry.log": {
+      "sha256": "c10e9a0859dc46024362e8dfbc36c370cf3337d75b71545ba11e4903037eff55",
+      "bytes": 105376
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-profile-panel.log": {
+      "sha256": "0c5249652542e7423db42557f037a21f4eb04a3cfb0f6c82d2e5955d3ef804a0",
+      "bytes": 809
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-startup-rejected-r1/cache-preparation.json": {
+      "sha256": "f82f950e2d7ca8d8578f2fa39a4a4d71fe418115bb666fde3a28756f05d6ec65",
+      "bytes": 3021
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-startup-rejected-r1/cleanup.json": {
+      "sha256": "073a135c2c9fa1797b34074a755f61bdfd574dc065d81ee825e0dc6b6f8bd822",
+      "bytes": 1539
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-startup-rejected-r1/identity.json": {
+      "sha256": "699f0aca59a4cc95873d769e145597089d9f311d49c34862d5e58b683c9cb56b",
+      "bytes": 904
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-startup-rejected-r1/preflight-1790486391775463323.json": {
+      "sha256": "68990b37a57ffd6afe4de755c0af76755517565e6f676337ea7c93cc16fe4c31",
+      "bytes": 20021
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-startup-rejected-r1/process.json": {
+      "sha256": "322515c391d317dc16b3f40e965e497ef0fab88905977df510c326ff25238b14",
+      "bytes": 20
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-startup-rejected-r1/server.log": {
+      "sha256": "0b3b03d0c2c7e31b25512a833300b415ee7679ed27eb57da0e1e7f052e4d1a7e",
+      "bytes": 692
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-startup-rejected-r1/telemetry.log": {
+      "sha256": "dd287d5fc4928dcd2376e6f09bbf4d948bd65376b0a7cb4a580c54eb49ade891",
+      "bytes": 10856
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-startup-rejected-r2/cache-preparation.json": {
+      "sha256": "20f62b23f0b09666b9acdfe5725d58ce9a440b204bc66c9e8877969c33452096",
+      "bytes": 3021
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-startup-rejected-r2/cleanup.json": {
+      "sha256": "6e147ff473431e893f3b2bd2456d65296d9a5a4063ede899c12b71ab363da864",
+      "bytes": 1539
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-startup-rejected-r2/identity.json": {
+      "sha256": "699f0aca59a4cc95873d769e145597089d9f311d49c34862d5e58b683c9cb56b",
+      "bytes": 904
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-startup-rejected-r2/preflight-1790486446970299501.json": {
+      "sha256": "98d55d073307a343f2831187df78bfe8b5b241c932a89417d8a59657807d165d",
+      "bytes": 20065
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-startup-rejected-r2/process.json": {
+      "sha256": "f339a3a064604ca641ba32f407641dfdc5774cd00d6a13732c0723804cd9c5b4",
+      "bytes": 20
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-startup-rejected-r2/server.log": {
+      "sha256": "b4be7a103ae60c5ec1eb95c4f272b1a78ff08c1c32c180498f97f075636bcb88",
+      "bytes": 692
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused-startup-rejected-r2/telemetry.log": {
+      "sha256": "b3b39b2811c26ad80a840ffe0136a22ff73b6fbec049a451dcd04128d1c18557",
+      "bytes": 11321
+    },
+    ".q3x-work/decode-context-investigation-20260927/fused_wrapper.cu": {
+      "sha256": "bbd170d83152223057bc6635564f9b16d72a50f8a10865851619ff6060cec852",
+      "bytes": 3970
+    },
+    ".q3x-work/decode-context-investigation-20260927/native/cache-preparation.json": {
+      "sha256": "a9e4b42cceb89c05c756ec624fe46292f0543e7f9873093bbd8377c41eb16230",
+      "bytes": 3021
+    },
+    ".q3x-work/decode-context-investigation-20260927/native/cleanup.json": {
+      "sha256": "e2e5f77155f97b21ee5448bc1fe1439b285f4d3d4889f82c7400e2666323df9b",
+      "bytes": 1539
+    },
+    ".q3x-work/decode-context-investigation-20260927/native/events-1089.json": {
+      "sha256": "4616b956a3374e145f6396a31342cccd4f67e92e4319c87efc40b63cce210d8f",
+      "bytes": 11182
+    },
+    ".q3x-work/decode-context-investigation-20260927/native/events-40000.json": {
+      "sha256": "2ab120a755119917806f7942fb1ee1ca36ed075c41c4f7b34cc0ca3a83fa4603",
+      "bytes": 11250
+    },
+    ".q3x-work/decode-context-investigation-20260927/native/events-8192.json": {
+      "sha256": "44b7c1a6ea4d1e5b91416f8707fd35180cdd05f22fe85310d7e8d1b46854647d",
+      "bytes": 11206
+    },
+    ".q3x-work/decode-context-investigation-20260927/native/identity.json": {
+      "sha256": "955ee8a7b47b0f234672728527e66b6a948ae517da29e3c1fde1c91eaacd7280",
+      "bytes": 881
+    },
+    ".q3x-work/decode-context-investigation-20260927/native/preflight-1790485130296105366.json": {
+      "sha256": "d6ff15e66cb1172b663f4bf0118e231edd5078ff86dd9b85e1ea5e0b40a8050a",
+      "bytes": 20235
+    },
+    ".q3x-work/decode-context-investigation-20260927/native/preflight-qualification.json": {
+      "sha256": "083d2118e9e01297b6e781f689b2e2f5df13ffe998765cc982112e23e667f9ed",
+      "bytes": 560
+    },
+    ".q3x-work/decode-context-investigation-20260927/native/preflight.json": {
+      "sha256": "3c3291e14a6324bd852f807774b5a06a20b57f38ff0f10614e0782768b514626",
+      "bytes": 20294
+    },
+    ".q3x-work/decode-context-investigation-20260927/native/process.json": {
+      "sha256": "75c1bb9e4e6ece0ea4b525a570656c838ab2f338f7c42dcb9b4def58698923d9",
+      "bytes": 20
+    },
+    ".q3x-work/decode-context-investigation-20260927/native/request-1089.json": {
+      "sha256": "decf3610c67b64fa25f0b3442ee5fb741cc4fd957bf71f840eb0952d0b8a6c07",
+      "bytes": 10727
+    },
+    ".q3x-work/decode-context-investigation-20260927/native/request-40000.json": {
+      "sha256": "0a12077dde94733fc5825c39a52c980d854f84da00c8755689a991410680af0a",
+      "bytes": 381283
+    },
+    ".q3x-work/decode-context-investigation-20260927/native/request-8192.json": {
+      "sha256": "5bdf793cbd30845f92af1ffd2dbab11965196e5e656b8ac6b9208eaa5ae53d38",
+      "bytes": 78837
+    },
+    ".q3x-work/decode-context-investigation-20260927/native/results.json": {
+      "sha256": "83dd624251b16e1c282ee2b50162cd48a0f43c697df2c9451dd189d116209688",
+      "bytes": 1708
+    },
+    ".q3x-work/decode-context-investigation-20260927/native/server.log": {
+      "sha256": "c3e0fc6831f40ed9adc10dd118dd5303e1a3b00e8d84238678a83db49f249caf",
+      "bytes": 13952
+    },
+    ".q3x-work/decode-context-investigation-20260927/native/telemetry.log": {
+      "sha256": "e882411d7609144c7ae5f536e30f92f2c9748e9e93f8fab29dc04ab3190dd64a",
+      "bytes": 123916
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager/cache-preparation.json": {
+      "sha256": "19d5ac4761f4b2c5a25b12a74b21e4ff26b0dfb27a5f5e3b18b31fd478129ebb",
+      "bytes": 3021
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager/cleanup.json": {
+      "sha256": "459e125c65a57ba0cf83c3cd76c70c8d1ee2e86c01eea49767948208d936b11d",
+      "bytes": 1539
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager/identity.json": {
+      "sha256": "daa4c2e17083c738a6bd783e8e39f7382cf99e8c6a18f35fc251e46379628b19",
+      "bytes": 917
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager/preflight-1790486955358969317.json": {
+      "sha256": "f0203ee500671ae963376e40f2630838fcc783d33ac2d00dde30ca1df9db743b",
+      "bytes": 20219
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager/preflight-qualification.json": {
+      "sha256": "35cea884aa26088ed7b956cdf4780c4a206ed1824f04db7179e85aa13d66da95",
+      "bytes": 566
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager/process.json": {
+      "sha256": "3074c3d092d688a72cdd80525de5f94a48df003dfbec8683c0821d3390990d11",
+      "bytes": 20
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager/server.log": {
+      "sha256": "dbe5adb6c7092f4991820162e50cf2ade48236de1e12d7dcf47d286f157ef06c",
+      "bytes": 600
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager/telemetry.log": {
+      "sha256": "b2dc931b8f82d78250a378c631c8cd906eaf248bd34f1bde3ee0f1c8bfd667bb",
+      "bytes": 11300
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager-panel-r2.log": {
+      "sha256": "57d0faa109f4fcd8c910c168d3b4931d82d2af6c9d17eb96c36fa373243d0b50",
+      "bytes": 891
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager-panel.log": {
+      "sha256": "4f739a5f9b376aeb0dcf7a66105498514a62f193dbed7fed33b22fac5d29764b",
+      "bytes": 891
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager-startup-rejected-r1/cache-preparation.json": {
+      "sha256": "141e612a298b62b0fde533b4cdbbd8440154aae8a22ba3833358af6f93b582d8",
+      "bytes": 3021
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager-startup-rejected-r1/cleanup.json": {
+      "sha256": "0072426943d862b22091ba903593f65d1a41e2e32f4c90b6a17322cd582e3190",
+      "bytes": 1539
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager-startup-rejected-r1/identity.json": {
+      "sha256": "daa4c2e17083c738a6bd783e8e39f7382cf99e8c6a18f35fc251e46379628b19",
+      "bytes": 917
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager-startup-rejected-r1/preflight-1790486869321450775.json": {
+      "sha256": "0940cdea71ca0f10dc68ed65c8718a0880dc4c200b525a569284e5e555d3498a",
+      "bytes": 20291
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager-startup-rejected-r1/preflight-qualification.json": {
+      "sha256": "d27b133d3b5f4c65e5b2b2c499c5f4c7a36bbf0b9c2702dff489951e818475b1",
+      "bytes": 566
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager-startup-rejected-r1/process.json": {
+      "sha256": "c01fc51581156566f1560ff157be75b59f6e9ace0fb7a9927d3611fa5f4d23b3",
+      "bytes": 20
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager-startup-rejected-r1/server.log": {
+      "sha256": "52ea4eaf43ff01d915a4a7f1302aff73f83dfaf72246ffa490937f2464fe302d",
+      "bytes": 600
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-eager-startup-rejected-r1/telemetry.log": {
+      "sha256": "5a4324e5faf16bb3cea49e1f659a90962515319e1f1e6110c1a74c2eb8ef1b67",
+      "bytes": 11324
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-panel-r2.log": {
+      "sha256": "5df8b8c9cee2610307811725aae5119c7b78103a24c8d81160ec9449707e74f8",
+      "bytes": 1921
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-panel.log": {
+      "sha256": "1174050cef9c4efd93bd52d2bcc0a564a117a7e54fd156dd482ea5c471670e97",
+      "bytes": 816
+    },
+    ".q3x-work/decode-context-investigation-20260927/native-source-identity.json": {
+      "sha256": "d65c45b02592f3c1deb2f5a0acc2c0f9a9a5b7dae70a29dfa0ba857017819fe2",
+      "bytes": 984
+    },
+    ".q3x-work/decode-context-investigation-20260927/preflight-final.json": {
+      "sha256": "078184a569213259fa82cecc601f6a6980b768337506295b8e711a99bfdeb767",
+      "bytes": 20188
+    },
+    ".q3x-work/decode-context-investigation-20260927/preflight-initial.json": {
+      "sha256": "4db4dc34c563bb3bd01b38b370f401b6c947139028ef17861b502f99c5f6dcf4",
+      "bytes": 20049
+    },
+    ".q3x-work/decode-context-investigation-20260927/preflight.py": {
+      "sha256": "440988bbea9655e52f0805a8b5f1ad8cd9098091261cf85691b7c86a13490864",
+      "bytes": 631
+    },
+    ".q3x-work/decode-context-investigation-20260927/profile-plan.json": {
+      "sha256": "2c581d6a86beabaf275ca1e7023764dc80b8c218a3eabdd4bc3a9e116265f6ab",
+      "bytes": 485
+    },
+    ".q3x-work/decode-context-investigation-20260927/reference-source-identity.json": {
+      "sha256": "66bafc15693fa4edd2ae97cfd3dc6361522fcba009eb6e35ca9f8b1f077cd540",
+      "bytes": 761
+    },
+    ".q3x-work/decode-context-investigation-20260927/run_panel.py": {
+      "sha256": "16c5a778f04428fca02db7704a78e6209c1f77a5a758ae09bf040ed61fb95c87",
+      "bytes": 8632
+    },
+    ".q3x-work/decode-context-investigation-20260927/run_panel_before_eager.py": {
+      "sha256": "f5a02b9b4df81dc4e846b4416003aeed760db7354a87f35b0ae2cd66b845128f",
+      "bytes": 8562
+    },
+    ".q3x-work/decode-context-investigation-20260927/run_panel_initial.py": {
+      "sha256": "7a8dbb6a9dc3dd1ba0e87d807cb7615ec0db14a6627c8882957d564db802d63a",
+      "bytes": 8197
+    },
+    ".q3x-work/decode-context-investigation-20260927/shadow/cache-preparation.json": {
+      "sha256": "7c23bdd886c0ae275683842f170fc5db1e53c6d41dd8af5210c3779a9ae100d8",
+      "bytes": 3021
+    },
+    ".q3x-work/decode-context-investigation-20260927/shadow/cleanup.json": {
+      "sha256": "10e1f8ff2c269c6ce8ec358ccf4360d9b5cae38e51e820d56921e377ee79863e",
+      "bytes": 1539
+    },
+    ".q3x-work/decode-context-investigation-20260927/shadow/events-40000.json": {
+      "sha256": "b015ef17dce6af4ee66d24f9ac496b29e902093be8dddbaa69e7020f657832e2",
+      "bytes": 11251
+    },
+    ".q3x-work/decode-context-investigation-20260927/shadow/identity.json": {
+      "sha256": "699f0aca59a4cc95873d769e145597089d9f311d49c34862d5e58b683c9cb56b",
+      "bytes": 904
+    },
+    ".q3x-work/decode-context-investigation-20260927/shadow/preflight-1790486116660709118.json": {
+      "sha256": "f173278ce51c1d40178b665d1c52926cc23accb0fb4d3d5ac299e6ba72c330b7",
+      "bytes": 20029
+    },
+    ".q3x-work/decode-context-investigation-20260927/shadow/process.json": {
+      "sha256": "cd0d7f8d6a30f667ea3cae60ce7e012b4521f6ddb7b8f937de31049206be65b8",
+      "bytes": 20
+    },
+    ".q3x-work/decode-context-investigation-20260927/shadow/request-40000.json": {
+      "sha256": "0a12077dde94733fc5825c39a52c980d854f84da00c8755689a991410680af0a",
+      "bytes": 381283
+    },
+    ".q3x-work/decode-context-investigation-20260927/shadow/results.json": {
+      "sha256": "ca0cbbd8c9c6b0ae3bcf131d1160bb7dd09278332c856491dda46b05da455fa2",
+      "bytes": 597
+    },
+    ".q3x-work/decode-context-investigation-20260927/shadow/server.log": {
+      "sha256": "f49259936129351b7f9addf8f05b8e8cd984160a9374f075e1794e3b83e4aef9",
+      "bytes": 9880
+    },
+    ".q3x-work/decode-context-investigation-20260927/shadow/summary.json": {
+      "sha256": "3510713218f2e5fe8e859768c2a94a4c2b4d9e1fd23722cdfb308d0fe9b156df",
+      "bytes": 6102
+    },
+    ".q3x-work/decode-context-investigation-20260927/shadow/telemetry.log": {
+      "sha256": "16f48364e77d15a49fefc9ae61a9ec4d8b31221dcd912bbe7a40abe53073676c",
+      "bytes": 105053
+    },
+    ".q3x-work/decode-context-investigation-20260927/shadow-panel.log": {
+      "sha256": "3abd4336d8e3b6fd6842366d4f9f91c385e237885a216805af9b7f2c60a1813d",
+      "bytes": 803
+    },
+    ".q3x-work/decode-context-investigation-20260927/source-audit.json": {
+      "sha256": "29e729c14ea8d5ee992134379b8f95992aafcfff4e202be4cdce56beaeed44f3",
+      "bytes": 1194
+    },
+    ".q3x-work/decode-context-investigation-20260927/startup-module-loading-plan.json": {
+      "sha256": "5dcdeb5372353c259f247c34a27edcb2e643f8f10bdb9013fc7f059c79881f4c",
+      "bytes": 554
+    },
+    ".q3x-work/decode-context-investigation-20260927/summarize.py": {
+      "sha256": "81adfb11400eba370f5e5f08a1528bcac47b617421922107a5bbad1b40d2b45a",
+      "bytes": 6834
+    },
+    ".q3x-work/decode-context-investigation-20260927/summarize_profile.py": {
+      "sha256": "f35a9a3913d3aaaf37eb10b253ce77ce02cf53cfc752ac1d0999362e2ff9c3a2",
+      "bytes": 2620
+    },
+    ".q3x-work/decode-context-investigation-20260927/summary.log": {
+      "sha256": "365938077c2686583430ddacba1f92ce0aa1680df627bcf6ea253fb6376d0a1c",
+      "bytes": 1010
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm/cache-preparation.json": {
+      "sha256": "72a60c2fbae89fe562aaf7dcb5ce6a93e694ac13d87007950fc619b46ede98d7",
+      "bytes": 3021
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm/cleanup.json": {
+      "sha256": "cacf28cf5e14c9672a287c679b568bacb12d93557606b779e9dbb4c622b9b1df",
+      "bytes": 1539
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm/identity.json": {
+      "sha256": "40b786ae01efce4bc4c606c9a0eb8798e73e58d884fefeecf8e8445a35aa86b1",
+      "bytes": 1441
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm/preflight-1790485530226616709.json": {
+      "sha256": "f86951e1b1bf9dfb57a4a3470359fd217662eb975b5d586d53e9ca2f5ff2ff76",
+      "bytes": 20046
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm/process.json": {
+      "sha256": "242f4da2ff777cb7ba14211d48f175faefa59ea21bfa1d716ce09a56fc1e84b9",
+      "bytes": 20
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm/server.log": {
+      "sha256": "dc4fc02bb6bac2410ca4e2b41847ca5197bb4f8d8671f9c4316e5c5632f9f22b",
+      "bytes": 30224
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm/startup-stop.json": {
+      "sha256": "49ed78b5ca58937eb01c6bf8fffcd494514cd8b706210a0f70b213f3c79d45e3",
+      "bytes": 262
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm/telemetry.log": {
+      "sha256": "747fd8cc813a9fa90ea3b72bbf8fbb7c7e62895118d734cba791f7b9ce9f5adf",
+      "bytes": 242732
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm-panel-r2.log": {
+      "sha256": "35af3a969131822b2ed415cc69778078136aa1ffc2c078603a2cb63852702e8b",
+      "bytes": 775
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm-panel.log": {
+      "sha256": "9e0a7ca4743a29e811bc33c535b19be1d47ba6068a89ed1ebb8b6389b4306488",
+      "bytes": 775
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm-startup-rejected-r1/cache-preparation.json": {
+      "sha256": "8568b0d3bf6d3cbb7a4981c3152151932c667c5d4142892274ac1929dc18031a",
+      "bytes": 3021
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm-startup-rejected-r1/cleanup.json": {
+      "sha256": "78b0880723cabbd73300c030441779f458c4f1bd0555ff867fbc551978d39d1e",
+      "bytes": 1539
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm-startup-rejected-r1/identity.json": {
+      "sha256": "7e9e6f45c927f1331395ea824eb4e0aff2f3ea4388b12e7e298b8358d837e491",
+      "bytes": 1441
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm-startup-rejected-r1/preflight-1790485468762487103.json": {
+      "sha256": "163e31f508033dfac25136741bed46001e36f26eb2685e2f8c8d27009738949e",
+      "bytes": 20065
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm-startup-rejected-r1/process.json": {
+      "sha256": "57bff411737164756372304e9ae8c6e27509ade45c83c45c4749de59f4dafac0",
+      "bytes": 20
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm-startup-rejected-r1/server.log": {
+      "sha256": "aa180d350ad96f2b152b2befd2f120deceae29df679018a282927528c2f09876",
+      "bytes": 9183
+    },
+    ".q3x-work/decode-context-investigation-20260927/vllm-startup-rejected-r1/telemetry.log": {
+      "sha256": "887a19b695b4c5aaf1542584436ddb365a528178d44038fd7726a5237c966ded",
+      "bytes": 13358
+    },
+    ".q3x-work/decode-context-investigation-20260927/work-package.json": {
+      "sha256": "21d97835ed858373b3a98b3158bfb2530acb2932505e6f152828c8ae62e240cd",
+      "bytes": 2675
+    },
+    ".q3x-work/decode-context-investigation-20260927/wrapper-resources.txt": {
+      "sha256": "4b7c1a96d62eea1854c2813a43e060a25e62d9c537239a4881f6b877a762059a",
+      "bytes": 4202
+    },
+    ".q3x-work/decode-context-investigation-20260927/wrapper-sass.txt": {
+      "sha256": "245a726b9b5023b087a83f379483d450dcc9eeafabe811424d96d8640470b2f0",
+      "bytes": 6711280
+    }
+  }
+}
