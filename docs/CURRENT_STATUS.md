@@ -155,6 +155,17 @@ restore a retained complete binary/plan tuple, not mix old libraries with
 new headers. Historical fixed-P40 and v10 profiles remain opt-in reproductions
 with withdrawn numerical qualification.
 
+## Non-performance product audit, 2026-09-28
+
+Performance optimization is paused by owner direction. A subsequent
+[product audit](analysis/product-readiness-audit-2026-09-28/README.md) reproduced
+UTF-8 output-cap failure and HTTP worker starvation without loading the model,
+and confirmed the release test preset runs zero tests. It also records
+readiness failure-propagation, reproducibility, packaging and sustained-service
+coverage gaps. These findings are open; the audit does not change runtime or
+withdraw the earlier bounded numerical qualification. Follow the
+[Roadmap](ROADMAP.md) for the revised work boundary.
+
 ## Code and documentation audit, 2026-09-28
 
 The [audit record](metadata/qwen36-27b-code-documentation-audit-2026-09-28.json)

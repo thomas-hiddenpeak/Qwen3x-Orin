@@ -22,12 +22,12 @@ document. Classes and authority rules are defined by
 ## Audit snapshot
 
 - Audit date: 2026-09-28.
-- Expected integrated-tree coverage: **80 Markdown paths**.
-- Classified: **80**.
+- Expected integrated-tree coverage: **81 Markdown paths**.
+- Classified: **81**.
 - Unclassified: **0**.
 - Duplicate registrations: **0**.
-- Automated validator: **PASS** (`80` tracked, `80` registered, `40`
-  required first-party headers, `51` headers checked, `948` local links,
+- Automated validator: **PASS** (`81` tracked, `81` registered, `40`
+  required first-party headers, `52` headers checked, `961` local links,
   `0` errors).
 - Inventory basis: every literal path from `git ls-files '*.md'` in the
   integrated tree including the numerical repair and corrected whole-core
@@ -110,10 +110,11 @@ authority only for its exact recorded protocol.
 | `docs/PREFILL_REFERENCE_AUDIT.md` | `historical_architecture_audit` | historical | Superseded as current Prefill design authority by `docs/PREFILL_ARCHITECTURE_RESET.md`, which refines `docs/SDD.md`; retains pinned source-analysis provenance. |
 | `docs/ROADMAP_LEGACY.md` | `historical_roadmap_ledger` | historical | Superseded by concise active `docs/ROADMAP.md`; retained for linked chronology, with Git history and evidence owning exact observations. |
 
-## Evidence (38)
+## Evidence (39)
 
 | Path | Role | Lifecycle | Evidence authority |
 | --- | --- | --- | --- |
+| `docs/analysis/product-readiness-audit-2026-09-28/README.md` | `product_readiness_audit` | frozen | Production-boundary source audit and host-only Unicode/ingress reproductions at 8c0eb23; test, readiness, reproducibility, packaging and coverage findings; no runtime repair or new model qualification. |
 | `docs/PERFORMANCE_BASELINE.md` | `historical_performance_ledger` | frozen | Append-only accumulated component/runner observations for their exact commits/protocols; not current status or target SSOT. |
 | `docs/PHASE0_EVIDENCE.md` | `milestone_evidence` | frozen | Phase-0 environment, checkpoint, oracle, and phase-boundary record. |
 | `docs/analysis/decode-context-scaling-2026-09-27/README.md` | `experiment_evidence` | frozen | Source audit and isolated real-API fused-GQA direction at d6d5afb; numerical research only, no production selection. |

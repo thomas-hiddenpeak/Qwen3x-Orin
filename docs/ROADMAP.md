@@ -19,7 +19,22 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-09-27 product convergence — active
+## 2026-09-28 product audit — performance optimization paused
+
+The owner has explicitly paused performance optimization and requested a
+product audit. Do not start Decode tuning, Prefill architecture experiments
+or performance-only reruns under the earlier milestone list. The 8.55 interim
+and long-term targets remain recorded, with no waiver or achievement claim.
+
+The [product audit](analysis/product-readiness-audit-2026-09-28/README.md)
+identifies Unicode output-cap handling, HTTP control-plane availability,
+zero-test release validation, error-to-readiness propagation, reproducible
+qualification tools, install notices and bounded sustained-service coverage.
+Its recommended repair order is API correctness/availability, repeatable
+production tests, then recovery/packaging and sustained-service checks. These
+are findings and proposed closures; the audit itself makes no runtime repair.
+
+## 2026-09-27 product convergence — delivered scope and retained gaps
 
 The owner's later numerical-repair and independent-baseline direction closes
 `WP-PREFILL-REFERENCE-REPAIR-20260928` and the bounded service integration of
@@ -36,7 +51,7 @@ state/logits, public capability and real installed API behavior qualify the
 corrected service. Do not revive the invalid error denominator or compare
 free-running states after token histories diverge.
 
-The remaining immediate product gap is long-context Decode: current correct
+A retained performance gap is long-context Decode: current correct
 40K service is below the owner's approximately 8.55 token/s interim target.
 Retain that target and report Prefill and Decode together. The four-chain PV
 arithmetic variant and 64-CTA spatial-ownership variant are both closed for
@@ -50,7 +65,7 @@ selected Prefill contract, BF16 KV, no-MTP scope and independent reference
 checks. A component improvement without a positive composed API result does
 not select production. A negative bounded composition closes its own version.
 
-## Subsequent product milestones
+## Deferred product milestones
 
 1. Resolve the remaining 40K Decode gap without numerical regression; retain
    the long-term 10 token/s target separately from the interim 8.55 target.
