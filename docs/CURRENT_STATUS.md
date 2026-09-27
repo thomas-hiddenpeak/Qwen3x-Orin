@@ -1150,6 +1150,23 @@ analysis of the current state and' -- close to the bit-exact baseline but not
 byte-identical. Evidence: the [scores split e2e record]
 (metadata/qwen36-27b-decode-scores-split-e2e-2026-09-27.json).
 
+Per the owner's direction to complete the measurements before judging whether
+the non-bit-exact split route may become the production default, a 256-token
+short-context measurement (3 independent server runs, each idle-gated) was
+taken: the split gain is concentrated at long context (1.214x at S~40000) and
+negligible at short context (1.013x, 105.3 vs 106.7 ms/step, 9.50 vs 9.37
+tok/s at S~1089-1344). Nondeterminism quantified: baseline vs split diverge
+from token 53 (204/256 differ); two independent split runs agree for the first
+118 tokens then drift (137/256 differ). The pinned BF16 oracle gate is
+max_model_len=128, so it never exercises the split path (S>=512) -- it is not
+a blocker; the long path is already evaluation-route-not-release-qualified by
+contract. Data observation (single sample, no conclusion): in this run the
+bit-exact baseline itself degenerated into a 'vllmEvn' repeat loop from token
+55 while the split runs stayed coherent -- bit-exact is not a quality
+guarantee, but this does not make nondeterminism free. Evidence: the [split
+production-cost measurement record]
+(metadata/qwen36-27b-decode-split-production-cost-measurement-2026-09-27.json).
+
 ### Historical v10 route only
 
 The following topology and profile describe the historical typed P40 v10

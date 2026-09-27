@@ -1,0 +1,50 @@
+{
+  "record": "qwen36-27b-decode-split-production-cost-measurement-2026-09-27",
+  "date": "2026-09-27",
+  "class": "T4 real-model measurement (256-token short-context, 3 independent server runs; decision-support data for the non-bit-exact split production question)",
+  "purpose": "quantify the ACTUAL cost of accepting the non-bit-exact split route as the production default, per the owner's 'complete the measurements before judging' direction",
+  "setup": "request = decode-longout-stability-20260926 (prompt 1089 tokens, max_tokens 256, temperature 0.0, seed 42); decode runs at S~1089-1344 so the split path (S>=512) is active for the whole decode; 3 independent server starts (baseline / split-r1 / split-r2), each confirmed idle (0 procs, 48GB avail) before the next, each with its own ready line + witness",
+  "validity": "the first attempt was INVALID (split servers failed to start on OOM, all 3 responses hit the single baseline server -> 0/256 was baseline vs itself); discarded and re-run with start-failure detection + idle gating. This record is the valid re-run.",
+  "oracle_gate_finding": "the pinned BF16 oracle gate is max_model_len=128 (reference_oracle.cpp rejects !=128), so it NEVER exercises the split path (S>=512). 'Does split pass the oracle gate' is therefore a non-question for the long path; the long path is already 'evaluation-route-not-release-qualified' by contract (server ready line). The oracle gate is not a blocker; release-qualification status is a separate contract question.",
+  "rate_ms_per_step": {
+    "short_context_S_1089_1344": {
+      "baseline": 106.7,
+      "split": 105.3,
+      "speedup": 1.013,
+      "tok_s": {
+        "baseline": 9.37,
+        "split": 9.5
+      }
+    },
+    "long_context_P40000_S_40000": {
+      "baseline": 193.0,
+      "split": 159.0,
+      "speedup": 1.214,
+      "tok_s": {
+        "baseline": 5.18,
+        "split": 6.29
+      }
+    },
+    "note": "the split gain is concentrated at long context (1.214x at S~40000); at short context it is negligible (1.013x) because the 6x GQA redundancy volume is small and L2-resident there"
+  },
+  "nondeterminism_quantified": {
+    "baseline_vs_split_first_divergence_token": 53,
+    "baseline_vs_split_differ_count": "204/256",
+    "split_r1_vs_r2_first_divergence_token": 119,
+    "split_r1_vs_r2_differ_count": "137/256",
+    "interpretation": "two independent split runs agree for the first 118 tokens then drift; the divergence is not from token 1 at this context length (it was at token 1 for P40000/O16)"
+  },
+  "baseline_degeneration_observation": {
+    "fact": "the bit-exact baseline run degenerated into a repeat loop at token 55 ('vllmEvn\\n' x3, then 'README.md' repeats) while the split runs stayed coherent ('work is explicitly out of scope.')",
+    "status": "single-sample observation, not a conclusion; recorded as data. It shows bit-exact is NOT a quality guarantee -- a deterministic path can be deterministically wrong. It does NOT make non-determinism free; it only weakens the 'bit-exact = safer' assumption.",
+    "no_conclusion": "per the verify-first direction this is logged as a measurement, not used to claim split is 'better'"
+  },
+  "cost_summary_for_owner_decision": {
+    "gain": "1.214x decode at long context (P40000 159 vs 193 ms/step); ~1.013x at short context (negligible)",
+    "cost_1_determinism": "output is non-deterministic; two runs agree ~118 tokens then drift; seed=42+temperature=0 no longer guarantees byte-reproducible output",
+    "cost_2_verification": "loses the byte-identity regression check that has guarded every decode optimization so far",
+    "cost_3_release_status": "the long path is 'evaluation-route-not-release-qualified'; making it default changes the release-qualification contract",
+    "not_a_cost": "quality does not visibly collapse (both outputs coherent; baseline itself degenerated in this sample)"
+  },
+  "evidence": ".q3x-work/evidence/split-longout-256-20260927/ (server-baseline.log, server-split-r1.log, server-split-r2.log, response-*.txt)"
+}
