@@ -110,9 +110,11 @@ workspace is reachable only through the explicit typed bundle. Persistent,
 KV, RoPE, position, reset, and ownership operations remain common.
 
 The separately compiled whole-core/exact-Decode admission currently bounds
-actual prompt lengths to 1..40000 while reserving 44,095 sequence positions and an
-8,952,211,200-byte arena. It supports the P40000/O4096 capacity boundary
-without advancing state for the final predicted token. The full maximum-length
+actual prompt lengths to 1..44095 while reserving 44,095 sequence positions and an
+9,508,218,624-byte arena. It supports the P40000/O4096 capacity boundary
+without advancing state for the final predicted token. Family storage rounds to 44,096 rows while residual and persistent KV own
+44,095 positions. Alias checks use each allocation's actual extent; the spare
+family row is not a token and never advances state. The full maximum-length
 Decode scratch occupies this arena; its FP32 payload is rounded to the
 256-byte owning alignment. Cos/sin remain contiguous halves of one allocation.
 The original fixed production/development geometry remains 40,016 positions
@@ -123,9 +125,9 @@ lengths, successful long-output execution, or whole-process fit.
 
 The corrected whole-core composition supplies FP8 and Gate/Up CUTLASS
 projection scratch from the request arena. It does not use the historical
-process-global growable dequantization buffers. In the P40000 family layout,
-the GDN workspace occupies bytes `[2137600000,4938240000)` relative to the
-family arena and has capacity 2,800,640,000 bytes. This range is reused only
+process-global growable dequantization buffers. In the full-range family layout,
+the GDN workspace occupies bytes `[2356490240,5443915776)` relative to the
+family arena and has capacity 3,087,425,536 bytes. This range is reused only
 on the runner's ordered stream:
 
 - fill projections finish before GDN starts consuming its workspace;

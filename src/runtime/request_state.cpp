@@ -56,15 +56,15 @@ constexpr std::uint64_t kAttentionBranchOutputOffset = 100'663'296U;
 constexpr std::uint64_t kAttentionOutputTemporaryOffset = 184'549'376U;
 
 constexpr std::uint64_t kP40WholeCoreRawQkvOffset = 0U;
-constexpr std::uint64_t kP40WholeCoreConvQkvOffset = 819'200'000U;
-constexpr std::uint64_t kP40WholeCoreZOffset = 1'638'400'000U;
-constexpr std::uint64_t kP40WholeCoreAOffset = 2'129'920'000U;
-constexpr std::uint64_t kP40WholeCoreBOffset = 2'133'760'000U;
-constexpr std::uint64_t kP40WholeCoreGdnWorkspaceOffset = 2'137'600'000U;
-constexpr std::uint64_t kP40WholeCoreOutputOffset = 4'938'240'000U;
-constexpr std::uint64_t kP40WholeCoreProcessedQOffset = 983'040'000U;
-constexpr std::uint64_t kP40WholeCorePackedGateOffset = 1'474'560'000U;
-constexpr std::uint64_t kP40WholeCoreAttentionBranchOffset = 491'520'000U;
+constexpr std::uint64_t kP40WholeCoreConvQkvOffset = kWholeCoreCompiledConvOffset;
+constexpr std::uint64_t kP40WholeCoreZOffset = kWholeCoreCompiledZOffset;
+constexpr std::uint64_t kP40WholeCoreAOffset = kWholeCoreCompiledAOffset;
+constexpr std::uint64_t kP40WholeCoreBOffset = kWholeCoreCompiledBOffset;
+constexpr std::uint64_t kP40WholeCoreGdnWorkspaceOffset = kWholeCoreCompiledGdnOffset;
+constexpr std::uint64_t kP40WholeCoreOutputOffset = kWholeCoreCompiledOutputOffset;
+constexpr std::uint64_t kP40WholeCoreProcessedQOffset = kWholeCoreCompiledProcessedQOffset;
+constexpr std::uint64_t kP40WholeCorePackedGateOffset = kWholeCoreCompiledGateOffset;
+constexpr std::uint64_t kP40WholeCoreAttentionBranchOffset = kWholeCoreCompiledAttentionBranchOffset;
 
 RequestDiagnostic make_diagnostic(RequestErrorCode code,
                                   std::string message,

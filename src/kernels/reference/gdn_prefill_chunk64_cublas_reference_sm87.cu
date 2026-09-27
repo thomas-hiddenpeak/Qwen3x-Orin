@@ -3602,7 +3602,11 @@ bool supports(const std::size_t token_count) noexcept {
 }
 
 std::size_t workspace_bytes() noexcept {
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  return kernels::make_gdn_prompt_wide_chunk_graph_workspace_plan(44096U).layout.total_bytes;
+#else
   return kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes;
+#endif
 }
 
 int preflight_resources(ResourcePreflightReceipt* const receipt) noexcept {

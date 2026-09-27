@@ -183,13 +183,13 @@ struct PrefillMemoryRequirement {
 // panels, and a P40001 request capacity (prompt plus one generated token).
 // Keeping a distinct type prevents a caller from presenting the old C8192
 // layout or its 8192/7712 panel geometry as this architecture.
-inline constexpr std::uint32_t kLayerMajorP40WholeCorePromptTokens = 40'000U;
+inline constexpr std::uint32_t kLayerMajorP40WholeCorePromptTokens = kWholeCoreCompiledPromptStorageTokens;
 inline constexpr std::uint32_t
     kLayerMajorP40WholeCoreRequestCapacityTokens = kWholeCoreCompiledSequenceCapacity;
 inline constexpr std::uint32_t kLayerMajorP40WholeCorePanelTokens = 8'000U;
-inline constexpr std::uint32_t kLayerMajorP40WholeCorePanelCount = 5U;
+inline constexpr std::uint32_t kLayerMajorP40WholeCorePanelCount = kWholeCoreCompiledPanelCapacity;
 inline constexpr std::uint64_t kLayerMajorP40WholeCoreFamilyArenaBytes =
-    5'429'760'000U;
+    kWholeCoreCompiledFamilyBytes;
 
 // Exact family-relative typed-view ledger for the default-off P40000
 // stock-vLLM-Marlin parity MLP. The whole-core family arena is owned by the
@@ -250,7 +250,7 @@ inline constexpr std::uint64_t
 inline constexpr std::uint64_t kLayerMajorP40MarlinParityTemporaryBytes =
     1'048'832U;
 inline constexpr std::uint64_t kLayerMajorP40MarlinParityNormalizedOffset =
-    4'938'240'000U;
+    kWholeCoreCompiledOutputOffset;
 inline constexpr std::uint64_t kLayerMajorP40MarlinParityNormalizedBytes =
     static_cast<std::uint64_t>(kLayerMajorP40WholeCorePromptTokens) * 5'120U *
     sizeof(std::uint16_t);
@@ -261,10 +261,10 @@ static_assert(kLayerMajorP40MarlinParityMergedGateUpRowStrideBytes ==
               69'632U);
 static_assert(kLayerMajorP40MarlinParityUpColumnOffsetBytes == 34'816U);
 static_assert(kLayerMajorP40MarlinParityMergedGateUpBytes ==
-              2'785'280'000U);
-static_assert(kLayerMajorP40MarlinParityActivatedOffset == 2'785'280'000U);
-static_assert(kLayerMajorP40MarlinParityActivatedBytes == 1'392'640'000U);
-static_assert(kLayerMajorP40MarlinParityTemporaryOffset == 4'177'920'000U);
+              69632ULL * kWholeCoreCompiledPromptStorageTokens);
+static_assert(kLayerMajorP40MarlinParityActivatedOffset == 69632ULL * kWholeCoreCompiledPromptStorageTokens);
+static_assert(kLayerMajorP40MarlinParityActivatedBytes == 34816ULL * kWholeCoreCompiledPromptStorageTokens);
+static_assert(kLayerMajorP40MarlinParityTemporaryOffset == 104448ULL * kWholeCoreCompiledPromptStorageTokens);
 static_assert(kLayerMajorP40MarlinParityReductionWorkspaceOffset ==
               kLayerMajorP40MarlinParityTemporaryOffset);
 static_assert(kLayerMajorP40MarlinParityReductionWorkspaceBytes ==
@@ -273,7 +273,7 @@ static_assert(kLayerMajorP40MarlinParityLockBytes == 64U);
 static_assert(kLayerMajorP40MarlinParityTemporaryPayloadBytes ==
               1'048'576U);
 static_assert(kLayerMajorP40MarlinParityTemporaryBytes == 1'048'832U);
-static_assert(kLayerMajorP40MarlinParityNormalizedBytes == 409'600'000U);
+static_assert(kLayerMajorP40MarlinParityNormalizedBytes == 10240ULL * kWholeCoreCompiledPromptStorageTokens);
 static_assert(kLayerMajorP40MarlinParityTemporaryOffset +
                   kLayerMajorP40MarlinParityTemporaryBytes <=
               kLayerMajorP40MarlinParityNormalizedOffset);

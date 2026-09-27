@@ -1,0 +1,318 @@
+{
+  "schema_version": 1,
+  "decision": "full existing service capacity and baseline assessment; no installed-default promotion yet",
+  "source_parent": "930f289",
+  "scope": {
+    "P": "1..44095",
+    "O": "1..4096",
+    "constraint": "P+O-1<=44095",
+    "prompt_storage": 44096,
+    "arena_bytes": 9508218624
+  },
+  "handoff": {
+    "bitwise_unchanged_from_v6_and_v7_r2": true,
+    "sha256": {
+      "gdn": "60bcc1bd8266b14956177ff88552abf2c71533e093e99595a1d1920c75409fec",
+      "conv": "84306005097e58e8e1de6a0f1ebfbdec4ab342ef7f67e4a19f87d29f6f921691",
+      "kv": "dd29a0e84558eb8e113845bbd9595cfddc06f317b7693bf91bf689a672516838",
+      "logits": "2bce22b3f3c5844a26700ac820ba85efba9ea54d53db08e2d51684ee7a42b6c0"
+    }
+  },
+  "api": [
+    {
+      "prompt_tokens": 44080,
+      "usage": {
+        "prompt_tokens": 44080,
+        "completion_tokens": 16,
+        "total_tokens": 44096
+      },
+      "done": true,
+      "content_events": 16,
+      "ttft_s": 100.46090635191649,
+      "last_content_s": 102.4102662508376,
+      "decode_ms_per_token": 129.95732659474015,
+      "text": "\n-length Prefill and Decode\n```\n\nWork is ordered from the final runner",
+      "requested_output_tokens": 16,
+      "finish_reason": "length",
+      "request_sha256": "de99453afe5c82ad6a5a9f95cc5202f1351cf122d63fdd2cb17c2f99adc03b27"
+    }
+  ],
+  "ordinary_api": [
+    {
+      "endpoint": "completions",
+      "body": {
+        "prompt": "The capital of France is",
+        "stream": false,
+        "model": "qwen3.6-27b-nvfp4",
+        "max_tokens": 16,
+        "temperature": 0
+      },
+      "response": "{\"id\":\"cmpl-q3x-2\",\"object\":\"text_completion\",\"created\":1790530778,\"model\":\"qwen3.6-27b-nvfp4\",\"choices\":[{\"index\":0,\"text\":\" Paris.\\nThe capital of France is Paris.\\nThe capital of France is\",\"logprobs\":null,\"finish_reason\":\"length\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":16,\"total_tokens\":21}}"
+    },
+    {
+      "endpoint": "chat/completions",
+      "body": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "只回答一个数字：1加1等于几？"
+          }
+        ],
+        "stream": false,
+        "model": "qwen3.6-27b-nvfp4",
+        "max_tokens": 16,
+        "temperature": 0
+      },
+      "response": "{\"id\":\"chatcmpl-q3x-3\",\"object\":\"chat.completion\",\"created\":1790530781,\"model\":\"qwen3.6-27b-nvfp4\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"2\"},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":23,\"completion_tokens\":2,\"total_tokens\":25}}"
+    },
+    {
+      "endpoint": "chat/completions",
+      "body": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with the word hello."
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "model": "qwen3.6-27b-nvfp4",
+        "max_tokens": 16,
+        "temperature": 0
+      },
+      "response": "data: {\"id\":\"chatcmpl-q3x-4\",\"object\":\"chat.completion.chunk\",\"created\":1790530782,\"model\":\"qwen3.6-27b-nvfp4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello\"},\"logprobs\":null,\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-q3x-4\",\"object\":\"chat.completion.chunk\",\"created\":1790530782,\"model\":\"qwen3.6-27b-nvfp4\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\"},\"logprobs\":null,\"finish_reason\":\"stop\"}]}\n\ndata: {\"id\":\"chatcmpl-q3x-4\",\"object\":\"chat.completion.chunk\",\"created\":1790530782,\"model\":\"qwen3.6-27b-nvfp4\",\"choices\":[],\"usage\":{\"prompt_tokens\":18,\"completion_tokens\":2,\"total_tokens\":20}}\n\ndata: [DONE]\n\n"
+    }
+  ],
+  "capability_comparison": {
+    "count": 98,
+    "identical_requests_and_prompt_tokens": true,
+    "identical_answers": 98,
+    "native_correct": 79,
+    "reference_correct": 79,
+    "differences": []
+  },
+  "decode_baseline_fp64": [
+    {
+      "sequence": 576,
+      "layer": 3,
+      "output_values": 6144,
+      "end_to_end_fp64": {
+        "relative_l2": 0.0017265586547128642,
+        "max_abs": 0.003873208866908451
+      },
+      "same_probabilities_pv_fp64": {
+        "relative_l2": 0.0017265665148411885,
+        "max_abs": 0.0038733284225478393
+      },
+      "bf16_mismatches_to_full_fp64": 0,
+      "bf16_mismatches_to_pv_fp64": 0
+    },
+    {
+      "sequence": 576,
+      "layer": 23,
+      "output_values": 6144,
+      "end_to_end_fp64": {
+        "relative_l2": 0.0016746222737571692,
+        "max_abs": 0.015451553522171757
+      },
+      "same_probabilities_pv_fp64": {
+        "relative_l2": 0.001674624544640158,
+        "max_abs": 0.015449959771217436
+      },
+      "bf16_mismatches_to_full_fp64": 2,
+      "bf16_mismatches_to_pv_fp64": 2
+    },
+    {
+      "sequence": 576,
+      "layer": 43,
+      "output_values": 6144,
+      "end_to_end_fp64": {
+        "relative_l2": 0.0016508203284071184,
+        "max_abs": 0.014307462971212104
+      },
+      "same_probabilities_pv_fp64": {
+        "relative_l2": 0.0016508216624715438,
+        "max_abs": 0.014307728857669844
+      },
+      "bf16_mismatches_to_full_fp64": 0,
+      "bf16_mismatches_to_pv_fp64": 0
+    },
+    {
+      "sequence": 576,
+      "layer": 63,
+      "output_values": 6144,
+      "end_to_end_fp64": {
+        "relative_l2": 0.0016981240101042376,
+        "max_abs": 0.06141758153927768
+      },
+      "same_probabilities_pv_fp64": {
+        "relative_l2": 0.0016981235307480136,
+        "max_abs": 0.06141724055598985
+      },
+      "bf16_mismatches_to_full_fp64": 0,
+      "bf16_mismatches_to_pv_fp64": 0
+    },
+    {
+      "sequence": 8192,
+      "layer": 3,
+      "output_values": 6144,
+      "end_to_end_fp64": {
+        "relative_l2": 0.0016950735642313685,
+        "max_abs": 0.003895286615977156
+      },
+      "same_probabilities_pv_fp64": {
+        "relative_l2": 0.001695071091223227,
+        "max_abs": 0.0038951894281507027
+      },
+      "bf16_mismatches_to_full_fp64": 1,
+      "bf16_mismatches_to_pv_fp64": 1
+    },
+    {
+      "sequence": 8192,
+      "layer": 23,
+      "output_values": 6144,
+      "end_to_end_fp64": {
+        "relative_l2": 0.0017006101223783906,
+        "max_abs": 0.0078092631517932
+      },
+      "same_probabilities_pv_fp64": {
+        "relative_l2": 0.0017006088246080172,
+        "max_abs": 0.007809309163619105
+      },
+      "bf16_mismatches_to_full_fp64": 6,
+      "bf16_mismatches_to_pv_fp64": 5
+    },
+    {
+      "sequence": 8192,
+      "layer": 43,
+      "output_values": 6144,
+      "end_to_end_fp64": {
+        "relative_l2": 0.0016315320310623846,
+        "max_abs": 0.007780278070070867
+      },
+      "same_probabilities_pv_fp64": {
+        "relative_l2": 0.0016315294036554945,
+        "max_abs": 0.007780296336002301
+      },
+      "bf16_mismatches_to_full_fp64": 2,
+      "bf16_mismatches_to_pv_fp64": 3
+    },
+    {
+      "sequence": 8192,
+      "layer": 63,
+      "output_values": 6144,
+      "end_to_end_fp64": {
+        "relative_l2": 0.0016758675256449338,
+        "max_abs": 0.06019020753353388
+      },
+      "same_probabilities_pv_fp64": {
+        "relative_l2": 0.0016758707140146613,
+        "max_abs": 0.060190535056673156
+      },
+      "bf16_mismatches_to_full_fp64": 3,
+      "bf16_mismatches_to_pv_fp64": 3
+    },
+    {
+      "sequence": 40000,
+      "layer": 3,
+      "output_values": 6144,
+      "end_to_end_fp64": {
+        "relative_l2": 0.001702671829496131,
+        "max_abs": 0.007123985473195482
+      },
+      "same_probabilities_pv_fp64": {
+        "relative_l2": 0.0017026788378733052,
+        "max_abs": 0.007124295079616871
+      },
+      "bf16_mismatches_to_full_fp64": 5,
+      "bf16_mismatches_to_pv_fp64": 5
+    },
+    {
+      "sequence": 40000,
+      "layer": 23,
+      "output_values": 6144,
+      "end_to_end_fp64": {
+        "relative_l2": 0.0016201539894383239,
+        "max_abs": 0.0077216449668351395
+      },
+      "same_probabilities_pv_fp64": {
+        "relative_l2": 0.0016201623765969525,
+        "max_abs": 0.007722031620390535
+      },
+      "bf16_mismatches_to_full_fp64": 10,
+      "bf16_mismatches_to_pv_fp64": 11
+    },
+    {
+      "sequence": 40000,
+      "layer": 43,
+      "output_values": 6144,
+      "end_to_end_fp64": {
+        "relative_l2": 0.001627436161939382,
+        "max_abs": 0.015528127383968915
+      },
+      "same_probabilities_pv_fp64": {
+        "relative_l2": 0.0016274392952064065,
+        "max_abs": 0.015528092000654858
+      },
+      "bf16_mismatches_to_full_fp64": 7,
+      "bf16_mismatches_to_pv_fp64": 7
+    },
+    {
+      "sequence": 40000,
+      "layer": 63,
+      "output_values": 6144,
+      "end_to_end_fp64": {
+        "relative_l2": 0.001619921115275,
+        "max_abs": 0.0618124292318285
+      },
+      "same_probabilities_pv_fp64": {
+        "relative_l2": 0.0016199191352545374,
+        "max_abs": 0.06181233091567506
+      },
+      "bf16_mismatches_to_full_fp64": 14,
+      "bf16_mismatches_to_pv_fp64": 14
+    }
+  ],
+  "decode_experiments": {
+    "pv_four_chains": "rejected: improves aggregate FP64 discrepancy but slower, baseline 1.57484 vs 1.89332 ms/layer",
+    "pv_spatial_64_ctas": "rejected: output/probability bitwise equal, baseline 1.48492 vs 1.60479 ms/layer",
+    "baseline_authority": "ordered v7 has BF16-scale error against independent FP64; retains scalar equality; valid bounded Decode comparator, not exact mathematical truth",
+    "interim_8_55_target": "not achieved; retained, no lowered goal"
+  },
+  "failures_repaired": [
+    "residual alias proof used rounded scratch rows instead of residual sequence bytes",
+    "Attention preprocessing retained a40000-token bound"
+  ],
+  "artifacts": {
+    ".q3x-work/prefill-convergence-20260928/v9-r5-api-capacity/identity.json": {
+      "sha256": "3efa643877abe17abaca126de024452126e2eb9027ecce2ad44ab14eafa56ffd",
+      "bytes": 1094
+    },
+    ".q3x-work/prefill-convergence-20260928/v9-r5-api-capacity/cleanup.json": {
+      "sha256": "edc1ff7878d2e256d58c5750048227cdbd738b3a8ed1832fbdb14956899e47e2",
+      "bytes": 1539
+    },
+    ".q3x-work/prefill-convergence-20260928/v9-r5-api-capacity/server.log": {
+      "sha256": "3d4d36841831fa151e31ead2ba7e9e2ae24772a957f64951c4608db51d9feafd",
+      "bytes": 22160
+    },
+    ".q3x-work/prefill-convergence-20260928/capacity-v9-handoff.json": {
+      "sha256": "a154882dcc0b6876d3dd6729f4bbe9261258f9a8a73247f08264743e05e35486",
+      "bytes": 386
+    },
+    ".q3x-work/prefill-convergence-20260928/capability-manifest.json": {
+      "sha256": "e6d915f340b921ce93f447d4c21e9185974884c00d4780b47b23ae2574c84c04",
+      "bytes": 1774
+    },
+    ".q3x-work/prefill-convergence-20260928/vllm-capability/identity.json": {
+      "sha256": "c0783191e5db8e17b021f41d202515f23633b3d36401dd73b147cb3fc7184a5c",
+      "bytes": 1585
+    },
+    ".q3x-work/prefill-convergence-20260928/v8-r4-api-capability/identity.json": {
+      "sha256": "e33693c38e805b2f800573c38e95bae34d5fba9be1cec8634a8de707a4e80045",
+      "bytes": 1140
+    }
+  }
+}

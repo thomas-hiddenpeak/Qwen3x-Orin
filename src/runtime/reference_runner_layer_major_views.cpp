@@ -439,33 +439,33 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
   }
 
   const LayerMajorP40WholeCoreLinearPhaseRegions& linear = whole.linear;
-  if (!valid_exact_matrix(linear.raw_qkv_bf16, 40'000U, 10'240U,
+  if (!valid_exact_matrix(linear.raw_qkv_bf16, kWholeCoreCompiledPromptStorageTokens, 10'240U,
                           10'240U, kBf16Bytes, arena_bytes) ||
-      !valid_exact_matrix(linear.conv_qkv_bf16, 40'000U, 10'240U,
+      !valid_exact_matrix(linear.conv_qkv_bf16, kWholeCoreCompiledPromptStorageTokens, 10'240U,
                           10'240U, kBf16Bytes, arena_bytes) ||
-      !valid_exact_matrix(linear.z_bf16, 40'000U, 6'144U, 6'144U,
+      !valid_exact_matrix(linear.z_bf16, kWholeCoreCompiledPromptStorageTokens, 6'144U, 6'144U,
                           kBf16Bytes, arena_bytes) ||
-      !valid_exact_matrix(linear.a_bf16, 40'000U, 48U, 48U,
+      !valid_exact_matrix(linear.a_bf16, kWholeCoreCompiledPromptStorageTokens, 48U, 48U,
                           kBf16Bytes, arena_bytes) ||
-      !valid_exact_matrix(linear.b_bf16, 40'000U, 48U, 48U,
+      !valid_exact_matrix(linear.b_bf16, kWholeCoreCompiledPromptStorageTokens, 48U, 48U,
                           kBf16Bytes, arena_bytes) ||
-      !valid_byte_region(linear.prompt_wide_workspace, 2'800'640'000U,
+      !valid_byte_region(linear.prompt_wide_workspace, kWholeCoreCompiledGdnBytes,
                          arena_bytes) ||
-      !valid_exact_matrix(linear.output_bf16, 40'000U, 6'144U, 6'144U,
+      !valid_exact_matrix(linear.output_bf16, kWholeCoreCompiledPromptStorageTokens, 6'144U, 6'144U,
                           kBf16Bytes, arena_bytes) ||
-      !valid_exact_matrix(linear.normalized_input_bf16, 40'000U, 5'120U,
+      !valid_exact_matrix(linear.normalized_input_bf16, kWholeCoreCompiledPromptStorageTokens, 5'120U,
                           5'120U, kBf16Bytes, arena_bytes) ||
-      !valid_exact_matrix(linear.branch_output_bf16, 40'000U, 5'120U,
+      !valid_exact_matrix(linear.branch_output_bf16, kWholeCoreCompiledPromptStorageTokens, 5'120U,
                           5'120U, kBf16Bytes, arena_bytes) ||
       !relative_offset(linear.raw_qkv_bf16.storage, 0U) ||
-      !relative_offset(linear.conv_qkv_bf16.storage, 819'200'000U) ||
-      !relative_offset(linear.z_bf16.storage, 1'638'400'000U) ||
-      !relative_offset(linear.a_bf16.storage, 2'129'920'000U) ||
-      !relative_offset(linear.b_bf16.storage, 2'133'760'000U) ||
-      !relative_offset(linear.prompt_wide_workspace, 2'137'600'000U) ||
-      !relative_offset(linear.output_bf16.storage, 4'938'240'000U) ||
+      !relative_offset(linear.conv_qkv_bf16.storage, kWholeCoreCompiledConvOffset) ||
+      !relative_offset(linear.z_bf16.storage, kWholeCoreCompiledZOffset) ||
+      !relative_offset(linear.a_bf16.storage, kWholeCoreCompiledAOffset) ||
+      !relative_offset(linear.b_bf16.storage, kWholeCoreCompiledBOffset) ||
+      !relative_offset(linear.prompt_wide_workspace, kWholeCoreCompiledGdnOffset) ||
+      !relative_offset(linear.output_bf16.storage, kWholeCoreCompiledOutputOffset) ||
       !relative_offset(linear.normalized_input_bf16.storage,
-                       4'938'240'000U) ||
+                       kWholeCoreCompiledOutputOffset) ||
       !relative_offset(linear.branch_output_bf16.storage, 0U) ||
       !contiguous(linear.raw_qkv_bf16.storage,
                   linear.conv_qkv_bf16.storage) ||
@@ -479,7 +479,7 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
     return false;
   }
 
-  if (!valid_exact_matrix(whole.prompt_token_ids_u32, 40'000U, 1U, 1U,
+  if (!valid_exact_matrix(whole.prompt_token_ids_u32, kWholeCoreCompiledPromptStorageTokens, 1U, 1U,
                           sizeof(std::uint32_t), arena_bytes) ||
       !contains(linear.prompt_wide_workspace,
                 whole.prompt_token_ids_u32.storage) ||
@@ -499,17 +499,17 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
       full.normalized_input_bf16.storage,
       full.core_output_bf16.storage,
       full.branch_output_bf16.storage};
-  if (!valid_exact_matrix(full.raw_q_gate_bf16, 40'000U, 12'288U,
+  if (!valid_exact_matrix(full.raw_q_gate_bf16, kWholeCoreCompiledPromptStorageTokens, 12'288U,
                           12'288U, kBf16Bytes, arena_bytes) ||
-      !valid_exact_matrix(full.processed_q_bf16, 40'000U, 6'144U, 6'144U,
+      !valid_exact_matrix(full.processed_q_bf16, kWholeCoreCompiledPromptStorageTokens, 6'144U, 6'144U,
                           kBf16Bytes, arena_bytes) ||
-      !valid_exact_matrix(full.packed_gate_bf16, 40'000U, 6'144U, 6'144U,
+      !valid_exact_matrix(full.packed_gate_bf16, kWholeCoreCompiledPromptStorageTokens, 6'144U, 6'144U,
                           kBf16Bytes, arena_bytes) ||
-      !valid_exact_matrix(full.normalized_input_bf16, 40'000U, 5'120U,
+      !valid_exact_matrix(full.normalized_input_bf16, kWholeCoreCompiledPromptStorageTokens, 5'120U,
                           5'120U, kBf16Bytes, arena_bytes) ||
-      !valid_exact_matrix(full.core_output_bf16, 40'000U, 6'144U, 6'144U,
+      !valid_exact_matrix(full.core_output_bf16, kWholeCoreCompiledPromptStorageTokens, 6'144U, 6'144U,
                           kBf16Bytes, arena_bytes) ||
-      !valid_exact_matrix(full.branch_output_bf16, 40'000U, 5'120U,
+      !valid_exact_matrix(full.branch_output_bf16, kWholeCoreCompiledPromptStorageTokens, 5'120U,
                           5'120U, kBf16Bytes, arena_bytes)) {
     return false;
   }
@@ -519,12 +519,12 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
     }
   }
   return relative_offset(full.raw_q_gate_bf16.storage, 0U) &&
-         relative_offset(full.processed_q_bf16.storage, 983'040'000U) &&
-         relative_offset(full.packed_gate_bf16.storage, 1'474'560'000U) &&
+         relative_offset(full.processed_q_bf16.storage, kWholeCoreCompiledProcessedQOffset) &&
+         relative_offset(full.packed_gate_bf16.storage, kWholeCoreCompiledGateOffset) &&
          relative_offset(full.normalized_input_bf16.storage,
-                         4'938'240'000U) &&
+                         kWholeCoreCompiledOutputOffset) &&
          relative_offset(full.core_output_bf16.storage, 0U) &&
-         relative_offset(full.branch_output_bf16.storage, 491'520'000U) &&
+         relative_offset(full.branch_output_bf16.storage, kWholeCoreCompiledAttentionBranchOffset) &&
          contiguous(full.raw_q_gate_bf16.storage,
                     full.processed_q_bf16.storage) &&
          contiguous(full.processed_q_bf16.storage,

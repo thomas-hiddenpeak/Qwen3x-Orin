@@ -61,9 +61,15 @@ pinned vLLM/FLA is 0.00733; all 48 GDN states have relative L2 0.01251.
 Request-owned scratch preserves the corrected P8192 handoff bitwise. Actual
 1, 63, 64, 65, 513, 7999, 8000, 8001 and 8193-row API requests complete with
 matching usage and route receipts. The v8 Down tail copies back actual rows
-only. Text/chat admission is being integrated, capability is running, and
-P40001..44095 plus installed-default qualification remain open. The existing
-approximately 8.55 Decode target is not superseded by 7.87.
+only. Full-range prompt capacity now passes P44080/O16 through the final served
+state position, followed by ordinary text/chat and stream/nonstream requests.
+The expanded arena preserves complete P8192 handoff bits. The pinned 98-case
+four-subject C-Eval panel has identical native/vLLM answers (79 correct), and
+independent FP64 checks support ordered v7 as a bounded Decode comparator.
+Two bounded PV successors were slower and rejected. See the
+[capacity and baseline record](metadata/qwen36-27b-whole-core-capacity-baselines-2026-09-28.json).
+Installed-default qualification remains open; the approximately 8.55 Decode
+target is not superseded by 7.87.
 
 **Production-switch decision, 2026-09-27: NO-GO for the current whole-core
 Prefill candidate. The earlier full-state accuracy qualification is withdrawn.**

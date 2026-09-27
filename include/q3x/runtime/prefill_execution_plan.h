@@ -30,7 +30,7 @@ inline constexpr std::uint32_t
 // exact cold-prompt shape so a host plan cannot silently generalize an
 // unprofiled full-M scheduling contract to other prompt lengths.
 inline constexpr std::uint32_t kLayerMajorPrefillPromptWideP40Tokens =
-    40'000U;
+    kWholeCoreCompiledPromptStorageTokens;
 // The complete whole-core route deliberately uses five equal M8000 panels.
 // M8000 is M64-aligned and remains below the C8192 operator-panel ceiling,
 // allowing every aligned FP8 fill/drain projection to retain one physical
@@ -179,7 +179,7 @@ static_assert(kLayerMajorPrefillPromptWideP40PanelTokens %
 static_assert(kLayerMajorPrefillPromptWideP40PanelTokens <=
               kLayerMajorPrefillOperatorPanelTokens);
 static_assert(kLayerMajorPrefillPromptWideP40PanelTokens *
-                      kLayerMajorPrefillPromptWideP40PanelCount ==
+                      kWholeCoreCompiledPanelCapacity >=
                   kLayerMajorPrefillPromptWideP40Tokens);
 static_assert(
     kLayerMajorPrefillProjectionResetFp8PhysicalLaunchesPerRequest ==
@@ -214,11 +214,13 @@ static_assert(kLayerMajorPrefillPackedNvfp4V2ArtifactCount ==
               kLayerMajorPrefillLayerCount * 2U);
 static_assert(kLayerMajorPrefillPackedNvfp4V2AuthenticatedSourceCount ==
               kLayerMajorPrefillLayerCount * 3U);
+#if !defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
 static_assert(kLayerMajorPrefillVllmMarlinParityFullSegmentTokens *
                           kLayerMajorPrefillVllmMarlinParityFullSegmentsPerProjection +
                       kLayerMajorPrefillVllmMarlinParityTailSegmentTokens *
                           kLayerMajorPrefillVllmMarlinParityTailSegmentsPerProjection ==
                   kLayerMajorPrefillPromptWideP40Tokens);
+#endif
 static_assert(kLayerMajorPrefillVllmMarlinParitySegmentsPerProjection ==
               kLayerMajorPrefillVllmMarlinParityFullSegmentsPerProjection +
                   kLayerMajorPrefillVllmMarlinParityTailSegmentsPerProjection);

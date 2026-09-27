@@ -375,14 +375,14 @@ void test_p60_and_every_unowned_shape_fail_closed(TestContext& test) {
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
   test.expect(c512.ok() && p40_plus_one.ok() && p40_plus_one.chunk_count == 626U,
               "composition uses checked actual-length workspace");
-  for (std::size_t tokens : {1U, 63U, 64U, 65U, 513U, 8193U, 44095U}) {
+  for (std::size_t tokens : {1U, 63U, 64U, 65U, 513U, 8193U, 44095U, 44096U}) {
     const auto variable = kernels::make_gdn_prompt_wide_chunk_graph_workspace_plan(tokens);
     test.expect(variable.ok() && variable.padded_token_count >= tokens &&
                     variable.padded_token_count - tokens < 64U &&
                     kernels::make_gdn_prompt_wide_chunk_graph_workspace_lifetime_receipt(variable).ok(),
                 "variable tail has bounded storage and legal aliases");
   }
-  test.expect(!kernels::make_gdn_prompt_wide_chunk_graph_workspace_plan(44096U).ok(),
+  test.expect(!kernels::make_gdn_prompt_wide_chunk_graph_workspace_plan(44097U).ok(),
               "component capacity fails closed");
 #else
   test.expect(

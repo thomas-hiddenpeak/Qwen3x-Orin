@@ -1931,7 +1931,7 @@ void handle_connection(
       const OpenAIProtocolError error = simple_error(
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
           400, "whole_core_exact_decode_contract",
-          "the whole-core exact Decode candidate requires 1..40000 prompt tokens "
+          "the whole-core exact Decode candidate requires 1..44095 prompt tokens "
           "and max_tokens from 1 through 4096 within the sequence capacity");
 #else
           400, "p40_whole_core_v1_contract",

@@ -342,7 +342,7 @@ make_gdn_prompt_wide_chunk_graph_workspace_plan(
     return plan;
   }
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
-  if (token_count > 44'095U) {
+  if (token_count > 44'096U) {
 #else
   if (token_count != kGdnPromptWideChunkGraphP40Tokens) {
 #endif

@@ -227,10 +227,10 @@ static_assert(
 inline constexpr EvaluationProductionDeploymentPlan
     kWholeCoreExactDecodeAdmissionPlan = [] {
       auto plan = kP40WholeCoreV1ProductionPlan;
-      plan.id = "q3x.sm87.admission.whole-core-exact-decode.v8";
+      plan.id = "q3x.sm87.admission.whole-core-exact-decode.v9";
       plan.max_sequence_length = 44'095U;
       plan.maximum_output_tokens = 4'096U;
-      plan.request_arena_bytes = 8'952'211'200ULL;
+      plan.request_arena_bytes = runtime::kWholeCoreCompiledArenaBytes;
       plan.decode_route_id = "fixed-gqa-ordered-pipeline-s512-44095.v7";
       plan.min_free_bytes_after_create = 8ULL * 1024ULL * 1024ULL * 1024ULL;
       plan.decode_gate_up_layers = runtime::kQwen36DenseLayerCount;

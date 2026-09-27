@@ -442,6 +442,9 @@ int main(int argc, char** argv) {
 
     if (!result) throw std::runtime_error("generation failed: " +
         result.diagnostic.stage + ": " + result.diagnostic.message +
+        "; operation=" + result.diagnostic.operation +
+        "; layer=" + std::to_string(result.diagnostic.layer) +
+        "; runner_cuda=" + std::to_string(result.diagnostic.cuda_error) +
         "; capture_error=" + (capture.error == nullptr ? "none" : capture.error) +
         "; cuda_error=" + std::to_string(capture.cuda_error));
     const auto& generation = *result.value;

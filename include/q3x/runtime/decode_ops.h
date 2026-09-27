@@ -340,7 +340,7 @@ can_launch_full_attention_preprocess_prompt_wide_p8000(
     const std::size_t first_position,
     const std::size_t token_count) noexcept {
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
-  return token_count > 0U && token_count <= 8000U && first_position <= 40000U - token_count;
+  return token_count > 0U && token_count <= 8000U && first_position <= 44095U - token_count;
 #else
   return token_count == kFullAttentionPreprocessPromptWideP8000Tokens &&
          first_position %

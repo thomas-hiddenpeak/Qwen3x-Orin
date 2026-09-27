@@ -1694,9 +1694,8 @@ build_unbound_layer_major_p40_whole_core_workspace_plan(
   if (!valid_layer_major_model_contract(config) ||
       config->hidden_size != 5'120U ||
       config->intermediate_size != 17'408U ||
-      options.prompt_token_count % options.logical_panel_capacity_tokens !=
-          0U ||
-      options.prompt_token_count / options.logical_panel_capacity_tokens !=
+      (options.prompt_token_count + options.logical_panel_capacity_tokens - 1U) /
+          options.logical_panel_capacity_tokens !=
           kLayerMajorP40WholeCorePanelCount) {
     result.error = PrefillWorkspacePlanError::kModelContractMismatch;
     return result;
@@ -1796,7 +1795,7 @@ build_unbound_layer_major_p40_whole_core_workspace_plan(
                      PrefillMemoryAliasCondition::kDisjoint,
                      plan.linear_b_bf16) ||
       !append_family(
-          kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes, 1U,
+          kWholeCoreCompiledGdnBytes, 1U,
           PrefillMemoryAliasCondition::kDisjoint,
           plan.linear_prompt_wide_workspace) ||
       !append_family(output_elements, static_cast<std::uint32_t>(kBf16),
@@ -1866,13 +1865,13 @@ build_unbound_layer_major_p40_whole_core_workspace_plan(
       token_ids_end > workspace_end ||
       plan.prompt_token_ids_u32.family_relative_offset == 0U ||
       plan.linear_raw_qkv_bf16.family_relative_offset != 0U ||
-      plan.linear_conv_qkv_bf16.family_relative_offset != 819'200'000U ||
-      plan.linear_z_bf16.family_relative_offset != 1'638'400'000U ||
-      plan.linear_a_bf16.family_relative_offset != 2'129'920'000U ||
-      plan.linear_b_bf16.family_relative_offset != 2'133'760'000U ||
+      plan.linear_conv_qkv_bf16.family_relative_offset != kWholeCoreCompiledConvOffset ||
+      plan.linear_z_bf16.family_relative_offset != kWholeCoreCompiledZOffset ||
+      plan.linear_a_bf16.family_relative_offset != kWholeCoreCompiledAOffset ||
+      plan.linear_b_bf16.family_relative_offset != kWholeCoreCompiledBOffset ||
       plan.linear_prompt_wide_workspace.family_relative_offset !=
-          2'137'600'000U ||
-      plan.linear_output_bf16.family_relative_offset != 4'938'240'000U ||
+          kWholeCoreCompiledGdnOffset ||
+      plan.linear_output_bf16.family_relative_offset != kWholeCoreCompiledOutputOffset ||
       plan.whole_core_family_arena.required_bytes !=
           kLayerMajorP40WholeCoreFamilyArenaBytes ||
       plan.persistent_and_kv.required_bytes != kWholeCoreCompiledPersistentBytes ||

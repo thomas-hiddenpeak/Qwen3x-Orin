@@ -1,4 +1,5 @@
 #include "q3x/runtime/prefill_workspace_plan.h"
+#include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/request_state.h"
 #include "q3x/server/evaluation_server.h"
 #include <iostream>
@@ -8,7 +9,7 @@ int main(int argc, char** argv) {
   namespace rt = q3x::runtime;
   namespace server = q3x::server;
   // The runner must consume actual spans, including the short final panel.
-  for (const auto tokens : {1U, 63U, 64U, 65U, 511U, 512U, 513U, 7999U, 8000U, 8001U, 8192U, 8193U, 16000U, 32000U, 39999U, 40000U}) {
+  for (const auto tokens : {1U, 63U, 64U, 65U, 511U, 512U, 513U, 7999U, 8000U, 8001U, 8192U, 8193U, 16000U, 32000U, 39999U, 40000U, 40001U, 44094U, 44095U}) {
     rt::PrefillExecutionPlanOptions geometry;
     geometry.prompt_token_count = tokens;
     geometry.max_sequence_length = 44095U;
@@ -21,6 +22,11 @@ int main(int argc, char** argv) {
         result.value->panel_count != (tokens + 7999U) / 8000U ||
         result.value->panels[result.value->panel_count - 1U].end_position != tokens)
       return 1;
+    for (std::size_t i = 0; i < result.value->panel_count; ++i) {
+      const auto& panel = result.value->panels[i];
+      if (!rt::can_launch_full_attention_preprocess_prompt_wide_p8000(
+              panel.first_position, panel.token_count)) return 1;
+    }
     if (result.value->mlp_schedule.required_down_projection_launches_per_layer !=
             rt::whole_core_mlp_launch_count(tokens) - 1U) return 1;
     auto corrupt = *result.value;
@@ -85,7 +91,7 @@ int main(int argc, char** argv) {
   const auto workspace = rt::build_unbound_layer_major_p40_whole_core_workspace_plan();
   rt::LayerMajorRequestMemoryOptions options;
   options.max_sequence_length = 44'095U;
-  options.max_arena_bytes = 8'952'211'200ULL;
+  options.max_arena_bytes = rt::kWholeCoreCompiledArenaBytes;
   options.layout = rt::LayerMajorRequestLayout::kP40WholeCorePromptWide;
   options.mlp_layout = rt::LayerMajorRequestMlpLayout::kLayerWideP40PersistentTwoSpan;
   const auto request = rt::build_layer_major_request_memory_plan(options);
@@ -100,7 +106,7 @@ int main(int argc, char** argv) {
       plan.common.fp32_scratch.element_capacity < 24ULL * 44'095U ||
       plan.p40_whole_core.request_capacity_tokens != 44'095U ||
       plan.prompt_residual_bf16.row_capacity != 44'095U ||
-      plan.p40_whole_core.prompt_token_count != 40'000U) return 1;
+      plan.p40_whole_core.prompt_token_count != rt::kWholeCoreCompiledPromptStorageTokens) return 1;
   --options.max_arena_bytes;
   if (rt::build_layer_major_request_memory_plan(options)) return 1;
 
@@ -131,7 +137,7 @@ int main(int argc, char** argv) {
   input.max_tokens = 1U;
   input.prompt_token_ids.pop_back();
   if (!server::is_p40_whole_core_v10_request(input)) return 1;
-  input.prompt_token_ids.resize(40001U, 1U);
+  input.prompt_token_ids.resize(44096U, 1U);
   if (server::is_p40_whole_core_v10_request(input)) return 1;
   input.prompt_token_ids.resize(40000U);
   input.stream = false;

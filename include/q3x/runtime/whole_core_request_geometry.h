@@ -9,11 +9,39 @@ inline constexpr std::uint32_t kWholeCoreCompiledSequenceCapacity = 44'095U;
 #else
 inline constexpr std::uint32_t kWholeCoreCompiledSequenceCapacity = 40'016U;
 #endif
+// Storage rounds the served 44095 positions to C64 for aligned typed regions.
+// The spare row is capacity only: execution always uses actual prompt length.
+inline constexpr std::uint32_t kWholeCoreCompiledPromptStorageTokens =
+    kWholeCoreCompiledSequenceCapacity == 44'095U ? 44'096U : 40'000U;
+inline constexpr std::uint32_t kWholeCoreCompiledPanelCapacity =
+    (kWholeCoreCompiledPromptStorageTokens + 7999U) / 8000U;
+inline constexpr std::uint64_t kWholeCoreCompiledConvOffset =
+    20480ULL * kWholeCoreCompiledPromptStorageTokens;
+inline constexpr std::uint64_t kWholeCoreCompiledZOffset =
+    2ULL * kWholeCoreCompiledConvOffset;
+inline constexpr std::uint64_t kWholeCoreCompiledAOffset =
+    kWholeCoreCompiledZOffset + 12288ULL * kWholeCoreCompiledPromptStorageTokens;
+inline constexpr std::uint64_t kWholeCoreCompiledBOffset =
+    kWholeCoreCompiledAOffset + 96ULL * kWholeCoreCompiledPromptStorageTokens;
+inline constexpr std::uint64_t kWholeCoreCompiledGdnOffset =
+    kWholeCoreCompiledBOffset + 96ULL * kWholeCoreCompiledPromptStorageTokens;
+inline constexpr std::uint64_t kWholeCoreCompiledGdnBytes =
+    70016ULL * kWholeCoreCompiledPromptStorageTokens;
+inline constexpr std::uint64_t kWholeCoreCompiledOutputOffset =
+    kWholeCoreCompiledGdnOffset + kWholeCoreCompiledGdnBytes;
+inline constexpr std::uint64_t kWholeCoreCompiledFamilyBytes =
+    kWholeCoreCompiledOutputOffset + 12288ULL * kWholeCoreCompiledPromptStorageTokens;
+inline constexpr std::uint64_t kWholeCoreCompiledProcessedQOffset =
+    24576ULL * kWholeCoreCompiledPromptStorageTokens;
+inline constexpr std::uint64_t kWholeCoreCompiledGateOffset =
+    36864ULL * kWholeCoreCompiledPromptStorageTokens;
+inline constexpr std::uint64_t kWholeCoreCompiledAttentionBranchOffset =
+    12288ULL * kWholeCoreCompiledPromptStorageTokens;
 // Actual prompt rows fit the current family arena. Down isolates a partial
 // final tile in request scratch; padding never advances model state.
 [[nodiscard]] constexpr bool whole_core_prompt_tokens_admitted(std::uint64_t tokens) noexcept {
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
-  return tokens >= 1U && tokens <= 40'000U;
+  return tokens >= 1U && tokens <= kWholeCoreCompiledSequenceCapacity;
 #else
   return tokens == 40'000U;
 #endif
@@ -41,9 +69,9 @@ inline constexpr std::uint64_t kWholeCoreCompiledRopeBytes =
     256ULL * kWholeCoreCompiledSequenceCapacity;
 inline constexpr std::uint64_t kWholeCoreCompiledArenaBytes =
     kWholeCoreCompiledPersistentBytes + kWholeCoreCompiledResidualBytes +
-    5'429'760'000ULL + kWholeCoreCompiledLegacyBytes + 10'240ULL +
+    kWholeCoreCompiledFamilyBytes + kWholeCoreCompiledLegacyBytes + 10'240ULL +
     kWholeCoreCompiledRopeBytes;
 static_assert(kWholeCoreCompiledArenaBytes ==
     (kWholeCoreCompiledSequenceCapacity == 40'016U
-         ? 8'641'684'992ULL : 8'952'211'200ULL));
+         ? 8'641'684'992ULL : 9'508'218'624ULL));
 }  // namespace q3x::runtime

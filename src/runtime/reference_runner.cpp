@@ -113,14 +113,14 @@ constexpr std::size_t kPrefillKernelTileMaximumTokens = 16U;
 constexpr std::size_t kFullAttentionPreprocessTileMaximumTokens =
     kFullAttentionPreprocessMaximumTokens;
 constexpr std::size_t kProductionProjectionSubtileTokens = 32U;
-constexpr std::size_t kPromptWideP40WholeCorePromptTokens = 40'000U;
+constexpr std::size_t kPromptWideP40WholeCorePromptTokens = kWholeCoreCompiledPromptStorageTokens;
 constexpr std::size_t kPromptWideP40WholeCoreRequestCapacityTokens = kWholeCoreCompiledSequenceCapacity;
 constexpr std::size_t kPromptWideP40WholeCorePanelTokens = 8'000U;
-constexpr std::size_t kPromptWideP40WholeCorePanelCount = 5U;
-constexpr std::size_t kPromptWideP40WholeCoreFillPhases = 5U;
-constexpr std::size_t kPromptWideP40WholeCorePromptCorePhase = 5U;
-constexpr std::size_t kPromptWideP40WholeCoreDrainPhaseBegin = 6U;
-constexpr std::size_t kPromptWideP40WholeCorePersistentMlpPhase = 11U;
+constexpr std::size_t kPromptWideP40WholeCorePanelCount = kWholeCoreCompiledPanelCapacity;
+constexpr std::size_t kPromptWideP40WholeCoreFillPhases = kWholeCoreCompiledPanelCapacity;
+constexpr std::size_t kPromptWideP40WholeCorePromptCorePhase = kWholeCoreCompiledPanelCapacity;
+constexpr std::size_t kPromptWideP40WholeCoreDrainPhaseBegin = kWholeCoreCompiledPanelCapacity + 1U;
+constexpr std::size_t kPromptWideP40WholeCorePersistentMlpPhase = 2U * kWholeCoreCompiledPanelCapacity + 1U;
 constexpr float kRmsEpsilon = 1.0e-6F;
 constexpr float kAttentionScale = 1.0F / 16.0F;
 
@@ -9139,15 +9139,17 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
       mlp.normalized_input_bf16.storage.device_data);
   auto* const activated = static_cast<std::uint16_t*>(
       mlp.gate_bf16.storage.device_data);
-  constexpr std::size_t kResidualBytes =
+  // Residual owns sequence positions, while family scratch rounds capacity
+  // up to M64. The spare scratch row is not part of the residual allocation.
+  const std::size_t residual_bytes = residual_view.storage.byte_size;
+  constexpr std::size_t kNormalizedBytes =
       static_cast<std::size_t>(kLayerMajorPrefillLayerWideMlpP40Tokens) *
       kReferenceHiddenSize * sizeof(std::uint16_t);
-  constexpr std::size_t kNormalizedBytes = kResidualBytes;
   constexpr std::size_t kActivatedBytes =
       static_cast<std::size_t>(kLayerMajorPrefillLayerWideMlpP40Tokens) *
       kReferenceIntermediateSize * sizeof(std::uint16_t);
   if (!byte_ranges_are_pairwise_disjoint(
-          std::array<ByteSpan, 3U>{{{residual, kResidualBytes},
+          std::array<ByteSpan, 3U>{{{residual, residual_bytes},
                                    {normalized, kNormalizedBytes},
                                    {activated, kActivatedBytes}}})) {
     return runner_status(ReferenceRunnerError::kInvalidRequestState,

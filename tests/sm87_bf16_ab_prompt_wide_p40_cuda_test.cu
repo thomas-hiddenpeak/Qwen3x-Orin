@@ -74,7 +74,7 @@ void test_invalid_contracts(TestContext& test) {
       launch(const_pointer(kFirstWeights), const_pointer(kSecondWeights),
              const_pointer(kInput),
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
-             44'096U,
+             44'097U,
 #else
              40'001U,
 #endif

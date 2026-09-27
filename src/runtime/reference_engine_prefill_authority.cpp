@@ -1066,8 +1066,8 @@ complete_nvfp4_persistent_p40_capability() noexcept {
 #if !defined(Q3X_ENABLE_NVFP4_PERSISTENT_PREFILL_ADMISSION)
   return false;
 #else
-  static_assert(kLayerMajorPrefillLayerWideMlpP40Tokens ==
-                kernels::kSm87NvFp4PersistentPrefillP40Tokens);
+  static_assert(kernels::sm87_nvfp4_persistent_prefill_shape_contract(
+      kLayerMajorPrefillLayerWideMlpP40Tokens).admitted);
   constexpr std::array<kernels::Sm87NvFp4PersistentPrefillRole, 2U> kRoles{
       kernels::Sm87NvFp4PersistentPrefillRole::kGateUpPaired,
       kernels::Sm87NvFp4PersistentPrefillRole::kDown};
@@ -1113,8 +1113,7 @@ complete_bf16_ab_prompt_wide_p40_capability() noexcept {
 #if !defined(Q3X_ENABLE_BF16_AB_LARGE_M_PREFILL_ADMISSION)
   return false;
 #else
-  static_assert(kLayerMajorPrefillPromptWideP40Tokens ==
-                kernels::kSm87Bf16AbPromptWideP40Tokens);
+  static_assert(kLayerMajorPrefillPromptWideP40Tokens <= kWholeCoreCompiledPromptStorageTokens);
   const kernels::Sm87Bf16AbPromptWideP40Plan plan =
       kernels::make_sm87_bf16_ab_prompt_wide_p40_plan(
           kLayerMajorPrefillPromptWideP40Tokens);
@@ -1133,8 +1132,8 @@ complete_gdn_prompt_wide_p40_capability() noexcept {
     !defined(Q3X_ENABLE_GDN_CHUNK64_NATIVE_ADMISSION)
   return false;
 #else
-  static_assert(kLayerMajorPrefillPromptWideP40Tokens ==
-                kernels::kGdnPromptWideChunkGraphP40Tokens);
+  static_assert(kernels::make_gdn_prompt_wide_chunk_graph_workspace_plan(
+      kWholeCoreCompiledPromptStorageTokens).layout.total_bytes == kWholeCoreCompiledGdnBytes);
   gdn_prefill_prompt_wide_chunk_graph_detail::ResourcePreflightReceipt
       resources{};
   return kernels::kGdnPromptWideChunkGraphP40WorkspacePlan.ok() &&
@@ -1143,7 +1142,7 @@ complete_gdn_prompt_wide_p40_capability() noexcept {
          gdn_prefill_prompt_wide_chunk_graph_detail::supports(
              kLayerMajorPrefillPromptWideP40Tokens) &&
          gdn_prefill_prompt_wide_chunk_graph_detail::workspace_bytes() ==
-             kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes &&
+             kWholeCoreCompiledGdnBytes &&
          gdn_prefill_prompt_wide_chunk_graph_detail::preflight_resources(
              &resources) == 0 &&
          resources.registers_per_thread > 0 &&
@@ -2179,7 +2178,7 @@ inline constexpr std::uint64_t kPromptWideP40WholeCoreArenaBytes =
                            kLayerMajorPrefillPromptWideP40Tokens, 48U) &&
          linear.prompt_wide_workspace.device_data != nullptr &&
          linear.prompt_wide_workspace.byte_size ==
-             kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes &&
+             kWholeCoreCompiledGdnBytes &&
          exact_matrix_view(linear.output_bf16,
                            kLayerMajorPrefillPromptWideP40Tokens, 6'144U) &&
          exact_matrix_view(linear.normalized_input_bf16,
@@ -2911,7 +2910,7 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                 NativePrefillTactic::kExactGdnPromptWideP40ChunkGraph,
                 linear->conv1d.data,
                 whole.linear.prompt_wide_workspace.device_data,
-                kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes,
+                kWholeCoreCompiledGdnBytes,
                 kLayerMajorPrefillPromptWideP40Tokens,
                 kLayerMajorPrefillPromptWideP40Tokens);
     roles[static_cast<std::size_t>(
@@ -4045,7 +4044,7 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
                NativePrefillTactic::kExactGdnPromptWideP40ChunkGraph,
                linear->conv1d.data,
                whole.linear.prompt_wide_workspace.device_data,
-               kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes,
+               kWholeCoreCompiledGdnBytes,
                kLayerMajorPrefillPromptWideP40Tokens,
                kLayerMajorPrefillPromptWideP40Tokens) &&
            matches(

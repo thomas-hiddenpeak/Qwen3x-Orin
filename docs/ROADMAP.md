@@ -61,8 +61,9 @@ accumulation in the separately identified corrected admission.
 The corrected composition has returned to P8192/O256 and P40000/O256 with
 verified binary/profile identity. Request-owned projection scratch and the
 actual-row Down tail are composed; preserve the token-ID prefix until all fill
-panels consume it. Complete P44095 workspace, normal text/chat/nonstream coverage,
-public capability and exact installed Release/OFF default qualification next. Reference
+panels consume it. Full-range workspace and ordinary text/chat/nonstream coverage now pass;
+the pinned four-subject capability panel matches vLLM on all 98 answers.
+Complete exact installed Release/OFF default qualification next. Reference
 comparisons use the same prompt boundary and full logits; independently
 validated reference arithmetic takes precedence over an unqualified incumbent.
 Approximately 8.55 Decode tok/s remains the interim target. Raw artifacts are
@@ -70,6 +71,37 @@ under `.q3x-work/prefill-convergence-20260928/`. The prior numerical erratum
 remains valid for its recorded comparison and invalid historical metric; it
 never established Legacy as independently correct. No automatic promotion or
 accuracy waiver follows from this repair work.
+
+`WP-DECODE-PV-FP32-REFERENCE-20260928` is one bounded dependency of this
+same corrected service. The remaining P40000/O256 gap is 7.87 versus the
+approximately 8.55 tok/s owner target. An independent FP64 same-input audit
+first assesses ordered v7 rather than assuming its serial FP32 sum is truth.
+Admit one PV-only four-chain FP32 accumulation with a balanced FP32 merge,
+unchanged QK/softmax, BF16 operands/output, and request ownership. This is a
+new finite-precision route, not scalar bitwise equivalence. It must improve
+same-input FP64 error, pass the cancellation regression and matched
+short/8K/40K real-input checks, then return immediately to the composed
+P40000/O256 API. No BF16 partial/probability narrowing, parameter scan or
+second arithmetic variant is admitted. The single four-chain variant
+reduces FP64 discrepancy but is slower on matched real operands and is rejected
+without whole-model promotion; ordered v7 remains selected for composition. Reject if accuracy or whole-API value
+fails; public capability and installed-artifact qualification remain required.
+
+`WP-DECODE-PV-SPATIAL-OWNERSHIP-20260928` tests one exact scheduling
+successor, with no arithmetic change. Current PV owns 16 CTAs of six warps
+across 16 SMs, capping this grid at six resident warps per SM regardless of
+resource headroom. A fixed 64-CTA ownership of 16 output dimensions, two
+query heads per warp and three warps per CTA doubles available consumer warps
+while retaining six-head V reuse, each ordered FP32 FMA and final BF16 output.
+QK, softmax, arena and synchronization ownership remain unchanged. The same
+real P576/P8192/P40000 operands must match every output and probability bit;
+fixed mirrored P40000 local pairs decide whether the single version returns
+to the composed P40000/O256 API. A negative result closes without another
+spatial/tile variant. Maximum local device budget is 20 minutes; this is a
+bounded response to the remaining 8.55 tok/s service budget, not a scan.
+This one exact variant is now rejected for slower real-payload time; retain
+v7 and complete the corrected Prefill production switch without another
+local scan. The Decode target remains a reported gap.
 
 Owner direction: provisionally accept current Prefill performance, converge on
 the recommended fused Decode attention direction, and expose prior performance
