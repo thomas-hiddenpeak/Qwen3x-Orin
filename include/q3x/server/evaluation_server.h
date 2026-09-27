@@ -227,7 +227,7 @@ static_assert(
 inline constexpr EvaluationProductionDeploymentPlan
     kWholeCoreExactDecodeAdmissionPlan = [] {
       auto plan = kP40WholeCoreV1ProductionPlan;
-      plan.id = "q3x.sm87.admission.whole-core-exact-decode.v7";
+      plan.id = "q3x.sm87.admission.whole-core-exact-decode.v8";
       plan.max_sequence_length = 44'095U;
       plan.maximum_output_tokens = 4'096U;
       plan.request_arena_bytes = 8'952'211'200ULL;
@@ -450,15 +450,18 @@ class EvaluationProductionRuntimeHealth final {
 
 [[nodiscard]] inline bool is_p40_whole_core_v10_request(
     const OpenAIRequest& request) noexcept {
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  // Raw text/chat are tokenized by the inference worker. The engine checks
+  // actual prompt length and P + O - 1 before enqueueing model work.
+  return (request.prompt_kind != OpenAIPromptKind::kTokenIds ||
+          runtime::whole_core_prompt_tokens_admitted(request.prompt_token_ids.size())) &&
+         request.max_tokens >= 1U && request.max_tokens <= 4096U;
+#else
   return request.endpoint == OpenAIEndpoint::kCompletions &&
          request.prompt_kind == OpenAIPromptKind::kTokenIds &&
          runtime::whole_core_prompt_tokens_admitted(request.prompt_token_ids.size()) &&
-#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
-         request.max_tokens >= 1U && request.max_tokens <= 4096U &&
-#else
-         request.max_tokens == 16U &&
+         request.max_tokens == 16U && request.stream && request.include_usage;
 #endif
-         request.stream && request.include_usage;
 }
 
 // Loads one resident model, starts a bounded HTTP ingress and exactly one

@@ -9,14 +9,22 @@ inline constexpr std::uint32_t kWholeCoreCompiledSequenceCapacity = 44'095U;
 #else
 inline constexpr std::uint32_t kWholeCoreCompiledSequenceCapacity = 40'016U;
 #endif
-// First composed variable-shape admission: complete C64 chunks fit the
-// existing P40 family arena. Non-C64 tails remain closed at the runner until
-// their MLP physical-row publication has been composed and checked.
+// Actual prompt rows fit the current family arena. Down isolates a partial
+// final tile in request scratch; padding never advances model state.
 [[nodiscard]] constexpr bool whole_core_prompt_tokens_admitted(std::uint64_t tokens) noexcept {
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
-  return tokens >= 64U && tokens <= 40'000U && tokens % 64U == 0U;
+  return tokens >= 1U && tokens <= 40'000U;
 #else
   return tokens == 40'000U;
+#endif
+}
+// Projection-entry count: one Gate/Up entry plus one or two Down grids.
+[[nodiscard]] constexpr std::uint64_t whole_core_mlp_launch_count(std::uint64_t rows) noexcept {
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  return 1U + (rows >= 64U ? 1U : 0U) + (rows % 64U ? 1U : 0U);
+#else
+  (void)rows;
+  return 2U;
 #endif
 }
 inline constexpr std::uint64_t kWholeCoreCompiledPersistentBytes =

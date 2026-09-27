@@ -1333,7 +1333,8 @@ std::string serialize_target_prefill_witness(
       prompt_wide_p40_common_non_mlp_counts_complete &&
       record.persistent_p40_nvfp4_gate_up_hits == kLayerCount &&
       record.persistent_p40_nvfp4_down_residual_hits == kLayerCount &&
-      record.persistent_p40_nvfp4_physical_launches == 2U * kLayerCount;
+      record.persistent_p40_nvfp4_physical_launches ==
+          (variable_whole_core ? runtime::whole_core_mlp_launch_count(record.prompt_tokens) : 2U) * kLayerCount;
   const bool prompt_wide_p40_whole_core_package_counts_complete =
       prompt_wide_p40_common_package_counts_complete &&
       record.mlp_schedule_tactic == runtime::
@@ -1434,7 +1435,7 @@ std::string serialize_target_prefill_witness(
       p40_vllm_marlin_parity_candidate_v15;
   std::string output =
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
-      true ? "{\"record\":\"target-prefill-witness-whole-core-exact-decode-admission-v7\","
+      true ? "{\"record\":\"target-prefill-witness-whole-core-exact-decode-admission-v8\","
              "\"schema_version\":2,\"decode_numerical_contract\":"
              "\"ordered-pipeline-unqualified\",\"request\":{\"id\":" :
 #elif defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
@@ -1961,7 +1962,7 @@ std::string serialize_target_prefill_witness(
           std::to_string(record.persistent_p40_nvfp4_physical_launches) +
           ",\"prompt_wide_p40_whole_core_package\":{\"identity\":";
       append_json_string(output,
-                         variable_whole_core ? "actual-c64-prompt-p8000-panels-owned-scratch-v7"
+                         variable_whole_core ? "actual-prompt-p8000-panels-owned-tail-v8"
                                              : "exact-p40000-five-p8000-whole-core-v1");
       output += ",\"selection\":\"sealed-fail-closed\",\"complete\":";
       output += prompt_wide_p40_whole_core_package_counts_complete

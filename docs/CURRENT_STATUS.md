@@ -52,6 +52,19 @@ The owner requires continuing to a corrected fast production service, with
 both Prefill and Decode reported; the active Roadmap owns that completion.
 
 
+**Corrected API composition, 2026-09-28:** the
+[actual API and tail record](metadata/qwen36-27b-prefill-tail-api-2026-09-28.json)
+reports P8192/O256 Prefill 484.68 tok/s and Decode 9.22 tok/s; P40000/O256
+Prefill 443.28 tok/s and Decode 7.87 tok/s. These are ordinary engineering
+observations, not release repetition. P40000 full-logit KL against independently
+pinned vLLM/FLA is 0.00733; all 48 GDN states have relative L2 0.01251.
+Request-owned scratch preserves the corrected P8192 handoff bitwise. Actual
+1, 63, 64, 65, 513, 7999, 8000, 8001 and 8193-row API requests complete with
+matching usage and route receipts. The v8 Down tail copies back actual rows
+only. Text/chat admission is being integrated, capability is running, and
+P40001..44095 plus installed-default qualification remain open. The existing
+approximately 8.55 Decode target is not superseded by 7.87.
+
 **Production-switch decision, 2026-09-27: NO-GO for the current whole-core
 Prefill candidate. The earlier full-state accuracy qualification is withdrawn.**
 The [numerical erratum and complete gate disposition](analysis/whole-core-production-switch-2026-09-27/README.md)

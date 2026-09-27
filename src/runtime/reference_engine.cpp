@@ -1873,7 +1873,7 @@ prefill_whole_request_layer_major(
                                kReferenceDecoderLayerCount &&
                            executed.value
                                    ->persistent_p40_nvfp4_physical_launches ==
-                               2U * kReferenceDecoderLayerCount) &&
+                               whole_core_mlp_launch_count(token_count) * kReferenceDecoderLayerCount) &&
                 executed.value->persistent_p40_fp8_projection_hits == 0U &&
                 executed.value->persistent_p40_fp8_projection_bulk_hits ==
                     0U &&

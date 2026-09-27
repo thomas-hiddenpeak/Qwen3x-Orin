@@ -58,10 +58,11 @@ fast candidate's A/B coordinate permutation is corrected with an independent
 basis-vector regression. Projection tensor scales are applied after FP32
 accumulation in the separately identified corrected admission.
 
-Return the corrected composition to the real P8192/O256 API and P40000,
-using exact binary/profile identity before issuing requests. Then finish MLP
-tails, P44095 workspace, normal text/chat/nonstream coverage, resource ownership,
-capability and exact installed Release/OFF default qualification. Reference
+The corrected composition has returned to P8192/O256 and P40000/O256 with
+verified binary/profile identity. Request-owned projection scratch and the
+actual-row Down tail are composed; preserve the token-ID prefix until all fill
+panels consume it. Complete P44095 workspace, normal text/chat/nonstream coverage,
+public capability and exact installed Release/OFF default qualification next. Reference
 comparisons use the same prompt boundary and full logits; independently
 validated reference arithmetic takes precedence over an unqualified incumbent.
 Approximately 8.55 Decode tok/s remains the interim target. Raw artifacts are

@@ -8,7 +8,7 @@ int main(int argc, char** argv) {
   namespace rt = q3x::runtime;
   namespace server = q3x::server;
   // The runner must consume actual spans, including the short final panel.
-  for (const auto tokens : {64U, 512U, 8000U, 8192U, 16000U, 32000U, 40000U}) {
+  for (const auto tokens : {1U, 63U, 64U, 65U, 511U, 512U, 513U, 7999U, 8000U, 8001U, 8192U, 8193U, 16000U, 32000U, 39999U, 40000U}) {
     rt::PrefillExecutionPlanOptions geometry;
     geometry.prompt_token_count = tokens;
     geometry.max_sequence_length = 44095U;
@@ -21,6 +21,8 @@ int main(int argc, char** argv) {
         result.value->panel_count != (tokens + 7999U) / 8000U ||
         result.value->panels[result.value->panel_count - 1U].end_position != tokens)
       return 1;
+    if (result.value->mlp_schedule.required_down_projection_launches_per_layer !=
+            rt::whole_core_mlp_launch_count(tokens) - 1U) return 1;
     auto corrupt = *result.value;
     ++corrupt.panels[corrupt.panel_count - 1U].token_count;
     if (rt::is_valid_unbound_layer_major_prefill_execution_plan(corrupt)) return 1;
@@ -128,14 +130,14 @@ int main(int argc, char** argv) {
   if (server::is_p40_whole_core_v10_request(input)) return 1;
   input.max_tokens = 1U;
   input.prompt_token_ids.pop_back();
-  if (server::is_p40_whole_core_v10_request(input)) return 1;
+  if (!server::is_p40_whole_core_v10_request(input)) return 1;
   input.prompt_token_ids.resize(40001U, 1U);
   if (server::is_p40_whole_core_v10_request(input)) return 1;
   input.prompt_token_ids.resize(40000U);
   input.stream = false;
-  if (server::is_p40_whole_core_v10_request(input)) return 1;
+  if (!server::is_p40_whole_core_v10_request(input)) return 1;
   input.stream = true;
   input.include_usage = false;
-  if (server::is_p40_whole_core_v10_request(input)) return 1;
+  if (!server::is_p40_whole_core_v10_request(input)) return 1;
   std::cout << "PASS composition arena, full Decode scratch, output boundary and fixed-profile isolation\n";
 }

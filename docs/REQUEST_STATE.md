@@ -109,8 +109,8 @@ workspace accessors reject the layer-major profile; its retained disjoint C512
 workspace is reachable only through the explicit typed bundle. Persistent,
 KV, RoPE, position, reset, and ownership operations remain common.
 
-The separately compiled whole-core/exact-Decode admission retains P40000
-operator shapes while reserving 44,095 sequence positions and an
+The separately compiled whole-core/exact-Decode admission currently bounds
+actual prompt lengths to 1..40000 while reserving 44,095 sequence positions and an
 8,952,211,200-byte arena. It supports the P40000/O4096 capacity boundary
 without advancing state for the final predicted token. The full maximum-length
 Decode scratch occupies this arena; its FP32 payload is rounded to the
@@ -145,6 +145,20 @@ points remain for separately identified historical routes only. This lifetime
 change does not extend prompt admission by itself. The bounded
 [full-handoff comparison](metadata/qwen36-27b-prefill-owned-scratch-2026-09-28.json)
 checks the unchanged arithmetic against the corrected predecessor.
+
+### Actual-row MLP tail
+
+Whole-core Down executes complete M64 tiles in place. For a final 1..63 rows,
+it reuses dead GDN workspace for one zero-filled `[64,17408]` input tile and
+one `[64,5120]` residual tile. It copies only actual rows into those buffers,
+runs the same Down kernel at M64, and copies only actual result rows back.
+Every operation uses the same ordered stream, after Gate/Up's last consumer.
+No padded row is embedded or reaches Attention, recurrent state, KV, logits,
+position, or usage. The scratch requirement is 2,883,584 bytes and no allocation
+occurs. Complete input rows preserve the existing K reduction and BF16
+projection/residual publication. Plan and witness projection-entry counts
+include the second Down grid when both an aligned prefix and a tail exist;
+they are not a count of all dequantization, copy, or CUDA kernel launches.
 
 ## RoPE numerical contract
 

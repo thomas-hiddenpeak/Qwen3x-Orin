@@ -12,7 +12,7 @@ int main() {
   const auto text = q3x::server::serialize_target_prefill_witness(record);
   if (!q3x::io::json::parse(text) ||
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
-      text.find("target-prefill-witness-whole-core-exact-decode-admission-v7") == std::string::npos ||
+      text.find("target-prefill-witness-whole-core-exact-decode-admission-v8") == std::string::npos ||
       text.find("\"schema_version\":2") == std::string::npos ||
 #else
       text.find("target-prefill-witness-fused-decode-admission-v7") == std::string::npos ||
@@ -56,6 +56,10 @@ int main() {
   auto variable = q3x::server::serialize_target_prefill_witness(record);
   if (variable.find("\"package_complete\":true") == std::string::npos ||
       variable.find("\"expected_fp8_projection_hits\":416") == std::string::npos) return 1;
+  record.prompt_tokens = record.consumed_prompt_tokens = 8193;
+  record.persistent_p40_nvfp4_physical_launches = 192;
+  variable = q3x::server::serialize_target_prefill_witness(record);
+  if (variable.find("\"package_complete\":true") == std::string::npos) return 1;
   ++record.prompt_wide_p40_fill_panel_hits;
   variable = q3x::server::serialize_target_prefill_witness(record);
   if (variable.find("\"package_complete\":false") == std::string::npos) return 1;

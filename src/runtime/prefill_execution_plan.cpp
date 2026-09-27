@@ -609,23 +609,26 @@ prompt_wide_p40_vllm_marlin_parity_build_enabled() noexcept {
          (whole_core ? whole_core_prompt_tokens_admitted(plan.prompt_token_count)
                      : plan.prompt_token_count == kLayerMajorPrefillLayerWideMlpP40Tokens) &&
          plan.final_position == plan.prompt_token_count &&
-         plan.prompt_token_count %
+         (whole_core || plan.prompt_token_count %
                  kLayerMajorPrefillLayerWideMlpAlignmentTokens ==
-             0U &&
+             0U) &&
          schedule.mlp_phase_submission_count_per_layer == 1U &&
          schedule.maximum_m_per_mlp_submission ==
              kLayerMajorPrefillLayerWideMlpP40Tokens &&
          schedule.required_gate_up_projection_launches_per_layer == 1U &&
          schedule.maximum_standalone_silu_launches_per_layer ==
              (fused_full_prompt ? 0U : 1U) &&
-         schedule.required_down_projection_launches_per_layer == 1U &&
-         schedule.minimum_total_kernel_launches_per_layer == 2U &&
+         schedule.required_down_projection_launches_per_layer ==
+             (whole_core ? whole_core_mlp_launch_count(plan.prompt_token_count) - 1U : 1U) &&
+         schedule.minimum_total_kernel_launches_per_layer ==
+             (whole_core ? whole_core_mlp_launch_count(plan.prompt_token_count) : 2U) &&
          schedule.maximum_total_kernel_launches_per_layer ==
-             (fused_full_prompt ? 2U : 3U) &&
+             (whole_core ? whole_core_mlp_launch_count(plan.prompt_token_count) : (fused_full_prompt ? 2U : 3U)) &&
          schedule.waits_for_all_operator_panels &&
          schedule.post_attention_norm_is_prompt_wide &&
          schedule.exact_full_m_binding_required &&
-         schedule.internal_m_segmentation_forbidden;
+         schedule.internal_m_segmentation_forbidden ==
+             !(whole_core && plan.prompt_token_count % 64U != 0U);
 }
 
 [[nodiscard]] bool valid_plan_topology(
@@ -837,9 +840,9 @@ PrefillExecutionPlanResult build_unbound_layer_major_prefill_execution_plan(
       (options.first_position != 0U ||
        (whole_core ? !whole_core_prompt_tokens_admitted(options.prompt_token_count)
                    : options.prompt_token_count != kLayerMajorPrefillLayerWideMlpP40Tokens) ||
-       options.prompt_token_count %
+       (!whole_core && options.prompt_token_count %
                kLayerMajorPrefillLayerWideMlpAlignmentTokens !=
-           0U)) {
+           0U))) {
     return plan_failure(PrefillExecutionPlanError::kInvalidArgument);
   }
   if (fixed_p40_geometry &&
@@ -943,7 +946,13 @@ PrefillExecutionPlanResult build_unbound_layer_major_prefill_execution_plan(
     plan.mlp_schedule.post_attention_norm_is_prompt_wide = true;
     plan.mlp_schedule.exact_full_m_binding_required = true;
     plan.mlp_schedule.internal_m_segmentation_forbidden =
-        !vllm_marlin_parity;
+        !vllm_marlin_parity && !(whole_core && options.prompt_token_count % 64U != 0U);
+    if (whole_core) {
+      const auto launches = whole_core_mlp_launch_count(options.prompt_token_count);
+      plan.mlp_schedule.required_down_projection_launches_per_layer = launches - 1U;
+      plan.mlp_schedule.minimum_total_kernel_launches_per_layer = launches;
+      plan.mlp_schedule.maximum_total_kernel_launches_per_layer = launches;
+    }
   }
   if (whole_core) {
     plan.whole_core_schedule.enabled = true;

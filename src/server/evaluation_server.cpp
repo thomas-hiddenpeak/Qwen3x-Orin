@@ -1931,9 +1931,8 @@ void handle_connection(
       const OpenAIProtocolError error = simple_error(
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
           400, "whole_core_exact_decode_contract",
-          "the whole-core exact Decode candidate accepts only streaming "
-          "/v1/completions requests with 64..40000 token IDs in complete C64 chunks and "
-          "max_tokens from 1 through 4096 plus stream_options.include_usage=true");
+          "the whole-core exact Decode candidate requires 1..40000 prompt tokens "
+          "and max_tokens from 1 through 4096 within the sequence capacity");
 #else
           400, "p40_whole_core_v1_contract",
           "the p40-whole-core-v1 production profile accepts only streaming "

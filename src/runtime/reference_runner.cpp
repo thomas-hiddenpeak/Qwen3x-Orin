@@ -2098,6 +2098,51 @@ exact_marlin_operator_panel_plan(
 #endif
 }
 
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+// Down is row-independent. Execute complete M64 tiles directly; isolate the
+// last 1..63 rows in one zero-filled physical tile, copying back actual rows
+// only. This preserves K reduction and residual publication without inventing
+// prompt positions or touching KV/GDN state.
+[[nodiscard]] int launch_whole_core_down_rows(
+    const NvFp4LinearWeight& weight, const std::uint16_t* input,
+    std::uint16_t* residual, std::size_t rows,
+    const DeviceBufferView& scratch, void* stream) noexcept {
+  constexpr std::size_t kInputElements = 64U * kReferenceIntermediateSize;
+  constexpr std::size_t kOutputElements = 64U * kReferenceHiddenSize;
+  constexpr std::size_t kBytes = (kInputElements + kOutputElements) * sizeof(std::uint16_t);
+  if (!whole_core_prompt_tokens_admitted(rows) || scratch.device_data == nullptr ||
+      scratch.byte_size < kBytes || reinterpret_cast<std::uintptr_t>(scratch.device_data) % 16U)
+    return static_cast<int>(cudaErrorInvalidValue);
+  const auto launch = [&](const std::uint16_t* x, std::uint16_t* y, std::size_t m) {
+    return kernels::launch_sm87_nvfp4_persistent_prefill_down_residual_cuda(
+        x, weight.prefill_marlin_weight, weight.prefill_marlin_scales,
+        weight.prefill_marlin_global_scale, m, y, stream);
+  };
+  const std::size_t prefix = rows - rows % 64U;
+  if (prefix) {
+    const int status = launch(input, residual, prefix);
+    if (status != static_cast<int>(cudaSuccess)) return status;
+  }
+  const std::size_t tail = rows - prefix;
+  if (!tail) return static_cast<int>(cudaSuccess);
+  auto* const x = static_cast<std::uint16_t*>(scratch.device_data);
+  auto* const y = x + kInputElements;
+  const auto cuda_stream = reinterpret_cast<cudaStream_t>(stream);
+  cudaError_t status = cudaMemsetAsync(x, 0, kBytes, cuda_stream);
+  if (status == cudaSuccess) status = cudaMemcpyAsync(x,
+      input + prefix * kReferenceIntermediateSize,
+      tail * kReferenceIntermediateSize * sizeof(std::uint16_t), cudaMemcpyDeviceToDevice, cuda_stream);
+  if (status == cudaSuccess) status = cudaMemcpyAsync(y,
+      residual + prefix * kReferenceHiddenSize,
+      tail * kReferenceHiddenSize * sizeof(std::uint16_t), cudaMemcpyDeviceToDevice, cuda_stream);
+  if (status != cudaSuccess) return static_cast<int>(status);
+  const int launched = launch(x, y, 64U);
+  if (launched != static_cast<int>(cudaSuccess)) return launched;
+  return static_cast<int>(cudaMemcpyAsync(residual + prefix * kReferenceHiddenSize,
+      y, tail * kReferenceHiddenSize * sizeof(std::uint16_t), cudaMemcpyDeviceToDevice, cuda_stream));
+}
+#endif
+
 // Exact-P40000 whole-core projection primitive. Each logical fill/drain
 // projection owns exactly one M8000, M64-aligned Marlin grid. This deliberately does
 // not call the historical shape-aware host segmenter and has no partial-panel
@@ -2121,8 +2166,10 @@ launch_prompt_wide_p40_fp8_projection(
       fp8->prefill_marlin_scales == nullptr ||
       !kernels::sm87_fp8_marlin_supports_shape(fp8->output_size,
                                                fp8->input_size) ||
+#if !defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
       !kernels::sm87_fp8_marlin_supports_operator_panel_token_count(
           token_count) ||
+#endif
       !valid_exact_prefill_projection_workspace(workspace)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
@@ -6790,7 +6837,8 @@ ReferenceRunner::prefill_whole_request_layer_major_core(
       } else {
         ++persistent_p40_nvfp4_gate_up_hits;
         ++persistent_p40_nvfp4_down_residual_hits;
-        persistent_p40_nvfp4_physical_launches += 2U;
+        persistent_p40_nvfp4_physical_launches +=
+            whole_core_mlp_launch_count(immutable_topology.prompt_token_count);
       }
       if (use_packed_nvfp4_v2) {
         ++packed_nvfp4_v2_gate_up_hits;
@@ -9190,11 +9238,16 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
 #else
       ? static_cast<int>(cudaErrorNotSupported)
 #endif
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+      : launch_whole_core_down_rows(*down, activated, residual, token_count,
+            request_views.p40_whole_core.linear.prompt_wide_workspace, stream_);
+#else
       : kernels::launch_sm87_nvfp4_persistent_prefill_down_residual_cuda(
             activated, down->prefill_marlin_weight,
             down->prefill_marlin_scales,
             down->prefill_marlin_global_scale,
             token_count, residual, stream_);
+#endif
   }
   if (down_status != static_cast<int>(cudaSuccess)) {
     return runner_status(ReferenceRunnerError::kCudaFailure,
