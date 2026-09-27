@@ -41,6 +41,38 @@ they cannot reorder the delivery slices below.
 
 ### 2026-09-27 product convergence — active
 
+**Latest production-switch disposition:** the current whole-core composition
+is rejected for direct promotion by the
+[matched-boundary numerical audit](analysis/whole-core-production-switch-2026-09-27/README.md).
+The historical whole-core state qualification is withdrawn; ADR-0002 remains
+limited to Prefill full Attention. This finding overrides the earlier ordering
+below that put tail/API expansion ahead of numerical repair. Default routing
+stays Legacy. No further performance repetition or installed-candidate
+qualification is useful until the numerical prerequisite passes.
+
+The next bounded prerequisite is `WP-PREFILL-STATE-CONTRACT-REPAIR-20260927`
+inside `AC-WHOLE-CORE-SERVICE-20260927`. Product constraint: a full-service
+replacement must preserve the incumbent's non-Attention numerical/state
+contract, not merely emit coherent text. Downward contract: per-token BF16
+GDN publication and the projection operand/reduction/publication ledger.
+Start from the observed pre-Attention layer-0 mismatch: isolate projection
+feeds and recurrence on identical real layer inputs, then compose the existing
+exact-span recurrence with matching projection semantics under a new candidate
+identity. Do not assume that replacing GDN alone closes the full-model gap.
+One coherent repair and at most one causally justified correction must return
+to the complete P8192/O1 handoff within 40 minutes of real-model device time;
+a pass returns immediately to the real P8192/O256 API and then P40000.
+Keep raw artifacts under `.q3x-work/production-switch-20260927/` or a named
+successor within `.q3x-work/`. No reassociation waiver or tile/stage scan.
+
+After numerical admission, finish exact MLP tails, P44095 workspace and normal
+text/chat/nonstream coverage; then close lifecycle, mirrored paired Prefill
+and Decode performance (approximately 8.55 Decode tok/s remains required),
+capability and the exact installed Release/OFF default gates. The
+[gate disposition](metadata/qwen36-27b-whole-core-production-switch-2026-09-27.json)
+distinguishes observed failures from blocked, unexecuted qualification. This
+is a repair order, not a claim that any of those remaining gates has passed.
+
 Owner direction: provisionally accept current Prefill performance, converge on
 the recommended fused Decode attention direction, and expose prior performance
 misconceptions so they cannot guide later work. This supersedes the old P3
@@ -53,8 +85,8 @@ accuracy.
 
 The [retrospective](analysis/decode-performance-lessons-2026-09-27/README.md)
 is the dated erratum; the [current snapshot](CURRENT_STATUS.md#decode-convergence-snapshot-2026-09-27)
-owns observed rates and qualification. Prefill arithmetic and its accepted
-profile are held steady while Decode is qualified. Necessary normal-output
+owns observed rates and qualification. The original hold on Prefill arithmetic
+is superseded only by the numerical repair prerequisite above. Necessary normal-output
 capacity integration is product composition, not renewed Prefill kernel tuning.
 
 Active architecture: `AC-DECODE-FUSED-GQA-PRODUCT-20260927`.
@@ -65,7 +97,7 @@ P40 scalar-attention cost with the fused dataflow observed near 14 ms; these
 are diagnostic budgets, not universal bounds. The current delivery window
 accepts approximately 8.55 tok/s. The owner reopened exact performance work
 after the numerical repair fell below this interim budget.
-Upward return: the actual accepted Prefill plus Decode API with useful output
+Upward return: the numerically admitted Prefill plus Decode API with useful output
 lengths, then installed-artifact qualification. No new parameter sweep.
 
 Owner-directed numerical successor, 2026-09-27:
@@ -171,7 +203,8 @@ This package admits one composition and one correction per identified
 integration fault, with a 40-minute real-model device budget before API return
 or a concrete blocker closeout. Raw artifacts live in
 `.q3x-work/whole-core-exact-composition-20260927/`. Default dispatch and the
-qualified fixed profile remain unchanged; the candidate must report both
+fixed profile's arithmetic remain unchanged; its former numerical qualification
+is withdrawn by the latest disposition above. The candidate must report both
 Prefill and Decode and cannot inherit production qualification.
 
 The first real API startup exposed insufficient retained-free memory while
@@ -185,8 +218,9 @@ reserve. This is lifetime/inventory correction, not a new projection kernel.
 The fixed-shape prerequisite has returned to P40000/O256 with both phases in
 one request; its [composition record](metadata/qwen36-27b-whole-core-exact-decode-composition-2026-09-27.json)
 keeps the failed starts, original 40016-position scratch rejection, expanded
-44095-position plan and same-input scalar check separate. The next dependency
-is runtime prompt geometry and exact tails across the served context range,
+44095-position plan and same-input scalar check separate. Following the new
+numerical repair prerequisite, the service dependency is runtime prompt geometry
+and exact tails across the served context range,
 including P44095/O1; changing HTTP admission alone or padding every prompt to
 P40000 does not satisfy it. Preserve the existing rounding/state boundaries
 while replacing fixed five-by-8000 panel traversal, fixed 625-chunk GDN and
@@ -198,8 +232,8 @@ API qualification.
 The first actual-length C64 integration has returned to P8192/O16 same-input
 Decode checks and the paired P8192/O256 API. The
 [bounded checkpoint](metadata/qwen36-27b-whole-core-variable-prefill-2026-09-27.json)
-retains dynamic panel/role receipts and local GDN/A/B tail checks. Continue
-with exact MLP tail ownership and P44095 family-workspace planning, then normal
+retains dynamic panel/role receipts and local GDN/A/B tail checks. After the
+numerical repair above, continue with exact MLP tail ownership and P44095 family-workspace planning, then normal
 text/chat/nonstream surfaces; do not treat C64 admission as a permanent
 length-specific product branch. The next non-C64 composed request returns to
 numerical and API checks before the full panel. The observed cross-Prefill
@@ -211,9 +245,10 @@ Ordered deliverables:
 Owner-requested immediate promotion preparation:
 `WP-PREFILL-MAINLINE-VALIDATION-20260927` uses the
 [executable preparation procedure](EVALSCOPE_EVALUATION.md#preparing-whole-core-default-route-validation)
-under `AC-WHOLE-CORE-SERVICE-20260927`. Its current action is a host admission
-audit plus pinned request generation for the existing service envelope, followed
-by implementation of missing variable lengths/tails and API surfaces. Do not
+under `AC-WHOLE-CORE-SERVICE-20260927`. Its admission audit and initial matched
+Prefill-boundary check now give the negative disposition above. Resume its
+remaining gates only after the numerical repair, then complete missing variable
+lengths/tails and API surfaces. Do not
 spend another long-model run repeating fixed-P40 success while the first
 service-coverage gate is known to reject ordinary inputs. The first implemented
 non-P40/tail case must return to numerical and real API validation immediately;
@@ -243,7 +278,7 @@ kernel parameter scanning or amend the interim Decode target.
    retries, or claim that EAGER alone repairs startup. One bounded causal repair
    per identified fault; a second failed matched startup stops timing and returns
    to diagnosis rather than changing either arm's environment silently.
-4. Compose the accepted Prefill profile with fused Decode and useful output
+4. Compose a numerically admitted Prefill profile with exact Decode and useful output
    capacity. Whole-core's current fixed P40000/O16 profile is an explicit open
    dependency; its 90-second Prefill and Legacy's 8.56 Decode must not be added
    into a product result. Validate a long-context output of at least 256 tokens,

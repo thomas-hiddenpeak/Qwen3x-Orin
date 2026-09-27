@@ -55,6 +55,7 @@ struct Capture {
   std::string out_dir;
   std::string base;
   bool dump_done = false;
+  bool prefill_only = false;
   // Legacy route prefills P-1 tokens and feeds the final prompt token as the
   // first decode step (seq after step i = P + i). Whole-core prefills all P
   // tokens (seq after step i = P + i + 1).
@@ -178,7 +179,8 @@ void dump_state(const rt::RequestState& state, Capture& capture) noexcept {
   {
     const std::uint32_t prompt = capture.prompt_tokens;
     const std::uint32_t start =
-        prompt > kKvSamplePositions ? prompt - kKvSamplePositions : 0U;
+        !capture.prefill_only && prompt > kKvSamplePositions
+            ? prompt - kKvSamplePositions : 0U;
     const std::uint32_t count = prompt - start;
     const std::size_t row_bytes = 4U * 256U * sizeof(std::uint16_t);
     const std::size_t per_layer_bytes = static_cast<std::size_t>(count) * row_bytes;
@@ -215,6 +217,22 @@ void dump_state(const rt::RequestState& state, Capture& capture) noexcept {
 void return_hook(const rt::RequestState& state, void* context) noexcept {
   auto& capture = *static_cast<Capture*>(context);
   if (capture.error != nullptr) return;
+  if (capture.prefill_only) {
+    // O1 publishes the first prediction but never feeds a generated token.
+    // Both routes therefore expose the identical logical P-token boundary.
+    if (state.sequence_length() != capture.prompt_tokens ||
+        !capture_logits(state, capture, capture.steps[0])) {
+      capture.error = "prefill_boundary_or_logits";
+      return;
+    }
+    std::ofstream logits(capture.out_dir + "/" + capture.base + "_logits.bin",
+                         std::ios::binary | std::ios::trunc);
+    logits.write(reinterpret_cast<const char*>(capture.logits.data()),
+                 static_cast<std::streamsize>(kLogitsBytes));
+    if (!logits) { capture.error = "prefill_logits_write"; return; }
+    dump_state(state, capture);
+    return;
+  }
   if (capture.step_calls == 0U || capture.step_calls > kOutputs ||
       state.sequence_length() !=
           capture.prompt_tokens + capture.seq_offset + capture.step_calls - 1U) {
@@ -268,9 +286,12 @@ int main(int argc, char** argv) {
   }
   try {
     std::string route = "legacy";
+    bool prefill_only = false;
     for (int i = 4; i < argc; i += 2) {
       if (i + 1 >= argc) throw std::runtime_error("missing option value");
       if (std::string_view(argv[i]) == "--route") route = argv[i + 1];
+      else if (std::string_view(argv[i]) == "--capture-boundary" &&
+               std::string_view(argv[i + 1]) == "prefill") prefill_only = true;
       else throw std::runtime_error("unknown option");
     }
     const bool whole_core = (route == "wholecore");
@@ -291,8 +312,8 @@ int main(int argc, char** argv) {
     const auto* maximum = parsed.value->find("max_tokens");
     std::uint64_t output_count = 0U;
     if (maximum == nullptr || maximum->as_number() == nullptr ||
-        !maximum->as_number()->to_uint64(output_count) || output_count != kOutputs)
-      throw std::runtime_error("request must have max_tokens=16");
+        !maximum->as_number()->to_uint64(output_count) || output_count != (prefill_only ? 1U : kOutputs))
+      throw std::runtime_error("request must have max_tokens=1 for Prefill capture, otherwise16");
     std::vector<std::uint32_t> ids;
     for (const auto& item : *prompt->as_array()) {
       std::uint64_t token = 0U;
@@ -338,6 +359,7 @@ int main(int argc, char** argv) {
 
     Capture capture;
     capture.prompt_tokens = static_cast<std::uint32_t>(ids.size());
+    capture.prefill_only = prefill_only;
     capture.out_dir = std::filesystem::path(argv[3]).parent_path().string();
     if (capture.out_dir.empty()) capture.out_dir = ".";
     capture.base = std::filesystem::path(argv[3]).stem().string();
@@ -348,7 +370,7 @@ int main(int argc, char** argv) {
     const auto previous_return = detail::exchange_reference_engine_generate_return_snapshot_hook({return_hook, &capture});
 
     rt::ReferenceGenerateOptions generation_options;
-    generation_options.max_new_tokens = kOutputs;
+    generation_options.max_new_tokens = static_cast<std::uint32_t>(output_count);
     generation_options.prefill_chunk_size = whole_core ? rt::kMaximumRequestPrefillChunkSize : 512U;
     generation_options.logits_mode = rt::ReferenceLogitsMode::kPredictedTokenOnly;
     generation_options.prefill_execution_mode = whole_core
@@ -367,7 +389,7 @@ int main(int argc, char** argv) {
         "; cuda_error=" + std::to_string(capture.cuda_error));
     const auto& generation = *result.value;
     if (capture.error != nullptr) throw std::runtime_error(std::string("capture error: ") + capture.error);
-    if (capture.step_calls == 0U || capture.step_calls > kOutputs)
+    if (!prefill_only && (capture.step_calls == 0U || capture.step_calls > kOutputs))
       throw std::runtime_error("step count out of range: " +
           std::to_string(capture.step_calls));
 
@@ -375,7 +397,9 @@ int main(int argc, char** argv) {
     std::ofstream out(argv[3], std::ios::binary | std::ios::trunc);
     if (!out) throw std::runtime_error("output open failed");
     out << std::setprecision(std::numeric_limits<double>::max_digits10)
-        << "{\"schema_version\":1,\"route\":" << json_quote(route)
+        << "{\"schema_version\":" << (prefill_only ? 2 : 1)
+        << ",\"capture_boundary\":" << json_quote(prefill_only ? "prefill_commit_O1_no_decode" : "generation_return")
+        << ",\"route\":" << json_quote(route)
         << ",\"request_sha256\":" << json_quote(core::sha256(bytes).hex())
         << ",\"prompt_ids_u32le_sha256\":" << json_quote(prompt_hash.finalize().hex())
         << ",\"prompt_tokens\":" << ids.size()
@@ -384,7 +408,7 @@ int main(int argc, char** argv) {
     out << ",\"generated_text\":" << json_quote(generation.generated_text)
         << ",\"generated_text_sha256\":" << json_quote(core::sha256(generation.generated_text).hex())
         << ",\"steps\":[";
-    for (std::size_t i = 0U; i < kOutputs; ++i) {
+    for (std::size_t i = 0U; i < (prefill_only ? 1U : kOutputs); ++i) {
       if (i != 0U) out << ',';
       write_logit_snapshot(out, capture.steps[i]);
     }
@@ -392,7 +416,8 @@ int main(int argc, char** argv) {
         << "\"gdn\":" << json_quote(capture.base + "_gdn.bin")
         << ",\"conv\":" << json_quote(capture.base + "_conv.bin")
         << ",\"kv\":" << json_quote(capture.base + "_kv.bin")
-        << ",\"kv_sample_positions\":" << kKvSamplePositions
+        << ",\"kv_sample_positions\":" << (prefill_only ? ids.size() : kKvSamplePositions)
+        << ",\"logits\":" << (prefill_only ? json_quote(capture.base + "_logits.bin") : "null")
         << "}"
         << ",\"memory_profile\":" << json_quote(
              whole_core ? "kLayerMajorP40WholeCore" : "kLegacyC512")

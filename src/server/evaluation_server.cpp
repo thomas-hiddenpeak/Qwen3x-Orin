@@ -1405,8 +1405,9 @@ void emit_target_prefill_witness(
     record.vllm_marlin_parity_layer_completion_receipt_count =
         generation.prefill_vllm_marlin_parity_layer_completion_receipt_count;
     record.deployment_plan_id = generation.prefill_deployment_plan_id;
-    record.whole_core_production_qualified =
-        is_p40_whole_core_v1_production_profile(options);
+    // A compiled profile is not numerical qualification. The 2026-09-27
+    // state audit withdraws the historical P40 qualification evidence.
+    record.whole_core_production_qualified = false;
     record.request_state_reset = generation.request_state_reset;
     std::cerr << serialize_target_prefill_witness(record) << '\n';
   } catch (...) {

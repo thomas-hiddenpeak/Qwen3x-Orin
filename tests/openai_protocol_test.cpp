@@ -1320,10 +1320,16 @@ void test_target_prefill_witness_evidence(TestContext& test) {
               R"("qualification":"accuracy-unqualified-architecture-candidate")") !=
               std::string::npos &&
           whole_core_p40_serialized.find(
-              R"("numerical_contract":{"qualified":false,"reason":"full-state-accuracy-qualification-not-run"})") !=
+              R"("numerical_contract":{"qualified":false,"reason":"whole-core-state-qualification-withdrawn-2026-09-27"})") !=
               std::string::npos,
       "exact-P40000 whole-core route preserves the byte-stable complete v10 "
       "package witness; stricter request admission lives at the gateway");
+
+  auto stale_qualification = whole_core_p40_record;
+  stale_qualification.whole_core_production_qualified = true;
+  test.expect(server::serialize_target_prefill_witness(stale_qualification) ==
+                  whole_core_p40_serialized,
+              "stale qualification flag cannot restore withdrawn evidence");
 
   server::TargetPrefillWitnessRecord projection_reset_p40_record =
       whole_core_p40_record;

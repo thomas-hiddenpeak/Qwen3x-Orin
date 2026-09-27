@@ -1,0 +1,365 @@
+{
+  "record": "qwen36-27b-whole-core-production-switch-2026-09-27",
+  "source_parent": "b09759f1497b6a726a3c3997c31530ea9a3f9dc2",
+  "decision_unit": "architecture_candidate numerical rejection and historical qualification erratum",
+  "work_package_id": "WP-PREFILL-MAINLINE-VALIDATION-20260927",
+  "architecture_candidate_id": "AC-WHOLE-CORE-SERVICE-20260927",
+  "product_constraint": "Complete formal production replacement without numerical/API/capacity regression; report Prefill and Decode jointly; approximately 8.55 Decode token/s interim target unchanged.",
+  "decision": "NO_GO_CURRENT_WHOLE_CORE_PREFILL",
+  "production_switched": false,
+  "historical_whole_core_accuracy_qualification": "withdrawn",
+  "source_bridge": "Capture ELF uses b09759f runtime/kernel arithmetic plus frozen/capture.patch. No numerical kernels or default dispatch changed. Later server edits only withdraw witness qualification; ordinary OFF rebuilt, not a new installed-candidate qualification.",
+  "model": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "root": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "identity_scope": "Same read-only model directory as preceding API evidence; this diagnostic does not rehash every model shard."
+  },
+  "workload": {
+    "request_sha256": "36546a199d4908f5a2de0c7c970176fced048afb1b79d1040f96a34d1eb883ef",
+    "prompt_ids_u32le_sha256": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+    "prompt_tokens": 8192,
+    "capture_boundary": "prefill_commit_O1_no_decode"
+  },
+  "capture_scope": {
+    "output_tokens": 1,
+    "generated_tokens_fed_to_decode": 0,
+    "gdn_layers": 48,
+    "conv_layers": 48,
+    "kv_layers": 16,
+    "kv_positions_per_layer": 8192,
+    "vocabulary_logits": 248320,
+    "legacy_final_prompt_scalar_step_included": true
+  },
+  "numerical_findings": {
+    "layer0_gdn": {
+      "elements": 786432,
+      "value_equal": false,
+      "rmse": 0.1247757610184065,
+      "reference_rms": 0.3910900683656258,
+      "relative_l2": 0.31904609989163674,
+      "cosine": 0.9493616873651008,
+      "maximum_absolute_error": 24.125,
+      "incorrect_rmse_over_l2": 0.0003597682649537826,
+      "block": 0,
+      "bitwise_equal": false,
+      "layer": 0
+    },
+    "layer0_conv": {
+      "elements": 30720,
+      "value_equal": false,
+      "rmse": 0.005116080103489198,
+      "reference_rms": 3.55044226464901,
+      "relative_l2": 0.0014409698066150539,
+      "cosine": 0.9999989811054482,
+      "maximum_absolute_error": 0.25,
+      "incorrect_rmse_over_l2": 8.221371539238772e-06,
+      "block": 0,
+      "bitwise_equal": false,
+      "layer": 0
+    },
+    "layer3_key": {
+      "elements": 8388608,
+      "value_equal": false,
+      "rmse": 0.29690772963105755,
+      "reference_rms": 1.2271115997972248,
+      "relative_l2": 0.2419565829873341,
+      "cosine": 0.9708801578232156,
+      "maximum_absolute_error": 4.671875,
+      "incorrect_rmse_over_l2": 8.353961942532695e-05,
+      "block": 0,
+      "bitwise_equal": false,
+      "layer": 3,
+      "kind": "key"
+    },
+    "first_logits": {
+      "elements": 248320,
+      "value_equal": false,
+      "rmse": 1.9897892143035754,
+      "reference_rms": 2.4988496811353813,
+      "relative_l2": 0.7962820770393406,
+      "cosine": 0.6485934344610562,
+      "maximum_absolute_error": 14.203125,
+      "incorrect_rmse_over_l2": 0.001597942290675303,
+      "block": 0,
+      "bitwise_equal": false,
+      "kl_reference_to_candidate": 9.86960639684378,
+      "reference_argmax": 5378,
+      "candidate_argmax": 31750
+    },
+    "max_relative_l2": {
+      "gdn": 0.924941485532968,
+      "conv": 0.8997630850634907,
+      "kv": 0.550497011531941,
+      "logits": 0.7962820770393406
+    },
+    "reference_first_token": {
+      "id": 5378,
+      "text": "close",
+      "argmax_margin": 1.5
+    },
+    "candidate_first_token": {
+      "id": 31750,
+      "text": "operators",
+      "argmax_margin": 0.375
+    }
+  },
+  "historical_erratum": {
+    "layer31_value_kv": {
+      "elements": 2097152,
+      "value_equal": false,
+      "rmse": 0.7061726525872234,
+      "reference_rms": 0.9646835962773037,
+      "relative_l2": 0.7320251482582795,
+      "cosine": 0.7162306919492779,
+      "maximum_absolute_error": 11.341796875,
+      "incorrect_rmse_over_l2": 0.0005054882288403488,
+      "block": 15,
+      "bitwise_equal": false,
+      "layer": 31,
+      "kind": "value"
+    },
+    "old_metric_problem": "RMSE(error)/L2(reference) shrinks by sqrt(element count); correct relative L2 is RMSE(error)/RMS(reference).",
+    "old_boundary_problem": "Conv/GDN generation-return states followed divergent generated tokens, so cannot isolate Prefill.",
+    "old_coverage_problem": "Last2048 prompt KV only and top5 logits do not qualify full handoff.",
+    "adr_scope": "ADR-0002 accepts Prefill full Attention only, not GDN/projection/Decode changes.",
+    "causal_limit": "Fresh layer0 mismatch precedes full Attention, but projection and recurrence need identical-input isolation before assigning per-kernel error."
+  },
+  "gates": [
+    {
+      "id": "G0-service-coverage",
+      "status": "FAIL_INCOMPLETE_IMPLEMENTATION",
+      "host_cases": 95,
+      "admitted": 28,
+      "blocked": 67,
+      "remaining": [
+        "non-C64 MLP tails",
+        "P40001..44095 family workspace",
+        "text/chat/nonstream and stream without usage"
+      ]
+    },
+    {
+      "id": "G1-prefill-numerical",
+      "status": "FAIL",
+      "evidence": "fresh complete P8192/O1 capture; invalid historical qualification withdrawn"
+    },
+    {
+      "id": "G1-decode-numerical",
+      "status": "BOUNDED_PASS_ONLY",
+      "evidence": "existing exact-v7 identical-input checks retained; not full-service qualification"
+    },
+    {
+      "id": "G2-api-and-lifecycle",
+      "status": "PARTIAL_BLOCKED",
+      "evidence": "retained P40000/O4096 and bounded recovery pass; remaining surface/length qualification blocked by G0/G1"
+    },
+    {
+      "id": "G3-performance",
+      "status": "OBSERVED_P40_TARGET_MISS_AND_QUALIFICATION_BLOCKED",
+      "target_decode_tokens_per_second": 8.55,
+      "formal_mirrored_panel_executed": false,
+      "observed_candidate_p40_o256_engine_decode_tokens_per_second": 7.86395349111605,
+      "observed_candidate_p40_o256_external_decode_tokens_per_second": 7.863326825188488
+    },
+    {
+      "id": "G4-capability",
+      "status": "NOT_QUALIFIED_BLOCKED",
+      "evidence": "old20-case Decode screen is not a complete Prefill capability comparison"
+    },
+    {
+      "id": "G5-installed-default",
+      "status": "NOT_PROMOTED_BLOCKED",
+      "evidence": "ordinary OFF rebuilt; no candidate installation/default numerical or release pass"
+    }
+  ],
+  "prior_joint_performance_sources": [
+    "docs/metadata/qwen36-27b-whole-core-variable-prefill-2026-09-27.json",
+    "docs/metadata/qwen36-27b-whole-core-exact-decode-composition-2026-09-27.json"
+  ],
+  "new_performance_claim": false,
+  "runs": [
+    {
+      "route": "legacy",
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-whole-core-exact-decode-admission/q3x_reference_whole_core_state_capture_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/prefill-mainline-validation-20260927/requests-complete/p8192-o1.json",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/production-switch-20260927/prefill-8192-legacy.json",
+          "--route",
+          "legacy",
+          "--capture-boundary",
+          "prefill"
+        ],
+        "sha256": "f7fb6589016dae1db1954513a86a2d23286e16b01340a6cb080c31660034059a",
+        "git": "b09759f1497b6a726a3c3997c31530ea9a3f9dc2",
+        "dirty_diff_sha256": "37e919bd565306830f0e100c70ed74b4f47afe8c4a2b8f89b5fdbc2687bb8022",
+        "loading": "LAZY"
+      },
+      "returncode": 0,
+      "maximum_temperature_c": 65.937,
+      "cache_drop_rc": 0,
+      "context": {
+        "ordinary_correctness_or_diagnostic": true,
+        "active_control_cpu_only": false
+      },
+      "artifacts": {
+        ".q3x-work/whole-core-exact-composition-20260927/switch-prefill-8192-legacy/cache.json": "d00288d5d1dd1ebca711ff64274bfad90df650145c3c35c696b81950ae08b4d8",
+        ".q3x-work/whole-core-exact-composition-20260927/switch-prefill-8192-legacy/identity.json": "b7614afe99a0d3aa5dbd3d80bd96081aa34231d94e86f4a79c0d3f3c167c9c79",
+        ".q3x-work/whole-core-exact-composition-20260927/switch-prefill-8192-legacy/preflight-context.json": "f157de74543f4f3a45daebb0d91f264d063146bdeb5e1a9c04e33233169c425a",
+        ".q3x-work/whole-core-exact-composition-20260927/switch-prefill-8192-legacy/preflight.json": "ed7e8a57c323949f332d4c8be32d6070850b6344a0c52ed64d8c4444987dad17",
+        ".q3x-work/whole-core-exact-composition-20260927/switch-prefill-8192-legacy/process.json": "e4d7c6e76e5867e08d60504eab15f3fb5136a896a50a2b981930c3c5c34692a4",
+        ".q3x-work/whole-core-exact-composition-20260927/switch-prefill-8192-legacy/process.log": "166add3ea4eef3a67642a42c5c00c183332585c74a1ff16da9663fc7a9f81892",
+        ".q3x-work/whole-core-exact-composition-20260927/switch-prefill-8192-legacy/result.json": "95dc8b9ec4d64355bc6f4da140e9afddce4832a36f625fe795453821e82c8a66",
+        ".q3x-work/whole-core-exact-composition-20260927/switch-prefill-8192-legacy/telemetry.log": "5f0f2cdf6e746774f67df1543579cf7dfa67d95bdaad5cdd75fef63b031275be"
+      }
+    },
+    {
+      "route": "wholecore",
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-whole-core-exact-decode-admission/q3x_reference_whole_core_state_capture_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/prefill-mainline-validation-20260927/requests-complete/p8192-o1.json",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/production-switch-20260927/prefill-8192-wholecore.json",
+          "--route",
+          "wholecore",
+          "--capture-boundary",
+          "prefill"
+        ],
+        "sha256": "f7fb6589016dae1db1954513a86a2d23286e16b01340a6cb080c31660034059a",
+        "git": "b09759f1497b6a726a3c3997c31530ea9a3f9dc2",
+        "dirty_diff_sha256": "37e919bd565306830f0e100c70ed74b4f47afe8c4a2b8f89b5fdbc2687bb8022",
+        "loading": "LAZY"
+      },
+      "returncode": 0,
+      "maximum_temperature_c": 70.125,
+      "cache_drop_rc": 0,
+      "context": {
+        "ordinary_correctness_or_diagnostic": true,
+        "active_control_cpu_only": true
+      },
+      "artifacts": {
+        ".q3x-work/whole-core-exact-composition-20260927/switch-prefill-8192-wholecore/cache.json": "3af9f7e865c93c78406bdf7c27803663b2c8b97e12e76294803f69dce609fa69",
+        ".q3x-work/whole-core-exact-composition-20260927/switch-prefill-8192-wholecore/identity.json": "5a226bfb00de2cd83ed66181ffa9b9c3be0fe17e8b01a4552fe031425a31780e",
+        ".q3x-work/whole-core-exact-composition-20260927/switch-prefill-8192-wholecore/preflight-context.json": "607608b76e7a60ca77a394c145a79e7a1eabb90e4732f25c5906af151e1588f3",
+        ".q3x-work/whole-core-exact-composition-20260927/switch-prefill-8192-wholecore/preflight.json": "72327df4bbbedf9296da6fc051cca227f440e3c680d34a1cabdb5c728643a492",
+        ".q3x-work/whole-core-exact-composition-20260927/switch-prefill-8192-wholecore/process.json": "1723c56cfe4609d0f4457eea7f148a2e576fb2a0f22d6ab1fb6b082407d6c09d",
+        ".q3x-work/whole-core-exact-composition-20260927/switch-prefill-8192-wholecore/process.log": "dd5bddbac90085530fd57a67a183967a39e7afe5b4534c5c70fdbe86637fba33",
+        ".q3x-work/whole-core-exact-composition-20260927/switch-prefill-8192-wholecore/result.json": "ed2bf1048c0b70b23d4af9be24c3ab65944ae0099bf45cf9d6eee460591bc7e8",
+        ".q3x-work/whole-core-exact-composition-20260927/switch-prefill-8192-wholecore/telemetry.log": "3a329562ae43bc2ab2a8971f651cf5232f702b0589c63d5d0ae4d1687f799ae9"
+      }
+    }
+  ],
+  "artifacts": {
+    ".q3x-work/production-switch-20260927/prefill-8192-comparison.json": "504dc72feff4984312b107078c36fdef92038e69721e38f5f1329b406ddb5e48",
+    ".q3x-work/production-switch-20260927/historical-state-comparison.json": "72507325792d512ca335ec54e2743e655745e5ed29e890f71a9fd8aff7b7c63d",
+    ".q3x-work/production-switch-20260927/frozen/CMakeCache.txt": "498d030b79307c4419e6d325559a71869c7c6d2a6a29932d7f9602fd4f657566",
+    ".q3x-work/production-switch-20260927/frozen/capture.patch": "37e919bd565306830f0e100c70ed74b4f47afe8c4a2b8f89b5fdbc2687bb8022",
+    ".q3x-work/production-switch-20260927/frozen/q3x_reference_whole_core_state_capture_test": "f7fb6589016dae1db1954513a86a2d23286e16b01340a6cb080c31660034059a",
+    ".q3x-work/production-switch-20260927/frozen/reference_whole_core_state_capture_test.cpp": "6ff61f967794e150bfd404f6dad430a7879e1ee91dbc4724e3e0951ff6468200",
+    ".q3x-work/production-switch-20260927/protocol-build.log": "f0f970d5a34d1e244701dfbcdb6953c2b12a4ce703b0a85c89347031799ca8ea",
+    ".q3x-work/production-switch-20260927/release-off-build.log": "c30a7d06befdb5dfdbb42e3443218fe269cf47978df9369b7979a8b8c7d441fd",
+    ".q3x-work/production-switch-20260927/document-control.log": "802179e17a650c9f4ad528a805163307b115774003bfb5093dd7e36bc9bb0a01",
+    ".q3x-work/production-switch-20260927/python-tests.log": "7214c160113450a211395d7158f55a505118225fe72ad9ac545d9552e7ec176b",
+    ".q3x-work/production-switch-20260927/protocol-test.log": "caf4b1a4024fc36108cad4f0d981b4886c96ae085b130facd6bd12a62fc549bd"
+  },
+  "comparison_payloads": {
+    "fresh": [
+      {
+        "path": ".q3x-work/production-switch-20260927/prefill-8192-legacy.json",
+        "sha256": "bd10c84717bf71f01130403ba64d5648b2ebe1f1bb81b829247fe89040c681f1"
+      },
+      {
+        "path": ".q3x-work/production-switch-20260927/prefill-8192-wholecore.json",
+        "sha256": "75053e148bf13b011cebbd6fe6902dc4bdfc742eff966cd647216ecfa6b4ecdd"
+      },
+      {
+        "path": ".q3x-work/production-switch-20260927/prefill-8192-legacy_gdn.bin",
+        "sha256": "d6416df273a54eba96a606f4d5be5bf72de952877f5d7c69bd39236b8695d181"
+      },
+      {
+        "path": ".q3x-work/production-switch-20260927/prefill-8192-wholecore_gdn.bin",
+        "sha256": "912da45e92f6e71d9bdd3ea577096716d3bdeb92dcf4a37403739b3da6830fd8"
+      },
+      {
+        "path": ".q3x-work/production-switch-20260927/prefill-8192-legacy_conv.bin",
+        "sha256": "def0c45956c04917a4caf3b8136c343d5a7041dddec38c538e9ab5a626db5461"
+      },
+      {
+        "path": ".q3x-work/production-switch-20260927/prefill-8192-wholecore_conv.bin",
+        "sha256": "9bff1e21cf6bb76f54d945a47294f43fc3a9150a8bab2f08e4eef9c4a43fbf0c"
+      },
+      {
+        "path": ".q3x-work/production-switch-20260927/prefill-8192-legacy_kv.bin",
+        "sha256": "15b21993c980257ccedfe6be00735794186ff2762b2ac7258524abb7ed7c4a18"
+      },
+      {
+        "path": ".q3x-work/production-switch-20260927/prefill-8192-wholecore_kv.bin",
+        "sha256": "b3278bbff2a08462e0aea6125b80844a315efec4d3ff59899d5510564bde6968"
+      },
+      {
+        "path": ".q3x-work/production-switch-20260927/prefill-8192-legacy_logits.bin",
+        "sha256": "c47068bd4789388ab374463ed278ca9ad09d39a7a6c18d23e8b4d10da9208986"
+      },
+      {
+        "path": ".q3x-work/production-switch-20260927/prefill-8192-wholecore_logits.bin",
+        "sha256": "afd3f85e063e9dbc18aea14d678683b4629eb92ee47eadaa44d26752358541bd"
+      }
+    ],
+    "historical": [
+      {
+        "path": ".q3x-work/evidence/whole-core-full-state-qualification-20260926/state-legacy.json",
+        "sha256": "05c19831403184e1462acfabf8f4a5d4958ef1f2aa1d504e5321afa2465211ff"
+      },
+      {
+        "path": ".q3x-work/evidence/whole-core-full-state-qualification-20260926/state-wholecore.json",
+        "sha256": "257d85676b1abfb15d18223ff7c79718561ed0f8803f4dcdd933192d05849546"
+      },
+      {
+        "path": ".q3x-work/evidence/whole-core-full-state-qualification-20260926/state-legacy_gdn.bin",
+        "sha256": "382eeeff284ce4904d2d72e31b14cf4bb76b79e20787cd63dc3ba476c8e7c0af"
+      },
+      {
+        "path": ".q3x-work/evidence/whole-core-full-state-qualification-20260926/state-wholecore_gdn.bin",
+        "sha256": "f5c3461b2738eb18c75aaeab5564d1b890ff83321504f640bc5a376785ba7869"
+      },
+      {
+        "path": ".q3x-work/evidence/whole-core-full-state-qualification-20260926/state-legacy_conv.bin",
+        "sha256": "a9f2dbc43b219b42f506f979a1c82196a8ba2a8ac48095fd93cfd64dffc0305f"
+      },
+      {
+        "path": ".q3x-work/evidence/whole-core-full-state-qualification-20260926/state-wholecore_conv.bin",
+        "sha256": "fa8b0089c29a078f4f1752c9129d571a807749739ec0058f1533b246939cf422"
+      },
+      {
+        "path": ".q3x-work/evidence/whole-core-full-state-qualification-20260926/state-legacy_kv.bin",
+        "sha256": "b74506068a429312392d3f9cb8bfbe834901e557f40234417bd43e16200a7903"
+      },
+      {
+        "path": ".q3x-work/evidence/whole-core-full-state-qualification-20260926/state-wholecore_kv.bin",
+        "sha256": "92ea183d6677b444b6b050cd84a16cb34934394345597b12184dadbd045ec138"
+      }
+    ]
+  },
+  "checks": {
+    "state_metric_unittests": "4 passed",
+    "openai_protocol_test": "passed, including stale qualification flag rejection",
+    "ordinary_release_off_build": "passed",
+    "runtime_arithmetic_changed": false,
+    "document_control": "passed:79 tracked/registered,0 errors",
+    "host_python_unittests": "15 passed:4 state-audit,4 preparation,7 document-control",
+    "post_build_edits": "Only source-header comments were clarified after the successful C++ builds and protocol run; runtime/test arithmetic and control flow are unchanged."
+  },
+  "next_dependency": "WP-PREFILL-STATE-CONTRACT-REPAIR-20260927: isolate real layer0 projection and recurrence inputs, compose contract-preserving successor, return immediately to full boundary and API before tails/capability/install qualification.",
+  "source_files_sha256": {
+    "tools/evaluation/audit_prefill_state.py": "0ff6f6b24718d59d74b95f0374927d6b34d0438a2637d44a8a8739e4c931e782",
+    "tests/test_prefill_state_audit.py": "10ac792308199960a253520dd6dbe468baf154b9f1fa550ced0ebd741ddac916",
+    "tests/reference_whole_core_state_capture_test.cpp": "6ff61f967794e150bfd404f6dad430a7879e1ee91dbc4724e3e0951ff6468200",
+    "src/server/evaluation_server.cpp": "a801e6783b308403cf8b0235a13ea3299f9b2c10b29a1c12ab118ce5951229ac",
+    "src/server/openai_protocol.cpp": "448bb478dde37dca1506adeabbce165ef0fae73ceb11df27fb94c4f65769556f",
+    "tests/openai_protocol_test.cpp": "60c6ee6924093f3056c39bcaabf7df38c1577aa3fcd6b17c4ce0c9a153891348",
+    "include/q3x/server/openai_protocol.h": "660231ba5ea23e32e458d3eb6fe5fe52dcab99795e60b37bb01603ced14b2a8c"
+  }
+}

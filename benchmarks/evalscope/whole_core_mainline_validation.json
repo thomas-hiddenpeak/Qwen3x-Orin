@@ -2,7 +2,7 @@
   "schema_version": 1,
   "work_package": "WP-PREFILL-MAINLINE-VALIDATION-20260927",
   "parent_architecture": "AC-WHOLE-CORE-SERVICE-20260927",
-  "source_parent": "8b9130a",
+  "source_parent": "b09759f1497b6a726a3c3997c31530ea9a3f9dc2",
   "purpose": "prepare default Prefill replacement qualification; does not promote the fixed-P40 admission",
   "promotion_qualified": false,
   "service_contract": {
@@ -41,7 +41,7 @@
       "id": "G0-service-coverage",
       "required": "host admission, actual-length plans, full state/scratch bounds and tail ownership over current service envelope",
       "command": "q3x_whole_core_exact_decode_plan_test --service-coverage",
-      "current_status": "blocked: current compiled predicate is fixed P40000/token_ids/stream_with_usage; host acceptance alone will never prove execution"
+      "current_status": "incomplete: v3 admits P64..40000 divisible by64, token_ids/stream_with_usage only; 28 of95 host cases admitted, not real-model qualification"
     },
     {
       "id": "G1-numerical",
@@ -58,11 +58,14 @@
         44
       ],
       "decode": "bitwise equality against scalar on identical whole-core-produced Q/K/V, teacher-forced full-logit/live-state trajectory; no ADR-0002 waiver",
-      "prefill": "preserve accepted arithmetic; independently validate full GDN/conv and KV including first/last positions and every partial chunk/panel boundary; inherited P40 nrmse 1e-3 is scoped precedent, not a blanket waiver for changed GDN/projection arithmetic",
+      "prefill": "Complete matched P-token handoff before feeding generated tokens: full GDN/Conv, all used KV, full-vocabulary logits; size-invariant L2(error)/L2(reference), exact byte equality reported separately. Preserve non-Attention contract; ADR-0002 applies only to Prefill full Attention. Historical P40 nrmse qualification withdrawn on2026-09-27; it supplies no tolerance or pass.",
       "no_shortcuts": [
         "greedy text equality alone",
         "top5-only logits",
-        "last2048 KV sample alone for general tails"
+        "last2048 KV sample alone for general tails",
+        "post-divergence generation-return state comparison",
+        "RMSE(error)/L2(reference) size dilution",
+        "automatic numerical qualification from compiled profile"
       ]
     },
     {
@@ -146,5 +149,6 @@
     "thermal": "record clocks/throttle above85 through90; stop above90; never inspect/control fan",
     "failure": "retain failed run; fix named cause; no blind repetition"
   },
-  "stop_rule": "A failed prerequisite blocks dependent qualification; implement missing capacity/API/tail support rather than repeating already-successful P40 timings."
+  "stop_rule": "A failed prerequisite blocks dependent qualification. Current Prefill numerical failure takes priority over tail/API expansion; repair the contract and return to the real API before full-panel performance, capability and install qualification.",
+  "latest_disposition": "docs/metadata/qwen36-27b-whole-core-production-switch-2026-09-27.json"
 }

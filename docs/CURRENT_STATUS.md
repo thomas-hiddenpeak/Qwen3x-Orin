@@ -26,9 +26,10 @@ metadata/evidence records.
 
 The owner's 2026-09-27 direction provisionally accepts Prefill performance and
 selects convergence on fused Decode attention qualification, with a retrospective
-of misleading performance conclusions. New Prefill arithmetic exploration is paused; the later owner direction
+of misleading performance conclusions. Open-ended Prefill arithmetic exploration is paused; the later owner direction
 activates composition and variable-length service integration of the retained
-whole-core architecture. The owner now provisionally accepts approximately 8.55 Decode
+whole-core architecture. The latest numerical audit below activates a bounded
+contract repair before that architecture can be selected. The owner now provisionally accepts approximately 8.55 Decode
 tok/s for this milestone; production numerical contracts remain unchanged. The
 [active convergence slice](ROADMAP.md#2026-09-27-product-convergence--active)
 owns the next work; the
@@ -37,6 +38,21 @@ withdraws unsupported ceiling and qualification inferences without rewriting
 historical measurements.
 
 ## 1. Answer-first state
+
+**Production-switch decision, 2026-09-27: NO-GO for the current whole-core
+Prefill candidate. The earlier full-state accuracy qualification is withdrawn.**
+The [numerical erratum and complete gate disposition](analysis/whole-core-production-switch-2026-09-27/README.md)
+recompute the retained historical tensors and compare a fresh, matched
+P8192/O1 boundary with complete KV, Conv/GDN state and full-vocabulary logits.
+The old error normalization shrank with tensor size, and the old recurrent
+state capture mixed different generated-token histories. The fresh comparison
+already differs before subsequent Decode: layer-0 GDN relative L2 is 0.3190,
+and the first-logit KL is 9.8696. This is not covered by ADR-0002's Prefill
+full-Attention scope. The default Legacy route remains unchanged; the named
+fixed-P40 profile can no longer emit `numerical_contract.qualified=true`.
+Exact v7's bounded same-input Decode checks remain valid within their scope.
+Coverage, capability and installed-default gates are not passed by this audit;
+the active Roadmap now puts Prefill numerical repair before service expansion.
 
 **Variable-length integration has reached its first real API checkpoint;
 full service coverage and default promotion remain open.** The isolated v3
@@ -72,7 +88,7 @@ now execute together in an isolated P40000 candidate.** The
 [composition record](metadata/qwen36-27b-whole-core-exact-decode-composition-2026-09-27.json)
 owns the matched P40000/O256 observations, numerical scope and remaining gates.
 The candidate delivers 91.813 s engine Prefill (435.67 prompt token/s),
-91.856 s external TTFT and 7.863 Decode token/s in one request. The fresh
+91.856 s external TTFT and 7.864 engine Decode token/s in one request. The fresh
 Legacy/v7 control delivers 219.559 s external TTFT and 7.873 Decode token/s.
 These are engineering direction observations, not release qualification.
 Both use the complete Decode sidecars; the composition retains the 8-GiB
@@ -119,7 +135,8 @@ No whole-core composition, capacity expansion, new speed search, or fused
 production promotion follows this negative qualification. The earlier Prefill
 and installed-main facts below retain their recorded scopes.
 
-**Liveness is integrated and installed-main closeout passes; release remains unqualified. The whole-core route is now a second, accuracy-qualified production deployment profile, and both production profiles passed a comprehensive API e2e evaluation (2026-09-26).**
+**Liveness is integrated and installed-main closeout passes; release remains unqualified.
+The named whole-core deployment's historical accuracy qualification is withdrawn.**
 Main `8fe4e67` (2026-09-26) promotes the layer-major whole-core route to the
 sealed production profile `q3x.sm87.production.p40.whole-core.v1`
 (`kP40WholeCoreV1`), selected at process start with
@@ -127,29 +144,30 @@ sealed production profile `q3x.sm87.production.p40.whole-core.v1`
 `orin-p40-whole-core-prod` build. It is fixed P40000/O16 geometry
 (40'016 max sequence, 8'641'684'992-byte request arena) and trades the
 default profile's 4'096-token output ceiling for a ~2.4x faster
-whole-prompt Prefill on the pinned workload. Its accuracy qualification is
-the full-state committed-state comparison against the accepted BF16 class
-(ADR-0002, 2026-09-26); real-model verification produced output bitwise
-identical to the development route with the witness
-`numerical_contract.qualified=true`. The default route, the Legacy-C512
+whole-prompt Prefill on the pinned workload. The 2026-09-26 full-state record
+was used to claim accuracy qualification and emit
+`numerical_contract.qualified=true`; the 2026-09-27 erratum above withdraws
+that inference and the runtime now emits false. Output identity with the
+development route did not establish equivalence to Legacy. The default route, the Legacy-C512
 production plan, and the development route are unchanged; this profile
 grants no release qualification and no capability beyond the pinned
 P40000/O16 streaming contract.
 
-A comprehensive API e2e evaluation (2026-09-26, all traffic through the
+The historical API e2e evaluation (2026-09-26, all traffic through the
 OpenAI-compatible HTTP API, EvalScope 1.9.1 for performance) confirmed both
 production profiles on the real model. Legacy-C512 (default, no selector):
 short protocol 32/32 at 2,743.8 ms mean TTFT / 105.1 ms mean TPOT / 9.51 decode
 tok/s, matching its 2026-09-09 baseline; P40000/O16 at 219.5 s TTFT / 3.94
-decode tok/s (decode identical to the 09-09 baseline; the lower TTFT reflects
-33 preceding short requests having warmed the cuBLASLt/prefill paths, whereas
-09-09 was the first request after server start). Whole-core
+decode tok/s. This P40 request followed 33 short requests, unlike the first-
+request 09-09 baseline; the protocol difference prevents attributing the TTFT
+change to a particular kernel or claiming a matched speedup. Whole-core
 (`--production-profile p40-whole-core-v1`): P40000/O16 at 91.4 s TTFT /
 419.75 prompt tok/s / 3.87 decode tok/s, a ~2.3x prompt-throughput gain over
 the warmed Legacy profile on the pinned workload, with short requests rejected
 by its profile contract as designed. Accuracy: the two routes produce coherent
-but token-divergent greedy output on the same P40000 request (different GEMM
-backends), each matching its own qualified lineage. API conformance: the whole-core
+but token-divergent greedy output on the same P40000 request. This does not
+qualify either numerical lineage or attribute divergence to GEMM alone.
+API conformance: the whole-core
 contract matrix passed 6/6 and the Legacy generic-protocol matrix passed 21/21.
 These protocol checks are not public model-capability scores.
 This evaluation is an observation surface; it does not promote or demote any
@@ -879,7 +897,7 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | Pure C++ tokenizer and greedy generation | Implemented | Public capability and long-run qualification remain incomplete |
 | OpenAI-compatible product API | Installed production-shaped 0.7.0 service with bounded queues, streaming, Bearer authentication, public health, and external TLS termination contract | Cancellation, multi-tenant policy, capability, and release stability remain incomplete |
 | Installed default context | Sealed P40 profile admits `prompt + output - 1 <= 44,095` with a 4,096-token output ceiling | P60 and approximately-P130 profiles remain unopened |
-| Whole-core production profile | Second sealed deployment `q3x.sm87.production.p40.whole-core.v1` (main `8fe4e67`): fixed P40000/O16, whole-prompt layer-major Prefill, full-state accuracy qualified inside the accepted BF16 class, real-model output bitwise identical to the dev route; comprehensive API e2e (2026-09-26) measured 91.4 s TTFT / 419.75 prompt tok/s on P40000/O16 and passed the 6/6 contract matrix | Not the default route; no release qualification; capacity is the pinned P40000/O16 streaming contract only |
+| Whole-core named deployment | `q3x.sm87.production.p40.whole-core.v1` remains a fixed P40000/O16 opt-in profile; historical full-state accuracy qualification withdrawn by the [2026-09-27 erratum](analysis/whole-core-production-switch-2026-09-27/README.md) | Numerical qualification false; not eligible for default replacement; historical API conformance is not accuracy or release qualification |
 | Terminal-prefix source integration | Integrated ordinary OFF liveness-only profile and v20 receipts, with the separately identified host Graph-template repair; fresh main `230eac1` / ELF `270a6bb4...` passes P40000/O16 and separate short integration | Complete capability, repeated startup reliability, and release qualification remain open; original candidate-panel gains are not a new main speedup |
 | Ordinary request-state reuse | Preserved 0.7.0 lifecycle and original v1/v16 scopes; current-main v20 P40 and ten short P/O/reset receipts pass. Historical v3 BCCB/lifecycle evidence remains separately scoped | Complete accuracy, independent-process target-length repetition, capability, and release qualification remain open; no Prefill-throughput claim is attached to reset |
 | Target-length Prefill | Current installed main executes terminal layer-63 prefix elision with incumbent QT2/GroupQ64, exact-span GDN, and prompt-wide preprocessing; its actual P40000/O16 request reports 60.271514903 prompt tok/s | Complete accuracy, P60/P130, the 2s/4s targets, and further accuracy-preserving whole-product optimization remain open; closed lineages and same-skeleton span scans remain excluded |

@@ -1427,8 +1427,7 @@ std::string serialize_target_prefill_witness(
       native_large_m_candidate_v5 || flashinfer_exact_candidate_v6 ||
       true_large_m_nvfp4_candidate_v7 || g2_d2_nvfp4_candidate_v8 ||
       persistent_p40_candidate_v9 ||
-      (prompt_wide_p40_whole_core_candidate_v10 &&
-       !record.whole_core_production_qualified) ||
+      prompt_wide_p40_whole_core_candidate_v10 ||
       p40_projection_reset_candidate_v11 ||
       p40_packed_projection_candidate_v13 ||
       p40_packed_nvfp4_v2_candidate_v14 ||
@@ -2321,16 +2320,9 @@ std::string serialize_target_prefill_witness(
       append_json_string(output,
                          "accuracy-unqualified-architecture-candidate");
       output += ",\"numerical_contract\":{\"qualified\":false,\"reason\":";
-      append_json_string(output,
-                         "full-state-accuracy-qualification-not-run");
-      output += "}";
-    } else if (record.whole_core_production_qualified) {
-      output += ",\"qualification\":";
-      append_json_string(output,
-                         "accuracy-qualified-production-deployment");
-      output += ",\"numerical_contract\":{\"qualified\":true,\"reason\":";
-      append_json_string(output,
-                         "full-state-accuracy-qualification-passed-2026-09-26");
+      append_json_string(output, prompt_wide_p40_whole_core_candidate_v10
+          ? "whole-core-state-qualification-withdrawn-2026-09-27"
+          : "full-state-accuracy-qualification-not-run");
       output += "}";
     }
   }

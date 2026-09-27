@@ -22,12 +22,12 @@ document. Classes and authority rules are defined by
 ## Audit snapshot
 
 - Audit date: 2026-09-27.
-- Expected integrated-tree coverage: **78 Markdown paths**.
-- Classified: **78**.
+- Expected integrated-tree coverage: **79 Markdown paths**.
+- Classified: **79**.
 - Unclassified: **0**.
 - Duplicate registrations: **0**.
-- Automated validator: **PASS** (`78` tracked, `78` registered, `40`
-  required first-party headers, `49` headers checked, `1012` local links,
+- Automated validator: **PASS** (`79` tracked, `79` registered, `40`
+  required first-party headers, `50` headers checked, `1026` local links,
   `0` errors).
 - Inventory basis: every literal path from `git ls-files '*.md'` in the
   staged tree including the Decode context-scaling, retrospective, product-admission, qualification and numerical-repair records.
@@ -108,7 +108,7 @@ authority only for its exact recorded protocol.
 | `docs/PREFILL_REFERENCE_AUDIT.md` | `historical_architecture_audit` | historical | Superseded as current Prefill design authority by `docs/PREFILL_ARCHITECTURE_RESET.md`, which refines `docs/SDD.md`; retains pinned source-analysis provenance. |
 | `docs/ROADMAP_LEGACY.md` | `historical_roadmap_ledger` | historical | Superseded by concise active `docs/ROADMAP.md`; retained for linked chronology, with Git history and evidence owning exact observations. |
 
-## Evidence (36)
+## Evidence (37)
 
 | Path | Role | Lifecycle | Evidence authority |
 | --- | --- | --- | --- |
@@ -120,6 +120,7 @@ authority only for its exact recorded protocol.
 | `docs/analysis/decode-numerical-repair-2026-09-27/README.md` | `numerical_repair_evidence` | frozen | FP32 partition/merge-staging correction, cancellation regression and bounded real-model/API results; remaining scalar-equivalence gap, no promotion. |
 | `docs/analysis/decode-exact-performance-2026-09-27/README.md` | `exact_decode_performance_evidence` | frozen | Exact Decode scheduling and operand-pipeline comparison on real inputs and API; no automatic production promotion. |
 | `docs/analysis/whole-core-service-replacement-2026-09-27/README.md` | `service_replacement_audit` | frozen | Source/history and host-contract assessment of full-range whole-core replacement; no new GPU timing or production selection. |
+| `docs/analysis/whole-core-production-switch-2026-09-27/README.md` | `numerical_qualification_erratum` | frozen | Historical error-normalization and capture-boundary erratum, fresh complete P8192/O1 state/logit comparison, and explicit negative production-switch disposition; no numerical waiver or default promotion. |
 | `docs/analysis/decode-ordered-repair-2026-09-27/README.md` | `ordered_numerical_repair_evidence` | frozen | Scalar-equivalent ordered Decode dataflow and bounded numerical/API comparison; no implicit production or release promotion. |
 | `docs/analysis/decode-performance-lessons-2026-09-27/README.md` | `retrospective_erratum` | frozen | Dated correction of Decode ceiling, causality and qualification inferences at c4c8a34; source audit only, no new performance or production selection. |
 | `docs/analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md` | `experiment_evidence` | frozen | Decode coupled-feed parity observation for its pinned real API protocol. |

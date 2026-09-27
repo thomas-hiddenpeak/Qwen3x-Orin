@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: navigation to accepted and superseded project decisions
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-09-27
   supersedes: []
   superseded_by: []
   ssot_for: architecture-decision index
@@ -35,3 +35,8 @@ implementation truth remains in [Current Status](../CURRENT_STATUS.md).
 - [ADR-0001: End-state-first leakage and controlled evolution](0001-end-state-first-leakage.md)
 - [ADR-0002: Prefill attention aligned to the vLLM numerical class (split-P tensor route)](0002-prefill-attention-vllm-numerical-alignment.md)
 - [ADR-0003: Prefill target hardware-bound analysis and target adjudication request](0003-prefill-target-hardware-bound.md)
+
+The [2026-09-27 whole-core qualification erratum](../analysis/whole-core-production-switch-2026-09-27/README.md)
+withdraws the full-state qualification inference in ADR-0002's historical
+appendix. The accepted Prefill full-Attention decision remains in force within
+its original scope; GDN, projection and Decode acquire no numerical waiver.

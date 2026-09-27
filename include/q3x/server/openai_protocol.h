@@ -201,9 +201,8 @@ struct TargetPrefillWitnessRecord {
   // A non-empty identifier is emitted only after a layer-major whole-request
   // generation has completed its separate engine-lifetime plan.
   std::string deployment_plan_id;
-  // Set by the server when the whole-core deployment plan is the owner-promoted
-  // qualified production profile (kP40WholeCoreV1). The witness keeps the dev
-  // candidate plan ID for v10 schema stability but reports qualified=true.
+  // Retained for source/ABI compatibility only. The historical qualification
+  // was withdrawn; this flag cannot grant numerical qualification.
   bool whole_core_production_qualified = false;
   // Ordinary Legacy-C512 production request-start cleanup receipt. Its
   // presence upgrades that witness to v16, including on the sealed P40

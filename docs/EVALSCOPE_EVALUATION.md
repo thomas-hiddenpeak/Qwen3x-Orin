@@ -17,6 +17,24 @@ q3x_document:
 
 ## Preparing whole-core default-route validation
 
+**2026-09-27 qualification correction:** the historical whole-core full-state
+pass is withdrawn by the
+[production-switch erratum](analysis/whole-core-production-switch-2026-09-27/README.md).
+It must not supply a numerical tolerance or qualify a compiled profile.
+Capture the same logical P-token boundary before feeding any generated token
+(O1 with `--capture-boundary prefill` in the whole-core state capture).
+Compare complete GDN/Conv, all used KV positions and full-vocabulary logits.
+Use `L2(error)/L2(reference)`, equivalently `RMSE(error)/RMS(reference)`;
+`RMSE(error)/L2(reference)` spuriously dilutes error as tensor size grows.
+Report exact byte equality independently. A zero reference norm with nonzero
+error is undefined relative error, never a pass. The
+[offline audit](../tools/evaluation/audit_prefill_state.py) checks boundary,
+coverage, payload sizes, non-finites and committed argmax; it grants no
+qualification automatically. Per-role production contracts still govern
+acceptance, and ADR-0002 does not amend GDN, projection or Decode semantics.
+Teacher-forced subsequent-Decode comparisons must feed identical tokens to
+both routes. Post-divergence free-running states cannot isolate Prefill.
+
 The [mainline validation manifest](../benchmarks/evalscope/whole_core_mainline_validation.json)
 defines the current service-preservation panel and ordered qualification gates.
 This is default-route integration preparation, not a complete product-SLO or
@@ -67,10 +85,12 @@ N=ceil(P/8000): require N logical panels, 64*N fill and drain phases each,
 package-complete flags, complete prompt consumption and zero forbidden/
 fallback counts must pass before interpreting timing. Preserve incomplete
 older witnesses as diagnostics; do not repair their raw records retrospectively.
-The component tail oracle must preserve a single-call FP32 GDN state lifetime:
+The existing component tail oracle preserves a single-call FP32 GDN state lifetime:
 splitting into separate C512 calls introduces extra BF16 state publication and
-is not a bitwise oracle for that computation. Component-tail checks and
-same-input Decode checks do not replace the full Prefill-state/capability gate.
+is not a bitwise oracle for that computation. This describes the experimental
+kernel's regression oracle, not an accepted production GDN numerical class.
+Component-tail checks and same-input Decode checks do not replace the full
+Prefill-state/capability gate or the per-token BF16 production contract.
 
 Finish all heavy compilation before real-model validation, including recovery
 checks. A thermal stop during recovery is not a passed recovery test, even if
