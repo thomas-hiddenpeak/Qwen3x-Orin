@@ -87,26 +87,39 @@ std::size_t g_dequant_buffer_capacity = 0U;
 
 }  // namespace
 
-int launch_fp8_dequant_cublas_projection(
+static int launch_fp8_projection_impl(
     const std::uint8_t* const fp8_weight, const float weight_scale,
     const std::uint16_t* const input_bf16, std::uint16_t* const output_bf16,
     const std::size_t m, const std::size_t n, const std::size_t k,
-    void* const cuda_stream) noexcept {
+    void* const workspace, const std::size_t workspace_bytes,
+    const bool caller_owns_workspace, void* const cuda_stream) noexcept {
   if (fp8_weight == nullptr || input_bf16 == nullptr || output_bf16 == nullptr ||
       m == 0U || n == 0U || k == 0U || cuda_stream == nullptr) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
+  // The owned path is bounded to the service's model dimensions and capacity,
+  // making every byte calculation and CUTLASS int conversion safe.
+  if (caller_owns_workspace &&
+      (m > 44095U || n > 17408U || k > 17408U || n % 8U || k % 16U))
+    return static_cast<int>(cudaErrorInvalidValue);
   const std::size_t total = n * k;
-  const int buffer_status = ensure_dequant_buffer(total);
-  if (buffer_status != static_cast<int>(cudaSuccess)) {
-    return buffer_status;
+  std::uint16_t* dequant_buffer = nullptr;
+  if (caller_owns_workspace) {
+    if (workspace == nullptr || reinterpret_cast<std::uintptr_t>(workspace) % 16U ||
+        total > workspace_bytes / sizeof(std::uint16_t))
+      return static_cast<int>(cudaErrorInvalidValue);
+    dequant_buffer = static_cast<std::uint16_t*>(workspace);
+  } else {
+    const int buffer_status = ensure_dequant_buffer(total);
+    if (buffer_status != static_cast<int>(cudaSuccess)) return buffer_status;
+    dequant_buffer = g_dequant_buffer;
   }
   const cudaStream_t stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   constexpr unsigned int kThreads = 256U;
   const std::size_t blocks = (total + kThreads - 1U) / kThreads;
   dequant_fp8_to_bf16_kernel<<<static_cast<unsigned int>(blocks), kThreads,
                                0U, stream>>>(fp8_weight, weight_scale,
-                                              g_dequant_buffer, total);
+                                              dequant_buffer, total);
   const cudaError_t dequant_status = cudaGetLastError();
   if (dequant_status != cudaSuccess) {
     return static_cast<int>(dequant_status);
@@ -126,7 +139,7 @@ int launch_fp8_dequant_cublas_projection(
                                static_cast<int>(k)),
       {reinterpret_cast<cutlass::bfloat16_t const*>(input_bf16),
        static_cast<int>(k)},
-      {reinterpret_cast<cutlass::bfloat16_t const*>(g_dequant_buffer),
+      {reinterpret_cast<cutlass::bfloat16_t const*>(dequant_buffer),
        static_cast<int>(k)},
       {reinterpret_cast<cutlass::bfloat16_t const*>(output_bf16),
        static_cast<int>(n)},
@@ -138,6 +151,8 @@ int launch_fp8_dequant_cublas_projection(
   CutlassGemm gemm;
   const size_t ws_size = CutlassGemm::get_workspace_size(args);
   void* ws = nullptr;
+  if (caller_owns_workspace && ws_size != 0U)
+    return static_cast<int>(cudaErrorNotSupported);
   if (ws_size) {
     const cudaError_t ws_status = cudaMalloc(&ws, ws_size);
     if (ws_status != cudaSuccess) {
@@ -155,6 +170,22 @@ int launch_fp8_dequant_cublas_projection(
     return static_cast<int>(cudaErrorInvalidValue);
   }
   return static_cast<int>(cudaSuccess);
+}
+
+int launch_fp8_dequant_cublas_projection(
+    const std::uint8_t* weight, float scale, const std::uint16_t* input,
+    std::uint16_t* output, std::size_t m, std::size_t n, std::size_t k,
+    void* stream) noexcept {
+  return launch_fp8_projection_impl(weight, scale, input, output, m, n, k,
+                                    nullptr, 0U, false, stream);
+}
+
+int launch_fp8_dequant_cublas_projection_with_workspace(
+    const std::uint8_t* weight, float scale, const std::uint16_t* input,
+    std::uint16_t* output, std::size_t m, std::size_t n, std::size_t k,
+    void* workspace, std::size_t workspace_bytes, void* stream) noexcept {
+  return launch_fp8_projection_impl(weight, scale, input, output, m, n, k,
+                                    workspace, workspace_bytes, true, stream);
 }
 
 }  // namespace q3x::kernels

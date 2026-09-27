@@ -12,7 +12,7 @@ int main() {
   const auto text = q3x::server::serialize_target_prefill_witness(record);
   if (!q3x::io::json::parse(text) ||
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
-      text.find("target-prefill-witness-whole-core-exact-decode-admission-v6") == std::string::npos ||
+      text.find("target-prefill-witness-whole-core-exact-decode-admission-v7") == std::string::npos ||
       text.find("\"schema_version\":2") == std::string::npos ||
 #else
       text.find("target-prefill-witness-fused-decode-admission-v7") == std::string::npos ||

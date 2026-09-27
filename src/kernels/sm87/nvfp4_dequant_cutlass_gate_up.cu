@@ -168,44 +168,62 @@ constexpr std::size_t kMChunk = 8000U;
 
 }  // namespace
 
-int launch_nvfp4_dequant_cutlass_gate_up(
+static int launch_nvfp4_gate_up_impl(
     const std::uint8_t* const gate_packed,
     const std::uint8_t* const gate_scale, const float gate_ws2,
     const std::uint8_t* const up_packed, const std::uint8_t* const up_scale,
     const float up_ws2, const std::uint16_t* const input,
     std::uint16_t* const activated, const std::size_t m, const std::size_t n,
-    const std::size_t k, void* const cuda_stream) noexcept {
+    const std::size_t k, void* const workspace,
+    const std::size_t workspace_bytes, const bool caller_owns_workspace,
+    void* const cuda_stream) noexcept {
   if (gate_packed == nullptr || gate_scale == nullptr ||
       up_packed == nullptr || up_scale == nullptr || input == nullptr ||
       activated == nullptr || m == 0U || n == 0U || k == 0U ||
       cuda_stream == nullptr) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
+  // The owned path is bounded to the service's model dimensions and capacity,
+  // making every byte calculation and CUTLASS int conversion safe.
+  if (caller_owns_workspace &&
+      (m > 44095U || n > 17408U || k > 17408U || n % 8U || k % 16U))
+    return static_cast<int>(cudaErrorInvalidValue);
   const std::size_t dequant_elements = 2U * n * k;
   const std::size_t gemm_elements = kMChunk * 2U * n;
-  const int buf_status = ensure_buffers(dequant_elements, gemm_elements);
-  if (buf_status != static_cast<int>(cudaSuccess)) {
-    return buf_status;
+  std::uint16_t* dequant_buffer = nullptr;
+  std::uint16_t* gemm_temp = nullptr;
+  if (caller_owns_workspace) {
+    if (workspace == nullptr || reinterpret_cast<std::uintptr_t>(workspace) % 16U ||
+        dequant_elements > workspace_bytes / sizeof(std::uint16_t) ||
+        gemm_elements > workspace_bytes / sizeof(std::uint16_t) - dequant_elements)
+      return static_cast<int>(cudaErrorInvalidValue);
+    dequant_buffer = static_cast<std::uint16_t*>(workspace);
+    gemm_temp = dequant_buffer + dequant_elements;
+  } else {
+    const int buf_status = ensure_buffers(dequant_elements, gemm_elements);
+    if (buf_status != static_cast<int>(cudaSuccess)) return buf_status;
+    dequant_buffer = g_dequant_buffer;
+    gemm_temp = g_gemm_temp;
   }
   const cudaStream_t stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   constexpr unsigned int kThreads = 256U;
 
-  // Dequant gate: [n, k] -> g_dequant_buffer[0 : n*k]
+  // Dequant gate: [n, k] -> dequant_buffer[0 : n*k]
   {
     const long total_groups = static_cast<long>(n) * (k / 16L);
     const unsigned int blocks =
         static_cast<unsigned int>((total_groups + kThreads - 1U) / kThreads);
     dequant_nvfp4_vec16_kernel<<<blocks, kThreads, 0U, stream>>>(
-        gate_packed, gate_scale, gate_ws2, g_dequant_buffer,
+        gate_packed, gate_scale, gate_ws2, dequant_buffer,
         static_cast<long>(n), static_cast<long>(k));
   }
-  // Dequant up: [n, k] -> g_dequant_buffer[n*k : 2*n*k]
+  // Dequant up: [n, k] -> dequant_buffer[n*k : 2*n*k]
   {
     const long total_groups = static_cast<long>(n) * (k / 16L);
     const unsigned int blocks =
         static_cast<unsigned int>((total_groups + kThreads - 1U) / kThreads);
     dequant_nvfp4_vec16_kernel<<<blocks, kThreads, 0U, stream>>>(
-        up_packed, up_scale, up_ws2, g_dequant_buffer + n * k,
+        up_packed, up_scale, up_ws2, dequant_buffer + n * k,
         static_cast<long>(n), static_cast<long>(k));
   }
   const cudaError_t dq_status = cudaGetLastError();
@@ -236,15 +254,17 @@ int launch_nvfp4_dequant_cutlass_gate_up(
     CutlassGemm::Arguments args{
         cutlass::gemm::GemmCoord(M_, N_, K_),
         {reinterpret_cast<cutlass::bfloat16_t const*>(input + mc * k), K_},
-        {reinterpret_cast<cutlass::bfloat16_t const*>(g_dequant_buffer + weight_offset), K_},
-        {reinterpret_cast<cutlass::bfloat16_t const*>(g_gemm_temp + output_offset), stride_n},
-        {reinterpret_cast<cutlass::bfloat16_t*>(g_gemm_temp + output_offset), stride_n},
+        {reinterpret_cast<cutlass::bfloat16_t const*>(dequant_buffer + weight_offset), K_},
+        {reinterpret_cast<cutlass::bfloat16_t const*>(gemm_temp + output_offset), stride_n},
+        {reinterpret_cast<cutlass::bfloat16_t*>(gemm_temp + output_offset), stride_n},
         {alpha, beta},
         1
     };
     CutlassGemm gemm;
     const size_t ws_size = CutlassGemm::get_workspace_size(args);
     void* ws = nullptr;
+    if (caller_owns_workspace && ws_size != 0U)
+      return static_cast<int>(cudaErrorNotSupported);
     if (ws_size) {
       const cudaError_t ws_err = cudaMalloc(&ws, ws_size);
       if (ws_err != cudaSuccess) {
@@ -271,11 +291,30 @@ int launch_nvfp4_dequant_cutlass_gate_up(
       const unsigned int blocks =
           static_cast<unsigned int>((total + kThreads - 1U) / kThreads);
       silu_mul_kernel<<<blocks, kThreads, 0U, stream>>>(
-          g_gemm_temp, activated + mc * n, static_cast<long>(mc_size),
+          gemm_temp, activated + mc * n, static_cast<long>(mc_size),
           static_cast<long>(n));
     }
   }
   return static_cast<int>(cudaPeekAtLastError());
+}
+
+int launch_nvfp4_dequant_cutlass_gate_up(
+    const std::uint8_t* gate, const std::uint8_t* gate_scale, float gate_ws2,
+    const std::uint8_t* up, const std::uint8_t* up_scale, float up_ws2,
+    const std::uint16_t* input, std::uint16_t* output,
+    std::size_t m, std::size_t n, std::size_t k, void* stream) noexcept {
+  return launch_nvfp4_gate_up_impl(gate, gate_scale, gate_ws2, up, up_scale,
+      up_ws2, input, output, m, n, k, nullptr, 0U, false, stream);
+}
+
+int launch_nvfp4_dequant_cutlass_gate_up_with_workspace(
+    const std::uint8_t* gate, const std::uint8_t* gate_scale, float gate_ws2,
+    const std::uint8_t* up, const std::uint8_t* up_scale, float up_ws2,
+    const std::uint16_t* input, std::uint16_t* output,
+    std::size_t m, std::size_t n, std::size_t k,
+    void* workspace, std::size_t workspace_bytes, void* stream) noexcept {
+  return launch_nvfp4_gate_up_impl(gate, gate_scale, gate_ws2, up, up_scale,
+      up_ws2, input, output, m, n, k, workspace, workspace_bytes, true, stream);
 }
 
 }  // namespace q3x::kernels

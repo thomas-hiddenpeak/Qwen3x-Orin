@@ -19,6 +19,16 @@ int launch_nvfp4_dequant_cutlass_gate_up(
     std::uint16_t* const activated, const std::size_t m, const std::size_t n,
     const std::size_t k, void* const cuda_stream) noexcept;
 
+// Allocation-free entry. The caller owns aligned scratch until stream completion.
+int launch_nvfp4_dequant_cutlass_gate_up_with_workspace(
+    const std::uint8_t* const gate_packed,
+    const std::uint8_t* const gate_scale, const float gate_ws2,
+    const std::uint8_t* const up_packed, const std::uint8_t* const up_scale,
+    const float up_ws2, const std::uint16_t* const input,
+    std::uint16_t* const activated, const std::size_t m, const std::size_t n,
+    const std::size_t k, void* const workspace, std::size_t workspace_bytes,
+    void* const cuda_stream) noexcept;
+
 }  // namespace q3x::kernels
 
 #endif  // Q3X_KERNELS_SM87_NVFP4_DEQUANT_CUTLASS_GATE_UP_H_

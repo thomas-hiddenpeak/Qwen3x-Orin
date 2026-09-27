@@ -670,3 +670,10 @@ or larger prompts before execution. Physical role minima and witness counts
 must describe that subset rather than claiming the old five-panel topology.
 The complete service envelope remains the delivery requirement; intermediate
 admission grants no default-route or numerical qualification.
+
+The corrected composition binds projection dequantization and panel scratch
+to the existing request-owned GDN workspace across disjoint stream-ordered
+lifetimes, as specified in [`REQUEST_STATE.md`](REQUEST_STATE.md). Historical
+process-global projection buffers are not selected by this composition. This
+removes request-time buffer growth without changing its numerical identity or
+inheriting release qualification.

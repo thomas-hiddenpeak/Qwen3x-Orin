@@ -2109,7 +2109,8 @@ launch_prompt_wide_p40_fp8_projection(
     const std::uint16_t* const input, std::uint16_t* const output,
     const std::size_t token_count,
     const ExactPrefillProjectionWorkspace& workspace,
-    std::size_t& physical_launches, void* const cuda_stream) noexcept {
+    std::size_t& physical_launches, void* const cuda_stream,
+    const DeviceBufferView& projection_scratch) noexcept {
 #if defined(Q3X_ENABLE_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION) && \
     defined(Q3X_ENABLE_FP8_MARLIN_PREFILL_ADMISSION)
   const auto* const fp8 = std::get_if<Fp8LinearWeight>(&weight);
@@ -2132,9 +2133,27 @@ launch_prompt_wide_p40_fp8_projection(
   // vs cuBLAS 23.5 TF (+60%). Both beat the W8A16 Marlin.
   int status = static_cast<int>(cudaErrorNotSupported);
   if (fp8->input_size == 5'120U || fp8->input_size == 6'144U) {
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+    // Token IDs share the workspace prefix and remain live until every fill
+    // panel in the first layer has embedded its input. Never alias that prefix.
+    constexpr std::size_t kTokenIdPrefixBytes =
+        ((kLayerMajorP40WholeCorePromptTokens * sizeof(std::uint32_t) + 255U) / 256U) * 256U;
+    if (projection_scratch.device_data == nullptr ||
+        projection_scratch.byte_size <= kTokenIdPrefixBytes)
+      return static_cast<int>(cudaErrorInvalidValue);
+    status = kernels::launch_fp8_dequant_cublas_projection_with_workspace(
+        fp8->weight, fp8->weight_scale, input, output, token_count,
+        fp8->output_size, fp8->input_size,
+        static_cast<std::uint8_t*>(projection_scratch.device_data) +
+            kTokenIdPrefixBytes,
+        projection_scratch.byte_size -
+            kTokenIdPrefixBytes,
+        cuda_stream);
+#else
     status = kernels::launch_fp8_dequant_cublas_projection(
         fp8->weight, fp8->weight_scale, input, output, token_count,
         fp8->output_size, fp8->input_size, cuda_stream);
+#endif
     if (status == static_cast<int>(cudaSuccess)) {
       ++physical_launches;
       ++g_fp8_marlin_prefill_admission_hits;
@@ -2156,6 +2175,7 @@ launch_prompt_wide_p40_fp8_projection(
   }
   return status;
 #else
+  (void)projection_scratch;
   (void)backend;
   (void)weight;
   (void)input;
@@ -5486,7 +5506,8 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
     status = check(launch_prompt_wide_p40_fp8_projection(
                        projection_backend_, attention->in_proj_qkv,
                        normalized, raw_qkv, panel.token_count, workspace,
-                       fp8_physical_launches, stream_),
+                       fp8_physical_launches, stream_,
+                       request_views.p40_whole_core.linear.prompt_wide_workspace),
                    "prefill_whole_core_linear_fill_qkv");
     if (!status) {
       return status;
@@ -5495,7 +5516,8 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
     status = check(launch_prompt_wide_p40_fp8_projection(
                        projection_backend_, attention->in_proj_z, normalized,
                        z, panel.token_count, workspace,
-                       fp8_physical_launches, stream_),
+                       fp8_physical_launches, stream_,
+                       request_views.p40_whole_core.linear.prompt_wide_workspace),
                    "prefill_whole_core_linear_fill_z");
     if (!status) {
       return status;
@@ -5566,7 +5588,8 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_fill_panel(
       ReferenceRunnerStatus projection = check(
           launch_prompt_wide_p40_fp8_projection(
               projection_backend_, weight, normalized, output,
-              panel.token_count, workspace, fp8_physical_launches, stream_),
+              panel.token_count, workspace, fp8_physical_launches, stream_,
+                       request_views.p40_whole_core.linear.prompt_wide_workspace),
           operation);
       if (projection) {
         ++fp8_projection_hits;
@@ -5951,7 +5974,8 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_drain_panel(
   } else {
     status = launch_prompt_wide_p40_fp8_projection(
         projection_backend_, *output_weight, core_output, branch_output,
-        panel.token_count, workspace, fp8_physical_launches, stream_);
+        panel.token_count, workspace, fp8_physical_launches, stream_,
+                       request_views.p40_whole_core.linear.prompt_wide_workspace);
     if (status == static_cast<int>(cudaSuccess)) {
       ++fp8_projection_hits;
     }
@@ -9115,11 +9139,22 @@ ReferenceRunnerStatus ReferenceRunner::enqueue_layer_wide_p40_mlp(
 #else
       ? static_cast<int>(cudaErrorNotSupported)
 #endif
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+      : kernels::launch_nvfp4_dequant_cutlass_gate_up_with_workspace(
+            gate->packed_weight, gate->block_scale, gate->weight_scale_2,
+            up->packed_weight, up->block_scale, up->weight_scale_2,
+            normalized, activated, token_count,
+            kReferenceIntermediateSize, kReferenceHiddenSize,
+            request_views.p40_whole_core.linear.prompt_wide_workspace.device_data,
+            request_views.p40_whole_core.linear.prompt_wide_workspace.byte_size,
+            stream_);
+#else
       : kernels::launch_nvfp4_dequant_cutlass_gate_up(
             gate->packed_weight, gate->block_scale, gate->weight_scale_2,
             up->packed_weight, up->block_scale, up->weight_scale_2,
             normalized, activated, token_count,
             kReferenceIntermediateSize, kReferenceHiddenSize, stream_);
+#endif
   }
   if (gate_up_status != static_cast<int>(cudaSuccess)) {
     return runner_status(ReferenceRunnerError::kCudaFailure,

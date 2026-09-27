@@ -4,13 +4,10 @@
 #include <cstddef>
 #include <cstdint>
 
-// On-the-fly FP8(E4M3, per-tensor scale) -> BF16 dequant + cuBLAS BF16 GEMM
-// for the exact-P40000 whole-core fat-N FP8 projections (input_size == 5120:
-// GDN in_proj_qkv/z, full-attn q/k/v). The dequant result is written into a
-// process-lifetime reused BF16 buffer (peak = largest fat-N weight, ~126 MB),
-// NOT a per-projection cache, so device memory stays bounded. The skinny-N
-// projections (input_size == 6144: GDN out, full-attn o) are deliberately NOT
-// routed here (cuBLAS is not faster than Marlin on those shapes).
+// FP8 dequantization plus CUTLASS BF16 GEMM with FP32 accumulation.
+// The historical function name is retained for source/ABI compatibility;
+// neither entry calls cuBLAS. The workspace entry consumes request-owned
+// scratch instead of the legacy process-global allocation.
 namespace q3x::kernels {
 
 // out[M,N] = input[M,K] * dequant(weight[N,K])^T, all BF16, FP32 accumulate.
@@ -20,6 +17,14 @@ int launch_fp8_dequant_cublas_projection(
     const std::uint8_t* const fp8_weight, const float weight_scale,
     const std::uint16_t* const input_bf16, std::uint16_t* const output_bf16,
     const std::size_t m, const std::size_t n, const std::size_t k,
+    void* const cuda_stream) noexcept;
+
+// Allocation-free entry. The caller owns aligned scratch until stream completion.
+int launch_fp8_dequant_cublas_projection_with_workspace(
+    const std::uint8_t* const fp8_weight, const float weight_scale,
+    const std::uint16_t* const input_bf16, std::uint16_t* const output_bf16,
+    const std::size_t m, const std::size_t n, const std::size_t k,
+    void* const workspace, std::size_t workspace_bytes,
     void* const cuda_stream) noexcept;
 
 }  // namespace q3x::kernels

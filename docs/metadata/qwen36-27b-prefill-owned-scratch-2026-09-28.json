@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "scope": "request-owned projection scratch, P8192 O1 full handoff exact equality to corrected v6; no release promotion",
+  "source_parent": "2c0f15b",
+  "binary_sha256": "381700f3f4732a397f5fb024d36c4416058d5934f5fc199a7d80927d0af37cd3",
+  "ownership": {
+    "request_arena_bytes": 8952211200,
+    "gdn_workspace_offset": 2137600000,
+    "gdn_workspace_bytes": 2800640000,
+    "live_token_id_prefix_bytes": 160000,
+    "fp8_scratch_offset_within_workspace": 160000,
+    "same_stream": true,
+    "no_request_allocation": true
+  },
+  "comparison": {
+    "gdn": {
+      "v6": "60bcc1bd8266b14956177ff88552abf2c71533e093e99595a1d1920c75409fec",
+      "v7_r2": "60bcc1bd8266b14956177ff88552abf2c71533e093e99595a1d1920c75409fec",
+      "equal": true,
+      "bytes": 75497472
+    },
+    "conv": {
+      "v6": "84306005097e58e8e1de6a0f1ebfbdec4ab342ef7f67e4a19f87d29f6f921691",
+      "v7_r2": "84306005097e58e8e1de6a0f1ebfbdec4ab342ef7f67e4a19f87d29f6f921691",
+      "equal": true,
+      "bytes": 2949120
+    },
+    "kv": {
+      "v6": "dd29a0e84558eb8e113845bbd9595cfddc06f317b7693bf91bf689a672516838",
+      "v7_r2": "dd29a0e84558eb8e113845bbd9595cfddc06f317b7693bf91bf689a672516838",
+      "equal": true,
+      "bytes": 536870912
+    },
+    "logits": {
+      "v6": "2bce22b3f3c5844a26700ac820ba85efba9ea54d53db08e2d51684ee7a42b6c0",
+      "v7_r2": "2bce22b3f3c5844a26700ac820ba85efba9ea54d53db08e2d51684ee7a42b6c0",
+      "equal": true,
+      "bytes": 496640
+    }
+  },
+  "rejected_predecessor": {
+    "reason": "projection scratch overwrites still-live prompt token ID prefix before later fill panels; v7-8192 numerical failure; P40 stopped before further qualification",
+    "replacement": "v7-r2 preserves aligned token-ID prefix"
+  },
+  "raw_root": ".q3x-work/prefill-convergence-20260928",
+  "host_record": ".q3x-work/whole-core-exact-composition-20260927/convergence-v7-r2-8192"
+}

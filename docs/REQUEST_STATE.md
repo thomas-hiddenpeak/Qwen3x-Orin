@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: per-request state, workspace, memory-plan, and lifecycle ownership contract
   effective: 2026-08-09
-  last_reviewed: 2026-09-27
+  last_reviewed: 2026-09-28
   supersedes: []
   superseded_by: []
   ssot_for: RequestState persistent state, workspace, RoPE, allocation, and lifecycle behavior
@@ -118,6 +118,33 @@ Decode scratch occupies this arena; its FP32 payload is rounded to the
 The original fixed production/development geometry remains 40,016 positions
 and 8,641,684,992 bytes. Neither geometry alone qualifies general prompt
 lengths, successful long-output execution, or whole-process fit.
+
+### Whole-core projection scratch lifetime
+
+The corrected whole-core composition supplies FP8 and Gate/Up CUTLASS
+projection scratch from the request arena. It does not use the historical
+process-global growable dequantization buffers. In the P40000 family layout,
+the GDN workspace occupies bytes `[2137600000,4938240000)` relative to the
+family arena and has capacity 2,800,640,000 bytes. This range is reused only
+on the runner's ordered stream:
+
+- fill projections finish before GDN starts consuming its workspace;
+- drain projections begin after GDN's last workspace consumer;
+- MLP Gate/Up begins after the Attention/GDN family completes and finishes
+  before Down; its activated output is outside this scratch range.
+
+The first aligned `prompt_capacity*4` bytes retain token IDs until all fill
+panels have embedded them. FP8 scratch starts strictly after this live prefix
+and uses at most `N*K*2` bytes. Gate/Up uses `2*N*K*2` bytes for decoded
+weights followed by `8000*2*N*2` bytes for panel outputs. Both reject insufficient
+or misaligned storage. Their selected CUTLASS configuration needs no separate
+GEMM workspace; a nonzero requirement fails closed. Scratch never overlaps
+live projection inputs, outputs, residual, or persistent state, and no CUDA
+allocation or free occurs in these owned projection entries. The old entry
+points remain for separately identified historical routes only. This lifetime
+change does not extend prompt admission by itself. The bounded
+[full-handoff comparison](metadata/qwen36-27b-prefill-owned-scratch-2026-09-28.json)
+checks the unchanged arithmetic against the corrected predecessor.
 
 ## RoPE numerical contract
 
