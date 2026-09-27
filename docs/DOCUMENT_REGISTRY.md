@@ -93,7 +93,7 @@ authority only for its exact recorded protocol.
 | --- | --- | --- | --- |
 | `benchmarks/evalscope/README.md` | `evaluation_fixture_procedure` | active | Pinned EvalScope workload-manifest generation and corpus handling. |
 | `docs/DOCUMENT_REGISTRY.md` | `document_inventory` | active | Exhaustive Markdown path/class/role/lifecycle registry. |
-| `docs/EVALSCOPE_EVALUATION.md` | `external_evaluation_procedure` | active | OpenAI-compatible EvalScope protocol, limitations, and reproduction commands; subordinate to evidence policy. |
+| `docs/EVALSCOPE_EVALUATION.md` | `external_evaluation_procedure` | active | OpenAI-compatible EvalScope protocol, joint Prefill/Decode reporting, limitations, and reproduction commands; subordinate to evidence policy. |
 | `docs/README.md` | `documentation_index` | active | Required reading order, SSOT map, active SDD links, and documentation navigation. |
 | `docs/REFERENCE_BENCHMARK.md` | `benchmark_procedure` | active | Internal reference repeatability harness and CLI procedure; not product-performance authority. |
 | `docs/decisions/README.md` | `decision_index` | active | ADR naming, status, supersession, and navigation procedure. |

@@ -6,7 +6,7 @@ q3x_document:
   owner: evaluation-maintainers
   authority: external API evaluation protocol, metric semantics, and artifact requirements
   effective: 2026-08-09
-  last_reviewed: 2026-09-09
+  last_reviewed: 2026-09-27
   supersedes: []
   superseded_by: []
   ssot_for: EvalScope and target-length external evaluation procedure
@@ -87,6 +87,24 @@ do not inspect, control, or gate on fan/controller state. Temperatures through
 observations qualify timing; above 90C is an operational stop. Store all
 permitted preflight and run artifacts below `.q3x-work/` beside the evaluation
 artifacts.
+
+## Joint Prefill and Decode reporting
+
+Owner instruction, 2026-09-27: every performance progress report and closeout
+reports Prefill and Decode together, including work focused on only one phase.
+For each measured context, give prompt/output token counts, engine Prefill
+duration and token/s, external TTFT, and Decode token/s. State the Prefill
+interval definition, binary/profile identity, measurement date and qualification
+scope. Identify missing or historical measurements explicitly; an unchanged
+implementation alone is not a new performance measurement.
+
+Use one binary, route and request for each paired row. When the faster Prefill
+profile and newer Decode implementation are still separate, report that
+composition gap and keep their observations separate. Never combine their best
+individual numbers into a claimed product result. Retain the preceding matched
+values when available so a Decode gain cannot hide a Prefill regression, or
+vice versa. Current observations remain owned by Current Status and the linked
+evidence; this section owns the reporting convention only.
 
 ## Ordinary server evaluation procedure (not release qualification)
 
