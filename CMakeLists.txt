@@ -591,6 +591,24 @@ target_link_libraries(q3x_text
 )
 q3x_enable_warnings(q3x_text)
 
+option(Q3X_BUILD_FUSED_DECODE_ADMISSION
+  "Build isolated fixed-plan fused Decode numerical admission (not installable)" OFF)
+if(Q3X_BUILD_FUSED_DECODE_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR "Fused Decode admission requires BUILD_TESTING=ON")
+endif()
+if(Q3X_BUILD_FUSED_DECODE_ADMISSION)
+  get_cmake_property(q3x_admission_variables VARIABLES)
+  foreach(q3x_admission_variable IN LISTS q3x_admission_variables)
+    if(q3x_admission_variable MATCHES "^Q3X_BUILD_" AND
+       NOT q3x_admission_variable STREQUAL "Q3X_BUILD_FUSED_DECODE_ADMISSION")
+      if(${q3x_admission_variable})
+        message(FATAL_ERROR
+          "Fused Decode admission cannot compose ${q3x_admission_variable}")
+      endif()
+    endif()
+  endforeach()
+endif()
+
 add_library(q3x_kernels STATIC
   src/runtime/reference_runner.cpp
   src/runtime/reference_runner_decode_gqa_policy_internal.h
@@ -600,8 +618,6 @@ add_library(q3x_kernels STATIC
   src/runtime/reference_runner_request_reset_policy_internal.h
   src/runtime/reference_runner_layer_major_views.cpp
   src/kernels/reference/decode_ops.cu
-  src/kernels/reference/attention_values_split_shared.cu
-  src/kernels/reference/attention_scores_split_shared.cu
   src/kernels/reference/full_attention_c512_register_pipeline.cu
   src/kernels/reference/gdn_decode.cu
   src/kernels/reference/gdn_m16_register_state.cu
@@ -647,6 +663,12 @@ target_link_libraries(q3x_kernels PUBLIC q3x::core CUDA::cudart CUDA::cublas)
 target_compile_options(q3x_kernels PRIVATE
   $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
 )
+if(Q3X_BUILD_FUSED_DECODE_ADMISSION)
+  target_sources(q3x_kernels PRIVATE src/kernels/sm87/decode_fused_gqa.cu)
+  target_include_directories(q3x_kernels SYSTEM PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/flashinfer/include)
+  target_compile_definitions(q3x_kernels PRIVATE Q3X_ENABLE_FUSED_DECODE_ADMISSION=1)
+endif()
 if(Q3X_BUILD_GDN_B8_ADMISSION)
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_GDN_B8_ADMISSION=1
@@ -869,6 +891,9 @@ if(BUILD_TESTING)
     Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS=1
   )
 endif()
+if(Q3X_BUILD_FUSED_DECODE_ADMISSION)
+  target_compile_definitions(q3x_engine PRIVATE Q3X_ENABLE_FUSED_DECODE_ADMISSION=1)
+endif()
 q3x_enable_warnings(q3x_engine)
 
 # Internal, deliberately narrow OpenAI/EvalScope evaluation adapter. It is
@@ -918,6 +943,9 @@ if(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
     Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE=1
   )
 endif()
+if(Q3X_BUILD_FUSED_DECODE_ADMISSION)
+  target_compile_definitions(q3x_eval_gateway PRIVATE Q3X_ENABLE_FUSED_DECODE_ADMISSION=1)
+endif()
 q3x_enable_warnings(q3x_eval_gateway)
 
 add_executable(qwen3x-eval-server src/eval_server_main.cpp)
@@ -945,6 +973,20 @@ elseif(BUILD_TESTING AND Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION)
   target_compile_definitions(qwen3x-eval-server PRIVATE
     Q3X_ENABLE_P40_WHOLE_CORE_TACTIC_CLI=1
   )
+endif()
+if(Q3X_BUILD_FUSED_DECODE_ADMISSION)
+  set_target_properties(qwen3x-eval-server PROPERTIES
+    OUTPUT_NAME qwen3x-eval-server-fused-decode-admission)
+  add_executable(q3x_fused_decode_test tests/fused_decode_test.cu)
+  target_include_directories(q3x_fused_decode_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime)
+  target_link_libraries(q3x_fused_decode_test PRIVATE q3x::kernels)
+  add_test(NAME fused_decode_contract COMMAND q3x_fused_decode_test)
+  add_executable(q3x_fused_decode_model_test tests/fused_decode_model_test.cpp)
+  target_include_directories(q3x_fused_decode_model_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime)
+  target_link_libraries(q3x_fused_decode_model_test PRIVATE q3x::engine q3x::kernels)
+  add_executable(q3x_fused_decode_protocol_test tests/fused_decode_protocol_test.cpp)
+  target_link_libraries(q3x_fused_decode_protocol_test PRIVATE q3x_eval_gateway q3x::core)
+  add_test(NAME fused_decode_protocol COMMAND q3x_fused_decode_protocol_test)
 endif()
 q3x_enable_warnings(qwen3x-eval-server)
 
@@ -3446,6 +3488,7 @@ if(BUILD_TESTING)
   )
 endif()
 
+if(NOT Q3X_BUILD_FUSED_DECODE_ADMISSION)
 install(TARGETS q3x_core q3x_text q3x_kernels q3x_engine
                 qwen3x-orin qwen3x-inspect
   EXPORT Qwen3xOrinTargets
@@ -3481,3 +3524,5 @@ install(FILES
   ${CMAKE_CURRENT_BINARY_DIR}/generated/Qwen3xOrinConfigVersion.cmake
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Qwen3xOrin
 )
+
+endif() # Unqualified fused Decode admission has no install surface.

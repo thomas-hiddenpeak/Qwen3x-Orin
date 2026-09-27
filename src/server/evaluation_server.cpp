@@ -53,7 +53,7 @@ inline constexpr bool kEvaluationGatewayBuildTesting =
 
 using Clock = std::chrono::steady_clock;
 
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+#if defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE) || defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
 [[nodiscard]] std::optional<std::string> first_q3x_environment_variable() {
   // This deliberately rejects the complete project-specific namespace.  The
   // v10 development baseline is a closed typed profile; both current and
@@ -248,7 +248,7 @@ class UniqueFd final {
   const EvaluationProductionDeploymentPlan& plan =
       is_p40_whole_core_v1_production_profile(options)
           ? kP40WholeCoreV1ProductionPlan
-          : plan;
+          : kP40ExactLegacyC512ProductionPlan;
   OpenAIProductionIdentity identity;
   identity.profile_id = to_string(options.production_profile);
   identity.decode_route_id = plan.decode_route_id;
@@ -293,6 +293,11 @@ class UniqueFd final {
   // compilation and complete incumbent inventory do not qualify the candidate.
   identity.production_eligible = false;
   identity.release_qualified = false;
+#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+  identity.profile_id = "q3x.sm87.admission.fused-decode-split-p.v2";
+  identity.decode_route_id = "fixed-gqa-tensorcore-split-p-bf16-partials-s512-44095.v2";
+#endif
+
   return identity;
 }
 
@@ -369,6 +374,7 @@ class UniqueFd final {
   }
   const EvaluationProductionDeploymentPlan& plan =
       kP40ExactLegacyC512ProductionPlan;
+#if !defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
   if constexpr (kEvaluationGatewayBuildTesting) {
     const bool gate_up_testing_inventory =
         (!load.nvfp4_gate_up_coupled_feed_requested &&
@@ -434,6 +440,7 @@ class UniqueFd final {
     }
     return true;
   }
+#endif
   if (!load.fp8_prefill_supermatrix_sidecars_enabled ||
       load.fp8_prefill_supermatrix_sidecar_projections !=
           plan.prefill_supermatrix_projections ||
@@ -2193,6 +2200,12 @@ void ingress_worker(
     }
   }
 #endif
+#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+  if (const auto variable = first_q3x_environment_variable(); variable.has_value()) {
+    error = "fused Decode admission rejects route-changing environment " + *variable;
+    return false;
+  }
+#endif
   in_addr parsed_bind_address{};
   if (::inet_pton(AF_INET, options.bind_address.c_str(),
                   &parsed_bind_address) != 1) {
@@ -2423,9 +2436,13 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << " prefill_projection_tactic="
             << runtime::to_string(options.prefill_projection_tactic)
             << " production_profile="
+#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+            << production_identity(options).profile_id
+#else
             << to_string(options.production_profile)
+#endif
             << " decode_route="
-            << kP40ExactLegacyC512ProductionPlan.decode_route_id
+            << production_identity(options).decode_route_id
             << " development_route="
             << to_string(options.development_route)
             << " numerical_contract="

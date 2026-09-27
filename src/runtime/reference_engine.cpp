@@ -100,7 +100,7 @@ prefill_marlin_gate_up_epilogue_environment_enabled() noexcept {
 [[nodiscard]] reference_engine_detail::DecodeSidecarPolicy
 decode_down_k512_consumer_order_policy(
     const bool ordinary_production_route) noexcept {
-#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS) && !defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
   static const bool testing_admission = []() noexcept {
     const char* const value = std::getenv(
         "Q3X_RUN_DECODE_DOWN_K512_CONSUMER_ORDER_ADMISSION");
@@ -117,7 +117,7 @@ decode_down_k512_consumer_order_policy(
 [[nodiscard]] reference_engine_detail::DecodeSidecarPolicy
 decode_gate_up_coupled_feed_policy(
     const bool ordinary_production_route) noexcept {
-#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS) && !defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
   static const bool testing_admission = []() noexcept {
     const char* const value =
         std::getenv("Q3X_RUN_DECODE_GATE_UP_COUPLED_FEED_ADMISSION");

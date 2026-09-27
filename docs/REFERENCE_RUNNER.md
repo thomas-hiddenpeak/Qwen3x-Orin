@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: batch-one CUDA runner state, numerical, ownership, and failure contract
   effective: 2026-08-09
-  last_reviewed: 2026-09-09
+  last_reviewed: 2026-09-27
   supersedes: []
   superseded_by: []
   ssot_for: ReferenceRunner public execution, commit, poison, reset, trace, and dependency behavior
@@ -214,27 +214,31 @@ prediction-validation and commit boundary. Missing or incompatible slots are
 caller-visible conditions, not authority to redefine the default runtime
 route or Production lifecycle state.
 
-After successful capture, topology inspection, instantiation, upload, and
-stream synchronization, each prepared slot retains the full executable plus
-its original non-executable graph and original embedding root node. All other
-source-template nodes are destroyed before slot publication. Replay updates
-only that retained original node through `cudaGraphExecKernelNodeSetParams`;
-it does not instantiate or launch the reduced source template. Node statistics
-describe the complete topology captured and instantiated, not the retained
-one-node template. This follows the
-[CUDA 12.6 graph snapshot contract](https://docs.nvidia.com/cuda/archive/12.6.0/cuda-c-programming-guide/index.html#cuda-graphs)
-and the original-node lifetime requirement in the
-[CUDA Graph API](https://docs.nvidia.com/cuda/archive/12.6.0/cuda-runtime-api/group__CUDART__GRAPH.html).
+Standalone P1 preparation retains one executable and its original embedding
+root; unused source nodes are removed with checked identity and lifetime.
+The multi-position cache instead retains each complete source plan and shares
+one runner-owned executable across the serialized slots. Preparation validates
+all plans through checked `cudaGraphExecUpdate`, upload and synchronization
+before publishing the slot bank transactionally. It never executes a plan
+merely to prepare it. The 25 ordinary positions, 390-node topology per plan,
+256-MiB increment, one-second preparation and retained-free gates are unchanged.
 
-Every node removal and the final one-node identity check must succeed before
-publication. Failure destroys the new executable and remaining template,
-enters the existing poison/transactional preparation failure path, and does
-not replace a previously prepared slot. Clear/destruction still releases the
-executable before its retained template. This shortens unused host-template
-ownership only: executable topology, arguments, numerical work, state and
-workspace lifetimes, slot policy, startup initialization, and resource gates
-are unchanged. Neither source review nor node removal guarantees an immediate
-decrease in process RSS or Tegra's shared free-memory observation.
+Before shared-cache replay, the runner updates the selected source plan's
+embedding argument and checks a complete executable update against that plan.
+Any update failure poisons the step and commits no position; there is no
+implicit serial fallback. Standalone P1 keeps its direct executable-node update.
+All work uses the runner stream and the existing synchronous commit boundary.
+The private executable owner is reference counted across the slot bank, moved
+with the runner, and destroyed exactly once when its last slot is released.
+Source plans remain owned until their corresponding slots are released.
+Rollback releases every staged reference and restores the entry position.
+
+Node statistics still describe each complete plan. The existing instantiate
+interval field measures initial instantiation for the first cache slot and
+checked executable update for subsequent slots. Public object layout is
+unchanged: the existing opaque executable slot now holds the private owner.
+This resource composition is selected only by real-model Graph and API checks;
+source review alone grants no memory or startup-reliability claim.
 
 ## Failure semantics
 
@@ -252,3 +256,16 @@ Correctness and historical performance evidence lives in
 runtime-prefix boundary includes the
 [`M17/M19..M31 runtime-masked record`](metadata/qwen36-27b-nvfp4-m17-m31-runtime-masked-m32-benchmark.json).
 Those records do not impose active runner mechanisms or promotion thresholds.
+
+## Fused Decode architecture admission
+
+The separately compiled, non-installable fused Decode admission calls the
+[internal output-only operation](DECODE_REFERENCE_OPS.md#isolated-fused-decode-admission)
+from the scalar token-step path, including the final prompt token at eligible
+positions. Tiled Prefill and short-position Graph arithmetic remain unchanged.
+Request-owned FP32 scratch is reused only while its previous projection
+consumer has finished on the same stream; no probability-scratch observer is
+promised by this internal path. Factory preparation fails before publishing a
+runner if the fixed device/kernel setup fails. Kernel failure uses the normal
+poison/reset boundary; it never silently switches to scalar after enqueue.
+The public scalar attention comparator remains independently callable.

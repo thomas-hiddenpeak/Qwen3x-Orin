@@ -105,6 +105,18 @@ bit-exactness requirement is silently broadened or waived; a proposed changed
 production numerical contract must arrive with concrete numerical/capability
 evidence under the Constitution before it is adopted.
 
+First-batch implementation and bounded validation are recorded in the
+[product-admission closeout](analysis/decode-product-admission-2026-09-27/README.md).
+Items 1 and 3 now have a compiled, isolated implementation and scoped Graph/API
+checks. Item 2 has synthetic and P1089 same-input numerical admission only:
+equal tokens coexist with changed full logits and persistent state. The fused
+route remains non-installable and accuracy-unqualified. The next numerical
+qualification must quantify full logits/state on the frozen representative
+trajectories and complete a parseable capability comparison; no small local
+error threshold silently adopts a new production contract. Items 4 and 5 are
+still required before product selection. The historical linked 8.56 tok/s
+experiment is not promoted by this closeout.
+
 The scalar unroll gains remain the regression baseline. Old scores/values split
 lineages and their 5.5/6.1/6.29 ceiling narratives are closed as planning inputs.
 The 10 tok/s target is open, not proved impossible. This ordering is the active

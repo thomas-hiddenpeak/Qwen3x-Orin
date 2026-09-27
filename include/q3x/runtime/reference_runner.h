@@ -1274,7 +1274,8 @@ class ReferenceRunner {
   [[nodiscard]] ReferenceStepOutcome step_impl(
       std::uint32_t input_token_id, const ReferenceStepOptions& options,
       DecodeGraphP1Action graph_action,
-      DecodeGraphP1Slot* capture_destination = nullptr) noexcept;
+      DecodeGraphP1Slot* capture_destination = nullptr,
+      void* shared_executable_owner = nullptr) noexcept;
 
   struct DecodeGraphP1KernelLaunch {
     void* function = nullptr;
@@ -1285,7 +1286,7 @@ class ReferenceRunner {
 
   struct DecodeGraphP1Slot {
     void* graph = nullptr;
-    void* exec = nullptr;
+    void* exec = nullptr;  // private ref-counted executable owner, not a raw CUDA handle
     void* embedding_node = nullptr;
     ReferenceDecodeGraphP1Stats stats{};
     DecodeGraphP1KernelLaunch embedding_launch{};

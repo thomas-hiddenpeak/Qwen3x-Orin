@@ -797,7 +797,7 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | Target-length Prefill | Current installed main executes terminal layer-63 prefix elision with incumbent QT2/GroupQ64, exact-span GDN, and prompt-wide preprocessing; its actual P40000/O16 request reports 60.271514903 prompt tok/s | Complete accuracy, P60/P130, the 2s/4s targets, and further accuracy-preserving whole-product optimization remain open; closed lineages and same-skeleton span scans remain excluded |
 | SM87 whole-system AOT Prefill candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` is default-off, non-executable, and paused. Real-checkpoint upload/readback/private attachment plus the layer-0 M192 Oracle remain retained prerequisites. The P40000 BF16-HMMA skeleton is rejected at 225.7838x over budget, and `bmma-static-support-k16-parent-zero-fill-v2` is separately rejected before CUDA after its authenticated mandatory-instruction lower bound exceeds the complete five-second projection allocation | No active AOT implementation gate. Resumption requires an explicitly named materially different exact arithmetic/dataflow class with a new bounded proof or a successor architecture; persisted direct loading remains prerequisite work only after such a resumption |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
-| Decode | Ordinary unroll-128 route: P1089/O32 9.41 tok/s, P40000/O32 5.18 tok/s in the dated c4c8a34 investigation. Isolated fused-GQA research: 9.64 and 8.56 respectively, changed numerics and unmatched module-loading mode; not a production change. Earlier unroll gains remain retained; scalar split routes are historical comparators only. | Same-input numerical/logit/state and public capability checks; matched API qualification; normal-output composition with accepted Prefill; startup and route-sealing closure. Short-context O256 does not qualify long-context stability. |
+| Decode | Ordinary ordered scalar remains default. The compiled split-P admission observes P1089/O16 9.63 and P40000/O16 8.55 tok/s versus scalar 9.41 and 5.18, with the same LAZY loading and complete production sidecars; accuracy remains unqualified. See the product-admission record in the snapshot below. | Full-logit/state and public capability qualification; normal-output whole-core composition; mirrored API/installed candidate qualification. Shared-Graph startup and split-route sealing have bounded checks, not release certification. |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
 | Canonical release artifact | Fresh main `230eac1` installs 0.7.0 Release/OFF terminal-prefix.v1 ELF `270a6bb4...`; P40 and short integration pass with `production_eligible=false` and `release_qualified=false` | Complete accuracy, capability, target-length repetition, and stability/release attestation remain incomplete |
 | Automated release lane | Designed only | Local tests and policies exist, but no checked-in Orin release workflow enforces the complete gate |
@@ -945,8 +945,9 @@ The ordinary route remains the ordered unroll-128 scalar implementation.
 The gains of [unroll-8](metadata/qwen36-27b-p40000-decode-unroll8-api-2026-09-26.json)
 and unroll-128 remain valid for their recorded artifacts; they were useful
 incremental changes, not proof that attention architecture was exhausted.
-Optional split values/scores remain unqualified research paths and are not
-selected for further tuning or production promotion.
+Historical split values/scores sources are now unlinked from the ordinary
+launcher and ELF; their environment selectors no longer affect that route.
+They remain unqualified archives, not future tuning baselines.
 
 The [fused-GQA investigation](analysis/decode-context-scaling-2026-09-27/README.md)
 records a separate linked research binary on the ordinary Legacy API:
@@ -968,13 +969,26 @@ profiled TPOT is not a performance repeat. No fresh vLLM parity result exists.
 The whole-core Prefill deployment's P40000/O16 capacity is not expanded by
 this Legacy-route experiment.
 
-Startup is unresolved: the same research ELF both passes and fails the
-256 MiB short-Graph increment check, and the original ELF also fails under
-EAGER loading. No threshold relaxation or EAGER-as-fix claim is selected.
-Source review additionally identifies unconditional low-level split env
-selectors beneath the ordinary sealed API and a process-static split-values
-accumulator. Route sealing and owned scratch must close before packaging the
-new candidate; this is a source finding, not a newly run release test.
+The [first product-admission batch](analysis/decode-product-admission-2026-09-27/README.md)
+now replaces linker interposition with a separate non-installable, compiled
+split-P admission: fixed startup preparation, request-owned 99,072-byte scratch,
+complete production Decode sidecars, independent identity and sealed environment.
+It passes bounded synthetic and P1089/O16 same-input checks, but all 16 logit
+hashes and the captured persistent-state hashes differ despite equal generated
+tokens. It is not a production numerical replacement; capability and complete
+logit/state qualification remain open. A fresh Legacy P40000/O256 request
+completes with exact usage and stream closure at 8.5518 tok/s. It does not
+expand or qualify the accepted whole-core profile. The independent v2 admission
+witness deliberately reports fallback counts as unqualified rather than exact.
+
+The identified Graph startup blocker has a checked shared-executable ownership
+repair. All 25 position plans remain, with unchanged resource thresholds. The
+real-model Graph test reports 2,818,048 bytes / 31.17 ms and fresh ordinary API
+startup 4,669,440 bytes / 38.39 ms, followed by successful short and P40 requests.
+This closes bounded functional/resource admission, not formal repeated-start
+reliability. The original failures remain frozen; EAGER is not selected as a
+fix. The batch also fixes the startup profile self-reference and rejects
+incomplete testing sidecar inventories in the fused admission.
 
 The [retrospective](analysis/decode-performance-lessons-2026-09-27/README.md)
 replaces the former active ceiling narrative. Original records stay frozen:
@@ -1133,7 +1147,7 @@ sequence and successor identity live exclusively in
 | Product API and long-context admission | Installed sealed P40 profile admits 40K plus normal Decode output; P60/P130 profiles and full cancellation semantics remain | P1 |
 | Exact deliverable identity | Fresh installed-main 0.7.0/terminal-prefix.v1 OFF identity and both P40/short closeouts pass; production/release flags remain false and earlier v3 tuples remain historical | P2/P4 |
 | Prefill parity and physical plan | New architecture exploration paused by owner on 2026-09-27; preserved historical installed-main P40 reports 60.271514903 prompt tok/s; the original matched candidate panel remains separately scoped. The locked target remains open; rejected combined-v1, selector/Q4/P39936 and AOT lineages stay excluded, and isolated score-feed v2 stays paused | P3 (deferred; active delivery is the 2026-09-27 Decode convergence slice) |
-| Decode convergence and startup | Positive fused-GQA research direction; numerical contract, normal-output composition, matched API selection, Graph startup reliability and route sealing remain open | 2026-09-27 convergence slice, then P4/P5 |
+| Decode convergence and startup | Compiled non-installable fused admission and bounded shared-Graph startup repair delivered; complete numerical/capability qualification, normal-output whole-core composition, mirrored API selection and repeated-start reliability remain open | 2026-09-27 convergence slice, then P4/P5 |
 | Accuracy, capability, stability, and release evidence | Partial oracles only; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install, startup, upgrade, or rollback lane | P5 |
 

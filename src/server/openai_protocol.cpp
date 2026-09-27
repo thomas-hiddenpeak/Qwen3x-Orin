@@ -283,7 +283,11 @@ void append_prefill_route_evidence(
     append_json_string(output, runtime::to_string(role));
     output += ":{\"completed_production_hits\":" +
               std::to_string(counts.production_hits) +
+#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+              ",\"completed_fallback_hits_unqualified\":" +
+#else
               ",\"completed_exact_fallback_hits\":" +
+#endif
               std::to_string(counts.exact_fallback_hits) +
               ",\"completed_forbidden_hits\":" +
               std::to_string(counts.forbidden_hits) + "}";
@@ -1404,6 +1408,9 @@ std::string serialize_target_prefill_witness(
       record.packed_nvfp4_v2_down_hits == 0U &&
       record.packed_nvfp4_v2_physical_launches == 0U;
   const bool accuracy_unqualified_candidate =
+#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+      true ||
+#endif
       candidate_v3 || projection_candidate_v4 ||
       native_large_m_candidate_v5 || flashinfer_exact_candidate_v6 ||
       true_large_m_nvfp4_candidate_v7 || g2_d2_nvfp4_candidate_v8 ||
@@ -1415,6 +1422,11 @@ std::string serialize_target_prefill_witness(
       p40_packed_nvfp4_v2_candidate_v14 ||
       p40_vllm_marlin_parity_candidate_v15;
   std::string output =
+#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+      true ? "{\"record\":\"target-prefill-witness-fused-decode-admission-v2\","
+             "\"schema_version\":2,\"decode_numerical_contract\":"
+             "\"split-p-bf16-partials-unqualified\",\"request\":{\"id\":" :
+#endif
       terminal_prefix_v20
           ? "{\"record\":\"target-prefill-witness-v20\","
             "\"schema_version\":20,\"request\":{\"id\":"
@@ -2324,7 +2336,13 @@ std::string serialize_target_prefill_witness(
               std::to_string(prefix_rows) +
               ",\"final_prompt_causal_end\":" +
               std::to_string(record.prompt_tokens) +
+#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+              (record.prompt_tokens >= 512U && record.prompt_tokens <= 44095U
+                   ? ",\"final_prompt_step\":\"compiled_fused_decode_admission\","
+                   : ",\"final_prompt_step\":\"unchanged_legacy_scalar\",") +
+#else
               ",\"final_prompt_step\":\"unchanged_legacy_scalar\","
+#endif
               "\"omitted_roles\":[\"nvfp4_gate_up\",\"nvfp4_down\","
               "\"fp8_o\",\"attention\"],"
               "\"kv_publication\":\"existing_stream_sync_before_commit\","

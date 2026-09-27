@@ -1,6 +1,9 @@
 #include "q3x/runtime/reference_runner.h"
 
 #include "reference_runner_decode_gqa_policy_internal.h"
+#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+#include "decode_fused_gqa_internal.h"
+#endif
 #include "reference_runner_gdn_exact_span_policy_internal.h"
 #include "reference_runner_prompt_wide_policy_internal.h"
 #if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
@@ -76,12 +79,22 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <new>
 #include <type_traits>
 #include <utility>
 #include <variant>
 
 namespace q3x::runtime {
 namespace {
+
+// Serialized runner-owned executable. Cache slots retain distinct complete
+// source plans, but share one executable because only one token can be in
+// flight. Keeping this owner behind the existing opaque slot preserves layout.
+struct DecodeGraphExecutableOwner {
+  cudaGraphExec_t executable = nullptr;
+  std::size_t references = 1;
+  bool shared = false;
+};
 
 constexpr std::size_t kLinearQkvElements = 10'240U;
 constexpr std::size_t kLinearValueElements = 6'144U;
@@ -2928,10 +2941,11 @@ int ReferenceRunner::destroy_decode_graph_p1_slot(
     DecodeGraphP1Slot& slot) noexcept {
   int first_error = static_cast<int>(cudaSuccess);
   if (slot.exec != nullptr) {
-    const cudaError_t status = cudaGraphExecDestroy(
-        reinterpret_cast<cudaGraphExec_t>(slot.exec));
-    if (status != cudaSuccess) {
-      first_error = static_cast<int>(status);
+    auto* owner = static_cast<DecodeGraphExecutableOwner*>(slot.exec);
+    if (--owner->references == 0U) {
+      const cudaError_t status = cudaGraphExecDestroy(owner->executable);
+      if (status != cudaSuccess) first_error = static_cast<int>(status);
+      delete owner;
     }
   }
   if (slot.graph != nullptr) {
@@ -3444,7 +3458,8 @@ ReferenceRunner::prepare_fixed_position_decode_graph_cache(
     }
     ReferenceStepOutcome captured = step_impl(
         input_token_id, options, DecodeGraphP1Action::kCaptureOnly,
-        &staged_slots[position]);
+        &staged_slots[position],
+        position == first_position ? nullptr : staged_slots[first_position].exec);
     if (!captured) {
       const RequestOperationStatus restore_status = restore_entry_position();
       const int cleanup_status = destroy_staged();
@@ -3610,7 +3625,8 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
     const std::uint32_t input_token_id,
     const ReferenceStepOptions& options,
     const DecodeGraphP1Action graph_action,
-    DecodeGraphP1Slot* const capture_destination) noexcept {
+    DecodeGraphP1Slot* const capture_destination,
+    void* const shared_executable_owner) noexcept {
   if (whole_request_prefill_active()) {
     return fail_step(runner_status(
         ReferenceRunnerError::kInvalidStepOptions,
@@ -3994,6 +4010,24 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
                 "full_gqa_splitkv_output_gate", layer)) {
           return fail_step(launch_failure);
         }
+#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+      } else if (sequence_length >= fused_decode::kMinimumSequence &&
+                 sequence_length <= fused_decode::kMaximumSequence) {
+        if (!check_cuda(fused_decode::launch(
+                full_query, views_.key_cache[layer], views_.value_cache[layer],
+                sequence_length, views_.fp32_scratch,
+                views_.fp32_scratch_elements * sizeof(float),
+                views_.projection[1], stream_), "full_gqa_fused_admission", layer) ||
+            !check_cuda(fused_decode::observe({full_query, views_.key_cache[layer],
+                views_.value_cache[layer], sequence_length, layer,
+                views_.fp32_scratch, views_.fp32_scratch_elements,
+                views_.projection[1], stream_}), "full_gqa_fused_observer", layer) ||
+            !check_cuda(launch_sigmoid_gate_reference_cuda(
+                views_.projection[1], packed_gates, kFullQueryElements,
+                views_.projection[1], stream_), "full_output_gate", layer)) {
+          return fail_step(launch_failure);
+        }
+#endif
       } else if (!check_cuda(launch_gqa_attention_reference_cuda(
                                  full_query, views_.key_cache[layer],
                                  views_.value_cache[layer], kFullQueryHeads,
@@ -4300,18 +4334,26 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
             topology_finished - capture_finished)
             .count();
 
-    cudaGraphExec_t captured_exec = nullptr;
-    const Clock::time_point instantiate_started = Clock::now();
-    graph_status = cudaGraphInstantiate(
-        &captured_exec, captured_graph, nullptr, nullptr, 0U);
-    if (graph_status != cudaSuccess || captured_exec == nullptr) {
-      if (captured_exec != nullptr) {
+    auto* shared_owner = static_cast<DecodeGraphExecutableOwner*>(shared_executable_owner);
+    cudaGraphExec_t captured_exec = shared_owner ? shared_owner->executable : nullptr;
+    const auto destroy_new_exec = [&]() noexcept {
+      if (shared_owner == nullptr && captured_exec != nullptr)
         (void)cudaGraphExecDestroy(captured_exec);
-      }
+    };
+    const Clock::time_point instantiate_started = Clock::now();
+    if (shared_owner != nullptr) {
+      cudaGraphExecUpdateResultInfo update{};
+      graph_status = cudaGraphExecUpdate(captured_exec, captured_graph, &update);
+      if (graph_status == cudaSuccess && update.result != cudaGraphExecUpdateSuccess)
+        graph_status = cudaErrorGraphExecUpdateFailure;
+    } else {
+      graph_status = cudaGraphInstantiate(&captured_exec, captured_graph, nullptr, nullptr, 0U);
+    }
+    if (graph_status != cudaSuccess || captured_exec == nullptr) {
+      destroy_new_exec();
       (void)cudaGraphDestroy(captured_graph);
-      return fail_step(runner_status(
-          ReferenceRunnerError::kCudaFailure,
-          "decode_graph_p1_instantiate", kReferenceNoLayer,
+      return fail_step(runner_status(ReferenceRunnerError::kCudaFailure,
+          "decode_graph_p1_instantiate_or_update", kReferenceNoLayer,
           static_cast<int>(graph_status)));
     }
     const Clock::time_point instantiate_finished = Clock::now();
@@ -4326,7 +4368,7 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
       graph_status = cudaStreamSynchronize(stream);
     }
     if (graph_status != cudaSuccess || decode_graph_slot == nullptr) {
-      (void)cudaGraphExecDestroy(captured_exec);
+      destroy_new_exec();
       (void)cudaGraphDestroy(captured_graph);
       return fail_step(runner_status(
           graph_status == cudaSuccess
@@ -4341,43 +4383,59 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
             upload_ready_finished - upload_ready_started)
             .count();
 
-    // Instantiation snapshots the complete graph. Replay updates only the
-    // embedding node, whose original graph and node identity must stay alive
-    // for cudaGraphExecKernelNodeSetParams. The other source-template nodes
-    // have no later consumer; deleting them does not edit captured_exec.
-    // Keep stats as the full instantiated topology, not the retained template.
-    for (std::size_t index = 0U; index < node_count; ++index) {
-      if (nodes[index] == embedding_node) {
-        continue;
+    // Standalone P1 keeps its original embedding-only template. A shared
+    // cache needs each complete source plan for checked executable updates.
+    if (capture_destination == nullptr) {
+      // Instantiation snapshots the complete graph. Replay updates only the
+      // embedding node, whose original graph and node identity must stay alive
+      // for cudaGraphExecKernelNodeSetParams. The other source-template nodes
+      // have no later consumer; deleting them does not edit captured_exec.
+      // Keep stats as the full instantiated topology, not the retained template.
+      for (std::size_t index = 0U; index < node_count; ++index) {
+        if (nodes[index] == embedding_node) {
+          continue;
+        }
+        graph_status = cudaGraphDestroyNode(nodes[index]);
+        if (graph_status != cudaSuccess) {
+          destroy_new_exec();
+          (void)cudaGraphDestroy(captured_graph);
+          return fail_step(runner_status(
+              ReferenceRunnerError::kCudaFailure,
+              "decode_graph_p1_release_template_node", kReferenceNoLayer,
+              static_cast<int>(graph_status)));
+        }
       }
-      graph_status = cudaGraphDestroyNode(nodes[index]);
-      if (graph_status != cudaSuccess) {
-        (void)cudaGraphExecDestroy(captured_exec);
+      std::size_t retained_node_count = nodes.size();
+      graph_status = cudaGraphGetNodes(captured_graph, nodes.data(),
+                                       &retained_node_count);
+      if (graph_status != cudaSuccess || retained_node_count != 1U ||
+          nodes[0] != embedding_node) {
+        destroy_new_exec();
         (void)cudaGraphDestroy(captured_graph);
         return fail_step(runner_status(
-            ReferenceRunnerError::kCudaFailure,
-            "decode_graph_p1_release_template_node", kReferenceNoLayer,
+            graph_status == cudaSuccess
+                ? ReferenceRunnerError::kInvalidRunner
+                : ReferenceRunnerError::kCudaFailure,
+            "decode_graph_p1_retained_template", kReferenceNoLayer,
             static_cast<int>(graph_status)));
       }
     }
-    std::size_t retained_node_count = nodes.size();
-    graph_status = cudaGraphGetNodes(captured_graph, nodes.data(),
-                                     &retained_node_count);
-    if (graph_status != cudaSuccess || retained_node_count != 1U ||
-        nodes[0] != embedding_node) {
-      (void)cudaGraphExecDestroy(captured_exec);
-      (void)cudaGraphDestroy(captured_graph);
-      return fail_step(runner_status(
-          graph_status == cudaSuccess
-              ? ReferenceRunnerError::kInvalidRunner
-              : ReferenceRunnerError::kCudaFailure,
-          "decode_graph_p1_retained_template", kReferenceNoLayer,
-          static_cast<int>(graph_status)));
+    DecodeGraphExecutableOwner* owner = shared_owner;
+    if (owner == nullptr) {
+      owner = new (std::nothrow) DecodeGraphExecutableOwner{
+          captured_exec, 1U, capture_destination != nullptr};
+      if (owner == nullptr) {
+        destroy_new_exec();
+        (void)cudaGraphDestroy(captured_graph);
+        return fail_step(runner_status(ReferenceRunnerError::kAllocationFailure,
+            "decode_graph_executable_owner"));
+      }
+    } else {
+      ++owner->references;
     }
-
     DecodeGraphP1Slot prepared_slot;
     prepared_slot.graph = captured_graph;
-    prepared_slot.exec = captured_exec;
+    prepared_slot.exec = owner;
     prepared_slot.embedding_node = embedding_node;
     prepared_slot.embedding_launch.function = embedding_launch.func;
     prepared_slot.embedding_launch.grid = {
@@ -4430,14 +4488,24 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
         &embedding_output};
     embedding_params.kernelParams = embedding_arguments;
     embedding_params.extra = nullptr;
-    cudaError_t graph_status = cudaGraphExecKernelNodeSetParams(
-        reinterpret_cast<cudaGraphExec_t>(decode_graph_slot->exec),
-        reinterpret_cast<cudaGraphNode_t>(decode_graph_slot->embedding_node),
-        &embedding_params);
-    if (graph_status == cudaSuccess) {
-      graph_status = cudaGraphLaunch(
-          reinterpret_cast<cudaGraphExec_t>(decode_graph_slot->exec), stream);
+    auto* owner = static_cast<DecodeGraphExecutableOwner*>(decode_graph_slot->exec);
+    cudaError_t graph_status;
+    if (owner->shared) {
+      graph_status = cudaGraphKernelNodeSetParams(
+          reinterpret_cast<cudaGraphNode_t>(decode_graph_slot->embedding_node), &embedding_params);
+      if (graph_status == cudaSuccess) {
+        cudaGraphExecUpdateResultInfo update{};
+        graph_status = cudaGraphExecUpdate(owner->executable,
+            reinterpret_cast<cudaGraph_t>(decode_graph_slot->graph), &update);
+        if (graph_status == cudaSuccess && update.result != cudaGraphExecUpdateSuccess)
+          graph_status = cudaErrorGraphExecUpdateFailure;
+      }
+    } else {
+      graph_status = cudaGraphExecKernelNodeSetParams(owner->executable,
+          reinterpret_cast<cudaGraphNode_t>(decode_graph_slot->embedding_node), &embedding_params);
     }
+    if (graph_status == cudaSuccess)
+      graph_status = cudaGraphLaunch(owner->executable, stream);
     if (graph_status != cudaSuccess) {
       return fail_step(runner_status(
           ReferenceRunnerError::kCudaFailure,
@@ -11407,6 +11475,16 @@ ReferenceRunnerFactoryResult create_reference_runner(
     return result;
   }
   runner.stream_ = reinterpret_cast<void*>(stream);
+#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+  status = static_cast<cudaError_t>(fused_decode::prepare());
+  if (status != cudaSuccess) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kCudaFailure, "fused_decode_prepare",
+        kReferenceNoLayer, static_cast<int>(status));
+    return result;
+  }
+#endif
+
 
   if (state->memory_profile() == RequestMemoryProfile::kLayerMajorC8192 ||
       state->memory_profile() ==

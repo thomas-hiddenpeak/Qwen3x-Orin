@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: Decode common-operation numerical and dimension contract
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-09-27
   supersedes: []
   superseded_by: []
   ssot_for: reference Decode common-op dimensions, arithmetic, and error behavior
@@ -107,3 +107,29 @@ nine-element CTA tail, and requires bitwise agreement for out-of-place, exact
 left-alias, and exact right-alias execution. Both exact aliases are also
 captured and replayed twice as one-kernel CUDA Graphs with guard regions and
 peer-input preservation.
+
+## Isolated fused Decode admission
+
+`Q3X_BUILD_FUSED_DECODE_ADMISSION` is an explicit, non-installable
+`BUILD_TESTING=ON` architecture admission under
+`AC-DECODE-FUSED-GQA-PRODUCT-20260927`. It has a separate internal output-only
+interface, fixed Q24/KV4/D256 and S512..44095, and scale 1/16. The public GQA
+reference interface above continues to produce normalized probabilities and
+no longer dispatches the historical environment-selected split kernels.
+
+The internal launcher consumes 99,072 bytes of existing request-owned scratch
+on the runner stream. It validates bounds, alignment and disjoint used spans
+before enqueue, owns no allocation or global mutable buffer, and initializes
+its fixed SM87 kernel attributes at runner construction. It uses eight or
+fewer KV partitions with a deterministic staged merge. Graph capture does not
+change its mapping or allocate resources; the ordinary short Graph route is
+outside its sequence interval.
+
+The admitted numerical correction represents each FP32 online probability as
+BF16 high plus BF16 residual and uses both in denominator and PV accumulation.
+QK, online state and MMA accumulation remain FP32; partial and final outputs
+remain BF16. This is not bitwise equivalent to ordered scalar attention and
+has no inherited production accuracy qualification. The unique local template
+specialization leaves vendored FlashInfer and Prefill instantiations unchanged.
+Device non-finites are not synchronously scanned here; output propagation and
+the runner's finite-logit failure boundary are tested separately.

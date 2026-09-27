@@ -6,7 +6,7 @@ q3x_document:
   owner: project-owner
   authority: end-to-end external-to-internal runner system design
   effective: 2026-08-09
-  last_reviewed: 2026-09-09
+  last_reviewed: 2026-09-27
   supersedes: []
   superseded_by: []
   ssot_for: runner product shape, system boundaries, lifecycle, and release architecture
@@ -641,3 +641,15 @@ files are removed when their exact ownership is known.
 A code change that crosses an SDD boundary must update the affected contract
 in the same atomic milestone. Context compaction or contributor handoff does
 not relax these requirements.
+
+### Fused Decode convergence boundary, 2026-09-27
+
+The active Roadmap's fused Decode architecture first enters through a separate
+non-installable admission build. Its internal output-only Attention interface
+preserves the public reference probability contract, uses request-owned
+bounded scratch and fixed startup preparation, and retains the runner's
+failure/state ownership. The API identifies this numerical admission in its
+profile and Decode route fields; it cannot claim an existing production
+profile's numerical qualification. Existing short Graph, capacity and accuracy
+gates are not weakened by this boundary. Production composition requires the
+Roadmap's numerical, capability and normal-output API gates.

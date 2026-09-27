@@ -1932,8 +1932,8 @@ void test_p40_whole_core_v10_fixed_contract(TestContext& test) {
       server::EvaluationDevelopmentRoute::kP40WholeCoreV10;
   options.production_profile =
       server::EvaluationProductionProfile::kNone;
-  options.max_sequence_length = 40'001U;
-  options.maximum_output_tokens = 1U;
+  options.max_sequence_length = 40'016U;
+  options.maximum_output_tokens = 16U;
   options.prefill_execution_mode = q3x::runtime::
       ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
   options.prefill_full_attention_tactic = q3x::runtime::
@@ -1941,7 +1941,7 @@ void test_p40_whole_core_v10_fixed_contract(TestContext& test) {
           kNativeFlashInferExactWholePrompt;
   options.prefill_projection_tactic = q3x::runtime::
       LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore;
-  options.request_max_arena_bytes = 8'640'542'976ULL;
+  options.request_max_arena_bytes = 8'641'684'992ULL;
   options.request_min_free_bytes_after_create =
       4ULL * 1024ULL * 1024ULL * 1024ULL;
   options.inference_queue_capacity = 1U;
@@ -1956,7 +1956,7 @@ void test_p40_whole_core_v10_fixed_contract(TestContext& test) {
   request.endpoint = server::OpenAIEndpoint::kCompletions;
   request.prompt_kind = server::OpenAIPromptKind::kTokenIds;
   request.prompt_token_ids.assign(40'000U, 1U);
-  request.max_tokens = 1U;
+  request.max_tokens = 16U;
   request.stream = true;
   request.include_usage = true;
   test.expect(server::is_p40_whole_core_v10_request(request),

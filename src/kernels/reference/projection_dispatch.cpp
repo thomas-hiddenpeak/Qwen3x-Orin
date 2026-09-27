@@ -25,7 +25,7 @@ constexpr std::size_t kSm87DirectBf16Columns = 5120U;
 
 [[nodiscard]] bool
 decode_down_k512_consumer_order_environment_enabled() noexcept {
-#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS)
+#if defined(Q3X_ENABLE_REFERENCE_RUNNER_INTERNAL_TEST_SEAMS) && !defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
   static const bool enabled = []() noexcept {
     const char* const value = std::getenv(
         "Q3X_RUN_DECODE_DOWN_K512_CONSUMER_ORDER_ADMISSION");
