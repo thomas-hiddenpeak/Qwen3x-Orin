@@ -472,22 +472,23 @@ namespace {
 }
 
 [[nodiscard]] bool invalid_prompt_wide_p40_compact_qk_ranges(
-    const std::uint16_t* const raw_qkv,
+    const std::uint16_t* const raw_qkv, const std::size_t token_count,
     const std::uint16_t* const conv_weight,
     const std::uint16_t* const history_in_out,
     const std::uint16_t* const conv_qkv_output,
     const std::uint16_t* const compact_q,
     const std::uint16_t* const compact_k) noexcept {
-  constexpr auto& plan = kernels::kGdnPromptWideChunkGraphP40WorkspacePlan;
+  const auto plan = kernels::make_gdn_prompt_wide_chunk_graph_workspace_plan(token_count);
+  if (!plan.ok()) return true;
   constexpr std::size_t bf16_bytes = sizeof(std::uint16_t);
-  constexpr std::size_t raw_qkv_bytes =
-      kernels::kGdnPromptWideChunkGraphP40Tokens * kGdnQkvChannels *
+  const std::size_t raw_qkv_bytes =
+      token_count * kGdnQkvChannels *
       bf16_bytes;
   constexpr std::size_t conv_weight_bytes =
       kGdnQkvChannels * kGdnConvKernelWidth * bf16_bytes;
   constexpr std::size_t history_bytes =
       kGdnQkvChannels * kGdnConvHistoryWidth * bf16_bytes;
-  constexpr std::size_t compact_bytes =
+  const std::size_t compact_bytes =
       plan.compact_head_token_elements * bf16_bytes;
   const std::array<std::uintptr_t, 6U> begins{{
       reinterpret_cast<std::uintptr_t>(raw_qkv),
@@ -497,7 +498,7 @@ namespace {
       reinterpret_cast<std::uintptr_t>(compact_q),
       reinterpret_cast<std::uintptr_t>(compact_k),
   }};
-  constexpr std::array<std::size_t, 6U> sizes{{
+  const std::array<std::size_t, 6U> sizes{{
       raw_qkv_bytes,
       conv_weight_bytes,
       history_bytes,
@@ -609,11 +610,10 @@ int launch_causal_conv1d_silu_update_prompt_wide_p40_compact_qk_exact_cuda(
     std::uint16_t* const compact_q,
     std::uint16_t* const compact_k,
     void* const cuda_stream) noexcept {
-  constexpr std::size_t p40_token_count =
-      kernels::kGdnPromptWideChunkGraphP40Tokens;
-  if (token_count != p40_token_count ||
+  constexpr std::size_t p40_token_count = 44'095U;
+  if (!kernels::make_gdn_prompt_wide_chunk_graph_workspace_plan(token_count).ok() ||
       invalid_prompt_wide_p40_compact_qk_ranges(
-          raw_qkv, conv_weight, history_in_out, conv_qkv_output, compact_q,
+          raw_qkv, token_count, conv_weight, history_in_out, conv_qkv_output, compact_q,
           compact_k)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }

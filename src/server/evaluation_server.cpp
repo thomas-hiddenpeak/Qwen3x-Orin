@@ -1931,7 +1931,7 @@ void handle_connection(
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
           400, "whole_core_exact_decode_contract",
           "the whole-core exact Decode candidate accepts only streaming "
-          "/v1/completions requests with exactly 40000 token IDs and "
+          "/v1/completions requests with 64..40000 token IDs in complete C64 chunks and "
           "max_tokens from 1 through 4096 plus stream_options.include_usage=true");
 #else
           400, "p40_whole_core_v1_contract",

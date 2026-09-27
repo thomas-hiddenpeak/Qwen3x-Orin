@@ -227,10 +227,10 @@ enum class WorkspaceProfile : std::uint8_t {
 };
 
 [[nodiscard]] constexpr std::size_t required_workspace_bytes(
-    const WorkspaceProfile profile) noexcept {
+    const WorkspaceProfile profile, const std::size_t token_count) noexcept {
   return profile == WorkspaceProfile::kLegacyC512
              ? required_workspace_bytes()
-             : kernels::kGdnPromptWideChunkGraphP40WorkspaceBytes;
+             : kernels::make_gdn_prompt_wide_chunk_graph_workspace_plan(token_count).layout.total_bytes;
 }
 
 static_assert(required_workspace_bytes() == 75'694'080U);
@@ -289,9 +289,9 @@ template <typename T>
 
 [[nodiscard]] bool partition_prompt_wide_p40_workspace(
     void* const raw, const std::size_t capacity,
-    Workspace& workspace) noexcept {
-  constexpr auto& plan = kernels::kGdnPromptWideChunkGraphP40WorkspacePlan;
-  constexpr auto& layout = plan.layout;
+    const std::size_t token_count, Workspace& workspace) noexcept {
+  const auto plan = kernels::make_gdn_prompt_wide_chunk_graph_workspace_plan(token_count);
+  const auto& layout = plan.layout;
   if (!plan.ok() || raw == nullptr || capacity < layout.total_bytes ||
       (reinterpret_cast<std::uintptr_t>(raw) &
        (kernels::kGdnPromptWideChunkGraphAlignment - 1U)) != 0U) {
@@ -2964,15 +2964,15 @@ void reconstruct_norm_gate_chunk64_kernel(
   const std::size_t maximum_token_count =
       workspace_profile == WorkspaceProfile::kLegacyC512
           ? kTokenCount
-          : kernels::kGdnPromptWideChunkGraphP40Tokens;
+          : 44'095U;
   const bool invalid_prompt_wide_shape =
       workspace_profile == WorkspaceProfile::kPromptWideP40 &&
-      token_count != kernels::kGdnPromptWideChunkGraphP40Tokens;
+      !kernels::make_gdn_prompt_wide_chunk_graph_workspace_plan(token_count).ok();
   return token_count == 0U || token_count > maximum_token_count ||
          invalid_prompt_wide_shape ||
          workspace == nullptr ||
          workspace_capacity_bytes <
-             required_workspace_bytes(workspace_profile) ||
+             required_workspace_bytes(workspace_profile, token_count) ||
          conv_qkv == nullptr || a == nullptr || b == nullptr ||
          A_log == nullptr || dt_bias == nullptr || state_input == nullptr ||
          state_output == nullptr || norm_weight == nullptr ||
@@ -3032,7 +3032,7 @@ int launch_impl(void* const context,
           ? partition_workspace(workspace_raw, workspace_capacity_bytes,
                                 workspace)
           : partition_prompt_wide_p40_workspace(
-                workspace_raw, workspace_capacity_bytes, workspace);
+                workspace_raw, workspace_capacity_bytes, token_count, workspace);
   if (!workspace_partitioned) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
@@ -3694,7 +3694,7 @@ int launch(
   Workspace workspace;
   if (!gdn_prefill_chunk64_reference_detail::
           partition_prompt_wide_p40_workspace(
-              workspace_raw, workspace_capacity_bytes, workspace)) {
+              workspace_raw, workspace_capacity_bytes, token_count, workspace)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
 

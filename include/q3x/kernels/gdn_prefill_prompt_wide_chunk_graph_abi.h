@@ -11,7 +11,9 @@ namespace q3x::kernels {
 
 // Host-only ABI for the default-off prompt-wide GDN chunk graph.  This is a
 // fixed Qwen3.6/SM87 development contract, not a generic sequence-length
-// workspace calculator and not a production admission surface.
+// workspace calculator and not a production admission surface. The separately
+// compiled whole-core/exact-Decode admission extends this checked component
+// plan to M1..44095, with storage rounded to C64 and logical state ending at M.
 inline constexpr std::size_t kGdnPromptWideChunkGraphChunkTokens = 64U;
 inline constexpr std::size_t kGdnPromptWideChunkGraphAlignment = 256U;
 inline constexpr std::size_t kGdnPromptWideChunkGraphP40Tokens = 40'000U;
@@ -339,15 +341,21 @@ make_gdn_prompt_wide_chunk_graph_workspace_plan(
         GdnPromptWideChunkGraphPlanError::kP60PartialChunkPending;
     return plan;
   }
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  if (token_count > 44'095U) {
+#else
   if (token_count != kGdnPromptWideChunkGraphP40Tokens) {
+#endif
     plan.error = GdnPromptWideChunkGraphPlanError::kInvalidTokenCount;
     return plan;
   }
+#if !defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
   if (plan.padded_token_count != token_count) {
     plan.error = GdnPromptWideChunkGraphPlanError::kInvalidLayout;
     return plan;
   }
 
+#endif
   constexpr std::size_t chunk = kGdnPromptWideChunkGraphChunkTokens;
   constexpr std::size_t qk_heads = runtime::kGdnQkHeadCount;
   constexpr std::size_t value_heads = runtime::kGdnValueHeadCount;

@@ -59,16 +59,28 @@ void test_invalid_contracts(TestContext& test) {
 
   test.expect(
       launch(const_pointer(kFirstWeights), const_pointer(kSecondWeights),
-             const_pointer(kInput), 39'999U, mutable_pointer(kFirstOutput),
+             const_pointer(kInput),
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+             0U,
+#else
+             39'999U,
+#endif
+             mutable_pointer(kFirstOutput),
              mutable_pointer(kSecondOutput)) ==
           static_cast<int>(cudaErrorInvalidValue),
-      "P39999 must fail closed before enqueue");
+      "lower unowned M must fail closed before enqueue");
   test.expect(
       launch(const_pointer(kFirstWeights), const_pointer(kSecondWeights),
-             const_pointer(kInput), 40'001U, mutable_pointer(kFirstOutput),
+             const_pointer(kInput),
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+             44'096U,
+#else
+             40'001U,
+#endif
+             mutable_pointer(kFirstOutput),
              mutable_pointer(kSecondOutput)) ==
           static_cast<int>(cudaErrorInvalidValue),
-      "P40001 must fail closed before enqueue");
+      "upper unowned M must fail closed before enqueue");
   test.expect(
       launch(const_pointer(kFirstWeights + 2U),
              const_pointer(kSecondWeights), const_pointer(kInput), 40'000U,

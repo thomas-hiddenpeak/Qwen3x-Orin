@@ -1261,15 +1261,27 @@ std::string serialize_target_prefill_witness(
         prompt_wide_p40_whole_core_route_is_production_only &&
         boundary_hits == 0U;
   }
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  const bool variable_whole_core = prompt_wide_p40_whole_core_candidate_v10;
+#else
+  constexpr bool variable_whole_core = false;
+#endif
+  const std::uint64_t whole_core_panels = variable_whole_core
+      ? (record.prompt_tokens + 7999U) / 8000U : kP40LogicalPanelCount;
+  const std::uint64_t whole_core_panel_hits = kLayerCount * whole_core_panels;
+  const std::uint64_t whole_core_submissions = kLayerCount * (2U * whole_core_panels + 2U);
+  const std::uint64_t whole_core_fp8_hits = whole_core_panels *
+      (3U * kLinearAttentionLayerCount + 4U * kAttentionLayerCount);
   const bool prompt_wide_p40_common_non_mlp_counts_complete =
-      record.prompt_tokens ==
-          runtime::kLayerMajorPrefillPromptWideP40Tokens &&
-      record.prefill_logical_panel_count == kP40LogicalPanelCount &&
+      (variable_whole_core
+           ? runtime::whole_core_prompt_tokens_admitted(record.prompt_tokens)
+           : record.prompt_tokens == runtime::kLayerMajorPrefillPromptWideP40Tokens) &&
+      record.prefill_logical_panel_count == whole_core_panels &&
       record.request_memory_profile ==
           runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
       record.bounded_submission_window &&
       record.submission_window_retirements ==
-          kP40WholeCoreExpectedSubmissionRetirements &&
+          whole_core_submissions &&
       record.route_layer_pass_count == 1U &&
       record.prefill_route_evidence.valid &&
       record.prefill_route_evidence.complete &&
@@ -1280,10 +1292,10 @@ std::string serialize_target_prefill_witness(
       record.prompt_wide_p40_whole_core_layer_hits ==
           kP40WholeCoreExpectedLayerHits &&
       record.prompt_wide_p40_fill_panel_hits ==
-          kP40WholeCoreExpectedPanelPhaseHits &&
+          whole_core_panel_hits &&
       record.prompt_wide_p40_prompt_core_hits == kLayerCount &&
       record.prompt_wide_p40_drain_panel_hits ==
-          kP40WholeCoreExpectedPanelPhaseHits &&
+          whole_core_panel_hits &&
       record.prompt_wide_p40_bf16_ab_hits ==
           kLinearAttentionLayerCount &&
       record.prompt_wide_p40_gdn_hits == kLinearAttentionLayerCount &&
@@ -1327,7 +1339,7 @@ std::string serialize_target_prefill_witness(
       record.mlp_schedule_tactic == runtime::
           LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore &&
       record.prompt_wide_p40_fp8_projection_hits ==
-          kP40WholeCoreExpectedFp8ProjectionHits &&
+          whole_core_fp8_hits &&
       record.prompt_wide_p40_fp8_projection_physical_launches ==
           record.prompt_wide_p40_fp8_projection_hits;
   const bool p40_projection_reset_package_counts_complete =
@@ -1423,7 +1435,7 @@ std::string serialize_target_prefill_witness(
       p40_vllm_marlin_parity_candidate_v15;
   std::string output =
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
-      true ? "{\"record\":\"target-prefill-witness-whole-core-exact-decode-admission-v2\","
+      true ? "{\"record\":\"target-prefill-witness-whole-core-exact-decode-admission-v3\","
              "\"schema_version\":2,\"decode_numerical_contract\":"
              "\"ordered-pipeline-unqualified\",\"request\":{\"id\":" :
 #elif defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
@@ -1950,23 +1962,24 @@ std::string serialize_target_prefill_witness(
           std::to_string(record.persistent_p40_nvfp4_physical_launches) +
           ",\"prompt_wide_p40_whole_core_package\":{\"identity\":";
       append_json_string(output,
-                         "exact-p40000-five-p8000-whole-core-v1");
+                         variable_whole_core ? "actual-c64-prompt-p8000-panels-whole-core-v3"
+                                             : "exact-p40000-five-p8000-whole-core-v1");
       output += ",\"selection\":\"sealed-fail-closed\",\"complete\":";
       output += prompt_wide_p40_whole_core_package_counts_complete
                     ? "true"
                     : "false";
       output +=
           ",\"logical_panels\":" +
-          std::to_string(kP40LogicalPanelCount) +
+          std::to_string(whole_core_panels) +
           ",\"panel_tokens\":" +
           std::to_string(
               runtime::kLayerMajorPrefillPromptWideP40PanelTokens) +
           ",\"count_validation\":{\"expected_layer_hits\":" +
           std::to_string(kP40WholeCoreExpectedLayerHits) +
           ",\"expected_panel_phase_hits\":" +
-          std::to_string(kP40WholeCoreExpectedPanelPhaseHits) +
+          std::to_string(whole_core_panel_hits) +
           ",\"expected_fp8_projection_hits\":" +
-          std::to_string(kP40WholeCoreExpectedFp8ProjectionHits) +
+          std::to_string(whole_core_fp8_hits) +
           ",\"expected_bf16_ab_hits\":" +
           std::to_string(kLinearAttentionLayerCount) +
           ",\"expected_gdn_hits\":" +

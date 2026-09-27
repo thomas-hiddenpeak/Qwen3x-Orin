@@ -9,6 +9,16 @@ inline constexpr std::uint32_t kWholeCoreCompiledSequenceCapacity = 44'095U;
 #else
 inline constexpr std::uint32_t kWholeCoreCompiledSequenceCapacity = 40'016U;
 #endif
+// First composed variable-shape admission: complete C64 chunks fit the
+// existing P40 family arena. Non-C64 tails remain closed at the runner until
+// their MLP physical-row publication has been composed and checked.
+[[nodiscard]] constexpr bool whole_core_prompt_tokens_admitted(std::uint64_t tokens) noexcept {
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  return tokens >= 64U && tokens <= 40'000U && tokens % 64U == 0U;
+#else
+  return tokens == 40'000U;
+#endif
+}
 inline constexpr std::uint64_t kWholeCoreCompiledPersistentBytes =
     78'446'592ULL + 65'536ULL * kWholeCoreCompiledSequenceCapacity;
 inline constexpr std::uint64_t kWholeCoreCompiledResidualBytes =

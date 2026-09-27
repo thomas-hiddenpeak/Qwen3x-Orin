@@ -195,6 +195,17 @@ composed shorter prompt promptly to numerical and paired API checks before
 expanding the panel. This milestone grants no default replacement or general
 API qualification.
 
+The first actual-length C64 integration has returned to P8192/O16 same-input
+Decode checks and the paired P8192/O256 API. The
+[bounded checkpoint](metadata/qwen36-27b-whole-core-variable-prefill-2026-09-27.json)
+retains dynamic panel/role receipts and local GDN/A/B tail checks. Continue
+with exact MLP tail ownership and P44095 family-workspace planning, then normal
+text/chat/nonstream surfaces; do not treat C64 admission as a permanent
+length-specific product branch. The next non-C64 composed request returns to
+numerical and API checks before the full panel. The observed cross-Prefill
+text difference remains an input to full-state/capability qualification, not
+a numerical waiver or evidence that exact Decode changed its arithmetic.
+
 Ordered deliverables:
 
 Owner-requested immediate promotion preparation:

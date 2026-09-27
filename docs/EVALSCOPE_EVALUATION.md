@@ -58,6 +58,20 @@ Decode together. O1 has no subsequent-Decode rate. Final selection requires
 the exact installed Release/OFF default artifact and the declared capability
 suite. Reuse prior evidence only within its artifact/workload scope.
 
+For the isolated whole-core/exact-Decode v3 admission, validate
+`target-prefill-witness-whole-core-exact-decode-admission-v3` and deployment
+`q3x.sm87.admission.whole-core-c64-variable-prefill.v3`. For admitted P,
+N=ceil(P/8000): require N logical panels, 64*N fill and drain phases each,
+64*(2*N+2) submission retirements, 208*N FP8 launches, 48 A/B and GDN calls,
+16 whole-prompt Attention calls, and 64 Gate/Up plus 64 Down calls. Both
+package-complete flags, complete prompt consumption and zero forbidden/
+fallback counts must pass before interpreting timing. Preserve incomplete
+older witnesses as diagnostics; do not repair their raw records retrospectively.
+The component tail oracle must preserve a single-call FP32 GDN state lifetime:
+splitting into separate C512 calls introduces extra BF16 state publication and
+is not a bitwise oracle for that computation. Component-tail checks and
+same-input Decode checks do not replace the full Prefill-state/capability gate.
+
 Finish all heavy compilation before real-model validation, including recovery
 checks. A thermal stop during recovery is not a passed recovery test, even if
 the preceding performance request completed; retain both observations.

@@ -132,17 +132,16 @@ prompt_wide_p40_vllm_marlin_parity_build_enabled() noexcept {
   }
   return schedule.enabled &&
          plan.first_position == 0U &&
-         plan.prompt_token_count == kLayerMajorPrefillPromptWideP40Tokens &&
-         plan.final_position == kLayerMajorPrefillPromptWideP40Tokens &&
-         plan.panel_count == kLayerMajorPrefillPromptWideP40PanelCount &&
+         whole_core_prompt_tokens_admitted(plan.prompt_token_count) &&
+         plan.final_position == plan.prompt_token_count &&
+         plan.panel_count == (plan.prompt_token_count + 7999U) / 8000U &&
          schedule.fill_panel_phase_count_per_layer == plan.panel_count &&
          schedule.prompt_core_phase_count_per_layer == 1U &&
          schedule.drain_panel_phase_count_per_layer == plan.panel_count &&
          schedule.persistent_mlp_phase_count_per_layer == 1U &&
          schedule.panel_token_count ==
              kLayerMajorPrefillPromptWideP40PanelTokens &&
-         schedule.prompt_core_token_count ==
-             kLayerMajorPrefillPromptWideP40Tokens &&
+         schedule.prompt_core_token_count == plan.prompt_token_count &&
          schedule.request_capacity_tokens ==
              kLayerMajorPrefillPromptWideP40RequestCapacityTokens &&
          schedule.route_pass_count == 1U &&
@@ -607,9 +606,9 @@ prompt_wide_p40_vllm_marlin_parity_build_enabled() noexcept {
       whole_core || projection_reset || packed_projection || packed_nvfp4_v2;
   return (layer_wide_mlp_only || fused_full_prompt) &&
          plan.first_position == 0U &&
-         plan.prompt_token_count ==
-             kLayerMajorPrefillLayerWideMlpP40Tokens &&
-         plan.final_position == kLayerMajorPrefillLayerWideMlpP40Tokens &&
+         (whole_core ? whole_core_prompt_tokens_admitted(plan.prompt_token_count)
+                     : plan.prompt_token_count == kLayerMajorPrefillLayerWideMlpP40Tokens) &&
+         plan.final_position == plan.prompt_token_count &&
          plan.prompt_token_count %
                  kLayerMajorPrefillLayerWideMlpAlignmentTokens ==
              0U &&
@@ -677,7 +676,7 @@ prompt_wide_p40_vllm_marlin_parity_build_enabled() noexcept {
       vllm_marlin_parity;
   const std::size_t expected_panel_count =
       fixed_p40_geometry
-          ? kLayerMajorPrefillPromptWideP40PanelCount
+          ? (plan.prompt_token_count + 7999U) / 8000U
           : (static_cast<std::size_t>(plan.prompt_token_count) +
              kLayerMajorPrefillOperatorPanelTokens - 1U) /
                 kLayerMajorPrefillOperatorPanelTokens;
@@ -692,7 +691,7 @@ prompt_wide_p40_vllm_marlin_parity_build_enabled() noexcept {
     const PrefillOperatorPanel& panel = plan.panels[panel_index];
     const std::uint32_t expected_token_count =
         fixed_p40_geometry
-            ? kLayerMajorPrefillPromptWideP40PanelTokens
+            ? static_cast<std::uint32_t>(remaining_tokens < 8000U ? remaining_tokens : 8000U)
             : static_cast<std::uint32_t>(
                   next_layer_major_prefill_operator_panel_token_count(
                       remaining_tokens));
@@ -836,8 +835,8 @@ PrefillExecutionPlanResult build_unbound_layer_major_prefill_execution_plan(
   if (options.mlp_schedule_tactic !=
           LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel &&
       (options.first_position != 0U ||
-       options.prompt_token_count !=
-           kLayerMajorPrefillLayerWideMlpP40Tokens ||
+       (whole_core ? !whole_core_prompt_tokens_admitted(options.prompt_token_count)
+                   : options.prompt_token_count != kLayerMajorPrefillLayerWideMlpP40Tokens) ||
        options.prompt_token_count %
                kLayerMajorPrefillLayerWideMlpAlignmentTokens !=
            0U)) {
@@ -861,7 +860,7 @@ PrefillExecutionPlanResult build_unbound_layer_major_prefill_execution_plan(
 
   const std::uint64_t panel_count =
       fixed_p40_geometry
-          ? kLayerMajorPrefillPromptWideP40PanelCount
+          ? (options.prompt_token_count + 7999U) / 8000U
           : (options.prompt_token_count +
              kLayerMajorPrefillOperatorPanelTokens - 1U) /
                 kLayerMajorPrefillOperatorPanelTokens;
@@ -883,7 +882,7 @@ PrefillExecutionPlanResult build_unbound_layer_major_prefill_execution_plan(
        ++panel_index) {
     const std::uint64_t token_count =
         fixed_p40_geometry
-            ? kLayerMajorPrefillPromptWideP40PanelTokens
+            ? (remaining < 8000U ? remaining : 8000U)
             : next_layer_major_prefill_operator_panel_token_count(
                   static_cast<std::size_t>(remaining));
     const std::uint64_t end_position = next_position + token_count;
@@ -956,8 +955,7 @@ PrefillExecutionPlanResult build_unbound_layer_major_prefill_execution_plan(
     plan.whole_core_schedule.persistent_mlp_phase_count_per_layer = 1U;
     plan.whole_core_schedule.panel_token_count =
         kLayerMajorPrefillPromptWideP40PanelTokens;
-    plan.whole_core_schedule.prompt_core_token_count =
-        kLayerMajorPrefillPromptWideP40Tokens;
+    plan.whole_core_schedule.prompt_core_token_count = plan.prompt_token_count;
     plan.whole_core_schedule.request_capacity_tokens =
         kLayerMajorPrefillPromptWideP40RequestCapacityTokens;
     plan.whole_core_schedule.route_pass_count = 1U;

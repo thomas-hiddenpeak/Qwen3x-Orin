@@ -241,18 +241,22 @@ __device__ __forceinline__ void issue_pipeline_stage(
     const std::uint16_t* const first_weights,
     const std::uint16_t* const second_weights,
     const std::uint16_t* const input, const unsigned int first_token,
-    const unsigned int first_column) {
+    const unsigned int first_column, const unsigned int token_count) {
   const unsigned int thread = threadIdx.x;
 #pragma unroll
   for (unsigned int pass = 0U; pass < 2U; ++pass) {
     const unsigned int index = thread + pass * kThreads;
     const unsigned int token = index / kVectorsPerGlobalRow;
     const unsigned int vector = index % kVectorsPerGlobalRow;
-    cp_async_cg_shared_global_16(
+    if (first_token + token < token_count) {
+      cp_async_cg_shared_global_16(
         &pipeline->activations[slot][token][vector],
         reinterpret_cast<const uint4*>(
             input + static_cast<std::size_t>(first_token + token) * kColumns +
             first_column) + vector);
+    } else {
+      pipeline->activations[slot][token][vector] = make_uint4(0U, 0U, 0U, 0U);
+    }
   }
 #pragma unroll
   for (unsigned int pass = 0U; pass < 3U; ++pass) {
@@ -281,7 +285,7 @@ void bf16_ab_prefill_m64_n96_k64_kernel(
     const std::uint16_t* const second_weights,
     const std::uint16_t* const input,
     std::uint16_t* const first_output,
-    std::uint16_t* const second_output) {
+    std::uint16_t* const second_output, const unsigned int token_count) {
   extern __shared__ __align__(32) std::uint8_t dynamic_storage[];
   auto* const pipeline =
       reinterpret_cast<PipelineStorage*>(dynamic_storage);
@@ -299,9 +303,9 @@ void bf16_ab_prefill_m64_n96_k64_kernel(
   }
 
   issue_pipeline_stage(pipeline, 0U, first_weights, second_weights, input,
-                       first_token, 0U);
+                       first_token, 0U, token_count);
   issue_pipeline_stage(pipeline, 1U, first_weights, second_weights, input,
-                       first_token, kColumnTile);
+                       first_token, kColumnTile, token_count);
 
 #pragma unroll 1
   for (unsigned int stage = 0U; stage < kStageCount; ++stage) {
@@ -337,7 +341,7 @@ void bf16_ab_prefill_m64_n96_k64_kernel(
       const unsigned int future_stage = stage + kPipelineStages;
       issue_pipeline_stage(
           pipeline, slot, first_weights, second_weights, input,
-          first_token, future_stage * kColumnTile);
+          first_token, future_stage * kColumnTile, token_count);
     }
   }
   cp_async_wait_group_0();
@@ -352,12 +356,12 @@ void bf16_ab_prefill_m64_n96_k64_kernel(
 #pragma unroll
   for (unsigned int panel = 0U; panel < 6U; ++panel) {
     const unsigned int output_column = panel * 8U + 2U * lane_in_group;
-    *reinterpret_cast<std::uint32_t*>(
+    if (token0 < token_count) *reinterpret_cast<std::uint32_t*>(
         selected_output +
         static_cast<std::size_t>(token0) * kRowsPerProjection +
         output_column) =
         pack_bf16_pair(accumulators[panel].x0, accumulators[panel].x1);
-    *reinterpret_cast<std::uint32_t*>(
+    if (token1 < token_count) *reinterpret_cast<std::uint32_t*>(
         selected_output +
         static_cast<std::size_t>(token1) * kRowsPerProjection +
         output_column) =
@@ -462,10 +466,10 @@ int launch_sm87_bf16_ab_prompt_wide_p40_cuda(
 
   constexpr std::size_t kWeightBytes =
       kSm87Bf16AbPromptWideP40WeightElements * sizeof(std::uint16_t);
-  constexpr std::size_t kInputBytes =
-      kSm87Bf16AbPromptWideP40InputElements * sizeof(std::uint16_t);
-  constexpr std::size_t kOutputBytes =
-      kSm87Bf16AbPromptWideP40OutputElements * sizeof(std::uint16_t);
+  const std::size_t kInputBytes =
+      plan.input_elements * sizeof(std::uint16_t);
+  const std::size_t kOutputBytes =
+      plan.output_elements_per_projection * sizeof(std::uint16_t);
   if (byte_range_overflows(first_weights, kWeightBytes) ||
       byte_range_overflows(second_weights, kWeightBytes) ||
       byte_range_overflows(input, kInputBytes) ||
@@ -501,7 +505,7 @@ int launch_sm87_bf16_ab_prompt_wide_p40_cuda(
       <<<static_cast<unsigned int>(plan.grid_blocks), kThreads,
          kDynamicSharedBytes, static_cast<cudaStream_t>(cuda_stream)>>>(
           first_weights, second_weights, input,
-          first_output, second_output);
+          first_output, second_output, static_cast<unsigned int>(token_count));
   return static_cast<int>(cudaGetLastError());
 }
 
@@ -565,7 +569,7 @@ int launch_sm87_bf16_ab_large_m_prefill_cuda(
     bf16_ab_prefill_m64_n96_k64_kernel
         <<<blocks, kThreads, kDynamicSharedBytes, stream>>>(
             first_weights, second_weights, input,
-            first_output, second_output);
+            first_output, second_output, static_cast<unsigned int>(token_count));
     const cudaError_t launch_status = cudaGetLastError();
     if (launch_status != cudaSuccess) {
       return static_cast<int>(launch_status);

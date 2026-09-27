@@ -9,7 +9,9 @@ namespace q3x::kernels {
 // AC-PREFILL-PROMPT-WIDE-v2 BF16 A/B slice.  It reuses the established
 // M64xN96xK64 arithmetic kernel but submits all 625 M64 tiles in one CUDA
 // grid.  No smaller/larger prompt, tail, compatibility path, or production
-// selector is implied by this ABI.
+// selector is implied by this ABI. The separately compiled whole-core/exact-
+// Decode admission also owns M1..44095: final-tile reads and writes are masked,
+// preserving the same K reduction for every valid row.
 inline constexpr std::size_t kSm87Bf16AbPromptWideP40Tokens = 40'000U;
 inline constexpr std::size_t kSm87Bf16AbPromptWideP40InputFeatures = 5'120U;
 inline constexpr std::size_t kSm87Bf16AbPromptWideP40RowsPerProjection = 48U;
@@ -60,6 +62,14 @@ static_assert(kSm87Bf16AbPromptWideP40MaximumInputIndex + 1U ==
 static_assert(kSm87Bf16AbPromptWideP40MaximumOutputIndex + 1U ==
               kSm87Bf16AbPromptWideP40OutputElements);
 
+[[nodiscard]] constexpr bool admits_bf16_ab_prompt_tokens(std::size_t tokens) noexcept {
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  return tokens > 0U && tokens <= 44'095U;
+#else
+  return tokens == kSm87Bf16AbPromptWideP40Tokens;
+#endif
+}
+
 struct Sm87Bf16AbPromptWideP40Plan final {
   std::size_t requested_token_count = 0U;
   std::size_t tile_tokens = 0U;
@@ -74,38 +84,37 @@ struct Sm87Bf16AbPromptWideP40Plan final {
 
   [[nodiscard]] constexpr bool valid() const noexcept {
     return admitted &&
-           requested_token_count == kSm87Bf16AbPromptWideP40Tokens &&
+           admits_bf16_ab_prompt_tokens(requested_token_count) &&
            tile_tokens == kSm87Bf16AbPromptWideP40TileTokens &&
-           grid_blocks == kSm87Bf16AbPromptWideP40GridBlocks &&
-           grid_blocks * tile_tokens == requested_token_count &&
+           grid_blocks == (requested_token_count + tile_tokens - 1U) / tile_tokens &&
            threads == kSm87Bf16AbPromptWideP40Threads &&
            launch_count == kSm87Bf16AbPromptWideP40LaunchCount &&
            dynamic_shared_bytes ==
                kSm87Bf16AbPromptWideP40DynamicSharedBytes &&
-           input_elements == kSm87Bf16AbPromptWideP40InputElements &&
+           input_elements == requested_token_count * kSm87Bf16AbPromptWideP40InputFeatures &&
            weight_elements_per_projection ==
                kSm87Bf16AbPromptWideP40WeightElements &&
            output_elements_per_projection ==
-               kSm87Bf16AbPromptWideP40OutputElements;
+               requested_token_count * kSm87Bf16AbPromptWideP40RowsPerProjection;
   }
 };
 
 [[nodiscard]] constexpr Sm87Bf16AbPromptWideP40Plan
 make_sm87_bf16_ab_prompt_wide_p40_plan(
     const std::size_t token_count) noexcept {
-  if (token_count != kSm87Bf16AbPromptWideP40Tokens) {
+  if (!admits_bf16_ab_prompt_tokens(token_count)) {
     return {token_count};
   }
   return {
       token_count,
       kSm87Bf16AbPromptWideP40TileTokens,
-      kSm87Bf16AbPromptWideP40GridBlocks,
+      (token_count + 63U) / 64U,
       kSm87Bf16AbPromptWideP40Threads,
       kSm87Bf16AbPromptWideP40LaunchCount,
       kSm87Bf16AbPromptWideP40DynamicSharedBytes,
-      kSm87Bf16AbPromptWideP40InputElements,
+      token_count * kSm87Bf16AbPromptWideP40InputFeatures,
       kSm87Bf16AbPromptWideP40WeightElements,
-      kSm87Bf16AbPromptWideP40OutputElements,
+      token_count * kSm87Bf16AbPromptWideP40RowsPerProjection,
       true,
   };
 }
@@ -127,7 +136,8 @@ sm87_bf16_ab_prompt_wide_p40_tile(
   return {
       block,
       block * plan.tile_tokens,
-      plan.tile_tokens,
+      (plan.requested_token_count - block * plan.tile_tokens < plan.tile_tokens
+           ? plan.requested_token_count - block * plan.tile_tokens : plan.tile_tokens),
       true,
   };
 }
@@ -165,7 +175,8 @@ struct Sm87Bf16AbPromptWideP40Resources final {
 // token-major BF16 [40000,5120] input produce independent token-major
 // [40000,48] outputs.  Read-only payloads require 16-byte alignment; outputs
 // require 4-byte alignment and may not overlap any input/weight/output span.
-// token_count must be exactly 40000.  There is no tail or fallback launch.
+// Ordinarily token_count is exactly 40000. The whole-core/exact-Decode
+// admission uses ceil(M/64) CTAs, masks the final tile, and has no fallback.
 [[nodiscard]] int launch_sm87_bf16_ab_prompt_wide_p40_cuda(
     const std::uint16_t* first_weights,
     const std::uint16_t* second_weights,

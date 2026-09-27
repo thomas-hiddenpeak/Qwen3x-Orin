@@ -863,10 +863,9 @@ int launch_packless_prompt_wide_p40(
     std::uint16_t* const w,
     std::uint16_t* const u,
     void* const cuda_stream) noexcept {
-  constexpr std::size_t expected_chunks =
-      kernels::kGdnPromptWideChunkGraphP40Tokens / kChunk;
-  if (token_count != kernels::kGdnPromptWideChunkGraphP40Tokens ||
-      chunk_count != expected_chunks) {
+  const auto plan = kernels::make_gdn_prompt_wide_chunk_graph_workspace_plan(token_count);
+  const std::size_t expected_chunks = plan.chunk_count;
+  if (!plan.ok() || chunk_count != expected_chunks) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   return launch_packless_impl(

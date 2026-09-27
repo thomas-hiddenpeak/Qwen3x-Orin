@@ -7,6 +7,24 @@
 int main(int argc, char** argv) {
   namespace rt = q3x::runtime;
   namespace server = q3x::server;
+  // The runner must consume actual spans, including the short final panel.
+  for (const auto tokens : {64U, 512U, 8000U, 8192U, 16000U, 32000U, 40000U}) {
+    rt::PrefillExecutionPlanOptions geometry;
+    geometry.prompt_token_count = tokens;
+    geometry.max_sequence_length = 44095U;
+    geometry.mlp_schedule_tactic =
+        rt::LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore;
+    const auto result =
+        rt::build_unbound_layer_major_prefill_execution_plan(geometry);
+    if (!result || result.value->prompt_token_count != tokens ||
+        result.value->whole_core_schedule.prompt_core_token_count != tokens ||
+        result.value->panel_count != (tokens + 7999U) / 8000U ||
+        result.value->panels[result.value->panel_count - 1U].end_position != tokens)
+      return 1;
+    auto corrupt = *result.value;
+    ++corrupt.panels[corrupt.panel_count - 1U].token_count;
+    if (rt::is_valid_unbound_layer_major_prefill_execution_plan(corrupt)) return 1;
+  }
   if (argc == 2 && std::string_view(argv[1]) == "--service-coverage") {
     // Host admission audit, never a CUDA, numerical or performance verdict.
     server::OpenAIRequest input;

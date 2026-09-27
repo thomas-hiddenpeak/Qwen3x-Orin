@@ -1182,7 +1182,8 @@ class ReferenceRunner {
       std::size_t layer,
       const ReferenceLayerMajorRequestViews& request_views,
       PromptWideP40ProjectionPackage projection_package =
-          PromptWideP40ProjectionPackage::kWholeCoreV10) noexcept;
+          PromptWideP40ProjectionPackage::kWholeCoreV10,
+      std::size_t token_count = 40'000U) noexcept;
   [[nodiscard]] ReferenceRunnerStatus
   enqueue_prompt_wide_p40_vllm_marlin_parity_mlp(
       std::size_t layer,
@@ -1209,7 +1210,8 @@ class ReferenceRunner {
       const ReferenceLayerMajorRequestViews& request_views,
       PromptWideP40ProjectionPackage projection_package,
       std::size_t& fp8_projection_hits,
-      std::size_t& fp8_physical_launches) noexcept;
+      std::size_t& fp8_physical_launches,
+      std::size_t token_count = 40'000U) noexcept;
   [[nodiscard]] ReferenceRunnerStatus
   enqueue_prompt_wide_p40_whole_core_drain_panel(
       std::size_t layer, const PrefillOperatorPanel& panel,

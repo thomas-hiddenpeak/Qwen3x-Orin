@@ -661,3 +661,12 @@ Its identity and load receipts must distinguish it from both the fixed
 whole-core production profile and the isolated Legacy Decode admission.
 The initial fixed-shape integration is a prerequisite, not a replacement
 service or an expansion of the existing profile's qualification.
+
+The same non-installable composition may stage actual-length service
+integration under a separately versioned plan. Its initial C64 subset uses
+only actual prompt rows, ceil(P/8000) panels and a bounded final panel; it
+retains the P40000 family-storage capacity and rejects unsupported MLP tails
+or larger prompts before execution. Physical role minima and witness counts
+must describe that subset rather than claiming the old five-panel topology.
+The complete service envelope remains the delivery requirement; intermediate
+admission grants no default-route or numerical qualification.

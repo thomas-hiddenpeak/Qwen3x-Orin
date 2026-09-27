@@ -339,6 +339,9 @@ launch_full_attention_preprocess_24_4_256_64_reference_256_cuda(
 can_launch_full_attention_preprocess_prompt_wide_p8000(
     const std::size_t first_position,
     const std::size_t token_count) noexcept {
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  return token_count > 0U && token_count <= 8000U && first_position <= 40000U - token_count;
+#else
   return token_count == kFullAttentionPreprocessPromptWideP8000Tokens &&
          first_position %
                  kFullAttentionPreprocessPromptWideP8000Tokens ==
@@ -346,6 +349,7 @@ can_launch_full_attention_preprocess_prompt_wide_p8000(
          first_position /
                  kFullAttentionPreprocessPromptWideP8000Tokens <
              kFullAttentionPreprocessPromptWideP8000PanelCount;
+#endif
 }
 
 [[nodiscard]] int
@@ -582,8 +586,11 @@ can_launch_bulk_causal_gqa_flashinfer_exact_whole_prompt(
     const std::size_t first_position,
     const std::size_t token_count) noexcept {
   return first_position == 0U &&
-         token_count >=
-             kBulkCausalGqaFlashInferExactWholePromptMinimumTokens &&
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+         token_count >= 1U &&
+#else
+         token_count >= kBulkCausalGqaFlashInferExactWholePromptMinimumTokens &&
+#endif
          token_count <=
              kBulkCausalGqaFlashInferExactWholePromptMaximumTokens &&
          token_count <= kBulkCausalGqaMaximumSequenceLength;

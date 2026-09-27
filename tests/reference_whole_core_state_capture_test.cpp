@@ -300,8 +300,13 @@ int main(int argc, char** argv) {
           token >= rt::kReferenceVocabularySize) throw std::runtime_error("invalid prompt ID");
       ids.push_back(static_cast<std::uint32_t>(token));
     }
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+    if (!rt::whole_core_prompt_tokens_admitted(ids.size()) || ids.size() < kKvSamplePositions)
+      throw std::runtime_error("state capture requires an admitted prompt >= KV sample length");
+#else
     if (ids.size() != 40000U)
       throw std::runtime_error("state capture requires P40000");
+#endif
 
     core::Sha256 prompt_hash;
     if (!prompt_hash.update(ids.data(), ids.size() * sizeof(ids[0])))

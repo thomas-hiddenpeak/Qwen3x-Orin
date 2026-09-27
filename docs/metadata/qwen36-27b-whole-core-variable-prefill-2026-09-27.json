@@ -1,0 +1,710 @@
+{
+  "record": "qwen36-27b-whole-core-variable-prefill-2026-09-27",
+  "source_parent": "fe1cc98b9ef346a6a592ed72aadea2b5d95e98e3",
+  "decision_unit": "architecture_candidate prerequisite; first variable-length real-API return",
+  "work_package_id": "WP-PREFILL-MAINLINE-VALIDATION-20260927",
+  "architecture_candidate_id": "AC-WHOLE-CORE-SERVICE-20260927",
+  "product_constraint": "Preserve P+O-1<=44095 and ordinary API surfaces while composing fast Prefill with exact v7 Decode; interim Decode goal approximately 8.55 token/s is unchanged.",
+  "implementation": {
+    "profile": "q3x.sm87.admission.whole-core-exact-decode.v3",
+    "deployment_plan": "q3x.sm87.admission.whole-core-c64-variable-prefill.v3",
+    "runtime_scope": "P64..40000 divisible by64, O1..4096, token-ID completions streaming with usage only",
+    "geometry": "ceil(P/8000) actual panels; actual-length core and MLP; no logical prompt padding",
+    "kernel_prerequisites": "A/B masked M64 final tile; GDN ceil(P/64) workspace and masked tail, component admission M1..44095 only in this compiled bundle",
+    "arena_bytes": 8952211200,
+    "family_workspace_capacity_tokens": 40000,
+    "request_capacity_tokens": 44095,
+    "equivalence_obligation": "Preserve per-valid-row projection K order, BF16 outputs and the retained whole-call GDN FP32 state lifetime; mask nonexistent rows, update convolution history only through actual P. This record is bounded regression evidence, not a proof of all admitted inputs.",
+    "default_changed": false,
+    "installable": false,
+    "production_qualified": false
+  },
+  "frozen_artifacts": {
+    "binaries": {
+      "qwen3x-eval-server-whole-core-exact-decode-admission": "bc6f0c19fe4d90f61c84ae63ac998260da08e30eba47e082ba59a4e76c1a4633",
+      "q3x_whole_core_exact_decode_model_test": "6db9259801cf5cab1013d2e306e513f79285fd23575b67472ae7155f5cbee3a2",
+      "q3x_whole_core_variable_kernels_test": "ae63de84d70dcc463ecabb1f56a43d69a8144bf1b6f235e8ba7f6fd5405aa2d2"
+    },
+    "source_files": {
+      "CMakeLists.txt": "06e46ffe65fc28ba06da6a9957f08e0f7d558a4a8617fd2bf3f35602f2308294",
+      "include/q3x/kernels/gdn_prefill_prompt_wide_chunk_graph_abi.h": "a652f461b070daa65c8ae0dd1f66504ae0dc248a0792ee123d040f0e2819c178",
+      "include/q3x/kernels/sm87_bf16_ab_prefill.h": "8a2d7963974d245e65eb1597fc1e3973f15be1aaf65b21f52402bbac1eeac202",
+      "include/q3x/kernels/sm87_nvfp4_prefill_persistent.h": "981a58329ba09b8a9ea3333e64aa06e8798f1f3f66745cdd78c3cadb1bb80beb",
+      "include/q3x/runtime/decode_ops.h": "432bcb2bc93557873b745404b4c6581ac4a5bd114f42adc91a215e142d7c3de3",
+      "include/q3x/runtime/reference_engine.h": "cbca1c99e275972d8d9153d8c8bd374a8cbd26bd56a2fe8312ad49d215cfa2ac",
+      "include/q3x/runtime/reference_runner.h": "1ae0bd2b91a0fcbd2c5bdde50d2f5f2bce360de7b9c919f5219404b63b10a23b",
+      "include/q3x/runtime/whole_core_request_geometry.h": "28d21dfef21c11e652f931d9ec3a1046f686371a5a8fa904ec77863d30ed4796",
+      "include/q3x/server/evaluation_server.h": "1cf860f247949caf1d6558c68807070edacce7085a45c79c666c911fecc31225",
+      "src/kernels/reference/gdn_prefill_chunk64_cublas_reference_sm87.cu": "9977f9a2413c1a8aa9dc98e3603f2667844985da9f47131081c25524d3596a6c",
+      "src/kernels/reference/gdn_prefill_whole_span_conv_sm87.cu": "bbdaf2a51cc43d486fd22dc07fdf0707958d5a067b986d44680d12f3be2287da",
+      "src/kernels/sm87/bf16_ab_prefill.cu": "5893a4336e29c031ddc422bcf9c78ada514a970cfee7a0f8744c77e445d786fe",
+      "src/kernels/sm87/gdn_prefill_chunk_o_bv64_sm87.cu": "509badacce8ee1aef60c77c80bb33a104362dc0b28a773d2a3c495e4300a8e78",
+      "src/kernels/sm87/gdn_prefill_wy_vllm_layout_sm87.cu": "9c56cb63d5775c3c8ffbaee29d793fbd017b322ea6b74f15c70ada54341cc052",
+      "src/runtime/prefill_execution_plan.cpp": "3f0bc74377da0b04c1e50b0c3c27c1004b19a24d9e5349a1e60f1d9d9c8b40f3",
+      "src/runtime/reference_engine_prefill_authority.cpp": "1ce4471d4d1d36a76ca9fcbcb97b635164be1d29308d158a97b2e07001ec23c4",
+      "src/runtime/reference_runner.cpp": "fc426f031df7e241618dc0fb23bc44e2e7c267c7b3f4c435cac33aac0f5bd0b8",
+      "src/server/evaluation_server.cpp": "e5930eee6661a09aca71057a7afadd94ed5cd8f5d37c9fa10f2307609513efd4",
+      "src/server/openai_protocol.cpp": "b9a09f497704b6d3437087770227962fbc2ed04964299c6f9c576ba093bdb2f9",
+      "tests/fused_decode_protocol_test.cpp": "a20982592a3311d5d8cd1d65abc19c3922192a51728f36e3a62a7ff6b9abe25a",
+      "tests/gdn_prompt_wide_chunk_graph_plan_test.cpp": "88d52d9f8c239d5fb445b2172dcb4d89df9d8f14e4e4b8bde12d2fff66505dd9",
+      "tests/reference_whole_core_state_capture_test.cpp": "f7cba921019d581c8d933a26bf56a9bf95d24dc7c11c21a4c0356b10ca13f743",
+      "tests/sm87_bf16_ab_prompt_wide_p40_cuda_test.cu": "ed3a8d4b68f54af538b757f7290247255de156ac600a8f03cde629ea8d135d59",
+      "tests/sm87_bf16_ab_prompt_wide_p40_host_test.cpp": "e6eb27141551de7be3cb8eb3716ed67b5c4094995bd2d4bf0bf0e052aff3b363",
+      "tests/whole_core_exact_decode_plan_test.cpp": "0231d3da0d7319b0b2f304d520e8888641cb9a29f6974b907612e8a606af0adc",
+      "tests/whole_core_variable_kernels_test.cpp": "51f49dea406394649cabcf052edd47e011fdf1d0476b782fff324918d28ba44a"
+    }
+  },
+  "source_bridge": "Final API and final numerical/component reruns use frozen-v3 ELFs. Later changes affect only test placement, CTest labels, and documentation; production source files are identical to the frozen source hashes. No source was edited while the frozen build ran.",
+  "host_service_audit": {
+    "required_cases": 95,
+    "admitted_cases": 28,
+    "blocked_cases": 67,
+    "authority": "host predicate only, not95 real-model calls",
+    "manifest": "benchmarks/evalscope/whole_core_mainline_validation.json"
+  },
+  "checks": {
+    "host": "4/4 focused CTests pass, including dynamic route witness, corrupt witness rejection and actual panel geometry. Macro-OFF A/B and GDN tests pass.",
+    "ordinary_off": "orin-release server rebuilt successfully; help excludes candidate selector; no new ordinary-model timing claim",
+    "kernel_lengths": [
+      1,
+      2,
+      3,
+      19,
+      43,
+      44,
+      63,
+      64,
+      65,
+      511,
+      512,
+      513,
+      7999,
+      8000,
+      8001,
+      8193
+    ],
+    "kernel_oracles": "A/B actual-row outputs bitwise against full independent-row M64 tiles; GDN <=512 against existing native C512 launcher, >512 against same-call neutral-tail state oracle; exact valid output, final state and convolution history; bounded output/workspace guards; deterministic finite synthetic inputs, no performance authority.",
+    "numerical": {
+      "prompt_tokens": 8192,
+      "output_tokens": 16,
+      "same_input_decode_attention_calls": 240,
+      "comparison": "bitwise to scalar on identical inputs",
+      "all_passed": true,
+      "text_sha256": "9c9afdf9ceb78fad845142562b05b76106002567a594e230e6bfd9241723c6e8",
+      "limits": "No cross-Prefill full-state or full-vocabulary-logit comparison. Capture retains complete Conv/GDN and a2048-position KV window; it does not qualify all KV positions or full service capability."
+    }
+  },
+  "api_pair": [
+    {
+      "run": "control-variable-8192",
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v7-bin/qwen3x-eval-server-fused-decode-admission",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "18871",
+          "--model",
+          "qwen3.6-27b-nvfp4"
+        ],
+        "executable_sha256": "5c2fe9a93aa9d116e6ceb8e376863883858d168c43cdd092c3d8879b4f7ca0e0",
+        "git": "fe1cc98b9ef346a6a592ed72aadea2b5d95e98e3",
+        "model_config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+        "environment_overrides": {
+          "CUDA_HOME": "/usr/local/cuda-13.3",
+          "TRITON_CACHE_DIR": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/triton",
+          "FLASHINFER_WORKSPACE_BASE": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/flashinfer",
+          "VLLM_CACHE_ROOT": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/vllm",
+          "CUDA_MODULE_LOADING": "LAZY"
+        },
+        "scope": "T3 whole-core exact Decode composition direction; one LAZY process; no release qualification",
+        "dirty_diff_sha256": "4321510a36f13a637abc643ed1e11fa95fa0ab91e12a2ba5586d573c4bca29ec"
+      },
+      "prompt_tokens": 8192,
+      "output_tokens": 256,
+      "request_sha256": "b9e1072a3b668ff1a5e5649dc6fa9397dc416d6971776e540f528f1fd013d352",
+      "prompt_ids_sha256": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+      "text_sha256": "c26b5d414818009725d1a8e50622756af9a8e4caddb682192a6822def05769af",
+      "prefill_seconds": 33.724439379,
+      "prefill_tokens_per_second": 242.90989415530825,
+      "external_ttft_seconds": 33.72951346915215,
+      "engine_decode_tokens_per_second": 9.232663657713726,
+      "external_decode_tokens_per_second": 9.23182164413887,
+      "decode_denominator_steps": 255,
+      "max_temperature_c": 72.125,
+      "complete_stream_and_usage": true,
+      "witness": {
+        "record": "target-prefill-witness-fused-decode-admission-v7",
+        "schema_version": 7,
+        "decode_numerical_contract": "ordered-pipeline-unqualified",
+        "request": {
+          "id": "cmpl-q3x-1",
+          "body_sha256": "b9e1072a3b668ff1a5e5649dc6fa9397dc416d6971776e540f528f1fd013d352"
+        },
+        "model": "qwen3.6-27b-nvfp4",
+        "endpoint": "/v1/completions",
+        "prompt": {
+          "kind": "token_ids",
+          "tokens": 8192,
+          "token_ids_u32le_sha256": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+          "consumed_tokens": 8192,
+          "fully_consumed": true
+        },
+        "completion": {
+          "tokens": 256
+        },
+        "timing": {
+          "queue": {
+            "available": true,
+            "scope": "gateway_inference_queue",
+            "milliseconds": 0.018912,
+            "unavailable_reason": null
+          },
+          "admission": {
+            "available": true,
+            "scope": "gateway_protocol_and_token_id_capacity",
+            "milliseconds": 2.220082,
+            "unavailable_reason": null
+          },
+          "generation": {
+            "available": true,
+            "scope": "engine_call_wall",
+            "milliseconds": 61348.233293,
+            "unavailable_reason": null
+          },
+          "pure_prefill": {
+            "available": true,
+            "scope": "engine_prompt_prefill",
+            "milliseconds": 33724.439379,
+            "unavailable_reason": null
+          },
+          "finalize": {
+            "available": true,
+            "scope": "engine_finish_prefill",
+            "milliseconds": 108.526954,
+            "unavailable_reason": null
+          },
+          "ttft": {
+            "available": true,
+            "scope": "body_received_to_first_token_commit",
+            "milliseconds": 33728.611062,
+            "unavailable_reason": null
+          },
+          "first_byte": {
+            "available": false,
+            "scope": "external_first_response_byte",
+            "milliseconds": null,
+            "unavailable_reason": "socket_write_not_instrumented"
+          },
+          "decode": {
+            "available": true,
+            "scope": "engine_decode_after_first",
+            "milliseconds": 27619.331696,
+            "unavailable_reason": null
+          },
+          "total": {
+            "available": true,
+            "scope": "body_received_to_response_enqueued",
+            "milliseconds": 61350.936834,
+            "unavailable_reason": null
+          }
+        },
+        "request_state_reset": {
+          "mode": "already_clean",
+          "positions": 0,
+          "bytes": 0,
+          "milliseconds": 0.04304
+        },
+        "prefill": {
+          "requested_chunk": 512,
+          "effective_chunk": 512,
+          "prefix_execution_count": 21
+        },
+        "route": {
+          "scope": "request_witness",
+          "projection_backend": {
+            "available": true,
+            "scope": "configured_engine_fact",
+            "value": "sm87_weight_only"
+          },
+          "deployment_plan": {
+            "available": false,
+            "reason": "not_implemented"
+          },
+          "per_operator_route_hits": {
+            "available": true,
+            "scope": "request_completed_prefill_logical_operators",
+            "complete": true,
+            "reason": null,
+            "coverage": {
+              "completed_layer_passes": 22,
+              "expected_layer_passes": 22,
+              "layers_per_pass": 64,
+              "gdn_layers_per_pass": 48,
+              "attention_layers_per_pass": 16
+            },
+            "operators": {
+              "nvfp4_gate_up": {
+                "completed_production_hits": 0,
+                "completed_fallback_hits_unqualified": 1387,
+                "completed_forbidden_hits": 0
+              },
+              "nvfp4_down": {
+                "completed_production_hits": 0,
+                "completed_fallback_hits_unqualified": 1387,
+                "completed_forbidden_hits": 0
+              },
+              "fp8_qkv": {
+                "completed_production_hits": 1536,
+                "completed_fallback_hits_unqualified": 576,
+                "completed_forbidden_hits": 0
+              },
+              "fp8_z": {
+                "completed_production_hits": 768,
+                "completed_fallback_hits_unqualified": 288,
+                "completed_forbidden_hits": 0
+              },
+              "fp8_o": {
+                "completed_production_hits": 1197,
+                "completed_fallback_hits_unqualified": 190,
+                "completed_forbidden_hits": 0
+              },
+              "attention": {
+                "completed_production_hits": 315,
+                "completed_fallback_hits_unqualified": 16,
+                "completed_forbidden_hits": 0
+              },
+              "gdn": {
+                "completed_production_hits": 768,
+                "completed_fallback_hits_unqualified": 288,
+                "completed_forbidden_hits": 0
+              }
+            },
+            "forbidden_route_hits": {
+              "prefix_cache": 0,
+              "mtp": 0,
+              "cublaslt": 0,
+              "external_reference": 0,
+              "approximate_numerics": 0
+            }
+          },
+          "terminal_prefix_elision": {
+            "available": true,
+            "plan_id": "q3x.sm87.legacy-c512.terminal-prefix-elision.v1",
+            "terminal_layer": 63,
+            "elided_prefix_layer_passes": 21,
+            "elided_prefix_rows": 8191,
+            "retained_scalar_prefix_rows": 0,
+            "preserved_terminal_qkv_rows": 8192,
+            "final_prompt_query_position": 8191,
+            "final_prompt_causal_end": 8192,
+            "final_prompt_step": "compiled_fused_decode_admission",
+            "omitted_roles": [
+              "nvfp4_gate_up",
+              "nvfp4_down",
+              "fp8_o",
+              "attention"
+            ],
+            "kv_publication": "existing_stream_sync_before_commit",
+            "prefix_hidden": "unobservable_layer62_residual"
+          },
+          "cache_hits": {
+            "available": false,
+            "reason": "not_instrumented"
+          },
+          "disabled_boundaries": {
+            "scope": "architecture_candidate_unqualified",
+            "prefix_cache": true,
+            "mtp": true,
+            "cublaslt_production": true,
+            "approximate_numerics": false
+          }
+        }
+      }
+    },
+    {
+      "run": "variable-8192-api-r3",
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/build/orin-whole-core-exact-decode-admission/qwen3x-eval-server-whole-core-exact-decode-admission",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "18871",
+          "--model",
+          "qwen3.6-27b-nvfp4",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "executable_sha256": "bc6f0c19fe4d90f61c84ae63ac998260da08e30eba47e082ba59a4e76c1a4633",
+        "git": "fe1cc98b9ef346a6a592ed72aadea2b5d95e98e3",
+        "model_config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+        "environment_overrides": {
+          "CUDA_HOME": "/usr/local/cuda-13.3",
+          "TRITON_CACHE_DIR": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/triton",
+          "FLASHINFER_WORKSPACE_BASE": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/flashinfer",
+          "VLLM_CACHE_ROOT": "/home/rm01/Qwen3x-Orin/.q3x-work/cache/vllm",
+          "CUDA_MODULE_LOADING": "LAZY"
+        },
+        "scope": "T3 whole-core exact Decode composition direction; one LAZY process; no release qualification",
+        "dirty_diff_sha256": "4321510a36f13a637abc643ed1e11fa95fa0ab91e12a2ba5586d573c4bca29ec"
+      },
+      "prompt_tokens": 8192,
+      "output_tokens": 256,
+      "request_sha256": "b9e1072a3b668ff1a5e5649dc6fa9397dc416d6971776e540f528f1fd013d352",
+      "prompt_ids_sha256": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+      "text_sha256": "fc7080fa52bb88ef8d3c48b92a020cada088b2afa0f58eb5862260cbe31a963b",
+      "prefill_seconds": 17.051959638,
+      "prefill_tokens_per_second": 480.4139919346436,
+      "external_ttft_seconds": 17.08190493611619,
+      "engine_decode_tokens_per_second": 9.215475905482393,
+      "external_decode_tokens_per_second": 9.214471783526474,
+      "decode_denominator_steps": 255,
+      "max_temperature_c": 69.406,
+      "complete_stream_and_usage": true,
+      "witness": {
+        "record": "target-prefill-witness-whole-core-exact-decode-admission-v3",
+        "schema_version": 2,
+        "decode_numerical_contract": "ordered-pipeline-unqualified",
+        "request": {
+          "id": "cmpl-q3x-1",
+          "body_sha256": "b9e1072a3b668ff1a5e5649dc6fa9397dc416d6971776e540f528f1fd013d352"
+        },
+        "model": "qwen3.6-27b-nvfp4",
+        "endpoint": "/v1/completions",
+        "prompt": {
+          "kind": "token_ids",
+          "tokens": 8192,
+          "token_ids_u32le_sha256": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+          "consumed_tokens": 8192,
+          "fully_consumed": true
+        },
+        "completion": {
+          "tokens": 256
+        },
+        "timing": {
+          "queue": {
+            "available": true,
+            "scope": "gateway_inference_queue",
+            "milliseconds": 0.019009,
+            "unavailable_reason": null
+          },
+          "admission": {
+            "available": true,
+            "scope": "gateway_protocol_and_token_id_capacity",
+            "milliseconds": 2.039889,
+            "unavailable_reason": null
+          },
+          "generation": {
+            "available": true,
+            "scope": "engine_call_wall",
+            "milliseconds": 44752.834571,
+            "unavailable_reason": null
+          },
+          "pure_prefill": {
+            "available": true,
+            "scope": "engine_prompt_prefill",
+            "milliseconds": 17051.959638,
+            "unavailable_reason": null
+          },
+          "finalize": {
+            "available": true,
+            "scope": "engine_finish_prefill",
+            "milliseconds": 4.477732,
+            "unavailable_reason": null
+          },
+          "ttft": {
+            "available": true,
+            "scope": "body_received_to_first_token_commit",
+            "milliseconds": 17073.491237,
+            "unavailable_reason": null
+          },
+          "first_byte": {
+            "available": false,
+            "scope": "external_first_response_byte",
+            "milliseconds": null,
+            "unavailable_reason": "socket_write_not_instrumented"
+          },
+          "decode": {
+            "available": true,
+            "scope": "engine_decode_after_first",
+            "milliseconds": 27670.844416,
+            "unavailable_reason": null
+          },
+          "total": {
+            "available": true,
+            "scope": "body_received_to_response_enqueued",
+            "milliseconds": 44755.356608,
+            "unavailable_reason": null
+          }
+        },
+        "prefill": {
+          "requested_chunk": 512,
+          "effective_chunk": 512,
+          "prefix_execution_count": 1,
+          "execution_mode": "layer-major",
+          "logical_panel_count": 2,
+          "request_memory_profile": "layer-major-p40-whole-core",
+          "bounded_submission_window": true,
+          "submission_window_retirements": 384,
+          "projection_tactic": "native-prompt-wide-p40-whole-core",
+          "mlp_schedule": "prompt-wide-p40-whole-core",
+          "attention_tactic": "native-flashinfer-exact-whole-prompt",
+          "package_complete": true,
+          "route_layer_pass_count": 1,
+          "operator_panel_executor_hits": 0,
+          "prompt_wide_p40_whole_core_layer_hits": 64,
+          "prompt_wide_p40_fill_panel_hits": 128,
+          "prompt_wide_p40_prompt_core_hits": 64,
+          "prompt_wide_p40_drain_panel_hits": 128,
+          "prompt_wide_p40_fp8_projection_hits": 416,
+          "prompt_wide_p40_fp8_projection_physical_launches": 416,
+          "prompt_wide_p40_bf16_ab_hits": 48,
+          "prompt_wide_p40_gdn_hits": 48,
+          "native_flashinfer_exact_whole_prompt_hits": 16,
+          "layer_wide_p40_mlp_layer_hits": 64,
+          "persistent_p40_nvfp4_gate_up_hits": 64,
+          "persistent_p40_nvfp4_down_residual_hits": 64,
+          "persistent_p40_nvfp4_physical_launches": 128,
+          "prompt_wide_p40_whole_core_package": {
+            "identity": "actual-c64-prompt-p8000-panels-whole-core-v3",
+            "selection": "sealed-fail-closed",
+            "complete": true,
+            "logical_panels": 2,
+            "panel_tokens": 8000,
+            "count_validation": {
+              "expected_layer_hits": 64,
+              "expected_panel_phase_hits": 128,
+              "expected_fp8_projection_hits": 416,
+              "expected_bf16_ab_hits": 48,
+              "expected_gdn_hits": 48,
+              "expected_whole_prompt_attention_hits": 16
+            }
+          }
+        },
+        "route": {
+          "scope": "request_witness",
+          "projection_backend": {
+            "available": true,
+            "scope": "configured_engine_fact",
+            "value": "sm87_weight_only"
+          },
+          "deployment_plan": {
+            "available": true,
+            "scope": "engine_lifetime_sealed_native_plan",
+            "id": "q3x.sm87.admission.whole-core-c64-variable-prefill.v3",
+            "qualification": "accuracy-unqualified-architecture-candidate",
+            "numerical_contract": {
+              "qualified": false,
+              "reason": "full-state-accuracy-qualification-not-run"
+            }
+          },
+          "per_operator_route_hits": {
+            "available": true,
+            "scope": "request_completed_prefill_logical_operators",
+            "complete": true,
+            "reason": null,
+            "coverage": {
+              "completed_layer_passes": 1,
+              "expected_layer_passes": 1,
+              "layers_per_pass": 64,
+              "gdn_layers_per_pass": 48,
+              "attention_layers_per_pass": 16
+            },
+            "operators": {
+              "nvfp4_gate_up": {
+                "completed_production_hits": 64,
+                "completed_fallback_hits_unqualified": 0,
+                "completed_forbidden_hits": 0
+              },
+              "nvfp4_down": {
+                "completed_production_hits": 64,
+                "completed_fallback_hits_unqualified": 0,
+                "completed_forbidden_hits": 0
+              },
+              "fp8_qkv": {
+                "completed_production_hits": 96,
+                "completed_fallback_hits_unqualified": 0,
+                "completed_forbidden_hits": 0
+              },
+              "fp8_z": {
+                "completed_production_hits": 48,
+                "completed_fallback_hits_unqualified": 0,
+                "completed_forbidden_hits": 0
+              },
+              "fp8_o": {
+                "completed_production_hits": 64,
+                "completed_fallback_hits_unqualified": 0,
+                "completed_forbidden_hits": 0
+              },
+              "attention": {
+                "completed_production_hits": 16,
+                "completed_fallback_hits_unqualified": 0,
+                "completed_forbidden_hits": 0
+              },
+              "gdn": {
+                "completed_production_hits": 48,
+                "completed_fallback_hits_unqualified": 0,
+                "completed_forbidden_hits": 0
+              }
+            },
+            "forbidden_route_hits": {
+              "prefix_cache": 0,
+              "mtp": 0,
+              "cublaslt": 0,
+              "external_reference": 0,
+              "approximate_numerics": 0
+            }
+          },
+          "cache_hits": {
+            "available": false,
+            "reason": "not_instrumented"
+          },
+          "disabled_boundaries": {
+            "scope": "architecture_candidate_unqualified",
+            "prefix_cache": true,
+            "mtp": true,
+            "cublaslt_production": true,
+            "approximate_numerics": false
+          }
+        }
+      }
+    }
+  ],
+  "pair_interpretation": {
+    "prefill_speed_ratio": 1.9777456723417095,
+    "authority": "one fresh process per arm, same request/model/loading protocol, ordinary engineering direction only; not mirrored release qualification",
+    "decode": "approximately unchanged; no Decode improvement claim",
+    "output": "Different cross-Prefill generated text. Do not infer numerical equivalence or capability from this pair; the exact Decode oracle uses identical Prefill state instead.",
+    "host": "Preflight identified active Codex PID872114 CPU-only activity, preserved as qualified engineering context. No unexpected GPU holder; cache drops passed; all temperatures below85C."
+  },
+  "retained_failed_attempts": [
+    {
+      "run": "variable-kernels-r1",
+      "classification": "P513 comparison failed because separate C512 oracle calls add BF16 state publications; replaced with same-call neutral-tail oracle, no threshold relaxation or arithmetic correction"
+    },
+    {
+      "run": "variable-8192-api-r1",
+      "classification": "Startup failed role receipt contract: blanket64 minimum exceeded final-handoff maximum1; corrected with min(existing minimum,64); no timing"
+    },
+    {
+      "run": "variable-8192-api-r2",
+      "classification": "Complete functional API but stale v2 witness and fixed-five-panel expected counts; package_complete=false. Diagnostic only, no qualified timing; replaced after frozen rebuild by r3."
+    }
+  ],
+  "remaining_gates": [
+    "Exact non-C64 MLP tails and P1..63 service",
+    "P40001..44095 family capacity and boundary checks",
+    "Text/chat/nonstream and optional usage API surfaces",
+    "Variable Prefill full-state/logits and public capability",
+    "Full lifecycle/context panel and mirrored paired performance",
+    "Installed Release/OFF default qualification",
+    "Long-context Decode interim target remains unmet by previous approximately7.86 token/s P40 result"
+  ],
+  "raw_artifacts_sha256": {
+    ".q3x-work/prefill-mainline-validation-20260927/coverage-c64-v3.log": "b50eabe28a2c6c4b6e48b97b798468681741489f3d42db5fc37b4c359168fb8d",
+    ".q3x-work/prefill-mainline-validation-20260927/frozen-build.log": "b2864112e4c72454a4405348efcfd89cd65f48d548a923c9ab3a2900b750a6e1",
+    ".q3x-work/prefill-mainline-validation-20260927/frozen-v3/identity.json": "e0276936cf07b6cf94beaa7948a707ce05d208d8b30483e6971a6789ba49c1ae",
+    ".q3x-work/prefill-mainline-validation-20260927/host-final.log": "01fa6faa924984962388c3cd42d7d93330ecddcdf01d93cbaec413d3bb8e74d2",
+    ".q3x-work/prefill-mainline-validation-20260927/numerical-8192-final": "4e36d6c1eb01482ab62ae9bbcfd143169a90b7c6dfd9d83f4d6d9b366df57c0b",
+    ".q3x-work/prefill-mainline-validation-20260927/numerical-8192-final_conv.bin": "f5c06dc55df3e23cf95b83f7e584a10e9fbe4a6199dfec4a5b9676f8ded145d4",
+    ".q3x-work/prefill-mainline-validation-20260927/numerical-8192-final_gdn.bin": "09c80897ed0b493bd305b6dcb82b0705e5bfe3c9062e13b01e581b85d3f82b11",
+    ".q3x-work/prefill-mainline-validation-20260927/numerical-8192-final_kv.bin": "e8b89ef34b75214db94857a829c8ab8d9727356fee8d141e1b7e0646fe8d21d2",
+    ".q3x-work/prefill-mainline-validation-20260927/ordinary-host-isolation.log": "73d400cbb9fb5ec465249a2fa3c4529a63b9a76c590b0834cc3a992ffb4f7f09",
+    ".q3x-work/prefill-mainline-validation-20260927/ordinary-off-build.log": "7aae3bdeced482c7b6389218ae3a533b3d3daf2135a77445fa60b57076b0a4ef",
+    ".q3x-work/prefill-mainline-validation-20260927/ordinary-off-help.log": "90385ac97bd198522b0e8ed5109605c76318e27aa44d26840760ad6ecf2a1687",
+    ".q3x-work/prefill-mainline-validation-20260927/post-variable-preflight.json": "ce35128be578ab14af73755ee57f4ac5dca422aaeb767f499f38ad1c3291bcd3",
+    ".q3x-work/prefill-mainline-validation-20260927/requests-c64-v3/coverage.json": "38ca587eb00cab63bfe078fe3808e6fe5e9cbb91ae4fb0cd23a959419a2d75ec",
+    ".q3x-work/prefill-mainline-validation-20260927/requests-c64-v3/manifest.json": "5e0cca99064dad80f3e4f880898bfd3ad61e2ab50708c51dd8cb25085919bb87",
+    ".q3x-work/prefill-mainline-validation-20260927/run_variable_api.py": "de9509ad5f2419814662a6d71e408b96159b5237bcfbcd2385efa47036d167df",
+    ".q3x-work/prefill-mainline-validation-20260927/write_variable_record.py": "3f9b57dea2f3d571446f04ddbce28ffeb754677e691034dab72f8e5fa05892b3",
+    ".q3x-work/whole-core-exact-composition-20260927/control-variable-8192/cache-preparation.json": "172ffe65b27def4fecce2b7d312f1d6f4c37b8c22c55caaa13835fb17d9e381f",
+    ".q3x-work/whole-core-exact-composition-20260927/control-variable-8192/cleanup.json": "c15aa7c61c96a7d91dc1cc93895e2556f801d2217d3ec4af1c76935d4baae300",
+    ".q3x-work/whole-core-exact-composition-20260927/control-variable-8192/events-8192.json": "bfbc75e79d6854f0501c05468425fd62b01a02c3f24b86f17fba6971a29ddd54",
+    ".q3x-work/whole-core-exact-composition-20260927/control-variable-8192/health.json": "68573f798d1109bf77e6882f05c52f404a1de0efb0b108a2924d4daaed26b310",
+    ".q3x-work/whole-core-exact-composition-20260927/control-variable-8192/identity.json": "42cc5ca64a62fcab127bd3807e607b052d4c5ec27bd7ba68d23336dbe103f125",
+    ".q3x-work/whole-core-exact-composition-20260927/control-variable-8192/preflight-1790522495331588075.json": "5b63f20cab1fc6846beef723511cd9ab14d5e88e170deb5d0dfbc35509376860",
+    ".q3x-work/whole-core-exact-composition-20260927/control-variable-8192/preflight-qualification.json": "49db8ab678ed7e33773c867446944343956f7206be53210afdfae2af57a9f5e4",
+    ".q3x-work/whole-core-exact-composition-20260927/control-variable-8192/process.json": "27bf3e5c4ef6fbd2f3f611316a24d8dc5eb890590a9566bff0bdcd354ae22f8c",
+    ".q3x-work/whole-core-exact-composition-20260927/control-variable-8192/request-8192.json": "5e6d7804459e8f8b4de6463445a6b2e154de049a66e2fcebc06ddaec478cd42c",
+    ".q3x-work/whole-core-exact-composition-20260927/control-variable-8192/results.json": "f00b7d78bf3bdecb80763781ab0d6c6a23dca7bed2198d148f14d8f828ed2f0e",
+    ".q3x-work/whole-core-exact-composition-20260927/control-variable-8192/server.log": "553f4e01a29c55787512a515dc8578a26e976b21ad37335d4f69610300ad0ae1",
+    ".q3x-work/whole-core-exact-composition-20260927/control-variable-8192/telemetry.log": "ae2392ccc3479c887aeb9cc0e3ddf575f5b2d7babac1f37afb714868a09b3f16",
+    ".q3x-work/whole-core-exact-composition-20260927/preflight.py": "440988bbea9655e52f0805a8b5f1ad8cd9098091261cf85691b7c86a13490864",
+    ".q3x-work/whole-core-exact-composition-20260927/run_owned.py": "56efd5dfb6e060ca0fdc355ce039e9f276e5bd9c7212aa01502d535bec07fa85",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r1/cache-preparation.json": "d0f9274afc6bb71afed4e76642ebe7b9ef5d40d8f445f8519cc4aa169fce89da",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r1/cleanup.json": "3417849d4dc70cd7582bd5fb400b6f406b65571b7c4949ee2b32a545f1a0c966",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r1/identity.json": "68aceb5a6f324ed7fd8b1be39a19bd3a5535b3ef098421935ef5b31ff797073f",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r1/preflight-1790521858064474856.json": "c817ff26d5eab6849283716627b5c6780a36427e015617b52ec4ad3eb17e9d6a",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r1/preflight-qualification.json": "79676538bdf121ea9525c133741f5e8abeab295ecd73980c10ef9f2580819fe2",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r1/process.json": "7d78591e94120c1aaec783e032863444f4e961089788ecebe80fed46f7f6333d",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r1/server.log": "f09460d98561e17c7234d98e2bb434a483c242ec10435163cd57199f3754af76",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r1/telemetry.log": "0dcb0d267f06a747f2498153f7d5d074e31235060d97bcefb5db683a7d6f9535",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r2/cache-preparation.json": "9cc591fcf7109a1d30fc4c009c684964021fe4c95227b213ba46da938b064efd",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r2/cleanup.json": "d56265239e2dabdb1189ff02042b712c77d2017cbb8f6676e520b3cc20ace3b8",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r2/events-8192.json": "af8a70cadd8e9c80f053a6e38a7fff5c7225a5c586445127cabd06dca18c1194",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r2/health.json": "2d26c33835c71d37bdd75319a01ae9fc9d6ef7eed7124e3bacfcd62fe6db1774",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r2/identity.json": "d5d1fe881e1d79daf39431285c8ac863ca75422cb14fe2011f36ec193632e48d",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r2/preflight-1790521949681715682.json": "b50fca7f1aca61aee034e0e40c738799b90b6d50531e404b09d4113c665a70b2",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r2/preflight-qualification.json": "5d515e7ed0571ade9fdf553e014fd0f785aaaefdc44921352f9de9a2144d3db2",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r2/process.json": "afdd52fe746951c0145f51ac41ea6b12cf2fc36e27761b21f032ec7e71bb8ce5",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r2/request-8192.json": "5e6d7804459e8f8b4de6463445a6b2e154de049a66e2fcebc06ddaec478cd42c",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r2/results.json": "38362c7709f62caf7f7f262e9bb9f2527f37fc60bc223e8bcbea5794762f1487",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r2/server.log": "cfd1c0ec784f19ab7713c67105466b541df85742698f8caacecf50fa214b1c5a",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r2/telemetry.log": "69d6e4f233049c180e3a1dcfae80e266f3a80cc452f83448e3438d91f5ffaf8e",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r3/cache-preparation.json": "519a4f8c7e3474a1353e81130247cb1302a62d2f770b7b9f6e07d81b38866bd6",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r3/cleanup.json": "a551084aae1afed4e7be96cd1a7905cb8fe4f61dd09ce9c849c087d4e2329b75",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r3/events-8192.json": "c43d9e7ec6fa0ae41fd16ded547fb44a5f9011684114befc00c68483c1c2289d",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r3/health.json": "ea876ebcdf4e0759d32758d7330010760e0554d0ccf47a403ef696076f258d9c",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r3/identity.json": "8ad37e938f6a5bf1c53df32b5ce0e3d8795467073be5262ee90e7b2edcb233ba",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r3/preflight-1790522396434201151.json": "6f66c61c0ce97ff35af5dd2f1c0993c68b383a7915d103304eed0c8f2ce374f9",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r3/preflight-qualification.json": "293f1da4f6fcbaa6697d80e863c342e761fd1f693a52f859944b9ec3a2bbfdc4",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r3/process.json": "b79ca3efb3fae1ff59d81668a1d54ae76b275326a12bb017fe4f2ddcd73e9cc6",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r3/request-8192.json": "5e6d7804459e8f8b4de6463445a6b2e154de049a66e2fcebc06ddaec478cd42c",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r3/results.json": "5fb0441f2cf8c51b2ee03102fc822fadc73d738a34ec2ccbffb0d7ed7bc5bbe3",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r3/server.log": "4810d3be8ceb43220e740cef72cc3ea812fd0e4fbf1bdaefe92b98b46a4b57d6",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-api-r3/telemetry.log": "ce20c9aadc142f55fd524fca04982b80fac50c4c420dd89d4f2acce5e5f135c5",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-numerical-final/cache.json": "24f1a61e5ac84a0d8795afaa8e1b09e4b61f1581d64adbef131528df6696255c",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-numerical-final/identity.json": "c133cc641d764d31785d7f7eb1aeaea9ffae1dadc193c13dd03193dd729cb2fb",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-numerical-final/preflight-context.json": "607608b76e7a60ca77a394c145a79e7a1eabb90e4732f25c5906af151e1588f3",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-numerical-final/preflight.json": "ebdea6eb9bf344e7607ef04f3b4da7a4a9c5bf40e346f08390b487dad8d25493",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-numerical-final/process.json": "ae1b20969f823ef214c684b5212d3a61d159035285485575039650882c4d5708",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-numerical-final/process.log": "be9fa9cb866c3d8ae5dcb146d710d5bf760761b6ea33276925b0ccf8bc1336be",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-numerical-final/result.json": "68a918b14f9bb4eb6e055d4724031287bc15d01559ef722df4479a6db9d8c998",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-numerical-final/telemetry.log": "750bfa6973b060fe7c4f4caf1873704501746cb3f75c693c768fb60e15ab7bc9",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-numerical-r1/cache.json": "1d7e5fd16d3346c726d5bea41c36e034be85afbc3c664f45eec7f564037a96ca",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-numerical-r1/identity.json": "6771d1814f1aa4aa059e4b3aafa234d8e8d4f453ec79d3f4aec804d2f12d8dd1",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-numerical-r1/preflight-context.json": "f157de74543f4f3a45daebb0d91f264d063146bdeb5e1a9c04e33233169c425a",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-numerical-r1/preflight.json": "6d196206cf9f559412ba3b0831536a416ddc22544215c86f3e08e8b4a5eb9b27",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-numerical-r1/process.json": "30b796b1427be919f5bea3dc1e1b4db01186007cdfaa2be4e622c93574e03bd9",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-numerical-r1/process.log": "be9fa9cb866c3d8ae5dcb146d710d5bf760761b6ea33276925b0ccf8bc1336be",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-numerical-r1/result.json": "f61b7475d553b17b0eecd3f63ba5feebd195754f83a034a08274440d440e7bff",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-8192-numerical-r1/telemetry.log": "57134130863e285e2e8448266f1753faa9a3f9a512cef8af880210994e4523b1",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-final/cache.json": "24f0fee7cf7e683fc1afe0fabd33fd08d6cde62f60dcbe84e1831a4896ef2b33",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-final/identity.json": "386aa97501b2b47a63d2b657c403d76c4cad7f4a8f67d2d274362072fbcc4e4d",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-final/preflight-context.json": "f157de74543f4f3a45daebb0d91f264d063146bdeb5e1a9c04e33233169c425a",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-final/preflight.json": "0b8de6b80632f48e63030cad35d03050c7ee9c5dc2e1313144930d60777d4087",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-final/process.json": "df63089eae99abe69bd299b33f5dd93d5f0fa1ca3589ab2f109d82ad85633063",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-final/process.log": "cbc0cd572ea4b30331e4214eaab7bb1ce0ee6afdd40cc158e4808fc6969d1835",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-final/result.json": "cdbbf3b3cd4574c6c7ecdd1451727565529392a3de76108f5ec742fa1a85b843",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-final/telemetry.log": "6413b74ae172f11c88b8ceb06eb36784902635836adc15858b3611f1160f0527",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-r1/cache.json": "aff5cd5def8edcc9f730461104ea9206ed32db48938a9f0e7fe4edf9aeaf0ee5",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-r1/identity.json": "8228cbb2297afb166239026b49549f0a892aadf81abf93c6ae6e4b3cc37f407b",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-r1/preflight-context.json": "f157de74543f4f3a45daebb0d91f264d063146bdeb5e1a9c04e33233169c425a",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-r1/preflight.json": "32a15710e5bc423d412a04933ea7f631940f56e117634ddc3614822b3cc7f64d",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-r1/process.json": "b96bb70fec121870df54e05787409a80a23672838981c48bd803349da1054327",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-r1/process.log": "d6efe90062530dacf9aecfc3afbd2c5de6852bca96d3f43583970ecd81e86220",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-r1/result.json": "35a28872ed8393fedb189a63f80a187cc4206b042041728708005a068d51add1",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-r1/telemetry.log": "09be7e4e523890f1ad59b8c263e11ba0c62fb2c94fd20869419456f983e1a33f",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-r2/cache.json": "63e2c592c20d4c4074ec4e0c8ad10f9f5b0404c71ab695a0391fda21f795a8b7",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-r2/identity.json": "77e599575846d1c5568f74391e813afbce81e6ea72bf0c5629da3a201d15dabd",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-r2/preflight-context.json": "f157de74543f4f3a45daebb0d91f264d063146bdeb5e1a9c04e33233169c425a",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-r2/preflight.json": "c356a9434ce9eb14d92be07d5eb000e51fd0be665b53197e34c51323d33ea003",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-r2/process.json": "7cd9c80048052fdd4d3bb92b9ebfcd7ffa1e7b1cb8af23bb2c1b139ce44bb750",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-r2/process.log": "cbc0cd572ea4b30331e4214eaab7bb1ce0ee6afdd40cc158e4808fc6969d1835",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-r2/result.json": "159c8932bb06cc568ee5d60e0a69a8f5376c2157fe597cfa3095018a2b3de742",
+    ".q3x-work/whole-core-exact-composition-20260927/variable-kernels-r2/telemetry.log": "a6c2da421bfd4bc441d67aab3f7f2c62b53991690e3f8a6a30e180a8a70f4ef9"
+  }
+}

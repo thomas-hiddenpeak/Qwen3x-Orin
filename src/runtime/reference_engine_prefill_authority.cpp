@@ -2751,7 +2751,11 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
           auxiliary_workspace,
           auxiliary_workspace_bytes,
           maximum_logical_m,
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+          minimum_physical_m < 64U ? minimum_physical_m : 64U,
+#else
           minimum_physical_m,
+#endif
           maximum_physical_m};
     };
     std::array<NativePrefillRoleReceipt,
@@ -3898,7 +3902,11 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
              receipt.auxiliary_workspace_bytes ==
                  auxiliary_workspace_bytes &&
              receipt.maximum_logical_panel_m == maximum_logical_m &&
+             #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+             receipt.minimum_physical_m == (minimum_physical_m < 64U ? minimum_physical_m : 64U) &&
+#else
              receipt.minimum_physical_m == minimum_physical_m &&
+#endif
              receipt.maximum_physical_m == maximum_physical_m;
     };
     constexpr std::uint64_t kGateUpScaleBytes =
@@ -4605,8 +4613,9 @@ ReferenceWholeRequestPrefillOutcome ReferenceEnginePrefillExecutor::execute(
       (plan.mlp_schedule_tactic_ !=
            LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel &&
        (geometry.first_position != 0U ||
-        geometry.prompt_token_count !=
-            kLayerMajorPrefillLayerWideMlpP40Tokens ||
+        (plan.mlp_schedule_tactic_ == LayerMajorPrefillMlpScheduleTactic::kPromptWideP40WholeCore
+             ? !whole_core_prompt_tokens_admitted(geometry.prompt_token_count)
+             : geometry.prompt_token_count != kLayerMajorPrefillLayerWideMlpP40Tokens) ||
         geometry.mlp_schedule.mlp_phase_submission_count_per_layer != 1U)) ||
       (plan.projection_tactic_ ==
            LayerMajorPrefillProjectionTactic::

@@ -33,10 +33,17 @@ static_assert(
     q3x::kernels::kSm87Bf16AbPromptWideP40MaximumInputIndex ==
         204'799'999U &&
     q3x::kernels::kSm87Bf16AbPromptWideP40MaximumOutputIndex == 1'919'999U);
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+static_assert(kP39999.valid() && kP39999.grid_blocks == 625U);
+static_assert(kP40001.valid() && kP40001.grid_blocks == 626U);
+static_assert(sm87_bf16_ab_prompt_wide_p40_tile(kP40001, 625U).token_count == 1U);
+static_assert(!make_sm87_bf16_ab_prompt_wide_p40_plan(44'096U).valid());
+#else
 static_assert(!kP39999.valid() && !kP39999.admitted &&
               kP39999.grid_blocks == 0U && kP39999.launch_count == 0U);
 static_assert(!kP40001.valid() && !kP40001.admitted &&
               kP40001.grid_blocks == 0U && kP40001.launch_count == 0U);
+#endif
 static_assert(!kP60.valid() && !kP60.admitted &&
               kP60.grid_blocks == 0U && kP60.launch_count == 0U);
 static_assert(kFirst.valid && kFirst.block == 0U &&

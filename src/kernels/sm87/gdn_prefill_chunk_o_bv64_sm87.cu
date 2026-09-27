@@ -941,16 +941,16 @@ int launch_prompt_wide_p40(
     std::uint16_t* const raw_output,
     std::uint16_t* const output,
     void* const cuda_stream) noexcept {
-  if (token_count != kernels::kGdnPromptWideChunkGraphP40Tokens ||
+  if (!kernels::make_gdn_prompt_wide_chunk_graph_workspace_plan(token_count).ok() ||
       invalid_arguments(
           compact_q, compact_k, boundary_state, v_new, cumulative_gate,
           token_count, norm_weight, silu_gate, norm_epsilon, raw_output,
-          output, kernels::kGdnPromptWideChunkGraphP40Tokens)) {
+          output, 44'095U)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  constexpr unsigned int chunk_count = static_cast<unsigned int>(
-      kernels::kGdnPromptWideChunkGraphP40Tokens / kChunk);
+  const unsigned int chunk_count = static_cast<unsigned int>(
+      (token_count + kChunk - 1U) / kChunk);
   const dim3 grid(2U, chunk_count, kValueHeads);
   (void)cudaGetLastError();
   chunk_o_bv64_kernel<<<grid, kChunkThreads, 0U, stream>>>(
@@ -960,9 +960,9 @@ int launch_prompt_wide_p40(
   if (status != static_cast<int>(cudaSuccess)) {
     return status;
   }
-  constexpr unsigned int row_count = static_cast<unsigned int>(
-      kernels::kGdnPromptWideChunkGraphP40Tokens * kRowsPerToken);
-  constexpr unsigned int norm_blocks =
+  const unsigned int row_count = static_cast<unsigned int>(
+      token_count * kRowsPerToken);
+  const unsigned int norm_blocks =
       (row_count + kNormRowsPerCta - 1U) / kNormRowsPerCta;
   rms_norm_silu_rows8_kernel<<<norm_blocks, kNormThreads, 0U, stream>>>(
       raw_output, norm_weight, silu_gate, row_count, norm_epsilon, output);

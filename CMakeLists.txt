@@ -1017,6 +1017,13 @@ if(Q3X_BUILD_FUSED_DECODE_ADMISSION)
       q3x::engine q3x::kernels)
     add_executable(q3x_whole_core_exact_decode_plan_test
       tests/whole_core_exact_decode_plan_test.cpp)
+    add_executable(q3x_whole_core_variable_kernels_test
+      tests/whole_core_variable_kernels_test.cpp)
+    target_link_libraries(q3x_whole_core_variable_kernels_test PRIVATE q3x::engine)
+    add_test(NAME whole_core_variable_kernels COMMAND q3x_whole_core_variable_kernels_test)
+    set_tests_properties(whole_core_variable_kernels PROPERTIES
+      LABELS "cuda;sm87;prefill;correctness;synthetic;default_off"
+      RUN_SERIAL TRUE)
     target_link_libraries(q3x_whole_core_exact_decode_plan_test PRIVATE q3x::engine)
     add_test(NAME whole_core_exact_decode_plan COMMAND q3x_whole_core_exact_decode_plan_test)
   endif()

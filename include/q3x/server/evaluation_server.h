@@ -227,7 +227,7 @@ static_assert(
 inline constexpr EvaluationProductionDeploymentPlan
     kWholeCoreExactDecodeAdmissionPlan = [] {
       auto plan = kP40WholeCoreV1ProductionPlan;
-      plan.id = "q3x.sm87.admission.whole-core-exact-decode.v2";
+      plan.id = "q3x.sm87.admission.whole-core-exact-decode.v3";
       plan.max_sequence_length = 44'095U;
       plan.maximum_output_tokens = 4'096U;
       plan.request_arena_bytes = 8'952'211'200ULL;
@@ -452,7 +452,7 @@ class EvaluationProductionRuntimeHealth final {
     const OpenAIRequest& request) noexcept {
   return request.endpoint == OpenAIEndpoint::kCompletions &&
          request.prompt_kind == OpenAIPromptKind::kTokenIds &&
-         request.prompt_token_ids.size() == 40'000U &&
+         runtime::whole_core_prompt_tokens_admitted(request.prompt_token_ids.size()) &&
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
          request.max_tokens >= 1U && request.max_tokens <= 4096U &&
 #else

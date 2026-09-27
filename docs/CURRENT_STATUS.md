@@ -38,15 +38,34 @@ historical measurements.
 
 ## 1. Answer-first state
 
-**Default-route validation preparation is ready; the service-coverage gate is
-blocked.** The [preparation record](metadata/qwen36-27b-prefill-mainline-validation-preparation-2026-09-27.json)
-binds 89 real token-ID requests and eight text/chat/stream/nonstream/control
-fixtures. The compiled host predicate accepts 4 of 95 required admission cases
-and rejects 91; this is a host admission audit, not 95 model executions.
-The blockers are variable prompt geometry and normal API surfaces. No new
-performance measurement, runtime change or default-route promotion follows
-this preparation. The ordered validation protocol is in
-[the evaluation procedure](EVALSCOPE_EVALUATION.md#preparing-whole-core-default-route-validation).
+**Variable-length integration has reached its first real API checkpoint;
+full service coverage and default promotion remain open.** The isolated v3
+composition now admits token-ID streaming requests with P64..40000 divisible
+by 64 and O1..4096. It traverses actual P8000 panels and a short final panel,
+uses actual-length GDN/A/B and MLP work, and retains the full exact v7 Decode
+inventory. This is an intermediate admission, not the intended final service.
+The [variable-length record](metadata/qwen36-27b-whole-core-variable-prefill-2026-09-27.json)
+binds the implementation and bounded checks. The host service audit now admits
+28 of 95 cases (previously 4); the other 67 remain blocked.
+
+The first matched P8192/O256 API pair observes:
+
+| Route | Engine Prefill | Prompt token/s | External TTFT | Engine Decode token/s |
+| --- | ---: | ---: | ---: | ---: |
+| Legacy Prefill + exact v7 | 33.724 s | 242.91 | 33.730 s | 9.233 |
+| Variable whole-core Prefill + exact v7 | 17.052 s | 480.41 | 17.082 s | 9.215 |
+
+These are single independent-process engineering observations, not mirrored
+qualification. Both consume all inputs and return 256 tokens with complete
+SSE/usage. Their generated text differs; that is not a same-state Decode
+comparison or a Prefill accuracy pass. The separate P8192/O16 test checks 240
+Decode Attention calls against scalar on identical whole-core-produced inputs.
+A/B and GDN component output/state/history checks pass at 16 bounded lengths,
+including non-C64 tails; this does not qualify full-model variable Prefill.
+MLP tails, P40001..44095 family scratch, text/chat/nonstream surfaces, full
+numerical/capability coverage and installed-default validation remain open.
+The earlier [preparation record](metadata/qwen36-27b-prefill-mainline-validation-preparation-2026-09-27.json)
+retains its original 4/95 host result and generated request identities.
 
 **Latest 2026-09-27 integration: fast whole-core Prefill and exact v7 Decode
 now execute together in an isolated P40000 candidate.** The
