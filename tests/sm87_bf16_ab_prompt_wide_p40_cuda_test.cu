@@ -1,6 +1,7 @@
 #include "q3x/kernels/sm87_bf16_ab_prefill.h"
 
 #include <cuda_runtime.h>
+#include <cuda_bf16.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -179,6 +180,47 @@ void test_exact_one_grid_capture(TestContext& test, cudaStream_t stream) {
   (void)cudaGraphDestroy(graph);
 }
 
+void test_projection_basis(TestContext& test, cudaStream_t stream) {
+  // Each input row selects one distinct K coordinate. The exact answer is
+  // the corresponding canonical weight, independently of reduction order.
+  // Cover both N projections, all K64 pipeline stages, and a masked M tail.
+  constexpr std::size_t k = 5120U, n = 48U, m = 127U;
+  std::vector<std::uint16_t> input(m * k, 0U), weights(2U * n * k);
+  for (std::size_t row = 0; row < m; ++row)
+    input[row * k + (row * 79U + 13U) % k] = 0x3f80U;
+  for (std::size_t index = 0; index < weights.size(); ++index) {
+    const float value = (static_cast<int>((index * 37U + index / k * 11U) % 127U) - 63) / 32.0F;
+    weights[index] = __bfloat16_as_ushort(__float2bfloat16_rn(value));
+  }
+  std::uint16_t *device_input = nullptr, *device_weights = nullptr, *device_output = nullptr;
+  if (!cuda_ok(test, cudaMalloc(&device_input, input.size() * 2U), "basis input allocation") ||
+      !cuda_ok(test, cudaMalloc(&device_weights, weights.size() * 2U), "basis weights allocation") ||
+      !cuda_ok(test, cudaMalloc(&device_output, 2U * m * n * 2U), "basis output allocation")) {
+    cudaFree(device_input); cudaFree(device_weights); cudaFree(device_output);
+    return;
+  }
+  cuda_ok(test, cudaMemcpy(device_input, input.data(), input.size() * 2U, cudaMemcpyHostToDevice), "basis input upload");
+  cuda_ok(test, cudaMemcpy(device_weights, weights.data(), weights.size() * 2U, cudaMemcpyHostToDevice), "basis weights upload");
+  for (const std::size_t tokens : {64U, 65U, 127U}) {
+    const int status = q3x::kernels::launch_sm87_bf16_ab_large_m_prefill_cuda(
+        device_weights, device_weights + n * k, device_input, tokens,
+        device_output, device_output + m * n, stream);
+    test.expect(status == static_cast<int>(cudaSuccess), "basis projection launch");
+    if (!cuda_ok(test, cudaStreamSynchronize(stream), "basis projection completion")) break;
+    std::vector<std::uint16_t> output(2U * m * n);
+    if (!cuda_ok(test, cudaMemcpy(output.data(), device_output, output.size() * 2U, cudaMemcpyDeviceToHost), "basis output download")) break;
+    std::size_t mismatches = 0;
+    for (std::size_t projection = 0; projection < 2U; ++projection)
+      for (std::size_t row = 0; row < tokens; ++row)
+        for (std::size_t column = 0; column < n; ++column)
+          mismatches += output[projection * m * n + row * n + column] !=
+              weights[(projection * n + column) * k + (row * 79U + 13U) % k];
+    if (mismatches) std::cerr << "basis M=" << tokens << " mismatches=" << mismatches << '\n';
+    test.expect(mismatches == 0U, "A/B projection must preserve canonical K/N coordinates");
+  }
+  cudaFree(device_input); cudaFree(device_weights); cudaFree(device_output);
+}
+
 }  // namespace
 
 int main() {
@@ -210,6 +252,7 @@ int main() {
     return 1;
   }
   test_exact_one_grid_capture(test, stream);
+  test_projection_basis(test, stream);
   (void)cudaStreamDestroy(stream);
 
   if (test.failures != 0) {

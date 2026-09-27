@@ -174,8 +174,9 @@ __device__ __forceinline__ void load_k16n8_weight_fragment(
     const unsigned int lane) {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 750
   // The canonical [N,K] row-major weights are exactly the desired logical
-  // [K,N] column-major matrix. ldmatrix.trans receives one address per
-  // canonical N row for each K8 half and emits the BF16 matrix-B fragment.
+  // [K,N] column-major matrix. Each lane pair must contain two consecutive
+  // K values from the same N row. Transposing the 8x8 load instead pairs N
+  // values and permutes the K/N coordinates consumed by mma.row.col.
   const unsigned int row = lane & 7U;
   const unsigned int column = k16 * 16U + ((lane >> 3U) & 1U) * 8U;
   const std::uint16_t* const source =
@@ -184,7 +185,7 @@ __device__ __forceinline__ void load_k16n8_weight_fragment(
   const unsigned int shared_address =
       static_cast<unsigned int>(__cvta_generic_to_shared(source));
   asm volatile(
-      "ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16 "
+      "ldmatrix.sync.aligned.m8n8.x2.shared.b16 "
       "{%0, %1}, [%2];"
       : "=r"(fragment.x0), "=r"(fragment.x1)
       : "r"(shared_address)
