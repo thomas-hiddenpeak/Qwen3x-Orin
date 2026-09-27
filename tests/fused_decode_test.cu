@@ -50,7 +50,7 @@ int main() {
     for (std::size_t i = 0; i < qn; ++i) {
       const float actual = __bfloat162float(*reinterpret_cast<__nv_bfloat16*>(&result[i]));
       const double expected = static_cast<double>(i/256/6) + average;
-      // BF16 publication plus partition publication, numerical admission only.
+      // Final BF16 publication; this is numerical admission only.
       if (!std::isfinite(actual) || std::abs(actual-expected) > 0.03125) return 2;
     }
     for (std::size_t i=qn; i<result.size(); ++i) if (result[i]!=0xa5a5) return 3;
@@ -71,6 +71,26 @@ int main() {
     }
     check(cudaGraphExecDestroy(exec)); check(cudaGraphDestroy(graph));
   }
+  // Cancellation across partitions exposes premature BF16 publication.
+  // The first 256 values average 1 + 2^-8 (a BF16 midpoint); the next
+  // 256 average -1. The correct final BF16 mean is exactly 2^-9, while
+  // rounding each partition first destroys the residual and returns zero.
+  constexpr std::size_t cancellation_sequence = 512;
+  for (std::size_t p=0; p<cancellation_sequence; ++p)
+    for (std::size_t i=0; i<1024; ++i)
+      values[p*1024+i] = __float2bfloat16(
+          p < 128 ? 1.0f : (p < 256 ? 1.0078125f : -1.0f));
+  check(cudaMemcpyAsync(v,values.data(),cancellation_sequence*1024*2,
+                        cudaMemcpyHostToDevice,stream));
+  check(fd::launch(q,k,v,cancellation_sequence,workspace,fd::kWorkspaceBytes,o,stream));
+  check(cudaMemcpyAsync(result.data(),o,qn*2,cudaMemcpyDeviceToHost,stream));
+  check(cudaStreamSynchronize(stream));
+  const auto expected_cancellation = __float2bfloat16(0.001953125f);
+  for (std::size_t i=0; i<qn; ++i)
+    if (result[i] != *reinterpret_cast<const std::uint16_t*>(&expected_cancellation)) {
+      std::fprintf(stderr,"partition cancellation residual lost at %zu\n",i);
+      return 10;
+    }
   // Independent FP64 softmax/PV oracle on deterministic nonuniform BF16
   // operands. No scalar CUDA or FlashInfer routine supplies expected values.
   constexpr std::size_t rs = 513;

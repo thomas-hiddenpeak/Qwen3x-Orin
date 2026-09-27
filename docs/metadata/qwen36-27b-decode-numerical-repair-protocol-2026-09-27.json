@@ -1,0 +1,11 @@
+{
+  "parent": "4139551",
+  "work_package": "WP-DECODE-FP32-PARTIAL-REPAIR-20260927",
+  "owner_request": "advance numerical repair; 8.55 tok/s accepted",
+  "hypothesis": "BF16 partition outputs and BF16 cross-warp merge staging add avoidable rounding before final output; preserve FP32 until final BF16 output",
+  "changes": "partial-output and merge-staging dtype only; same probability hi+lo, QK, KV partition and online recurrence; unique FP32 output writer",
+  "first_check": "same frozen P576 teacher-forced input; scalar same-binary oracle and prior raw bridge",
+  "success_screen": "prior KL <=0.001/state relL2<=0.01 alarms unchanged; strict equality independently required for existing numerical contract",
+  "next": "if numerical direction positive complete 8192/40000 and API guardrail, otherwise one causal residual diagnostic; no tolerance scan",
+  "budget": "one precision repair, at most 30 min model device time before concrete closeout; no production promotion without numerical qualification"
+}

@@ -26,11 +26,11 @@
 
 namespace q3x::runtime::fused_decode {
 using Params = flashinfer::SinglePrefillParams<__nv_bfloat16, __nv_bfloat16,
-                                             __nv_bfloat16>;
+                                             float>;
 using BaseTraits = flashinfer::KernelTraits<
     flashinfer::MaskMode::kNone, 16, 1, 1, 16, 16, 1, 4,
     flashinfer::PosEncodingMode::kNone, __nv_bfloat16, __nv_bfloat16,
-    __nv_bfloat16, float, typename Params::IdType,
+    float, float, typename Params::IdType,
     flashinfer::DefaultAttention<false, false, false, false>>;
 struct Traits : BaseTraits {};
 namespace {
@@ -56,9 +56,22 @@ bool valid_spans(const std::array<Span, 5>& spans) noexcept {
 
 namespace flashinfer {
 namespace {
-// Local, uniquely typed specialization: preserve the FP32 probability through
-// two BF16 operands instead of discarding its residual. The vendored header
-// and every other FlashInfer instantiation remain unchanged.
+// FP32 publication needs only the owning KV warp. The generic float store
+// has no CTA barriers; the already merged register state is identical in the
+// other KV warps, which must not issue duplicate global writes.
+template <>
+__device__ __forceinline__ void write_o_reg_gmem<q3x::runtime::fused_decode::Traits>(
+    float (*o)[16][8],
+    smem_t<q3x::runtime::fused_decode::Traits::SWIZZLE_MODE_Q>* smem,
+    float* output, uint32_t packed, uint32_t upper, uint32_t stride_n,
+    uint32_t stride_h, uint_fastdiv group, const dim3 tid) {
+  if (get_warp_idx_kv<q3x::runtime::fused_decode::Traits>(tid.z) == 0)
+    write_o_reg_gmem<q3x::runtime::fused_decode::BaseTraits>(
+        o, smem, output, packed, upper, stride_n, stride_h, group, tid);
+}
+// Local, uniquely typed specialization: retain a BF16 residual as well as the
+// BF16 high part. Two BF16 operands improve probability precision but do not
+// encode every FP32 value exactly. Vendored/Prefill instantiations are unchanged.
 template <>
 __device__ __forceinline__ void compute_sfm_v<q3x::runtime::fused_decode::Traits>(
     smem_t<q3x::runtime::fused_decode::Traits::SWIZZLE_MODE_KV>* v_smem,
@@ -147,7 +160,7 @@ int launch(const std::uint16_t* query, const std::uint16_t* key,
   const auto stream = static_cast<cudaStream_t>(opaque);
   const auto chunk_size = std::max<std::size_t>((sequence + 7) / 8, 256);
   const auto chunks = (sequence + chunk_size - 1) / chunk_size;
-  auto* partial = static_cast<__nv_bfloat16*>(workspace);
+  auto* partial = static_cast<float*>(workspace);
   auto* lse = reinterpret_cast<float*>(partial + chunks * 24 * 256);
   Params params(reinterpret_cast<__nv_bfloat16*>(const_cast<std::uint16_t*>(query)),
                 reinterpret_cast<__nv_bfloat16*>(const_cast<std::uint16_t*>(key)),
@@ -170,7 +183,7 @@ int launch(const std::uint16_t* query, const std::uint16_t* key,
   void* merge_args[] = {&partial, &lse, &merged, &merged_lse, &sets, &heads};
   return static_cast<int>(cudaLaunchKernel(
       reinterpret_cast<const void*>(flashinfer::MergeStatesLargeNumIndexSetsKernel<
-          8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16>),
-      dim3(1, 24), dim3(32, 4), merge_args, 8704, stream));
+          8, 32, 4, 4, float, __nv_bfloat16>),
+      dim3(1, 24), dim3(32, 4), merge_args, 16896, stream));
 }
 }  // namespace q3x::runtime::fused_decode

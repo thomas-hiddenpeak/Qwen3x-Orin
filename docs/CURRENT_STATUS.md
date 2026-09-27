@@ -37,7 +37,21 @@ historical measurements.
 
 ## 1. Answer-first state
 
-**2026-09-27 Decode qualification: this fused numerical version is rejected
+**2026-09-27 numerical repair: isolated v3 removes premature BF16 partition
+and merge-state rounding; whole-model numerical admission remains open.**
+The [repair closeout](analysis/decode-numerical-repair-2026-09-27/README.md)
+records the exact cancellation regression, unchanged scalar reference, and
+short/mid/40K full-logit/state comparison. The correction improves local
+Attention precision but does not uniformly reduce model-trajectory distance;
+all three buckets still exceed the unchanged engineering alarms. A fresh v3
+P40000/O256 API request observes 8.550087 tok/s with the same text as v2;
+the bounded 20-case screen remains 15/20 with identical answers and recovery
+passes. These are scoped regression checks, not numerical qualification. Default
+scalar behavior is unchanged, and no production promotion or whole-core
+composition is selected. The following v2 qualification remains its historical
+negative result, not a description of the corrected v3 arithmetic.
+
+**2026-09-27 v2 Decode qualification: this fused numerical version is rejected
 for production composition; the default remains scalar.** The owner accepts
 approximately 8.55 tok/s for convergence. The completed
 [qualification closeout](analysis/decode-qualification-2026-09-27/README.md)
@@ -815,7 +829,7 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | Target-length Prefill | Current installed main executes terminal layer-63 prefix elision with incumbent QT2/GroupQ64, exact-span GDN, and prompt-wide preprocessing; its actual P40000/O16 request reports 60.271514903 prompt tok/s | Complete accuracy, P60/P130, the 2s/4s targets, and further accuracy-preserving whole-product optimization remain open; closed lineages and same-skeleton span scans remain excluded |
 | SM87 whole-system AOT Prefill candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` is default-off, non-executable, and paused. Real-checkpoint upload/readback/private attachment plus the layer-0 M192 Oracle remain retained prerequisites. The P40000 BF16-HMMA skeleton is rejected at 225.7838x over budget, and `bmma-static-support-k16-parent-zero-fill-v2` is separately rejected before CUDA after its authenticated mandatory-instruction lower bound exceeds the complete five-second projection allocation | No active AOT implementation gate. Resumption requires an explicitly named materially different exact arithmetic/dataflow class with a new bounded proof or a successor architecture; persisted direct loading remains prerequisite work only after such a resumption |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
-| Decode | Ordinary ordered scalar remains default. The compiled split-P admission observes P1089/O16 9.63 and P40000/O16 8.55 tok/s versus scalar 9.41 and 5.18, with the same LAZY loading and complete production sidecars; the completed frozen numerical panel rejects this version for composition despite an unchanged 15/20 small capability screen. See the qualification record in the snapshot below. | Resolve numerical admission before normal-output whole-core composition or mirrored API/installed qualification; no further speed search for this version. Shared-Graph startup and split-route sealing have bounded checks, not release certification. |
+| Decode | Ordinary ordered scalar remains default. The compiled split-P admission observes P1089/O16 9.63 and P40000/O16 8.55 tok/s versus scalar 9.41 and 5.18, with the same LAZY loading and complete production sidecars; v2 fails numerical qualification; v3 repairs partition/merge precision but still fails the unchanged whole-model alarms. The v2 15/20 small capability result retains its artifact scope. See the qualification record in the snapshot below. | Resolve numerical admission before normal-output whole-core composition or mirrored API/installed qualification; no further speed search for this version. Shared-Graph startup and split-route sealing have bounded checks, not release certification. |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
 | Canonical release artifact | Fresh main `230eac1` installs 0.7.0 Release/OFF terminal-prefix.v1 ELF `270a6bb4...`; P40 and short integration pass with `production_eligible=false` and `release_qualified=false` | Complete accuracy, capability, target-length repetition, and stability/release attestation remain incomplete |
 | Automated release lane | Designed only | Local tests and policies exist, but no checked-in Orin release workflow enforces the complete gate |
@@ -959,6 +973,17 @@ either Prefill candidate.
 
 ### Decode convergence snapshot, 2026-09-27
 
+The owner-directed [v3 numerical repair](analysis/decode-numerical-repair-2026-09-27/README.md)
+now keeps partition outputs and merge staging in FP32, with unchanged BF16 KV
+and final output. Scratch is 197,376 bytes inside the existing request arena.
+It fixes a demonstrated cancellation residual loss. On P576/P8192/P40000,
+maximum full-logit KL becomes 0.009860/0.010484/0.001791 and maximum state-span
+relative L2 0.106054/0.016122/0.015477. All exceed the prior numerical alarms;
+P8192 KL worsens despite improved local precision. The fresh scalar control is
+bit-exact to the previous baseline. The correction is isolated and identified
+as v3, not a production equivalence claim. The previous v2 evidence below is
+preserved for comparison.
+
 The [qualification closeout](analysis/decode-qualification-2026-09-27/README.md)
 now closes the pending numerical screen with a negative result. Across 16
 same-input steps at each P576/P8192/P40000, maximum full-logit KL is
@@ -973,7 +998,8 @@ malformed-input, disconnect/recovery and owned-shutdown checks. The original
 verbose-format truncation and repaired lifecycle-harness failure remain
 recorded separately. Full public/long-context capability remains unqualified.
 
-The current version is stopped before whole-core composition and promotion.
+The v2 version was stopped before whole-core composition and promotion;
+the v3 repair above also remains numerically unqualified.
 Its approximately 8.55 tok/s speed is provisionally acceptable; numerical
 admission is the blocker. Reopening requires a successor numerical design or
 an explicitly accepted changed contract with adequate evidence, not a new
@@ -1186,7 +1212,7 @@ sequence and successor identity live exclusively in
 | Product API and long-context admission | Installed sealed P40 profile admits 40K plus normal Decode output; P60/P130 profiles and full cancellation semantics remain | P1 |
 | Exact deliverable identity | Fresh installed-main 0.7.0/terminal-prefix.v1 OFF identity and both P40/short closeouts pass; production/release flags remain false and earlier v3 tuples remain historical | P2/P4 |
 | Prefill parity and physical plan | New architecture exploration paused by owner on 2026-09-27; preserved historical installed-main P40 reports 60.271514903 prompt tok/s; the original matched candidate panel remains separately scoped. The locked target remains open; rejected combined-v1, selector/Q4/P39936 and AOT lineages stay excluded, and isolated score-feed v2 stays paused | P3 (deferred; active delivery is the 2026-09-27 Decode convergence slice) |
-| Decode convergence and startup | Compiled admission and bounded shared-Graph repair delivered; frozen numerical qualification rejects the fused version, while the 20-case capability screen and bounded recovery pass. Composition/promotion stopped; a successor numerical decision must precede capacity, full capability and release gates | 2026-09-27 convergence slice, then P4/P5 |
+| Decode convergence and startup | Compiled admission and bounded shared-Graph repair delivered; v2 numerical qualification fails; v3 corrects intermediate rounding but remains outside the whole-model numerical gates. The v2 bounded capability/recovery evidence retains its scope. Composition/promotion stopped; a successor numerical decision must precede capacity, full capability and release gates | 2026-09-27 convergence slice, then P4/P5 |
 | Accuracy, capability, stability, and release evidence | Partial oracles only; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install, startup, upgrade, or rollback lane | P5 |
 

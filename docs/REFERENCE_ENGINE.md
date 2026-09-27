@@ -316,7 +316,10 @@ It records every scalar step, complete Conv/GDN state and every changed KV
 row at the first and final captured steps. A scalar free-run versus scalar
 forced replay is the harness oracle. Capture status attests completion,
 finite data and route validity; it is not a candidate numerical-equality or
-production-accuracy verdict, and carries no timing authority. Original
+production-accuracy verdict, and carries no timing authority. The v3 diagnostic
+also counts differing BF16 Attention outputs and compares selected outputs
+with an independent FP64 calculation converted through FP32 to BF16; these
+counts do not define a new acceptance threshold. Original
 ordinary schema 3 remains unchanged outside this test-only extension.
 
 ## Installed `generate` CLI contract

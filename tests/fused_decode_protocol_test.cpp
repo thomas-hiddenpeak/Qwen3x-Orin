@@ -11,8 +11,9 @@ int main() {
   record.prefill_route_evidence.operators[0].exact_fallback_hits = 16;
   const auto text = q3x::server::serialize_target_prefill_witness(record);
   if (!q3x::io::json::parse(text) ||
-      text.find("target-prefill-witness-fused-decode-admission-v2") == std::string::npos ||
-      text.find("\"schema_version\":2") == std::string::npos ||
+      text.find("target-prefill-witness-fused-decode-admission-v3") == std::string::npos ||
+      text.find("\"schema_version\":3") == std::string::npos ||
+      text.find("split-p-fp32-partials-unqualified") == std::string::npos ||
       text.find("\"completed_fallback_hits_unqualified\":16") == std::string::npos ||
       text.find("completed_exact_fallback_hits") != std::string::npos ||
       text.find("\"scope\":\"architecture_candidate_unqualified\"") == std::string::npos ||

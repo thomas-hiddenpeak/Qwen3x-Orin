@@ -67,6 +67,24 @@ accepts approximately 8.55 tok/s without a further speed-optimization package.
 Upward return: the actual accepted Prefill plus Decode API with useful output
 lengths, then installed-artifact qualification. No new parameter sweep.
 
+Owner-directed numerical successor, 2026-09-27:
+`WP-DECODE-FP32-PARTIAL-REPAIR-20260927` removes the rejected version's
+intermediate BF16 partition/merge rounding while retaining BF16 KV and final
+outputs. First compare the frozen P576 teacher-forced full-model trajectory,
+then P8192/P40000 and the real API if the correction is positive. Preserve the
+previous engineering alarms and report exact equality independently; no
+production numerical waiver. One precision repair and at most 30 minutes of
+real-model device time precede a concrete closeout, with no parameter scan.
+This successor is explicitly reopened by the owner; the earlier v2 rejection
+remains immutable. The [v3 closeout](analysis/decode-numerical-repair-2026-09-27/README.md)
+retains the precision correction and a regression test, but closes this
+precision-only attempt without production selection: all three whole-model
+buckets still fail the unchanged alarms. Further widening of intermediate
+types is not an active scan. The remaining work is a lawful reduction/rounding
+contract solution; any proposed numerical-class change requires explicit
+owner acceptance supported by appropriate capability evidence, and may not
+inherit the Prefill-only ADR-0002 authorization.
+
 Ordered deliverables:
 
 1. `WP-DECODE-FUSED-GQA-ADMISSION-20260927`: preserve scalar comparison and

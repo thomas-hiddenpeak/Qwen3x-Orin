@@ -34,17 +34,19 @@ int attention_observer(const fd::Observation& view, void* context) noexcept {
         view.output,view.stream);
     if (code) return code;
     code=static_cast<int>(copy(scalar)); if(code) return code;
-    double error=0,norm=0,maxabs=0; unsigned nonfinite=0;
+    double error=0,norm=0,maxabs=0; unsigned nonfinite=0, differing=0;
     for (std::size_t i=0;i<count;++i) {
       const double a=bf16(fused[i]),b=bf16(scalar[i]);
       nonfinite+=!std::isfinite(a)||!std::isfinite(b);
+      differing+=fused[i]!=scalar[i];
       error+=(a-b)*(a-b); norm+=b*b; maxabs=std::max(maxabs,std::abs(a-b));
     }
     const double relative=std::sqrt(error/std::max(norm,1e-30));
     c.output << std::setprecision(12) << "{\"sequence\":" << view.sequence
       << ",\"layer\":" << view.layer << ",\"relative_l2_vs_scalar\":" << relative
       << ",\"maxabs\":" << maxabs << ",\"repeat_equal\":" << (fused==repeat?"true":"false")
-      << ",\"nonfinite\":" << nonfinite;
+      << ",\"nonfinite\":" << nonfinite
+      << ",\"differing_output_elements\":" << differing;
     if (!c.first_sequence) c.first_sequence=view.sequence;
     if (view.sequence==c.first_sequence && (view.layer==3||view.layer==23||view.layer==43||view.layer==63)) {
       std::array<std::uint16_t,count> query{};
@@ -56,6 +58,7 @@ int attention_observer(const fd::Observation& view, void* context) noexcept {
       code=static_cast<int>(cudaMemcpy(value.data(),view.value,value.size()*2,cudaMemcpyDeviceToHost));
       if(code) return code;
       double fused_error=0,scalar_error=0,oracle_norm=0;
+      unsigned fused_round_mismatch=0,scalar_round_mismatch=0;
       for (std::size_t h : {0U,23U}) {
         std::vector<double> probabilities(view.sequence);
         double maximum=-1e300;
@@ -72,6 +75,12 @@ int attention_observer(const fd::Observation& view, void* context) noexcept {
           for(std::size_t p=0;p<view.sequence;++p)
             expected+=probabilities[p]*bf16(value[p*1024+(h/6)*256+d]);
           expected/=denominator;
+          // Diagnostic FP64 -> FP32 -> BF16 RNE reference, not a changed contract.
+          const float fexpected=static_cast<float>(expected);
+          std::uint32_t bits=0; std::memcpy(&bits,&fexpected,sizeof(bits));
+          const auto rounded=static_cast<std::uint16_t>((bits+0x7fffU+((bits>>16U)&1U))>>16U);
+          fused_round_mismatch+=fused[h*256+d]!=rounded;
+          scalar_round_mismatch+=scalar[h*256+d]!=rounded;
           fused_error+=std::pow(bf16(fused[h*256+d])-expected,2);
           scalar_error+=std::pow(bf16(scalar[h*256+d])-expected,2);
           oracle_norm+=expected*expected;
@@ -79,7 +88,9 @@ int attention_observer(const fd::Observation& view, void* context) noexcept {
       }
       c.output << ",\"fp64_heads\":[0,23],\"fused_relative_l2_vs_fp64\":"
         << std::sqrt(fused_error/std::max(oracle_norm,1e-30))
-        << ",\"scalar_relative_l2_vs_fp64\":" << std::sqrt(scalar_error/std::max(oracle_norm,1e-30));
+        << ",\"scalar_relative_l2_vs_fp64\":" << std::sqrt(scalar_error/std::max(oracle_norm,1e-30))
+        << ",\"fp64_rounded_elements\":512,\"fused_round_mismatches\":" << fused_round_mismatch
+        << ",\"scalar_round_mismatches\":" << scalar_round_mismatch;
     }
     c.output << "}\n";c.output.flush();++c.calls;
     if (nonfinite || fused!=repeat || relative>1.0/128.0) return cudaErrorInvalidValue;
@@ -104,7 +115,7 @@ std::uint32_t force_input(std::uint32_t proposed,std::size_t position,void* cont
   ++f.calls;return f.tokens[i];
 }
 int main(int argc,char** argv) {
-  if(argc!=6 && argc!=7) {std::cerr << "usage: MODEL REQUEST OUTPUT PROMPT_TOKENS scalar|fused\n";return 2;}
+  if(argc!=6 && argc!=7) {std::cerr << "usage: MODEL REQUEST OUTPUT PROMPT_TOKENS scalar|fused [FORCED_IDS_FILE]\n";return 2;}
   raw_decode_prefix=argv[3];
   ForcedInputs forced;
   if(argc==7) {
