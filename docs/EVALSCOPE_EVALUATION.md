@@ -15,6 +15,53 @@ q3x_document:
 
 # OpenAI-compatible external evaluation
 
+## Preparing whole-core default-route validation
+
+The [mainline validation manifest](../benchmarks/evalscope/whole_core_mainline_validation.json)
+defines the current service-preservation panel and ordered qualification gates.
+This is default-route integration preparation, not a complete product-SLO or
+release claim. The [preparer](../tools/evaluation/prepare_prefill_mainline_validation.py)
+binds actual token-prefix requests to a retained real prompt, hashes their
+exact HTTP bytes and little-endian token IDs, and audits the compiled admission
+predicate without allocating the model or starting GPU work:
+
+```bash
+cmake --preset orin-whole-core-exact-decode-admission
+cmake --build --preset orin-whole-core-exact-decode-admission \
+  --target q3x_whole_core_exact_decode_plan_test --parallel 3
+python3 -B tools/evaluation/prepare_prefill_mainline_validation.py \
+  --prompt-request .q3x-work/evidence/terminal-prefix-main-p40000-api-20260909-r2/request-body.json \
+  --long-prompt-request .q3x-work/prefill-mainline-validation-20260927/long-source-request.json \
+  --coverage-probe .q3x-work/build/orin-whole-core-exact-decode-admission/q3x_whole_core_exact_decode_plan_test \
+  --output .q3x-work/prefill-mainline-validation-20260927/fresh-requests
+```
+
+Use a fresh output directory; existing sets cannot be overwritten. Exit 3
+means preparation completed but required admission cases or real payloads are
+missing. Exit 0 means only those preparation checks passed, never promotion.
+The synthetic IDs inside the host probe test admission only; generated HTTP
+requests use the real source IDs. Missing long inputs remain missing: do not
+repeat or pad the 40000-token source to manufacture P44095.
+The optional long source fills only cases beyond the primary source length;
+it cannot silently replace the existing P40000 workload. Retain its source
+revision, document and tokenizer hashes with the generated request set.
+Raw-text/chat
+fixtures additionally require pinned tokenizer/template counts. These prefix
+fixtures are not public capability questions.
+
+Run the smallest newly supported non-P40/tail case through numerical and real
+API checks before the larger panel. Compare exact Decode on the same Prefill
+state; do not use cross-backend greedy text divergence as a Decode oracle.
+Once capacity, numerical, API and lifecycle gates pass, freeze binaries and
+run the manifest's mirrored performance pairs, reporting Prefill, TTFT and
+Decode together. O1 has no subsequent-Decode rate. Final selection requires
+the exact installed Release/OFF default artifact and the declared capability
+suite. Reuse prior evidence only within its artifact/workload scope.
+
+Finish all heavy compilation before real-model validation, including recovery
+checks. A thermal stop during recovery is not a passed recovery test, even if
+the preceding performance request completed; retain both observations.
+
 This document owns an evaluation procedure, not current capability or pending
 work. The presence, defaults, qualification, and gaps of the loopback adapter
 and final product API are reported only in

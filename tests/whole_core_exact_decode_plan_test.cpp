@@ -2,10 +2,66 @@
 #include "q3x/runtime/request_state.h"
 #include "q3x/server/evaluation_server.h"
 #include <iostream>
+#include <string_view>
 
-int main() {
+int main(int argc, char** argv) {
   namespace rt = q3x::runtime;
   namespace server = q3x::server;
+  if (argc == 2 && std::string_view(argv[1]) == "--service-coverage") {
+    // Host admission audit, never a CUDA, numerical or performance verdict.
+    server::OpenAIRequest input;
+    input.endpoint = server::OpenAIEndpoint::kCompletions;
+    input.prompt_kind = server::OpenAIPromptKind::kTokenIds;
+    input.stream = true;
+    input.include_usage = true;
+    std::cout << "{\"scope\":\"host-admission-only\",\"cases\":[";
+    bool first = true;
+    const auto emit = [&](unsigned prompt, unsigned output, const char* surface) {
+      if (!first) std::cout << ',';
+      first = false;
+      std::cout << "{\"prompt_tokens\":" << prompt
+                << ",\"output_tokens\":" << output
+                << ",\"surface\":\"" << surface << "\",\"stream\":"
+                << (input.stream ? "true" : "false") << ",\"include_usage\":"
+                << (input.include_usage ? "true" : "false") << ",\"admitted\":"
+                << (server::is_p40_whole_core_v10_request(input) ? "true" : "false")
+                << '}';
+    };
+    for (const unsigned prompt : {1U, 19U, 43U, 44U, 63U, 64U, 65U,
+             511U, 512U, 513U, 1089U, 7999U, 8000U, 8001U, 8191U,
+             8192U, 8193U, 16000U, 32000U, 39999U, 40000U, 40001U,
+             44094U, 44095U}) {
+      input.prompt_token_ids.resize(prompt, 1U);
+      for (const unsigned output : {1U, 16U, 256U, 4096U}) {
+        if (prompt + output - 1U > 44095U) continue;
+        input.max_tokens = output;
+        emit(prompt, output, "token_ids");
+      }
+    }
+    input.prompt_token_ids.resize(40000U, 1U);
+    input.max_tokens = 16U;
+    input.stream = false;
+    input.include_usage = false;
+    emit(40000U, 16U, "token_ids");
+    input.stream = true;
+    emit(40000U, 16U, "token_ids");
+    // Actual tokenization belongs to the HTTP gate; these only audit the
+    // compiled surface predicate, not the length of a fabricated text prompt.
+    input.prompt_token_ids.clear();
+    for (const bool stream : {false, true}) {
+      input.stream = stream;
+      input.include_usage = stream;
+      input.prompt_kind = server::OpenAIPromptKind::kRawText;
+      input.endpoint = server::OpenAIEndpoint::kCompletions;
+      emit(0U, 16U, "text");
+      input.endpoint = server::OpenAIEndpoint::kChatCompletions;
+      input.prompt_kind = server::OpenAIPromptKind::kChatMessages;
+      emit(0U, 16U, "chat");
+    }
+    std::cout << "],\"promotion_qualified\":false}\n";
+    return 0;
+  }
+  if (argc != 1) return 2;
   const auto workspace = rt::build_unbound_layer_major_p40_whole_core_workspace_plan();
   rt::LayerMajorRequestMemoryOptions options;
   options.max_sequence_length = 44'095U;

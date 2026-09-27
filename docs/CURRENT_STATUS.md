@@ -38,6 +38,16 @@ historical measurements.
 
 ## 1. Answer-first state
 
+**Default-route validation preparation is ready; the service-coverage gate is
+blocked.** The [preparation record](metadata/qwen36-27b-prefill-mainline-validation-preparation-2026-09-27.json)
+binds 89 real token-ID requests and eight text/chat/stream/nonstream/control
+fixtures. The compiled host predicate accepts 4 of 95 required admission cases
+and rejects 91; this is a host admission audit, not 95 model executions.
+The blockers are variable prompt geometry and normal API surfaces. No new
+performance measurement, runtime change or default-route promotion follows
+this preparation. The ordered validation protocol is in
+[the evaluation procedure](EVALSCOPE_EVALUATION.md#preparing-whole-core-default-route-validation).
+
 **Latest 2026-09-27 integration: fast whole-core Prefill and exact v7 Decode
 now execute together in an isolated P40000 candidate.** The
 [composition record](metadata/qwen36-27b-whole-core-exact-decode-composition-2026-09-27.json)

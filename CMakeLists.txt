@@ -1046,6 +1046,11 @@ q3x_enable_warnings(qwen3x-inspect)
 if(BUILD_TESTING)
   find_package(Python3 QUIET COMPONENTS Interpreter)
   if(Python3_Interpreter_FOUND)
+    add_test(NAME prefill_mainline_preparation
+      COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
+              "${Python3_EXECUTABLE}" -m unittest tests.test_prefill_mainline_preparation)
+    set_tests_properties(prefill_mainline_preparation PROPERTIES
+      LABELS "evaluation;host" WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(
       NAME document_control
       COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"

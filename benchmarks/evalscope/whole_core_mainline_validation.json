@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "work_package": "WP-PREFILL-MAINLINE-VALIDATION-20260927",
+  "parent_architecture": "AC-WHOLE-CORE-SERVICE-20260927",
+  "source_parent": "8b9130a",
+  "purpose": "prepare default Prefill replacement qualification; does not promote the fixed-P40 admission",
+  "promotion_qualified": false,
+  "service_contract": {
+    "maximum_sequence_positions": 44095,
+    "maximum_output_tokens": 4096,
+    "formula": "P + O - 1 <= 44095",
+    "prompt_surfaces": [
+      "token_ids",
+      "raw_text",
+      "chat"
+    ],
+    "response_surfaces": [
+      "stream_with_usage",
+      "stream_without_usage",
+      "nonstream"
+    ],
+    "silent_padding_or_truncation": false
+  },
+  "reuse_evidence": {
+    "path": "docs/metadata/qwen36-27b-whole-core-exact-decode-composition-2026-09-27.json",
+    "scope": [
+      "P40000/O16 same-state exact Decode Attention",
+      "P40000/O256 paired API",
+      "P40000/O4096 complete API",
+      "P40000 cancellation and reuse"
+    ],
+    "not_inherited": [
+      "variable-P numerical and capacity",
+      "general API coverage",
+      "full capability",
+      "installed default artifact qualification"
+    ]
+  },
+  "ordered_gates": [
+    {
+      "id": "G0-service-coverage",
+      "required": "host admission, actual-length plans, full state/scratch bounds and tail ownership over current service envelope",
+      "command": "q3x_whole_core_exact_decode_plan_test --service-coverage",
+      "current_status": "blocked: current compiled predicate is fixed P40000/token_ids/stream_with_usage; host acceptance alone will never prove execution"
+    },
+    {
+      "id": "G1-numerical",
+      "required": "first implemented non-P40/tail shape returns immediately to same-input numerical and API checks, then representative boundary panel",
+      "initial_prompts": [
+        513,
+        8193,
+        40000,
+        44095
+      ],
+      "graph_boundary_prompts": [
+        19,
+        43,
+        44
+      ],
+      "decode": "bitwise equality against scalar on identical whole-core-produced Q/K/V, teacher-forced full-logit/live-state trajectory; no ADR-0002 waiver",
+      "prefill": "preserve accepted arithmetic; independently validate full GDN/conv and KV including first/last positions and every partial chunk/panel boundary; inherited P40 nrmse 1e-3 is scoped precedent, not a blanket waiver for changed GDN/projection arithmetic",
+      "no_shortcuts": [
+        "greedy text equality alone",
+        "top5-only logits",
+        "last2048 KV sample alone for general tails"
+      ]
+    },
+    {
+      "id": "G2-api-and-lifecycle",
+      "required": [
+        "completions token IDs and raw text",
+        "chat tokenizer/template counts",
+        "stream/nonstream same-request text and usage parity",
+        "stream usage optional",
+        "O1 and O4096, capacity boundary and boundary+1 rejection",
+        "request reuse across different lengths",
+        "cancel Prefill and Decode, then recover",
+        "queue/error/auth/shutdown/port reuse",
+        "no forbidden route hits, no request-time workspace growth"
+      ]
+    },
+    {
+      "id": "G3-paired-performance",
+      "prompt_output_pairs": [
+        [
+          1089,
+          256
+        ],
+        [
+          8192,
+          256
+        ],
+        [
+          40000,
+          256
+        ]
+      ],
+      "additional_boundaries": [
+        [
+          44095,
+          1
+        ],
+        [
+          40000,
+          4096
+        ]
+      ],
+      "arms": [
+        "Legacy Prefill plus exact v7 with matched complete Decode inventory for Prefill attribution",
+        "composed whole-core plus exact v7",
+        "frozen ordinary default for whole-product regression comparison"
+      ],
+      "selection_protocol": "independent-process mirrored B-C-C-B on primary pairs after first passing direction/numerical checks; preserve all reversals and invalid cells; expand repeats only if decision remains unresolved",
+      "report_each_request": [
+        "pure_prefill_seconds",
+        "prefill_tokens_per_second",
+        "external_content_TTFT",
+        "engine_decode_interval",
+        "external_decode_rate_when_defined",
+        "actual_usage",
+        "finish_reason",
+        "binary_model_request_hashes",
+        "route_and_inventory"
+      ],
+      "O1_decode_rate": null,
+      "selection": "whole-product fitness; no short-context regression hidden by P40 gain; unresolved noise is not a pass",
+      "interim_decode_target_tokens_per_second": 8.55,
+      "current_target_met": false
+    },
+    {
+      "id": "G4-capability",
+      "required": "freeze representative public capability suite and exact prompt/template/parser/answer contract before comparing; invalid or truncated answers block score interpretation; complete declared suite on both arms",
+      "existing_20_case_screen": "regression smoke only; does not qualify full or long-context capability"
+    },
+    {
+      "id": "G5-installed-default",
+      "required": "freeze Release BUILD_TESTING=OFF artifact; install into workspace-owned prefix; no candidate selectors/admission kernels/production cuBLASLt dependency; attest inventory and 8GiB reserve; rerun applicable gates on exact installed default binary",
+      "scope": "default route promotion is distinct from complete product SLO/release qualification"
+    }
+  ],
+  "environment": {
+    "preflight": "docs/REAL_MODEL_PERFORMANCE_POLICY.md",
+    "gpu_processes": "serialized",
+    "heavy_host_builds": "finish before any real-model validation, including recovery",
+    "cache": "sync and retained cache-drop result before each fresh timing process",
+    "thermal": "record clocks/throttle above85 through90; stop above90; never inspect/control fan",
+    "failure": "retain failed run; fix named cause; no blind repetition"
+  },
+  "stop_rule": "A failed prerequisite blocks dependent qualification; implement missing capacity/API/tail support rather than repeating already-successful P40 timings."
+}

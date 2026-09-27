@@ -197,6 +197,19 @@ API qualification.
 
 Ordered deliverables:
 
+Owner-requested immediate promotion preparation:
+`WP-PREFILL-MAINLINE-VALIDATION-20260927` uses the
+[executable preparation procedure](EVALSCOPE_EVALUATION.md#preparing-whole-core-default-route-validation)
+under `AC-WHOLE-CORE-SERVICE-20260927`. Its current action is a host admission
+audit plus pinned request generation for the existing service envelope, followed
+by implementation of missing variable lengths/tails and API surfaces. Do not
+spend another long-model run repeating fixed-P40 success while the first
+service-coverage gate is known to reject ordinary inputs. The first implemented
+non-P40/tail case must return to numerical and real API validation immediately;
+then proceed through the manifest's numerical, lifecycle, paired-performance,
+capability and installed-default gates. This package does not reopen local
+kernel parameter scanning or amend the interim Decode target.
+
 1. `WP-DECODE-FUSED-GQA-ADMISSION-20260927`: preserve scalar comparison and
    admit one separately identified internal fused launcher. Give it explicit
    bounded scratch and cached startup planning; preserve the public GQA
