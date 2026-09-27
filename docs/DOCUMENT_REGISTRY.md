@@ -22,15 +22,15 @@ document. Classes and authority rules are defined by
 ## Audit snapshot
 
 - Audit date: 2026-09-27.
-- Expected integrated-tree coverage: **73 Markdown paths**.
-- Classified: **73**.
+- Expected integrated-tree coverage: **74 Markdown paths**.
+- Classified: **74**.
 - Unclassified: **0**.
 - Duplicate registrations: **0**.
-- Automated validator: **PASS** (`73` tracked, `73` registered, `40`
-  required first-party headers, `44` headers checked, `970` local links,
+- Automated validator: **PASS** (`74` tracked, `74` registered, `40`
+  required first-party headers, `45` headers checked, `978` local links,
   `0` errors).
 - Inventory basis: every literal path from `git ls-files '*.md'` in the
-  staged tree including the Decode context-scaling, retrospective and product-admission records.
+  staged tree including the Decode context-scaling, retrospective, product-admission and qualification records.
 - Header transition: every registered non-evidence first-party document now
   has a standard control header and is enforced by the validator. Frozen
   evidence and third-party documents are not rewritten merely to add headers.
@@ -108,7 +108,7 @@ authority only for its exact recorded protocol.
 | `docs/PREFILL_REFERENCE_AUDIT.md` | `historical_architecture_audit` | historical | Superseded as current Prefill design authority by `docs/PREFILL_ARCHITECTURE_RESET.md`, which refines `docs/SDD.md`; retains pinned source-analysis provenance. |
 | `docs/ROADMAP_LEGACY.md` | `historical_roadmap_ledger` | historical | Superseded by concise active `docs/ROADMAP.md`; retained for linked chronology, with Git history and evidence owning exact observations. |
 
-## Evidence (31)
+## Evidence (32)
 
 | Path | Role | Lifecycle | Evidence authority |
 | --- | --- | --- | --- |
@@ -116,6 +116,7 @@ authority only for its exact recorded protocol.
 | `docs/PHASE0_EVIDENCE.md` | `milestone_evidence` | frozen | Phase-0 environment, checkpoint, oracle, and phase-boundary record. |
 | `docs/analysis/decode-context-scaling-2026-09-27/README.md` | `experiment_evidence` | frozen | Source audit and isolated real-API fused-GQA direction at d6d5afb; numerical research only, no production selection. |
 | `docs/analysis/decode-product-admission-2026-09-27/README.md` | `implementation_admission_evidence` | frozen | Compiled fused Decode numerical admission, bounded Graph ownership repair and API direction evidence; no numerical-contract change or production promotion. |
+| `docs/analysis/decode-qualification-2026-09-27/README.md` | `qualification_evidence` | frozen | Frozen short/mid/40K numerical rejection, bounded direct-answer capability and lifecycle checks; no numerical-contract waiver or production promotion. |
 | `docs/analysis/decode-performance-lessons-2026-09-27/README.md` | `retrospective_erratum` | frozen | Dated correction of Decode ceiling, causality and qualification inferences at c4c8a34; source audit only, no new performance or production selection. |
 | `docs/analysis/decode-gate-up-coupled-feed-vllm-parity-2026-07-30/README.md` | `experiment_evidence` | frozen | Decode coupled-feed parity observation for its pinned real API protocol. |
 | `docs/analysis/decode-gqa-splitkv-sm87-2026-07-30/README.md` | `experiment_evidence` | frozen | Decode split-KV direction/admission evidence for the recorded build and workload. |

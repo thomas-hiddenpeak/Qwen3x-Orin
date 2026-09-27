@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: correctness-first engine ownership, generation, timing, trace, and failure contract
   effective: 2026-08-09
-  last_reviewed: 2026-09-09
+  last_reviewed: 2026-09-27
   supersedes: []
   superseded_by: []
   ssot_for: ReferenceEngine lifecycle, generation semantics, tracing, timing, and error behavior
@@ -299,6 +299,25 @@ contract.
 The target-AOT preparation-only option is subject to the same authority
 boundary: even an authenticated attachment remains non-executable until a
 separately reviewed numerical/resource gate and launcher/runner/API route exist.
+
+### Fused Decode numerical capture seam
+
+Only the non-installable fused admission links a source-private,
+thread-local prediction override for teacher-forced numerical tests. It runs
+after the complete raw-logit/state snapshot and before the generation
+controller selects the next input token. It changes no tensor, kernel,
+prompt, or state update. There is no server API, server CLI, or environment control for it;
+without a test callback the selected token is unchanged. The ordinary
+Release/OFF engine does not contain the seam.
+
+The extended capture uses schema 4: raw full-vocabulary logits and their
+host-derived argmax are distinct from optionally forced selected token IDs.
+It records every scalar step, complete Conv/GDN state and every changed KV
+row at the first and final captured steps. A scalar free-run versus scalar
+forced replay is the harness oracle. Capture status attests completion,
+finite data and route validity; it is not a candidate numerical-equality or
+production-accuracy verdict, and carries no timing authority. Original
+ordinary schema 3 remains unchanged outside this test-only extension.
 
 ## Installed `generate` CLI contract
 

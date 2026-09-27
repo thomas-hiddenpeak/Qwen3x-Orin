@@ -1,3 +1,6 @@
+#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+#include "decode_fused_gqa_internal.h"
+#endif
 #include "q3x/runtime/reference_engine.h"
 
 #include "q3x/core/sha256.h"
@@ -2162,6 +2165,12 @@ class EngineWholeRequestTransactionGuard final {
     g_reference_engine_step_snapshot_hook.callback(
         *context.snapshot_state, g_reference_engine_step_snapshot_hook.context);
   }
+#endif
+#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+  if (outcome && outcome.value->prediction && context.snapshot_state != nullptr)
+    outcome.value->prediction->predicted_token_id = fused_decode::prediction_token(
+        outcome.value->prediction->predicted_token_id,
+        context.snapshot_state->sequence_length());
 #endif
   if (!outcome || !context.capture_trace) {
     return outcome;

@@ -31,6 +31,10 @@
 #include <vector>
 
 namespace {
+#if defined(Q3X_CAPTURE_RAW_DECODE)
+std::string raw_decode_prefix;
+bool raw_decode_teacher_forced=false;
+#endif
 namespace core = q3x::core;
 namespace rt = q3x::runtime;
 namespace detail = rt::reference_runner_detail;
@@ -298,6 +302,37 @@ bool capture_full(const rt::RequestState& state, Capture& capture,
   }
   return true;
 }
+#if defined(Q3X_CAPTURE_RAW_DECODE)
+void dump_decode_state(const rt::RequestState& state, Capture& capture,
+                       std::size_t index) {
+  const std::string base = raw_decode_prefix + ".step" + std::to_string(index);
+  const auto dump = [&](const std::string& name, const rt::RequestRegion& r,
+                        std::size_t offset, std::size_t bytes) {
+    const auto* src = region(state, r, offset + bytes);
+    if (!src) throw std::runtime_error("invalid raw capture span");
+    std::ofstream file(base + "." + name, std::ios::binary);
+    for (std::size_t done=0; done<bytes;) {
+      const auto n=std::min(capture.scratch.size(),bytes-done);
+      if(cudaMemcpy(capture.scratch.data(),src+offset+done,n,cudaMemcpyDeviceToHost)!=cudaSuccess)
+        throw std::runtime_error("raw capture copy failed");
+      file.write(reinterpret_cast<const char*>(capture.scratch.data()),n);done+=n;
+    }
+    if(!file) throw std::runtime_error("raw capture write failed");
+  };
+  const auto& p=state.plan();
+  dump("logits.bf16",p.fp32_scratch,0,kLogitsBytes);
+  if(index!=0 && index!=kOutputs-1) return;
+  dump("conv.bf16",p.conv_state,0,p.conv_state.byte_size);
+  dump("gdn.bf16",p.gdn_state,0,p.gdn_state.byte_size);
+  // Every changed KV row: final prompt token and all consumed output tokens.
+  const std::size_t offset=(capture.prompt_tokens-1)*2048ULL;
+  const std::size_t bytes=(index+1)*2048ULL;
+  for(std::size_t slot=0;slot<rt::kRequestFullLayerCount;++slot) {
+    dump("key"+std::to_string(slot)+".bf16",p.key_cache[slot],offset,bytes);
+    dump("value"+std::to_string(slot)+".bf16",p.value_cache[slot],offset,bytes);
+  }
+}
+#endif
 void step_hook(const rt::RequestState& state, void* context) noexcept {
   auto& capture = *static_cast<Capture*>(context);
   const std::size_t index = capture.step_calls++;
@@ -306,6 +341,10 @@ void step_hook(const rt::RequestState& state, void* context) noexcept {
     capture.error = "step_sequence_or_count";
     return;
   }
+#if defined(Q3X_CAPTURE_RAW_DECODE)
+  try { dump_decode_state(state,capture,index); }
+  catch (...) { capture.error="raw_decode_capture"; return; }
+#endif
   if (capture.scalar_guards_active && !check_scalar_hidden_guards(state, capture)) {
     capture.error = "scalar_hidden_out_of_row_write";
     return;
@@ -432,7 +471,11 @@ int main(int argc, char** argv) {
     }
     // These frozen ordinary P-1 schedules contain no scalar prefix. Their
     // final prompt and Decode positions are outside the Graph window 19..43.
-    if (ids.size() != 576U && ids.size() != 1089U && ids.size() != 40000U)
+    if (ids.size() != 576U && ids.size() != 1089U && ids.size() != 40000U
+#if defined(Q3X_CAPTURE_RAW_DECODE)
+        && ids.size() != 8192U
+#endif
+        )
       throw std::runtime_error("capture requires P576, P1089, or P40000");
     if (poison_mode != "none" && (variant != "liveness" || ids.size() != 576U))
       throw std::runtime_error("dead-scratch poison requires liveness-only P576");
@@ -604,7 +647,11 @@ int main(int argc, char** argv) {
         capture.scalar_guard_checks == (capture.poison_byte >= 0 ? kOutputs : 0U);
     for (const auto& prefix : capture.prefixes) valid = valid && prefix.preserved;
     for (std::size_t i = 0U; valid && i < kOutputs; ++i)
-      valid = capture.steps[i].argmax == generation.generated_token_ids[i];
+      valid =
+#if defined(Q3X_CAPTURE_RAW_DECODE)
+          raw_decode_teacher_forced ||
+#endif
+          capture.steps[i].argmax == generation.generated_token_ids[i];
     std::vector<std::uint32_t> exposed_predictions;
     for (const auto& step : generation.steps) {
       if (step.logits.has_value()) valid = false;
@@ -619,7 +666,12 @@ int main(int argc, char** argv) {
     std::ofstream out(argv[3], std::ios::binary | std::ios::trunc);
     if (!out) throw std::runtime_error("output open failed");
     out << std::setprecision(std::numeric_limits<double>::max_digits10)
+#if defined(Q3X_CAPTURE_RAW_DECODE)
+        << "{\"schema_version\":4,\"teacher_forced\":" << (raw_decode_teacher_forced ? "true" : "false")
+        << ",\"prediction_semantics\":\"raw logits captured before optional forced token selection\",\"status\":" << json_quote(valid ? "pass" : "fail")
+#else
         << "{\"schema_version\":3,\"status\":" << json_quote(valid ? "pass" : "fail")
+#endif
         << ",\"variant\":" << json_quote(variant) << ",\"timing_authority\":false,"
         << "\"short_graph_cache\":{\"scope\":\"unused_startup_inventory_not_qualified\","
         << "\"disposition\":" << json_quote(graph_prepared ? "prepared_25_slots" : "budget_rejected_rolled_back")

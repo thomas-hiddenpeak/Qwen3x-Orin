@@ -92,8 +92,16 @@ __device__ __forceinline__ void compute_sfm_v<q3x::runtime::fused_decode::Traits
 
 namespace q3x::runtime::fused_decode {
 namespace {
+thread_local PredictionOverride prediction_override = nullptr;
+thread_local void* prediction_context = nullptr;
 thread_local Observer observer = nullptr;
 thread_local void* observer_context = nullptr;
+}
+void set_prediction_override(PredictionOverride callback, void* context) noexcept {
+  prediction_override = callback; prediction_context = context;
+}
+std::uint32_t prediction_token(std::uint32_t proposed, std::size_t position) noexcept {
+  return prediction_override ? prediction_override(proposed, position, prediction_context) : proposed;
 }
 void set_observer(Observer callback, void* context) noexcept {
   observer = callback;

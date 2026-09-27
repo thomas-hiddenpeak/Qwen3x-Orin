@@ -113,7 +113,7 @@ The production candidate is evaluated as a vector, not as one average:
 | 40K Prefill | Cold/no-cache, real Agent prompt, concurrency one, first visible generated token | TTFT at most 2 s |
 | 60K Prefill | Same contract | TTFT at most 2 s |
 | 130K Prefill | Same contract, no silent truncation | TTFT at most 4 s |
-| Decode | Single request, committed output tokens, MTP disabled | At least 10 token/s and at most 100 ms/token |
+| Decode | Single request, committed output tokens, MTP disabled | Long-term 10 token/s; current convergence accepts approximately 8.55 token/s under the Constitution amendment |
 | Protocol | Complete valid responses/streams, correct usage and finish semantics | No failed or incomplete request in the release panel |
 | Capacity | Declared context fits the planned resident memory without oversubscription or unplanned growth | Fail closed before execution if it does not fit |
 | Reproducibility | Pinned binary, plan, model, host state, request hashes, and repeated process runs | Required for qualification |

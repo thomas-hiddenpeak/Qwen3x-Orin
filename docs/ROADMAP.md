@@ -44,8 +44,12 @@ they cannot reorder the delivery slices below.
 Owner direction: provisionally accept current Prefill performance, converge on
 the recommended fused Decode attention direction, and expose prior performance
 misconceptions so they cannot guide later work. This supersedes the old P3
-exploration priority and the expired 2026-09-09 window below. It does not lower
-locked targets, promote the 8.56 tok/s experiment or waive accuracy.
+exploration priority and the expired 2026-09-09 window below. The subsequent
+owner direction provisionally accepts approximately 8.55
+Decode tok/s and requests the remaining verification; the
+[Constitution amendment](ENGINEERING_CONSTITUTION.md#8-locked-business-targets)
+controls that interim acceptance. It does not promote an experiment or waive
+accuracy.
 
 The [retrospective](analysis/decode-performance-lessons-2026-09-27/README.md)
 is the dated erratum; the [current snapshot](CURRENT_STATUS.md#decode-convergence-snapshot-2026-09-27)
@@ -58,7 +62,8 @@ Product constraint: remove excessive long-context single-request Decode loss
 while preserving model capability, BF16 KV, weight format, non-MTP semantics
 and API capacity. Downward budget: replace the roughly 92 ms historical
 P40 scalar-attention cost with the fused dataflow observed near 14 ms; these
-are diagnostic budgets, not universal bounds or an amended 100 ms total target.
+are diagnostic budgets, not universal bounds. The current delivery window
+accepts approximately 8.55 tok/s without a further speed-optimization package.
 Upward return: the actual accepted Prefill plus Decode API with useful output
 lengths, then installed-artifact qualification. No new parameter sweep.
 
@@ -107,19 +112,29 @@ evidence under the Constitution before it is adopted.
 
 First-batch implementation and bounded validation are recorded in the
 [product-admission closeout](analysis/decode-product-admission-2026-09-27/README.md).
-Items 1 and 3 now have a compiled, isolated implementation and scoped Graph/API
-checks. Item 2 has synthetic and P1089 same-input numerical admission only:
-equal tokens coexist with changed full logits and persistent state. The fused
-route remains non-installable and accuracy-unqualified. The next numerical
-qualification must quantify full logits/state on the frozen representative
-trajectories and complete a parseable capability comparison; no small local
-error threshold silently adopts a new production contract. Items 4 and 5 are
-still required before product selection. The historical linked 8.56 tok/s
-experiment is not promoted by this closeout.
+Items 1 and 3 have a compiled, isolated implementation and scoped Graph/API
+checks. The [qualification closeout](analysis/decode-qualification-2026-09-27/README.md)
+now completes item 2's frozen numerical panel and bounded capability screen:
+this numerical version is **rejected for composition** after predeclared
+logit/state alarms at short, mid and 40K contexts. Same-input repeatability and
+the 20-case direct-answer capability screen pass, but neither changes the
+production numerical contract. The version's validation work is closed;
+items 4 and 5 are conditional downstream gates and are not executed or waived.
+
+Next decision boundary: a materially changed numerical design that satisfies
+the existing contract, or a concrete proposed contract change supported by
+adequate model-capability evidence and explicit owner acceptance. The small
+screen does not justify that change on its own. No speed optimization,
+threshold relaxation, continued parameter scan, or automatic whole-core
+composition is authorized by this negative numerical result. Approximately
+8.55 tok/s remains acceptable for the current delivery goal. Preserve the
+isolated implementation and evidence for a bounded successor; do not present
+it as a production route.
 
 The scalar unroll gains remain the regression baseline. Old scores/values split
 lineages and their 5.5/6.1/6.29 ceiling narratives are closed as planning inputs.
-The 10 tok/s target is open, not proved impossible. This ordering is the active
+The 10 tok/s long-term target is deferred for this delivery window, not proved
+impossible. This ordering is the active
 work slice; the dated sections below preserve prior delivery context only.
 
 ### Post-absorption whole-product acceptance gate

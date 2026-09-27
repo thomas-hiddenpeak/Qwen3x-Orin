@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "reason": "Baseline-only output calibration at max_tokens=1024 failed before answer; no score or candidate result used for format selection",
+  "dataset_and_rows": "unchanged four subjects, first five val and first five dev",
+  "change": "append direct-answer-only instruction, preserve original examples/questions/choices; greedy chat, max_tokens=1024 unchanged",
+  "scope": "C-Eval-derived direct-answer paired regression, not standard EvalScope default or full C-Eval score",
+  "gates": [
+    "all 20 responses parseable with semantic stop before cap",
+    "same request hashes and token accounting across arms",
+    "no baseline-correct answer lost",
+    "same-server reuse and explicit long-fixture disconnect recovery"
+  ],
+  "request_sha256": "7bd5369cefedc9bd0ed130cf547ead233c29312905fc114e61bccf0e37a49c09",
+  "cancellation_request": "same original real-agent P1089 prefix, max_tokens256, close after3content events"
+}

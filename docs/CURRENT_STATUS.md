@@ -27,7 +27,8 @@ metadata/evidence records.
 The owner's 2026-09-27 direction provisionally accepts Prefill performance and
 selects convergence on fused Decode attention qualification, with a retrospective
 of misleading performance conclusions. New Prefill architecture exploration
-is paused. Targets and production numerical contracts are unchanged. The
+is paused. The owner now provisionally accepts approximately 8.55 Decode
+tok/s for this milestone; production numerical contracts remain unchanged. The
 [active convergence slice](ROADMAP.md#2026-09-27-product-convergence--active)
 owns the next work; the
 [performance retrospective](analysis/decode-performance-lessons-2026-09-27/README.md)
@@ -35,6 +36,19 @@ withdraws unsupported ceiling and qualification inferences without rewriting
 historical measurements.
 
 ## 1. Answer-first state
+
+**2026-09-27 Decode qualification: this fused numerical version is rejected
+for production composition; the default remains scalar.** The owner accepts
+approximately 8.55 tok/s for convergence. The completed
+[qualification closeout](analysis/decode-qualification-2026-09-27/README.md)
+finds full-logit/state divergence alarms at P576/P8192/P40000 under matched
+teacher-forced inputs. The 20-case C-Eval-derived direct-answer API screen is
+15/20 for both routes, with all answers identical and no truncation; this
+small screen does not qualify long-context capability or waive numerical
+contracts. Cancellation recovery and scalar/fused repeat controls pass.
+No whole-core composition, capacity expansion, new speed search, or fused
+production promotion follows this negative qualification. The earlier Prefill
+and installed-main facts below retain their recorded scopes.
 
 **Liveness is integrated and installed-main closeout passes; release remains unqualified. The whole-core route is now a second, accuracy-qualified production deployment profile, and both production profiles passed a comprehensive API e2e evaluation (2026-09-26).**
 Main `8fe4e67` (2026-09-26) promotes the layer-major whole-core route to the
@@ -80,12 +94,16 @@ requests owner adjudication; it is a proposed analysis, not an adopted hardware
 impossibility conclusion. New Prefill exploration and target adjudication are
 not the active work slice.
 
-The Decode 10 tok/s target remains open. The former 101.5 ms ratio is a
+The Decode 10 tok/s long-term target is deferred for this convergence window;
+approximately 8.55 tok/s is provisionally accepted by the owner. The former
+101.5 ms ratio is a
 calibration-based estimate, not an established impossibility proof; the former
 5.5/6.1/6.29 tok/s bounds describe scalar implementation versions. They no
-longer constrain planning. The separate fused-GQA experiment observes 8.56
-tok/s at P40000, with changed numerics, a module-loading-mode mismatch, no
-public quality qualification and no default-route promotion.
+longer constrain planning. The initial fused-GQA experiment observes 8.56
+tok/s at P40000 with a module-loading-mode mismatch. The later matched
+compiled admission observes 8.55 tok/s, but the completed numerical
+qualification rejects that version for composition; no default-route
+promotion or full public capability qualification is claimed.
 
 The original integration `edf4da2` combined main `13be53c` with liveness-only
 `055fb245` after both matched P40000/O16 API pairs improved pure Prefill and
@@ -797,7 +815,7 @@ runner and its historical 392.804397-token/s max-clock incumbent are unchanged.
 | Target-length Prefill | Current installed main executes terminal layer-63 prefix elision with incumbent QT2/GroupQ64, exact-span GDN, and prompt-wide preprocessing; its actual P40000/O16 request reports 60.271514903 prompt tok/s | Complete accuracy, P60/P130, the 2s/4s targets, and further accuracy-preserving whole-product optimization remain open; closed lineages and same-skeleton span scans remain excluded |
 | SM87 whole-system AOT Prefill candidate | `AC-PREFILL-SM87-AOT-SYSTEM-v1` is default-off, non-executable, and paused. Real-checkpoint upload/readback/private attachment plus the layer-0 M192 Oracle remain retained prerequisites. The P40000 BF16-HMMA skeleton is rejected at 225.7838x over budget, and `bmma-static-support-k16-parent-zero-fill-v2` is separately rejected before CUDA after its authenticated mandatory-instruction lower bound exceeds the complete five-second projection allocation | No active AOT implementation gate. Resumption requires an explicitly named materially different exact arithmetic/dataflow class with a new bounded proof or a successor architecture; persisted direct loading remains prerequisite work only after such a resumption |
 | Prefill/Decode phase identity | Logically separated | Physical scheduling and state ownership do not yet provide an independently optimized/overlapped production pipeline |
-| Decode | Ordinary ordered scalar remains default. The compiled split-P admission observes P1089/O16 9.63 and P40000/O16 8.55 tok/s versus scalar 9.41 and 5.18, with the same LAZY loading and complete production sidecars; accuracy remains unqualified. See the product-admission record in the snapshot below. | Full-logit/state and public capability qualification; normal-output whole-core composition; mirrored API/installed candidate qualification. Shared-Graph startup and split-route sealing have bounded checks, not release certification. |
+| Decode | Ordinary ordered scalar remains default. The compiled split-P admission observes P1089/O16 9.63 and P40000/O16 8.55 tok/s versus scalar 9.41 and 5.18, with the same LAZY loading and complete production sidecars; the completed frozen numerical panel rejects this version for composition despite an unchanged 15/20 small capability screen. See the qualification record in the snapshot below. | Resolve numerical admission before normal-output whole-core composition or mirrored API/installed qualification; no further speed search for this version. Shared-Graph startup and split-route sealing have bounded checks, not release certification. |
 | Production accuracy | Partial deterministic oracles | No complete public capability, hidden/state/logit, and release-repeat bundle has passed |
 | Canonical release artifact | Fresh main `230eac1` installs 0.7.0 Release/OFF terminal-prefix.v1 ELF `270a6bb4...`; P40 and short integration pass with `production_eligible=false` and `release_qualified=false` | Complete accuracy, capability, target-length repetition, and stability/release attestation remain incomplete |
 | Automated release lane | Designed only | Local tests and policies exist, but no checked-in Orin release workflow enforces the complete gate |
@@ -941,6 +959,26 @@ either Prefill candidate.
 
 ### Decode convergence snapshot, 2026-09-27
 
+The [qualification closeout](analysis/decode-qualification-2026-09-27/README.md)
+now closes the pending numerical screen with a negative result. Across 16
+same-input steps at each P576/P8192/P40000, maximum full-logit KL is
+0.026106/0.006314/0.002447 versus the predeclared 0.001 alarm; maximum
+captured state-span relative L2 is 0.139774/0.018668/0.017501 versus 0.01.
+These are engineering alarms, not a newly approved production tolerance or
+proof of capability loss. All captures are finite; scalar forcing control
+and fused full-state repeat are exact. P40 has two raw-argmax changes with
+small/tied margins. Both API arms score 15/20 on the same direct-answer
+C-Eval-derived screen, with identical answers and usage; both pass bounded
+malformed-input, disconnect/recovery and owned-shutdown checks. The original
+verbose-format truncation and repaired lifecycle-harness failure remain
+recorded separately. Full public/long-context capability remains unqualified.
+
+The current version is stopped before whole-core composition and promotion.
+Its approximately 8.55 tok/s speed is provisionally acceptable; numerical
+admission is the blocker. Reopening requires a successor numerical design or
+an explicitly accepted changed contract with adequate evidence, not a new
+speed-optimization package.
+
 The ordinary route remains the ordered unroll-128 scalar implementation.
 The gains of [unroll-8](metadata/qwen36-27b-p40000-decode-unroll8-api-2026-09-26.json)
 and unroll-128 remain valid for their recorded artifacts; they were useful
@@ -975,8 +1013,9 @@ split-P admission: fixed startup preparation, request-owned 99,072-byte scratch,
 complete production Decode sidecars, independent identity and sealed environment.
 It passes bounded synthetic and P1089/O16 same-input checks, but all 16 logit
 hashes and the captured persistent-state hashes differ despite equal generated
-tokens. It is not a production numerical replacement; capability and complete
-logit/state qualification remain open. A fresh Legacy P40000/O256 request
+tokens. It is not a production numerical replacement. The successor qualification
+above completes the frozen logit/state panel and a bounded capability screen
+and rejects this numerical version for composition. A fresh Legacy P40000/O256 request
 completes with exact usage and stream closure at 8.5518 tok/s. It does not
 expand or qualify the accepted whole-core profile. The independent v2 admission
 witness deliberately reports fallback counts as unqualified rather than exact.
@@ -1147,7 +1186,7 @@ sequence and successor identity live exclusively in
 | Product API and long-context admission | Installed sealed P40 profile admits 40K plus normal Decode output; P60/P130 profiles and full cancellation semantics remain | P1 |
 | Exact deliverable identity | Fresh installed-main 0.7.0/terminal-prefix.v1 OFF identity and both P40/short closeouts pass; production/release flags remain false and earlier v3 tuples remain historical | P2/P4 |
 | Prefill parity and physical plan | New architecture exploration paused by owner on 2026-09-27; preserved historical installed-main P40 reports 60.271514903 prompt tok/s; the original matched candidate panel remains separately scoped. The locked target remains open; rejected combined-v1, selector/Q4/P39936 and AOT lineages stay excluded, and isolated score-feed v2 stays paused | P3 (deferred; active delivery is the 2026-09-27 Decode convergence slice) |
-| Decode convergence and startup | Compiled non-installable fused admission and bounded shared-Graph startup repair delivered; complete numerical/capability qualification, normal-output whole-core composition, mirrored API selection and repeated-start reliability remain open | 2026-09-27 convergence slice, then P4/P5 |
+| Decode convergence and startup | Compiled admission and bounded shared-Graph repair delivered; frozen numerical qualification rejects the fused version, while the 20-case capability screen and bounded recovery pass. Composition/promotion stopped; a successor numerical decision must precede capacity, full capability and release gates | 2026-09-27 convergence slice, then P4/P5 |
 | Accuracy, capability, stability, and release evidence | Partial oracles only; no complete qualification bundle | P4 |
 | Packaging and operations | No attested install, startup, upgrade, or rollback lane | P5 |
 

@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "parent": "5038344",
+  "request_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+  "prompts": [
+    576,
+    8192,
+    40000
+  ],
+  "outputs": 16,
+  "reference": "same binary, attention observer restores ordered scalar on each call",
+  "trajectory": "scalar free greedy IDs frozen before fused teacher forcing; full vocabulary logits each step, complete conv/GDN and all changed KV rows at first/final steps",
+  "independent_reference": "FP64 QK softmax PV on heads 0 and 23 at layers 3,23,43,63 on first step per prompt",
+  "hard_gates": [
+    "all tensors finite",
+    "repeat fused same-input bit-exact",
+    "same prompt and forced input IDs",
+    "prefix observations equal",
+    "same startup full sidecars",
+    "existing scalar numerical contract: exact live state/logits, separately classified; no new tolerance waives it"
+  ],
+  "diagnostic_envelopes": {
+    "attention_relative_l2": 0.0078125,
+    "full_logits_KL_scalar_to_fused": 0.001,
+    "conv_gdn_changed_kv_relative_l2": 0.01,
+    "meaning": "predeclared engineering divergence alarms, not a new production accuracy contract; exceedance stops this numerical version before composition/promotion"
+  },
+  "capability": "public C-Eval validation, 4 subject groups, first 5 questions each, 5-shot, explicit final answer, output cap 1024; zero lost baseline-correct answers, all parseable and no cap truncation; scoped regression screen, not full-suite certification",
+  "budget": "one frozen numerical implementation; no kernel variant/tolerance scan; fail numerical alarms -> complete diagnosis and reject, no further composition timing",
+  "original_protocol_sha256": "f18cef1b1f6855e3bc5bd988ff1563b6e45131b185851b8f773bd18d4d53209f",
+  "diagnostic_continuation": {
+    "reason": "P576 engineering divergence alarms failed; no composition or production promotion now",
+    "remaining": "Frozen P8192/P40000 numerical characterization and same-binary scalar forced replay, plus public capability to distinguish drift from task regression",
+    "budget": "same frozen kernels, maximum 20 minutes additional numerical device time; no new kernel/tolerance variant"
+  },
+  "public_corpus": {
+    "repository": "https://huggingface.co/datasets/ceval/ceval-exam",
+    "revision": "617524a00b307ff6f9933702f724131fe12ca7ce",
+    "request_sha256": "d11e9afaa347716861e5fa454a4d314679c2f2cf860342b7c68cb13054a20d68",
+    "subjects": [
+      "computer_network",
+      "business_administration",
+      "law",
+      "clinical_medicine"
+    ],
+    "selection": "first five validation rows, first five development rows as few-shot; no validation explanations or answers in input",
+    "prompt_and_extraction": "retained EvalScope 1.9.1 CEVALAdapter template and final answer regexp, greedy chat API with thinking disabled",
+    "not_claimed": "complete C-Eval, statistical noninferiority, long-context capability, release qualification"
+  },
+  "bounded_stability_protocol": {
+    "scope": "bounded Legacy API stability alongside capability comparison; not whole-core composition",
+    "arms": [
+      "scalar",
+      "fused"
+    ],
+    "checks": [
+      "20 sequential cold-state benchmark requests",
+      "malformed max_tokens HTTP 400",
+      "disconnect after 3 content events",
+      "next benchmark request reproduces initial text and usage",
+      "next successful witness must receipt conservative_full reset",
+      "health still ready",
+      "owned graceful shutdown"
+    ],
+    "source_sha256": "8cd1462afce0af3592e1322ce5149f7765dcbf3e72b6edc6fdcc57cc12b2cdcd"
+  },
+  "helper_sha256": {
+    "compare.py": "402d046013f2105d63921c4d6dff12118f2a57fb5c3f3e312c2c4da5e8892c4d",
+    "run_numeric_panel.py": "8e4613245e0616bd0637becaacab9b65a2e3a4eb98c75c70711a0212fd378869",
+    "run_capability_pair.py": "d9c56ca24db7ec2f8bb7535e882686af578d01b5f770c2bf29a8f0b0cd2d9448",
+    "run_capability.py": "ca78a0efd6dbc3c1c6ed1e07ebd6a68ab8c0d4c88f4504c6207ae467bd90cd2f",
+    "preflight.py": "440988bbea9655e52f0805a8b5f1ad8cd9098091261cf85691b7c86a13490864",
+    "summarize.py": "9f4793e0f605490378584870521f760217e320a935c48d600a1bc08aa828a684",
+    "capability_requests.py": "8cd1462afce0af3592e1322ce5149f7765dcbf3e72b6edc6fdcc57cc12b2cdcd",
+    "run_owned.py": "7b4a522302d95160bdba90a1ccfe2aa0b3baebec2b17ed90f11e30fe45262cbd",
+    "make_capability.py": "8d34678c1e8d1f3b508ba8b6906e4ac9e153c1861204527222a36e1906aaa793"
+  }
+}

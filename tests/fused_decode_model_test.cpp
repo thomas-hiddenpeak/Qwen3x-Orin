@@ -1,5 +1,6 @@
 // Reuse the established ordinary full-state capture protocol; this executable
 // adds a same-input Attention observer and never changes the server interface.
+#define Q3X_CAPTURE_RAW_DECODE 1
 #define main ordinary_capture_main
 #include "reference_ordinary_generation_capture_test.cpp"
 #undef main
@@ -91,8 +92,29 @@ int attention_observer(const fd::Observation& view, void* context) noexcept {
   } catch (...) {return cudaErrorUnknown;}
 }
 }
+struct ForcedInputs {
+  std::size_t prompt=0, calls=0;
+  std::vector<std::uint32_t> tokens;
+};
+std::uint32_t force_input(std::uint32_t proposed,std::size_t position,void* context) noexcept {
+  auto& f=*static_cast<ForcedInputs*>(context);
+  if(position<f.prompt) return proposed;
+  const auto i=position-f.prompt;
+  if(i>=f.tokens.size()) return rt::kReferenceVocabularySize;
+  ++f.calls;return f.tokens[i];
+}
 int main(int argc,char** argv) {
-  if(argc!=6) {std::cerr << "usage: MODEL REQUEST OUTPUT PROMPT_TOKENS scalar|fused\n";return 2;}
+  if(argc!=6 && argc!=7) {std::cerr << "usage: MODEL REQUEST OUTPUT PROMPT_TOKENS scalar|fused\n";return 2;}
+  raw_decode_prefix=argv[3];
+  ForcedInputs forced;
+  if(argc==7) {
+    forced.prompt=parse_count(argv[4]);
+    std::ifstream file(argv[6]);std::uint32_t token;
+    while(file>>token) {if(token>=rt::kReferenceVocabularySize) return 2;forced.tokens.push_back(token);}
+    if(forced.tokens.size()!=kOutputs) return 2;
+    raw_decode_teacher_forced=true;
+    fd::set_prediction_override(force_input,&forced);
+  }
   AttentionCapture capture;
   capture.restore_scalar=std::string_view(argv[5])=="scalar";
   if(!capture.restore_scalar && std::string_view(argv[5])!="fused") return 2;
@@ -103,6 +125,8 @@ int main(int argc,char** argv) {
   char* args[]={argv[0],argv[1],argv[2],argv[3],flag,argv[4],variant,liveness};
   const int status=ordinary_capture_main(8,args);
   fd::set_observer(nullptr,nullptr);
+  fd::set_prediction_override(nullptr,nullptr);
+  if(argc==7 && forced.calls!=kOutputs) return 1;
   std::cerr << "attention_shadow_calls=" << capture.calls << '\n';
   return status;
 }

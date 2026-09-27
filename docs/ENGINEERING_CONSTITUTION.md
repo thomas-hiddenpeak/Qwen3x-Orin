@@ -6,7 +6,7 @@ q3x_document:
   owner: project-owner
   authority: highest project engineering authority below an explicit current owner direction
   effective: 2026-08-09
-  last_reviewed: 2026-08-27
+  last_reviewed: 2026-09-27
   supersedes: []
   superseded_by: []
   ssot_for: mission, locked product constraints, and engineering philosophy
@@ -317,6 +317,14 @@ These targets remain active until the project owner changes them:
 | Decode | Single-request Decode reaches at least 10 token/s, corresponding to at most 100 ms/token | no MTP as the means of compliance |
 | Accuracy | Production output/capability does not regress | public evaluation plus pinned deterministic oracles |
 
+**Interim delivery amendment, 2026-09-27.** The owner explicitly accepts
+approximately 8.55 Decode token/s for the current convergence milestone and
+requests completion of the remaining verification. Reaching 10 token/s is no
+longer a prerequisite or an optimization task for this milestone. The long-term
+target remains recorded above; this temporary acceptance does not amend the
+accuracy, numerical, capacity, non-MTP, or API contracts. Current Prefill
+performance is also provisionally accepted for this delivery window.
+
 The observed vLLM Agent experience is the starting reference for these
 Prefill targets. An `Avg prompt throughput` log around 4.3K token/s, emitted
 on vLLM's nominal approximately-ten-second logger cadence, is supporting
@@ -426,3 +434,8 @@ specialization to exceed that general engine while preserving accuracy.
   authority of the 2026-08-09 resource gate without weakening device ownership
   or safety. Whole-product fitness, not a local optimum or evidence volume,
   continues to select production.
+
+- **2026-09-27:** Owner-directed product convergence: provisionally accept
+  current Prefill and approximately 8.55 Decode token/s; finish verification
+  instead of extending performance exploration. Accuracy and numerical
+  qualification remain required before production selection.

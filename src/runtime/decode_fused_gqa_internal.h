@@ -28,6 +28,10 @@ struct Observation {
   std::uint16_t* output;
   void* stream;
 };
+// Test-only teacher forcing overrides selected tokens after raw-logit capture.
+using PredictionOverride = std::uint32_t (*)(std::uint32_t, std::size_t, void*) noexcept;
+void set_prediction_override(PredictionOverride callback, void* context) noexcept;
+std::uint32_t prediction_token(std::uint32_t proposed, std::size_t position) noexcept;
 using Observer = int (*)(const Observation&, void*) noexcept;
 void set_observer(Observer callback, void* context) noexcept;
 int observe(const Observation&) noexcept;
