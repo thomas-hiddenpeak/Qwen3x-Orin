@@ -137,6 +137,18 @@ and return promptly to P40000/O256. Approximately 8.55 tok/s remains the
 milestone constraint. Whole-core composition and release gates below remain
 conditional; none is waived or inferred from this incremental improvement.
 
+Owner-directed service-replacement assessment, 2026-09-27:
+the [whole-core audit](analysis/whole-core-service-replacement-2026-09-27/README.md)
+distinguishes historical qualification bounds from the actual fixed-shape
+implementation. Prioritize composing variable-length whole-core Prefill with
+the complete exact Decode inventory over further isolated Legacy Decode tuning.
+Do not require the standalone Legacy route to reach 8.55 before this composition.
+Preserve the currently served `P + O - 1 <= 44095`, O4096, prompt surfaces and
+lifecycle contract. Full replacement is the preferred decision if the composed
+route wins across the representative served-context panel without regressions;
+retain a length-specific branch only when matched evidence justifies it.
+The audit itself changes no dispatch and establishes no unmeasured speedup.
+
 Ordered deliverables:
 
 1. `WP-DECODE-FUSED-GQA-ADMISSION-20260927`: preserve scalar comparison and
