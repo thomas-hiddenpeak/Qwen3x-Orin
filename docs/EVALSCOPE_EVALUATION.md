@@ -1534,3 +1534,89 @@ to the 40K/60K/130K external witness protocol before selection. The final
 `release_candidate` must repeat that protocol through the deliverable API.
 P513, historical short EvalScope workloads, and profiler cells remain sanity,
 local, or explanatory tools rather than the project-level judge.
+
+## Service industrialization validation
+
+`WP-SERVICE-INDUSTRIALIZATION-20260928` uses the versioned
+[`qualify_service.py`](../tools/evaluation/qualify_service.py) on one installed
+production artifact. This is reliability qualification of the existing served
+range, not a new numerical route or performance selection. `smoke` explicitly
+has less authority; `restart` verifies a fresh process and deterministic short
+output; `qualify` requires all fixtures, eight Prefill/Decode cancellation
+cycles and at least 7,200 seconds / 200 sustained requests.
+
+The frozen batch checks UTF-8 stream/nonstream parity in six languages at four
+output caps; 12 incomplete sockets with health within two seconds; slow SSE
+reading; auth and invalid input; active/queued overload; P8192/O256,
+P40000/O256, P40000/O4096 and P44095/O1 with over-capacity rejection; all 98
+pinned C-Eval cases with identical request hashes, prompt counts and reference
+answers; and deterministic P513/O16 reuse after warmup. The sustained resource
+budgets are final-minus-initial RSS <=256 MiB, file descriptors <=4 and threads
+<=1. This finite panel is not an indefinite uptime claim.
+
+Each fresh process records strict clean-host preflight, successful cache-drop
+preparation, exact executable/input hashes, API responses, request witnesses,
+GPU clocks at 1300.5 MHz, sanitized temperatures <=90C and owned zero-exit
+shutdown. The driver audits complete production receipts and reports Prefill
+and Decode together. Retain failed runs. Restart uses the same binary in a new
+output directory and compares the saved `functional-baseline.json` output and
+usage with the completed batch. Production numerical kernels are unchanged;
+independent numerical reference qualification retains its original scope.
+
+```bash
+python3 -B tools/evaluation/qualify_service.py \
+  --server .q3x-work/install/industrialization-20260928/bin/qwen3x-eval-server \
+  --model-dir /path/to/pinned/Qwen3.6-27B-NVFP4 \
+  --prompt-request /path/to/real-p40000-request.json \
+  --long-prompt-request /path/to/real-p44095-request.json \
+  --capability-cases /path/to/capability-direct-cases.json \
+  --reference-results /path/to/pinned-reference-results.json \
+  --output .q3x-work/qualification/new-run \
+  --mode qualify --soak-seconds 7200 --cancel-cycles 8
+```
+
+Fixtures are explicit external read-only inputs, never silently generated
+synthetic performance prompts. Capability case/reference schemas are the
+retained production panel's JSON arrays. Run `--help` for smoke/restart and
+explicit control-path PID exclusions; exclusions never permit foreign GPU
+ownership. Run `ctest --preset orin-release --output-on-failure` first. The
+host CI checks documentation and Python contracts. The manually dispatched
+`orin_release` workflow additionally builds and tests the sealed artifact on
+a dedicated self-hosted `Linux`, `ARM64`, `orin` runner with CUDA/ICU and
+noninteractive preflight permission. It first rejects a busy/owned device and
+never runs for a public pull-request event. Real-model execution remains an
+explicit serialized Orin operation through the driver above.
+
+The tracked [`compare_service_runs.py`](../tools/evaluation/compare_service_runs.py)
+provides the independent-process B-C-C-B counterpart: pass
+`--baseline-server`, `--candidate-server`, `--model-dir`, `--prompt-request`
+and a fresh `.q3x-work/` `--output` directory. It runs P1/65/513/1089/O16
+and P8192/40000/O256, checks exact request/output/usage equality and a 3%
+no-regression gate separately for Prefill, Decode and external TTFT. This entry point is
+retained for future authorized selection; the reliability batch does not
+start a performance optimization campaign. Negative host controls ensure an
+output mismatch, missing bucket or regression in either phase fails closed.
+
+The reliability protocol's second revision adds a fixed 60-second idle period
+between capacity requests and a declared one-second idle period between
+capability/soak requests (`--soak-interval-seconds`). The first full-output
+request completed, but its immediately following maximum-Prefill request
+reached 90.156C and correctly triggered the operational stop. That run is
+retained as incomplete and is not a qualification pass. Request intervals
+still report actual Prefill and Decode phases; the two-hour test qualifies a
+continuously running service at the declared request cadence, not continuous
+maximum-power saturation. No clock or cooling-control change is part of this
+protocol. A future saturation qualification needs its own deployment envelope.
+The fresh-process check also reads SSE with 0.2 seconds between lines, and a
+host socket test forces real write backpressure through a small send buffer.
+
+Request timing is bound by the response's unique request ID plus the exact body
+hash. Repeated bodies are not interchangeable timing samples. For older driver
+records, the auditor reads the ID from the retained labelled response; a
+hash-only record is accepted only when exactly one witness matches. Ambiguous
+associations fail instead of silently selecting the last request's timing.
+
+For token-ID requests, the auditor also compares the actual client list length
+and canonical little-endian uint32 token hash with the engine receipt. Server
+usage and a self-consistent server witness alone cannot establish that the
+original client prompt was fully consumed.

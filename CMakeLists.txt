@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 
-project(Qwen3xOrin VERSION 0.8.0 LANGUAGES CXX CUDA)
+project(Qwen3xOrin VERSION 0.8.1 LANGUAGES CXX CUDA)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -3624,3 +3624,43 @@ install(FILES
 )
 
 endif() # Unqualified fused Decode admission has no install surface.
+
+# Black-box/host contracts for the sealed artifact do not enable admission hooks.
+if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
+  enable_testing()
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_executable(q3x_service_gateway_contract_test tests/service_gateway_contract_test.cpp)
+  target_link_libraries(q3x_service_gateway_contract_test PRIVATE q3x_eval_gateway)
+  target_compile_definitions(q3x_service_gateway_contract_test PRIVATE Q3X_EVAL_GATEWAY_BUILD_TESTING=0)
+  add_test(NAME service_gateway_contract COMMAND q3x_service_gateway_contract_test)
+  add_test(NAME service_production_help
+    COMMAND ${CMAKE_COMMAND} -DQ3X_EVAL_SERVER=$<TARGET_FILE:qwen3x-eval-server>
+      -DQ3X_EXPECT_PROFILE=whole-core-service
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/eval_server_production_help_test.cmake)
+  add_test(NAME service_document_control COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/docs/validate_document_control.py
+    --repository ${CMAKE_CURRENT_SOURCE_DIR})
+  add_test(NAME service_document_unit COMMAND ${Python3_EXECUTABLE} -B
+    -m unittest tests.test_document_control)
+  set_tests_properties(service_document_unit PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  add_test(NAME service_tool_contracts COMMAND ${Python3_EXECUTABLE} -B
+    -m unittest tests.orin_perf_preflight_test tests.service_qualification_test)
+  set_tests_properties(service_tool_contracts PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  add_test(NAME service_installed_package COMMAND ${CMAKE_COMMAND}
+    -DQ3X_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DQ3X_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+    -DQ3X_GENERATOR=${CMAKE_GENERATOR} -DQ3X_CONFIG=$<CONFIG>
+    -DQ3X_INSTALL_BINDIR=${CMAKE_INSTALL_BINDIR} -DQ3X_EXPECT_EVAL_SERVER=ON
+    -DQ3X_EXPECT_PROFILE=q3x.sm87.production.whole-core-service.v1
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/package_consumer_test.cmake)
+  set_tests_properties(service_gateway_contract service_production_help
+    service_document_control service_document_unit service_tool_contracts service_installed_package
+    PROPERTIES LABELS "host;production" TIMEOUT 180)
+endif()
+
+if(NOT Q3X_BUILD_FUSED_DECODE_ADMISSION)
+  install(FILES LICENSE NOTICE DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/Qwen3xOrin)
+  install(DIRECTORY packaging/licenses/ DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/Qwen3xOrin/licenses)
+  install(DIRECTORY third_party/flashinfer/ DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/Qwen3xOrin/licenses/flashinfer
+    FILES_MATCHING PATTERN "LICENSE*")
+  install(DIRECTORY packaging/systemd/ DESTINATION ${CMAKE_INSTALL_DATADIR}/Qwen3xOrin/systemd)
+endif()

@@ -33,7 +33,7 @@ Package ABI 0.7.0 introduced the automatic request-start reset receipt in
 `ReferenceGeneration` and changed the public runner lifecycle layout. Together
 with the public request-state reset types and protocol witness field, this is
 an intentional 0.x C++ ABI break; consumers must rebuild against the exact
-installed package. The current service exports 0.8.0, including its compiled
+installed package. The current service exports 0.8.1, including its compiled
 whole-core geometry; follow [Request State](REQUEST_STATE.md) for that ABI.
 
 ## Ownership and creation

@@ -20,7 +20,7 @@ NVIDIA Jetson AGX Orin (SM87)**. It provides OpenAI-compatible text and chat
 endpoints with streaming, using native kernels and a fixed execution plan.
 
 The default production service is `qwen3x-eval-server`: corrected whole-core
-Prefill plus ordered v7 Decode, packaged as **0.8.0**. The bounded production
+Prefill plus ordered v7 Decode, packaged as **0.8.1**. The bounded production
 switch is complete. Longer-context support and the remaining performance
 and full-release goals are tracked in [Current Status](docs/CURRENT_STATUS.md)
 and the [Roadmap](docs/ROADMAP.md).
@@ -50,7 +50,7 @@ the supported endpoints and parameters, not the entire OpenAI API. See the
 
 ## Measured performance
 
-Selected results from the **2026-09-28 installed-artifact qualification**:
+Selected results from the **2026-09-28 numerical-route qualification (0.8.0)**:
 
 | Prompt / output tokens | Prefill tokens/s | First-token latency (s) | Decode tokens/s |
 | --- | ---: | ---: | ---: |
@@ -86,7 +86,7 @@ production path; it does not reproduce the performance or accuracy panel.
   free-memory reserve. The arena alone is not the total memory requirement;
   startup rejects insufficient memory.
 - CMake 3.24+, CUDA Toolkit 12.0+ with C++17 support, a system threading
-  library, ICU 74+ (`uc` and `i18n`), and `curl` for the examples.
+  library, Python 3 for delivery checks, ICU 74+ (`uc` and `i18n`), and `curl` for the examples.
 - The checkpoint pinned at revision
   `0893e1606ff3d5f97a441f405d5fc541a6bdf404`, including its tokenizer assets.
   Consult [Model Support](docs/MODEL_SUPPORT.md) for authenticated model facts.
@@ -100,6 +100,7 @@ Keep model files read-only. All generated files below stay in the ignored
 ```bash
 cmake --preset orin-release
 cmake --build --preset orin-release --parallel 3
+ctest --preset orin-release --output-on-failure
 cmake --install .q3x-work/build/orin-release \
   --prefix "$PWD/.q3x-work/install/orin-release"
 ```
@@ -109,7 +110,13 @@ The preset explicitly selects `BUILD_TESTING=OFF` and
 OFF also defaults to the service, but an existing CMake cache can retain old
 settings. Use the preset and a separate directory for experiments; do not mix
 production with admission options. C++ consumers must rebuild against the
-exact 0.8.0 installed package and its exported geometry definitions.
+exact 0.8.1 installed package and its exported geometry definitions.
+
+The release CTest lane checks the gateway, sealed identity, documentation,
+installed package and validation-tool failure cases even though `BUILD_TESTING=OFF`; production test
+hooks remain excluded. An empty test set fails. GPU/model qualification is an
+explicit second stage using the [versioned service validation
+procedure](docs/EVALSCOPE_EVALUATION.md#service-industrialization-validation).
 
 ### Start the service
 
@@ -150,6 +157,37 @@ For a non-loopback listener, supply `--api-key-file /path/to/key` pointing to
 an owner-only regular file (0400 or 0600). Add `Authorization: Bearer …` to
 models and generation requests; `/healthz` remains public. Put TLS termination
 in a trusted reverse proxy when exposing the service beyond the host.
+
+## Service operation
+
+The installed `share/Qwen3xOrin/systemd/` directory contains a service unit and
+`server.env.example`. Before enabling it, create a dedicated `qwen3x` system
+account, grant read/traverse access to the pinned model directory, and confirm
+that the `video` and `render` groups grant access to the Jetson GPU devices.
+Copy the environment template to `/etc/qwen3x-orin/server.env` and set its
+absolute model path. Copy the unit to `/etc/systemd/system/qwen3x-orin.service`.
+The template assumes `/usr/local/bin`; for a different installation, override
+`ExecStart` with the absolute installed server path and the same arguments.
+Then run `systemctl daemon-reload` and `systemctl enable --now qwen3x-orin`.
+These are operator deployment steps, not actions performed by CMake install.
+
+The unit binds loopback port 8000. To require authentication locally or expose
+another interface, use an `ExecStart` override with `--api-key-file` and the
+intended host/port. The key must be owned and readable only by the service
+account; keep TLS termination at the trusted proxy. Model files remain
+read-only inputs. Use `journalctl -u qwen3x-orin` for failure diagnostics.
+
+Fatal CUDA/state failures withdraw readiness and exit nonzero. The template
+restarts on failure, at most three starts per ten minutes. Correct the cause
+before clearing a start-limit failure. Normal SIGINT shutdown does not restart.
+Rollback restores a complete retained installation prefix and its matching
+headers/libraries; do not mix package versions. Preserve the model and API
+configuration when comparing recovery output.
+
+Output limits may split a byte-level token sequence. The API renders any
+terminal incomplete UTF-8 subsequence as U+FFFD while preserving model tokens
+and usage. Slow incomplete HTTP requests have bounded staging capacity and
+deadlines; the service remains a bounded single-request engine.
 
 ## Numerical validation and remaining boundaries
 
@@ -200,3 +238,11 @@ components retain their own notices and licenses; see [NOTICE](NOTICE) and
 vendored source notices. No external inference engine or cuBLASLt runtime
 fallback is part of the production route. Model weights and tokenizer assets
 are distributed separately under their publishers' terms.
+
+The **0.8.1 reliability batch is complete**: six production-build checks,
+36 Python tests, 98 matched capability answers, two hours / 1,708 reuse
+requests without RSS/descriptor/thread growth, and fresh-process recovery.
+The soak uses one-second request gaps; continuous maximum-load saturation is
+not qualified. The [delivery record](docs/metadata/qwen36-27b-service-industrialization-2026-09-28.json)
+and [Current Status](docs/CURRENT_STATUS.md#non-performance-product-audit-2026-09-28)
+retain exact scope, the earlier thermal stop, and paired Prefill/Decode observations.

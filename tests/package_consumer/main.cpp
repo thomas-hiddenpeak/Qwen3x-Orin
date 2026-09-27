@@ -34,7 +34,7 @@ int main() {
           q3x::runtime::RequestStateResetMode::kConservativeFull ||
       q3x::runtime::to_string(reset_receipt.mode) != "conservative_full" ||
       Q3X_VERSION_MAJOR != 0 || Q3X_VERSION_MINOR != 8 ||
-      Q3X_VERSION_PATCH != 0 ||
+      Q3X_VERSION_PATCH != 1 ||
       q3x::runtime::kMaximumRequestPrefillChunkSize != 512U) {
     return 1;
   }

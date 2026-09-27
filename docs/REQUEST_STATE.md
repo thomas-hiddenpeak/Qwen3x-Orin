@@ -46,9 +46,11 @@ exact installed package version; the 0.8.0 extension below supersedes the
 Package ABI 0.8.0 exports the corrected service's compiled whole-core geometry
 alongside its public planners. The full-range profile owns 44,095 sequence
 positions and 44,096 rows of aligned family scratch. Installed consumers must
-rebuild against 0.8.0; the exported compile definitions are part of this exact
+rebuild against the current exact 0.8.1 package; the exported compile definitions are part of this exact
 package configuration. The legacy explicit planner and reset contracts remain
-available under their own memory profiles.
+available under their own memory profiles. Version 0.8.1 preserves this
+geometry and numerical state; its changes are at the service reliability and
+packaging boundary.
 
 ## Model-state contract
 

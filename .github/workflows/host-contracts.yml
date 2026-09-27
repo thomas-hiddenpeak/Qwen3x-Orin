@@ -1,0 +1,43 @@
+name: Delivery contracts
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      orin_release:
+        description: Build and validate the sealed artifact on a dedicated Orin runner
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Documentation registry and preflight contracts
+        run: |
+          python3 -B tools/docs/validate_document_control.py
+          python3 -B -m unittest tests.test_document_control tests.orin_perf_preflight_test tests.service_qualification_test
+      - name: Versioned service qualification entry point
+        run: python3 -B tools/evaluation/qualify_service.py --help
+
+  orin-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.orin_release
+    runs-on: [self-hosted, Linux, ARM64, orin]
+    concurrency:
+      group: qwen3x-orin-release-host
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require an idle, unowned validation host
+        run: |
+          mkdir -p .q3x-work/ci
+          sudo -n python3 -B tools/evaluation/orin_perf_preflight.py --samples 5 \
+            --output ".q3x-work/ci/preflight-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json" \
+            --allow-pid "$$"
+      - name: Build the sealed production artifact and validate its install tree
+        run: |
+          cmake --preset orin-release
+          cmake --build --preset orin-release --parallel 3
+          ctest --preset orin-release --output-on-failure

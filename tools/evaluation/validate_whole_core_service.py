@@ -5,12 +5,45 @@ import argparse
 import hashlib
 import json
 import math
+import struct
 from pathlib import Path
 
 
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise ValueError(message)
+
+
+def select_witness(result: dict, directory: Path, by_hash: dict, by_id: dict) -> dict:
+    """Bind repeated request bodies to their actual response, never the last hash."""
+    request_id = result.get('request_id')
+    if not request_id and result.get('label'):
+        response = directory / (result['label'] + '.json')
+        require(response.resolve().parent == directory.resolve(), 'response label escapes run directory')
+        if response.is_file():
+            events = json.loads(response.read_text()).get('events', [])
+            request_id = events[0].get('id') if events else None
+    if request_id:
+        require(request_id in by_id, 'response has no matching request witness')
+        witness = by_id[request_id]
+    else:
+        matches = by_hash.get(result['request_sha256'], [])
+        require(len(matches) == 1, 'ambiguous or missing request witness; response ID required')
+        witness = matches[0]
+    require(witness['request']['body_sha256'] == result['request_sha256'],
+            'response ID/request body mismatch')
+    return witness
+
+
+def validate_prompt_identity(result: dict, witness: dict) -> None:
+    prompt = result.get('body', {}).get('prompt')
+    expected = len(prompt) if isinstance(prompt, list) else result.get('prompt_tokens')
+    if expected is not None:
+        require(witness['prompt']['tokens'] == expected, 'client prompt length mismatch')
+    if isinstance(prompt, list):
+        canonical = struct.pack(f'<{len(prompt)}I', *prompt)
+        require(hashlib.sha256(canonical).hexdigest() ==
+                witness['prompt']['token_ids_u32le_sha256'], 'client prompt token identity mismatch')
 
 
 def audit_run(directory: Path) -> dict:
@@ -45,7 +78,7 @@ def audit_run(directory: Path) -> dict:
     witnesses = [json.loads(line) for line in (directory / 'server.log').read_text().splitlines()
                  if line.startswith('{"record":"target-prefill-witness')]
     require(bool(witnesses), 'missing request witnesses')
-    by_hash = {}
+    by_hash = {}; by_id = {}
     for witness in witnesses:
         prompt, prefill = witness['prompt'], witness['prefill']
         rows = prompt['tokens']
@@ -84,11 +117,15 @@ def audit_run(directory: Path) -> dict:
                     plan['numerical_contract']['qualified'], 'wrong numerical plan')
             require(witness['decode_numerical_contract'] ==
                     'scalar-equivalent-ordered-fp32-v7', 'wrong Decode arithmetic')
-        by_hash[witness['request']['body_sha256']] = witness
+        by_hash.setdefault(witness['request']['body_sha256'], []).append(witness)
+        request_id = witness['request']['id']
+        require(request_id not in by_id, 'duplicate request witness ID')
+        by_id[request_id] = witness
     records = []
     results_path = directory / 'results.json'
     for result in json.loads(results_path.read_text()) if results_path.exists() else []:
-        witness = by_hash[result['request_sha256']]
+        witness = select_witness(result, directory, by_hash, by_id)
+        validate_prompt_identity(result, witness)
         p, o = result['usage']['prompt_tokens'], result['usage']['completion_tokens']
         require(result['done'] and witness['prompt']['tokens'] == p and
                 witness['completion']['tokens'] == o, 'usage mismatch')
@@ -97,7 +134,7 @@ def audit_run(directory: Path) -> dict:
         require(math.isfinite(prefill_ms) and prefill_ms > 0 and
                 math.isfinite(decode_ms) and (decode_ms > 0 if o > 1 else decode_ms >= 0),
                 'invalid phase timing')
-        records.append({'prompt_tokens': p, 'output_tokens': o,
+        records.append({'request_id': witness['request']['id'], 'prompt_tokens': p, 'output_tokens': o,
                         'prefill_seconds': prefill_ms / 1000,
                         'prefill_tok_s': p * 1000 / prefill_ms,
                         'external_ttft_seconds': result['ttft_s'],

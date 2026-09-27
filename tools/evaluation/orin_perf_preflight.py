@@ -569,6 +569,8 @@ def collect_tegrastats(
             while b"\n" in raw_buffer:
                 raw_line, raw_buffer = raw_buffer.split(b"\n", 1)
                 line = raw_line.decode("utf-8", errors="replace").strip()
+                # Cooling is external; never retain incidental controller fields.
+                line = re.sub(r"\b\S*fan\S*\s+\S+", "", line, flags=re.I)
                 if not line:
                     continue
                 try:

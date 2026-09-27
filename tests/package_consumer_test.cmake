@@ -46,7 +46,7 @@ if(Q3X_EXPECT_EVAL_SERVER)
     ERROR_VARIABLE server_help_error
   )
   if(NOT server_help_result EQUAL 0 OR
-     NOT server_help_output MATCHES "evaluation server 0\\.8\\.0" OR
+     NOT server_help_output MATCHES "evaluation server 0\\.8\\.1" OR
      NOT server_help_output MATCHES
        "${Q3X_EXPECT_PROFILE}")
     message(FATAL_ERROR
@@ -94,3 +94,9 @@ if(NOT test_result EQUAL 0)
   message(FATAL_ERROR
     "consumer execution failed (${test_result})\n${test_output}${test_error}")
 endif()
+
+foreach(notice LICENSE NOTICE licenses/LICENSE.cutlass.txt licenses/LICENSE.fla.txt licenses/flashinfer/LICENSE)
+  if(NOT EXISTS "${prefix}/share/doc/Qwen3xOrin/${notice}")
+    message(FATAL_ERROR "installed package missing notice ${notice}")
+  endif()
+endforeach()

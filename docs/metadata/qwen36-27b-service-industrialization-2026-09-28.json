@@ -1,0 +1,263 @@
+{
+  "schema": "q3x.service-industrialization.v1",
+  "date": "2026-09-28",
+  "work_package": "WP-SERVICE-INDUSTRIALIZATION-20260928",
+  "status": "complete",
+  "source_base": "cb3ece3e74d12f53a5d44adb49156d0d3ad72686",
+  "source_identity": "Final changed sources in the commit containing this record; exact source hashes below. Real-model runs used the retained precommit source identities.",
+  "version": "0.8.1",
+  "installed_binary": {
+    "path": "/home/rm01/Qwen3x-Orin/.q3x-work/install/industrialization-20260928/bin/qwen3x-eval-server",
+    "sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "profile": "q3x.sm87.production.whole-core-service.v1",
+  "model_arithmetic_changed": false,
+  "numerical_authority": "docs/metadata/qwen36-27b-whole-core-service-production-2026-09-28.json",
+  "production_eligible": true,
+  "release_qualified": false,
+  "findings": {
+    "A1": "Closed: incremental maximal-subpart UTF-8 rendering; same stream/nonstream output with unchanged token accounting.",
+    "A2": "Closed: bounded incomplete-request staging, worker availability, timeout/overload contracts.",
+    "A3": "Closed: six production CTests without admission hooks; empty test set fails; host and manually dispatched Orin CI defined.",
+    "A4": "Closed: CUDA/engine invariant failures latch unhealthy and exit nonzero; host fault contracts, supervisor template, fresh-process output recovery.",
+    "A5": "Closed: versioned qualification and B-C-C-B tools; request-ID/body/token identity audit and negative controls.",
+    "A6": "Closed: installed root/vendor notices/licenses and systemd configuration templates.",
+    "A7": "Closed within finite declared protocol: multilingual/cancel/slow-client/capacity/two-hour reuse/fresh-process panel."
+  },
+  "host_validation": {
+    "ctest_passed": 6,
+    "python_tests_passed": 36,
+    "empty_ctest_exit": 8,
+    "historical_runs": 6,
+    "historical_witnesses": 144,
+    "remote_ci_executed": false,
+    "systemd_template_enabled": false,
+    "destructive_gpu_fault_injected": false,
+    "document_control": {
+      "tracked_markdown": 81,
+      "registered": 81,
+      "local_links": 968,
+      "errors": 0
+    }
+  },
+  "qualification": {
+    "passed": true,
+    "functional": {
+      "multilingual_parity_pairs": 24,
+      "cancel_recovery_cycles": 8,
+      "slow_ingress_clients": 12,
+      "queue_overload_http": 429
+    },
+    "capability": {
+      "valid": 98,
+      "correct": 79,
+      "reference_answers_equal": 98
+    },
+    "soak": {
+      "seconds": 7200,
+      "requests": 1708,
+      "rss_growth_kib": 0,
+      "inter_request_idle_seconds": 1.0
+    },
+    "requests": 1889,
+    "mode": "qualify",
+    "complete_witnesses": 1889,
+    "capacity_metrics": [
+      {
+        "request_id": "cmpl-q3x-89",
+        "prompt_tokens": 8192,
+        "output_tokens": 256,
+        "prefill_seconds": 16.752807968000003,
+        "prefill_tok_s": 488.9926521958447,
+        "external_ttft_seconds": 16.773491427768022,
+        "decode_tok_s": 9.219884866154064,
+        "request_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+        "text_sha256": "02884d62c051880cf2790a9f07403cca9a3ea19c5d8a4f62f6706cdb95d9149b"
+      },
+      {
+        "request_id": "cmpl-q3x-90",
+        "prompt_tokens": 40000,
+        "output_tokens": 256,
+        "prefill_seconds": 90.96423587800001,
+        "prefill_tok_s": 439.73326015344594,
+        "external_ttft_seconds": 90.9991376278922,
+        "decode_tok_s": 7.8667942463787055,
+        "request_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+        "text_sha256": "fca071470d3d6ceba279c818b429fe3b3a8c3bc7d579d6e3f75dddb1b5673b77"
+      },
+      {
+        "request_id": "cmpl-q3x-91",
+        "prompt_tokens": 40000,
+        "output_tokens": 4096,
+        "prefill_seconds": 91.517562039,
+        "prefill_tok_s": 437.0745801003101,
+        "external_ttft_seconds": 91.55109768081456,
+        "decode_tok_s": 7.763846978675498,
+        "request_sha256": "986af6402ad2efc387dc603ecb40e086a3a5397fab4576edae8cfafecabc283d",
+        "text_sha256": "1bb9d1082243fe5c34d8750cf1ee97cb790b8706a8a8fbd487a5171f7c2245d4"
+      },
+      {
+        "request_id": "cmpl-q3x-92",
+        "prompt_tokens": 44095,
+        "output_tokens": 1,
+        "prefill_seconds": 103.070147972,
+        "prefill_tok_s": 427.81543315508605,
+        "external_ttft_seconds": 103.10424354718998,
+        "decode_tok_s": null,
+        "request_sha256": "d534ee502991ded431c9d78b40c09193916a173d22c58446c8af5bac1a4c12fa",
+        "text_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+      }
+    ]
+  },
+  "cleanup": {
+    "server_returncode": 0,
+    "clock_errors": [],
+    "max_temp_c": 87.656
+  },
+  "resources": {
+    "initial": {
+      "time": 2792525.834604176,
+      "rss_kib": 50283108,
+      "threads": 8,
+      "fds": 46
+    },
+    "final": {
+      "time": 2799727.029287902,
+      "rss_kib": 50283108,
+      "threads": 8,
+      "fds": 46
+    },
+    "elapsed_seconds": 7201.194683725946
+  },
+  "restart": {
+    "summary": {
+      "passed": true,
+      "soak": {
+        "seconds": 0,
+        "requests": 0,
+        "rss_growth_kib": 0,
+        "inter_request_idle_seconds": 1.0
+      },
+      "requests": 11,
+      "mode": "restart",
+      "complete_witnesses": 11,
+      "capacity_metrics": []
+    },
+    "cleanup": {
+      "server_returncode": 0,
+      "clock_errors": [],
+      "max_temp_c": 75.781
+    },
+    "comparison": {
+      "functional-baseline": {
+        "passed": true,
+        "request_sha256": "20241e1f0caad79854e4f4931a1fe27880af904610be268149fea64153ac403d",
+        "text_sha256": "36be55330daebad015783d225b83f657b84e9bc3f8e4298e1f3933a306cd5545",
+        "usage": {
+          "prompt_tokens": 65,
+          "completion_tokens": 4,
+          "total_tokens": 69
+        },
+        "finish": "length"
+      },
+      "slow-reader": {
+        "passed": true,
+        "request_sha256": "8f7573a602666506e0cfba1631061a1934eee4238b3bd154fdffeaeaa1fe1058",
+        "text_sha256": "fa9b0ba7ddfc9887d865750152f9c76f9964f5e7495cd238adecbf823d7ff16e",
+        "usage": {
+          "prompt_tokens": 513,
+          "completion_tokens": 64,
+          "total_tokens": 577
+        },
+        "finish": "length"
+      }
+    }
+  },
+  "retained_attempts": [
+    {
+      "run": "qualification-r1",
+      "passed": false,
+      "reason": "Preflight output ownership prevented driver read; no server started; fixed exact output ownership handoff."
+    },
+    {
+      "run": "qualification-r2",
+      "passed": false,
+      "reason": "Back-to-back capacity sequence reached 90.156C; operational stop after completed long output, during maximum prompt; no overall qualification authority."
+    },
+    {
+      "run": "qualification-r3",
+      "passed": false,
+      "reason": "Strict preflight rejected journald CPU contention; no server started."
+    },
+    {
+      "run": "qualification-r4",
+      "passed": true,
+      "reason": "Predeclared revised cadence: 60-second capacity gaps, one-second capability/soak gaps."
+    }
+  ],
+  "limitations": [
+    "Single-process capacity rates are regression observations, not new mirrored performance selection.",
+    "Continuous maximum-power saturation and indefinite uptime are not qualified.",
+    "40K Decode remains below 8.55 token/s; performance optimization remains paused.",
+    "60K/130K capacity, 2s/4s TTFT and broader public capability release gates remain open.",
+    "Fatal classification is host fault-tested; real destructive GPU fault and automatic systemd restart were not induced.",
+    "Qualification driver was refined after r4; retained r4 driver source is hash-bound, latest driver exercised by restart and host tests."
+  ],
+  "final_source_sha256": {
+    "CMakeLists.txt": "2afb2196c262433e27081fdcbb62652e1c6edd066ba911c5b62d1e079f84a520",
+    "CMakePresets.json": "c43a83c589deff69cb47742eac664f66ff227e3eeb99e18d55ebda598ba8b67d",
+    "NOTICE": "47691874b15b4a7b0d6579f07eb3cb3c4713bb777c7f020a89679b0ad7ded3cf",
+    "include/q3x/server/evaluation_server.h": "79cf797a8658f1832700dde30b508ce68f64ddaf1a1956ac582dac371c582b00",
+    "src/server/evaluation_server.cpp": "3167ae0153ef296c8e5eecc6d6f3760394eb89721e4ebdd4da84acdca793803f",
+    "tests/package_consumer/CMakeLists.txt": "056ab11b18032fbfca4f24beb9c0bd35bb680bdfb4cc3889e22800b86263529b",
+    "tests/package_consumer/main.cpp": "c6e8453a36797eae170145b9f5e0adb699a3cd5e0d677b38aa5f350dfaff4349",
+    "tests/package_consumer_test.cmake": "4e16ffded96afe04b64145fb4987962dc3eb9ff1a01ba7d551695e4512aa5e65",
+    "tools/evaluation/orin_perf_preflight.py": "41a3d96ba928ed85c702155018e6a0b3e33d80daea918fc2637f8a00ee11fc0d",
+    "tools/evaluation/validate_whole_core_service.py": "f352d3e7d5eaee4c948f7a976ff674d083eb0e4956a4d4ff3151830b6c9299a7",
+    ".github/workflows/host-contracts.yml": "bf8315f139e3252c8a6ce9cb3e126f990949b40c966f5d83171093ead8020597",
+    "packaging/licenses/LICENSE.cutlass.txt": "65ddf9dde99facd51b9dcda11d43fc73c425f5c85427546c0208616963e20892",
+    "packaging/licenses/LICENSE.fla.txt": "d706ba6f183dc0101475c3ec78d1c886de6570affab1d225ad248031a332b648",
+    "packaging/systemd/qwen3x-orin.service": "5ac27353eb7006f22cf50462401c586f857cd46e5b9c02cb02ab7ba192911a15",
+    "packaging/systemd/server.env.example": "5c110e5e8e5971ab1f73c7a66d45f6af39ffe42a68c5e0c7ef23975af39277b6",
+    "src/server/utf8_output.h": "cf624d9ea3623aa193ba699a56effc27ebcc724c00f573b5d8ee28613524eac0",
+    "tests/service_gateway_contract_test.cpp": "1f455f143e109f788bd6ea449415ba551b37c981723cde094195ca433ad638e0",
+    "tests/service_qualification_test.py": "0bbff879454d46afe5fbc05b0f27bb2ca0ff7cf28a6618f63763c8c946a2f42c",
+    "tools/evaluation/compare_service_runs.py": "04d949f7f67e86e95a1b95548c30ed7a0bb3976c0f24803795d8dc39f7b9c46b",
+    "tools/evaluation/qualify_service.py": "286a1b17af7a58a4d3089319c9bf2fdc100878ac6c48bf96d7ea613e09740ec7"
+  },
+  "evidence_sha256": {
+    ".q3x-work/industrialization-20260928/qualification-r4/results.json": "4dc6e595b6700806c7627881c8e28bc77c299ac7612fecffe1c9ae70141f75a7",
+    ".q3x-work/industrialization-20260928/qualification-r4/identity.json": "77b97f0b72005b32a49f12c3ae2c8403014415d01c35172e72b76f9a09ce4b67",
+    ".q3x-work/industrialization-20260928/qualification-r4/cache-preparation.json": "24155aad626d8dbb3d95443f739c5f5fa9cba9c4eb23f0ed3d5a3f5687e25cc3",
+    ".q3x-work/industrialization-20260928/qualification-r4/requests.jsonl": "b11fb8bb97e1178a0a79ad0f26a392bd21cc0ea4897c3ce08f00400927de611f",
+    ".q3x-work/industrialization-20260928/qualification-r4/resources.json": "ed2b9b2776d139f507d4ff1b5b529d213c433dd5468558df13cb809839fe5298",
+    ".q3x-work/industrialization-20260928/qualification-r4/cleanup.json": "93743df18b8ac8e4ceca5f304bd4e7641c4fce07102f5d4d4dce99502944bd66",
+    ".q3x-work/industrialization-20260928/qualification-r4/clocks.jsonl": "db1b5ba454d0eb736514e183ce11c250e0a1a8cc3903081a7933ca538aa42850",
+    ".q3x-work/industrialization-20260928/qualification-r4/driver-source.py": "d93f6ecad05b1cabbd0e4dbd2c682c62d2e382261a9f481b45290af2bb5dbecb",
+    ".q3x-work/industrialization-20260928/qualification-r4/service-audit.json": "d11dfe41f2840f968511e60c58177d3d7bae4182b659ac90533f39471bde0d25",
+    ".q3x-work/industrialization-20260928/qualification-r4/telemetry.log": "c37117a01927df7b2d5ea74a062be999cf3b6d34bbed077e3042ff9386b648d7",
+    ".q3x-work/industrialization-20260928/qualification-r4/summary.json": "ab267a95ad1113cf9b062f1f8a22c107057e2668e8a8cd77cf8c2a8fbfc8b508",
+    ".q3x-work/industrialization-20260928/qualification-r4/preflight.json": "c6b6b0104d904b2c1db27be4e9d9cae477e68715bfda20d6c14b06f95006e2e3",
+    ".q3x-work/industrialization-20260928/qualification-r4/server.log": "3a911d3ba9ab7f4627f9b49bd57efbc6ccf731b55ab18526b7e938cd58ac179b",
+    ".q3x-work/industrialization-20260928/restart-r1/results.json": "6427062dddbcd9ad3aeeaed680b78fa504fb2d5ddac7a28baa87f64e59b49219",
+    ".q3x-work/industrialization-20260928/restart-r1/identity.json": "92e01c40125e80bff56ae06f1d0bcd5487f1fd09108893b592ecf3bfcc6c4605",
+    ".q3x-work/industrialization-20260928/restart-r1/cache-preparation.json": "88920f68e88b0b79693a81abb14fac218c905ff9a448eb5ce4653211572f4eb4",
+    ".q3x-work/industrialization-20260928/restart-r1/requests.jsonl": "6e313dbc1d28a2437c569155f53db71157fd1791a4dbe3504d885fa51c4709f2",
+    ".q3x-work/industrialization-20260928/restart-r1/resources.json": "abf81607c2ed8d5448bffd510ed327b3734a6e5bbed73b09699e9d65f188f81c",
+    ".q3x-work/industrialization-20260928/restart-r1/cleanup.json": "ae00046f8cd399871b09029a63af94a50089d66c9d072de64ee76cdf511eb182",
+    ".q3x-work/industrialization-20260928/restart-r1/clocks.jsonl": "0ec3157ed8685b52d86cf3ebcc237b4c0ce34c3a4dceae89fbc126e4a21e0a37",
+    ".q3x-work/industrialization-20260928/restart-r1/process-environment.json": "4dfc5deb4cef1d550bc36cfe8193bd7142a2def624781a1b4a6fa4631f651409",
+    ".q3x-work/industrialization-20260928/restart-r1/service-audit.json": "a496d45a3639d8190400ba47e7029fbb5b98b752302cf5bf312da5c83acf6a90",
+    ".q3x-work/industrialization-20260928/restart-r1/telemetry.log": "48cbea25c0650fbf4e58ce26a4b999c3967a984d2fa7a9f3f95d230001b491fe",
+    ".q3x-work/industrialization-20260928/restart-r1/summary.json": "c393f655a6db39b5b1e983625cb0e746ef57e16da28efadef48255ed6541a057",
+    ".q3x-work/industrialization-20260928/restart-r1/preflight.json": "76164d45760b1079ef5f646824be3920b604968fc18a855c8df73cb2075dc00b",
+    ".q3x-work/industrialization-20260928/restart-r1/server.log": "f18649fdec1a3b82ad727c637ec9ae51127955cda379a84a5f42fd171daa06dc",
+    ".q3x-work/industrialization-20260928/restart-comparison.json": "7ba350cc6c9c2ab4225275cdb861b22510c786a138a7ddbca22f7c7571e6cfe0",
+    ".q3x-work/industrialization-20260928/historical-reaudit.json": "739d9cfdaeb3e3c1d42452e5f334912bc60be9e11f461c950466629a6af5ccd8",
+    ".q3x-work/industrialization-20260928/python-tests-final.log": "9c45b88fcc19cb609747a513930735d43cabc3616eddd5466bb3137a3fa40849",
+    ".q3x-work/industrialization-20260928/empty-preset-guard.log": "6845bcb6b5494145ced9f82ab06d4056c6872f754693322c0a604542f618be7b",
+    ".q3x-work/industrialization-20260928/source-manifest-final.json": "662b4b7fbd3ff2c17ad196eacfc843b530f569e7f0b6db06960bfa41e545cc86",
+    ".q3x-work/industrialization-20260928/systemd-verify.log": "ebf5a5752905968f18b036a2a57bcdd5a2d69f281cec408a4d42213962cc6bcb",
+    ".q3x-work/industrialization-20260928/ctest-final.log": "d7a214a4788ae3220bcc9f48c118398b6c85fadede0f43904c9a5033a9e7275c"
+  }
+}

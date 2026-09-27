@@ -114,7 +114,7 @@ completion boundary.
 
 `ReferencePrefillTileResult::steps` therefore has 512 entries. That public
 C512 boundary was introduced by package ABI 0.4.0 and remains unchanged
-through 0.8.0; version 0.5.0 changed the separate request-state object ABI for
+through 0.8.1; version 0.5.0 changed the separate request-state object ABI for
 an isolated layer-major candidate. Version 0.7.0 changes the runner object ABI
 for lifecycle-derived request cleanup without changing the C512 capacity. The
 64-token limit on a generic projection dispatcher is an internal component
@@ -272,7 +272,7 @@ runner if the fixed device/kernel setup fails. Kernel failure uses the normal
 poison/reset boundary; it never silently switches to scalar after enqueue.
 The public scalar attention comparator remains independently callable.
 
-The sealed 0.8.0 whole-core service selects the independently qualified ordered
+The sealed 0.8.1 whole-core service selects the independently qualified ordered
 v7 output-only Attention implementation through the same internal execution
 boundary. Its numerical arithmetic, bounded scratch and poison/reset semantics
 are shared with the corrected admission, while test observers, forced-token

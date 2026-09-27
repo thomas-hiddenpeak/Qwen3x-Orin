@@ -1,4 +1,5 @@
 #include "q3x/server/evaluation_server.h"
+#include "utf8_output.h"
 
 #include "q3x/core/sha256.h"
 #include "q3x/server/openai_protocol.h"
@@ -531,7 +532,7 @@ class UniqueFd final {
 }
 
 inline constexpr std::string_view kProductionRuntimeUnhealthyReason =
-    "sealed_production_load_receipt_deviated";
+    "sealed_production_runtime_unhealthy";
 
 [[nodiscard]] bool refresh_production_runtime_health(
     const EvaluationServerOptions& options,
@@ -604,6 +605,18 @@ struct HttpReadResult {
   int error_status = 0;
   std::string error_message;
   bool peer_closed = false;
+  bool incomplete = false;
+};
+
+struct ReadyConnection {
+  UniqueFd socket;
+  HttpReadResult request;
+};
+
+struct PendingConnection {
+  UniqueFd socket;
+  std::string buffer;
+  Clock::time_point deadline;
 };
 
 struct InferenceJob {
@@ -859,7 +872,7 @@ struct InferenceJob {
 HttpReadResult read_http_request(
     const int fd, std::string& buffer,
     const std::uint32_t timeout_milliseconds,
-    const std::atomic<bool>& stopping) {
+    const std::atomic<bool>& stopping, const bool buffered_only = false) {
   HttpReadResult result;
   const Clock::time_point deadline =
       Clock::now() + std::chrono::milliseconds(timeout_milliseconds);
@@ -868,6 +881,10 @@ HttpReadResult read_http_request(
     if (buffer.size() >= kMaximumHeaderBytes) {
       result.error_status = 413;
       result.error_message = "HTTP headers exceed the fixed limit";
+      return result;
+    }
+    if (buffered_only) {
+      result.incomplete = true;
       return result;
     }
     if (!wait_for_fd(fd, POLLIN, deadline, &stopping)) {
@@ -982,6 +999,10 @@ HttpReadResult read_http_request(
 
   const std::size_t message_bytes = header_end + 4U + content_length;
   while (buffer.size() < message_bytes) {
+    if (buffered_only) {
+      result.incomplete = true;
+      return result;
+    }
     if (!wait_for_fd(fd, POLLIN, deadline, &stopping)) {
       result.error_status = stopping.load(std::memory_order_relaxed) ? 503
                                                                      : 408;
@@ -1007,6 +1028,59 @@ HttpReadResult read_http_request(
   buffer.erase(0U, message_bytes);
   result.value.emplace(std::move(request));
   return result;
+}
+
+// Incomplete clients stay in a bounded poll-driven staging set, never on the
+// three response workers. Each turn reads at most 64 KiB per client, with an
+// absolute deadline. New arrivals can evict the oldest incomplete connection
+// under saturation; a client cannot reserve a worker merely by opening a socket.
+void stage_http_connections(
+    std::vector<PendingConnection>& pending,
+    BoundedQueue<ReadyConnection>& ready,
+    const EvaluationServerOptions& options,
+    const std::atomic<bool>& stopping) {
+  for (auto it = pending.begin(); it != pending.end();) {
+    if (stopping.load(std::memory_order_relaxed) || Clock::now() >= it->deadline) {
+      it = pending.erase(it);
+      continue;
+    }
+    bool closed = false;
+    for (std::size_t read_bytes = 0; read_bytes < 65536;) {
+      char bytes[8192];
+      const ssize_t n = ::recv(it->socket.get(), bytes, sizeof(bytes), MSG_DONTWAIT);
+      if (n > 0) {
+        it->buffer.append(bytes, static_cast<std::size_t>(n));
+        read_bytes += static_cast<std::size_t>(n);
+        // Parse after each bounded read; do not accumulate over-limit bodies.
+        HttpReadResult parsed = read_http_request(
+            it->socket.get(), it->buffer, options.read_timeout_milliseconds,
+            stopping, true);
+        if (!parsed.incomplete) {
+          ReadyConnection connection{std::move(it->socket), std::move(parsed)};
+          if (!ready.try_push(std::move(connection))) {
+            // Best-effort overload response only: never stall the IO reactor.
+            constexpr std::string_view busy =
+                "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n"
+                "Content-Length: 0\r\n\r\n";
+            (void)::send(connection.socket.get(), busy.data(), busy.size(),
+                         MSG_DONTWAIT | MSG_NOSIGNAL);
+          }
+          closed = true;
+          break;
+        }
+      } else if (n == 0) {
+        closed = true;
+        break;
+      } else if (errno == EINTR) {
+        continue;
+      } else {
+        closed = errno != EAGAIN && errno != EWOULDBLOCK;
+        break;
+      }
+    }
+    if (closed) it = pending.erase(it);
+    else ++it;
+  }
 }
 
 [[nodiscard]] bool peer_disconnected(const int fd) noexcept {
@@ -1048,56 +1122,6 @@ HttpReadResult read_http_request(
   return "data: " + std::move(payload) + "\n\n";
 }
 
-// Returns the complete valid UTF-8 prefix. An incomplete terminal code point
-// is retained for the next token; malformed interior bytes fail closed.
-[[nodiscard]] bool complete_utf8_prefix(const std::string_view bytes,
-                                        std::size_t& prefix) noexcept {
-  prefix = 0U;
-  std::size_t index = 0U;
-  while (index < bytes.size()) {
-    const auto first = static_cast<unsigned char>(bytes[index]);
-    std::size_t length = 0U;
-    if (first <= 0x7fU) {
-      length = 1U;
-    } else if (first >= 0xc2U && first <= 0xdfU) {
-      length = 2U;
-    } else if (first >= 0xe0U && first <= 0xefU) {
-      length = 3U;
-    } else if (first >= 0xf0U && first <= 0xf4U) {
-      length = 4U;
-    } else {
-      return false;
-    }
-    if (bytes.size() - index < length) {
-      return true;
-    }
-    for (std::size_t offset = 1U; offset < length; ++offset) {
-      const auto continuation =
-          static_cast<unsigned char>(bytes[index + offset]);
-      if ((continuation & 0xc0U) != 0x80U) {
-        return false;
-      }
-    }
-    if (length == 3U) {
-      const auto second = static_cast<unsigned char>(bytes[index + 1U]);
-      if ((first == 0xe0U && second < 0xa0U) ||
-          (first == 0xedU && second >= 0xa0U)) {
-        return false;
-      }
-    }
-    if (length == 4U) {
-      const auto second = static_cast<unsigned char>(bytes[index + 1U]);
-      if ((first == 0xf0U && second < 0x90U) ||
-          (first == 0xf4U && second > 0x8fU)) {
-        return false;
-      }
-    }
-    index += length;
-    prefix = index;
-  }
-  return true;
-}
-
 struct ObserverContext {
   std::shared_ptr<InferenceJob> job;
   const std::atomic<bool>* stopping = nullptr;
@@ -1131,24 +1155,9 @@ bool observe_gateway_token(
     }
     context.pending_utf8.append(token.text_delta.data(),
                                 token.text_delta.size());
-    std::size_t complete_bytes = 0U;
-    if (!complete_utf8_prefix(context.pending_utf8, complete_bytes)) {
-      context.protocol_failure = true;
-      context.protocol_failure_message =
-          "generated token bytes are not valid incremental UTF-8";
-      return false;
-    }
     const bool finished = token.is_stop_token ||
-                          token.index + 1U ==
-                              context.job->request.max_tokens;
-    if (finished && complete_bytes != context.pending_utf8.size()) {
-      context.protocol_failure = true;
-      context.protocol_failure_message =
-          "generation ended inside an incomplete UTF-8 code point";
-      return false;
-    }
-    const std::string delta = context.pending_utf8.substr(0U, complete_bytes);
-    context.pending_utf8.erase(0U, complete_bytes);
+                          token.index + 1U == context.job->request.max_tokens;
+    const std::string delta = render_utf8_output(context.pending_utf8, finished);
     std::optional<OpenAIFinishReason> finish_reason;
     if (token.is_stop_token) {
       finish_reason = OpenAIFinishReason::kStop;
@@ -1511,6 +1520,10 @@ void execute_job(runtime::ReferenceEngine& engine,
   }
   const Clock::time_point generation_finished_at = Clock::now();
 
+  if (!generated) {
+    runtime_health.observe_failure(generated.diagnostic);
+  }
+
   // Graph replay failure can retire the engine-lifetime cache inside
   // generate().  Revalidate before publishing another successful or generic
   // engine response so the first divergence irreversibly closes admission.
@@ -1616,27 +1629,18 @@ void execute_job(runtime::ReferenceEngine& engine,
     (void)job->push_event("data: [DONE]\n\n", stopping);
     job->close_events();
   } else {
-    std::size_t complete_bytes = 0U;
-    if (!complete_utf8_prefix(generated.value->generated_text,
-                              complete_bytes) ||
-        complete_bytes != generated.value->generated_text.size()) {
-      publish_job_error(
-          job,
-          simple_error(500, "response_encoding_error",
-                       "generated text is not complete valid UTF-8"),
-          stopping);
-      return;
-    }
+    std::string pending = generated.value->generated_text;
+    const std::string rendered_text = render_utf8_output(pending, true);
     const OpenAIFinishReason reason =
         finish_reason(generated.value->stop_reason);
     const std::string body =
         job->request.endpoint == OpenAIEndpoint::kChatCompletions
             ? serialize_chat_completion(
                   job->id, job->created, job->request.model,
-                  generated.value->generated_text, reason, usage)
+                  rendered_text, reason, usage)
             : serialize_text_completion(
                   job->id, job->created, job->request.model,
-                  generated.value->generated_text, reason, usage);
+                  rendered_text, reason, usage);
     job->set_response(200, body);
   }
   const Clock::time_point response_ready_at = Clock::now();
@@ -1768,21 +1772,19 @@ void inference_worker(runtime::ReferenceEngine& engine,
 }
 
 void handle_connection(
-    UniqueFd connection,
+    ReadyConnection ready_connection,
     BoundedQueue<std::shared_ptr<InferenceJob>>& inference_queue,
     const EvaluationServerOptions& options,
     const std::string& api_key,
     const EvaluationProductionRuntimeHealth& runtime_health,
     const std::atomic<bool>& stopping,
     std::atomic<std::uint64_t>& next_request_id) {
-  std::string buffer;
+  UniqueFd connection = std::move(ready_connection.socket);
   for (std::size_t request_count = 0U;
        request_count < kMaximumRequestsPerConnection &&
        !stopping.load(std::memory_order_relaxed);
        ++request_count) {
-    HttpReadResult read = read_http_request(
-        connection.get(), buffer, options.read_timeout_milliseconds,
-        stopping);
+    HttpReadResult read = std::move(ready_connection.request);
     if (!read.value.has_value()) {
       if (!read.peer_closed && read.error_status != 0) {
         const OpenAIProtocolError error = simple_error(
@@ -2036,14 +2038,14 @@ void handle_connection(
 }
 
 void ingress_worker(
-    BoundedQueue<UniqueFd>& connections,
+    BoundedQueue<ReadyConnection>& connections,
     BoundedQueue<std::shared_ptr<InferenceJob>>& inference_queue,
     const EvaluationServerOptions& options,
     const std::string& api_key,
     const EvaluationProductionRuntimeHealth& runtime_health,
     const std::atomic<bool>& stopping,
     std::atomic<std::uint64_t>& next_request_id) {
-  UniqueFd connection;
+  ReadyConnection connection;
   while (connections.pop(connection)) {
     try {
       handle_connection(std::move(connection), inference_queue, options,
@@ -2099,7 +2101,7 @@ void ingress_worker(
 
 [[nodiscard]] bool valid_options(const EvaluationServerOptions& options,
                                  std::string& error) {
-  std::size_t served_model_bytes = 0U;
+  std::string served_model_bytes = options.served_model;
   if (options.model_directory.empty() || options.bind_address.empty() ||
       options.served_model.empty() || options.max_sequence_length == 0U ||
       options.max_sequence_length >
@@ -2117,8 +2119,7 @@ void ingress_worker(
       options.stream_event_capacity == 0U ||
       options.read_timeout_milliseconds == 0U ||
       options.write_timeout_milliseconds == 0U ||
-      !complete_utf8_prefix(options.served_model, served_model_bytes) ||
-      served_model_bytes != options.served_model.size() ||
+      render_utf8_output(served_model_bytes, true) != options.served_model ||
       !runtime::is_valid_projection_backend(options.projection_backend) ||
       !runtime::is_valid_reference_prefill_execution_mode(
           options.prefill_execution_mode) ||
@@ -2272,7 +2273,7 @@ void ingress_worker(
 class WorkerJoinGuard final {
  public:
   WorkerJoinGuard(
-      std::atomic<bool>& stopping, BoundedQueue<UniqueFd>& connections,
+      std::atomic<bool>& stopping, BoundedQueue<ReadyConnection>& connections,
       BoundedQueue<std::shared_ptr<InferenceJob>>& inference_queue,
       std::vector<std::thread>& ingress, std::thread& inference) noexcept
       : stopping_(stopping),
@@ -2300,7 +2301,7 @@ class WorkerJoinGuard final {
 
  private:
   std::atomic<bool>& stopping_;
-  BoundedQueue<UniqueFd>& connections_;
+  BoundedQueue<ReadyConnection>& connections_;
   BoundedQueue<std::shared_ptr<InferenceJob>>& inference_queue_;
   std::vector<std::thread>& ingress_;
   std::thread& inference_;
@@ -2338,6 +2339,20 @@ bool EvaluationProductionRuntimeHealth::observe(
   } catch (...) {
     fail_closed("live receipt validation raised an exception");
     return false;
+  }
+}
+
+void EvaluationProductionRuntimeHealth::observe_failure(
+    const runtime::ReferenceEngineDiagnostic& diagnostic) noexcept {
+  using Error = runtime::ReferenceEngineError;
+  if (diagnostic.cuda_error != 0 ||
+      diagnostic.code == Error::kRunnerResetFailure ||
+      diagnostic.code == Error::kRunnerStepFailure ||
+      diagnostic.code == Error::kMissingLogits ||
+      diagnostic.code == Error::kMissingPrediction ||
+      diagnostic.code == Error::kMissingTiming ||
+      diagnostic.code == Error::kPrefillPlanUnavailable) {
+    fail_closed("unrecoverable inference or request-state failure");
   }
 }
 
@@ -2424,7 +2439,7 @@ int run_evaluation_server(const EvaluationServerOptions& options,
     return 4;
   }
 
-  BoundedQueue<UniqueFd> connections(
+  BoundedQueue<ReadyConnection> connections(
       options.accepted_connection_capacity);
   BoundedQueue<std::shared_ptr<InferenceJob>> inference_queue(
       options.inference_queue_capacity);
@@ -2588,11 +2603,21 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << '\n';
 
   bool fatal_accept_error = false;
+  std::vector<PendingConnection> pending;
+  pending.reserve(options.accepted_connection_capacity);
   while (!stop_requested.load(std::memory_order_relaxed)) {
-    pollfd descriptor{};
-    descriptor.fd = listener.get();
-    descriptor.events = POLLIN;
-    const int polled = ::poll(&descriptor, 1U, 250);
+    if (!runtime_health.ready()) {
+      error_message = "unrecoverable production runtime failure; restart required";
+      fatal_accept_error = true;
+      break;
+    }
+    std::vector<pollfd> descriptors;
+    descriptors.reserve(1 + pending.size());
+    descriptors.push_back({listener.get(), POLLIN, 0});
+    for (const auto& item : pending) {
+      descriptors.push_back({item.socket.get(), POLLIN, 0});
+    }
+    const int polled = ::poll(descriptors.data(), descriptors.size(), 50);
     if (polled < 0) {
       if (errno == EINTR) {
         continue;
@@ -2602,7 +2627,8 @@ int run_evaluation_server(const EvaluationServerOptions& options,
       fatal_accept_error = true;
       break;
     }
-    if (polled == 0 || (descriptor.revents & POLLIN) == 0) {
+    stage_http_connections(pending, connections, options, stop_requested);
+    if (polled == 0 || (descriptors.front().revents & POLLIN) == 0) {
       continue;
     }
     for (std::size_t accepted_this_poll = 0U;
@@ -2637,14 +2663,12 @@ int run_evaluation_server(const EvaluationServerOptions& options,
       const int enabled = 1;
       (void)::setsockopt(connection.get(), IPPROTO_TCP, TCP_NODELAY,
                          &enabled, sizeof(enabled));
-      if (!connections.try_push(std::move(connection))) {
-        const OpenAIProtocolError error = simple_error(
-            503, "ingress_full", "the bounded HTTP ingress is full");
-        (void)send_fixed_response(
-            accepted, 503, serialize_openai_error(error), false,
-            std::min<std::uint32_t>(options.write_timeout_milliseconds,
-                                    1'000U));
+      if (pending.size() >= options.accepted_connection_capacity) {
+        pending.erase(pending.begin());
       }
+      pending.push_back({std::move(connection), {}, Clock::now() +
+          std::chrono::milliseconds(options.read_timeout_milliseconds)});
+
     }
     if (fatal_accept_error) {
       break;

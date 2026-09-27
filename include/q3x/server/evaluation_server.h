@@ -404,6 +404,8 @@ class EvaluationProductionRuntimeHealth final {
       const EvaluationServerOptions& options,
       const runtime::ReferenceEngineLoadStats& load) noexcept;
 
+  // Request validation/cancellation alone do not poison an otherwise healthy engine.
+  void observe_failure(const runtime::ReferenceEngineDiagnostic& diagnostic) noexcept;
  private:
   void fail_closed(std::string_view detail) noexcept;
 

@@ -229,7 +229,7 @@ by [Current Status](CURRENT_STATUS.md), not inferred from this profile contract.
 
 The ordinary `orin-release` preset and fresh `BUILD_TESTING=OFF` build select
 `Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION`. This sealed build uses
-package ABI 0.8.0 and `BUILD_TESTING=OFF`. It fixes the corrected whole-core
+package ABI 0.8.1 and `BUILD_TESTING=OFF`. It fixes the corrected whole-core
 Prefill and scalar-equivalent ordered v7 Decode in one compiled plan,
 `q3x.sm87.production.whole-core-service.v1`. The normal server invocation
 uses that plan without a candidate, development or tactic selector. The installed-artifact qualification selects it as the ordinary default;
@@ -265,6 +265,35 @@ Service production eligibility and full product release qualification are
 distinct: this bounded service does not claim the future 60K/130K capacity or
 locked 2s/4s Prefill SLOs. Its request witness identifies the corrected Prefill
 contract, scalar-equivalent Decode, actual rows and physical role counts.
+
+### 3.3 Service reliability boundary (0.8.1)
+
+Byte-level token output is serialized incrementally as UTF-8. At most three
+incomplete bytes are carried between token callbacks. Invalid or terminally
+incomplete subsequences become U+FFFD using maximal-subpart replacement,
+identically in SSE and nonstream responses. Token IDs, usage and model state
+are unchanged; a byte-fragment output cap is a normal `length` finish.
+
+Incomplete HTTP headers and bodies remain in a bounded nonblocking poll stage
+with the existing request deadline and size limits. Only complete requests
+enter the three response workers. At staging capacity, the oldest incomplete
+connection is evicted; parsed-queue overload receives best-effort 503. Model
+execution remains one active request and one queued request (429 on overload).
+Readiness is public, but models and generation retain Bearer authentication.
+
+Any CUDA error or engine reset/step/missing-result/plan invariant failure
+irreversibly marks runtime health unhealthy. Client validation errors and
+successful cancellation do not. The listener stops admission and the process
+exits nonzero after owned cleanup, allowing an external supervisor to restart
+from a clean runtime; an in-flight response may terminate on fatal shutdown.
+The installed systemd template provides bounded restart attempts, SIGINT
+shutdown and owner-controlled model/key configuration. Installation does not
+automatically enable or start a system service.
+
+Production builds register separate host contract, help, documentation and
+installed-consumer tests with `BUILD_TESTING=OFF`; no test hook enters the
+production executable. The release test preset rejects an empty test set.
+Installed legal notices and versioned validation tooling are delivery assets.
 
 ## 4. System decomposition from the API inward
 
@@ -363,7 +392,7 @@ position mismatch, or any uncertain boundary requires the conservative full
 reset. The request witness records the selected mode, cleared positions,
 zeroed bytes, and synchronized cleanup duration. This public receipt and the
 associated C++ object-layout changes originated in package ABI 0.7.0. The
-current service exports ABI 0.8.0; 0.x consumers must rebuild against the exact
+current service exports ABI 0.8.1; 0.x consumers must rebuild against the exact
 installed version.
 
 The v3 profile identity superseded v2 for the 0.7.0 reset-policy route.

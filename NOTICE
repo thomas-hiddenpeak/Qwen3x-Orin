@@ -49,3 +49,10 @@ Apache License, Version 2.0. The upstream file credits
 FlashLinearAttention, Copyright 2023-2025 Songlin Yang and Yu Zhang,
 licensed under the MIT License. The Qwen3x-Orin implementation is a native
 CUDA specialization and does not incorporate Triton-generated code.
+
+The corrected whole-core projection path compiles NVIDIA CUTLASS templates
+from the pinned source subset in third_party/cutlass/include. CUTLASS is
+Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES, BSD-3-Clause.
+Its notice is included in packaging/licenses/LICENSE.cutlass.txt.
+Installed distributions include this NOTICE, the project Apache-2.0 LICENSE,
+and third-party license texts under share/doc/Qwen3xOrin.

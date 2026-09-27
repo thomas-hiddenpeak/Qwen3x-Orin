@@ -1,0 +1,24 @@
+[Unit]
+Description=Qwen3x-Orin pinned-model inference service
+After=network.target
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=qwen3x
+Group=qwen3x
+SupplementaryGroups=video render
+EnvironmentFile=/etc/qwen3x-orin/server.env
+ExecStart=/usr/local/bin/qwen3x-eval-server ${Q3X_MODEL_DIR} --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=120
+NoNewPrivileges=true
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

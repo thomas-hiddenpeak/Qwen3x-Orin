@@ -30,9 +30,22 @@ The [product audit](analysis/product-readiness-audit-2026-09-28/README.md)
 identifies Unicode output-cap handling, HTTP control-plane availability,
 zero-test release validation, error-to-readiness propagation, reproducible
 qualification tools, install notices and bounded sustained-service coverage.
-Its recommended repair order is API correctness/availability, repeatable
-production tests, then recovery/packaging and sustained-service checks. These
-are findings and proposed closures; the audit itself makes no runtime repair.
+The owner has authorized one delivery batch, `WP-SERVICE-INDUSTRIALIZATION-20260928`.
+Its originating constraints are correct text serialization, available control
+plane, fail-closed runtime health, reproducible validation and deployable
+packaging. These select bounded UTF-8 carry, staged incomplete connections,
+fatal-error health latching, production host tests, a versioned API driver and
+installed notices/supervision templates. Value returns at the same installed
+0.8.1 service through the unified protocol in
+[EVALSCOPE_EVALUATION](EVALSCOPE_EVALUATION.md#service-industrialization-validation).
+The batch is complete: six host/package CTests, 36 Python tests, multilingual/
+slow-client/cancel/capacity checks, the pinned 98-question panel, two hours /
+1,708 bounded reuse requests, fresh-process recovery and complete route/cleanup
+checks passed. The [delivery record](metadata/qwen36-27b-service-industrialization-2026-09-28.json)
+closes this package; no further qualification-only loop is active. It does not
+reopen kernel optimization or change model arithmetic. The one-second reuse
+cadence and 60-second capacity spacing do not qualify continuous maximum-load
+saturation; the earlier thermal stop remains recorded as a deployment limit.
 
 ## 2026-09-27 product convergence — delivered scope and retained gaps
 
@@ -80,7 +93,8 @@ not select production. A negative bounded composition closes its own version.
    longer-running stability and the required broader capability coverage.
    Preserve exact installed artifact, numerical, route, resource, dependency,
    package and public API attestation.
-5. Add startup/AOT/service-supervision improvements only when selected by an
+5. Basic service-supervision templates are delivered. Add further startup/AOT
+   or deployment improvements only when selected by an
    actual deployment constraint. Additional models, batching, MTP and media
    remain later separately authorized product scopes.
 

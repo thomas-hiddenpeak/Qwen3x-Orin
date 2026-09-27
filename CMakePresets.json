@@ -55,6 +55,16 @@
         "Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION": "ON",
         "Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION": "OFF"
       }
+    },
+    {
+      "name": "orin-host-tests",
+      "binaryDir": "${sourceDir}/.q3x-work/build/orin-host-tests",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "ON",
+        "Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION": "OFF",
+        "Q3X_CUDA_ARCHITECTURES": "87"
+      }
     }
   ],
   "buildPresets": [
@@ -82,12 +92,34 @@
       "targets": [
         "qwen3x-eval-server"
       ]
+    },
+    {
+      "name": "orin-host-tests",
+      "configurePreset": "orin-host-tests"
     }
   ],
   "testPresets": [
     {
       "name": "orin-release",
       "configurePreset": "orin-release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "orin-host-tests",
+      "configurePreset": "orin-host-tests",
+      "filter": {
+        "include": {
+          "label": "host"
+        }
+      },
+      "execution": {
+        "noTestsAction": "error"
+      },
       "output": {
         "outputOnFailure": true
       }

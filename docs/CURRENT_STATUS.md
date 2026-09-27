@@ -23,11 +23,13 @@ work. Historical failures and measurements retain their original scope.
 
 **The corrected whole-core Prefill service is the ordinary mainline default.**
 `orin-release` and fresh `BUILD_TESTING=OFF` builds select
-`Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=ON`, package 0.8.0, profile
+`Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=ON`, package 0.8.1, profile
 `q3x.sm87.production.whole-core-service.v1`, without a candidate/tactic selector.
 The exact installed binary is
-`62178564d499e020a77d1753b43179fe7a6e3ad07cd9a206da153b7543368d58`.
-The [production record](metadata/qwen36-27b-whole-core-service-production-2026-09-28.json)
+`5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33`.
+The 0.8.1 [industrialization record](metadata/qwen36-27b-service-industrialization-2026-09-28.json)
+binds the current artifact and reliability checks. Model arithmetic is unchanged.
+The preceding 0.8.0 [production record](metadata/qwen36-27b-whole-core-service-production-2026-09-28.json)
 binds the frozen source, artifact, installed consumer, independent numerical
 references, capability, route, lifecycle and mirrored API checks.
 
@@ -41,7 +43,7 @@ owner-only Bearer key file; TLS termination is external.
 
 The installed service has no admission/tactic CLI, forced-token or state
 inspection hook, cuBLAS/cuBLASLt dynamic dependency, or request-time projection
-workspace growth. It exports the exact 0.8.0 geometry to installed consumers.
+workspace growth. It exports the exact 0.8.1 geometry to installed consumers.
 The diagnostic `qwen3x-orin generate` CLI retains its explicit legacy options;
 use `qwen3x-eval-server` for this production route.
 
@@ -85,7 +87,7 @@ that every future generation must be identical.
 
 ## Paired Prefill and Decode performance
 
-The table reports means of two fresh installed processes in mirrored
+The retained 0.8.0 numerical-route qualification table reports means of two fresh installed processes in mirrored
 B-C-C-B order against the frozen correct v9-r5 candidate. Each process uses
 the same real prompt prefixes and request order, successful OS cache
 preparation, no Prefix/KV reuse and no MTP. The GPU is exclusive and fixed at
@@ -114,7 +116,7 @@ Those single-run values retain their older artifact/protocol authority.
 The 40K Decode result remains below approximately 8.55 token/s. The old
 approximate route's 8.55 observation is not promoted by this work.
 
-## Installed service verification
+## Retained 0.8.0 numerical-route service verification
 
 - P44080/O16 reaches the last served state position; ordinary text/chat,
   streaming and nonstream responses pass on the same installed artifact.
@@ -144,7 +146,7 @@ The long-output finish is `length` with 4,096 actual generated tokens.
 Use the root [quick start](../README.md#functional-evaluation-quick-start) or
 `cmake --preset orin-release`, build, then install under `.q3x-work/install/`.
 An existing hand-configured cache may retain OFF; the ordinary preset explicitly
-sets the production option ON. Consumers must request exact package 0.8.0.
+sets the production option ON. Consumers must request exact package 0.8.1.
 
 The frozen correct candidate `f322f10` remains the numerical/performance
 reproduction anchor. To reproduce Legacy, explicitly configure
@@ -157,14 +159,48 @@ with withdrawn numerical qualification.
 
 ## Non-performance product audit, 2026-09-28
 
-Performance optimization is paused by owner direction. A subsequent
-[product audit](analysis/product-readiness-audit-2026-09-28/README.md) reproduced
-UTF-8 output-cap failure and HTTP worker starvation without loading the model,
-and confirmed the release test preset runs zero tests. It also records
-readiness failure-propagation, reproducibility, packaging and sustained-service
-coverage gaps. These findings are open; the audit does not change runtime or
-withdraw the earlier bounded numerical qualification. Follow the
-[Roadmap](ROADMAP.md) for the revised work boundary.
+Performance optimization remains paused. All seven findings in the frozen
+[product audit](analysis/product-readiness-audit-2026-09-28/README.md) are closed
+within the 0.8.1 delivery scope:
+
+- Byte-fragment output caps serialize valid UTF-8 in stream/nonstream responses.
+- Incomplete clients use bounded staging instead of occupying response workers.
+- Production builds run six checks; empty CTest selection fails.
+- Fatal CUDA/engine failures latch unhealthy and terminate for supervisor recovery.
+- Versioned qualification/comparison tools bind exact requests, tokens and witnesses.
+- Installed notices/licenses and an optional systemd template accompany the package.
+- Multilingual, cancellation, capacity, sustained reuse and fresh-process checks pass.
+
+The installed artifact passed 24 multilingual stream/nonstream pairs, 12 slow
+incomplete clients, eight Prefill/Decode cancellation cycles, queue/auth/error
+checks, the 98-question panel (79/98; all reference answers equal), and the
+maximum prompt/output checks. The two-hour soak completed 1,708 requests;
+RSS stayed 50,283,108 KiB, descriptors 46 and threads 8. All 1,889 successful
+responses have complete validated route receipts. A fresh process completed
+11 further requests, with identical baseline and slow-reader output/usage/finish.
+Both processes exited zero. Six CTests and 36 Python unit tests pass; six old
+runs / 144 witnesses also pass the strengthened request-identity audit.
+
+The following are single-process 0.8.1 reliability observations, not a new
+mirrored performance baseline or a speedup claim:
+
+| Prompt / output | Prefill seconds | Prefill token/s | External TTFT seconds | Decode token/s |
+| --- | ---: | ---: | ---: | ---: |
+| 8,192 / 256 | 16.753 | 488.99 | 16.773 | 9.220 |
+| 40,000 / 256 | 90.964 | 439.73 | 90.999 | 7.867 |
+| 40,000 / 4,096 | 91.518 | 437.07 | 91.551 | 7.764 |
+| 44,095 / 1 | 103.070 | 427.82 | 103.104 | N/A |
+
+Qualification used one-second idle gaps during capability/soak and 60 seconds
+between capacity cases. Peak temperature was 87.656C with no clock errors.
+An earlier back-to-back maximum-load sequence reached 90.156C and correctly
+stopped; it remains a failed run. Continuous maximum-load saturation is not
+qualified by the successful cadence-limited soak. Fatal-error classification
+is host fault-tested; destructive real-GPU fault injection and activation of
+the supplied systemd unit were not performed. CI is configured, with local
+checks executed; no remote CI result is claimed. Full future release gates
+and performance targets remain open. Exact scope and hashes are in the
+[industrialization record](metadata/qwen36-27b-service-industrialization-2026-09-28.json).
 
 ## Code and documentation audit, 2026-09-28
 
@@ -174,7 +210,7 @@ package ABI and numerical authority with the source and installed artifact.
 The README now starts from the production API. Stale factory/ABI claims and
 historical work-package authority are corrected; the CLI identity check now
 covers the installed service explicitly. Retained records were re-audited,
-not remeasured. Runtime changes in this audit are comments only, so the
+not remeasured. Runtime changes in that earlier code/documentation audit were comments only, so the
 qualification and paired performance above retain their original scope.
 
 ## Decode convergence snapshot 2026-09-27
