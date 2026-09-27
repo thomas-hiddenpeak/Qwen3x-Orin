@@ -164,6 +164,28 @@ exchange_vllm_layout_wy_route_for_test(
 
 namespace q3x::runtime::gdn_prefill_prompt_wide_chunk_graph_detail {
 
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+// Admission-only observation of one complete GDN invocation. The callback
+// may synchronize for a numerical capture; it cannot select an arithmetic path.
+struct InputInspection {
+  const std::uint16_t* conv_qkv;
+  const std::uint16_t* a;
+  const std::uint16_t* b;
+  const std::uint16_t* A_log;
+  const std::uint16_t* dt_bias;
+  const std::uint16_t* output;
+  std::size_t tokens;
+  void* stream;
+};
+using InputInspectionCallback = void (*)(const InputInspection&, void*) noexcept;
+struct InputInspectionHook {
+  InputInspectionCallback callback = nullptr;
+  void* context = nullptr;
+};
+[[nodiscard]] InputInspectionHook exchange_input_inspection_hook(
+    InputInspectionHook hook) noexcept;
+#endif
+
 // Default-off, BUILD_TESTING-only P40 architecture surface.  One call
 // submits the full GDN layer graph: a single token-parallel causal-conv plus
 // compact-Q/K grid, chunk-parallel gate/WY work across all 625 C64 chunks,

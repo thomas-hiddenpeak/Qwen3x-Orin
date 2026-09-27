@@ -3575,6 +3575,16 @@ int query_resources(int* const registers_per_thread,
 
 namespace q3x::runtime::gdn_prefill_prompt_wide_chunk_graph_detail {
 
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+namespace { thread_local InputInspectionHook g_input_inspection_hook{}; }
+InputInspectionHook exchange_input_inspection_hook(
+    const InputInspectionHook hook) noexcept {
+  const auto previous = g_input_inspection_hook;
+  g_input_inspection_hook = hook;
+  return previous;
+}
+#endif
+
 namespace {
 
 // Constant initialization only: no CUDA driver work occurs until the
@@ -3721,11 +3731,19 @@ int launch(
   // faithful-BF16-state, and BV64 O routes without environment selectors or
   // diagnostic hooks. qk_preprocessed consumes the compact boundaries from
   // the immediately preceding same-stream convolution grid.
-  return gdn_prefill_chunk64_reference_detail::launch_impl(
+  const int result = gdn_prefill_chunk64_reference_detail::launch_impl(
       nullptr, workspace_raw, workspace_capacity_bytes, token_count,
       conv_qkv_output, a, b, A_log, dt_bias, state_input, state_output,
       l2_epsilon, norm_weight, silu_gate, norm_epsilon, output, cuda_stream,
       WorkspaceProfile::kPromptWideP40, true, true);
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  if (result == 0 && g_input_inspection_hook.callback != nullptr) {
+    g_input_inspection_hook.callback(
+        {conv_qkv_output, a, b, A_log, dt_bias, output, token_count, cuda_stream},
+        g_input_inspection_hook.context);
+  }
+#endif
+  return result;
 }
 
 }  // namespace q3x::runtime::gdn_prefill_prompt_wide_chunk_graph_detail

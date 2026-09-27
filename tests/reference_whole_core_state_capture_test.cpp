@@ -3,6 +3,7 @@
 #include "q3x/io/json.h"
 #include "q3x/runtime/reference_engine.h"
 #include "reference_runner_gdn_chunk64_native_admission.h"
+#include "../src/kernels/sm87/gdn_prefill_chunk64_native_sm87.h"
 
 #include <cuda_runtime_api.h>
 
@@ -56,6 +57,7 @@ struct Capture {
   std::string base;
   bool dump_done = false;
   bool prefill_only = false;
+  bool layer0_done = false;
   // Legacy route prefills P-1 tokens and feeds the final prompt token as the
   // first decode step (seq after step i = P + i). Whole-core prefills all P
   // tokens (seq after step i = P + i + 1).
@@ -83,6 +85,43 @@ bool copy_device_bytes(const std::uint8_t* source, std::size_t bytes,
   }
   return true;
 }
+
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+void capture_layer0_gdn(
+    const rt::gdn_prefill_prompt_wide_chunk_graph_detail::InputInspection& input,
+    void* context) noexcept {
+  auto& capture = *static_cast<Capture*>(context);
+  if (capture.layer0_done || capture.error != nullptr) return;
+  capture.layer0_done = true;
+  const auto status = cudaStreamSynchronize(static_cast<cudaStream_t>(input.stream));
+  if (status != cudaSuccess) {
+    capture.cuda_error = static_cast<int>(status);
+    capture.error = "layer0_stream";
+    return;
+  }
+  struct Field { const char* name; const std::uint16_t* source; std::size_t elements; };
+  const Field fields[] = {
+      {"conv_qkv", input.conv_qkv, input.tokens * 10240U},
+      {"a", input.a, input.tokens * 48U},
+      {"b", input.b, input.tokens * 48U},
+      {"A_log", input.A_log, 48U},
+      {"dt_bias", input.dt_bias, 48U},
+      {"output", input.output, input.tokens * 6144U}};
+  for (const auto& field : fields) {
+    std::vector<std::uint8_t> bytes;
+    if (!copy_device_bytes(reinterpret_cast<const std::uint8_t*>(field.source),
+                           field.elements * 2U, capture.scratch, bytes,
+                           capture.cuda_error)) {
+      capture.error = "layer0_copy";
+      return;
+    }
+    std::ofstream file(capture.out_dir + "/" + capture.base + "_layer0_" +
+                       field.name + ".bf16", std::ios::binary);
+    file.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    if (!file) { capture.error = "layer0_write"; return; }
+  }
+}
+#endif
 
 const std::uint8_t* region(const rt::RequestState& state,
                            const rt::RequestRegion& value,
@@ -287,16 +326,24 @@ int main(int argc, char** argv) {
   try {
     std::string route = "legacy";
     bool prefill_only = false;
+    bool capture_layer0 = false;
     for (int i = 4; i < argc; i += 2) {
       if (i + 1 >= argc) throw std::runtime_error("missing option value");
       if (std::string_view(argv[i]) == "--route") route = argv[i + 1];
       else if (std::string_view(argv[i]) == "--capture-boundary" &&
                std::string_view(argv[i + 1]) == "prefill") prefill_only = true;
+      else if (std::string_view(argv[i]) == "--capture-layer0-gdn" &&
+               std::string_view(argv[i + 1]) == "true") capture_layer0 = true;
       else throw std::runtime_error("unknown option");
     }
     const bool whole_core = (route == "wholecore");
     if (route != "legacy" && !whole_core)
       throw std::runtime_error("unknown route: " + route);
+    if (capture_layer0 && (!whole_core || !prefill_only))
+      throw std::runtime_error("layer0 capture requires wholecore Prefill boundary");
+#if !defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+    if (capture_layer0) throw std::runtime_error("layer0 capture requires admission build");
+#endif
 
     if (std::filesystem::file_size(argv[2]) > 8U * 1024U * 1024U)
       throw std::runtime_error("request too large");
@@ -368,6 +415,11 @@ int main(int argc, char** argv) {
 
     const auto previous_step = detail::exchange_reference_engine_step_snapshot_hook({step_hook, &capture});
     const auto previous_return = detail::exchange_reference_engine_generate_return_snapshot_hook({return_hook, &capture});
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+    const auto previous_layer0 =
+        rt::gdn_prefill_prompt_wide_chunk_graph_detail::exchange_input_inspection_hook(
+            {capture_layer0 ? capture_layer0_gdn : nullptr, &capture});
+#endif
 
     rt::ReferenceGenerateOptions generation_options;
     generation_options.max_new_tokens = static_cast<std::uint32_t>(output_count);
@@ -382,6 +434,11 @@ int main(int argc, char** argv) {
 
     (void)detail::exchange_reference_engine_step_snapshot_hook(previous_step);
     (void)detail::exchange_reference_engine_generate_return_snapshot_hook(previous_return);
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+    (void)rt::gdn_prefill_prompt_wide_chunk_graph_detail::exchange_input_inspection_hook(previous_layer0);
+    if (capture_layer0 && !capture.layer0_done)
+      throw std::runtime_error("layer0 capture hook not reached");
+#endif
 
     if (!result) throw std::runtime_error("generation failed: " +
         result.diagnostic.stage + ": " + result.diagnostic.message +

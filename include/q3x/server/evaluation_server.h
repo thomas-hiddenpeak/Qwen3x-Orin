@@ -227,7 +227,7 @@ static_assert(
 inline constexpr EvaluationProductionDeploymentPlan
     kWholeCoreExactDecodeAdmissionPlan = [] {
       auto plan = kP40WholeCoreV1ProductionPlan;
-      plan.id = "q3x.sm87.admission.whole-core-exact-decode.v3";
+      plan.id = "q3x.sm87.admission.whole-core-exact-decode.v6";
       plan.max_sequence_length = 44'095U;
       plan.maximum_output_tokens = 4'096U;
       plan.request_arena_bytes = 8'952'211'200ULL;

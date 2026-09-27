@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-09-27
+  last_reviewed: 2026-09-28
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -38,6 +38,19 @@ withdraws unsupported ceiling and qualification inferences without rewriting
 historical measurements.
 
 ## 1. Answer-first state
+
+**2026-09-28 baseline assessment and concrete Prefill repair:** the
+[matched independent-reference audit](analysis/prefill-reference-repair-2026-09-28/README.md)
+finds that Legacy's per-token BF16 GDN recurrence is not independently qualified
+model truth. It also identifies the fast A/B projection's extra tile transpose;
+`efc7355` fixes it with a basis-vector regression that fails before repair.
+With projection scale placement corrected, the P8192 candidate's full-logit KL
+against an independent all-layer FP32 GDN reference is 0.0080, versus 1.5784 for
+Legacy and 4.3828 for original whole-core v3. This is bounded numerical evidence,
+not exact-token equivalence, capability qualification or a production switch.
+The owner requires continuing to a corrected fast production service, with
+both Prefill and Decode reported; the active Roadmap owns that completion.
+
 
 **Production-switch decision, 2026-09-27: NO-GO for the current whole-core
 Prefill candidate. The earlier full-state accuracy qualification is withdrawn.**

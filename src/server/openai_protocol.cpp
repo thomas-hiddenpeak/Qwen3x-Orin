@@ -1434,7 +1434,7 @@ std::string serialize_target_prefill_witness(
       p40_vllm_marlin_parity_candidate_v15;
   std::string output =
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
-      true ? "{\"record\":\"target-prefill-witness-whole-core-exact-decode-admission-v3\","
+      true ? "{\"record\":\"target-prefill-witness-whole-core-exact-decode-admission-v6\","
              "\"schema_version\":2,\"decode_numerical_contract\":"
              "\"ordered-pipeline-unqualified\",\"request\":{\"id\":" :
 #elif defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
@@ -1961,7 +1961,7 @@ std::string serialize_target_prefill_witness(
           std::to_string(record.persistent_p40_nvfp4_physical_launches) +
           ",\"prompt_wide_p40_whole_core_package\":{\"identity\":";
       append_json_string(output,
-                         variable_whole_core ? "actual-c64-prompt-p8000-panels-whole-core-v3"
+                         variable_whole_core ? "actual-c64-prompt-p8000-panels-corrected-ab-v6"
                                              : "exact-p40000-five-p8000-whole-core-v1");
       output += ",\"selection\":\"sealed-fail-closed\",\"complete\":";
       output += prompt_wide_p40_whole_core_package_counts_complete

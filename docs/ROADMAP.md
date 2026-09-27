@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-09-27
+  last_reviewed: 2026-09-28
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -41,37 +41,34 @@ they cannot reorder the delivery slices below.
 
 ### 2026-09-27 product convergence — active
 
-**Latest production-switch disposition:** the current whole-core composition
-is rejected for direct promotion by the
-[matched-boundary numerical audit](analysis/whole-core-production-switch-2026-09-27/README.md).
-The historical whole-core state qualification is withdrawn; ADR-0002 remains
-limited to Prefill full Attention. This finding overrides the earlier ordering
-below that put tail/API expansion ahead of numerical repair. Default routing
-stays Legacy. No further performance repetition or installed-candidate
-qualification is useful until the numerical prerequisite passes.
+**Owner-directed completion, 2026-09-28:** finish a numerically corrected
+fast Prefill service; if that cannot be corrected, bring the correct mainline
+to at least the candidate's performance. Do not stop at another negative
+qualification report or ask the owner to choose the implementation. The owner
+also requires an independent assessment of the numerical baseline.
 
-The next bounded prerequisite is `WP-PREFILL-STATE-CONTRACT-REPAIR-20260927`
-inside `AC-WHOLE-CORE-SERVICE-20260927`. Product constraint: a full-service
-replacement must preserve the incumbent's non-Attention numerical/state
-contract, not merely emit coherent text. Downward contract: per-token BF16
-GDN publication and the projection operand/reduction/publication ledger.
-Start from the observed pre-Attention layer-0 mismatch: isolate projection
-feeds and recurrence on identical real layer inputs, then compose the existing
-exact-span recurrence with matching projection semantics under a new candidate
-identity. Do not assume that replacing GDN alone closes the full-model gap.
-One coherent repair and at most one causally justified correction must return
-to the complete P8192/O1 handoff within 40 minutes of real-model device time;
-a pass returns immediately to the real P8192/O256 API and then P40000.
-Keep raw artifacts under `.q3x-work/production-switch-20260927/` or a named
-successor within `.q3x-work/`. No reassociation waiver or tile/stage scan.
+`WP-PREFILL-REFERENCE-REPAIR-20260928` continues
+`AC-WHOLE-CORE-SERVICE-20260927`. Its product constraint is a correct production
+replacement with both Prefill and Decode reported. Its downward contract is
+checkpoint-faithful projection coordinates/scales and independently assessed
+GDN precision. The [baseline audit](analysis/prefill-reference-repair-2026-09-28/README.md)
+finds that Legacy per-token BF16 recurrence is a regression comparator, not
+model truth; the numerical ledger now distinguishes those authorities. The
+fast candidate's A/B coordinate permutation is corrected with an independent
+basis-vector regression. Projection tensor scales are applied after FP32
+accumulation in the separately identified corrected admission.
 
-After numerical admission, finish exact MLP tails, P44095 workspace and normal
-text/chat/nonstream coverage; then close lifecycle, mirrored paired Prefill
-and Decode performance (approximately 8.55 Decode tok/s remains required),
-capability and the exact installed Release/OFF default gates. The
-[gate disposition](metadata/qwen36-27b-whole-core-production-switch-2026-09-27.json)
-distinguishes observed failures from blocked, unexecuted qualification. This
-is a repair order, not a claim that any of those remaining gates has passed.
+Return the corrected composition to the real P8192/O256 API and P40000,
+using exact binary/profile identity before issuing requests. Then finish MLP
+tails, P44095 workspace, normal text/chat/nonstream coverage, resource ownership,
+capability and exact installed Release/OFF default qualification. Reference
+comparisons use the same prompt boundary and full logits; independently
+validated reference arithmetic takes precedence over an unqualified incumbent.
+Approximately 8.55 Decode tok/s remains the interim target. Raw artifacts are
+under `.q3x-work/prefill-convergence-20260928/`. The prior numerical erratum
+remains valid for its recorded comparison and invalid historical metric; it
+never established Legacy as independently correct. No automatic promotion or
+accuracy waiver follows from this repair work.
 
 Owner direction: provisionally accept current Prefill performance, converge on
 the recommended fused Decode attention direction, and expose prior performance

@@ -55,8 +55,14 @@ __global__ void dequant_nvfp4_vec16_kernel(
   const std::uint32_t p0 = pptr[0];
   const std::uint32_t p1 = pptr[1];
   const float bs =
-      decode_e4m3fn_device(block_scale[row * (k / 16) + col / 16]) *
-      weight_scale_2;
+      decode_e4m3fn_device(block_scale[row * (k / 16) + col / 16])
+#if !defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+      * weight_scale_2
+#endif
+      ;
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  (void)weight_scale_2;
+#endif
 
   std::uint16_t vals[16];
 #pragma unroll
@@ -208,20 +214,31 @@ int launch_nvfp4_dequant_cutlass_gate_up(
   }
 
   // M-chunked CUTLASS GEMM (sw2): out[mc, 2n] = input[mc, k] * W[2n, k]^T
-  const float alpha = 1.0F;
   const float beta = 0.0F;
   for (std::size_t mc = 0; mc < m; mc += kMChunk) {
     const std::size_t mc_size = (m - mc < kMChunk) ? (m - mc) : kMChunk;
     const int M_ = static_cast<int>(mc_size);
-    const int N_ = static_cast<int>(2U * n);
+    const int stride_n = static_cast<int>(2U * n);
     const int K_ = static_cast<int>(k);
-
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+    // Gate and Up have independent tensor scales. Publish BF16 only after
+    // applying each scale to its complete FP32 accumulator, before SiLU.
+    for (std::size_t projection = 0U; projection < 2U; ++projection) {
+    const int N_ = static_cast<int>(n);
+    const std::size_t weight_offset = projection * n * k;
+    const std::size_t output_offset = projection * n;
+    const float alpha = projection == 0U ? gate_ws2 : up_ws2;
+#else
+    const int N_ = stride_n;
+    constexpr std::size_t weight_offset = 0U, output_offset = 0U;
+    const float alpha = 1.0F;
+#endif
     CutlassGemm::Arguments args{
         cutlass::gemm::GemmCoord(M_, N_, K_),
         {reinterpret_cast<cutlass::bfloat16_t const*>(input + mc * k), K_},
-        {reinterpret_cast<cutlass::bfloat16_t const*>(g_dequant_buffer), K_},
-        {reinterpret_cast<cutlass::bfloat16_t const*>(g_gemm_temp), N_},
-        {reinterpret_cast<cutlass::bfloat16_t*>(g_gemm_temp), N_},
+        {reinterpret_cast<cutlass::bfloat16_t const*>(g_dequant_buffer + weight_offset), K_},
+        {reinterpret_cast<cutlass::bfloat16_t const*>(g_gemm_temp + output_offset), stride_n},
+        {reinterpret_cast<cutlass::bfloat16_t*>(g_gemm_temp + output_offset), stride_n},
         {alpha, beta},
         1
     };
@@ -244,6 +261,9 @@ int launch_nvfp4_dequant_cutlass_gate_up(
     if (run_status != cutlass::Status::kSuccess) {
       return static_cast<int>(cudaErrorInvalidValue);
     }
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+    }
+#endif
 
     // SiLU-mul: activated[mc : mc+mc_size, n] = silu(gate) * up
     {

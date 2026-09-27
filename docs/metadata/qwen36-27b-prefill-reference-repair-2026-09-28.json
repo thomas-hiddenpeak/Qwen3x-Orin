@@ -1,0 +1,293 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-28",
+  "decision_unit": "local_mutation",
+  "work_package_id": "WP-PREFILL-REFERENCE-REPAIR-20260928",
+  "architecture_candidate_id": "AC-WHOLE-CORE-SERVICE-20260927",
+  "status": "bounded numerical repair and independent baseline assessment; production continuation active",
+  "qualification_granted": false,
+  "ab_fix_commit": "efc7355",
+  "prompt_tokens": 8192,
+  "output_tokens": 1,
+  "prompt_ids_u32le_sha256": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+  "baseline_authority": "Legacy is a regression comparator, not independently qualified model truth",
+  "results": {
+    "layer0": {
+      "legacy": {
+        "gdn": {
+          "relative_l2": 0.09725084485206237,
+          "cosine": 0.9954464948487177
+        },
+        "conv": {
+          "relative_l2": 6.150590644518039e-05,
+          "cosine": 0.9999999981087291
+        }
+      },
+      "v3": {
+        "gdn": {
+          "relative_l2": 0.33237397780053574,
+          "cosine": 0.9438741609841395
+        },
+        "conv": {
+          "relative_l2": 0.0014400963904014907,
+          "cosine": 0.9999989822349016
+        }
+      },
+      "v4": {
+        "gdn": {
+          "relative_l2": 0.09725248285798109,
+          "cosine": 0.9954466571824857
+        },
+        "conv": {
+          "relative_l2": 6.64364919116543e-05,
+          "cosine": 0.9999999977935233
+        }
+      },
+      "v5": {
+        "gdn": {
+          "relative_l2": 0.3322738973652346,
+          "cosine": 0.9439183030670376
+        },
+        "conv": {
+          "relative_l2": 6.64364919116543e-05,
+          "cosine": 0.9999999977935233
+        }
+      }
+    },
+    "independent_full": {
+      "reference_top10": [
+        [
+          20960,
+          17.5
+        ],
+        [
+          5378,
+          17.375
+        ],
+        [
+          73016,
+          16.75
+        ],
+        [
+          2911,
+          16.75
+        ],
+        [
+          15812,
+          16.25
+        ],
+        [
+          5911,
+          15.875
+        ],
+        [
+          39652,
+          15.75
+        ],
+        [
+          2267,
+          15.5
+        ],
+        [
+          88884,
+          15.0625
+        ],
+        [
+          93884,
+          14.75
+        ]
+      ],
+      "comparisons": {
+        "vllm_fla": {
+          "relative_l2": 0.02905096924368482,
+          "cosine": 0.9996039904277625,
+          "kl_ref_candidate": 0.009568659954207533
+        },
+        "legacy": {
+          "relative_l2": 0.3032729965939504,
+          "cosine": 0.9634593278740691,
+          "kl_ref_candidate": 1.5783677256544588
+        },
+        "v3": {
+          "relative_l2": 0.6878960458257755,
+          "cosine": 0.7578385554314754,
+          "kl_ref_candidate": 4.382829034796786
+        },
+        "v4": {
+          "relative_l2": 0.2612111070102415,
+          "cosine": 0.9724476584154419,
+          "kl_ref_candidate": 1.1835377295295035
+        },
+        "v6": {
+          "relative_l2": 0.044608666183740785,
+          "cosine": 0.9990962536323653,
+          "kl_ref_candidate": 0.008001803615307279
+        }
+      }
+    },
+    "fla_direct_recurrence": {
+      "ids": [
+        20960
+      ],
+      "text": "paths",
+      "indices": [
+        1
+      ],
+      "shapes": {
+        "q": [
+          1,
+          8192,
+          16,
+          128
+        ],
+        "k": [
+          1,
+          8192,
+          16,
+          128
+        ],
+        "v": [
+          1,
+          8192,
+          48,
+          128
+        ],
+        "g": [
+          1,
+          8192,
+          48
+        ],
+        "beta": [
+          1,
+          8192,
+          48
+        ],
+        "initial_state": [
+          1,
+          48,
+          128,
+          128
+        ],
+        "output": [
+          1,
+          8192,
+          48,
+          128
+        ],
+        "state": [
+          1,
+          48,
+          128,
+          128
+        ]
+      },
+      "fla_vs_independent_fp32_output": {
+        "relative_l2": 0.0019052060088142753,
+        "max_abs": 0.0625
+      },
+      "fla_vs_independent_fp32_state": {
+        "relative_l2": 0.0027273306623101234,
+        "max_abs": 0.0800018310546875
+      }
+    }
+  },
+  "reports": [
+    {
+      "path": ".q3x-work/prefill-convergence-20260928/vllm-comparison-initial.json",
+      "sha256": "d6da3fbd5715b1097d020a8d0bd4bc611d43888ab021d0a1b394b5cf50824655"
+    },
+    {
+      "path": ".q3x-work/prefill-convergence-20260928/vllm-comparison-v5.json",
+      "sha256": "a20e40ffcb520bce4d71ecaffdbaa62b7c78770ea5fe3cf1ee0f19ca93e46b9f"
+    },
+    {
+      "path": ".q3x-work/prefill-convergence-20260928/vllm-comparison-v6.json",
+      "sha256": "66c15ad88819b01a85513396de488fdf1e8b63bfc2c692505a39ca311ef063d3"
+    },
+    {
+      "path": ".q3x-work/prefill-convergence-20260928/independent-layer0-comparison.json",
+      "sha256": "83c1dde37155c2154db8f7a0cd509598fd8414bacd4885a501aaa9a3c2036614"
+    },
+    {
+      "path": ".q3x-work/prefill-convergence-20260928/independent-full-comparison.json",
+      "sha256": "172b2983af884f203b821dd793e08cb3f7401ff5ab9584b783717b1b8fc57a23"
+    },
+    {
+      "path": ".q3x-work/prefill-convergence-20260928/input-comparison.json",
+      "sha256": "863ad25e9f4858aab5eedcf3d18c6e40b5c857e9a0fed99949f584038d2d5e98"
+    },
+    {
+      "path": ".q3x-work/prefill-convergence-20260928/input-comparison-v6.json",
+      "sha256": "d761b40a1620ee95de5a657be7a41487cd86a2c3075f5c30a474867a579d5679"
+    },
+    {
+      "path": ".q3x-work/prefill-convergence-20260928/vllm-audit/report.json",
+      "sha256": "e70dbb2e0977891eae824677446bdb8f81a25981e0610dc1f4a44f74a6b90c62"
+    },
+    {
+      "path": ".q3x-work/prefill-convergence-20260928/vllm-config.json",
+      "sha256": "a61eceea4cf8c02d69e0c1ec6a319f7c33c1fa7e01fe67bc99fd82b908b0b438"
+    },
+    {
+      "path": ".q3x-work/prefill-convergence-20260928/independent-full/reference-algorithm.json",
+      "sha256": "b09b845dfc2f0f93c80c9b67428c379edb70662d7e7c2b6a3edb0093d93aab38"
+    },
+    {
+      "path": ".q3x-work/prefill-convergence-20260928/v6-api-8192/invalidated.json",
+      "sha256": "289a95983db54df8fe5854843c7ebb40044165509a763dfe8ee6be819af824c3"
+    },
+    {
+      "path": ".q3x-work/prefill-convergence-20260928/ab-regression-before.log",
+      "sha256": "e0509ff6aa571929f9f927905ecf114328813821d42cde6cc36eca5cf36d467f"
+    },
+    {
+      "path": ".q3x-work/prefill-convergence-20260928/ab-regression-after.log",
+      "sha256": "ddc7fbce945fbca7aaf1013a5e3f935c2beb40060fd4a259c54c24a4595ccec0"
+    }
+  ],
+  "sources": [
+    {
+      "path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/config.json",
+      "sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338"
+    },
+    {
+      "path": "/home/rm01/vllmEvn/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py",
+      "sha256": "67cf849081143a998f0e189c551e4b5f532365a055805570747385e400372abb"
+    },
+    {
+      "path": "/home/rm01/vllmEvn/.venv/lib/python3.13/site-packages/vllm/model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py",
+      "sha256": "1227d6f385a52296e9f08223544b1c5fdc7e8d9aa09a848e7a8e522a8dc51214"
+    },
+    {
+      "path": "/home/rm01/vllmEvn/.venv/lib/python3.13/site-packages/vllm/third_party/flash_linear_attention/ops/chunk_delta_h.py",
+      "sha256": "1b3ad391f939d9443c6b7adb19e57fe381bd5dccea064e8417a4f85b0e713b26"
+    }
+  ],
+  "capture_identity": {
+    "command": [
+      ".q3x-work/prefill-convergence-20260928/v6-bin/q3x_reference_whole_core_state_capture_test",
+      "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      ".q3x-work/prefill-mainline-validation-20260927/requests-complete/p8192-o1.json",
+      ".q3x-work/prefill-convergence-20260928/prefill-8192-v6.json",
+      "--route",
+      "wholecore",
+      "--capture-boundary",
+      "prefill",
+      "--capture-layer0-gdn",
+      "true"
+    ],
+    "sha256": "a33038ae7226fc6462467ac6d737e10836139dd0ee4f4f01b5ca1b3574ddaeb0",
+    "git": "d7f99c422df5770e1af3498f712533f944f51fdd",
+    "dirty_diff_sha256": "166c51b088eed172dcc451fb51d4d98c330d782cb7d7888aefba69d849922d35",
+    "loading": "LAZY"
+  },
+  "remaining": [
+    "served-context numerical and capability coverage",
+    "MLP tails and P44095 workspace",
+    "normal API surfaces",
+    "planned scratch ownership",
+    "paired Prefill and Decode performance",
+    "installed Release/OFF default qualification"
+  ],
+  "artifact_root": ".q3x-work/prefill-convergence-20260928"
+}

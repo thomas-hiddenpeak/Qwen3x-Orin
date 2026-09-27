@@ -206,7 +206,7 @@ inline constexpr std::string_view
 inline constexpr std::string_view
     kLayerMajorNativePromptWideP40WholeCoreDeploymentPlanId =
 #if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
-        "q3x.sm87.admission.whole-core-c64-variable-prefill.v3";
+        "q3x.sm87.admission.whole-core-c64-corrected-ab-prefill.v6";
 #else
         "q3x.sm87.ac-prefill-prompt-wide-v2.native-p40-whole-core.v1";
 #endif

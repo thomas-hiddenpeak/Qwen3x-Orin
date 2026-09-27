@@ -6,7 +6,7 @@ q3x_document:
   owner: prefill-maintainers
   authority: Prefill mathematical equivalence, finite-precision identity, and production-observable liveness
   effective: 2026-08-11
-  last_reviewed: 2026-08-11
+  last_reviewed: 2026-09-28
   supersedes: []
   superseded_by: []
   ssot_for: Prefill architecture proof order, equivalence proof classes, P40 arithmetic ledger, and liveness-deletion eligibility
@@ -266,7 +266,7 @@ FlashAttention and FlashInfer are reference dataflows. Their familiar real
 formula does not let a candidate inherit the incumbent's exact identity when
 their parallel reduction order differs.
 
-### 4.2 Per-token BF16 GDN/SSM state
+### 4.2 Legacy per-token BF16 GDN/SSM state and reference authority
 
 For one GDN value row, normalized key `k_t`, value `v_t`, decay `alpha_t`, and
 update gate `beta_t`, the unrounded real transition can be written:
@@ -276,8 +276,9 @@ s_t = s_(t-1) (alpha_t I - alpha_t beta_t k_t k_t^T)
       + beta_t v_t k_t^T
 ```
 
-Unrounded affine transitions compose hierarchically. The pinned production
-semantics do not expose that unrounded associative monoid directly. They are:
+Unrounded affine transitions compose hierarchically. The Legacy runner
+implements the following finite-precision recurrence. This is its regression
+contract, not an independently established model-accuracy oracle:
 
 ```text
 u_t        = F_fp32(s_(t-1)^bf16, x_t)
@@ -286,8 +287,8 @@ s_t^bf16   = R_bf16(u_t)               # published after every token
 ```
 
 Therefore a FlashLinearAttention WY/chunk construction, Mamba selective scan,
-or another block recurrence is production-equivalent only if it proves, for
-every token in order:
+or another block recurrence is bitwise equivalent to that Legacy recurrence
+only if it proves, for every token in order:
 
 1. the incoming BF16 state bits equal the incumbent's state bits;
 2. the FP32 update and token output consume operands in the declared order;
@@ -302,10 +303,30 @@ every token in order:
 Deferring BF16 state publication to the end of a chunk is not equivalent,
 even when the unrounded affine block formula is exact over real numbers. FLA
 and Mamba remain valuable references for chunk-local preparation, WY
-factorization, scan structure, and fusion around the serial boundary; they do
-not waive the per-token BF16 state proof. A path that deliberately changes
-this semantic is a separately identified, accuracy-unqualified research
-route and cannot enter the current production mainline.
+factorization, scan structure, and fusion. They do not prove bitwise Legacy
+equivalence. Conversely, preserving Legacy bits does not establish model
+accuracy when that baseline itself has not been independently qualified.
+
+The owner's 2026-09-28 direction explicitly requires evaluating and correcting
+the reference baseline as part of numerical repair. The checkpoint declares
+FP32 SSM state; installed Transformers and vLLM/FLA maintain FP32 recurrent
+state through Prefill, with any BF16 cache conversion at the handoff. They do
+not require Legacy's per-token BF16 rounding. The
+[baseline audit](analysis/prefill-reference-repair-2026-09-28/README.md)
+checks a matched 8192-token full-model boundary, an independent direct FP32
+recurrence on identical layer inputs, and an independent FP32 chunk recurrence
+in all 48 GDN layers. It also identifies and fixes an unrelated A/B projection
+coordinate error in the fast candidate.
+
+A corrected Prefill route may therefore qualify against the independently
+pinned model/reference computation instead of reproducing the erroneous or
+unqualified incumbent. It must declare FP32 recurrent accumulation, every
+BF16 operand/output publication and the chosen persistent-cache dtype; pass
+matched whole-model numerical, capability and service checks; and carry its
+own route identity. This is numerical repair under the owner's direction,
+not inherited qualification or permission to relax accuracy. Legacy remains
+available as a regression comparator. No single-layer result, first-token
+agreement, or error metric alone promotes the corrected route.
 
 ### 4.3 GDN dependency width and state-residency lower bound
 
