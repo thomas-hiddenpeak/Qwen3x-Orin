@@ -26,8 +26,9 @@ metadata/evidence records.
 
 The owner's 2026-09-27 direction provisionally accepts Prefill performance and
 selects convergence on fused Decode attention qualification, with a retrospective
-of misleading performance conclusions. New Prefill architecture exploration
-is paused. The owner now provisionally accepts approximately 8.55 Decode
+of misleading performance conclusions. New Prefill arithmetic exploration is paused; the later owner direction
+activates composition and variable-length service integration of the retained
+whole-core architecture. The owner now provisionally accepts approximately 8.55 Decode
 tok/s for this milestone; production numerical contracts remain unchanged. The
 [active convergence slice](ROADMAP.md#2026-09-27-product-convergence--active)
 owns the next work; the
@@ -36,6 +37,31 @@ withdraws unsupported ceiling and qualification inferences without rewriting
 historical measurements.
 
 ## 1. Answer-first state
+
+**Latest 2026-09-27 integration: fast whole-core Prefill and exact v7 Decode
+now execute together in an isolated P40000 candidate.** The
+[composition record](metadata/qwen36-27b-whole-core-exact-decode-composition-2026-09-27.json)
+owns the matched P40000/O256 observations, numerical scope and remaining gates.
+The candidate delivers 91.813 s engine Prefill (435.67 prompt token/s),
+91.856 s external TTFT and 7.863 Decode token/s in one request. The fresh
+Legacy/v7 control delivers 219.559 s external TTFT and 7.873 Decode token/s.
+These are engineering direction observations, not release qualification.
+Both use the complete Decode sidecars; the composition retains the 8-GiB
+reserve by eliminating an unused Prefill Gate/Up Marlin copy. Its P40000/O16
+same-input check compares all 240 Decode Attention outputs bitwise against
+scalar after whole-core Prefill. It does not qualify every output position or
+variable-length Prefill. A separate P40000/O4096 API request also completes
+all 4096 outputs with a length finish: 91.871 s engine Prefill (435.39 token/s),
+91.915 s external TTFT and 7.789 Decode token/s. The admission reserves
+44,095 positions and O1..4096;
+the existing fixed production profile and ordinary default are unchanged.
+An independent same-engine test passes request reuse after a disconnect at a
+bounded Prefill safe point, plus four invalid-request rejections. The first
+recovery attempt was stopped by the 90C thermal guard after its completed
+4096-token request; that failed attempt is retained separately.
+Variable prompt lengths, general API surfaces and broad replacement remain
+open. Earlier v2/v3 numerical failures below describe their historical versions,
+not the exact v7 successor or this scoped composition check.
 
 **2026-09-27 numerical repair: isolated v3 removes premature BF16 partition
 and merge-state rounding; whole-model numerical admission remains open.**
@@ -982,8 +1008,9 @@ text and usage. The same v7 API panel gives 9.6132/9.2516
 tok/s at P1089/P8192 O32. The approximately 8.55 goal remains open. Capability
 and recovery checks pass within their bounded scope. The isolated admission
 now identifies v7; ordinary scalar remains default, and the rebuilt OFF server
-is byte-identical to the previous artifact. Whole-core composition and release
-promotion remain unselected. The earlier v5 snapshot below is historical to
+is byte-identical to the previous artifact. The later whole-core composition
+above now has a bounded API result; release promotion remains unselected.
+The earlier v5 snapshot below is historical to
 that artifact; the linked v7 record owns the current measured panel.
 
 The [ordered v5 repair](analysis/decode-ordered-repair-2026-09-27/README.md)

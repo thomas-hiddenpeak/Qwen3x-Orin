@@ -39,6 +39,18 @@
         "Q3X_CUDA_ARCHITECTURES": "87",
         "Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE": "ON"
       }
+    },
+    {
+      "name": "orin-whole-core-exact-decode-admission",
+      "displayName": "Whole-core plus exact Decode integration admission",
+      "description": "Non-installable, unqualified composition; not a default-route replacement",
+      "binaryDir": "${sourceDir}/.q3x-work/build/orin-whole-core-exact-decode-admission",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "ON",
+        "Q3X_CUDA_ARCHITECTURES": "87",
+        "Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -49,12 +61,23 @@
     {
       "name": "orin-p40-whole-core-dev",
       "configurePreset": "orin-p40-whole-core-dev",
-      "targets": ["qwen3x-eval-server"]
+      "targets": [
+        "qwen3x-eval-server"
+      ]
     },
     {
       "name": "orin-p40-whole-core-prod",
       "configurePreset": "orin-p40-whole-core-prod",
-      "targets": ["qwen3x-eval-server"]
+      "targets": [
+        "qwen3x-eval-server"
+      ]
+    },
+    {
+      "name": "orin-whole-core-exact-decode-admission",
+      "configurePreset": "orin-whole-core-exact-decode-admission",
+      "targets": [
+        "qwen3x-eval-server"
+      ]
     }
   ],
   "testPresets": [

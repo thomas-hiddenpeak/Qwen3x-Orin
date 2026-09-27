@@ -1,4 +1,5 @@
 #pragma once
+#include "q3x/runtime/whole_core_request_geometry.h"
 
 #include "q3x/runtime/reference_engine.h"
 #include "q3x/server/openai_protocol.h"
@@ -221,6 +222,39 @@ static_assert(
     kP40WholeCoreV1ProductionPlan.prefill_supermatrix_sidecar_bytes +
         kP40WholeCoreV1ProductionPlan.decode_retained_sidecar_bytes);
 
+// Independent experimental inventory. The qualified fixed profile above is
+// immutable; only the explicit non-installable bundle selects this composition.
+inline constexpr EvaluationProductionDeploymentPlan
+    kWholeCoreExactDecodeAdmissionPlan = [] {
+      auto plan = kP40WholeCoreV1ProductionPlan;
+      plan.id = "q3x.sm87.admission.whole-core-exact-decode.v2";
+      plan.max_sequence_length = 44'095U;
+      plan.maximum_output_tokens = 4'096U;
+      plan.request_arena_bytes = 8'952'211'200ULL;
+      plan.decode_route_id = "fixed-gqa-ordered-pipeline-s512-44095.v7";
+      plan.min_free_bytes_after_create = 8ULL * 1024ULL * 1024ULL * 1024ULL;
+      plan.decode_gate_up_layers = runtime::kQwen36DenseLayerCount;
+      plan.decode_gate_up_sidecar_bytes = runtime::kQwen36NvFp4GateUpCoupledFeedBytes;
+      plan.decode_down_consumer_order_layers = runtime::kQwen36NvFp4DownScale6LayerCount;
+      plan.decode_down_consumer_order_sidecar_bytes = runtime::kQwen36NvFp4DownConsumerOrderBytes;
+      plan.decode_retained_sidecar_bytes =
+          plan.decode_fp8_output_sidecar_bytes + plan.decode_gate_up_sidecar_bytes +
+          plan.decode_down_scale6_sidecar_bytes + plan.decode_down_consumer_order_sidecar_bytes;
+      plan.retained_acceleration_sidecar_bytes = plan.decode_retained_sidecar_bytes;
+      return plan;
+    }();
+static_assert(kWholeCoreExactDecodeAdmissionPlan.decode_retained_sidecar_bytes ==
+              11'013'898'240ULL);
+
+[[nodiscard]] constexpr const EvaluationProductionDeploymentPlan&
+selected_p40_whole_core_plan() noexcept {
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  return kWholeCoreExactDecodeAdmissionPlan;
+#else
+  return kP40WholeCoreV1ProductionPlan;
+#endif
+}
+
 [[nodiscard]] constexpr bool is_valid_evaluation_production_profile(
     const EvaluationProductionProfile profile) noexcept {
   return profile == EvaluationProductionProfile::kNone ||
@@ -236,7 +270,7 @@ static_assert(
     case EvaluationProductionProfile::kP40ExactLegacyC512:
       return kP40ExactLegacyC512ProductionPlan.id;
     case EvaluationProductionProfile::kP40WholeCoreV1:
-      return kP40WholeCoreV1ProductionPlan.id;
+      return selected_p40_whole_core_plan().id;
   }
   return "unknown";
 }
@@ -395,7 +429,7 @@ class EvaluationProductionRuntimeHealth final {
 [[nodiscard]] inline bool is_p40_whole_core_v1_production_profile(
     const EvaluationServerOptions& options) noexcept {
   const EvaluationProductionDeploymentPlan& plan =
-      kP40WholeCoreV1ProductionPlan;
+      selected_p40_whole_core_plan();
   return options.production_profile == plan.profile &&
          options.development_route == EvaluationDevelopmentRoute::kNone &&
          options.max_sequence_length == plan.max_sequence_length &&
@@ -419,7 +453,12 @@ class EvaluationProductionRuntimeHealth final {
   return request.endpoint == OpenAIEndpoint::kCompletions &&
          request.prompt_kind == OpenAIPromptKind::kTokenIds &&
          request.prompt_token_ids.size() == 40'000U &&
-         request.max_tokens == 16U && request.stream && request.include_usage;
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+         request.max_tokens >= 1U && request.max_tokens <= 4096U &&
+#else
+         request.max_tokens == 16U &&
+#endif
+         request.stream && request.include_usage;
 }
 
 // Loads one resident model, starts a bounded HTTP ingress and exactly one

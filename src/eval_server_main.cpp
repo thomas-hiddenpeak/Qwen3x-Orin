@@ -39,7 +39,11 @@ void PrintUsage(std::ostream& output) {
       << "  --port N                    TCP port (default 8000)\n"
       << "  --model ID                  Served OpenAI model id\n"
       << "  --api-key-file PATH         Owner-only 0400/0600 Bearer credential\n";
-#if defined(Q3X_ENABLE_P40_WHOLE_CORE_PRODUCTION_ROUTE)
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  output << "  --candidate-profile whole-core-exact-decode\n"
+         << "                              Non-installable P40000/O1..4096 composition;\n"
+         << "                              full Decode inventory, 8-GiB reserve\n";
+#elif defined(Q3X_ENABLE_P40_WHOLE_CORE_PRODUCTION_ROUTE)
   output
       << "  --production-profile p40-whole-core-v1\n"
       << "                              Accuracy-qualified whole-core deployment:\n"
@@ -171,13 +175,23 @@ template <typename T>
       p40_whole_core_v10_requested = true;
       continue;
     }
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+    if (argument == "--candidate-profile") {
+      if (value != "whole-core-exact-decode") {
+        error = "--candidate-profile must be whole-core-exact-decode";
+#else
     if (argument == "--production-profile") {
       if (value != "p40-whole-core-v1") {
         error = "--production-profile must be p40-whole-core-v1";
+#endif
         return false;
       }
       if (p40_whole_core_v1_production_requested) {
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+        error = "--candidate-profile may be specified only once";
+#else
         error = "--production-profile may be specified only once";
+#endif
         return false;
       }
       p40_whole_core_v1_production_requested = true;
@@ -440,8 +454,8 @@ template <typename T>
         q3x::server::EvaluationDevelopmentRoute::kNone;
     options.production_profile =
         q3x::server::EvaluationProductionProfile::kP40WholeCoreV1;
-    options.max_sequence_length = 40'016U;
-    options.maximum_output_tokens = 16U;
+    options.max_sequence_length = q3x::server::selected_p40_whole_core_plan().max_sequence_length;
+    options.maximum_output_tokens = q3x::server::selected_p40_whole_core_plan().maximum_output_tokens;
     options.prefill_chunk_size =
         q3x::runtime::kMaximumRequestPrefillChunkSize;
     options.prefill_execution_mode = q3x::runtime::
@@ -453,9 +467,9 @@ template <typename T>
         LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore;
     options.projection_backend =
         q3x::runtime::ProjectionBackend::kSm87WeightOnly;
-    options.request_max_arena_bytes = 8'641'684'992ULL;
+    options.request_max_arena_bytes = q3x::server::selected_p40_whole_core_plan().request_arena_bytes;
     options.request_min_free_bytes_after_create =
-        4ULL * 1024ULL * 1024ULL * 1024ULL;
+        q3x::server::selected_p40_whole_core_plan().min_free_bytes_after_create;
     options.inference_queue_capacity = 1U;
     options.ingress_threads = 3U;
   }

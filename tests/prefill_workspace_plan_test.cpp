@@ -478,8 +478,8 @@ void test_layer_wide_p40_mlp_memory_plan(TestContext& test) {
               kFullMThreeBf16Spans &&
           candidate.value->operator_scratch.gate_up.maximum_m == 40'000U &&
           candidate.value->operator_scratch.down.maximum_m == 40'000U &&
-          candidate.value->selected.required_bytes == 7'297'733'120U &&
-          candidate.value->conservative.required_bytes == 8'647'332'608U &&
+          candidate.value->selected.required_bytes == (runtime::kWholeCoreCompiledSequenceCapacity == 44'095U ? 7'609'008'128U : 7'297'733'120U) &&
+          candidate.value->conservative.required_bytes == (runtime::kWholeCoreCompiledSequenceCapacity == 44'095U ? 9'000'923'136U : 8'647'332'608U) &&
           candidate.value->selected.capacity ==
               runtime::PrefillMemoryCapacityVerdict::kFitsDeclaredLimit &&
           !candidate.value->request_arena_reservation_bound &&
@@ -520,9 +520,9 @@ void test_layer_wide_p40_mlp_memory_plan(TestContext& test) {
             marlin_parity.value->operator_scratch
                     .c8192_family_overlay_conditional.total_required_bytes ==
                 kParityMlpLiveSet &&
-            marlin_parity.value->selected.required_bytes == 7'297'733'120U &&
+            marlin_parity.value->selected.required_bytes == (runtime::kWholeCoreCompiledSequenceCapacity == 44'095U ? 7'609'008'128U : 7'297'733'120U) &&
             marlin_parity.value->conservative.required_bytes ==
-                8'647'332'608U &&
+                (runtime::kWholeCoreCompiledSequenceCapacity == 44'095U ? 9'000'923'136U : 8'647'332'608U) &&
             !marlin_parity.value->executable(),
         "Marlin parity owns merged GateUp plus independent activation without "
         "adding Ctmp, locks, or reduction workspace to its MLP live set");
@@ -550,8 +550,8 @@ void test_layer_wide_p40_mlp_memory_plan(TestContext& test) {
           persistent.value->operator_scratch
                   .c8192_family_overlay_conditional.total_required_bytes ==
               kPersistentNormalizedAndActivated &&
-          persistent.value->selected.required_bytes == 4'922'053'120U &&
-          persistent.value->conservative.required_bytes == 6'271'652'608U &&
+          persistent.value->selected.required_bytes == (runtime::kWholeCoreCompiledSequenceCapacity == 44'095U ? 5'233'328'128U : 4'922'053'120U) &&
+          persistent.value->conservative.required_bytes == (runtime::kWholeCoreCompiledSequenceCapacity == 44'095U ? 6'625'243'136U : 6'271'652'608U) &&
           !persistent.value->executable(),
       "target persistent P40 ownership materializes only normalized and "
       "activated spans and reuses dead normalized storage for Down output");
@@ -700,17 +700,17 @@ void test_p40_whole_core_workspace_plan(TestContext& test) {
   const runtime::LayerMajorP40WholeCoreWorkspacePlan& plan = *result.value;
   test.expect(
       plan.prompt_token_count == 40'000U &&
-          plan.request_sequence_capacity_tokens == 40'016U &&
+          plan.request_sequence_capacity_tokens == runtime::kWholeCoreCompiledSequenceCapacity &&
           plan.logical_panel_capacity_tokens == 8'000U &&
           plan.logical_panel_count == 5U &&
-          plan.persistent_and_kv.required_bytes == 2'700'935'168U &&
-          plan.prompt_residual_bf16.required_bytes == 409'763'840U &&
+          plan.persistent_and_kv.required_bytes == runtime::kWholeCoreCompiledPersistentBytes &&
+          plan.prompt_residual_bf16.required_bytes == runtime::kWholeCoreCompiledResidualBytes &&
           plan.whole_core_family_arena.required_bytes ==
               runtime::kLayerMajorP40WholeCoreFamilyArenaBytes &&
-          plan.legacy_c512_workspace.required_bytes == 90'971'648U &&
+          plan.legacy_c512_workspace.required_bytes == runtime::kWholeCoreCompiledLegacyBytes &&
           plan.final_hidden_handoff_bf16.required_bytes == 10'240U &&
-          plan.rope_cos_sin_fp32.required_bytes == 10'244'096U &&
-          plan.required_bytes == 8'641'684'992U &&
+          plan.rope_cos_sin_fp32.required_bytes == runtime::kWholeCoreCompiledRopeBytes &&
+          plan.required_bytes == runtime::kWholeCoreCompiledArenaBytes &&
           plan.capacity ==
               runtime::PrefillMemoryCapacityVerdict::kFitsDeclaredLimit &&
           !plan.request_arena_reservation_bound &&
@@ -786,7 +786,7 @@ void test_p40_whole_core_workspace_plan(TestContext& test) {
       "prompt IDs stage inside the pre-GDN workspace lifetime, never raw-QKV");
 
   runtime::LayerMajorP40WholeCoreWorkspaceOptions one_byte_short;
-  one_byte_short.request_arena_limit_bytes = 8'640'542'975U;
+  one_byte_short.request_arena_limit_bytes = runtime::kWholeCoreCompiledArenaBytes - 1U;
   const auto limited =
       runtime::build_unbound_layer_major_p40_whole_core_workspace_plan(
           one_byte_short);
@@ -794,7 +794,7 @@ void test_p40_whole_core_workspace_plan(TestContext& test) {
       limited &&
           limited.value->capacity == runtime::PrefillMemoryCapacityVerdict::
                                          kExceedsDeclaredLimit &&
-          limited.value->required_bytes == 8'641'684'992U,
+          limited.value->required_bytes == runtime::kWholeCoreCompiledArenaBytes,
       "one-byte-short arena preserves arithmetic and reports explicit overflow");
 
   runtime::LayerMajorP40WholeCoreWorkspaceOptions wrong = one_byte_short;

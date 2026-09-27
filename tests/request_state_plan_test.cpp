@@ -1268,7 +1268,7 @@ void test_layer_wide_p40_mlp_request_layout(TestContext& test) {
                 runtime::PrefillMlpPhysicalTactic::
                     kLayerWideP40PersistentFusedGateUp &&
             plan.c8192_family_phase_arena.byte_size == 1'802'240'000U &&
-            plan.common.arena_bytes == 5'013'023'488U &&
+            plan.common.arena_bytes == (runtime::kWholeCoreCompiledSequenceCapacity == 44'095U ? 5'324'691'456U : 5'013'023'488U) &&
             !plan.executable(),
         "P40 RequestState owns the planner-exact persistent two-span arena "
         "and remains unbound");
@@ -1330,7 +1330,7 @@ void test_p40_whole_core_request_layout(TestContext& test) {
     const runtime::RequestMemoryPlan& common = plan.common;
     const runtime::LayerMajorP40WholeCoreRegions& whole =
         plan.p40_whole_core;
-    constexpr std::uint64_t family_base = 3'109'562'368U;
+    constexpr std::uint64_t family_base = runtime::kWholeCoreCompiledPersistentBytes + runtime::kWholeCoreCompiledResidualBytes;
     test.expect(
         common.profile ==
                 runtime::RequestMemoryProfile::kLayerMajorP40WholeCore &&
@@ -1339,19 +1339,19 @@ void test_p40_whole_core_request_layout(TestContext& test) {
             plan.operator_panel_capacity_tokens == 8'000U &&
             plan.mlp_capacity_tokens == 40'000U &&
             whole.prompt_token_count == 40'000U &&
-            whole.request_capacity_tokens == 40'016U &&
+            whole.request_capacity_tokens == runtime::kWholeCoreCompiledSequenceCapacity &&
             whole.logical_panel_capacity_tokens == 8'000U &&
             whole.logical_panel_count == 5U &&
-            common.persistent_bytes == 2'700'935'168U &&
+            common.persistent_bytes == runtime::kWholeCoreCompiledPersistentBytes &&
             plan.prompt_residual_bf16.storage.arena_offset ==
-                2'700'935'168U &&
-            plan.prompt_residual_bf16.storage.byte_size == 409'763'840U &&
+                runtime::kWholeCoreCompiledPersistentBytes &&
+            plan.prompt_residual_bf16.storage.byte_size == runtime::kWholeCoreCompiledResidualBytes &&
             whole.family_phase_arena.arena_offset == family_base &&
             whole.family_phase_arena.byte_size == 5'429'760'000U &&
-            common.workspace_bytes == 5'930'350'592U &&
-            common.rope_offset == 8'630'302'720U &&
-            common.rope_bytes == 10'244'096U &&
-            common.arena_bytes == 8'641'684'992U && !plan.executable(),
+            common.workspace_bytes == runtime::kWholeCoreCompiledArenaBytes - runtime::kWholeCoreCompiledPersistentBytes - runtime::kWholeCoreCompiledRopeBytes &&
+            common.rope_offset == runtime::kWholeCoreCompiledArenaBytes - runtime::kWholeCoreCompiledRopeBytes &&
+            common.rope_bytes == runtime::kWholeCoreCompiledRopeBytes &&
+            common.arena_bytes == runtime::kWholeCoreCompiledArenaBytes && !plan.executable(),
         "whole-core plan fixes exact P40000/P40001 geometry and arena ledger");
 
     test.expect(
@@ -1408,12 +1408,12 @@ void test_p40_whole_core_request_layout(TestContext& test) {
 
     test.expect(
         plan.legacy_c512.hidden_bf16.front().storage.arena_offset ==
-                8'540'459'008U &&
-            plan.legacy_c512.fp32_scratch.byte_size == 3'841'536U &&
+                family_base + runtime::kLayerMajorP40WholeCoreFamilyArenaBytes &&
+            plan.legacy_c512.fp32_scratch.byte_size == 96ULL * runtime::kWholeCoreCompiledSequenceCapacity &&
             plan.final_hidden_bf16.storage.arena_offset ==
-                8'631'430'656U &&
-            common.rope_cos_fp32.arena_offset == 8'631'440'896U &&
-            common.rope_sin_fp32.arena_offset == 8'636'562'944U,
+                runtime::kWholeCoreCompiledArenaBytes - runtime::kWholeCoreCompiledRopeBytes - 10'240U &&
+            common.rope_cos_fp32.arena_offset == runtime::kWholeCoreCompiledArenaBytes - runtime::kWholeCoreCompiledRopeBytes &&
+            common.rope_sin_fp32.arena_offset == runtime::kWholeCoreCompiledArenaBytes - runtime::kWholeCoreCompiledRopeBytes / 2U,
         "legacy, final handoff, and RoPE follow the whole-core arena exactly");
 
     runtime::LayerMajorRequestMemoryOptions one_byte_short = options;
@@ -1474,7 +1474,7 @@ void test_p40_marlin_parity_request_layout(TestContext& test) {
             plan.mlp_capacity_tokens == 40'000U &&
             plan.p40_whole_core.family_phase_arena.byte_size ==
                 runtime::kLayerMajorP40WholeCoreFamilyArenaBytes &&
-            plan.common.arena_bytes == 8'641'684'992U &&
+            plan.common.arena_bytes == runtime::kWholeCoreCompiledArenaBytes &&
             !plan.executable(),
         "Marlin parity has a distinct identity without changing the whole-core "
         "request high-water");

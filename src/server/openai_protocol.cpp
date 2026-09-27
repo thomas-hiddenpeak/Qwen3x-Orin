@@ -1422,7 +1422,11 @@ std::string serialize_target_prefill_witness(
       p40_packed_nvfp4_v2_candidate_v14 ||
       p40_vllm_marlin_parity_candidate_v15;
   std::string output =
-#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+      true ? "{\"record\":\"target-prefill-witness-whole-core-exact-decode-admission-v2\","
+             "\"schema_version\":2,\"decode_numerical_contract\":"
+             "\"ordered-pipeline-unqualified\",\"request\":{\"id\":" :
+#elif defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
       true ? "{\"record\":\"target-prefill-witness-fused-decode-admission-v7\","
              "\"schema_version\":7,\"decode_numerical_contract\":"
              "\"ordered-pipeline-unqualified\",\"request\":{\"id\":" :

@@ -1698,6 +1698,46 @@ void test_nvfp4_marlin_p40_parity_sidecar_attachment(TestContext& test) {
                       reinterpret_cast<const std::uint8_t*>(
                           0x0000700000002000ULL),
               "canonical detach clears only parity views");
+
+  for (auto& descriptor : legacy_marlin_descriptors) {
+    descriptor.gate_up_layout =
+        runtime::NvFp4MarlinGateUpLayout::kCanonicalSourceOnly;
+    descriptor.gate_up_weight = nullptr;
+    descriptor.gate_up_scales = nullptr;
+    descriptor.gate_up_global_scale = nullptr;
+  }
+  const bool source_only_attached = weights.attach_nvfp4_marlin_prefill_sidecars(
+      legacy_marlin_descriptors.data(), legacy_marlin_descriptors.size());
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  test.expect(source_only_attached,
+              "composition binds Down without unused Gate/Up Marlin storage");
+  auto invalid_source = legacy_marlin_descriptors;
+  invalid_source[0].gate_up_weight =
+      reinterpret_cast<const std::uint8_t*>(kLegacyMarlinBase);
+  test.expect(!weights.attach_nvfp4_marlin_prefill_sidecars(
+                  invalid_source.data(), invalid_source.size()),
+              "source-only Gate/Up rejects mixed storage atomically");
+  invalid_source = legacy_marlin_descriptors;
+  invalid_source[0].down_weight = nullptr;
+  test.expect(!weights.attach_nvfp4_marlin_prefill_sidecars(
+                  invalid_source.data(), invalid_source.size()),
+              "source-only Gate/Up still requires every Down artifact");
+  const auto& source_gate = std::get<runtime::NvFp4LinearWeight>(
+      weights.layer(0).mlp.gate_proj);
+  const auto& source_down = std::get<runtime::NvFp4LinearWeight>(
+      weights.layer(0).mlp.down_proj);
+  test.expect(source_gate.prefill_marlin_weight == nullptr &&
+                  source_gate.prefill_marlin_gate_up_layout ==
+                      runtime::NvFp4MarlinGateUpLayout::kCanonicalSourceOnly &&
+                  source_down.prefill_marlin_weight ==
+                      legacy_marlin_descriptors[0].down_weight,
+              "rejected partial attachment preserves source-only binding");
+#else
+  test.expect(!source_only_attached && legacy_marlin_views_empty(),
+              "ordinary build rejects composition-only source inventory");
+#endif
+  test.expect(weights.attach_nvfp4_marlin_prefill_sidecars(nullptr, 0U),
+              "source-only inventory detaches safely");
 }
 
 void test_nvfp4_down_scale6_sidecar_attachment(TestContext& test) {

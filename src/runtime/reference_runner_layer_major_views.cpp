@@ -1,3 +1,4 @@
+#include "q3x/runtime/whole_core_request_geometry.h"
 #include "q3x/runtime/reference_runner.h"
 
 #include "q3x/runtime/prefill_workspace_plan.h"
@@ -413,7 +414,7 @@ constexpr std::uint64_t kProjectionTemporaryBytes = 1'048'832U;
           kLayerMajorP40WholeCorePanelTokens ||
       plan.mlp_capacity_tokens != kLayerMajorP40WholeCorePromptTokens ||
       !valid_p40_mlp_layout ||
-      plan.common.arena_bytes != 8'641'684'992U) {
+      plan.common.arena_bytes != kWholeCoreCompiledArenaBytes) {
     return false;
   }
 

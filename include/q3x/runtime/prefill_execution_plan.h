@@ -1,4 +1,5 @@
 #pragma once
+#include "q3x/runtime/whole_core_request_geometry.h"
 
 #include "q3x/model/model_config.h"
 
@@ -43,7 +44,7 @@ inline constexpr std::uint32_t kLayerMajorPrefillLayerWideMlpP40Tokens =
 // max_tokens=1 is a valid delivered request. This capacity is not an MLP M;
 // full-M typed views remain exactly 40000 rows.
 inline constexpr std::uint32_t
-    kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens = 40'016U;
+    kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens = kWholeCoreCompiledSequenceCapacity;
 inline constexpr std::uint32_t
     kLayerMajorPrefillPromptWideP40RequestCapacityTokens =
         kLayerMajorPrefillLayerWideMlpP40RequestCapacityTokens;

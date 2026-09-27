@@ -1,4 +1,5 @@
 #pragma once
+#include "q3x/runtime/whole_core_request_geometry.h"
 
 #include "q3x/kernels/gdn_prefill_chunk64_workspace_abi.h"
 #include "q3x/kernels/sm87_nvfp4_marlin_p40_parity.h"
@@ -184,7 +185,7 @@ struct PrefillMemoryRequirement {
 // layout or its 8192/7712 panel geometry as this architecture.
 inline constexpr std::uint32_t kLayerMajorP40WholeCorePromptTokens = 40'000U;
 inline constexpr std::uint32_t
-    kLayerMajorP40WholeCoreRequestCapacityTokens = 40'016U;
+    kLayerMajorP40WholeCoreRequestCapacityTokens = kWholeCoreCompiledSequenceCapacity;
 inline constexpr std::uint32_t kLayerMajorP40WholeCorePanelTokens = 8'000U;
 inline constexpr std::uint32_t kLayerMajorP40WholeCorePanelCount = 5U;
 inline constexpr std::uint64_t kLayerMajorP40WholeCoreFamilyArenaBytes =

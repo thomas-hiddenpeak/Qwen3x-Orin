@@ -82,6 +82,16 @@ option(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE
   "Build the default-off, accuracy-unqualified P40 whole-core development route"
   OFF
 )
+option(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION
+  "Build non-installable whole-core plus exact Decode composition" OFF)
+if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  if(NOT BUILD_TESTING)
+    message(FATAL_ERROR "Whole-core Decode composition requires BUILD_TESTING=ON")
+  endif()
+  add_compile_definitions(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION=1)
+  set(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE ON)
+  set(Q3X_BUILD_FUSED_DECODE_ADMISSION ON)
+endif()
 option(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE
   "Build the owner-promoted, accuracy-qualified P40 whole-core production route (fixed P40000/O16 geometry)"
   OFF
@@ -138,9 +148,12 @@ if(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE)
   set(Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION ON)
   set(Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION ON)
   set(Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION ON)
-  message(STATUS
-    "P40 whole-core v1 production inventory enabled (accuracy-qualified; fixed P40000/O16 geometry)"
-  )
+  if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+    message(STATUS "Whole-core exact Decode composition inventory (unqualified; no installation)")
+  else()
+    message(STATUS
+      "P40 whole-core v1 production inventory enabled (accuracy-qualified; fixed P40000/O16 geometry)")
+  endif()
 endif()
 if(Q3X_BUILD_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   set(Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION ON)
@@ -597,11 +610,27 @@ if(Q3X_BUILD_FUSED_DECODE_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR "Fused Decode admission requires BUILD_TESTING=ON")
 endif()
 if(Q3X_BUILD_FUSED_DECODE_ADMISSION)
+  set(q3x_whole_core_composition_options
+    Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION
+    Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE
+    Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION
+    Q3X_BUILD_FP8_MARLIN_PREFILL_ADMISSION
+    Q3X_BUILD_BF16_AB_LARGE_M_PREFILL_ADMISSION
+    Q3X_BUILD_FLASHINFER_PREFILL_ATTENTION_ADMISSION
+    Q3X_BUILD_GDN_CHUNK64_NATIVE_ADMISSION
+    Q3X_BUILD_GDN_PROMPT_WIDE_CHUNK_GRAPH_ADMISSION
+    Q3X_BUILD_LAYER_WIDE_P40_MLP_ADMISSION
+    Q3X_BUILD_NVFP4_PERSISTENT_PREFILL_ADMISSION
+    Q3X_BUILD_PROMPT_WIDE_P40_WHOLE_CORE_ADMISSION)
   get_cmake_property(q3x_admission_variables VARIABLES)
   foreach(q3x_admission_variable IN LISTS q3x_admission_variables)
     if(q3x_admission_variable MATCHES "^Q3X_BUILD_" AND
        NOT q3x_admission_variable STREQUAL "Q3X_BUILD_FUSED_DECODE_ADMISSION")
       if(${q3x_admission_variable})
+        if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION AND
+           q3x_admission_variable IN_LIST q3x_whole_core_composition_options)
+          continue()
+        endif()
         message(FATAL_ERROR
           "Fused Decode admission cannot compose ${q3x_admission_variable}")
       endif()
@@ -977,6 +1006,20 @@ endif()
 if(Q3X_BUILD_FUSED_DECODE_ADMISSION)
   set_target_properties(qwen3x-eval-server PROPERTIES
     OUTPUT_NAME qwen3x-eval-server-fused-decode-admission)
+  if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+    set_target_properties(qwen3x-eval-server PROPERTIES
+      OUTPUT_NAME qwen3x-eval-server-whole-core-exact-decode-admission)
+    add_executable(q3x_whole_core_exact_decode_model_test
+      tests/whole_core_exact_decode_model_test.cpp)
+    target_include_directories(q3x_whole_core_exact_decode_model_test PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime)
+    target_link_libraries(q3x_whole_core_exact_decode_model_test PRIVATE
+      q3x::engine q3x::kernels)
+    add_executable(q3x_whole_core_exact_decode_plan_test
+      tests/whole_core_exact_decode_plan_test.cpp)
+    target_link_libraries(q3x_whole_core_exact_decode_plan_test PRIVATE q3x::engine)
+    add_test(NAME whole_core_exact_decode_plan COMMAND q3x_whole_core_exact_decode_plan_test)
+  endif()
   add_executable(q3x_fused_decode_test tests/fused_decode_test.cu)
   target_include_directories(q3x_fused_decode_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime)
   target_link_libraries(q3x_fused_decode_test PRIVATE q3x::kernels)

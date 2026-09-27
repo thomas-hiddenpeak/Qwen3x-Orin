@@ -653,3 +653,11 @@ profile and Decode route fields; it cannot claim an existing production
 profile's numerical qualification. Existing short Graph, capacity and accuracy
 gates are not weakened by this boundary. Production composition requires the
 Roadmap's numerical, capability and normal-output API gates.
+
+The owner-authorized whole-core composition is a distinct non-installable
+admission bundle. It binds the retained Prefill route, exact Decode and full
+Decode acceleration inventory together, keeping the ordinary 8-GiB reserve.
+Its identity and load receipts must distinguish it from both the fixed
+whole-core production profile and the isolated Legacy Decode admission.
+The initial fixed-shape integration is a prerequisite, not a replacement
+service or an expansion of the existing profile's qualification.

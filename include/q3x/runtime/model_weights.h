@@ -146,6 +146,9 @@ enum class NvFp4MarlinGateUpLayout : std::uint8_t {
   kUnbound = 0,
   kCanonicalGateThenUp,
   kInterleavedGateUp,
+  // Gate/Up consumes authenticated checkpoint weights directly; only Down
+  // has a Marlin sidecar. All three Gate/Up sidecar pointers must be null.
+  kCanonicalSourceOnly,
 };
 
 // One complete test-admission Marlin sidecar set for a dense layer. Gate and

@@ -149,6 +149,52 @@ route wins across the representative served-context panel without regressions;
 retain a length-specific branch only when matched evidence justifies it.
 The audit itself changes no dispatch and establishes no unmeasured speedup.
 
+Owner-authorized implementation: `WP-WHOLE-CORE-EXACT-DECODE-COMPOSITION-20260927`
+belongs to `AC-WHOLE-CORE-SERVICE-20260927`. The downward constraint is one
+service preserving the existing API envelope while delivering the accepted
+whole-core Prefill and exact v7 Decode together. First compose the unchanged
+P40000 arithmetic with the complete Decode sidecars in a separately named,
+non-installable admission. Retain the ordinary 8-GiB free reserve and omit
+the unused Legacy Prefill supermatrix. Return immediately to a real P40000
+API request before expanding geometry; then extend output capacity and prompt
+length/tails as separately checked prerequisites of the same service candidate.
+This staging does not select a permanent P40-only product.
+
+The equivalence ledger is identity of the existing Prefill computation and
+handoff, plus v7's original ordered QK/softmax/PV arithmetic on the same
+whole-core-produced state. Decode layout transformations retain their existing
+operand bits and publication points. Sidecars are immutable engine-owned
+assets; existing request-owned scratch and stream ordering remain unchanged.
+No new arithmetic, approximation, padding tokens, or changed state commit is
+admitted. A same-state scalar comparison precedes numerical selection.
+This package admits one composition and one correction per identified
+integration fault, with a 40-minute real-model device budget before API return
+or a concrete blocker closeout. Raw artifacts live in
+`.q3x-work/whole-core-exact-composition-20260927/`. Default dispatch and the
+qualified fixed profile remain unchanged; the candidate must report both
+Prefill and Decode and cannot inherit production qualification.
+
+The first real API startup exposed insufficient retained-free memory while
+preparing Down consumer-order layouts. The admitted correction removes the
+unused Prefill Gate/Up Marlin copy: current whole-core Gate/Up already consumes
+canonical checkpoint NVFP4. Keep Down's required Marlin layout, bind actual
+Gate/Up source operands, and preserve complete Decode inventory and the
+8-GiB reserve. Do not treat the failed startup as a timing result or lower the
+reserve. This is lifetime/inventory correction, not a new projection kernel.
+
+The fixed-shape prerequisite has returned to P40000/O256 with both phases in
+one request; its [composition record](metadata/qwen36-27b-whole-core-exact-decode-composition-2026-09-27.json)
+keeps the failed starts, original 40016-position scratch rejection, expanded
+44095-position plan and same-input scalar check separate. The next dependency
+is runtime prompt geometry and exact tails across the served context range,
+including P44095/O1; changing HTTP admission alone or padding every prompt to
+P40000 does not satisfy it. Preserve the existing rounding/state boundaries
+while replacing fixed five-by-8000 panel traversal, fixed 625-chunk GDN and
+P40000-only MLP/view checks with bounded actual-length plans. Return the first
+composed shorter prompt promptly to numerical and paired API checks before
+expanding the panel. This milestone grants no default replacement or general
+API qualification.
+
 Ordered deliverables:
 
 1. `WP-DECODE-FUSED-GQA-ADMISSION-20260927`: preserve scalar comparison and

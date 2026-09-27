@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: per-request state, workspace, memory-plan, and lifecycle ownership contract
   effective: 2026-08-09
-  last_reviewed: 2026-09-09
+  last_reviewed: 2026-09-27
   supersedes: []
   superseded_by: []
   ssot_for: RequestState persistent state, workspace, RoPE, allocation, and lifecycle behavior
@@ -108,6 +108,16 @@ workspace, and operator-binding conditions all default false. Flat legacy
 workspace accessors reject the layer-major profile; its retained disjoint C512
 workspace is reachable only through the explicit typed bundle. Persistent,
 KV, RoPE, position, reset, and ownership operations remain common.
+
+The separately compiled whole-core/exact-Decode admission retains P40000
+operator shapes while reserving 44,095 sequence positions and an
+8,952,211,200-byte arena. It supports the P40000/O4096 capacity boundary
+without advancing state for the final predicted token. The full maximum-length
+Decode scratch occupies this arena; its FP32 payload is rounded to the
+256-byte owning alignment. Cos/sin remain contiguous halves of one allocation.
+The original fixed production/development geometry remains 40,016 positions
+and 8,641,684,992 bytes. Neither geometry alone qualifies general prompt
+lengths, successful long-output execution, or whole-process fit.
 
 ## RoPE numerical contract
 

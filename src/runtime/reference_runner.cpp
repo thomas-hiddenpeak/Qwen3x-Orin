@@ -1,3 +1,4 @@
+#include "q3x/runtime/whole_core_request_geometry.h"
 #include "q3x/runtime/reference_runner.h"
 
 #include "reference_runner_decode_gqa_policy_internal.h"
@@ -113,7 +114,7 @@ constexpr std::size_t kFullAttentionPreprocessTileMaximumTokens =
     kFullAttentionPreprocessMaximumTokens;
 constexpr std::size_t kProductionProjectionSubtileTokens = 32U;
 constexpr std::size_t kPromptWideP40WholeCorePromptTokens = 40'000U;
-constexpr std::size_t kPromptWideP40WholeCoreRequestCapacityTokens = 40'016U;
+constexpr std::size_t kPromptWideP40WholeCoreRequestCapacityTokens = kWholeCoreCompiledSequenceCapacity;
 constexpr std::size_t kPromptWideP40WholeCorePanelTokens = 8'000U;
 constexpr std::size_t kPromptWideP40WholeCorePanelCount = 5U;
 constexpr std::size_t kPromptWideP40WholeCoreFillPhases = 5U;
@@ -2409,7 +2410,18 @@ launch_p40_projection_reset_fp8_group(
          up.input_size == kReferenceHiddenSize &&
          down.output_size == kReferenceHiddenSize &&
          down.input_size == kReferenceIntermediateSize &&
-         gate.prefill_marlin_gate_up_layout ==
+         (
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+          (gate.prefill_marlin_gate_up_layout == NvFp4MarlinGateUpLayout::kCanonicalSourceOnly &&
+           up.prefill_marlin_gate_up_layout == NvFp4MarlinGateUpLayout::kCanonicalSourceOnly &&
+           aligned_16(gate.packed_weight) && aligned_16(gate.block_scale) &&
+           aligned_16(up.packed_weight) && aligned_16(up.block_scale) &&
+           gate.weight_scale_2_device != nullptr && up.weight_scale_2_device != nullptr &&
+           gate.prefill_marlin_weight == nullptr && up.prefill_marlin_weight == nullptr &&
+           gate.prefill_marlin_scales == nullptr && up.prefill_marlin_scales == nullptr &&
+           gate.prefill_marlin_global_scale == nullptr && up.prefill_marlin_global_scale == nullptr) ||
+#endif
+         (gate.prefill_marlin_gate_up_layout ==
              NvFp4MarlinGateUpLayout::kInterleavedGateUp &&
          up.prefill_marlin_gate_up_layout ==
              gate.prefill_marlin_gate_up_layout &&
@@ -2419,7 +2431,7 @@ launch_p40_projection_reset_fp8_group(
          gate.prefill_marlin_weight == up.prefill_marlin_weight &&
          gate.prefill_marlin_scales == up.prefill_marlin_scales &&
          gate.prefill_marlin_global_scale ==
-             up.prefill_marlin_global_scale &&
+             up.prefill_marlin_global_scale)) &&
          aligned_16(down.prefill_marlin_weight) &&
          aligned_16(down.prefill_marlin_scales) &&
          down.prefill_marlin_global_scale != nullptr;

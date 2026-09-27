@@ -3658,6 +3658,7 @@ prepare_sm87_nvfp4_marlin_prefill_sidecars(
     ModelWeights& model_weights,
     const std::uint64_t minimum_free_bytes_after_prepare,
     const bool interleave_gate_up,
+    const bool source_gate_up,
     Sm87NvFp4MarlinPrefillSidecars& owner) {
   Sm87NvFp4MarlinPrefillPreparation result;
   if (owner.gate_up_weights != nullptr || owner.gate_up_scales != nullptr ||
@@ -3690,9 +3691,9 @@ prepare_sm87_nvfp4_marlin_prefill_sidecars(
           kernels::kSm87NvFp4MarlinIntermediate);
   static_assert(kGateWeightBytes == kDownWeightBytes);
   static_assert(kGateScaleBytes == kDownScaleBytes);
-  constexpr std::uint64_t kRetainedBytes =
+  const std::uint64_t kRetainedBytes =
       static_cast<std::uint64_t>(kLayerCount) *
-      (kGateUpWeightBytes + kGateUpScaleBytes + sizeof(float) +
+      ((source_gate_up ? 0U : kGateUpWeightBytes + kGateUpScaleBytes + sizeof(float)) +
        kDownWeightBytes + kDownScaleBytes + sizeof(float));
   constexpr std::uint64_t kScratchBytes = kGateUpWeightBytes;
 
@@ -3753,13 +3754,14 @@ prepare_sm87_nvfp4_marlin_prefill_sidecars(
     *destination = nullptr;
     return cudaMalloc(destination, bytes);
   };
-  status = allocate(reinterpret_cast<void**>(&owner.gate_up_weights),
-                    kLayerCount * kGateUpWeightBytes);
-  if (status == cudaSuccess) {
+  status = source_gate_up ? cudaSuccess :
+      allocate(reinterpret_cast<void**>(&owner.gate_up_weights),
+               kLayerCount * kGateUpWeightBytes);
+  if (status == cudaSuccess && !source_gate_up) {
     status = allocate(reinterpret_cast<void**>(&owner.gate_up_scales),
                       kLayerCount * kGateUpScaleBytes);
   }
-  if (status == cudaSuccess) {
+  if (status == cudaSuccess && !source_gate_up) {
     status = allocate(reinterpret_cast<void**>(&owner.gate_up_global_scales),
                       kLayerCount * sizeof(float));
   }
@@ -3862,16 +3864,16 @@ prepare_sm87_nvfp4_marlin_prefill_sidecars(
     }
 
     std::uint8_t* const gate_up_weight =
-        owner.gate_up_weights + layer_index * kGateUpWeightBytes;
+        source_gate_up ? nullptr : owner.gate_up_weights + layer_index * kGateUpWeightBytes;
     std::uint8_t* const gate_up_scale =
-        owner.gate_up_scales + layer_index * kGateUpScaleBytes;
-    float* const gate_up_global = owner.gate_up_global_scales + layer_index;
+        source_gate_up ? nullptr : owner.gate_up_scales + layer_index * kGateUpScaleBytes;
+    float* const gate_up_global = source_gate_up ? nullptr : owner.gate_up_global_scales + layer_index;
     std::uint8_t* const down_weight =
         owner.down_weights + layer_index * kDownWeightBytes;
     std::uint8_t* const down_scale =
         owner.down_scales + layer_index * kDownScaleBytes;
     float* const down_global = owner.down_global_scales + layer_index;
-    status = static_cast<cudaError_t>(
+    status = source_gate_up ? cudaSuccess : static_cast<cudaError_t>(
         kernels::prepare_sm87_nvfp4_marlin_gate_up_cuda(
             gate->packed_weight, up->packed_weight, gate->block_scale,
             up->block_scale, gate->weight_scale_2_device, gate_up_factor,
@@ -3897,7 +3899,8 @@ prepare_sm87_nvfp4_marlin_prefill_sidecars(
     }
     owner.descriptors.push_back(NvFp4MarlinPrefillSidecarDescriptor{
         layer_index,
-        interleave_gate_up
+        source_gate_up ? NvFp4MarlinGateUpLayout::kCanonicalSourceOnly
+        : interleave_gate_up
             ? NvFp4MarlinGateUpLayout::kInterleavedGateUp
             : NvFp4MarlinGateUpLayout::kCanonicalGateThenUp,
         gate_up_weight, gate_up_scale, gate_up_global, down_weight,
@@ -5356,7 +5359,16 @@ struct ReferenceEngine::Impl {
             options.prefill_full_attention_tactic ==
                 LayerMajorPrefillFullAttentionTactic::kExactSegmentedC512 &&
             options.prefill_projection_tactic ==
-                LayerMajorPrefillProjectionTactic::kExactSegmentedC512;
+                LayerMajorPrefillProjectionTactic::kExactSegmentedC512
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+            || (options.prefill_execution_mode ==
+                    ReferencePrefillExecutionMode::kWholeRequestLayerMajor &&
+                options.prefill_full_attention_tactic ==
+                    LayerMajorPrefillFullAttentionTactic::kNativeFlashInferExactWholePrompt &&
+                options.prefill_projection_tactic ==
+                    LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore)
+#endif
+            ;
         const reference_engine_detail::DecodeSidecarPolicy
             gate_up_coupled_feed_policy =
                 decode_gate_up_coupled_feed_policy(
@@ -5574,6 +5586,12 @@ struct ReferenceEngine::Impl {
                     *impl->model_weights,
                     options.request_options.min_free_bytes_after_create,
                     interleave_gate_up,
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+                    options.prefill_projection_tactic ==
+                        LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore,
+#else
+                    false,
+#endif
                     impl->nvfp4_marlin_prefill_sidecars);
             impl->load.nvfp4_marlin_prefill_sidecar_milliseconds =
                 elapsed_milliseconds(marlin_begin);

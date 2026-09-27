@@ -1706,14 +1706,24 @@ bool ModelWeights::attach_nvfp4_marlin_prefill_sidecars(
   constexpr std::size_t kHidden = 5'120U;
   for (std::size_t index = 0U; index < descriptor_count; ++index) {
     const NvFp4MarlinPrefillSidecarDescriptor& descriptor = descriptors[index];
+    const bool source_only =
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+        descriptor.gate_up_layout == NvFp4MarlinGateUpLayout::kCanonicalSourceOnly;
+#else
+        false;
+#endif
     if (descriptor.layer_index >= kQwen36DenseLayerCount ||
-        seen[descriptor.layer_index] || descriptor.gate_up_weight == nullptr ||
+        seen[descriptor.layer_index] ||
+        (source_only ? (descriptor.gate_up_weight != nullptr ||
+                        descriptor.gate_up_scales != nullptr ||
+                        descriptor.gate_up_global_scale != nullptr)
+                     : (descriptor.gate_up_weight == nullptr ||
+                        descriptor.gate_up_scales == nullptr ||
+                        descriptor.gate_up_global_scale == nullptr)) ||
         (descriptor.gate_up_layout !=
              NvFp4MarlinGateUpLayout::kCanonicalGateThenUp &&
          descriptor.gate_up_layout !=
-             NvFp4MarlinGateUpLayout::kInterleavedGateUp) ||
-        descriptor.gate_up_scales == nullptr ||
-        descriptor.gate_up_global_scale == nullptr ||
+             NvFp4MarlinGateUpLayout::kInterleavedGateUp && !source_only) ||
         descriptor.down_weight == nullptr || descriptor.down_scales == nullptr ||
         descriptor.down_global_scale == nullptr ||
         reinterpret_cast<std::uintptr_t>(descriptor.gate_up_weight) % 16U != 0U ||

@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: typed resident-weight graph, numerical payload, lifetime, and dispatch-interface contract
   effective: 2026-08-09
-  last_reviewed: 2026-08-12
+  last_reviewed: 2026-09-27
   supersedes: []
   superseded_by: []
   ssot_for: ModelWeights types, binding validation, non-owning lifetime, and projection API behavior
@@ -187,6 +187,16 @@ Decode-only sidecars may coexist. Failure leaves `ModelWeights` unchanged.
 While the transaction is attached, the owner's public `release()` fails closed;
 the attachment itself exposes no launcher, tactic, request-path switch, or
 production qualification.
+
+The non-installable whole-core/exact-Decode composition additionally admits
+`NvFp4MarlinGateUpLayout::kCanonicalSourceOnly`: every Gate/Up Marlin pointer
+must be null while all 64 Down sidecars remain complete. The existing
+Gate/Up consumer reads the authenticated checkpoint weights and scales, so
+this typed absence removes an unused duplicate without changing arithmetic.
+Its binding receipts refer to the actual checkpoint operands. Partial or
+mixed descriptors fail atomically; ordinary builds reject this admission-only
+layout. This adds no owning storage or structure-size change and confers no
+new production numerical qualification.
 
 ## Failure and verification boundary
 

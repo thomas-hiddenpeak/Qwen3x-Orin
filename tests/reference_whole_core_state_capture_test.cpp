@@ -1,3 +1,4 @@
+#include "q3x/runtime/whole_core_request_geometry.h"
 #include "q3x/core/sha256.h"
 #include "q3x/io/json.h"
 #include "q3x/runtime/reference_engine.h"
@@ -309,8 +310,8 @@ int main(int argc, char** argv) {
     rt::ReferenceEngineOptions options;
     options.projection_backend = rt::ProjectionBackend::kSm87WeightOnly;
     if (whole_core) {
-      options.request_options.max_sequence_length = 40'016U;
-      options.request_options.max_arena_bytes = 8'641'684'992ULL;
+      options.request_options.max_sequence_length = rt::kWholeCoreCompiledSequenceCapacity;
+      options.request_options.max_arena_bytes = rt::kWholeCoreCompiledArenaBytes;
       options.request_options.prefill_chunk_size = rt::kMaximumRequestPrefillChunkSize;
       options.prefill_execution_mode = rt::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
       options.prefill_full_attention_tactic = rt::LayerMajorPrefillFullAttentionTactic::kNativeFlashInferExactWholePrompt;

@@ -1,3 +1,4 @@
+#include "q3x/runtime/whole_core_request_geometry.h"
 #include "reference_engine_prefill_authority.h"
 
 #include "q3x/kernels/gdn_prefill_prompt_wide_chunk_graph_abi.h"
@@ -118,6 +119,34 @@ thread_local bool
 #endif
 }
 
+// A whole-core Gate/Up consumer reads checkpoint NVFP4 directly. Bind its
+// actual operands, never an unused Marlin allocation, into the receipt.
+[[nodiscard]] bool source_gate_up(const NvFp4LinearWeight& weight) noexcept {
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  return weight.prefill_marlin_gate_up_layout ==
+             NvFp4MarlinGateUpLayout::kCanonicalSourceOnly &&
+         weight.prefill_marlin_weight == nullptr &&
+         weight.prefill_marlin_scales == nullptr &&
+         weight.prefill_marlin_global_scale == nullptr;
+#else
+  (void)weight;
+  return false;
+#endif
+}
+[[nodiscard]] const void* gate_up_artifact(const NvFp4LinearWeight& weight) noexcept {
+  return source_gate_up(weight) ? weight.packed_weight : weight.prefill_marlin_weight;
+}
+[[nodiscard]] const void* gate_up_scales(const NvFp4LinearWeight& weight) noexcept {
+  return source_gate_up(weight) ? weight.block_scale : weight.prefill_marlin_scales;
+}
+[[nodiscard]] const void* gate_up_global(const NvFp4LinearWeight& weight) noexcept {
+  return source_gate_up(weight) ? weight.weight_scale_2_device : weight.prefill_marlin_global_scale;
+}
+[[nodiscard]] std::uint64_t gate_up_scale_bytes(const NvFp4LinearWeight& weight,
+                                              std::uint64_t marlin_bytes) noexcept {
+  return source_gate_up(weight) ? weight.output_size * weight.input_size / 16U : marlin_bytes;
+}
+
 [[maybe_unused, nodiscard]] bool valid_nvfp4_marlin_binding(
     const LinearWeight& weight, const std::size_t expected_output_size,
     const std::size_t expected_input_size) noexcept {
@@ -131,9 +160,11 @@ thread_local bool
          nvfp4->block_scale != nullptr &&
          nvfp4->weight_scale_2_device != nullptr &&
          nvfp4->input_scale_device != nullptr &&
-         aligned_16(nvfp4->prefill_marlin_weight) &&
-         aligned_16(nvfp4->prefill_marlin_scales) &&
-         nvfp4->prefill_marlin_global_scale != nullptr &&
+         ((source_gate_up(*nvfp4) && expected_output_size == 17'408U &&
+           expected_input_size == kReferenceHiddenSize) ||
+          (aligned_16(nvfp4->prefill_marlin_weight) &&
+           aligned_16(nvfp4->prefill_marlin_scales) &&
+           nvfp4->prefill_marlin_global_scale != nullptr)) &&
          nvfp4->output_size == expected_output_size &&
          nvfp4->input_size == expected_input_size;
 #else
@@ -2086,7 +2117,7 @@ static_assert(
     &kLayerMajorPrefillPromptWideP40PackedNvfp4V2ArithmeticContract);
 
 inline constexpr std::uint64_t kPromptWideP40WholeCoreArenaBytes =
-    8'641'684'992U;
+    kWholeCoreCompiledArenaBytes;
 
 [[nodiscard]] bool exact_matrix_view(
     const DeviceMatrixView& view, const std::uint32_t rows,
@@ -2373,6 +2404,9 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
           ? LayerMajorPrefillMlpScheduleTactic::kLayerWideP40ExactFullM
           : LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
   const NvFp4MarlinGateUpLayout expected_gate_up_layout =
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+      whole_core_projection ? NvFp4MarlinGateUpLayout::kCanonicalSourceOnly :
+#endif
       interleaved_p40_projection
           ? NvFp4MarlinGateUpLayout::kInterleavedGateUp
           : NvFp4MarlinGateUpLayout::kCanonicalGateThenUp;
@@ -2786,10 +2820,10 @@ BoundPrefillPlanResult ReferenceEnginePrefillPlanFactory::bind(
                   ? NativePrefillTactic::kNvfp4GateUpP40ProjectionReset
                   : NativePrefillTactic::
                         kNvfp4GateUpPersistentP40LayerWide,
-              gate->prefill_marlin_weight, gate->prefill_marlin_scales,
-              kGateUpScaleBytes, kLayerMajorPrefillPromptWideP40Tokens,
+              gate_up_artifact(*gate), gate_up_scales(*gate),
+              gate_up_scale_bytes(*gate, kGateUpScaleBytes), kLayerMajorPrefillPromptWideP40Tokens,
               kLayerMajorPrefillPromptWideP40Tokens,
-              gate->prefill_marlin_global_scale, sizeof(float));
+              gate_up_global(*gate), sizeof(float));
       roles[static_cast<std::size_t>(PrefillBindingRole::kNvfp4Down)] =
           receipt(
               PrefillBindingRole::kNvfp4Down,
@@ -3625,6 +3659,9 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
           ? LayerMajorPrefillMlpScheduleTactic::kLayerWideP40ExactFullM
           : LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
   const NvFp4MarlinGateUpLayout expected_gate_up_layout =
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+      whole_core_projection ? NvFp4MarlinGateUpLayout::kCanonicalSourceOnly :
+#endif
       interleaved_p40_projection
           ? NvFp4MarlinGateUpLayout::kInterleavedGateUp
           : NvFp4MarlinGateUpLayout::kCanonicalGateThenUp;
@@ -3956,11 +3993,11 @@ bool ReferenceEnginePrefillExecutor::plan_matches_runner(
                             kNvfp4GateUpP40ProjectionReset
                       : NativePrefillTactic::
                             kNvfp4GateUpPersistentP40LayerWide,
-                  gate->prefill_marlin_weight, gate->prefill_marlin_scales,
-                  kGateUpScaleBytes,
+                  gate_up_artifact(*gate), gate_up_scales(*gate),
+                  gate_up_scale_bytes(*gate, kGateUpScaleBytes),
                   kLayerMajorPrefillPromptWideP40Tokens,
                   kLayerMajorPrefillPromptWideP40Tokens,
-                  gate->prefill_marlin_global_scale, sizeof(float)) &&
+                  gate_up_global(*gate), sizeof(float)) &&
                   matches(
                       PrefillBindingRole::kNvfp4Down,
                       projection_reset

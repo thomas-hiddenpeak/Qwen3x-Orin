@@ -247,7 +247,7 @@ class UniqueFd final {
     const EvaluationServerOptions& options) noexcept {
   const EvaluationProductionDeploymentPlan& plan =
       is_p40_whole_core_v1_production_profile(options)
-          ? kP40WholeCoreV1ProductionPlan
+          ? selected_p40_whole_core_plan()
           : kP40ExactLegacyC512ProductionPlan;
   OpenAIProductionIdentity identity;
   identity.profile_id = to_string(options.production_profile);
@@ -293,7 +293,10 @@ class UniqueFd final {
   // compilation and complete incumbent inventory do not qualify the candidate.
   identity.production_eligible = false;
   identity.release_qualified = false;
-#if defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  identity.profile_id = kWholeCoreExactDecodeAdmissionPlan.id;
+  identity.decode_route_id = kWholeCoreExactDecodeAdmissionPlan.decode_route_id;
+#elif defined(Q3X_ENABLE_FUSED_DECODE_ADMISSION)
   identity.profile_id = "q3x.sm87.admission.ordered-decode-pipeline.v7";
   identity.decode_route_id = "fixed-gqa-ordered-pipeline-s512-44095.v7";
 #endif
@@ -310,7 +313,7 @@ class UniqueFd final {
   }
   if (is_p40_whole_core_v1_production_profile(options)) {
     const EvaluationProductionDeploymentPlan& plan =
-        kP40WholeCoreV1ProductionPlan;
+        selected_p40_whole_core_plan();
     if (load.fp8_prefill_supermatrix_sidecars_enabled ||
         load.fp8_prefill_supermatrix_sidecar_projections != 0U ||
         load.fp8_prefill_supermatrix_sidecar_bytes != 0U ||
@@ -319,13 +322,13 @@ class UniqueFd final {
         load.fp8_output_sidecar_bytes !=
             plan.decode_fp8_output_sidecar_bytes ||
         !load.fp8_output_sidecar_fallback_reason.empty() ||
-        load.nvfp4_gate_up_coupled_feed_requested ||
-        load.nvfp4_gate_up_coupled_feed_enabled ||
-        load.nvfp4_gate_up_coupled_feed_layers != 0U ||
-        load.nvfp4_gate_up_coupled_feed_bytes != 0U ||
-        load.nvfp4_gate_up_coupled_feed_production_requested ||
-        load.nvfp4_gate_up_coupled_feed_production_enabled ||
-        load.nvfp4_gate_up_coupled_feed_production_bytes != 0U ||
+        load.nvfp4_gate_up_coupled_feed_requested != (plan.decode_gate_up_layers != 0U) ||
+        load.nvfp4_gate_up_coupled_feed_enabled != (plan.decode_gate_up_layers != 0U) ||
+        load.nvfp4_gate_up_coupled_feed_layers != plan.decode_gate_up_layers ||
+        load.nvfp4_gate_up_coupled_feed_bytes != plan.decode_gate_up_sidecar_bytes ||
+        load.nvfp4_gate_up_coupled_feed_production_requested != (plan.decode_gate_up_layers != 0U) ||
+        load.nvfp4_gate_up_coupled_feed_production_enabled != (plan.decode_gate_up_layers != 0U) ||
+        load.nvfp4_gate_up_coupled_feed_production_bytes != plan.decode_gate_up_sidecar_bytes ||
         !load.nvfp4_down_scale6_sidecars_enabled ||
         load.nvfp4_down_scale6_sidecar_eligible_layers !=
             plan.decode_down_scale6_layers ||
@@ -335,13 +338,13 @@ class UniqueFd final {
         load.nvfp4_down_scale6_sidecar_bytes !=
             plan.decode_down_scale6_sidecar_bytes ||
         !load.nvfp4_down_scale6_sidecar_fallback_reason.empty() ||
-        load.nvfp4_down_consumer_order_sidecars_requested ||
-        load.nvfp4_down_consumer_order_sidecars_enabled ||
-        load.nvfp4_down_consumer_order_sidecar_layers != 0U ||
-        load.nvfp4_down_consumer_order_sidecar_bytes != 0U ||
-        load.nvfp4_down_consumer_order_production_requested ||
-        load.nvfp4_down_consumer_order_production_enabled ||
-        load.nvfp4_down_consumer_order_production_bytes != 0U ||
+        load.nvfp4_down_consumer_order_sidecars_requested != (plan.decode_down_consumer_order_layers != 0U) ||
+        load.nvfp4_down_consumer_order_sidecars_enabled != (plan.decode_down_consumer_order_layers != 0U) ||
+        load.nvfp4_down_consumer_order_sidecar_layers != plan.decode_down_consumer_order_layers ||
+        load.nvfp4_down_consumer_order_sidecar_bytes != plan.decode_down_consumer_order_sidecar_bytes ||
+        load.nvfp4_down_consumer_order_production_requested != (plan.decode_down_consumer_order_layers != 0U) ||
+        load.nvfp4_down_consumer_order_production_enabled != (plan.decode_down_consumer_order_layers != 0U) ||
+        load.nvfp4_down_consumer_order_production_bytes != plan.decode_down_consumer_order_sidecar_bytes ||
         load.decode_graph_cache_requested_policy !=
             plan.decode_graph_cache_policy ||
         load.decode_graph_cache_effective_policy !=
@@ -1925,10 +1928,17 @@ void handle_connection(
     if (is_p40_whole_core_v1_production_profile(options) &&
         !is_p40_whole_core_v10_request(*parsed.value)) {
       const OpenAIProtocolError error = simple_error(
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+          400, "whole_core_exact_decode_contract",
+          "the whole-core exact Decode candidate accepts only streaming "
+          "/v1/completions requests with exactly 40000 token IDs and "
+          "max_tokens from 1 through 4096 plus stream_options.include_usage=true");
+#else
           400, "p40_whole_core_v1_contract",
           "the p40-whole-core-v1 production profile accepts only streaming "
           "/v1/completions requests with exactly 40000 token IDs and "
           "max_tokens=16 plus stream_options.include_usage=true");
+#endif
       if (!send_fixed_response(connection.get(), error.http_status,
                                serialize_openai_error(error),
                                !final_connection_request,
@@ -2156,7 +2166,13 @@ void ingress_worker(
       return false;
     }
   }
-#if !defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
+#if defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+  if (!p40_whole_core_v1_production || p40_whole_core_v10_selected) {
+    error = "this candidate binary requires --candidate-profile "
+            "whole-core-exact-decode";
+    return false;
+  }
+#elif !defined(Q3X_ENABLE_P40_WHOLE_CORE_DEVELOPMENT_ROUTE)
   if (p40_whole_core_v10_selected) {
     error = "this binary does not contain the default-off P40 whole-core "
             "development route";
@@ -2551,11 +2567,11 @@ int run_evaluation_server(const EvaluationServerOptions& options,
             << " nvfp4_gate_up_coupled_feed_production_bytes="
             << load.nvfp4_gate_up_coupled_feed_production_bytes
             << " decode_production_retained_sidecar_bytes="
-            << kP40ExactLegacyC512ProductionPlan
-                   .decode_retained_sidecar_bytes
+            << production_identity(options).decode_retained_sidecar_bytes
             << " production_retained_acceleration_sidecar_bytes="
-            << kP40ExactLegacyC512ProductionPlan
-                   .retained_acceleration_sidecar_bytes
+            << production_identity(options).retained_acceleration_sidecar_bytes
+            << " nvfp4_marlin_prefill_sidecar_bytes="
+            << load.nvfp4_marlin_prefill_sidecar_bytes
             << '\n';
 
   bool fatal_accept_error = false;
