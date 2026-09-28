@@ -93,36 +93,60 @@ text, usage and finish on eight requests each, including stream/nonstream,
 text/chat and recovery after real Prefill/Decode disconnects. Startup retains
 over 8 GiB free memory with the complete target acceleration inventory.
 
-The chain is connected, but **v1 is not selected as an acceleration route**.
-The following are one fresh process per policy, same exact requests and order,
-not repeated release-qualified means. Prefill includes draft initialization;
-Decode counts committed output after the first token: non-MTP uses its existing
-step interval, while MTP includes the complete controller interval and observer
-work. External total durations are retained in the record. The installed
-ordinary service remains unchanged.
+The [efficiency composition](metadata/qwen36-27b-mtp-efficiency-direction-2026-09-28.json)
+now retains vectorized four-chain FP8/NVFP4 verification using the existing
+Decode sidecars, M32 draft-cache initialization and cache-only reconciliation.
+The isolated service profile is `q3x.sm87.admission.mtp-multirow-api.v4`, ELF
+`d55242273cb4b8b4765a731cbbf482ead0776e9448ff2673e9b2790d628e0a34`.
+The one intervening CTA-row feed repair regressed P65/8K and was removed;
+its completed requests and early-stop record remain preserved. Fewer registers
+or theoretical weight reuse did not predict whole-runner performance.
+
+The final composition passes nine complete P65 per-prefix state/full-logit
+comparisons, 11 full transaction state/logit/draft-KV cases, two initialization
+cancellation recoveries and two injected-failure recoveries. Its 31/32/33-row
+initialization boundaries are exact against full scalar replay. Both configured
+lengths pass all eight API/lifecycle requests, match baseline text/usage/finish,
+and preserve all generated token IDs against the predecessor MTP witnesses.
+This bounded numerical panel does not claim full-state equality at every
+served context or release/capability qualification.
+
+**The 1.5x–3x owner target remains unmet; production is unchanged.** The table
+uses one fresh final process per policy and the retained same-request non-MTP
+baseline, not mirrored repeated means. Prefill includes draft initialization;
+MTP Decode includes the full controller/observer interval while the ordinary
+baseline retains its step timer. Complete external request intervals are also
+retained. Main requests are P65/O16 and P8192/P40000 O256.
 
 | P / O | Policy | Prefill seconds | Prefill token/s | External TTFT seconds | Decode token/s |
 | --- | --- | ---: | ---: | ---: | ---: |
 | 65 / 16 | non-MTP | 0.882 | 73.69 | 0.907 | 9.591 |
-| 65 / 16 | MTP d2 | 0.908 | 71.55 | 0.927 | 3.414 |
-| 65 / 16 | MTP d3 | 0.909 | 71.53 | 0.928 | 3.258 |
+| 65 / 16 | MTP d2 | 0.905 | 71.86 | 0.923 | 10.128 |
+| 65 / 16 | MTP d3 | 0.912 | 71.26 | 0.931 | 8.083 |
 | 8192 / 256 | non-MTP | 16.750 | 489.08 | 16.772 | 9.223 |
-| 8192 / 256 | MTP d2 | 20.009 | 409.42 | 20.031 | 3.553 |
-| 8192 / 256 | MTP d3 | 19.974 | 410.14 | 19.996 | 3.814 |
+| 8192 / 256 | MTP d2 | 19.576 | 418.48 | 19.598 | 10.707 |
+| 8192 / 256 | MTP d3 | 19.602 | 417.92 | 19.624 | 9.189 |
 | 40000 / 256 | non-MTP | 89.872 | 445.08 | 89.907 | 7.868 |
-| 40000 / 256 | MTP d2 | 106.179 | 376.72 | 106.214 | 3.019 |
-| 40000 / 256 | MTP d3 | 106.553 | 375.40 | 106.588 | 3.245 |
+| 40000 / 256 | MTP d2 | 104.045 | 384.45 | 104.080 | 7.910 |
+| 40000 / 256 | MTP d3 | 104.510 | 382.74 | 104.545 | 6.953 |
 
-At 8K/40K, d2 acceptance is 80.1%/71.4% and d3 is 68.4%/63.7%.
-Verification consumes roughly 87–91% of Decode. Its independent multi-row
-projection kernels do not yet use the optimized production Decode layouts;
-row reuse alone did not deliver performance. Draft initialization adds about
-3.24 s at 8K and 15.8 s at 40K. These measured costs select the next architectural
-work, not a length sweep or more qualification of v1. The isolated controller
-and witness remain reusable development infrastructure. The
-[subsystem design](MTP_ADMISSION.md) and [Roadmap](ROADMAP.md) govern the next
-composition; broader capability, maximum-capacity execution and release
-qualification are not claimed.
+For d2, 8K Decode improves directionally by 16.1% over non-MTP, but 40K is
+only about 0.5% higher, without repetition sufficient to claim a material gain.
+D3 is slower than d2 on this panel. D2's external complete request is
+43.415 versus 44.421 seconds at 8K, but 136.320 versus 122.322 seconds at
+40K: added initialization still makes the long request worse. These results
+retain a development implementation, not a generally faster serving policy.
+
+At 8K/40K, d2 acceptance remains 80.1%/71.4% and d3 remains 68.4%/63.7%.
+D2 initialization falls from about 3.25/15.84 seconds to 2.83/13.81 seconds;
+reconciliation falls from about 3.53/4.61 seconds to about 0.69 seconds each.
+Verification remains dominant: 19.63/26.91 seconds for d2. At 8K a 1.5x
+Decode target permits about 18.43 seconds for the entire 255-token interval,
+already less than verification alone. The next architecture must lower the
+complete verifier budget, including long-context KV traversal, and account
+for drafting and prompt initialization. No additional length scan or repeated
+qualification of this composition is pending. The [subsystem design](MTP_ADMISSION.md)
+and [Roadmap](ROADMAP.md) govern further work.
 
 ## Numerical baseline decision
 

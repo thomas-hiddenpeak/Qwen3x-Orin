@@ -8,7 +8,7 @@
 
 namespace q3x::runtime::mtp_detail {
 int launch_mtp_verify_projection(const std::uint8_t*, const std::uint8_t*, float,
-    const std::uint16_t*, unsigned, unsigned, unsigned, std::uint16_t*, void*) noexcept;
+    const std::uint16_t*, unsigned, unsigned, unsigned, std::uint16_t*, void*, const std::uint8_t*, const std::uint8_t*, unsigned) noexcept;
 bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
   constexpr std::size_t H = 5120, V = 248320;
   auto& v = target_.views_;
@@ -27,10 +27,12 @@ bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
     if (rows_ > 1) {
       if (const auto* f = std::get_if<Fp8LinearWeight>(&w))
         return ok(launch_mtp_verify_projection(f->weight, nullptr, f->weight_scale,
-            x, rows_, f->output_size, f->input_size, y, stream));
+            x, rows_, f->output_size, f->input_size, y, stream, f->m1_aosoa4_preswizzled_weight, nullptr, 0));
       if (const auto* q = std::get_if<NvFp4LinearWeight>(&w))
         return ok(launch_mtp_verify_projection(q->packed_weight, q->block_scale, q->weight_scale_2,
-            x, rows_, q->output_size, q->input_size, y, stream));
+            x, rows_, q->output_size, q->input_size, y, stream,
+            q->decode_gate_up_coupled_feed_sidecar ? q->decode_gate_up_coupled_feed_sidecar :
+              q->down_consumer_order_weight, q->down_scale6_sidecar, q->down_scale6_base));
     }
     return ok(launch_projection_tile_to_bf16_cuda(ProjectionBackend::kSm87WeightOnly,
         w, x, rows_, v.fp32_scratch, v.fp32_scratch_elements, y, stream));

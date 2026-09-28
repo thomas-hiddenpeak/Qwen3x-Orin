@@ -1,4 +1,5 @@
 #include "runtime/mtp_device_internal.h"
+#include "runtime/mtp_prefill_internal.h"
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
 #include "runtime/mtp_engine_internal.h"
 #include "q3x/runtime/reference_engine.h"
@@ -278,7 +279,7 @@ int main(int argc, char** argv) try {
           std::chrono::steady_clock::now() - scalar_started).count();
       // Exercise short/masked batches and prove no cache row beyond the
       // requested live prefix is written. Full-step replay above is the oracle.
-      for (unsigned count : {0U, 1U, 7U, 8U, 9U, unsigned(prompt.size() - 1)}) {
+      for (unsigned count : {0U, 1U, 7U, 8U, 9U, 31U, 32U, 33U, unsigned(prompt.size() - 1)}) {
         if (count >= prompt.size()) continue;
         require(draft.reset(), "batch test reset");
         const auto guard_k = read_device(draft.keys() + count * 1024ULL, 2048);
@@ -307,7 +308,8 @@ int main(int argc, char** argv) try {
         require(!transaction.initialize_whole_core_prefill(prompt.data(), prompt.size(),
                      PrefillCancel::poll, &cancellation) && target->poisoned(),
                 "Prefill cancellation must poison both participants");
-        require(draft.position() == (stop_at == 1 ? 0U : std::min<unsigned>(8, prompt.size() - 1)),
+        require(draft.position() == (stop_at == 1 ? 0U :
+                    std::min<unsigned>(mtp::kDraftPrefillBatch, prompt.size() - 1)),
                 "Prefill cancellation crossed one batch");
         std::uint32_t ignored = 0;
         require(!draft.step(prompt[0], transaction.prompt_hidden(), false, ignored),
@@ -420,7 +422,7 @@ int main(int argc, char** argv) try {
   }
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
   std::cout << "prefill_route=corrected_whole_core draft_initialization=batched_live_kv\n"
-               "verifier=multirow_four_chain scope=multirow_correctness_only\n";
+               "verifier=multirow_vector_feed scope=multirow_correctness_only\n";
 #else
   std::cout << "verifier=scalar scope=scalar_correctness_only\n";
 #endif

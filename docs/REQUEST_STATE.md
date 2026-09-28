@@ -304,9 +304,9 @@ publishes length before observation. Rejected append-only KV rows remain
 outside the live prefix; accepted draft KV is rebuilt using target hidden.
 Abort poisons both participants and grants no successful-request reuse
 boundary. Whole-core prompt capture retains the existing per-row final-norm arithmetic.
-Draft-cache initialization additionally reserves 327,680 bytes of dedicated
+Draft-cache initialization additionally reserves 1,310,720 bytes of dedicated
 batch scratch at construction, retaining the same free-memory gate. It
-publishes only complete batches and poisons on cancellation; it does not
+publishes only complete batches of at most 32 rows and poisons on cancellation; it does not
 materialize a valid draft final hidden. The explicit multi-row verifier reuses
 the validated C512 request scratch and assembles the same immutable prefix
 slots layer by layer, with no added allocation. No partially assembled slot can be committed. The separate service

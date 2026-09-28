@@ -21,14 +21,34 @@ owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 
 ## 2026-09-28 MTP — active, configured drafts 2 and 3
 
-The owner's new authorization opens `WP-MTP-20260928` and
+`WP-MTP-EFFICIENCY-20260928` / `AC-MTP-GREEDY-v2` has completed its bounded
+implementation and API return, recorded in the
+[efficiency direction](metadata/qwen36-27b-mtp-efficiency-direction-2026-09-28.json).
+Vector-feed verification, M32 initialization and cache-only reconciliation
+remain in the isolated v4 admission; the single CTA-row repair is rejected and
+removed. Both drafts pass the declared numerical/API panel, but neither
+provides the owner's 1.5x–3x Decode objective across contexts. No production
+switch, draft-length sweep or qualification-only campaign follows this result.
+
+The MTP efficiency goal remains active. The downward budget now requires
+8K d2's entire Decode to fit about 18.43 seconds, versus 19.63 seconds in
+verification alone; at 40K the full d2 budget is about 21.61 seconds versus
+26.91 seconds in verification alone. This selects a materially new verifier
+operand/Attention dataflow and prompt/draft work elimination, not another
+launch-parameter variant of the rejected CTA design. Any successor must name
+its exact arithmetic/state/lifetime ledger, bounded composition point and
+return to the same P65/8K/40K d2/d3 API panel, reporting Prefill, TTFT, committed
+Decode and external total time. The numerical contract and 8-GiB reserve remain
+hard constraints; the production service remains the speedup denominator.
+
+The earlier owner authorization opened `WP-MTP-20260928` and
 `AC-MTP-GREEDY-v1`, governed by [MTP Admission](MTP_ADMISSION.md).
 Non-MTP optimization packages remain closed and their targets remain intact.
 The host foundation and the [native scalar device milestone](metadata/qwen36-27b-mtp-device-2026-09-28.json)
 are delivered. Authenticated draft execution, shifted scalar hidden/KV
 initialization, complete recurrent prefix restoration and target-conditioned
-draft reconciliation pass the bounded real-model correctness harness. This
-still executes the main model serially and has no API or acceleration claim.
+draft reconciliation pass the bounded real-model correctness harness. That scalar
+milestone executed the main model serially and had no API or acceleration claim.
 
 The whole-core prompt handoff now captures all final normalized hidden rows
 and initializes shifted draft KV in the non-installable engine harness. Full
@@ -52,16 +72,16 @@ additional v1 qualification or draft-length sweep is pending. The isolated
 controller, full-capacity admission and truthful physical witness are retained
 as development infrastructure, not enabled in production.
 
-Next MTP engineering must change the composed dataflow: bring optimized
-production projection layouts/operand delivery into weight-reusing verification,
-and reduce the measured draft-cache initialization cost. Acceptance is already
-substantial; scalar correctness alone or additional row reuse is not a useful
-performance exit. Name and bound that materially revised architecture before
-its performance run, then return directly to the same three API stages with
-joint Prefill/TTFT/committed Decode, acceptance and phase-cost reporting. Do not
-reopen non-MTP optimization or spend another campaign qualifying this losing
-version. The owner's latest direction prioritizes closing the real chain and
-reporting every stage over further isolated mechanism refinement.
+The efficiency package above supersedes v1's next-step proposal. Its one
+CTA-row operand repair is rejected after a valid P65/P8192 slowdown; it is not
+an outstanding tuning branch. The final composition uses stage-one vector
+projection feed with M32 initialization and cache-only reconciliation. Both
+configured draft lengths have returned to the complete API direction panel,
+closing this bounded package. Numerical admission does not authorize production or a
+50% speedup claim. A remaining gap must select a materially new verifier or
+Attention/draft dataflow with a downward whole-round budget; repeating these
+projection variants, qualifying a losing policy or scanning draft lengths is
+not the next task.
 
 ## 2026-09-28 publication fusion — closed without promotion
 

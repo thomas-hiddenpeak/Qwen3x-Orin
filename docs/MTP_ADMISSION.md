@@ -18,7 +18,7 @@ q3x_document:
 This subsystem refines the generation boundary in [SDD](SDD.md). The owner
 authorized MTP development with configured draft lengths **2 and 3**, followed
 by business-driven scanning later. `WP-MTP-20260928` owns
-`AC-MTP-GREEDY-v1`. The existing non-MTP targets and production artifact remain
+`AC-MTP-GREEDY-v1`; its efficiency successor is specified below. The existing non-MTP targets and production artifact remain
 separate; an MTP result cannot claim to close a non-MTP performance gap.
 [Roadmap](ROADMAP.md) owns delivery order and [Current Status](CURRENT_STATUS.md)
 owns what actually executes. The native transaction below has scalar-oracle
@@ -51,6 +51,81 @@ return. If the composed direction is negative, record the acceptance and cost
 breakdown and either close v1 or declare one materially changed architecture;
 do not keep collecting qualification evidence for a losing composition.
 Serial target execution plus drafting is not an acceleration architecture.
+
+## Efficiency composition v2
+
+`WP-MTP-EFFICIENCY-20260928` responds to v1's measured 87–91% verification
+share and the owner's 50%–200% Decode speedup objective. At 8K, d3 commits
+255 tokens in 84 rounds; 1.5x the 9.223-token/s baseline allows about 219 ms
+per round including draft/reconciliation, compared with roughly 701 ms in
+verification alone. This budget selects operand delivery and projection
+ownership, not an acceptance-rate or length sweep.
+
+Stage one groups four output channels and M2..4 token rows in each projection
+worker. FP8 reads packed four-byte words, consuming the existing AoSoA4
+preswizzled output sidecar where attached. NVFP4 consumes the existing coupled
+Gate/Up feed and Down consumer-order/scale6 inventory; ineligible Down layers
+retain canonical bytes with vector reads. Weights/scales are decoded once for
+all M rows; each activation load serves four output channels. The expression
+remains four independent FP32 FMA chains, `(a0+a1)+(a2+a3)`, the same warp
+and (FP8) eight-warp reduction, final tensor scale and BF16 publication. No
+Tensor Core reassociation, new weight arena, persistent-state boundary or
+approximate verifier is admitted. GDN/Conv, ordered Attention, snapshots and
+lm-head remain the established exact operators at this stage.
+
+The transfer follows the already studied vLLM/Marlin operand reuse and
+consumer-order delivery principle, translated to SM87 vector loads and scalar
+FMA to preserve Decode arithmetic. FlashInfer's query/KV reuse is a separate
+remaining Attention opportunity; FLA/Triton and Mamba chunk composition cannot
+silently replace this BF16 recurrent commit contract. The source assessment
+in the [non-MTP architecture record](analysis/non-mtp-architecture-assessment-2026-09-28/README.md)
+and pinned MTP references above remain reference-only.
+
+The complete per-prefix scalar state/logit harness supplies minimum admission,
+then the existing full-capacity service returns immediately to the same three
+API buckets for drafts 2/3. One operand-dataflow repair is the stop-loss bound;
+negative whole-path results close this version rather than trigger tuning.
+Stage two may reduce the measured 3.24s/15.8s draft initialization only after
+stage-one API evidence; it needs an explicit exact reduction/ownership ledger
+before mutation. Artifacts live under `.q3x-work/mtp-efficiency-20260928/`.
+The installed ordinary service is the rollback and remains unchanged until
+separate production qualification.
+
+The first API stage reduces v1 verification cost but does not beat non-MTP
+across the tested contexts.
+One same-ELF P65/O16 profile assigns approximately 108 ms/round to FP8 and
+105 ms/round to NVFP4, about 83% of verification. The bounded operand repair
+therefore moves speculative rows from each thread's accumulator array into
+separate cooperating thread groups of the same CTA. Each group retains the
+original scalar K/reduction ownership and four output channels. Read-only
+cached loads let those groups consume the same adjacent weight lines; no new
+layout or persistent memory is introduced. This trades repeated cache/decode
+instructions for lower register pressure and more active warps; only the
+complete API decides whether it is beneficial. It is the one allowed repair,
+not the start of a launch-shape scan.
+
+The second stage composes two exact draft changes at that same API return.
+Initialization widens weight reuse from eight to 32 independent shifted rows,
+keeping each thread's K-strided FMA sequence and the 256-thread binary tree.
+Its construction-owned scratch is 1,310,720 bytes (983,040 additional bytes);
+cancellation is checked before work and after every completed batch of at most
+32 rows. The complete cache oracle includes 31/32/33-row boundaries.
+Reconciliation appends only FC/input norm/K/V/K norm/RoPE for one target-hidden
+row. The next proposal always starts from the selected target hidden, so the
+replayed Q/Attention/O/MLP/final draft hidden has no later consumer. Those dead
+outputs are not published; `Draft::step` remains the full-layer cache oracle.
+The exact live K/V and position complete before each observer. Failure still
+drains/poisons, and complete target-state/full-logit and draft-KV comparisons
+remain required. Full drafting is unchanged. This composition returns directly
+to P65/8K/40K for d2/d3 and cannot claim speedup before that return.
+
+The one CTA-row operand repair regressed the first API sanity case and is
+rejected. Its source, oracle and observed requests remain frozen. The final
+composition restores the admitted stage-one vector-feed verifier and retains
+the independent M32 initialization/cache-only reconciliation changes. This is
+a bounded composition of already admitted mechanisms, not another projection
+variant or parameter scan. Profile v4 identifies that composition and returns
+to the complete d2/d3 API panel before any performance claim.
 
 ## Checkpoint and draft model
 
@@ -199,7 +274,7 @@ argmax kernels. Every step completes on its owned stream before position
 publication; there is no allocation or implicit fallback in a step. Reset
 clears complete draft K/V and poison. Rewind changes only logical draft length;
 rejected rows are inaccessible and overwritten before reuse. `hidden()` is a
-borrowed last-step value, invalid for use after reset, rewind or failure until
+borrowed last-step value, invalid for use after reset, rewind, cache-only append or failure until
 a new successful step. Prompt initialization consumes shifted normalized target hidden rows. The
 whole-core adapter below adds prompt-wide capture and bounded batched live-KV
 initialization; scalar full steps remain the independent cache oracle.
@@ -235,8 +310,8 @@ Exact device results and limitations are recorded in the
 [device milestone](metadata/qwen36-27b-mtp-device-2026-09-28.json). These checks
 establish the scalar correctness substrate only. The subsequent multi-row
 implementation does not inherit API acceleration authority from these tests.
-Synchronous snapshot restoration and full draft-row replay remain in the
-composition budget. Service integration,
+Synchronous snapshot restoration and target-conditioned cache-only draft
+reconciliation remain in the composition budget. Service integration,
 API receipts, cancellation/stream accounting and real API selection
 remain required before the architecture can be selected.
 
@@ -256,14 +331,15 @@ Norm_H(target_hidden[t]))))))` and the corresponding V projection before
 K normalization/RoPE. Each input hidden comes from the target, not the previous
 draft output. Query/gate, causal Attention, O, residual/MLP and final draft
 hidden therefore have no path to a later live value during this initialization.
-They remain mandatory during proposal and reconciliation steps. No draft hidden
+They remain mandatory during proposal steps. Reconciliation now uses the
+same live-KV deletion described in the efficiency composition above. No draft hidden
 export is valid after cache-only initialization until a successful full step.
 
-The implementation batches at most eight independent rows. FC/K/V reuse each
+The current implementation batches at most 32 independent rows. FC/K/V reuse each
 decoded BF16 weight across rows while retaining the scalar 256-thread strided
 K accumulation, `fmaf`, binary reduction and BF16 publication. Normalization
 and RoPE keep their existing per-row kernels and absolute positions. Dedicated
-327,680-byte construction-owned scratch does not alias scalar or cache storage.
+1,310,720-byte construction-owned scratch does not alias scalar or cache storage.
 Each batch completes on the draft stream before its length is published;
 cancellation is polled before the first batch and after each completed batch.
 Cancellation/failure drains and poisons both owners through the transaction;
@@ -318,7 +394,7 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
 production/install, and identifies itself as
-`q3x.sm87.admission.mtp-multirow-api.v1`. The startup-only
+`q3x.sm87.admission.mtp-multirow-api.v4`. The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.

@@ -1,10 +1,11 @@
+#include "mtp_prefill_internal.h"
 #include <cuda_runtime.h>
 #include <cstddef>
 #include <cstdint>
 
 namespace q3x::runtime::mtp_detail {
 namespace {
-constexpr unsigned kBatch = 8, kThreads = 256;
+constexpr unsigned kBatch = kDraftPrefillBatch, kThreads = 256;
 __device__ float decode(std::uint16_t x) {
   return __uint_as_float(static_cast<unsigned>(x) << 16);
 }
@@ -16,7 +17,7 @@ __device__ std::uint16_t encode(float x) {
   return static_cast<std::uint16_t>(bits >> 16);
 }
 // Same per-thread K sequence and 256-thread binary reduction as BF16
-// reference GEMV. Each decoded weight serves eight independent accumulators.
+// reference GEMV. Each decoded weight serves 32 independent accumulators.
 // No Tensor Core reassociation or change to the BF16 publication boundary.
 __global__ void project(const std::uint16_t* weights,
                         const std::uint16_t* input, unsigned count,

@@ -39,6 +39,9 @@ class Draft {
                      const std::uint16_t* target_hidden, std::uint32_t rows,
                      bool (*cancel)(void*) noexcept = nullptr,
                      void* cancel_context = nullptr) noexcept;
+  // Append one target-conditioned cache row; no valid draft hidden is produced.
+  // The next proposal must begin with the selected target hidden.
+  bool append_kv(std::uint32_t token, const std::uint16_t* target_hidden) noexcept;
   bool rewind(std::uint32_t position) noexcept;
   bool reset() noexcept;
   bool poison() noexcept;
