@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-28",
+  "work_package_id": "WP-MTP-20260928",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v1",
+  "decision_unit": "dependency_only",
+  "status": "whole_core_handoff_correctness_passed_not_api_or_acceleration",
+  "base_commit": "ed106aa17a6323429e4f216a514b1d2593729292",
+  "source_sha256": {
+    "CMakeLists.txt": "ab0b1ea12b48a296d6a7b9fa311440824e13d22f3c564fd37dff0e9caea2f5ef",
+    "include/q3x/runtime/reference_engine.h": "b75f0bc97b6389611a8a751f7759d716542a9df598a71d3b251dc65bbaa940d2",
+    "include/q3x/runtime/reference_runner.h": "23351c63c8be820c231d6f155c33d98bb2d1ad001ee12e620eb34423fb73cec1",
+    "src/runtime/mtp_engine_internal.h": "8a4deb3c1c55158b50dd006e5b35989b5369e232484b34e4da671695376a8aed",
+    "src/runtime/mtp_device_internal.h": "ba7c07e9926af6cf4c21512c01c1c17ce36e78d4c5071acb1934557c87dc71cd",
+    "src/runtime/mtp_device_internal.cpp": "6a84e46aa6a23aa43efd5f9d562ba77cc43edae74d1fb91fa34947ec5fac71ab",
+    "src/runtime/reference_engine.cpp": "d9172771d27da3f2df6e4a7d80dd99ae6cadc521e9c2c2301b4cab6a905da06c",
+    "src/runtime/mtp_control.h": "ca6290fa891f33ca4db4d0b4e9166ab84179c494eb6d5da090b0e193cd3ebaa3",
+    "src/runtime/mtp_control.cpp": "33be43a79d8697dd6a84f8709977f6f8841a111a011b0688cf6b0a5a6fb6c591",
+    "src/model/mtp_weights_internal.h": "ea082e771ad0ad7bbecbae76d473100a5d9700d87320f26a356d55c23c1e18fd",
+    "src/model/mtp_weights_internal.cpp": "27f04e62407c6c3c37a32e71998a34eea447ca40e28a53776d8ca7dc94d60bb6",
+    "tests/mtp_device_test.cpp": "3e103e6a97c761f0bcd1dde76aaa5c084dcd7a520856582119332f27380ee0ea",
+    "tools/evaluation/validate_mtp_draft.py": "6699df34a5bb94fc12131d979cbc7b514bd95ca3bb190de5da642cbee3515f46"
+  },
+  "originating_constraint": "Preserve current greedy output and hybrid state while improving committed throughput through the real API.",
+  "downward_contract": "Complete normalized prompt hidden and shifted draft KV before speculation; complete accepted target prefix including full logits before publication.",
+  "composition_point": "Batched cancellable draft Prefill + weight-reusing multi-row target verifier + isolated service controller; then P65 sanity and P8192/P40000 O256 for draft lengths 2/3.",
+  "implementation": {
+    "prompt_handoff": "Ordinary corrected whole-core engine O1 generation, then independent per-row existing final norm into preallocated BF16 capture; initialize draft t from hidden[t], prompt[t+1] for 0<=t<P-1.",
+    "prompt_target_invariants": "Persistent Conv/GDN/K/V and first-token full logits unchanged; captured last hidden bitwise equals ordinary whole-core final hidden.",
+    "transaction": "Legacy or whole-core exact owner, SM87 quantized lm-head; restore Conv/GDN, normalized hidden and all 248320 BF16 logits for each accepted prefix; append-only target KV.",
+    "snapshot_bytes": 394767360,
+    "prompt_capture_bytes_at_44095": 451532800,
+    "allocation": "Construction-only, each allocation retains 8 GiB device free; no round or initialization allocation.",
+    "engine_access": "Private borrowed owner access compiled only with internal test seams; no installed layout change or public selector."
+  },
+  "device_validation": {
+    "command": [
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-whole-core-20260928/r1/q3x_mtp_whole_core_test",
+      "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-whole-core-20260928/r1/prompt.u32",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-whole-core-20260928/r1"
+    ],
+    "binary_sha256": "193cade6987d21abf37775b20bb31f5267e55f3704379635315cc3bfa4bfa174",
+    "model": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "model_authentication": "Existing full pinned base shard authentication plus separate same-byte MTP shard3 authentication; identities in predecessor device record.",
+    "prompt_tokens": 65,
+    "requested_output_tokens": 16,
+    "draft_lengths": [
+      2,
+      3
+    ],
+    "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "state_and_full_logits_bitwise_comparisons": 11,
+    "post_verify_fault_poison_and_full_reset_recovery_cases": 2,
+    "oracle": "Each case independently repeats corrected whole-core Prefill, then scalar teacher-forced target steps and target-conditioned draft replay. Never compares current Prefill against Legacy scalar Prefill as model truth.",
+    "case_outputs": [
+      "draft_length=2 scripted_mismatch=-1 cancelled=0 output_tokens=16 rounds=7 proposed=12 accepted=8 verified_rows=19 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=2 scripted_mismatch=0 cancelled=0 output_tokens=16 rounds=15 proposed=27 accepted=0 verified_rows=42 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=2 scripted_mismatch=1 cancelled=0 output_tokens=16 rounds=8 proposed=14 accepted=7 verified_rows=22 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=2 scripted_mismatch=2 cancelled=0 output_tokens=16 rounds=5 proposed=10 accepted=10 verified_rows=15 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=2 scripted_mismatch=2 cancelled=1 output_tokens=3 rounds=1 proposed=2 accepted=2 verified_rows=3 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=2 injected_verify_failure=poisoned recovery=pass",
+      "draft_length=3 scripted_mismatch=-1 cancelled=0 output_tokens=16 rounds=6 proposed=18 accepted=9 verified_rows=24 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=3 scripted_mismatch=0 cancelled=0 output_tokens=16 rounds=15 proposed=39 accepted=0 verified_rows=54 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=3 scripted_mismatch=1 cancelled=0 output_tokens=16 rounds=8 proposed=20 accepted=7 verified_rows=28 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=3 scripted_mismatch=2 cancelled=0 output_tokens=16 rounds=5 proposed=14 accepted=10 verified_rows=19 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=3 scripted_mismatch=3 cancelled=0 output_tokens=16 rounds=4 proposed=11 accepted=11 verified_rows=15 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=3 scripted_mismatch=3 cancelled=1 output_tokens=3 rounds=1 proposed=3 accepted=2 verified_rows=4 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=3 injected_verify_failure=poisoned recovery=pass"
+    ],
+    "natural_proposals": {
+      "2": {
+        "proposed": 12,
+        "accepted": 8
+      },
+      "3": {
+        "proposed": 18,
+        "accepted": 9
+      }
+    },
+    "acceptance_authority": "One tiny correctness fixture only, not a business acceptance estimate; scripted proposals excluded.",
+    "preflight": "r1/preflight.json and r1/cache-preparation.json; cache drop rc=0; owned device run and sanitized telemetry.",
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 69.062
+    }
+  },
+  "independent_cpu_oracle": {
+    "command": "OPENBLAS_NUM_THREADS=4 python3 -B tools/evaluation/validate_mtp_draft.py MODEL .q3x-work/mtp-whole-core-20260928/r1",
+    "comparisons": {
+      "target_final_norm": {
+        "max_row_relative_l2": 5.963384100154866e-05,
+        "max_absolute_error": 0.0078125,
+        "elements": 332800,
+        "threshold_max_row_relative_l2": 0.005,
+        "pass": true
+      },
+      "hidden": {
+        "max_row_relative_l2": 0.006653779160011321,
+        "max_absolute_error": 0.375,
+        "elements": 327680,
+        "pass": true
+      },
+      "k": {
+        "max_row_relative_l2": 0.0016078021328006181,
+        "max_absolute_error": 0.03125,
+        "elements": 65536,
+        "pass": true
+      },
+      "v": {
+        "max_row_relative_l2": 0.0010236586291215311,
+        "max_absolute_error": 0.0625,
+        "elements": 65536,
+        "pass": true
+      }
+    },
+    "draft_threshold_max_row_relative_l2": 0.02,
+    "target_final_norm_threshold_max_row_relative_l2": 0.005,
+    "authority": "FP64 draft projections/causal attention and FP64 variance final-norm check with BF16 publication; assesses this prompt handoff, not full-model or API qualification."
+  },
+  "validation": {
+    "build": "Whole-core MTP target plus Legacy harness build passed; MTP control/weights CTests passed.",
+    "production_guard": "BUILD_TESTING=OFF retains no MTP target; actual harness ldd has no cuBLAS dependency.",
+    "production_binary_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "syntax": "Legacy and whole-core harness plus device source: g++ syntax-only -Wall -Wextra -Werror, pre-existing unused-parameter warnings excluded; passed.",
+    "documentation": "86 Markdown / 1019 links validator and seven document-control unit tests passed."
+  },
+  "performance": {
+    "prefill": null,
+    "decode": null,
+    "ttft": null,
+    "reason": "Correctness harness with scalar draft initialization, scalar verifier and host state captures; not an API timing run."
+  },
+  "limitations": [
+    "Only P65/O16 was run; full-capacity capture allocation is not long-prompt execution qualification.",
+    "No batched draft initialization or bounded draft-initialization cancellation.",
+    "No multi-row target weight reuse.",
+    "No MTP service/API controller, streaming receipts, capability or performance selection.",
+    "Installed production and non-MTP performance targets unchanged."
+  ],
+  "artifact_root": ".q3x-work/mtp-whole-core-20260928/r1",
+  "artifact_sha256": {
+    ".q3x-work/mtp-whole-core-20260928/r1/identity.json": "133d084a0764f745cf25b90522197185436d4836938b1c4abd79fd405cbefeac",
+    ".q3x-work/mtp-whole-core-20260928/r1/cache-preparation.json": "ff40f266500a5fec8f6f5a943b1334356e795224b506565dd232cc12396fc754",
+    ".q3x-work/mtp-whole-core-20260928/r1/target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+    ".q3x-work/mtp-whole-core-20260928/r1/draft-prefill-v.bf16": "37cb954e632c1740f18bf6a991c9323a68887666042575ba69c84252505a61c3",
+    ".q3x-work/mtp-whole-core-20260928/r1/target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+    ".q3x-work/mtp-whole-core-20260928/r1/draft-prefill-k.bf16": "c38e227ebb8094837ec6c318c0f23752a3349d71e60c534fb0f153972e217e70",
+    ".q3x-work/mtp-whole-core-20260928/r1/draft-prefill-hidden.bf16": "f23b5c575787abc70b543d864ddc0c0975720034fa754e303cbc6041f45048ee",
+    ".q3x-work/mtp-whole-core-20260928/r1/cleanup.json": "c4819faf96babe4408b398e0aa55618d8bcbf7091197078e47f35c156602ae25",
+    ".q3x-work/mtp-whole-core-20260928/r1/run.log": "7e2be1cabbf0c23664d426a16b3a74370bae81973fbc6b54e63b1fd5dbbc4ec1",
+    ".q3x-work/mtp-whole-core-20260928/r1/preflight-console.log": "c12b908d86684a562fe5e04eee98a91de44434e58c0e130c2b1800c731f2f47a",
+    ".q3x-work/mtp-whole-core-20260928/r1/dependencies.txt": "44a86a63784fc1df0c4db8e50d1ab61ed6cf5fa3ebf953efb8dfd8a401e3029e",
+    ".q3x-work/mtp-whole-core-20260928/r1/independent-draft-oracle.json": "1d31623b6171d3c07cb22f77beda4c983a6f5a05552291a8d623338ac8cc48dd",
+    ".q3x-work/mtp-whole-core-20260928/r1/cpu-oracle.log": "4d133633a181823d9bff6938302fdf0879189ea02db65f28d4b8ae65601ec403",
+    ".q3x-work/mtp-whole-core-20260928/r1/telemetry.log": "2643324706538fb910f8e8d279b83b6208f5ab28fd590115c63c3f0dd1fc22aa",
+    ".q3x-work/mtp-whole-core-20260928/r1/prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    ".q3x-work/mtp-whole-core-20260928/r1/preflight.json": "4219ce4050c66b0865124db5f7174cf7be61e832766a088df91c292899500e45",
+    ".q3x-work/mtp-whole-core-20260928/build-identity/CMakeCache.txt": "34da62703d34b0cf029faaa59bbdfaf8b333f7ac9d9d68e054194def0453f95c",
+    ".q3x-work/mtp-whole-core-20260928/build-identity/CMakeFiles/q3x_engine.dir/flags.make": "83cbc718e99fe14ed07434fc83f71a7b03303568a38485a52258116ec23828bf",
+    ".q3x-work/mtp-whole-core-20260928/build-identity/CMakeFiles/q3x_mtp_whole_core_test.dir/flags.make": "51a14cee5902728aca758c0ab4dff466753ff373eda1fd2f8af7f00a98f755e5",
+    ".q3x-work/mtp-whole-core-20260928/build-identity/CMakeFiles/q3x_mtp_whole_core_test.dir/link.txt": "671afa159c54ecb35bc9cfd675c1713421afeeb41db68dac90a689651f36c78e"
+  }
+}

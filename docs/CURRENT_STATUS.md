@@ -66,9 +66,14 @@ through full reset. An independent CPU draft-layer oracle also passes its
 bounded hidden/K/V checks. This is scalar correctness evidence, not production
 Prefill, a multi-row weight-reusing verifier or an API acceleration result.
 
-These private implementations are linked only into test targets. Whole-core
-Prefill hidden capture, multi-row target verification, service/API receipts
-and real performance/capability validation remain unfinished. No new Prefill,
+The subsequent [whole-core handoff](metadata/qwen36-27b-mtp-whole-core-2026-09-28.json)
+uses current corrected Prefill through the engine, captures every normalized
+prompt hidden row and initializes shifted draft KV. P65/O16 passes 11 complete
+target-state/full-logit/draft-KV comparisons and two fault-recovery cases for
+configured lengths 2 and 3. These private implementations are linked only into
+test targets. Batched draft initialization with bounded cancellation, multi-row
+target verification, service/API receipts and real performance/capability
+validation remain unfinished. No new Prefill,
 TTFT or Decode baseline is claimed. The [subsystem design](MTP_ADMISSION.md)
 and [Roadmap](ROADMAP.md) govern the remaining composition.
 

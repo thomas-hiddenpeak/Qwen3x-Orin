@@ -108,6 +108,21 @@ def run(model, capture):
     report = {'scope': 'independent CPU FP64 projection and causal attention; BF16 boundaries',
               'threshold_max_row_relative_l2': 0.02, 'prompt_tokens': len(tokens),
               'payload_sha256': checkpoint.payload_hashes, 'comparisons': {}}
+    residual_path = capture / 'target-residual.bf16'
+    if residual_path.exists():
+        residual = decode(np.fromfile(residual_path, dtype='<u2')).reshape(target.shape)
+        reference = norm(residual, checkpoint.weight('model.language_model.norm.weight'))
+        if not np.isfinite(target).all() or not np.isfinite(reference).all():
+            raise ValueError('nonfinite target hidden capture/reference')
+        error = target.astype(np.float64) - reference
+        relative = np.linalg.norm(error, axis=1) / np.maximum(
+            np.linalg.norm(reference.astype(np.float64), axis=1), 1e-30)
+        report['comparisons']['target_final_norm'] = {
+            'max_row_relative_l2': float(relative.max()),
+            'max_absolute_error': float(np.abs(error).max()),
+            'elements': int(reference.size),
+            'threshold_max_row_relative_l2': 0.005,
+            'pass': bool(relative.max() <= 0.005)}
     for name, reference in [('hidden', np.stack(hiddens)), ('k', np.stack(keys)), ('v', np.stack(values))]:
         native = decode(np.fromfile(capture / f'draft-prefill-{name}.bf16', dtype='<u2')).reshape(reference.shape)
         if not np.isfinite(native).all() or not np.isfinite(reference).all():

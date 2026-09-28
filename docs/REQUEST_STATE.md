@@ -294,12 +294,14 @@ and historical plan examples are retained in
 ## Separate MTP scalar transaction storage
 
 The non-installable [MTP admission](MTP_ADMISSION.md#native-scalar-correctness-backend)
-borrows an exact Legacy-C512 state and owns a separate five-slot recurrent/Conv
-and final-hidden snapshot arena. It neither changes the production state plan
+borrows an exact Legacy-C512 or whole-core state and owns a separate five-slot
+recurrent/Conv, final-hidden and full-logit snapshot arena. The whole-core
+peer additionally owns a bounded prompt-normalized-hidden buffer; these
+allocations retain the same 8-GiB free-memory reserve. It neither changes the production state plan
 nor authorizes ordinary callers to rewind a live runner. Its private runner
 peer restores a complete saved prefix, synchronizes target/draft work, and
 publishes length before observation. Rejected append-only KV rows remain
 outside the live prefix; accepted draft KV is rebuilt using target hidden.
 Abort poisons both participants and grants no successful-request reuse
-boundary. The scalar peer has no whole-core Prefill or multi-row verification
-qualification; those require the separate MTP composition.
+boundary. Whole-core prompt capture retains the existing per-row final-norm arithmetic.
+Multi-row verification and service use require the separate MTP composition.

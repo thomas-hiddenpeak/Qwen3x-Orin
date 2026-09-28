@@ -298,23 +298,71 @@ bool Draft::poison() noexcept {
 
 TargetTransaction::TargetTransaction(ReferenceRunner& target, RequestState& state, Draft& draft)
     : target_(target), state_(state), draft_(draft) {
-  check(target_.state_ == &state_ && state_.memory_profile() == RequestMemoryProfile::kLegacyC512,
-        "MTP scalar transaction requires its exact legacy state owner");
+  const bool whole_core = state_.memory_profile() == RequestMemoryProfile::kLayerMajorP40WholeCore;
+  check(target_.state_ == &state_ &&
+        target_.projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
+        linear_weight_kind(target_.weights_->lm_head()) != LinearWeightKind::kBf16 &&
+        (state_.memory_profile() == RequestMemoryProfile::kLegacyC512 ||
+         (whole_core && target_.layer_major_request_views_.has_value())),
+        "MTP scalar transaction requires its exact supported state owner");
   const auto& plan = state_.plan();
   recurrent_offset_ = plan.conv_state.arena_offset;
   recurrent_bytes_ = plan.conv_state.byte_size + plan.gdn_state.byte_size;
   check(recurrent_bytes_ == 78446592 &&
         plan.gdn_state.arena_offset == recurrent_offset_ + plan.conv_state.byte_size,
         "MTP recurrent snapshot layout");
-  slot_bytes_ = recurrent_bytes_ + 2 * H;
+  slot_bytes_ = recurrent_bytes_ + 2 * H + 2 * V;
   snapshots_ = allocate(5 * slot_bytes_);
+  try {
+    if (whole_core) prompt_hidden_ = static_cast<std::uint16_t*>(
+        allocate(2ULL * H * state_.max_sequence_length()));
+  } catch (...) {
+    cudaFree(snapshots_);
+    snapshots_ = nullptr;
+    throw;
+  }
 }
 TargetTransaction::~TargetTransaction() {
   if (active_) (void)abort();
   if (snapshots_) cudaFree(snapshots_);
+  if (prompt_hidden_) cudaFree(prompt_hidden_);
+}
+bool TargetTransaction::initialize_whole_core_prefill(
+    const std::uint32_t* prompt, std::uint32_t count) noexcept {
+  if (active_ || target_.poisoned_ || target_.whole_request_prefill_active() ||
+      !prompt_hidden_ || !prompt || count == 0 ||
+      count != state_.current_position() || count > state_.max_sequence_length() ||
+      !target_.prefill_route_evidence_.complete) return false;
+  for (std::uint32_t i = 0; i < count; ++i) if (prompt[i] >= V) return false;
+  const auto& residual = target_.layer_major_request_views_->prompt_residual_bf16;
+  if (residual.columns != H || residual.row_stride_elements != H ||
+      residual.row_capacity < count || !residual.storage.device_data) return false;
+  target_.request_reuse_boundary_ = 2;
+  target_.committed_request_positions_ = 0;
+  const auto fail = [this]() noexcept { (void)abort(); return false; };
+  auto stream = static_cast<cudaStream_t>(target_.stream_);
+  // Same independent one-row reduction as the ordinary final-row handoff;
+  // only the grid is widened. Residual and persistent target state stay intact.
+  if (launch_headwise_centered_rms_norm_reference_cuda(
+          static_cast<const std::uint16_t*>(residual.storage.device_data),
+          target_.weights_->final_norm().data, count, H, 1.e-6F,
+          prompt_hidden_, stream) != cudaSuccess ||
+      cudaMemcpyAsync(target_.views_.hidden[1], prompt_hidden_ + (count - 1ULL) * H,
+                      2 * H, cudaMemcpyDeviceToDevice, stream) != cudaSuccess ||
+      cudaStreamSynchronize(stream) != cudaSuccess || !draft_.reset()) return fail();
+  for (std::uint32_t row = 0; row + 1 < count; ++row) {
+    std::uint32_t ignored = 0;
+    if (!draft_.step(prompt[row + 1], prompt_hidden_ + row * H, false, ignored)) return fail();
+  }
+  target_.trace_valid_ = false;
+  target_.retained_prefill_hidden_valid_ = false;
+  return draft_.position() + 1 == count;
 }
 const std::uint16_t* TargetTransaction::hidden(const ReferenceRunner& runner) noexcept {
   return runner.views_.hidden[1];
+}
+const std::uint16_t* TargetTransaction::logits(const ReferenceRunner& runner) noexcept {
+  return reinterpret_cast<const std::uint16_t*>(runner.views_.fp32_scratch);
 }
 const float* TargetTransaction::cosines(const ReferenceRunner& runner) noexcept {
   return runner.views_.rope_cos;
@@ -328,6 +376,8 @@ bool TargetTransaction::snapshot(std::uint32_t slot) noexcept {
   return cudaMemcpyAsync(dst, static_cast<char*>(state_.arena_data()) + recurrent_offset_,
                          recurrent_bytes_, cudaMemcpyDeviceToDevice, stream) == cudaSuccess &&
          cudaMemcpyAsync(dst + recurrent_bytes_, hidden(target_), 2 * H,
+                         cudaMemcpyDeviceToDevice, stream) == cudaSuccess &&
+         cudaMemcpyAsync(dst + recurrent_bytes_ + 2 * H, logits(target_), 2 * V,
                          cudaMemcpyDeviceToDevice, stream) == cudaSuccess &&
          cudaStreamSynchronize(stream) == cudaSuccess;
 }
@@ -385,6 +435,8 @@ bool TargetTransaction::commit_prefix(std::uint32_t rows, std::uint32_t pending)
                        recurrent_bytes_, cudaMemcpyDeviceToDevice, stream) != cudaSuccess ||
       cudaMemcpyAsync(target_.views_.hidden[1], src + recurrent_bytes_, 2 * H,
                        cudaMemcpyDeviceToDevice, stream) != cudaSuccess ||
+      cudaMemcpyAsync(target_.views_.fp32_scratch, src + recurrent_bytes_ + 2 * H,
+                       2 * V, cudaMemcpyDeviceToDevice, stream) != cudaSuccess ||
       cudaStreamSynchronize(stream) != cudaSuccess) return false;
   std::uint32_t ignored = 0;
   const auto* previous_hidden = reinterpret_cast<const std::uint16_t*>(

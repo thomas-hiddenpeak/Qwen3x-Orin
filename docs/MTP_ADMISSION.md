@@ -166,7 +166,7 @@ The exact completion boundary is in its
 ## Native scalar correctness backend
 
 The source-private [device implementation](../src/runtime/mtp_device_internal.cpp)
-is linked only into `q3x_mtp_device_test`. Its `Weights` owner validates the
+is linked only into the explicit MTP device test targets. Its `Weights` owner validates the
 catalog, requires each tensor at its compiled source offset relative to byte
 59,416 of shard 3, opens every root component and the shard without following
 symlinks, and copies/hash-authenticates the same sequential bytes. All of shard
@@ -183,12 +183,15 @@ publication; there is no allocation or implicit fallback in a step. Reset
 clears complete draft K/V and poison. Rewind changes only logical draft length;
 rejected rows are inaccessible and overwritten before reuse. `hidden()` is a
 borrowed last-step value, invalid for use after reset, rewind or failure until
-a new successful step. Prompt initialization currently consumes target scalar
-hidden rows in order; whole-core prompt-wide capture is still to be integrated.
+a new successful step. Prompt initialization consumes shifted normalized target hidden rows. The
+whole-core adapter below adds prompt-wide capture; draft initialization itself
+still uses scalar steps and is not suitable for the long-context API budget.
 
-`TargetTransaction` binds one exact Legacy-C512 runner/state pair for the
-scalar correctness oracle. It reserves five immutable prefix slots, each
-78,446,592 recurrent/Conv bytes plus 10,240 hidden bytes. Target KV is append-only
+`TargetTransaction` binds one exact Legacy-C512 or whole-core runner/state
+pair using SM87 quantized-lm-head BF16 logits. It reserves five immutable prefix
+slots, each 78,446,592 recurrent/Conv bytes, 10,240 hidden bytes and 496,640
+full-logit bytes. Restoring logits prevents a rejected later speculative row
+from remaining visible at an earlier accepted boundary. Target KV is append-only
 within a round, so prefix selection preserves its earlier rows and publishes
 only the accepted logical length. The adapter copies the selected recurrent
 and hidden snapshot, rebuilds one draft row from the corresponding target
@@ -212,6 +215,43 @@ Exact device results and limitations are recorded in the
 [device milestone](metadata/qwen36-27b-mtp-device-2026-09-28.json). These checks
 establish the scalar correctness substrate only. Serial target verification,
 synchronous snapshot restoration and full draft-row replay have no acceleration
-claim. A production-shaped whole-core Prefill adapter, multi-row target weight
-reuse, API receipts, cancellation/stream accounting and real API selection
+claim. Multi-row target weight reuse, batched draft initialization, service integration,
+API receipts, cancellation/stream accounting and real API selection
 remain required before the architecture can be selected.
+
+
+## Whole-core prompt handoff
+
+The source-private `EngineAccess` definitions exist only with internal test
+seams. They borrow the engine's exact model, runner and state; they add no
+installed API, owner fields or production selector. All owners must outlive
+the draft/transaction, and generation and peer operations remain serialized.
+The explicit `q3x_mtp_whole_core_test` requires the corrected whole-core/exact
+Decode admission. It uses the engine's ordinary O1 whole-core generation to
+complete and validate Prefill before invoking the peer.
+
+`initialize_whole_core_prefill` requires that completed prompt boundary, its
+exact token IDs, no active transaction, and a non-poisoned runner. It reserves
+one separate normalized `[capacity,5120]` BF16 capture at construction. The
+complete layer-63 residual is still live; terminal-prefix deletion cannot be
+used for this mode. The adapter widens the existing independent row-wise final
+RMSNorm launch to P rows without changing its per-row reduction or BF16
+publication. It copies the final normalized row to the scalar hidden workspace,
+then initializes draft positions 0 through P-2 from hidden[t] and token[t+1].
+The first round supplies the seed at draft position P-1. Persistent target
+state, prompt residual and full first-token logits are preserved. No allocation
+occurs during initialization or a round. Failure after enqueue drains and
+poisons both participants; recovery requires complete reset.
+
+The capture is borrowed scratch, valid only immediately after successful
+initialization until another initialization, reset, transaction or generation.
+It is not a public hidden-export API. This adapter currently initializes the
+draft serially and polls no cancellation during that loop; it remains a
+correctness harness prerequisite, not a service-ready Prefill path. Batched
+initialization and bounded cancellation are required at service composition.
+The complete numerical/state and resource checks do not themselves establish
+API speed, long-prompt admission or production eligibility.
+
+The [whole-core handoff record](metadata/qwen36-27b-mtp-whole-core-2026-09-28.json)
+binds the exact P65/O16 harness artifact, complete state/full-logit comparisons,
+CPU prompt-normalization/draft oracle and unchanged production boundary.

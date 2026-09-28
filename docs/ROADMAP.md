@@ -30,8 +30,14 @@ initialization, complete recurrent prefix restoration and target-conditioned
 draft reconciliation pass the bounded real-model correctness harness. This
 still executes the main model serially and has no API or acceleration claim.
 
-Remaining work, in order: integrate whole-core Prefill hidden capture and the
-native draft into an isolated service controller; compose weight-reusing
+The whole-core prompt handoff now captures all final normalized hidden rows
+and initializes shifted draft KV in the non-installable engine harness. Full
+logits are included in prefix restoration. The
+[handoff record](metadata/qwen36-27b-mtp-whole-core-2026-09-28.json) bounds these
+checks; serial draft initialization and verification remain correctness-only.
+
+Remaining work, in order: batch draft initialization with bounded cancellation,
+integrate the native draft into an isolated service controller, and compose weight-reusing
 multi-row target verification with the same state contract and truthful MTP
 route/accounting receipts. Return to P65 sanity and P8192/P40000 O256 for both configured
 lengths immediately after those dependencies compose. Report Prefill, TTFT,

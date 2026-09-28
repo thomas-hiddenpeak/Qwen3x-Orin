@@ -372,3 +372,15 @@ engine lineage includes the
 [`C16 Prefill record`](metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json),
 and [`M18 record`](metadata/qwen36-27b-nvfp4-m18-masked-m32-benchmark.json).
 These historical records do not amend this contract.
+
+
+## Private MTP handoff test access
+
+The source-private `mtp_detail::EngineAccess` peer borrows the exact engine-owned
+model, runner and request state only in internal-test builds. The whole-core
+MTP harness first completes ordinary O1 generation, then captures normalized
+prompt hidden and runs the isolated scalar transaction. The engine must outlive
+all borrowers and cannot be used concurrently. The public generation controller,
+observers, timing, route receipts and installed ABI are unchanged. This is not
+a service MTP selector or an API acceleration result; the remaining composition
+is governed by [MTP Admission](MTP_ADMISSION.md#whole-core-prompt-handoff).

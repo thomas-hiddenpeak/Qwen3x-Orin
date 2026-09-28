@@ -2,6 +2,9 @@
 #include "decode_fused_gqa_internal.h"
 #endif
 #include "q3x/runtime/reference_engine.h"
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+#include "mtp_engine_internal.h"
+#endif
 
 #include "q3x/core/sha256.h"
 #include "q3x/kernels/sm87_fp8_prefill_supermatrix.h"
@@ -6282,6 +6285,18 @@ bool ReferenceEngine::attach_target_aot_projection_device_assets(
     Sm87TargetAotProjectionDeviceAssets& owner) noexcept {
   return model_weights.attach_sm87_target_aot_projection_assets(owner);
 }
+
+#if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+ReferenceRunner* mtp_detail::EngineAccess::runner(ReferenceEngine& engine) noexcept {
+  return engine.impl_ && engine.impl_->runner ? &*engine.impl_->runner : nullptr;
+}
+RequestState* mtp_detail::EngineAccess::state(ReferenceEngine& engine) noexcept {
+  return engine.impl_ && engine.impl_->request_state ? &*engine.impl_->request_state : nullptr;
+}
+const ModelWeights* mtp_detail::EngineAccess::model(const ReferenceEngine& engine) noexcept {
+  return engine.impl_ && engine.impl_->model_weights ? &*engine.impl_->model_weights : nullptr;
+}
+#endif
 
 ReferenceEngine::ReferenceEngine(std::unique_ptr<Impl> impl) noexcept
     : impl_(std::move(impl)) {}

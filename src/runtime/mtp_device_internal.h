@@ -54,8 +54,15 @@ class TargetTransaction final : public RoundBackend {
   TargetTransaction(const TargetTransaction&) = delete;
   TargetTransaction& operator=(const TargetTransaction&) = delete;
   static const std::uint16_t* hidden(const ReferenceRunner&) noexcept;
+  static const std::uint16_t* logits(const ReferenceRunner&) noexcept;
   static const float* cosines(const ReferenceRunner&) noexcept;
   static const float* sines(const ReferenceRunner&) noexcept;
+  // After successful whole-core O1 generation, before any Decode. Captures
+  // every normalized prompt row and builds shifted draft KV through P-2.
+  // Caller must supply the exact prompt just consumed by the engine.
+  bool initialize_whole_core_prefill(const std::uint32_t* prompt,
+                                    std::uint32_t count) noexcept;
+  const std::uint16_t* prompt_hidden() const noexcept { return prompt_hidden_; }
   bool begin(std::uint32_t verify_rows) noexcept override;
   bool propose(std::uint32_t seed, std::uint32_t count,
                std::uint32_t* draft) noexcept override;
@@ -70,6 +77,7 @@ class TargetTransaction final : public RoundBackend {
   RequestState& state_;
   Draft& draft_;
   void* snapshots_ = nullptr;
+  std::uint16_t* prompt_hidden_ = nullptr;
   std::uint64_t recurrent_offset_ = 0;
   std::uint64_t recurrent_bytes_ = 0;
   std::uint64_t slot_bytes_ = 0;

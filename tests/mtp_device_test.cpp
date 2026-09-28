@@ -1,4 +1,10 @@
 #include "runtime/mtp_device_internal.h"
+#if defined(Q3X_MTP_WHOLE_CORE_TEST)
+#include "runtime/mtp_engine_internal.h"
+#include "q3x/runtime/reference_engine.h"
+#include "q3x/runtime/whole_core_request_geometry.h"
+#include "q3x/runtime/decode_ops.h"
+#endif
 #include "q3x/runtime/resident_weights.h"
 #include "q3x/core/sha256.h"
 #include <cuda_runtime_api.h>
@@ -34,6 +40,8 @@ std::vector<char> live_state(const rt::RequestState& state, const rt::ReferenceR
   }
   auto hidden = read_device(mtp::TargetTransaction::hidden(runner), 10240);
   bytes.insert(bytes.end(), hidden.begin(), hidden.end());
+  auto logits = read_device(mtp::TargetTransaction::logits(runner), 248320 * 2);
+  bytes.insert(bytes.end(), logits.begin(), logits.end());
   return bytes;
 }
 std::uint32_t step(rt::ReferenceRunner& runner, std::uint32_t token, bool logits) {
@@ -97,14 +105,29 @@ int main(int argc, char** argv) try {
   std::vector<std::uint32_t> prompt(static_cast<std::size_t>(size) / 4);
   input.seekg(0);
   input.read(reinterpret_cast<char*>(prompt.data()), size);
+  require(bool(input), "prompt read incomplete");
   for (auto token : prompt) require(token < 248320, "prompt token out of range");
   std::cout << "loading_base\n" << std::flush;
+#if defined(Q3X_MTP_WHOLE_CORE_TEST)
+  rt::ReferenceEngineOptions engine_options;
+  engine_options.projection_backend = rt::ProjectionBackend::kSm87WeightOnly;
+  engine_options.request_options.max_sequence_length = rt::kWholeCoreCompiledSequenceCapacity;
+  engine_options.request_options.max_arena_bytes = rt::kWholeCoreCompiledArenaBytes;
+  engine_options.request_options.prefill_chunk_size = 512;
+  engine_options.prefill_execution_mode = rt::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+  engine_options.prefill_full_attention_tactic = rt::LayerMajorPrefillFullAttentionTactic::kNativeFlashInferExactWholePrompt;
+  engine_options.prefill_projection_tactic = rt::LayerMajorPrefillProjectionTactic::kNativePromptWideP40WholeCore;
+  engine_options.decode_graph_cache_policy = rt::ReferenceDecodeGraphCachePolicy::kDisabled;
+  auto engine = rt::create_reference_engine(argv[1], engine_options);
+  if (!engine) throw std::runtime_error(engine.diagnostic.stage + ": " + engine.diagnostic.message);
+  auto* target = mtp::EngineAccess::runner(*engine.value);
+  auto* request = mtp::EngineAccess::state(*engine.value);
+  const auto* model_weights = mtp::EngineAccess::model(*engine.value);
+#else
   auto resident = rt::load_pinned_qwen36_27b(argv[1]);
   require(bool(resident), "base resident load");
   auto model = rt::bind_qwen36_27b_weights(*resident.value);
   require(bool(model), "base binding");
-  std::cout << "loading_mtp\n" << std::flush;
-  mtp::Weights weights(argv[1]);
   rt::RequestMemoryOptions state_options;
   state_options.max_sequence_length = prompt.size() + 32;
   auto state = rt::create_request_state(state_options);
@@ -113,18 +136,53 @@ int main(int argc, char** argv) try {
   runner_options.projection_backend = rt::ProjectionBackend::kSm87WeightOnly;
   auto runner = rt::create_reference_runner(*model.value, *state.value, runner_options);
   require(bool(runner), "runner creation");
-  mtp::Draft draft(weights, *model.value, state_options.max_sequence_length,
-                   mtp::TargetTransaction::cosines(*runner.value),
-                   mtp::TargetTransaction::sines(*runner.value));
-  mtp::TargetTransaction transaction(*runner.value, *state.value, draft);
+  auto* target = &*runner.value;
+  auto* request = &*state.value;
+  const auto* model_weights = &*model.value;
+#endif
+  std::cout << "loading_mtp\n" << std::flush;
+  mtp::Weights weights(argv[1]);
+  mtp::Draft draft(weights, *model_weights, request->max_sequence_length(),
+                   mtp::TargetTransaction::cosines(*target),
+                   mtp::TargetTransaction::sines(*target));
+  mtp::TargetTransaction transaction(*target, *request, draft);
+#if defined(Q3X_MTP_WHOLE_CORE_TEST)
+  const auto initialize = [&]() {
+    rt::ReferenceGenerateOptions options;
+    options.max_new_tokens = 1;
+    options.prefill_chunk_size = 512;
+    options.logits_mode = rt::ReferenceLogitsMode::kPredictedTokenOnly;
+    options.prefill_execution_mode = rt::ReferencePrefillExecutionMode::kWholeRequestLayerMajor;
+    const auto result = engine.value->generate_prompt_token_ids(prompt, options);
+    if (!result) throw std::runtime_error(result.diagnostic.stage + ": " + result.diagnostic.operation);
+    const auto final_view = request->layer_major_final_hidden();
+    require(bool(final_view), "whole-core final view");
+    const auto final_hidden = read_device(final_view.value->storage.device_data, 10240);
+    const auto before = live_state(*request, *target);
+    require(transaction.initialize_whole_core_prefill(prompt.data(), prompt.size()), "whole-core MTP initialization");
+    const auto after = live_state(*request, *target);
+    // Only the previously unused scalar final-hidden workspace may change.
+    const auto hidden_begin = before.size() - 248320 * 2 - 10240;
+    require(std::equal(before.begin(), before.begin() + hidden_begin, after.begin()) &&
+            std::equal(before.end() - 248320 * 2, before.end(), after.end() - 248320 * 2),
+            "MTP initialization altered target persistent state/logits");
+    require(read_device(mtp::TargetTransaction::hidden(*target), 10240) == final_hidden,
+            "prompt capture final row differs from whole-core handoff");
+    return result.value->generated_token_ids.at(0);
+  };
+#endif
   std::vector<std::uint32_t> expected;
   std::uint32_t seed = 0;
+#if defined(Q3X_MTP_WHOLE_CORE_TEST)
+  seed = initialize();
+#else
   for (std::size_t i = 0; i < prompt.size(); ++i) {
-    seed = step(*runner.value, prompt[i], i + 1 == prompt.size());
+    seed = step(*target, prompt[i], i + 1 == prompt.size());
   }
+#endif
   expected.push_back(seed);
   for (unsigned i = 1; i < 16 && seed != 248046; ++i) {
-    seed = step(*runner.value, seed, true);
+    seed = step(*target, seed, true);
     expected.push_back(seed);
   }
   require(expected.size() >= 5, "fixture must exercise a complete MTP round");
@@ -140,15 +198,41 @@ int main(int argc, char** argv) try {
   }
   for (const auto& test : cases) {
     const auto length = test.length;
-    require(bool(runner.value->reset()) && draft.reset(), "request reset");
+    require(bool(target->reset()) && draft.reset(), "request reset");
+#if defined(Q3X_MTP_WHOLE_CORE_TEST)
+    seed = initialize();
+    if (length == 2 && test.mismatch == -1) {
+      const auto residual = request->layer_major_prompt_residual();
+      require(bool(residual), "prompt residual view");
+      write(output / "target-residual.bf16", read_device(residual.value->storage.device_data, prompt.size() * 10240));
+      write(output / "target-hidden.bf16", read_device(transaction.prompt_hidden(), prompt.size() * 10240));
+      write(output / "draft-prefill-k.bf16", read_device(draft.keys(), draft.position() * 2048ULL));
+      write(output / "draft-prefill-v.bf16", read_device(draft.values(), draft.position() * 2048ULL));
+      const auto expected_k = read_device(draft.keys(), draft.position() * 2048ULL);
+      const auto expected_v = read_device(draft.values(), draft.position() * 2048ULL);
+      require(draft.reset(), "draft capture reset");
+      std::vector<char> hidden_rows;
+      for (std::size_t row = 0; row + 1 < prompt.size(); ++row) {
+        std::uint32_t ignored = 0;
+        require(draft.step(prompt[row + 1], transaction.prompt_hidden() + row * 5120,
+                           false, ignored), "draft capture replay");
+        auto hidden = read_device(draft.hidden(), 10240);
+        hidden_rows.insert(hidden_rows.end(), hidden.begin(), hidden.end());
+      }
+      require(read_device(draft.keys(), expected_k.size()) == expected_k &&
+              read_device(draft.values(), expected_v.size()) == expected_v,
+              "draft initialization capture replay differs");
+      write(output / "draft-prefill-hidden.bf16", hidden_rows);
+    }
+#else
     std::vector<char> target_hidden, draft_hidden;
     for (std::size_t i = 0; i < prompt.size(); ++i) {
-      seed = step(*runner.value, prompt[i], i + 1 == prompt.size());
-      auto row = read_device(mtp::TargetTransaction::hidden(*runner.value), 10240);
+      seed = step(*target, prompt[i], i + 1 == prompt.size());
+      auto row = read_device(mtp::TargetTransaction::hidden(*target), 10240);
       target_hidden.insert(target_hidden.end(), row.begin(), row.end());
       if (i + 1 < prompt.size()) {
         std::uint32_t ignored = 0;
-        require(draft.step(prompt[i + 1], mtp::TargetTransaction::hidden(*runner.value), false, ignored), "draft prefill");
+        require(draft.step(prompt[i + 1], mtp::TargetTransaction::hidden(*target), false, ignored), "draft prefill");
         row = read_device(draft.hidden(), 10240);
         draft_hidden.insert(draft_hidden.end(), row.begin(), row.end());
       }
@@ -159,6 +243,7 @@ int main(int argc, char** argv) try {
       write(output / "draft-prefill-k.bf16", read_device(draft.keys(), draft.position() * 2048ULL));
       write(output / "draft-prefill-v.bf16", read_device(draft.values(), draft.position() * 2048ULL));
     }
+#endif
     std::vector<std::uint32_t> actual{seed};
     unsigned proposed = 0, accepted = 0, rows = 0, rounds = 0;
     Scripted backend(transaction, expected);
@@ -170,7 +255,7 @@ int main(int argc, char** argv) try {
       options.draft_length = length;
       options.seed_token = actual.back();
       options.remaining_output = expected.size() - actual.size();
-      options.available_target_rows = state.value->max_sequence_length() - state.value->current_position();
+      options.available_target_rows = request->max_sequence_length() - request->current_position();
       options.vocabulary_size = 248320;
       options.stop_token = 248046;
       backend.offset = actual.size();
@@ -178,7 +263,7 @@ int main(int argc, char** argv) try {
           test.cancel ? Cancel::observe : nullptr, test.cancel ? &cancellation : nullptr);
       if (test.fail) {
         require(!result.ok() && result.output_count == 0 && result.abort_succeeded &&
-                runner.value->poisoned(), "device failure must poison without publication");
+                target->poisoned(), "device failure must poison without publication");
         break;
       }
       if (!result.ok()) std::cerr << "round=" << rounds << " status=" << int(result.status) << " draft_error=" << draft.error() << '\n';
@@ -193,9 +278,13 @@ int main(int argc, char** argv) try {
       if (result.status == mtp::RoundStatus::kStop || result.status == mtp::RoundStatus::kCancelled) break;
     }
     if (test.fail) {
-      require(bool(runner.value->reset()) && draft.reset(), "failed transaction recovery");
+      require(bool(target->reset()) && draft.reset(), "failed transaction recovery");
+#if defined(Q3X_MTP_WHOLE_CORE_TEST)
+      seed = initialize();
+#else
       for (std::size_t i = 0; i < prompt.size(); ++i)
-        seed = step(*runner.value, prompt[i], i + 1 == prompt.size());
+        seed = step(*target, prompt[i], i + 1 == prompt.size());
+#endif
       require(seed == expected[0], "post-failure request output");
       std::cout << "draft_length=" << length << " injected_verify_failure=poisoned recovery=pass\n" << std::flush;
       continue;
@@ -203,30 +292,42 @@ int main(int argc, char** argv) try {
     require(actual == std::vector<std::uint32_t>(expected.begin(), expected.begin() + actual.size()),
             "MTP tokens differ from scalar oracle");
     require(test.cancel || actual.size() == expected.size(), "incomplete generation");
-    const auto actual_state = live_state(*state.value, *runner.value);
+    const auto actual_state = live_state(*request, *target);
     // Reconstruct the complete committed draft prefix independently using
     // scalar target hidden, and compare BOTH live KV arrays after rejection.
     const auto live_k = read_device(draft.keys(), draft.position() * 2048ULL);
     const auto live_v = read_device(draft.values(), draft.position() * 2048ULL);
     const auto live_position = draft.position();
-    require(bool(runner.value->reset()) && draft.reset(), "reconciliation oracle reset");
+    require(bool(target->reset()) && draft.reset(), "reconciliation oracle reset");
+#if defined(Q3X_MTP_WHOLE_CORE_TEST)
+    require(initialize() == expected[0], "whole-core replay seed");
+    for (std::size_t i = 0; i + 1 < actual.size(); ++i) {
+      std::uint32_t ignored = 0;
+      require(draft.step(actual[i], mtp::TargetTransaction::hidden(*target), false, ignored), "draft target replay");
+      step(*target, actual[i], true);
+    }
+#else
     auto tokens = prompt;
     tokens.insert(tokens.end(), actual.begin(), actual.end() - 1);
     for (std::size_t i = 0; i + 1 < tokens.size(); ++i) {
-      step(*runner.value, tokens[i], false);
+      step(*target, tokens[i], false);
       std::uint32_t ignored = 0;
-      require(draft.step(tokens[i + 1], mtp::TargetTransaction::hidden(*runner.value), false, ignored), "reconciliation oracle draft");
+      require(draft.step(tokens[i + 1], mtp::TargetTransaction::hidden(*target), false, ignored), "reconciliation oracle draft");
     }
-    step(*runner.value, tokens.back(), false);
-    require(live_state(*state.value, *runner.value) == actual_state, "MTP full live target state differs");
+    step(*target, tokens.back(), true);
+#endif
+    require(live_state(*request, *target) == actual_state, "MTP full live target state differs");
     require(draft.position() == live_position, "draft position differs");
     require(read_device(draft.keys(), live_k.size()) == live_k, "draft K differs from target-conditioned replay");
     require(read_device(draft.values(), live_v.size()) == live_v, "draft V differs from target-conditioned replay");
     std::cout << "draft_length=" << length << " scripted_mismatch=" << test.mismatch
               << " cancelled=" << test.cancel << " output_tokens=" << actual.size()
               << " rounds=" << rounds << " proposed=" << proposed << " accepted=" << accepted
-              << " verified_rows=" << rows << " target_state=bitwise_equal draft_kv=bitwise_equal\n" << std::flush;
+              << " verified_rows=" << rows << " target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal\n" << std::flush;
   }
+#if defined(Q3X_MTP_WHOLE_CORE_TEST)
+  std::cout << "prefill_route=corrected_whole_core draft_initialization=scalar\n";
+#endif
   std::cout << "scope=scalar_correctness_only production_api=false speedup_claim=false\n";
   return 0;
 } catch (const std::exception& error) {
