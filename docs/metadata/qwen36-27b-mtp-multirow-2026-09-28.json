@@ -1,0 +1,295 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-28",
+  "work_package_id": "WP-MTP-20260928",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v1",
+  "decision_unit": "dependency_only",
+  "status": "multirow_prefix_correctness_passed_not_api",
+  "base_commit": "47025b6464a9f8a0e0f6cfb91f81ddac365c3196",
+  "originating_constraint": "Improve real API committed-token throughput without greedy-output, state, capacity or streaming regression.",
+  "downward_contract": "Reuse projection weights across at most four target rows while preserving scalar Decode finite-precision arithmetic and every complete commit prefix.",
+  "composition_point": "Next: isolated full-capacity service controller and truthful MTP receipts; return directly to P65 sanity and P8192/P40000 O256 for drafts 2/3. No further local scan.",
+  "implementation": {
+    "schedule": "Layer-major M1..4; dedicated FP8/NVFP4 weight reuse for M2..4; scalar A/B, lm-head and ordered causal state/Attention.",
+    "numerics": "Four independent FMA chains per row, exact parenthesized merge and warp/block reduction, scales and BF16 publication unchanged. Same scalar norm/Conv/GDN/RoPE/Attention/argmax.",
+    "state": "Assemble each complete Conv/GDN prefix layer by layer; append-only causal KV; finish normalized hidden/full logits and finite checks before publishing any snapshot.",
+    "scratch": "Reuse existing validated C512 workspace; no new allocation or hot-path growth.",
+    "snapshot_bytes": 394767360,
+    "retained_free_reserve_bytes": 8589934592,
+    "resources": {
+      "fp8": {
+        "registers": 40,
+        "shared_bytes": 1152,
+        "stack_bytes": 0,
+        "local_bytes": 0
+      },
+      "nvfp4": {
+        "registers": 40,
+        "shared_bytes": 1024,
+        "stack_bytes": 0,
+        "local_bytes": 0
+      }
+    }
+  },
+  "device_validation": [
+    {
+      "artifact_root": ".q3x-work/mtp-multirow-20260928/r3-exact",
+      "prompt_tokens": 65,
+      "output_tokens": 16,
+      "draft_lengths": [
+        2,
+        3
+      ],
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-multirow-20260928/r3-exact/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-multirow-20260928/r3-exact/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-multirow-20260928/r3-exact"
+        ],
+        "binary_sha256": "38e0cb07772c4e6f8ec78e0c595fa0b44b260907dde8c78cf9b5a72d209e0ed9",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "47025b6464a9f8a0e0f6cfb91f81ddac365c3196",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 68.937
+      },
+      "exact_prefix_comparisons": 9,
+      "complete_transaction_comparisons": 11,
+      "post_verify_failure_recovery_cases": 2,
+      "initialization_cancel_recovery_cases": 2,
+      "case_outputs": [
+        "verify_rows=2 all_prefix_state_and_logits=bitwise_equal",
+        "verify_rows=3 all_prefix_state_and_logits=bitwise_equal",
+        "verify_rows=4 all_prefix_state_and_logits=bitwise_equal",
+        "draft_prefill_cancel_poll=1 recovery=pass",
+        "draft_prefill_cancel_poll=2 recovery=pass",
+        "draft_length=2 scripted_mismatch=-1 cancelled=0 output_tokens=16 rounds=7 proposed=12 accepted=8 verified_rows=19 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=2 scripted_mismatch=0 cancelled=0 output_tokens=16 rounds=15 proposed=27 accepted=0 verified_rows=42 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=2 scripted_mismatch=1 cancelled=0 output_tokens=16 rounds=8 proposed=14 accepted=7 verified_rows=22 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=2 scripted_mismatch=2 cancelled=0 output_tokens=16 rounds=5 proposed=10 accepted=10 verified_rows=15 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=2 scripted_mismatch=2 cancelled=1 output_tokens=3 rounds=1 proposed=2 accepted=2 verified_rows=3 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=2 injected_verify_failure=poisoned recovery=pass",
+        "draft_length=3 scripted_mismatch=-1 cancelled=0 output_tokens=16 rounds=6 proposed=18 accepted=9 verified_rows=24 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 scripted_mismatch=0 cancelled=0 output_tokens=16 rounds=15 proposed=39 accepted=0 verified_rows=54 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 scripted_mismatch=1 cancelled=0 output_tokens=16 rounds=8 proposed=20 accepted=7 verified_rows=28 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 scripted_mismatch=2 cancelled=0 output_tokens=16 rounds=5 proposed=14 accepted=10 verified_rows=19 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 scripted_mismatch=3 cancelled=0 output_tokens=16 rounds=4 proposed=11 accepted=11 verified_rows=15 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 scripted_mismatch=3 cancelled=1 output_tokens=3 rounds=1 proposed=3 accepted=2 verified_rows=4 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 injected_verify_failure=poisoned recovery=pass"
+      ]
+    },
+    {
+      "artifact_root": ".q3x-work/mtp-multirow-20260928/r4-p61",
+      "prompt_tokens": 61,
+      "output_tokens": 16,
+      "draft_lengths": [
+        2,
+        3
+      ],
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-multirow-20260928/r4-p61/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-multirow-20260928/r4-p61/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-multirow-20260928/r4-p61"
+        ],
+        "binary_sha256": "c4505a94c174ea909065dd8577bbe6664d969e3423364b6c2b315e431f0cda34",
+        "prompt_sha256": "68acb36f6e44e63a96a18bc9fd74aed61287cf3e789bb0cacfe370b6fee8441e",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "47025b6464a9f8a0e0f6cfb91f81ddac365c3196",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 70.218
+      },
+      "exact_prefix_comparisons": 9,
+      "complete_transaction_comparisons": 11,
+      "post_verify_failure_recovery_cases": 2,
+      "initialization_cancel_recovery_cases": 2,
+      "case_outputs": [
+        "verify_rows=2 all_prefix_state_and_logits=bitwise_equal",
+        "verify_rows=3 all_prefix_state_and_logits=bitwise_equal",
+        "verify_rows=4 all_prefix_state_and_logits=bitwise_equal",
+        "draft_prefill_cancel_poll=1 recovery=pass",
+        "draft_prefill_cancel_poll=2 recovery=pass",
+        "draft_length=2 scripted_mismatch=-1 cancelled=0 output_tokens=16 rounds=7 proposed=13 accepted=8 verified_rows=20 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=2 scripted_mismatch=0 cancelled=0 output_tokens=16 rounds=15 proposed=27 accepted=0 verified_rows=42 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=2 scripted_mismatch=1 cancelled=0 output_tokens=16 rounds=8 proposed=14 accepted=7 verified_rows=22 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=2 scripted_mismatch=2 cancelled=0 output_tokens=16 rounds=5 proposed=10 accepted=10 verified_rows=15 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=2 scripted_mismatch=2 cancelled=1 output_tokens=3 rounds=1 proposed=2 accepted=2 verified_rows=3 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=2 injected_verify_failure=poisoned recovery=pass",
+        "draft_length=3 scripted_mismatch=-1 cancelled=0 output_tokens=16 rounds=6 proposed=16 accepted=9 verified_rows=22 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 scripted_mismatch=0 cancelled=0 output_tokens=16 rounds=15 proposed=39 accepted=0 verified_rows=54 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 scripted_mismatch=1 cancelled=0 output_tokens=16 rounds=8 proposed=20 accepted=7 verified_rows=28 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 scripted_mismatch=2 cancelled=0 output_tokens=16 rounds=5 proposed=14 accepted=10 verified_rows=19 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 scripted_mismatch=3 cancelled=0 output_tokens=16 rounds=4 proposed=11 accepted=11 verified_rows=15 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 scripted_mismatch=3 cancelled=1 output_tokens=3 rounds=1 proposed=3 accepted=2 verified_rows=4 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 injected_verify_failure=poisoned recovery=pass"
+      ]
+    },
+    {
+      "artifact_root": ".q3x-work/mtp-multirow-20260928/r5-p509",
+      "prompt_tokens": 509,
+      "output_tokens": 16,
+      "draft_lengths": [
+        2,
+        3
+      ],
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-multirow-20260928/r5-p509/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-multirow-20260928/r5-p509/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-multirow-20260928/r5-p509"
+        ],
+        "binary_sha256": "c4505a94c174ea909065dd8577bbe6664d969e3423364b6c2b315e431f0cda34",
+        "prompt_sha256": "549071076f968ed53d3f886da21f60e40b3a70e0ab92c480de822873de341461",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "47025b6464a9f8a0e0f6cfb91f81ddac365c3196",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 73.218
+      },
+      "exact_prefix_comparisons": 9,
+      "complete_transaction_comparisons": 11,
+      "post_verify_failure_recovery_cases": 2,
+      "initialization_cancel_recovery_cases": 2,
+      "case_outputs": [
+        "verify_rows=2 all_prefix_state_and_logits=bitwise_equal",
+        "verify_rows=3 all_prefix_state_and_logits=bitwise_equal",
+        "verify_rows=4 all_prefix_state_and_logits=bitwise_equal",
+        "draft_prefill_cancel_poll=1 recovery=pass",
+        "draft_prefill_cancel_poll=2 recovery=pass",
+        "draft_length=2 scripted_mismatch=-1 cancelled=0 output_tokens=16 rounds=8 proposed=16 accepted=7 verified_rows=24 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=2 scripted_mismatch=0 cancelled=0 output_tokens=16 rounds=15 proposed=27 accepted=0 verified_rows=42 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=2 scripted_mismatch=1 cancelled=0 output_tokens=16 rounds=8 proposed=14 accepted=7 verified_rows=22 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=2 scripted_mismatch=2 cancelled=0 output_tokens=16 rounds=5 proposed=10 accepted=10 verified_rows=15 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=2 scripted_mismatch=2 cancelled=1 output_tokens=3 rounds=1 proposed=2 accepted=2 verified_rows=3 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=2 injected_verify_failure=poisoned recovery=pass",
+        "draft_length=3 scripted_mismatch=-1 cancelled=0 output_tokens=16 rounds=7 proposed=20 accepted=8 verified_rows=27 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 scripted_mismatch=0 cancelled=0 output_tokens=16 rounds=15 proposed=39 accepted=0 verified_rows=54 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 scripted_mismatch=1 cancelled=0 output_tokens=16 rounds=8 proposed=20 accepted=7 verified_rows=28 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 scripted_mismatch=2 cancelled=0 output_tokens=16 rounds=5 proposed=14 accepted=10 verified_rows=19 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 scripted_mismatch=3 cancelled=0 output_tokens=16 rounds=4 proposed=11 accepted=11 verified_rows=15 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 scripted_mismatch=3 cancelled=1 output_tokens=3 rounds=1 proposed=3 accepted=2 verified_rows=4 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+        "draft_length=3 injected_verify_failure=poisoned recovery=pass"
+      ]
+    }
+  ],
+  "aggregate": {
+    "exact_prefix_comparisons": 27,
+    "complete_transaction_comparisons": 33,
+    "post_verify_failure_recovery_cases": 6,
+    "initialization_cancel_recovery_cases": 6
+  },
+  "rejected_attempts": [
+    {
+      "run": "r1",
+      "result": "failed full-prefix bitwise comparison",
+      "cause": "Generic small-M quantized projections use a different reduction tree."
+    },
+    {
+      "run": "r2-diagnostic",
+      "result": "first intercepted mismatch FP8 N5120 K6144 row1",
+      "cause": "Generic small-M one-chain accumulation is not scalar Decode four-chain accumulation.",
+      "resolution": "Dedicated multi-row four-chain kernels; temporary diagnostic allocation/copies removed. Failures retained unchanged."
+    }
+  ],
+  "oracle_scope": "Teacher-forced scalar Decode from the same corrected whole-core Prefill state is the exact behavior comparator. This does not assert exact-real model truth. Existing independent FP64 draft/Decode and FP32 Prefill reference assessments remain separate; no draft arithmetic change in this milestone.",
+  "record_qualification": "r3-exact used multi-row verifier but retained a stale scalar footer. Its frozen source hashes and actual binary bind the mode. Final binary fixes footer and removes redundant scalar inputs assignment; algorithm unchanged. r4-p61 and r5-p509 use the same final binary.",
+  "performance": {
+    "prefill": null,
+    "decode": null,
+    "ttft": null,
+    "reason": "No MTP API timing in this dependency check. Component/cache timings and tiny-fixture acceptance do not select whole-product performance."
+  },
+  "limitations": [
+    "Correctness panel P61/P65/P509 crosses causal sequence 64 and 512 path boundaries; it is not long-context service qualification.",
+    "Full service controller, physical route/accounting receipts, complete acceleration inventory/memory composition and real API performance/capability validation remain pending.",
+    "Default production is unchanged and MTP-disabled; no speedup or production promotion claim."
+  ],
+  "validation": {
+    "build": "Legacy and whole-core MTP harnesses compiled; host mtp_control and mtp_weights CTests passed.",
+    "production_guard": "Reconfigured BUILD_TESTING=OFF production tree has no MTP targets; installed ELF unchanged.",
+    "production_binary_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "dependencies": "Actual final MTP harness has no cuBLAS/cuBLASLt dynamic dependency.",
+    "documentation": "Live document validator and seven unit cases passed; see host-validation.log."
+  },
+  "source_sha256": {
+    "CMakeLists.txt": "1cdeb08feda0b516e9e2bc37205fb2c5ea96b02f02836e016e97db89ce6ea23e",
+    "src/runtime/mtp_device_internal.cpp": "774dfbdf050c6bbee84b08082845eaf6e239a4f049b00ee5b5d9c34042b3428f",
+    "src/runtime/mtp_device_internal.h": "b965e488ff42aa0957acc14b72a0de60102b8646f5ee4418fd8cb162658a1cf5",
+    "src/runtime/mtp_verify_internal.cpp": "4b01d1089a9f108dbe8b66a0e22af7373868832628caffbc2c720a9eb98a6d98",
+    "src/runtime/mtp_verify_projection_internal.cu": "bfd6ebf2eb9624802e5d1684716ddc7850f39589948f36fa0761db70e9ba29e3",
+    "tests/mtp_device_test.cpp": "6f4dac7eba297dd2d15e52f50317b5a025df4a67ab66953c4c97ff469a26b610"
+  },
+  "p65_source_sha256": {
+    "CMakeLists.txt": "1cdeb08feda0b516e9e2bc37205fb2c5ea96b02f02836e016e97db89ce6ea23e",
+    "src/runtime/mtp_device_internal.cpp": "b617746f90d93fbeb80a867674d7b93522e47d8a5a592c882a06243c01c45f22",
+    "src/runtime/mtp_device_internal.h": "b965e488ff42aa0957acc14b72a0de60102b8646f5ee4418fd8cb162658a1cf5",
+    "src/runtime/mtp_verify_internal.cpp": "4b01d1089a9f108dbe8b66a0e22af7373868832628caffbc2c720a9eb98a6d98",
+    "src/runtime/mtp_verify_projection_internal.cu": "bfd6ebf2eb9624802e5d1684716ddc7850f39589948f36fa0761db70e9ba29e3",
+    "tests/mtp_device_test.cpp": "9d86ed4b879832782fbcf4fe7b9c42f6a98dc1ecf37310aa143d3e08ae77c3e7"
+  },
+  "artifact_sha256": {
+    ".q3x-work/mtp-multirow-20260928/r1/identity.json": "d87549dc55d06738b41a0336c204bced9ca9eaf05db2fe5308073ef151981e08",
+    ".q3x-work/mtp-multirow-20260928/r1/cache-preparation.json": "b4e56fd7d9339f3491cac1f651eafa505e646dd09173a8b1b312a4422b727143",
+    ".q3x-work/mtp-multirow-20260928/r1/cleanup.json": "2c2c6e69cd8a3b05cddf5761c38c09c21bc0f80a47045b02c1beccbba789c549",
+    ".q3x-work/mtp-multirow-20260928/r1/run.log": "df436056f18db71fbac415d08b3930c635b7e1878886ae2df4be09102c8dda0e",
+    ".q3x-work/mtp-multirow-20260928/r1/preflight-console.log": "045c5dd11156fb2c8fd79a08755a97e166aec0364d66eb7dec34c3cd5ca20a01",
+    ".q3x-work/mtp-multirow-20260928/r1/telemetry.log": "d69bb4d70c81692b5861221013955786af155146e8f35a81d80a8d958b0b633b",
+    ".q3x-work/mtp-multirow-20260928/r1/prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    ".q3x-work/mtp-multirow-20260928/r1/preflight.json": "223d7839095c38c0a4d1c9fadf951b157d591174baefa7795af149cc611cbe93",
+    ".q3x-work/mtp-multirow-20260928/r2-diagnostic/identity.json": "7c9bfc8a5b408e4f88b3592eea6d4cf0012cae86c0fcba36fdf2f2194cbc6998",
+    ".q3x-work/mtp-multirow-20260928/r2-diagnostic/cache-preparation.json": "eae6b0c7c655cd7341e5d132f56226e6f2fa0f13264f49275849285e8cf57a4d",
+    ".q3x-work/mtp-multirow-20260928/r2-diagnostic/cleanup.json": "42ed916af166cbbc420c466268c80b7edf8b0e123d8a21f0839edec06b684ce6",
+    ".q3x-work/mtp-multirow-20260928/r2-diagnostic/run.log": "e4c2258d8f6ef4515c44cdc10c836a6e5e4486aafb03511e60525d30a28961c3",
+    ".q3x-work/mtp-multirow-20260928/r2-diagnostic/preflight-console.log": "cc3a0021f0b3ee3f0abcfe5b1707f578adda5404b13fe09c2ad4b95220a843da",
+    ".q3x-work/mtp-multirow-20260928/r2-diagnostic/mtp_verify_internal.cpp": "6482aa5f9ffb34b4778fa2cd26d2565794a754c83f8500d8a33daf704d4c7970",
+    ".q3x-work/mtp-multirow-20260928/r2-diagnostic/telemetry.log": "0ff8f64f0a71764b37a543cf9434af10561f52c99d23c509bf30824feab52bae",
+    ".q3x-work/mtp-multirow-20260928/r2-diagnostic/prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    ".q3x-work/mtp-multirow-20260928/r2-diagnostic/preflight.json": "14955ff129c9de13e2737bad3bb200f9e1860326fe9f66a751c2d06bdee0fffc",
+    ".q3x-work/mtp-multirow-20260928/r3-exact/identity.json": "15637a8ec5dfa8bbfa926de00ca934075c235fc6a5ee3af1ecaa62f6ba027600",
+    ".q3x-work/mtp-multirow-20260928/r3-exact/cache-preparation.json": "8a3b9e3473edd97895cb34d6c2c483fa9569ea9d4fc56d9e16f795c7d2b38845",
+    ".q3x-work/mtp-multirow-20260928/r3-exact/cleanup.json": "00f09e7db7b59d8d34ab1a51579a573bcf99451dffc5f7590a402aba108dea7e",
+    ".q3x-work/mtp-multirow-20260928/r3-exact/run.log": "57039c4457a69600217da218f38acc15c6c4fc0fa21b02536e5b367514975267",
+    ".q3x-work/mtp-multirow-20260928/r3-exact/preflight-console.log": "f143b8e5c2d05ed2eedde126b26ae7116dc6435c019020bfd6dcdf8e9b4b482d",
+    ".q3x-work/mtp-multirow-20260928/r3-exact/telemetry.log": "7c8ed4daaddecb7bf70916a472df23a39817396f2214dd1b30af034c8a3d7c45",
+    ".q3x-work/mtp-multirow-20260928/r3-exact/source-hashes.json": "4f68df8fc830f5b10c705865d24ca5f65e4af0f8d4e015b83ab1d21626beb475",
+    ".q3x-work/mtp-multirow-20260928/r3-exact/prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    ".q3x-work/mtp-multirow-20260928/r3-exact/preflight.json": "375119498d45548e77c4f4c1b24c1883a86d9f7ce5ed23fd6013fe99cd9009c5",
+    ".q3x-work/mtp-multirow-20260928/r4-p61/identity.json": "05d3bb490ed5a2060f6098b75fbfcb105a7e26bfd312733d82bf0b2b95ea9da2",
+    ".q3x-work/mtp-multirow-20260928/r4-p61/cache-preparation.json": "b6d7c4be6276943020c89ce9f3caab33195e4c14824d54931d8a987bbc685303",
+    ".q3x-work/mtp-multirow-20260928/r4-p61/cleanup.json": "6fd0c7dde546647cb26874654b733bf307065bb39e41ca55fe894b1db1dc0282",
+    ".q3x-work/mtp-multirow-20260928/r4-p61/run.log": "08f640d41af49e9c8a647b8764c9997d7c81e4858b9dccabfe700905517e6fa0",
+    ".q3x-work/mtp-multirow-20260928/r4-p61/preflight-console.log": "2e92ca39820d5881c0452c3c5c925ba1a8b4538cd211614294e4a072b935def0",
+    ".q3x-work/mtp-multirow-20260928/r4-p61/telemetry.log": "42fe30e6aa5bd49ed927e32dc4a94650398859197e2f92d3ae44b25fdd71adb9",
+    ".q3x-work/mtp-multirow-20260928/r4-p61/prompt.u32": "68acb36f6e44e63a96a18bc9fd74aed61287cf3e789bb0cacfe370b6fee8441e",
+    ".q3x-work/mtp-multirow-20260928/r4-p61/preflight.json": "1cd026fcc4e817de23864de5c7d0114ca51f198dc999e6101ddff4ed4ff893ab",
+    ".q3x-work/mtp-multirow-20260928/r5-p509/identity.json": "0417ffef4b35bbeec56da6d0a975c8f98571592dd0a816015f7b27848df3809b",
+    ".q3x-work/mtp-multirow-20260928/r5-p509/cache-preparation.json": "676473a7941a95fa85bd982fcc08ea32ce87f5f7f5070fc9ad5f7375921645a0",
+    ".q3x-work/mtp-multirow-20260928/r5-p509/cleanup.json": "172da2814b4a834cd3028d1d7e135729265d6fdc6d0a671e291988ac13300c8e",
+    ".q3x-work/mtp-multirow-20260928/r5-p509/run.log": "8f0a6657573e59b9cbe70945baa759ddcc648e6dd2876cbfd6a097b7147834ce",
+    ".q3x-work/mtp-multirow-20260928/r5-p509/preflight-console.log": "bfc2abda084fd6587e296ed12a5c0b7cfea03c6317ff33450b4b7a86993858bc",
+    ".q3x-work/mtp-multirow-20260928/r5-p509/telemetry.log": "c137fb19caae3978eda816756a2457c294101adeb936c6307d3224bae5deec0e",
+    ".q3x-work/mtp-multirow-20260928/r5-p509/prompt.u32": "549071076f968ed53d3f886da21f60e40b3a70e0ab92c480de822873de341461",
+    ".q3x-work/mtp-multirow-20260928/r5-p509/preflight.json": "97aff14bc365e71b3dafe507cf3efbff053000192675668e7efb3b44775ebab1",
+    ".q3x-work/mtp-multirow-20260928/run.py": "d76414519022feb4204510aa7fabda40a3c712841a6f6baeda53cfa876d60661",
+    ".q3x-work/mtp-multirow-20260928/resources.txt": "3053abfcf45ca86738e94271f954057e7e5b84feff3c7ccd30df77f3a0b87120",
+    ".q3x-work/mtp-multirow-20260928/dependencies.txt": "20d271895049f4f8d2d21d6ed244be1aa98d9db6216eda761aa9be8d42f293ea",
+    ".q3x-work/mtp-multirow-20260928/production-configure.log": "77c33ec9c83689c90db1521ed4f6eab6f3b297f4d19bab11e158ff003a089ec0",
+    ".q3x-work/mtp-multirow-20260928/production-targets.txt": "35b88df91abc663bf4c474a970fd2d0cb7be23483eab71fa164b02dcbd78855a",
+    ".q3x-work/mtp-multirow-20260928/final-build.log": "c8314bca325ed4bae6aab5af37ecfbe960c96a7a4a71a7e5c289b972f043b84b",
+    ".q3x-work/mtp-multirow-20260928/host-validation.log": "c0536c3fb34a26f33e4fffb75b291edf4b2ad4ed5ff2d847154fc17cf94836f7"
+  }
+}

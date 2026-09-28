@@ -287,7 +287,8 @@ than borrowing the legacy prefix-reset authority.
 
 `mtp_detail::TargetTransaction` is a source-private friend implemented only in
 the non-installable MTP device tests. It requires the exact Legacy-C512 or
-whole-core state owner, stages ordinary scalar steps and selects complete
+whole-core state owner, stages ordinary scalar steps or the explicitly selected
+source-private multi-row verifier and selects complete
 saved recurrent/Conv, normalized-hidden and full-logit prefixes with append-only
 KV length publication. It
 invalidates retained trace/Prefill hidden and successful-request reset
@@ -297,4 +298,8 @@ owns this bounded exception to external state mutation. The friend declaration
 adds no object fields, public selector, production symbol or installed ABI
 change. Its whole-core test adapter captures every final normalized prompt
 row after successful Prefill, preserving persistent state and logits. This
-does not authorize multi-row arithmetic or MTP service use.
+does not authorize MTP service use. The explicit multi-row peer reuses
+request-owned C512 scratch and stages each Conv/GDN prefix at its unchanged
+per-token publication boundary. Dedicated quantized projections preserve the
+scalar four-chain reduction; generic small-M Prefill arithmetic is excluded.
+Full logits and every prefix remain required scalar-oracle observables.

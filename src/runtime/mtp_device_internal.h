@@ -52,11 +52,12 @@ class Draft {
   std::unique_ptr<Impl> impl_;
 };
 
-// Correctness backend: executes the target serially, retains every complete
-// prefix, and repairs draft KV using target hidden. NOT a speedup candidate.
+// Isolated transaction with explicit scalar oracle or multi-row verifier.
+// Retains every complete prefix and repairs draft KV using target hidden.
+// Neither local mode alone has API acceleration or production authority.
 class TargetTransaction final : public RoundBackend {
  public:
-  TargetTransaction(ReferenceRunner&, RequestState&, Draft&);
+  TargetTransaction(ReferenceRunner&, RequestState&, Draft&, bool multirow = false);
   ~TargetTransaction();
   TargetTransaction(const TargetTransaction&) = delete;
   TargetTransaction& operator=(const TargetTransaction&) = delete;
@@ -81,6 +82,8 @@ class TargetTransaction final : public RoundBackend {
   bool finish() noexcept override;
   bool abort() noexcept override;
  private:
+  bool verify_multirow(std::uint32_t* predictions) noexcept;
+  bool multirow_ = false;
   bool snapshot(std::uint32_t slot) noexcept;
   ReferenceRunner& target_;
   RequestState& state_;

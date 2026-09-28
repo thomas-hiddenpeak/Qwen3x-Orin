@@ -36,14 +36,16 @@ logits are included in prefix restoration. The
 [handoff record](metadata/qwen36-27b-mtp-whole-core-2026-09-28.json) bounds these
 checks. The [batched initialization milestone](metadata/qwen36-27b-mtp-batch-prefill-2026-09-28.json)
 now closes cache-only FC/K/V batching and bounded initialization cancellation
-on the real P65 state panel. Target verification remains scalar and
-correctness-only.
+on the real P65 state panel. The [multi-row verifier milestone](metadata/qwen36-27b-mtp-multirow-2026-09-28.json)
+now closes exact FP8/NVFP4 weight reuse and complete immutable prefix snapshots.
+P61/P65/P509 pass every M2/M3/M4 prefix plus rejection, cancellation and recovery
+against full scalar state/logits, including the S64 and S512 Attention switches.
+The generic small-M reduction mismatch is fixed; no additional local verifier
+scan is pending.
 
-Remaining work, in order: implement weight-reusing multi-row target verification
-with complete per-prefix recurrent/Conv snapshots and unchanged scalar
-numerical boundaries; compare full state and logits against the scalar oracle;
-then integrate the completed composition into the isolated service controller
-with truthful MTP route/accounting receipts. The owner explicitly requires
+Remaining work: integrate the completed dependencies into the isolated service
+controller with truthful MTP route/accounting receipts, complete production
+acceleration inventory and actual retained-memory admission. The owner explicitly requires
 these prerequisites before service integration; a reduced-context scalar API
 is not an alternative completion criterion. Return to P65 sanity and
 P8192/P40000 O256 for both configured

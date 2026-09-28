@@ -77,11 +77,19 @@ replaces serial full-layer initialization with exact weight-reusing FC/K/V
 batches. Real P65 tests pass complete cache comparisons at 0/1/7/8/9/64 rows,
 next-row canaries, two initialization cancellation/reset cases and the same
 11 complete transaction comparisons plus two injected-failure recoveries.
-This is an isolated prerequisite, not full-context service qualification.
-Multi-row target verification must now be completed and validated before
-service/API integration and real performance/capability validation. No new Prefill,
+The subsequent [multi-row verifier milestone](metadata/qwen36-27b-mtp-multirow-2026-09-28.json)
+adds layer-major verification with exact FP8/NVFP4 weight reuse for M2/M3/M4.
+Generic small-M projection arithmetic failed the full-state oracle because its
+single accumulation chain differs from scalar Decode's four chains; dedicated
+kernels preserve the original reduction and publication boundaries. P61/P65/P509
+cover both causal Attention path transitions and pass 27 complete per-prefix
+state/logit comparisons, 33 target-state/full-logit/draft-KV transaction checks,
+six post-verification failure recoveries and six initialization-cancel recoveries.
+These close the bounded verifier correctness prerequisite, not full-context
+service qualification. The remaining step is the isolated service-controller
+composition and real API performance/capability validation. No new Prefill,
 TTFT or Decode baseline is claimed. The [subsystem design](MTP_ADMISSION.md)
-and [Roadmap](ROADMAP.md) govern the remaining composition.
+and [Roadmap](ROADMAP.md) govern that composition.
 
 ## Numerical baseline decision
 

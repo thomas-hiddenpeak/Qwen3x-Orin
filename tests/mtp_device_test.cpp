@@ -109,7 +109,7 @@ int main(int argc, char** argv) try {
   std::ifstream input(argv[2], std::ios::binary | std::ios::ate);
   require(bool(input), "prompt input");
   const auto size = input.tellg();
-  require(size >= 4 && size <= 65 * 4 && size % 4 == 0, "prompt must have 1..65 tokens");
+  require(size >= 4 && size <= 513 * 4 && size % 4 == 0, "prompt must have 1..513 tokens");
   std::vector<std::uint32_t> prompt(static_cast<std::size_t>(size) / 4);
   input.seekg(0);
   input.read(reinterpret_cast<char*>(prompt.data()), size);
@@ -153,7 +153,13 @@ int main(int argc, char** argv) try {
   mtp::Draft draft(weights, *model_weights, request->max_sequence_length(),
                    mtp::TargetTransaction::cosines(*target),
                    mtp::TargetTransaction::sines(*target));
-  mtp::TargetTransaction transaction(*target, *request, draft);
+  mtp::TargetTransaction transaction(*target, *request, draft,
+#if defined(Q3X_MTP_WHOLE_CORE_TEST)
+                                   true
+#else
+                                   false
+#endif
+                                   );
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
   const auto initialize = [&]() {
     rt::ReferenceGenerateOptions options;
@@ -195,6 +201,42 @@ int main(int argc, char** argv) try {
   }
   require(expected.size() >= 5, "fixture must exercise a complete MTP round");
   std::cout << "baseline_ready\n" << std::flush;
+#if defined(Q3X_MTP_WHOLE_CORE_TEST)
+  // Select every staged prefix before publishing a new round, then compare
+  // complete recurrent/KV/hidden/logit state with independent scalar replay.
+  for (unsigned count : {2U, 3U, 4U}) {
+    require(bool(target->reset()) && draft.reset(), "prefix oracle reset");
+    seed = initialize();
+    std::array<std::uint32_t, 3> proposals{};
+    std::array<std::uint32_t, 4> predictions{};
+    for (unsigned i = 0; i + 1 < count; ++i) proposals[i] = expected[i + 1];
+    require(transaction.begin(count) &&
+            transaction.verify(seed, proposals.data(), count - 1, predictions.data()),
+            "multi-row staged prefix verification");
+    std::vector<std::vector<char>> prefix_states;
+    for (unsigned i = 0; i < count; ++i) {
+      require(predictions[i] == expected[i + 1] &&
+              transaction.commit_prefix(i + 1, predictions[i]), "multi-row prefix selection");
+      prefix_states.push_back(live_state(*request, *target));
+    }
+    require(transaction.finish(), "multi-row prefix finish");
+    require(bool(target->reset()) && draft.reset(), "scalar prefix reset");
+    require(initialize() == expected[0], "scalar prefix seed");
+    for (unsigned i = 0; i < count; ++i) {
+      require(step(*target, expected[i], true) == predictions[i], "scalar prefix prediction");
+      const auto scalar_state = live_state(*request, *target);
+      if (scalar_state != prefix_states[i]) {
+        const auto diff = std::mismatch(scalar_state.begin(), scalar_state.end(), prefix_states[i].begin());
+        std::cerr << "verify_rows=" << count << " prefix=" << i + 1
+                  << " first_different_byte=" << diff.first - scalar_state.begin() << '\n';
+        write(output / "failed-scalar-state.bin", scalar_state);
+        write(output / "failed-multirow-state.bin", prefix_states[i]);
+      }
+      require(scalar_state == prefix_states[i], "multi-row full prefix differs");
+    }
+    std::cout << "verify_rows=" << count << " all_prefix_state_and_logits=bitwise_equal\n" << std::flush;
+  }
+#endif
   struct Case { unsigned length; int mismatch; bool cancel; bool fail; };
   std::vector<Case> cases;
   for (unsigned length : {2U, 3U}) {
@@ -377,9 +419,12 @@ int main(int argc, char** argv) try {
               << " verified_rows=" << rows << " target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal\n" << std::flush;
   }
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
-  std::cout << "prefill_route=corrected_whole_core draft_initialization=scalar\n";
+  std::cout << "prefill_route=corrected_whole_core draft_initialization=batched_live_kv\n"
+               "verifier=multirow_four_chain scope=multirow_correctness_only\n";
+#else
+  std::cout << "verifier=scalar scope=scalar_correctness_only\n";
 #endif
-  std::cout << "scope=scalar_correctness_only production_api=false speedup_claim=false\n";
+  std::cout << "production_api=false speedup_claim=false\n";
   return 0;
 } catch (const std::exception& error) {
   std::cerr << error.what() << '\n';

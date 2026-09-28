@@ -305,9 +305,11 @@ non-MTP identity. Only target-verified tokens may reach observers or usage;
 acceptance, rejection, EOS and cancellation select complete target and draft
 state prefixes, including GDN/Conv, before publication. A future candidate
 must account for draft Prefill, physical verification work and reconciliation
-in its real API witness. The native scalar correctness backend is separate
-from that composition and establishes no API performance or production
-eligibility.
+in its real API witness. The native scalar oracle and multi-row verifier are
+separate from that service composition. Multi-row projection weight reuse
+preserves scalar reduction/publication boundaries; complete immutable prefix
+slots are assembled before commitment. Internal correctness checks establish
+no API performance or production eligibility.
 
 ## 4. System decomposition from the API inward
 

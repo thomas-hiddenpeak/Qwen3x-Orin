@@ -1109,6 +1109,7 @@ if(BUILD_TESTING)
   target_link_libraries(q3x_mtp_weights_test PRIVATE q3x::core)
   add_executable(q3x_mtp_device_test
     tests/mtp_device_test.cpp src/runtime/mtp_device_internal.cpp
+    src/runtime/mtp_verify_internal.cpp src/runtime/mtp_verify_projection_internal.cu
     src/runtime/mtp_prefill_internal.cu
     src/runtime/mtp_control.cpp src/model/mtp_weights_internal.cpp)
   target_include_directories(q3x_mtp_device_test PRIVATE src)
@@ -1118,6 +1119,7 @@ if(BUILD_TESTING)
   if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
     add_executable(q3x_mtp_whole_core_test
       tests/mtp_device_test.cpp src/runtime/mtp_device_internal.cpp
+      src/runtime/mtp_verify_internal.cpp src/runtime/mtp_verify_projection_internal.cu
       src/runtime/mtp_prefill_internal.cu
       src/runtime/mtp_control.cpp src/model/mtp_weights_internal.cpp)
     target_include_directories(q3x_mtp_whole_core_test PRIVATE src)

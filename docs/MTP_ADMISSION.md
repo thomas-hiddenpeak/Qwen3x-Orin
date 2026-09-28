@@ -21,8 +21,8 @@ by business-driven scanning later. `WP-MTP-20260928` owns
 `AC-MTP-GREEDY-v1`. The existing non-MTP targets and production artifact remain
 separate; an MTP result cannot claim to close a non-MTP performance gap.
 [Roadmap](ROADMAP.md) owns delivery order and [Current Status](CURRENT_STATUS.md)
-owns what actually executes. The native scalar correctness backend below is
-executable; it is not a weight-reusing verifier or a production API route.
+owns what actually executes. The native transaction below has scalar-oracle
+and isolated multi-row modes; neither is a production API route.
 
 ## Product trace and bounded composition
 
@@ -84,6 +84,21 @@ reference algorithm. MTP's pre-FC hidden norm does not authorize passing an
 unnormalized target residual. A proposed EOS is not a committed EOS.
 
 ## Greedy verification and state transaction
+
+The isolated [transaction verifier](../src/runtime/mtp_verify_internal.cpp)
+implements a layer-major verifier for at most four rows. Dedicated FP8/NVFP4 projections reuse weights across rows and preserve
+scalar Decode's four independent accumulation chains, parenthesized merge,
+warp/block reduction, final scale and BF16 publication. The generic small-M
+projection dispatcher has a different one-chain reduction and is not an exact
+Decode verifier. BF16 A/B and causal Attention retain the scalar numerical
+path. Conv/GDN updates remain token-ordered, with each layer's complete state
+copied into its corresponding immutable prefix slot after every update. Slots
+are assembled across all 64 layers and gain no publication authority until
+normalized hidden, full logits and finiteness checks have also completed.
+Existing request-owned C512 scratch supplies the bounded row buffers, with no
+new request-time allocation. The scalar verifier remains an explicit oracle.
+Every prefix for M2/M3/M4 must match scalar state/full logits before service
+composition; existing Prefill equivalence is not assumed to qualify this path.
 
 At round entry, the seed is already emitted but has not yet been consumed by
 the target. Given d drafts, verify `[seed, draft0, ..., draft(d-1)]` and obtain
@@ -188,7 +203,10 @@ whole-core adapter below adds prompt-wide capture and bounded batched live-KV
 initialization; scalar full steps remain the independent cache oracle.
 
 `TargetTransaction` binds one exact Legacy-C512 or whole-core runner/state
-pair using SM87 quantized-lm-head BF16 logits. It reserves five immutable prefix
+pair using SM87 quantized-lm-head BF16 logits. Its explicit multi-row mode
+requires at least four rows of validated request scratch. Scalar mode remains
+the oracle; multi-row mode assembles the same complete prefix slots layer by
+layer, preserving token-ordered Conv/GDN and causal Attention. It reserves five immutable prefix
 slots, each 78,446,592 recurrent/Conv bytes, 10,240 hidden bytes and 496,640
 full-logit bytes. Restoring logits prevents a rejected later speculative row
 from remaining visible at an earlier accepted boundary. Target KV is append-only
@@ -213,9 +231,10 @@ and does not relax the target verifier's bitwise state/output contract.
 
 Exact device results and limitations are recorded in the
 [device milestone](metadata/qwen36-27b-mtp-device-2026-09-28.json). These checks
-establish the scalar correctness substrate only. Serial target verification,
-synchronous snapshot restoration and full draft-row replay have no acceleration
-claim. Multi-row target weight reuse, service integration,
+establish the scalar correctness substrate only. The subsequent multi-row
+implementation does not inherit API acceleration authority from these tests.
+Synchronous snapshot restoration and full draft-row replay remain in the
+composition budget. Service integration,
 API receipts, cancellation/stream accounting and real API selection
 remain required before the architecture can be selected.
 
@@ -282,7 +301,8 @@ initialization until another initialization, reset, transaction or generation.
 It is not a public hidden-export API. The adapter now initializes only live
 draft K/V in bounded batches, with cancellation before execution and after
 each batch. It remains an isolated prerequisite; service readiness additionally
-requires the multi-row verifier and the full-context API composition.
+requires composing the verifier with the service controller and evaluating
+the full-context API path.
 The complete numerical/state and resource checks do not themselves establish
 API speed, long-prompt admission or production eligibility.
 

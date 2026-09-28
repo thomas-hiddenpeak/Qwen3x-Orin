@@ -348,8 +348,9 @@ bool Draft::poison() noexcept {
   return status == cudaSuccess;
 }
 
-TargetTransaction::TargetTransaction(ReferenceRunner& target, RequestState& state, Draft& draft)
-    : target_(target), state_(state), draft_(draft) {
+TargetTransaction::TargetTransaction(ReferenceRunner& target, RequestState& state, Draft& draft,
+                                     bool multirow)
+    : multirow_(multirow), target_(target), state_(state), draft_(draft) {
   const bool whole_core = state_.memory_profile() == RequestMemoryProfile::kLayerMajorP40WholeCore;
   check(target_.state_ == &state_ &&
         target_.projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
@@ -358,6 +359,7 @@ TargetTransaction::TargetTransaction(ReferenceRunner& target, RequestState& stat
          (whole_core && target_.layer_major_request_views_.has_value())),
         "MTP scalar transaction requires its exact supported state owner");
   const auto& plan = state_.plan();
+  check(!multirow_ || plan.prefill_chunk_size >= 4, "MTP multi-row workspace capacity");
   recurrent_offset_ = plan.conv_state.arena_offset;
   recurrent_bytes_ = plan.conv_state.byte_size + plan.gdn_state.byte_size;
   check(recurrent_bytes_ == 78446592 &&
@@ -463,11 +465,16 @@ bool TargetTransaction::verify(std::uint32_t seed, const std::uint32_t* draft,
   ReferenceStepOptions options;
   options.compute_logits = true;
   options.logits_mode = ReferenceLogitsMode::kPredictedTokenOnly;
-  for (std::uint32_t i = 0; i <= count; ++i) {
+  for (std::uint32_t i = 0; i <= count; ++i)
     inputs_[i] = i == 0 ? seed : draft[i - 1];
-    const auto step = target_.step(inputs_[i], options);
-    if (!step || !step.value->prediction || !snapshot(i + 1)) return false;
-    predictions[i] = predictions_[i] = step.value->prediction->predicted_token_id;
+  if (multirow_) {
+    if (!verify_multirow(predictions)) return false;
+  } else {
+    for (std::uint32_t i = 0; i <= count; ++i) {
+      const auto step = target_.step(inputs_[i], options);
+      if (!step || !step.value->prediction || !snapshot(i + 1)) return false;
+      predictions[i] = predictions_[i] = step.value->prediction->predicted_token_id;
+    }
   }
   // Draft cache entries produced from recursive draft hidden must be rebuilt
   // from target hidden, including accepted proposals. Rewind only here; saved
