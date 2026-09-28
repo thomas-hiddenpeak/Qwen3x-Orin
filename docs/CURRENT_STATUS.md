@@ -159,7 +159,13 @@ with withdrawn numerical qualification.
 
 ## Non-performance product audit, 2026-09-28
 
-Performance optimization remains paused. All seven findings in the frozen
+The bounded non-MTP [architecture assessment](analysis/non-mtp-architecture-assessment-2026-09-28/README.md)
+is complete. One same-artifact P40000/O256 profile preserves prior API output
+and identifies projection work as the principal Prefill cost. Separating Down
+weight decode from its ordered tensor consumer is the selected next hypothesis;
+it is not implemented or qualified. The default artifact and performance
+baselines remain unchanged; [Roadmap](ROADMAP.md) owns the bounded next step.
+All seven findings in the frozen
 [product audit](analysis/product-readiness-audit-2026-09-28/README.md) are closed
 within the 0.8.1 delivery scope:
 

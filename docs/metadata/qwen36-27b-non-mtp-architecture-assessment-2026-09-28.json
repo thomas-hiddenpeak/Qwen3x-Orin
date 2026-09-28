@@ -1,0 +1,617 @@
+{
+  "schema": "q3x.non_mtp_architecture_assessment.v1",
+  "date": "2026-09-28",
+  "source_revision": "e3f90fd3134ba3fd097bd2af4d943c89e33228be",
+  "work_package_id": "WP-NON-MTP-ARCHITECTURE-20260928",
+  "decision": "assessment_complete; one implementation hypothesis selected; no runtime change or performance promotion",
+  "authority": "T4 diagnostic after completed same-artifact T3; source-derived numerical constraints; unmeasured next hypothesis",
+  "profile_identity": {
+    "command": [
+      "/home/rm01/Qwen3x-Orin/.q3x-work/install/industrialization-20260928/bin/qwen3x-eval-server",
+      "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "--port",
+      "18871",
+      "--api-key-file",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/non-mtp-architecture-20260928/profile-r1/api-key",
+      "--nvtx-phase-ranges"
+    ],
+    "executable_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "git": "e3f90fd3134ba3fd097bd2af4d943c89e33228be",
+    "driver_sha256": "fbcf81aa097d61a2e21520b5c67e96aa94f43cafcd2c7dabd867766211616289",
+    "fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "authority": "T4 diagnostic only; same installed binary/prompt/output as completed qualification-r4 P40000/O256; profiler timings do not replace unprofiled performance"
+  },
+  "output_comparison": {
+    "equal": true,
+    "fields": [
+      "request_sha256",
+      "text",
+      "usage",
+      "finish",
+      "done"
+    ],
+    "prior": "/home/rm01/Qwen3x-Orin/.q3x-work/industrialization-20260928/qualification-r4/capacity-40000-256.json"
+  },
+  "cleanup": {
+    "server_returncode": 0,
+    "clock_errors": [],
+    "max_temp_c": 76.968
+  },
+  "attribution": {
+    "method": "CUDA runtime correlation ID and launch-thread NVTX ownership; not GPU timestamp overlap; all kernels assigned exactly once",
+    "kernel_count": 115924,
+    "nonoverlapping_gpu_kernels": true,
+    "devices_contexts_streams": [
+      [
+        0,
+        1,
+        22
+      ]
+    ],
+    "phases": {
+      "q3x.prefill.whole_request": {
+        "nvtx_ranges": 1,
+        "cpu_range_seconds": 90.101495808,
+        "gpu_kernel_seconds": 90.08616384,
+        "kernels": [
+          {
+            "name": "Kernel grid=[126, 34, 1]",
+            "calls": 640,
+            "gpu_ns": 29453612416,
+            "seconds": 29.453612416
+          },
+          {
+            "name": "Marlin grid=[16, 1, 1]",
+            "calls": 64,
+            "gpu_ns": 17561606528,
+            "seconds": 17.561606528
+          },
+          {
+            "name": "SinglePrefillWithKVCacheKernel grid=[3750, 1, 4]",
+            "calls": 16,
+            "gpu_ns": 13333780384,
+            "seconds": 13.333780384
+          },
+          {
+            "name": "Kernel grid=[126, 20, 1]",
+            "calls": 240,
+            "gpu_ns": 6428167744,
+            "seconds": 6.428167744
+          },
+          {
+            "name": "Kernel grid=[126, 10, 1]",
+            "calls": 320,
+            "gpu_ns": 5097761664,
+            "seconds": 5.097761664
+          },
+          {
+            "name": "Kernel grid=[126, 12, 1]",
+            "calls": 240,
+            "gpu_ns": 3838049728,
+            "seconds": 3.838049728
+          },
+          {
+            "name": "Kernel grid=[126, 24, 1]",
+            "calls": 80,
+            "gpu_ns": 2623233184,
+            "seconds": 2.623233184
+          },
+          {
+            "name": "chunk_o_bv64_kernel grid=[2, 625, 48]",
+            "calls": 48,
+            "gpu_ns": 1492328256,
+            "seconds": 1.492328256
+          },
+          {
+            "name": "silu_mul_kernel grid=[68000, 1, 1]",
+            "calls": 320,
+            "gpu_ns": 1386678528,
+            "seconds": 1.386678528
+          },
+          {
+            "name": "persistent_state_chunk64_vllm_faithful_kernel grid=[96, 1, 1]",
+            "calls": 48,
+            "gpu_ns": 1143733216,
+            "seconds": 1.143733216
+          },
+          {
+            "name": "dequant_fp8_to_bf16_kernel grid=[122880, 1, 1]",
+            "calls": 560,
+            "gpu_ns": 990130240,
+            "seconds": 0.99013024
+          },
+          {
+            "name": "causal_conv1d_silu_update_token_parallel_compact_qk_kernel grid=[40, 5000, 1]",
+            "calls": 48,
+            "gpu_ns": 715980160,
+            "seconds": 0.71598016
+          },
+          {
+            "name": "dequant_fp8_to_bf16_kernel grid=[204800, 1, 1]",
+            "calls": 240,
+            "gpu_ns": 688180064,
+            "seconds": 0.688180064
+          },
+          {
+            "name": "value_head_recompute_chunk64_kernel grid=[30000, 1, 1]",
+            "calls": 48,
+            "gpu_ns": 686671776,
+            "seconds": 0.686671776
+          },
+          {
+            "name": "residual_add_kernel grid=[65535, 1, 1]",
+            "calls": 320,
+            "gpu_ns": 672848384,
+            "seconds": 0.672848384
+          },
+          {
+            "name": "value_head_solve_chunk64_kernel grid=[30000, 1, 1]",
+            "calls": 48,
+            "gpu_ns": 582640640,
+            "seconds": 0.58264064
+          },
+          {
+            "name": "rms_norm_silu_rows8_kernel grid=[240000, 1, 1]",
+            "calls": 48,
+            "gpu_ns": 535511488,
+            "seconds": 0.535511488
+          },
+          {
+            "name": "headwise_rms_norm_kernel grid=[8000, 1, 1]",
+            "calls": 320,
+            "gpu_ns": 512638688,
+            "seconds": 0.512638688
+          },
+          {
+            "name": "headwise_rms_norm_kernel grid=[40000, 1, 1]",
+            "calls": 64,
+            "gpu_ns": 504198848,
+            "seconds": 0.504198848
+          },
+          {
+            "name": "Kernel grid=[126, 2, 1]",
+            "calls": 160,
+            "gpu_ns": 429362240,
+            "seconds": 0.42936224
+          },
+          {
+            "name": "full_attention_preprocess_prompt_wide_128_kernel grid=[8000, 28, 1]",
+            "calls": 80,
+            "gpu_ns": 413093248,
+            "seconds": 0.413093248
+          },
+          {
+            "name": "dequant_fp8_to_bf16_kernel grid=[245760, 1, 1]",
+            "calls": 80,
+            "gpu_ns": 275134656,
+            "seconds": 0.275134656
+          },
+          {
+            "name": "bulk_gqa_flashinfer_sigmoid_gate_whole_prompt_kernel grid=[4096, 1, 1]",
+            "calls": 16,
+            "gpu_ns": 238806880,
+            "seconds": 0.23880688
+          },
+          {
+            "name": "dequant_nvfp4_vec16_kernel grid=[21760, 1, 1]",
+            "calls": 128,
+            "gpu_ns": 160639136,
+            "seconds": 0.160639136
+          },
+          {
+            "name": "bf16_ab_prefill_m64_n96_k64_kernel grid=[625, 1, 1]",
+            "calls": 48,
+            "gpu_ns": 143696768,
+            "seconds": 0.143696768
+          },
+          {
+            "name": "compact_lower_gram_chunk64_kernel grid=[10000, 1, 1]",
+            "calls": 48,
+            "gpu_ns": 103764896,
+            "seconds": 0.103764896
+          },
+          {
+            "name": "dequant_fp8_to_bf16_kernel grid=[20480, 1, 1]",
+            "calls": 160,
+            "gpu_ns": 49165024,
+            "seconds": 0.049165024
+          },
+          {
+            "name": "prepare_gate_kernel grid=[30000, 1, 1]",
+            "calls": 48,
+            "gpu_ns": 19698400,
+            "seconds": 0.0196984
+          },
+          {
+            "name": "embedding_gather_prompt_kernel grid=[8000, 1, 1]",
+            "calls": 5,
+            "gpu_ns": 5021248,
+            "seconds": 0.005021248
+          },
+          {
+            "name": "headwise_rms_norm_kernel grid=[1, 1, 1]",
+            "calls": 1,
+            "gpu_ns": 29408,
+            "seconds": 2.9408e-05
+          }
+        ]
+      },
+      "q3x.prefill.finish": {
+        "nvtx_ranges": 1,
+        "cpu_range_seconds": 0.004622816,
+        "gpu_kernel_seconds": 0.004418848,
+        "kernels": [
+          {
+            "name": "nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_k5120_activation_staged_kernel grid=[64, 1, 1]",
+            "calls": 1,
+            "gpu_ns": 4399936,
+            "seconds": 0.004399936
+          },
+          {
+            "name": "bf16_greedy_argmax_kernel grid=[32, 1, 1]",
+            "calls": 1,
+            "gpu_ns": 15456,
+            "seconds": 1.5456e-05
+          },
+          {
+            "name": "bf16_greedy_argmax_finalize_kernel grid=[1, 1, 1]",
+            "calls": 1,
+            "gpu_ns": 3456,
+            "seconds": 3.456e-06
+          }
+        ]
+      },
+      "q3x.decode.step": {
+        "nvtx_ranges": 255,
+        "cpu_range_seconds": 32.558513664,
+        "gpu_kernel_seconds": 32.387264896,
+        "kernels": [
+          {
+            "name": "nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_coupled_feed_kernel grid=[32, 1, 1]",
+            "calls": 16320,
+            "gpu_ns": 9002045856,
+            "seconds": 9.002045856
+          },
+          {
+            "name": "fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_pair_tail_composite_cs_test_kernel grid=[1536, 1, 1]",
+            "calls": 12240,
+            "gpu_ns": 5928462688,
+            "seconds": 5.928462688
+          },
+          {
+            "name": "nvfp4_w4a16_down_residual_norm_scale6_consumer_order_kernel grid=[32, 1, 1]",
+            "calls": 13515,
+            "gpu_ns": 4201850176,
+            "seconds": 4.201850176
+          },
+          {
+            "name": "fp8_w8a16_gemv_bf16_row_quad_aosoa4_preswizzled_test_kernel grid=[1024, 1, 1]",
+            "calls": 16320,
+            "gpu_ns": 2925413696,
+            "seconds": 2.925413696
+          },
+          {
+            "name": "attention_values_ordered_pair_kernel grid=[4, 4, 1]",
+            "calls": 4080,
+            "gpu_ns": 2814561184,
+            "seconds": 2.814561184
+          },
+          {
+            "name": "fp8_w8a16_gemv_bf16_q_kv_two_phase_reduction_scratch_ping_pong_kernel grid=[2048, 1, 1]",
+            "calls": 4080,
+            "gpu_ns": 1744448736,
+            "seconds": 1.744448736
+          },
+          {
+            "name": "attention_scores_grouped_async_kernel grid=[314, 4, 1]",
+            "calls": 2048,
+            "gpu_ns": 1268191168,
+            "seconds": 1.268191168
+          },
+          {
+            "name": "nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_k5120_activation_staged_kernel grid=[64, 1, 1]",
+            "calls": 255,
+            "gpu_ns": 1121461120,
+            "seconds": 1.12146112
+          },
+          {
+            "name": "nvfp4_w4a16_down_residual_norm_activation_staged_cs_test_kernel grid=[32, 1, 1]",
+            "calls": 2805,
+            "gpu_ns": 893619456,
+            "seconds": 0.893619456
+          },
+          {
+            "name": "softmax_kernel grid=[24, 1, 1]",
+            "calls": 4080,
+            "gpu_ns": 723782176,
+            "seconds": 0.723782176
+          },
+          {
+            "name": "attention_scores_grouped_async_kernel grid=[313, 4, 1]",
+            "calls": 1024,
+            "gpu_ns": 632983904,
+            "seconds": 0.632983904
+          },
+          {
+            "name": "attention_scores_grouped_async_kernel grid=[315, 4, 1]",
+            "calls": 1008,
+            "gpu_ns": 624892192,
+            "seconds": 0.624892192
+          },
+          {
+            "name": "gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel grid=[48, 1, 1]",
+            "calls": 12240,
+            "gpu_ns": 389837920,
+            "seconds": 0.38983792
+          },
+          {
+            "name": "causal_conv1d_silu_update_kernel grid=[40, 1, 1]",
+            "calls": 12240,
+            "gpu_ns": 57998592,
+            "seconds": 0.057998592
+          },
+          {
+            "name": "full_attention_preprocess_24_4_256_64_kernel grid=[28, 1, 1]",
+            "calls": 4080,
+            "gpu_ns": 27800384,
+            "seconds": 0.027800384
+          },
+          {
+            "name": "sigmoid_gate_kernel grid=[24, 1, 1]",
+            "calls": 4080,
+            "gpu_ns": 19191904,
+            "seconds": 0.019191904
+          },
+          {
+            "name": "rms_norm_kernel grid=[1, 1, 1]",
+            "calls": 255,
+            "gpu_ns": 5066048,
+            "seconds": 0.005066048
+          },
+          {
+            "name": "bf16_greedy_argmax_kernel grid=[32, 1, 1]",
+            "calls": 255,
+            "gpu_ns": 3677984,
+            "seconds": 0.003677984
+          },
+          {
+            "name": "embedding_gather_kernel grid=[20, 1, 1]",
+            "calls": 255,
+            "gpu_ns": 1090016,
+            "seconds": 0.001090016
+          },
+          {
+            "name": "bf16_greedy_argmax_finalize_kernel grid=[1, 1, 1]",
+            "calls": 255,
+            "gpu_ns": 889696,
+            "seconds": 0.000889696
+          }
+        ]
+      }
+    }
+  },
+  "baseline_authority": "0.8.1 qualification-r4 single-process reliability observations; mirrored 0.8.0 baseline remains in CURRENT_STATUS",
+  "baseline_records": [
+    {
+      "path": ".q3x-work/industrialization-20260928/qualification-r4/capacity-8192-256.json",
+      "sha256": "183021b64ebcd01e7bb1fb44552f7ddf088650b94f8b89332d7f9b9e83ee2c46",
+      "bytes": 172924
+    },
+    {
+      "path": ".q3x-work/industrialization-20260928/qualification-r4/capacity-40000-256.json",
+      "sha256": "87aa9ab1cca153cc550ef1b8633f468c164377e36c7621e764503bc85e307057",
+      "bytes": 538690
+    }
+  ],
+  "source_files": [
+    {
+      "path": "src/runtime/reference_runner.cpp",
+      "sha256": "4b346183634201f13c355f5d6c71f0bd2ba832c782bee57050ca304c54073ebe",
+      "bytes": 536587
+    },
+    {
+      "path": "src/kernels/sm87/nvfp4_dequant_cutlass_gate_up.cu",
+      "sha256": "8ea0098834f0e54b2e469c2fc34278a2774fd3fc1f20a8953c1fb688a541b092",
+      "bytes": 12858
+    },
+    {
+      "path": "src/kernels/sm87/fp8_dequant_cublas_projection.cu",
+      "sha256": "016d3b1be2c0d399b62bc6fb9c8f5df95783417eedd837485f3bbbc93403e536",
+      "bytes": 7756
+    },
+    {
+      "path": "src/kernels/sm87/nvfp4_prefill_persistent.cu",
+      "sha256": "2dd1b062ed8388339fc733896785fee5ee4a8a2c62d4033cfbc6bae8d272e9ac",
+      "bytes": 14937
+    },
+    {
+      "path": "src/kernels/sm87/third_party/vllm_marlin/marlin_template.h",
+      "sha256": "c4cae347301f41d16b67fe48c1bff0a3c1ffea7e32e759502a7634088fab73ce",
+      "bytes": 88992
+    },
+    {
+      "path": "src/kernels/sm87/decode_fused_gqa.cu",
+      "sha256": "335d53bc7db626ac4e453cf5cb2945cce912db9b5311c20798d62cd4335777e4",
+      "bytes": 13601
+    }
+  ],
+  "reference_files": [
+    {
+      "path": ".q3x-work/sources/vllm-main/csrc/libtorch_stable/quantization/marlin/marlin.cuh",
+      "sha256": "8a129f1f3086d83c7f33ee8fdb38a0d68c0b167c99c9cef60394c3219ede86b7",
+      "bytes": 5075
+    },
+    {
+      "path": ".q3x-work/sources/humming/humming/include/humming/kernel/humming.cuh",
+      "sha256": "80ca3f9db3b08d67c5b8f6d47d03c26625fc14b82b5ea0af06a2858fe8119697",
+      "bytes": 6874
+    },
+    {
+      "path": ".q3x-work/sources/humming/humming/include/humming/epilogue/pipeline.cuh",
+      "sha256": "730493c5a7a92176bf3a5d47d54596a663d734018ac02c2b26ebb2da3e292ed3",
+      "bytes": 3649
+    },
+    {
+      "path": ".q3x-work/cutlass/include/cutlass/gemm/threadblock/mma_multistage.h",
+      "sha256": "3f89e410ca96b06e4a56ba19f90399e8fdd2744a28c45d458a60940708b4171b",
+      "bytes": 27786
+    },
+    {
+      "path": "third_party/flashinfer/include/flashinfer/attention/prefill.cuh",
+      "sha256": "ed83f5964cf1d815f80393248360ae525bdf64fb53bc1bfaf58bf03d42b9b464",
+      "bytes": 147336
+    },
+    {
+      "path": "/home/rm01/vllmEvn/.venv/lib/python3.13/site-packages/vllm/third_party/flash_linear_attention/ops/chunk.py",
+      "sha256": "c105ead259e86aedc248c53e7c4cef07034d0ff12da608d80265d1dd0990803f",
+      "bytes": 8711
+    },
+    {
+      "path": "/home/rm01/vllmEvn/.venv/lib/python3.13/site-packages/vllm/third_party/flash_linear_attention/ops/chunk_delta_h.py",
+      "sha256": "1b3ad391f939d9443c6b7adb19e57fe381bd5dccea064e8417a4f85b0e713b26",
+      "bytes": 13219
+    },
+    {
+      "path": "/home/rm01/vllmEvn/.venv/lib/python3.13/site-packages/vllm/model_executor/layers/mamba/ops/ssd_combined.py",
+      "sha256": "1317bbb668d3c60dfe0658850f9968614f03fa5eb61196f8ce6ac17dbb31b480",
+      "bytes": 7487
+    }
+  ],
+  "reference_revisions": {
+    "humming": "b18cfac980d2427c0b32a2c027974b3274d0413a",
+    "vllm_main": "1c1077c6cc4308bdf4c2bf207d7420757a9bfd87"
+  },
+  "raw_artifacts": [
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/cache-preparation.json",
+      "sha256": "619e9d5334afe1055005d3ae30b0326d70351e3482dd79b1a0da215a43c53493",
+      "bytes": 3003
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/capture.nsys-rep",
+      "sha256": "5e8526bd5fede26b05fab6e56f300725fc8daeec7da4ec4fb92ae3cddc31b35e",
+      "bytes": 7137577
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/capture.sqlite",
+      "sha256": "fdd8e184b2e3ee427fa938c61ade39dc7f4ec66955484f2705f88d4258f8670e",
+      "bytes": 20291584
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/cleanup.json",
+      "sha256": "2b703e2ad81056d0130c7a7827e17a54b48dba49ecbb29d93d884805be5080c7",
+      "bytes": 75
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/clocks.jsonl",
+      "sha256": "18d1cd41c2b9cd77d3c39ae1c0afbadcfd78db4c71ea8b8d05a587bc4c6ab402",
+      "bytes": 19582
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/health.json",
+      "sha256": "79ccdd2b5f023fa1fef4968cf9318225bccc53aa54249c03e2eae4e6bb2144e9",
+      "bytes": 1135
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/identity.json",
+      "sha256": "b17c5659f45b474c6219e0a141030d8948c8ae5389cf9a7162b7523c8f107a80",
+      "bytes": 834
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/output-comparison.json",
+      "sha256": "2c4406510b37a8d84eb33ce31041fde17b2142648cc57c4fdddb458140bacf3a",
+      "bytes": 226
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/phase-summary.json",
+      "sha256": "009eb79905fd3eef459b1e54742746c82a2556236972942c96d455848b8c0025",
+      "bytes": 10412
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/preflight-console.log",
+      "sha256": "778416fc0d571061426b2ad8e6766207dcbae39e56daf5535a33d1d19b5f6798",
+      "bytes": 181
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/preflight.json",
+      "sha256": "bf3b32cef21f2240d219c1520f26b3f7744539fde1a2c47a0bf9a44a45974a15",
+      "bytes": 20127
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/process.json",
+      "sha256": "f741a08c7bab68b05ffeab5cfc9005d1d7c72e29c4775df5e2e56480f93cd36e",
+      "bytes": 21
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/profile-p40000.json",
+      "sha256": "2b941f975803a33589abff426523877aa6281dd6283773fdf9dd63667f1ebd8f",
+      "bytes": 538460
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/profiler-command.json",
+      "sha256": "6e8325634f3fadb61063f36b46ea045e330936b8997859926c45d480fb9191df",
+      "bytes": 588
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/requests.jsonl",
+      "sha256": "355717e2889b3853402779d9f13f4eb7864ae4f4489ce3955289ac669069439c",
+      "bytes": 1469
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/results.json",
+      "sha256": "ea9bd53d3708df09bf452ff70e622b40756d874c357f3bb4a345b3969edde0b4",
+      "bytes": 542867
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/server.log",
+      "sha256": "4b5db16a15620e64e56afb3446fd1b414da68d556796d150ef1235a1151fe1b3",
+      "bytes": 8972
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/service-audit.json",
+      "sha256": "37745db4a27a1b867b64cc808e789948860548ba0073bbd9e451210b594068e8",
+      "bytes": 846
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile-r1/telemetry.log",
+      "sha256": "829973fe49e3188f7d454b8eb0d3e9a34ae83e0e71c9dae31e3df800b0604656",
+      "bytes": 73409
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/profile_current.py",
+      "sha256": "fbcf81aa097d61a2e21520b5c67e96aa94f43cafcd2c7dabd867766211616289",
+      "bytes": 4597
+    },
+    {
+      "path": ".q3x-work/non-mtp-architecture-20260928/summarize_profile.py",
+      "sha256": "5c97ea5201fa1d1441f7ebde79c16be53af1fa6b701f3fd63d1e0d8e860a67f5",
+      "bytes": 2201
+    }
+  ],
+  "selected_hypothesis": {
+    "id": "DOWN-DECODE-ORDERED-CONSUMER-v1",
+    "status": "not_implemented",
+    "mechanism": "one-layer decoded BF16 operand producer plus ordered tensor consumer preserving Marlin K-partial merge and BF16-before-residual boundary",
+    "shape": {
+      "M": "actual prompt rows with existing tail handling",
+      "N": 5120,
+      "K": 17408,
+      "layers": 64
+    },
+    "decoded_operand_bytes": 178257920,
+    "profiled_affected_seconds": 17.561606528,
+    "conditional_20_percent_net_down_saving_seconds": 3.5123213056,
+    "no_speedup_forecast": true,
+    "numerical_equivalence_proven": false,
+    "maximum_dataflow_variants": 2,
+    "correction_requires_causal_finding": true,
+    "return_point": "first admissible complete composition -> short/P8192/P40000 actual API; jointly report Prefill, TTFT, Decode",
+    "stop": "numerical mismatch rejects rather than relaxes contract; nonpositive composed direction closes this version",
+    "promotion": "none; existing complete affected qualification required"
+  },
+  "limits": [
+    "One long-context profile does not isolate all short-to-long differences.",
+    "No hardware DRAM counters or matched new vLLM benchmark.",
+    "No 60K/130K capacity, locked TTFT target or 8.55 Decode achievement claim."
+  ]
+}

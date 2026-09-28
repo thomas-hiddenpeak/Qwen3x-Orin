@@ -22,16 +22,16 @@ document. Classes and authority rules are defined by
 ## Audit snapshot
 
 - Audit date: 2026-09-28.
-- Expected integrated-tree coverage: **81 Markdown paths**.
-- Classified: **81**.
+- Expected integrated-tree coverage: **82 Markdown paths**.
+- Classified: **82**.
 - Unclassified: **0**.
 - Duplicate registrations: **0**.
-- Automated validator: **PASS** (`81` tracked, `81` registered, `40`
-  required first-party headers, `52` headers checked, `968` local links,
+- Automated validator: **PASS** (`82` tracked, `82` registered, `40`
+  required first-party headers, `53` headers checked, `976` local links,
   `0` errors).
 - Inventory basis: every literal path from `git ls-files '*.md'` in the
   integrated tree including the numerical repair and corrected whole-core
-  service production switch, code/documentation audit and 0.8.1 reliability delivery; the paused reference-
+  service production switch, code/documentation audit, 0.8.1 reliability delivery and bounded non-MTP assessment; the paused reference-
   translation package is archived, with its original observations preserved.
 - Header transition: every registered non-evidence first-party document now
   has a standard control header and is enforced by the validator. Frozen
@@ -110,10 +110,11 @@ authority only for its exact recorded protocol.
 | `docs/PREFILL_REFERENCE_AUDIT.md` | `historical_architecture_audit` | historical | Superseded as current Prefill design authority by `docs/PREFILL_ARCHITECTURE_RESET.md`, which refines `docs/SDD.md`; retains pinned source-analysis provenance. |
 | `docs/ROADMAP_LEGACY.md` | `historical_roadmap_ledger` | historical | Superseded by concise active `docs/ROADMAP.md`; retained for linked chronology, with Git history and evidence owning exact observations. |
 
-## Evidence (39)
+## Evidence (40)
 
 | Path | Role | Lifecycle | Evidence authority |
 | --- | --- | --- | --- |
+| `docs/analysis/non-mtp-architecture-assessment-2026-09-28/README.md` | `architecture_assessment` | frozen | Installed e3f90fd/0.8.1 P40000 profile attribution, historical failure audit and one unimplemented ordered Down producer/consumer hypothesis; no new performance baseline or production change. |
 | `docs/analysis/product-readiness-audit-2026-09-28/README.md` | `product_readiness_audit` | frozen | Production-boundary source audit and host-only Unicode/ingress reproductions at 8c0eb23; test, readiness, reproducibility, packaging and coverage findings; no runtime repair or new model qualification. |
 | `docs/PERFORMANCE_BASELINE.md` | `historical_performance_ledger` | frozen | Append-only accumulated component/runner observations for their exact commits/protocols; not current status or target SSOT. |
 | `docs/PHASE0_EVIDENCE.md` | `milestone_evidence` | frozen | Phase-0 environment, checkpoint, oracle, and phase-boundary record. |
