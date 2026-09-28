@@ -1095,6 +1095,20 @@ q3x_enable_warnings(qwen3x-inspect)
 
 if(BUILD_TESTING)
   find_package(Python3 QUIET COMPONENTS Interpreter)
+  # Host-only MTP prerequisites. No MTP symbol/selector enters the installed
+  # engine or the ordinary BUILD_TESTING=OFF service.
+  add_executable(q3x_mtp_control_test
+    tests/mtp_control_test.cpp src/runtime/mtp_control.cpp)
+  target_include_directories(q3x_mtp_control_test PRIVATE src)
+  target_compile_features(q3x_mtp_control_test PRIVATE cxx_std_17)
+  add_test(NAME mtp_control COMMAND q3x_mtp_control_test)
+  set_tests_properties(mtp_control PROPERTIES LABELS "host;correctness;mtp")
+  add_executable(q3x_mtp_weights_test
+    tests/mtp_weights_test.cpp src/model/mtp_weights_internal.cpp)
+  target_include_directories(q3x_mtp_weights_test PRIVATE src)
+  target_link_libraries(q3x_mtp_weights_test PRIVATE q3x::core)
+  add_test(NAME mtp_weights COMMAND q3x_mtp_weights_test)
+  set_tests_properties(mtp_weights PROPERTIES LABELS "host;correctness;mtp")
   if(Python3_Interpreter_FOUND)
     add_test(NAME prefill_mainline_preparation
       COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"

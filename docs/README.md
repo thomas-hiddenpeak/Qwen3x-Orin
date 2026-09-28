@@ -88,7 +88,9 @@ refine named subsystem boundaries and are subordinate to it:
   map;
 - [`PREFILL_ARCHITECTURE_RESET.md`](PREFILL_ARCHITECTURE_RESET.md) — active
   Prefill subsystem SDD for inputs, outputs, state, ownership,
-  synchronization, failure, and Decode handoff.
+  synchronization, failure, and Decode handoff; and
+- [`MTP_ADMISSION.md`](MTP_ADMISSION.md) — isolated MTP draft/verification,
+  transaction, state and composition contract.
 
 The detailed
 [`GDN_PREFILL_DATAFLOW.md`](GDN_PREFILL_DATAFLOW.md) and

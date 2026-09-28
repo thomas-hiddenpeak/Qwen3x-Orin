@@ -22,16 +22,17 @@ document. Classes and authority rules are defined by
 ## Audit snapshot
 
 - Audit date: 2026-09-28.
-- Expected integrated-tree coverage: **85 Markdown paths**.
-- Classified: **85**.
+- Expected integrated-tree coverage: **86 Markdown paths**.
+- Classified: **86**.
 - Unclassified: **0**.
 - Duplicate registrations: **0**.
-- Automated validator: **PASS** (`85` tracked, `85` registered, `40`
-  required first-party headers, `56` headers checked, `991` local links,
+- Automated validator: **PASS** (`86` tracked, `86` registered, `41`
+  required first-party headers, `57` headers checked, `1007` local links,
   `0` errors).
 - Inventory basis: every literal path from `git ls-files '*.md'` in the
   integrated tree including the numerical repair and corrected whole-core
-  service production switch, code/documentation audit, 0.8.1 reliability delivery and closed bounded non-MTP implementation; the paused reference-
+  service production switch, code/documentation audit, 0.8.1 reliability delivery,
+  closed bounded non-MTP implementation and the newly authorized MTP admission; the paused reference-
   translation package is archived, with its original observations preserved.
 - Header transition: every registered non-evidence first-party document now
   has a standard control header and is enforced by the validator. Frozen
@@ -57,7 +58,7 @@ authority only for its exact recorded protocol.
 | `docs/PREFILL_MATHEMATICAL_EQUIVALENCE_LEDGER.md` | `numerical_equivalence_policy` | active | Prefill architecture proof order, finite-precision/reduction-tree identity, P40 arithmetic ledger, and production-observable liveness eligibility. |
 | `docs/REAL_MODEL_PERFORMANCE_POLICY.md` | `evidence_policy` | active | Real-payload evidence, local retention, architecture-candidate qualification, and release promotion. |
 
-## Active first-party documents (9)
+## Active first-party documents (10)
 
 | Path | Role | Lifecycle | Authority / ownership boundary |
 | --- | --- | --- | --- |
@@ -65,6 +66,7 @@ authority only for its exact recorded protocol.
 | `docs/CURRENT_STATUS.md` | `current_status` | active | SSOT for current default route, delivered capability, qualified metrics, and known gaps; replaceable, not an evidence ledger. |
 | `docs/DESIGN.md` | `subsystem_design_index` | active | Compatibility entry point and map of detailed subsystem contracts; subordinate to `docs/SDD.md`. |
 | `docs/PREFILL_ARCHITECTURE_RESET.md` | `subsystem_sdd` | active | Prefill input/output, state, ownership, synchronization, failure, handoff, and architecture-candidate contract; owns no delivery order or mechanism rule. |
+| `docs/MTP_ADMISSION.md` | `subsystem_sdd` | active | Isolated greedy MTP draft/verification and transaction contract; configured drafts 2/3, bounded API composition, no default-route authority. |
 | `docs/ROADMAP.md` | `active_plan` | active | SSOT for current dependency order, milestones, and exit criteria; not an experiment ledger. |
 | `docs/SDD.md` | `system_sdd` | active | SSOT for the externally callable runner design from API and target workloads inward to kernels/deployment. |
 | `docs/decisions/0001-end-state-first-leakage.md` | `accepted_adr` | active | Accepted decision recording end-state-first/leakage as the system design and evolution model; subordinate only to normative policy. |

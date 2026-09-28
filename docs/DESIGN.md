@@ -112,6 +112,10 @@ Reference means correctness ownership, not performance authority. A component
 can be production-eligible only through the complete release route and
 attestation defined in the SDD.
 
+The separately authorized [MTP admission design](MTP_ADMISSION.md) refines
+the speculative generation and state-transaction boundary. Its private host
+prerequisites do not alter the installed engine contract.
+
 ## 6. Prefill and optimized-dataflow documents
 
 | Document | Scope | Classification |

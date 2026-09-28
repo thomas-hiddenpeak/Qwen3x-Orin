@@ -19,6 +19,27 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-09-28 MTP — active, configured drafts 2 and 3
+
+The owner's new authorization opens `WP-MTP-20260928` and
+`AC-MTP-GREEDY-v1`, governed by [MTP Admission](MTP_ADMISSION.md).
+Non-MTP optimization packages remain closed and their targets remain intact.
+The first host milestone delivers the exact BF16 weight catalog and a bounded
+transaction controller, with scalar-state oracle, rejection, EOS, cancellation,
+capacity and failure tests. It does not yet execute a GPU draft or an API
+request. The [milestone record](metadata/qwen36-27b-mtp-foundation-2026-09-28.json)
+identifies that scope.
+
+Remaining work, in order: authenticated native draft execution and prompt
+hidden/KV initialization; complete device prefix-state restoration and a
+scalar correctness oracle; then weight-reusing multi-row verification composed
+with the real API. Return to P65 sanity and P8192/P40000 O256 for both configured
+lengths immediately after those dependencies compose. Report Prefill, TTFT,
+committed Decode, acceptance, reconciliation cost and memory together. No
+length sweep or production switch is selected by host-only results. The three
+integration stages and negative-direction stop are bounded in the subsystem
+contract; no additional qualification-only campaign is opened.
+
 ## 2026-09-28 publication fusion — closed without promotion
 
 `WP-PUBLICATION-FUSION-20260928` implemented both selected epilogues in
@@ -33,7 +54,8 @@ predeclared negative-composition stop, the version is closed. The
 retains the reproducible patch, outputs, hashes and scope. Candidate integration
 was removed, production is unchanged, and no qualification-only campaign or
 tile scan remains active. FP8 preparation reuse remains a separate unimplemented
-opportunity; neither Down nor MTP is reopened.
+opportunity; this closed package reopened neither Down nor MTP. The later
+owner-authorized MTP package above is separate.
 
 ## 2026-09-28 alternative-path source assessment — complete
 
@@ -63,7 +85,7 @@ Candidate runner/build/profile branches have been removed; frozen reproducible
 patches and all failures remain in evidence. The default 0.8.1 artifact,
 numerical contract, capacity and paired performance baseline are unchanged.
 No third variant, local tuning, extra profile or qualification-only campaign
-is authorized by this closed package. MTP remains deferred. A materially new
+is authorized by this closed package. It grants no MTP execution authority. A materially new
 architecture requires a new bounded product-connected package; the deferred
 product targets below are neither lowered nor claimed achieved.
 
@@ -143,8 +165,9 @@ not select production. A negative bounded composition closes its own version.
    package and public API attestation.
 5. Basic service-supervision templates are delivered. Add further startup/AOT
    or deployment improvements only when selected by an
-   actual deployment constraint. Additional models, batching, MTP and media
-   remain later separately authorized product scopes.
+   actual deployment constraint. Additional models, batching and media
+   remain later separately authorized product scopes. MTP is now separately
+   authorized in the active package above.
 
 These milestones do not authorize an open-ended experiment campaign. Each
 new package must identify the product constraint, finite-precision/state

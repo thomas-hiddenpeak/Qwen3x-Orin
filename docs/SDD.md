@@ -295,6 +295,19 @@ installed-consumer tests with `BUILD_TESTING=OFF`; no test hook enters the
 production executable. The release test preset rejects an empty test set.
 Installed legal notices and versioned validation tooling are delivery assets.
 
+### 3.4 Isolated MTP development boundary
+
+The owner-authorized MTP scope uses configured draft lengths 2 and 3 in a
+separate non-installable admission. [MTP Admission](MTP_ADMISSION.md) refines
+the generation-controller, shifted hidden/token, weight and state-transaction
+boundaries. The default service and the locked performance targets retain their
+non-MTP identity. Only target-verified tokens may reach observers or usage;
+acceptance, rejection, EOS and cancellation select complete target and draft
+state prefixes, including GDN/Conv, before publication. A future candidate
+must account for draft Prefill, physical verification work and reconciliation
+in its real API witness. Host prerequisites do not establish GPU execution,
+performance or eligibility for production.
+
 ## 4. System decomposition from the API inward
 
 ```text

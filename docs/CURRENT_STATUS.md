@@ -52,6 +52,19 @@ future complete product: `production_eligible=true`, `release_qualified=false`.
 60K/130K capacity, the locked 2s/4s TTFT targets and the approximately 8.55
 Decode token/s convergence target are not claimed achieved.
 
+## MTP development status
+
+The owner has authorized a separate MTP candidate with configured draft
+lengths 2 and 3. The first [host milestone](metadata/qwen36-27b-mtp-foundation-2026-09-28.json)
+adds the exact 15-tensor BF16 catalog/arena planner and transactional greedy
+control. Host replay/fault tests and the pinned checkpoint header check pass.
+These private sources are linked only into test targets; no installed engine
+or service uses them. Native draft kernels, authenticated resident loading,
+device state restoration, multi-row verification and the API composition
+remain unfinished. There is no measured MTP acceptance rate or speedup and no
+new Prefill/Decode performance baseline. The [subsystem design](MTP_ADMISSION.md)
+and [Roadmap](ROADMAP.md) govern that separate work.
+
 ## Numerical baseline decision
 
 Legacy Prefill is retained as a regression comparator, **not model truth**.
@@ -164,8 +177,9 @@ are complete. The [implementation record](analysis/ordered-down-direction-2026-0
 rejects both permitted dataflows: they preserve the bounded numerical panel
 and compared API outputs but make 8K/40K Prefill slower. Candidate integration
 was removed; only reproducible evidence remains. The default artifact,
-qualified numerical route and performance baselines are unchanged. MTP remains
-deferred, and this package has no outstanding performance or qualification run.
+qualified numerical route and performance baselines are unchanged. That
+non-MTP package has no outstanding performance or qualification run; the later
+MTP authorization is tracked separately above.
 All seven findings in the frozen
 [product audit](analysis/product-readiness-audit-2026-09-28/README.md) are closed
 within the 0.8.1 delivery scope:

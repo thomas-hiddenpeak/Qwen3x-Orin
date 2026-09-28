@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-28",
+  "work_package_id": "WP-MTP-20260928",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v1",
+  "milestone": "host_contract_and_control",
+  "status": "complete_dependency_only",
+  "base_commit": "34b11fa1672333aa8f8f0c17698cf99f3c2bc866",
+  "configured_draft_lengths": [
+    2,
+    3
+  ],
+  "authority": "T0/T1 host correctness and checkpoint header ABI only",
+  "production_changed": false,
+  "gpu_execution": false,
+  "native_draft_implemented": false,
+  "api_composition": false,
+  "performance_measured": false,
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "metadata_sha256": {
+      "config.json": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+      "hf_quant_config.json": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+      "model.safetensors.index.json": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2"
+    },
+    "mtp_tensors": 15,
+    "mtp_dtype": "BF16",
+    "mtp_raw_and_planned_arena_bytes": 849398784,
+    "headers_validated": true,
+    "payload_authenticated_by_this_milestone": false
+  },
+  "source_sha256": {
+    "src/runtime/mtp_control.h": "ca6290fa891f33ca4db4d0b4e9166ab84179c494eb6d5da090b0e193cd3ebaa3",
+    "src/runtime/mtp_control.cpp": "33be43a79d8697dd6a84f8709977f6f8841a111a011b0688cf6b0a5a6fb6c591",
+    "src/model/mtp_weights_internal.h": "ea082e771ad0ad7bbecbae76d473100a5d9700d87320f26a356d55c23c1e18fd",
+    "src/model/mtp_weights_internal.cpp": "27f04e62407c6c3c37a32e71998a34eea447ca40e28a53776d8ca7dc94d60bb6",
+    "tests/mtp_control_test.cpp": "c834227af4d99087fe7050286f0579f62aed77350aca50f84bf98ea8ba02e5e4",
+    "tests/mtp_weights_test.cpp": "62c92e55ecc680137d6c178f9bf8e4e5351e1ed69d5f56ddad6d94e95fcb3470",
+    "CMakeLists.txt": "b8b7244809027b3207d5260ea29d63a39ac808a30c65d69ff6b161dc37992c2f"
+  },
+  "reference_source_root": "/home/rm01/vllmEvn/.venv/lib/python3.13/site-packages/vllm",
+  "reference_source_sha256": {
+    "model_executor/models/qwen3_5_mtp.py": "41259149b519ad31feb5fa9bd99b1e808515f1b73410a31653ffd0d3d58ca713",
+    "model_executor/models/qwen3_next.py": "e195dc4d5522a8cce5399cb35d9d96d6e5a0c07bf9460ef6912c840dcb7a6dc9",
+    "v1/spec_decode/llm_base_proposer.py": "aab141f140be6ee7e3a64ce9d866fc139db9d86477c295970f85b311ee00c3f0"
+  },
+  "checks": {
+    "ctest": {
+      "selected": 2,
+      "passed": 2
+    },
+    "controller_assertions": 184454,
+    "controller_asan_ubsan": "pass",
+    "weight_assertions_with_real_headers": 174,
+    "production_build_guard": "BUILD_TESTING=OFF; sealed whole-core ON; no MTP targets"
+  },
+  "test_scope": [
+    "configured drafts 2/3 and shortened output tails",
+    "every rejection position and all accepted",
+    "455 multi-round scalar replay scenarios of 1..65 output tokens",
+    "complete toy recurrent/Conv/KV state, not just token equality",
+    "EOS and cancellation at all emitted positions, semantic EOS precedence",
+    "backend begin/propose/verify/commit/finish/abort faults",
+    "invalid options and out-of-vocabulary drafts/target predictions",
+    "each pinned tensor with missing/category/dtype/shape/rank/byte/range mutations",
+    "extra and renamed MTP tensors",
+    "real checkpoint header-derived tensor names, dtypes, shapes, byte ranges and arena offsets"
+  ],
+  "unverified": [
+    "authenticated MTP GPU resident owner",
+    "native BF16 draft layer and shared embedding/lm-head execution",
+    "prompt-wide target hidden capture and shifted draft prefill",
+    "device recurrent/Conv/KV prefix snapshots and draft reconciliation",
+    "multi-row target verifier numerical equivalence",
+    "real API output/acceptance/Prefill/TTFT/Decode/memory"
+  ],
+  "artifacts": {
+    ".q3x-work/mtp-20260928/configure.log": "4b480b2967d6637871010f127dba4b8e9641a30c7f434221322bc648675f870d",
+    ".q3x-work/mtp-20260928/build.log": "67d197e6585d3c441503021ecd5d1a692854c0326b8316902b87e25a6a4a2ddc",
+    ".q3x-work/mtp-20260928/ctest.log": "84657079958c7b1e9b17c7f30510ebd62157d5cd46e2da68f7ec97c9c5a6d607",
+    ".q3x-work/mtp-20260928/checkpoint-headers.log": "e43edb6055cac8e8ba3f39670f2129506e412588544048f5ecb9d25202f27db8",
+    ".q3x-work/mtp-20260928/sanitizer.log": "5cc2a1e4c3d3e04cd06dfc7fb1c51dac80184a49ad2c986f2354d87b42dde2f9",
+    ".q3x-work/mtp-20260928/production-configure.log": "0143258289b902fec3333f1f1ae6b543d5a7b4e59f28c232035bae3bff271991",
+    ".q3x-work/mtp-20260928/production-targets.log": "35b88df91abc663bf4c474a970fd2d0cb7be23483eab71fa164b02dcbd78855a",
+    ".q3x-work/mtp-20260928/production-isolation.log": "22d49d39f8f108ec83fd6f7ff92ac5a48abdbc982dc7383b30d39b67c2713545",
+    ".q3x-work/mtp-20260928/build/q3x_mtp_control_test": "e32f63ff855d77dd2f433e2d2348e1b0d13bebeb7734710842554d91c300d7cd",
+    ".q3x-work/mtp-20260928/build/q3x_mtp_weights_test": "98bae09d80a25938f775fbbd2ae3b66d114b5b2202fde163f6c92dd9e8656f37",
+    ".q3x-work/mtp-20260928/mtp_control_sanitized": "0ee5f9b90964cac8e69e89feb5bb982e17c4d562fec34f3bb5bff7a3dde937e3"
+  },
+  "reproduction": [
+    "cmake -S . -B .q3x-work/mtp-20260928/build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=87 -DQ3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=OFF",
+    "cmake --build .q3x-work/mtp-20260928/build --target q3x_mtp_control_test q3x_mtp_weights_test -j4",
+    "ctest --test-dir .q3x-work/mtp-20260928/build -R '^mtp_' --output-on-failure",
+    ".q3x-work/mtp-20260928/build/q3x_mtp_weights_test /home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4"
+  ]
+}
