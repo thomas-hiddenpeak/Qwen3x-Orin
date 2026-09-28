@@ -22,12 +22,12 @@ document. Classes and authority rules are defined by
 ## Audit snapshot
 
 - Audit date: 2026-09-28.
-- Expected integrated-tree coverage: **83 Markdown paths**.
-- Classified: **83**.
+- Expected integrated-tree coverage: **84 Markdown paths**.
+- Classified: **84**.
 - Unclassified: **0**.
 - Duplicate registrations: **0**.
-- Automated validator: **PASS** (`83` tracked, `83` registered, `40`
-  required first-party headers, `54` headers checked, `981` local links,
+- Automated validator: **PASS** (`84` tracked, `84` registered, `40`
+  required first-party headers, `55` headers checked, `987` local links,
   `0` errors).
 - Inventory basis: every literal path from `git ls-files '*.md'` in the
   integrated tree including the numerical repair and corrected whole-core
@@ -110,10 +110,11 @@ authority only for its exact recorded protocol.
 | `docs/PREFILL_REFERENCE_AUDIT.md` | `historical_architecture_audit` | historical | Superseded as current Prefill design authority by `docs/PREFILL_ARCHITECTURE_RESET.md`, which refines `docs/SDD.md`; retains pinned source-analysis provenance. |
 | `docs/ROADMAP_LEGACY.md` | `historical_roadmap_ledger` | historical | Superseded by concise active `docs/ROADMAP.md`; retained for linked chronology, with Git history and evidence owning exact observations. |
 
-## Evidence (41)
+## Evidence (42)
 
 | Path | Role | Lifecycle | Evidence authority |
 | --- | --- | --- | --- |
+| `docs/analysis/alternative-paths-2026-09-28/README.md` | `alternative_architecture_assessment` | frozen | Source assessment at 89853c9 of Prefill publication fusion, FP8 preparation reuse and bounded Decode opportunities; reuses existing profile, no new GPU run or production change. |
 | `docs/analysis/ordered-down-direction-2026-09-28/README.md` | `negative_architecture_direction` | frozen | Two ordered Down implementations, bounded bitwise numerical admission and negative same-request 8K/40K API direction at 50f7323; candidate integration removed, no promotion. |
 | `docs/analysis/non-mtp-architecture-assessment-2026-09-28/README.md` | `architecture_assessment` | frozen | Installed e3f90fd/0.8.1 P40000 profile attribution, historical failure audit and one unimplemented ordered Down producer/consumer hypothesis; no new performance baseline or production change. |
 | `docs/analysis/product-readiness-audit-2026-09-28/README.md` | `product_readiness_audit` | frozen | Production-boundary source audit and host-only Unicode/ingress reproductions at 8c0eb23; test, readiness, reproducibility, packaging and coverage findings; no runtime repair or new model qualification. |

@@ -19,6 +19,18 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-09-28 alternative-path source assessment — complete
+
+The owner's follow-up to examine other paths is recorded in the
+[alternative assessment](analysis/alternative-paths-2026-09-28/README.md).
+It recommends preserving current GEMM mainloops while fusing Up/SiLU and
+FP8 O/residual publication, with exact intermediate BF16 rounding; FP8
+per-phase decoded-weight reuse is the next separate opportunity. It does not
+claim measured gains, activate implementation, reopen Down, or alter production.
+The report defines the bounded composition proposal for a subsequent package.
+Decode's approximately 10 ms/step interim gap remains open; existing KV sharing
+and rejected PV variants must not be presented as new opportunities.
+
 ## 2026-09-28 bounded non-MTP architecture work — closed
 
 The owner-authorized `WP-NON-MTP-ARCHITECTURE-20260928` assessment and its

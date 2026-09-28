@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "source_revision": "89853c91a9cc5dc91503c420ba17e2f5def59bca",
+  "decision": "source_assessment_only_recommend_prefill_output_publication_fusion",
+  "runtime_changed": false,
+  "new_gpu_runs": 0,
+  "production_promoted": false,
+  "sources": [
+    {
+      "path": "src/runtime/reference_runner.cpp",
+      "sha256": "4b346183634201f13c355f5d6c71f0bd2ba832c782bee57050ca304c54073ebe"
+    },
+    {
+      "path": "src/kernels/sm87/nvfp4_dequant_cutlass_gate_up.cu",
+      "sha256": "8ea0098834f0e54b2e469c2fc34278a2774fd3fc1f20a8953c1fb688a541b092"
+    },
+    {
+      "path": "src/kernels/sm87/fp8_dequant_cublas_projection.cu",
+      "sha256": "016d3b1be2c0d399b62bc6fb9c8f5df95783417eedd837485f3bbbc93403e536"
+    },
+    {
+      "path": "src/kernels/sm87/decode_fused_gqa.cu",
+      "sha256": "335d53bc7db626ac4e453cf5cb2945cce912db9b5311c20798d62cd4335777e4"
+    },
+    {
+      "path": "src/kernels/reference/decode_ops.cu",
+      "sha256": "4aa022cbfd21990f60894b8f6450043e2b2447f47965dc93fc3be1f794efe9cd"
+    },
+    {
+      "path": "third_party/cutlass/include/cutlass/epilogue/thread/linear_combination.h",
+      "sha256": "e70c257c3722979a0ffa0dd73482ca8e7238c273ef3ca6c4269577eab7cfab08"
+    },
+    {
+      "path": "third_party/cutlass/include/cutlass/epilogue/threadblock/epilogue.h",
+      "sha256": "3c313c4177e5a97bea7729f01ade11f04493d3958012243ac4c73bbc4d5ef74d"
+    },
+    {
+      "path": "docs/metadata/qwen36-27b-non-mtp-architecture-assessment-2026-09-28.json",
+      "sha256": "bbc0fe82813795ee27a93180df3ba0b7fc686668daf0b9a287fca0091e51b68b"
+    },
+    {
+      "path": "docs/metadata/qwen36-27b-ordered-down-direction-2026-09-28.json",
+      "sha256": "f845ba2ba159c8d5c2b29e8fe206c6e9d7b8b9adacf721edd1d0f5d3d170fc87"
+    },
+    {
+      "path": "docs/analysis/prefill-marlin-gate-up-fused-epilogue-2026-07-30/README.md",
+      "sha256": "52c2a45163e5838fea9fb167c829dd19bbef650c900e3d1b6bdaecdff6e2e4f3"
+    }
+  ],
+  "calculations": {
+    "up_logical_bytes_removed": 178257920000,
+    "o_branch_logical_bytes_removed": 52428800000,
+    "fp8_decode_ideal_seconds_removed": 1.6020879871999998,
+    "decode_b1_ms_per_step": 127.09152117545992,
+    "decode_interim_target_ms_per_step": 116.95906432748536,
+    "decode_ms_to_remove": 10.132456847974552,
+    "fp8_linear_fill_bf16_bytes": 167772160,
+    "fp8_full_fill_bf16_bytes": 146800640,
+    "fp8_o_bf16_bytes": 62914560
+  },
+  "limitations": [
+    "Logical bytes are not measured DRAM traffic or latency savings.",
+    "Reuses existing diagnostic capture; no new benchmark or baseline.",
+    "Numerical and resource feasibility of custom epilogues requires implementation and verification.",
+    "No new proven Decode architecture selected."
+  ]
+}
