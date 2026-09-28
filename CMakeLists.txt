@@ -1107,6 +1107,12 @@ if(BUILD_TESTING)
     tests/mtp_weights_test.cpp src/model/mtp_weights_internal.cpp)
   target_include_directories(q3x_mtp_weights_test PRIVATE src)
   target_link_libraries(q3x_mtp_weights_test PRIVATE q3x::core)
+  add_executable(q3x_mtp_device_test
+    tests/mtp_device_test.cpp src/runtime/mtp_device_internal.cpp
+    src/runtime/mtp_control.cpp src/model/mtp_weights_internal.cpp)
+  target_include_directories(q3x_mtp_device_test PRIVATE src)
+  target_link_libraries(q3x_mtp_device_test PRIVATE q3x::engine)
+  # Explicit real-checkpoint invocation only; never an automatic GPU CTest.
   add_test(NAME mtp_weights COMMAND q3x_mtp_weights_test)
   set_tests_properties(mtp_weights PROPERTIES LABELS "host;correctness;mtp")
   if(Python3_Interpreter_FOUND)

@@ -27,7 +27,7 @@ document. Classes and authority rules are defined by
 - Unclassified: **0**.
 - Duplicate registrations: **0**.
 - Automated validator: **PASS** (`86` tracked, `86` registered, `41`
-  required first-party headers, `57` headers checked, `1007` local links,
+  required first-party headers, `57` headers checked, `1015` local links,
   `0` errors).
 - Inventory basis: every literal path from `git ls-files '*.md'` in the
   integrated tree including the numerical repair and corrected whole-core

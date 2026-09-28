@@ -21,7 +21,8 @@ by business-driven scanning later. `WP-MTP-20260928` owns
 `AC-MTP-GREEDY-v1`. The existing non-MTP targets and production artifact remain
 separate; an MTP result cannot claim to close a non-MTP performance gap.
 [Roadmap](ROADMAP.md) owns delivery order and [Current Status](CURRENT_STATUS.md)
-owns what actually executes. This design does not imply a working GPU backend.
+owns what actually executes. The native scalar correctness backend below is
+executable; it is not a weight-reusing verifier or a production API route.
 
 ## Product trace and bounded composition
 
@@ -160,3 +161,57 @@ The first host milestone's exhaustive state-machine tests and real checkpoint
 header check have no numerical, GPU, API, acceptance-rate or speedup authority.
 The exact completion boundary is in its
 [evidence record](metadata/qwen36-27b-mtp-foundation-2026-09-28.json).
+
+
+## Native scalar correctness backend
+
+The source-private [device implementation](../src/runtime/mtp_device_internal.cpp)
+is linked only into `q3x_mtp_device_test`. Its `Weights` owner validates the
+catalog, requires each tensor at its compiled source offset relative to byte
+59,416 of shard 3, opens every root component and the shard without following
+symlinks, and copies/hash-authenticates the same sequential bytes. All of shard
+3 must match the existing pinned full-file SHA-256, exact size and stable file
+metadata before the owner is returned. This separate 849,398,784-byte arena
+contains only MTP. The base owner continues to authenticate all three shards.
+The ordinary resident loader, text arena and installed ABI are unchanged.
+
+`Draft` borrows the base embedding/lm-head, MTP weights and target RoPE tables.
+Those owners must outlive it. Its single bounded workspace includes its own
+K/V and uses existing BF16 projection, normalization, RoPE, Attention, MLP and
+argmax kernels. Every step completes on its owned stream before position
+publication; there is no allocation or implicit fallback in a step. Reset
+clears complete draft K/V and poison. Rewind changes only logical draft length;
+rejected rows are inaccessible and overwritten before reuse. `hidden()` is a
+borrowed last-step value, invalid for use after reset, rewind or failure until
+a new successful step. Prompt initialization currently consumes target scalar
+hidden rows in order; whole-core prompt-wide capture is still to be integrated.
+
+`TargetTransaction` binds one exact Legacy-C512 runner/state pair for the
+scalar correctness oracle. It reserves five immutable prefix slots, each
+78,446,592 recurrent/Conv bytes plus 10,240 hidden bytes. Target KV is append-only
+within a round, so prefix selection preserves its earlier rows and publishes
+only the accepted logical length. The adapter copies the selected recurrent
+and hidden snapshot, rebuilds one draft row from the corresponding target
+hidden, and completes both streams before publishing that token. It never
+borrows the ordinary engine's successful-request prefix-reset authority.
+Abort drains execution, poisons target and draft, and requires explicit full
+reset. Both owners must outlive the adapter, including destruction/abort.
+
+The [device harness](../tests/mtp_device_test.cpp) compares complete live target
+Conv/GDN/K/V/final-hidden bytes and draft K/V against independent scalar replay,
+including scripted full acceptance, every rejection position, cancellation
+and failure after target verification. Scripted proposals are test inputs,
+never checkpoint acceptance measurements. The
+[CPU oracle](../tools/evaluation/validate_mtp_draft.py) separately evaluates the
+whole MTP layer with FP64 projections/causal Attention and BF16 publication
+boundaries on captured real target hidden. Its predeclared maximum per-row
+relative-L2 bound is 0.02 for draft hidden/K/V; this bounds a draft-layer check
+and does not relax the target verifier's bitwise state/output contract.
+
+Exact device results and limitations are recorded in the
+[device milestone](metadata/qwen36-27b-mtp-device-2026-09-28.json). These checks
+establish the scalar correctness substrate only. Serial target verification,
+synchronous snapshot restoration and full draft-row replay have no acceleration
+claim. A production-shaped whole-core Prefill adapter, multi-row target weight
+reuse, API receipts, cancellation/stream accounting and real API selection
+remain required before the architecture can be selected.

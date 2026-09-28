@@ -281,3 +281,17 @@ Prefill path uses the full-range geometry in [Request State](REQUEST_STATE.md);
 the legacy profile binding and C512 methods retain their separate explicit
 contracts. The layer-major service conservatively resets request state rather
 than borrowing the legacy prefix-reset authority.
+
+
+## Private MTP scalar correctness peer
+
+`mtp_detail::TargetTransaction` is a source-private friend implemented only in
+the non-installable MTP device test. It requires the exact Legacy-C512 state
+owner, stages ordinary scalar steps and selects complete saved recurrent/Conv
+and normalized-hidden prefixes with append-only KV length publication. It
+invalidates retained trace/Prefill hidden and successful-request reset
+ownership. Abort drains and poisons; recovery requires reset. The
+[MTP subsystem contract](MTP_ADMISSION.md#native-scalar-correctness-backend)
+owns this bounded exception to external state mutation. The friend declaration
+adds no object fields, public selector, production symbol or installed ABI
+change. It does not authorize multi-row arithmetic or whole-core service use.

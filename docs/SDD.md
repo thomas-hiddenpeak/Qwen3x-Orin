@@ -305,8 +305,9 @@ non-MTP identity. Only target-verified tokens may reach observers or usage;
 acceptance, rejection, EOS and cancellation select complete target and draft
 state prefixes, including GDN/Conv, before publication. A future candidate
 must account for draft Prefill, physical verification work and reconciliation
-in its real API witness. Host prerequisites do not establish GPU execution,
-performance or eligibility for production.
+in its real API witness. The native scalar correctness backend is separate
+from that composition and establishes no API performance or production
+eligibility.
 
 ## 4. System decomposition from the API inward
 

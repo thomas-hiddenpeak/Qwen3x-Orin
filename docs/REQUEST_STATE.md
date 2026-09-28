@@ -289,3 +289,17 @@ free-memory reservation cannot be met. Performance measurements
 and historical plan examples are retained in
 [`PERFORMANCE_BASELINE.md`](PERFORMANCE_BASELINE.md) and the
 [`metadata/`](metadata/) evidence index; they do not amend this contract.
+
+
+## Separate MTP scalar transaction storage
+
+The non-installable [MTP admission](MTP_ADMISSION.md#native-scalar-correctness-backend)
+borrows an exact Legacy-C512 state and owns a separate five-slot recurrent/Conv
+and final-hidden snapshot arena. It neither changes the production state plan
+nor authorizes ordinary callers to rewind a live runner. Its private runner
+peer restores a complete saved prefix, synchronizes target/draft work, and
+publishes length before observation. Rejected append-only KV rows remain
+outside the live prefix; accepted draft KV is rebuilt using target hidden.
+Abort poisons both participants and grants no successful-request reuse
+boundary. The scalar peer has no whole-core Prefill or multi-row verification
+qualification; those require the separate MTP composition.

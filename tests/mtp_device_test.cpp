@@ -1,0 +1,235 @@
+#include "runtime/mtp_device_internal.h"
+#include "q3x/runtime/resident_weights.h"
+#include "q3x/core/sha256.h"
+#include <cuda_runtime_api.h>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <stdexcept>
+#include <vector>
+
+namespace rt = q3x::runtime;
+namespace mtp = rt::mtp_detail;
+void require(bool ok, const char* what) { if (!ok) throw std::runtime_error(what); }
+std::vector<char> read_device(const void* source, std::size_t bytes) {
+  std::vector<char> result(bytes);
+  require(cudaMemcpy(result.data(), source, bytes, cudaMemcpyDeviceToHost) == cudaSuccess, "D2H capture");
+  return result;
+}
+void write(const std::filesystem::path& path, const std::vector<char>& data) {
+  std::ofstream out(path, std::ios::binary);
+  out.write(data.data(), data.size());
+  require(bool(out), "capture write");
+}
+std::vector<char> live_state(const rt::RequestState& state, const rt::ReferenceRunner& runner) {
+  const auto& plan = state.plan();
+  const auto* arena = static_cast<const char*>(state.arena_data());
+  auto bytes = read_device(arena + plan.conv_state.arena_offset,
+                          plan.conv_state.byte_size + plan.gdn_state.byte_size);
+  for (std::size_t i = 0; i < 16; ++i) {
+    for (const auto* region : {&plan.key_cache[i], &plan.value_cache[i]}) {
+      auto row = read_device(arena + region->arena_offset, state.current_position() * 2048ULL);
+      bytes.insert(bytes.end(), row.begin(), row.end());
+    }
+  }
+  auto hidden = read_device(mtp::TargetTransaction::hidden(runner), 10240);
+  bytes.insert(bytes.end(), hidden.begin(), hidden.end());
+  return bytes;
+}
+std::uint32_t step(rt::ReferenceRunner& runner, std::uint32_t token, bool logits) {
+  rt::ReferenceStepOptions options;
+  options.compute_logits = logits;
+  options.logits_mode = rt::ReferenceLogitsMode::kPredictedTokenOnly;
+  auto result = runner.step(token, options);
+  if (!result) {
+    std::cerr << "target step error=" << static_cast<int>(result.status.error) << '\n';
+    throw std::runtime_error("target step failed");
+  }
+  if (!logits) return 0;
+  require(result.value->prediction.has_value(), "target prediction missing");
+  return result.value->prediction->predicted_token_id;
+}
+
+// Scripted proposals exercise every device restore prefix, independently of
+// the checkpoint's natural acceptance. Native drafting still executes first.
+struct Scripted final : mtp::RoundBackend {
+  mtp::TargetTransaction& inner;
+  const std::vector<std::uint32_t>& oracle;
+  std::size_t offset = 0;
+  int mismatch = -1;
+  bool fail_after_verify = false;
+  Scripted(mtp::TargetTransaction& backend, const std::vector<std::uint32_t>& ids)
+      : inner(backend), oracle(ids) {}
+  bool begin(std::uint32_t rows) noexcept override { return inner.begin(rows); }
+  bool propose(std::uint32_t seed, std::uint32_t n, std::uint32_t* ids) noexcept override {
+    if (!inner.propose(seed, n, ids)) return false;
+    if (mismatch >= 0) {
+      for (std::uint32_t i = 0; i < n; ++i) ids[i] = oracle[offset + i];
+      if (std::uint32_t(mismatch) < n) ids[mismatch] = (ids[mismatch] + 1) % 248320;
+    }
+    return true;
+  }
+  bool verify(std::uint32_t seed, const std::uint32_t* ids, std::uint32_t n,
+              std::uint32_t* predictions) noexcept override {
+    return inner.verify(seed, ids, n, predictions) && !fail_after_verify;
+  }
+  bool commit_prefix(std::uint32_t rows, std::uint32_t pending) noexcept override {
+    return inner.commit_prefix(rows, pending);
+  }
+  bool finish() noexcept override { return inner.finish(); }
+  bool abort() noexcept override { return inner.abort(); }
+};
+struct Cancel {
+  unsigned seen = 0;
+  static bool observe(void* context, std::uint32_t) noexcept {
+    return ++static_cast<Cancel*>(context)->seen < 2;
+  }
+};
+
+int main(int argc, char** argv) try {
+  if (argc != 4) { std::cerr << "MODEL PROMPT_U32 OUTPUT_DIRECTORY\n"; return 2; }
+  const std::filesystem::path output(argv[3]);
+  require(std::filesystem::is_directory(output), "output directory must exist");
+  std::ifstream input(argv[2], std::ios::binary | std::ios::ate);
+  require(bool(input), "prompt input");
+  const auto size = input.tellg();
+  require(size >= 4 && size <= 65 * 4 && size % 4 == 0, "prompt must have 1..65 tokens");
+  std::vector<std::uint32_t> prompt(static_cast<std::size_t>(size) / 4);
+  input.seekg(0);
+  input.read(reinterpret_cast<char*>(prompt.data()), size);
+  for (auto token : prompt) require(token < 248320, "prompt token out of range");
+  std::cout << "loading_base\n" << std::flush;
+  auto resident = rt::load_pinned_qwen36_27b(argv[1]);
+  require(bool(resident), "base resident load");
+  auto model = rt::bind_qwen36_27b_weights(*resident.value);
+  require(bool(model), "base binding");
+  std::cout << "loading_mtp\n" << std::flush;
+  mtp::Weights weights(argv[1]);
+  rt::RequestMemoryOptions state_options;
+  state_options.max_sequence_length = prompt.size() + 32;
+  auto state = rt::create_request_state(state_options);
+  require(bool(state), "state allocation");
+  rt::ReferenceRunnerOptions runner_options;
+  runner_options.projection_backend = rt::ProjectionBackend::kSm87WeightOnly;
+  auto runner = rt::create_reference_runner(*model.value, *state.value, runner_options);
+  require(bool(runner), "runner creation");
+  mtp::Draft draft(weights, *model.value, state_options.max_sequence_length,
+                   mtp::TargetTransaction::cosines(*runner.value),
+                   mtp::TargetTransaction::sines(*runner.value));
+  mtp::TargetTransaction transaction(*runner.value, *state.value, draft);
+  std::vector<std::uint32_t> expected;
+  std::uint32_t seed = 0;
+  for (std::size_t i = 0; i < prompt.size(); ++i) {
+    seed = step(*runner.value, prompt[i], i + 1 == prompt.size());
+  }
+  expected.push_back(seed);
+  for (unsigned i = 1; i < 16 && seed != 248046; ++i) {
+    seed = step(*runner.value, seed, true);
+    expected.push_back(seed);
+  }
+  require(expected.size() >= 5, "fixture must exercise a complete MTP round");
+  std::cout << "baseline_ready\n" << std::flush;
+  struct Case { unsigned length; int mismatch; bool cancel; bool fail; };
+  std::vector<Case> cases;
+  for (unsigned length : {2U, 3U}) {
+    cases.push_back({length, -1, false, false});
+    for (unsigned mismatch = 0; mismatch <= length; ++mismatch)
+      cases.push_back({length, int(mismatch), false, false});
+    cases.push_back({length, int(length), true, false});
+    cases.push_back({length, int(length), false, true});
+  }
+  for (const auto& test : cases) {
+    const auto length = test.length;
+    require(bool(runner.value->reset()) && draft.reset(), "request reset");
+    std::vector<char> target_hidden, draft_hidden;
+    for (std::size_t i = 0; i < prompt.size(); ++i) {
+      seed = step(*runner.value, prompt[i], i + 1 == prompt.size());
+      auto row = read_device(mtp::TargetTransaction::hidden(*runner.value), 10240);
+      target_hidden.insert(target_hidden.end(), row.begin(), row.end());
+      if (i + 1 < prompt.size()) {
+        std::uint32_t ignored = 0;
+        require(draft.step(prompt[i + 1], mtp::TargetTransaction::hidden(*runner.value), false, ignored), "draft prefill");
+        row = read_device(draft.hidden(), 10240);
+        draft_hidden.insert(draft_hidden.end(), row.begin(), row.end());
+      }
+    }
+    if (length == 2 && test.mismatch == -1) {
+      write(output / "target-hidden.bf16", target_hidden);
+      write(output / "draft-prefill-hidden.bf16", draft_hidden);
+      write(output / "draft-prefill-k.bf16", read_device(draft.keys(), draft.position() * 2048ULL));
+      write(output / "draft-prefill-v.bf16", read_device(draft.values(), draft.position() * 2048ULL));
+    }
+    std::vector<std::uint32_t> actual{seed};
+    unsigned proposed = 0, accepted = 0, rows = 0, rounds = 0;
+    Scripted backend(transaction, expected);
+    backend.mismatch = test.mismatch;
+    backend.fail_after_verify = test.fail;
+    Cancel cancellation;
+    while (actual.size() < expected.size()) {
+      mtp::RoundOptions options;
+      options.draft_length = length;
+      options.seed_token = actual.back();
+      options.remaining_output = expected.size() - actual.size();
+      options.available_target_rows = state.value->max_sequence_length() - state.value->current_position();
+      options.vocabulary_size = 248320;
+      options.stop_token = 248046;
+      backend.offset = actual.size();
+      const auto result = mtp::run_round(options, backend,
+          test.cancel ? Cancel::observe : nullptr, test.cancel ? &cancellation : nullptr);
+      if (test.fail) {
+        require(!result.ok() && result.output_count == 0 && result.abort_succeeded &&
+                runner.value->poisoned(), "device failure must poison without publication");
+        break;
+      }
+      if (!result.ok()) std::cerr << "round=" << rounds << " status=" << int(result.status) << " draft_error=" << draft.error() << '\n';
+      require(result.ok(), "MTP round");
+      actual.insert(actual.end(), result.output.begin(), result.output.begin() + result.output_count);
+      proposed += result.proposed_tokens;
+      accepted += result.accepted_tokens;
+      rows += result.verified_rows;
+      ++rounds;
+      if (test.cancel) require(result.status == mtp::RoundStatus::kCancelled &&
+                               actual.size() == 3, "cancel publication boundary");
+      if (result.status == mtp::RoundStatus::kStop || result.status == mtp::RoundStatus::kCancelled) break;
+    }
+    if (test.fail) {
+      require(bool(runner.value->reset()) && draft.reset(), "failed transaction recovery");
+      for (std::size_t i = 0; i < prompt.size(); ++i)
+        seed = step(*runner.value, prompt[i], i + 1 == prompt.size());
+      require(seed == expected[0], "post-failure request output");
+      std::cout << "draft_length=" << length << " injected_verify_failure=poisoned recovery=pass\n" << std::flush;
+      continue;
+    }
+    require(actual == std::vector<std::uint32_t>(expected.begin(), expected.begin() + actual.size()),
+            "MTP tokens differ from scalar oracle");
+    require(test.cancel || actual.size() == expected.size(), "incomplete generation");
+    const auto actual_state = live_state(*state.value, *runner.value);
+    // Reconstruct the complete committed draft prefix independently using
+    // scalar target hidden, and compare BOTH live KV arrays after rejection.
+    const auto live_k = read_device(draft.keys(), draft.position() * 2048ULL);
+    const auto live_v = read_device(draft.values(), draft.position() * 2048ULL);
+    const auto live_position = draft.position();
+    require(bool(runner.value->reset()) && draft.reset(), "reconciliation oracle reset");
+    auto tokens = prompt;
+    tokens.insert(tokens.end(), actual.begin(), actual.end() - 1);
+    for (std::size_t i = 0; i + 1 < tokens.size(); ++i) {
+      step(*runner.value, tokens[i], false);
+      std::uint32_t ignored = 0;
+      require(draft.step(tokens[i + 1], mtp::TargetTransaction::hidden(*runner.value), false, ignored), "reconciliation oracle draft");
+    }
+    step(*runner.value, tokens.back(), false);
+    require(live_state(*state.value, *runner.value) == actual_state, "MTP full live target state differs");
+    require(draft.position() == live_position, "draft position differs");
+    require(read_device(draft.keys(), live_k.size()) == live_k, "draft K differs from target-conditioned replay");
+    require(read_device(draft.values(), live_v.size()) == live_v, "draft V differs from target-conditioned replay");
+    std::cout << "draft_length=" << length << " scripted_mismatch=" << test.mismatch
+              << " cancelled=" << test.cancel << " output_tokens=" << actual.size()
+              << " rounds=" << rounds << " proposed=" << proposed << " accepted=" << accepted
+              << " verified_rows=" << rows << " target_state=bitwise_equal draft_kv=bitwise_equal\n" << std::flush;
+  }
+  std::cout << "scope=scalar_correctness_only production_api=false speedup_claim=false\n";
+  return 0;
+} catch (const std::exception& error) {
+  std::cerr << error.what() << '\n';
+  return 1;
+}

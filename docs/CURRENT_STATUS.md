@@ -54,16 +54,23 @@ Decode token/s convergence target are not claimed achieved.
 
 ## MTP development status
 
-The owner has authorized a separate MTP candidate with configured draft
-lengths 2 and 3. The first [host milestone](metadata/qwen36-27b-mtp-foundation-2026-09-28.json)
-adds the exact 15-tensor BF16 catalog/arena planner and transactional greedy
-control. Host replay/fault tests and the pinned checkpoint header check pass.
-These private sources are linked only into test targets; no installed engine
-or service uses them. Native draft kernels, authenticated resident loading,
-device state restoration, multi-row verification and the API composition
-remain unfinished. There is no measured MTP acceptance rate or speedup and no
-new Prefill/Decode performance baseline. The [subsystem design](MTP_ADMISSION.md)
-and [Roadmap](ROADMAP.md) govern that separate work.
+The owner-authorized candidate uses configured draft lengths 2 and 3. The
+[host milestone](metadata/qwen36-27b-mtp-foundation-2026-09-28.json) is followed
+by a [native device milestone](metadata/qwen36-27b-mtp-device-2026-09-28.json):
+authenticated BF16 draft weights, shared embedding/lm-head, the complete GPU
+draft layer and scalar target prefix restoration now execute in a separate
+non-installable harness. On a real P17/O16 fixture, natural lengths 2/3,
+scripted acceptance/rejection and cancellation pass 11 complete bitwise target
+state/draft-KV comparisons; two injected post-verification failures recover
+through full reset. An independent CPU draft-layer oracle also passes its
+bounded hidden/K/V checks. This is scalar correctness evidence, not production
+Prefill, a multi-row weight-reusing verifier or an API acceleration result.
+
+These private implementations are linked only into test targets. Whole-core
+Prefill hidden capture, multi-row target verification, service/API receipts
+and real performance/capability validation remain unfinished. No new Prefill,
+TTFT or Decode baseline is claimed. The [subsystem design](MTP_ADMISSION.md)
+and [Roadmap](ROADMAP.md) govern the remaining composition.
 
 ## Numerical baseline decision
 

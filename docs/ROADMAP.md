@@ -24,16 +24,16 @@ owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 The owner's new authorization opens `WP-MTP-20260928` and
 `AC-MTP-GREEDY-v1`, governed by [MTP Admission](MTP_ADMISSION.md).
 Non-MTP optimization packages remain closed and their targets remain intact.
-The first host milestone delivers the exact BF16 weight catalog and a bounded
-transaction controller, with scalar-state oracle, rejection, EOS, cancellation,
-capacity and failure tests. It does not yet execute a GPU draft or an API
-request. The [milestone record](metadata/qwen36-27b-mtp-foundation-2026-09-28.json)
-identifies that scope.
+The host foundation and the [native scalar device milestone](metadata/qwen36-27b-mtp-device-2026-09-28.json)
+are delivered. Authenticated draft execution, shifted scalar hidden/KV
+initialization, complete recurrent prefix restoration and target-conditioned
+draft reconciliation pass the bounded real-model correctness harness. This
+still executes the main model serially and has no API or acceleration claim.
 
-Remaining work, in order: authenticated native draft execution and prompt
-hidden/KV initialization; complete device prefix-state restoration and a
-scalar correctness oracle; then weight-reusing multi-row verification composed
-with the real API. Return to P65 sanity and P8192/P40000 O256 for both configured
+Remaining work, in order: integrate whole-core Prefill hidden capture and the
+native draft into an isolated service controller; compose weight-reusing
+multi-row target verification with the same state contract and truthful MTP
+route/accounting receipts. Return to P65 sanity and P8192/P40000 O256 for both configured
 lengths immediately after those dependencies compose. Report Prefill, TTFT,
 committed Decode, acceptance, reconciliation cost and memory together. No
 length sweep or production switch is selected by host-only results. The three

@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: authenticated resident-weight identity, I/O, allocation, ownership, and failure contract
   effective: 2026-08-09
-  last_reviewed: 2026-08-09
+  last_reviewed: 2026-09-28
   supersedes: []
   superseded_by: []
   ssot_for: resident checkpoint authentication, load planning, arena ownership, and loader failure behavior
@@ -154,3 +154,15 @@ Reproduction commands and historical loader timings are retained in
 lineage is the
 [`parallel shard-loader record`](metadata/qwen36-27b-parallel-loader-benchmark.json).
 It does not define an active loader optimization threshold or current result.
+
+
+## Separate MTP admission owner
+
+The private MTP [device admission](MTP_ADMISSION.md#native-scalar-correctness-backend)
+uses a separate owner for the 15 BF16 tensors in shard 3. It validates compiled
+source offsets and the complete pinned shard hash over the same bytes copied
+to its bounded arena, with no-follow component opens and file-mutation checks.
+It does not alter `load_pinned_qwen36_27b`, its text-only plan, or the installed
+`ResidentWeights` ABI. The base owner still authenticates all three shards.
+This owner is linked only into the explicit device test, not a production
+loader option or serving route.
