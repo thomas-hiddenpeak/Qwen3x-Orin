@@ -32,6 +32,13 @@ class Draft {
   Draft& operator=(const Draft&) = delete;
   bool step(std::uint32_t token, const std::uint16_t* hidden,
             bool logits, std::uint32_t& prediction) noexcept;
+  // Initialize only live K/V from shifted tokens and independent target
+  // hidden rows. Requires empty state. No final hidden/logits are produced.
+  // Cancellation poisons and drains; successful reset is required for reuse.
+  bool initialize_kv(const std::uint32_t* shifted_tokens,
+                     const std::uint16_t* target_hidden, std::uint32_t rows,
+                     bool (*cancel)(void*) noexcept = nullptr,
+                     void* cancel_context = nullptr) noexcept;
   bool rewind(std::uint32_t position) noexcept;
   bool reset() noexcept;
   bool poison() noexcept;
@@ -61,7 +68,9 @@ class TargetTransaction final : public RoundBackend {
   // every normalized prompt row and builds shifted draft KV through P-2.
   // Caller must supply the exact prompt just consumed by the engine.
   bool initialize_whole_core_prefill(const std::uint32_t* prompt,
-                                    std::uint32_t count) noexcept;
+                                    std::uint32_t count,
+                                    bool (*cancel)(void*) noexcept = nullptr,
+                                    void* cancel_context = nullptr) noexcept;
   const std::uint16_t* prompt_hidden() const noexcept { return prompt_hidden_; }
   bool begin(std::uint32_t verify_rows) noexcept override;
   bool propose(std::uint32_t seed, std::uint32_t count,

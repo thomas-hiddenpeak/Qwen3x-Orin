@@ -13,6 +13,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <vector>
+#include <chrono>
 
 namespace rt = q3x::runtime;
 namespace mtp = rt::mtp_detail;
@@ -91,6 +92,13 @@ struct Cancel {
   unsigned seen = 0;
   static bool observe(void* context, std::uint32_t) noexcept {
     return ++static_cast<Cancel*>(context)->seen < 2;
+  }
+};
+struct PrefillCancel {
+  unsigned polls = 0, stop_at = 1;
+  static bool poll(void* context) noexcept {
+    auto& c = *static_cast<PrefillCancel*>(context);
+    return ++c.polls >= c.stop_at;
   }
 };
 
@@ -211,6 +219,7 @@ int main(int argc, char** argv) try {
       const auto expected_k = read_device(draft.keys(), draft.position() * 2048ULL);
       const auto expected_v = read_device(draft.values(), draft.position() * 2048ULL);
       require(draft.reset(), "draft capture reset");
+      const auto scalar_started = std::chrono::steady_clock::now();
       std::vector<char> hidden_rows;
       for (std::size_t row = 0; row + 1 < prompt.size(); ++row) {
         std::uint32_t ignored = 0;
@@ -223,6 +232,48 @@ int main(int argc, char** argv) try {
               read_device(draft.values(), expected_v.size()) == expected_v,
               "draft initialization capture replay differs");
       write(output / "draft-prefill-hidden.bf16", hidden_rows);
+      const auto scalar_ms = std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now() - scalar_started).count();
+      // Exercise short/masked batches and prove no cache row beyond the
+      // requested live prefix is written. Full-step replay above is the oracle.
+      for (unsigned count : {0U, 1U, 7U, 8U, 9U, unsigned(prompt.size() - 1)}) {
+        if (count >= prompt.size()) continue;
+        require(draft.reset(), "batch test reset");
+        const auto guard_k = read_device(draft.keys() + count * 1024ULL, 2048);
+        const auto guard_v = read_device(draft.values() + count * 1024ULL, 2048);
+        const auto started = std::chrono::steady_clock::now();
+        require(draft.initialize_kv(prompt.data() + 1, transaction.prompt_hidden(), count),
+                "batched K/V initialization");
+        const auto batch_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - started).count();
+        require(draft.position() == count &&
+                read_device(draft.keys(), count * 2048ULL) ==
+                    std::vector<char>(expected_k.begin(), expected_k.begin() + count * 2048ULL) &&
+                read_device(draft.values(), count * 2048ULL) ==
+                    std::vector<char>(expected_v.begin(), expected_v.begin() + count * 2048ULL),
+                "batched prefix differs from scalar K/V");
+        require(read_device(draft.keys() + count * 1024ULL, 2048) == guard_k &&
+                read_device(draft.values() + count * 1024ULL, 2048) == guard_v,
+                "batched K/V crossed live prefix");
+        std::cout << "draft_prefill_rows=" << count << " batch_ms=" << batch_ms
+                  << " scalar_prefix_with_capture_ms=" << scalar_ms
+                  << " kv=bitwise_equal guard=pass\n" << std::flush;
+      }
+      for (unsigned stop_at : {1U, 2U}) {
+        if (stop_at == 2 && prompt.size() == 1) continue;
+        PrefillCancel cancellation{0, stop_at};
+        require(!transaction.initialize_whole_core_prefill(prompt.data(), prompt.size(),
+                     PrefillCancel::poll, &cancellation) && target->poisoned(),
+                "Prefill cancellation must poison both participants");
+        require(draft.position() == (stop_at == 1 ? 0U : std::min<unsigned>(8, prompt.size() - 1)),
+                "Prefill cancellation crossed one batch");
+        std::uint32_t ignored = 0;
+        require(!draft.step(prompt[0], transaction.prompt_hidden(), false, ignored),
+                "cancelled draft must reject reuse");
+        require(bool(target->reset()) && draft.reset(), "Prefill cancellation reset");
+        require(initialize() == expected[0], "Prefill cancellation recovery seed");
+        std::cout << "draft_prefill_cancel_poll=" << stop_at << " recovery=pass\n" << std::flush;
+      }
     }
 #else
     std::vector<char> target_hidden, draft_hidden;

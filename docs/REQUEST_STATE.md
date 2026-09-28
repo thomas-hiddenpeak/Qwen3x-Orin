@@ -304,4 +304,8 @@ publishes length before observation. Rejected append-only KV rows remain
 outside the live prefix; accepted draft KV is rebuilt using target hidden.
 Abort poisons both participants and grants no successful-request reuse
 boundary. Whole-core prompt capture retains the existing per-row final-norm arithmetic.
-Multi-row verification and service use require the separate MTP composition.
+Draft-cache initialization additionally reserves 327,680 bytes of dedicated
+batch scratch at construction, retaining the same free-memory gate. It
+publishes only complete batches and poisons on cancellation; it does not
+materialize a valid draft final hidden. Multi-row verification and service use
+require the separate MTP composition.

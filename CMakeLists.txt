@@ -1109,16 +1109,22 @@ if(BUILD_TESTING)
   target_link_libraries(q3x_mtp_weights_test PRIVATE q3x::core)
   add_executable(q3x_mtp_device_test
     tests/mtp_device_test.cpp src/runtime/mtp_device_internal.cpp
+    src/runtime/mtp_prefill_internal.cu
     src/runtime/mtp_control.cpp src/model/mtp_weights_internal.cpp)
   target_include_directories(q3x_mtp_device_test PRIVATE src)
   target_link_libraries(q3x_mtp_device_test PRIVATE q3x::engine)
+  set_target_properties(q3x_mtp_device_test PROPERTIES
+    CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}" CUDA_STANDARD 17)
   if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
     add_executable(q3x_mtp_whole_core_test
       tests/mtp_device_test.cpp src/runtime/mtp_device_internal.cpp
+      src/runtime/mtp_prefill_internal.cu
       src/runtime/mtp_control.cpp src/model/mtp_weights_internal.cpp)
     target_include_directories(q3x_mtp_whole_core_test PRIVATE src)
     target_compile_definitions(q3x_mtp_whole_core_test PRIVATE Q3X_MTP_WHOLE_CORE_TEST=1)
     target_link_libraries(q3x_mtp_whole_core_test PRIVATE q3x::engine)
+    set_target_properties(q3x_mtp_whole_core_test PROPERTIES
+      CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}" CUDA_STANDARD 17)
   endif()
   # Explicit real-checkpoint invocation only; never an automatic GPU CTest.
   add_test(NAME mtp_weights COMMAND q3x_mtp_weights_test)

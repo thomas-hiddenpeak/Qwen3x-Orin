@@ -184,8 +184,8 @@ clears complete draft K/V and poison. Rewind changes only logical draft length;
 rejected rows are inaccessible and overwritten before reuse. `hidden()` is a
 borrowed last-step value, invalid for use after reset, rewind or failure until
 a new successful step. Prompt initialization consumes shifted normalized target hidden rows. The
-whole-core adapter below adds prompt-wide capture; draft initialization itself
-still uses scalar steps and is not suitable for the long-context API budget.
+whole-core adapter below adds prompt-wide capture and bounded batched live-KV
+initialization; scalar full steps remain the independent cache oracle.
 
 `TargetTransaction` binds one exact Legacy-C512 or whole-core runner/state
 pair using SM87 quantized-lm-head BF16 logits. It reserves five immutable prefix
@@ -215,12 +215,45 @@ Exact device results and limitations are recorded in the
 [device milestone](metadata/qwen36-27b-mtp-device-2026-09-28.json). These checks
 establish the scalar correctness substrate only. Serial target verification,
 synchronous snapshot restoration and full draft-row replay have no acceleration
-claim. Multi-row target weight reuse, batched draft initialization, service integration,
+claim. Multi-row target weight reuse, service integration,
 API receipts, cancellation/stream accounting and real API selection
 remain required before the architecture can be selected.
 
 
 ## Whole-core prompt handoff
+
+### Batched draft-cache initialization work package
+
+Within `WP-MTP-20260928`, the next dependency removes serial full-layer
+draft initialization before service composition. The owner explicitly requires
+completing these prerequisites before API integration; a short-context scalar
+service is not a substitute for the planned architecture.
+
+For prompt rows t<P-1, the only live draft outputs are
+`K[t]=RoPE(Norm_K(W_K Norm_input(W_fc concat(Norm_E(E[token[t+1]]),
+Norm_H(target_hidden[t]))))))` and the corresponding V projection before
+K normalization/RoPE. Each input hidden comes from the target, not the previous
+draft output. Query/gate, causal Attention, O, residual/MLP and final draft
+hidden therefore have no path to a later live value during this initialization.
+They remain mandatory during proposal and reconciliation steps. No draft hidden
+export is valid after cache-only initialization until a successful full step.
+
+The implementation batches at most eight independent rows. FC/K/V reuse each
+decoded BF16 weight across rows while retaining the scalar 256-thread strided
+K accumulation, `fmaf`, binary reduction and BF16 publication. Normalization
+and RoPE keep their existing per-row kernels and absolute positions. Dedicated
+327,680-byte construction-owned scratch does not alias scalar or cache storage.
+Each batch completes on the draft stream before its length is published;
+cancellation is polled before the first batch and after each completed batch.
+Cancellation/failure drains and poisons both owners through the transaction;
+complete reset is required for reuse. No request-time allocation is permitted.
+
+The bounded gate compares complete K/V against full scalar draft replay on
+real whole-core prompt hidden, including masked tails, next-row canaries,
+cancellation and reset, then reuses the complete target-state transaction
+panel. This is one dependency implementation, not a tuning sweep. Its value
+returns at the already-declared multi-row verifier plus service/API composition;
+local initialization time cannot select MTP or change production.
 
 The source-private `EngineAccess` definitions exist only with internal test
 seams. They borrow the engine's exact model, runner and state; they add no
@@ -237,7 +270,8 @@ complete layer-63 residual is still live; terminal-prefix deletion cannot be
 used for this mode. The adapter widens the existing independent row-wise final
 RMSNorm launch to P rows without changing its per-row reduction or BF16
 publication. It copies the final normalized row to the scalar hidden workspace,
-then initializes draft positions 0 through P-2 from hidden[t] and token[t+1].
+then initializes draft positions 0 through P-2 from hidden[t] and token[t+1]
+using the batched live-KV path above.
 The first round supplies the seed at draft position P-1. Persistent target
 state, prompt residual and full first-token logits are preserved. No allocation
 occurs during initialization or a round. Failure after enqueue drains and
@@ -245,10 +279,10 @@ poisons both participants; recovery requires complete reset.
 
 The capture is borrowed scratch, valid only immediately after successful
 initialization until another initialization, reset, transaction or generation.
-It is not a public hidden-export API. This adapter currently initializes the
-draft serially and polls no cancellation during that loop; it remains a
-correctness harness prerequisite, not a service-ready Prefill path. Batched
-initialization and bounded cancellation are required at service composition.
+It is not a public hidden-export API. The adapter now initializes only live
+draft K/V in bounded batches, with cancellation before execution and after
+each batch. It remains an isolated prerequisite; service readiness additionally
+requires the multi-row verifier and the full-context API composition.
 The complete numerical/state and resource checks do not themselves establish
 API speed, long-prompt admission or production eligibility.
 

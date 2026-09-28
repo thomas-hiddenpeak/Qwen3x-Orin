@@ -71,9 +71,15 @@ uses current corrected Prefill through the engine, captures every normalized
 prompt hidden row and initializes shifted draft KV. P65/O16 passes 11 complete
 target-state/full-logit/draft-KV comparisons and two fault-recovery cases for
 configured lengths 2 and 3. These private implementations are linked only into
-test targets. Batched draft initialization with bounded cancellation, multi-row
-target verification, service/API receipts and real performance/capability
-validation remain unfinished. No new Prefill,
+test targets. The subsequent
+[batched draft-cache milestone](metadata/qwen36-27b-mtp-batch-prefill-2026-09-28.json)
+replaces serial full-layer initialization with exact weight-reusing FC/K/V
+batches. Real P65 tests pass complete cache comparisons at 0/1/7/8/9/64 rows,
+next-row canaries, two initialization cancellation/reset cases and the same
+11 complete transaction comparisons plus two injected-failure recoveries.
+This is an isolated prerequisite, not full-context service qualification.
+Multi-row target verification must now be completed and validated before
+service/API integration and real performance/capability validation. No new Prefill,
 TTFT or Decode baseline is claimed. The [subsystem design](MTP_ADMISSION.md)
 and [Roadmap](ROADMAP.md) govern the remaining composition.
 

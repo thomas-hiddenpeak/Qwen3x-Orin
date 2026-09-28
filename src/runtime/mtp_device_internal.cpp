@@ -18,6 +18,8 @@
 #include <vector>
 
 namespace q3x::runtime::mtp_detail {
+int launch_mtp_prefill_projection(const std::uint16_t*, const std::uint16_t*,
+    unsigned, unsigned, unsigned, std::uint16_t*, void*) noexcept;
 namespace {
 constexpr std::uint64_t kReserve = 8ULL << 30;
 constexpr std::uint64_t kMtpBegin = 59416;
@@ -141,6 +143,7 @@ struct Draft::Impl {
   std::uint16_t *concat, *residual, *normalized, *branch, *final_hidden;
   std::uint16_t *q_gate, *query, *gate, *attention, *mlp_gate, *mlp_up;
   std::uint16_t *key, *value, *logits;
+  std::uint16_t *prefill_concat, *prefill_fc, *prefill_norm;
   float* scratch;
   std::size_t scratch_count;
   Bf16GreedyArgmaxResult* argmax;
@@ -152,7 +155,7 @@ struct Draft::Impl {
           b.embed_tokens().weight != nullptr && linear_input_size(b.lm_head()) == H &&
           linear_output_size(b.lm_head()) == V, "MTP shared embedding/lm-head");
     scratch_count = std::max<std::size_t>(V, 24ULL * cap);
-    const std::size_t bytes = 400000 + 4096ULL * cap + 2 * V + 4 * scratch_count;
+    const std::size_t bytes = 400000 + 4096ULL * cap + 2 * V + 4 * scratch_count + 8 * 8 * H;
     arena = allocate(bytes);
     try {
       cuda_check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
@@ -180,6 +183,9 @@ struct Draft::Impl {
       logits = reinterpret_cast<std::uint16_t*>(take(2 * V));
       scratch = reinterpret_cast<float*>(take(4 * scratch_count));
       argmax = reinterpret_cast<Bf16GreedyArgmaxResult*>(take(33 * sizeof(Bf16GreedyArgmaxResult)));
+      prefill_concat = reinterpret_cast<std::uint16_t*>(take(8 * 4 * H));
+      prefill_fc = reinterpret_cast<std::uint16_t*>(take(8 * 2 * H));
+      prefill_norm = reinterpret_cast<std::uint16_t*>(take(8 * 2 * H));
     } catch (...) {
       if (stream) cudaStreamDestroy(stream);
       cudaFree(arena);
@@ -232,6 +238,52 @@ bool Draft::reset() noexcept {
   p.position = 0;
   p.poisoned = false;
   p.error = 0;
+  return true;
+}
+bool Draft::initialize_kv(const std::uint32_t* tokens,
+                         const std::uint16_t* hidden, std::uint32_t rows,
+                         bool (*cancel)(void*) noexcept, void* context) noexcept {
+  auto& p = *impl_;
+  if (p.poisoned) return false;
+  if (p.position != 0 || rows > p.capacity || (rows && (!tokens || !hidden)))
+    return p.call(cudaErrorInvalidValue);
+  for (std::uint32_t i = 0; i < rows; ++i)
+    if (tokens[i] >= V) return p.call(cudaErrorInvalidValue);
+  const auto cancelled = [&]() noexcept {
+    if (!cancel || !cancel(context)) return false;
+    (void)poison();
+    return true;
+  };
+  if (cancelled()) return false;
+  for (std::uint32_t first = 0; first < rows; first += 8) {
+    const auto count = std::min<std::uint32_t>(8, rows - first);
+    for (std::uint32_t row = 0; row < count; ++row) {
+      auto* concat = p.prefill_concat + row * 2 * H;
+      if (!p.call(launch_embedding_gather_reference_cuda(p.base.embed_tokens().weight,
+              V, H, tokens[first + row], concat, p.stream)) ||
+          !p.norm(concat, 13, concat) ||
+          !p.norm(hidden + (first + row) * H, 14, concat + H)) return false;
+    }
+    auto* key = p.key + 1024ULL * first;
+    auto* value = p.value + 1024ULL * first;
+    if (!p.call(launch_mtp_prefill_projection(p.weights.tensor(0), p.prefill_concat,
+              count, H, 2 * H, p.prefill_fc, p.stream)) ||
+        !p.call(launch_headwise_centered_rms_norm_reference_cuda(p.prefill_fc,
+              p.weights.tensor(1), count, H, 1.e-6F, p.prefill_norm, p.stream)) ||
+        !p.call(launch_mtp_prefill_projection(p.weights.tensor(7), p.prefill_norm,
+              count, 1024, H, key, p.stream)) ||
+        !p.call(launch_mtp_prefill_projection(p.weights.tensor(11), p.prefill_norm,
+              count, 1024, H, value, p.stream)) ||
+        !p.call(launch_headwise_centered_rms_norm_reference_cuda(key,
+              p.weights.tensor(6), count * 4, 256, 1.e-6F, key, p.stream))) return false;
+    for (std::uint32_t row = 0; row < count; ++row)
+      if (!p.call(launch_partial_neox_rope_256_64_reference_cuda(key + row * 1024,
+              p.cosines + 32ULL * (first + row), p.sines + 32ULL * (first + row),
+              4, key + row * 1024, p.stream))) return false;
+    if (!p.call(cudaStreamSynchronize(p.stream))) return false;
+    p.position = first + count;
+    if (cancelled()) return false;
+  }
   return true;
 }
 bool Draft::step(std::uint32_t token, const std::uint16_t* hidden,
@@ -328,7 +380,8 @@ TargetTransaction::~TargetTransaction() {
   if (prompt_hidden_) cudaFree(prompt_hidden_);
 }
 bool TargetTransaction::initialize_whole_core_prefill(
-    const std::uint32_t* prompt, std::uint32_t count) noexcept {
+    const std::uint32_t* prompt, std::uint32_t count,
+    bool (*cancel)(void*) noexcept, void* cancel_context) noexcept {
   if (active_ || target_.poisoned_ || target_.whole_request_prefill_active() ||
       !prompt_hidden_ || !prompt || count == 0 ||
       count != state_.current_position() || count > state_.max_sequence_length() ||
@@ -350,10 +403,8 @@ bool TargetTransaction::initialize_whole_core_prefill(
       cudaMemcpyAsync(target_.views_.hidden[1], prompt_hidden_ + (count - 1ULL) * H,
                       2 * H, cudaMemcpyDeviceToDevice, stream) != cudaSuccess ||
       cudaStreamSynchronize(stream) != cudaSuccess || !draft_.reset()) return fail();
-  for (std::uint32_t row = 0; row + 1 < count; ++row) {
-    std::uint32_t ignored = 0;
-    if (!draft_.step(prompt[row + 1], prompt_hidden_ + row * H, false, ignored)) return fail();
-  }
+  if (!draft_.initialize_kv(prompt + 1, prompt_hidden_, count - 1,
+                            cancel, cancel_context)) return fail();
   target_.trace_valid_ = false;
   target_.retained_prefill_hidden_valid_ = false;
   return draft_.position() + 1 == count;

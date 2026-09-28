@@ -1,0 +1,198 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-28",
+  "work_package_id": "WP-MTP-20260928",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v1",
+  "decision_unit": "dependency_only",
+  "status": "batched_draft_kv_and_cancellation_passed_not_service_ready",
+  "base_commit": "3ec89037b540429e514a049d09e70e9b72d5b5a2",
+  "originating_constraint": "Improve real API committed-token throughput without greedy-output, state, capacity or streaming regression.",
+  "downward_contract": "Prompt initialization must not execute a serial full draft layer per prompt token; shifted target hidden independently determines each cache row. Preserve exact live KV and bounded cancellation.",
+  "composition_point": "Complete weight-reusing multi-row target verifier and full-prefix state oracle before isolated service integration, then P65/P8192/P40000 O256 for configured drafts 2/3.",
+  "implementation": {
+    "live_graph": "shifted embedding/target norms -> FC -> input norm -> K/V -> K norm/RoPE",
+    "dead_graph": "prompt query/gate, Attention, O, MLP and final draft hidden; not omitted during proposal or reconciliation",
+    "batch_rows": 8,
+    "finite_precision": "Same BF16 decode, per-thread K stride256 ordered FMA, 256-thread binary reduction, BF16 RNE, row-wise normalization and absolute RoPE. No changed recurrence.",
+    "extra_scratch_bytes": 327680,
+    "resource_usage": {
+      "registers": 38,
+      "shared_bytes": 8192,
+      "stack_bytes": 0,
+      "local_bytes": 0
+    },
+    "cancellation": "Poll before first batch and after each synchronized batch; poison/drain on cancellation, no ordinary reuse until full reset.",
+    "allocation": "Construction-only; unchanged 8GiB reserve; production graph and installed ABI unchanged."
+  },
+  "device_validation": {
+    "identity": {
+      "command": [
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-batch-prefill-20260928/r1/q3x_mtp_whole_core_test",
+        "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-batch-prefill-20260928/r1/prompt.u32",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-batch-prefill-20260928/r1"
+      ],
+      "binary_sha256": "a831318a8415f9bedbe044b0c0f57d8ee5d06e10ac75a26557d4431601c5f3a4",
+      "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+      "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+      "git": "3ec89037b540429e514a049d09e70e9b72d5b5a2",
+      "scope": "batched live-KV initialization + scalar MTP state oracle; component times only, no API performance authority"
+    },
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 68.468
+    },
+    "prompt_tokens": 65,
+    "output_tokens": 16,
+    "draft_lengths": [
+      2,
+      3
+    ],
+    "kv_prefix_rows": [
+      0,
+      1,
+      7,
+      8,
+      9,
+      64
+    ],
+    "next_row_canaries": "pass",
+    "initialization_cancellation_recovery_cases": 2,
+    "full_state_and_full_logits_comparisons": 11,
+    "post_verify_failure_recovery_cases": 2,
+    "case_outputs": [
+      "draft_prefill_rows=0 batch_ms=0.00032 scalar_prefix_with_capture_ms=772.966 kv=bitwise_equal guard=pass",
+      "draft_prefill_rows=1 batch_ms=2.44993 scalar_prefix_with_capture_ms=772.966 kv=bitwise_equal guard=pass",
+      "draft_prefill_rows=7 batch_ms=3.09681 scalar_prefix_with_capture_ms=772.966 kv=bitwise_equal guard=pass",
+      "draft_prefill_rows=8 batch_ms=3.19556 scalar_prefix_with_capture_ms=772.966 kv=bitwise_equal guard=pass",
+      "draft_prefill_rows=9 batch_ms=5.61647 scalar_prefix_with_capture_ms=772.966 kv=bitwise_equal guard=pass",
+      "draft_prefill_rows=64 batch_ms=25.3604 scalar_prefix_with_capture_ms=772.966 kv=bitwise_equal guard=pass",
+      "draft_prefill_cancel_poll=1 recovery=pass",
+      "draft_prefill_cancel_poll=2 recovery=pass",
+      "draft_length=2 scripted_mismatch=-1 cancelled=0 output_tokens=16 rounds=7 proposed=12 accepted=8 verified_rows=19 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=2 scripted_mismatch=0 cancelled=0 output_tokens=16 rounds=15 proposed=27 accepted=0 verified_rows=42 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=2 scripted_mismatch=1 cancelled=0 output_tokens=16 rounds=8 proposed=14 accepted=7 verified_rows=22 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=2 scripted_mismatch=2 cancelled=0 output_tokens=16 rounds=5 proposed=10 accepted=10 verified_rows=15 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=2 scripted_mismatch=2 cancelled=1 output_tokens=3 rounds=1 proposed=2 accepted=2 verified_rows=3 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=2 injected_verify_failure=poisoned recovery=pass",
+      "draft_length=3 scripted_mismatch=-1 cancelled=0 output_tokens=16 rounds=6 proposed=18 accepted=9 verified_rows=24 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=3 scripted_mismatch=0 cancelled=0 output_tokens=16 rounds=15 proposed=39 accepted=0 verified_rows=54 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=3 scripted_mismatch=1 cancelled=0 output_tokens=16 rounds=8 proposed=20 accepted=7 verified_rows=28 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=3 scripted_mismatch=2 cancelled=0 output_tokens=16 rounds=5 proposed=14 accepted=10 verified_rows=19 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=3 scripted_mismatch=3 cancelled=0 output_tokens=16 rounds=4 proposed=11 accepted=11 verified_rows=15 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=3 scripted_mismatch=3 cancelled=1 output_tokens=3 rounds=1 proposed=3 accepted=2 verified_rows=4 target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal",
+      "draft_length=3 injected_verify_failure=poisoned recovery=pass",
+      "prefill_route=corrected_whole_core draft_initialization=scalar",
+      "scope=scalar_correctness_only production_api=false speedup_claim=false"
+    ]
+  },
+  "independent_cpu_oracle": {
+    "scope": "independent CPU FP64 projection and causal attention; BF16 boundaries",
+    "threshold_max_row_relative_l2": 0.02,
+    "prompt_tokens": 65,
+    "payload_sha256": {
+      "mtp.fc.weight": "6c980c668ecda0a41cdffda7dda4ddffa38992c6da18b2e4d37a3c61c074acd2",
+      "mtp.layers.0.input_layernorm.weight": "e7cb7c1d866d398bcf7364d954be1375182e8e13d25452ba03e897f830463368",
+      "mtp.layers.0.mlp.down_proj.weight": "c7b165adc61189a84b0ed6c82272a5595622c8a79177e7d76af11b11f6f73c49",
+      "mtp.layers.0.mlp.gate_proj.weight": "23b1c2045e6dcc23cdc066e13a383e872c4b2d8234b9bffc852b8fed3d710ba3",
+      "mtp.layers.0.mlp.up_proj.weight": "72b51d96bf39559f5064ace7006275f497f013926eb5f31680a029e8d3ca64a7",
+      "mtp.layers.0.post_attention_layernorm.weight": "de833fc6f9f1a7417f821493c0e2957acd8c59b81f473f334ad8d7a3dc4ca3bf",
+      "mtp.layers.0.self_attn.k_norm.weight": "f380c18beee48afc4cd4be27f66842607dcb9c28808dc3deb8b7ac38f4077ace",
+      "mtp.layers.0.self_attn.k_proj.weight": "c6062cbf6b80a9bc00c33bdf8a5d51aca468c7fa780aeb69a4305999e1f8911e",
+      "mtp.layers.0.self_attn.o_proj.weight": "8baeb5584dc22b31c0514accb927b9ddb8cff2cfc41761306ccb4c9bc3e7fb9c",
+      "mtp.layers.0.self_attn.q_norm.weight": "1344898b45615f1d4d068c8f9c100a8abb815e98da6fdf7263533476b5951635",
+      "mtp.layers.0.self_attn.q_proj.weight": "5478fde596f7e16e1036b9855452b76d4a8451df102cefe2698a6fe259931334",
+      "mtp.layers.0.self_attn.v_proj.weight": "238e64e585d0fb5b0e945c47e096d0fbbc2cf7f6100d3b85a50e3e94d649ef49",
+      "mtp.norm.weight": "afb1fb63456cc398278d672611e021405723698c729d723756766efb97ecbe87",
+      "mtp.pre_fc_norm_embedding.weight": "840a65af6198e9641e92ce89f1e2e3a936a03d582201f382a66e438d5e428716",
+      "mtp.pre_fc_norm_hidden.weight": "dd41de8359c0f3a4d89bebb11d03ca5040738a3e8682af20e43d4755ada20772",
+      "selected_embedding_rows": "3ceb8a71d82d00ea485f084a2b062670a2cbfa3caa9cb9b178ad2ff41b2a87b1",
+      "model.language_model.norm.weight": "b9f0006803317a0207979bb4dcb453698d257c0a2150cc4a867666c2a8cd3092"
+    },
+    "comparisons": {
+      "target_final_norm": {
+        "max_row_relative_l2": 5.963384100154866e-05,
+        "max_absolute_error": 0.0078125,
+        "elements": 332800,
+        "threshold_max_row_relative_l2": 0.005,
+        "pass": true
+      },
+      "hidden": {
+        "max_row_relative_l2": 0.006653779160011321,
+        "max_absolute_error": 0.375,
+        "elements": 327680,
+        "pass": true
+      },
+      "k": {
+        "max_row_relative_l2": 0.0016078021328006181,
+        "max_absolute_error": 0.03125,
+        "elements": 65536,
+        "pass": true
+      },
+      "v": {
+        "max_row_relative_l2": 0.0010236586291215311,
+        "max_absolute_error": 0.0625,
+        "elements": 65536,
+        "pass": true
+      }
+    },
+    "pass": true,
+    "capture_sha256": {
+      "target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+      "draft-prefill-v.bf16": "37cb954e632c1740f18bf6a991c9323a68887666042575ba69c84252505a61c3",
+      "target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+      "draft-prefill-k.bf16": "c38e227ebb8094837ec6c318c0f23752a3349d71e60c534fb0f153972e217e70",
+      "draft-prefill-hidden.bf16": "f23b5c575787abc70b543d864ddc0c0975720034fa754e303cbc6041f45048ee",
+      "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548"
+    }
+  },
+  "component_observation": {
+    "rows": 64,
+    "batch_initialization_ms": 25.3604,
+    "authority": "Single component observation only; scalar_prefix_with_capture_ms includes host captures and is not a clean speedup denominator."
+  },
+  "performance": {
+    "prefill": null,
+    "decode": null,
+    "ttft": null,
+    "reason": "No MTP API timing run. Whole-product performance is pending the complete multi-row composition."
+  },
+  "limitations": [
+    "Real execution P65 only; planned full-capacity allocation is not long-context execution qualification.",
+    "Target verifier still scalar; no acceleration architecture selection.",
+    "No MTP API/controller integration or production promotion."
+  ],
+  "validation": {
+    "build": "Whole-core and Legacy MTP harness targets built; MTP control/weights CTests passed.",
+    "production_binary_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "dependencies": "Actual harness ldd has no cuBLAS/cuBLASLt dependency.",
+    "production_guard": "Fresh reconfigure BUILD_TESTING=OFF: no MTP target; installed production ELF hash unchanged.",
+    "documentation": "86 Markdown / 1021 local links and seven document-control unit tests passed."
+  },
+  "source_sha256": {
+    "CMakeLists.txt": "664a52a45fca311c9211fc40920881adb9bb046a09d228e9e28248b798c8c314",
+    "src/runtime/mtp_device_internal.cpp": "8fe5680358adf804044a88bb25f13a0658c2ce0062d9b5678abb1240234b2e79",
+    "src/runtime/mtp_device_internal.h": "164a9323b4ba2f2f59bb8e3ffee79d5ac58778a2d055ece4e150cf2cbf5e1867",
+    "src/runtime/mtp_prefill_internal.cu": "f4d91476e8ca8dd9ab9ddd6edafc39163720f376680dbbf7ff0b2dfddcd0e9a1",
+    "tests/mtp_device_test.cpp": "7b6cf46808d3f9f10e7a2c46ae0f704c7d7b69520d154ca6cd590462d153a416"
+  },
+  "artifact_root": ".q3x-work/mtp-batch-prefill-20260928/r1",
+  "artifact_sha256": {
+    ".q3x-work/mtp-batch-prefill-20260928/r1/identity.json": "7a590a752f53fcab57bc1fb283eef0b5795b912b3a28372925cbfa0403002117",
+    ".q3x-work/mtp-batch-prefill-20260928/r1/cache-preparation.json": "e0c18182fa1a99a834cf9dc4d78553287886284681e6aec284d7cee07343f9d6",
+    ".q3x-work/mtp-batch-prefill-20260928/r1/target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+    ".q3x-work/mtp-batch-prefill-20260928/r1/draft-prefill-v.bf16": "37cb954e632c1740f18bf6a991c9323a68887666042575ba69c84252505a61c3",
+    ".q3x-work/mtp-batch-prefill-20260928/r1/target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+    ".q3x-work/mtp-batch-prefill-20260928/r1/draft-prefill-k.bf16": "c38e227ebb8094837ec6c318c0f23752a3349d71e60c534fb0f153972e217e70",
+    ".q3x-work/mtp-batch-prefill-20260928/r1/draft-prefill-hidden.bf16": "f23b5c575787abc70b543d864ddc0c0975720034fa754e303cbc6041f45048ee",
+    ".q3x-work/mtp-batch-prefill-20260928/r1/cleanup.json": "af4e43338d4baebab00ed78ec9d17b226987f8a7072e8c1dd15e582ae6b5d63b",
+    ".q3x-work/mtp-batch-prefill-20260928/r1/run.log": "ea302712486116b89f10fc1c260605a4eb2b3941b2d23f3c963ee1a2f1281095",
+    ".q3x-work/mtp-batch-prefill-20260928/r1/preflight-console.log": "63610fcd373f91e6325c442e70bfaa70d06e0b805e6addc73de91db7db96d219",
+    ".q3x-work/mtp-batch-prefill-20260928/r1/independent-draft-oracle.json": "1d31623b6171d3c07cb22f77beda4c983a6f5a05552291a8d623338ac8cc48dd",
+    ".q3x-work/mtp-batch-prefill-20260928/r1/cpu-oracle.log": "4d133633a181823d9bff6938302fdf0879189ea02db65f28d4b8ae65601ec403",
+    ".q3x-work/mtp-batch-prefill-20260928/r1/telemetry.log": "ccd0df0630321bdf158db051364793cce806f905599a4057698be8f42b18bc2a",
+    ".q3x-work/mtp-batch-prefill-20260928/r1/prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    ".q3x-work/mtp-batch-prefill-20260928/r1/preflight.json": "2d87a7d7c17053a09a6b463fb3da45cfd07cf5856d8d6b4c71cf050c366995a4"
+  }
+}

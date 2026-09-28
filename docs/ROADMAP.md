@@ -34,12 +34,19 @@ The whole-core prompt handoff now captures all final normalized hidden rows
 and initializes shifted draft KV in the non-installable engine harness. Full
 logits are included in prefix restoration. The
 [handoff record](metadata/qwen36-27b-mtp-whole-core-2026-09-28.json) bounds these
-checks; serial draft initialization and verification remain correctness-only.
+checks. The [batched initialization milestone](metadata/qwen36-27b-mtp-batch-prefill-2026-09-28.json)
+now closes cache-only FC/K/V batching and bounded initialization cancellation
+on the real P65 state panel. Target verification remains scalar and
+correctness-only.
 
-Remaining work, in order: batch draft initialization with bounded cancellation,
-integrate the native draft into an isolated service controller, and compose weight-reusing
-multi-row target verification with the same state contract and truthful MTP
-route/accounting receipts. Return to P65 sanity and P8192/P40000 O256 for both configured
+Remaining work, in order: implement weight-reusing multi-row target verification
+with complete per-prefix recurrent/Conv snapshots and unchanged scalar
+numerical boundaries; compare full state and logits against the scalar oracle;
+then integrate the completed composition into the isolated service controller
+with truthful MTP route/accounting receipts. The owner explicitly requires
+these prerequisites before service integration; a reduced-context scalar API
+is not an alternative completion criterion. Return to P65 sanity and
+P8192/P40000 O256 for both configured
 lengths immediately after those dependencies compose. Report Prefill, TTFT,
 committed Decode, acceptance, reconciliation cost and memory together. No
 length sweep or production switch is selected by host-only results. The three
