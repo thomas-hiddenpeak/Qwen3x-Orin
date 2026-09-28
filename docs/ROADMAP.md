@@ -19,6 +19,22 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-09-28 publication fusion — closed without promotion
+
+`WP-PUBLICATION-FUSION-20260928` implemented both selected epilogues in
+`AC-PREFILL-PUBLICATION-FUSION-v1`: Up/SiLU and FP8 O/residual, preserving
+the GEMM mainloops and intermediate BF16 boundaries. Resource admission and
+32 real-weight numerical cases passed, but the composed API direction was
+mixed: P8192 Prefill improved 0.56%, while P40000 took 0.95% longer; Decode
+was effectively unchanged. This single-process comparison does not establish
+a statistically qualified regression or a promotable gain. Under the
+predeclared negative-composition stop, the version is closed. The
+[direction record](analysis/publication-fusion-direction-2026-09-28/README.md)
+retains the reproducible patch, outputs, hashes and scope. Candidate integration
+was removed, production is unchanged, and no qualification-only campaign or
+tile scan remains active. FP8 preparation reuse remains a separate unimplemented
+opportunity; neither Down nor MTP is reopened.
+
 ## 2026-09-28 alternative-path source assessment — complete
 
 The owner's follow-up to examine other paths is recorded in the

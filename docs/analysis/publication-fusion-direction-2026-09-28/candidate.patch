@@ -1,0 +1,319 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index acd58c4..960e9fc 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -117,6 +117,13 @@ if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+   set(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE ON)
+   set(Q3X_BUILD_FUSED_DECODE_ADMISSION ON)
+ endif()
++option(Q3X_BUILD_PUBLICATION_FUSION_ADMISSION "Isolated publication epilogue admission" OFF)
++if(Q3X_BUILD_PUBLICATION_FUSION_ADMISSION)
++  if(NOT BUILD_TESTING OR NOT Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION OR Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
++    message(FATAL_ERROR "Publication fusion requires non-installable whole-core admission")
++  endif()
++  add_compile_definitions(Q3X_ENABLE_PUBLICATION_FUSION_ADMISSION=1)
++endif()
+ if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION OR Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+   add_compile_definitions(Q3X_ENABLE_WHOLE_CORE_SERVICE=1)
+ endif()
+@@ -650,6 +657,7 @@ if(Q3X_BUILD_FUSED_DECODE_ADMISSION AND NOT BUILD_TESTING)
+ endif()
+ if(Q3X_BUILD_FUSED_DECODE_ADMISSION)
+   set(q3x_whole_core_composition_options
++    Q3X_BUILD_PUBLICATION_FUSION_ADMISSION
+     Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION
+     Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE
+     Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION
+diff --git a/include/q3x/kernels/sm87_fp8_dequant_cublas_projection.h b/include/q3x/kernels/sm87_fp8_dequant_cublas_projection.h
+index 4fbdc55..e1d3d8e 100644
+--- a/include/q3x/kernels/sm87_fp8_dequant_cublas_projection.h
++++ b/include/q3x/kernels/sm87_fp8_dequant_cublas_projection.h
+@@ -27,6 +27,11 @@ int launch_fp8_dequant_cublas_projection_with_workspace(
+     void* const workspace, std::size_t workspace_bytes,
+     void* const cuda_stream) noexcept;
+
++#if defined(Q3X_ENABLE_PUBLICATION_FUSION_ADMISSION)
++int launch_fp8_residual_publication_admission(
++    const std::uint8_t*, float, const std::uint16_t*, std::uint16_t*,
++    std::size_t, std::size_t, std::size_t, void*, std::size_t, void*) noexcept;
++#endif
+ }  // namespace q3x::kernels
+
+ #endif  // Q3X_KERNELS_SM87_FP8_DEQUANT_CUBLAS_PROJECTION_H_
+diff --git a/include/q3x/runtime/reference_engine.h b/include/q3x/runtime/reference_engine.h
+index 0c9487d..47026b6 100644
+--- a/include/q3x/runtime/reference_engine.h
++++ b/include/q3x/runtime/reference_engine.h
+@@ -207,6 +207,8 @@ inline constexpr std::string_view
+     kLayerMajorNativePromptWideP40WholeCoreDeploymentPlanId =
+ #if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+         "q3x.sm87.production.whole-core-prefill.v1";
++#elif defined(Q3X_ENABLE_PUBLICATION_FUSION_ADMISSION)
++        "q3x.sm87.admission.whole-core-publication-fusion.v1";
+ #elif defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+         "q3x.sm87.admission.whole-core-full-range-prefill.v9";
+ #else
+diff --git a/include/q3x/server/evaluation_server.h b/include/q3x/server/evaluation_server.h
+index c776eb0..7209ba0 100644
+--- a/include/q3x/server/evaluation_server.h
++++ b/include/q3x/server/evaluation_server.h
+@@ -227,7 +227,11 @@ static_assert(
+ inline constexpr EvaluationProductionDeploymentPlan
+     kWholeCoreExactDecodeAdmissionPlan = [] {
+       auto plan = kP40WholeCoreV1ProductionPlan;
++#if defined(Q3X_ENABLE_PUBLICATION_FUSION_ADMISSION)
++      plan.id = "q3x.sm87.admission.whole-core-publication-fusion.v1";
++#else
+       plan.id = "q3x.sm87.admission.whole-core-exact-decode.v9";
++#endif
+       plan.max_sequence_length = 44'095U;
+       plan.maximum_output_tokens = 4'096U;
+       plan.request_arena_bytes = runtime::kWholeCoreCompiledArenaBytes;
+diff --git a/src/kernels/sm87/fp8_dequant_cublas_projection.cu b/src/kernels/sm87/fp8_dequant_cublas_projection.cu
+index 1a4778c..26689b4 100644
+--- a/src/kernels/sm87/fp8_dequant_cublas_projection.cu
++++ b/src/kernels/sm87/fp8_dequant_cublas_projection.cu
+@@ -9,6 +9,9 @@
+ #include "cutlass/epilogue/thread/linear_combination.h"
+
+ #include <cstdint>
++#if defined(Q3X_ENABLE_PUBLICATION_FUSION_ADMISSION)
++#include "publication_epilogue_admission.h"
++#endif
+
+ namespace q3x::kernels {
+ namespace {
+@@ -65,6 +68,21 @@ using CutlassGemm = cutlass::gemm::device::Gemm<
+     cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<2>,
+     3>;
+
++#if defined(Q3X_ENABLE_PUBLICATION_FUSION_ADMISSION)
++using FusedResidualGemm = cutlass::gemm::device::Gemm<
++    cutlass::bfloat16_t, cutlass::layout::RowMajor,
++    cutlass::bfloat16_t, cutlass::layout::ColumnMajor,
++    cutlass::bfloat16_t, cutlass::layout::RowMajor,
++    float, cutlass::arch::OpClassTensorOp, cutlass::arch::Sm80,
++    cutlass::gemm::GemmShape<128, 256, 64>,
++    cutlass::gemm::GemmShape<64, 64, 64>,
++    cutlass::gemm::GemmShape<16, 8, 16>,
++    PublicationEpilogue<false>,
++    cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<2>,
++    3>;
++
++#endif
++
+ std::uint16_t* g_dequant_buffer = nullptr;
+ std::size_t g_dequant_buffer_capacity = 0U;
+
+@@ -92,7 +110,8 @@ static int launch_fp8_projection_impl(
+     const std::uint16_t* const input_bf16, std::uint16_t* const output_bf16,
+     const std::size_t m, const std::size_t n, const std::size_t k,
+     void* const workspace, const std::size_t workspace_bytes,
+-    const bool caller_owns_workspace, void* const cuda_stream) noexcept {
++    const bool caller_owns_workspace, void* const cuda_stream,
++    const bool fuse_residual = false) noexcept {
+   if (fp8_weight == nullptr || input_bf16 == nullptr || output_bf16 == nullptr ||
+       m == 0U || n == 0U || k == 0U || cuda_stream == nullptr) {
+     return static_cast<int>(cudaErrorInvalidValue);
+@@ -134,6 +153,26 @@ static int launch_fp8_projection_impl(
+   const float alpha = 1.0F;
+ #endif
+   const float beta = 0.0F;
++#if defined(Q3X_ENABLE_PUBLICATION_FUSION_ADMISSION)
++  if (fuse_residual) {
++    FusedResidualGemm::Arguments a{
++      {int(m),int(n),int(k)},
++      {reinterpret_cast<cutlass::bfloat16_t const*>(input_bf16),int(k)},
++      {reinterpret_cast<cutlass::bfloat16_t const*>(dequant_buffer),int(k)},
++      {reinterpret_cast<cutlass::bfloat16_t const*>(output_bf16),int(n)},
++      {reinterpret_cast<cutlass::bfloat16_t*>(output_bf16),int(n)},
++      {alpha,beta},1};
++    FusedResidualGemm gemm;
++    if (FusedResidualGemm::get_workspace_size(a) != 0U)
++      return static_cast<int>(cudaErrorNotSupported);
++    if (gemm.initialize(a,nullptr) != cutlass::Status::kSuccess ||
++        gemm.run(stream) != cutlass::Status::kSuccess)
++      return static_cast<int>(cudaErrorInvalidValue);
++    return static_cast<int>(cudaSuccess);
++  }
++#else
++  (void)fuse_residual;
++#endif
+   CutlassGemm::Arguments args{
+       cutlass::gemm::GemmCoord(static_cast<int>(m), static_cast<int>(n),
+                                static_cast<int>(k)),
+@@ -188,4 +227,15 @@ int launch_fp8_dequant_cublas_projection_with_workspace(
+                                     workspace, workspace_bytes, true, stream);
+ }
+
++#if defined(Q3X_ENABLE_PUBLICATION_FUSION_ADMISSION)
++int launch_fp8_residual_publication_admission(
++    const std::uint8_t* weight, float scale, const std::uint16_t* input,
++    std::uint16_t* residual, std::size_t m, std::size_t n, std::size_t k,
++    void* workspace, std::size_t workspace_bytes, void* stream) noexcept {
++  if (n != 5120U || k != 6144U) return static_cast<int>(cudaErrorInvalidValue);
++  return launch_fp8_projection_impl(weight,scale,input,residual,m,n,k,
++                                   workspace,workspace_bytes,true,stream,true);
++}
++#endif
++
+ }  // namespace q3x::kernels
+diff --git a/src/kernels/sm87/nvfp4_dequant_cutlass_gate_up.cu b/src/kernels/sm87/nvfp4_dequant_cutlass_gate_up.cu
+index 6ae93cb..cef7155 100644
+--- a/src/kernels/sm87/nvfp4_dequant_cutlass_gate_up.cu
++++ b/src/kernels/sm87/nvfp4_dequant_cutlass_gate_up.cu
+@@ -4,6 +4,9 @@
+ #include <cuda_runtime.h>
+
+ #include <cstdint>
++#if defined(Q3X_ENABLE_PUBLICATION_FUSION_ADMISSION)
++#include "publication_epilogue_admission.h"
++#endif
+
+ #include "cutlass/cutlass.h"
+ #include "cutlass/gemm/device/gemm.h"
+@@ -128,6 +131,21 @@ using CutlassGemm = cutlass::gemm::device::Gemm<
+     cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<2>,
+     3>;
+
++#if defined(Q3X_ENABLE_PUBLICATION_FUSION_ADMISSION)
++using FusedUpGemm = cutlass::gemm::device::Gemm<
++    cutlass::bfloat16_t, cutlass::layout::RowMajor,
++    cutlass::bfloat16_t, cutlass::layout::ColumnMajor,
++    cutlass::bfloat16_t, cutlass::layout::RowMajor,
++    float, cutlass::arch::OpClassTensorOp, cutlass::arch::Sm80,
++    cutlass::gemm::GemmShape<128, 256, 64>,
++    cutlass::gemm::GemmShape<64, 64, 64>,
++    cutlass::gemm::GemmShape<16, 8, 16>,
++    PublicationEpilogue<true>,
++    cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<2>,
++    3>;
++
++#endif
++
+ std::uint16_t* g_dequant_buffer = nullptr;
+ std::size_t g_dequant_capacity = 0U;
+ std::uint16_t* g_gemm_temp = nullptr;
+@@ -250,6 +268,24 @@ static int launch_nvfp4_gate_up_impl(
+     const int N_ = stride_n;
+     constexpr std::size_t weight_offset = 0U, output_offset = 0U;
+     const float alpha = 1.0F;
++#endif
++#if defined(Q3X_ENABLE_PUBLICATION_FUSION_ADMISSION)
++    if (caller_owns_workspace && projection == 1U) {
++      FusedUpGemm::Arguments fused_args{
++          {M_,N_,K_},
++          {reinterpret_cast<cutlass::bfloat16_t const*>(input+mc*k),K_},
++          {reinterpret_cast<cutlass::bfloat16_t const*>(dequant_buffer+weight_offset),K_},
++          {reinterpret_cast<cutlass::bfloat16_t const*>(gemm_temp),stride_n},
++          {reinterpret_cast<cutlass::bfloat16_t*>(activated+mc*n),N_},
++          {alpha,beta},1};
++      FusedUpGemm fused;
++      if (FusedUpGemm::get_workspace_size(fused_args) != 0U)
++        return static_cast<int>(cudaErrorNotSupported);
++      if (fused.initialize(fused_args,nullptr) != cutlass::Status::kSuccess ||
++          fused.run(stream) != cutlass::Status::kSuccess)
++        return static_cast<int>(cudaErrorInvalidValue);
++      continue;
++    }
+ #endif
+     CutlassGemm::Arguments args{
+         cutlass::gemm::GemmCoord(M_, N_, K_),
+@@ -285,6 +321,9 @@ static int launch_nvfp4_gate_up_impl(
+     }
+ #endif
+
++#if defined(Q3X_ENABLE_PUBLICATION_FUSION_ADMISSION)
++    if (caller_owns_workspace) continue;
++#endif
+     // SiLU-mul: activated[mc : mc+mc_size, n] = silu(gate) * up
+     {
+       const long total = static_cast<long>(mc_size) * (n / 8L);
+diff --git a/src/kernels/sm87/publication_epilogue_admission.h b/src/kernels/sm87/publication_epilogue_admission.h
+new file mode 100644
+index 0000000..94db830
+--- /dev/null
++++ b/src/kernels/sm87/publication_epilogue_admission.h
+@@ -0,0 +1,34 @@
++#pragma once
++#include "cutlass/epilogue/thread/linear_combination.h"
++#include <cuda_bf16.h>
++namespace q3x::kernels {
++// The base no-source operator preserves the incumbent scale multiply and BF16
++// publication. Source is an already-rounded Gate or residual, never beta*C.
++template<bool Silu> struct PublicationEpilogue :
++    cutlass::epilogue::thread::LinearCombination<cutlass::bfloat16_t,8,float,float> {
++  using Base = cutlass::epilogue::thread::LinearCombination<cutlass::bfloat16_t,8,float,float>;
++  using typename Base::FragmentOutput;
++  using typename Base::FragmentAccumulator;
++  using typename Base::FragmentSource;
++  using typename Base::Params;
++  CUTLASS_HOST_DEVICE PublicationEpilogue(Params const& p): Base(p) {}
++  CUTLASS_HOST_DEVICE bool is_source_needed() const { return true; }
++  CUTLASS_HOST_DEVICE void set_k_partition(int, int) {} // split-K is fixed to 1
++  CUTLASS_HOST_DEVICE FragmentOutput operator()(FragmentAccumulator const& acc,
++                                               FragmentSource const& src) const {
++    FragmentOutput rounded = Base::operator()(acc), out;
++    CUTLASS_PRAGMA_UNROLL
++    for (int i=0; i<8; ++i) {
++      float x=float(src[i]), y=float(rounded[i]);
++      float z;
++      if constexpr(Silu) { float s=x/(1.0f+expf(-x)); z=s*y; }
++      else { z=x+y; }
++      out[i]=cutlass::bfloat16_t(z);
++    }
++    return out;
++  }
++  CUTLASS_HOST_DEVICE FragmentOutput operator()(FragmentAccumulator const& acc) const {
++    return Base::operator()(acc);
++  }
++};
++}
+diff --git a/src/runtime/reference_runner.cpp b/src/runtime/reference_runner.cpp
+index e68e004..63ad19d 100644
+--- a/src/runtime/reference_runner.cpp
++++ b/src/runtime/reference_runner.cpp
+@@ -6021,6 +6021,28 @@ ReferenceRunner::enqueue_prompt_wide_p40_whole_core_drain_panel(
+       }
+     }
+   } else {
++#if defined(Q3X_ENABLE_PUBLICATION_FUSION_ADMISSION)
++    const auto* fp8 = std::get_if<Fp8LinearWeight>(output_weight);
++    const auto scratch = request_views.p40_whole_core.linear.prompt_wide_workspace;
++    constexpr std::size_t prefix =
++      ((kLayerMajorP40WholeCorePromptTokens * sizeof(std::uint32_t) + 255U)/256U)*256U;
++    if (!fp8 || !scratch.device_data || scratch.byte_size <= prefix)
++      return runner_status(ReferenceRunnerError::kInvalidRequestState,
++                           "prefill_publication_fused_o_workspace",layer);
++    status = kernels::launch_fp8_residual_publication_admission(
++      fp8->weight,fp8->weight_scale,core_output,residual,panel.token_count,
++      fp8->output_size,fp8->input_size,
++      static_cast<std::uint8_t*>(scratch.device_data)+prefix,
++      scratch.byte_size-prefix,stream_);
++    if (status == static_cast<int>(cudaSuccess)) {
++      ++fp8_projection_hits;
++      ++fp8_physical_launches;
++      ++g_fp8_marlin_prefill_admission_hits;
++    }
++    return status == static_cast<int>(cudaSuccess) ? ReferenceRunnerStatus{} :
++      runner_status(ReferenceRunnerError::kCudaFailure,
++                    "prefill_publication_fused_o",layer,status);
++#endif
+     status = launch_prompt_wide_p40_fp8_projection(
+         projection_backend_, *output_weight, core_output, branch_output,
+         panel.token_count, workspace, fp8_physical_launches, stream_,
+diff --git a/src/server/openai_protocol.cpp b/src/server/openai_protocol.cpp
+index 5a8fe68..735a9f3 100644
+--- a/src/server/openai_protocol.cpp
++++ b/src/server/openai_protocol.cpp
+@@ -1442,6 +1442,10 @@ std::string serialize_target_prefill_witness(
+       true ? "{\"record\":\"target-prefill-witness-whole-core-service-v1\","
+              "\"schema_version\":1,\"decode_numerical_contract\":"
+              "\"scalar-equivalent-ordered-fp32-v7\",\"request\":{\"id\":" :
++#elif defined(Q3X_ENABLE_PUBLICATION_FUSION_ADMISSION)
++      true ? "{\"record\":\"target-prefill-witness-whole-core-publication-fusion-v1\","
++             "\"schema_version\":1,\"decode_numerical_contract\":"
++             "\"scalar-equivalent-ordered-fp32-v7\",\"request\":{\"id\":" :
+ #elif defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+       true ? "{\"record\":\"target-prefill-witness-whole-core-exact-decode-admission-v9\","
+              "\"schema_version\":2,\"decode_numerical_contract\":"

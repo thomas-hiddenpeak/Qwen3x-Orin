@@ -1,0 +1,508 @@
+{
+  "schema_version": 1,
+  "work_package_id": "WP-PUBLICATION-FUSION-20260928",
+  "architecture_candidate_id": "AC-PREFILL-PUBLICATION-FUSION-v1",
+  "parent_revision": "99e10db",
+  "decision": "closed_mixed_api_direction_no_promotion",
+  "decision_authority": "single-process direction early-stop only, not statistically qualified regression",
+  "production_changed": false,
+  "candidate_integration_removed": true,
+  "comparison": {
+    "baseline": {
+      "directory": ".q3x-work/publication-fusion-20260928/api-b1",
+      "profile": "q3x.sm87.production.whole-core-service.v1",
+      "executable_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+      "complete_witnesses": 3,
+      "metrics": [
+        {
+          "request_id": "cmpl-q3x-1",
+          "prompt_tokens": 65,
+          "output_tokens": 16,
+          "prefill_seconds": 0.8800778800000001,
+          "prefill_tok_s": 73.85710001028545,
+          "external_ttft_seconds": 0.9049866842105985,
+          "decode_tok_s": 9.584475719507406,
+          "request_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "text_sha256": "247c7aaccd0b42b0ec8363bdfe4cb1fc4d798dacf316ffe2068f78a8df54fc18"
+        },
+        {
+          "request_id": "cmpl-q3x-2",
+          "prompt_tokens": 8192,
+          "output_tokens": 256,
+          "prefill_seconds": 16.724625404999998,
+          "prefill_tok_s": 489.8166506946647,
+          "external_ttft_seconds": 16.746625347994268,
+          "decode_tok_s": 9.218410637706725,
+          "request_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "text_sha256": "02884d62c051880cf2790a9f07403cca9a3ea19c5d8a4f62f6706cdb95d9149b"
+        },
+        {
+          "request_id": "cmpl-q3x-3",
+          "prompt_tokens": 40000,
+          "output_tokens": 256,
+          "prefill_seconds": 90.016315613,
+          "prefill_tok_s": 444.3638881196696,
+          "external_ttft_seconds": 90.05157598899677,
+          "decode_tok_s": 7.8667207218354855,
+          "request_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+          "text_sha256": "fca071470d3d6ceba279c818b429fe3b3a8c3bc7d579d6e3f75dddb1b5673b77"
+        }
+      ],
+      "scope": "engineering direction, isolated candidate; no promotion"
+    },
+    "candidate": {
+      "directory": ".q3x-work/publication-fusion-20260928/api-c1",
+      "profile": "q3x.sm87.admission.whole-core-publication-fusion.v1",
+      "executable_sha256": "75acacd1d454ede55cb996da9c7dcb7d54cef7bb083f4e1c296316c5ea35a0ef",
+      "complete_witnesses": 3,
+      "metrics": [
+        {
+          "request_id": "cmpl-q3x-1",
+          "prompt_tokens": 65,
+          "output_tokens": 16,
+          "prefill_seconds": 0.8879233329999999,
+          "prefill_tok_s": 73.20451843560237,
+          "external_ttft_seconds": 0.9065116578713059,
+          "decode_tok_s": 9.59069912719689,
+          "request_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "text_sha256": "247c7aaccd0b42b0ec8363bdfe4cb1fc4d798dacf316ffe2068f78a8df54fc18"
+        },
+        {
+          "request_id": "cmpl-q3x-2",
+          "prompt_tokens": 8192,
+          "output_tokens": 256,
+          "prefill_seconds": 16.631789882,
+          "prefill_tok_s": 492.55071511370596,
+          "external_ttft_seconds": 16.656647086143494,
+          "decode_tok_s": 9.222429721248993,
+          "request_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "text_sha256": "02884d62c051880cf2790a9f07403cca9a3ea19c5d8a4f62f6706cdb95d9149b"
+        },
+        {
+          "request_id": "cmpl-q3x-3",
+          "prompt_tokens": 40000,
+          "output_tokens": 256,
+          "prefill_seconds": 90.870475212,
+          "prefill_tok_s": 440.1869793976576,
+          "external_ttft_seconds": 90.90606643911451,
+          "decode_tok_s": 7.866734982902849,
+          "request_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+          "text_sha256": "fca071470d3d6ceba279c818b429fe3b3a8c3bc7d579d6e3f75dddb1b5673b77"
+        }
+      ],
+      "scope": "engineering direction, isolated candidate; no promotion"
+    },
+    "all_bodies_outputs_usage_finish_done_equal": true,
+    "prefill_duration_percent_changes": [
+      0.8914498566876539,
+      -0.5550828239910488,
+      0.9488942012159329
+    ]
+  },
+  "numerical": {
+    "cases": 32,
+    "bf16_elements": 738557952,
+    "bitwise_mismatches": 0,
+    "nonfinite": 0,
+    "guards_pass": true,
+    "scope": "checkpoint_weight_only, deterministic BF16 activations; not complete state qualification"
+  },
+  "resources": {
+    "gemm_registers_per_thread_baseline": 242,
+    "gemm_registers_per_thread_candidate": 242,
+    "gemm_threads": 256,
+    "stack_bytes": 0,
+    "spill_load_bytes": 0,
+    "spill_store_bytes": 0,
+    "mainloop_tile": [
+      128,
+      256,
+      64
+    ],
+    "warp_tile": [
+      64,
+      64,
+      64
+    ],
+    "stages": 3,
+    "split_k_slices": 1
+  },
+  "environment": {
+    "api-b1": {
+      "server_returncode": 0,
+      "clock_errors": [],
+      "max_temp_c": 78.593,
+      "success": true
+    },
+    "api-c1": {
+      "server_returncode": 0,
+      "clock_errors": [],
+      "max_temp_c": 84.093,
+      "success": true
+    }
+  },
+  "api_process_window_seconds": {
+    "api-b1": 207.3359990119934,
+    "api-c1": 208.08057618141174
+  },
+  "not_run": [
+    "mirrored performance repetition",
+    "full-state/logit numerical qualification",
+    "new maximum-capacity/service qualification",
+    "capability repetition",
+    "Nsight causal attribution"
+  ],
+  "reproduction": {
+    "patch": "docs/analysis/publication-fusion-direction-2026-09-28/candidate.patch",
+    "configure": "cmake -S . -B .q3x-work/publication-fusion-20260928/build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DQ3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=OFF -DQ3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION=ON -DQ3X_BUILD_PUBLICATION_FUSION_ADMISSION=ON",
+    "build": "cmake --build .q3x-work/publication-fusion-20260928/build --target qwen3x-eval-server --parallel 3",
+    "drivers": [
+      ".q3x-work/publication-fusion-20260928/check.py",
+      ".q3x-work/publication-fusion-20260928/api.py",
+      ".q3x-work/publication-fusion-20260928/audit.py"
+    ],
+    "patch_source_sha256_verified": true
+  },
+  "raw_artifacts": [
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1/audit.json",
+      "bytes": 1712,
+      "sha256": "31cadf18f67d615a8495dab78df2982204a19b8ca561ec3c4423443ae2ee46da"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1/cache-preparation.json",
+      "bytes": 3003,
+      "sha256": "a847402a484c832d18a7f63c67f8ccade91be0471c5aa0e9beb2062d8ab8e3e4"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1/cleanup.json",
+      "bytes": 94,
+      "sha256": "e23459b53d93d1c08d71fac2da2d33f949a77d59e59fce6bb5a8faa07cd0f5ec"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1/clocks.jsonl",
+      "bytes": 23030,
+      "sha256": "75107a48ea1bd99e4d83d4cacc3275d66c39826652b543d3b8b4c00b4d804bcc"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1/health.json",
+      "bytes": 1135,
+      "sha256": "79ccdd2b5f023fa1fef4968cf9318225bccc53aa54249c03e2eae4e6bb2144e9"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1/identity.json",
+      "bytes": 703,
+      "sha256": "c29ea3ef581e1d2ae676f4df9ed69c25ed131d6d7626eea8e7a17aca1a29af6f"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1/p40000.json",
+      "bytes": 538452,
+      "sha256": "3e1c76c71e5a72934d8d11054e0f4352e4001f29e4f78a26449a440c02087236"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1/p65.json",
+      "bytes": 6385,
+      "sha256": "c4797b7bd8e80a114d02fba4bdd6e9b707c29aa84109e43d99e0582e75f75c8d"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1/p8192.json",
+      "bytes": 172685,
+      "sha256": "d36fccdb39bdaffa775e68c572e7364a848815f9c47410ac487f9767b0c3affa"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1/preflight-console.log",
+      "bytes": 175,
+      "sha256": "d5eb5b4edf57d9e107d8c3c9bdf42f9a3a568c7fe38cd310333781364e3fb040"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1/preflight.json",
+      "bytes": 20082,
+      "sha256": "31910934768696270ca601133ce5d47db61164b9858e6405f0dcb355d5fcc4d2"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1/process.json",
+      "bytes": 21,
+      "sha256": "8220a0fa6cbe2254cdaced4bebc5193e586dca6109ec8c0c70ed3a0bb25abf8b"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1/requests.jsonl",
+      "bytes": 3462,
+      "sha256": "8b22d9f4b344cdecb308f8020cfa04f46b336148ec657b4849322e521f5a0ece"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1/results.json",
+      "bytes": 657768,
+      "sha256": "db577b343ab86e739cd1e549fddba0e1f1abb584a11f66f5d2f86ae97d4c2b69"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1/server.log",
+      "bytes": 17029,
+      "sha256": "a49e3b61fa1c6f7647e389e4d70d5acb12a724a40118ad2f10bd3ec125b2ad3f"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1/telemetry.log",
+      "bytes": 85767,
+      "sha256": "1d75ba4224c448932997f053d40fb176555a85f9dbb013c2112dbb80e932856b"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-b1.log",
+      "bytes": 184,
+      "sha256": "fc7f86743f94166698b2dbb81d6ed9def9a42e139a5b02a223f876a293690f89"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1/audit.json",
+      "bytes": 1715,
+      "sha256": "33c5afc70d88c750d0e92987bcf74b506fb97316c08f41122cca50e27519d072"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1/cache-preparation.json",
+      "bytes": 3003,
+      "sha256": "9051965d92f8956c652c75e403299c1a1c163804cf05b53eaf693b425636e37c"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1/cleanup.json",
+      "bytes": 94,
+      "sha256": "57e5bd7d6d84c736a0d40204ff6da653381bf0d31d47a7bb9f1d92af430dbcdd"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1/clocks.jsonl",
+      "bytes": 23159,
+      "sha256": "cc945c14c85a18f1d4558aa0b39c1febc00fad5f915aba7c196f2988d3ed3a8f"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1/health.json",
+      "bytes": 1145,
+      "sha256": "6b5d14cb2f289e9b366e9166b2fb3a3fb150969de737d059eb09c20d3c7f113a"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1/identity.json",
+      "bytes": 790,
+      "sha256": "41917994725fcb2c0f1b9a3061fd5a6f10199835a18fc66784fce2f8a660c9e4"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1/p40000.json",
+      "bytes": 538452,
+      "sha256": "6310b5128fb09a56336488277dcf71c1eaec237d5a21cf15e731abfc67d749d0"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1/p65.json",
+      "bytes": 6386,
+      "sha256": "12a5e9ef1cf78a9b5a7f023a90f3c7230d8d586b6f4b7d87f4616e9d685abe56"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1/p8192.json",
+      "bytes": 172685,
+      "sha256": "4f5b16856cba9524c3b2d3d82ab81d46769f88d43f2974aecbfeb60a1a450bd5"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1/preflight-console.log",
+      "bytes": 175,
+      "sha256": "dc7c702cef184a4562ea4cbe18503066d0711ac37eacf1c14585a0d51ff4cdcc"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1/preflight.json",
+      "bytes": 20168,
+      "sha256": "4cc87c0983a52615bbed835a3535eb13e954259bb221512820a2936d23a56257"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1/process.json",
+      "bytes": 21,
+      "sha256": "de4c00c1208fe77aa0e35b20c44ddee12e7731f14037e430a62c21a55fe0bb1f"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1/requests.jsonl",
+      "bytes": 3463,
+      "sha256": "006e81b9c6fb64c945191caae3e3472278ddbc8fc8bf61e59cfb5bd00b9b2b4a"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1/results.json",
+      "bytes": 657769,
+      "sha256": "b3049c7cdd7b4333e5ed9ce38b7891bbd06a012be2d706215e9f71ad4c99448b"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1/server.log",
+      "bytes": 17188,
+      "sha256": "105244af64d7f1aa16c932433dd5dd69f73db247278c01cbe5efa9a045d9ddb4"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1/telemetry.log",
+      "bytes": 86722,
+      "sha256": "50f5aae1311c0bb817ff26bd857d3284c8598f7a1a48acb9ba0c49aa5f927ce0"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api-c1.log",
+      "bytes": 184,
+      "sha256": "1fb58f55ff42e4985a26f0d7bfb7ca35c73c29458fcf292a50b4291c4bcd2a5c"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/api.py",
+      "bytes": 4084,
+      "sha256": "fc8468ff5c71816608fa2dbf53ae3ac73b30f0509dc2c172f458aa048413ca8d"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/audit-b1.log",
+      "bytes": 1712,
+      "sha256": "31cadf18f67d615a8495dab78df2982204a19b8ca561ec3c4423443ae2ee46da"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/audit-c1.log",
+      "bytes": 1715,
+      "sha256": "33c5afc70d88c750d0e92987bcf74b506fb97316c08f41122cca50e27519d072"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/audit.py",
+      "bytes": 1277,
+      "sha256": "8228a648409a0fea8f47c7b3ec006b566c5b252453fe2fe7995eae0c9b19400b"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/baseline-build.log",
+      "bytes": 6548,
+      "sha256": "cb14b83301f7b710c9475c91bc31ee0942cdf3d546ab518adab91b6bac8b6913"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/baseline.so",
+      "bytes": 1277984,
+      "sha256": "51b9b3c574b71fb66a4df46519386a382af644d6791d26b3a22fa33edea09cc0"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/build/CMakeCache.txt",
+      "bytes": 44785,
+      "sha256": "6eca67805783553dea88f77243b60eca0221ccae30c7d2315371be1ffcb0ac16"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/build/CMakeFiles/q3x_kernels.dir/flags.make",
+      "bytes": 2224,
+      "sha256": "27824b812130563cfbe0904169057a11bb751f5dcd9a196c9a1397a689cb76b0"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/build/qwen3x-eval-server-whole-core-exact-decode-admission",
+      "bytes": 13717288,
+      "sha256": "75acacd1d454ede55cb996da9c7dcb7d54cef7bb083f4e1c296316c5ea35a0ef"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/candidate.patch",
+      "bytes": 14737,
+      "sha256": "e0d6e085add832b7b6890648b6f5c104365c0c8e95ecf4c4c952d5b0c5fdb188"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/candidate.so",
+      "bytes": 1495872,
+      "sha256": "fd6c8e55ca56cfc915c1c70688f87c0a257fcb14dc7f225813fdf3355a387680"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/check.py",
+      "bytes": 4822,
+      "sha256": "7070b3ec42c623d0cee7d7a27f360ea77508ebc57c6f780fb979770c33d34c2f"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/closeout/cache-preparation.json",
+      "bytes": 3003,
+      "sha256": "263a115c88cf95106b189b5744bd9a0adb30b135c1527c4afdb1cc440cc9f23e"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/closeout/preflight-console.log",
+      "bytes": 177,
+      "sha256": "8f97b6b360cc43fed1383d9faa002613f0cba3f89728f26f8595aa57b1787053"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/closeout/preflight.json",
+      "bytes": 20096,
+      "sha256": "0c39d64bffe5d0ada5b9f6371a18b90dd8d05463bb2405a9ebda378bfde2c346"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/closeout.py",
+      "bytes": 3316,
+      "sha256": "ec25beb0436d1d21cbbc87ef419e7a1d689ec19ab0e8764e590a3061a134809b"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/configure.log",
+      "bytes": 1273,
+      "sha256": "67a780c69001b5a3be455159585911141a00234cea04a9c0caac101339a41f0a"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/edit.py",
+      "bytes": 10016,
+      "sha256": "79211cb4ab059be3026c3824bd2c41657e96ad549a91cbe82944e3fa7fa533a3"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/fp8-build.log",
+      "bytes": 10464,
+      "sha256": "799e6eef324d471c8c66276f4551f7021ce935ffc86acdf59981b20b151e65ad"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/gate-build.log",
+      "bytes": 10963,
+      "sha256": "8845af0d9ea7f66b47fdcac79ec9084d33e241f6f32d3112b700159ca8fffb3c"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/link.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/numerical-r1/cache-preparation.json",
+      "bytes": 3003,
+      "sha256": "93e390a4559d6ea1bc8685aea28a28d3af05be6f3f2a025b7a532a458e5fec09"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/numerical-r1/preflight-console.log",
+      "bytes": 181,
+      "sha256": "c852c2ec4e16668b84bf83430d35a957bb9d7559282c0cdae83309139bf30d66"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/numerical-r1/preflight.json",
+      "bytes": 20194,
+      "sha256": "dbdc73861a237b91f2b3a9e949f29226544a962ce838f03b7a87295d513bd792"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/numerical-r1/results.json",
+      "bytes": 55035,
+      "sha256": "fcfbdedbb3bc122b4ef07b4cd50b96b7048910015b50b98704bca779081c6247"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/numerical-r1.log",
+      "bytes": 3540,
+      "sha256": "2c884b07acd394a6185f52a93003de9e6959cdcd7c0568759f79d46c6f9d053a"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/original/fp8_dequant_cublas_projection.cu",
+      "bytes": 7756,
+      "sha256": "016d3b1be2c0d399b62bc6fb9c8f5df95783417eedd837485f3bbbc93403e536"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/original/nvfp4_dequant_cutlass_gate_up.cu",
+      "bytes": 12858,
+      "sha256": "8ea0098834f0e54b2e469c2fc34278a2774fd3fc1f20a8953c1fb688a541b092"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/panel.json",
+      "bytes": 559091,
+      "sha256": "76df5285072414053eac98740c42237fc31f4f4dea3377bdd736b0ee016a6342"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/panel.log",
+      "bytes": 52,
+      "sha256": "094e39686e45c7b26cd82b85b2632352a0836e09e803403236243c6dc3d912bb"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/patch-verification.json",
+      "bytes": 519,
+      "sha256": "fbec3ebea8579c0a925ed448db1f4aa74acf8d3e9f933b4ab1c585b3f377bba0"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/server-build.log",
+      "bytes": 409703,
+      "sha256": "5d8502657c15c472357446117bd6c275fbd3b115ad1292f6448f100e51fd431f"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/source-manifest.json",
+      "bytes": 1530,
+      "sha256": "6d2ea6a269b185837fdd1e935dcba89655d901f3b9bc9234f4992eddc3f7c175"
+    },
+    {
+      "path": ".q3x-work/publication-fusion-20260928/wrapper.cu",
+      "bytes": 1281,
+      "sha256": "4bfff7b0e5244cc9075fbaaf85c82104492e9ac797a9c9956536a6c3a83d873e"
+    }
+  ]
+}
