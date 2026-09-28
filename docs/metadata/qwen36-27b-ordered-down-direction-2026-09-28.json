@@ -1,0 +1,1262 @@
+{
+  "schema": "q3x.ordered_down_direction.v1",
+  "date": "2026-09-28",
+  "base_revision": "50f7323",
+  "work_package_id": "WP-DOWN-ORDERED-20260928",
+  "parent_assessment": "WP-NON-MTP-ARCHITECTURE-20260928",
+  "decision": "rejected_and_closed",
+  "reason": "both complete dataflows regress P8192 and P40000 actual API Prefill with no output change; no third variant",
+  "production_changed": false,
+  "candidate_runtime_integration_removed": true,
+  "production_binary": {
+    "path": ".q3x-work/install/industrialization-20260928/bin/qwen3x-eval-server",
+    "sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "bytes": 13494688
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "prior_installed_qualification": "docs/metadata/qwen36-27b-service-industrialization-2026-09-28.json"
+  },
+  "api_runs": {
+    "api-b1": {
+      "directory": ".q3x-work/down-ordered-20260928/api-b1",
+      "profile": "q3x.sm87.production.whole-core-service.v1",
+      "executable_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+      "complete_witnesses": 3,
+      "metrics": [
+        {
+          "request_id": "cmpl-q3x-1",
+          "prompt_tokens": 65,
+          "output_tokens": 16,
+          "prefill_seconds": 0.879716448,
+          "prefill_tok_s": 73.88744424157908,
+          "external_ttft_seconds": 0.9044560519978404,
+          "decode_tok_s": 9.590799829611129,
+          "request_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "text_sha256": "247c7aaccd0b42b0ec8363bdfe4cb1fc4d798dacf316ffe2068f78a8df54fc18"
+        },
+        {
+          "request_id": "cmpl-q3x-2",
+          "prompt_tokens": 8192,
+          "output_tokens": 256,
+          "prefill_seconds": 16.742134132,
+          "prefill_tok_s": 489.3044062012536,
+          "external_ttft_seconds": 16.76385227497667,
+          "decode_tok_s": 9.2218618305881,
+          "request_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "text_sha256": "02884d62c051880cf2790a9f07403cca9a3ea19c5d8a4f62f6706cdb95d9149b"
+        },
+        {
+          "request_id": "cmpl-q3x-3",
+          "prompt_tokens": 40000,
+          "output_tokens": 256,
+          "prefill_seconds": 90.27388531300001,
+          "prefill_tok_s": 443.09602784139554,
+          "external_ttft_seconds": 90.30920846294612,
+          "decode_tok_s": 7.868345510423004,
+          "request_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+          "text_sha256": "fca071470d3d6ceba279c818b429fe3b3a8c3bc7d579d6e3f75dddb1b5673b77"
+        }
+      ],
+      "scope": "engineering direction, isolated candidate; no promotion"
+    },
+    "api-c1": {
+      "directory": ".q3x-work/down-ordered-20260928/api-c1",
+      "profile": "q3x.sm87.admission.whole-core-ordered-down.v1",
+      "executable_sha256": "c8f81af14328e9d5c255cb347a41cf8a0958e95a110f5a879738865becc08610",
+      "complete_witnesses": 3,
+      "metrics": [
+        {
+          "request_id": "cmpl-q3x-1",
+          "prompt_tokens": 65,
+          "output_tokens": 16,
+          "prefill_seconds": 0.879263518,
+          "prefill_tok_s": 73.92550545921775,
+          "external_ttft_seconds": 0.9055895530618727,
+          "decode_tok_s": 9.590203918187395,
+          "request_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "text_sha256": "247c7aaccd0b42b0ec8363bdfe4cb1fc4d798dacf316ffe2068f78a8df54fc18"
+        },
+        {
+          "request_id": "cmpl-q3x-2",
+          "prompt_tokens": 8192,
+          "output_tokens": 256,
+          "prefill_seconds": 17.652859369,
+          "prefill_tok_s": 464.06079767371193,
+          "external_ttft_seconds": 17.675340679939836,
+          "decode_tok_s": 9.224821657155074,
+          "request_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "text_sha256": "02884d62c051880cf2790a9f07403cca9a3ea19c5d8a4f62f6706cdb95d9149b"
+        },
+        {
+          "request_id": "cmpl-q3x-3",
+          "prompt_tokens": 40000,
+          "output_tokens": 256,
+          "prefill_seconds": 94.836773865,
+          "prefill_tok_s": 421.77731664449004,
+          "external_ttft_seconds": 94.87281933519989,
+          "decode_tok_s": 7.869850308315509,
+          "request_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+          "text_sha256": "fca071470d3d6ceba279c818b429fe3b3a8c3bc7d579d6e3f75dddb1b5673b77"
+        }
+      ],
+      "scope": "engineering direction, isolated candidate; no promotion"
+    },
+    "api-c2": {
+      "directory": ".q3x-work/down-ordered-20260928/api-c2",
+      "profile": "q3x.sm87.admission.whole-core-ordered-down.v2",
+      "executable_sha256": "b64915a0722432a31ecab91786a840cc6cd8574bb410043e09b54c476a0758af",
+      "complete_witnesses": 3,
+      "metrics": [
+        {
+          "request_id": "cmpl-q3x-1",
+          "prompt_tokens": 65,
+          "output_tokens": 16,
+          "prefill_seconds": 0.8792126899999999,
+          "prefill_tok_s": 73.92977915275542,
+          "external_ttft_seconds": 0.8977535190060735,
+          "decode_tok_s": 9.587796891428,
+          "request_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "text_sha256": "247c7aaccd0b42b0ec8363bdfe4cb1fc4d798dacf316ffe2068f78a8df54fc18"
+        },
+        {
+          "request_id": "cmpl-q3x-2",
+          "prompt_tokens": 8192,
+          "output_tokens": 256,
+          "prefill_seconds": 20.213475613,
+          "prefill_tok_s": 405.27419216967496,
+          "external_ttft_seconds": 20.2355972151272,
+          "decode_tok_s": 9.220496977318836,
+          "request_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "text_sha256": "02884d62c051880cf2790a9f07403cca9a3ea19c5d8a4f62f6706cdb95d9149b"
+        },
+        {
+          "request_id": "cmpl-q3x-3",
+          "prompt_tokens": 40000,
+          "output_tokens": 256,
+          "prefill_seconds": 107.057169351,
+          "prefill_tok_s": 373.6321466603989,
+          "external_ttft_seconds": 107.09276900207624,
+          "decode_tok_s": 7.844133186825171,
+          "request_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+          "text_sha256": "fca071470d3d6ceba279c818b429fe3b3a8c3bc7d579d6e3f75dddb1b5673b77"
+        }
+      ],
+      "scope": "engineering direction, isolated candidate; no promotion"
+    }
+  },
+  "comparisons": [
+    {
+      "run": "api-b1",
+      "prompt_tokens": 65,
+      "prefill_time_change_percent": 0.0,
+      "decode_rate_change_percent": 0.0,
+      "request_output_usage_finish_done_equal": true
+    },
+    {
+      "run": "api-b1",
+      "prompt_tokens": 8192,
+      "prefill_time_change_percent": 0.0,
+      "decode_rate_change_percent": 0.0,
+      "request_output_usage_finish_done_equal": true
+    },
+    {
+      "run": "api-b1",
+      "prompt_tokens": 40000,
+      "prefill_time_change_percent": 0.0,
+      "decode_rate_change_percent": 0.0,
+      "request_output_usage_finish_done_equal": true
+    },
+    {
+      "run": "api-c1",
+      "prompt_tokens": 65,
+      "prefill_time_change_percent": -0.05148590787744656,
+      "decode_rate_change_percent": -0.006213365249196912,
+      "request_output_usage_finish_done_equal": true
+    },
+    {
+      "run": "api-c1",
+      "prompt_tokens": 8192,
+      "prefill_time_change_percent": 5.439720108676527,
+      "decode_rate_change_percent": 0.03209575920077867,
+      "request_output_usage_finish_done_equal": true
+    },
+    {
+      "run": "api-c1",
+      "prompt_tokens": 40000,
+      "prefill_time_change_percent": 5.054494482185423,
+      "decode_rate_change_percent": 0.01912470532097199,
+      "request_output_usage_finish_done_equal": true
+    },
+    {
+      "run": "api-c2",
+      "prompt_tokens": 65,
+      "prefill_time_change_percent": -0.0572636786711711,
+      "decode_rate_change_percent": -0.031310612633750345,
+      "request_output_usage_finish_done_equal": true
+    },
+    {
+      "run": "api-c2",
+      "prompt_tokens": 8192,
+      "prefill_time_change_percent": 20.73416359963971,
+      "decode_rate_change_percent": -0.014800192134056811,
+      "request_output_usage_finish_done_equal": true
+    },
+    {
+      "run": "api-c2",
+      "prompt_tokens": 40000,
+      "prefill_time_change_percent": 18.591516228429228,
+      "decode_rate_change_percent": -0.307718103707566,
+      "request_output_usage_finish_done_equal": true
+    }
+  ],
+  "cleanup": {
+    "api-b1": {
+      "server_returncode": 0,
+      "clock_errors": [],
+      "max_temp_c": 79.406,
+      "success": true
+    },
+    "api-c1": {
+      "server_returncode": 0,
+      "clock_errors": [],
+      "max_temp_c": 83.718,
+      "success": true
+    },
+    "api-c2": {
+      "server_returncode": 0,
+      "clock_errors": [],
+      "max_temp_c": 81.437,
+      "success": true
+    }
+  },
+  "api_process_wall_seconds": 649.5988969802856,
+  "protocol_authority": "single-process B1-C1-C2 engineering direction; reject only, not mirrored release qualification or baseline update",
+  "numerical_checks": {
+    "numerical-r2": [
+      {
+        "layer": -1,
+        "m": 64,
+        "bitwise_mismatches": 0,
+        "elements": 327680,
+        "maximum_absolute": 0.0,
+        "nonfinite": 0,
+        "factor": 1.0,
+        "payloads": []
+      },
+      {
+        "layer": 2,
+        "m": 64,
+        "bitwise_mismatches": 0,
+        "elements": 327680,
+        "maximum_absolute": 0.0,
+        "nonfinite": 0,
+        "factor": 1.0,
+        "payloads": [
+          {
+            "tensor": "model.language_model.layers.2.mlp.down_proj.weight",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [
+              5120,
+              8704
+            ],
+            "dtype": "U8",
+            "file_offset": 8316766752,
+            "sha256": "7e4d740c93367942050f9542507f768b07cd4b421bdbc931c83ac1c3f1e108d9"
+          },
+          {
+            "tensor": "model.language_model.layers.2.mlp.down_proj.weight_scale",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [
+              5120,
+              1088
+            ],
+            "dtype": "F8_E4M3",
+            "file_offset": 5153671712,
+            "sha256": "6c9e247290bdbaa49347ffb346e76db3ebd8dc81266f84e02cbc345310f98e41"
+          },
+          {
+            "tensor": "model.language_model.layers.2.mlp.down_proj.weight_scale_2",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [],
+            "dtype": "F32",
+            "file_offset": 127140,
+            "sha256": "480379f4910535c5fb0463c98bfb274ef99df9623bf38cbd0a712ebd2205f427"
+          }
+        ]
+      },
+      {
+        "layer": 11,
+        "m": 64,
+        "bitwise_mismatches": 0,
+        "elements": 327680,
+        "maximum_absolute": 0.0,
+        "nonfinite": 0,
+        "factor": 1.0,
+        "payloads": [
+          {
+            "tensor": "model.language_model.layers.11.mlp.down_proj.weight",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [
+              5120,
+              8704
+            ],
+            "dtype": "U8",
+            "file_offset": 7113525792,
+            "sha256": "b14102e7df365766aec1fe64f960fda3346eb0ce11eb26351262bbcaa2698c20"
+          },
+          {
+            "tensor": "model.language_model.layers.11.mlp.down_proj.weight_scale",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [
+              5120,
+              1088
+            ],
+            "dtype": "F8_E4M3",
+            "file_offset": 3881290272,
+            "sha256": "9cffa6e30ce1ac11ad82bcb01d93c2c4861765a7101d4baf7174521dd55c8169"
+          },
+          {
+            "tensor": "model.language_model.layers.11.mlp.down_proj.weight_scale_2",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [],
+            "dtype": "F32",
+            "file_offset": 126660,
+            "sha256": "770ca521f17fb7ededd2515d7a89ef4438cad592ea191b7f5e08194406df0ebd"
+          }
+        ]
+      },
+      {
+        "layer": 44,
+        "m": 64,
+        "bitwise_mismatches": 0,
+        "elements": 327680,
+        "maximum_absolute": 0.0,
+        "nonfinite": 0,
+        "factor": 1.0,
+        "payloads": [
+          {
+            "tensor": "model.language_model.layers.44.mlp.down_proj.weight",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00002-of-00003.safetensors",
+            "shape": [
+              5120,
+              8704
+            ],
+            "dtype": "U8",
+            "file_offset": 7579275112,
+            "sha256": "197a189138c8fb87fe56ca305e69c1e6bcff59293fd01142cc4f0b8f2c763cb9"
+          },
+          {
+            "tensor": "model.language_model.layers.44.mlp.down_proj.weight_scale",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00002-of-00003.safetensors",
+            "shape": [
+              5120,
+              1088
+            ],
+            "dtype": "F8_E4M3",
+            "file_offset": 2614923112,
+            "sha256": "25227349a970889e12ae427b5769b26cbbc8bdb566e0e18bba90048fc0d3145a"
+          },
+          {
+            "tensor": "model.language_model.layers.44.mlp.down_proj.weight_scale_2",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00002-of-00003.safetensors",
+            "shape": [],
+            "dtype": "F32",
+            "file_offset": 136492,
+            "sha256": "31a5d04cf09c1334d141f3398f66a142e323c4c153155cae76a3d750d237ba00"
+          }
+        ]
+      },
+      {
+        "layer": 17,
+        "m": 64,
+        "bitwise_mismatches": 0,
+        "elements": 327680,
+        "maximum_absolute": 0.0,
+        "nonfinite": 0,
+        "factor": 1.0,
+        "payloads": [
+          {
+            "tensor": "model.language_model.layers.17.mlp.down_proj.weight",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [
+              5120,
+              8704
+            ],
+            "dtype": "U8",
+            "file_offset": 7915686432,
+            "sha256": "3acc0d783a1f02e51c238582a635e9f7c185d7ff0cd62473f67ba223cb37af0e"
+          },
+          {
+            "tensor": "model.language_model.layers.17.mlp.down_proj.weight_scale",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [
+              5120,
+              1088
+            ],
+            "dtype": "F8_E4M3",
+            "file_offset": 4767992352,
+            "sha256": "85ad622552f5155560d870f4920533b2b67dc6f9beb9d4781400fafc2a51e608"
+          },
+          {
+            "tensor": "model.language_model.layers.17.mlp.down_proj.weight_scale_2",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [],
+            "dtype": "F32",
+            "file_offset": 126988,
+            "sha256": "d059d9c3cc56ddd50cdd5a1c6f6620b7234fb45efe55eba86c33523e686fdfc5"
+          }
+        ]
+      }
+    ],
+    "numerical-v2-fit": [
+      {
+        "layer": -1,
+        "m": 64,
+        "bitwise_mismatches": 0,
+        "elements": 327680,
+        "maximum_absolute": 0.0,
+        "nonfinite": 0,
+        "factor": 1.0,
+        "payloads": []
+      },
+      {
+        "layer": 2,
+        "m": 64,
+        "bitwise_mismatches": 0,
+        "elements": 327680,
+        "maximum_absolute": 0.0,
+        "nonfinite": 0,
+        "factor": 1.0,
+        "payloads": [
+          {
+            "tensor": "model.language_model.layers.2.mlp.down_proj.weight",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [
+              5120,
+              8704
+            ],
+            "dtype": "U8",
+            "file_offset": 8316766752,
+            "sha256": "7e4d740c93367942050f9542507f768b07cd4b421bdbc931c83ac1c3f1e108d9"
+          },
+          {
+            "tensor": "model.language_model.layers.2.mlp.down_proj.weight_scale",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [
+              5120,
+              1088
+            ],
+            "dtype": "F8_E4M3",
+            "file_offset": 5153671712,
+            "sha256": "6c9e247290bdbaa49347ffb346e76db3ebd8dc81266f84e02cbc345310f98e41"
+          },
+          {
+            "tensor": "model.language_model.layers.2.mlp.down_proj.weight_scale_2",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [],
+            "dtype": "F32",
+            "file_offset": 127140,
+            "sha256": "480379f4910535c5fb0463c98bfb274ef99df9623bf38cbd0a712ebd2205f427"
+          }
+        ]
+      },
+      {
+        "layer": 11,
+        "m": 64,
+        "bitwise_mismatches": 0,
+        "elements": 327680,
+        "maximum_absolute": 0.0,
+        "nonfinite": 0,
+        "factor": 1.0,
+        "payloads": [
+          {
+            "tensor": "model.language_model.layers.11.mlp.down_proj.weight",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [
+              5120,
+              8704
+            ],
+            "dtype": "U8",
+            "file_offset": 7113525792,
+            "sha256": "b14102e7df365766aec1fe64f960fda3346eb0ce11eb26351262bbcaa2698c20"
+          },
+          {
+            "tensor": "model.language_model.layers.11.mlp.down_proj.weight_scale",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [
+              5120,
+              1088
+            ],
+            "dtype": "F8_E4M3",
+            "file_offset": 3881290272,
+            "sha256": "9cffa6e30ce1ac11ad82bcb01d93c2c4861765a7101d4baf7174521dd55c8169"
+          },
+          {
+            "tensor": "model.language_model.layers.11.mlp.down_proj.weight_scale_2",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [],
+            "dtype": "F32",
+            "file_offset": 126660,
+            "sha256": "770ca521f17fb7ededd2515d7a89ef4438cad592ea191b7f5e08194406df0ebd"
+          }
+        ]
+      },
+      {
+        "layer": 44,
+        "m": 64,
+        "bitwise_mismatches": 0,
+        "elements": 327680,
+        "maximum_absolute": 0.0,
+        "nonfinite": 0,
+        "factor": 1.0,
+        "payloads": [
+          {
+            "tensor": "model.language_model.layers.44.mlp.down_proj.weight",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00002-of-00003.safetensors",
+            "shape": [
+              5120,
+              8704
+            ],
+            "dtype": "U8",
+            "file_offset": 7579275112,
+            "sha256": "197a189138c8fb87fe56ca305e69c1e6bcff59293fd01142cc4f0b8f2c763cb9"
+          },
+          {
+            "tensor": "model.language_model.layers.44.mlp.down_proj.weight_scale",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00002-of-00003.safetensors",
+            "shape": [
+              5120,
+              1088
+            ],
+            "dtype": "F8_E4M3",
+            "file_offset": 2614923112,
+            "sha256": "25227349a970889e12ae427b5769b26cbbc8bdb566e0e18bba90048fc0d3145a"
+          },
+          {
+            "tensor": "model.language_model.layers.44.mlp.down_proj.weight_scale_2",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00002-of-00003.safetensors",
+            "shape": [],
+            "dtype": "F32",
+            "file_offset": 136492,
+            "sha256": "31a5d04cf09c1334d141f3398f66a142e323c4c153155cae76a3d750d237ba00"
+          }
+        ]
+      },
+      {
+        "layer": 17,
+        "m": 64,
+        "bitwise_mismatches": 0,
+        "elements": 327680,
+        "maximum_absolute": 0.0,
+        "nonfinite": 0,
+        "factor": 1.0,
+        "payloads": [
+          {
+            "tensor": "model.language_model.layers.17.mlp.down_proj.weight",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [
+              5120,
+              8704
+            ],
+            "dtype": "U8",
+            "file_offset": 7915686432,
+            "sha256": "3acc0d783a1f02e51c238582a635e9f7c185d7ff0cd62473f67ba223cb37af0e"
+          },
+          {
+            "tensor": "model.language_model.layers.17.mlp.down_proj.weight_scale",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [
+              5120,
+              1088
+            ],
+            "dtype": "F8_E4M3",
+            "file_offset": 4767992352,
+            "sha256": "85ad622552f5155560d870f4920533b2b67dc6f9beb9d4781400fafc2a51e608"
+          },
+          {
+            "tensor": "model.language_model.layers.17.mlp.down_proj.weight_scale_2",
+            "file": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+            "shape": [],
+            "dtype": "F32",
+            "file_offset": 126988,
+            "sha256": "d059d9c3cc56ddd50cdd5a1c6f6620b7234fb45efe55eba86c33523e686fdfc5"
+          }
+        ]
+      }
+    ]
+  },
+  "global_scalars": [
+    {
+      "layer": 2,
+      "tensor": "model.language_model.layers.2.mlp.down_proj.weight_scale_2",
+      "global_scale_float32": 0.0004185267898719758,
+      "global_scale_bits_hex": "0x39db6db7"
+    },
+    {
+      "layer": 11,
+      "tensor": "model.language_model.layers.11.mlp.down_proj.weight_scale_2",
+      "global_scale_float32": 0.00021652948635164648,
+      "global_scale_bits_hex": "0x39630c31"
+    },
+    {
+      "layer": 44,
+      "tensor": "model.language_model.layers.44.mlp.down_proj.weight_scale_2",
+      "global_scale_float32": 0.0001751127711031586,
+      "global_scale_bits_hex": "0x39379e7a"
+    },
+    {
+      "layer": 17,
+      "tensor": "model.language_model.layers.17.mlp.down_proj.weight_scale_2",
+      "global_scale_float32": 7.847377128200606e-05,
+      "global_scale_bits_hex": "0x38a49249"
+    }
+  ],
+  "panel_manifest": {
+    "path": ".q3x-work/down-ordered-20260928/panel.json",
+    "sha256": "f7acaef7e5bdc7dc2768bc5cd15f5383f8e53fe1d20a356258fe610c9a3f3acd",
+    "bytes": 222942
+  },
+  "dataflows": {
+    "v1": {
+      "status": "negative_api_direction",
+      "scratch_bytes": 784465920,
+      "tail_reservation_bytes": 2883584,
+      "mechanism": "exact Marlin operand decode; K32 permutation; two FP32 partial GEMMs; ordered merge/BF16 branch/residual"
+    },
+    "v2": {
+      "status": "negative_api_direction",
+      "scratch_bytes": 178257920,
+      "tail_reservation_bytes": 2883584,
+      "mechanism": "exact operand decode; two intra-CTA K32 partitions; ordered shared-memory merge and BF16-before-residual epilogue",
+      "threadblock_mnk": [
+        64,
+        128,
+        64
+      ],
+      "warp_mnk": [
+        32,
+        64,
+        32
+      ],
+      "threads": 256,
+      "registers_per_thread": 142
+    }
+  },
+  "retained_failures": [
+    {
+      "run": "numerical-r1",
+      "reason": "incumbent dynamic shared-memory configuration omitted in harness; setup fixed before comparison"
+    },
+    {
+      "run": "numerical-v2",
+      "reason": "512-thread/142-register C2 instantiation exceeds SM register budget; resource-fit correction to 256 threads before performance"
+    }
+  ],
+  "validation_not_performed_after_rejection": [
+    "complete internal state/logit equivalence",
+    "maximum-context or maximum-output candidate qualification",
+    "public capability candidate qualification",
+    "release promotion"
+  ],
+  "archived_patches": [
+    {
+      "path": "docs/analysis/ordered-down-direction-2026-09-28/v1.patch",
+      "sha256": "9f4eef03546ea895cb062850aa59347926a21032907444b100ba4eeca6af4c85",
+      "bytes": 15308
+    },
+    {
+      "path": "docs/analysis/ordered-down-direction-2026-09-28/v2.patch",
+      "sha256": "178b70b2689d07340a2037f4fc3d93797830d288d5424f348f5fcc4103d56def",
+      "bytes": 16435
+    }
+  ],
+  "reference_source_pins": [
+    {
+      "path": "src/kernels/sm87/third_party/vllm_marlin/marlin_template.h",
+      "sha256": "c4cae347301f41d16b67fe48c1bff0a3c1ffea7e32e759502a7634088fab73ce",
+      "bytes": 88992
+    },
+    {
+      "path": "src/kernels/sm87/third_party/vllm_marlin/dequant.h",
+      "sha256": "39c4640d2de39374ef5d96e7fa27701a675922113c3f5b05d45369321090e728",
+      "bytes": 22312
+    },
+    {
+      "path": "third_party/cutlass/include/cutlass/gemm/threadblock/mma_multistage.h",
+      "sha256": "3f89e410ca96b06e4a56ba19f90399e8fdd2744a28c45d458a60940708b4171b",
+      "bytes": 27786
+    },
+    {
+      "path": "third_party/cutlass/include/cutlass/epilogue/threadblock/epilogue.h",
+      "sha256": "3c313c4177e5a97bea7729f01ade11f04493d3958012243ac4c73bbc4d5ef74d",
+      "bytes": 19424
+    }
+  ],
+  "raw_artifacts": [
+    {
+      "path": ".q3x-work/down-ordered-20260928/build-r2.log",
+      "sha256": "215822e0be41542ed7639d04d587278d25a4f0c637dad268bc52ba3544324fd0",
+      "bytes": 3274
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/audit-c2.log",
+      "sha256": "bc35d59e908b91d24b3b78eb8469631a5a8928993093888c814a883078977fd2",
+      "bytes": 1701
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/closeout.py",
+      "sha256": "b06444806546bf500390ba59fcabd55ac58c6cf2a5be29cf36d54e353dcd3760",
+      "bytes": 5345
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/audit-b1.log",
+      "sha256": "c3bf6f834d358fbce0720c78c1b89cce880689cb7bef5f56b080d2eb40b00838",
+      "bytes": 1695
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1.log",
+      "sha256": "1f49a11c8ec27571c8ed499e12a90753457d41e6b51e71e88c09d3d69d3782cd",
+      "bytes": 183
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/candidate.cu",
+      "sha256": "665388349cb99da720a0e032469f1bbb07bd282c1fab392b958d64cc0fa8e49d",
+      "bytes": 3985
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/check.py",
+      "sha256": "d08f02f68be3a7cc824c9c7af9eeb559a84a0a3066cfc34fe51df87d4ddbf929",
+      "bytes": 4248
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/panel.json",
+      "sha256": "f7acaef7e5bdc7dc2768bc5cd15f5383f8e53fe1d20a356258fe610c9a3f3acd",
+      "bytes": 222942
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1.log",
+      "sha256": "3391c7038606da81124d449ed4b6433f4035e41baae162a351d3ebde7001b29e",
+      "bytes": 184
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/build-api.log",
+      "sha256": "7b2e2e79ca6de2a0e7dd7467c705ea2415a7e045109bc3318cfc332569f8428a",
+      "bytes": 618974
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/v2-reproduction.patch",
+      "sha256": "aeebf1174d2d020fa1f1b89c667012253a2702258fc4b87e7c178f48feb67874",
+      "bytes": 16439
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-r1.log",
+      "sha256": "1f8cf51ad15cc30361ec58fcccb330c14e4b957b8df2bbda6cd46c8c2f37a4ef",
+      "bytes": 620
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/audit.py",
+      "sha256": "dfeeb802eb480a5c5406d8f6276f33345296cb1a80eca6092b7f8a890d43e7e8",
+      "bytes": 1308
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-r2.log",
+      "sha256": "c515056a84173bd9f7e34bfb7d08ec0313db1cac343e8ac57ecf50c2d0606369",
+      "bytes": 4372
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/v1-reproduction.patch",
+      "sha256": "8e23ebe6c287da9b4d7d7aa37ce6d413930c31002758c6ecf3208ecc906b6fc8",
+      "bytes": 15312
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/candidate-source.patch",
+      "sha256": "387595dd0a690d6883df1d5af78f08cb9369867498057db1937120d93554d4ae",
+      "bytes": 10092
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/candidate-v2-source.patch",
+      "sha256": "678ccfd9bb8708237c43a0b1ca19ed0349f69fa74aa5c30d700dce8841d64bcd",
+      "bytes": 11097
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2.log",
+      "sha256": "10b36356314ae36433e7df783d8496e21cde14a7423f9ec06fb0f40aa8b52700",
+      "bytes": 183
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/build.log",
+      "sha256": "215822e0be41542ed7639d04d587278d25a4f0c637dad268bc52ba3544324fd0",
+      "bytes": 3274
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/build-api-v2.log",
+      "sha256": "09f27901acca7bb76e6523595b9d0130597fca8e720767683b0c9a3ec0b2b63b",
+      "bytes": 214103
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/resources-v2-fit.txt",
+      "sha256": "dc43ecbecd1a61064596fcd5a8e275ba55caf182f14ce657a1c53ab4e9be6dcd",
+      "bytes": 6895
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/source-v2-manifest.json",
+      "sha256": "38c3920ab6214b58bf7766694421a5f9b4745e9318dfb643eeed0e87d2b538c9",
+      "bytes": 965
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/candidate.so",
+      "sha256": "a059020b14a589cea961b8dd08a4e681344ee152f06c970ffa579eb42c8ffa84",
+      "bytes": 2214472
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/build-v2.log",
+      "sha256": "215822e0be41542ed7639d04d587278d25a4f0c637dad268bc52ba3544324fd0",
+      "bytes": 3274
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/closeout-host.log",
+      "sha256": "5a6d3d867afb3f3064bf3e8c850aa9e516bd94d16de25d8a24f24dfa2743cf0f",
+      "bytes": 94
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api.py",
+      "sha256": "91d14876bca1cb86958fc072a34f29341944244e29dc01e21c0a3b5a85a786fa",
+      "bytes": 4072
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/source-manifest.json",
+      "sha256": "abf54ba1a229ef8b005b157db24ec1d8df64fcf6f88378be192cca3cbc1ae165",
+      "bytes": 965
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/v2.cu",
+      "sha256": "260debd95e2cc8069fe9781e2e84fc523535c498969bceb7e4c1d7f398adf04d",
+      "bytes": 4305
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/candidate-v2.cu",
+      "sha256": "1ac91e900aa73ce5f6d7b2faaf3b1d377f4c84023223a41d070144f9cd49bfc2",
+      "bytes": 5357
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/configure.log",
+      "sha256": "0fbad7b6c96dfcf22d10df2d1b76143db3135f668baf4a7fa15090fdd2d4e2c7",
+      "bytes": 1267
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/audit-c1.log",
+      "sha256": "a246347e13b4aa60c8c0cb657a031954e2cc1f1b011996ef738f0f28cf4b1a5c",
+      "bytes": 1698
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/closeout-host.json",
+      "sha256": "1e55e21d9fc840ca11e77e8f436662883ce5b961e90029d0464879f8e17117d4",
+      "bytes": 18758
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/build-v2-fit.log",
+      "sha256": "215822e0be41542ed7639d04d587278d25a4f0c637dad268bc52ba3544324fd0",
+      "bytes": 3274
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/build-api-final.log",
+      "sha256": "4f5f25d2522f430a39916116039b399bb0d03f57bf0676304c33bf8b9c49cabe",
+      "bytes": 894
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/closeout-host-r2.log",
+      "sha256": "e5fdb70d7fc359abb8ea54b9ed5f78fd5abc18ca47266b72b61187f878e7db8f",
+      "bytes": 166
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-v2-fit.log",
+      "sha256": "c515056a84173bd9f7e34bfb7d08ec0313db1cac343e8ac57ecf50c2d0606369",
+      "bytes": 4372
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/resources-v2.txt",
+      "sha256": "e777d94802e93d22a99ca3f704039d4458db41d7f650dfa35f7d0a52cd7d0c3f",
+      "bytes": 6895
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-v2.log",
+      "sha256": "4a0404c3308d117a72b2cec8506032873feef00671fbaa1790ffd50d170dc706",
+      "bytes": 669
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1/results.json",
+      "sha256": "f23a08d02ed3eb5680e625e18ae36178858058ee0924794d597af379e6e9bbaf",
+      "bytes": 657768
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1/identity.json",
+      "sha256": "ea72b5aee3cb9c69c92e7390274aec3a1909847b338492b671d5eff430a10760",
+      "bytes": 697
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1/cache-preparation.json",
+      "sha256": "f520a39a1f560022683661393301c1be5005f575754245d0eaca5b38b1896c9f",
+      "bytes": 3003
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1/requests.jsonl",
+      "sha256": "10d7f7dceb23abe7b3a7c03a55dac51249cd941c1fe482cd8c65bcb8a94325d9",
+      "bytes": 3462
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1/health.json",
+      "sha256": "79ccdd2b5f023fa1fef4968cf9318225bccc53aa54249c03e2eae4e6bb2144e9",
+      "bytes": 1135
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1/p65.json",
+      "sha256": "323eeccc361fe091e119a1e34f7c457ce5973dbbd433560dd329493057594681",
+      "bytes": 6385
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1/cleanup.json",
+      "sha256": "fe65828a91ad18d25978439a1740e3cd2d7f7d82a2ae3487de5665df44121cba",
+      "bytes": 94
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1/clocks.jsonl",
+      "sha256": "bc8564115d863c1d8e07d51a543d03a68a48b4be32ed20689d7b1ebfa62dabaf",
+      "bytes": 23160
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1/preflight-console.log",
+      "sha256": "6e3201e090d7d2c69a9c6a954cfb875b51d817128d06e96d4bafc7b83bff6bca",
+      "bytes": 169
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1/process.json",
+      "sha256": "cb95503ef67364c52469cd2596d71af2f58c05fa453c52ac13b1ba3b19cc5db6",
+      "bytes": 21
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1/p8192.json",
+      "sha256": "5e45fce746e895dadca9a41bcf0e95a8845c2db11733f96c07cdb2c473fc18f1",
+      "bytes": 172685
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1/telemetry.log",
+      "sha256": "39eaeece435b755d2e69a21d91952661fb54cbd9ab2239083044c513917c7072",
+      "bytes": 86277
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1/p40000.json",
+      "sha256": "2bc2aab6db15f8a6e8b9e3a9dbc5dd7aa5c7084e8b68fc2b34631d53df2bdc24",
+      "bytes": 538452
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1/preflight.json",
+      "sha256": "20359d41bd133d6abf2b135556e8de8fd88faa1a45cffc5d363b9b31f845348e",
+      "bytes": 20203
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1/audit.json",
+      "sha256": "c3bf6f834d358fbce0720c78c1b89cce880689cb7bef5f56b080d2eb40b00838",
+      "bytes": 1695
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-b1/server.log",
+      "sha256": "4423f85ac0034105be2b3d4a1df4984058d3033505fa8ae8f09feee84a296ba9",
+      "bytes": 17030
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-v2/cache-preparation.json",
+      "sha256": "876bc86202811b11d8bc5574ca22dcc4226d0aabf14fea3ece63bfd7ad30c7d8",
+      "bytes": 3003
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-v2/preflight-console.log",
+      "sha256": "5e8aa85279979f5a2df32c7b0bd849223717266f7114844d6086ec86df88b7cc",
+      "bytes": 175
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-v2/preflight.json",
+      "sha256": "3e0c0d7bd13d272b9d644a50528ab5a6e7d4c8efa1ca46eb8e210671635e27ea",
+      "bytes": 20154
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1/results.json",
+      "sha256": "fee9eb88ffd0e95468ff6faff9f1b636501e00cdad9e611311fb9deaf47fe386",
+      "bytes": 657768
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1/identity.json",
+      "sha256": "ba1511c3209193178bc1caafd0bd60aa3b7d0992964e398d30bb4a416cd413f2",
+      "bytes": 778
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1/cache-preparation.json",
+      "sha256": "80a157d24e0819cc5153750a2de735eacb115a5534488e45a7c0f91a1fc1a833",
+      "bytes": 3003
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1/requests.jsonl",
+      "sha256": "e331038327847f711242811cd7035b51aec108c92d5b85bb99e8107bd26efa5e",
+      "bytes": 3462
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1/health.json",
+      "sha256": "602111ab8c1636b5ac8cf1f61927b6191d03db55f1b20ddd70841808ff757442",
+      "bytes": 1139
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1/p65.json",
+      "sha256": "5d6d62b1c78a6d30a863f585625683589daecf7d69627b26b763760488583073",
+      "bytes": 6385
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1/cleanup.json",
+      "sha256": "9f6e44069a979f9ae6c77cfcfa230a5299b1c3b497ad8fcba92cca47a4a5ad2e",
+      "bytes": 94
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1/clocks.jsonl",
+      "sha256": "917a44d310a81cb8c5f63ab8b683436f571799b72a79ae2332e83c17dd0dd447",
+      "bytes": 23715
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1/preflight-console.log",
+      "sha256": "1e4769da6ebb41a27997505dc26b6e9f1d0714e9c00336124a167f186e3f97a6",
+      "bytes": 169
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1/process.json",
+      "sha256": "12f7e0d3fe49c7855a2531a7d6635637be6b8f2f1af8cbb538389ff6b575661a",
+      "bytes": 21
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1/p8192.json",
+      "sha256": "40ea2799e4c28ddb21ae6a07ecc17d98b033f3a838e68eccc2fdb11be4fdc128",
+      "bytes": 172685
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1/telemetry.log",
+      "sha256": "06f9fab23d046f553456ed4d9c3e8423ee0d57ce5b76fe942ed5300c3ba982ad",
+      "bytes": 88908
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1/p40000.json",
+      "sha256": "2c621eaf8e0b1608a41adc26304d51a2c4531037e5fb87af65ca94ec52ee3314",
+      "bytes": 538452
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1/preflight.json",
+      "sha256": "1e215cf8ecf92cac3a1827743b5cc0f08498a449bbccccf49011b2b6b0d92602",
+      "bytes": 20285
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1/audit.json",
+      "sha256": "a246347e13b4aa60c8c0cb657a031954e2cc1f1b011996ef738f0f28cf4b1a5c",
+      "bytes": 1698
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c1/server.log",
+      "sha256": "f8d9677db5921adc86ce539b204e76134c908c90021cfc4df511c476d747a97e",
+      "bytes": 17146
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-r1/cache-preparation.json",
+      "sha256": "e528af80ff1a072a80410b0dbe17f8352b3d68bd08e04c5c15a751a5f710fdcb",
+      "bytes": 3003
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-r1/preflight-console.log",
+      "sha256": "2a29503b8f23e413288cacd673aea81015d847a1aa007f41a73d3d11bb2ee7b2",
+      "bytes": 175
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-r1/preflight.json",
+      "sha256": "1e121a05516ade0b6346c091a9c643c8b0e6f892557239c4ad42efa40e85608c",
+      "bytes": 20153
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/v1/candidate.cu",
+      "sha256": "665388349cb99da720a0e032469f1bbb07bd282c1fab392b958d64cc0fa8e49d",
+      "bytes": 3985
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/v1/candidate.so",
+      "sha256": "852c6eb74530bb3d4dd323eae57b6e1cec3e3594af940559ee6a09c14833fc06",
+      "bytes": 2215816
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/v1/api.py",
+      "sha256": "f346ab49f7c27bcd5228ac09c4b6ccae23794f6da1707f971ea58862e3a6a761",
+      "bytes": 4072
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/v1/nvfp4_down_ordered_admission.h",
+      "sha256": "403230e3036d2565f62e0f6415e7a96c216d4b8cc1225cbe161045f7d4cd836d",
+      "bytes": 510
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/v1/nvfp4_down_ordered_admission.cu",
+      "sha256": "21d467d6a6ced219e2aace3796f42a251957ac733e4814919d54e5662c27a363",
+      "bytes": 4191
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/v1/qwen3x-eval-server",
+      "sha256": "c8f81af14328e9d5c255cb347a41cf8a0958e95a110f5a879738865becc08610",
+      "bytes": 13644944
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2/results.json",
+      "sha256": "16d92e52884eeb01ebf841b077a752cfea3d1bcfd89b0361f42de97e9302a8b3",
+      "bytes": 657768
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2/identity.json",
+      "sha256": "00eb85fda88ab561b275e0673048df809e264052744b80225bb0d356bc6ec95c",
+      "bytes": 778
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2/cache-preparation.json",
+      "sha256": "c8d909b520d25754ab91030dd7f127a63a373f7a949c8b9d55272b13deac06bc",
+      "bytes": 3003
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2/requests.jsonl",
+      "sha256": "ecaefe302ac152ac544781246f6ecc21a2cb6e375df43deecb1f7629dc70ec97",
+      "bytes": 3462
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2/health.json",
+      "sha256": "752315c14cb9b19c768d01b596fcd8607d45cebe86c308c0914b371ae3bf370b",
+      "bytes": 1139
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2/p65.json",
+      "sha256": "c99abdc7a758bd60f3eedaaeb7d1eaa81b4313c653612cbbbc9a0d5038b1181d",
+      "bytes": 6386
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2/cleanup.json",
+      "sha256": "2a392254c8ce86b4b2d7dd2479ab72c0b3d448d4cfc5c1f4326c53cb6b82bc7b",
+      "bytes": 94
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2/clocks.jsonl",
+      "sha256": "d5550cbc38535cef6f7c7b943b465a73241441193e3a0aa8cec8be1bd807a5fc",
+      "bytes": 25283
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2/preflight-console.log",
+      "sha256": "ec4c56acaeabf22b952b2b9bb1683239418b0fcc2f2704b849dd56a6c3e79791",
+      "bytes": 169
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2/process.json",
+      "sha256": "c16aef5926a58e21f3b084e1e30b0dc7dd11da53f7266a2c84bdeaaaa533b492",
+      "bytes": 21
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2/p8192.json",
+      "sha256": "b6b7139eb51ac3f02b8d6a1f8e9c7211e24c39e5d9e09b1ace2d8bd59c5c69e8",
+      "bytes": 172683
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2/telemetry.log",
+      "sha256": "5b6f9b55af69bc146edec32fedc0a4a6fe4ca96b37c9985deabd73a00d9bdf25",
+      "bytes": 94542
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2/p40000.json",
+      "sha256": "a294ecb80be137978d0f0432081050a827a0b682ca204df81fa45aac836d8e66",
+      "bytes": 538453
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2/preflight.json",
+      "sha256": "23542a196c090c0956dbafc41262afe296b9d0512c5e7a301146661aa77e11af",
+      "bytes": 20114
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2/audit.json",
+      "sha256": "bc35d59e908b91d24b3b78eb8469631a5a8928993093888c814a883078977fd2",
+      "bytes": 1701
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/api-c2/server.log",
+      "sha256": "910f6dc052692ecd6622123950a96546d5cb186ca56792efe42a965ce51f76b6",
+      "bytes": 17148
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/v2/nvfp4_down_ordered_admission.h",
+      "sha256": "403230e3036d2565f62e0f6415e7a96c216d4b8cc1225cbe161045f7d4cd836d",
+      "bytes": 510
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/v2/nvfp4_down_ordered_admission.cu",
+      "sha256": "446391823024a37b99724ff897d4196ac6452ad986f4398ece531ed2b9737a9b",
+      "bytes": 4305
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-r2/results.json",
+      "sha256": "dedb5d3267656f9e463d68009ed5886003f6107b16f71dea2bb9377754571d77",
+      "bytes": 5578
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-r2/cache-preparation.json",
+      "sha256": "937690b8cfc2f579643337cc775e6a74771ee884c10ad9a53f1f8288c2420f84",
+      "bytes": 3003
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-r2/preflight-console.log",
+      "sha256": "b8f5980ef329e27ef3176fb225d302a83b9b5b03293024e696dc3d2404ac26af",
+      "bytes": 175
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-r2/preflight.json",
+      "sha256": "660993db81c36438ee3ea3204d7e49dbb72347583c147088852593dd84a93846",
+      "bytes": 20138
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-v2-fit/results.json",
+      "sha256": "dedb5d3267656f9e463d68009ed5886003f6107b16f71dea2bb9377754571d77",
+      "bytes": 5578
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-v2-fit/cache-preparation.json",
+      "sha256": "2e9b5c8aa7ea2f1714a88a7391b020863b1fc3ae7223a47d2dcd06d698198cd6",
+      "bytes": 3003
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-v2-fit/preflight-console.log",
+      "sha256": "5b8bb889203d184abec5bfbf95be3682fa98e164aca77a8eed0af91fbe488789",
+      "bytes": 179
+    },
+    {
+      "path": ".q3x-work/down-ordered-20260928/numerical-v2-fit/preflight.json",
+      "sha256": "a0a30d2e4a7a07ec7719d5abf13982c6f19e809b564423455146e64d3a22dd3c",
+      "bytes": 20383
+    }
+  ],
+  "candidate_v2_binary": {
+    "path": ".q3x-work/down-ordered-20260928/build/qwen3x-eval-server-whole-core-exact-decode-admission",
+    "sha256": "b64915a0722432a31ecab91786a840cc6cd8574bb410043e09b54c476a0758af",
+    "bytes": 13577688
+  },
+  "nvcc_version": "nvcc: NVIDIA (R) Cuda compiler driver\nCopyright (c) 2005-2026 NVIDIA Corporation\nBuilt on Tue_Jun_09_02:45:27_PM_PDT_2026\nCuda compilation tools, release 13.3, V13.3.73\nBuild cuda_13.3.r13.3/compiler.38244171_0\n",
+  "claim_limits": [
+    "Numerical panel is bounded, with deterministic activations; no general bit-equivalence promotion.",
+    "Source/resource attribution does not prove physical DRAM saturation or a hardware limit.",
+    "MTP deferred; all owner targets preserved."
+  ],
+  "numerical_incumbent_archive": {
+    "path": ".q3x-work/build/whole-core-service-release-20260928/libq3x_kernels.a",
+    "sha256": "fd1d0e8647af043f13e78b6b0a02a86cc89feb885ab98afe5fcebc9adf1708bb",
+    "bytes": 13870846
+  },
+  "closeout_validation": {
+    "document_control": "PASS: 83 tracked/registered Markdown paths, 981 links, zero errors",
+    "document_unit_tests": "PASS: 7 tests",
+    "patch_reconstruction": "both patches apply to 50f7323 and reconstruct every captured source-manifest hash",
+    "runtime_source": "CMakeLists.txt/src/include unchanged versus HEAD",
+    "device_ownership": "closeout host audit: zero GPU device holders"
+  }
+}

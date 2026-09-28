@@ -1,0 +1,273 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index acd58c4..a645878 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -117,6 +117,14 @@ if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+   set(Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE ON)
+   set(Q3X_BUILD_FUSED_DECODE_ADMISSION ON)
+ endif()
++option(Q3X_BUILD_ORDERED_DOWN_ADMISSION
++  "Build isolated ordered Down producer/consumer candidate (not installable)" OFF)
++if(Q3X_BUILD_ORDERED_DOWN_ADMISSION)
++  if(NOT BUILD_TESTING OR NOT Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION OR Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
++    message(FATAL_ERROR "Ordered Down requires the non-installable whole-core admission")
++  endif()
++  add_compile_definitions(Q3X_ENABLE_ORDERED_DOWN_ADMISSION=1)
++endif()
+ if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION OR Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+   add_compile_definitions(Q3X_ENABLE_WHOLE_CORE_SERVICE=1)
+ endif()
+@@ -650,6 +658,7 @@ if(Q3X_BUILD_FUSED_DECODE_ADMISSION AND NOT BUILD_TESTING)
+ endif()
+ if(Q3X_BUILD_FUSED_DECODE_ADMISSION)
+   set(q3x_whole_core_composition_options
++    Q3X_BUILD_ORDERED_DOWN_ADMISSION
+     Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION
+     Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE
+     Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION
+@@ -712,6 +721,9 @@ add_library(q3x_kernels STATIC
+   src/kernels/sm87/nvfp4_prefill_shape_wide.cu
+   src/kernels/sm87/weight_only_gemv.cu
+ )
++if(Q3X_BUILD_ORDERED_DOWN_ADMISSION)
++  target_sources(q3x_kernels PRIVATE src/kernels/sm87/nvfp4_down_ordered_admission.cu)
++endif()
+ add_library(q3x::kernels ALIAS q3x_kernels)
+ set_target_properties(q3x_kernels PROPERTIES
+   EXPORT_NAME kernels
+diff --git a/docs/PREFILL_ARCHITECTURE_RESET.md b/docs/PREFILL_ARCHITECTURE_RESET.md
+index b7700a8..d438477 100644
+--- a/docs/PREFILL_ARCHITECTURE_RESET.md
++++ b/docs/PREFILL_ARCHITECTURE_RESET.md
+@@ -282,6 +282,12 @@ for FP8 and Gate/Up CUTLASS inputs, with exact decoded operands and global
+ scales after FP32 accumulation. This does not reclassify temporary BF16 weight
+ materialization as packed residency or waive numerical/ownership qualification.
+
++The Roadmap's bounded `WP-DOWN-ORDERED-20260928` may test the same temporary
++materialization trade for Down in an isolated candidate. It must retain the
++incumbent transformed operands, two K-partial chains, merge and BF16 residual
++boundary. This grants implementation scope, not production selection; current
++Down remains packed. Candidate scratch must fit the existing dead GDN region.
++
+ This contract selects no tile, stage count, grid size, performance budget, or
+ delivery order.
+
+diff --git a/docs/ROADMAP.md b/docs/ROADMAP.md
+index eab97d4..549e7bc 100644
+--- a/docs/ROADMAP.md
++++ b/docs/ROADMAP.md
+@@ -51,7 +51,8 @@ separate one layer's packed Down decode from an ordered BF16 tensor consumer.
+ It addresses 17.56 seconds of the profiled Prefill budget. Preserve the two
+ incumbent K-partial accumulation chains, their FP32 merge, global scale and
+ BF16 branch publication before residual addition. This is not an ordinary
+-CUTLASS drop-in and is not implemented or numerically admitted yet.
++CUTLASS drop-in. Implementation is active under the bounded package below;
++no candidate is yet numerically admitted or promoted.
+
+ Before device timing, the implementation package must bind the exact ordered
+ operator, existing scratch lifetime, real-weight panel and same-binary
+@@ -163,3 +164,40 @@ engineering question is answered. All performance work uses real prompts and
+ weights, clean GPU ownership, recorded preflight/cache preparation and the
+ [performance policy](REAL_MODEL_PERFORMANCE_POLICY.md). Preserve raw rejected
+ runs and source/binary identity; do not rewrite history as a pass.
++
++## Ordered Down implementation package, 2026-09-28
++
++`WP-DOWN-ORDERED-20260928` implements `DOWN-DECODE-ORDERED-CONSUMER-v1`.
++The originating product constraint is cold P40000 Prefill latency with no
++accuracy loss. Its downward budget is the measured 17.56-second Down family;
++value returns through the current whole-core API, reporting Decode jointly.
++The incumbent is the 50f7323 source / installed 0.8.1 persistent Down path.
++
++The initial composition decodes canonical packed nibbles with the incumbent
++Marlin transformed scale bytes, permutes K32 groups into the two existing
++accumulation chains, runs two FP32-output tensor products and merges them with
++explicit FP32 add/scale and BF16-before-residual rounding. It retains one
++layer's BF16 weights, one at-most-8000-row permuted activation panel and two
++FP32 partial outputs in dead GDN scratch (784,465,920 bytes, plus the existing
++2,883,584-byte tail reservation). Only aligned prefixes of at least 8,000 rows
++select this large-M dataflow; smaller prefixes and padded tails retain the
++declared incumbent before enqueue. This boundary is fixed before timing. No arena
++growth or persistent all-layer decoded weights are allowed. The K permutation
++and producer/read/merge costs belong to the complete candidate timing.
++
++Numerical admission begins with the fixed-shape incumbent comparator, all
++FP4 codes and transformed-scale cases; real-weight checks pin four Down layers
++chosen before timings by scale distribution. Preserve complete output equality
++on identical inputs, scale bits, finite checks and actual-row tails. A changed
++reduction or numerical tolerance is forbidden. A first failure permits only
++one causally justified correction. Compile/debug fixes that do not change the
++dataflow do not constitute a parameter search.
++
++The first admissible complete candidate returns to short, 8K and 40K real API
++direction checks. Maximum two dataflow variants and 30 minutes of real-model
++GPU process time before compose/reject; no additional profiling campaign.
++Any component performance screen uses checkpoint weights, a frozen panel,
++same-ELF mirrored incumbent/candidate comparisons and includes all conversion
++costs. A negative complete direction closes this version. A positive direction
++requires affected full-range numerical/API/resource/release qualification
++before default selection. Raw files stay in `.q3x-work/down-ordered-20260928/`.
+diff --git a/include/q3x/runtime/reference_engine.h b/include/q3x/runtime/reference_engine.h
+index 0c9487d..d4ed4bc 100644
+--- a/include/q3x/runtime/reference_engine.h
++++ b/include/q3x/runtime/reference_engine.h
+@@ -207,6 +207,8 @@ inline constexpr std::string_view
+     kLayerMajorNativePromptWideP40WholeCoreDeploymentPlanId =
+ #if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
+         "q3x.sm87.production.whole-core-prefill.v1";
++#elif defined(Q3X_ENABLE_ORDERED_DOWN_ADMISSION)
++        "q3x.sm87.admission.whole-core-ordered-down.v1";
+ #elif defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+         "q3x.sm87.admission.whole-core-full-range-prefill.v9";
+ #else
+diff --git a/include/q3x/server/evaluation_server.h b/include/q3x/server/evaluation_server.h
+index c776eb0..0285fc1 100644
+--- a/include/q3x/server/evaluation_server.h
++++ b/include/q3x/server/evaluation_server.h
+@@ -227,7 +227,11 @@ static_assert(
+ inline constexpr EvaluationProductionDeploymentPlan
+     kWholeCoreExactDecodeAdmissionPlan = [] {
+       auto plan = kP40WholeCoreV1ProductionPlan;
++#if defined(Q3X_ENABLE_ORDERED_DOWN_ADMISSION)
++      plan.id = "q3x.sm87.admission.whole-core-ordered-down.v1";
++#else
+       plan.id = "q3x.sm87.admission.whole-core-exact-decode.v9";
++#endif
+       plan.max_sequence_length = 44'095U;
+       plan.maximum_output_tokens = 4'096U;
+       plan.request_arena_bytes = runtime::kWholeCoreCompiledArenaBytes;
+diff --git a/src/runtime/reference_runner.cpp b/src/runtime/reference_runner.cpp
+index e68e004..3aa33b0 100644
+--- a/src/runtime/reference_runner.cpp
++++ b/src/runtime/reference_runner.cpp
+@@ -1,3 +1,6 @@
++#if defined(Q3X_ENABLE_ORDERED_DOWN_ADMISSION)
++#include "../kernels/sm87/nvfp4_down_ordered_admission.h"
++#endif
+ #include "q3x/runtime/whole_core_request_geometry.h"
+ #include "q3x/runtime/reference_runner.h"
+
+@@ -2114,6 +2117,16 @@ exact_marlin_operator_panel_plan(
+       scratch.byte_size < kBytes || reinterpret_cast<std::uintptr_t>(scratch.device_data) % 16U)
+     return static_cast<int>(cudaErrorInvalidValue);
+   const auto launch = [&](const std::uint16_t* x, std::uint16_t* y, std::size_t m) {
++#if defined(Q3X_ENABLE_ORDERED_DOWN_ADMISSION)
++    // The materialization is a large-M hypothesis. Keep short prefixes and
++    // padded tails on their declared incumbent route, before any enqueue.
++    // Reserve the tail buffers so scratch ownership stays identical in both.
++    if (m >= 8000U) return kernels::launch_nvfp4_down_ordered_admission(
++        weight.packed_weight, weight.prefill_marlin_scales,
++        weight.prefill_marlin_global_scale, x, y, static_cast<int>(m),
++        static_cast<std::uint8_t*>(scratch.device_data) + kBytes,
++        scratch.byte_size - kBytes, stream);
++#endif
+     return kernels::launch_sm87_nvfp4_persistent_prefill_down_residual_cuda(
+         x, weight.prefill_marlin_weight, weight.prefill_marlin_scales,
+         weight.prefill_marlin_global_scale, m, y, stream);
+diff --git a/src/server/openai_protocol.cpp b/src/server/openai_protocol.cpp
+index 5a8fe68..338efb0 100644
+--- a/src/server/openai_protocol.cpp
++++ b/src/server/openai_protocol.cpp
+@@ -1442,6 +1442,10 @@ std::string serialize_target_prefill_witness(
+       true ? "{\"record\":\"target-prefill-witness-whole-core-service-v1\","
+              "\"schema_version\":1,\"decode_numerical_contract\":"
+              "\"scalar-equivalent-ordered-fp32-v7\",\"request\":{\"id\":" :
++#elif defined(Q3X_ENABLE_ORDERED_DOWN_ADMISSION)
++      true ? "{\"record\":\"target-prefill-witness-whole-core-ordered-down-v1\","
++             "\"schema_version\":1,\"decode_numerical_contract\":"
++             "\"scalar-equivalent-ordered-fp32-v7\",\"request\":{\"id\":" :
+ #elif defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+       true ? "{\"record\":\"target-prefill-witness-whole-core-exact-decode-admission-v9\","
+              "\"schema_version\":2,\"decode_numerical_contract\":"
+diff --git a/src/kernels/sm87/nvfp4_down_ordered_admission.cu b/src/kernels/sm87/nvfp4_down_ordered_admission.cu
+new file mode 100644
+--- /dev/null
++++ b/src/kernels/sm87/nvfp4_down_ordered_admission.cu
+@@ -0,0 +1,71 @@
++#include <cuda_bf16.h>
++#include <cuda_runtime.h>
++#include <cstdint>
++#include <cstddef>
++#include <initializer_list>
++#include "cutlass/cutlass.h"
++#include "cutlass/gemm/device/gemm.h"
++#include "cutlass/epilogue/thread/linear_combination.h"
++#include "nvfp4_down_ordered_admission.h"
++
++namespace q3x::kernels {
++namespace {
++constexpr int N=5120,K=17408,Panel=8000;
++__device__ int original_k(int k) {return (k%(K/2)/32)*64+(k/(K/2))*32+k%32;}
++__global__ void decode_ordered_b(const uint8_t* packed,const uint8_t* scales,uint16_t* b) {
++ int i=blockIdx.x*blockDim.x+threadIdx.x;if(i>=N*K)return;
++ int n=i/K, k=original_k(i%K),n64=n%64;
++ int perm=(n64%8)*8+n64/8;
++ int sn=(n/64)*64+(perm&~3)+((perm&1)<<1)+((perm&2)>>1);
++ unsigned sc=scales[(k/16)*N+sn];
++ unsigned nib=(packed[(n*K+k)/2]>>((k%2)*4))&15;
++ auto x=__ushort_as_bfloat16(((nib&8)<<12)|((nib&7)<<6));
++ auto s=__ushort_as_bfloat16(((sc&128)<<7)|((sc&127)<<4));
++ b[i]=__bfloat16_as_ushort(__hmul(x,s));
++}
++__global__ void permute_a(const uint16_t* a,uint16_t* dst,int m) {
++ int i=blockIdx.x*blockDim.x+threadIdx.x;if(i<m*K)dst[i]=a[(i/K)*K+original_k(i%K)];
++}
++__global__ void merge_residual(const float* c0,const float* c1,const float* scale,uint16_t* out,int m) {
++ int i=blockIdx.x*blockDim.x+threadIdx.x;if(i>=m*N)return;
++ float v=__fmul_rn(__fadd_rn(c0[i],c1[i]),scale[0]);
++ float branch=__bfloat162float(__float2bfloat16_rn(v));
++ out[i]=__bfloat16_as_ushort(__float2bfloat16_rn(__fadd_rn(branch,__bfloat162float(__ushort_as_bfloat16(out[i])))));
++}
++using Gemm=cutlass::gemm::device::Gemm<cutlass::bfloat16_t,cutlass::layout::RowMajor,
++ cutlass::bfloat16_t,cutlass::layout::ColumnMajor,float,cutlass::layout::RowMajor,
++ float,cutlass::arch::OpClassTensorOp,cutlass::arch::Sm80,
++ cutlass::gemm::GemmShape<128,256,64>,cutlass::gemm::GemmShape<64,64,64>,
++ cutlass::gemm::GemmShape<16,8,16>,cutlass::epilogue::thread::LinearCombination<float,4,float,float>,
++ cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<2>,3>;
++}
++static size_t required_scratch_bytes(){return size_t(N)*K*2+size_t(Panel)*K*2+size_t(Panel)*N*8;}
++int launch_nvfp4_down_ordered_admission(const uint8_t* packed,const uint8_t* scales,const float* global,
++ const uint16_t* input,uint16_t* residual,int rows,void* scratch,size_t bytes,void* stream0) {
++ if(!packed||!scales||!global||!input||!residual||!scratch||rows<1||rows>44096||rows%64||bytes<required_scratch_bytes())return 1;
++ for(const void* p : {static_cast<const void*>(packed),static_cast<const void*>(scales),static_cast<const void*>(input),static_cast<const void*>(residual),static_cast<const void*>(scratch)})
++  if(reinterpret_cast<uintptr_t>(p)%16)return int(cudaErrorInvalidValue);
++ const uintptr_t sb=reinterpret_cast<uintptr_t>(scratch),se=sb+required_scratch_bytes();
++ if(se<sb||reinterpret_cast<uintptr_t>(global)%alignof(float))return int(cudaErrorInvalidValue);
++ const auto overlaps=[&](const void* p,size_t n){uintptr_t x=reinterpret_cast<uintptr_t>(p);return x+n<x||(x<se&&sb<x+n);};
++ if(overlaps(packed,size_t(N)*K/2)||overlaps(scales,size_t(N)*K/16)||overlaps(global,4)||overlaps(input,size_t(rows)*K*2)||overlaps(residual,size_t(rows)*N*2))return int(cudaErrorInvalidValue);
++ auto stream=static_cast<cudaStream_t>(stream0);
++ auto b=static_cast<uint16_t*>(scratch);auto a=b+N*K;
++ auto c0=reinterpret_cast<float*>(a+Panel*K);auto c1=c0+Panel*N;
++ decode_ordered_b<<<(N*K+255)/256,256,0,stream>>>(packed,scales,b);
++ for(int start=0;start<rows;start+=Panel){int m=rows-start<Panel?rows-start:Panel;
++  permute_a<<<(m*K+255)/256,256,0,stream>>>(input+size_t(start)*K,a,m);
++  for(int part=0;part<2;part++) {
++   auto c=part?c1:c0;
++   Gemm::Arguments args({m,N,K/2},{reinterpret_cast<cutlass::bfloat16_t*>(a)+part*(K/2),K},
++    {reinterpret_cast<cutlass::bfloat16_t*>(b)+part*(K/2),K},{c,N},{c,N},{1.f,0.f});
++   Gemm gemm;
++   if(Gemm::get_workspace_size(args)||gemm.can_implement(args)!=cutlass::Status::kSuccess)return 2;
++   if(gemm.initialize(args,nullptr,stream)!=cutlass::Status::kSuccess||gemm(stream)!=cutlass::Status::kSuccess)return 3;
++  }
++  merge_residual<<<(m*N+255)/256,256,0,stream>>>(c0,c1,global,residual+size_t(start)*N,m);
++ }
++ return int(cudaGetLastError());
++}
++
++} // namespace q3x::kernels
+diff --git a/src/kernels/sm87/nvfp4_down_ordered_admission.h b/src/kernels/sm87/nvfp4_down_ordered_admission.h
+new file mode 100644
+--- /dev/null
++++ b/src/kernels/sm87/nvfp4_down_ordered_admission.h
+@@ -0,0 +1,11 @@
++#pragma once
++#include <cstddef>
++#include <cstdint>
++namespace q3x::kernels {
++// Isolated admission only. No request allocation; preserves transformed Marlin
++// operands, ordered K32 partitions, FP32 merge and BF16-before-residual boundary.
++int launch_nvfp4_down_ordered_admission(const std::uint8_t* packed,
++    const std::uint8_t* marlin_scales, const float* marlin_global_scale,
++    const std::uint16_t* input, std::uint16_t* residual, int rows,
++    void* scratch, std::size_t scratch_bytes, void* stream);
++}

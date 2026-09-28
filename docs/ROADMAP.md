@@ -19,54 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-09-28 bounded non-MTP architecture assessment
+## 2026-09-28 bounded non-MTP architecture work — closed
 
-The owner has reopened one bounded architecture assessment after the 0.8.1
-reliability delivery and explicitly deferred MTP. `WP-NON-MTP-ARCHITECTURE-20260928`
-starts from the installed 0.8.1 API and its retained P8192/P40000 results.
-Its first delivery is a source-backed Prefill/Decode bottleneck and historical
-failure assessment selecting at most one implementation direction. Preserve
-all targets, the current numerical/state contract and default artifact.
+The owner-authorized `WP-NON-MTP-ARCHITECTURE-20260928` assessment and its
+`WP-DOWN-ORDERED-20260928` implementation are complete. The
+[assessment](analysis/non-mtp-architecture-assessment-2026-09-28/README.md)
+selected Down's 17.56-second profiled Prefill budget. The
+[implementation record](analysis/ordered-down-direction-2026-09-28/README.md)
+closes both permitted dataflows: first external FP32 partials, then a corrected
+block-local two-partition merge. Both preserved the bounded numerical panel
+and compared API outputs, but regressed real 8K and 40K Prefill. Neither is
+retained for production or future composition.
 
-The downward budget is user-visible Prefill/TTFT and long-context Decode;
-local kernel rates cannot select the work. Audit current call topology,
-weight/state movement and proven reference dataflows before choosing a change.
-Old profiles whose kernels were replaced cannot supply current percentages.
-Allow one current P40000/O256 whole-generation Nsight Systems attribution
-capture, after the existing same-artifact API result, to resolve that gap.
-The diagnostic budget is 20 minutes of real-model process time, no parameter
-sweep or numerical relaxation. Raw artifacts stay in
-`.q3x-work/non-mtp-architecture-20260928/`.
-
-The selected direction must identify an exact finite-precision mechanism,
-quantified removable scope, at most one causally justified correction, and a
-return to short/mid/40K API validation with Prefill and Decode reported together.
-This assessment does not reopen every deferred performance milestone or enable
-MTP. The [architecture assessment](analysis/non-mtp-architecture-assessment-2026-09-28/README.md)
-is complete: one installed P40000/O256 profile binds all 115,924 kernel launches
-and preserves the prior API output. No more attribution capture is pending.
-
-The only selected next hypothesis is `DOWN-DECODE-ORDERED-CONSUMER-v1`:
-separate one layer's packed Down decode from an ordered BF16 tensor consumer.
-It addresses 17.56 seconds of the profiled Prefill budget. Preserve the two
-incumbent K-partial accumulation chains, their FP32 merge, global scale and
-BF16 branch publication before residual addition. This is not an ordinary
-CUTLASS drop-in and is not implemented or numerically admitted yet.
-
-Before device timing, the implementation package must bind the exact ordered
-operator, existing scratch lifetime, real-weight panel and same-binary
-comparison. Allow one initial composition and at most one causally justified
-correction. The first numerically admissible complete composition returns to
-short, P8192 and P40000 API direction checks; numerical failure or a nonpositive
-composed result closes that version. A positive direction unlocks existing
-qualification gates rather than changing production by itself. Do not reopen
-FP8, Gate/Up, PV tuning or MTP concurrently; 60K/130K and locked SLOs remain
-separate unfulfilled product milestones.
+Candidate runner/build/profile branches have been removed; frozen reproducible
+patches and all failures remain in evidence. The default 0.8.1 artifact,
+numerical contract, capacity and paired performance baseline are unchanged.
+No third variant, local tuning, extra profile or qualification-only campaign
+is authorized by this closed package. MTP remains deferred. A materially new
+architecture requires a new bounded product-connected package; the deferred
+product targets below are neither lowered nor claimed achieved.
 
 ## 2026-09-28 product audit — performance optimization paused
 
 The owner paused performance optimization for this now-completed product
-audit. The subsequent bounded assessment above is the only reactivated scope;
+audit. The subsequent bounded architecture package above has also closed;
 the earlier milestone list does not authorize unrelated tuning. The 8.55 interim
 and long-term targets remain recorded, with no waiver or achievement claim.
 
