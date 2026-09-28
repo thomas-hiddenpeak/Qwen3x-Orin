@@ -134,6 +134,9 @@ void append_production_identity(
     std::string& output, const OpenAIProductionIdentity& production) {
   output += "{\"profile\":";
   append_json_string(output, production.profile_id);
+#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+  output += ",\"mtp_enabled\":true,\"acceleration_candidate\":true,\"maximum_prompt_tokens\":44095";
+#endif
   output += ",\"capacity\":{\"target_prompt_tokens\":";
   output += std::to_string(production.target_prompt_tokens);
   output += ",\"maximum_output_tokens\":";

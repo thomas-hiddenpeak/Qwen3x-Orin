@@ -380,7 +380,13 @@ The source-private `mtp_detail::EngineAccess` peer borrows the exact engine-owne
 model, runner and request state only in internal-test builds. The whole-core
 MTP harness first completes ordinary O1 generation, then captures normalized
 prompt hidden and runs the isolated scalar transaction. The engine must outlive
-all borrowers and cannot be used concurrently. The public generation controller,
-observers, timing, route receipts and installed ABI are unchanged. This is not
-a service MTP selector or an API acceleration result; the remaining composition
-is governed by [MTP Admission](MTP_ADMISSION.md#whole-core-prompt-handoff).
+all borrowers and cannot be used concurrently. This harness alone establishes
+no API acceleration result. The separately compiled MTP service admission owns
+its draft/transaction after model/runner/state creation and destroys them first.
+Its serialized controller scope initializes the draft after target Prefill commit
+and before the first observer, then publishes only complete target-verified
+prefixes through the ordinary observer. It reports total Prefill including draft
+initialization, full committed Decode time and a distinct MTP physical receipt.
+The installed ABI and ordinary production route remain unchanged. The service
+handoff, cancellation and memory contract is governed by
+[MTP Admission](MTP_ADMISSION.md#isolated-service-composition).

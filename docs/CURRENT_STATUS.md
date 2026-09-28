@@ -85,11 +85,44 @@ kernels preserve the original reduction and publication boundaries. P61/P65/P509
 cover both causal Attention path transitions and pass 27 complete per-prefix
 state/logit comparisons, 33 target-state/full-logit/draft-KV transaction checks,
 six post-verification failure recoveries and six initialization-cancel recoveries.
-These close the bounded verifier correctness prerequisite, not full-context
-service qualification. The remaining step is the isolated service-controller
-composition and real API performance/capability validation. No new Prefill,
-TTFT or Decode baseline is claimed. The [subsystem design](MTP_ADMISSION.md)
-and [Roadmap](ROADMAP.md) govern that composition.
+These close the bounded verifier correctness prerequisite. The subsequent
+[service direction record](metadata/qwen36-27b-mtp-service-direction-2026-09-28.json)
+connects those components through the ordinary HTTP generation controller at
+full configured capacity. Draft lengths 2 and 3 match the baseline response
+text, usage and finish on eight requests each, including stream/nonstream,
+text/chat and recovery after real Prefill/Decode disconnects. Startup retains
+over 8 GiB free memory with the complete target acceleration inventory.
+
+The chain is connected, but **v1 is not selected as an acceleration route**.
+The following are one fresh process per policy, same exact requests and order,
+not repeated release-qualified means. Prefill includes draft initialization;
+Decode counts committed output after the first token: non-MTP uses its existing
+step interval, while MTP includes the complete controller interval and observer
+work. External total durations are retained in the record. The installed
+ordinary service remains unchanged.
+
+| P / O | Policy | Prefill seconds | Prefill token/s | External TTFT seconds | Decode token/s |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 65 / 16 | non-MTP | 0.882 | 73.69 | 0.907 | 9.591 |
+| 65 / 16 | MTP d2 | 0.908 | 71.55 | 0.927 | 3.414 |
+| 65 / 16 | MTP d3 | 0.909 | 71.53 | 0.928 | 3.258 |
+| 8192 / 256 | non-MTP | 16.750 | 489.08 | 16.772 | 9.223 |
+| 8192 / 256 | MTP d2 | 20.009 | 409.42 | 20.031 | 3.553 |
+| 8192 / 256 | MTP d3 | 19.974 | 410.14 | 19.996 | 3.814 |
+| 40000 / 256 | non-MTP | 89.872 | 445.08 | 89.907 | 7.868 |
+| 40000 / 256 | MTP d2 | 106.179 | 376.72 | 106.214 | 3.019 |
+| 40000 / 256 | MTP d3 | 106.553 | 375.40 | 106.588 | 3.245 |
+
+At 8K/40K, d2 acceptance is 80.1%/71.4% and d3 is 68.4%/63.7%.
+Verification consumes roughly 87–91% of Decode. Its independent multi-row
+projection kernels do not yet use the optimized production Decode layouts;
+row reuse alone did not deliver performance. Draft initialization adds about
+3.24 s at 8K and 15.8 s at 40K. These measured costs select the next architectural
+work, not a length sweep or more qualification of v1. The isolated controller
+and witness remain reusable development infrastructure. The
+[subsystem design](MTP_ADMISSION.md) and [Roadmap](ROADMAP.md) govern the next
+composition; broader capability, maximum-capacity execution and release
+qualification are not claimed.
 
 ## Numerical baseline decision
 

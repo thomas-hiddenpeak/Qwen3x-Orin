@@ -286,7 +286,7 @@ than borrowing the legacy prefix-reset authority.
 ## Private MTP scalar correctness peer
 
 `mtp_detail::TargetTransaction` is a source-private friend implemented only in
-the non-installable MTP device tests. It requires the exact Legacy-C512 or
+the non-installable MTP device tests and explicit service admission. It requires the exact Legacy-C512 or
 whole-core state owner, stages ordinary scalar steps or the explicitly selected
 source-private multi-row verifier and selects complete
 saved recurrent/Conv, normalized-hidden and full-logit prefixes with append-only
@@ -298,7 +298,9 @@ owns this bounded exception to external state mutation. The friend declaration
 adds no object fields, public selector, production symbol or installed ABI
 change. Its whole-core test adapter captures every final normalized prompt
 row after successful Prefill, preserving persistent state and logits. This
-does not authorize MTP service use. The explicit multi-row peer reuses
+does not alone qualify service use. The isolated service additionally binds
+the post-commit handoff and distinct MTP witness specified in the subsystem
+contract. The explicit multi-row peer reuses
 request-owned C512 scratch and stages each Conv/GDN prefix at its unchanged
 per-token publication boundary. Dedicated quantized projections preserve the
 scalar four-chain reduction; generic small-M Prefill arithmetic is excluded.

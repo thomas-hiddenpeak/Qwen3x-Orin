@@ -1,5 +1,9 @@
 #include "q3x/server/evaluation_server.h"
 #include "utf8_output.h"
+#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#include "../runtime/mtp_engine_internal.h"
+#include "../runtime/mtp_service_internal.h"
+#endif
 
 #include "q3x/core/sha256.h"
 #include "q3x/server/openai_protocol.h"
@@ -29,6 +33,7 @@
 #include <mutex>
 #include <optional>
 #include <sstream>
+#include <iomanip>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -71,6 +76,13 @@ using Clock = std::chrono::steady_clock;
       continue;
     }
     const std::string_view name = assignment.substr(0U, equals);
+#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+    // One explicit startup policy belongs to this isolated MTP profile.
+    // Every other ambient tactic, including malformed draft values, stays forbidden.
+    if (name == "Q3X_MTP_DRAFT_LENGTH" &&
+        (assignment.substr(equals + 1) == "2" || assignment.substr(equals + 1) == "3"))
+      continue;
+#endif
     if (name.size() >= kProjectEnvironmentPrefix.size() &&
         name.compare(0U, kProjectEnvironmentPrefix.size(),
                      kProjectEnvironmentPrefix) == 0) {
@@ -1237,7 +1249,7 @@ bool observe_gateway_token(
   return phase;
 }
 
-void emit_target_prefill_witness(
+[[maybe_unused]] void emit_target_prefill_witness(
     const runtime::ReferenceEngine& engine,
     const std::shared_ptr<InferenceJob>& job,
     const ObserverContext& observer,
@@ -1503,6 +1515,9 @@ void execute_job(runtime::ReferenceEngine& engine,
   }
 
   runtime::ReferenceGenerateResult generated;
+#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+  runtime::mtp_detail::EngineAccess::service(engine)->reset_report(nullptr, nullptr);
+#endif
   const Clock::time_point generation_started_at = Clock::now();
   switch (job->request.prompt_kind) {
     case OpenAIPromptKind::kChatMessages:
@@ -1519,6 +1534,47 @@ void execute_job(runtime::ReferenceEngine& engine,
       break;
   }
   const Clock::time_point generation_finished_at = Clock::now();
+#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+  // Separate receipt: never emit the non-MTP witness's disabled-MTP claim.
+  const auto* mtp = runtime::mtp_detail::EngineAccess::service(engine);
+  if (mtp) {
+    std::ostringstream receipt;
+    receipt << std::setprecision(17) << std::boolalpha
+        << "{\"schema\":\"mtp-multirow-api-witness-v1\",\"request_id\":\"" << job->id
+        << "\",\"request_body_sha256\":\"" << job->request_body_sha256
+        << "\",\"profile\":\"q3x.sm87.admission.mtp-multirow-api.v1\",\"engine_result\":"
+        << bool(generated) << ",\"cancelled\":"
+        << (generated ? generated.value->stop_reason == runtime::ReferenceStopReason::kCancelled
+                      : generated.diagnostic.code == runtime::ReferenceEngineError::kCancelled)
+        << ",\"generation_wall_ms\":"
+        << elapsed_milliseconds(generation_started_at, generation_finished_at)
+        << ",\"mtp\":" << mtp->report_json();
+    if (generated) {
+      const auto& value = *generated.value;
+      receipt << ",\"prompt_tokens\":" << value.prompt_token_ids.size()
+          << ",\"prompt_token_ids_u32le_sha256\":\"" << sha256_token_ids_u32le(value.prompt_token_ids)
+          << "\",\"completion_tokens\":" << value.generated_token_ids.size()
+          << ",\"prefill_ms\":" << value.timing.prompt_prefill_milliseconds
+          << ",\"decode_ms\":" << value.timing.decode_after_first_milliseconds
+          << ",\"target_prefill_complete\":" << value.prefill_route_evidence.complete
+          << ",\"prefill_layer_hits\":" << value.prefill_prompt_wide_p40_whole_core_layer_hits
+          << ",\"prefill_fill_hits\":" << value.prefill_prompt_wide_p40_fill_panel_hits
+          << ",\"prefill_drain_hits\":" << value.prefill_prompt_wide_p40_drain_panel_hits
+          << ",\"prefill_fp8_launches\":" << value.prefill_prompt_wide_p40_fp8_projection_physical_launches
+          << ",\"prefill_gdn_hits\":" << value.prefill_prompt_wide_p40_gdn_hits
+          << ",\"prefill_attention_hits\":" << value.prefill_native_flashinfer_exact_whole_prompt_hits
+          << ",\"prefill_mlp_launches\":" << value.prefill_persistent_p40_nvfp4_physical_launches
+          << ",\"generated_token_ids\":[";
+      for (std::size_t i = 0; i < value.generated_token_ids.size(); ++i) {
+        if (i) receipt << ',';
+        receipt << value.generated_token_ids[i];
+      }
+      receipt << ']';
+    }
+    receipt << '}';
+    std::cerr << receipt.str() << '\n';
+  }
+#endif
 
   if (!generated) {
     runtime_health.observe_failure(generated.diagnostic);
@@ -1644,9 +1700,14 @@ void execute_job(runtime::ReferenceEngine& engine,
     job->set_response(200, body);
   }
   const Clock::time_point response_ready_at = Clock::now();
+#if !defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
   emit_target_prefill_witness(
       engine, job, observer, *generated.value, options, execution_started_at,
       generation_started_at, generation_finished_at, response_ready_at);
+#else
+  (void)response_ready_at;
+  (void)execution_started_at;
+#endif
 }
 
 void inference_worker(runtime::ReferenceEngine& engine,

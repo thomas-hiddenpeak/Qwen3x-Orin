@@ -2,6 +2,9 @@
 #include "decode_fused_gqa_internal.h"
 #endif
 #include "q3x/runtime/reference_engine.h"
+#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#include "mtp_service_internal.h"
+#endif
 #if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
 #include "mtp_engine_internal.h"
 #endif
@@ -4869,6 +4872,9 @@ struct ReferenceEngine::Impl {
       bound_prefill_plan;
   ReferenceEngineLoadStats load;
   bool trace_enabled = false;
+#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+  std::unique_ptr<mtp_detail::Service> mtp;
+#endif
   bool decode_graph_cache_ready = false;
   LayerMajorPrefillMlpScheduleTactic prefill_mlp_schedule_tactic =
       LayerMajorPrefillMlpScheduleTactic::kPerOperatorPanel;
@@ -6240,6 +6246,10 @@ struct ReferenceEngine::Impl {
         impl->bound_prefill_plan = std::move(bound.value);
       }
 
+#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+      impl->mtp = std::make_unique<mtp_detail::Service>(
+          model_directory, *impl->model_weights, *impl->runner, *impl->request_state);
+#endif
       double prepared_milliseconds = 0.0;
       if (prepared_work_wall_milliseconds > 0.0) {
         prepared_milliseconds = prepared_work_wall_milliseconds;
@@ -6287,6 +6297,11 @@ bool ReferenceEngine::attach_target_aot_projection_device_assets(
 }
 
 #if defined(Q3X_ENABLE_REFERENCE_ENGINE_INTERNAL_TEST_SEAMS)
+#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+mtp_detail::Service* mtp_detail::EngineAccess::service(ReferenceEngine& engine) noexcept {
+  return engine.impl_ ? engine.impl_->mtp.get() : nullptr;
+}
+#endif
 ReferenceRunner* mtp_detail::EngineAccess::runner(ReferenceEngine& engine) noexcept {
   return engine.impl_ && engine.impl_->runner ? &*engine.impl_->runner : nullptr;
 }
@@ -7381,6 +7396,17 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
         "reference engine is empty");
     return result;
   }
+#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+  impl_->mtp->reset_report(options.prefill_cancellation_probe, options.prefill_cancellation_context);
+  if (prompt_token_ids.size() > mtp_detail::kServicePromptLimit ||
+      options.max_new_tokens > mtp_detail::kServiceOutputLimit || options.capture_trace ||
+      options.logits_mode != ReferenceLogitsMode::kPredictedTokenOnly ||
+      options.prefill_execution_mode != ReferencePrefillExecutionMode::kWholeRequestLayerMajor) {
+    result.diagnostic = engine_diagnostic(ReferenceEngineError::kInvalidArgument,
+        "mtp_admission", "MTP admission requires P+O-1<=44095, O<=4096, whole-core and prediction-only");
+    return result;
+  }
+#endif
   if (prompt_token_ids.empty() || options.max_new_tokens == 0U ||
       options.prefill_chunk_size == 0U ||
       options.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
@@ -7611,6 +7637,9 @@ ReferenceGenerateResult ReferenceEngine::generate_tokenized(
 
     reference_engine_detail::GenerationControlResult control;
     try {
+#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+      mtp_detail::ServiceScope mtp_scope(impl_->mtp.get());
+#endif
       control = reference_engine_detail::run_generation_control(
           prompt_token_ids, control_options, prefill_plan, decode_plan);
     } catch (...) {

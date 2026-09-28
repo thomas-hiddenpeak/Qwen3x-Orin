@@ -22,7 +22,8 @@ by business-driven scanning later. `WP-MTP-20260928` owns
 separate; an MTP result cannot claim to close a non-MTP performance gap.
 [Roadmap](ROADMAP.md) owns delivery order and [Current Status](CURRENT_STATUS.md)
 owns what actually executes. The native transaction below has scalar-oracle
-and isolated multi-row modes; neither is a production API route.
+and isolated multi-row modes. The service composition below is a separate
+development API route; the default production service remains non-MTP.
 
 ## Product trace and bounded composition
 
@@ -181,7 +182,8 @@ The exact completion boundary is in its
 ## Native scalar correctness backend
 
 The source-private [device implementation](../src/runtime/mtp_device_internal.cpp)
-is linked only into the explicit MTP device test targets. Its `Weights` owner validates the
+is linked into explicit MTP device tests and the isolated service admission.
+Its `Weights` owner validates the
 catalog, requires each tensor at its compiled source offset relative to byte
 59,416 of shard 3, opens every root component and the shard without following
 symlinks, and copies/hash-authenticates the same sequential bytes. All of shard
@@ -309,3 +311,58 @@ API speed, long-prompt admission or production eligibility.
 The [whole-core handoff record](metadata/qwen36-27b-mtp-whole-core-2026-09-28.json)
 binds the exact P65/O16 harness artifact, complete state/full-logit comparisons,
 CPU prompt-normalization/draft oracle and unchanged production boundary.
+
+## Isolated service composition
+
+`Q3X_BUILD_MTP_SERVICE_ADMISSION=ON` binds the existing corrected whole-core
+Prefill, batched shifted draft cache and exact multi-row verifier into the
+ordinary generation controller and HTTP gateway. It requires testing, excludes
+production/install, and identifies itself as
+`q3x.sm87.admission.mtp-multirow-api.v1`. The startup-only
+`Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
+`P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
+an additional post-composition 8-GiB free-memory check.
+
+The engine owns the service after its model/runner/state owners and destroys
+it first. A serialized thread-local scope binds only that engine's generation
+control. The handoff runs after whole-request state commit and before first
+observer publication. At this internal point the request-level route record
+is still active: a private service-only handoff accepts it only with a completed
+layer pass, no route/boundary error, exact committed prompt length and no
+active whole-request stage. The ordinary completed-request harness boundary
+remains supported. The engine finalizes the original Prefill record after
+generation; MTP never fabricates a non-MTP witness.
+
+Total Prefill includes normalized prompt capture and draft-cache initialization.
+Decode measures elapsed time through all rounds, including proposal, snapshots,
+verification, reconciliation and observer work; its numerator is committed
+output minus the first token. Per-token SSE timestamps retain real bursts.
+`mtp-multirow-api-witness-v1` binds the exact request and prompt hashes, actual
+output IDs/count, target Prefill physical counts, proposed/accepted/verified
+rows, per-position acceptance, phase costs and startup free bytes. No proposal
+is counted as output before complete prefix selection. Cancellation returns
+through existing engine/gateway handling; uncertain initialization poisons and
+requires full reset. A failed transaction terminates the request/service through
+the existing fatal-health boundary.
+
+The owner now prioritizes completing this chain before further local tuning.
+The [API driver](../tools/evaluation/validate_mtp_service.py) returns each stage's
+Prefill, external TTFT and committed Decode immediately, with a matched ordinary
+service baseline. P65/O16 is the first integration stage, then P8192/P40000
+O256 for both draft lengths, followed by bounded stream/text/chat/cancellation
+checks. These single-process observations select an engineering direction,
+not production promotion or a statistically repeated performance baseline.
+
+Reproduce the isolated service (all build/cache artifacts stay in the workspace):
+
+```bash
+cmake --preset orin-mtp-service-admission
+cmake --build --preset orin-mtp-service-admission --parallel 3
+Q3X_MTP_DRAFT_LENGTH=2 \
+  .q3x-work/build/orin-mtp-service-admission/qwen3x-eval-server-mtp-admission \
+  MODEL_DIR --candidate-profile whole-core-exact-decode --port 18080
+```
+
+Use a separate ordinary whole-core admission build for the scalar/device
+harnesses; they are excluded from this service build to avoid attaching a
+second independent MTP owner to an already composed engine.

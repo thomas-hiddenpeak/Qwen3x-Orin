@@ -303,10 +303,12 @@ the generation-controller, shifted hidden/token, weight and state-transaction
 boundaries. The default service and the locked performance targets retain their
 non-MTP identity. Only target-verified tokens may reach observers or usage;
 acceptance, rejection, EOS and cancellation select complete target and draft
-state prefixes, including GDN/Conv, before publication. A future candidate
+state prefixes, including GDN/Conv, before publication. The isolated candidate
 must account for draft Prefill, physical verification work and reconciliation
-in its real API witness. The native scalar oracle and multi-row verifier are
-separate from that service composition. Multi-row projection weight reuse
+in its real API witness. The isolated service composition binds the validated multi-row verifier and
+batched draft-cache initialization to the ordinary HTTP generation controller.
+It retains full capacity and the startup reserve under a distinct MTP identity.
+Multi-row projection weight reuse
 preserves scalar reduction/publication boundaries; complete immutable prefix
 slots are assembled before commitment. Internal correctness checks establish
 no API performance or production eligibility.

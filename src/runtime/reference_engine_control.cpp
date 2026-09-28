@@ -1,4 +1,7 @@
 #include "q3x/runtime/reference_engine.h"
+#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+#include "mtp_service_internal.h"
+#endif
 
 #include <nvtx3/nvToolsExt.h>
 
@@ -691,6 +694,15 @@ GenerationControlResult run_generation_control_impl(
       }
     }
 
+#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+    if (auto* mtp = mtp_detail::active_service()) {
+      const auto status = mtp->initialize(prompt_token_ids);
+      if (!status) return failure(GenerationControlError::kRunnerFailure, status);
+      const double ms = mtp->report().initialization_ms;
+      control.timing.prefix_execution_milliseconds.back() += ms;
+      control.timing.prompt_prefill_milliseconds += ms;
+    }
+#endif
     control.timing.time_to_first_token_milliseconds =
         control.timing.prompt_prefill_milliseconds;
     control.timing.total_generation_milliseconds =
@@ -702,6 +714,12 @@ GenerationControlResult run_generation_control_impl(
     } else if (!continue_after_first) {
       control.stop_reason = ReferenceStopReason::kCancelled;
     } else {
+#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+      if (auto* mtp = mtp_detail::active_service()) {
+        const auto status = mtp->decode(control, options);
+        if (!status) return failure(GenerationControlError::kRunnerFailure, status);
+      } else
+#endif
       while (control.generated_token_ids.size() < options.max_new_tokens) {
         const std::uint32_t input_token =
             control.generated_token_ids.back();

@@ -383,11 +383,27 @@ TargetTransaction::~TargetTransaction() {
 }
 bool TargetTransaction::initialize_whole_core_prefill(
     const std::uint32_t* prompt, std::uint32_t count,
-    bool (*cancel)(void*) noexcept, void* cancel_context) noexcept {
+    bool (*cancel)(void*) noexcept, void* cancel_context,
+    bool committed_service_handoff) noexcept {
+  const auto& route = target_.prefill_route_evidence_;
+  // Service control calls here only after the runner commits the entire prompt;
+  // request-level evidence is finalized after generation. Never allow this
+  // handoff while any whole-request stage is still active.
+  bool route_ready = route.complete;
+#if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+  if (committed_service_handoff && route.request_active && !route.complete &&
+      route.error == PrefillRouteEvidenceError::kNone && route.completed_layer_passes > 0) {
+    route_ready = true;
+    for (const auto& op : route.operators) route_ready &= op.forbidden_hits == 0;
+    for (auto hits : route.forbidden_boundary_hits) route_ready &= hits == 0;
+  }
+#else
+  (void)committed_service_handoff;
+#endif
   if (active_ || target_.poisoned_ || target_.whole_request_prefill_active() ||
       !prompt_hidden_ || !prompt || count == 0 ||
       count != state_.current_position() || count > state_.max_sequence_length() ||
-      !target_.prefill_route_evidence_.complete) return false;
+      !route_ready) return false;
   for (std::uint32_t i = 0; i < count; ++i) if (prompt[i] >= V) return false;
   const auto& residual = target_.layer_major_request_views_->prompt_residual_bf16;
   if (residual.columns != H || residual.row_stride_elements != H ||

@@ -43,17 +43,25 @@ against full scalar state/logits, including the S64 and S512 Attention switches.
 The generic small-M reduction mismatch is fixed; no additional local verifier
 scan is pending.
 
-Remaining work: integrate the completed dependencies into the isolated service
-controller with truthful MTP route/accounting receipts, complete production
-acceleration inventory and actual retained-memory admission. The owner explicitly requires
-these prerequisites before service integration; a reduced-context scalar API
-is not an alternative completion criterion. Return to P65 sanity and
-P8192/P40000 O256 for both configured
-lengths immediately after those dependencies compose. Report Prefill, TTFT,
-committed Decode, acceptance, reconciliation cost and memory together. No
-length sweep or production switch is selected by host-only results. The three
-integration stages and negative-direction stop are bounded in the subsystem
-contract; no additional qualification-only campaign is opened.
+The [service composition](metadata/qwen36-27b-mtp-service-direction-2026-09-28.json)
+now completes that API return: P65/O16 and P8192/P40000 O256 run for both draft
+lengths, with matched responses and bounded lifecycle/route checks. Both
+policies worsen Prefill and Decode relative to the ordinary service. This
+closes the performance version of `AC-MTP-GREEDY-v1` without selection; no
+additional v1 qualification or draft-length sweep is pending. The isolated
+controller, full-capacity admission and truthful physical witness are retained
+as development infrastructure, not enabled in production.
+
+Next MTP engineering must change the composed dataflow: bring optimized
+production projection layouts/operand delivery into weight-reusing verification,
+and reduce the measured draft-cache initialization cost. Acceptance is already
+substantial; scalar correctness alone or additional row reuse is not a useful
+performance exit. Name and bound that materially revised architecture before
+its performance run, then return directly to the same three API stages with
+joint Prefill/TTFT/committed Decode, acceptance and phase-cost reporting. Do not
+reopen non-MTP optimization or spend another campaign qualifying this losing
+version. The owner's latest direction prioritizes closing the real chain and
+reporting every stage over further isolated mechanism refinement.
 
 ## 2026-09-28 publication fusion — closed without promotion
 

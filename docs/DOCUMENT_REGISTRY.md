@@ -27,13 +27,13 @@ document. Classes and authority rules are defined by
 - Unclassified: **0**.
 - Duplicate registrations: **0**.
 - Automated validator: **PASS** (`86` tracked, `86` registered, `41`
-  required first-party headers, `57` headers checked, `1024` local links,
+  required first-party headers, `57` headers checked, `1027` local links,
   `0` errors).
 - Inventory basis: every literal path from `git ls-files '*.md'` in the
   integrated tree including the numerical repair and corrected whole-core
   service production switch, code/documentation audit, 0.8.1 reliability delivery,
   closed bounded non-MTP implementation and MTP host/device/whole-core handoff,
-  batched-cache and multi-row verifier milestones; the paused reference-translation package is archived, with its original observations preserved.
+  batched-cache, multi-row verifier and full API direction milestones; the paused reference-translation package is archived, with its original observations preserved.
 - Header transition: every registered non-evidence first-party document now
   has a standard control header and is enforced by the validator. Frozen
   evidence and third-party documents are not rewritten merely to add headers.

@@ -71,7 +71,8 @@ class TargetTransaction final : public RoundBackend {
   bool initialize_whole_core_prefill(const std::uint32_t* prompt,
                                     std::uint32_t count,
                                     bool (*cancel)(void*) noexcept = nullptr,
-                                    void* cancel_context = nullptr) noexcept;
+                                    void* cancel_context = nullptr,
+                                    bool committed_service_handoff = false) noexcept;
   const std::uint16_t* prompt_hidden() const noexcept { return prompt_hidden_; }
   bool begin(std::uint32_t verify_rows) noexcept override;
   bool propose(std::uint32_t seed, std::uint32_t count,

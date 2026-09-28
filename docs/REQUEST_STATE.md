@@ -309,5 +309,7 @@ batch scratch at construction, retaining the same free-memory gate. It
 publishes only complete batches and poisons on cancellation; it does not
 materialize a valid draft final hidden. The explicit multi-row verifier reuses
 the validated C512 request scratch and assembles the same immutable prefix
-slots layer by layer, with no added allocation. No partially assembled slot can be committed. Service use still
-requires the separate MTP composition.
+slots layer by layer, with no added allocation. No partially assembled slot can be committed. The separate service
+composition retains the full target arena/inventory and checks actual remaining
+free memory after constructing all draft/transaction owners. It grants no
+ordinary production or capacity qualification.

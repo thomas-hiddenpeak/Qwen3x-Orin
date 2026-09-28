@@ -53,7 +53,8 @@
         "BUILD_TESTING": "ON",
         "Q3X_CUDA_ARCHITECTURES": "87",
         "Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION": "ON",
-        "Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION": "OFF"
+        "Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION": "OFF",
+        "Q3X_BUILD_MTP_SERVICE_ADMISSION": "OFF"
       }
     },
     {
@@ -64,6 +65,16 @@
         "BUILD_TESTING": "ON",
         "Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION": "OFF",
         "Q3X_CUDA_ARCHITECTURES": "87"
+      }
+    },
+    {
+      "name": "orin-mtp-service-admission",
+      "inherits": "orin-whole-core-exact-decode-admission",
+      "displayName": "Isolated multi-row MTP service",
+      "description": "Full-capacity MTP development API; not installable or production selected",
+      "binaryDir": "${sourceDir}/.q3x-work/build/orin-mtp-service-admission",
+      "cacheVariables": {
+        "Q3X_BUILD_MTP_SERVICE_ADMISSION": "ON"
       }
     }
   ],
@@ -96,6 +107,13 @@
     {
       "name": "orin-host-tests",
       "configurePreset": "orin-host-tests"
+    },
+    {
+      "name": "orin-mtp-service-admission",
+      "configurePreset": "orin-mtp-service-admission",
+      "targets": [
+        "qwen3x-eval-server"
+      ]
     }
   ],
   "testPresets": [

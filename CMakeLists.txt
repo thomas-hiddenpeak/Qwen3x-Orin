@@ -109,6 +109,15 @@ if(Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
 endif()
 option(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION
   "Build non-installable whole-core plus exact Decode composition" OFF)
+option(Q3X_BUILD_MTP_SERVICE_ADMISSION
+  "Build isolated multi-row MTP API candidate (not installable)" OFF)
+if(Q3X_BUILD_MTP_SERVICE_ADMISSION)
+  if(NOT BUILD_TESTING OR Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION)
+    message(FATAL_ERROR "MTP service admission requires testing and forbids production")
+  endif()
+  set(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION ON)
+  add_compile_definitions(Q3X_ENABLE_MTP_SERVICE_ADMISSION=1)
+endif()
 if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
   if(NOT BUILD_TESTING)
     message(FATAL_ERROR "Whole-core Decode composition requires BUILD_TESTING=ON")
@@ -650,6 +659,7 @@ if(Q3X_BUILD_FUSED_DECODE_ADMISSION AND NOT BUILD_TESTING)
 endif()
 if(Q3X_BUILD_FUSED_DECODE_ADMISSION)
   set(q3x_whole_core_composition_options
+    Q3X_BUILD_MTP_SERVICE_ADMISSION
     Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION
     Q3X_BUILD_P40_WHOLE_CORE_PRODUCTION_ROUTE
     Q3X_BUILD_NVFP4_MARLIN_PREFILL_ADMISSION
@@ -893,6 +903,14 @@ add_library(q3x_engine STATIC
   src/runtime/reference_engine_prefill_authority.cpp
 )
 add_library(q3x::engine ALIAS q3x_engine)
+if(Q3X_BUILD_MTP_SERVICE_ADMISSION)
+  target_sources(q3x_engine PRIVATE src/runtime/mtp_service_internal.cpp
+    src/runtime/mtp_device_internal.cpp src/runtime/mtp_control.cpp
+    src/model/mtp_weights_internal.cpp src/runtime/mtp_prefill_internal.cu
+    src/runtime/mtp_verify_internal.cpp src/runtime/mtp_verify_projection_internal.cu)
+  set_target_properties(q3x_engine PROPERTIES CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}" CUDA_STANDARD 17)
+  target_include_directories(q3x_engine PRIVATE src)
+endif()
 set_target_properties(q3x_engine PROPERTIES
   EXPORT_NAME engine
   POSITION_INDEPENDENT_CODE ON
@@ -1052,6 +1070,10 @@ if(Q3X_BUILD_FUSED_DECODE_ADMISSION)
   if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
     set_target_properties(qwen3x-eval-server PROPERTIES
       OUTPUT_NAME qwen3x-eval-server-whole-core-exact-decode-admission)
+    if(Q3X_BUILD_MTP_SERVICE_ADMISSION)
+      set_target_properties(qwen3x-eval-server PROPERTIES
+        OUTPUT_NAME qwen3x-eval-server-mtp-admission)
+    endif()
     add_executable(q3x_whole_core_exact_decode_model_test
       tests/whole_core_exact_decode_model_test.cpp)
     target_include_directories(q3x_whole_core_exact_decode_model_test PRIVATE
@@ -1107,26 +1129,28 @@ if(BUILD_TESTING)
     tests/mtp_weights_test.cpp src/model/mtp_weights_internal.cpp)
   target_include_directories(q3x_mtp_weights_test PRIVATE src)
   target_link_libraries(q3x_mtp_weights_test PRIVATE q3x::core)
-  add_executable(q3x_mtp_device_test
-    tests/mtp_device_test.cpp src/runtime/mtp_device_internal.cpp
-    src/runtime/mtp_verify_internal.cpp src/runtime/mtp_verify_projection_internal.cu
-    src/runtime/mtp_prefill_internal.cu
-    src/runtime/mtp_control.cpp src/model/mtp_weights_internal.cpp)
-  target_include_directories(q3x_mtp_device_test PRIVATE src)
-  target_link_libraries(q3x_mtp_device_test PRIVATE q3x::engine)
-  set_target_properties(q3x_mtp_device_test PROPERTIES
-    CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}" CUDA_STANDARD 17)
-  if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
-    add_executable(q3x_mtp_whole_core_test
+  if(NOT Q3X_BUILD_MTP_SERVICE_ADMISSION)
+    add_executable(q3x_mtp_device_test
       tests/mtp_device_test.cpp src/runtime/mtp_device_internal.cpp
       src/runtime/mtp_verify_internal.cpp src/runtime/mtp_verify_projection_internal.cu
       src/runtime/mtp_prefill_internal.cu
       src/runtime/mtp_control.cpp src/model/mtp_weights_internal.cpp)
-    target_include_directories(q3x_mtp_whole_core_test PRIVATE src)
-    target_compile_definitions(q3x_mtp_whole_core_test PRIVATE Q3X_MTP_WHOLE_CORE_TEST=1)
-    target_link_libraries(q3x_mtp_whole_core_test PRIVATE q3x::engine)
-    set_target_properties(q3x_mtp_whole_core_test PROPERTIES
+    target_include_directories(q3x_mtp_device_test PRIVATE src)
+    target_link_libraries(q3x_mtp_device_test PRIVATE q3x::engine)
+    set_target_properties(q3x_mtp_device_test PROPERTIES
       CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}" CUDA_STANDARD 17)
+    if(Q3X_BUILD_WHOLE_CORE_EXACT_DECODE_ADMISSION)
+      add_executable(q3x_mtp_whole_core_test
+        tests/mtp_device_test.cpp src/runtime/mtp_device_internal.cpp
+        src/runtime/mtp_verify_internal.cpp src/runtime/mtp_verify_projection_internal.cu
+        src/runtime/mtp_prefill_internal.cu
+        src/runtime/mtp_control.cpp src/model/mtp_weights_internal.cpp)
+      target_include_directories(q3x_mtp_whole_core_test PRIVATE src)
+      target_compile_definitions(q3x_mtp_whole_core_test PRIVATE Q3X_MTP_WHOLE_CORE_TEST=1)
+      target_link_libraries(q3x_mtp_whole_core_test PRIVATE q3x::engine)
+      set_target_properties(q3x_mtp_whole_core_test PROPERTIES
+        CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}" CUDA_STANDARD 17)
+    endif()
   endif()
   # Explicit real-checkpoint invocation only; never an automatic GPU CTest.
   add_test(NAME mtp_weights COMMAND q3x_mtp_weights_test)

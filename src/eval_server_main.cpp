@@ -42,6 +42,10 @@ void PrintUsage(std::ostream& output) {
 #if defined(Q3X_ENABLE_WHOLE_CORE_SERVICE_PRODUCTION)
   output << "  Deployment profile: " << q3x::server::kWholeCoreServiceProductionPlan.id << "\n"
          << "  Prompt + output - 1 <= 44095; output ceiling 4096; greedy text/chat\n";
+#elif defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
+  output << "  --candidate-profile whole-core-exact-decode\n"
+         << "  Isolated multi-row MTP API: P+O-1<=44095/O1..4096; not installable\n"
+         << "  Requires Q3X_MTP_DRAFT_LENGTH=2 or 3 at startup\n";
 #elif defined(Q3X_ENABLE_WHOLE_CORE_EXACT_DECODE_ADMISSION)
   output << "  --candidate-profile whole-core-exact-decode\n"
          << "                              Non-installable P40000/O1..4096 composition;\n"
