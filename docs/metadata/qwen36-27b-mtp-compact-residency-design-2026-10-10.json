@@ -1,0 +1,30 @@
+{
+  "date": "2026-10-10",
+  "base_git": "334523dbcfb72cfab4b5861411c3d19a37be89fa",
+  "work_package_id": "WP-MTP-COMPACT-RESIDENCY-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v20",
+  "target": [
+    1.5,
+    3.0
+  ],
+  "full_decode_budget_s": [
+    18.45,
+    21.62
+  ],
+  "measured_40k_gpu_budget_s": {
+    "fp8": 7.446833344,
+    "gate_up": 5.87424864
+  },
+  "mechanism": "One CTA stages full-K compact weight records once. Independent M row consumer groups retain original K lanes, four chains and reductions. FP8 K5120/6144 four outputs use at most 26112 bytes including codebook/reduction. NVFP4 Gate/Up sixteen outputs K5120 use 46080 packed bytes plus 1088 codebook bytes. Down remains v7.",
+  "difference_from_rejected": "v11 expands full-K FP8 to BF16 and leaves NVFP4 unchanged; v5 expands FP32 tiles with per-K barriers; v14 retains all M accumulators per thread; v13 independent CTAs repeat global reads. This complete composition stages compact records once and keeps a separate original consumer group per row, including Gate/Up.",
+  "numerical": "Original quantized-code decode, four FMA chains, warp/eight-warp reductions, tensor scaling and BF16 RNE unchanged. No approximate output, tree change or recurrence change.",
+  "cost_and_risk": "Repeated shared packed reads and codebook decode for M rows may outweigh lower accumulator liveness; large CTA/47KiB shared may limit residency. No measured hardware-stall claim.",
+  "scope": "One fixed complete implementation plus at most one correctness repair; T1 complete M2/3/4 outputs and guards, P65 full transaction and P8192 prefix oracle, then immediate P65/8K/40K API d2/d3. Neutral/negative closes without shape/grid/stage scan; d3 only if d2 direction justifies continuation.",
+  "resource": "No new persistent allocation or sidecar; startup inventory, capacity and 8GiB reserve unchanged. Shared weights are CTA-owned and immutable after the single producer barrier; reduction storage disjoint.",
+  "reference_translation": "Pinned Marlin compact global-to-shared operand staging, translated to full-K compact residency with original SM87 SIMT consumers rather than MMA reduction. Prior FlashInfer/FLA/Mamba assessments unchanged; no new import/runtime dependency.",
+  "source_sha256": {
+    "src/kernels/sm87/third_party/vllm_marlin/marlin_template.h": "c4cae347301f41d16b67fe48c1bff0a3c1ffea7e32e759502a7634088fab73ce",
+    ".q3x-work/mtp-shared-verify-20261009/fullk-source/src/runtime/mtp_verify_projection_internal.cu": "fd6023efa97f7a696c3014906120575b2f7eae2da592bfd5ab62ce1363c972a3"
+  },
+  "rollback": "Restore source to 334523dbcfb72cfab4b5861411c3d19a37be89fa; freeze all implementation and evidence below .q3x-work/mtp-compact-residency-20261010"
+}

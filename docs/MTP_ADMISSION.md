@@ -799,6 +799,38 @@ is removed. Frozen source and binaries retain reproduction authority only;
 no d3 qualification or production switch follows. The isolated implementation
 remains v7 and the 1.5x–3x objective remains unmet.
 
+## Compact full-K residency composition v20
+
+FP8 CTAs stage four complete compressed output rows into private quad-word
+shared storage, applying only the incumbent lookup-index swizzle. The existing
+O sidecar is copied directly. Each of M2..4 independent 256-thread groups then
+executes its original K subsequences, four FP32 chains, warp/eight-warp tree,
+scale and BF16 publication. Packed weights are immutable after the producer
+barrier; per-row reduction partials occupy disjoint storage. No inner-K barrier
+or expanded BF16/FP32 weight array exists. Maximum shared storage is 26,112 bytes.
+
+Gate/Up CTAs copy four full existing K5120 quad records, including exact scale
+bytes, into 46,080 private shared bytes. Each independent 128-thread row group
+uses its four original warps and four-output/four-chain accumulation. Codebooks
+add 1,088 bytes; all reads remain in the immutable compact records. Down retains
+v7 because its longer K would consume excessive full-record shared capacity.
+The complete original arithmetic/state boundary is unchanged for all rows.
+
+This transfers compact shared operand delivery from the studied Marlin source,
+without importing its MMA tree or code. A separate consumer group per row
+reduces live accumulators but repeats shared decoding. Resource counts do not
+select performance: complete same-history state/logits and the real API remain
+the admission and selection boundaries. The design adds no request allocation,
+weight owner, host synchronization or new production route. One bounded
+composition returns directly to the API under the Roadmap stop condition.
+
+The [compact-residency rejection](metadata/qwen36-27b-mtp-compact-residency-rejection-2026-10-10.json)
+closes this composition after complete synthetic/real-prefix admission and a
+negative P65 API result. No new compact executor remains selected. Reduced
+registers did not compensate for the composed execution cost; evidence does
+not isolate a particular memory/stall cause. All new paths are removed and
+frozen for reproduction only. Production and retained isolated v7 are unchanged.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

@@ -1,0 +1,301 @@
+{
+  "date": "2026-10-10",
+  "decision_unit": "architecture_candidate",
+  "work_package_id": "WP-MTP-COMPACT-RESIDENCY-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v20",
+  "decision": "reject compact full-K residency after negative P65 API; remove all new runtime paths",
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "target_met": false,
+  "production_changed": false,
+  "source_snapshot": ".q3x-work/mtp-compact-residency-20261010/source",
+  "source_hashes": {
+    "base_git": "334523dbcfb72cfab4b5861411c3d19a37be89fa",
+    "build": "Existing isolated MTP service and whole-core oracle presets, no new selector",
+    "files": {
+      "source.patch": "b3770a6f7a09295cddbb9cbabe5ef700ba5adf699e39c93c1d67e3f37d4eedd4",
+      "docs/DOCUMENT_REGISTRY.md": "2a125acae85217c8dc7fdf750e905a2a0f045f5b96ae67ac2ae1f25160a1fb91",
+      "docs/ROADMAP.md": "567acda8d167444588cdaf3a87c45d155bc408a1ccf185556df09a461dd16f3e",
+      "docs/MTP_ADMISSION.md": "45a09c8673bbe5fbb145f10d2a4dea85271823e704ec55852004a83e0db37b1f",
+      "tools/evaluation/validate_mtp_service.py": "84a342e10aa1f2c8a067dd4ca4d1931e3083438ed5de6ed106cf05e92d0f3fd1",
+      "src/server/evaluation_server.cpp": "1930c03ec5af738b8e0533c2e8500019812bf21ba29427c15ca513bf611b0684",
+      "src/runtime/mtp_verify_projection_internal.cu": "f774ba693c0fdb539008dd3d67591f291201d1db5a9b129a55dc75678beaeff8",
+      "src/runtime/mtp_service_internal.cpp": "10d485ea3348c7a5d3f66611cec2a13c8acfce3e37c3fc86f092574e5ffa6867",
+      "docs/metadata/qwen36-27b-mtp-compact-residency-design-2026-10-10.json": "8c55931fdb9d84fbe0a746370f3609a9cdd508de13c131a718e986cc8c775c80",
+      "include/q3x/server/evaluation_server.h": "12f499ceed293cbd4553ee34987c0f37c26d15e6e54ed357910559abf2b6a3bc",
+      "server": "ff08a57b90a6a90b4e801c3e6573c87e2407f30b5ff3223fea845a62a49fadb3"
+    }
+  },
+  "rollback_source": "334523d",
+  "profile": "q3x.sm87.admission.mtp-compact-residency-api.v23",
+  "api": {
+    "scope": "P65 completed only; incomplete lifecycle panel",
+    "output_accounting_equal": true,
+    "route_capacity_inventory_pass": true,
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.886633908,
+        "prefill_tps": 73.31097921420799,
+        "ttft_s": 0.9085020483471453,
+        "elapsed_s": 2.9194108322262764,
+        "decode_tps": 7.459126433736594,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-compact-residency-v23",
+          "draft_length": 2,
+          "startup_free_bytes": 10394525696,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "draft_initialization_ms": 5.785878,
+          "draft_ms": 124.538345,
+          "verify_ms": 1853.653972,
+          "reconcile_ms": 26.127735,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ]
+  },
+  "driver_result": {
+    "returncode": -2,
+    "early_stop": true
+  },
+  "direction": {
+    "stage": {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.886633908,
+      "prefill_tps": 73.31097921420799,
+      "decode_tps": 7.459126433736594,
+      "ttft_s": 0.9085020483471453,
+      "elapsed_s": 2.9194108322262764,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-compact-residency-v23",
+        "draft_length": 2,
+        "startup_free_bytes": 10394525696,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 5.785878,
+        "draft_ms": 124.538345,
+        "verify_ms": 1853.653972,
+        "reconcile_ms": 26.127735,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    "early_stop": true,
+    "retained_v7_decode_tps": 10.71706385,
+    "reason": "completed API direction below retained implementation; no further qualification"
+  },
+  "runs": {
+    "synthetic": {
+      "path": ".q3x-work/mtp-compact-residency-20261010/synthetic",
+      "sha256": {
+        "cache-preparation.json": "6c4e79840d7a628ca7f8567072ee9218d9332e8b42e64d7283b807bf8d39d8bc",
+        "cleanup.json": "086fa293a0f5352ab84469c0ca0fa36c3d9bf34c60f933bb7c9fca386caf30df",
+        "preflight-console.log": "552489bbb51703a146274626171efbf6f2fb24a8e631f25d4b5e2211ec7fe136",
+        "preflight.json": "25359a499acb52c1d86dac91309bb362038c75ca5b3354c0472d788148a82a00",
+        "run.log": "47304e7258837b56b7e5e4bd46ada32a8f64e65c40bd5fbf4770ab600d995bd1",
+        "telemetry.log": "579c99939c4a150e06592094fdbe73b4199313fbf3932adb80eb0800bb77f798"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 62.656
+      }
+    },
+    "oracle-p65": {
+      "path": ".q3x-work/mtp-compact-residency-20261010/oracle-p65",
+      "sha256": {
+        "cache-preparation.json": "c5a19f878248158da91d9e47de1d4c881b17f873ef064754cff26e47cd6c4681",
+        "cleanup.json": "e0db191eaa619944a1303146d9df78b73616d0a015f18762882a9db890914bd3",
+        "draft-prefill-hidden.bf16": "9c5811b3536f493466a8699092f6fd0bd624227239cd1acee52e7e0182666efb",
+        "draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+        "draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+        "identity.json": "bbab3db2484198dcb7dd7fda3f7c2f58e1a2bba630588044797f481f848dd336",
+        "preflight-console.log": "64fd95b9e61418f5c9bc194dd4518e2080424180dd307297fc057cf5a4e3d3ba",
+        "preflight.json": "021ae491c5ccd361292245238a4cc386acbfbaaa25003dab9b3cd6052e056163",
+        "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "q3x_mtp_whole_core_test": "be6e37b3b71eec141f51fa1560bba6f5a949c16c495902679fe3db16b53c77f5",
+        "run.log": "974d5232ec125bc28a204f7b5d43bca6ff7c4e8e24b7e61d16b676e21d17f3cf",
+        "target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+        "target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+        "telemetry.log": "db73631f06ab12c645940d592b32fc31e521afdc959758030807587be64825f8"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-compact-residency-20261010/oracle-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-compact-residency-20261010/oracle-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-compact-residency-20261010/oracle-p65"
+        ],
+        "binary_sha256": "be6e37b3b71eec141f51fa1560bba6f5a949c16c495902679fe3db16b53c77f5",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "334523dbcfb72cfab4b5861411c3d19a37be89fa",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 70.875
+      }
+    },
+    "oracle-p8192": {
+      "path": ".q3x-work/mtp-compact-residency-20261010/oracle-p8192",
+      "sha256": {
+        "cache-preparation.json": "17eca48829ecba4eaefb38746d0208b12b6f398c97b5a1df0365244372c570cf",
+        "cleanup.json": "d9563bd57a6caf9156e49257547c29eda74f4f3cdf15eb9de8a0fecd8be1bd61",
+        "identity.json": "53cd0cf2123ca1302fc0b25cd37bd660a1845bc30aa6da8766832d7acffb15cb",
+        "preflight-console.log": "be768a3327d45237b6166d563d402a624c3279452dff0f678e46357f86832e4c",
+        "preflight.json": "0c0c0d067336ef43526cdb0a1761a92544b364bd704cd0560d2604204d58bf52",
+        "prompt.u32": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+        "q3x_mtp_whole_core_test": "be6e37b3b71eec141f51fa1560bba6f5a949c16c495902679fe3db16b53c77f5",
+        "run.log": "99d23925434f34f1debf76b11f41966e3eb2493736cadde1d132d270586638dd",
+        "telemetry.log": "79acd75d25225a2e493ea5e67bb760a30414f42a8137fa550dfc7a5bc386026c"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-compact-residency-20261010/oracle-p8192/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-compact-residency-20261010/oracle-p8192/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-compact-residency-20261010/oracle-p8192",
+          "--prefix-only"
+        ],
+        "binary_sha256": "be6e37b3b71eec141f51fa1560bba6f5a949c16c495902679fe3db16b53c77f5",
+        "prompt_sha256": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "334523dbcfb72cfab4b5861411c3d19a37be89fa",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 79.593
+      }
+    },
+    "d2": {
+      "path": ".q3x-work/mtp-compact-residency-20261010/d2",
+      "sha256": {
+        "cache-preparation.json": "ea4dbeba5909f31c3327b0c1b606fbae91f93149880615b5d6edb9117900f6c5",
+        "cleanup.json": "8a297834b637695bfc974214477949aca980337e62f024d87882dd42b23b52d1",
+        "completed-stage-audit.json": "a5acabe7434dcc1cccb88dac808c207e8dedc6328a1b89bd7e9b3d74eda3b6d6",
+        "health.json": "e0e86be173154f81605cdccffb9c8d0547452c523d6a87e73e6c0bff76dab130",
+        "identity.json": "bcf35df7d91afd439267b97c39a93497136e985fb4d22bd284947f4741fa36aa",
+        "p65.json": "abb36a51b80b9b210b6ba79e5ff52d192b44be51fa857d5001e4d4b02e8e7894",
+        "preflight-console.log": "d631ce27b7cf4351262309097b0b854727b7dec6cac2190cc249155f00d92f91",
+        "preflight.json": "3afa915da05bf5a0fd4ce79ea75fa67c8c4a3a8f76735b1cddeca3448e885b52",
+        "results.json": "d9bd1a5c0d99b7b8474b4a1df8beade0018dd313c7c4f80163db48c1bb6b2270",
+        "server.log": "e30ec1d5ce11de31ec3616a12190a5d7d0bf2d9f8738db432b6d6f406f884731",
+        "telemetry.log": "c10c28bcfa3a1cdcae68e2b50ee8961a61b579f64bd4153a46f578755a99df5b"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-compact-residency-20261010/source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-compact-residency-20261010/d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "ff08a57b90a6a90b4e801c3e6573c87e2407f30b5ff3223fea845a62a49fadb3",
+        "draft_length": 2,
+        "driver_sha256": "84a342e10aa1f2c8a067dd4ca4d1931e3083438ed5de6ed106cf05e92d0f3fd1",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "334523dbcfb72cfab4b5861411c3d19a37be89fa",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": false,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 73.375
+      }
+    }
+  },
+  "numerical": {
+    "synthetic": "42 complete output and guard comparisons pass, covering all five FP8 shapes, FP8 O sidecar, NVFP4 Gate/Up sidecar, M2/M3/M4 and finite plus exceptional code patterns. Independent host packing compared with frozen canonical v7 consumer. No timing authority.",
+    "real_model": "P65 all nine prefix states/logits, eleven full transactions, nine initialization tails, two initialization-cancel and two injected-failure recoveries pass. P8192 all nine complete prefix states/logits pass.",
+    "repairs": "None.",
+    "oracle_label_limit": "Final human-readable variant label is historical v7; frozen source/ELF establishes actual compact path."
+  },
+  "resources": {
+    "fp8_registers": 40,
+    "fp8_shared_max": 26112,
+    "gate_up_registers": 56,
+    "gate_up_shared": 47168,
+    "local_bytes": 0,
+    "stack_bytes": 0,
+    "persistent_bytes_added": 0,
+    "startup_free_bytes": 10394525696
+  },
+  "limitations": [
+    "P65 single-process direction only; not mirrored release qualification or statistical regression.",
+    "8K API interrupted after negative P65. P8192 full-state oracle has correctness authority only. No 40K/d3 API or full lifecycle claim.",
+    "Lower register use and compact shared weights did not improve the complete runner; no isolated family causal claim.",
+    "No hardware-stall/DRAM counter or new profile claim.",
+    "All new projection/profile/auditor paths removed, retaining v7 and installed non-MTP. The 1.5x\u20133x objective remains active."
+  ],
+  "artifact_hashes": {
+    ".q3x-work/mtp-compact-residency-20261010/build-oracle.log": "d8282fa68aac3c50073b3f12b5e56cc0bc5be96ab411603b1ecf53891315f843",
+    ".q3x-work/mtp-compact-residency-20261010/build-service.log": "2ac99063aa63fb5c444864610ac3c799c60315ce9b6998a263f80963c07f42bd",
+    ".q3x-work/mtp-compact-residency-20261010/build-test.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-compact-residency-20261010/consumer-test": "bfeffd3b43f9cb56812f9ded372c212b52f080816b67ea4da036a6fd7629cedf",
+    ".q3x-work/mtp-compact-residency-20261010/consumer-test.cu": "a7afaf5cb6b35c9f26420efc9ca31cbc412098ef071ea8a8e81248184a8d21ca",
+    ".q3x-work/mtp-compact-residency-20261010/d2-direction-decision.json": "c587b434ce2e3f17ee664742ea49922131f682353fab9e4f68ab91ee2edfcd91",
+    ".q3x-work/mtp-compact-residency-20261010/d2-driver-result.json": "f346bf26f91708c8234ef60ac8945a4a99d849ac062a0919d5f0e8ccdced60e4",
+    ".q3x-work/mtp-compact-residency-20261010/d2-driver.log": "18c3ef0dfd2a6680a475cc044be5d49edc10da62fb4de6b1369fffbe4bb81893",
+    ".q3x-work/mtp-compact-residency-20261010/d2-process.json": "6720a16555341e9237fb8a63103c104aa55410a5ed9061afbf77c208983cce6d",
+    ".q3x-work/mtp-compact-residency-20261010/host-tests.log": "f559f5e6bba997c4101ed3f49e543a7dcc867eb8d415630d73e79f8baace14d0",
+    ".q3x-work/mtp-compact-residency-20261010/implement.py": "a677416333e3a945dc8e6c4d801415785e41025a19cf3eac889002262e5262fb",
+    ".q3x-work/mtp-compact-residency-20261010/incumbent-projection.cu": "074e0adadf18d2acf03ff0410eb3090a48899e61758ac808bd9d59645014bd2c",
+    ".q3x-work/mtp-compact-residency-20261010/oracle-p65-driver.log": "cd838df6793ced02171fa6c3327e1217c0a731c1b0de7e2f7e6e93134e2587fd",
+    ".q3x-work/mtp-compact-residency-20261010/oracle-p8192-driver.log": "038b821b886de17565f0742c54042ba6f71db145d1137ae09f84ebd6170485da",
+    ".q3x-work/mtp-compact-residency-20261010/resources.log": "4bc2f79cd9005ea067b930ef06b45fd48535b7a74663500dea7f0e92f67237fa",
+    ".q3x-work/mtp-compact-residency-20261010/rollback-files.json": "37b0ed57df691d22257fb398f7ff5ce55055c1a4944eb7e7ca33b80a903b30c8",
+    ".q3x-work/mtp-compact-residency-20261010/run-api.py": "26f615a9acedcc3dfdcdef86ce0008d4b7b4f062ea410b7d68999b2ad32d4b86",
+    ".q3x-work/mtp-compact-residency-20261010/run-oracle.py": "d158e3479da0edb6b9e289e6dde1f7dee136b123363d24d6c3bfc6773ca07a54",
+    ".q3x-work/mtp-compact-residency-20261010/run-synthetic.py": "5eda3de03ea05c440509706e9dd3e8cbd8f55a3ba6dc446c62dde70e4a9b8465",
+    ".q3x-work/mtp-compact-residency-20261010/server-resources.log": "d82036dd65bfd0bf11f96f97c86fbcac1f7c6aef5613ca5f9176eb9f08c1a62d",
+    ".q3x-work/mtp-compact-residency-20261010/synthetic-driver.log": "385f05881c6eaf21ce721d4bda5233c0542762c03844c50654ec67e79180664e"
+  },
+  "closeout": {
+    "host_tests": "3/3 mtp_control, mtp_weights, reference_engine_control pass",
+    "document_control": "86 registered, 1097 links, zero errors; 7 unit tests pass",
+    "rollback": "All five task-owned implementation files verified against frozen source before byte-restoring to 334523d. No new CMake option or private owner to remove.",
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "processes": "All owned driver/server/monitor/test processes exited; foreign control and monitoring untouched.",
+    "storage": "46 MiB retained in workspace, 399 GiB available. No worktrees created or removed."
+  }
+}

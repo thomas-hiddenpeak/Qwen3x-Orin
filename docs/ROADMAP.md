@@ -19,6 +19,38 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP compact full-K residency — closed negative
+
+`WP-MTP-COMPACT-RESIDENCY-20261010` / `AC-MTP-GREEDY-v20` targets the
+unchanged 1.5x–3x objective and 18.45/21.62-second complete Decode budgets.
+The matched 40K profile assigns 13.321 GPU seconds to FP8 plus Gate/Up
+verification. One complete composition stages compressed full-K records once
+per CTA, then uses independent original consumer groups for each speculative
+row. This changes both weight lifetime and accumulator ownership across both
+families. It avoids the rejected full-K BF16 expansion and per-tile FP32
+barriers, but charges repeated shared decode and large-block residency to the
+API. Down, Attention and draft execution remain retained v7.
+
+The [design record](metadata/qwen36-27b-mtp-compact-residency-design-2026-10-10.json)
+and [MTP ledger](MTP_ADMISSION.md#compact-full-k-residency-composition-v20)
+bind one fixed implementation plus at most one correctness repair. T1 full
+output/guard checks, P65 full transactions and P8192 complete prefixes precede
+immediate P65/8K/40K d2/d3 API return. Neutral/negative direction closes this
+version without a shape/grid/stage scan; d3 follows only useful d2 direction.
+No new allocation, inventory exchange or reserve reduction is allowed.
+Artifacts remain under `.q3x-work/mtp-compact-residency-20261010/`.
+
+The [compact-residency rejection](metadata/qwen36-27b-mtp-compact-residency-rejection-2026-10-10.json)
+closes this version after all 42 synthetic output/guard cases and complete
+P65/P8192 numerical admission. P65/O16 d2 output and accounting match, but
+Decode falls to 7.459 token/s versus retained v7 10.717; verification rises
+to 1.854 seconds. The early-stop gate interrupts the following 8K API request.
+All new runtime paths are removed, with no 40K/d3 or full lifecycle claim.
+Compact residency and lower registers do not select a faster runner. No further
+shared-residency/row-ownership variant is active. The 1.5x–3x goal remains
+unmet; a successor needs a different complete execution/computation response
+and an immediate real-API return, preserving the exact publication contract.
+
 ## 2026-10-10 MTP startup-owned FP8 input layout — closed without retention
 
 `WP-MTP-FP8-INPUT-LAYOUT-20261010` / `AC-MTP-GREEDY-v19` retains the

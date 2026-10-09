@@ -185,7 +185,9 @@ startup-owned NVFP4 pair-layout composition, including removal of its earlier
 pack/check prerequisite. The startup-owned compact FP8 input-layout successor
 is also closed without retention after full d2 API/lifecycle checks; its runtime
 paths are removed and its exact evidence remains linked from Roadmap and MTP.
-The registered set and classes are unchanged.
+The compact full-K residency successor is closed after negative P65 API
+direction; its numerical passes and removed source remain frozen evidence. The registered set and
+classes are unchanged.
 
 ## Integrity check
 
