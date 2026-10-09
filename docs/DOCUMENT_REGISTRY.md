@@ -180,7 +180,8 @@ bounded bottleneck reset, rejected persistent/independent-CTA compositions,
 closed certificate feasibility gate and rejected asynchronous packed-feed
 composition, followed by rejected bounded-reduction/sparse-repair and streamed
 certificate compositions, rejected direct-fragment successor and rejected partitioned
-execution/compact-repair composition. The registered set and classes are unchanged.
+execution/compact-repair composition and rejected shared multi-query KV successor.
+The registered set and classes are unchanged.
 
 ## Integrity check
 

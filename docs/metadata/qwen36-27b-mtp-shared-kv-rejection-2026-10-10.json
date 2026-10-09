@@ -1,0 +1,303 @@
+{
+  "date": "2026-10-10",
+  "decision_unit": "architecture_candidate",
+  "work_package_id": "WP-MTP-SHARED-KV-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v16",
+  "decision": "reject shared multi-query K/V composition after complete d2 context direction; restore retained v7",
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "production_changed": false,
+  "binary_sha256": "7124439a7588471c00eb368c3c69d1f5f8493529a4d87ea808d1ea035c6fdccc",
+  "source_snapshot": ".q3x-work/mtp-shared-kv-20261010/source",
+  "source_hashes": {
+    "base_git": "f1c433748fe308ea28a3d194bdf8e23b0dff96c4",
+    "files": {
+      "source.patch": "ec254fd8a0dfc08fa8560734ce945154d36bdc55bc48f198f1097f7c9bc9e300",
+      "server": "7124439a7588471c00eb368c3c69d1f5f8493529a4d87ea808d1ea035c6fdccc",
+      "docs/DOCUMENT_REGISTRY.md": "220561619dbf562dafc823ba359e634b9e45047843aecfd56d5fd935d32bb605",
+      "docs/ROADMAP.md": "02fd06722bb0226198c7fa8bc25ade40fa06548e6b7ca9c2c4410519ce2d5f21",
+      "docs/MTP_ADMISSION.md": "31440dcdd0867ac9e9adcc89706f73cb005d0dfea120eee87b7988150939ae31",
+      "tools/evaluation/validate_mtp_service.py": "ee9339caa200c849d5441556f7b32f8a0f097523542de9aabc8fa400db89d10d",
+      "src/server/evaluation_server.cpp": "cfdf50e5b0f0d90885d51895592260169e9a3023a025161bc36dd7a047c51746",
+      "src/runtime/mtp_verify_attention_internal.cu": "466f2bdf90a1981a3be005d4e2e5efdd9a070e1eaacd4f6d014d78f98bab5850",
+      "src/runtime/mtp_service_internal.cpp": "f996914fe9b28435d02caf6fd106ff0129abf761c7c166fc5367dcff89f7b6b7",
+      "src/runtime/mtp_device_internal.cpp": "dc08de138d043bb769db7574c448690ab4ce86f5545d14877a1535db93324d34",
+      "include/q3x/server/evaluation_server.h": "b58bcc574e82fcb72d9092d2f3116ddb839a0a3897d9f78c073adf12fd6f6837"
+    }
+  },
+  "api_completed_stages": [
+    {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.888434057,
+      "prefill_tps": 73.16243618517655,
+      "decode_tps": 10.751239714162638,
+      "ttft_s": 0.9145030188374221,
+      "elapsed_s": 2.3096052310429513,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-shared-kv-v19",
+        "draft_length": 2,
+        "startup_free_bytes": 10612342784,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 5.622057,
+        "draft_ms": 124.47400400000001,
+        "verify_ms": 1237.3715789999999,
+        "reconcile_ms": 26.634531000000003,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "stage": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "prefill_s": 17.232400077999998,
+      "prefill_tps": 475.38357761658744,
+      "decode_tps": 11.421890081796802,
+      "ttft_s": 17.254604944959283,
+      "elapsed_s": 39.580430783797055,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-shared-kv-v19",
+        "draft_length": 2,
+        "startup_free_bytes": 10612342784,
+        "prompt_rows": 8192,
+        "draft_prefill_rows": 8191,
+        "initialized": true,
+        "rounds": 98,
+        "proposed": 196,
+        "accepted": 157,
+        "verified_rows": 294,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          86,
+          71,
+          0
+        ],
+        "draft_initialization_ms": 546.565898,
+        "draft_ms": 2064.155205,
+        "verify_ms": 19725.095786999987,
+        "reconcile_ms": 448.76007400000015,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "stage": "p40000",
+      "prompt": 40000,
+      "output": 256,
+      "prefill_s": 92.669973618,
+      "prefill_tps": 431.6392725532242,
+      "decode_tps": 8.29587773436287,
+      "ttft_s": 92.70521984109655,
+      "elapsed_s": 123.44494325993583,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-shared-kv-v19",
+        "draft_length": 2,
+        "startup_free_bytes": 10612342784,
+        "prompt_rows": 40000,
+        "draft_prefill_rows": 39999,
+        "initialized": true,
+        "rounds": 105,
+        "proposed": 210,
+        "accepted": 150,
+        "verified_rows": 315,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          85,
+          65,
+          0
+        ],
+        "draft_initialization_ms": 2662.423919,
+        "draft_ms": 2455.9099840000003,
+        "verify_ms": 27738.98584300002,
+        "reconcile_ms": 449.287679,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "numerical": {
+    "real_model": "P513: nine complete M2/M3/M4 prefixes, eleven transactions, nine initialization tail/guard checks, two initialization-cancel and two injected-failure recoveries pass. P8192: nine complete prefixes pass. Target state/full logits and within-route draft KV are bitwise scalar-equivalent.",
+    "api": "P65/P8192/P40000 d2 exact body/output/usage/finish/DONE and complete individual route/accounting/reserve audit pass."
+  },
+  "resources": {
+    "QK_registers_M2_M3_M4": [
+      62,
+      62,
+      60
+    ],
+    "QK_shared_bytes_M2_M3_M4": [
+      11264,
+      12800,
+      14336
+    ],
+    "PV_registers_M2_M3_M4": [
+      40,
+      48,
+      50
+    ],
+    "PV_shared_bytes_M2_M3_M4": [
+      28672,
+      34816,
+      40960
+    ],
+    "stack_bytes": 0,
+    "local_bytes": 0,
+    "new_workspace_bytes": 0
+  },
+  "runs": {
+    "oracle-p513": {
+      "path": ".q3x-work/mtp-shared-kv-20261010/oracle-p513",
+      "sha256": {
+        "identity.json": "3bdfc12959119b740a213dda4228078dcd55a86a909f88c2689135ae0fc57170",
+        "cache-preparation.json": "d9c2160346f1aedcbeb1374ca54b6c5fc8dd5f9517b8314d994553b43caf1940",
+        "cleanup.json": "e2a46e0ee7dc8e95ba73e473fe326218da839618299c9cc7fe2aaba34828fbb0",
+        "run.log": "8c04d42cbdf5eaeb899e0f0e233985df25ff0c280e2fa0c4bc93c6484709e181",
+        "preflight-console.log": "21af3805c8f792f2855d8868c1876d44910b8aecaadc9aec44149557cbd40406",
+        "telemetry.log": "1dc321f5bb7d2ee0e1674f7bff072f14664af3b628e21fc999c86f3a2aedae78",
+        "prompt.u32": "1e43eb1b2b20d294699de49bcd732d1c5e10cfe1f95f1933a0142c1143e823fd",
+        "preflight.json": "b6e30eade53df607c57d68ac75b47d226eeb6496c7763ce617b042c1785be3ee"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-kv-20261010/oracle-p513/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-kv-20261010/oracle-p513/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-kv-20261010/oracle-p513"
+        ],
+        "binary_sha256": "a68a56e1310a610ef0f0106aebeba410a2df0252f7135d93b751d017f7c98286",
+        "prompt_sha256": "1e43eb1b2b20d294699de49bcd732d1c5e10cfe1f95f1933a0142c1143e823fd",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "f1c433748fe308ea28a3d194bdf8e23b0dff96c4",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 72.375
+      }
+    },
+    "oracle-p8192": {
+      "path": ".q3x-work/mtp-shared-kv-20261010/oracle-p8192",
+      "sha256": {
+        "identity.json": "a59747c67a38cb4b26a03b8695b700658352d5e93178316dadda32c75ccd5fe8",
+        "cache-preparation.json": "37d7a5f244c9734957ea4c67200109a5c4dcd5538889be156318a6c17397660f",
+        "cleanup.json": "922e668e046550686ab8af6f45c1010bd218234936e6d416968ff55b4801fdcb",
+        "run.log": "99d23925434f34f1debf76b11f41966e3eb2493736cadde1d132d270586638dd",
+        "preflight-console.log": "b1c56f08e9bd2b2ec14a800c6feff4e776389d167a4517468bbca844a499d71e",
+        "telemetry.log": "b2e5f3aaa59876781b1e7013849d0fef100f84f096ef37e1e5907348d793684f",
+        "prompt.u32": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+        "preflight.json": "99705ce395c3617d288fa56b819694a25fbb18841e5867f0168224a1b1f97110"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-kv-20261010/oracle-p8192/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-kv-20261010/oracle-p8192/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-kv-20261010/oracle-p8192",
+          "--prefix-only"
+        ],
+        "binary_sha256": "a68a56e1310a610ef0f0106aebeba410a2df0252f7135d93b751d017f7c98286",
+        "prompt_sha256": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "f1c433748fe308ea28a3d194bdf8e23b0dff96c4",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 78.562
+      }
+    },
+    "d2": {
+      "path": ".q3x-work/mtp-shared-kv-20261010/d2",
+      "sha256": {
+        "results.json": "9e90b8ca01e395f9986865a6cf8f912e1e122525662049901d1ab3948c585a29",
+        "identity.json": "9787623a723f936eed26ccdfaa17bcdde6b9464e923a65686a40d2e61e9b3a33",
+        "cache-preparation.json": "f66983c8ab2ea059868636ade30ddea9c9286dc53d6d71109d2082cbc7040dfe",
+        "health.json": "ab325d464e8227c976ce63150abed3fd78ce37a30d72f865ab5a53e5fc822ee5",
+        "p65.json": "e7d9faafafb2503f22715284371cbcc3462997a230693178445eba9cc96470bd",
+        "cleanup.json": "9210d06e52369f22ccd28aa925f4ca540fa797774619e919a9129debf4f7adcf",
+        "preflight-console.log": "8e57cee9383b6a10fce4d08aef53f4ac217f02ee92ed97ea358b482471b1ad09",
+        "completed-stage-audit.json": "f7e3554f6398ce0f8a1e4637586a7ab68b9e0134eb3baf0f73148fb729177357",
+        "p8192.json": "9f3a3f031aec6498e95fb6248d3022a2364e57e2941e545f4751d1ca61c7b437",
+        "telemetry.log": "d7573ec46daca8869ca3596e18f19919873f561bc56b576595c52d3ce00dbaaf",
+        "p40000.json": "f5f190f3127947d99b393a7a7b371c358b42056ccd15c7cd1fed582fcd663f46",
+        "preflight.json": "41a370b4d1c4f24e3fe7cf5fe81692098f2cdfbacc8ec42152618fbaf4101fcc",
+        "server.log": "2dc8e3e59a9a5bbb206af6d6405c00c3dc3dbe49b32fbfc022162fd2feb69b6c"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-kv-20261010/source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-kv-20261010/d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "7124439a7588471c00eb368c3c69d1f5f8493529a4d87ea808d1ea035c6fdccc",
+        "draft_length": 2,
+        "driver_sha256": "ee9339caa200c849d5441556f7b32f8a0f097523542de9aabc8fa400db89d10d",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "f1c433748fe308ea28a3d194bdf8e23b0dff96c4",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": false,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 81.187
+      }
+    },
+    "d2.preflight-rejected": {
+      "path": ".q3x-work/mtp-shared-kv-20261010/d2.preflight-rejected",
+      "sha256": {
+        "preflight-console.log": "385eea4675bf068618b382cf723f12dc380410eedcacd9fd7de57bff7d367369",
+        "preflight.json": "13886b88862c958fdf8b80fb50b37da9dc7445ececc91ed239b75e74a356a2be"
+      }
+    }
+  },
+  "limitations": [
+    "Single-process direction, no repeated speedup or release qualification.",
+    "Driver stopped with SIGINT -2 after completed 40K negative direction; server cleanup exits 0, monitor errors empty. Remaining lifecycle cases and d3 not executed.",
+    "First d2 preflight rejected transient systemd-journald at 5.136% of one CPU core before model execution. Preserved unchanged; fresh preflight passed without stopping system services.",
+    "No profiler or hardware-stall claim. Actual shared KV reduces duplicated staging but composed API performance does not improve; all new paths removed.",
+    "Retained v7 and installed non-MTP remain unchanged; 1.5x\u20133x objective unmet."
+  ],
+  "tools_and_resource_hashes": {
+    ".q3x-work/mtp-shared-kv-20261010/d2-driver-result.json.preflight-rejected": "95c6056680e600ca26a5d963d308e3718e3e65646b98edeaea3fbcbee3ed3056",
+    ".q3x-work/mtp-shared-kv-20261010/d2-process.json": "ec45c5eafb6875b98caf428305f2a7b24c4197532397151a718821490501c7f6",
+    ".q3x-work/mtp-shared-kv-20261010/d2-driver.log.preflight-rejected": "c378fdc2b9c4d6a3a5dcde12e32ebbecd77ee7d82d80dee870bafa015553a45f",
+    ".q3x-work/mtp-shared-kv-20261010/build-service.log": "a93b15519694015f4f62cad919772fa28d8c090091f8abd4335e19fb1e0f2f52",
+    ".q3x-work/mtp-shared-kv-20261010/d2-driver.log": "11f0b9578e328cff5e12575acdde7904527dbde8a15f123faa085f86cef6cb9c",
+    ".q3x-work/mtp-shared-kv-20261010/d2-direction-decision.json": "ca3a229a4e50c82ce693cabc4ecfccafffb3c494292c5002ecd8a30324d4a769",
+    ".q3x-work/mtp-shared-kv-20261010/d2-process.json.preflight-rejected": "d606e3cff9fa260d45dbeb143f0a3a5500b4757a5612fae110601452639c92b1",
+    ".q3x-work/mtp-shared-kv-20261010/d2-driver-result.json": "f346bf26f91708c8234ef60ac8945a4a99d849ac062a0919d5f0e8ccdced60e4",
+    ".q3x-work/mtp-shared-kv-20261010/oracle-p513-driver.log": "4e2592d293b443389806635535cdba782589b7730f017acc4a0ecd5d2ed07bf8",
+    ".q3x-work/mtp-shared-kv-20261010/oracle-p8192-driver.log": "038b821b886de17565f0742c54042ba6f71db145d1137ae09f84ebd6170485da",
+    ".q3x-work/mtp-shared-kv-20261010/run-oracle.py": "a853e5c7bf7c1aa118d403d78e6a544f4693c3b3b23870f5f00a9daa8749da1a",
+    ".q3x-work/mtp-shared-kv-20261010/build-oracle.log": "1b1f40d77393ca970c1c95118696e645742ca3facd440edcb9f5d1e4ce548e01",
+    ".q3x-work/mtp-shared-kv-20261010/resources.log": "eb4714ad29609450975a05c3dd3ef62c79708a222f8ca28f71f4485bf9cb8a2b",
+    ".q3x-work/mtp-shared-kv-20261010/run-api.py": "cc87afcccf9050ca63027526d2d68bf16a78921c75ca1310dbb72f853f3b679b"
+  }
+}

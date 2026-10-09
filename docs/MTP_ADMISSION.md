@@ -652,6 +652,42 @@ logit and transaction/recovery checks, followed by negative API direction.
 All new paths are removed. No further certificate/executor/worklist variation
 is active, and retained v7 plus the production non-MTP route are unchanged.
 
+## Shared multi-query KV composition v16
+
+This composition retains v7's exact projection executor and full target state
+transaction. It changes only multi-row Attention at S512 and above, plus the
+previously admitted ordered draft GQA dependency. The studied FlashInfer
+multi-query KV ownership transfers through SM87 cp.async and ordinary CTA
+barriers; no different dot-product, softmax or PV reduction is introduced.
+
+QK uses a 64-position tile. For each speculative row, eight warps represent
+four independent positions and two groups of three heads. This bounds resident
+query operands to 24 FP32 values per thread; the fixed M2/M3/M4 CTA contains
+512/768/1024 threads. Only the producer subset stages four K positions per
+iteration into a four-buffer ring. All row/head consumers finish before reuse.
+Every row consumes positions below its own causal end, preserves the exact
+8-product and warp reduction tree, and publishes its scores into a disjoint
+row/head tile before coalesced writes. The three-buffer lookahead uses the
+latest row's extent only for safe staging; it never extends an earlier row's
+arithmetic domain. Actual-length softmax remains per row.
+
+PV uses 32 output dimensions and six query-head warps per CTA. All speculative
+rows have independent FP32 accumulators in each thread. A four-buffer ring
+stages each V slice once and the distinct rows' FP32 probabilities. Every
+accumulator consumes positions in increasing order, skipping future positions
+before FMA, and publishes BF16 exactly once. Shared storage is at most 40,960
+bytes; 32 CTAs cover four KV heads and eight dimension slices. There is no
+inter-CTA dependency, new request storage, probability precision change or
+request-time allocation. Existing scratch capacity/alias checks remain intact.
+The complete same-history prefix/state/logit and real API checks select the
+composition; the previous losing projection combinations do not confer a
+separate positive or negative Attention performance claim.
+
+The [shared-KV rejection](metadata/qwen36-27b-mtp-shared-kv-rejection-2026-10-10.json) closes this composition after complete
+P513/P8192 numerical admission and the three d2 context API requests. All new
+paths are removed; physical KV sharing alone did not improve complete Decode.
+The isolated retained implementation remains v7, with no production change.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

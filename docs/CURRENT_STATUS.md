@@ -211,6 +211,15 @@ It is removed after this screen; 8K is interrupted and no 40K/d3 result is
 claimed. The certificate execution lineage is closed without a retained speedup.
 The 1.5x–3x objective remains unmet; production and isolated v7 are unchanged.
 
+The [shared multi-query KV composition](metadata/qwen36-27b-mtp-shared-kv-rejection-2026-10-10.json) passes complete P513/P8192
+state/logit admission, but d2 API direction is negative. P8192/O256 Prefill is
+17.232 s / 475.38 token/s, external TTFT 17.255 s, Decode 11.422 token/s and
+total 39.580 s. P40000/O256 Prefill is 92.670 s / 431.64 token/s, external
+TTFT 92.705 s, Decode 8.296 token/s and total 123.445 s. All three completed
+context requests preserve baseline output and accounting. The new paths are
+removed; d3 and the remaining lifecycle panel are not run. The retained v7
+observations above remain the incumbent, and the 1.5x–3x goal remains unmet.
+
 ## Numerical baseline decision
 
 Legacy Prefill is retained as a regression comparator, **not model truth**.

@@ -19,6 +19,40 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP shared multi-query KV — closed negative
+
+`WP-MTP-SHARED-KV-20261010` / `AC-MTP-GREEDY-v16` returns to retained
+v7 projections after the certificate lineage's negative API results. The same
+1.5x–3x goal and 18.45/21.62-second complete Decode budgets remain controlling.
+The matched 40K profile assigns 3.077 GPU seconds to QK and 2.318 to PV.
+Current interleaved CTAs enable cache reuse but load each speculative row's KV
+separately. This composition physically stages K and V once for all rows.
+QK partitions three heads per warp to bound query registers while all row/head
+groups share a causal K tile. PV uses 32-dimension ownership and all-row
+accumulators, keeping 32 CTAs rather than the old shared-V experiment's 16.
+These choices follow the complete shared-KV resource/ownership contract;
+there is no launch or dimension sweep. Ordered production draft GQA composes
+at the same return. The original projection, recurrence and logit paths remain.
+
+One fixed implementation plus at most one correctness repair passes full P513
+prefix/transaction and P8192 complete-prefix admission, then returns immediately
+to the same P65/8K/40K d2/d3 API panel. Short P65 cannot select a long-Attention
+win; it only guards unaffected execution. Negative long-context direction
+closes the composition. No new allocation, sidecar, mask workspace or reserve
+change is introduced. The [MTP ledger](MTP_ADMISSION.md#shared-multi-query-kv-composition-v16)
+controls exact arithmetic and causal tails. Artifacts remain under
+`.q3x-work/mtp-shared-kv-20261010/`.
+
+The [API rejection](metadata/qwen36-27b-mtp-shared-kv-rejection-2026-10-10.json) closes this version after full P513 and P8192
+numerical admission. D2 completes all three context requests with identical
+output/accounting, but Decode is 11.422 at 8K and 8.296 at 40K versus retained
+v7 11.560/8.636. New shared-KV and ordered draft paths are removed. No d3,
+qualification-only continuation or KV tile/ownership scan follows. The exact
+causal transformation is valid but does not select a faster runner. The
+1.5x–3x objective remains active and unmet; subsequent work must address a
+materially different complete verifier execution architecture rather than
+reopen the rejected packed-feed, certificate-executor or shared-KV variants.
+
 ## 2026-10-10 MTP partitioned execution and compact repair — closed negative
 
 `WP-MTP-PARTITION-REPAIR-20261010` / `AC-MTP-GREEDY-v15` responds to
