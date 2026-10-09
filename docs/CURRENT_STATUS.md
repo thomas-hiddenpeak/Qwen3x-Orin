@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-10-09
+  last_reviewed: 2026-10-10
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot: 2026-10-09. This replaceable page owns current defaults and measured
+Snapshot: 2026-10-10. This replaceable page owns current defaults and measured
 qualification; [SDD](SDD.md) owns design and [Roadmap](ROADMAP.md) owns remaining
 work. Historical failures and measurements retain their original scope.
 
@@ -151,6 +151,17 @@ records preserve exact numerical passes, completed API observations and
 interrupted runs. Reduced registers and fewer operand decodes did not select
 a better runner. The v7 table above remains the retained implementation's
 observation; no losing variant or uncomposed draft dependency remains active.
+
+The [40K attribution](metadata/qwen36-27b-mtp-bottleneck-reset-2026-10-10.json)
+subsequently measures 16.29 GPU seconds in verifier projections and 5.40 in
+QK/PV after the first verifier. Hardware-counter collection failed; no specific
+hardware-stall cause is established. The
+[persistent-operand composition](metadata/qwen36-27b-mtp-persistent-operands-rejection-2026-10-10.json)
+passes complete P65 state/logit and transaction checks but reduces P65/O16
+Decode to 9.536 token/s, with Prefill 0.885 s / 73.41 token/s, external TTFT
+0.912 s and total 2.485 s. Long-context testing was stopped and all new runtime
+paths were removed. This is a negative direction screen, not a replacement
+performance baseline or proof that the target is unattainable.
 
 ## Numerical baseline decision
 

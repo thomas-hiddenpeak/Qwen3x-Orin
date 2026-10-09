@@ -1,0 +1,124 @@
+{
+  "date": "2026-10-10",
+  "decision_unit": "architecture_candidate",
+  "work_package_id": "WP-MTP-PERSISTENT-OPERANDS-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v9",
+  "decision": "reject persistent operand composition after negative P65 real API direction; restore retained v7",
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "production_changed": false,
+  "source_snapshot": ".q3x-work/mtp-shared-verify-20261009/persistent-source",
+  "binary_sha256": "93c7300602728224c2ef5756221434e67fd9838c5829ff5861151cc15da89246",
+  "runs": {
+    "persistent-oracle-p65": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/persistent-oracle-p65",
+      "sha256": {
+        "identity.json": "ac2aa6b0224937217bfb5c219ecab69970131f4f2efa208ba21cbeb12a6124ed",
+        "preflight.json": "39c9fe477108a9f27f750d6caa32b66bd234737fb25f4d614af11ac9f6d567f1",
+        "cache-preparation.json": "d5afe08bd388d5525b0eb836e9a6ed55db37cd2ec178cb6f147d96031e82159a",
+        "cleanup.json": "e517fefcfd477282e05369351486e4e2bab2a19bbcd63bc859bcd73cae289828",
+        "run.log": "001183684973859e343ecbc6d0581450fc0a7ba94954852cb1930627018a1413"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/persistent-oracle-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/persistent-oracle-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/persistent-oracle-p65"
+        ],
+        "binary_sha256": "2848d69592cde76c8d45929843cbd3f13319e446a764c4ce3ff629599a0bb50e",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "3c448ec2b271e00c060319f51587960d6e2ed50f",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 69.531
+      }
+    },
+    "persistent-d2": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/persistent-d2",
+      "sha256": {
+        "identity.json": "adcd0908eada0974482c8976ea40d483111489031687e9213bab2cc25e5f9ae9",
+        "preflight.json": "a5eaca29079526eff2d0282ef272343ca1c3e89250af636e8fe6a4cea854fd7c",
+        "cache-preparation.json": "3fa177904fa846459ed917d28d6245b42c805a5dd3d0eadf7e91727b61b2dc14",
+        "cleanup.json": "a091339792defc1fa89aae56007f341441bbdf5d4a12123b6a2ab13bf56ed1cf",
+        "results.json": "31c8aac04e7ea86509fdd3fa55bc74fefde14367ca56aaf243ec3390b2b25a91",
+        "p65.json": "bdc7fb707d5d2692ac76ce99bbc76f5c12693d38584ea1bdd18e71fb5cf04c5a",
+        "server.log": "d609fee1cd8739f31488fb72cad1dc30aef56fcac2565aaae1ecb0ac6d0ab341"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/persistent-source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/persistent-d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "93c7300602728224c2ef5756221434e67fd9838c5829ff5861151cc15da89246",
+        "draft_length": 2,
+        "driver_sha256": "79cfb62ab9043b8912677693d66d0bacf8d6c3e240fcc5767c888140bd2a672e",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "3c448ec2b271e00c060319f51587960d6e2ed50f",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": false,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 69.718
+      }
+    }
+  },
+  "api_completed_stages": [
+    {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8854189020000001,
+      "prefill_tps": 73.4115793701454,
+      "decode_tps": 9.535656132583473,
+      "ttft_s": 0.911617306061089,
+      "elapsed_s": 2.484525437001139,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-persistent-operands-v12",
+        "draft_length": 2,
+        "startup_free_bytes": 10827169792,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 5.71792,
+        "draft_ms": 124.500145,
+        "verify_ms": 1415.461377,
+        "reconcile_ms": 26.442407000000003,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "numerical": "P65 full oracle: nine complete M2/3/4 scalar prefix-state/full-vocabulary-logit comparisons, eleven transactions, cache-tail guards, two initialization cancellations and two injected verification failures pass. C512 oracle includes new batched lm-head.",
+  "limitations": [
+    "Single completed P65/O16 d2 observation; no repeated architecture-selection or release authority.",
+    "P8192 interrupted after negative short direction; P40000 and d3 not measured. Driver exited 130; owned server exited zero, no monitor errors.",
+    "The composition changes FP8/NVFP4 persistence, batched target lm-head and ordered draft attention together. No individual component speedup or hardware-stall cause is inferred.",
+    "No new production performance claim; retained v7 remains below the 1.5x\u20133x target."
+  ]
+}

@@ -1,0 +1,184 @@
+{
+  "date": "2026-10-10",
+  "decision_unit": "diagnostic",
+  "work_package_id": "WP-MTP-BOTTLENECK-RESET-20261009",
+  "production_changed": false,
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "source_identity": {
+    "command": [
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/mma-source/server",
+      "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "--port",
+      "18871",
+      "--api-key-file",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/mma-p40000-profile/api-key",
+      "--nvtx-phase-ranges",
+      "--candidate-profile",
+      "whole-core-exact-decode"
+    ],
+    "executable_sha256": "614b480dc69e6718e13b83d524944826833b91a234d2d52018f4cb014f81d78a",
+    "git": "bd0eba2f0f6bf0e4b17dc079d27296cb97febe8d",
+    "driver_sha256": "eeaac981c9114485dbcb77e7e732f70f487067d0fd3742104977cdcb5167b9a1",
+    "fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "authority": "T4 diagnostic only; WP-MTP-BOTTLENECK-RESET-20261009; one same-v7-ELF completed P40000/O256 d2 workload, identify remaining verifier budget; not performance selection"
+  },
+  "matched_unprofiled_api": ".q3x-work/mtp-shared-verify-20261009/mma-d2",
+  "cleanup": {
+    "server_returncode": 0,
+    "clock_errors": [],
+    "max_temp_c": 77.5
+  },
+  "output_comparison": {
+    "equal": true,
+    "fields": [
+      "request_sha256",
+      "text",
+      "usage",
+      "finish",
+      "done"
+    ],
+    "prior": "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/mma-d2/p40000.json"
+  },
+  "kernel_breakdown": {
+    "scope": "kernel-duration sum from first verifier projection through final generation kernel; excludes first proposal; other includes draft and reconciliation; not unprofiled performance",
+    "seconds": {
+      "verify_fp8": 7.4468333439999865,
+      "other": 3.9720956799995273,
+      "verify_nvfp4": 8.84489551999997,
+      "verify_qk": 3.077223807999999,
+      "softmax_target_and_draft": 0.9834334079999995,
+      "verify_pv": 2.3180121280000003,
+      "lm_head_target_and_draft": 2.29999552
+    },
+    "calls": {
+      "verify_fp8": 21840,
+      "other": 111437,
+      "verify_nvfp4": 20160,
+      "verify_qk": 1680,
+      "softmax_target_and_draft": 5248,
+      "verify_pv": 1680,
+      "lm_head_target_and_draft": 523
+    },
+    "first_verifier_ns": 92812707904,
+    "last_kernel_end_ns": 122586929024,
+    "interval_s": 29.77422112
+  },
+  "sha256": {
+    "decode-breakdown.json": "29a9e1facb2a3ce18a97501e7a25927e6dfc7d933f221b3f83ddafb67654f692",
+    "results.json": "8bf6978e593a2273dddcc954bd822a0e77ce2740311364936e8a7c65f42f9b25",
+    "profiler-command.json": "eb169796a15fbd6a7703c48e4bbf62a785c82ba4ce6405c55c570d4649a5e7a5",
+    "identity.json": "1b8e3c38ad6b6fdbb1a8adfecfd75cda01c5616d44cfdfac2c94d1b5c6446771",
+    "cache-preparation.json": "35c63ad10911db972c27fb72b96baf30fa3fd20ea119ee3b07657743f4cedaf4",
+    "capture.nsys-rep": "195aae6debc54f27b4f3f1aacef2a158d54ca21fd09b07fd41480fac01d81301",
+    "health.json": "e44612aad4cf1f8108850da7ad2fb1c69ed108c3ca574c95011c3addb904054d",
+    "kernel_cuda_gpu_kern_sum.csv": "cab80eeffeb5c43daad448909f87d0363ba0b96b69bc46657c351e4bcb1e915c",
+    "cleanup.json": "794568e5f5dfaf94c8c26a68a155e6554ff4d044ea54fcb72a6e30577023bc9d",
+    "witness.json": "797f218bd316135b80f8a2b4104715c96b8403457161e62aa9952ac430d823a9",
+    "profile-p40000.json": "d482a597e73908c49ea25901408ba61b2c39a51d77f66fc1ada1228cd719e456",
+    "process.json": "e80a1eb3f3ab839496d31d9f636d7036ffc42d94e01dff8c9d360bdb1b9e0f62",
+    "preflight.json": "0b0912a0bdc4ff84dd508441da16d852d089050919fe2df4f1a577349342feca",
+    "output-comparison.json": "586d38f1cef004a5c9fa6ec6d2299686b0564e5fbcb0d2cd6117df44d4e98498"
+  },
+  "ncu_attempts": {
+    "mma-projection-ncu": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/mma-projection-ncu",
+      "failure": "function filter namespace mismatch: no kernels selected; SIGINT wrapper -2",
+      "valid_hardware_counters": false,
+      "files": {
+        "results.json": "6d87632867561f15428fb940dea88380128f9fcac6d4dcb1b664ef08c822dda0",
+        "profiler-command.json": "f95fde46e5b7c1b94d82d08ef92943ea83e7b1552d131559d7b87320ede7963a",
+        "identity.json": "b51290b05684c8c0652e7c18ee86f72eac2c9d611378e48ad70f3b834debb2bc",
+        "cache-preparation.json": "bc9e7e7d14e5c6dc376e6f57acb96a439bd05b9b74656e24c5297be409046b0d",
+        "profile-p65.json": "16d58cb35630f9082bac63573f376368750fc2cd7903f1800fd59c6581547528",
+        "requests.jsonl": "d57d00d4f9ab10b5cc1315e5613949b1f9db8277b796fc3789bc4a1bb15ef1b9",
+        "health.json": "e44612aad4cf1f8108850da7ad2fb1c69ed108c3ca574c95011c3addb904054d",
+        "cleanup.json": "146ad0e7986e87dcf15da4c70930ecb8987cc09059b40ec9a5b2242732ba58cb",
+        "clocks.jsonl": "6626fcb4e90a72df36ea34fe742f9d1570f7f49d91addfee324d0f127a22b6f9",
+        "preflight-console.log": "c0d0f6760478f597b167c768a6a75716e51c95e1594e7923273149a349b690e6",
+        "process.json": "9423d7668f6dc11735818e452ddfe799fea73c10c54029ee95fe7fe5bd6aea6a",
+        "telemetry.log": "4bcc376b8ee05d1cd58a71ec83175c9050cb120893c45e0fe796583359366df1",
+        "preflight.json": "58138d12e1f11584ef14585827e07e3a66b22a1bc4ecaf64cf541386952f2d3d",
+        "server.log": "7d486b83fc71453f0ecbc0bb279e4077a6e4ed2aac077765325f6a26fd29acc9",
+        "output-comparison.json": "f8ae8396f1d380b852fb55c2cd6a85b084c0577ec7579fd323f5c12a090d2f3c"
+      },
+      "cleanup": {
+        "server_returncode": -2,
+        "clock_errors": [],
+        "max_temp_c": 65.656
+      }
+    },
+    "mma-projection-ncu-r2": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/mma-projection-ncu-r2",
+      "failure": "HWPM secure profiling permission denied; no valid counters",
+      "valid_hardware_counters": false,
+      "files": {
+        "results.json": "1e771e6b6045f780e0cd825e80b7607dc530e59a6882a8481f28766d49a22449",
+        "profiler-command.json": "abae625727955ebb961adfee56b4c53a7ed6adb4f0642f5365a39b18254cf86a",
+        "identity.json": "ae20d367cda850d6d8b42044a3077e7c876850a0e092370268074ef578f7b9e4",
+        "cache-preparation.json": "3e4d7bfdb1efb6869085cc032431073037f0df2021a41f95d2403378d72198ea",
+        "profile-p65.json": "309a98ff712cdc8db8f72c9efcb7814ca827e76a212be2446680179746160a39",
+        "requests.jsonl": "86ded8daa2231d0830f01ed942a2fc6c4a32670e6b369b43b8d2bca11f43ed8e",
+        "health.json": "e44612aad4cf1f8108850da7ad2fb1c69ed108c3ca574c95011c3addb904054d",
+        "cleanup.json": "4b1d7acf83e269810241ace3ec562832600d19fb0caafaf6532513f882e275ed",
+        "clocks.jsonl": "7948e6f16f4c40be159c86e7ca6ecf570e231aab0e7aa5c793ceadc63204af65",
+        "preflight-console.log": "dc1f6fe28a5f81afe64e1112db8b608b00470de3313de62cd6bb5527c32b14f0",
+        "process.json": "c42d09cd5f7eaf75d9a596a02b32841346f5a245b42dd78dbffc6e4ad1f376db",
+        "telemetry.log": "bc2fbaf583fd083169bb6e35b6ebc192762912d6e2d75f15305a3f4d57782895",
+        "preflight.json": "6e2f25222ad41fe4c4d43cebe85c4ab949caa8f86e883176de632f3c058c887b",
+        "server.log": "a14665aaa3b0120810da07e5a9748010460580e51c3438aa514a697d4e28aa79",
+        "output-comparison.json": "f8ae8396f1d380b852fb55c2cd6a85b084c0577ec7579fd323f5c12a090d2f3c"
+      },
+      "cleanup": {
+        "server_returncode": 1,
+        "clock_errors": [],
+        "max_temp_c": 64.781
+      }
+    },
+    "mma-projection-ncu-r3": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/mma-projection-ncu-r3",
+      "failure": "root PATH did not find ncu; no model process started",
+      "valid_hardware_counters": false,
+      "files": {
+        "profiler-command.json": "c2a461db83d2448950229e4b820cfdb45cddaf9f6078cb23d9ef2726bac79055",
+        "identity.json": "1c5088a1aac0f9e187ad218ac304377e19b5e22b593105352fa5569270581f36",
+        "cache-preparation.json": "2ecbbf6826459c23ca0135e9611e1149d3d8e1f000743d5a5fe174f2a5fd9cfc",
+        "preflight-console.log": "85ee9d50b911cdd0488813dd04bfdb60a7c6b940c39061c043273c2a46f17024",
+        "preflight.json": "d91bcc175bc4ea5e61e4eacdc81f54cad07865a94b612cc181275a01086532dd",
+        "server.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "mma-projection-ncu-r4": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/mma-projection-ncu-r4",
+      "failure": "kernel replay exhausted extra backup memory, NvMap error12; incomplete SSE; process exited9 and released",
+      "valid_hardware_counters": false,
+      "files": {
+        "results.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "profiler-command.json": "14a5ec0fbb065dcfca4993677e572638269decab72c300fb8a2c0dd0fe55dad3",
+        "identity.json": "b350078f26a69f0a70024480f39e2608e2c72f3227cac029a4f0e2d8cda3d2c6",
+        "cache-preparation.json": "47214fdbef84b1d2fc31fa45d36d13e4d92393af01e3d208ae2e426d7e8e8e42",
+        "health.json": "e44612aad4cf1f8108850da7ad2fb1c69ed108c3ca574c95011c3addb904054d",
+        "cleanup.json": "e067bf288fc9a7c60bc229baeeaca7c87c7d68dcc9b6a929af948f939fb3b819",
+        "clocks.jsonl": "409358a83ec2c4d666ff6d0f2f5ec69bf3b7e2bdd1cccf6feee82414537f151f",
+        "preflight-console.log": "23abfdddef1a51d723fd201343a27646081828e3e93b307a0b40420f0fd7f9b3",
+        "process.json": "0b637f410c6b96613c6a416474cb38b2e8c4b3780952a01b129e5ba38158b10e",
+        "telemetry.log": "53e1618794c6b0018bc4aaf7b42163b338f51c0560d2dd97d8079bb2859168a3",
+        "preflight.json": "711bd0dae0cc994d2d014145845455eaae122f7b8b318724a23ffe20dcabd69d",
+        "server.log": "60b8ce705b62e4da39f6b3caa498a0884c9809776cc5bb42cbdb53fc46a05139"
+      },
+      "cleanup": {
+        "server_returncode": 9,
+        "clock_errors": [],
+        "max_temp_c": 62.812
+      }
+    }
+  },
+  "conclusion": "Verifier projections account for 16.29 GPU seconds and QK/PV 5.40 seconds; no successful NCU counters establish a hardware-stall cause. No clock, memory-reserve, cooling or production changes.",
+  "limits": [
+    "Kernel sums from first verifier omit first proposal and do not replace API timing.",
+    "Nsys complete same binary/workload output passes; NCU failure cannot erase that independent result.",
+    "No more counter collection is active; next work must implement a bounded real-API composition."
+  ]
+}

@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-10-09
+  last_reviewed: 2026-10-10
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -19,7 +19,35 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-10-09 MTP bottleneck reset — active
+## 2026-10-10 MTP persistent operands — closed negative
+
+`WP-MTP-PERSISTENT-OPERANDS-20261010` / `AC-MTP-GREEDY-v9` uses the
+[complete 40K attribution](metadata/qwen36-27b-mtp-bottleneck-reset-2026-10-10.json):
+16.29 GPU seconds in verifier projections, 5.40 in QK/PV, and 2.30 in combined
+target/draft lm-head after the first verifier. No valid NCU hardware-stall
+counters were obtained, and that collection is closed. The selected composition
+retains packed global weights and register-local M reuse, but makes activation
+and lookup storage persist across output groups. It also batches target lm-head
+weights across all verified rows and reuses ordered production draft Attention.
+This follows the production lm-head's proven persistent activation lifetime;
+it is not another expanded-weight tile or register-decoder variant. Main-model
+FMA trees/state/logits remain exact. One fixed composition plus at most one
+correctness repair returns to complete prefix admission and P65/8K/40K d2/d3.
+The 1.5x–3x objective and 18.45/21.62-second full Decode budgets remain fixed;
+negative API direction closes the version without tile, grid or draft scans.
+
+The [API rejection](metadata/qwen36-27b-mtp-persistent-operands-rejection-2026-10-10.json)
+closes this version: complete scalar-prefix state/logit checks pass, but P65
+Decode falls from retained v7's 10.717 to 9.536 token/s. The new runtime paths
+are removed; long-context/d3 qualification and grid/tile scans do not follow.
+The overall MTP goal remains active and unmet. A successor must change the
+complete verifier execution architecture rather than reopen another packed
+weight-decoder, output-group or persistence variation. It must first reconcile
+its numerical contract and expected whole-round budget against the measured
+16.29-second projection cost, then implement one composition and return to the
+same real API. No new kernel variant is selected by this closure.
+
+## 2026-10-09 MTP bottleneck reset — complete
 
 `WP-MTP-BOTTLENECK-RESET-20261009` restores the retained v7 composition after
 full-K residency regressed the real P65 API. No losing projection or draft
@@ -28,9 +56,12 @@ will distinguish projection execution, long-context Attention and controller
 cost on the complete matched real workload. The existing fresh v7 API record
 is its timing authority; profile timings cannot replace it. Startup reserve
 and clean ownership stay mandatory; a resource failure stops that attempt.
-Then select one materially different dataflow from the measured full-round
-budget, with explicit real-API composition, instead of further scalar decode,
-output-group or producer-barrier variations. The 1.5x–3x goal remains active.
+The completed trace attributes 16.29 seconds to verifier projections and
+5.40 seconds to verifier QK/PV (softmax separate). The bounded NCU collection produced no hardware counters: filtering and
+permission failures were followed by replay-backup memory exhaustion under
+root. It is closed without reducing the reserve or claiming a measured stall
+cause. The subsequent persistent composition above also returned negative.
+The 1.5x–3x goal remains active.
 
 ## 2026-10-09 MTP full-K operand residency — closed negative
 

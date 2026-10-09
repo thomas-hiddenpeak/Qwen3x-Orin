@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: exhaustive tracked-Markdown inventory and classification
   effective: 2026-08-09
-  last_reviewed: 2026-10-09
+  last_reviewed: 2026-10-10
   supersedes: []
   superseded_by: []
   ssot_for: tracked Markdown paths, primary classes, roles, and lifecycle states
@@ -176,7 +176,7 @@ authority only for its exact recorded protocol.
 
 The 2026-10-09 shared-verification work package updates the existing MTP SDD
 and Roadmap, followed by draft matrix, rejected verifier compositions and the
-bounded bottleneck reset; the registered
+bounded bottleneck reset and rejected persistent-operand composition; the registered
 document set and classes are unchanged.
 
 ## Integrity check

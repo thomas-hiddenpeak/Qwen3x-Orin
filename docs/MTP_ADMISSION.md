@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: isolated greedy MTP development boundaries and transaction contract
   effective: 2026-09-28
-  last_reviewed: 2026-10-09
+  last_reviewed: 2026-10-10
   supersedes: []
   superseded_by: []
   ssot_for: native MTP admission design and first composition scope
@@ -390,6 +390,47 @@ closes this version after exact state/logit admission and negative P65 API.
 Neither new projection nor draft Attention remains selected. The retained
 implementation is the v7 draft matrix composition; the active bottleneck reset
 and next composition decision are owned by [Roadmap](ROADMAP.md).
+
+## Persistent activation and lookup composition v9
+
+`WP-MTP-PERSISTENT-OPERANDS-20261010` retains each packed weight once per
+M-row register consumer while extending activation/codebook lifetime across
+output groups. FP8 CTAs stage all M BF16 activation rows once and use a
+32-lane-replicated FP32 codebook: index `32*code+lane` has conflict-free bank
+ownership for all codes. It does not decode or store an expanded weight tile.
+A fixed 32-CTA grid traverses disjoint four-output groups with the same
+256-thread K ownership and four-chain/eight-warp reduction. Dynamic shared
+storage is at most 81,920 bytes, plus disjoint static partials. Device capability
+and attributes are bound at transaction construction, before execution;
+launches allocate nothing. Replication/init cost and residency are charged to
+the complete API; the unsuccessful counter collection does not establish
+that bank conflicts are the measured cause.
+
+NVFP4 K5120 uses a fixed maximum 64-CTA persistent output loop and stages M
+complete activation rows once. The current production lm-head already uses
+this activation-lifetime pattern for M1; the native M2..4 extension preserves
+all original K subsequences, FP32 block multiplication, FMA chains, warp sums,
+final tensor scale and BF16 publication. Down K17408 retains the incumbent
+executor. A batched canonical NVFP4 lm-head reuses its weights across M target
+hidden rows, publishing contiguous complete logits into dead projection-0
+scratch and then copying each complete row into its immutable prefix slot.
+The buffer capacity is checked before dispatch; smaller non-service test
+arenas retain scalar lm-head before enqueue. Argmax and non-finite validation
+remain per complete vocabulary. No persistent target state aliases the logit
+scratch, and no partially completed slot gains commit authority.
+
+The admitted ordered draft GQA transfers the same exact production arithmetic
+to S512 and above. It shares no stream or cache state with target execution.
+These dependencies form one bounded composition, with complete scalar-prefix
+state/full-logit checks before the same d2/d3 API panel. One implementation and
+at most one correctness repair are permitted; no parameter scan is opened.
+The target and resource reserve are unchanged, and production remains non-MTP.
+
+The [persistent-operand rejection](metadata/qwen36-27b-mtp-persistent-operands-rejection-2026-10-10.json)
+closes this composition after complete P65 numerical admission and negative
+P65 API direction. All new runtime paths were removed together; no component
+receives a separate performance claim. Retained v7 remains the isolated
+incumbent, and the 1.5x–3x goal remains outstanding.
 
 ## Checkpoint and draft model
 
