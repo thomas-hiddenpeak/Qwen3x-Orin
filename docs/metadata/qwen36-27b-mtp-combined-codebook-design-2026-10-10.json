@@ -1,0 +1,32 @@
+{
+  "work_package_id": "WP-MTP-COMBINED-CODEBOOK-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v23",
+  "source_base": "7088cbe5aa41bfa59903e6183d6dd66331fe6457",
+  "product_target": "1.5x–3x complete committed Decode; unchanged",
+  "budgets_seconds": [
+    18.45,
+    21.62
+  ],
+  "profile": "q3x.sm87.admission.mtp-combined-codebook-api.v26",
+  "decision_unit": "architecture_candidate",
+  "decision_class": "engineering direction",
+  "composition": "v25 ordered draft plus complete NVFP4 verifier combined immutable decoder",
+  "origin": "matched40K8.845GPU seconds NVFP4 verification; v25 target verification remains25.735seconds",
+  "equivalence": "For everyFP4 nibbleq and E4M3 blockscales, precompute exactly the same FP32 product C[s,q]=FP4(q)*FP8(s). Replace two shared lookups and their multiplication with one immutable read-only lookup. Four FMA chains, K ordering, warp merge, tensor scale and BF16 publication unchanged.",
+  "eliminated_work": "Per CTA256-entry scale table plus16-entry value setup and barrier; perweight two shared lookups and FP32 scale multiply. All M rows alreadyreuseweights; that reuse remains.",
+  "new_cost": "4096-entry/16384-byte private device table, once pertransaction construction; cached read-only traffic/latency and integer index perweight. No claim of hardware-stall cause.",
+  "scope": "all64 Gate/Up and Down layers, M2..4, existingcanonical/coupled/consumer-order formats; FP8,targetAttention,recurrence,lm-head untouched",
+  "source_translation": "Previously pinned Marlin/vLLM separate invariant decoding/scaling from accumulation; move the entire finite-domain product to construction-owned immutable data, native SM87 read-only cache. No upstream source import, ISA dependency, or recurrence reassociation.",
+  "ceiling": "Cannot remove more than the8.845-second NV verifier budget. Instruction elimination has no measured stall/latency claim; completeAPI selects trade.",
+  "checks": [
+    "all4096 products plus complete NV outputs/guards M2/3/4 and all3existingformats; malformed spans",
+    "P65 complete scalar prefix/state/logit/transaction/recovery",
+    "immediateP65/8K/40K d2 API; d3 only useful d2 direction"
+  ],
+  "bounds": "one computation/ownership composition plus atmostonecorrectnessrepair; no table/layout/grid scan",
+  "stop": "greater-than3% d2 regression versusv25 triggersearlystop; neutral complete direction removed; reserve8GiB unchanged",
+  "incumbent": "v25 completeAPI direction; no statisticallyqualifiedbaseline claimed",
+  "dependency_expiry": "v25 ordered draft composes at this immediateAPIreturn; negativecodebook version returns to independently direction-positivev25, not a losing projection variant",
+  "artifacts": ".q3x-work/mtp-combined-codebook-20261010",
+  "production_changed": false
+}

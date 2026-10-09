@@ -1,0 +1,237 @@
+{
+  "date": "2026-10-10",
+  "work_package_id": "WP-MTP-COMBINED-CODEBOOK-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v23",
+  "decision_unit": "architecture_candidate",
+  "decision_class": "single-process engineering direction",
+  "decision": "Reject combined immutable decoder after negative P65 API; remove all new runtime/owner/profile/auditor paths. Retain independently positive v25 ordered draft composition.",
+  "target_decode_ratio": [
+    1.5,
+    3.0
+  ],
+  "target_met": false,
+  "production_changed": false,
+  "profile": "q3x.sm87.admission.mtp-combined-codebook-api.v26",
+  "source_identity": {
+    "git": "7088cbe5aa41bfa59903e6183d6dd66331fe6457",
+    "server_sha256": "0429e7e03f5fb540ce94d230061ab4e4fb225080fb94c9ab44b5b2bed98e9d17",
+    "source_patch_sha256": "a0588277786d6ffe53dd74c9f08e8a185ee20a626e3d45282c443f8bb124f2ff",
+    "files": {
+      "docs/DOCUMENT_REGISTRY.md": "1f99bad51ae07a4eb4dc4059c0458939673ef7874bc9fc5dbdf3957a945d1af1",
+      "docs/MTP_ADMISSION.md": "e61ab148b086de694f41bb226e26351210603ee9ccd8224cac4ca79bbf221d1b",
+      "docs/ROADMAP.md": "ae12e0972dbda61170bee3cf0a329c1bfba5a0e06e5447e7dbad9cfa99065b35",
+      "include/q3x/server/evaluation_server.h": "be4e7c288acc66dfcf74d9e795903c96128227db17a8a045eb8899fa5e723574",
+      "src/runtime/mtp_device_internal.cpp": "671fb2006a49caa04a04982ae232ff0cf3f05a4c53e63d2a55c6dc706b00b5e0",
+      "src/runtime/mtp_device_internal.h": "08457421087b0ad667ea4bc7379b5accd5db2122b9e6f164b92e98e24cddfe0b",
+      "src/runtime/mtp_service_internal.cpp": "e2b9b278b9378fe0a2e8c958bd72dfa7fe211daf22da1933c93eabb9e7101fac",
+      "src/runtime/mtp_verify_internal.cpp": "b0a5742f4ba7122efecf05e72cf11ea4c96ce35d8aea5b079565181e5e7842d8",
+      "src/runtime/mtp_verify_projection_internal.cu": "7d5967f2182a94a184e9a6e1f594503338d64ee09353fb48f0333087368a4036",
+      "src/server/evaluation_server.cpp": "cd03a7c58702e08734f9967c0314a9778f39cafec0a7e4cc6ff8276067b0f4f7",
+      "tools/evaluation/validate_mtp_service.py": "1d3b9ac7c332396b450fb96b99f3c50af7480f609bfe04546c67d6a1401d84d7"
+    }
+  },
+  "source_snapshot": ".q3x-work/mtp-combined-codebook-20261010/source",
+  "rollback_source": "7088cbe5aa41bfa59903e6183d6dd66331fe6457",
+  "correctness": {
+    "synthetic": "All 4096 products match independent host formulas for finite bits including signed zero; NaNs propagate. All 24 complete BF16 outputs/guards match original canonical four-chain verifier, covering Gate/Up and Down, canonical/coupled/consumer-order layouts, M2/3/4, finite and exceptional scales. Invalid table aliases/misalignment/overflow capture zero graph nodes.",
+    "real_model": "P65 all nine M2/3/4 prefix states/full logits, eleven full transactions, nine initialization tails, two initialization-cancellation and two injected-verification-failure recoveries pass. Same-input original-draft comparison passes three steps (short reference route).",
+    "repairs": "No runtime repair. Initial host health audit omitted target_prompt_tokens from exact expected dictionary; corrected host expectation without editing raw records or runtime.",
+    "oracle_label_limit": "Final human-readable verifier label is historical; frozen source and ELF bind actual combined decoder."
+  },
+  "api": {
+    "scope": "Only completed P65 request; interrupted 8K, no full lifecycle or d3 claim",
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.887710317,
+        "prefill_tps": 73.22208467697689,
+        "ttft_s": 0.9062713207677007,
+        "elapsed_s": 2.5274460217915475,
+        "decode_tps": 9.251964336667717,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-combined-codebook-v26",
+          "draft_length": 2,
+          "startup_free_bytes": 10214273024,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "draft_initialization_ms": 5.732084,
+          "draft_ms": 124.41848999999998,
+          "verify_ms": 1464.311561,
+          "reconcile_ms": 26.243441999999998,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "baseline_request_output_usage_finish_done_equal": true,
+    "capacity_inventory_reserve_pass": true,
+    "cleanup": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 66.906
+    },
+    "audit_note": "Initial host audit used incomplete expected health dictionary and rejected its extra target_prompt_tokens field; corrected exact four-field expectation, no raw record/runtime change."
+  },
+  "driver_result": {
+    "returncode": -2,
+    "early_stop": true
+  },
+  "direction": {
+    "stage": {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.887710317,
+      "prefill_tps": 73.22208467697689,
+      "decode_tps": 9.251964336667717,
+      "ttft_s": 0.9062713207677007,
+      "elapsed_s": 2.5274460217915475,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-combined-codebook-v26",
+        "draft_length": 2,
+        "startup_free_bytes": 10214273024,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 5.732084,
+        "draft_ms": 124.41848999999998,
+        "verify_ms": 1464.311561,
+        "reconcile_ms": 26.243441999999998,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    "early_stop": true,
+    "v25_direction_decode_tps": 10.7036853043,
+    "reason": "completed API direction below retained implementation; no further qualification"
+  },
+  "retained_v25_p65_decode_tps": 10.7036853043,
+  "decode_change_percent": -13.562814361228304,
+  "resource": {
+    "additional_immutable_bytes": 16384,
+    "startup_free_bytes": 10214273024,
+    "reserve_bytes": 8589934592
+  },
+  "runs": {
+    "synthetic": {
+      "path": ".q3x-work/mtp-combined-codebook-20261010/synthetic",
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": null
+      },
+      "sha256": {
+        "cache-preparation.json": "f684ce45d113e79b21d993ea820217fa526c591ac6b4996ce38ee26d243697af",
+        "cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+        "preflight-console.log": "d5cd14a64a21a4face1f8d8cf27ffaa49e504365fca63d57049ea3d38025d943",
+        "preflight.json": "015192661c4e0c7f8f95277219022c4f400a1cb9242e23731290bb9a3e5601bb",
+        "run.log": "9479d8916fc1917b87aa2ccee22f3e5ec1d601c04fe34e81e00c859acd8b5e60",
+        "telemetry.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "oracle-p65": {
+      "path": ".q3x-work/mtp-combined-codebook-20261010/oracle-p65",
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 69.781
+      },
+      "sha256": {
+        "cache-preparation.json": "a1b5d8149ed3adead48638538a0597f47b2f27c0ad7451d870b5d07f9fdbaece",
+        "cleanup.json": "85fdaa3e51a41e086c18d423ca037bf7f5ae66bfe3c17a32e1281175afaeaa69",
+        "draft-prefill-hidden.bf16": "9c5811b3536f493466a8699092f6fd0bd624227239cd1acee52e7e0182666efb",
+        "draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+        "draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+        "identity.json": "698bba7bbe463f13c844685f83d2db89671e1d8621e2740f19fb6a4bc9f6267f",
+        "preflight-console.log": "7eabea281bb567b5b94e9629d5652881f1134d50b64a39a18df96d47deb9960c",
+        "preflight.json": "757ed778a1a250163ea98a86f58120c58969bdf978998a49c91b46218d54c4fb",
+        "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "q3x_mtp_whole_core_test": "ddecdde3b5fb1216a4877d25cdfd7f613f973fe07dbe732bb1a03616b189004a",
+        "run.log": "e547d0499379ef07bcd565c677695d02e7783fdd1b477ac1db827e801c69afd7",
+        "target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+        "target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+        "telemetry.log": "5bdd83c5bea26593464254fe1c8ae30e870593865f95b1657f476af26a06d379"
+      }
+    },
+    "d2": {
+      "path": ".q3x-work/mtp-combined-codebook-20261010/d2",
+      "cleanup": {
+        "success": false,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 66.906
+      },
+      "sha256": {
+        "cache-preparation.json": "8e5e01c1f70e6ab9d0e6f6faa6b98e36e395d48783952108f3352f4311dcb65e",
+        "cleanup.json": "a725c064759043299d15b769ecd37992b62efae39f849829953b28d9c87e82ff",
+        "health.json": "ebcc50a4e711b8d89680cb65102f324a2bf02b4f0194c2cdaefac8bb9293ba7b",
+        "identity.json": "50b9450dbc3e0fefc1f23c763012a5e4f4a99d773a3b5048e9cef063aee461eb",
+        "p65.json": "47a2f258a5731dfff75dfe7e84511b88a68b52605e5b2192b8f1b5ac31312a0e",
+        "partial-audit.json": "84700a60d718f19a54c00cce86ac3a39d70c10c95cb51621baf54b501964f866",
+        "preflight-console.log": "fe7efa594a2e70e3120d6ac3319df77aa8a2daeb7335c56494d11ba54949fd32",
+        "preflight.json": "1ee0da8ed2454d27ea56898242dda62995aa9c0cc2305c527fd63f7f542836a3",
+        "results.json": "4645b20ec91e4824b100dbb45d16355dfb3a7d866cc76dd579f50560a2859ac2",
+        "server.log": "f2170190ccafa064751c826053ef685df3acb7e8643fd9de48cad17d9816ea3b",
+        "telemetry.log": "77b3a50cb58710e023a0983625a3d6be7bc0f8b6a1d7894ec5e7b77f1224e434"
+      }
+    }
+  },
+  "limitations": [
+    "P65 single-process direction, not statistically repeated architecture or release qualification.",
+    "8K API interrupted at predeclared early stop. No 40K/d3 or complete lifecycle claim.",
+    "No profiler or hardware-stall cause claimed. Removing operations did not improve whole API.",
+    "Synthetic process finished before a periodic thermal sample; its idle preflight remains recorded and synthetic timing has no performance authority.",
+    "v25 next composition deadline is fulfilled by this complete candidate API attempt. Losing combined decoder is removed; v25 remains bounded development, not production.",
+    "1.5x\u20133x goal remains active and unmet; no further table/layout/grid variation selected."
+  ],
+  "artifact_hashes": {
+    ".q3x-work/mtp-combined-codebook-20261010/build-oracle.log": "dcc4e6d36cd820bc191e5d763138e4983755ea57e19c56aa624bbd904164aae7",
+    ".q3x-work/mtp-combined-codebook-20261010/build-service.log": "8b418cf744035d651a5f78aa34b82364ff1a958a2ea88383b3f2dfe3c84f4d86",
+    ".q3x-work/mtp-combined-codebook-20261010/build-synthetic.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-combined-codebook-20261010/consumer-test": "fc033d9820272ca1d789fd02fa55815fbe4d2ccb89f945ec5140b8ee70df5ec9",
+    ".q3x-work/mtp-combined-codebook-20261010/consumer-test.cu": "2175582a0d3dfaa72ef005a2b4270f90455abe96d0de919f93e06e038c3e067c",
+    ".q3x-work/mtp-combined-codebook-20261010/d2-direction-decision.json": "f4eeabd0fad4c3dc238761a48d194ca68b29ae5762c932f5ab1cd3b3f2f5f6e7",
+    ".q3x-work/mtp-combined-codebook-20261010/d2-driver-result.json": "f346bf26f91708c8234ef60ac8945a4a99d849ac062a0919d5f0e8ccdced60e4",
+    ".q3x-work/mtp-combined-codebook-20261010/d2-driver.log": "1f887ba911ffdced22d24773fe3c54741022dc5bdae54d45e268a5a15f811026",
+    ".q3x-work/mtp-combined-codebook-20261010/d2-process.json": "db86f12b81babee15d7f9ca683ff7d794d8587b53c3fb0ef48be58fc596b03f8",
+    ".q3x-work/mtp-combined-codebook-20261010/run-api.py": "1f99e7c221007b2de92c1ad44f802c75ad2213a63d9fcca12e180cd98e4ece79",
+    ".q3x-work/mtp-combined-codebook-20261010/run-oracle.py": "d32ad40ced35355f0a3548ebcc9e7fa92ca8fb11a0b1280d50c9df7198269e36",
+    ".q3x-work/mtp-combined-codebook-20261010/run-synthetic.py": "729096b74988a07f0eb656b25f398457a385aca3b7936a617d69faab9e4efff3"
+  },
+  "closeout": {
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "rollback": "Eight task-owned runtime/profile/auditor files checked against frozen hashes before restoring exact HEAD v25 bytes.",
+    "processes": "All owned build/test/server/driver/monitor processes exited; foreign control/monitoring untouched.",
+    "storage_bytes": 33085534,
+    "worktrees": "No worktrees created or removed.",
+    "host_tests": "3/3 mtp_control, mtp_weights, reference_engine_control passed; document control 86 registered, 1110 local links, zero errors; all 7 document unit tests passed; git diff --check passed."
+  }
+}

@@ -898,6 +898,35 @@ Attention option is used only by the numerical comparator, with no server
 selector or installed ABI. Short/inadequate-scratch cases retain reference
 execution before enqueue, and the request counter records actual route hits.
 
+## Combined immutable decoder composition v23
+
+For every four-bit weight code q and eight-bit block-scale code s, construction
+computes `C[16*s+q] = FP4(q) * FP8(s)` with the original FP32 multiplication.
+The complete 4,096-entry table includes signed zeros and non-finite codes.
+Each verifier weight now reads this exact product once from private immutable
+device storage instead of two shared lookups and multiplication. The scalar
+oracle retains its existing arithmetic. All K subsequences, four FMA chains,
+warp merge, final tensor scale and BF16 rounding stay identical; no scale is
+moved across accumulation. Canonical, Gate/Up coupled and Down consumer-order
+formats still supply the same nibble and full block-scale code.
+
+The multi-row transaction owns exactly 16,384 additional bytes, initialized
+and synchronized before readiness and never modified during requests. It
+releases them only after its target work drains. Failure during construction
+cleans partial ownership; request failures retain existing poison semantics.
+No global mutable table, checkpoint rewrite, request allocation or production
+selector is introduced. Per-CTA codebook initialization and its barrier vanish;
+read-only cache behavior and indexing become explicit costs. Exhaustive product
+and full-output checks plus real scalar state/logits admit one composition with
+v25 ordered draft before the same complete API direction panel.
+
+The [combined-decoder rejection](metadata/qwen36-27b-mtp-combined-codebook-rejection-2026-10-10.json)
+closes this version after exact exhaustive/full-prefix admission and negative
+P65 API direction. The immutable table, owner and consumers are removed;
+frozen source retains reproduction authority only. Fewer decoder operations
+did not select a faster runner. The retained isolated implementation returns
+to v25 ordered draft plus the original target verifier, with no production change.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

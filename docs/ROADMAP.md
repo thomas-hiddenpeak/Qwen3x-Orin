@@ -19,6 +19,42 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP combined immutable decoder — closed negative
+
+`WP-MTP-COMBINED-CODEBOOK-20261010` / `AC-MTP-GREEDY-v23` composes the
+ordered draft dependency with a different exact NVFP4 computation boundary.
+The matched 40K verifier spends 8.845 GPU seconds in this family. Instead of
+repeating two shared lookups and block-scale multiplication per weight, one
+construction-owned 4,096-entry table materializes their exact finite-domain
+product. Every original FMA and publication remains unchanged. This also removes
+per-CTA table construction/barriers, charging read-only cache traffic and index
+work to the complete API. It adds only 16,384 immutable device bytes, with no
+request-time allocation or model layout change.
+
+The [design record](metadata/qwen36-27b-mtp-combined-codebook-design-2026-10-10.json)
+and [equivalence ledger](MTP_ADMISSION.md#combined-immutable-decoder-composition-v23)
+bind one composition plus at most one correctness repair. Exhaustive decoder/
+full-output guards and complete P65 transaction admission precede immediate
+P65/8K/40K d2 API; useful direction unlocks d3. A greater-than-3% regression
+against v25 stops early; neutral direction removes this version without a
+lookup/layout/grid scan. The unchanged 1.5x–3x goal and 18.45/21.62-second
+complete Decode budgets remain controlling. No hardware-stall claim or target
+attainment follows from instruction counts. Artifacts stay under
+`.q3x-work/mtp-combined-codebook-20261010/`. This is the ordered-draft dependency's
+next complete API composition point; negative new decoding returns to the
+independently positive v25 direction, without production selection.
+
+The [combined-decoder rejection](metadata/qwen36-27b-mtp-combined-codebook-rejection-2026-10-10.json)
+closes this composition after exhaustive decoder/consumer checks and complete
+P65 numerical/transaction admission. P65/O16 d2 output and accounting match,
+but Decode falls to 9.252 token/s versus v25 10.704. The early-stop gate
+interrupts 8K; no 40K/d3 or complete lifecycle claim follows. All new table,
+owner and consumer paths are removed. The independently positive v25 wiring
+remains in isolated development, and its next API composition point is now
+fulfilled. This result closes another weight-decoding substitution; a successor
+must address the complete verification execution budget rather than open a
+table/cache/layout scan. The 1.5x–3x objective remains active and unmet.
+
 ## 2026-10-10 MTP ordered draft composition — API return complete
 
 `WP-MTP-DRAFT-ORDERED-COMPOSITION-20261010` / `AC-MTP-GREEDY-v22`

@@ -195,6 +195,10 @@ The ordered-draft successor completes both API panels and remains a bounded
 development dependency for the next verifier composition. Existing MTP SDD,
 Current Status and Roadmap own its scope; no registry path or class changes.
 
+The combined immutable decoder package updates the same MTP SDD and Roadmap;
+it adds no Markdown path or classification. The package is closed after negative
+P65 API direction; all new runtime paths are removed and frozen evidence retained.
+
 ## Integrity check
 
 After all intended Markdown changes, run:
