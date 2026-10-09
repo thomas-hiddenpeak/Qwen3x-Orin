@@ -282,6 +282,115 @@ and at most one correctness repair return immediately to P65/8K/40K d2/d3 API.
 A negative direction archives this version rather than opening a parameter scan.
 Production and independent non-MTP baselines are unchanged.
 
+The [cooperative rejection](metadata/qwen36-27b-mtp-cooperative-projection-rejection-2026-10-09.json)
+archives this projection after negative P65 API direction; the following v6
+composition was its shared-V dependency expiry point.
+
+## Accumulator ownership composition v6
+
+The cooperative verifier preserves all P65/P8192 state/logit bits but its
+warp-broadcast projection regresses P65 Decode from 10.72 to 3.90 token/s;
+that version is rejected and removed. P65 does not execute the shared-V
+kernel, so it cannot select or reject that independent mechanism. The exact
+shared-V implementation has only dependency authority until this next API
+composition; its local numerical evidence is not a performance win.
+
+`WP-MTP-ACCUMULATOR-OWNERSHIP-20261009` keeps every speculative token's four
+FMA chains in the same thread, as in the admitted vector verifier. For M3/M4,
+each thread owns two output channels instead of four, splitting each original
+packed output quad into two aligned uint2 consumers. Canonical weights use two
+uint32 loads; coupled/consumer-order layouts retain the exact original bytes
+and scale fields. Adjacent output-pair CTAs can reuse packed cache lines.
+No token-group broadcast or per-K shared-weight staging remains. Each weight
+still serves every speculative row; only independent output ownership changes.
+Activation reads may increase, so lower registers alone cannot select it.
+M2 retains four output channels. Four chain merges, warp/eight-warp reductions,
+final tensor scales and BF16 publication are unchanged for every output.
+
+One fixed implementation (plus at most one correctness repair) composes with
+the exact shared-V kernel and draft MMA; complete scalar prefix state/logits
+admit it before P65/8K/40K d2/d3 API selection. The same 1.5x–3x goal and
+15.7/17.9-second verifier budgets control the decision. Negative whole-path
+fitness closes this version without a parameter sweep. No production route,
+accuracy bound, capacity or retained-free gate changes.
+
+The [accumulator-ownership rejection](metadata/qwen36-27b-mtp-accumulator-ownership-rejection-2026-10-09.json)
+closes the complete d2 API panel as negative versus retained v7. Both the
+output-pair projection and shared-V implementation were removed.
+
+## Packed FP8 and draft Attention composition v7
+
+Output-pair ownership plus shared-V regresses d2 API Decode at all three
+contexts and is archived. The restored v7 vector-quad/interleaved-query
+composition is the incumbent for `WP-MTP-PACKED-FP8-20261009`.
+
+The pinned Marlin `dequant.h` in vLLM commit
+`ccd49f6821ee110cc5a2b1aba620a8a1d66c7cbb` maps E4M3 bits into FP16 and
+multiplies by exactly 256 to correct the exponent bias. Both FP8 subnormals
+and all finite normal values are represented exactly in FP16, then exactly
+converted to FP32. The private verifier implements this in two-value pairs
+with native half2 multiplication, replacing scalar shared-codebook lookup.
+The speed-only reference's bias folding into a tensor scale is not used:
+weights are restored to their full exact values before every existing FP32
+FMA, and the original tensor scale stays after reduction. FN NaN codes are
+explicitly restored to the original signed quiet-NaN bits; signed zeros are
+preserved. Every two-code combination is checked on-device against independent
+host formulas before the real-model oracle. Existing preswizzled FP8 O bytes
+are unswizzled first. NVFP4 codebooks and arithmetic are unchanged.
+
+The other dependency binds draft Attention at S512..44095 to the already
+qualified production ordered GQA operation. Q/K normalization, RoPE, causal
+span, FP32 QK/softmax/PV arithmetic, BF16 output and subsequent sigmoid gate
+stay identical. It borrows the existing draft probability scratch on the same
+stream; no allocation or fallback after enqueue is permitted. Short draft
+Attention retains the public reference. This transfers the production KV
+residency to the real draft critical path rather than changing model precision.
+
+The two dependencies return together to the same API panel after exhaustive
+encoding and complete prefix state/logit checks. The 1.5x–3x objective remains
+unchanged; one initial composition and one correctness repair bound the work.
+Neither component observations nor preserved generated text select production.
+
+The [packed-conversion rejection](metadata/qwen36-27b-mtp-packed-fp8-rejection-2026-10-09.json)
+closes this direction: every encoding/state check passes, but P65/8K slows
+and 40K is effectively tied. Draft ordered Attention had dependency authority
+only through the immediately following composition.
+
+## Full-K operand residency composition v8
+
+`WP-MTP-FULLK-RESIDENCY-20261009` moves FP8 operand lifetime across the entire
+K loop. A CTA decodes canonical FP8 weights for four K5120 outputs or two K6144
+outputs into exact BF16 shared storage. A complete producer barrier precedes
+all consumers. M independent 256-thread groups then execute one token each:
+original K-thread identities, four FP32 chains, original merge, warp and
+eight-warp reduction, tensor scale and BF16 publication. The final reduction
+uses disjoint shared partials. Complete operand storage is at most 40,960
+bytes plus codebook/partials, below the ordinary 48-KiB static limit; there
+is no runtime shared-memory attribute change. Group size derives from K
+capacity, not a performance parameter scan. Canonical source weights are
+already authenticated and resident; output sidecars remain attached for the
+scalar oracle and other consumers.
+
+Compared with rejected v3, operands are BF16 rather than FP32, there is no
+inner-K producer barrier, and each token consumer has only its own output
+accumulators. Compared with v5, there are no warp-broadcast instructions in
+the FMA loop. This transfers full-operand residency/producer-consumer ownership
+from the studied Marlin dataflow while retaining exact scalar arithmetic.
+The cost of shared publication, rereads and lower CTA concurrency is charged
+to the full API; reduced registers alone cannot select it. NVFP4, recurrence,
+causal target Attention and transaction ownership stay incumbent. Admitted
+production ordered draft GQA remains a coupled dependency only. Complete
+prefix state/logits admit one fixed composition before the same d2/d3 API
+panel. The 1.5x–3x target and whole-round budgets remain unchanged; at most
+one correctness repair is permitted and a negative composition ends the
+version. No production numerical or routing contract changes.
+
+The [full-K rejection](metadata/qwen36-27b-mtp-fullk-residency-rejection-2026-10-09.json)
+closes this version after exact state/logit admission and negative P65 API.
+Neither new projection nor draft Attention remains selected. The retained
+implementation is the v7 draft matrix composition; the active bottleneck reset
+and next composition decision are owned by [Roadmap](ROADMAP.md).
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

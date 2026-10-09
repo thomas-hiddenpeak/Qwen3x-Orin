@@ -1,0 +1,124 @@
+{
+  "date": "2026-10-09",
+  "decision_unit": "architecture_candidate",
+  "work_package_id": "WP-MTP-FULLK-RESIDENCY-20261009",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v8",
+  "decision": "reject full-K BF16 shared residency after P65 API slowdown; restore v7 verifier",
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "production_changed": false,
+  "binary_sha256": "6cf8e1fba434ed4a843a2233d203d753ba2444ab369d37350d2dcaa24547ffa8",
+  "source_snapshot": ".q3x-work/mtp-shared-verify-20261009/fullk-source",
+  "runs": {
+    "fullk-oracle-p65": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/fullk-oracle-p65",
+      "sha256": {
+        "identity.json": "428b2eb9a87af078bf4c40872a2cdfc93e0af79a687f20951a9950a8312bf1c9",
+        "cache-preparation.json": "0acd291119d3acc92eb49d766e4e956fb6e9d53bf777cb7800201323e0f475ab",
+        "cleanup.json": "0b36d348504aaa2361c38043a83dc59673fbbde352b1e35f14cc51dca15c61ae",
+        "preflight.json": "b3fac288aa793623248d3ed7329125f3b05db55c152c6c42f8e21d6e8e4a07cf"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/fullk-oracle-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/fullk-oracle-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/fullk-oracle-p65",
+          "--prefix-only"
+        ],
+        "binary_sha256": "0aaca7c13d3d022cd10b1c66ff32f9a0abf4718f540550660638d1c3883b340c",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "b32895aa1a8f9892dc40c51621761f25165be4ee",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 68.312
+      }
+    },
+    "fullk-d2": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/fullk-d2",
+      "sha256": {
+        "results.json": "046585f47397878ab5ab73c08bb9a47a70d7cb15201619b46adb33ba59b9bb51",
+        "identity.json": "c0f7041ad0105f65d109e01ae28a9a22fad1812600af98dfac07adbbf965b62e",
+        "cache-preparation.json": "eeba53d80cbcb637613a578ac05610e39490979ee7f809e008a4f9c403b8ccf9",
+        "health.json": "c5ef1fef5e692abbb681271ef0fa492f6f9dcd73c6f50f7a4f5e6464dfca1479",
+        "p65.json": "5bc072605d0cc8cef78615ee1221d0db83ad6fc06276788142b78ac7c9dfa110",
+        "cleanup.json": "ef505c82b9a2cd86270123971568cfa59ef746bbbd9df85ce5eed5ef453c502d",
+        "preflight.json": "2c40a2a2d33102f892efbc96c8bb454cd6fea5d7c94bf465fc89d5796fe6b940"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/fullk-source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/fullk-d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "6cf8e1fba434ed4a843a2233d203d753ba2444ab369d37350d2dcaa24547ffa8",
+        "draft_length": 2,
+        "driver_sha256": "e0d1b01f5139840c8148421b4135c4bad8c2a1fca411414e2ae0aa2877131153",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "bd0eba2f0f6bf0e4b17dc079d27296cb97febe8d",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": false,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 72.656
+      }
+    }
+  },
+  "api_completed_stages": [
+    {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.892770538,
+      "prefill_tps": 72.80706209863749,
+      "decode_tps": 8.743400466755359,
+      "ttft_s": 0.9114478239789605,
+      "elapsed_s": 2.6268327608704567,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-fullk-residency-v11",
+        "draft_length": 2,
+        "startup_free_bytes": 9846784000,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 13.105387,
+        "draft_ms": 124.39370600000001,
+        "verify_ms": 1558.4253179999998,
+        "reconcile_ms": 26.458233999999997,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "resources": "FP8 31/39 registers, zero local/stack, max 42496 shared bytes. Resource admission is not performance.",
+  "numerical": "All 9 P65 complete scalar-prefix state/full-logit comparisons pass.",
+  "limitations": [
+    "P65 direction only; P8192 interrupted after negative short result, no completed long timing or d3 run.",
+    "Owned SIGINT cleanup returns zero; integration success=false retained.",
+    "No fresh Nsight attribution. Lower registers, exact reduced shared representation and fewer producer barriers did not improve this full composition."
+  ]
+}

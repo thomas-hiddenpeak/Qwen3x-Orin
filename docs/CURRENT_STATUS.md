@@ -138,8 +138,19 @@ Its 40K total request remains effectively tied with non-MTP; d3 is slower.
 Draft initialization falls to 0.54/2.63 seconds, but d2 verification still
 takes 19.32/25.73 seconds. Complete 1.5x Decode budgets are approximately
 18.45/21.62 seconds. This composition is retained as a bounded dependency
-of the cooperative verifier in [Roadmap](ROADMAP.md), not a generally faster
+of the next architecture selected by [Roadmap](ROADMAP.md), not a generally faster
 production policy or a reason to lower the target.
+
+The later cooperative-warp, output-pair/shared-V, packed-FP8 and full-K
+shared-operand compositions all failed their bounded API direction screens
+and were removed. Their [cooperative](metadata/qwen36-27b-mtp-cooperative-projection-rejection-2026-10-09.json),
+[output-pair](metadata/qwen36-27b-mtp-accumulator-ownership-rejection-2026-10-09.json),
+[packed conversion](metadata/qwen36-27b-mtp-packed-fp8-rejection-2026-10-09.json)
+and [full-K](metadata/qwen36-27b-mtp-fullk-residency-rejection-2026-10-09.json)
+records preserve exact numerical passes, completed API observations and
+interrupted runs. Reduced registers and fewer operand decodes did not select
+a better runner. The v7 table above remains the retained implementation's
+observation; no losing variant or uncomposed draft dependency remains active.
 
 ## Numerical baseline decision
 

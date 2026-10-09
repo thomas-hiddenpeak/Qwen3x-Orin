@@ -19,7 +19,68 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-10-09 MTP cooperative verifier — next composition
+## 2026-10-09 MTP bottleneck reset — active
+
+`WP-MTP-BOTTLENECK-RESET-20261009` restores the retained v7 composition after
+full-K residency regressed the real P65 API. No losing projection or draft
+route remains selected. One bounded same-ELF P40000/O256 d2 Nsight attempt
+will distinguish projection execution, long-context Attention and controller
+cost on the complete matched real workload. The existing fresh v7 API record
+is its timing authority; profile timings cannot replace it. Startup reserve
+and clean ownership stay mandatory; a resource failure stops that attempt.
+Then select one materially different dataflow from the measured full-round
+budget, with explicit real-API composition, instead of further scalar decode,
+output-group or producer-barrier variations. The 1.5x–3x goal remains active.
+
+## 2026-10-09 MTP full-K operand residency — closed negative
+
+`WP-MTP-FULLK-RESIDENCY-20261009` / `AC-MTP-GREEDY-v8` follows the
+packed-conversion composition's negative P65/8K direction. Repeated scalar
+weight conversion changes did not close the verifier budget. This fixed
+architecture instead decodes a complete FP8 output group into CTA-owned BF16
+once, publishes it once, then lets independent token groups consume the whole
+K span without an inner producer barrier. Unlike rejected shared-FP32 tiles,
+there is no per-tile synchronization or expanded FP32 operand traffic. BF16
+holds every FP8 code exactly. Output ownership is four channels for K5120 and
+two for K6144, solely to fit the static shared-memory limit. All original
+four-chain, warp/eight-warp reductions and BF16 publication remain exact.
+NVFP4 stays incumbent. Production ordered draft Attention remains dependency-only
+until this composition's API result. One implementation and at most one
+correctness repair return to full-prefix admission and P65/8K/40K d2/d3;
+negative direction closes it without a launch/shape sweep. The same 1.5x–3x
+goal and 15.7/17.9-second verifier budgets select this work.
+
+## 2026-10-09 MTP packed FP8 conversion — negative direction
+
+`WP-MTP-PACKED-FP8-20261009` / `AC-MTP-GREEDY-v7` restores the v7
+vector/output-quad and interleaved-query implementation after v9 regressed all
+three d2 API buckets. Shared-V and output-pair ownership are archived, with
+no d3 qualification-only continuation. The next fixed composition transfers
+the pinned Marlin pairwise FP8-to-FP16 conversion to exact FP32 verifier
+operands and reuses production ordered GQA for draft S512..44095. It changes
+neither target FMA trees nor draft outputs. Exhaustive 256-code/all-pair device
+checks precede complete real-prefix state/logit admission, then immediate
+P65/8K/40K d2/d3 API return. One composition plus one correctness repair is
+the bound; no parameter scan or numerical waiver is opened. The unchanged
+1.5x–3x goal and full-round budgets remain the selection constraint.
+
+## 2026-10-09 MTP accumulator ownership — closed negative
+
+`WP-MTP-ACCUMULATOR-OWNERSHIP-20261009` / `AC-MTP-GREEDY-v6` follows the
+negative P65 API result of warp-broadcast verification. The v8 projection is
+removed; its exact shared-V implementation is a dependency only, bounded to
+this immediate composition. Retain register-local reuse across all M rows,
+but partition the existing four-channel packed sidecar into two aligned
+output pairs for M3/M4. This reduces per-thread accumulator liveness without
+multiplying decode/broadcast instructions across token subgroups. M2 retains
+the existing four-output route. This is one fixed ownership transformation,
+not a tile/launch sweep. It composes with the exact shared-V kernel and admitted
+draft MMA before the next P65/8K/40K d2/d3 API return. The 15.7/17.9-second
+verifier budgets and 1.5x–3x target remain unchanged. One implementation plus
+at most one correctness repair bounds this package; no third weight-decoder
+variant or repeated qualification of a losing policy is opened.
+
+## 2026-10-09 MTP cooperative verifier — projection rejected
 
 `WP-MTP-COOPERATIVE-VERIFY-20261009` / `AC-MTP-GREEDY-v5` follows the
 completed d2/d3 API return of the draft matrix path.

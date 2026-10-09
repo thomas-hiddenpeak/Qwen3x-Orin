@@ -175,7 +175,8 @@ authority only for its exact recorded protocol.
 | `third_party/flashinfer/README.q3x.md` | `vendored_source_notice` | frozen | FlashInfer subset provenance and local integration notice; source ownership remains upstream. |
 
 The 2026-10-09 shared-verification work package updates the existing MTP SDD
-and Roadmap, followed by the bounded draft matrix composition; the registered
+and Roadmap, followed by draft matrix, rejected verifier compositions and the
+bounded bottleneck reset; the registered
 document set and classes are unchanged.
 
 ## Integrity check
