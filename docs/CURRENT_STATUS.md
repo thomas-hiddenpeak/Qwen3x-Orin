@@ -54,6 +54,42 @@ Decode token/s convergence target are not claimed achieved.
 
 ## MTP development status
 
+The current isolated source composes retained v7 target verification with
+exact ordered draft GQA under `q3x.sm87.admission.mtp-draft-ordered-api.v25`,
+ELF `75fedc5a94c6d381071b6bce8e247d54e49d1afb8d03e6e8e45b0288ee84a4e0`.
+The [ordered-draft direction](metadata/qwen36-27b-mtp-draft-ordered-composition-direction-2026-10-10.json)
+passes three same-input recursive draft steps with bitwise complete hidden/KV
+and predictions, all P513 prefix/transaction checks, and eight API/lifecycle
+requests for each draft length. All sixteen successful responses match the
+non-MTP baseline output, usage and finish. No target arithmetic, allocation,
+production artifact or accuracy boundary changes.
+
+This is a bounded development prerequisite for the next complete verifier
+composition, not a statistically selected performance baseline. On 2026-10-10,
+one fresh process per policy reports the following same-request observations.
+Prefill includes draft initialization; Decode includes all controller, draft,
+verification, reconciliation and observer work, excluding the first token.
+
+| P / O | Policy | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 65 / 16 | d2 | 0.885 | 73.41 | 0.904 | 10.704 | 2.305 |
+| 8192 / 256 | d2 | 17.244 | 475.07 | 17.266 | 11.630 | 39.192 |
+| 40000 / 256 | d2 | 92.631 | 431.82 | 92.667 | 8.874 | 121.405 |
+| 65 / 16 | d3 | 0.888 | 73.20 | 0.907 | 8.659 | 2.639 |
+| 8192 / 256 | d3 | 17.332 | 472.65 | 17.354 | 10.026 | 42.789 |
+| 40000 / 256 | d3 | 92.843 | 430.83 | 92.878 | 7.859 | 125.328 |
+
+D2 40K draft work falls from the v7 observation of 3.258 seconds to 2.461;
+target verification remains about 25.735 seconds. D2's observed ratios versus
+the non-MTP anchor below are about 1.263x at 8K and 1.129x at 40K. **The
+1.5x–3x objective remains unmet.** D3 remains slower than d2. No further
+qualification-only run is pending; [Roadmap](ROADMAP.md) requires this dependency
+to return in the next complete verifier architecture, while production remains
+non-MTP. Earlier milestone and v7-anchor statements below describe their dated
+closures rather than superseding this current isolated-code snapshot.
+
+### Earlier milestones and v7 comparison anchor
+
 The owner-authorized candidate uses configured draft lengths 2 and 3. The
 [host milestone](metadata/qwen36-27b-mtp-foundation-2026-09-28.json) is followed
 by a [native device milestone](metadata/qwen36-27b-mtp-device-2026-09-28.json):
@@ -93,7 +129,7 @@ text, usage and finish on eight requests each, including stream/nonstream,
 text/chat and recovery after real Prefill/Decode disconnects. Startup retains
 over 8 GiB free memory with the complete target acceleration inventory.
 
-The current [draft matrix composition](metadata/qwen36-27b-mtp-draft-matrix-direction-2026-10-09.json)
+The preceding [draft matrix composition](metadata/qwen36-27b-mtp-draft-matrix-direction-2026-10-09.json)
 restores the exact vector verifier and adds private BF16 Tensor Core drafting,
 causal query scheduling and post-Prefill workspace borrowing. Its isolated
 profile is `q3x.sm87.admission.mtp-multirow-api.v7`, ELF

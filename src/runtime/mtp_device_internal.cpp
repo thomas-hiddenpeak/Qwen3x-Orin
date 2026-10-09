@@ -1,5 +1,8 @@
 #include "mtp_device_internal.h"
 #include "mtp_prefill_internal.h"
+#if defined(Q3X_ENABLE_FUSED_DECODE)
+#include "decode_fused_gqa_internal.h"
+#endif
 #include "model/mtp_weights_internal.h"
 #include "q3x/core/sha256.h"
 #include "q3x/runtime/decode_ops.h"
@@ -141,6 +144,8 @@ struct Draft::Impl {
   void* arena = nullptr;
   cudaStream_t stream = nullptr;
   bool poisoned = false;
+  bool ordered_attention = false;
+  std::uint64_t ordered_attention_steps = 0;
   int error = 0;
   std::uint16_t *concat, *residual, *normalized, *branch, *final_hidden;
   std::uint16_t *q_gate, *query, *gate, *attention, *mlp_gate, *mlp_up;
@@ -150,13 +155,20 @@ struct Draft::Impl {
   std::size_t scratch_count;
   Bf16GreedyArgmaxResult* argmax;
   Impl(const Weights& w, const ModelWeights& b, std::uint32_t cap,
-       const float* cos, const float* sin)
+       const float* cos, const float* sin, bool use_ordered_attention)
       : weights(w), base(b), capacity(cap), cosines(cos), sines(sin) {
     check(cap >= 1 && cap <= 44095 && cos && sin, "MTP draft capacity/RoPE");
     check(b.embed_tokens().input_size == H && b.embed_tokens().output_size == V &&
           b.embed_tokens().weight != nullptr && linear_input_size(b.lm_head()) == H &&
           linear_output_size(b.lm_head()) == V, "MTP shared embedding/lm-head");
     scratch_count = std::max<std::size_t>(V, 24ULL * cap);
+#if defined(Q3X_ENABLE_FUSED_DECODE)
+    ordered_attention = use_ordered_attention &&
+        scratch_count * sizeof(float) >= fused_decode::kWorkspaceBytes;
+    if (ordered_attention) cuda_check(static_cast<cudaError_t>(fused_decode::prepare()));
+#else
+    (void)use_ordered_attention;
+#endif
     const std::size_t bytes = 400000 + 4096ULL * cap + 2 * V + 4 * scratch_count + 8 * kDraftPrefillBatch * H;
     arena = allocate(bytes);
     try {
@@ -210,20 +222,37 @@ struct Draft::Impl {
     return call(launch_mtp_prefill_projection(weights.tensor(index), input,
         1, spec.rows, spec.columns, output, stream));
   }
+  int attention_step() noexcept {
+#if defined(Q3X_ENABLE_FUSED_DECODE)
+    if (ordered_attention && position + 1 >= fused_decode::kMinimumSequence) {
+      const int status = fused_decode::launch(query, key, value, position + 1,
+          scratch, scratch_count * sizeof(float), attention, stream);
+      if (status == cudaSuccess) ++ordered_attention_steps;
+      return status;
+    }
+#endif
+    return launch_gqa_attention_reference_cuda(query, key, value, 24, 4,
+        position + 1, 256, 0.0625F, scratch, scratch_count, attention, stream);
+  }
   bool norm(const std::uint16_t* input, std::size_t index, std::uint16_t* output) noexcept {
     return call(launch_centered_rms_norm_reference_cuda(input, weights.tensor(index),
                                                        H, 1.0e-6F, output, stream));
   }
 };
 Draft::Draft(const Weights& weights, const ModelWeights& model,
-             std::uint32_t capacity, const float* cosines, const float* sines)
-    : impl_(std::make_unique<Impl>(weights, model, capacity, cosines, sines)) {}
+             std::uint32_t capacity, const float* cosines, const float* sines,
+             bool use_ordered_attention)
+    : impl_(std::make_unique<Impl>(weights, model, capacity, cosines, sines,
+                                  use_ordered_attention)) {}
 Draft::~Draft() = default;
 std::uint32_t Draft::position() const noexcept { return impl_->position; }
 const std::uint16_t* Draft::hidden() const noexcept { return impl_->final_hidden; }
 const std::uint16_t* Draft::keys() const noexcept { return impl_->key; }
 const std::uint16_t* Draft::values() const noexcept { return impl_->value; }
 int Draft::error() const noexcept { return impl_->error; }
+std::uint64_t Draft::ordered_attention_steps() const noexcept {
+  return impl_->ordered_attention_steps;
+}
 bool Draft::rewind(std::uint32_t position) noexcept {
   auto& p = *impl_;
   if (p.poisoned || position > p.position) return false;
@@ -232,6 +261,7 @@ bool Draft::rewind(std::uint32_t position) noexcept {
 }
 bool Draft::reset() noexcept {
   auto& p = *impl_;
+  p.ordered_attention_steps = 0;
   if (!p.call(cudaStreamSynchronize(p.stream))) return false;
   if (!p.call(cudaMemsetAsync(p.key, 0, 2048ULL * p.capacity, p.stream)) ||
       !p.call(cudaMemsetAsync(p.value, 0, 2048ULL * p.capacity, p.stream)) ||
@@ -335,8 +365,7 @@ bool Draft::step(std::uint32_t token, const std::uint16_t* hidden,
              p.cosines + 32ULL * p.position, p.sines + 32ULL * p.position, 24, p.query, p.stream)) ||
       !call(launch_partial_neox_rope_256_64_reference_cuda(key,
              p.cosines + 32ULL * p.position, p.sines + 32ULL * p.position, 4, key, p.stream)) ||
-      !call(launch_gqa_attention_reference_cuda(p.query, p.key, p.value, 24, 4,
-             p.position + 1, 256, 0.0625F, p.scratch, p.scratch_count, p.attention, p.stream)) ||
+      !call(p.attention_step()) ||
       !call(launch_sigmoid_gate_reference_cuda(p.attention, p.gate, 6144, p.attention, p.stream)) ||
       !p.project(8, p.attention, p.branch) ||
       !call(launch_residual_add_reference_cuda(p.residual, p.branch, H, p.residual, p.stream)) ||

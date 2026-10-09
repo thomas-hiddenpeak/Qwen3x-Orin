@@ -196,6 +196,40 @@ int main(int argc, char** argv) try {
   std::uint32_t seed = 0;
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
   seed = initialize();
+  {
+    // Same real hidden/history, independently selected original draft GQA.
+    mtp::Draft reference(weights, *model_weights, request->max_sequence_length(),
+                         mtp::TargetTransaction::cosines(*target),
+                         mtp::TargetTransaction::sines(*target), false);
+    require(reference.reset() && reference.initialize_kv(prompt.data() + 1,
+              transaction.prompt_hidden(), prompt.size() - 1), "draft reference initialization");
+    auto token = seed;
+    unsigned expected_ordered = 0;
+    for (unsigned row = 0; row < 3; ++row) {
+      const auto position = draft.position();
+      std::uint32_t proposed = 0, original = 0;
+      require(draft.step(token, row ? draft.hidden() : mtp::TargetTransaction::hidden(*target),
+                         true, proposed) &&
+              reference.step(token, row ? reference.hidden() : mtp::TargetTransaction::hidden(*target),
+                             true, original), "draft attention comparison step");
+      require(proposed == original &&
+              read_device(draft.hidden(), 10240) == read_device(reference.hidden(), 10240) &&
+              read_device(draft.keys(), draft.position() * 2048ULL) ==
+                  read_device(reference.keys(), reference.position() * 2048ULL) &&
+              read_device(draft.values(), draft.position() * 2048ULL) ==
+                  read_device(reference.values(), reference.position() * 2048ULL),
+              "ordered draft differs from original full hidden/KV");
+      expected_ordered += position + 1 >= 512;
+      require(draft.ordered_attention_steps() == expected_ordered &&
+              reference.ordered_attention_steps() == 0, "draft attention route count");
+      token = proposed;
+    }
+    std::cout << "draft_attention_same_input_steps=3 hidden_kv_predictions=bitwise_equal ordered_steps="
+              << expected_ordered << '\n' << std::flush;
+    require(draft.reset() && draft.ordered_attention_steps() == 0 &&
+            draft.initialize_kv(prompt.data() + 1, transaction.prompt_hidden(), prompt.size() - 1),
+            "draft comparison reset");
+  }
 #else
   for (std::size_t i = 0; i < prompt.size(); ++i) {
     seed = step(*target, prompt[i], i + 1 == prompt.size());

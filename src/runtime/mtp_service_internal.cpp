@@ -136,7 +136,7 @@ ReferenceRunnerStatus Service::decode(reference_engine_detail::GenerationControl
 std::string Service::report_json() const {
   const auto& r = report_;
   std::ostringstream out; out << std::setprecision(17) << std::boolalpha;
-  out << "{\"enabled\":true,\"verifier\":\"multirow-vector-attention-draft-mma-v7\",\"draft_length\":" << r.draft_length
+  out << "{\"enabled\":true,\"verifier\":\"multirow-v7-draft-ordered-v25\",\"draft_length\":" << r.draft_length
       << ",\"startup_free_bytes\":" << startup_free_bytes_
       << ",\"prompt_rows\":" << r.prompt_rows << ",\"draft_prefill_rows\":" << r.draft_rows
       << ",\"initialized\":" << r.initialized << ",\"rounds\":" << r.rounds
@@ -144,6 +144,7 @@ std::string Service::report_json() const {
       << ",\"verified_rows\":" << r.verified << ",\"committed_decode_tokens\":" << r.committed
       << ",\"accepted_by_position\":[" << r.accepted_by_position[0] << ','
       << r.accepted_by_position[1] << ',' << r.accepted_by_position[2] << ']'
+      << ",\"draft_ordered_attention_steps\":" << draft_.ordered_attention_steps()
       << ",\"draft_initialization_ms\":" << r.initialization_ms
       << ",\"draft_ms\":" << r.draft_ms << ",\"verify_ms\":" << r.verify_ms
       << ",\"reconcile_ms\":" << r.reconcile_ms

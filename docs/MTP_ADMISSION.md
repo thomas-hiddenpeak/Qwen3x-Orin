@@ -871,6 +871,33 @@ the request-state/system lifetime exception is not retained. Full inventory
 preservation did not produce a useful verifier or API gain. Frozen source has
 reproduction authority only; isolated v7 and production remain unchanged.
 
+## Ordered draft composition v22
+
+The retained v7 target verifier and draft MMA compose with the existing exact
+production ordered GQA only for draft full steps at S512..44095. Original
+QK/softmax/PV arithmetic, BF16 publication, sigmoid gate and remaining draft
+layer remain unchanged. The private draft owner validates the fixed device
+before readiness and requires the operator's complete 4,233,120-byte scratch
+extent, even for smaller S. A smaller draft arena keeps the reference before
+enqueue. Once selected, failure drains/poisons rather than falling back.
+
+No new allocation, target operation, cache initialization or reconciliation
+change is introduced. An actual ordered-step counter resets with draft state
+and is exported in the request receipt; eligible full-context requests require
+one hit per proposal. The composition returns directly through P513 full
+transactions and the real d2/d3 API. Earlier losing target combinations do not
+supply standalone performance authority. Any retained benefit must participate
+in the next complete verifier architecture; the full 1.5x–3x objective remains.
+
+The [direction record](metadata/qwen36-27b-mtp-draft-ordered-composition-direction-2026-10-10.json)
+binds complete same-input draft and P513 state/transaction checks plus both
+full d2/d3 API panels. The service wiring remains dependency-only for the next
+verifier composition; single-process observations do not grant architecture
+qualification or production eligibility. The private constructor's original
+Attention option is used only by the numerical comparator, with no server
+selector or installed ABI. Short/inadequate-scratch cases retain reference
+execution before enqueue, and the request counter records actual route hits.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
@@ -1142,7 +1169,7 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
 production/install, and identifies itself as
-`q3x.sm87.admission.mtp-multirow-api.v7`. The startup-only
+`q3x.sm87.admission.mtp-draft-ordered-api.v25`. The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.

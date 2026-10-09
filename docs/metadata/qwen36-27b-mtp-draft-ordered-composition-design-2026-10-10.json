@@ -1,0 +1,27 @@
+{
+  "work_package_id": "WP-MTP-DRAFT-ORDERED-COMPOSITION-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v22",
+  "source_base": "acb7fb8cdd99ef4b3f9eb0e72e210791cb8e5477",
+  "product_target": "1.5x–3x complete committed Decode; unchanged and unmet",
+  "complete_decode_budget_seconds": [
+    18.45,
+    21.62
+  ],
+  "decision_unit": "architecture_candidate",
+  "decision_class": "engineering direction",
+  "hypothesis": "Compose existing exact production ordered draft GQA with retained v7 target verification. Earlier negative verifier compositions did not establish the independent complete path effect.",
+  "downward_budget": "v7 d2 40K draft3.258s; earlier ordered draft observations about2.456s embedded in losing target variants. At most this budget can return here; cannot alone close50% target.",
+  "scope": "draft full steps S512..44095 with full4,233,120-byte scratch; MTP tests/admission only; no target kernel changes",
+  "numerical_contract": "Original scalar QK tree, actual-length FP32 softmax and increasing-position PV FMA, BF16 rounding, gate and downstream draft hidden remain exact. No change to cache init/reconcile.",
+  "resources": "existing arena and stream; validate fixed device before readiness; incomplete scratch retains reference before enqueue; no fallback on enqueue error",
+  "checks": [
+    "P513 complete prefix/transaction/cancellation/recovery",
+    "same-request P65/8192/40000 d2 API and lifecycle",
+    "d3 same panel only if useful long-context d2 direction"
+  ],
+  "bounds": "one wiring composition, no kernel/tile/layout scan; immediate API return",
+  "stop": "greater-than3% regression stops relevant longcontext; neutral complete composition remove; no release or50%claim",
+  "retention": "positive direction only a bounded prerequisite, must compose at the next complete verifier architecture API return; no indefinite local retention",
+  "artifact_directory": ".q3x-work/mtp-draft-ordered-composition-20261010",
+  "rollback": "new draft wiring and profile/auditor changes; unchanged production binary"
+}

@@ -19,6 +19,39 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP ordered draft composition — API return complete
+
+`WP-MTP-DRAFT-ORDERED-COMPOSITION-20261010` / `AC-MTP-GREEDY-v22`
+returns an earlier coupled dependency through the retained v7 target verifier.
+The prior losing projection/Attention packages did not select the independent
+whole-path effect of exact production ordered draft GQA. This is a complete
+service wiring change, without another target kernel variant. The
+[design record](metadata/qwen36-27b-mtp-draft-ordered-composition-design-2026-10-10.json)
+binds the 3.258-second 40K draft budget and unchanged 18.45/21.62-second
+complete Decode budgets. Draft savings alone cannot establish the 1.5x–3x goal.
+
+One composition uses the existing fixed production operator on eligible draft
+steps, with explicit scratch/device validation and actual hit receipts. Full
+P513 transaction admission precedes immediate P65/8K/40K d2 API/lifecycle;
+useful long-context direction unlocks the same d3 panel. Neutral/negative
+composition is removed. A positive result is only a bounded prerequisite for
+the next complete verifier architecture's API return, never a production or
+50% claim. No local kernel/layout scan opens. Artifacts stay in
+`.q3x-work/mtp-draft-ordered-composition-20261010/`.
+
+The [completed direction](metadata/qwen36-27b-mtp-draft-ordered-composition-direction-2026-10-10.json)
+passes the new same-input original-draft comparison, complete P513 numerical/
+transaction admission and all eight API/lifecycle requests for each policy.
+D2 observes 11.630/8.874 token/s at 8K/40K versus v7 11.560/8.636; d3 observes
+10.026/7.859 versus 9.954/7.624. Target verification stays effectively unchanged.
+The private wiring remains as a bounded dependency for the next complete
+verifier composition, not a statistically selected baseline or production
+route. No further qualification-only campaign or draft-length scan is pending.
+The unchanged 1.5x–3x goal still selects the dominant verifier budget; the next
+architecture must compose this dependency at its first real API return or
+archive it. The negative layout, shared-residency and certificate-executor
+lineages remain closed.
+
 ## 2026-10-10 MTP phase-borrowed FP8 input layout — closed without retention
 
 `WP-MTP-PHASE-FP8-LAYOUT-20261010` / `AC-MTP-GREEDY-v21` preserves the

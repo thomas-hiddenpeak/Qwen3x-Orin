@@ -26,7 +26,8 @@ class Weights {
 class Draft {
  public:
   Draft(const Weights&, const ModelWeights&, std::uint32_t capacity,
-        const float* cosines, const float* sines);
+        const float* cosines, const float* sines,
+        bool use_ordered_attention = true);
   ~Draft();
   Draft(const Draft&) = delete;
   Draft& operator=(const Draft&) = delete;
@@ -50,6 +51,7 @@ class Draft {
   const std::uint16_t* keys() const noexcept;
   const std::uint16_t* values() const noexcept;
   int error() const noexcept;
+  std::uint64_t ordered_attention_steps() const noexcept;
  private:
   struct Impl;
   std::unique_ptr<Impl> impl_;

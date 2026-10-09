@@ -191,6 +191,10 @@ classes are unchanged. The phase-borrowed FP8 successor is also closed without r
 complete numerical and d2 API checks; the temporary state/system exception
 and runtime paths are removed. No Markdown path or classification changes.
 
+The ordered-draft successor completes both API panels and remains a bounded
+development dependency for the next verifier composition. Existing MTP SDD,
+Current Status and Roadmap own its scope; no registry path or class changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:
