@@ -1,0 +1,238 @@
+{
+  "date": "2026-10-09",
+  "source_base": "b32895a",
+  "decision_unit": "architecture_candidate",
+  "work_package_id": "WP-MTP-ACCUMULATOR-OWNERSHIP-20261009",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v6",
+  "decision": "reject output-pair projection plus shared-V; restore v7 vector-quad/interleaved-query composition",
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "production_changed": false,
+  "binary_sha256": "51d2c4a29cb6651507980a41f60515af9fe390fd2f4f5533027a82da3adb92db",
+  "source_snapshot": ".q3x-work/mtp-shared-verify-20261009/pair-source",
+  "runs": {
+    "pair-oracle-p65": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/pair-oracle-p65",
+      "sha256": {
+        "identity.json": "aa47e03b3755910b3683385c29a1e9a2386c635da2ef7ae6b04c47052ac4ea9d",
+        "cache-preparation.json": "c296da74ae255b9f526eca26d589e2ccb315b570a32aea09c6645936e461fc39",
+        "cleanup.json": "7838211f81057b0265d243cee1daec164b8cf4272f51504a14a70061b156d782",
+        "preflight.json": "fdfba148e0e9bd79daf22e0d0b3cf467ff2e64659dea19719fe76f68428898b7"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/pair-oracle-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/pair-oracle-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/pair-oracle-p65",
+          "--prefix-only"
+        ],
+        "binary_sha256": "cad972fa1740a4833d57129cd5d6cf73054a567e1f0d3df6f81f50de6ab63c20",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "b32895aa1a8f9892dc40c51621761f25165be4ee",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 67.125
+      }
+    },
+    "pair-d2": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/pair-d2",
+      "sha256": {
+        "results.json": "0a10d3a873d2309ea65ae5b681020cacc24b6b6be1fd82378a2e1df283033600",
+        "identity.json": "88467d4efa2be2bd57df1dab9fb2c15b4e14de47dc530ddf1e772b62d2832097",
+        "cache-preparation.json": "d32d4c0e769acec2a3d36840414cf8278580d21669f4ffdd2f5f8b990753fc0e",
+        "p65-nonstream.json": "682f7df006b30276932e822411443ba1f53aff2216834898617d203218a4f91c",
+        "chat-stop.json": "2f3d1c2f9c9099a43ad51012fa372ece6e6574cbfda530e21ec0faa3bfd7ca82",
+        "health.json": "66ee264700d97e5f573533258a775bc14e9bef1af71cc4db8c486fb295893db0",
+        "p65.json": "23286b8d357d5ce60c1bbd08224c19ae1088bb2636ebaa8c3f686c247fa4c3b1",
+        "cleanup.json": "3e0f4510d90f8e144686371626fab75193e3ea83a37d71bf576e55bacc7635a8",
+        "p8192.json": "bd90adb79a9142bb191cace97c25983c751ae005fdf8fe06ad5a3420c8293f04",
+        "p40000.json": "954cd1208d8836d900e239a5fab73da465d26d20a07a9c5880b2a8d814176d7d",
+        "after-prefill-cancel.json": "92ab89bf11c14fc955532a478840e8f701849c8c2c6d5d4cb939d7ade825528a",
+        "preflight.json": "05e9d41d08da0fd37fc1862d48ad2ebd57f3d403844e4a329fb45b5b28e59770",
+        "after-decode-cancel.json": "433ad164a3ead941b81d112a3bde3892b15c23efe7dc1c957975af0fc271c623",
+        "raw-text.json": "44fc4da57f427a222d562113e54bef0b09f671049be647de15756f8f46475487",
+        "audited-metrics.json": "23eea90e959c80fa2b3dc1797a56645859e4985365c1f58fc4fb94ed7b3ec3d5"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/pair-source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/pair-d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "51d2c4a29cb6651507980a41f60515af9fe390fd2f4f5533027a82da3adb92db",
+        "draft_length": 2,
+        "driver_sha256": "3af564ebff4cd86e21295e5ea4b38534590db2c7ecd9aa5cb2ee194727066b7a",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "b32895aa1a8f9892dc40c51621761f25165be4ee",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 80.156
+      }
+    }
+  },
+  "api_stages": [
+    {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8853956119999999,
+      "prefill_tps": 73.41351043424869,
+      "decode_tps": 10.402668164545469,
+      "ttft_s": 0.9041525549255311,
+      "elapsed_s": 2.3459959109313786,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-pair-shared-v9",
+        "draft_length": 2,
+        "startup_free_bytes": 9867489280,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 5.664581,
+        "draft_ms": 124.04096100000001,
+        "verify_ms": 1285.4271629999998,
+        "reconcile_ms": 26.173712999999996,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "stage": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "prefill_s": 17.285139212999997,
+      "prefill_tps": 473.9331224962811,
+      "decode_tps": 11.150461549054375,
+      "ttft_s": 17.30737916007638,
+      "elapsed_s": 40.176607348024845,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-pair-shared-v9",
+        "draft_length": 2,
+        "startup_free_bytes": 9867489280,
+        "prompt_rows": 8192,
+        "draft_prefill_rows": 8191,
+        "initialized": true,
+        "rounds": 98,
+        "proposed": 196,
+        "accepted": 157,
+        "verified_rows": 294,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          86,
+          71,
+          0
+        ],
+        "draft_initialization_ms": 544.720724,
+        "draft_ms": 2221.909208,
+        "verify_ms": 20115.30736299999,
+        "reconcile_ms": 443.881634,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "stage": "p40000",
+      "prompt": 40000,
+      "output": 256,
+      "prefill_s": 92.876639611,
+      "prefill_tps": 430.6788032764111,
+      "decode_tps": 8.397282174654256,
+      "ttft_s": 92.91181479161605,
+      "elapsed_s": 123.28025220381096,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-pair-shared-v9",
+        "draft_length": 2,
+        "startup_free_bytes": 9867489280,
+        "prompt_rows": 40000,
+        "draft_prefill_rows": 39999,
+        "initialized": true,
+        "rounds": 105,
+        "proposed": 210,
+        "accepted": 150,
+        "verified_rows": 315,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          85,
+          65,
+          0
+        ],
+        "draft_initialization_ms": 2642.288558,
+        "draft_ms": 3275.4636809999993,
+        "verify_ms": 26546.789557000004,
+        "reconcile_ms": 449.0222680000002,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "stage": "p65-nonstream",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8814067,
+      "prefill_tps": 73.74575210286012,
+      "decode_tps": 10.421215150758314,
+      "ttft_s": null,
+      "elapsed_s": 2.3395746699534357,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-pair-shared-v9",
+        "draft_length": 2,
+        "startup_free_bytes": 9867489280,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 5.332945,
+        "draft_ms": 123.162315,
+        "verify_ms": 1283.9793470000002,
+        "reconcile_ms": 26.107146,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "numerical": "All 9 P65 complete scalar-prefix state/full-logit checks pass; all 8 d2 API/lifecycle requests match the fresh non-MTP baseline. Shared-V additionally has the preceding P8192 exact-prefix check. No tolerance change.",
+  "limitations": [
+    "One fresh process; direction only, no mirrored significance or release claim.",
+    "D2 Decode regresses versus retained v7 at P65/8192/40000; no d3 qualification-only continuation.",
+    "Lower register counts and zero spill do not demonstrate performance; no new profiler attribution.",
+    "All source and prior failed runs retained; neither replaced projection nor shared-V remains in the successor."
+  ]
+}

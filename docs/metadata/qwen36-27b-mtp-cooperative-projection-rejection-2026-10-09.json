@@ -1,0 +1,155 @@
+{
+  "date": "2026-10-09",
+  "source_base": "b32895a",
+  "decision_unit": "architecture_candidate",
+  "work_package_id": "WP-MTP-COOPERATIVE-VERIFY-20261009",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v5",
+  "decision": "reject warp-broadcast projection; exact shared-V kernel is dependency-only for AC-MTP-GREEDY-v6",
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "production_changed": false,
+  "binary_sha256": "8135b99ad7af80deb32ca096ee3199a28a4a1bcd71ad06a39ca1e2e74e87f849",
+  "source_snapshot": ".q3x-work/mtp-shared-verify-20261009/cooperative-source",
+  "runs": {
+    "cooperative-oracle-p65": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/cooperative-oracle-p65",
+      "artifact_sha256": {
+        "identity.json": "921e3ed1beb8a0b2b38e23d213d1d6ae69eac7a38f92b6f8c509c8aef1de77ea",
+        "cache-preparation.json": "2517a9fadf5479d76b952fcdc18c37e4d73188f078fb7852d6d21d6b334034dd",
+        "cleanup.json": "0bcef705d2b40ed187d2e310c914193d8860ce990d7ee93d612a33356136c370",
+        "preflight.json": "aaa835c32724f88db4fdd60d706acaa3479b99d06abd8794877825b9e93491df"
+      },
+      "identity.json": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/cooperative-oracle-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/cooperative-oracle-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/cooperative-oracle-p65",
+          "--prefix-only"
+        ],
+        "binary_sha256": "9a148f9e21978f55fafaa14304b8cd6b02d35ccad07c7fd801f6b6f349b6a26e",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "b32895aa1a8f9892dc40c51621761f25165be4ee",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup.json": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 66.75
+      }
+    },
+    "cooperative-oracle-p8192": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/cooperative-oracle-p8192",
+      "artifact_sha256": {
+        "identity.json": "becd4ee1614e85fbd09919aa40d85a3bc1805ce1885db0cb69ad82a1073deefc",
+        "cache-preparation.json": "1f049c67ea6260031bb324b6b699c16ef8b96579121e6197c744bb06e227f61e",
+        "cleanup.json": "2d9fdef2763268879281f16a922245941ba0cfc9497c498d6cd610ba5acf22a4",
+        "preflight.json": "4203c27f817ec0fe4a3c1b5ad1c8b60ee504cc5b5966ed1ea08df8ea84aeb81b"
+      },
+      "identity.json": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/cooperative-oracle-p8192/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/cooperative-oracle-p8192/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/cooperative-oracle-p8192",
+          "--prefix-only"
+        ],
+        "binary_sha256": "9a148f9e21978f55fafaa14304b8cd6b02d35ccad07c7fd801f6b6f349b6a26e",
+        "prompt_sha256": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "b32895aa1a8f9892dc40c51621761f25165be4ee",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup.json": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 78.875
+      }
+    },
+    "cooperative-d2": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/cooperative-d2",
+      "artifact_sha256": {
+        "results.json": "e048dcf25fad4d552bca7d2e79ee6ce9dc339b38c00d72d039d0a47067aff2ae",
+        "identity.json": "c19c1b4ada4dda69b71ad9a0c0916fd3bf01ba7ec7621d25dcfb967e14d1c916",
+        "cache-preparation.json": "82f4217ef0622b26bafabfec1cac0bc54f095a52e7d30e35ac36fdbd472ede1d",
+        "health.json": "01855cac9839c40bdbe109ed2afa7379ffaba4654d999135d95d021efe76fb67",
+        "p65.json": "de848efc503f7a8702172eac51cd9e500a83536172b4c3371625a491acfd7ad1",
+        "cleanup.json": "816a6b2a12344393a25682716b499c31222df7dbc365ca8051f9b78f9b28b34e",
+        "preflight.json": "985af743d2e6b593438ddae5e46201717dbe8538cd82fa8b340dc8921ee8cd10"
+      },
+      "identity.json": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/cooperative-source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/cooperative-d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "8135b99ad7af80deb32ca096ee3199a28a4a1bcd71ad06a39ca1e2e74e87f849",
+        "draft_length": 2,
+        "driver_sha256": "cd7b4a6e58c8f133f6a3308fd88d5e384928f413155b529cfefb2ba3f81eddd6",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "b32895aa1a8f9892dc40c51621761f25165be4ee",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup.json": {
+        "success": false,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 75.031
+      }
+    }
+  },
+  "api_completed_stages": [
+    {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.885543807,
+      "prefill_tps": 73.40122474595996,
+      "decode_tps": 3.9019510914336646,
+      "ttft_s": 0.9043767494149506,
+      "elapsed_s": 4.748232233338058,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-cooperative-v8",
+        "draft_length": 2,
+        "startup_free_bytes": 9868615680,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 5.688436,
+        "draft_ms": 124.384958,
+        "verify_ms": 3687.2282120000004,
+        "reconcile_ms": 26.296915000000002,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "numerical": "All 9 complete scalar-prefix state/full-logit comparisons at P65 and P8192 pass; no relaxed target tolerance.",
+  "resources": "No local spill or stack; FP8 registers40..42, NV48..64; exact shared-V max43008 bytes. These do not establish performance.",
+  "limitations": [
+    "P65 API early rejection only; P8192 was interrupted, no completed long-context performance or d3 panel.",
+    "Owned SIGINT shutdown returned0 with no safety errors; integration success=false is preserved.",
+    "P65 has no batched Attention, so the projection replacement is directionally isolated; no new Nsight attribution.",
+    "Warp operand sharing lowered registers but increased instruction/control work; exact stall attribution unmeasured.",
+    "Shared-V receives no speedup or production authority until the named immediate composition returns to API."
+  ]
+}

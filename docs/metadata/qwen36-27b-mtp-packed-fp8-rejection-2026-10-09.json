@@ -1,0 +1,253 @@
+{
+  "date": "2026-10-09",
+  "source_base": "b32895a",
+  "decision_unit": "architecture_candidate",
+  "work_package_id": "WP-MTP-PACKED-FP8-20261009",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v7",
+  "decision": "reject packed FP8 verifier conversion; draft ordered Attention remains dependency-only for AC-MTP-GREEDY-v8",
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "production_changed": false,
+  "binary_sha256": "a162d49e8e690b65cac81edc5dc40224f00c48f1cc80fec9f8d6f462ae2ce25b",
+  "source_snapshot": ".q3x-work/mtp-shared-verify-20261009/packed-source",
+  "runs": {
+    "packed-encoding": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/packed-encoding",
+      "sha256": {
+        "cache-preparation.json": "73ed2efa37960c2c767d7b3c133484e5be5facbdc4e0fa429a6cedba2e5e9b57",
+        "result.json": "bfbe743445200e6ae5874006d0c8b18511e407dff4615e2cb1cd0b68e88c383d",
+        "preflight.json": "d21fb74a29e34a2bc5daf08210a96e2b4c8540771733ea0aff48e98a2518344b"
+      },
+      "result.json": {
+        "binary_sha256": "1c04d9f4289fbd23a4c76761154c547c279a29ddb9ee37e941e7c1d810975b6c",
+        "returncode": 0,
+        "stdout": "all_65536_fp8_pairs=bitwise_equal signed_zero_nan_subnormal=pass performance_claim=false\n",
+        "stderr": "",
+        "performance_claim": false
+      }
+    },
+    "packed-oracle-p509": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/packed-oracle-p509",
+      "sha256": {
+        "identity.json": "20c7bfc58927fbb610f0fd7f03fad11245cb438c19b0ffd64e2facbdc0b0e2b5",
+        "cache-preparation.json": "bd75fb158057a3c7d45c8b6aa139a53999a0c661458b30f77df3f3f52ecdc02a",
+        "cleanup.json": "d4e9b984febf614935636320607ef16ede5cbbb0ebb0644d175b592dbd8f3f72",
+        "preflight.json": "0e1368913473cb0ff689b2f2e66253ab6f1986cd7d432b4cab2817606776d8a1"
+      },
+      "identity.json": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/packed-oracle-p509/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/packed-oracle-p509/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/packed-oracle-p509"
+        ],
+        "binary_sha256": "0968b59d5687dfebe67777e755179b979959591cbf356cdf7a051cfe50c8888a",
+        "prompt_sha256": "549071076f968ed53d3f886da21f60e40b3a70e0ab92c480de822873de341461",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "b32895aa1a8f9892dc40c51621761f25165be4ee",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup.json": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 72.968
+      }
+    },
+    "packed-d2": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/packed-d2",
+      "sha256": {
+        "results.json": "c5e060e6921cb1e338f669bebd80305303f450499644ee306fc3246e382bdc71",
+        "identity.json": "99975de4cb0a0593465d47d067553284832c1a55a90a064772c9567d576b2723",
+        "cache-preparation.json": "e18ea8ad63bf59607e36df9ade7747a644a0360a4b4b892ce6c1af7f381399ab",
+        "p65-nonstream.json": "184a82cedd11d34b3a54dcb79961ba64877bf56595ac2f6cd89210019e559fd7",
+        "chat-stop.json": "fdc4d8a5cba80ab0d31508a75acc582cba828521c28285eeb44f9736b11ba9c0",
+        "health.json": "f2e3e7b20182b299d257513ce309787b2a0c90e9d4a0a66520987b7a00a9b5b7",
+        "p65.json": "17a607b8a50779143fbc5ced5598d7f0476eabba09647601c091951e8a11554a",
+        "cleanup.json": "51b043cce6ab2a310c1d0d4c56e5b9606d81248dadd7f2b126f67a9b80d69bbd",
+        "p8192.json": "7bf01b5c68488bb3b6189438f4a70e1a7bf5b548d65626af7563dad6cf2d23ed",
+        "p40000.json": "75a5b235cf0892298c2f976e73f94cfa17af831b4afdd3873c192669a2279cd3",
+        "after-prefill-cancel.json": "9ddd2888af312e11a8e034ff47eb57ec73600e404b064f4f16828edd5c32c317",
+        "preflight.json": "5896a81087406efdc363cbcbe352bfd8167fe173dca341a2fa47d7a618aceb7d",
+        "after-decode-cancel.json": "490c266ca17e54588be12068beb05c3e0a054e9672b3fa0a9d704896caa33d07",
+        "raw-text.json": "39184653c03e93c8c7b21b6c3b1141db176f1045f9e5c0b996eaa268c31283ea",
+        "audited-metrics.json": "15c3ac52794878c12a8054060beebdd5f7b1b2f87f03972af918c96600aa158b"
+      },
+      "identity.json": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/packed-source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/packed-d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "a162d49e8e690b65cac81edc5dc40224f00c48f1cc80fec9f8d6f462ae2ce25b",
+        "draft_length": 2,
+        "driver_sha256": "54ff610b1cd3e8f2ce9d355f5a4908814294adbb2782a4ca8322f46d4f988f82",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "b32895aa1a8f9892dc40c51621761f25165be4ee",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup.json": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 81.062
+      }
+    }
+  },
+  "api_stages": [
+    {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.88672773,
+      "prefill_tps": 73.303222399507,
+      "decode_tps": 10.353231761397852,
+      "ttft_s": 0.905482369940728,
+      "elapsed_s": 2.354116666596383,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-packed-fp8-v10",
+        "draft_length": 2,
+        "startup_free_bytes": 9785470976,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 5.678879,
+        "draft_ms": 124.310817,
+        "verify_ms": 1291.77349,
+        "reconcile_ms": 26.418052999999997,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "stage": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "prefill_s": 17.28330492,
+      "prefill_tps": 473.9834214531696,
+      "decode_tps": 11.233130396324976,
+      "ttft_s": 17.305604013614357,
+      "elapsed_s": 40.00651040673256,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-packed-fp8-v10",
+        "draft_length": 2,
+        "startup_free_bytes": 9785470976,
+        "prompt_rows": 8192,
+        "draft_prefill_rows": 8191,
+        "initialized": true,
+        "rounds": 98,
+        "proposed": 196,
+        "accepted": 157,
+        "verified_rows": 294,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          86,
+          71,
+          0
+        ],
+        "draft_initialization_ms": 543.230604,
+        "draft_ms": 2064.9205490000004,
+        "verify_ms": 20101.301255,
+        "reconcile_ms": 446.7271690000002,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "stage": "p40000",
+      "prompt": 40000,
+      "output": 256,
+      "prefill_s": 93.147597032,
+      "prefill_tps": 429.42599996711,
+      "decode_tps": 8.624921250892173,
+      "ttft_s": 93.18271709792316,
+      "elapsed_s": 122.74977062409744,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-packed-fp8-v10",
+        "draft_length": 2,
+        "startup_free_bytes": 9785470976,
+        "prompt_rows": 40000,
+        "draft_prefill_rows": 39999,
+        "initialized": true,
+        "rounds": 105,
+        "proposed": 210,
+        "accepted": 150,
+        "verified_rows": 315,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          85,
+          65,
+          0
+        ],
+        "draft_initialization_ms": 2643.941352,
+        "draft_ms": 2457.128087,
+        "verify_ms": 26566.994081999997,
+        "reconcile_ms": 447.26270000000017,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "stage": "p65-nonstream",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.881092633,
+      "prefill_tps": 73.77203890433618,
+      "decode_tps": 10.431946715730385,
+      "ttft_s": null,
+      "elapsed_s": 2.337834688834846,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-packed-fp8-v10",
+        "draft_length": 2,
+        "startup_free_bytes": 9785470976,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 5.323738,
+        "draft_ms": 123.22565200000001,
+        "verify_ms": 1282.17073,
+        "reconcile_ms": 26.327453000000002,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "numerical": "All 65536 code pairs bitwise equal including signed zero, subnormals, signed FN NaNs; P509 passes 9 full prefix state/logit checks, 11 complete transactions, cache tails, initialization cancellation and two failure recoveries. All 8 d2 API/lifecycle checks pass.",
+  "limitations": [
+    "One fresh process per policy; direction only, no mirrored significance or release claim.",
+    "P65/8K slower than v7; 40K essentially tied. No d3 qualification-only continuation.",
+    "Draft phase falls from 3.258 to 2.457 seconds at 40K but verification rises from 25.733 to 26.567 seconds; independent draft selection not claimed.",
+    "An initial build failed because __uint_as_half2 is unavailable; corrected to __halves2half2 plus bit casts before all device checks.",
+    "Packed helper/test preserved in frozen source but removed from the active build along with losing verifier conversion."
+  ]
+}
