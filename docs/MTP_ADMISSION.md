@@ -1014,6 +1014,34 @@ All nine fixed instantiations have no spills, but API differences of only
 +0.30% to +0.46% do not establish a useful gain. The described v26 executor
 is removed; isolated service remains v28. No d3 or further lookahead scan follows.
 
+## Live reduction ownership composition v27
+
+The FP8 mainloop and four-chain merge are unchanged. Let `s[r,l]` be the
+original merged value for channel r and lane l. The stage-16 tree computes
+`s[r,i] + s[r,i+16]` for i0..15. Lower-half lanes retain channels 0/1;
+upper-half lanes retain channels 2/3 at matching i, using XOR shuffles and
+explicit lower-operand-first addition. Stage 8 partitions each half into
+channels, computing the original `t[r,i] + t[r,i+8]` for i0..7. Four 8-lane
+groups now own the four independent channel trees; offsets 4, 2 and 1 complete
+the identical ordered tree. Lanes 0/8/16/24 publish channels 0/1/2/3 into the
+original `[M,4,8]` partial array. No dead-lane result is observed.
+
+After the existing barrier, one warp per token reads the four channel partials
+in four groups of eight. Each leaf explicitly adds positive zero twice,
+preserving the original warp tree's offsets 16 and 8 including signed-zero
+and non-finite behavior. Grouped offsets 4/2/1, tensor scale and BF16 rounding
+then publish the same outputs. Every invoked shuffle uses the full active warp
+mask; ownership branches are warp-uniform. This changes neither accumulation
+order nor persistent state and requires no new scratch, layout or allocation.
+Directed tree tests and complete scalar state/logits precede the real API.
+
+The [completed live-reduction direction](metadata/qwen36-27b-mtp-live-reduction-direction-2026-10-10.json)
+passes directed exceptional-value trees, complete projection outputs, full P65
+state/logits/transactions and both API panels. The exact mapping remains in
+the isolated v30 service as a bounded composition prerequisite. Numerical
+agreement and single-process positive direction do not select production or
+establish the owner's full speedup objective.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
@@ -1285,7 +1313,7 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
 production/install, and identifies itself as
-`q3x.sm87.admission.mtp-projection-lifetime-api.v28`. The startup-only
+`q3x.sm87.admission.mtp-live-reduction-api.v30`. The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.

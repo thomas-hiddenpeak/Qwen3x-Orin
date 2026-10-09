@@ -19,6 +19,37 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP live reduction ownership — API return complete
+
+`WP-MTP-LIVE-REDUCTION-20261010` / `AC-MTP-GREEDY-v27` retains the
+1.5x–3x objective and 18.45/21.62-second complete Decode budgets. Weight
+expansion was assessed but is not selected: complete decoded FP8 inputs exceed
+the borrowed arena and double repeated weight bytes. The [design](metadata/qwen36-27b-mtp-live-reduction-design-2026-10-10.json)
+instead removes dead-lane reduction work while preserving every live ordered
+add. Four original FP8 output trees migrate into four 8-lane groups; packed
+final partial reduction retains both leading zero additions. Packed weights,
+mainloops, launch grids and all other v28 mechanisms remain unchanged.
+
+The [MTP ledger](MTP_ADMISSION.md#live-reduction-ownership-composition-v27)
+defines exact mapping. One implementation plus at most one correctness repair
+passes directed tree/full-output and P65 transaction checks, then returns
+immediately to P65/8K/40K d2 API. Greater-than-3% regression stops; neutral
+or negative direction removes it. Useful direction unlocks d3 and grants only
+bounded prerequisite authority through the next complete verifier API return.
+No kernel grid, layout or decoder scan opens. Artifacts remain under
+`.q3x-work/mtp-live-reduction-20261010/`; production is unchanged.
+
+The [completed direction](metadata/qwen36-27b-mtp-live-reduction-direction-2026-10-10.json)
+passes all directed/full-output and real-model numerical gates plus both
+complete API panels. D2 observes 12.708/9.533 token/s at 8K/40K versus v28
+12.377/9.337, with identical work and acceptance. D3 improves to 11.164/8.574
+but remains slower than d2. The exact reduction mapping remains a bounded
+development dependency through the next complete verifier's first API return
+or archival. No repeat qualification or reduction/launch sweep follows. The
+1.5x–3x objective remains active and unmet; the next architecture still needs
+to remove substantial complete verifier cost, especially at 40K. Static
+instruction counts neither establish a hardware limit nor project further gains.
+
 ## 2026-10-10 MTP register lookahead — closed without retention
 
 `WP-MTP-REGISTER-LOOKAHEAD-20261010` / `AC-MTP-GREEDY-v26` responds to

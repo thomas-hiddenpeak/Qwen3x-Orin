@@ -214,6 +214,10 @@ The bounded register-lookahead composition closes without retention after full
 d2 API checks; the existing MTP SDD, Current Status and Roadmap record removal
 and frozen evidence without changing Markdown paths or classes.
 
+The live-reduction ownership composition completes both API direction panels
+and updates the existing MTP SDD, Current Status and Roadmap. It remains a
+bounded development dependency without changing Markdown paths or classes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

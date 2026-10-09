@@ -1,0 +1,40 @@
+{
+  "work_package_id": "WP-MTP-LIVE-REDUCTION-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v27",
+  "decision_unit": "architecture_candidate",
+  "source_base": "427f1f8",
+  "profile": "q3x.sm87.admission.mtp-live-reduction-api.v30",
+  "goal": "1.5x\u20133x same-request committed Decode; exact target state/full logits; configured drafts 2/3",
+  "downward_budget": {
+    "complete_decode_8k_s": 18.45,
+    "complete_decode_40k_s": 21.62,
+    "v28_verify_8k_s": 18.002500222,
+    "v28_verify_40k_s": 24.314268104,
+    "v7_fp8_family_gpu_s": 7.446833344
+  },
+  "evidence": "v28 API remains 1.344x/1.188x non-MTP; no new timing. Original FP8 warp_sum repeats four complete 32-lane reductions although only four lane-zero results are live. Each uses 20 warp shuffle/add instructions per token/output quad. This is source work attribution, not measured epilogue latency. Family timing is a ceiling, not predicted savings.",
+  "weight_lifetime_assessment": {
+    "full_input_fp8_bytes": 5200936960,
+    "full_input_bf16_bytes": 10401873920,
+    "post_prefill_available_bytes": 5591000064,
+    "decision": "full decoded input inventory does not fit borrowed arena; subset expansion doubles weight traffic. No new owner, expansion or loader mutation selected."
+  },
+  "mechanism": "Preserve original 32-leaf binary trees while migrating four output roots into four 8-lane subgroups. Stage16 uses four XOR shuffles and two ordered additions per lane; stage8 uses two shuffles and one ordered addition; remaining stages4/2/1 use one shuffle/add. Nine shuffle instructions replace twenty, with explicit selection charged to API. Final eight-warp partial tree packs four independent outputs into each warp with both original leading +0 additions retained. Mainloop unchanged.",
+  "equivalence": "Same leaf four-chain parenthesized merge, identical ordered additions for every live ancestor, same eight-warp partials, leading +0, scale and BF16 publication. Special values and signed zero preserved. No reassociation, approximate output, state/layout/allocation change.",
+  "reference_transfer": "Existing exact production QK live-ancestor pruning and independent output scheduling; prior vLLM/FlashInfer grouped-query work decomposition supplies ownership precedent. Native implementation, no copied source.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs_max": 1,
+    "local_timing_variants": 0,
+    "new_profiles": 0
+  },
+  "validation": [
+    "Directed device tree mapping and finite/signed-zero/NaN comparisons",
+    "Frozen v28 complete projection synthetic output/guards M2..4",
+    "Real P65 complete prefix/state/full-logit/transaction oracle",
+    "Immediate P65/8K/40K d2 API versus frozen v28; >3% regression stops; neutral removes; useful direction unlocks d3"
+  ],
+  "composition": "Retained v28 plus this one exact FP8 reduction mapping; useful direction bounded to next complete verifier API return or archive; no production or target claim",
+  "artifact_root": ".q3x-work/mtp-live-reduction-20261010",
+  "production_unchanged": true
+}

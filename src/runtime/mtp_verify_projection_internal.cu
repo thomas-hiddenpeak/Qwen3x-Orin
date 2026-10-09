@@ -33,6 +33,26 @@ __device__ __forceinline__ float warp_sum(float x) {
   return x;
 }
 
+// Preserve four independent scalar warp trees, but move their live roots
+// into four eight-lane groups as the number of live leaves shrinks.
+__device__ __forceinline__ float warp_sum_four(float s0, float s1,
+                                               float s2, float s3) {
+  const unsigned lane = threadIdx.x % 32;
+  const float p0 = __shfl_xor_sync(0xffffffffU, s0, 16);
+  const float p1 = __shfl_xor_sync(0xffffffffU, s1, 16);
+  const float p2 = __shfl_xor_sync(0xffffffffU, s2, 16);
+  const float p3 = __shfl_xor_sync(0xffffffffU, s3, 16);
+  const float t0 = __fadd_rn(lane < 16 ? s0 : p2, lane < 16 ? p0 : s2);
+  const float t1 = __fadd_rn(lane < 16 ? s1 : p3, lane < 16 ? p1 : s3);
+  const float q0 = __shfl_xor_sync(0xffffffffU, t0, 8);
+  const float q1 = __shfl_xor_sync(0xffffffffU, t1, 8);
+  float sum = __fadd_rn((lane & 8) ? q1 : t0, (lane & 8) ? t1 : q0);
+  sum = __fadd_rn(sum, __shfl_down_sync(0xffffffffU, sum, 4, 8));
+  sum = __fadd_rn(sum, __shfl_down_sync(0xffffffffU, sum, 2, 8));
+  sum = __fadd_rn(sum, __shfl_down_sync(0xffffffffU, sum, 1, 8));
+  return sum;
+}
+
 // Four output channels share vector activation loads. Each weight and scale
 // serves all speculative rows; the per-row four-chain arithmetic is unchanged.
 template<unsigned M, bool Sidecar>
@@ -81,19 +101,25 @@ __global__ void fp8_rows(const std::uint8_t* weights, float scale,
     }
   }
 #pragma unroll
-  for (unsigned m=0;m<M;++m)
+  for (unsigned m=0;m<M;++m) {
+    float merged[4];
 #pragma unroll
-    for (unsigned r=0;r<4;++r) {
-      const float sum = warp_sum((a[m][r][0]+a[m][r][1])+(a[m][r][2]+a[m][r][3]));
-      if (!lane) partial[m][r][warp] = sum;
-    }
+    for (unsigned r=0;r<4;++r)
+      merged[r] = (a[m][r][0]+a[m][r][1])+(a[m][r][2]+a[m][r][3]);
+    const float sum = warp_sum_four(merged[0], merged[1], merged[2], merged[3]);
+    if (!(lane & 7)) partial[m][lane/8][warp] = sum;
+  }
   __syncthreads();
-  // Each complete reduction is independent. Keep the original eight-value
-  // warp tree while allowing all resident warps to retire useful outputs.
-  for (unsigned output=warp;output<M*4;output+=8) {
-    const unsigned m=output/4, r=output%4;
-    const float sum = warp_sum(lane<8 ? partial[m][r][lane] : 0.f) * scale;
-    if (!lane) y[m*n+row+r] = rounded(sum);
+  if (warp < M) {
+    const unsigned r = lane/8;
+    float sum = partial[warp][r][lane%8];
+    // The original 32-lane tree adds zeros at offsets 16 and 8 first.
+    sum = __fadd_rn(sum, 0.f);
+    sum = __fadd_rn(sum, 0.f);
+    sum = __fadd_rn(sum, __shfl_down_sync(0xffffffffU, sum, 4, 8));
+    sum = __fadd_rn(sum, __shfl_down_sync(0xffffffffU, sum, 2, 8));
+    sum = __fadd_rn(sum, __shfl_down_sync(0xffffffffU, sum, 1, 8));
+    if (!(lane & 7)) y[warp*n+row+r] = rounded(sum * scale);
   }
 }
 

@@ -54,7 +54,43 @@ Decode token/s convergence target are not claimed achieved.
 
 ## MTP development status
 
-The current isolated source composes exact shared Gate/Up activation publication
+The current isolated source uses exact live-ancestor FP8 reductions on top of
+retained v28. Four output trees share warp lanes as their live leaf count falls;
+every original ordered addition and publication remains intact. Profile is
+`q3x.sm87.admission.mtp-live-reduction-api.v30`, ELF
+`222c174fe9c9b7f76fab1f15f4a68d635fb907f85da7cf08bc789dfe6a6adea1`.
+The [completed direction](metadata/qwen36-27b-mtp-live-reduction-direction-2026-10-10.json)
+passes 2,048 directed tree cases (four roots, two reduction stages), 42 complete
+projection output/guard cases, full P65 prefix/state/logit and transaction
+admission, and all eight API/lifecycle requests for each policy. All sixteen
+responses match the non-MTP baseline; work and acceptance counts match v28.
+The installed production artifact remains unchanged.
+
+These 2026-10-10 observations use one fresh process per policy, not mirrored
+means or release qualification. Prefill includes draft initialization; Decode
+includes the complete controller/observer interval after the first token.
+
+| P / O | Policy | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 65 / 16 | d2 | 0.887 | 73.27 | 0.913 | 11.721 | 2.193 |
+| 8192 / 256 | d2 | 17.309 | 473.28 | 17.331 | 12.708 | 37.398 |
+| 40000 / 256 | d2 | 92.991 | 430.15 | 93.026 | 9.533 | 119.777 |
+| 65 / 16 | d3 | 0.888 | 73.19 | 0.914 | 9.701 | 2.460 |
+| 8192 / 256 | d3 | 17.339 | 472.46 | 17.361 | 11.164 | 40.202 |
+| 40000 / 256 | d3 | 93.448 | 428.05 | 93.483 | 8.574 | 123.227 |
+
+D2 verification falls by approximately 0.54/0.56 seconds at 8K/40K against
+v28; d3 falls by about 0.75/0.79 seconds. D2 Decode ratios versus the non-MTP
+anchor below are about 1.379x/1.213x. **The 1.5x–3x objective remains unmet.**
+D3 remains slower than d2. The 40K Prefill interval is about 0.46% longer in
+both observations, offsetting some Decode savings in total request time; no
+Prefill implementation changed. This is a bounded development dependency for
+the next complete verifier API return, not statistical architecture selection
+or production promotion. No further reduction mapping scan is active.
+
+### Preceding projection lifetime direction
+
+The preceding isolated source composes exact shared Gate/Up activation publication
 and distributed FP8 final reductions with retained ordered draft and batched head.
 Profile is `q3x.sm87.admission.mtp-projection-lifetime-api.v28`, ELF
 `3891e1a0db7947de5f72501ab069f6383bced7cafec7f9a8cbf29d9f1e87fc54`.
