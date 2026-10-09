@@ -19,6 +19,42 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP bounded reduction with sparse repair — closed negative
+
+`WP-MTP-CERTIFIED-SPARSE-20261010` / `AC-MTP-GREEDY-v12` targets the
+unchanged 1.5x–3x API objective and 18.45/21.62-second full Decode budgets.
+The measured FP8 plus Gate/Up verification cost selects a new computation,
+not another packed-feed/ownership variant. Native Tensor Core K16 reductions
+start from zero, combine by explicit balanced FP32 trees within K128 partitions,
+and publish signed, absolute-product and input-conversion-error partials.
+An outward-rounded per-element certificate proves the original scalar BF16
+publication; every uncertified element executes the original scalar tree.
+Down retains its exact incumbent because its longer scalar chain makes this
+certificate less useful. This differs from the closed coarse-norm feasibility:
+it computes data-dependent absolute-product bounds, limits fast reduction depth,
+and repairs individual elements rather than rejecting a whole M-row group.
+No approximate target value is permitted to escape the certificate/repair pair.
+
+The [MTP ledger](MTP_ADMISSION.md#bounded-reduction-and-sparse-repair-composition-v12)
+owns the proof, exception handling and scratch lifetime. One implementation
+plus at most one correctness repair must pass full P65 state/logit/transaction
+admission and return immediately to the same P65/8K/40K d2/d3 API panel. Negative
+API direction closes this version without a tile or certificate-parameter scan.
+The ordered draft GQA dependency composes at that return. Scratch borrows at
+most 64 MiB of dead post-Prefill GDN storage after snapshots and prompt capture;
+no new allocation, smaller reserve or production switch is authorized.
+Artifacts remain under `.q3x-work/mtp-certified-sparse-20261010/`.
+
+The [API rejection](metadata/qwen36-27b-mtp-certified-sparse-rejection-2026-10-10.json)
+closes this version: numerical gates pass, but P65 Decode is 2.283 token/s
+versus retained v7 10.717. One same-ELF P65 profile attributes 4.875 GPU seconds
+to fast partial generation, 0.178 to certificates and 0.927 to exact repairs.
+The fast executor is the dominant measured cost; this is not proof that exact
+certification itself prevents acceleration. All new runtime paths are removed.
+No 8K/40K/d3 qualification or tile/bound scan follows. A successor must replace
+the complete fast operand/execution path and account for sparse repair costs;
+the 1.5x–3x objective and full-round budget remain unchanged.
+
 ## 2026-10-10 MTP asynchronous packed feed — closed negative
 
 `WP-MTP-ASYNC-PACKED-FEED-20261010` / `AC-MTP-GREEDY-v11` addresses the

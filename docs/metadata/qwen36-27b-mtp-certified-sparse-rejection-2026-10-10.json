@@ -1,0 +1,265 @@
+{
+  "date": "2026-10-10",
+  "decision_unit": "architecture_candidate",
+  "work_package_id": "WP-MTP-CERTIFIED-SPARSE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v12",
+  "decision": "reject bounded Tensor Core reduction plus per-element certificate/repair after negative real P65 API; restore retained v7",
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "production_changed": false,
+  "binary_sha256": "045a9052540fdde04bf4275f363e90a4d9482390011868f71d1c08c54995930e",
+  "source_snapshots": [
+    ".q3x-work/mtp-certified-sparse-20261010/source",
+    ".q3x-work/mtp-certified-sparse-20261010/source-final"
+  ],
+  "api_completed_stages": [
+    {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8872311150000001,
+      "prefill_tps": 73.26163262432472,
+      "decode_tps": 2.2831589012109657,
+      "ttft_s": 0.9058166048489511,
+      "elapsed_s": 7.475599612109363,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-certified-sparse-v15",
+        "draft_length": 2,
+        "startup_free_bytes": 10632343552,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 5.677977,
+        "draft_ms": 124.0746,
+        "verify_ms": 6413.245415,
+        "reconcile_ms": 26.208597,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "profile": {
+    "authority": "T4 diagnostic after negative same-ELF P65 API; not new performance baseline",
+    "interval": "first certified projection kernel through final GPU kernel",
+    "span_s": 6.612348928,
+    "groups": {
+      "fast_fp8_partials": {
+        "calls": 1248,
+        "seconds": 1.7952308480000028
+      },
+      "certificate": {
+        "calls": 2016,
+        "seconds": 0.17811801599999985
+      },
+      "exact_fp8_repair": {
+        "calls": 1248,
+        "seconds": 0.3637904639999999
+      },
+      "other": {
+        "calls": 8424,
+        "seconds": 0.5765830720000001
+      },
+      "fast_nvfp4_partials": {
+        "calls": 768,
+        "seconds": 3.0796516479999996
+      },
+      "exact_nvfp4_repair": {
+        "calls": 768,
+        "seconds": 0.5629729920000002
+      }
+    }
+  },
+  "runs": {
+    "synthetic": {
+      "path": ".q3x-work/mtp-certified-sparse-20261010/synthetic",
+      "sha256": {
+        "preflight.json": "d59d0aae5eff79894976fd883ac1a76ce0a0e9d40c6980c405f67eb673c9bfdd",
+        "cache-preparation.json": "5b13a9956e85d18b45a163e64ea1ddc001d21806cb636c1f6a088f7f0ecc879b",
+        "result.json": "5c95cad562a38a95aca5b0a31997e4d548551d7a874cad708508feca2cb8721b",
+        "run.log": "b44ae44877fb828000104884ea1c204c16b49d530ebea79ee5313f9ca7d7ea91"
+      },
+      "result": {
+        "returncode": 0,
+        "scope": "synthetic correctness only; no model performance authority"
+      }
+    },
+    "synthetic-final": {
+      "path": ".q3x-work/mtp-certified-sparse-20261010/synthetic-final",
+      "sha256": {
+        "preflight.json": "86de0418eef4c9de75f6939642ce29aedd21a266af8753c90a55fc9cc0c72b24",
+        "cache-preparation.json": "ede853ed5cfb3590edc3b7ddbad64e5095eac38df3f48e20834eee2b3c802c44",
+        "result.json": "5c95cad562a38a95aca5b0a31997e4d548551d7a874cad708508feca2cb8721b",
+        "run.log": "b44ae44877fb828000104884ea1c204c16b49d530ebea79ee5313f9ca7d7ea91"
+      },
+      "result": {
+        "returncode": 0,
+        "scope": "synthetic correctness only; no model performance authority"
+      }
+    },
+    "oracle-p65": {
+      "path": ".q3x-work/mtp-certified-sparse-20261010/oracle-p65",
+      "sha256": {
+        "identity.json": "40d687c26bbd25158e24216e80a6f272a04bb5b7f961a4299074283c6725f851",
+        "preflight.json": "ffaddf782eed838774d9616f335d8bb1d062da74fdc03a6b5a4c5494283e552f",
+        "cache-preparation.json": "cd67b1bb765afefb2a632359214145a24a973f325442738cc0e5a60d7aa19402",
+        "cleanup.json": "1efd21024ad79762a9490c07cbf794265cd6876a561c6fe5a6d27dede2aa5ae8",
+        "run.log": "fee7a4d012acc2a3d1cd13958e9c6ff1690381cf3da61941eb848b0f1efec503"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-certified-sparse-20261010/oracle-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-certified-sparse-20261010/oracle-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-certified-sparse-20261010/oracle-p65"
+        ],
+        "binary_sha256": "da1d25dde9e4479b658a688c96e2d90fa69bc2d78447209ac630314fefe55625",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "a434d2a2a62569242bb9f2582184fd07fd8fcac5",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 70.468
+      }
+    },
+    "oracle-final-p65": {
+      "path": ".q3x-work/mtp-certified-sparse-20261010/oracle-final-p65",
+      "sha256": {
+        "identity.json": "87313482cf59dcd3ce3c2ca43ccadc1d4aeecebcfded1c7d0bc8e61da52d764d",
+        "preflight.json": "0762694b3128fad4e6e0f24122bd7b3e4c14fdb597b3fc8c40fb32c361bf92b1",
+        "cache-preparation.json": "ee5f3938ec55688372a0859416a0fb46a496fdda2e4e2491559fe3fdf2423b3f",
+        "cleanup.json": "22903bfa672a596d5c2b310a07de40563cfff08f5c3d58dd659d4b1e7d77da79",
+        "run.log": "99d23925434f34f1debf76b11f41966e3eb2493736cadde1d132d270586638dd"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-certified-sparse-20261010/oracle-final-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-certified-sparse-20261010/oracle-final-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-certified-sparse-20261010/oracle-final-p65",
+          "--prefix-only"
+        ],
+        "binary_sha256": "d8f679983ba3ea530bd351527c85d6893ce4ab0e5dbd71cc0bc3f5e32c85f4c0",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "a434d2a2a62569242bb9f2582184fd07fd8fcac5",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 65.093
+      }
+    },
+    "d2": {
+      "path": ".q3x-work/mtp-certified-sparse-20261010/d2",
+      "sha256": {
+        "identity.json": "1d25ffe3eeaa43f8a32de4f3fefb741ac84e608af24bfb96815888f41c77c8b3",
+        "preflight.json": "e5b717b4e3b927e7c303ab8b967ad8e66776d75ab2462f41be3b90adf00b85d6",
+        "cache-preparation.json": "c1c5d98af89a6df399e343b679237210282d62c88572df9f6c6a7ecfcbc3b943",
+        "cleanup.json": "ddf9117ea91374378be183ac7307e4d6d475e4f03b43bee992df3724a609efc0",
+        "results.json": "c45b9987f14b4d7e96613d018fb7c33bb0874374f393c89a2d915df56280cdd6",
+        "p65.json": "2ec548d4df1d42181ed3d27e052bf678c3840788884172cdca001d364412d05f",
+        "server.log": "effb397d615126b9429bff736baf1cb6996e590787a0f19aa8bee744cce9080a"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-certified-sparse-20261010/source-final/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-certified-sparse-20261010/d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "045a9052540fdde04bf4275f363e90a4d9482390011868f71d1c08c54995930e",
+        "draft_length": 2,
+        "driver_sha256": "a3e687b29b8ee966dcfbb740d8c4795d0977615454d05a5e8b12ad396be1831c",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "a434d2a2a62569242bb9f2582184fd07fd8fcac5",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": false,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 64.062
+      }
+    },
+    "p65-profile": {
+      "path": ".q3x-work/mtp-certified-sparse-20261010/p65-profile",
+      "sha256": {
+        "identity.json": "734600ea5b31e267d327d2324582b014bb92574d22bffeb1af24c8983fbc5a20",
+        "preflight.json": "86f324f746386ebea08ede4128b9288cfcadcff8f1baa462e828e7fb45e95813",
+        "cache-preparation.json": "bd394002c3755068b972eb34ef338bad6cb352aa901a81ee855e6a0de75cd9ed",
+        "cleanup.json": "fcf6be8360a36c94992bb52726fc0c28b5db459ea478c75d277683252f64dd0e",
+        "results.json": "9397a4e6639a013289b3a3b4b65ffce64e70fd8427c3d6d9c88090d40928bd83",
+        "server.log": "eb22828bec64e660f41608697b5c7904421a0b7b469d3739359ce91c562e03ec",
+        "output-comparison.json": "095fd5664846e75cc2d1f81e31dd65e5af61d6651e5a47a0484b559a8bf3f452",
+        "witness.json": "51a37ad5e3b9d1662ef93bff45f39e36d83060b09995079990dbcf31ef38bbe2",
+        "decode-breakdown.json": "69960dd78e0f4935c41404c8f425b0f4ea665cc2d809fd86c93f193dd66905ed",
+        "capture.nsys-rep": "12c7f09eb695918dce3fa4096f7da9ed370e41a4f9c91d32f4aed0a3637db924",
+        "capture.sqlite": "6bf609b694f4ef248fef659673db137aad5bf9223cff9988aebde97f5b9e11b7",
+        "kernel-summary.csv": "756d39d3dceb9169c3c18f2c1f0ea466b3fed17b6aabee560825af72149f8da2"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-certified-sparse-20261010/source-final/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18871",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-certified-sparse-20261010/p65-profile/api-key",
+          "--nvtx-phase-ranges",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "executable_sha256": "045a9052540fdde04bf4275f363e90a4d9482390011868f71d1c08c54995930e",
+        "git": "a434d2a2a62569242bb9f2582184fd07fd8fcac5",
+        "driver_sha256": "fc3b0cc858f9dbc6528494f04fe714c0805a3901703cd6c94097d061a84135e0",
+        "fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "authority": "T4 diagnostic only; WP-MTP-CERTIFIED-SPARSE-20261010; one same-v15-ELF completed P65/O16 d2 workload, distinguish fast partials, certificate, and sparse repair costs after rejection; not performance selection"
+      },
+      "cleanup": {
+        "server_returncode": 0,
+        "clock_errors": [],
+        "max_temp_c": 63.625
+      }
+    }
+  },
+  "numerical": {
+    "initial": "30 synthetic cases plus P65 nine complete scalar-prefix checks, eleven transactions, cache tails, two initialization-cancel and two injected-failure recoveries pass.",
+    "final": "Fixed shared row skew only; repeated 30 synthetic cases and all nine complete P65 scalar-prefix state/full-logit checks pass. API response/usage/finish/body matches baseline; same-ELF profiled response matches ordinary API.",
+    "certificate": "K16 zero-start FP16 MMA, explicit balanced reductions, data-dependent absolute-product/conversion-error bound, outward FP32 interval, strict BF16 cell, original scalar repair for uncertified/exceptional values. Target precision/output contract unchanged.",
+    "synthetic_scope": "Correctness only, including tiny inputs, BF16 subnormals, Inf and NaN. Both certificate and repair branches execute; no timing authority."
+  },
+  "source_reference": "https://docs.nvidia.com/cuda/archive/12.6.3/parallel-thread-execution/index.html#warp-level-matrix-instructions-mma",
+  "limitations": [
+    "One P65/O16 d2 direction observation, not release qualification or repeated speedup evidence.",
+    "8K interrupted after negative P65; 40K and d3 not run. Driver return 130; owned server return zero with no monitor error.",
+    "Profile assigns kernel-family time, not a hardware-counter cause. Fast partial generators consume 4.874882496 seconds; certificate 0.178118016 seconds and exact repairs 0.926763456 seconds.",
+    "All new runtime routes and CMake additions removed. The proof and frozen code are evidence, not production eligibility or a new performance incumbent. No tile/certificate-parameter scan is open."
+  ],
+  "test_sources": {
+    ".q3x-work/mtp-certified-sparse-20261010/certificate-test.cu": "2f19a252f996ad961d1eaa38b3959a7064687970f8b7d2c4118e904a416c6acc",
+    ".q3x-work/mtp-certified-sparse-20261010/certificate-test": "56ddc4668f812d7cc23445af04d1b1410cc7b39dd3d481f9e906b7496c1ce2de",
+    ".q3x-work/mtp-certified-sparse-20261010/certificate-test-final": "6b40bfeea0b49c28309cb981c17916a691c51efe0fc5fbc57f02d859c0f9cafb",
+    ".q3x-work/mtp-certified-sparse-20261010/profile-p65.py": "fc3b0cc858f9dbc6528494f04fe714c0805a3901703cd6c94097d061a84135e0"
+  }
+}

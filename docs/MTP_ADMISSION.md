@@ -497,6 +497,59 @@ closes this composition after complete numerical admission and negative P65
 API direction. All new runtime paths are removed; retained v7 remains selected
 only in isolated development. No pipeline sweep or production change follows.
 
+## Bounded reduction and sparse repair composition v12
+
+The candidate applies only to FP8 and NVFP4 K5120 Gate/Up M2..4. Canonical
+quantized weights decode exactly into FP16: all finite E4M3 and E2M1-times-E4M3
+values fit its precision/range. Each BF16 activation is multiplied by 256
+exactly, converted to FP16 RN, and any FP16 subnormal is replaced with zero.
+A second positive operand rounds the absolute conversion residual upward to
+FP16, using its smallest normal for nonzero smaller residuals. Inputs outside
+zero or `[2^-32,128]`, invalid weights/scales and exceptional intermediates
+force exact repair. Nonfinite operands are sanitized only inside the untrusted
+fast calculation; the original repair preserves their scalar behavior.
+
+Each K16 FP16 MMA starts with zero FP32 accumulation. Shared operands use
+a fixed 16-half row skew, preserving 32-byte row alignment while avoiding
+the unskewed K128 row-bank alias. This is the fixed initial composition, not
+a timing-selected layout sweep. The
+[NVIDIA PTX contract](https://docs.nvidia.com/cuda/archive/12.6.3/parallel-thread-execution/index.html#warp-level-matrix-instructions-mma)
+provides at least single-precision product and accumulation, without promising
+an order or rounding mode. Products here fit FP32 exactly. A conservative
+`gamma(64,2^-24)` covers sixteen arbitrary-rounding adds, three RN binary-tree
+levels within K128, at most six RN partition-tree levels, and final scaling.
+A separate MMA with absolute weights computes both absolute fast products and
+conversion-error products. Dividing each positive sum upward by `1-gamma`
+bounds its exact sum; dividing by 256 is exact in the admitted range.
+The original BF16/quantized product lattice and guarded exponents exclude
+FP32 subnormal intermediate sums and overflow. The scalar gamma depth remains
+`K/1024+11` for FP8 and `K/128+8` for NVFP4. Tensor scaling stays after reduction.
+
+Let A bound the absolute fast products, R bound the conversion-error products,
+and Gf/Gs be fast/scalar gamma. The outward error radius
+`scale * ((Gf+Gs)*(A+R)+R)` encloses the original scalar result around the fast
+scaled candidate. Only a finite normal candidate whose complete closed error
+interval lies strictly inside one BF16 midpoint cell may publish. Zero,
+subnormal, overflow, NaN and boundary-touching candidates always repair.
+Repair executes the unchanged four FMA chains, merge, warp/eight-warp reduction,
+tensor scale and BF16 rounding for each uncertified element on the same stream.
+The complete projection is visible only after repair. No statistical tolerance,
+argmax-only comparison or sampled certificate substitutes for this runtime proof.
+
+At most 64 MiB scratch follows the aligned immutable snapshot and prompt-hidden
+ranges in whole-core post-Prefill GDN workspace. It is disjoint from live state
+and C512 buffers, reused serially per projection, and expires before the next
+Prefill. Legacy/no-scratch transactions keep the existing exact implementation
+before enqueue. Full scalar-prefix state/logit admission and real API selection
+remain required; neither the proof nor reduced arithmetic implies a speedup.
+
+The [certified sparse rejection](metadata/qwen36-27b-mtp-certified-sparse-rejection-2026-10-10.json)
+closes this composition after exact synthetic/real-state admission and negative
+P65 API direction. The measured fast partial generator dominates its cost;
+certification feasibility is not an acceleration result. All new paths and
+scratch bindings are removed. The frozen proof/code remain reproduction evidence
+only, and the isolated retained v7 route remains the incumbent.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

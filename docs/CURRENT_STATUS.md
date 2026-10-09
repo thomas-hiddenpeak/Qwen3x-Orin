@@ -179,6 +179,14 @@ d2 Decode to 10.308 token/s versus retained v7 10.717. Prefill is 0.885 s /
 negative direction; no new long-context or d3 result is claimed. The new paths
 are removed and production is unchanged. The 1.5x–3x target remains unmet.
 
+The later [bounded Tensor Core reduction/certificate/repair composition](metadata/qwen36-27b-mtp-certified-sparse-rejection-2026-10-10.json)
+preserves complete P65 state/logits and exception/recovery checks but regresses
+P65/O16 d2 Decode to 2.283 token/s. Prefill is 0.887 s / 73.26 token/s, external
+TTFT 0.906 s and total 7.476 s. A matched diagnostic assigns 4.875 GPU seconds
+to fast partial generation versus 0.178 to certification and 0.927 to exact
+repair; it does not establish a hardware-stall cause. This version is removed,
+with no long-context or d3 claim. Retained v7 and the unmet objective are unchanged.
+
 ## Numerical baseline decision
 
 Legacy Prefill is retained as a regression comparator, **not model truth**.
