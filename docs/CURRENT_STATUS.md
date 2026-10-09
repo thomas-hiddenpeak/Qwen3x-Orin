@@ -187,6 +187,14 @@ to fast partial generation versus 0.178 to certification and 0.927 to exact
 repair; it does not establish a hardware-stall cause. This version is removed,
 with no long-context or d3 claim. Retained v7 and the unmet objective are unchanged.
 
+The [streamed certificate successor](metadata/qwen36-27b-mtp-streamed-certificate-rejection-2026-10-10.json)
+also preserves complete P65 numerical/transaction semantics but remains slower:
+Prefill 0.887 s / 73.25 token/s, external TTFT 0.906 s, Decode 3.956 token/s,
+and external total 4.697 s for P65/O16 d2. It is removed after this completed
+negative screen; 8K is interrupted and no 40K/d3 result is claimed. On-chip
+partial merging and smaller workspace are not sufficient for an API win.
+Retained v7, the production default and the unmet 1.5x–3x objective are unchanged.
+
 ## Numerical baseline decision
 
 Legacy Prefill is retained as a regression comparator, **not model truth**.

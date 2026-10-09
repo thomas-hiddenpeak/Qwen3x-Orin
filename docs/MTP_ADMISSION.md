@@ -550,6 +550,40 @@ certification feasibility is not an acceleration result. All new paths and
 scratch bindings are removed. The frozen proof/code remain reproduction evidence
 only, and the isolated retained v7 route remains the incumbent.
 
+## Streamed certified execution composition v13
+
+One CTA owns 32 output channels across the complete K span. Four warps use
+native FP16 m16n8k16 with zero FP32 initial accumulators, the established
+row-major A and canonical `[N,K]` column-major B ldmatrix coordinates, and
+fixed 16-half shared row skew. Packed vector loads decode eight weights per
+producer. Signed and absolute/residual MMAs keep the same operands and guards
+as the preceding proof. Only accumulator entries for logical rows 0..7 are
+live; the other eight rows are padding, not target or certificate outputs.
+
+Within K128, eight K16 leaves combine through three explicit RN tree levels.
+Across the at most 48 real K128 tiles, zero padding to 64 leaves and a six-level
+binary stack preserve the same conservative gamma(64) bound. Each thread owns
+its stack cells; no peer reads them. A CTA barrier retires all shared operand
+consumers before the next producer overwrite. The final live error row reaches
+its matching target row by a fixed same-warp shuffle. Certification publishes
+only the proved BF16 value and a byte mask directly; no global partial matrix
+or separate merge/certificate pass exists. Uncertified elements execute the
+original scalar tree with vector packed/activation loads, after the producing
+kernel completes on the same stream.
+
+At most 1 MiB after the aligned post-Prefill snapshots/capture stores the mask;
+its actual maximum is 69,632 bytes. Full-K ownership introduces no persistent
+weight expansion, allocation, inter-CTA dependency or new numerical tolerance.
+The exact proof/source and real-path checks of the previous version are
+prerequisites, not a transferred performance claim. Only this complete
+composition's real API result selects retention.
+
+The [streamed-certificate rejection](metadata/qwen36-27b-mtp-streamed-certificate-rejection-2026-10-10.json)
+closes this composition after all 30 synthetic cases, complete P65 prefix
+state/full-logit and transaction/recovery checks, and negative API direction.
+No new path or mask binding remains selected; frozen proof/source is evidence
+only. Retained isolated v7 and the production non-MTP route are unchanged.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

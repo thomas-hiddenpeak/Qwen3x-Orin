@@ -19,6 +19,38 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP streamed certified execution — closed negative
+
+`WP-MTP-STREAMED-CERTIFICATE-20261010` / `AC-MTP-GREEDY-v13` responds
+to the measured 4.875-second fast-generator cost in the rejected P65 composition.
+The unchanged 1.5x–3x goal and 18.45/21.62-second full Decode budgets select
+whole-K CTA ownership, vector packed-weight delivery and on-chip bounded-depth
+reduction. The composition eliminates all global signed/absolute/error partials
+and the separate certificate kernel. Native m16n8k16 fragments retain only the
+observable first eight rows; a thread-owned shared binary stack limits the
+arithmetic depth without excessive register retention. Vector repair consumes
+four FP8 or eight NVFP4 codes per load, preserving the original scalar tree.
+This replaces the complete producer/publication path, not its tile parameters.
+
+The preceding certificate proof and exception rules remain unchanged; the
+[MTP ledger](MTP_ADMISSION.md#streamed-certified-execution-composition-v13)
+binds the new ownership. One fixed composition plus at most one correctness
+repair returns through boundary and complete P65 state/logit checks directly to
+P65/8K/40K d2/d3 API. Negative direction closes this version without a shape,
+register, pipeline or certificate-bound scan. Ordered draft GQA composes at the
+same return. Only a 1-MiB borrowed mask workspace remains. The 8-GiB reserve,
+production default and numerical contract are unchanged. Artifacts stay in
+`.q3x-work/mtp-streamed-certificate-20261010/`.
+
+The [API rejection](metadata/qwen36-27b-mtp-streamed-certificate-rejection-2026-10-10.json)
+closes this version: complete numerical/transaction gates pass, but P65/O16
+Decode is 3.956 token/s against retained v7 10.717. All new runtime paths are
+removed. There is no 8K/40K/d3 result or follow-on tile, pipeline or bound scan.
+Eliminating global partials and reducing workspace did not select a faster
+runner. The 1.5x–3x objective remains active; a successor must replace the
+complete packed-to-fragment feed/compute architecture, account for repair,
+and return promptly to the same API. No new implementation is selected here.
+
 ## 2026-10-10 MTP bounded reduction with sparse repair — closed negative
 
 `WP-MTP-CERTIFIED-SPARSE-20261010` / `AC-MTP-GREEDY-v12` targets the
