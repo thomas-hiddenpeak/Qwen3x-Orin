@@ -218,6 +218,10 @@ The live-reduction ownership composition completes both API direction panels
 and updates the existing MTP SDD, Current Status and Roadmap. It remains a
 bounded development dependency without changing Markdown paths or classes.
 
+The causal proposal-reuse feasibility assessment completes without selecting
+a runtime composition and updates the existing Roadmap; no Markdown path or
+classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

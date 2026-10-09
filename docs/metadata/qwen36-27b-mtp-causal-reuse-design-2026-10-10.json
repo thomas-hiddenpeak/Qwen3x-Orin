@@ -1,0 +1,30 @@
+{
+  "work_package_id": "WP-MTP-CAUSAL-REUSE-20261010",
+  "source_base": "372e294",
+  "decision_unit": "bounded_host_feasibility",
+  "goal": "1.5x\u20133x same-request Decode; drafts2/3; exact target numerical and output semantics",
+  "budgets_s": {
+    "8k": 18.45,
+    "40k": 21.62
+  },
+  "current_d2_decode_tps": {
+    "8k": 12.707863443668181,
+    "40k": 9.5331218439537
+  },
+  "question": "Can causal repeated-history proposals remove enough draft work and improve accepted tokens per verification round? This is a proposal-source assessment, not a change to MTP target verification.",
+  "policy_before_observation": "Fixed 5-token match, earliest complete occurrence as pinned vLLM default; require complete requested d-token continuation already in history; no n-gram length/selector scan. Only prompt plus already committed output may select a proposal. Future target tokens are consulted only after proposal to audit acceptance.",
+  "bounds": {
+    "host_audits": 1,
+    "gpu_runs": 0,
+    "runtime_mutations": 0
+  },
+  "scope": "All possible round-entry positions in the retained P65/P8192/P40000 output, not a performance model or realized MTP hybrid schedule. Replay cannot know changed-position MTP fallback proposals.",
+  "reference": {
+    "path": "/home/rm01/vllmEvn/.venv/lib/python3.13/site-packages/vllm/v1/spec_decode/ngram_proposer.py",
+    "sha256": "5051e1bca645fe4befec0a6340f0dfc169fbcbe070ac1da508b72f8ee9c91736",
+    "config_path": "/home/rm01/vllmEvn/.venv/lib/python3.13/site-packages/vllm/config/speculative.py",
+    "config_sha256": "83cbb26932b9ec0633753b58e8fe666f55c779580b32fba750cf569cde67c40c"
+  },
+  "artifact_root": ".q3x-work/mtp-causal-reuse-20261010",
+  "production_unchanged": true
+}

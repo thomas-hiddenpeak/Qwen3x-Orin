@@ -19,6 +19,31 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP causal proposal reuse — assessment complete
+
+`WP-MTP-CAUSAL-REUSE-20261010` keeps the 1.5x–3x objective and the
+18.45/21.62-second complete Decode budgets. The [design](metadata/qwen36-27b-mtp-causal-reuse-design-2026-10-10.json)
+selects one host-only feasibility audit of repeated committed-history proposals
+at fixed draft lengths 2/3. The pinned vLLM default supplies one fixed five-token
+match with earliest occurrence. Selection may read only prompt and committed
+history; retained future target tokens are comparison-only after selection.
+Every possible entry in the existing P65/8K/40K output is assessed. This cannot
+simulate unknown MTP proposals at changed fallback positions or establish API
+speedup. One audit either closes the direction or selects a separately bounded
+hybrid-proposal composition with unchanged exact target verification and prompt
+API return. No n-gram/draft-length scan, GPU run or runtime mutation is opened.
+Artifacts stay under `.q3x-work/mtp-causal-reuse-20261010/`.
+
+The [completed assessment](metadata/qwen36-27b-mtp-causal-reuse-assessment-2026-10-10.json)
+finds zero matched entries at P65, about 54% at P8192 and only 7.1% at P40000.
+All 1,035 entry decisions pass an independent earliest-match/causal-bound scan.
+This is insufficient evidence to select proposal reuse as the response to the
+full target-domain gap; no runtime composition, GPU test or matching-parameter
+scan follows. The 8K opportunity remains workload-specific, without a hybrid
+schedule or speedup claim. Retained v30 and the 1.5x–3x objective are unchanged;
+a successor must address the complete verifier budget and return to the real
+40K API, rather than substitute a repetition-rich subset for the goal.
+
 ## 2026-10-10 MTP live reduction ownership — API return complete
 
 `WP-MTP-LIVE-REDUCTION-20261010` / `AC-MTP-GREEDY-v27` retains the

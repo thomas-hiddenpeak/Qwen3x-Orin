@@ -1,0 +1,360 @@
+{
+  "work_package_id": "WP-MTP-CAUSAL-REUSE-20261010",
+  "source_base": "372e29475adaa9ea68118dcd609ac7bff5a5f1fb",
+  "status": "closed_no_runtime_composition_selected",
+  "scope": "causal host feasibility, no GPU/new API timing or performance selection",
+  "policy": "fixed n=5, earliest complete occurrence, d=2/3, no future target access before proposal selection",
+  "inputs": {
+    ".q3x-work/evidence/terminal-prefix-main-p40000-api-20260909-r2/request-body.json": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    ".q3x-work/mtp-live-reduction-20261010/d2/results.json": "c45c29c6487a25174dc4a2d2767b2aca720925e65c70f63f1b20ea257523b02c",
+    ".q3x-work/mtp-live-reduction-20261010/d2/server.log": "d88ff53f66ab330e7e6a3d1f0473f2244e3a3a3b598fdb5a8919419e395a70b7"
+  },
+  "observations": [
+    {
+      "label": "p65",
+      "prompt_tokens": 65,
+      "output_tokens": 16,
+      "draft_length": 2,
+      "eligible_entries": 13,
+      "matched_entries": 0,
+      "coverage": 0.0,
+      "first_token_matches": 0,
+      "all_d_match": 0,
+      "accepted_tokens": 0,
+      "mean_accepted_given_match": 0
+    },
+    {
+      "label": "p65",
+      "prompt_tokens": 65,
+      "output_tokens": 16,
+      "draft_length": 3,
+      "eligible_entries": 12,
+      "matched_entries": 0,
+      "coverage": 0.0,
+      "first_token_matches": 0,
+      "all_d_match": 0,
+      "accepted_tokens": 0,
+      "mean_accepted_given_match": 0
+    },
+    {
+      "label": "p8192",
+      "prompt_tokens": 8192,
+      "output_tokens": 256,
+      "draft_length": 2,
+      "eligible_entries": 253,
+      "matched_entries": 136,
+      "coverage": 0.5375494071146245,
+      "first_token_matches": 119,
+      "all_d_match": 104,
+      "accepted_tokens": 223,
+      "mean_accepted_given_match": 1.6397058823529411
+    },
+    {
+      "label": "p8192",
+      "prompt_tokens": 8192,
+      "output_tokens": 256,
+      "draft_length": 3,
+      "eligible_entries": 252,
+      "matched_entries": 135,
+      "coverage": 0.5357142857142857,
+      "first_token_matches": 118,
+      "all_d_match": 88,
+      "accepted_tokens": 309,
+      "mean_accepted_given_match": 2.2888888888888888
+    },
+    {
+      "label": "p40000",
+      "prompt_tokens": 40000,
+      "output_tokens": 256,
+      "draft_length": 2,
+      "eligible_entries": 253,
+      "matched_entries": 18,
+      "coverage": 0.07114624505928854,
+      "first_token_matches": 15,
+      "all_d_match": 12,
+      "accepted_tokens": 27,
+      "mean_accepted_given_match": 1.5
+    },
+    {
+      "label": "p40000",
+      "prompt_tokens": 40000,
+      "output_tokens": 256,
+      "draft_length": 3,
+      "eligible_entries": 252,
+      "matched_entries": 18,
+      "coverage": 0.07142857142857142,
+      "first_token_matches": 15,
+      "all_d_match": 10,
+      "accepted_tokens": 37,
+      "mean_accepted_given_match": 2.0555555555555554
+    }
+  ],
+  "validation": {
+    "independent_earliest_match_and_causality_checks": 1035,
+    "pass": true,
+    "receipt_filter_note": "Initial result writer accessed prompt_tokens on a cancellation receipt and stopped before writing the result. Filtering incomplete/cancelled receipts first repaired the host writer; proposal policy and audit results were unchanged."
+  },
+  "decision": {
+    "reason": "Zero P65 coverage and only 7.1% possible-entry coverage at P40000 provide no basis for using this proposal source to close the full target-domain gap. P8192 has 53.6\u201353.8% coverage, but this is not an executed hybrid schedule or a measured API gain.",
+    "runtime_changes": 0,
+    "new_gpu_runs": 0,
+    "parameter_sweeps": 0,
+    "new_speedup_claim": false,
+    "goal_met": false,
+    "scope_limit": "This closes the fixed-policy active-goal feasibility assessment, not all business workloads or prompt lookup as a technique. No future-token oracle or fixture-specific rule may enter production.",
+    "next_constraint": "A successor must still address the dominant complete verifier cost on the real 40K API, retaining v30 exactness and full objective."
+  },
+  "nv_reduction_source_assessment": {
+    "M3_FMA_per_thread_mainloop": {
+      "FP8_K5120": 240,
+      "NVFP4_K5120": 1920,
+      "NVFP4_K17408": 6528
+    },
+    "meaning": "NV has the same four-root tail but substantially more mainloop work. Instruction ratios are not latency fractions. No kernel mutation or performance verdict is selected by this source-only assessment."
+  },
+  "retained_v30_metrics": {
+    "2": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.887142554,
+        "prefill_tps": 73.26894613151428,
+        "ttft_s": 0.9134044637903571,
+        "elapsed_s": 2.1929916068911552,
+        "decode_tps": 11.7213719976573,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-live-reduction-v30",
+          "draft_length": 2,
+          "startup_free_bytes": 9931014144,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "draft_initialization_ms": 5.703535,
+          "draft_ms": 124.325497,
+          "verify_ms": 1122.186912,
+          "reconcile_ms": 26.408439000000005,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.308825813000002,
+        "prefill_tps": 473.2845594787429,
+        "ttft_s": 17.33145486190915,
+        "elapsed_s": 37.397714807186276,
+        "decode_tps": 12.707863443668181,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-live-reduction-v30",
+          "draft_length": 2,
+          "startup_free_bytes": 9931014144,
+          "prompt_rows": 8192,
+          "draft_prefill_rows": 8191,
+          "initialized": true,
+          "rounds": 98,
+          "proposed": 196,
+          "accepted": 157,
+          "verified_rows": 294,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            86,
+            71,
+            0
+          ],
+          "draft_ordered_attention_steps": 196,
+          "draft_initialization_ms": 548.011353,
+          "draft_ms": 2065.1124379999997,
+          "verify_ms": 17465.190672000004,
+          "reconcile_ms": 446.965085,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "label": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.99091874299998,
+        "prefill_tps": 430.14953009065795,
+        "ttft_s": 93.02626729337499,
+        "elapsed_s": 119.77664039237425,
+        "decode_tps": 9.5331218439537,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-live-reduction-v30",
+          "draft_length": 2,
+          "startup_free_bytes": 9931014144,
+          "prompt_rows": 40000,
+          "draft_prefill_rows": 39999,
+          "initialized": true,
+          "rounds": 105,
+          "proposed": 210,
+          "accepted": 150,
+          "verified_rows": 315,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            85,
+            65,
+            0
+          ],
+          "draft_ordered_attention_steps": 210,
+          "draft_initialization_ms": 2671.715084,
+          "draft_ms": 2456.9941819999995,
+          "verify_ms": 23749.910461000003,
+          "reconcile_ms": 446.93185700000004,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "3": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8881076679999999,
+        "prefill_tps": 73.18932415748493,
+        "ttft_s": 0.9143121200613678,
+        "elapsed_s": 2.4604327930137515,
+        "decode_tps": 9.701049747618201,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-live-reduction-v30",
+          "draft_length": 3,
+          "startup_free_bytes": 9885663232,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 6,
+          "proposed": 18,
+          "accepted": 9,
+          "verified_rows": 24,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            3,
+            2
+          ],
+          "draft_ordered_attention_steps": 0,
+          "draft_initialization_ms": 5.748082,
+          "draft_ms": 185.89303600000002,
+          "verify_ms": 1327.993244,
+          "reconcile_ms": 26.466405,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.338873660000004,
+        "prefill_tps": 472.4643688302875,
+        "ttft_s": 17.361081982031465,
+        "elapsed_s": 40.202094104141,
+        "decode_tps": 11.164244019679867,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-live-reduction-v30",
+          "draft_length": 3,
+          "startup_free_bytes": 9885663232,
+          "prompt_rows": 8192,
+          "draft_prefill_rows": 8191,
+          "initialized": true,
+          "rounds": 84,
+          "proposed": 250,
+          "accepted": 171,
+          "verified_rows": 334,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            72,
+            58,
+            41
+          ],
+          "draft_ordered_attention_steps": 250,
+          "draft_initialization_ms": 555.131001,
+          "draft_ms": 2634.0169749999995,
+          "verify_ms": 19681.64231999999,
+          "reconcile_ms": 448.67490400000014,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "label": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 93.447637961,
+        "prefill_tps": 428.04720239899314,
+        "ttft_s": 93.48280745279044,
+        "elapsed_s": 123.22674368601292,
+        "decode_tps": 8.573631593300359,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-live-reduction-v30",
+          "draft_length": 3,
+          "startup_free_bytes": 9885663232,
+          "prompt_rows": 40000,
+          "draft_prefill_rows": 39999,
+          "initialized": true,
+          "rounds": 88,
+          "proposed": 262,
+          "accepted": 167,
+          "verified_rows": 350,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            72,
+            52,
+            43
+          ],
+          "draft_ordered_attention_steps": 262,
+          "draft_initialization_ms": 2704.799606,
+          "draft_ms": 3064.3819870000007,
+          "verify_ms": 26151.410083999996,
+          "reconcile_ms": 447.2334619999999,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ]
+  },
+  "performance_authority": "Historical v30 API metrics are copied with original one-process scope; this host audit adds no new timing.",
+  "artifact_sha256": {
+    ".q3x-work/mtp-causal-reuse-20261010/audit.py": "a7f65a3f5ee6d7b8c45bf8f21db40422955e6d358c00dfa33d3a08781fad780b",
+    ".q3x-work/mtp-causal-reuse-20261010/finalize.py": "32e21a69501182d015d7fe4fcb8c89e7c87450e91e7f7299d3407359db52837e",
+    ".q3x-work/mtp-causal-reuse-20261010/result.json": "17fe7f8a2376c2212275d1fa04bd2b457acfe4a0c89c30b010b56e9df8aaf981"
+  },
+  "closeout": {
+    "document_control": {
+      "pass": true,
+      "registered": 86,
+      "links": 1135
+    },
+    "document_unit_tests_passed": 7,
+    "git_diff_check": "pass",
+    "runtime_source_changes": 0,
+    "owned_gpu_processes_started": 0,
+    "gpu_handles_at_closeout": "none",
+    "new_worktrees": 0,
+    "artifact_bytes": 306383,
+    "workspace_free_bytes": 427057274880,
+    "installed_production_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "cooling_control": "not inspected or changed"
+  }
+}
