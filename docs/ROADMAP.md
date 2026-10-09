@@ -19,6 +19,38 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP partitioned execution and compact repair — closed negative
+
+`WP-MTP-PARTITION-REPAIR-20261010` / `AC-MTP-GREEDY-v15` responds to
+v17's matched 1.697-second fast execution plus 0.737-second repair costs. The
+unchanged 1.5x–3x objective and 18.45/21.62-second full Decode budgets select
+a complete two-stage scheduling change. Independent K128 fragment producers
+replace each full-K serial CTA; a fixed balanced merge certifies each output
+and compacts only uncertified elements into a bounded device worklist. Fixed
+persistent repair workers consume that list, preparing codebooks once instead
+of launching the entire possible output grid. The original scalar tree and
+all certificate/exception rules remain unchanged. This composes the measured
+fast and repair dependencies, rather than reopening a tile/grid scan.
+
+One fixed composition plus at most one correctness repair passes exhaustive
+pair/boundary and complete P65 state/logit checks, then returns immediately to
+P65/8K/40K d2/d3 API in fail-fast order. Negative direction closes the version.
+The partials, mask, activation preparation and worst-case worklist fit a 64-MiB
+post-Prefill borrow; no new allocation, host count readback, reserve relaxation
+or production change occurs. Ordered draft GQA composes at the same return.
+The [MTP ledger](MTP_ADMISSION.md#partitioned-execution-and-compact-repair-composition-v15)
+controls proof and lifetime. Artifacts stay in
+`.q3x-work/mtp-partition-repair-20261010/`.
+
+The [API rejection](metadata/qwen36-27b-mtp-partition-repair-rejection-2026-10-10.json)
+closes this composition: exhaustive conversion, complete worklist/output and
+real P65 state/logit/transaction checks pass, but Decode is 4.702 token/s
+against retained v7 10.717. All new paths are removed, with no long-context/d3
+qualification or further certificate/executor/worklist variant. The 1.5x–3x
+objective remains unmet. Subsequent work returns to the retained projection
+architecture and the measured multi-query Attention budget; rejected projection
+compositions did not independently select or reject an Attention dependency.
+
 ## 2026-10-10 MTP direct fragment delivery — closed negative
 
 `WP-MTP-REGISTER-CERTIFICATE-20261010` / `AC-MTP-GREEDY-v14` retains

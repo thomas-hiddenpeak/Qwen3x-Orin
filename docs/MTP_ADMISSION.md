@@ -617,6 +617,41 @@ transaction/recovery checks pass, but real API direction is negative. The
 fast executor and repair both retain material cost. No new path remains
 selected; proof and source are frozen evidence, not production qualification.
 
+## Partitioned execution and compact repair composition v15
+
+The direct packed-to-fragment conversion is retained, but one independent CTA
+owns N32/K128 and publishes signed, absolute-product and residual partials.
+There is no cross-CTA wait or mutable target output from a producer. A separate
+same-stream merge uses the identical six-level zero-padded binary tree; its
+certificate retains the original gamma and strict BF16-cell proof. An invalid
+input or local weight marks that output's absolute bound infinite, forcing
+original scalar repair. The preceding exhaustive decoder proof remains relevant;
+complete real-prefix checks still admit the composed executor independently.
+
+Each certificate warp ballots failed cells, atomically reserves exactly that
+many worklist entries once, and writes each rejected output's unique index.
+The list has capacity M*N, so the all-repair case is bounded. The following
+kernel starts only after all producers and the certificate kernel finish on
+the same stream. Its 64 fixed CTAs consume disjoint grid-strided list indices;
+there is no host count readback, dynamic launch or unfinished-list consumer.
+FP8 uses one original 256-thread reduction per listed output; NVFP4 uses one
+original warp reduction per listed output. Shared codebooks persist across
+that worker's list traversal. FP8 barriers retire partial storage before reuse;
+NVFP4 warps have independent lists and no post-initialization CTA barrier.
+
+At most 64 MiB after immutable snapshots and prompt capture stores prepared
+inputs, three partial arrays, byte masks, M*N indices and initialized counters.
+These ranges are aligned/disjoint, expire before new Prefill and allocate
+nothing during a round. Original inputs remain available for all exact repairs.
+There is no numerical waiver, altered target recurrence or production switch.
+Only the full composition's real API result may select retention.
+
+The [partition/repair rejection](metadata/qwen36-27b-mtp-partition-repair-rejection-2026-10-10.json)
+closes this version after exact worklist/output and complete real P65 state,
+logit and transaction/recovery checks, followed by negative API direction.
+All new paths are removed. No further certificate/executor/worklist variation
+is active, and retained v7 plus the production non-MTP route are unchanged.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

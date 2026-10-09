@@ -1,0 +1,179 @@
+{
+  "date": "2026-10-10",
+  "decision_unit": "architecture_candidate",
+  "work_package_id": "WP-MTP-PARTITION-REPAIR-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v15",
+  "decision": "reject independent K128 fragment producers with compact persistent exact repair after negative P65 API; restore v7",
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "production_changed": false,
+  "binary_sha256": "aabc8ce6261b149fbe026e5a8072a5923279a790b6e46cd2ec1bd571165348d2",
+  "source_snapshot": ".q3x-work/mtp-partition-repair-20261010/source",
+  "source_hashes": {
+    "source.patch": "1ec189f3b97e4ef5f9be17f4465171af6f68f66a4073cd8c97e43cfb6cfbb016",
+    "CMakeLists.txt": "ee11d2fa9dfe91ea1a75f6e326345f89baecc4759263e40baa4cdfe8cebaba60",
+    "server": "aabc8ce6261b149fbe026e5a8072a5923279a790b6e46cd2ec1bd571165348d2",
+    "docs/DOCUMENT_REGISTRY.md": "7f0d23304294e3a1e154f55f689dda4b3d25c2ab6a8d555c7a864c4efb302847",
+    "docs/ROADMAP.md": "59843b8b8b538fcc3746eaad395e2f120707976f04313483d3c9979ccaf7aa69",
+    "docs/MTP_ADMISSION.md": "52866a513588bf1a351daa12844ad6d45c92723fabb0c6d14a04130535dd08e8",
+    "tools/evaluation/validate_mtp_service.py": "bfbec5e16711c66b7083a3a6c513569023d00d9b4abbfd36a447770de734e570",
+    "src/server/evaluation_server.cpp": "8814ed5c54ca2c5e213517b9706fe97e6b804e693fc6303d94b41a56cba58f6a",
+    "src/runtime/mtp_device_internal.h": "cab28868046a58f73a8b03384e20dd92c40b24a02031984fab885495c1263b8e",
+    "src/runtime/mtp_certified_projection_internal.cu": "ac2e9fd6406d42c48324ffaee2b79dcffd01775b3315f6c685ee13ba71983d3d",
+    "src/runtime/mtp_verify_internal.cpp": "408edc66053eacbf34ba1025eb89df0b012054df2068fc12cc7e5f219d5f91fc",
+    "src/runtime/mtp_service_internal.cpp": "25c26431a9b57c479e4f0ada2b06b03071442b9016800a78a0ea5d2c69018fa1",
+    "src/runtime/mtp_device_internal.cpp": "ad02424bc089b02c26e378fc9c135ba2ff310eef88e5da3cfd5f6c47cd059bfd",
+    "include/q3x/server/evaluation_server.h": "bdc8eef590857d061f70b818444da8f9a848175d633e9cc3b8e0f8ad8e8fac99"
+  },
+  "api_completed_stages": [
+    {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.894580723,
+      "prefill_tps": 72.65973693466229,
+      "decode_tps": 4.7021324823149815,
+      "ttft_s": 0.9131280188448727,
+      "elapsed_s": 4.103045993950218,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-partition-repair-v18",
+        "draft_length": 2,
+        "startup_free_bytes": 10630033408,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 13.102206,
+        "draft_ms": 124.05403700000002,
+        "verify_ms": 3033.4532449999997,
+        "reconcile_ms": 26.214493,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "numerical": {
+    "synthetic": "All 65536 FP8 pairs and 65536 FP4-pair/scale combinations pass; 30 complete projection cases pass. Each repair worklist is exactly the unique mask complement, including every-element repair; poisoned output has no unwritten value.",
+    "real_model": "Nine complete M2/M3/M4 prefix state/full-logit comparisons, eleven transactions, nine cache-tail/guard cases, two initialization-cancel and two injected-failure recoveries pass.",
+    "api": "Completed P65 response/body/usage/finish/DONE match baseline, with complete per-request route/accounting/reserve audit."
+  },
+  "resources": {
+    "fp8_fast_registers": 48,
+    "nvfp4_fast_registers": 52,
+    "fast_shared_bytes": 0,
+    "certificate_registers": 48,
+    "repair_fp8_registers": 37,
+    "repair_nvfp4_registers": 38,
+    "stack_bytes": 0,
+    "local_bytes": 0,
+    "borrowed_workspace_bytes": 67108864
+  },
+  "runs": {
+    "synthetic": {
+      "path": ".q3x-work/mtp-partition-repair-20261010/synthetic",
+      "sha256": {
+        "preflight.json": "679df6a36e06663686286738dc1f622909a16108bb16a9310f7339bc0cc4becc",
+        "cache-preparation.json": "4ef175c53f75a873a94469a5367e607ae108e674054a8a77633653e44eb65103",
+        "result.json": "a0c23fa1f831c650b2aacba49a2e8b6178d463224d43a56a77b32892e09a552a",
+        "run.log": "7d8fcff484d3c944051fdec0cd60a51d88c46cb34927d0287fa9985a371d90b2"
+      },
+      "result": {
+        "returncode": 0,
+        "scope": "synthetic correctness and worklist identity only; no performance authority"
+      }
+    },
+    "oracle-p65": {
+      "path": ".q3x-work/mtp-partition-repair-20261010/oracle-p65",
+      "sha256": {
+        "identity.json": "352bad2a06bc330177e1f5032e0abf4b609da440af3e8d7086e441acf31f343f",
+        "preflight.json": "ed7733a3439ce0bb0e66e45ee66e1f0fac38a49472cf4fed5bfd590b4707fcb8",
+        "cache-preparation.json": "8eed79677f0a7371657d2f8c7742862f3e72db03ff095f4043ec4128cf8c3bf5",
+        "cleanup.json": "dfedbc7399f32d5b10c82eb4509d104726ecc36c408eb7bd06f15ffc9421b8a5",
+        "run.log": "5b8ab318de81290a3de880c10b93eb7bbce98328241b5fc5876f233facb78db5"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-partition-repair-20261010/oracle-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-partition-repair-20261010/oracle-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-partition-repair-20261010/oracle-p65"
+        ],
+        "binary_sha256": "73dfd2b236c651494368afcb7e5f769a0b1e7c9a757478a61edf7492dbcaccb2",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "4882f0e8eda2179720ab6f00db3870d3aaeb88b0",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 69.812
+      }
+    },
+    "d2": {
+      "path": ".q3x-work/mtp-partition-repair-20261010/d2",
+      "sha256": {
+        "identity.json": "740b4e350f1ee99559da4042d9691c3cb88ae58c0ad5daee16420917ea1526c3",
+        "preflight.json": "5c5f021c106eb87a65cd0460997d2e2c99192c847a3f2fe1302da1893e22ed49",
+        "cache-preparation.json": "969aabcf853edd70a9fe43851d0eb7c2644fb7c50e81f9dacb33d8a0ae5528e6",
+        "cleanup.json": "3dad88b5126eb7f517a0c79ad9a7fd8e8061c5ab848cda1567e71ccaa9b69f0a",
+        "results.json": "616c97d68f534379eff613069ff8fe5374a7500d7c2cab88b7287da95555da99",
+        "p65.json": "7e36968c1e211fbd3121e3e8a3520fd6dc08323ae3d9278e6dc7f01cc547a945",
+        "server.log": "bacb6b3af6ecb42d648d28ec6687ba5c38a8cd7c225e58b2a4b1a6b64275601d",
+        "completed-stage-audit.json": "f2c3979ceb3b1277dd76f870a9feb51cc00615c79ee571821384a47a392068a2"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-partition-repair-20261010/source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-partition-repair-20261010/d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "aabc8ce6261b149fbe026e5a8072a5923279a790b6e46cd2ec1bd571165348d2",
+        "draft_length": 2,
+        "driver_sha256": "bfbec5e16711c66b7083a3a6c513569023d00d9b4abbfd36a447770de734e570",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "4882f0e8eda2179720ab6f00db3870d3aaeb88b0",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": false,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 66.093
+      }
+    }
+  },
+  "limitations": [
+    "Single-process short direction, no release or repeated speedup claim.",
+    "8K interrupted after negative P65; no 40K/d3 result. Driver SIGINT -2, owned server exits 0 without monitor errors.",
+    "No profile or hardware-counter claim for this version. Initial build failed for an unavailable infinity macro; replaced by exact IEEE infinity bits before any device execution.",
+    "All new paths removed. Certificate/executor/worklist lineage closed without a retained speedup; 1.5x\u20133x goal remains active and unmet."
+  ],
+  "test_sources": {
+    ".q3x-work/mtp-partition-repair-20261010/certificate-test.cu": "5bd6d9eb3867494eca60b092f28b80066d58079f604d6ca874fc2885b5cce84e",
+    ".q3x-work/mtp-partition-repair-20261010/certificate-test": "109043a71af96e8360e2ced82081a9cee1c88ffb57c3787ac973c4b677c86bf1",
+    ".q3x-work/mtp-partition-repair-20261010/run-oracle.py": "bf4eb41384a8705c9a5313b2fd44f8335ee78c131c5a2c50ffa01755b2f2079d",
+    ".q3x-work/mtp-partition-repair-20261010/run-api.py": "391f8fd495268c54a903e25b80a4f31c68ff98ffca602fc7e5606e2cdc5f2367",
+    ".q3x-work/mtp-partition-repair-20261010/resources.txt": "1d232ff257ce5b16beabe949e271fe4ab35e09f8c8bd45e7a6402f8a9acf88ec",
+    ".q3x-work/mtp-partition-repair-20261010/d2-direction-decision.json": "02efd03a1f4a2f14ef2e42af4dfa079cb5bc1066ff6b04df10f76cdae195130c",
+    ".q3x-work/mtp-partition-repair-20261010/d2-driver-result.json": "f346bf26f91708c8234ef60ac8945a4a99d849ac062a0919d5f0e8ccdced60e4",
+    ".q3x-work/mtp-partition-repair-20261010/build-test-initial.log": "d8372069834f5237200a06688388e5a6eca1cfcab70836e81379e62502a832c6"
+  }
+}

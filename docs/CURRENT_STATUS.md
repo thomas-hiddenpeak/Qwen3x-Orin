@@ -203,6 +203,14 @@ A matched profile assigns 1.697 GPU seconds to fast fragments, 0.737 to exact
 repair and 0.008 to input preparation. The version is removed; 8K is interrupted
 and no 40K/d3 claim follows. Retained v7 and the unmet objective remain unchanged.
 
+The [partitioned-execution/compact-repair composition](metadata/qwen36-27b-mtp-partition-repair-rejection-2026-10-10.json)
+also passes exhaustive code, exact worklist and complete P65 state/logit/
+transaction checks but does not beat v7: P65/O16 d2 Prefill is 0.895 s /
+72.66 token/s, external TTFT 0.913 s, Decode 4.702 token/s and total 4.103 s.
+It is removed after this screen; 8K is interrupted and no 40K/d3 result is
+claimed. The certificate execution lineage is closed without a retained speedup.
+The 1.5x–3x objective remains unmet; production and isolated v7 are unchanged.
+
 ## Numerical baseline decision
 
 Legacy Prefill is retained as a regression comparator, **not model truth**.
