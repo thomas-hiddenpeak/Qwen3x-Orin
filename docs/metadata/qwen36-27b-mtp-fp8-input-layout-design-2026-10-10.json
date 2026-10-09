@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-10",
+  "base_git": "ae6542f261e26dc756c469ce51041a77d882fd9d",
+  "work_package_id": "WP-MTP-FP8-INPUT-LAYOUT-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v19",
+  "objective": [
+    1.5,
+    3.0
+  ],
+  "full_decode_budget_seconds_8192_40000": [
+    18.45,
+    21.62
+  ],
+  "mechanism": "Startup-owned compact preswizzled FP8 input quads for all 144 QKV/Z/Q/K/V roles; exact existing four-chain sidecar consumer. Keep NVFP4 Gate/Up; remove FP8 O and NVFP4 Down scale6/consumer sidecars for reserve. O and Down use exact canonical consumers.",
+  "private_bytes": 5200936960,
+  "removed_bytes": 4596613120,
+  "net_added_bytes": 604323840,
+  "retained_base_sidecar_bytes": 6417285120,
+  "scope": "One fixed composition plus at most one correctness repair; T1 exact byte/consumer gate, P65 full transactions, P8192 prefixes, then immediate P65/8K/40K d2/d3 API with existing negative direction stop. No local timing or layout/grid scan.",
+  "source_rationale": "Canonical FP8 input projection executes four scalar 32-bit weight loads and four word swizzles per K iteration; native quad executes one aligned uint4 and no per-word swizzle. Unique weight bytes do not decrease; no DRAM/stall counter claim.",
+  "budget": "Matched 40K canonical-input verifier FP8 costs 5.453514208 GPU seconds. That maximum alone cannot close full gap. Resource substitution and whole API select this bounded architecture prerequisite.",
+  "rejected_before_implementation": "Full input BF16 expansion needs 10401873920 bytes and doubles steady-state input-weight bytes; not selected on this budget.",
+  "rollback": "Restore task-owned runtime to ae6542f; remove private owner/packer/build selector; preserve frozen evidence.",
+  "reference_translation": {
+    "principle": "Proven startup producer / native consumer weight permutation; fixed SM87 SIMT reduction instead of importing Marlin MMA arithmetic. Existing output-quad packing supplies exact lookup swizzle. No imported source. FlashInfer/FLA/Mamba state paths remain retained v7.",
+    "source_sha256": {
+      "src/kernels/sm87/third_party/vllm_marlin/gptq_marlin_repack_kernel.cuh": "94288cbca80065694bac551b8ad1d183088f822b4ee2fdf2646dd13829be540c",
+      "src/kernels/sm87/weight_only_gemv.cu": "b48ef014354d1e1b2ecfddd93518cdaebe78b26877fa4812b29cc7721f08618b"
+    }
+  }
+}

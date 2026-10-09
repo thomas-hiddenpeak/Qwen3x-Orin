@@ -1,0 +1,559 @@
+{
+  "date": "2026-10-10",
+  "decision_unit": "architecture_candidate",
+  "work_package_id": "WP-MTP-FP8-INPUT-LAYOUT-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v19",
+  "decision": "close neutral complete d2 API composition without retention; restore v7",
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "target_met": false,
+  "production_changed": false,
+  "source_snapshot": ".q3x-work/mtp-fp8-input-layout-20261010/source",
+  "source_hashes": {
+    "base_git": "ae6542f261e26dc756c469ce51041a77d882fd9d",
+    "build_option": "Q3X_BUILD_MTP_FP8_INPUT_LAYOUT_ADMISSION=ON in both service and oracle",
+    "files": {
+      "source.patch": "1c22d62973085d630c1245da499622812d0ecd094b63982b651ddec062ee18fb",
+      "CMakeLists.txt": "0e2063a0b9ce48bd0e4ac1015809df8c3c7df094b48e9419ab8740a425f0871c",
+      "server": "2d5e4074568c3f061a92ec0b11bd5894140fd97ff34062ef9a8780b8b55542cd",
+      "docs/DOCUMENT_REGISTRY.md": "f66ed0a3622ae3aa11ea6021064a277b987952e75490da48dd4088b1617f9a6b",
+      "docs/ROADMAP.md": "4ea68fd31993b3dbb719065eb2311e943c0f4bf9e41b0f8963cddaf02a878cd3",
+      "docs/MTP_ADMISSION.md": "9d461decd500a13e5da3ce0b2a83b7ef46f25da5b790669023048524b9747832",
+      "tools/evaluation/validate_mtp_service.py": "885d8bfde302c21acf3766306b76de428cc2379ec54bb0860e17c3163ae36eb0",
+      "src/server/evaluation_server.cpp": "f0634e89b08c40db3e3de9d5a1b7f4b41ea6b8ce3b551d124832c4c30e5b9400",
+      "src/runtime/mtp_verify_projection_internal.cu": "3029540bd192fb62f8686638cf7c9cef69296f30b2bbc9ae8063b6d15ff0190e",
+      "src/runtime/mtp_device_internal.h": "4da0cc22e6ad5c389697ed21ba9594446397516ae1156e253a97c8089d903964",
+      "src/runtime/mtp_verify_internal.cpp": "5eea96a2af3d89cf955a82612776a10bde687ac99dc5b375e1f95747040dc33b",
+      "src/runtime/mtp_fp8_input_layout_internal.h": "010e7808ecc9fd37af15be09ce96a48c306bc0f398ec5973f4dc9351b305d750",
+      "src/runtime/reference_engine.cpp": "c916fc5b939a44720ceb54b1e19b8c4e615cf49dd9341855caaf2bfe8b98381b",
+      "src/runtime/mtp_service_internal.cpp": "02d0efc7366f51fc7c1c0c063435df4a86abe0047d9558f854f0794f313ff135",
+      "src/runtime/mtp_device_internal.cpp": "c6f71f3139901556d435a339340162ba3ec2fa37d58d9286cd64b340730ec62e",
+      "docs/metadata/qwen36-27b-mtp-fp8-input-layout-design-2026-10-10.json": "36a22b279611a7aac44cdbbfd7db2e26fefac3008319b4b11ac421bf1599a889",
+      "include/q3x/server/evaluation_server.h": "36c88276063c53ec952d5d745cff6355d7e3cbca794faea72b9f780a5b2970fd"
+    }
+  },
+  "rollback_source": "ae6542f261e26dc756c469ce51041a77d882fd9d",
+  "profile": "q3x.sm87.admission.mtp-fp8-input-layout-api.v22",
+  "api": {
+    "scope": "all eight d2 requests including P65/P8192/P40000, stream/nonstream, text/chat and Prefill/Decode cancellation recovery",
+    "output_and_accounting_equal": true,
+    "route_and_inventory_pass": true,
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8865110690000001,
+        "prefill_tps": 73.32113751644538,
+        "ttft_s": 0.9050106960348785,
+        "elapsed_s": 2.300840419717133,
+        "decode_tps": 10.745610850836457,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-fp8-input-layout-v22",
+          "private_fp8_layout": "fp8-input-quad-preswizzled-v1",
+          "private_fp8_bytes": 5200936960,
+          "draft_length": 2,
+          "startup_free_bytes": 9666056192,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "draft_initialization_ms": 5.732011,
+          "draft_ms": 124.46489799999999,
+          "verify_ms": 1239.148521,
+          "reconcile_ms": 26.085124,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.261327414,
+        "prefill_tps": 474.5869076879791,
+        "ttft_s": 17.283497692085803,
+        "elapsed_s": 39.3025246411562,
+        "decode_tps": 11.581043522622155,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-fp8-input-layout-v22",
+          "private_fp8_layout": "fp8-input-quad-preswizzled-v1",
+          "private_fp8_bytes": 5200936960,
+          "draft_length": 2,
+          "startup_free_bytes": 9666056192,
+          "prompt_rows": 8192,
+          "draft_prefill_rows": 8191,
+          "initialized": true,
+          "rounds": 98,
+          "proposed": 196,
+          "accepted": 157,
+          "verified_rows": 294,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            86,
+            71,
+            0
+          ],
+          "draft_initialization_ms": 549.632468,
+          "draft_ms": 2235.1246940000005,
+          "verify_ms": 19253.627942,
+          "reconcile_ms": 442.987644,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "label": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.72211834299998,
+        "prefill_tps": 431.39652884148956,
+        "ttft_s": 92.75669140275568,
+        "elapsed_s": 122.2646225639619,
+        "decode_tps": 8.642204292160542,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-fp8-input-layout-v22",
+          "private_fp8_layout": "fp8-input-quad-preswizzled-v1",
+          "private_fp8_bytes": 5200936960,
+          "draft_length": 2,
+          "startup_free_bytes": 9666056192,
+          "prompt_rows": 40000,
+          "draft_prefill_rows": 39999,
+          "initialized": true,
+          "rounds": 105,
+          "proposed": 210,
+          "accepted": 150,
+          "verified_rows": 315,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            85,
+            65,
+            0
+          ],
+          "draft_initialization_ms": 2676.551933,
+          "draft_ms": 3314.498451000001,
+          "verify_ms": 25656.696152,
+          "reconcile_ms": 442.49596100000036,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "label": "p65-nonstream",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8822885359999999,
+        "prefill_tps": 73.67204417580692,
+        "ttft_s": null,
+        "elapsed_s": 2.2869750480167568,
+        "decode_tps": 10.82294435717732,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-fp8-input-layout-v22",
+          "private_fp8_layout": "fp8-input-quad-preswizzled-v1",
+          "private_fp8_bytes": 5200936960,
+          "draft_length": 2,
+          "startup_free_bytes": 9666056192,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "draft_initialization_ms": 5.349833,
+          "draft_ms": 123.298832,
+          "verify_ms": 1230.5710060000001,
+          "reconcile_ms": 26.009159,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "label": "raw-text",
+        "prompt": 5,
+        "output": 16,
+        "prefill_s": 0.8162035510000001,
+        "prefill_tps": 6.125922870433579,
+        "ttft_s": 0.8484083102084696,
+        "elapsed_s": 2.055337696801871,
+        "decode_tps": 12.4272145088306,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-fp8-input-layout-v22",
+          "private_fp8_layout": "fp8-input-quad-preswizzled-v1",
+          "private_fp8_bytes": 5200936960,
+          "draft_length": 2,
+          "startup_free_bytes": 9666056192,
+          "prompt_rows": 5,
+          "draft_prefill_rows": 4,
+          "initialized": true,
+          "rounds": 6,
+          "proposed": 11,
+          "accepted": 9,
+          "verified_rows": 17,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            6,
+            3,
+            0
+          ],
+          "draft_initialization_ms": 2.07496,
+          "draft_ms": 113.12153599999999,
+          "verify_ms": 1062.513147,
+          "reconcile_ms": 26.057895,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "label": "chat-stop",
+        "prompt": 20,
+        "output": 2,
+        "prefill_s": 0.8205349779999999,
+        "prefill_tps": 24.374341784610678,
+        "ttft_s": 0.8386531001888216,
+        "elapsed_s": 1.0457352590747178,
+        "decode_tps": 4.826900028104143,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-fp8-input-layout-v22",
+          "private_fp8_layout": "fp8-input-quad-preswizzled-v1",
+          "private_fp8_bytes": 5200936960,
+          "draft_length": 2,
+          "startup_free_bytes": 9666056192,
+          "prompt_rows": 20,
+          "draft_prefill_rows": 19,
+          "initialized": true,
+          "rounds": 1,
+          "proposed": 2,
+          "accepted": 1,
+          "verified_rows": 3,
+          "committed_decode_tokens": 1,
+          "accepted_by_position": [
+            1,
+            0,
+            0
+          ],
+          "draft_initialization_ms": 2.682069,
+          "draft_ms": 20.552221,
+          "verify_ms": 183.978207,
+          "reconcile_ms": 1.754509,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "label": "after-prefill-cancel",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.882444636,
+        "prefill_tps": 73.65901196321623,
+        "ttft_s": 1.1486787353642285,
+        "elapsed_s": 2.5347329513169825,
+        "decode_tps": 10.8209702707974,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-fp8-input-layout-v22",
+          "private_fp8_layout": "fp8-input-quad-preswizzled-v1",
+          "private_fp8_bytes": 5200936960,
+          "draft_length": 2,
+          "startup_free_bytes": 9666056192,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "draft_initialization_ms": 5.360937,
+          "draft_ms": 123.315375,
+          "verify_ms": 1230.6456970000002,
+          "reconcile_ms": 26.050504,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "label": "after-decode-cancel",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8822522210000001,
+        "prefill_tps": 73.67507664228367,
+        "ttft_s": 1.1082550040446222,
+        "elapsed_s": 2.494527593255043,
+        "decode_tps": 10.819991364882279,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-fp8-input-layout-v22",
+          "private_fp8_layout": "fp8-input-quad-preswizzled-v1",
+          "private_fp8_bytes": 5200936960,
+          "draft_length": 2,
+          "startup_free_bytes": 9666056192,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "draft_initialization_ms": 5.339721,
+          "draft_ms": 123.310158,
+          "verify_ms": 1230.784807,
+          "reconcile_ms": 26.048998000000005,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ]
+  },
+  "driver_result": {
+    "returncode": 0,
+    "early_stop": false
+  },
+  "direction": {
+    "retained_v7_decode_tps": [
+      10.71706385,
+      11.56024602,
+      8.636040973
+    ],
+    "observed_relative_changes": [
+      0.0026636960678791954,
+      0.0017990536348597708,
+      0.0007136741453417361
+    ],
+    "interpretation": "single-process effectively tied direction; no qualified speedup or regression, no useful gain to justify new owner"
+  },
+  "runs": {
+    "synthetic": {
+      "path": ".q3x-work/mtp-fp8-input-layout-20261010/synthetic",
+      "sha256": {
+        "cache-preparation.json": "53a391565e69622cb9c8149c3a97a09b55a2b4bee25d1c39a3f76fa464c2a1d8",
+        "preflight-console.log": "f5d2d8432b046d74821fb374006b74b14ee621e11b80a4caac153971d8d6a0df",
+        "preflight.json": "96b100a27dd471c6caa8685a4bd732856e7d0d713c979f01f71a1a6e1496924e",
+        "result.json": "d7f2fd46f3c209f2ad4af3b342abc0c82a1ded150ab0c5adb14d7289a334a871",
+        "run.log": "b74481b782e05bebdbdeda08cb4cc301cd825e1f693d8cb908102a8849649592"
+      },
+      "result": {
+        "returncode": 0,
+        "binary_sha256": "468dfdda539b92cd5d64cf54e8deadc9293ba969b7f4344ef2821ee3d9138b93",
+        "source_sha256": "e5f2e667120740fd5f0734fdf549a1036a9df07b77b3a3b820737b88981a00d7",
+        "scope": "T1 complete packing/checking with all byte codes, invalid spans, corruption and M2/M3/M4 exact consumer outputs at four input shapes; no timing authority"
+      }
+    },
+    "oracle-p65": {
+      "path": ".q3x-work/mtp-fp8-input-layout-20261010/oracle-p65",
+      "sha256": {
+        "cache-preparation.json": "eac631ac427ac13a4bbeadd7476739a63bec54c910c4d07ae9aef81734749c76",
+        "cleanup.json": "835a27674c3901b9b4355491a15cdd453b60c4cad801b6497900404781d22718",
+        "draft-prefill-hidden.bf16": "9c5811b3536f493466a8699092f6fd0bd624227239cd1acee52e7e0182666efb",
+        "draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+        "draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+        "identity.json": "f33cc17157c6ff1132099569cef8779473bf21fd66fe81015da5ed2bb5476209",
+        "preflight-console.log": "b8c508921d950dff3f8a00473dfeaa51cc9856b8ff62b7dfaa045cff56692181",
+        "preflight.json": "08b49d2f7c7954a65f4e663a96ad53d2ff666f3b70c8327e1dfe6bac9c390ecc",
+        "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "q3x_mtp_whole_core_test": "deacc16f0e4da8027164c3588ba8963df5f7e5a1f65be76fc504ba302dc2d474",
+        "run.log": "3bb0a9eb5693d43c1d9cca13f76519df349dc6734e8c5bc375092de7661afbd7",
+        "target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+        "target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+        "telemetry.log": "d15cee94c94576214bc29019a11a0e8b411103912234134c49deb5c35a25dabc"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-fp8-input-layout-20261010/oracle-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-fp8-input-layout-20261010/oracle-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-fp8-input-layout-20261010/oracle-p65"
+        ],
+        "binary_sha256": "deacc16f0e4da8027164c3588ba8963df5f7e5a1f65be76fc504ba302dc2d474",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "ae6542f261e26dc756c469ce51041a77d882fd9d",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 70.0
+      }
+    },
+    "oracle-p8192": {
+      "path": ".q3x-work/mtp-fp8-input-layout-20261010/oracle-p8192",
+      "sha256": {
+        "cache-preparation.json": "20005a9faaf9c7eced8d47bf19eec43736e7c2f0c67bcbd515a051402328a2bd",
+        "cleanup.json": "922e668e046550686ab8af6f45c1010bd218234936e6d416968ff55b4801fdcb",
+        "identity.json": "e58b3463ffa27fe860fb2efc92ebf1988a69632363e6270acf391ec9e5edd3ec",
+        "preflight-console.log": "93d3cd13ae411a9fb3769b7c7a90cd6e9e78933920ffbf5119b03291ff2c0c14",
+        "preflight.json": "c33aef23e9a76066b7b15c3b816c104bd4594fa6cc4e594431e4f2f89bcf3c93",
+        "prompt.u32": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+        "q3x_mtp_whole_core_test": "deacc16f0e4da8027164c3588ba8963df5f7e5a1f65be76fc504ba302dc2d474",
+        "run.log": "99d23925434f34f1debf76b11f41966e3eb2493736cadde1d132d270586638dd",
+        "telemetry.log": "afb2e8085bd37277fa654f25e047c725fe1b3f38387fac11b48a6c7bd8a0a1c8"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-fp8-input-layout-20261010/oracle-p8192/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-fp8-input-layout-20261010/oracle-p8192/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-fp8-input-layout-20261010/oracle-p8192",
+          "--prefix-only"
+        ],
+        "binary_sha256": "deacc16f0e4da8027164c3588ba8963df5f7e5a1f65be76fc504ba302dc2d474",
+        "prompt_sha256": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "ae6542f261e26dc756c469ce51041a77d882fd9d",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 78.562
+      }
+    },
+    "d2": {
+      "path": ".q3x-work/mtp-fp8-input-layout-20261010/d2",
+      "sha256": {
+        "after-decode-cancel.json": "55b376de3ee495f0b3254cbbadc2614a9445e93e22c580121d423f4873aa5131",
+        "after-prefill-cancel.json": "e72391f3445b189605f8cb827f401d8ca43be2ec373c0c6fff99da2c2cc7056a",
+        "audited-metrics.json": "18ff0fa12582edcf5daa1a3011ba577f7c9e6fd83f385a51551b243fa02f4817",
+        "cache-preparation.json": "19d1fbfd397def1dc7db950846a814ab62f0d9bab7c27fa5326769973ef14e54",
+        "chat-stop.json": "558fc6caa5bdb1866e1332f6fc2b2c58921e18c4a24cd8aaf5e6e54734867625",
+        "cleanup.json": "712e63ed7164d24adf01829798a325bef63030141fc9a32ad3fe4957d9c46e82",
+        "health.json": "77dfcd117de9fbba2efd1dfb14bb5328343025bf0232990f66401705826a4cff",
+        "identity.json": "e4b0de2b4c68be2b10c62e0d9cd987d51434bb95dd967a08b707d6d8e8fb4f76",
+        "p40000.json": "869b34f41728ef1b65d8be7ff0b41abab30638695a95a3cc707f7dfed0220c23",
+        "p65-nonstream.json": "e1efb4387ad0802d73f5a625c5545294b7936e00c166e63b452dcdbc37dde386",
+        "p65.json": "8ad5a9e4c5514fcddd444005fad8e513325b7657a746c8f8c4c7a8b9aa1ffe83",
+        "p8192.json": "c102e721d61d4e0f1e6e7aa667997841e4bcf1cc65564f889988054a3ff82005",
+        "preflight-console.log": "81ea9aecf701a285468901e8d6fa1edd441b4119bf9755fab71ab6825c72c086",
+        "preflight.json": "59bdfe9f215c2764256a3f8cedad2c8e95c6e29a2edd2f56552aa95eb56adb4f",
+        "raw-text.json": "f110a28b1b22225901fffa565f36643a798a44080d9d8c162d0a23277a27f436",
+        "requests.jsonl": "a8d88fdebd6180d1ee5c54596a534d5aeb162bd8a7551316d08d0cd60268986c",
+        "results.json": "cc2e150202d544c9a5ef8a1e8ea3ed7d51f3d50159998f241f717c6b57fa703d",
+        "server.log": "396dc852eed657f9993ecd1d7b87779cc306dbfb1bc4277b964f97ee19852b46",
+        "telemetry.log": "c60c50ad9d01007b43152ffc3d4cca1ceacafac1a49331f154be39d6e1d9a09c"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-fp8-input-layout-20261010/source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-fp8-input-layout-20261010/d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "2d5e4074568c3f061a92ec0b11bd5894140fd97ff34062ef9a8780b8b55542cd",
+        "draft_length": 2,
+        "driver_sha256": "885d8bfde302c21acf3766306b76de428cc2379ec54bb0860e17c3163ae36eb0",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "ae6542f261e26dc756c469ce51041a77d882fd9d",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 81.437
+      }
+    }
+  },
+  "numerical": {
+    "synthetic": "All 256 FP8 codes packed and independently checked at N1024/6144/10240/12288 K5120, invalid spans, guards and injected corruption; all complete M2/M3/M4 finite outputs bitwise match original canonical verifier. No timing authority.",
+    "real_model": "P65: nine complete prefix state/logit comparisons, eleven full transactions, nine initialization tails/canaries, two initialization-cancel and two injected-verification-failure recoveries pass. P8192: all nine complete prefix state/logit comparisons pass.",
+    "repairs": "No numerical repair. Generic public FP8 sidecar eligibility restored before GPU tests; private validated entry supplies new input views.",
+    "oracle_label_limit": "Final human-readable oracle variant label remains historical v7; frozen source/ELF and build flag establish actual path."
+  },
+  "resources": {
+    "private_arena_bytes": 5200936960,
+    "replaced_sidecar_bytes": 4596613120,
+    "net_additional_bytes": 604323840,
+    "retained_gate_up_bytes": 6417285120,
+    "startup_free_bytes": 9666056192,
+    "fp8_registers_M2_M3_M4": [
+      56,
+      80,
+      96
+    ],
+    "shared_bytes_M2_M3_M4": [
+      1280,
+      1408,
+      1536
+    ],
+    "stack_bytes": 0,
+    "local_bytes": 0
+  },
+  "limitations": [
+    "Single fresh process per d2 policy, not mirrored repeated selection or release qualification.",
+    "d3 API and additional profiling not run after neutral complete d2 composition.",
+    "Whole composition exchanges input, O and Down layouts. This is not an isolated input-layout timing or component causal claim.",
+    "No valid hardware-stall/DRAM counters are available. Source load-count reduction is not measured memory traffic.",
+    "Full numerical and API correctness do not establish 50%\u2013200% acceleration. Production unchanged and goal remains active."
+  ],
+  "artifact_hashes": {
+    ".q3x-work/mtp-fp8-input-layout-20261010/build-oracle-final.log": "f0f57cb7be3b17d57136100138550c735be2f405b6c439e95977eaa1a54bcc88",
+    ".q3x-work/mtp-fp8-input-layout-20261010/build-oracle.log": "cc6641f09f3434213371279813797b663c09a3ced1eecbd136ead2c0352b64dd",
+    ".q3x-work/mtp-fp8-input-layout-20261010/build-service-final.log": "ca58d38ffd05da325b6a46c5990ba222ab5e2f1214a96012784a9b4480c1b2d1",
+    ".q3x-work/mtp-fp8-input-layout-20261010/build-service.log": "7216d38ab8d7e096cb2e2ca182784f6e6a39b2a4649409d7529fda633902c956",
+    ".q3x-work/mtp-fp8-input-layout-20261010/build-test-r2.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-fp8-input-layout-20261010/build-test.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-fp8-input-layout-20261010/configure-oracle-rollback.log": "22276eb91a40510af3075dc200b5b3585fe88a966d6a1b4114aed73425682adf",
+    ".q3x-work/mtp-fp8-input-layout-20261010/configure-oracle.log": "a203e1a00bbe095a2ebcf5508a538f1172fb649f6605785b47253f5a99f5f698",
+    ".q3x-work/mtp-fp8-input-layout-20261010/configure-service-rollback.log": "37d3dd460583706906a6ee2122ba9b22c4b1ba4d17aff3e05426aee917fcedc3",
+    ".q3x-work/mtp-fp8-input-layout-20261010/configure-service.log": "77ae92f86af6eaec5c1c1f6d1b1b6a53527f77571aaf3a783b0e839267cce407",
+    ".q3x-work/mtp-fp8-input-layout-20261010/d2-driver-result.json": "cc3f040330893c99443996540ed3cff211f307c74af640795549cdc2a450f183",
+    ".q3x-work/mtp-fp8-input-layout-20261010/d2-driver.log": "3cdb9c7ddeb37a29109d15214213ec70f40d7d16b727a280a5a2b8c3b98a7f18",
+    ".q3x-work/mtp-fp8-input-layout-20261010/d2-process.json": "a796f4f8023d91ba14204248f6ac25b0a4bf301fd7d5a0695047fbadaec4916c",
+    ".q3x-work/mtp-fp8-input-layout-20261010/implement.py": "29c28fb0260f37673415db2775ce772a76c5345f53baef220d7f05f50abf30c8",
+    ".q3x-work/mtp-fp8-input-layout-20261010/layout-test": "468dfdda539b92cd5d64cf54e8deadc9293ba969b7f4344ef2821ee3d9138b93",
+    ".q3x-work/mtp-fp8-input-layout-20261010/layout-test.cu": "e5f2e667120740fd5f0734fdf549a1036a9df07b77b3a3b820737b88981a00d7",
+    ".q3x-work/mtp-fp8-input-layout-20261010/oracle-p65-driver.log": "758984d9b1e4a1992b184ec97f2d2ba7d9c75197c4a15a045378a38a8192db57",
+    ".q3x-work/mtp-fp8-input-layout-20261010/oracle-p8192-driver.log": "038b821b886de17565f0742c54042ba6f71db145d1137ae09f84ebd6170485da",
+    ".q3x-work/mtp-fp8-input-layout-20261010/resources.log": "806408f328389cb9f716e1b853fce5ed75b9489fd7694432e132869defe5206b",
+    ".q3x-work/mtp-fp8-input-layout-20261010/rollback-files.json": "055f630a0160afa1d72ebc2907972c56ab48ef9181817ee62b1ee4973ad44161",
+    ".q3x-work/mtp-fp8-input-layout-20261010/run-api.py": "2a01fd3fc645a42163c7824c57f30160e855a278e46fd233b0add26b74830d91",
+    ".q3x-work/mtp-fp8-input-layout-20261010/run-oracle.py": "d2d2a6baf32667c7368a913ce26b9014c0c0b25e28f688f2dadb3cbedf012bd6"
+  },
+  "closeout": {
+    "host_tests": "mtp_control, mtp_weights, reference_engine_control 3/3 pass on existing host test binaries",
+    "document_control": "86 registered Markdown, 1093 links, zero errors; 7 unit tests pass",
+    "rollback": "All eleven task-owned implementation paths verified against frozen tested hashes; ten restored byte-identical to ae6542f, new private header removed. Both build caches unset experimental option.",
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "processes": "All owned experiment drivers/server/monitors exited; unrelated control/monitoring preserved.",
+    "storage": "48 MiB retained in workspace, 399 GiB available; no worktree creation/removal."
+  }
+}

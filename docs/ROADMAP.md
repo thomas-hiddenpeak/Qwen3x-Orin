@@ -19,6 +19,40 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP startup-owned FP8 input layout — closed without retention
+
+`WP-MTP-FP8-INPUT-LAYOUT-20261010` / `AC-MTP-GREEDY-v19` retains the
+1.5x–3x objective and 18.45/21.62-second complete Decode budgets. The matched
+40K trace assigns 5.454 GPU seconds to canonical FP8 input verification.
+One startup-owned compact quad layout removes four scalar weight loads and
+four index swizzles per K iteration in favor of the existing exact vector
+consumer. It does not expand weight bytes. To retain the 8-GiB reserve, the
+composition replaces FP8 O and NVFP4 Down auxiliary layouts with canonical
+consumers, retaining NVFP4 Gate/Up. Only the complete API selects this trade.
+The [design record](metadata/qwen36-27b-mtp-fp8-input-layout-design-2026-10-10.json)
+and [MTP ledger](MTP_ADMISSION.md#startup-owned-fp8-input-layout-composition-v19)
+bind its private ownership and exact arithmetic. The 5,200,936,960-byte owner
+replaces 4,596,613,120 bytes, adding 604,323,840 bytes. No canonical payload or
+Prefill operator is changed. A full BF16 expansion is not selected because it
+doubles the repeated input-weight traffic.
+
+One implementation plus at most one correctness repair passes exhaustive
+pack/consumer T1, P65 full transactions and P8192 complete prefixes, then
+returns directly to P65/8K/40K d2/d3 API. Negative direction closes this version
+without a layout/grid scan. No local timing campaign or production switch is
+opened. Artifacts stay under `.q3x-work/mtp-fp8-input-layout-20261010/`.
+
+The [FP8 input-layout rejection](metadata/qwen36-27b-mtp-fp8-input-layout-rejection-2026-10-10.json)
+closes this complete composition after exhaustive packing/consumer checks,
+complete P65/P8192 numerical admission and all eight d2 API/lifecycle requests.
+D2 Decode is 11.581 at 8K and 8.642 at 40K versus retained v7 11.560/8.636:
+these single-process differences provide no useful gain or qualified speedup.
+Startup retains 9,666,056,192 free bytes, but adds 604,323,840 bytes of inventory.
+All new runtime/build/auditor paths are removed. No d3 qualification, layout
+scan or additional profile follows. The 1.5x–3x objective remains active and
+unmet; a successor must address the complete verifier execution budget rather
+than repeat an isolated weight-layout substitution.
+
 ## 2026-10-10 MTP startup-owned pair layout — closed negative
 
 `WP-MTP-PAIR-LAYOUT-20261010` / `AC-MTP-GREEDY-v18` addresses the unchanged

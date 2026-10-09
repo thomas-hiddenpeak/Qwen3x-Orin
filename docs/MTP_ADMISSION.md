@@ -763,6 +763,42 @@ route and startup reserve. All pair paths and the earlier pack/check
 prerequisite are removed. Frozen sources retain reproduction authority only;
 isolated v7 and the production non-MTP route remain unchanged.
 
+## Startup-owned FP8 input layout composition v19
+
+The private startup owner covers 144 input projections: QKV/Z on 48 linear
+layers and Q/K/V on 16 full-attention layers. Each `[output_quad][K_quad]`
+record holds four consecutive four-byte output-row words, with the existing
+involutive `code ^ (code >> 5)` lookup-index swizzle applied independently
+per byte. A separate checker reconstructs each canonical byte before readiness.
+No decoding, requantization or tensor scaling enters packing. Every code,
+including signed zero and NaN, keeps the exact existing FP32 lookup value.
+The original four FMA chains, warp/eight-warp tree, final scale and BF16 RNE
+remain unchanged. The scalar oracle uses authenticated canonical weights.
+
+The owner is private to multi-row whole-core transactions, with 192 fixed
+layer/role view slots and exactly 144 populated entries. It constructs before
+readiness, validates every payload, and publishes views only after completion.
+Failed allocation, copy/check, reserve or construction drains and releases
+partial ownership. Destruction drains its stream before freeing the arena.
+No request-time packing, allocation or public sidecar-layout reinterpretation
+is permitted. The isolated build omits FP8 O and NVFP4 Down auxiliary assets;
+those roles use existing canonical scalar/multi-row consumers. Gate/Up and
+Prefill Down assets remain intact. Startup and request receipts distinguish
+base inventory from the private 5,200,936,960-byte owner. Production is unchanged.
+
+The [design record](metadata/qwen36-27b-mtp-fp8-input-layout-design-2026-10-10.json)
+fixes the resource exchange and source-derived instruction hypothesis. It has
+no standalone performance authority; full-prefix exact oracles admit the
+composition before its immediate real API direction screen.
+
+The [FP8 input-layout rejection](metadata/qwen36-27b-mtp-fp8-input-layout-rejection-2026-10-10.json)
+closes this version after exact packing/consumer and complete P65/P8192 state
+checks, plus all eight d2 API/lifecycle checks. Its 8K/40K throughput is
+essentially tied with retained v7, so the additional owner/inventory exchange
+is removed. Frozen source and binaries retain reproduction authority only;
+no d3 qualification or production switch follows. The isolated implementation
+remains v7 and the 1.5x–3x objective remains unmet.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

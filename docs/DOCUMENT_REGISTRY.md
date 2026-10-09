@@ -182,7 +182,9 @@ composition, followed by rejected bounded-reduction/sparse-repair and streamed
 certificate compositions, rejected direct-fragment successor and rejected partitioned
 execution/compact-repair composition and rejected shared multi-query KV successor, followed by closed exact PV work elimination without retention and the rejected
 startup-owned NVFP4 pair-layout composition, including removal of its earlier
-pack/check prerequisite.
+pack/check prerequisite. The startup-owned compact FP8 input-layout successor
+is also closed without retention after full d2 API/lifecycle checks; its runtime
+paths are removed and its exact evidence remains linked from Roadmap and MTP.
 The registered set and classes are unchanged.
 
 ## Integrity check
