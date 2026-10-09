@@ -19,6 +19,40 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP exact PV work elimination — closed without retention
+
+`WP-MTP-EXACT-PV-ELISION-20261010` / `AC-MTP-GREEDY-v17` retains the
+1.5x–3x objective and 18.45/21.62-second full Decode budgets. The matched
+40K profile assigns 2.318 GPU seconds to ordered verifier PV. Shared KV
+movement did not improve the runner. This materially different computation
+eliminates an entire ordered block only when a runtime bound proves that every
+FMA leaves its current FP32 accumulator unchanged. It changes no reduction,
+probability, state or output rounding. The maximum measured PV budget alone
+cannot close the full target; this is a bounded composed prerequisite, not a
+redefined speedup goal. Projection, QK, draft and all other paths stay v7.
+
+The [MTP ledger](MTP_ADMISSION.md#exact-pv-work-elimination-composition-v17)
+controls the proof, exception handling and conservative cache-bound lifetime.
+One fixed implementation plus at most one correctness repair passes directed
+rounding/exception checks, full P513 transactions and P8192 complete prefixes,
+then immediately returns to P65/8K/40K d2/d3 API. If the real-prefix checks
+prove zero eliminated groups, close the mechanism without a timing campaign;
+otherwise the normal negative API stop applies. No threshold, tile, numerical
+bound or launch scan is opened. Persistent bounds borrow less than 177 KiB of
+otherwise dead post-Prefill storage; the 8-GiB reserve stays fixed. Every API
+receipt counts tested and eliminated PV groups. Artifacts remain under
+`.q3x-work/mtp-exact-pv-elision-20261010/`.
+
+The [exact-PV rejection](metadata/qwen36-27b-mtp-exact-pv-elision-rejection-2026-10-10.json) closes this composition after the one
+initialization-cancellation repair, complete P513/P8192 numerical checks and
+all eight d2 API/lifecycle requests. D2 Decode is 11.502 at 8K and 8.522 at
+40K versus retained v7 11.560/8.636, with negligible actual elision. These
+single-process differences establish no qualified regression or gain. All new
+runtime paths are removed; no d3 qualification or bound/tile scan follows.
+The 1.5x–3x goal remains active and unmet. A successor must address the dominant
+complete verifier execution budget with a materially different architecture;
+this closure selects no further local variant.
+
 ## 2026-10-10 MTP shared multi-query KV — closed negative
 
 `WP-MTP-SHARED-KV-20261010` / `AC-MTP-GREEDY-v16` returns to retained

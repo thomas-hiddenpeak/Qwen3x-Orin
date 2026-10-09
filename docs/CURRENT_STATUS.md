@@ -220,6 +220,16 @@ context requests preserve baseline output and accounting. The new paths are
 removed; d3 and the remaining lifecycle panel are not run. The retained v7
 observations above remain the incumbent, and the 1.5x–3x goal remains unmet.
 
+The [exact-PV rejection](metadata/qwen36-27b-mtp-exact-pv-elision-rejection-2026-10-10.json) passes repaired P513/P8192 complete
+state/logit checks and all eight d2 API/lifecycle requests, but provides no
+improvement over retained v7. P8192/O256 Prefill is 17.264 s / 474.50 token/s,
+external TTFT 17.287 s, Decode 11.502 token/s and total 39.457 s.
+P40000/O256 Prefill is 92.744 s / 431.30 token/s, external TTFT 92.779 s,
+Decode 8.522 token/s and total 122.703 s. Only 1,568 of 303,595,008 tested
+40K PV groups are eliminated. The new paths are removed; d3 is not run.
+These are single-process direction observations, not a new performance baseline.
+The retained v7 implementation and unmet 1.5x–3x goal remain unchanged.
+
 ## Numerical baseline decision
 
 Legacy Prefill is retained as a regression comparator, **not model truth**.

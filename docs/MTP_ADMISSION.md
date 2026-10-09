@@ -688,6 +688,51 @@ P513/P8192 numerical admission and the three d2 context API requests. All new
 paths are removed; physical KV sharing alone did not improve complete Decode.
 The isolated retained implementation remains v7, with no production change.
 
+## Exact PV work elimination composition v17
+
+For one ordered FP32 accumulator `a`, let `B` be an upward-rounded bound on
+`abs(p*v)` for every position in the next 64-position causal block. For finite
+normal `a` with biased exponent E>25, `2^(E-127-25)` is no larger than half
+the distance to either adjacent FP32 value, including powers of two. If
+`B` is strictly smaller, every RN FMA returns exactly `a`, by induction across
+the complete block. Equality never skips. Zero, subnormal, small-exponent,
+infinite and NaN accumulators never skip. Nonfinite P or V forces an infinite
+bound; no exceptional operation is removed. This uses a conservative strict
+rounding-cell proof, not a numerical tolerance or an approximate attention mask.
+
+An initialized `[16,4,ceil(capacity/64)]` FP32 array bounds absolute BF16 V
+for each target layer, KV head and position block. It is constructed from all
+actual prompt values after Prefill commit and reset on every new initialization.
+Each later projection updates the affected block maxima on the target stream.
+Rejected rows may leave a larger maximum: that remains conservative and never
+changes model state or the causal domain. No subtraction on rewind is allowed.
+New blocks begin at zero; nonfinite values map to positive infinity. The array
+and two 64-bit group counters borrow aligned storage strictly after immutable
+snapshots and prompt capture, expire before the next Prefill and allocate nothing.
+Legacy transactions without that borrow retain the original batch path.
+
+Within the existing PV CTA, each head warp reduces the absolute probabilities
+of its actual causal 64-position tile. The outward product of that maximum and
+its persistent V maximum bounds every product. The warp skips its original
+loop only if both output accumulators in every lane satisfy the strict test.
+Otherwise all original increasing-position FMAs execute unchanged. Async V
+staging and its barriers remain intact; the transformation removes arithmetic
+and shared reads, not the already issued global V copies. QK, actual-length
+softmax and final BF16 publication remain unchanged. Counters record one tested
+head/dimension block and one eliminated block, accumulated once per warp at
+kernel completion; they do not count committed tokens. A single readback at
+Decode completion is included in full Decode time. Failure uses the existing
+poison boundary, and complete scalar-prefix state/logits remain mandatory.
+
+The [exact-PV rejection](metadata/qwen36-27b-mtp-exact-pv-elision-rejection-2026-10-10.json) closes this version without retention.
+The initial bounds setup polled cancellation before the existing draft reset
+and batch boundary. One repair moved setup after successful draft initialization;
+the established cancellation boundary and complete prefix/transaction checks
+then passed. All eight d2 API/lifecycle checks also pass, but actual elision is
+negligible and no Decode gain appears at 8K or 40K. All new bounds, counters,
+kernels and bindings are removed. The proof and both source snapshots remain
+frozen evidence only; the isolated implementation is retained v7.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

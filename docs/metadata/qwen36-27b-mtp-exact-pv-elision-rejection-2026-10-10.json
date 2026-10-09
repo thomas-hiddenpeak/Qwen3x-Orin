@@ -1,0 +1,559 @@
+{
+  "date": "2026-10-10",
+  "decision_unit": "architecture_candidate",
+  "work_package_id": "WP-MTP-EXACT-PV-ELISION-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v17",
+  "decision": "close exact PV work elision without retention: complete d2 API direction provides no gain over retained v7",
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "production_changed": false,
+  "binary_sha256": "0a98c18733fd766950260b0f9b6c39a23ecbf09d235fe8e23b39b2b4ffca6f3d",
+  "source_snapshot": ".q3x-work/mtp-exact-pv-elision-20261010/source",
+  "source_hashes": {
+    "base_git": "4054c85aed8a9d89061b3f37cf46889bc7f70947",
+    "files": {
+      "source.patch": "1a41b2b33903cb5fdea7ff315421523f6809fce18d3de7ff5e6adf6a94d1c664",
+      "server": "0a98c18733fd766950260b0f9b6c39a23ecbf09d235fe8e23b39b2b4ffca6f3d",
+      "tests/mtp_device_test.cpp": "66d9d9e9a89e27e66feef55488b493924cdb360b8b8131e799c5bce6dec2c6df",
+      "docs/DOCUMENT_REGISTRY.md": "eca3f784a6707f20e303c4b40e90fa7e3b2a46d7279459166bb93d1b527e44a7",
+      "docs/ROADMAP.md": "45feb0bb101c09fe6016f6f2fd2b1aa5158461942daa9bf86a47e1e47d25b628",
+      "docs/MTP_ADMISSION.md": "d1d78071143fc4ba1f511db61f76f8fedd5c7a50de647a6b1671ddf83e8fc8fd",
+      "tools/evaluation/validate_mtp_service.py": "aad22f7ccb9d3c5fa4a73967ec10371db7012adc44c380a550245b0a18a345ea",
+      "src/server/evaluation_server.cpp": "5c644704367e3286a31241aaf1d025e1004801863ac07a19d4b6f1ee8ba86bf9",
+      "src/runtime/mtp_verify_attention_internal.cu": "a646af94f2ea4c93a0b67cacdcc3d830ecf711b666a7629cf32a83f72892c095",
+      "src/runtime/mtp_device_internal.h": "77ceaf3e679f71d9cc0d276522b7cd6fa7a55d9d0e14ba3c4bc9e07073b927ea",
+      "src/runtime/mtp_verify_internal.cpp": "a1661f7ffb18c4d67040b736a081015dee1889b0c1595563c427f03c285d6740",
+      "src/runtime/mtp_service_internal.h": "685764a3d3557b5ac42dcc29c1dea86d925b3d49ea43558a348a6f74e5821879",
+      "src/runtime/mtp_service_internal.cpp": "a80ec14e4fc5ccbd6d8b9580e43450e155f04c9bb23370ad55ca629f5807fa7b",
+      "src/runtime/mtp_device_internal.cpp": "42df7894433355252ea0b2e36d1f472d7dc42215cf4fddea2e10a7620f1979a5",
+      "include/q3x/server/evaluation_server.h": "b081bc07e9823c9e24c7a0fe688b76bd06240108145b395decd8dc036302dea6"
+    }
+  },
+  "initial_source_hashes": {
+    "base_git": "4054c85aed8a9d89061b3f37cf46889bc7f70947",
+    "files": {
+      "source.patch": "d69a2770db66b1bf7a1befe79fe3d6d1defb0344af38d8e932035ebe968c7f67",
+      "server": "6e4226eaec00dbcf15afdee52b3cfd8dbc23d189844b7ce7a29d5b44cf61c8b3",
+      "tests/mtp_device_test.cpp": "66d9d9e9a89e27e66feef55488b493924cdb360b8b8131e799c5bce6dec2c6df",
+      "docs/DOCUMENT_REGISTRY.md": "eca3f784a6707f20e303c4b40e90fa7e3b2a46d7279459166bb93d1b527e44a7",
+      "docs/ROADMAP.md": "45feb0bb101c09fe6016f6f2fd2b1aa5158461942daa9bf86a47e1e47d25b628",
+      "docs/MTP_ADMISSION.md": "d1d78071143fc4ba1f511db61f76f8fedd5c7a50de647a6b1671ddf83e8fc8fd",
+      "tools/evaluation/validate_mtp_service.py": "aad22f7ccb9d3c5fa4a73967ec10371db7012adc44c380a550245b0a18a345ea",
+      "src/server/evaluation_server.cpp": "5c644704367e3286a31241aaf1d025e1004801863ac07a19d4b6f1ee8ba86bf9",
+      "src/runtime/mtp_verify_attention_internal.cu": "a646af94f2ea4c93a0b67cacdcc3d830ecf711b666a7629cf32a83f72892c095",
+      "src/runtime/mtp_device_internal.h": "77ceaf3e679f71d9cc0d276522b7cd6fa7a55d9d0e14ba3c4bc9e07073b927ea",
+      "src/runtime/mtp_verify_internal.cpp": "a1661f7ffb18c4d67040b736a081015dee1889b0c1595563c427f03c285d6740",
+      "src/runtime/mtp_service_internal.h": "685764a3d3557b5ac42dcc29c1dea86d925b3d49ea43558a348a6f74e5821879",
+      "src/runtime/mtp_service_internal.cpp": "a80ec14e4fc5ccbd6d8b9580e43450e155f04c9bb23370ad55ca629f5807fa7b",
+      "src/runtime/mtp_device_internal.cpp": "7a0ebd6e99160fc134c3189a7d2fefccebb16b020f8ac9949ab0ee22b62cee87",
+      "include/q3x/server/evaluation_server.h": "b081bc07e9823c9e24c7a0fe688b76bd06240108145b395decd8dc036302dea6"
+    }
+  },
+  "correctness_repair": {
+    "reason": "Initial bounds preparation polled cancellation before the established draft reset/batch boundary. P513 complete prefixes passed but initialization cancellation retained an old draft position and failed its exact boundary assertion.",
+    "change": "Construct bounds after successful existing draft initialization, before readiness, and synchronize the target stream. Original before-first-batch and after-each-batch cancellation behavior is preserved; subsequent bounds preparation remains cancellable and drains on failure.",
+    "scope": "one permitted lifecycle correctness repair; no arithmetic or performance parameter change"
+  },
+  "api_completed_stages": [
+    {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8935758519999999,
+      "prefill_tps": 72.74144646424487,
+      "ttft_s": 0.9121627449057996,
+      "elapsed_s": 2.307106746826321,
+      "decode_tps": 10.752273781723781,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-exact-pv-elision-v20",
+        "draft_length": 2,
+        "startup_free_bytes": 10574622720,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 14.371734,
+        "draft_ms": 124.308807,
+        "verify_ms": 1238.221279,
+        "pv_elided_groups": 0,
+        "pv_tested_groups": 0,
+        "reconcile_ms": 26.283566,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "prefill_s": 17.264442676999995,
+      "prefill_tps": 474.5012713855821,
+      "ttft_s": 17.286529772914946,
+      "elapsed_s": 39.45651624118909,
+      "decode_tps": 11.502155796128399,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-exact-pv-elision-v20",
+        "draft_length": 2,
+        "startup_free_bytes": 10574622720,
+        "prompt_rows": 8192,
+        "draft_prefill_rows": 8191,
+        "initialized": true,
+        "rounds": 98,
+        "proposed": 196,
+        "accepted": 157,
+        "verified_rows": 294,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          86,
+          71,
+          0
+        ],
+        "draft_initialization_ms": 551.267373,
+        "draft_ms": 2226.1094150000004,
+        "verify_ms": 19412.464136,
+        "pv_elided_groups": 25,
+        "pv_tested_groups": 58894848,
+        "reconcile_ms": 444.84354500000006,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "p40000",
+      "prompt": 40000,
+      "output": 256,
+      "prefill_s": 92.74350028699999,
+      "prefill_tps": 431.29707069732916,
+      "ttft_s": 92.77851358801126,
+      "elapsed_s": 122.70284774526954,
+      "decode_tps": 8.521945825960373,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-exact-pv-elision-v20",
+        "draft_length": 2,
+        "startup_free_bytes": 10574622720,
+        "prompt_rows": 40000,
+        "draft_prefill_rows": 39999,
+        "initialized": true,
+        "rounds": 105,
+        "proposed": 210,
+        "accepted": 150,
+        "verified_rows": 315,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          85,
+          65,
+          0
+        ],
+        "draft_initialization_ms": 2683.051798,
+        "draft_ms": 3271.2790439999994,
+        "verify_ms": 26114.40986999999,
+        "pv_elided_groups": 1568,
+        "pv_tested_groups": 303595008,
+        "reconcile_ms": 444.936831,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "p65-nonstream",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.881355075,
+      "prefill_tps": 73.75007172903611,
+      "ttft_s": null,
+      "elapsed_s": 2.292237548623234,
+      "decode_tps": 10.778378727481327,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-exact-pv-elision-v20",
+        "draft_length": 2,
+        "startup_free_bytes": 10574622720,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 5.738501,
+        "draft_ms": 123.368102,
+        "verify_ms": 1236.0637380000003,
+        "pv_elided_groups": 0,
+        "pv_tested_groups": 0,
+        "reconcile_ms": 26.171706,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "raw-text",
+      "prompt": 5,
+      "output": 16,
+      "prefill_s": 0.8158406519999999,
+      "prefill_tps": 6.128647779125378,
+      "ttft_s": 0.8552641337737441,
+      "elapsed_s": 2.068386438768357,
+      "decode_tps": 12.363865240512395,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-exact-pv-elision-v20",
+        "draft_length": 2,
+        "startup_free_bytes": 10574622720,
+        "prompt_rows": 5,
+        "draft_prefill_rows": 4,
+        "initialized": true,
+        "rounds": 6,
+        "proposed": 11,
+        "accepted": 9,
+        "verified_rows": 17,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          6,
+          3,
+          0
+        ],
+        "draft_initialization_ms": 2.466205,
+        "draft_ms": 113.07760999999999,
+        "verify_ms": 1068.654591,
+        "pv_elided_groups": 0,
+        "pv_tested_groups": 0,
+        "reconcile_ms": 26.179706000000003,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "chat-stop",
+      "prompt": 20,
+      "output": 2,
+      "prefill_s": 0.8203520630000001,
+      "prefill_tps": 24.379776564296883,
+      "ttft_s": 0.8384919282980263,
+      "elapsed_s": 1.04645803431049,
+      "decode_tps": 4.804205286151631,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-exact-pv-elision-v20",
+        "draft_length": 2,
+        "startup_free_bytes": 10574622720,
+        "prompt_rows": 20,
+        "draft_prefill_rows": 19,
+        "initialized": true,
+        "rounds": 1,
+        "proposed": 2,
+        "accepted": 1,
+        "verified_rows": 3,
+        "committed_decode_tokens": 1,
+        "accepted_by_position": [
+          1,
+          0,
+          0
+        ],
+        "draft_initialization_ms": 3.061797,
+        "draft_ms": 20.558263,
+        "verify_ms": 184.905606,
+        "pv_elided_groups": 0,
+        "pv_tested_groups": 0,
+        "reconcile_ms": 1.764949,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "after-prefill-cancel",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.880830416,
+      "prefill_tps": 73.7940003198073,
+      "ttft_s": 1.147448712028563,
+      "elapsed_s": 2.5390699417330325,
+      "decode_tps": 10.777913968536557,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-exact-pv-elision-v20",
+        "draft_length": 2,
+        "startup_free_bytes": 10574622720,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 5.739621,
+        "draft_ms": 123.42845299999999,
+        "verify_ms": 1235.830662,
+        "pv_elided_groups": 0,
+        "pv_tested_groups": 0,
+        "reconcile_ms": 26.291321999999997,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "after-decode-cancel",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.880845223,
+      "prefill_tps": 73.79275984334878,
+      "ttft_s": 1.1078508510254323,
+      "elapsed_s": 2.499714918900281,
+      "decode_tps": 10.776410024641914,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-exact-pv-elision-v20",
+        "draft_length": 2,
+        "startup_free_bytes": 10574622720,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 5.736228,
+        "draft_ms": 123.30150700000002,
+        "verify_ms": 1236.200381,
+        "pv_elided_groups": 0,
+        "pv_tested_groups": 0,
+        "reconcile_ms": 26.224218,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "runs": {
+    "synthetic": {
+      "path": ".q3x-work/mtp-exact-pv-elision-20261010/synthetic",
+      "sha256": {
+        "cache-preparation.json": "3be053c2fd95d820c8fa99ec9e77ac07e4228aa00b37e3b633af8ce89696ca0d",
+        "preflight-console.log": "60e286cec7d7179a850ea5d3c211ab57474da993008c82c3cf6343cdd2755a2f",
+        "preflight.json": "e4bc5f4a6305e590a9b14721090828570443fa94c97e8b061800c9fa47780731",
+        "result.json": "3d9b6880aa623a8ce8b8f0dc653435a4feb1cdce819fd79f01448288e960c5dc",
+        "run.log": "42f331f7d2dc4ba04cfbc0ecda12639484f2c8601108e4a2b45d3b78ad8853bf"
+      },
+      "result": {
+        "returncode": 0,
+        "binary_sha256": "f715ad3bfc09c74b579144da3d8eb45c19d4534642de09382fcaee99570ab28f",
+        "scope": "directed rounding-cell/exception and PV causal-tail/stale-bound correctness only; no performance authority"
+      }
+    },
+    "oracle-p513": {
+      "path": ".q3x-work/mtp-exact-pv-elision-20261010/oracle-p513",
+      "sha256": {
+        "cache-preparation.json": "dc16fdf02b6af4bb001e3c809a95ea45740b6e26127b94a22c6b43bc088a7729",
+        "cleanup.json": "225ce13b127d6a2e1e3d51510afff6023794c2fe6857eca151c16a71d50ba140",
+        "identity.json": "311e6a6dcdcb7ab55bdfdfb71900a32dc981471b6c8436fa7c3d1a4d1438bf97",
+        "preflight-console.log": "e13e3fd74b5984e661921ff29d25119361256f11b9095cce688b894331af31f7",
+        "preflight.json": "bd7b37d46a13e9be7e704653f3aa9d0993bbc5d824c2ab9daeead4e4835e27b6",
+        "prompt.u32": "1e43eb1b2b20d294699de49bcd732d1c5e10cfe1f95f1933a0142c1143e823fd",
+        "run.log": "fe5f56120b07004b0c640b736567e2c61a314f328adb06937a294ce8737441f9",
+        "telemetry.log": "11f926a303a1238304277025dde7c092145442f8acd5ca2e7377c786ae3eaced"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-exact-pv-elision-20261010/oracle-p513/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-exact-pv-elision-20261010/oracle-p513/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-exact-pv-elision-20261010/oracle-p513"
+        ],
+        "binary_sha256": "c5b839501228d5fd7db8dd3210f651a17ea9c7bdf4a5effc3cc53f42fa54364c",
+        "prompt_sha256": "1e43eb1b2b20d294699de49bcd732d1c5e10cfe1f95f1933a0142c1143e823fd",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "4054c85aed8a9d89061b3f37cf46889bc7f70947",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 1,
+        "errors": [],
+        "max_temperature": 65.593
+      }
+    },
+    "oracle-p513-r2": {
+      "path": ".q3x-work/mtp-exact-pv-elision-20261010/oracle-p513-r2",
+      "sha256": {
+        "cache-preparation.json": "8f375d4703776a80ae6939d3780ec4dd0d7da9f3d32d5ac918895c8b768b30f2",
+        "cleanup.json": "3162253126edd182d0a13449531fa6deda932d8c77f470a1ca456107817a5f9e",
+        "identity.json": "15ee34d7700e348056de5f32b2c2588297cbabd1c5bdae9207fd49b92155e010",
+        "preflight-console.log": "2aef09acacb94550220f47c5d3bc6b3251b0b86887ed890bba5db9db9b3b84e8",
+        "preflight.json": "ad0ac2952ce4741ab41e3adab9c4782efc0020c0d21f67c59babf8064b661af6",
+        "prompt.u32": "1e43eb1b2b20d294699de49bcd732d1c5e10cfe1f95f1933a0142c1143e823fd",
+        "run.log": "1599b81d34bf8e4802d657410abd4b07fb70e0ad370a7820463892eae78bc1a4",
+        "telemetry.log": "397f6f0758b308c620f2ae27cc72f59bca2b27a87e8b46341272e647262cc0f1"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-exact-pv-elision-20261010/oracle-p513-r2/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-exact-pv-elision-20261010/oracle-p513-r2/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-exact-pv-elision-20261010/oracle-p513-r2"
+        ],
+        "binary_sha256": "65d23d14a4b603311b0bbf07d858fdecddbb8714b4cfe82913aac12f69b5b47f",
+        "prompt_sha256": "1e43eb1b2b20d294699de49bcd732d1c5e10cfe1f95f1933a0142c1143e823fd",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "4054c85aed8a9d89061b3f37cf46889bc7f70947",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 72.062
+      }
+    },
+    "oracle-p8192": {
+      "path": ".q3x-work/mtp-exact-pv-elision-20261010/oracle-p8192",
+      "sha256": {
+        "cache-preparation.json": "429082eaaa1b108621b25489d5d3b87617b0ba7aa18c8716d0a953f65b1344eb",
+        "cleanup.json": "7b04b8702f5cc2620329490aa7a8e8390377a1f49bc198aef7ad5e30df965f5e",
+        "identity.json": "e79158295f53fd519cd72108a74932a5282472e6c0011b83a45fb4463261fbe2",
+        "preflight-console.log": "af8322529524a01e5295f24cf9171e4ac3038a01460aff58e5132ff5c63fdc53",
+        "preflight.json": "6a3bacf5e161ba4d35eb2264f878359a0f72117e4adfe5f27b6ae2a4c109414e",
+        "prompt.u32": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+        "run.log": "56c4c263bcb6d3e71d137a724dff6a5690a34f48f1cf6326400f15a456a0208b",
+        "telemetry.log": "802fe1f422a9169f5994ccaf58a807656353eabdbfe67d5313ed7b2e0be428a7"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-exact-pv-elision-20261010/oracle-p8192/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-exact-pv-elision-20261010/oracle-p8192/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-exact-pv-elision-20261010/oracle-p8192",
+          "--prefix-only"
+        ],
+        "binary_sha256": "65d23d14a4b603311b0bbf07d858fdecddbb8714b4cfe82913aac12f69b5b47f",
+        "prompt_sha256": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "4054c85aed8a9d89061b3f37cf46889bc7f70947",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 79.531
+      }
+    },
+    "d2": {
+      "path": ".q3x-work/mtp-exact-pv-elision-20261010/d2",
+      "sha256": {
+        "after-decode-cancel.json": "9f4fa9c993962d2a6458cfd83a86bf3bc7d2f55d82cde625442ada98374be783",
+        "after-prefill-cancel.json": "301872942f83036929cea5ef4cf2bd1209267f5529cb02fcae2fea6e037579c6",
+        "audited-metrics.json": "faeaf9f7d765ef2990d1a9ea952e45cec93c7c731f74bb65777d092180624002",
+        "cache-preparation.json": "e69eba358f3365c75933d1afe265579d83cca6a99c3295460dc9f2140539de17",
+        "chat-stop.json": "65e80f192dff9303c8063d24ec15cb95e9ad798646fbd72f5f703d357f183f11",
+        "cleanup.json": "1e8ef55df59f0bcd7622eb567517a1e71f303242c63cd9560841e1f1aae7fa04",
+        "health.json": "26ba6b232302ec3cfe634501691bd7f0ec149cea7e1b512b40617c7b9b6f3d35",
+        "identity.json": "ac7a8c8f83664747885cda9e442f62e3f7d2cd63f11266408567b6595a754095",
+        "p40000.json": "ea12cf196856987b73d75f9b64b0c946fa79b2a4e89235e89a7f23079cff7dba",
+        "p65-nonstream.json": "68a1efed0550e620e4a33b8dc38634e5a111efc8f98972cca50a3bd6c842c376",
+        "p65.json": "269d9fb0e9c4b2877901cb5e9e003d619b72c968c9565933c8124d5436f28195",
+        "p8192.json": "4d03b55de556f0ed727b2695e9c29f07bada070283ee35dfe20a2e733689fbd1",
+        "preflight-console.log": "96ff89484c6d8a33c16b18839ee73a1ad6954b70fc6b9a58cb581a85363da807",
+        "preflight.json": "b713bd41679ec1cde91a92e472f51d737f1f6ee6ec7d1442492846643c09c732",
+        "raw-text.json": "5633d54e6f3edafb3fd0c842e0efce6a0e64898e4b9a8c00b5ef4c9f6bae6ccf",
+        "requests.jsonl": "085650a1863d231900ee999283c9fa4a9f22625ac131a656dfe585faccb00624",
+        "results.json": "5445d44f8edb9324763de3782f7e7eba057b8527066655095bd13a61d583a439",
+        "server.log": "8f96500fe438437fd83dd017e77fd2dd1c2202acaf9e80e43cbf3f0f96f979fd",
+        "telemetry.log": "2926f73f8aa561ccc0767fae991d482f0c9f435ea07e81107821a645d6d426e6"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-exact-pv-elision-20261010/source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-exact-pv-elision-20261010/d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "0a98c18733fd766950260b0f9b6c39a23ecbf09d235fe8e23b39b2b4ffca6f3d",
+        "draft_length": 2,
+        "driver_sha256": "aad22f7ccb9d3c5fa4a73967ec10371db7012adc44c380a550245b0a18a345ea",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "4054c85aed8a9d89061b3f37cf46889bc7f70947",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 81.687
+      }
+    }
+  },
+  "numerical": {
+    "synthetic": "2048 FP32 accumulator cases times 7 bound variants; 5496 accepted strict skips have unchanged positive/negative-bound FMA bits. Nine S512/513/575 M2/3/4 PV cases pass exact output, guards and conservative stale-bound checks. Correctness only.",
+    "initial_failure": "P513 initial implementation passed nine complete prefixes but failed initialization cancellation boundary. Retained failure; one lifecycle repair moves bound setup after existing draft initialization. No numerical relaxation.",
+    "real_model": "Repaired P513: nine complete prefixes, eleven transactions, nine initialization tail/guard checks, two initialization-cancel and two injected-failure recoveries pass. P8192: nine complete prefixes pass; M2/M3/M4 skip 0/0/2 groups out of 396288/594432/792576.",
+    "api": "All eight d2 requests match non-MTP body hashes, text, usage, finish and DONE; physical route, resource, accounting, Prefill/Decode cancellation and recovery pass."
+  },
+  "resources": {
+    "PV_registers": 40,
+    "PV_shared_bytes": 38912,
+    "bounds_registers": 36,
+    "bounds_shared_bytes": 32,
+    "stack_bytes": 0,
+    "local_bytes": 0,
+    "persistent_borrowed_bound_bytes": 176384,
+    "counter_bytes": 16,
+    "new_allocated_bytes": 0
+  },
+  "limitations": [
+    "Single-process direction, not repeated performance selection or release qualification.",
+    "8K and 40K Decode are 11.502/8.522 versus retained v7 11.560/8.636; small differences do not establish a statistically qualified regression.",
+    "8K eliminates 25 of 58894848 tested groups; 40K eliminates 1568 of 303595008. Actual useful elision is negligible; no threshold/tile/bound scan follows.",
+    "No d3 API qualification or new profile after this losing/neutral d2 composition.",
+    "All new runtime paths and tests restored to retained v7; frozen repaired source and failure remain reproducible.",
+    "Installed non-MTP and retained v7 remain unchanged. The 1.5x\u20133x target remains unmet."
+  ],
+  "tools_and_resource_hashes": {
+    ".q3x-work/mtp-exact-pv-elision-20261010/build-oracle-repair.log": "fb2d8ef61ad9cf6ae2f0e14cf5339eac39a11b8d5a3109ebb36e12dfbc07a46f",
+    ".q3x-work/mtp-exact-pv-elision-20261010/build-oracle.log": "9988534b484f96cbbaa1a72d71ed7db1899323ce1ec553a577e1cdedd6ba72de",
+    ".q3x-work/mtp-exact-pv-elision-20261010/build-service-repair.log": "2ddfa744beaf3fa0b291da9f03ae6836206ce31f219ef41032156e4e3bee02d0",
+    ".q3x-work/mtp-exact-pv-elision-20261010/build-service.log": "59cd18c941c1abb0eba17e2999ec32eac924a0d3f44e96900f7b17e81e6eff46",
+    ".q3x-work/mtp-exact-pv-elision-20261010/build-test.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-exact-pv-elision-20261010/correctness-repair.json": "572f5c1f6762f411360225d771a7766bc7cf637587be76938402c214638f0e45",
+    ".q3x-work/mtp-exact-pv-elision-20261010/d2-driver-result.json": "cc3f040330893c99443996540ed3cff211f307c74af640795549cdc2a450f183",
+    ".q3x-work/mtp-exact-pv-elision-20261010/d2-driver.log": "23566274d2a32a68fcb2afff4271dbd1eedbd5c0d3456da929ca52b7fe7ff437",
+    ".q3x-work/mtp-exact-pv-elision-20261010/d2-process.json": "3bea0371c617773b7af182034e4ca0f91f361b3f1283effbc62da2c7452d3e7b",
+    ".q3x-work/mtp-exact-pv-elision-20261010/elision-test.cu": "4a991081bca095e07e9c886f1827cfc4e88db70d18e3467de78a2545c91c8562",
+    ".q3x-work/mtp-exact-pv-elision-20261010/oracle-p513-driver.log": "1d065a9068b8f1c23fe4d32a558d62a56d6703d85fa832dd5ba0446b4c4b9605",
+    ".q3x-work/mtp-exact-pv-elision-20261010/oracle-p513-r2-driver.log": "e3ebad4c01d53ce15c9e92dd9cad215887ecf1428eb5e9db400a2c7369d60cdf",
+    ".q3x-work/mtp-exact-pv-elision-20261010/oracle-p8192-driver.log": "658fc8592b4b7301d525146765c180d163b4fe1e6f94cc5c37a97b3d1537e01e",
+    ".q3x-work/mtp-exact-pv-elision-20261010/resources.log": "aec7e6b7cf54da4d6ad1238fcc5f09643bdf5a58296c1ddb4ecfdcc8536863b7",
+    ".q3x-work/mtp-exact-pv-elision-20261010/run-api.py": "11777b87ebeeecce9d0fe34166d56aa85c6865e8f58dfa1e38cd1b00a62371c9",
+    ".q3x-work/mtp-exact-pv-elision-20261010/run-oracle.py": "3af1fc38ee68a4dac5a63b28644ca92fdcc480344dbad26d88a25702d124fdae"
+  }
+}
