@@ -19,6 +19,43 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP phase-borrowed FP8 input layout — closed without retention
+
+`WP-MTP-PHASE-FP8-LAYOUT-20261010` / `AC-MTP-GREEDY-v21` preserves the
+1.5x–3x goal and 18.45/21.62-second complete Decode budgets. The earlier
+startup-owned layout exchanged O/Down acceleration for input layouts; its
+neutral result did not isolate input benefit. This composition instead borrows
+the dead Prefill family arena after draft initialization and prompt-capture
+expiry, retaining the complete original acceleration inventory. Its
+[design record](metadata/qwen36-27b-mtp-phase-fp8-layout-design-2026-10-10.json)
+and [lifetime ledger](MTP_ADMISSION.md#phase-borrowed-fp8-input-layout-composition-v21)
+bind 5,200,936,960 packed bytes within 5,591,000,064 available bytes excluding
+snapshots. Preparation and independent byte checking occur once per request,
+are included in complete Decode, and receive a separate receipt. This changes
+cross-phase ownership rather than a local layout or launch parameter.
+
+One composition plus at most one correctness repair returns through packing,
+range/lifetime, full P65 transaction and P8192 prefix admission immediately to
+P65/8K/40K d2 API; d3 follows useful d2 direction. P65 reports the new fixed preparation cost but cannot alone reject its O256
+amortization. A greater-than-3% 8K/40K regression stops early; neutral complete
+long-context direction closes the version. No allocation, canonical-weight mutation, inventory removal,
+reserve reduction or production switch is admitted. Artifacts remain under
+`.q3x-work/mtp-phase-fp8-layout-20261010/`. The measured 5.454-second input
+projection budget alone cannot guarantee the full target; only the complete
+API can select this prerequisite.
+
+The [phase-layout rejection](metadata/qwen36-27b-mtp-phase-fp8-layout-rejection-2026-10-10.json)
+closes this composition after complete P65/P8192 numerical admission and all
+eight d2 API/lifecycle requests. Preparation costs about 159 ms per request;
+8K/40K verification is effectively unchanged from v7. Decode is 11.477/8.587
+versus retained 11.560/8.636 token/s. The startup reserve passes with the full
+inventory, but no useful API gain emerges. All new runtime/test/auditor paths
+are removed. No d3 qualification, profile or layout/ownership scan follows.
+The 1.5x–3x objective remains unmet; this closes the proposed cross-phase FP8
+layout prerequisite rather than retaining it indefinitely. A successor needs
+a different complete verifier computation/execution response, with the exact
+publication boundary and prompt API return preserved.
+
 ## 2026-10-10 MTP compact full-K residency — closed negative
 
 `WP-MTP-COMPACT-RESIDENCY-20261010` / `AC-MTP-GREEDY-v20` targets the

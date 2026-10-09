@@ -1,0 +1,34 @@
+{
+  "work_package": "WP-MTP-PHASE-FP8-LAYOUT-20261010",
+  "architecture_candidate": "AC-MTP-GREEDY-v21",
+  "source_base": "f281fef1356f7956af6eac7b495bbd7cf5ca71a9",
+  "product_target": "1.5x–3x complete committed Decode vs same non-MTP API",
+  "complete_decode_budgets_seconds": [
+    18.45,
+    21.62
+  ],
+  "profile": "q3x.sm87.admission.mtp-phase-fp8-layout-api.v24",
+  "decision_class": "reversible engineering direction",
+  "hypothesis": "Remove the startup inventory exchange that absorbed the prior FP8 input-layout opportunity by borrowing dead whole-core family storage after draft initialization. Preserve O, GateUp and Down assets.",
+  "measured_input_projection_budget_gpu_seconds": 5.453514208,
+  "family_bytes": 5985767424,
+  "snapshot_bytes": 394767360,
+  "borrowable_bytes_after_capture_expiry": 5591000064,
+  "packed_input_bytes": 5200936960,
+  "canonical_weights_mutable": false,
+  "added_allocation_bytes": 0,
+  "preparation": "Once per request on first multi-row begin, pack and independently check every byte; include in full Decode and publish separate preparation timer.",
+  "scope": "144 K5120 QKV/Z/Q/K/V roles; M2..4; Legacy/scalar unchanged",
+  "proof": "Lossless quad permutation plus involutive lookup swizzle; same v7 reduction/publication; no public sidecar reinterpretation.",
+  "lifetime": "Two family segments exclude five snapshots; capture expires at transaction entry; all scratch consumers retired after Prefill and draft init; next init invalidates prepared views.",
+  "bounds": "one composition plus at most one correctness repair; no parameter scan",
+  "checks": [
+    "T1 pack/check/consumer guards and phase-range plan",
+    "P65 full prefix/transaction/recovery",
+    "P8192 complete prefixes",
+    "immediate P65/8192/40000 d2 API; d3 only if useful d2 direction"
+  ],
+  "stop": "P65 checks correctness/route and reports fixed preparation cost, without standalone timing rejection because preparation amortizes across output length. At 8K/40K O256 >3% regression triggers early stop; neutral complete long-context direction closes version; no release claim.",
+  "artifacts": ".q3x-work/mtp-phase-fp8-layout-20261010",
+  "rollback": "all new private runtime/profile/auditor paths; installed artifact unchanged"
+}

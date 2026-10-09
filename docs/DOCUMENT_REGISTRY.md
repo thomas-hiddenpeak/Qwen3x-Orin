@@ -187,7 +187,9 @@ is also closed without retention after full d2 API/lifecycle checks; its runtime
 paths are removed and its exact evidence remains linked from Roadmap and MTP.
 The compact full-K residency successor is closed after negative P65 API
 direction; its numerical passes and removed source remain frozen evidence. The registered set and
-classes are unchanged.
+classes are unchanged. The phase-borrowed FP8 successor is also closed without retention after
+complete numerical and d2 API checks; the temporary state/system exception
+and runtime paths are removed. No Markdown path or classification changes.
 
 ## Integrity check
 

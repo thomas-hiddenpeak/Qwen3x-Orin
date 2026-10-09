@@ -831,6 +831,46 @@ registers did not compensate for the composed execution cost; evidence does
 not isolate a particular memory/stall cause. All new paths are removed and
 frozen for reproduction only. Production and retained isolated v7 are unchanged.
 
+## Phase-borrowed FP8 input layout composition v21
+
+The lossless v19 pack/check and exact vector consumer are reused with a new
+ownership composition. All original O/Down/GateUp layouts remain attached.
+The source-private transaction binds two aligned segments of the existing
+whole-core family arena, excluding all five immutable snapshot slots. No raw
+family view is added to the public API. Complete checked plan extents and typed
+snapshot-pointer identity must hold before binding. Whole tensors occupy one
+segment each; a separate aligned checker flag occupies the final 256 bytes.
+The 144 input layouts total 5,200,936,960 bytes, within the 5,591,000,064 bytes
+available after excluding snapshots. Persistent state, residual, RoPE and the
+C512 Decode bundle remain physically disjoint.
+
+The first multi-row transaction begins only after successful whole-core
+Prefill and synchronized draft-cache initialization. The normalized prompt
+capture's existing borrow expires at that transaction boundary; its bytes may
+then hold layouts. Canonical weights are immutable. Each request prepares and
+independently checks all layouts once on the target stream; readiness publishes
+only after checking and synchronization. This explicit isolated-admission
+experiment permits that fixed request-phase transformation, unlike v19's
+startup-only owner; it does not amend the production prohibition on request-time
+checkpoint repacking. No allocation, tactic search or public weight-field
+reinterpretation occurs. Preparation time/count/bytes are reported separately
+and included in complete Decode. Short output without a multi-row transaction
+does not prepare layouts. Legacy and scalar-oracle transactions stay canonical.
+
+New initialization invalidates readiness; abort drains and invalidates it.
+Successful rounds retain the prepared bytes until the request ends; next
+Prefill may overwrite them only outside a transaction. A failure never falls
+back after partial enqueue. Complete prefix/state/logit, repeated initialization,
+cancellation and recovery checks admit one composition before immediate API
+selection. The exact arithmetic and independent baseline remain unchanged.
+
+The [phase-layout rejection](metadata/qwen36-27b-mtp-phase-fp8-layout-rejection-2026-10-10.json)
+closes the experiment after full numerical, reuse/cancellation and d2 API
+checks. The source-private borrowed layouts and preparation witness are removed;
+the request-state/system lifetime exception is not retained. Full inventory
+preservation did not produce a useful verifier or API gain. Frozen source has
+reproduction authority only; isolated v7 and production remain unchanged.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

@@ -1,0 +1,222 @@
+{
+  "work_package_id": "WP-MTP-PHASE-FP8-LAYOUT-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v21",
+  "decision_unit": "architecture_candidate",
+  "authority": "single-process engineering direction, not qualification",
+  "disposition": "closed without retention",
+  "source_base": "f281fef1356f7956af6eac7b495bbd7cf5ca71a9",
+  "server_sha256": "3a28a9ff16dd3087962f6bc7be522744a5b4a39c438bfec8ebd1831c32935df6",
+  "profile": "q3x.sm87.admission.mtp-phase-fp8-layout-api.v24",
+  "design": "qwen36-27b-mtp-phase-fp8-layout-design-2026-10-10.json",
+  "artifacts": ".q3x-work/mtp-phase-fp8-layout-20261010",
+  "source_manifest_sha256": "97a4f123fd74770d44d00db26beec531707b515853fb86bb3fd5fb2e028f3b09",
+  "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+  "product_target": "1.5x–3x committed Decode versus same non-MTP API; remains unmet",
+  "implementation": "All144 FP8 input layouts borrowed 5,200,936,960 bytes from dead whole-core family arena after capture expiry, excluding snapshots; full original acceleration inventory retained; no new allocation or canonical mutation.",
+  "admission": {
+    "T1": "All four full input shapes, exhaustive pack/code checker, invalid spans, corruption detection, M2/3/4 full outputs and tail guards pass. Synthetic only, no timing authority.",
+    "P65": "All nine complete M2/3/4 prefix comparisons, 11 full transactions, nine init tails, two init cancellation/reset and two injected failure/recovery checks pass. Readiness reset/retention assertions pass.",
+    "P8192": "All nine complete scalar-prefix state/logit comparisons pass.",
+    "lifetime": "New initialization invalidates readiness; complete repeated prefix/transaction and API cancellation/reuse checks passed.",
+    "labels": "Harness final line retains historical vector/draft name; frozen source and binary pin v24 phase layout."
+  },
+  "api": {
+    "draft_length": 2,
+    "successful_requests": 8,
+    "baseline_output_join": true,
+    "stages": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8865440450000001,
+        "prefill_tps": 73.31841025450686,
+        "decode_tps": 9.626663770042045,
+        "ttft_s": 0.9084672629833221,
+        "elapsed_s": 2.4666338758543134,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-phase-fp8-layout-v24",
+          "draft_length": 2,
+          "startup_free_bytes": 10320220160,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "fp8_input_layout_count": 144,
+          "fp8_input_layout_bytes": 5200936960,
+          "fp8_input_preparation_ms": 159.83327,
+          "draft_initialization_ms": 5.751031,
+          "draft_ms": 123.823712,
+          "verify_ms": 1241.998923,
+          "reconcile_ms": 26.235003,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.264679097000002,
+        "prefill_tps": 474.4947736343089,
+        "decode_tps": 11.476746766022325,
+        "ttft_s": 17.28680142061785,
+        "elapsed_s": 39.50590528501198,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-phase-fp8-layout-v24",
+          "draft_length": 2,
+          "startup_free_bytes": 10320220160,
+          "prompt_rows": 8192,
+          "draft_prefill_rows": 8191,
+          "initialized": true,
+          "rounds": 98,
+          "proposed": 196,
+          "accepted": 157,
+          "verified_rows": 294,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            86,
+            71,
+            0
+          ],
+          "fp8_input_layout_count": 144,
+          "fp8_input_layout_bytes": 5200936960,
+          "fp8_input_preparation_ms": 159.05233,
+          "draft_initialization_ms": 551.069598,
+          "draft_ms": 2216.7643390000003,
+          "verify_ms": 19310.64715900001,
+          "reconcile_ms": 444.993531,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.87837314699999,
+        "prefill_tps": 430.67076483662566,
+        "decode_tps": 8.586971504492718,
+        "ttft_s": 92.91281772824004,
+        "elapsed_s": 122.61053111497313,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-phase-fp8-layout-v24",
+          "draft_length": 2,
+          "startup_free_bytes": 10320220160,
+          "prompt_rows": 40000,
+          "draft_prefill_rows": 39999,
+          "initialized": true,
+          "rounds": 105,
+          "proposed": 210,
+          "accepted": 150,
+          "verified_rows": 315,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            85,
+            65,
+            0
+          ],
+          "fp8_input_layout_count": 144,
+          "fp8_input_layout_bytes": 5200936960,
+          "fp8_input_preparation_ms": 159.067056,
+          "draft_initialization_ms": 2682.519215,
+          "draft_ms": 3262.078248999999,
+          "verify_ms": 25736.026103999997,
+          "reconcile_ms": 445.3306269999999,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p65-nonstream",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8826477949999999,
+        "prefill_tps": 73.64205787201905,
+        "decode_tps": 9.692174308306642,
+        "ttft_s": null,
+        "elapsed_s": 2.4490135298110545,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-phase-fp8-layout-v24",
+          "draft_length": 2,
+          "startup_free_bytes": 10320220160,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "fp8_input_layout_count": 144,
+          "fp8_input_layout_bytes": 5200936960,
+          "fp8_input_preparation_ms": 159.034631,
+          "draft_initialization_ms": 5.340562,
+          "draft_ms": 122.77192600000001,
+          "verify_ms": 1233.521522,
+          "reconcile_ms": 26.174067000000004,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "cleanup": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 82.562
+    },
+    "metrics_artifact_sha256": "a3f04b52650b83ee051d292410b575d33be690a33a5615a371956ad438f7143f",
+    "d3": "not run after no useful d2 direction",
+    "profile": "not run; no new hardware counter claim"
+  },
+  "interpretation": [
+    "Whole8K/40K verifier time is effectively unchanged from v7 (19.311/25.736 seconds vs19.315/25.733); fixed preparation adds about159ms per request.",
+    "Decode8K11.477/40K8.587 does not improve retained11.560/8.636. P65 fixed-cost regression is reported, not hidden.",
+    "Removing the previous startup inventory exchange did not reveal a useful complete verifier gain; this does not establish a particular hardware stall or universal impossibility.",
+    "Close phase FP8 layout version; no further compact layout or ownership parameter variant selected."
+  ],
+  "build_notes": [
+    "First oracle link used stale CUDA object after copying frozen source with old timestamp; touching source and explicit correct CMake targets rebuilt and linked successfully before device tests.",
+    "No performance or numerical run used the failed/stale build."
+  ],
+  "rollback_files": [
+    "tests/mtp_device_test.cpp",
+    "tools/evaluation/validate_mtp_service.py",
+    "src/server/evaluation_server.cpp",
+    "src/runtime/mtp_verify_projection_internal.cu",
+    "src/runtime/mtp_device_internal.h",
+    "src/runtime/mtp_verify_internal.cpp",
+    "src/runtime/mtp_fp8_input_layout_internal.h",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/runtime/mtp_device_internal.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "docs/REQUEST_STATE.md",
+    "docs/SDD.md"
+  ],
+  "production_changed": false,
+  "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+  "closeout": {
+    "rollback_byte_identical": true,
+    "host_checks": "mtp_control, mtp_weights, reference_engine_control passed; document control86/1101 and seven validator unit tests passed; diff check passed",
+    "workspace_audit_sha256": "156149e635361a2c3b558a115237d0b196c1fa145928c969852088907f710a4d"
+  }
+}
