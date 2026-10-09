@@ -1,4 +1,6 @@
+#include "mtp_pair_layout_internal.h"
 #include <cuda_runtime.h>
+#include <limits>
 #include <cstdint>
 #include <cmath>
 
@@ -216,6 +218,81 @@ int launch_mtp_verify_projection(const std::uint8_t* weights,
   if(count==2) launch<2>(weights,scales,scale,x,n,k,y,sidecar,scale6,scale_base,s);
   else if(count==3) launch<3>(weights,scales,scale,x,n,k,y,sidecar,scale6,scale_base,s);
   else launch<4>(weights,scales,scale,x,n,k,y,sidecar,scale6,scale_base,s);
+  return cudaGetLastError();
+}
+namespace {
+template<bool Check>
+__global__ void nv_pair_layout(const std::uint8_t* weights,
+    const std::uint8_t* scales, unsigned k, std::uint8_t* packed,
+    unsigned* mismatch) {
+  const unsigned lane = threadIdx.x;
+  const unsigned tiles = k / 256;
+  const unsigned pair = blockIdx.x / tiles, tile = blockIdx.x % tiles;
+  const unsigned row = pair * 2;
+  auto* record = packed + static_cast<std::size_t>(blockIdx.x) * 288;
+  const unsigned column = tile * 128 + lane * 4;
+  const uint2 words = {
+      *reinterpret_cast<const unsigned*>(weights + static_cast<std::size_t>(row) * (k / 2) + column),
+      *reinterpret_cast<const unsigned*>(weights + static_cast<std::size_t>(row + 1) * (k / 2) + column)};
+  if constexpr (Check) {
+    const uint2 got = reinterpret_cast<const uint2*>(record)[lane];
+    if (got.x != words.x || got.y != words.y) atomicOr(mismatch, 1U);
+  } else {
+    reinterpret_cast<uint2*>(record)[lane] = words;
+  }
+  if (lane < 16) {
+    const unsigned c = tile * 16 + lane;
+    const std::uint16_t codes = scales[static_cast<std::size_t>(row) * (k / 16) + c] |
+        (unsigned(scales[static_cast<std::size_t>(row + 1) * (k / 16) + c]) << 8);
+    auto* destination = reinterpret_cast<std::uint16_t*>(record + 256) + lane;
+    if constexpr (Check) {
+      if (*destination != codes) atomicOr(mismatch, 2U);
+    } else {
+      *destination = codes;
+    }
+  }
+}
+
+bool valid_pair_layout(const void* weights, const void* scales, unsigned n,
+    unsigned k, const void* packed, const unsigned* mismatch, bool checking) {
+  if (!((n == 17408 && k == 5120) || (n == 5120 && k == 17408))) return false;
+  const void* pointers[] = {weights, scales, packed, mismatch};
+  const std::size_t bytes[] = {std::size_t(n) * k / 2,
+      std::size_t(n) * k / 16, NvPairLayout::projection_bytes, sizeof(unsigned)};
+  const unsigned alignment[] = {4, 1, 8, alignof(unsigned)};
+  const unsigned count = checking ? 4 : 3;
+  for (unsigned i = 0; i < count; ++i) {
+    const auto a = reinterpret_cast<std::uintptr_t>(pointers[i]);
+    if (!a || a % alignment[i] || a > std::numeric_limits<std::uintptr_t>::max() - bytes[i])
+      return false;
+    for (unsigned j = 0; j < i; ++j) {
+      const auto b = reinterpret_cast<std::uintptr_t>(pointers[j]);
+      if (a < b + bytes[j] && b < a + bytes[i]) return false;
+    }
+  }
+  return true;
+}
+} // namespace
+
+int launch_mtp_nv_pair_pack(const std::uint8_t* weights,
+    const std::uint8_t* scales, unsigned n, unsigned k,
+    std::uint8_t* packed, void* stream) noexcept {
+  if (!valid_pair_layout(weights, scales, n, k, packed, nullptr, false))
+    return cudaErrorInvalidValue;
+  (void)cudaGetLastError();
+  nv_pair_layout<false><<<n / 2 * (k / 256), 32, 0,
+      static_cast<cudaStream_t>(stream)>>>(weights, scales, k, packed, nullptr);
+  return cudaGetLastError();
+}
+int launch_mtp_nv_pair_check(const std::uint8_t* weights,
+    const std::uint8_t* scales, unsigned n, unsigned k,
+    const std::uint8_t* packed, unsigned* mismatch, void* stream) noexcept {
+  if (!valid_pair_layout(weights, scales, n, k, packed, mismatch, true))
+    return cudaErrorInvalidValue;
+  (void)cudaGetLastError();
+  nv_pair_layout<true><<<n / 2 * (k / 256), 32, 0,
+      static_cast<cudaStream_t>(stream)>>>(weights, scales, k,
+          const_cast<std::uint8_t*>(packed), mismatch);
   return cudaGetLastError();
 }
 } // namespace q3x::runtime::mtp_detail

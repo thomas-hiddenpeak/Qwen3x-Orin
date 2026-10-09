@@ -1,0 +1,72 @@
+{
+  "scope": "source/address arithmetic only; no GPU performance or measured cache-transaction authority",
+  "gate_up_one_quad_all_K5120_bytes": 11520,
+  "permutation_bijective": true,
+  "old_pair_weight_32byte_regions_per_warp": [
+    16,
+    16
+  ],
+  "new_pair_weight_32byte_regions_per_warp": [
+    8,
+    8
+  ],
+  "useful_weight_bytes_per_pair_warp": 256,
+  "old_unique_weight_regions_across_both_pairs": 16,
+  "new_unique_weight_regions_across_both_pairs": 16,
+  "gate_up_total_bytes_64_layers_2_roles": 6417285120,
+  "warning": "Two warp consumers may share cached sectors; this audit proves address coverage, not doubled DRAM traffic or an observed stall. Activation reads and CTA count still increase relative to N4.",
+  "source_sha256": {
+    "src/runtime/mtp_verify_projection_internal.cu": "074e0adadf18d2acf03ff0410eb3090a48899e61758ac808bd9d59645014bd2c",
+    ".q3x-work/mtp-shared-verify-20261009/pair-source/src/runtime/mtp_verify_projection_internal.cu": "9a1e7933d0f4fe36bdfae785ddeb4c355d230e833b4a40cdb5a9be12a0616dc6",
+    "src/runtime/reference_engine.cpp": "11882af20bc850f04cd6dea385ea50fe7a55a11e44b45be5842cfc49c60ae350",
+    "src/runtime/model_weights.cpp": "5c6c83cb65a86bfab176ed8b3e318b4f41077576153fe4d5213b4deb4ccc6fd5",
+    "src/kernels/sm87/weight_only_gemv.cu": "b48ef014354d1e1b2ecfddd93518cdaebe78b26877fa4812b29cc7721f08618b"
+  },
+  "date": "2026-10-10",
+  "work_package_id": "WP-MTP-PAIR-LAYOUT-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v18",
+  "decision": "implement one startup-owned NVFP4 pair-layout plus exact M2..4 consumer composition",
+  "target_speedup": [
+    1.5,
+    3.0
+  ],
+  "full_decode_budget_seconds": {
+    "p8192": 18.45,
+    "p40000": 21.62
+  },
+  "budget_origin": "Matched retained-v7 40K profile: NVFP4 verification 8.84489552 GPU seconds; FP8 7.446833344 remains unchanged. No gain inferred from address arithmetic.",
+  "memory_plan": {
+    "new_private_nvfp4_bytes": 9625927680,
+    "replace_old_gate_up_bytes": 6417285120,
+    "replace_old_down_consumer_bytes": 2361917440,
+    "replace_old_down_scale6_bytes": 221429760,
+    "net_additional_bytes": 625295360,
+    "unchanged_free_reserve_bytes": 8589934592
+  },
+  "contract": "Canonical authenticated weights remain immutable. Dedicated private owner stores [output-pair][K256][256 weight bytes,32 scale bytes], including full 8-bit scales. Existing four scalar chains, lane K subsequences, merges, tensor scale and BF16 rounding stay unchanged. FP8 remains v7. M1 and scalar oracle use canonical NVFP4.",
+  "composition_bound": "One initial implementation and at most one correctness repair, including explicit non-installable build isolation, startup inventory, immutable private owner, exact pack/readback validation and M2..4 consumer, then full P65 transactions and P8192 prefix checks before immediate P65/8K/40K d2/d3 API return. Negative direction closes this version; no shape/launch/layout scan.",
+  "production_changed": false,
+  "qualification": "Pack/check prerequisite built and T1 verified only; full composition, real-model and API checks pending.",
+  "prerequisite": {
+    "implemented": "Private lossless GPU pair packer and independent canonical-payload checker; not yet attached to runtime ownership or serving.",
+    "T0": "MTP service build passes.",
+    "T1": "Both complete 50,135,040-byte projection shapes match independently indexed host payloads; guards, invalid shapes/alignment/aliases/null checker output and deliberate weight/scale corruption pass.",
+    "result": {
+      "returncode": 0,
+      "binary_sha256": "e1ea270b7e0dafccf565d5f60be9ebaf6503f04167b28f707e758b5564371910",
+      "scope": "T1 exhaustive payload permutation for both projection shapes, guards, invalid spans and corruption detection only; no performance authority"
+    },
+    "artifact_hashes": {
+      ".q3x-work/mtp-pair-layout-20261010/pack-test.cu": "d2d415b952b8c1f6711aabaea2a992fa586da23f9becc6797eb8ec3433a3079a",
+      ".q3x-work/mtp-pair-layout-20261010/layout-audit.py": "5a56ecd4d2dd872fe20aee4779c732893b5684a76365c57486bf48de67727787",
+      ".q3x-work/mtp-pair-layout-20261010/build-pack.log": "a3549a657ad39a697ab76b2e1fa0d1451e7a349b34f9e735fc9f529e81961469",
+      ".q3x-work/mtp-pair-layout-20261010/build-test.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      ".q3x-work/mtp-pair-layout-20261010/synthetic/run.log": "66820ddce52fb1278fc75405828990d692b75d9fdfbc72f15b7270cea8de457b",
+      ".q3x-work/mtp-pair-layout-20261010/synthetic/preflight.json": "dd34787abe217e9779f414f872f634188ac228895d179b0450a574707b64ade7",
+      ".q3x-work/mtp-pair-layout-20261010/synthetic/cache-preparation.json": "061f962b09df149f26766968ddbd4a4fbbe827b76dfad086d3a4e95a6c0b850f",
+      "src/runtime/mtp_pair_layout_internal.h": "42aedc42eba00a0033077cd4d67d8f128e5d065c0160a247236396cc0f551832",
+      "src/runtime/mtp_verify_projection_internal.cu": "8117540c55419fa8042983407e8ac4416d3e2a307ba44addefbc2de335d718b0"
+    },
+    "remaining": "Private arena owner, explicit old-sidecar omission/build identity, exact M2..4 pair consumer, full real-model numerical admission and API selection remain required. No new performance result."
+  }
+}

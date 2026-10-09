@@ -733,6 +733,33 @@ negligible and no Decode gain appears at 8K or 40K. All new bounds, counters,
 kernels and bindings are removed. The proof and both source snapshots remain
 frozen evidence only; the isolated implementation is retained v7.
 
+## Startup-owned pair layout composition v18
+
+An isolated build prepares one immutable private NVFP4 arena directly from
+all authenticated canonical Gate, Up and Down tensors. Every output pair and
+K256 span stores 256 lane-major weight bytes followed by 32 full scale bytes.
+A thread reads its two four-byte row words through one aligned uint2; paired
+lanes share one two-byte scale record. The exact original eight K positions,
+four accumulator chains, warp reduction, final tensor scale and BF16 rounding
+remain unchanged. Packed codes and scales are permuted without decoding or
+requantization. Startup checks every packed payload against canonical input
+before publication. No request-time repacking or allocation is permitted.
+
+The owning private transaction constructs the complete arena before service
+readiness and releases it only after target work drains. It never substitutes
+its pointer into an existing public quad-layout field. The explicit admission
+build omits old Gate/Up, Down consumer and scale6 preparation and reports their
+absence truthfully; the private owner has a separate layout/byte identity.
+Scalar/M1 execution, including startup Graphs and the independent full-state
+oracle, uses canonical NVFP4. Ordinary production preparation is unchanged.
+The old and new owners may not coexist and consume the memory margin. Failed
+packing, checking, resource admission or construction releases partial private
+ownership and never publishes readiness. The [design record](metadata/qwen36-27b-mtp-pair-layout-design-2026-10-10.json)
+binds exact sizes and the source-only hypothesis. The private packer and canonical-payload checker are implemented and pass
+both full-size synthetic shapes, guards, invalid spans and injected corruption.
+They are not yet attached to a live transaction. Owner, consumer and API
+composition remain implementation obligations; no performance gain is established.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

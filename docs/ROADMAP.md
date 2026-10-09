@@ -19,6 +19,39 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP startup-owned pair layout — active
+
+`WP-MTP-PAIR-LAYOUT-20261010` / `AC-MTP-GREEDY-v18` addresses the unchanged
+1.5x–3x objective and 18.45/21.62-second complete Decode budgets. The matched
+40K profile assigns 8.845 GPU seconds to NVFP4 verification. The earlier pair
+consumer still used quad-packed records: its warp's 256 useful weight bytes
+span 16 aligned 32-byte regions. A pair-packed producer makes these eight
+regions. This is an address fact, not measured DRAM traffic or a stall claim;
+cache reuse may already serve the old consumers. The
+[design audit](metadata/qwen36-27b-mtp-pair-layout-design-2026-10-10.json)
+proves the lossless Gate/Up permutation and binds the source identities.
+
+One composition replaces the old Gate/Up, Down consumer and scale6 startup
+sidecars with one private MTP pair-packed NVFP4 owner, then binds exact M2..4
+pair consumers. Canonical weights and scalar arithmetic remain intact; FP8
+stays v7. The new owner is 9,625,927,680 bytes, replacing 9,000,632,320 bytes,
+so actual composed startup must retain the unchanged 8-GiB reserve after the
+625,295,360-byte increase. The private layout is never attached under an old
+public layout identity. M1 and the scalar oracle consume canonical NVFP4.
+
+The [MTP ledger](MTP_ADMISSION.md#startup-owned-pair-layout-composition-v18)
+controls lifecycle and proof. One implementation plus at most one correctness
+repair includes startup identity, full payload permutation checking and the
+consumer before full P65 transaction/P8192 prefix checks and immediate
+P65/8K/40K d2/d3 API. No local timing or launch/layout scan precedes that return.
+A neutral/negative API composition closes the version. This is a bounded
+attempt on the dominant projection budget, not a guaranteed target claim.
+Artifacts stay under `.q3x-work/mtp-pair-layout-20261010/`.
+The pack/check prerequisite now passes both full-size T1 layouts and the service
+build. It has no serving route or retention authority by itself. The next step
+is the single declared owner/inventory/consumer composition, followed directly
+by its real-model numerical and API gates; no additional local packer campaign.
+
 ## 2026-10-10 MTP exact PV work elimination — closed without retention
 
 `WP-MTP-EXACT-PV-ELISION-20261010` / `AC-MTP-GREEDY-v17` retains the
