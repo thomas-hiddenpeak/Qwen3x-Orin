@@ -1,0 +1,376 @@
+{
+  "work_package_id": "WP-MTP-PROJECTION-COUNTERS-20261010",
+  "status": "complete",
+  "scope": "two source-identical real-payload component cells; no full-model counter or speedup claim",
+  "payload": {
+    "scope": "component diagnostic only; no local mutation or retention",
+    "git": "32007c28bdde8010c98253944ff0a65df5ea9a58",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "shard": {
+      "path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+      "size": 9965652512,
+      "sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d"
+    },
+    "source_sha256": "cb51d2eb5a7580576450542664000b03afba28e140b1e994bdcf9fb8ac99f2f9",
+    "capture_identity": {
+      "command": [
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-certified-publication-20261010/p65/q3x_mtp_whole_core_test",
+        "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-certified-publication-20261010/p65/prompt.u32",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-certified-publication-20261010/p65",
+        "--projection-capture-only"
+      ],
+      "binary_sha256": "d5eafc6a4ae7a0fc954ceec3e4594ee18d349006fd0b3f3b4c709cfd541e8368",
+      "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+      "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+      "git": "fa90b1a45fdc89da990e702e1c349409d6b6a139",
+      "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+    },
+    "config_hashes": {
+      "config.json": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+      "hf_quant_config.json": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+      "model.safetensors.index.json": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2"
+    },
+    "records": [
+      {
+        "role": "linear_attn.in_proj_qkv",
+        "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/0",
+        "metadata": {
+          "layer": 0,
+          "rows": 3,
+          "n": 10240,
+          "k": 5120,
+          "format": "fp8",
+          "scale": 0.001007080078125,
+          "output_rows": [
+            160,
+            480,
+            800,
+            1120,
+            1440,
+            1760,
+            2080,
+            2400,
+            2720,
+            3040,
+            3360,
+            3680,
+            4000,
+            4320,
+            4640,
+            4960,
+            5280,
+            5600,
+            5920,
+            6240,
+            6560,
+            6880,
+            7200,
+            7520,
+            7840,
+            8160,
+            8480,
+            8800,
+            9120,
+            9440,
+            9760,
+            10080
+          ]
+        },
+        "tensors": [
+          {
+            "name": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+            "dtype": "F8_E4M3",
+            "shape": [
+              10240,
+              5120
+            ],
+            "data_offsets": [
+              3484998640,
+              3537427440
+            ],
+            "file_offset": 3485125152,
+            "sha256": "66eeb8a7cfd3f577a4f7bafdb5b68f4f7ba3cb1aa9717801082791b2de696ed7"
+          },
+          {
+            "name": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight_scale",
+            "dtype": "F32",
+            "shape": [],
+            "data_offsets": [
+              4,
+              8
+            ],
+            "file_offset": 126516,
+            "sha256": "d552446f521b6f79296f0473d8e8a66303ca4d1299688f286b90c7c923527021"
+          }
+        ],
+        "files": {
+          "input.bf16": "d5c0b889a9b7f57b4fba599394b58a63a9cdcbb6155b2759cba3d53d011684b8",
+          "scale.bin": "d552446f521b6f79296f0473d8e8a66303ca4d1299688f286b90c7c923527021",
+          "weights.bin": "66eeb8a7cfd3f577a4f7bafdb5b68f4f7ba3cb1aa9717801082791b2de696ed7",
+          "metadata.json": "594c6424a4e09951cbcbb4366fc4bea9c61c6df37ca4d2cfe1156499ca010592",
+          "output.bf16": "a2e44389dcca3b7b9b7c81a168156017be18502e815df4760df5063a599dca7d",
+          "rows.u32": "756d40b294af1997fa0d774f7b30251f40a1662c70793a79898791fd2554b582"
+        }
+      },
+      {
+        "role": "mlp.gate_proj",
+        "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/3",
+        "metadata": {
+          "layer": 0,
+          "rows": 3,
+          "n": 17408,
+          "k": 5120,
+          "format": "nvfp4",
+          "scale": 0.00015113467816263437,
+          "output_rows": [
+            272,
+            816,
+            1360,
+            1904,
+            2448,
+            2992,
+            3536,
+            4080,
+            4624,
+            5168,
+            5712,
+            6256,
+            6800,
+            7344,
+            7888,
+            8432,
+            8976,
+            9520,
+            10064,
+            10608,
+            11152,
+            11696,
+            12240,
+            12784,
+            13328,
+            13872,
+            14416,
+            14960,
+            15504,
+            16048,
+            16592,
+            17136
+          ]
+        },
+        "tensors": [
+          {
+            "name": "model.language_model.layers.0.mlp.gate_proj.weight",
+            "dtype": "U8",
+            "shape": [
+              17408,
+              2560
+            ],
+            "data_offsets": [
+              6756883440,
+              6801447920
+            ],
+            "file_offset": 6757009952,
+            "sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8"
+          },
+          {
+            "name": "model.language_model.layers.0.mlp.gate_proj.weight_scale_2",
+            "dtype": "F32",
+            "shape": [],
+            "data_offsets": [
+              36,
+              40
+            ],
+            "file_offset": 126548,
+            "sha256": "10f036efcb439d7571cc2c35568c9786ae3315b169f3972ff1c2aae782131f91"
+          },
+          {
+            "name": "model.language_model.layers.0.mlp.gate_proj.weight_scale",
+            "dtype": "F8_E4M3",
+            "shape": [
+              17408,
+              320
+            ],
+            "data_offsets": [
+              3605912560,
+              3611483120
+            ],
+            "file_offset": 3606039072,
+            "sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e"
+          }
+        ],
+        "files": {
+          "input.bf16": "ea2d462f87dd05b1224eb22cfa6ea1b194c69dc0a247f95821f82bb4af32f6af",
+          "scales.bin": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+          "scale.bin": "10f036efcb439d7571cc2c35568c9786ae3315b169f3972ff1c2aae782131f91",
+          "packed.bin": "37a6075da4cecbb716051f2a8a8075d4b37795c0e77c262027e4a1baeea5f31a",
+          "weights.bin": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+          "metadata.json": "e36f97e553076ee02ca52dc9b90681c915fbce5987dd2fe00be2a6138daae2c5",
+          "output.bf16": "b6a2b989fe9645a7d5c08b68b37ef6a4f07be31521f4372334afee1656c0d0be",
+          "rows.u32": "76248a8cd142818ed605debd3de50c877100da3ac400396173f94a34da641179"
+        }
+      }
+    ]
+  },
+  "identity": {
+    "binary_sha256": "8fda3895bc3b873049bd3f02bfbd9c7ad8a7631d17b7b61b53921831233226c6",
+    "probe_source_sha256": "89d8487919aad546e6fa7cae05517ce2ed8c505f353c69847eb49bfbd79d5aa1",
+    "payload_sha256": "3d3adc12cbaaf303f9c3a29eccd7792b4d6513631279cc664ea1faf3a5e9f5b9"
+  },
+  "unprofiled_timing_log": "role=fp8 M=3 N=10240 K=5120 min_ms=0.515680 median_ms=0.516704 max_ms=0.517760 cache=32MiB_scrub correctness=96_capture_elements_exact guards=pass\nrole=gate M=3 N=17408 K=5120 min_ms=0.445920 median_ms=0.446768 max_ms=0.447968 cache=32MiB_scrub correctness=96_capture_elements_exact guards=pass\ncompleted=pass\n",
+  "cleanup": {
+    "timing": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "profile": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 58.906
+    }
+  },
+  "counters": [
+    {
+      "kernel": "void unnamed>::fp8_rows<3, 0>(const unsigned char *, float, const unsigned short *, unsigned int, unsigned int, unsigned short *)",
+      "values": {
+        "gpu__time_duration.sum": {
+          "value": "526.976000",
+          "unit": "us"
+        },
+        "launch__registers_per_thread": {
+          "value": "80",
+          "unit": "register/thread"
+        },
+        "sm__warps_active.avg.pct_of_peak_sustained_active": {
+          "value": "37.290858",
+          "unit": "%"
+        },
+        "smsp__issue_active.avg.per_cycle_active": {
+          "value": "0.49",
+          "unit": ""
+        },
+        "smsp__average_warps_issue_stalled_long_scoreboard_per_issue_active.ratio": {
+          "value": "4.069385",
+          "unit": "inst"
+        },
+        "smsp__average_warps_issue_stalled_short_scoreboard_per_issue_active.ratio": {
+          "value": "0.418884",
+          "unit": "inst"
+        },
+        "smsp__average_warps_issue_stalled_mio_throttle_per_issue_active.ratio": {
+          "value": "0.298452",
+          "unit": "inst"
+        },
+        "sm__pipe_fma_cycles_active.avg.pct_of_peak_sustained_elapsed": {
+          "value": "17.495456",
+          "unit": "%"
+        },
+        "sm__pipe_alu_cycles_active.avg.pct_of_peak_sustained_elapsed": {
+          "value": "37.578354",
+          "unit": "%"
+        },
+        "l1tex__data_pipe_lsu_wavefronts.avg.pct_of_peak_sustained_elapsed": {
+          "value": "64.724461",
+          "unit": "%"
+        }
+      }
+    },
+    {
+      "kernel": "void unnamed>::nvfp4_rows<3, 1>(const unsigned char *, const unsigned char *, unsigned int, float, const unsigned short *, unsigned int, unsigned int, unsigned short *)",
+      "values": {
+        "gpu__time_duration.sum": {
+          "value": "445.504000",
+          "unit": "us"
+        },
+        "launch__registers_per_thread": {
+          "value": "95",
+          "unit": "register/thread"
+        },
+        "sm__warps_active.avg.pct_of_peak_sustained_active": {
+          "value": "39.578321",
+          "unit": "%"
+        },
+        "smsp__issue_active.avg.per_cycle_active": {
+          "value": "0.71",
+          "unit": ""
+        },
+        "smsp__average_warps_issue_stalled_long_scoreboard_per_issue_active.ratio": {
+          "value": "2.339997",
+          "unit": "inst"
+        },
+        "smsp__average_warps_issue_stalled_short_scoreboard_per_issue_active.ratio": {
+          "value": "0.433586",
+          "unit": "inst"
+        },
+        "smsp__average_warps_issue_stalled_mio_throttle_per_issue_active.ratio": {
+          "value": "0.001641",
+          "unit": "inst"
+        },
+        "sm__pipe_fma_cycles_active.avg.pct_of_peak_sustained_elapsed": {
+          "value": "32.423702",
+          "unit": "%"
+        },
+        "sm__pipe_alu_cycles_active.avg.pct_of_peak_sustained_elapsed": {
+          "value": "51.949315",
+          "unit": "%"
+        },
+        "l1tex__data_pipe_lsu_wavefronts.avg.pct_of_peak_sustained_elapsed": {
+          "value": "54.907278",
+          "unit": "%"
+        }
+      }
+    }
+  ],
+  "finding": "L1TEX long-scoreboard waits dominate sampled stall ratios; no local spills. Gate MIO throttle negligible; no measured bank-conflict cause. FP8 achieved occupancy is 37.29% vs theoretical 50%, including the single-warp epilogue; counters alone do not isolate its time.",
+  "limitations": [
+    "Layer 0 only, M3, retained P65 input; not general layer panel or 40K counters",
+    "NCU does not lock clocks. Retained preflight observes 1300 MHz, profiler measures 1.30 GHz; no separate continuous sysfs clock-lock record was collected for these short component cells. Caches remain uncontrolled between replay passes.",
+    "NCU percentages overlap and auto-estimated speedups are not API budgets",
+    "No DRAM-byte or PC-stall attribution claim; full-model NCU remains closed"
+  ],
+  "evidence_sha256": {
+    ".q3x-work/mtp-projection-counters-20261010/payload.json": "3d3adc12cbaaf303f9c3a29eccd7792b4d6513631279cc664ea1faf3a5e9f5b9",
+    ".q3x-work/mtp-projection-counters-20261010/probe": "8fda3895bc3b873049bd3f02bfbd9c7ad8a7631d17b7b61b53921831233226c6",
+    ".q3x-work/mtp-projection-counters-20261010/mtp_verify_projection_internal.cu": "cb51d2eb5a7580576450542664000b03afba28e140b1e994bdcf9fb8ac99f2f9",
+    ".q3x-work/mtp-projection-counters-20261010/run.py": "8cadc9d91d801d622ccd70043db1892417f5023f616812f7872467f0749168b8",
+    ".q3x-work/mtp-projection-counters-20261010/build.log": "a4dbf5c1e89cf7403b381d7dc93ae2b92a583597b412a4a7f4311778358c2653",
+    ".q3x-work/mtp-projection-counters-20261010/prepare.py": "dfcb3aad9812a901cb5e62b5438ac1962d189efb3c013ee411795632bca168e2",
+    ".q3x-work/mtp-projection-counters-20261010/profile-driver.log": "8af6d1df866c502234f7d98a70cdd085733d7d48a4393c70db631add70da34b3",
+    ".q3x-work/mtp-projection-counters-20261010/probe.cu": "89d8487919aad546e6fa7cae05517ce2ed8c505f353c69847eb49bfbd79d5aa1",
+    ".q3x-work/mtp-projection-counters-20261010/gate/input.bf16": "ea2d462f87dd05b1224eb22cfa6ea1b194c69dc0a247f95821f82bb4af32f6af",
+    ".q3x-work/mtp-projection-counters-20261010/gate/scales.bin": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+    ".q3x-work/mtp-projection-counters-20261010/gate/scale.bin": "10f036efcb439d7571cc2c35568c9786ae3315b169f3972ff1c2aae782131f91",
+    ".q3x-work/mtp-projection-counters-20261010/gate/packed.bin": "37a6075da4cecbb716051f2a8a8075d4b37795c0e77c262027e4a1baeea5f31a",
+    ".q3x-work/mtp-projection-counters-20261010/gate/weights.bin": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+    ".q3x-work/mtp-projection-counters-20261010/gate/metadata.json": "e36f97e553076ee02ca52dc9b90681c915fbce5987dd2fe00be2a6138daae2c5",
+    ".q3x-work/mtp-projection-counters-20261010/gate/output.bf16": "b6a2b989fe9645a7d5c08b68b37ef6a4f07be31521f4372334afee1656c0d0be",
+    ".q3x-work/mtp-projection-counters-20261010/gate/rows.u32": "76248a8cd142818ed605debd3de50c877100da3ac400396173f94a34da641179",
+    ".q3x-work/mtp-projection-counters-20261010/timing/command.json": "dfe94e12f7667f0653291aa49e6eafb26dbb9f793cedef8d8e2da70c2f19b27e",
+    ".q3x-work/mtp-projection-counters-20261010/timing/identity.json": "32e4d2476ec85a85ab830a0bb57b068284c548172f47ea3ae5696e36a7ec5746",
+    ".q3x-work/mtp-projection-counters-20261010/timing/cache-preparation.json": "860d506c60f9865deb964811a0ea2fd34dbf5a1db0aa37dc0c3ea083f6fdda62",
+    ".q3x-work/mtp-projection-counters-20261010/timing/cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+    ".q3x-work/mtp-projection-counters-20261010/timing/run.log": "0d7b9406a6bc392c1c86911cf7215b3248adf71bc2826818bc0b3edb6ccbcff7",
+    ".q3x-work/mtp-projection-counters-20261010/timing/preflight-console.log": "9598a04c7d3398611da450bbc04c3cf7e18f90005b4d4ea368b581e30b1089a6",
+    ".q3x-work/mtp-projection-counters-20261010/timing/telemetry.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-projection-counters-20261010/timing/preflight.json": "47981bb324f2d55f4a202704a7c248ddda44d3a003760104101f1f80c0342f79",
+    ".q3x-work/mtp-projection-counters-20261010/fp8/input.bf16": "d5c0b889a9b7f57b4fba599394b58a63a9cdcbb6155b2759cba3d53d011684b8",
+    ".q3x-work/mtp-projection-counters-20261010/fp8/scale.bin": "d552446f521b6f79296f0473d8e8a66303ca4d1299688f286b90c7c923527021",
+    ".q3x-work/mtp-projection-counters-20261010/fp8/weights.bin": "66eeb8a7cfd3f577a4f7bafdb5b68f4f7ba3cb1aa9717801082791b2de696ed7",
+    ".q3x-work/mtp-projection-counters-20261010/fp8/metadata.json": "594c6424a4e09951cbcbb4366fc4bea9c61c6df37ca4d2cfe1156499ca010592",
+    ".q3x-work/mtp-projection-counters-20261010/fp8/output.bf16": "a2e44389dcca3b7b9b7c81a168156017be18502e815df4760df5063a599dca7d",
+    ".q3x-work/mtp-projection-counters-20261010/fp8/rows.u32": "756d40b294af1997fa0d774f7b30251f40a1662c70793a79898791fd2554b582",
+    ".q3x-work/mtp-projection-counters-20261010/profile/command.json": "9c6f0c3cde8405045df5ea7c74beeb5dbccf38c6062c22d5adf00ca643659f4c",
+    ".q3x-work/mtp-projection-counters-20261010/profile/identity.json": "32e4d2476ec85a85ab830a0bb57b068284c548172f47ea3ae5696e36a7ec5746",
+    ".q3x-work/mtp-projection-counters-20261010/profile/capture.ncu-rep": "167289ca0eed07a48d5b29e2892c972a7ac11b866aaa030a114aaff2e30908fc",
+    ".q3x-work/mtp-projection-counters-20261010/profile/cache-preparation.json": "40c3312946a59fb5c48ec5ff20240a62fc058df639958760ac2e2ee4658f2098",
+    ".q3x-work/mtp-projection-counters-20261010/profile/cleanup.json": "7930801b4d4e6934caf1c623949a6a5945b0e00471d775eb3cf7b73daacd0595",
+    ".q3x-work/mtp-projection-counters-20261010/profile/run.log": "8a14a864fbc8b067c38abc9015c1af8da4f9379d361d3d7ff0d3f71d54b90a7e",
+    ".q3x-work/mtp-projection-counters-20261010/profile/preflight-console.log": "5eb90aa10375aefb73644293e0905d72f788e192975af288c7efa3123a337e4f",
+    ".q3x-work/mtp-projection-counters-20261010/profile/raw.csv": "7f5ebd013b9a731b1d78b9d87740a36b0c150c832fabc02a0ee39988df1aea19",
+    ".q3x-work/mtp-projection-counters-20261010/profile/telemetry.log": "5a6a4ebbd6f90905645b81a751488cbf46b9e6d4011060c0c47e003bdbb3665d",
+    ".q3x-work/mtp-projection-counters-20261010/profile/source.txt": "bdc8ed402cae0c29450d67b6c0ae64fcf4fa09f292ceb4b13f11666dcd87f471",
+    ".q3x-work/mtp-projection-counters-20261010/profile/preflight.json": "c86cf3ad182d68f850b54dd0df11690cf69eb4e28567d581580b1d35673b5b4a",
+    ".q3x-work/mtp-projection-counters-20261010/profile/details.txt": "e09cf0d6595b435678d7ae06fe293d5d332182e2a33cea052973f5723ce04748"
+  }
+}

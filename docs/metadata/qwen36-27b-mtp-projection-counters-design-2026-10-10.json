@@ -1,0 +1,28 @@
+{
+  "work_package_id": "WP-MTP-PROJECTION-COUNTERS-20261010",
+  "decision_unit": "bounded_diagnostic",
+  "source": "32007c2",
+  "product_constraint": "1.5x\u20133x committed Decode on same non-MTP API; drafts 2/3; unchanged numerical/state contract",
+  "downward_budget": {
+    "complete_decode_seconds_8k": 18.45,
+    "complete_decode_seconds_40k": 21.62,
+    "profiled_v7_projection_gpu_seconds_40k": 16.291728864
+  },
+  "question": "For unchanged dominant M3 canonical FP8 and coupled GateUp consumers, distinguish instruction/shared-memory/occupancy/traffic costs using hardware counters previously unavailable under full-model replay backup.",
+  "scope": "One source-identical standalone owner loads complete authenticated layer-0 QKV/Gate weights and retained real P65 M3 activations. Sampled outputs must match capture, packed payload must invert to canonical. These two cells diagnose this payload only; they neither select a mutation nor represent a layer panel or API speedup.",
+  "protocol": [
+    "Freeze source, ELF and full shard/payload/capture hashes",
+    "Fresh preflight and cache preparation; unprofiled component event timing after correctness",
+    "One root NCU capture of the same ELF/payload with bounded allocation and temperature/ownership monitoring",
+    "Close collection on success or resource failure; no full-model replay retry or reserve relaxation",
+    "Select a different implementation response from counters and return its complete composition to real P65/8K/40K d2/d3 API; no parameter scan"
+  ],
+  "bounds": {
+    "device_bytes_upper": 268435456,
+    "profile_processes": 1,
+    "profile_seconds_limit": 180,
+    "runtime_mutations": 0
+  },
+  "artifact_root": ".q3x-work/mtp-projection-counters-20261010",
+  "production_unchanged": true
+}

@@ -400,6 +400,7 @@ bool Draft::poison() noexcept {
   return status == cudaSuccess;
 }
 
+int prepare_mtp_verify_projection_device() noexcept;
 TargetTransaction::TargetTransaction(ReferenceRunner& target, RequestState& state, Draft& draft,
                                      bool multirow)
     : multirow_(multirow), target_(target), state_(state), draft_(draft) {
@@ -412,6 +413,7 @@ TargetTransaction::TargetTransaction(ReferenceRunner& target, RequestState& stat
         "MTP scalar transaction requires its exact supported state owner");
   const auto& plan = state_.plan();
   check(!multirow_ || plan.prefill_chunk_size >= 4, "MTP multi-row workspace capacity");
+  if (multirow_) cuda_check(static_cast<cudaError_t>(prepare_mtp_verify_projection_device()));
   recurrent_offset_ = plan.conv_state.arena_offset;
   recurrent_bytes_ = plan.conv_state.byte_size + plan.gdn_state.byte_size;
   check(recurrent_bytes_ == 78446592 &&

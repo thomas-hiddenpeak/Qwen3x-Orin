@@ -19,6 +19,63 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP projection lifetime composition — API return complete
+
+`WP-MTP-PROJECTION-LIFETIME-20261010` / `AC-MTP-GREEDY-v25` composes
+v27 with shared Gate/Up input publication and distributed FP8 finalization.
+The [design record](metadata/qwen36-27b-mtp-projection-lifetime-design-2026-10-10.json)
+binds the newly available component counters and the unchanged 1.5x–3x goal.
+Original grids, packed weights, decoders and FMA ownership stay fixed. Gate
+input publication removes three of four repeated global activation traversals
+for up to three rows; all eight FP8 warps perform independent final reductions.
+This is one coupled execution-lifetime response, not another packed-weight,
+register-decoder or launch sweep. Neither counter ratios nor byte reductions
+are claimed as API gains. The [MTP ledger](MTP_ADMISSION.md#projection-lifetime-composition-v25)
+owns exact arithmetic and lifetime.
+
+One composition plus at most one correctness repair passes complete synthetic
+output/guard and real P65 transaction checks, then immediately returns to
+P65/8K/40K d2 API against frozen v27. Greater-than-3% regression stops; neutral
+or negative direction removes the bundle. Useful direction unlocks d3 and
+retains only a bounded dependency through the next full verifier API return.
+No allocation, inventory, numerical, reserve or production change is admitted.
+Artifacts stay under `.q3x-work/mtp-projection-lifetime-20261010/`.
+
+The [completed direction](metadata/qwen36-27b-mtp-projection-lifetime-direction-2026-10-10.json)
+passes all numerical checks and both complete API panels. D2 observes
+12.377/9.337 token/s at 8K/40K versus v27 11.984/9.090, with identical work
+and acceptance. The exact execution changes remain a bounded development
+dependency through the next complete verifier API return. No qualification-only
+campaign, input-row/carveout/grid sweep or production switch follows. The
+1.5x–3x goal remains active and unmet; the next architecture must address the
+remaining complete verifier budget using the now-available bounded counters,
+without treating local stall ratios as whole-API savings.
+
+## 2026-10-10 MTP projection counters — complete
+
+`WP-MTP-PROJECTION-COUNTERS-20261010` preserves the 1.5x–3x objective and
+18.45/21.62-second complete Decode budgets. The prior full-model NCU attempt
+exhausted replay-backup memory. One separate, source-identical component owner
+loads only authenticated complete layer-0 QKV/Gate weights and retained real M3
+inputs, avoiding that full-model backup footprint. The
+[diagnostic design](metadata/qwen36-27b-mtp-projection-counters-design-2026-10-10.json)
+permits one unprofiled correctness/timing process and one bounded root NCU
+process with unchanged preflight/safety rules. No runtime mutation, local
+retention panel, performance baseline or production change is selected by these
+two cells. Close collection on success or resource failure, then use its
+bounded attribution to select a materially different complete verifier response
+and return promptly to the same d2/d3 API. No full-model replay retry or
+layout/grid/decoder scan opens. Artifacts remain under
+`.q3x-work/mtp-projection-counters-20261010/`.
+
+The [completed diagnostic](metadata/qwen36-27b-mtp-projection-counters-2026-10-10.json)
+obtains counters without resource failure. Both real-payload cells reproduce
+all 96 captured elements and guards. Long-scoreboard waits dominate the sampled
+stall ratios; no spills are observed, and Gate MIO throttle is negligible.
+FP8 achieved occupancy is 37.29% versus theoretical 50%, including its
+single-warp finalization. These component facts do not establish full-model
+stall percentages or a bank-conflict cause. Collection is closed.
+
 ## 2026-10-10 MTP batched vocabulary finalization — API return complete
 
 `WP-MTP-BATCHED-HEAD-20261010` / `AC-MTP-GREEDY-v24` composes one

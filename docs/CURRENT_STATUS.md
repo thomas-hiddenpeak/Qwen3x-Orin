@@ -54,7 +54,41 @@ Decode token/s convergence target are not claimed achieved.
 
 ## MTP development status
 
-The current isolated source adds exact batched target vocabulary finalization to
+The current isolated source composes exact shared Gate/Up activation publication
+and distributed FP8 final reductions with retained ordered draft and batched head.
+Profile is `q3x.sm87.admission.mtp-projection-lifetime-api.v28`, ELF
+`3891e1a0db7947de5f72501ab069f6383bced7cafec7f9a8cbf29d9f1e87fc54`.
+The [completed direction](metadata/qwen36-27b-mtp-projection-lifetime-direction-2026-10-10.json)
+passes 42 complete synthetic output/guard cases, full P65 prefix/state/logit and
+transaction/recovery admission, and eight API/lifecycle requests per policy.
+All sixteen responses match the non-MTP baseline; work and acceptance counts
+match v27. The installed production artifact remains unchanged.
+
+These 2026-10-10 observations use one fresh process per policy, not mirrored
+means or release qualification. Prefill includes draft initialization; Decode
+includes the full controller/observer interval after the first token.
+
+| P / O | Policy | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 65 / 16 | d2 | 0.887 | 73.24 | 0.913 | 11.429 | 2.226 |
+| 8192 / 256 | d2 | 17.314 | 473.15 | 17.336 | 12.377 | 37.938 |
+| 40000 / 256 | d2 | 92.569 | 432.11 | 92.604 | 9.337 | 119.917 |
+| 65 / 16 | d3 | 0.887 | 73.29 | 0.913 | 9.377 | 2.513 |
+| 8192 / 256 | d3 | 17.295 | 473.66 | 17.317 | 10.810 | 40.907 |
+| 40000 / 256 | d3 | 93.023 | 430.00 | 93.059 | 8.353 | 123.589 |
+
+D2 verification falls by approximately 0.67/0.74 seconds at 8K/40K against
+v27. Its Decode ratios to the non-MTP anchor below are about 1.344x/1.188x.
+**The 1.5x–3x objective remains unmet.** D3 remains slower than d2. This is a
+bounded development dependency for the next complete verifier API return,
+not a statistical architecture selection or production switch. The
+[component diagnosis](metadata/qwen36-27b-mtp-projection-counters-2026-10-10.json)
+obtains hardware counters for two real-input projection cells; its scope does
+not establish whole-model stall percentages or a hardware performance ceiling.
+
+### Preceding batched-head direction
+
+The preceding isolated source adds exact batched target vocabulary finalization to
 the retained ordered-draft composition, profile
 `q3x.sm87.admission.mtp-batched-head-api.v27`, ELF
 `22b7ae45b8bb19fe602b6a5026f60d7d7989dbc7209a8ca2b8f426d94508f83e`.

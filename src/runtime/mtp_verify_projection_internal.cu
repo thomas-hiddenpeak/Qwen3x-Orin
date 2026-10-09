@@ -88,14 +88,12 @@ __global__ void fp8_rows(const std::uint8_t* weights, float scale,
       if (!lane) partial[m][r][warp] = sum;
     }
   __syncthreads();
-  if (!warp) {
-#pragma unroll
-    for (unsigned m=0;m<M;++m)
-#pragma unroll
-      for (unsigned r=0;r<4;++r) {
-        const float sum = warp_sum(lane<8 ? partial[m][r][lane] : 0.f) * scale;
-        if (!lane) y[m*n+row+r] = rounded(sum);
-      }
+  // Each complete reduction is independent. Keep the original eight-value
+  // warp tree while allowing all resident warps to retire useful outputs.
+  for (unsigned output=warp;output<M*4;output+=8) {
+    const unsigned m=output/4, r=output%4;
+    const float sum = warp_sum(lane<8 ? partial[m][r][lane] : 0.f) * scale;
+    if (!lane) y[m*n+row+r] = rounded(sum);
   }
 }
 
@@ -122,6 +120,15 @@ __global__ void nvfp4_rows(const std::uint8_t* weights, const std::uint8_t* scal
     unsigned scale_base, float scale, const std::uint16_t* x,
     unsigned n, unsigned k, std::uint16_t* y) {
   __shared__ float table[256], values[16];
+  // Share complete immutable inputs across the four original warp consumers.
+  // Cap at three rows so M4 retains four-CTA shared-memory capacity.
+  constexpr unsigned staged_rows = Layout==1 ? (M<3 ? M : 3) : 0;
+  __shared__ __align__(16) std::uint16_t activation[staged_rows ? staged_rows*5120 : 1];
+  if constexpr (Layout==1) {
+    for(unsigned i=threadIdx.x;i<staged_rows*5120/8;i+=blockDim.x)
+      reinterpret_cast<ulonglong2*>(activation)[i]=
+          reinterpret_cast<const ulonglong2*>(x)[i];
+  }
   for (unsigned i=threadIdx.x;i<256;i+=blockDim.x) table[i]=fp8(i);
   if(threadIdx.x<16) values[threadIdx.x]=nv_values[threadIdx.x];
   __syncthreads();
@@ -161,7 +168,13 @@ __global__ void nvfp4_rows(const std::uint8_t* weights, const std::uint8_t* scal
       for(unsigned r=0;r<4;++r) bs[r]=table[(codes>>(r*8))&255];
       ulonglong2 acts[M];
 #pragma unroll
-      for(unsigned m=0;m<M;++m) acts[m]=*reinterpret_cast<const ulonglong2*>(x+m*k+base);
+      for(unsigned m=0;m<M;++m) {
+        if constexpr(Layout==1) {
+          acts[m]=m<staged_rows ?
+              *reinterpret_cast<const ulonglong2*>(activation+m*5120+base) :
+              *reinterpret_cast<const ulonglong2*>(x+m*k+base);
+        } else acts[m]=*reinterpret_cast<const ulonglong2*>(x+m*k+base);
+      }
 #pragma unroll
       for(unsigned half=0;half<2;++half)
 #pragma unroll
@@ -280,6 +293,25 @@ void launch(const std::uint8_t* weights,const std::uint8_t* scales,float scale,
   }
 }
 } // namespace
+int prepare_mtp_verify_projection_device() noexcept {
+  int device = 0;
+  cudaDeviceProp properties{};
+  auto status = cudaGetDevice(&device);
+  if(status != cudaSuccess) return status;
+  status = cudaGetDeviceProperties(&properties,device);
+  if(status != cudaSuccess) return status;
+  if(properties.major != 8 || properties.minor != 7 ||
+      properties.multiProcessorCount != 16) return cudaErrorInvalidDevice;
+  (void)cudaGetLastError();
+  status = cudaFuncSetAttribute(nvfp4_rows<2,1>,
+      cudaFuncAttributePreferredSharedMemoryCarveout,cudaSharedmemCarveoutMaxShared);
+  if(status != cudaSuccess) return status;
+  status = cudaFuncSetAttribute(nvfp4_rows<3,1>,
+      cudaFuncAttributePreferredSharedMemoryCarveout,cudaSharedmemCarveoutMaxShared);
+  if(status != cudaSuccess) return status;
+  return cudaFuncSetAttribute(nvfp4_rows<4,1>,
+      cudaFuncAttributePreferredSharedMemoryCarveout,cudaSharedmemCarveoutMaxShared);
+}
 int launch_mtp_verify_projection(const std::uint8_t* weights,
     const std::uint8_t* scales,float scale,const std::uint16_t* x,
     unsigned count,unsigned n,unsigned k,std::uint16_t* y,void* stream,

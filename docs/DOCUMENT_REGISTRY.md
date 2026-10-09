@@ -203,6 +203,13 @@ The batched vocabulary finalization package updates the existing MTP SDD and
 Roadmap and Current Status after both positive API direction panels. It remains
 a bounded development dependency, with no Markdown path or class changes.
 
+The bounded projection-counter diagnosis updates the existing Roadmap only;
+no Markdown path or classification changes.
+
+The projection-lifetime composition completes both API direction panels and
+updates the existing MTP SDD, Current Status and Roadmap;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

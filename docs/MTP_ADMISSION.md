@@ -955,6 +955,37 @@ both complete API panels. It remains in isolated development as a bounded
 prerequisite for the next verifier composition. Preserved full output and a
 single-process positive direction grant no production or target-attainment claim.
 
+## Projection lifetime composition v25
+
+Gate/Up's original four warps independently read every M activation row.
+The candidate stages `min(M,3)` complete K5120 BF16 rows once per CTA, sharing
+those exact bits across the unchanged four consumers. M4 keeps its fourth row
+in global memory; the three-row bound preserves room for four CTAs in SM87's
+shared capacity. Producer copies and codebook construction precede one uniform
+barrier; inputs are immutable thereafter and expire with the CTA. At most
+31,808 static shared bytes are used. Startup sets a fixed maximum-shared
+carveout on the three Gate kernels before publishing the transaction; failures
+fail construction. Original packed weights, grid, K ownership, four FMA chains,
+scale placement, warp merge and BF16 output stay unchanged. No new global
+allocation, persistent state or cross-CTA dependency is introduced.
+
+FP8 retains its entire mainloop and per-warp partial publication. After the
+existing uniform barrier, each warp owns independent `(token, output)` final
+reductions in a stride-eight loop. Every reducer reads the identical eight
+partial values into lanes 0..7, zero elsewhere, then executes the same full
+warp tree, scale and BF16 publication. All finite and exceptional boundaries
+remain the original ones; no reassociation or omitted zero additions occurs.
+This removes serialization in warp zero while preserving all required barriers.
+The two mechanisms compose with retained ordered draft and batched head under
+a distinct isolated API identity. Complete scalar-state/full-logit admission
+and the real API determine whether the execution trade is useful.
+
+The [completed lifetime direction](metadata/qwen36-27b-mtp-projection-lifetime-direction-2026-10-10.json)
+passes complete synthetic/real-prefix checks and both API panels. The isolated
+implementation retains this composition with bounded dependency authority;
+there is no numerical waiver, statistical architecture selection or production
+switch. The full 1.5x–3x objective remains unmet.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
@@ -1226,7 +1257,7 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
 production/install, and identifies itself as
-`q3x.sm87.admission.mtp-batched-head-api.v27`. The startup-only
+`q3x.sm87.admission.mtp-projection-lifetime-api.v28`. The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.

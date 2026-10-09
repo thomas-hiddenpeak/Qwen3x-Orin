@@ -1,0 +1,40 @@
+{
+  "work_package_id": "WP-MTP-PROJECTION-LIFETIME-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v25",
+  "decision_unit": "architecture_candidate",
+  "source_base": "32007c2",
+  "profile": "q3x.sm87.admission.mtp-projection-lifetime-api.v28",
+  "constraint": "1.5x\u20133x same-request committed Decode, unchanged exact target prefix/state/full-logit contract; d2/d3",
+  "downward_budget": {
+    "complete_decode_8k_s": 18.45,
+    "complete_decode_40k_s": 21.62,
+    "v27_verify_8k_s": 18.67441984,
+    "v27_verify_40k_s": 25.050090679,
+    "profiled_v7_fp8_and_gate_gpu_s": 13.321081984
+  },
+  "mechanisms": [
+    "Gate/Up: publish up to three complete activation rows into CTA-private shared storage once, then reuse across four original warp consumers. M4 retains its fourth input in global memory to fit four CTAs within the shared-memory capacity. Same original grid and packed weights, codebooks and accumulator ownership.",
+    "FP8: distribute independent final output reductions across all eight resident warps instead of serializing M*4 complete reductions in warp zero. Preserve the exact lane<8 partial vector, full warp_sum tree, scale and publication."
+  ],
+  "causal_evidence": "Bounded actual-payload NCU long-scoreboard stalls, no spills, FP8 occupancy gap. Does not establish input-versus-weight PC attribution or epilogue wall time.",
+  "traffic_ledger": {
+    "gate_M3_original_activation_load_bytes": 133693440,
+    "gate_M3_new_global_activation_bytes": 33423360,
+    "gate_M3_new_shared_store_bytes": 33423360,
+    "gate_M3_new_shared_read_bytes": 133693440,
+    "gate_weight_bytes_unchanged": true,
+    "fp8_weight_input_mainloop_unchanged": true
+  },
+  "equivalence": "Only movement and independent output-finalization ownership change. Same per-output original four chains, K subsequences, merges, full warp tree, final scales and BF16 boundaries including NaN/signed zero. No state/probability/recurrence change.",
+  "composition": "Both mechanisms compose immediately with v27 batched head and ordered draft. No local speedup retention; one complete API return selects the bundle.",
+  "validation": [
+    "full synthetic output/guard identity against frozen original kernels, M2..4 and both FP8 layouts plus GateUp including special codes",
+    "P65 complete prefix/state/full-logit/transaction/recovery oracle",
+    "Immediate full P65/8K/40K d2 API vs frozen v27; >3% regression early stops; useful direction unlocks d3",
+    "Neutral/negative removes both mechanisms; at most one correctness repair, no tile/grid/layout scan"
+  ],
+  "retention_expiry": "Any useful dependency must compose at the next complete verifier API return; no standalone production or target achievement claim",
+  "resource": "No global allocation or state-plan change. Gate shared <=31808 bytes plus driver overhead. Configure fixed carveout before transaction construction publishes; error fails closed. Original 8GiB free reserve.",
+  "artifact_root": ".q3x-work/mtp-projection-lifetime-20261010",
+  "production_unchanged": true
+}
