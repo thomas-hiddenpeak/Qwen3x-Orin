@@ -172,6 +172,13 @@ passes complete numerical/transaction checks but regresses P65/O16 Decode to
 total 2.901 s. It is removed; no new long-context result is claimed. The v7
 retained implementation and unmet 1.5x–3x objective remain unchanged.
 
+The [asynchronous packed-feed composition](metadata/qwen36-27b-mtp-async-packed-rejection-2026-10-10.json)
+also passes complete P65 numerical and transaction checks but reduces P65/O16
+d2 Decode to 10.308 token/s versus retained v7 10.717. Prefill is 0.885 s /
+73.41 token/s, external TTFT 0.904 s and total 2.359 s. Testing stopped at this
+negative direction; no new long-context or d3 result is claimed. The new paths
+are removed and production is unchanged. The 1.5x–3x target remains unmet.
+
 ## Numerical baseline decision
 
 Legacy Prefill is retained as a regression comparator, **not model truth**.

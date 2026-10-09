@@ -1,0 +1,125 @@
+{
+  "date": "2026-10-10",
+  "decision_unit": "architecture_candidate",
+  "work_package_id": "WP-MTP-ASYNC-PACKED-FEED-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v11",
+  "decision": "reject asynchronous packed-feed composition after negative P65 API direction; restore retained v7",
+  "production_changed": false,
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "binary_sha256": "8c766df97bb3ff30dcad7a6212ab6f58e80d12caf542270814b7a6ef9319b74d",
+  "source_snapshot": ".q3x-work/mtp-async-packed-20261010/source",
+  "mechanism": "Three CTA-private compressed-byte buffers prefetch two future K blocks with cp.async; original all-M register reuse, four FP32 chains, codebooks, scales and exact reductions remain. Ordered draft GQA is dependency-only.",
+  "api_completed_stages": [
+    {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.885471628,
+      "prefill_tps": 73.40720802857841,
+      "decode_tps": 10.308339781491936,
+      "ttft_s": 0.9042969672009349,
+      "elapsed_s": 2.359210178256035,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-async-packed-v14",
+        "draft_length": 2,
+        "startup_free_bytes": 10681344000,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 5.70109,
+        "draft_ms": 123.804543,
+        "verify_ms": 1298.67338,
+        "reconcile_ms": 26.325167999999998,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "numerical": "P65 nine complete M2/M3/M4 scalar-prefix state/full-logit comparisons, eleven transactions, cache tails, two initialization-cancel recoveries and two verification-failure recoveries pass.",
+  "resources": "FP8 registers 56/72/94 for M2/3/4; NVFP4 72..127; zero local/stack; packed shared storage 12288 bytes per CTA, no new arena or runtime allocation.",
+  "limitations": [
+    "Single P65/O16 d2 direction observation, no repeated selection or release authority.",
+    "P8192 interrupted after negative P65; no completed 8K/40K/d3 result. Driver return 130, owned server return zero, monitor errors empty.",
+    "All new runtime paths removed. No standalone draft gain or hardware-stall cause claimed."
+  ],
+  "runs": {
+    "oracle-p65": {
+      "path": ".q3x-work/mtp-async-packed-20261010/oracle-p65",
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-async-packed-20261010/oracle-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-async-packed-20261010/oracle-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-async-packed-20261010/oracle-p65"
+        ],
+        "binary_sha256": "a795c40d21228572500bf4c4e86f1dc7e2e2c78114985494fe0cf1506bc34b81",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "f8753ed9735d1dde457f8d5e1dbf004e6c8f200e",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 68.625
+      },
+      "sha256": {
+        "identity.json": "45120af71ed4c449ee5cb843703d68d2ba38a97970c21fb25ec826b5a960764f",
+        "preflight.json": "f7143a85c115538a7d16fca953879854fa7ea813b9fb7c6f9c81bb128065a568",
+        "cache-preparation.json": "fa40e22167707c8ff2a610f17346d9da0ab5f1a1a3642cfcc2a7cfde964c8d52",
+        "cleanup.json": "cb7f1de65277aa74c770920b3478d1659308408747223f22a1c98c46b6921135",
+        "run.log": "f2a795807e26998435886b22e27e9f050dbc8141d158a4821f8371f7e09ab14a"
+      }
+    },
+    "d2": {
+      "path": ".q3x-work/mtp-async-packed-20261010/d2",
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-async-packed-20261010/source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-async-packed-20261010/d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "8c766df97bb3ff30dcad7a6212ab6f58e80d12caf542270814b7a6ef9319b74d",
+        "draft_length": 2,
+        "driver_sha256": "dbce0f59d70c7e392b83c6eea67b87004448fb1bacbddf105a84d8eb1fb3b5d2",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "f8753ed9735d1dde457f8d5e1dbf004e6c8f200e",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": false,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 65.187
+      },
+      "sha256": {
+        "identity.json": "6ed0c379afc12e57f8a21f56d1f9f1ead2837735ad618a06a46beb05d728d558",
+        "preflight.json": "7b554341f30ba142a888dd507af760f9699f53e04be3ec41862f9095d17e07ef",
+        "cache-preparation.json": "191dd099b8371688bb276d33c12030a9b35445e4e04ba29fe7515a66820ad347",
+        "cleanup.json": "e516f6c4d4e7f28dc797cd7c0e33f122e4fe917a3f107272932398fa067f70b2",
+        "results.json": "796aab130e39adb61a692ef290761e0789abadb5ae9cf8fd4c38aeaf79241f9d",
+        "p65.json": "5d36409729ffd03e53bf1fb5f32d588dd720971fd42e4c70a56b2a4ad25387b2",
+        "server.log": "4d8d9a36878cbd1fb322684c387392dec889909f15b53219ec2b044a48cf4d4c"
+      }
+    }
+  }
+}

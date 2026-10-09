@@ -478,6 +478,25 @@ closes this version after complete P65 numerical admission and negative real
 API direction. All new runtime paths were removed. Lower register counts and
 independent scheduling did not establish whole-product value.
 
+## Asynchronous packed-feed composition v11
+
+Three CTA-private packed buffers hold the current and two future K blocks.
+FP8 uses 1,024 K values per block, NVFP4 uses 512; each buffer is 4,096 bytes.
+Canonical four-byte streams use aligned cp.async.ca copies and existing
+16-byte sidecar vectors use cp.async.cg. No expanded decoded weight crosses
+shared memory. Scale/codebook lookup, activation loads and original M-row
+FP32 accumulation remain unchanged. Each thread owns its packed destination;
+commit/wait plus a uniform CTA barrier precede consumption and reuse. Tail
+waits drain all outstanding copies before shared storage expires. There is no
+inter-CTA dependency or request allocation. All admitted K values contain at
+least two complete blocks. The original final reduction and BF16 publication
+remain exact; numerical and real API gates select the complete composition.
+
+The [asynchronous-feed rejection](metadata/qwen36-27b-mtp-async-packed-rejection-2026-10-10.json)
+closes this composition after complete numerical admission and negative P65
+API direction. All new runtime paths are removed; retained v7 remains selected
+only in isolated development. No pipeline sweep or production change follows.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

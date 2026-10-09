@@ -19,6 +19,35 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP asynchronous packed feed — closed negative
+
+`WP-MTP-ASYNC-PACKED-FEED-20261010` / `AC-MTP-GREEDY-v11` addresses the
+same 1.5x–3x objective and 18.45/21.62-second full Decode budgets. The measured
+16.29-second verifier projection cost selects overlapping packed-weight movement
+with the existing exact register-local M-row consumption. Unlike rejected
+expanded shared-weight tiles or token-ownership variants, a three-buffer
+cp.async pipeline retains FP8/NVFP4 bytes unchanged, prefetches two future K
+blocks, and keeps the original four FMA chains and output ownership. It
+transfers the proven Marlin/production Attention asynchronous producer-consumer
+lifetime to this private SIMT verifier without importing MMA reassociation.
+No hardware-stall cause is asserted from the unavailable counters.
+
+One fixed composition, including the admitted ordered draft GQA dependency,
+returns through full P65 state/logit/transaction checks to P65/8K/40K d2/d3 API.
+At most one correctness repair is permitted; negative API direction closes
+this version without buffer/grid/tile scans. Shared packed storage is 12,288
+bytes per block, no new arena or runtime allocation. Artifacts stay under
+`.q3x-work/mtp-async-packed-20261010/`. The 8-GiB reserve and production
+non-MTP path remain unchanged.
+
+The [API rejection](metadata/qwen36-27b-mtp-async-packed-rejection-2026-10-10.json)
+closes the composition: complete P65 numerical checks pass, but P65 Decode is
+10.308 token/s versus retained v7 10.717. New runtime paths are removed; no
+8K/40K/d3 qualification or pipeline-parameter scan follows. Retained v7 remains
+the development incumbent. The next implementation must address the complete
+verification budget with a different execution architecture, preserving exact
+publication and the 1.5x–3x target; this closed package authorizes no variant.
+
 ## 2026-10-10 MTP independent token CTAs — closed negative
 
 `WP-MTP-INDEPENDENT-CTAS-20261010` / `AC-MTP-GREEDY-v10` retains the
