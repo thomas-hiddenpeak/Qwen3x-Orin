@@ -432,6 +432,52 @@ P65 API direction. All new runtime paths were removed together; no component
 receives a separate performance claim. Retained v7 remains the isolated
 incumbent, and the 1.5x–3x goal remains outstanding.
 
+## Certified-publication feasibility boundary
+
+The closed Roadmap package used a numerical-only observation seam in the
+frozen whole-core test executable. It was absent from serving and was removed
+after the bounded capture; the frozen source is retained in its evidence. After a successful projection enqueue the callback synchronizes the
+owned stream, copies only selected real inputs, canonical weight/scale rows and
+BF16 results, then returns before scratch reuse. Capture failure fails the
+verification and drains through the existing poison boundary. It cannot alter
+device data, selected tokens or request state. Its altered timing has no
+performance authority. The ordinary complete scalar-prefix comparison still
+checks the captured transaction.
+
+A prospective fast reduction may publish only when a conservative interval
+containing the original scalar result lies strictly inside one BF16 rounding
+cell. Otherwise it must execute the original scalar operation for that output.
+The current host feasibility audit uses a double-precision center and a
+conservative FP32 reduction-depth bound; it implements no fast GPU path and
+grants no certificate to production. Exceptional values, subnormal arithmetic,
+scale rounding, candidate error and correct-or-repair execution must all be
+covered before an executor is admitted. A favorable sample is not proof of
+universal certification or positive API performance.
+
+The [feasibility record](metadata/qwen36-27b-mtp-certified-publication-feasibility-2026-10-10.json)
+closes the coarse norm-bound design without a new GPU executor. It does not
+exclude a different proven certificate and does not weaken scalar equivalence.
+
+## Independent token CTA composition v10
+
+Each FP8 output quad or NVFP4 output group uses separate 256/128-thread CTAs
+for the M2..4 token rows. The block index interleaves token rows before moving
+to the next output group. Each block's activation/output pointers select one
+row; packed weight/scale pointers select the shared group. Four FP32 FMA chains,
+K subsequences, warp/eight-warp merges, scale and BF16 rounding are unchanged.
+No block reads another block's scratch, signals a peer, or depends on cache
+contents for correctness. The cache can miss without changing semantics.
+Only the scheduler/cache may reuse packed weights between independently live
+blocks. Per-block codebooks and reduction storage remain private and bounded.
+The admitted ordered production draft GQA is included at the same service
+composition point. Complete prefix/transaction oracles and the existing
+real API d2/d3 panel select the result; lower register counts alone do not.
+
+The [independent-CTA rejection](metadata/qwen36-27b-mtp-independent-ctas-rejection-2026-10-10.json)
+closes this version after complete P65 numerical admission and negative real
+API direction. All new runtime paths were removed. Lower register counts and
+independent scheduling did not establish whole-product value.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

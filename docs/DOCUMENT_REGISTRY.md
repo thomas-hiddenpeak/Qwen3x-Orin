@@ -176,7 +176,8 @@ authority only for its exact recorded protocol.
 
 The 2026-10-09 shared-verification work package updates the existing MTP SDD
 and Roadmap, followed by draft matrix, rejected verifier compositions and the
-bounded bottleneck reset and rejected persistent-operand composition; the registered
+bounded bottleneck reset, rejected persistent/independent-CTA compositions
+and closed certificate feasibility gate; the registered
 document set and classes are unchanged.
 
 ## Integrity check

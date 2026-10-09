@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-10",
+  "work_package_id": "WP-MTP-CERTIFIED-PUBLICATION-20261010",
+  "decision": "close coarse global-norm rounding-certificate feasibility; do not build this whole-verifier repair route",
+  "production_changed": false,
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "source_snapshot": ".q3x-work/mtp-certified-publication-20261010/source",
+  "capture": {
+    "command": [
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-certified-publication-20261010/p65/q3x_mtp_whole_core_test",
+      "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-certified-publication-20261010/p65/prompt.u32",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-certified-publication-20261010/p65",
+      "--projection-capture-only"
+    ],
+    "binary_sha256": "d5eafc6a4ae7a0fc954ceec3e4594ee18d349006fd0b3f3b4c709cfd541e8368",
+    "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "git": "fa90b1a45fdc89da990e702e1c349409d6b6a139",
+    "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+  },
+  "cleanup": {
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 62.968
+  },
+  "summary": {
+    "fp8": {
+      "elements": 2688,
+      "output_groups": 896,
+      "ideal_exact_abs_certified": 2576,
+      "ideal_exact_l2_certified": 2423,
+      "fast_exact_abs_certified": 2435,
+      "fast_l2_certified": 2123,
+      "ideal_exact_abs_groups": 786,
+      "ideal_exact_l2_groups": 661,
+      "fast_exact_abs_groups": 671,
+      "fast_l2_groups": 480,
+      "fast_output_mismatches": 0
+    },
+    "nvfp4_down": {
+      "elements": 768,
+      "output_groups": 256,
+      "ideal_exact_abs_certified": 518,
+      "ideal_exact_l2_certified": 310,
+      "fast_exact_abs_certified": 426,
+      "fast_l2_certified": 205,
+      "ideal_exact_abs_groups": 81,
+      "ideal_exact_l2_groups": 18,
+      "fast_exact_abs_groups": 49,
+      "fast_l2_groups": 6,
+      "fast_output_mismatches": 0
+    },
+    "nvfp4_gate_up": {
+      "elements": 1536,
+      "output_groups": 512,
+      "ideal_exact_abs_certified": 1326,
+      "ideal_exact_l2_certified": 1231,
+      "fast_exact_abs_certified": 1253,
+      "fast_l2_certified": 1118,
+      "ideal_exact_abs_groups": 333,
+      "ideal_exact_l2_groups": 274,
+      "fast_exact_abs_groups": 285,
+      "fast_l2_groups": 209,
+      "fast_output_mismatches": 2
+    }
+  },
+  "formula": "u=2^-24, gamma(d)=d*u/(1-d*u); scalar depth FP8=K/1024+2+5+3+1, NVFP4=K/128+2+5+1; prospective 256-lane single chain depth=K/256+5+3+1. Candidate/original roundoff envelopes combine before strict BF16 midpoint admission. FP64 center uncertainty included.",
+  "scope": "52 projections, M3, 32 fixed stratified output rows each; layers 0/3/20/23/40/43/60/63; real P65 teacher-forced prefix; three complete scalar prefix-state/full-logit comparisons pass",
+  "evidence_sha256": {
+    "audit.py": "c09f7d0a0aca0c48eaf8fdb6997ee0c608c8a76aa64d75b89b30330916909e45",
+    "audit.log": "ff7eea5f7a85462ef52657bc0b1d6d28beacc4e217832980b283b72b82bb34d0",
+    "p65/rounding-audit.json": "e3959ef9647ff718f2e473a8504109e1f77a5058821e29154f6a1f58d273e1bd",
+    "p65/run.log": "d555f282c309a4cff17bd5613812fbeb9d7468d00ae92abbdd9705d5057930f8",
+    "p65/preflight.json": "ce76c9964919222f3b0fabf8e42211d709d39c82dbcf6ba46b373cac42d01f1f",
+    "p65/cache-preparation.json": "7835da29912825d6ef6f7dc5d08a77be0cd3929135ab38cdadcb5bdff3bc0610",
+    "p65/cleanup.json": "0165c51672458503420e29edc073c54aa5c9f5d1183132931137ea5e2f5e7059"
+  },
+  "limitations": [
+    "No new GPU projection arithmetic or runtime certificate implemented. No new Prefill/Decode/API timing.",
+    "FP64 center is optimistic diagnostic, not a proposed production FP64 kernel. Exact absolute-product sums are not free runtime data.",
+    "Cheap norm-bound prospective certificate proves all three rows of only 53.6% FP8, 40.8% Gate/Up and 2.3% Down sampled output groups. Extensive repair would remain; no performance win inferred.",
+    "Two sampled Gate/Up BF16 outputs change under the prospective one-chain arithmetic; every certified sampled output equals incumbent. This does not prove universal certificate correctness.",
+    "The result closes only this coarse-bound architecture; it does not establish impossibility of exact faster verification or a hardware ceiling."
+  ]
+}

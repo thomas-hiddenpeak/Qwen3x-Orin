@@ -1,0 +1,125 @@
+{
+  "date": "2026-10-10",
+  "decision_unit": "architecture_candidate",
+  "work_package_id": "WP-MTP-INDEPENDENT-CTAS-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v10",
+  "decision": "reject independent token CTA composition after negative P65 API direction; restore retained v7",
+  "production_changed": false,
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "binary_sha256": "01191c798da8d712246ee34a2fbe399bde3b33fe63d31aad5b980ebb2e6b3d83",
+  "source_snapshot": ".q3x-work/mtp-independent-ctas-20261010/source",
+  "runs": {
+    "oracle-p65": {
+      "path": ".q3x-work/mtp-independent-ctas-20261010/oracle-p65",
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-independent-ctas-20261010/oracle-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-independent-ctas-20261010/oracle-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-independent-ctas-20261010/oracle-p65"
+        ],
+        "binary_sha256": "6908312b78af6ce7307204c8bfcd4a6d90277084c7333d5d4e99fbad275df078",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "fa90b1a45fdc89da990e702e1c349409d6b6a139",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 69.906
+      },
+      "sha256": {
+        "identity.json": "b3697b57e5e91a9b83ea242b73a280151498ff1838d5db51e3012be4b04a8cb7",
+        "preflight.json": "3edd69e84a62b2d99002e59b86ec077b2564319c5484ba4f66f45ed9326e98b2",
+        "cache-preparation.json": "7386edf7b91ee34c1416ea2b168d9c75c757e83d596fdb0b268df805b2559afd",
+        "cleanup.json": "da25d8df1a4e74b7a08ae34d9401a058acf6f7f0aaaf86687808e3f1816489c7",
+        "run.log": "3ba55545ac5f6e6f0b093d7a5b4aa18a83e9c77662a4fe10dd5576ff84f44579"
+      }
+    },
+    "d2": {
+      "path": ".q3x-work/mtp-independent-ctas-20261010/d2",
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-independent-ctas-20261010/source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-independent-ctas-20261010/d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "01191c798da8d712246ee34a2fbe399bde3b33fe63d31aad5b980ebb2e6b3d83",
+        "draft_length": 2,
+        "driver_sha256": "09324e7d35781c3bd78eeb54946f34d86df277da55d46fb89ce6581b50ba01aa",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "fa90b1a45fdc89da990e702e1c349409d6b6a139",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": false,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 72.125
+      },
+      "sha256": {
+        "identity.json": "3b4575b8240f9f54337b7e124be0118a8bf9f68e70289635ab2d1e7b62877113",
+        "preflight.json": "4449af388ae66703637f72ed498e2167b292ec54b58d4d9e7f9bc9bcd7027252",
+        "cache-preparation.json": "0762b497bbf2b03d6aca324be5ad8675c393ab221160425c19d99a54c1cccd7a",
+        "cleanup.json": "16e2bee98d9fdf8bc2d3c5660b07e24a425b1eaf633923edee394212abdf54a2",
+        "results.json": "abb79e5fd2777f4580dd53b1730a57253a51d1f5db0d73cd9344107dea828183",
+        "p65.json": "2b0386644e30414d8e5174d2c4adc1b0321032173569a21371943f4f18546843",
+        "server.log": "ea3e5258e39a892b7dcc2876b1340462acffc94c66a4a4e431199f4d2c59ecfa"
+      }
+    }
+  },
+  "api_completed_stages": [
+    {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.885392498,
+      "prefill_tps": 73.41376863574916,
+      "decode_tps": 7.509216651069364,
+      "ttft_s": 0.903937419410795,
+      "elapsed_s": 2.901424295268953,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-independent-ctas-v13",
+        "draft_length": 2,
+        "startup_free_bytes": 10734092288,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 5.690213,
+        "draft_ms": 123.882638,
+        "verify_ms": 1841.052218,
+        "reconcile_ms": 26.293804,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "resources": "FP8 40 registers; NVFP4 48/56/64; zero local/stack; fixed 256/128-thread blocks; no performance authority.",
+  "numerical": "P65 all nine complete scalar-prefix state/full-logit checks, eleven transactions, cache tails, two initialization-cancel recoveries and two verification-failure recoveries pass.",
+  "limitations": [
+    "One completed P65/O16 d2 observation; no repeated selection or release authority.",
+    "P8192 was interrupted after negative P65; no completed long-context or d3 result. Driver return 130, owned server return zero, monitor errors empty.",
+    "Independent CTAs preserve original scalar arithmetic but duplicate cached weight reads/decode work. No measured L2 hit-rate, traffic or hardware-cause claim is made.",
+    "Ordered draft Attention was only a composition dependency and has no standalone speedup claim; all new runtime paths were removed."
+  ]
+}

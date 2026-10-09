@@ -163,6 +163,15 @@ Decode to 9.536 token/s, with Prefill 0.885 s / 73.41 token/s, external TTFT
 paths were removed. This is a negative direction screen, not a replacement
 performance baseline or proof that the target is unattainable.
 
+The later [certificate feasibility audit](metadata/qwen36-27b-mtp-certified-publication-feasibility-2026-10-10.json)
+closes a coarse rounding-bound design before implementing a new GPU path:
+it would still require extensive exact repair on the sampled real inputs.
+The [independent-CTA composition](metadata/qwen36-27b-mtp-independent-ctas-rejection-2026-10-10.json)
+passes complete numerical/transaction checks but regresses P65/O16 Decode to
+7.509 token/s, with Prefill 0.885 s / 73.41 token/s, external TTFT 0.904 s and
+total 2.901 s. It is removed; no new long-context result is claimed. The v7
+retained implementation and unmet 1.5x–3x objective remain unchanged.
+
 ## Numerical baseline decision
 
 Legacy Prefill is retained as a regression comparator, **not model truth**.

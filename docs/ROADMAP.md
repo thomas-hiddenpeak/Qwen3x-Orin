@@ -19,6 +19,70 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP independent token CTAs — closed negative
+
+`WP-MTP-INDEPENDENT-CTAS-20261010` / `AC-MTP-GREEDY-v10` retains the
+1.5x–3x objective and 18.45/21.62-second full 8K/40K Decode budgets. The
+16.29-second projection observation selects independent token CTAs with
+M-fast output-tile scheduling: adjacent blocks consume the same packed weight
+span through shared L2, while each thread retains only one token's original
+four FP32 chains. No token-group barrier or shuffle broadcast is introduced.
+This is distinct from the rejected v3 CTA-row implementation, which forces
+M*256 FP8 or M*128 NVFP4 threads into each block with shared codebooks and
+multi-token reduction storage. Here the unchanged 256/128-thread blocks can
+reside and retire independently, trading duplicated cached reads/conversion
+for fewer registers and independently schedulable consumers. L2 reuse is a
+hypothesis, not a measured counter claim. Packed weight layout and decoder
+remain unchanged; there is no grid/tile sweep. Ordered draft Attention composes
+at this immediate API return with dependency-only authority.
+
+One fixed composition plus at most one correctness repair must pass complete
+P65 scalar prefix state/logits and transactions, then return to P65/8K/40K d2/d3
+API in fail-fast order. Negative direction closes this version. No new arena,
+resource-margin reduction, approximate output or production change is allowed.
+Artifacts stay under `.q3x-work/mtp-independent-ctas-20261010/`.
+The [API rejection](metadata/qwen36-27b-mtp-independent-ctas-rejection-2026-10-10.json)
+records P65 Decode 7.509 token/s versus retained v7 10.717. All numerical and
+recovery checks pass, but the composition is removed. No long-context or d3
+qualification follows. Independent-CTA, cooperative-CTA and per-thread row
+ownership have now all been compared; another ownership/cache/grid variation
+is not the next package. The overall 1.5x–3x goal remains active and unmet.
+A successor requires a different complete execution/data-representation
+architecture and a traceable exact-publication proof before implementation.
+
+
+## 2026-10-10 MTP certified publication — feasibility closed
+
+`WP-MTP-CERTIFIED-PUBLICATION-20261010` addresses the same 1.5x–3x API goal
+and measured 16.29-second projection cost. Repeated packed-feed variants are
+closed. The alternative is a fast reduction followed by a rigorous rounding
+certificate and exact scalar repair of uncertified outputs. A certificate must
+prove the identical BF16 publication, including scale and reduction error;
+statistical error or matching argmax is insufficient. Recurrent state and all
+observable target outputs remain exact. This does not authorize approximate
+production arithmetic or a weaker numerical baseline.
+
+Before implementing a new executor, one whole-core real-prompt M3 capture at
+P65 samples 32 output rows per projection in layers 0/3/20/23/40/43/60/63.
+The numerical-only harness records canonical weights/scales, real activations,
+exact BF16 outputs and identities. A host error-bound audit measures the
+optimistic certification and required repair fractions, both element-wise and
+for shared M-row output ownership. This is a bounded feasibility prerequisite,
+not a local performance screen. It may reject an uneconomic certificate but
+cannot select a runner or claim speedup. At most one capture and one audit
+precede either closure or a fully specified executor/repair composition with
+an immediate d2/d3 real API return. No quantized-decoder or launch sweep opens.
+Artifacts remain in `.q3x-work/mtp-certified-publication-20261010/`.
+The [bounded audit](metadata/qwen36-27b-mtp-certified-publication-feasibility-2026-10-10.json)
+finds that a cheap norm certificate would repair at least one row in 46.4%
+of FP8, 59.2% of Gate/Up and 97.7% of Down sampled output groups. Even an
+optimistic exact center cannot remove most Down repairs with this bound.
+The coarse-bound whole-verifier composition is closed before GPU executor
+implementation; no tighter-bound or parameter sweep follows under this package.
+The capture seam is frozen numerical-only evidence and was removed after this
+completed gate; it was never part of serving.
+
+
 ## 2026-10-10 MTP persistent operands — closed negative
 
 `WP-MTP-PERSISTENT-OPERANDS-20261010` / `AC-MTP-GREEDY-v9` uses the
