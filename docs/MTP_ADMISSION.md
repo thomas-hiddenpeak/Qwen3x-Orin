@@ -927,6 +927,34 @@ frozen source retains reproduction authority only. Fewer decoder operations
 did not select a faster runner. The retained isolated implementation returns
 to v25 ordered draft plus the original target verifier, with no production change.
 
+## Batched vocabulary finalization composition v24
+
+The v25 transformer verifier remains unchanged. For M2..4, the complete target
+head consumes all normalized hidden rows together, reading and decoding each
+canonical NVFP4 weight once per row group. The earlier exact persistent head
+consumer is reused only at N248320/K5120. A fixed 64-CTA executor stages all
+M activation rows once in CTA-private shared memory, then retains original
+K subsequences, four FMA chains, parenthesized merge, warp reduction, tensor
+scale and BF16 publication for every output. No quantization or reassociation
+is introduced. Its shared extent is at most 42,048 bytes.
+
+Projection-0 is dead after the final transformer layer. Its validated C512
+extent can hold the complete M-by-vocabulary BF16 matrix (at most 1,986,560
+bytes). Smaller oracle arenas select the existing scalar finalization before
+enqueue. The batched producer finishes on the target stream before each whole
+logit row is copied to its immutable prefix slot. Each row retains full-vocabulary
+finite validation and earliest-index argmax, and no slot gains commit authority
+before the existing synchronized boundary. Failed enqueue drains/poisons;
+there is no fallback after partial execution. No allocation or state layout
+changes. Complete scalar-prefix state/logits and real API direction select this
+composition independently of the earlier losing projection bundle.
+
+The [completed batched-head direction](metadata/qwen36-27b-mtp-batched-head-direction-2026-10-10.json)
+passes exhaustive full-vocabulary and complete P65 transaction admission, then
+both complete API panels. It remains in isolated development as a bounded
+prerequisite for the next verifier composition. Preserved full output and a
+single-process positive direction grant no production or target-attainment claim.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
@@ -1198,7 +1226,7 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
 production/install, and identifies itself as
-`q3x.sm87.admission.mtp-draft-ordered-api.v25`. The startup-only
+`q3x.sm87.admission.mtp-batched-head-api.v27`. The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.

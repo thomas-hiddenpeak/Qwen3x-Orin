@@ -19,6 +19,39 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP batched vocabulary finalization — API return complete
+
+`WP-MTP-BATCHED-HEAD-20261010` / `AC-MTP-GREEDY-v24` composes one
+previously coupled dependency with retained v25: exact full-vocabulary target
+finalization across all verified rows. The earlier persistent-operand rejection
+changed several projection families and did not isolate this dependency. The
+matched 40K trace assigns 2.300 GPU seconds to target plus draft heads; even
+eliminating that entire budget cannot alone close the unchanged 1.5x–3x target.
+The [design record](metadata/qwen36-27b-mtp-batched-head-design-2026-10-10.json)
+binds one complete API composition, not a new weight-decoder or layout scan.
+
+All transformer projections remain v25. Complete logits reuse dead projection-0
+storage and reach each immutable prefix slot before finite/argmax validation.
+Original scalar arithmetic, resource reserve and committed-token accounting
+remain mandatory. Full-vocabulary synthetic checks and complete P65 transaction
+admission precede immediate P65/8K/40K d2 API; useful direction unlocks d3.
+A greater-than-3% regression stops; neutral direction removes this version.
+At most one correctness repair is permitted. Any useful result has bounded
+prerequisite authority only through the next full verifier API return, never
+a production or 50% claim. Artifacts stay in `.q3x-work/mtp-batched-head-20261010/`.
+
+The [completed direction](metadata/qwen36-27b-mtp-batched-head-direction-2026-10-10.json)
+passes complete numerical admission and all eight API/lifecycle requests for
+both policies. D2 Decode observes 11.984/9.090 token/s at 8K/40K versus v25
+11.630/8.874; d3 observes 10.299/8.034 versus 10.026/7.859. Identical acceptance
+and verification counts accompany about 0.65–0.71 seconds less verification.
+The isolated code retains this as a bounded dependency, not a statistically
+selected baseline or production route. No further qualification-only campaign
+or head/grid/draft-length scan is pending. The next complete verifier architecture
+must compose this dependency at its first API return or archive it. The dominant
+projection and long-context Attention budgets still need a materially different
+execution response; the 1.5x–3x objective remains active and unmet.
+
 ## 2026-10-10 MTP combined immutable decoder — closed negative
 
 `WP-MTP-COMBINED-CODEBOOK-20261010` / `AC-MTP-GREEDY-v23` composes the

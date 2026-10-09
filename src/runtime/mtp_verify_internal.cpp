@@ -157,14 +157,24 @@ bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
             next_norm, 1.e-6F, v.hidden[0] + row * H,
             v.hidden[1] + row * H, stream))) return false;
   }
+  // Projection 0 is dead after the final layer. Service-sized C512 storage can
+  // stage all vocabulary rows; smaller oracle arenas keep the scalar boundary.
+  const auto* head = std::get_if<NvFp4LinearWeight>(&model.lm_head());
+  const bool batch_logits = rows_>1 && head && head->input_size==H &&
+      head->output_size==V && state_.plan().prefill_chunk_size*17408ULL>=rows_*V;
+  if(batch_logits && !ok(launch_mtp_verify_projection(head->packed_weight,
+      head->block_scale,head->weight_scale_2,v.hidden[1],rows_,V,H,
+      v.projection[0],stream,nullptr,nullptr,0)))return false;
   auto* argmax = reinterpret_cast<Bf16GreedyArgmaxResult*>(v.fp32_scratch);
   for (unsigned row = 0; row < rows_; ++row) {
     auto* slot = static_cast<char*>(snapshots_) + (row + 1) * slot_bytes_ + recurrent_bytes_;
     auto* logits = reinterpret_cast<std::uint16_t*>(slot + 2 * H);
     if (!ok(cudaMemcpyAsync(slot, v.hidden[1] + row * H, 2 * H,
               cudaMemcpyDeviceToDevice, stream)) ||
-        !ok(launch_projection_to_bf16_cuda(ProjectionBackend::kSm87WeightOnly,
-              model.lm_head(), v.hidden[1] + row * H, nullptr, 0, logits, stream)) ||
+        !(batch_logits ? ok(cudaMemcpyAsync(logits,v.projection[0]+row*V,2*V,
+              cudaMemcpyDeviceToDevice,stream)) :
+          ok(launch_projection_to_bf16_cuda(ProjectionBackend::kSm87WeightOnly,
+              model.lm_head(),v.hidden[1]+row*H,nullptr,0,logits,stream))) ||
         !ok(launch_bf16_greedy_argmax_cuda(logits, V, argmax, stream)) ||
         !ok(cudaMemcpyAsync(&results[row], argmax, sizeof(results[row]),
               cudaMemcpyDeviceToHost, stream))) return false;

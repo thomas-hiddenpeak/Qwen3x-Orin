@@ -199,6 +199,10 @@ The combined immutable decoder package updates the same MTP SDD and Roadmap;
 it adds no Markdown path or classification. The package is closed after negative
 P65 API direction; all new runtime paths are removed and frozen evidence retained.
 
+The batched vocabulary finalization package updates the existing MTP SDD and
+Roadmap and Current Status after both positive API direction panels. It remains
+a bounded development dependency, with no Markdown path or class changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

@@ -186,13 +186,92 @@ __global__ void nvfp4_rows(const std::uint8_t* weights, const std::uint8_t* scal
       if(!lane) y[m*n+row+r]=rounded(sum);
     }
 }
+template<unsigned M, unsigned Layout, bool Persistent = false>
+__global__ void nvfp4_head_rows(const std::uint8_t* weights, const std::uint8_t* scales,
+    unsigned scale_base, float scale, const std::uint16_t* x,
+    unsigned n, unsigned k, std::uint16_t* y) {
+  __shared__ float table[256], values[16];
+  __shared__ __align__(16) std::uint16_t activation[Persistent ? M*5120 : 1];
+  if constexpr(Persistent) {
+    for(unsigned i=threadIdx.x;i<M*5120/8;i+=blockDim.x)
+      reinterpret_cast<ulonglong2*>(activation)[i]=reinterpret_cast<const ulonglong2*>(x)[i];
+    x=activation;
+  }
+  for (unsigned i=threadIdx.x;i<256;i+=blockDim.x) table[i]=fp8(i);
+  if(threadIdx.x<16) values[threadIdx.x]=nv_values[threadIdx.x];
+  __syncthreads();
+  const unsigned lane=threadIdx.x%32;
+  const unsigned first=(blockIdx.x*4+threadIdx.x/32)*4;
+  for(unsigned row=first;row<n;row+=Persistent ? gridDim.x*16 : n) {
+  float a[M][4][4]={};
+  for(unsigned tile=0;tile<k/512;++tile) {
+    unsigned phase_codes[2];
+    if constexpr(Layout==2) {
+      const unsigned local=scale6_codes(scales,scale_base,row,tile,k,lane);
+      const unsigned partner=__shfl_xor_sync(0xffffffffU,local,1);
+      phase_codes[0]=(lane&1)?partner:local;
+      phase_codes[1]=(lane&1)?local:partner;
+    }
+#pragma unroll
+    for(unsigned phase=0;phase<2;++phase) {
+      const unsigned base=tile*512+phase*256+lane*8;
+      uint4 packed; unsigned codes=0;
+      if constexpr(Layout==1) {
+        const auto* record=weights+(row/4)*11520+tile*1152+phase*576;
+        packed=__ldcs(reinterpret_cast<const uint4*>(record)+lane);
+        codes=__ldcs(reinterpret_cast<const unsigned*>(record+512)+lane/2);
+      } else if constexpr(Layout==2) {
+        packed=__ldcs(reinterpret_cast<const uint4*>(weights)+
+                       (row/4)*(k/512)*64+tile*64+phase*32+lane);
+        codes=phase_codes[phase];
+      } else {
+        packed.x=__ldcs(reinterpret_cast<const unsigned*>(weights+row*(k/2)+base/2));
+        packed.y=__ldcs(reinterpret_cast<const unsigned*>(weights+(row+1)*(k/2)+base/2));
+        packed.z=__ldcs(reinterpret_cast<const unsigned*>(weights+(row+2)*(k/2)+base/2));
+        packed.w=__ldcs(reinterpret_cast<const unsigned*>(weights+(row+3)*(k/2)+base/2));
+#pragma unroll
+        for(unsigned r=0;r<4;++r) codes |= unsigned(scales[(row+r)*(k/16)+base/16])<<(r*8);
+      }
+      const unsigned words[4]={packed.x,packed.y,packed.z,packed.w};
+      float bs[4];
+#pragma unroll
+      for(unsigned r=0;r<4;++r) bs[r]=table[(codes>>(r*8))&255];
+      ulonglong2 acts[M];
+#pragma unroll
+      for(unsigned m=0;m<M;++m) acts[m]=*reinterpret_cast<const ulonglong2*>(x+m*k+base);
+#pragma unroll
+      for(unsigned half=0;half<2;++half)
+#pragma unroll
+        for(unsigned c=0;c<4;++c) {
+          float av[M];
+#pragma unroll
+          for(unsigned m=0;m<M;++m) av[m]=bf16((half?acts[m].y:acts[m].x)>>(c*16));
+#pragma unroll
+          for(unsigned r=0;r<4;++r) {
+            const float w=values[(words[r]>>((half*4+c)*4))&15]*bs[r];
+#pragma unroll
+            for(unsigned m=0;m<M;++m) a[m][r][c]=fmaf(w,av[m],a[m][r][c]);
+          }
+        }
+    }
+  }
+#pragma unroll
+  for(unsigned m=0;m<M;++m)
+#pragma unroll
+    for(unsigned r=0;r<4;++r) {
+      const float sum=warp_sum((a[m][r][0]+a[m][r][1])+(a[m][r][2]+a[m][r][3]))*scale;
+      if(!lane) y[m*n+row+r]=rounded(sum);
+    }
+  }
+}
 template<unsigned M>
 void launch(const std::uint8_t* weights,const std::uint8_t* scales,float scale,
     const std::uint16_t* x,unsigned n,unsigned k,std::uint16_t* y,
     const std::uint8_t* sidecar,const std::uint8_t* scale6,unsigned scale_base,
     cudaStream_t stream) {
   if(scales) {
-    if(sidecar && k==5120) nvfp4_rows<M,1><<<n/16,128,0,stream>>>(sidecar,scales,0,scale,x,n,k,y);
+    if(n==248320) nvfp4_head_rows<M,0,true><<<64,128,0,stream>>>(weights,scales,0,scale,x,n,k,y);
+    else if(sidecar && k==5120) nvfp4_rows<M,1><<<n/16,128,0,stream>>>(sidecar,scales,0,scale,x,n,k,y);
     else if(sidecar && scale6) nvfp4_rows<M,2><<<n/16,128,0,stream>>>(sidecar,scale6,scale_base,scale,x,n,k,y);
     else nvfp4_rows<M,0><<<n/16,128,0,stream>>>(weights,scales,0,scale,x,n,k,y);
   } else {
@@ -207,9 +286,9 @@ int launch_mtp_verify_projection(const std::uint8_t* weights,
     const std::uint8_t* sidecar,const std::uint8_t* scale6,unsigned scale_base) noexcept {
   if(!weights || !x || !y || count<2 || count>4 || !std::isfinite(scale) || scale<0)
     return cudaErrorInvalidValue;
-  const bool shape=scales ? ((n==17408 && k==5120)||(n==5120 && k==17408)) :
+  const bool shape=scales ? (((n==17408 || n==248320) && k==5120)||(n==5120 && k==17408)) :
     ((k==5120 && (n==1024 || n==6144 || n==10240 || n==12288)) || (k==6144 && n==5120));
-  if(!shape || (sidecar && !scales && !(n==5120 && k==6144)) ||
+  if(!shape || (n==248320 && (sidecar || scale6)) || (sidecar && !scales && !(n==5120 && k==6144)) ||
      (sidecar && scales && k==17408 && (!scale6 || scale_base>192))) return cudaErrorInvalidValue;
   (void)cudaGetLastError();
   auto s=static_cast<cudaStream_t>(stream);

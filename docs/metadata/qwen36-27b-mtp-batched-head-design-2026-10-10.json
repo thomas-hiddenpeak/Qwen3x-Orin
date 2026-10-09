@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-10",
+  "work_package_id": "WP-MTP-BATCHED-HEAD-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v24",
+  "source_base": "e8d0f53506c287d3ab576e4585beab69026f250d",
+  "profile": "q3x.sm87.admission.mtp-batched-head-api.v27",
+  "product_target": "1.5x\u20133x complete committed Decode, unchanged",
+  "budget_seconds": [
+    18.45,
+    21.62
+  ],
+  "scope": "Whole vocabulary finalization of all verified rows, composed with retained v25; no decoder/layout variant",
+  "origin": "Matched 40K target+draft lm-head GPU duration 2.29999552 seconds across 523 calls. Current target finalization reads same head separately per row. Prior persistent-operand composition bundled batched head with slower FP8/NV changes; its result did not isolate this dependency.",
+  "ceiling": "Even eliminating all measured target+draft head time cannot alone close the target; this one API composition tests a bounded independent prerequisite, not a substituted success criterion.",
+  "implementation": "Reuse earlier exact persistent canonical NVFP4 head consumer only for N248320/K5120/M2..4. Stage all normalized rows in existing dead projection-0 scratch, compute all full-vocabulary logits together, then copy complete rows to immutable slots and retain individual finite/argmax checks. All transformer projection consumers remain v25.",
+  "equivalence": "Original K subsequences, four FP32 FMA chains, chain merge and warp tree, tensor scale, BF16 rounding and earliest-index finite argmax. Staged input shared per CTA and weights decoded once for M rows; no approximation.",
+  "ownership": "No new allocation or weight owner. CTA shared at most 42048 bytes. Output uses at most 1986560 bytes of dead C512 projection-0. Smaller arenas select original scalar before enqueue. Once batched enqueue begins no fallback.",
+  "source_translation": "Reuse native frozen persistent-source target-head dependency based on production activation-staged lm-head; no upstream source import or new ISA assumption.",
+  "checks": [
+    "Full-vocabulary M2/3/4 outputs and guards with finite/NaN codes",
+    "P65 complete prefix/full logits and transaction/recovery oracle",
+    "Immediate P65/8K/40K d2 API; d3 only useful d2 direction"
+  ],
+  "bounds": "One composition, at most one correctness repair; no head grid/layout/decoder scan. >3% regression versus v25 stops; neutral composition removed. Positive dependency must return at next full verifier API composition.",
+  "production_changed": false,
+  "artifacts": ".q3x-work/mtp-batched-head-20261010"
+}

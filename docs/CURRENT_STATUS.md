@@ -54,7 +54,41 @@ Decode token/s convergence target are not claimed achieved.
 
 ## MTP development status
 
-The current isolated source composes retained v7 target verification with
+The current isolated source adds exact batched target vocabulary finalization to
+the retained ordered-draft composition, profile
+`q3x.sm87.admission.mtp-batched-head-api.v27`, ELF
+`22b7ae45b8bb19fe602b6a5026f60d7d7989dbc7209a8ca2b8f426d94508f83e`.
+The [batched-head direction](metadata/qwen36-27b-mtp-batched-head-direction-2026-10-10.json)
+passes full-vocabulary synthetic equality, complete P65 prefix/state/logit and
+transaction/recovery checks, and eight API/lifecycle requests for each draft
+length. All sixteen successful responses match the same non-MTP baseline.
+Transformer kernels, numerical boundaries and the production artifact remain
+unchanged. Existing dead scratch supplies batched logits without an allocation.
+
+One fresh process per policy on 2026-10-10 reports the following direction
+observations. Prefill includes draft initialization; Decode includes the full
+controller/observer interval after the first token. These are not mirrored
+means, statistical architecture selection or release qualification.
+
+| P / O | Policy | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 65 / 16 | d2 | 0.894 | 72.70 | 0.913 | 11.076 | 2.267 |
+| 8192 / 256 | d2 | 17.225 | 475.60 | 17.247 | 11.984 | 38.525 |
+| 40000 / 256 | d2 | 92.626 | 431.85 | 92.661 | 9.090 | 120.715 |
+| 65 / 16 | d3 | 0.894 | 72.68 | 0.913 | 8.901 | 2.598 |
+| 8192 / 256 | d3 | 17.292 | 473.76 | 17.314 | 10.299 | 42.074 |
+| 40000 / 256 | d3 | 92.783 | 431.12 | 92.818 | 8.034 | 124.559 |
+
+D2 verification decreases by approximately 0.65/0.68 seconds at 8K/40K with
+identical work and acceptance counts. D2 Decode ratios versus the non-MTP
+anchor below are about 1.301x/1.156x. **The 1.5x–3x objective remains unmet.**
+D3 remains slower than d2. This useful direction remains a bounded development
+dependency for the next complete verifier composition, with no production
+switch or qualification-only campaign. [Roadmap](ROADMAP.md) owns its expiry.
+
+### Preceding ordered-draft direction
+
+The preceding isolated source composes retained v7 target verification with
 exact ordered draft GQA under `q3x.sm87.admission.mtp-draft-ordered-api.v25`,
 ELF `75fedc5a94c6d381071b6bce8e247d54e49d1afb8d03e6e8e45b0288ee84a4e0`.
 The [ordered-draft direction](metadata/qwen36-27b-mtp-draft-ordered-composition-direction-2026-10-10.json)
