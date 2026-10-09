@@ -180,8 +180,9 @@ bounded bottleneck reset, rejected persistent/independent-CTA compositions,
 closed certificate feasibility gate and rejected asynchronous packed-feed
 composition, followed by rejected bounded-reduction/sparse-repair and streamed
 certificate compositions, rejected direct-fragment successor and rejected partitioned
-execution/compact-repair composition and rejected shared multi-query KV successor, followed by closed exact PV work elimination without retention and the active
-startup-owned NVFP4 pair-layout composition.
+execution/compact-repair composition and rejected shared multi-query KV successor, followed by closed exact PV work elimination without retention and the rejected
+startup-owned NVFP4 pair-layout composition, including removal of its earlier
+pack/check prerequisite.
 The registered set and classes are unchanged.
 
 ## Integrity check

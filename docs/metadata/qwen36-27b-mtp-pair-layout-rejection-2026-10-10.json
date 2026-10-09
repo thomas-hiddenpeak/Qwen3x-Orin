@@ -1,0 +1,334 @@
+{
+  "date": "2026-10-10",
+  "decision_unit": "architecture_candidate",
+  "work_package_id": "WP-MTP-PAIR-LAYOUT-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v18",
+  "decision": "reject startup-owned pair layout after negative P65 API direction; remove complete composition and pack/check prerequisite",
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "production_changed": false,
+  "source_snapshot": ".q3x-work/mtp-pair-layout-20261010/source",
+  "source_hashes": {
+    "base_git": "97cf25cdebf4b174589771eab585b19a61035b20",
+    "build_option": "Q3X_BUILD_MTP_PAIR_LAYOUT_ADMISSION=ON for both service and whole-core oracle",
+    "files": {
+      "source.patch": "25a3b19d0dbcf7a762c44519748941cfe98533e01dc8fd24d233487d5431a118",
+      "CMakeLists.txt": "65e6ac9a9e152ace016b5843749a31255a33f227d08e1224ec055c4c98191582",
+      "server": "5f31f61c1e9fc614a7581a53cd4ba7a392d79b434dd051aa4252ef7274bca8e2",
+      "tools/evaluation/validate_mtp_service.py": "c660a4aef18365e058ef7491794174da8ed6605dc6767738682a39ea5cf201c2",
+      "src/server/evaluation_server.cpp": "30849bf04399ecc93c4b51a5e1e96f0c46ed2a5061cf660c636602fc50e8d41e",
+      "src/runtime/mtp_verify_projection_internal.cu": "61b8e319a495f33f6c9cede20d715008085935569b87b53c6232fdb605a0acd3",
+      "src/runtime/mtp_device_internal.h": "3ab77c4334888eb0e01b71d421beca2612112976a7e37a337513b1dc3ede4269",
+      "src/runtime/mtp_verify_internal.cpp": "50543c6f398410036aab0a1ca4c532dbff6dcb2341b579c7daed05e55f83572d",
+      "src/runtime/reference_engine.cpp": "55ca84d61dc377ac6b13d6ff1035f1ce57ff06d5e059f1c55f843dfbdc904cdf",
+      "src/runtime/mtp_pair_layout_internal.h": "6b301794dd29b7aac083e4ed1475a89923c0d440bd9b1a736b10d181cf7eb424",
+      "src/runtime/mtp_service_internal.cpp": "ec5898eae54671870955895bdda32a1219572613aadc615e3f9eb68be2a149f0",
+      "src/runtime/mtp_device_internal.cpp": "a3a5106e9ef58a118732a7844859226a97498ffe7667ef7623536d69e3452321",
+      "include/q3x/server/evaluation_server.h": "00adf7c59e518173310a0f67a5d1e714564258bf13c76dbbfdbf8f9db28d205e"
+    }
+  },
+  "design_prerequisite_commit": "97cf25cdebf4b174589771eab585b19a61035b20",
+  "rollback_source": "466626b",
+  "profile": "q3x.sm87.admission.mtp-pair-layout-api.v21",
+  "api": {
+    "scope": "completed P65 only; incomplete API/lifecycle panel",
+    "output_and_accounting_equal": true,
+    "route_and_inventory_pass": true,
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8848980809999999,
+        "prefill_tps": 73.4547869360788,
+        "ttft_s": 0.9035948207601905,
+        "elapsed_s": 2.351180251687765,
+        "decode_tps": 10.361005796571757,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-pair-layout-v21",
+          "private_nvfp4_layout": "nvfp4-output-pair-k256-v1",
+          "private_nvfp4_bytes": 9625927680,
+          "draft_length": 2,
+          "startup_free_bytes": 9728929792,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "draft_initialization_ms": 5.725185,
+          "draft_ms": 124.293726,
+          "verify_ms": 1290.9135549999999,
+          "reconcile_ms": 26.258149000000003,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ]
+  },
+  "driver_result": {
+    "returncode": -2,
+    "early_stop": true
+  },
+  "direction": {
+    "stage": {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8848980809999999,
+      "prefill_tps": 73.4547869360788,
+      "decode_tps": 10.361005796571757,
+      "ttft_s": 0.9035948207601905,
+      "elapsed_s": 2.351180251687765,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-pair-layout-v21",
+        "private_nvfp4_layout": "nvfp4-output-pair-k256-v1",
+        "private_nvfp4_bytes": 9625927680,
+        "draft_length": 2,
+        "startup_free_bytes": 9728929792,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 5.725185,
+        "draft_ms": 124.293726,
+        "verify_ms": 1290.9135549999999,
+        "reconcile_ms": 26.258149000000003,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    "early_stop": true,
+    "retained_v7_decode_tps": 10.71706385,
+    "reason": "completed API direction below retained implementation; no further qualification"
+  },
+  "runs": {
+    "synthetic": {
+      "path": ".q3x-work/mtp-pair-layout-20261010/synthetic",
+      "sha256": {
+        "cache-preparation.json": "061f962b09df149f26766968ddbd4a4fbbe827b76dfad086d3a4e95a6c0b850f",
+        "preflight-console.log": "d3a48d84594d3b613b05075ddd0aedce1d7a2185587c1d111747321f6ef95f21",
+        "preflight.json": "dd34787abe217e9779f414f872f634188ac228895d179b0450a574707b64ade7",
+        "result.json": "b9f708c0ab6521fd143e0412346fcbaa22020738571b0e1aea0ca0113f316c68",
+        "run.log": "66820ddce52fb1278fc75405828990d692b75d9fdfbc72f15b7270cea8de457b"
+      },
+      "result": {
+        "returncode": 0,
+        "binary_sha256": "e1ea270b7e0dafccf565d5f60be9ebaf6503f04167b28f707e758b5564371910",
+        "scope": "T1 exhaustive payload permutation for both projection shapes, guards, invalid spans and corruption detection only; no performance authority"
+      }
+    },
+    "consumer-synthetic": {
+      "path": ".q3x-work/mtp-pair-layout-20261010/consumer-synthetic",
+      "sha256": {
+        "cache-preparation.json": "76f3fb158400ce02d83ad59351b1e8cadff71c5e1614b75ff8c7fd1987ccc5be",
+        "preflight-console.log": "467ddb02c95d6c1045b2cbbd0de9d98fcd21649bad8555440f39430e78e8316e",
+        "preflight.json": "d00a0bbf96428479dc8f689ff3e1c1c2a4ca9ca9eda46c893c9e0a137ed842fb",
+        "result.json": "a09b63c4dce27a4e42a6805b825c0f40a094b73f1e011626597bb00293a19c71",
+        "run.log": "ce5dae89f3b4a1df2eeb0af5003af632f31b10ef1dda205f033878b1f362650a"
+      },
+      "result": {
+        "returncode": 0,
+        "binary_sha256": "a23bf231f3b454d73b4f04f3ccf35546af3c46af137d6e04fdc1e0219c5bb7df",
+        "scope": "T1 exact pair consumer against canonical four-output tree, complete M2/M3/M4 outputs at both shapes; no performance authority"
+      }
+    },
+    "oracle-p65": {
+      "path": ".q3x-work/mtp-pair-layout-20261010/oracle-p65",
+      "sha256": {
+        "cache-preparation.json": "b0b0a20e9e7726b32656cc15d456a9d474c6bfb18e20838cc9f29bd6d8c532d8",
+        "cleanup.json": "0d80905964d3a74fb815c09438539001c050971133429812dd0f520a6b84d3ba",
+        "draft-prefill-hidden.bf16": "9c5811b3536f493466a8699092f6fd0bd624227239cd1acee52e7e0182666efb",
+        "draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+        "draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+        "identity.json": "bf71e57493b142f65674aeae4fc2c755a6763757885af713260f6723022e58da",
+        "preflight-console.log": "3dfec8384095a4e6fc3908005d227376b9c787ab20bcd26f7b73d9c72738e8d5",
+        "preflight.json": "fc36bd01aecedd472ff6cb7bf0be8c3a9fb1d81c89b1fe8903df6b5497b90c3d",
+        "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "q3x_mtp_whole_core_test": "531883d5049ecfc225ad480c8f068fa28e343b737f191ab008d04958fd7ca65f",
+        "run.log": "e838de4e286e76fc62a203c1d4c8590cc71fb61ca285e4390152e0c634680aea",
+        "target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+        "target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+        "telemetry.log": "716c281a594b46349024d87764e30daf412f3dce4ab9adabfa9cc61f4260b185"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-pair-layout-20261010/oracle-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-pair-layout-20261010/oracle-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-pair-layout-20261010/oracle-p65"
+        ],
+        "binary_sha256": "531883d5049ecfc225ad480c8f068fa28e343b737f191ab008d04958fd7ca65f",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "97cf25cdebf4b174589771eab585b19a61035b20",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 70.281
+      }
+    },
+    "oracle-p8192": {
+      "path": ".q3x-work/mtp-pair-layout-20261010/oracle-p8192",
+      "sha256": {
+        "cache-preparation.json": "af27de106410d91270b1b06c90ee9e9ecd98ad89ca5711c87ad7a57d208271a9",
+        "cleanup.json": "6dee5793ae15e0a60624b073a21f62554c212d005e1f1ee54fb0169cebace235",
+        "identity.json": "ec7e77a7787d2125aa7ba70a29186c336db1fc000cb17f6ceba07ae8936761b8",
+        "preflight-console.log": "6eda1fcb5b38848a9e766e88c13af2cf8481dfc11db680e88e527ef2b1b01275",
+        "preflight.json": "3d2fcebfdbf93bda375830c00d82459f6b0b68fe8562bd836c29e7743e9d91ab",
+        "prompt.u32": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+        "q3x_mtp_whole_core_test": "531883d5049ecfc225ad480c8f068fa28e343b737f191ab008d04958fd7ca65f",
+        "run.log": "99d23925434f34f1debf76b11f41966e3eb2493736cadde1d132d270586638dd",
+        "telemetry.log": "1e0093c754f40a5039f74fd8eed53b503f706f647fea5d093584803d84fe3217"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-pair-layout-20261010/oracle-p8192/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-pair-layout-20261010/oracle-p8192/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-pair-layout-20261010/oracle-p8192",
+          "--prefix-only"
+        ],
+        "binary_sha256": "531883d5049ecfc225ad480c8f068fa28e343b737f191ab008d04958fd7ca65f",
+        "prompt_sha256": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "97cf25cdebf4b174589771eab585b19a61035b20",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 79.468
+      }
+    },
+    "d2": {
+      "path": ".q3x-work/mtp-pair-layout-20261010/d2",
+      "sha256": {
+        "cache-preparation.json": "2f2f92821b43343108d044f4ab52b95b9c58d1174192b6fccf75d3d1627b4d61",
+        "cleanup.json": "2ba57295b3826b91a290dfdd949018407483993e335a4f6391e4ab7f7bd22e59",
+        "completed-stage-audit.json": "5e0763062c6211a52d678ce757d2461b5381752cf66a08cc39ba653deec3fc36",
+        "health.json": "2d5de244fc89790086bca13493f6bf750e32e3159d8cc1ab12b9ae0cdaf195f8",
+        "identity.json": "d3295d32e541fbe5ea302c5925af7d314e38c696966599aa1da85ed0181ee907",
+        "p65.json": "ac6967ee9eecdef5d2e1792f48d1757e766fb02f63aaf8868a6bdb518eb1306f",
+        "preflight-console.log": "47b2720ac474b026434a82cb95e0080f01d99c615ce335f26c21a855884b1a8b",
+        "preflight.json": "465374f62861e591cc37ea05742fbad3ab271d3ce7dfb886d1f1a02ed732cafb",
+        "results.json": "73fbd226efff04d120e1664a3f4541c8fd7af8a2b4ddff5761198226d51b0e85",
+        "server.log": "adf043bf9a3ac2e8c1a5c2cf042661c992f25261fecace36aeae11b61c8d857f",
+        "telemetry.log": "c5180bf69ee27f4d026e2bdd2ef1902a1e503e0e114c9d1d41b64322aa7dced5"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-pair-layout-20261010/source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-pair-layout-20261010/d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "5f31f61c1e9fc614a7581a53cd4ba7a392d79b434dd051aa4252ef7274bca8e2",
+        "draft_length": 2,
+        "driver_sha256": "c660a4aef18365e058ef7491794174da8ed6605dc6767738682a39ea5cf201c2",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "97cf25cdebf4b174589771eab585b19a61035b20",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": false,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 66.406
+      }
+    }
+  },
+  "numerical": {
+    "synthetic": "Both complete 50,135,040-byte layouts pass independent host byte permutation, guards, malformed spans and corruption detection. Consumer M2/M3/M4 matches canonical four-output verifier bitwise on both shapes. No timing authority.",
+    "real_model": "P65 passes nine complete M2/M3/M4 prefixes, eleven transactions, nine initialization tails/canaries, two initialization-cancel recoveries and two injected-failure recoveries. P8192 passes all nine complete prefixes.",
+    "repairs": "No numerical repair. Initial configure allowlist omission and unsigned** cudaMalloc compilation errors fixed before real-model execution; original and corrected build logs retained."
+  },
+  "resources": {
+    "private_arena_bytes": 9625927680,
+    "replaced_nv_sidecar_bytes": 9000632320,
+    "net_additional_bytes": 625295360,
+    "retained_fp8_sidecar_bytes": 2013265920,
+    "startup_free_bytes": 9728929792,
+    "registers_M2_M3_M4": [
+      56,
+      68,
+      72
+    ],
+    "shared_bytes": 1088,
+    "stack_bytes": 0,
+    "local_bytes": 0
+  },
+  "limitations": [
+    "One-process P65 direction only, not repeated performance selection or release qualification.",
+    "8K API interrupted at Prefill after negative P65; no 8K/40K/d3 performance or complete lifecycle panel. P8192 oracle is correctness only.",
+    "Short Decode 10.361 versus retained v7 10.717 triggers predeclared -3% early-stop. No claim of statistically qualified regression or long-context speed.",
+    "Address coalescing is not a hardware-counter or DRAM-traffic claim. No profile required after negative direction.",
+    "Oracle final human-readable variant label remains historical; frozen ELF/source and explicit pair build flag identify actual tested path.",
+    "All pair owner/consumer/build/auditor paths and previously committed pack/check prerequisite removed; incumbent v7 and installed production unchanged. The 1.5x–3x target remains unmet."
+  ],
+  "artifact_hashes": {
+    ".q3x-work/mtp-pair-layout-20261010/build-consumer-test.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-pair-layout-20261010/build-oracle-r2.log": "c96e500da14a07c27823b132520dfcc63efa8608d99198bf533d06863483916f",
+    ".q3x-work/mtp-pair-layout-20261010/build-oracle.log": "f8cdeeefeff61360c0ce8fb7c8db0e87505e3f343716548be4f921cc68605618",
+    ".q3x-work/mtp-pair-layout-20261010/build-pack.log": "a3549a657ad39a697ab76b2e1fa0d1451e7a349b34f9e735fc9f529e81961469",
+    ".q3x-work/mtp-pair-layout-20261010/build-service-r2.log": "8a90ceb96a57a881f7ca410d046aa54a7f141320de1dd181be1933a961c8453b",
+    ".q3x-work/mtp-pair-layout-20261010/build-service.log": "5eba957990c79a80d2adb99798a5d0a5a5fa61046a7566f9b45a17b891f9abe9",
+    ".q3x-work/mtp-pair-layout-20261010/build-test.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-pair-layout-20261010/configure-oracle.log": "a203e1a00bbe095a2ebcf5508a538f1172fb649f6605785b47253f5a99f5f698",
+    ".q3x-work/mtp-pair-layout-20261010/configure-service-r2.log": "37d3dd460583706906a6ee2122ba9b22c4b1ba4d17aff3e05426aee917fcedc3",
+    ".q3x-work/mtp-pair-layout-20261010/configure-service.log": "a957873cd9654e788991c42980cf13e3f5d68d5819b82c247008badbb0cb7d8f",
+    ".q3x-work/mtp-pair-layout-20261010/consumer-test": "a23bf231f3b454d73b4f04f3ccf35546af3c46af137d6e04fdc1e0219c5bb7df",
+    ".q3x-work/mtp-pair-layout-20261010/consumer-test.cu": "ec416b0ed19d3544982a9a55ebaf28c3198988213d9999449b073dea19ec0258",
+    ".q3x-work/mtp-pair-layout-20261010/d2-direction-decision.json": "d40ce7c5601460f0d8c1b26644a030f2670bd0d33e741a89af5bb40f60df37c0",
+    ".q3x-work/mtp-pair-layout-20261010/d2-driver-result.json": "f346bf26f91708c8234ef60ac8945a4a99d849ac062a0919d5f0e8ccdced60e4",
+    ".q3x-work/mtp-pair-layout-20261010/d2-driver.log": "532a72818b5f4e103f17eb140c580284e90bb85a228800b85aba328afb5e7a1e",
+    ".q3x-work/mtp-pair-layout-20261010/d2-process.json": "68cd31a51fe27c30fad61205c0b5eebb6eb5b9bf6a25c4552f4e49aaa7ca9896",
+    ".q3x-work/mtp-pair-layout-20261010/layout-audit.json": "cf6452945f6c3ede965c866f395fefa40c2af3caeffba4fd9d88bd016cd1484a",
+    ".q3x-work/mtp-pair-layout-20261010/layout-audit.py": "5a56ecd4d2dd872fe20aee4779c732893b5684a76365c57486bf48de67727787",
+    ".q3x-work/mtp-pair-layout-20261010/oracle-p65-driver.log": "863e68dd9bad4075758f97bb71b084abcb9df6122170e4c3506f8e019588f215",
+    ".q3x-work/mtp-pair-layout-20261010/oracle-p8192-driver.log": "038b821b886de17565f0742c54042ba6f71db145d1137ae09f84ebd6170485da",
+    ".q3x-work/mtp-pair-layout-20261010/pack-test": "e1ea270b7e0dafccf565d5f60be9ebaf6503f04167b28f707e758b5564371910",
+    ".q3x-work/mtp-pair-layout-20261010/pack-test.cu": "d2d415b952b8c1f6711aabaea2a992fa586da23f9becc6797eb8ec3433a3079a",
+    ".q3x-work/mtp-pair-layout-20261010/resources.log": "076d2242b9c22a5aeb3fbd16fa4b76836d1cbbb1b9ed3ab65b23eeca4b5e5f8b",
+    ".q3x-work/mtp-pair-layout-20261010/run-api.py": "24b16ecf05c6039fdb9d118178b89770a50ab495413f2b653d33979f8dac3f54",
+    ".q3x-work/mtp-pair-layout-20261010/run-oracle.py": "ba186eab2bf9b9fd64c1445872493983f0351b9d556746faaceb05871cab58a0",
+    ".q3x-work/mtp-pair-layout-20261010/complete-candidate.patch": "dfccc926d4e1dda6a2ea8c1d3743d6c67f731f7437d4a995f74a6216060ec7c6",
+    ".q3x-work/mtp-pair-layout-20261010/configure-service-rollback.log": "37d3dd460583706906a6ee2122ba9b22c4b1ba4d17aff3e05426aee917fcedc3",
+    ".q3x-work/mtp-pair-layout-20261010/configure-oracle-rollback.log": "a203e1a00bbe095a2ebcf5508a538f1172fb649f6605785b47253f5a99f5f698"
+  },
+  "complete_patch_base": "466626b",
+  "closeout": {
+    "host_tests": "mtp_control, mtp_weights, reference_engine_control: 3/3 pass; binaries unchanged by source rollback",
+    "document_control": "86 registered, 1088 local links, zero errors; 7 unit tests pass",
+    "rollback": "Every task-owned mutable source verified against frozen source, then byte-restored to 466626b; private prerequisite header removed. Both experiment caches unset pair option.",
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "processes": "API driver and owned server/monitor exited; no live pair-layout test process remains. Existing control and unrelated monitoring preserved.",
+    "storage": "48 MiB retained inside workspace; filesystem has 399 GiB available; no worktrees created or removed."
+  }
+}

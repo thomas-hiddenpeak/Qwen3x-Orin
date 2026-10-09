@@ -755,10 +755,13 @@ oracle, uses canonical NVFP4. Ordinary production preparation is unchanged.
 The old and new owners may not coexist and consume the memory margin. Failed
 packing, checking, resource admission or construction releases partial private
 ownership and never publishes readiness. The [design record](metadata/qwen36-27b-mtp-pair-layout-design-2026-10-10.json)
-binds exact sizes and the source-only hypothesis. The private packer and canonical-payload checker are implemented and pass
-both full-size synthetic shapes, guards, invalid spans and injected corruption.
-They are not yet attached to a live transaction. Owner, consumer and API
-composition remain implementation obligations; no performance gain is established.
+binds exact sizes and the original source-only hypothesis. The complete
+owner/inventory/consumer composition subsequently passed full-size pack/check
+and consumer correctness, complete P65 transactions and all P8192 prefixes.
+The [pair-layout rejection](metadata/qwen36-27b-mtp-pair-layout-rejection-2026-10-10.json) closes it after negative P65 API direction despite valid output,
+route and startup reserve. All pair paths and the earlier pack/check
+prerequisite are removed. Frozen sources retain reproduction authority only;
+isolated v7 and the production non-MTP route remain unchanged.
 
 ## Checkpoint and draft model
 

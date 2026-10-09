@@ -19,7 +19,7 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-10-10 MTP startup-owned pair layout — active
+## 2026-10-10 MTP startup-owned pair layout — closed negative
 
 `WP-MTP-PAIR-LAYOUT-20261010` / `AC-MTP-GREEDY-v18` addresses the unchanged
 1.5x–3x objective and 18.45/21.62-second complete Decode budgets. The matched
@@ -47,10 +47,16 @@ P65/8K/40K d2/d3 API. No local timing or launch/layout scan precedes that return
 A neutral/negative API composition closes the version. This is a bounded
 attempt on the dominant projection budget, not a guaranteed target claim.
 Artifacts stay under `.q3x-work/mtp-pair-layout-20261010/`.
-The pack/check prerequisite now passes both full-size T1 layouts and the service
-build. It has no serving route or retention authority by itself. The next step
-is the single declared owner/inventory/consumer composition, followed directly
-by its real-model numerical and API gates; no additional local packer campaign.
+The [pair-layout rejection](metadata/qwen36-27b-mtp-pair-layout-rejection-2026-10-10.json) closes the complete owner/inventory/consumer composition. Both full-size
+T1 layouts/consumers, full P65 transactions and all P8192 prefixes pass. P65/O16
+d2 API output and accounting match, but Decode is 10.361 token/s versus retained
+v7 10.717, triggering the predeclared direction stop. P8192 API is interrupted;
+no 40K/d3 or complete lifecycle claim follows. Startup retains 9,728,929,792
+free bytes, so resource fit is not the rejection reason. All new runtime paths,
+including the previously committed pack/check prerequisite, are removed.
+The 1.5x–3x goal remains active and unmet. This closes the pair-layout version
+without a layout/grid scan; the next package must change the complete verifier
+execution architecture and return promptly to the same real API.
 
 ## 2026-10-10 MTP exact PV work elimination — closed without retention
 
