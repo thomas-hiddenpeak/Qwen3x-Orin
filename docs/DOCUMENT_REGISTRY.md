@@ -210,6 +210,10 @@ The projection-lifetime composition completes both API direction panels and
 updates the existing MTP SDD, Current Status and Roadmap;
 no Markdown path or classification changes.
 
+The bounded register-lookahead composition closes without retention after full
+d2 API checks; the existing MTP SDD, Current Status and Roadmap record removal
+and frozen evidence without changing Markdown paths or classes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

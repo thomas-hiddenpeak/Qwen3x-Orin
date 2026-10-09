@@ -86,6 +86,16 @@ not a statistical architecture selection or production switch. The
 obtains hardware counters for two real-input projection cells; its scope does
 not establish whole-model stall percentages or a hardware performance ceiling.
 
+The subsequent [register-lookahead direction](metadata/qwen36-27b-mtp-register-lookahead-rejection-2026-10-10.json)
+passes full numerical and all eight d2 API checks but is removed without
+retention. It observes only +0.46%/+0.30% Decode differences at 8K/40K versus
+v28 in one process, with no noise qualification and a 0.222-second longer 40K
+request. At 8K, Prefill is 17.292 s / 473.76 token/s, external TTFT 17.314 s,
+Decode 12.434 token/s and total 37.823 s; at 40K, 92.874 s / 430.69 token/s,
+92.909 s, 9.365 token/s and 120.140 s respectively. These rejected-candidate
+observations do not update the retained v28 table. D3 is not run, production
+is unchanged, and the 1.5x–3x objective remains unmet.
+
 ### Preceding batched-head direction
 
 The preceding isolated source adds exact batched target vocabulary finalization to

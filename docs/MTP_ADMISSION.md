@@ -986,6 +986,34 @@ implementation retains this composition with bounded dependency authority;
 there is no numerical waiver, statistical architecture selection or production
 switch. The full 1.5x–3x objective remains unmet.
 
+## Register lookahead composition v26
+
+FP8 uses fixed input-width instantiations for K5120 and K6144. Each original
+thread retains the current raw 16-byte four-output record plus one next record.
+The next K1024-strided weight load is issued before current codebook decoding
+and M-row FMA consumption; activations are loaded only for the current block.
+The first record precedes codebook readiness, and the final iteration performs
+no lookahead. Records are thread-private registers with no peer visibility,
+shared producer storage, inter-iteration barrier or global allocation.
+
+Canonical and output-sidecar addresses, cache operators, lookup swizzle,
+FP8 expansion, BF16 activation expansion and every original four-chain FMA
+subsequence remain unchanged. Final partial publication uses retained v28
+finalization. Tail validation admits only the existing fixed complete K shapes;
+no out-of-range prefetch or discarded speculative arithmetic is permitted.
+Static launch bounds preserve the incumbent M2/M3/M4 register-limited CTA
+floors of four/three/two; a spill fails admission instead of silently changing
+the execution cost. The candidate composes with all retained v28 mechanisms
+and preserves the complete scalar-prefix/full-logit and real API gates.
+
+The [completed direction](metadata/qwen36-27b-mtp-register-lookahead-rejection-2026-10-10.json)
+closes this executor without retention after complete numerical and d2 API
+checks. Compiler scheduling retains only partial overlap: canonical M3 next
+weight loads occur during current FMA consumption, not before its first FMA.
+All nine fixed instantiations have no spills, but API differences of only
++0.30% to +0.46% do not establish a useful gain. The described v26 executor
+is removed; isolated service remains v28. No d3 or further lookahead scan follows.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

@@ -19,6 +19,41 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP register lookahead — closed without retention
+
+`WP-MTP-REGISTER-LOOKAHEAD-20261010` / `AC-MTP-GREEDY-v26` responds to
+bounded real-input FP8 long-scoreboard evidence and the recorded current-block
+load/consume SASS. The [design](metadata/qwen36-27b-mtp-register-lookahead-design-2026-10-10.json)
+keeps the 1.5x–3x goal and 18.45/21.62-second complete Decode budgets. One
+fixed K5120/6144 executor issues the next raw weight record into registers
+before consuming the current one. It retains current activations, the original
+decoder/grid/FMA ownership, and the incumbent register-limited CTA floors.
+This changes producer/consumer overlap without the rejected shared packed
+ring's stores and per-tile barriers. No new layout, allocation or parameter
+scan opens; counter ratios are not projected API gains.
+
+The [MTP ledger](MTP_ADMISSION.md#register-lookahead-composition-v26) binds
+finite-precision and tail safety. One implementation plus at most one correctness
+repair passes static no-spill, full synthetic and P65 transaction admission,
+then returns immediately to P65/8K/40K d2 API versus frozen v28. Greater-than-3%
+regression stops; neutral/negative direction removes this executor. Useful
+direction unlocks d3 and retains only a bounded dependency through the next
+full verifier API return. Artifacts remain under
+`.q3x-work/mtp-register-lookahead-20261010/`; production stays non-MTP.
+
+The [completed direction](metadata/qwen36-27b-mtp-register-lookahead-rejection-2026-10-10.json)
+passes 42 complete synthetic cases, full P65 numerical/transaction admission
+and all eight d2 API/lifecycle requests. Work and acceptance counts match v28.
+Decode observes 12.434/9.365 token/s at 8K/40K versus v28 12.377/9.337:
+only +0.46%/+0.30% in one process, without measured noise separation. The 40K
+external total is 0.222 seconds longer. This provides no useful retention
+signal or statistically qualified speedup. All new runtime/profile/auditor
+paths are removed, restoring v28; d3 is not run. No register, pipeline, grid
+or qualification-only scan follows. The complete 1.5x–3x objective remains
+active and unmet. Retained v28 mechanisms have now reached their next API
+composition point; they remain development-only. Any successor must identify
+a materially different complete verifier response and its API return budget.
+
 ## 2026-10-10 MTP projection lifetime composition — API return complete
 
 `WP-MTP-PROJECTION-LIFETIME-20261010` / `AC-MTP-GREEDY-v25` composes

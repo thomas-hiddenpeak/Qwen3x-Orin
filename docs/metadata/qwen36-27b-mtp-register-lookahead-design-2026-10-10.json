@@ -1,0 +1,35 @@
+{
+  "work_package_id": "WP-MTP-REGISTER-LOOKAHEAD-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v26",
+  "decision_unit": "architecture_candidate",
+  "source_base": "1bf8da0",
+  "profile": "q3x.sm87.admission.mtp-register-lookahead-api.v29",
+  "goal": "1.5x\u20133x same-request committed Decode; exact target state/full logits, drafts 2/3",
+  "downward_budget": {
+    "complete_decode_8k_s": 18.45,
+    "complete_decode_40k_s": 21.62,
+    "v28_verify_8k_s": 18.002500222,
+    "v28_verify_40k_s": 24.314268104,
+    "v7_fp8_gpu_seconds": 7.446833344
+  },
+  "evidence": "Bounded real-payload FP8 NCU: 4.069 long-scoreboard cycles per issue, 0.489 issue per scheduler, no spills. SASS loads four current canonical weight words then current activations before FFMA; no next-block weight issue. This is component evidence, not whole-API stall attribution.",
+  "mechanism": "Fixed K5120/6144 FP8 native instantiations retain two raw 16-byte weight records per thread. Next K1024 record issues before current codebook/FMA consumption. Only weights look ahead; activations remain current to bound registers. No shared packed ring, cp.async barrier, decoder/layout/weight allocation change.",
+  "equivalence": "Identical immutable weight bytes/cache operators, swizzle and codebook, BF16 activation conversion, each four-chain K subsequence, merge/warp/eight-warp tree, scale and BF16 rounding. Only independent read timing and address constants change. Last iteration never reads past K.",
+  "resources": "Original 256-thread grids, shared codebook/partials; static launch bounds preserve incumbent register-limited CTA floors: M2 four, M3 three, M4 two. Reject spills at T0 rather than accept hidden local traffic. No global allocation or state change.",
+  "reference_transfer": "Pinned Marlin operand-lookahead/lifetime principle, translated to raw register records and exact SIMT rather than MMA. Prior shared-ring packed feed is distinct and remains rejected; no source imported.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs_max": 1,
+    "local_timing_variants": 0,
+    "new_profiles": 0
+  },
+  "validation": [
+    "Static resources and SASS issue order",
+    "Frozen-v28 full synthetic output/guard identity across FP8 shapes/layouts M2..4 with finite and NaN codes",
+    "Real P65 complete prefix/state/full-logit/transaction/recovery oracle",
+    "Immediate same P65/8K/40K d2 API versus frozen v28; >3% regression stops, neutral/negative removes lookahead. Useful direction unlocks d3"
+  ],
+  "composition": "Retain all v28 dependencies at this first API return; useful new wiring has bounded dependency authority through next full verifier API composition, not production selection",
+  "artifact_root": ".q3x-work/mtp-register-lookahead-20261010",
+  "production_unchanged": true
+}
