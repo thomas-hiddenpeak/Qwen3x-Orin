@@ -1,0 +1,246 @@
+{
+  "date": "2026-10-10",
+  "decision_unit": "architecture_candidate",
+  "work_package_id": "WP-MTP-REGISTER-CERTIFICATE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v14",
+  "decision": "reject direct-register fragment certificate composition after negative P65 API; restore v7",
+  "target_unchanged": [
+    1.5,
+    3.0
+  ],
+  "production_changed": false,
+  "binary_sha256": "421767b93117d492e1ae0b26b394b3162df253bb09e7328f785862e364d088a1",
+  "source_snapshot": ".q3x-work/mtp-register-certificate-20261010/source",
+  "source_hashes": {
+    "source.patch": "feba3e93c137fb7e68bff17bb115f3b77e02f9e0cb0b66ba838255d0cb0f01f6",
+    "CMakeLists.txt": "ee11d2fa9dfe91ea1a75f6e326345f89baecc4759263e40baa4cdfe8cebaba60",
+    "server": "421767b93117d492e1ae0b26b394b3162df253bb09e7328f785862e364d088a1",
+    "docs/DOCUMENT_REGISTRY.md": "17492cb9edbef2866a199fc157023ce2ea67ea05827821ae7c06f77c71d62965",
+    "docs/ROADMAP.md": "751431c324ae2cd1d28277c55b6ca6dc02359181e8ea33e193f687ab745f7901",
+    "docs/MTP_ADMISSION.md": "6a433b919a445f47941e2f06cb7c387d3a6160078e7373b6c1b916975338542b",
+    "tools/evaluation/validate_mtp_service.py": "753dd5f4ba2ee085766a452c3ae85a2e7de5071de36f0c8880152e2b8cdc1b09",
+    "src/server/evaluation_server.cpp": "f50e85ab855a7b995127eb4b91c8ecb422858f3ec514468dc8c4f5b87a34a439",
+    "src/runtime/mtp_device_internal.h": "cab28868046a58f73a8b03384e20dd92c40b24a02031984fab885495c1263b8e",
+    "src/runtime/mtp_certified_projection_internal.cu": "b1d7ea1d57905475d559cf8d1afb066e1e3c122db72b5fecb5515a1025813175",
+    "src/runtime/mtp_verify_internal.cpp": "408edc66053eacbf34ba1025eb89df0b012054df2068fc12cc7e5f219d5f91fc",
+    "src/runtime/mtp_service_internal.cpp": "40595977c4729eaca7f0044a97bb2eaaa4e41b180f6c80d6a64e46d933c22fd7",
+    "src/runtime/mtp_device_internal.cpp": "2dfc47fc92ff28d5c4505a444c54ed567996010d23ad3d7ea65e3f3ce83a2a4f",
+    "include/q3x/server/evaluation_server.h": "855ba106d00e689c166f73bd8e58eb15831774730b5ef69d67c88b2b31cc7e44"
+  },
+  "api_completed_stages": [
+    {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.887084847,
+      "prefill_tps": 73.27371245244593,
+      "decode_tps": 4.900593830927641,
+      "ttft_s": 0.905859696213156,
+      "elapsed_s": 3.9664538432843983,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-register-certificate-v17",
+        "draft_length": 2,
+        "startup_free_bytes": 10665984000,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_initialization_ms": 5.705228,
+        "draft_ms": 124.017946,
+        "verify_ms": 2904.1834030000005,
+        "reconcile_ms": 26.318316,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "profile": {
+    "authority": "T4 diagnostic; same-ELF completed P65/O16; not performance baseline",
+    "interval": "first certified activation preparation through last GPU kernel",
+    "span_s": 3.0736024320000004,
+    "groups": {
+      "prepare_activation": {
+        "calls": 2016,
+        "seconds": 0.007806880000000023
+      },
+      "direct_fp8": {
+        "calls": 1248,
+        "seconds": 0.6237222720000002
+      },
+      "exact_fp8_repair": {
+        "calls": 1248,
+        "seconds": 0.2850854079999999
+      },
+      "other": {
+        "calls": 8424,
+        "seconds": 0.5721943999999984
+      },
+      "direct_nvfp4": {
+        "calls": 768,
+        "seconds": 1.0735972479999993
+      },
+      "exact_nvfp4_repair": {
+        "calls": 768,
+        "seconds": 0.45195030399999997
+      }
+    }
+  },
+  "numerical": {
+    "synthetic": "All 65536 FP8 pairs and 65536 FP4-pair/scale combinations pass, checking 259080 finite values exactly including signed zero and exception flags; 30 complete projection cases pass including tiny, subnormal, Inf, NaN.",
+    "real_model": "Nine complete M2/M3/M4 prefix state/full-logit comparisons, eleven transactions, nine cache-tail/guard cases, two initialization-cancel and two injected-failure recoveries pass.",
+    "api": "Completed P65 response/body/usage/finish/DONE match baseline, route/accounting/reserve audited; same-ELF profile output also matches API."
+  },
+  "resources": {
+    "fp8_fast_registers": 46,
+    "nvfp4_fast_registers": 48,
+    "fast_shared_bytes": 12288,
+    "stack_bytes": 0,
+    "local_bytes": 0
+  },
+  "runs": {
+    "synthetic": {
+      "path": ".q3x-work/mtp-register-certificate-20261010/synthetic",
+      "sha256": {
+        "preflight.json": "c35f63cf0329e88bdb0f3fb36efd3ac0bc1a7b34c8c1ec8dc28e15698fd92243",
+        "cache-preparation.json": "5496a80acad31112d1056b1c1a5f53004278d41fcffbc77f175430776e28e214",
+        "result.json": "68aa0b46b81b59418c5fdcc959954ecf2149909f3639d0f1c3cd84d564ce0a62",
+        "run.log": "7d8fcff484d3c944051fdec0cd60a51d88c46cb34927d0287fa9985a371d90b2"
+      },
+      "result": {
+        "returncode": 0,
+        "scope": "synthetic correctness only; no performance authority"
+      }
+    },
+    "oracle-p65": {
+      "path": ".q3x-work/mtp-register-certificate-20261010/oracle-p65",
+      "sha256": {
+        "identity.json": "73be6f60c00d5a82977c850595609b1a3594d425c92284af8fd0831309945553",
+        "preflight.json": "1a576fe9fe8e1a1563264ac088b7633bee3376904d5ad9759201f2617751b7ba",
+        "cache-preparation.json": "59355751678614fcc4e0c9aa7cf41ff16583479ed39354966ffd48a992293e66",
+        "cleanup.json": "2f5b92353c3d68cf277762523f8f5fd7c281f90cf20a984cfe4f862616790498",
+        "run.log": "0709ed343a068d2479eea723fb3e0dcb87eba0cbfff0f7ff83130ca69a8609af"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-register-certificate-20261010/oracle-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-register-certificate-20261010/oracle-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-register-certificate-20261010/oracle-p65"
+        ],
+        "binary_sha256": "9137dfcd02ff7403d9fecec47360a945d7ae70958042a13dd20cc95108f2745b",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "59174a0beb37517f775ba077a3bab45bc5ccc3a2",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 70.5
+      }
+    },
+    "d2": {
+      "path": ".q3x-work/mtp-register-certificate-20261010/d2",
+      "sha256": {
+        "identity.json": "03bacda7dcc5e4f3244fef57c22c2c0e3565cf0a91a9c10e3ed2c95da7488e4d",
+        "preflight.json": "f9d7b185c7946423b0bfe301266d95373a46c3fd5f45b35f6249d31190db21cf",
+        "cache-preparation.json": "971b48c05de9da63625b13ea65a5e2a9ec5a2e47be63cb738ea60a186a6f00fd",
+        "cleanup.json": "05abfaf46279fef78b62d2b472c06476678f70b064b291e4f4a667713ff94829",
+        "results.json": "b94a0d7d34386db2663eefaaff1c04e1767778ac3351e4641ce2939589255ff0",
+        "p65.json": "77600b1dabae66bcecbf9c82ba0919c5e6021aaf449a81880b32ff22d1ee1710",
+        "server.log": "29a9428f86386ed368fa9a22c431aa8d6a603af0fa65b7d65731efa6e4bc757c",
+        "completed-stage-audit.json": "42879283f4ac77e5224dbe7ccb92ab2653404adfb741852321f7ca7ba9de8307"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-register-certificate-20261010/source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-register-certificate-20261010/d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "421767b93117d492e1ae0b26b394b3162df253bb09e7328f785862e364d088a1",
+        "draft_length": 2,
+        "driver_sha256": "753dd5f4ba2ee085766a452c3ae85a2e7de5071de36f0c8880152e2b8cdc1b09",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "59174a0beb37517f775ba077a3bab45bc5ccc3a2",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup": {
+        "success": false,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 65.687
+      }
+    },
+    "p65-profile": {
+      "path": ".q3x-work/mtp-register-certificate-20261010/p65-profile",
+      "sha256": {
+        "identity.json": "554223338aff0024b0014e77fb6a820d88f78a33194a0659ade62da770ca4c29",
+        "preflight.json": "521f7ca7ab5dcf8f3531e70bb586121babbeec164ed5096def86e98b70dcb35d",
+        "cache-preparation.json": "843f4ae2115757f0cf6f95f2b97c0b6746c80cf8033656000863b67f2087dab6",
+        "cleanup.json": "c9d13cf53447991d46fcbccbd795c791dffb169ee04d91f648c0f8f4b07dc133",
+        "results.json": "89a3e6f2c1258e843c47c1788a5da865b8da33a0fb793ccfa37105795d9949f6",
+        "server.log": "14f51407997c70e3343c4796507a02731aadc61ce63da5b5453be779560354ba",
+        "output-comparison.json": "6fee1fd9771fe9843e5969c5223ca63faa889fad96da327ba6222d72d90be85e",
+        "witness.json": "ff23b1a77073f32d292f6392c12fc2dd8d8c19e9616655c7d775316a79759e46",
+        "decode-breakdown.json": "8459c7ca095fd317b1ef53a2ac7edaaadd6216a8231007d2289c915ac78653ab",
+        "capture.nsys-rep": "b67b53c9232a1e76ef527c228d7efc2ef118213f1bbe455fc1074a27a8bd9bc9",
+        "capture.sqlite": "89a5176c14213259b8edbcd2973cd9969bd09c0b9f1230d0e8186a7a0fec24e8",
+        "kernel-summary.csv": "ce0b3bb4512b9426cdd0679bd3a9f4d78baf981c9a523878f1a3c5615245459e"
+      },
+      "identity": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-register-certificate-20261010/source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18871",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-register-certificate-20261010/p65-profile/api-key",
+          "--nvtx-phase-ranges",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "executable_sha256": "421767b93117d492e1ae0b26b394b3162df253bb09e7328f785862e364d088a1",
+        "git": "59174a0beb37517f775ba077a3bab45bc5ccc3a2",
+        "driver_sha256": "3744d15352b1940706bc43ec94979e16924cdd44bb7c4a0c4f43f0cd3e3ca225",
+        "fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "authority": "T4 diagnostic only; WP-MTP-REGISTER-CERTIFICATE-20261010; one same-v17-ELF completed P65/O16 d2 workload, distinguish direct-fragment execution, preparation and exact repair costs after rejection; not performance selection"
+      },
+      "cleanup": {
+        "server_returncode": 0,
+        "clock_errors": [],
+        "max_temp_c": 64.125
+      }
+    }
+  },
+  "limitations": [
+    "Single-process short direction only, no release or repeated speedup claim.",
+    "8K interrupted after negative P65; no 40K/d3 result. Driver SIGINT -2, owned server exits 0 without monitor errors.",
+    "T4 attributes kernel families only; no hardware-counter cause established.",
+    "All new paths removed, no change to production or retained v7. 1.5x\u20133x objective remains unmet."
+  ],
+  "test_sources": {
+    ".q3x-work/mtp-register-certificate-20261010/certificate-test.cu": "8acfddb56940b376ef73d2005012c9df51aa5728ffbee1b8f47a2395fe4a44d9",
+    ".q3x-work/mtp-register-certificate-20261010/certificate-test": "c376e11149c8fc82948cce29b1b147e1cfc8dee0110f44e3336184c7c71815b1",
+    ".q3x-work/mtp-register-certificate-20261010/run-oracle.py": "a83396c6d77b426562621917a1cb58bda532ef427a394287bb34cb1b2093bad4",
+    ".q3x-work/mtp-register-certificate-20261010/run-api.py": "8db61ee9dc68167d56999367149b1de3ea07812b693638d0923a08c35526e586",
+    ".q3x-work/mtp-register-certificate-20261010/profile-p65.py": "3744d15352b1940706bc43ec94979e16924cdd44bb7c4a0c4f43f0cd3e3ca225",
+    ".q3x-work/mtp-register-certificate-20261010/resources.txt": "ef7e2832dac72c441cf7d89730bf460197d9cabf896b32830f403e5df432d5a4",
+    ".q3x-work/mtp-register-certificate-20261010/d2-direction-decision.json": "2c67f1bfea3e36bc49845dbffcd1a52e2e77f7c59ebef362ae734606283bf37b",
+    ".q3x-work/mtp-register-certificate-20261010/d2-driver-result.json": "f346bf26f91708c8234ef60ac8945a4a99d849ac062a0919d5f0e8ccdced60e4"
+  }
+}

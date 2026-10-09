@@ -195,6 +195,14 @@ negative screen; 8K is interrupted and no 40K/d3 result is claimed. On-chip
 partial merging and smaller workspace are not sufficient for an API win.
 Retained v7, the production default and the unmet 1.5x–3x objective are unchanged.
 
+The [direct-fragment successor](metadata/qwen36-27b-mtp-register-certificate-rejection-2026-10-10.json)
+passes exhaustive pair conversion and complete P65 state/logit/transaction
+checks, but P65/O16 d2 remains slower: Prefill 0.887 s / 73.27 token/s,
+external TTFT 0.906 s, Decode 4.901 token/s and external total 3.966 s.
+A matched profile assigns 1.697 GPU seconds to fast fragments, 0.737 to exact
+repair and 0.008 to input preparation. The version is removed; 8K is interrupted
+and no 40K/d3 claim follows. Retained v7 and the unmet objective remain unchanged.
+
 ## Numerical baseline decision
 
 Legacy Prefill is retained as a regression comparator, **not model truth**.

@@ -179,7 +179,8 @@ and Roadmap, followed by draft matrix, rejected verifier compositions and the
 bounded bottleneck reset, rejected persistent/independent-CTA compositions,
 closed certificate feasibility gate and rejected asynchronous packed-feed
 composition, followed by rejected bounded-reduction/sparse-repair and streamed
-certificate compositions. The registered document set and classes are unchanged.
+certificate compositions and the rejected direct-fragment successor. The registered
+document set and classes are unchanged.
 
 ## Integrity check
 

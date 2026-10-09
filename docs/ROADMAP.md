@@ -19,6 +19,40 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP direct fragment delivery — closed negative
+
+`WP-MTP-REGISTER-CERTIFICATE-20261010` / `AC-MTP-GREEDY-v14` retains
+1.5x–3x committed Decode and 18.45/21.62-second complete Decode budgets.
+The rejected streamed executor still expands every weight into shared storage,
+then reads it back into matrix fragments. This successor replaces that entire
+operand path: one projection-wide guarded activation conversion publishes a
+bounded FP16 array; warps load canonical packed weights directly into the
+native MMA B-fragment coordinates and convert pairs in registers. No decoded
+weight tile, codebook lookup or per-K producer/consumer barrier remains.
+The pinned Marlin bit-field/pair conversion supplies the proven representation
+principle, with full bias restoration before multiplication. The certificate,
+zero-start K16 tree and exact sparse repair retain their numerical contract.
+This source-derived movement/instruction hypothesis is not a hardware-stall claim.
+
+One fixed implementation plus at most one correctness repair passes pair/code
+and complete P65 state/logit admission, then returns immediately to the same
+P65/8K/40K d2/d3 API in fail-fast order. Negative direction closes this version
+without a launch, shape or bound scan. Ordered draft GQA composes at that return.
+Activation/mask storage fits the existing 1-MiB post-Prefill borrow; no weight
+arena, reserve reduction or production switch is introduced. The detailed
+[MTP ledger](MTP_ADMISSION.md#direct-fragment-delivery-composition-v14) controls
+ownership. Artifacts stay under `.q3x-work/mtp-register-certificate-20261010/`.
+
+The [API rejection](metadata/qwen36-27b-mtp-register-certificate-rejection-2026-10-10.json)
+closes this composition after complete numerical admission: P65 d2 Decode is
+4.901 token/s versus retained v7 10.717. All new paths are removed. One bounded
+same-ELF profile assigns 1.697 GPU seconds to direct fragments and 0.737 to
+exact repair; input preparation is only 0.008 seconds. This is family-level
+attribution, not a hardware-stall diagnosis. No long-context/d3 qualification or
+feed/launch parameter scan follows. Any successor must address both the full-K
+executor and repair scheduling, retaining the same exact publication proof
+and prompt API return. The 1.5x–3x goal remains unmet.
+
 ## 2026-10-10 MTP streamed certified execution — closed negative
 
 `WP-MTP-STREAMED-CERTIFICATE-20261010` / `AC-MTP-GREEDY-v13` responds

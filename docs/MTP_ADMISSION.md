@@ -584,6 +584,39 @@ state/full-logit and transaction/recovery checks, and negative API direction.
 No new path or mask binding remains selected; frozen proof/source is evidence
 only. Retained isolated v7 and the production non-MTP route are unchanged.
 
+## Direct fragment delivery composition v14
+
+A projection-wide preparation kernel converts the same guarded BF16 inputs to
+scaled FP16 and upward residuals once, retaining eight rows (four target and
+four error, with unused rows zero). The complete array and one invalid flag
+precede the consumer on the same stream. They occupy aligned disjoint ranges
+after the output mask, within the 1-MiB borrowed workspace. Preparation and
+repair always consume original inputs; no target activation is overwritten.
+
+Each warp owns eight output channels. Lane group `lane/4` addresses the
+canonical weight row, and `2*(lane%4)` addresses two adjacent K operands;
+the second pair is eight K positions later. Those are the native m16n8k16
+column-major B-fragment coordinates. A fragments load the corresponding target
+or residual row directly from prepared storage, with the upper eight matrix
+rows explicitly zero. FP8 pairs restore the exact exponent bias with FP16
+multiplication by 256. FP4 pairs restore bias by 16384 before multiplication
+by the separately decoded exact FP8 block scale. Every finite result is exactly
+representable in FP16. Nonfinite codes poison the certificate and are sanitized
+only in untrusted fast operands. Original scalar repair remains authoritative.
+
+This transfers the pinned Marlin representation principle already studied in
+v7, but connects direct canonical loads to MMA registers rather than scalar
+SIMT or shared expanded tiles. No upstream source is imported. The zero-start
+K16 signed/absolute calculations, balanced carry tree, gamma bound, strict
+BF16-cell test and vector exact repairs stay unchanged. The original scalar
+full-prefix oracle and same-request API remain the selection boundaries.
+
+The [direct-fragment rejection](metadata/qwen36-27b-mtp-register-certificate-rejection-2026-10-10.json)
+closes this version. Exhaustive pair conversion, complete P65 state/logits and
+transaction/recovery checks pass, but real API direction is negative. The
+fast executor and repair both retain material cost. No new path remains
+selected; proof and source are frozen evidence, not production qualification.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
