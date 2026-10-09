@@ -1,0 +1,727 @@
+{
+  "date": "2026-10-09",
+  "source_base": "1022551",
+  "decision_unit": "architecture_candidate",
+  "work_package_id": "WP-MTP-SHARED-VERIFY-20261009",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v3",
+  "decision": "reject both projection replacements; preserve frozen evidence; restore v4 projection",
+  "target_decode_speedup": [
+    1.5,
+    3.0
+  ],
+  "production_changed": false,
+  "runs": {
+    "baseline": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/baseline",
+      "files": {
+        "results.json": {
+          "sha256": "a5ab6e61d2114b46999bc6618b0c6bf895fa3e8eca7be6b367c0fa82ce877d19"
+        },
+        "identity.json": {
+          "sha256": "fa2397838b284e83707928b70c26970dc3ce792cfb6105b30bd9feee800ab905"
+        },
+        "cache-preparation.json": {
+          "sha256": "b83fff24af78bf0ec3c7536bb43bca2edc9a637d88a1f072dc621e41a289071d"
+        },
+        "p65-nonstream.json": {
+          "sha256": "67126b962a2307d750039f1be3c22554e4b9ae598f8e662bcf701d7b1f1e707b"
+        },
+        "chat-stop.json": {
+          "sha256": "8d56a38dfac34cdec84b4b258a8fea5a2aef781b3df3488708f737661be56e18"
+        },
+        "health.json": {
+          "sha256": "79ccdd2b5f023fa1fef4968cf9318225bccc53aa54249c03e2eae4e6bb2144e9"
+        },
+        "p65.json": {
+          "sha256": "e3ef6f395af809b568a0dd81a876a2d799e3d77da27e11e74aa0da242f838bc2"
+        },
+        "cleanup.json": {
+          "sha256": "c6a0ce85a7939c9419889956d3024b87a2d7dc6516d18bdc95fb5b66f839c6e5"
+        },
+        "p8192.json": {
+          "sha256": "9f0451f3f4d2cbe70d2b89e557eb597239409b3b369d7b1e169dbc34d11ba104"
+        },
+        "p40000.json": {
+          "sha256": "40361d2b8ed76f072eac62a88a14a49041a1623a406d48ce011450d502d81445"
+        },
+        "after-prefill-cancel.json": {
+          "sha256": "37dd9f603e1a6a48df973b41641010c5622341584cbb93ba9979a0f05a2b27b8"
+        },
+        "preflight.json": {
+          "sha256": "ddf278dbed3033fe0c95316c4db76a5ca257c2b074b9e8899757a417e9f716d8"
+        },
+        "after-decode-cancel.json": {
+          "sha256": "72cc2493b44924af87d5b428f8685a8de83ef17408b6df06e909e2f3985fd0fe"
+        },
+        "raw-text.json": {
+          "sha256": "f15673267685a4b976551209c2982383913986ec2936438b54e5cd02363f5029"
+        }
+      },
+      "identity.json": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/install/industrialization-20260928/bin/qwen3x-eval-server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/baseline/api-key"
+        ],
+        "binary_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+        "draft_length": null,
+        "driver_sha256": "a587174ab33ee412fd69260ffdb101de898eff3f7687a1d3c683ccccb2b34685",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "1022551782ed5885ad8caf9db01e5117e1ace283",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup.json": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 78.281
+      }
+    },
+    "shared-oracle-p65": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/shared-oracle-p65",
+      "files": {
+        "identity.json": {
+          "sha256": "21f7eec7fbe800b01f139a0af6199d76b2e4bbf42afbe0f4b72312e995d92298"
+        },
+        "cache-preparation.json": {
+          "sha256": "4d2b7e0a45c749b917317bc5b2931e98baba1c42105bc98da66090b9508bea3f"
+        },
+        "cleanup.json": {
+          "sha256": "225ce13b127d6a2e1e3d51510afff6023794c2fe6857eca151c16a71d50ba140"
+        },
+        "preflight.json": {
+          "sha256": "90a4907f85b01c804d82c38c6a4d810fc5520423a081242e3990c19fa9060780"
+        }
+      },
+      "identity.json": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/shared-oracle-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/shared-oracle-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/shared-oracle-p65"
+        ],
+        "binary_sha256": "4e0be7a13c19cb325db13d26367db8445d91ad9ed4295d954e2647f91c80b7af",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "1022551782ed5885ad8caf9db01e5117e1ace283",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup.json": {
+        "returncode": 1,
+        "errors": [],
+        "max_temperature": 65.593
+      }
+    },
+    "shared-borrow-oracle-p65": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/shared-borrow-oracle-p65",
+      "files": {
+        "identity.json": {
+          "sha256": "82d62751b0138cad801972604f70c643dfd80d5eff07ed7a4aa9f6489181ecd2"
+        },
+        "cache-preparation.json": {
+          "sha256": "bcd166456d168985346574f4e4ce01cedd05de205e60d818c7c50b8a8f75588e"
+        },
+        "cleanup.json": {
+          "sha256": "e517fefcfd477282e05369351486e4e2bab2a19bbcd63bc859bcd73cae289828"
+        },
+        "preflight.json": {
+          "sha256": "ebbf8782bb7d1bf81ac18164562b717418156b3194a760aa96d22d8ac3b1d431"
+        }
+      },
+      "identity.json": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/shared-borrow-oracle-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/shared-borrow-oracle-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/shared-borrow-oracle-p65"
+        ],
+        "binary_sha256": "1a2a9d9721754b304f59684edab873b2fc50639d91ca439e6182656f0f13880a",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "1022551782ed5885ad8caf9db01e5117e1ace283",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup.json": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 69.531
+      }
+    },
+    "shared-oracle-p8192": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/shared-oracle-p8192",
+      "files": {
+        "identity.json": {
+          "sha256": "7cf861b38e02e0b4acc9727741752164fa41612a95dd1d47bfda9a935ee520fc"
+        },
+        "cache-preparation.json": {
+          "sha256": "c5a51adc6526ed220ca8cfa7d3b41cb949f97ac9ff68bc6d9ec5f000dc2363fc"
+        },
+        "cleanup.json": {
+          "sha256": "19bc978e6aa6efbbfd1b101ad9877982bf3e48ebd9deb46a420aa2856b5ac1f7"
+        },
+        "preflight.json": {
+          "sha256": "24cc66c5c6a1aed9b9a43fd72d765c79e14e3f70ac82583652b45810a9f951d0"
+        }
+      },
+      "identity.json": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/shared-oracle-p8192/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/shared-oracle-p8192/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/shared-oracle-p8192",
+          "--prefix-only"
+        ],
+        "binary_sha256": "1a2a9d9721754b304f59684edab873b2fc50639d91ca439e6182656f0f13880a",
+        "prompt_sha256": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "1022551782ed5885ad8caf9db01e5117e1ace283",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup.json": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 79.156
+      }
+    },
+    "shared-d2": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/shared-d2",
+      "files": {
+        "results.json": {
+          "sha256": "015989d3a97efc200f5a040317c563b98d05a1d9aad8973c346c6ef00c5105b5"
+        },
+        "identity.json": {
+          "sha256": "4c7363423db706b4ecf8647b8b00a8e873d21e65aeebcc550657fdeab9d3b719"
+        },
+        "cache-preparation.json": {
+          "sha256": "676c1c2b95327beedd4461beb22e30c1cc7a2921e425be56b5165bb6de522c3b"
+        },
+        "health.json": {
+          "sha256": "7cdbe6244d261f89b0bfddd42cabe59cd304e0f98df5ea5b35e1cb7bb8d8b713"
+        },
+        "p65.json": {
+          "sha256": "73bd3c149565d622c1a44fe0c39b2fbb9b178eb8113972b2dda98485f0677dfc"
+        },
+        "cleanup.json": {
+          "sha256": "3042b8f846ecb9cb1fdcedc0732c2f47416f3d72c69933d91400c4c80d89586d"
+        },
+        "p8192.json": {
+          "sha256": "27f8129433942b46e3d708fdb730ded05ace1604e9ed4d8ac5f6d5ba0b8ae5cb"
+        },
+        "preflight.json": {
+          "sha256": "c3d28bece0a789bb76268b502d60043aa1cb79432c93938b21a9fa590a3c15e1"
+        }
+      },
+      "identity.json": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/shared-borrow-source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/shared-d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "5bdbcaa3e537b3d5a60ee72b0b0ce29d952ac8279c2a750fe5ca0044018c8f65",
+        "draft_length": 2,
+        "driver_sha256": "8ea4bdac100b4ba3213a9d00ade4b62a88b5e50fdca64da474bf625843908b81",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "1022551782ed5885ad8caf9db01e5117e1ace283",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup.json": {
+        "success": false,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 79.593
+      }
+    },
+    "memory-diagnostic-p65": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/memory-diagnostic-p65",
+      "files": {
+        "identity.json": {
+          "sha256": "06ace2d132a7e9c18477d9171bdee2e77dd8c95b3ae46448ecb4d48b1d95a3fc"
+        },
+        "cache-preparation.json": {
+          "sha256": "6f45bc1fc53a09ca6dded3b96aef3b5eec8b6c743a2203e2b664c6cfa835f499"
+        },
+        "cleanup.json": {
+          "sha256": "b6ee43d174d12194ea0f88c57b23eeff88430371cee7d5f0fa4dd5a4c0862db2"
+        },
+        "preflight.json": {
+          "sha256": "28dd6aa7ed2137297185a00cf35d59600eb1a09215d3b28caba0f16f6020433a"
+        }
+      },
+      "identity.json": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/memory-diagnostic-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/memory-diagnostic-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/memory-diagnostic-p65"
+        ],
+        "binary_sha256": "c84e15b7da85caf23ecd226078d91aba78f5ca8640ab85594d83066e353811d5",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "1022551782ed5885ad8caf9db01e5117e1ace283",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup.json": {
+        "returncode": 1,
+        "errors": [],
+        "max_temperature": 62.562
+      }
+    },
+    "shared-profile": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/shared-profile",
+      "files": {
+        "results.json": {
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+        },
+        "profiler-command.json": {
+          "sha256": "f9bb7c1af5fcb8411bb3b753673740a72a2cb20cd67d7403ad2fa622947eb95c"
+        },
+        "identity.json": {
+          "sha256": "f93cf4b1ab30c1474a0a8be86c76bf361bd6eb7ddd4926fc77b35156a10c6aa6"
+        },
+        "cache-preparation.json": {
+          "sha256": "01bb30f0af75588ea689b36b68c7a58f1bd84c32c80ffc2901f50f5b286f9416"
+        },
+        "cleanup.json": {
+          "sha256": "1c9297f53565c2c74537f22af8a11d0a880b7c48cb65fddfaab09ac9273a7c02"
+        },
+        "process.json": {
+          "sha256": "1fc7390327cbf46552aeb6e20504b42db4975e2d1b540514d2210ce52f93803d"
+        },
+        "preflight.json": {
+          "sha256": "451b7ef9e4d5be3d65d7b89e2320f0b1a78faa8d5bc932a7f3716fca7c8ded1f"
+        }
+      },
+      "identity.json": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/shared-borrow-source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18871",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/shared-profile/api-key",
+          "--nvtx-phase-ranges",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "executable_sha256": "5bdbcaa3e537b3d5a60ee72b0b0ce29d952ac8279c2a750fe5ca0044018c8f65",
+        "git": "1022551782ed5885ad8caf9db01e5117e1ace283",
+        "driver_sha256": "e2ab81a7cf94394c5d71adeebc463c903e2fe772a59e8daff9f8a589ad6a5219",
+        "fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "authority": "T4 diagnostic only; same v5 ELF and completed P65/O16 d2 API; attribute shared-producer regression before the single bounded repair, one bounded profile; not performance selection"
+      },
+      "cleanup.json": {
+        "server_returncode": 3,
+        "clock_errors": [],
+        "max_temp_c": 72.218
+      }
+    },
+    "register-oracle-p65": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/register-oracle-p65",
+      "files": {
+        "identity.json": {
+          "sha256": "a6ba386a617e5bd01a41fe9617212fd786921e1207a4a9229963870a0403894e"
+        },
+        "cache-preparation.json": {
+          "sha256": "112251e78e4de266f0b6e28f832896203ecf12867f04a8ceab3561c2034fe3b0"
+        },
+        "cleanup.json": {
+          "sha256": "6e8a3cab3fb3b493222734c3be61c59145371a1aec6da98dcfb52bd25a5cfdb5"
+        },
+        "preflight.json": {
+          "sha256": "232582ffee110ac5a506a9dc051645d525592e347ae7672f8e1133494ed3a5dc"
+        }
+      },
+      "identity.json": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/register-oracle-p65/q3x_mtp_whole_core_test",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/register-oracle-p65/prompt.u32",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/register-oracle-p65",
+          "--prefix-only"
+        ],
+        "binary_sha256": "0416be5e914b2c35cb4a1b6d26e79cbca84dd3d6b6e7d4e3ba6f557a271aceb7",
+        "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+        "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "1022551782ed5885ad8caf9db01e5117e1ace283",
+        "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+      },
+      "cleanup.json": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 66.187
+      }
+    },
+    "register-d2": {
+      "path": ".q3x-work/mtp-shared-verify-20261009/register-d2",
+      "files": {
+        "results.json": {
+          "sha256": "53273a4282e45dafb4747917217c0b579beddacf364b51f5475fe91a3ade8aad"
+        },
+        "identity.json": {
+          "sha256": "9c986b8d67d432a9471cb9609a4deb6ac65f90d1ab065d3763979fdc728391d1"
+        },
+        "cache-preparation.json": {
+          "sha256": "52a064d16f0a7146d5d4c033e4cf7131d8b86128ceb1f685e6937ddaa7d1e4ba"
+        },
+        "p65-nonstream.json": {
+          "sha256": "93b4fbd9bdef8c7994d4c3b4b3a3c20fd88f93ae603a3727fb9a4faf87a90a21"
+        },
+        "chat-stop.json": {
+          "sha256": "408bfa5c109d95137a6e6c66bbfa118d6749e8b6eac24b5e14c4c85f41269461"
+        },
+        "health.json": {
+          "sha256": "cfdf770b5227e7e347c3597463cf423531a34fe9e4038988c1d4d6fb5f689d6e"
+        },
+        "p65.json": {
+          "sha256": "083d383c637d8c841bcd6eb7825f19c249d9ae9403a3d85402cc08fa23025419"
+        },
+        "cleanup.json": {
+          "sha256": "a02c9bba063d5383338229547d9b8e64d5498bc32bf0dab30b836aa71732a6b7"
+        },
+        "p8192.json": {
+          "sha256": "e10923d469072ef5893a48acde53264f67eeedf99d1cd29bcf42bd78fdafa0be"
+        },
+        "p40000.json": {
+          "sha256": "146b1d3e76cd42f15bd8d8e549c1d7a7ac608feca55b83f7f43b140ef2c6ad75"
+        },
+        "after-prefill-cancel.json": {
+          "sha256": "2a18e4acd05f55c6396d14c8527509769b72c67ffdbdb0b6d3a9d483de952db9"
+        },
+        "preflight.json": {
+          "sha256": "9261cbc9da9990ea4d747df265986d646af0eb695fb1cfe1b7b27e3924c6ea50"
+        },
+        "after-decode-cancel.json": {
+          "sha256": "34cf3fd2bb95f62155c76ac2815cdd24c67cdd31e8a6ee396f4fd8044e32550f"
+        },
+        "raw-text.json": {
+          "sha256": "e83dcf097740a9e644bb47164e3ca45af6ebfcc8506773b2a589c51eb94da1a4"
+        },
+        "audited-metrics.json": {
+          "sha256": "3d1ce929f9308d5bf1c9d25a6f91419ae009dc4e18ec72963f882353f6d9239d"
+        }
+      },
+      "identity.json": {
+        "command": [
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/register-source/server",
+          "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+          "--port",
+          "18872",
+          "--api-key-file",
+          "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/register-d2/api-key",
+          "--candidate-profile",
+          "whole-core-exact-decode"
+        ],
+        "binary_sha256": "023bf59527d2a8d75dead7001649433172bafa565e8a47bd5f4202e7e64cfbe1",
+        "draft_length": 2,
+        "driver_sha256": "c9c1f8f627d4535da258409c1e28a674cb4efefb3c268e5517845735f4cbd632",
+        "prompt_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+        "git": "1022551782ed5885ad8caf9db01e5117e1ace283",
+        "scope": "whole-service multi-row MTP direction; no release authority"
+      },
+      "cleanup.json": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 79.281
+      },
+      "audited-metrics.json": [
+        {
+          "label": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.901383738,
+          "prefill_tps": 72.11135198003761,
+          "ttft_s": 0.9199771881103516,
+          "elapsed_s": 3.0336853680200875,
+          "decode_tps": 7.096051140120337,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-register-verify-v6",
+            "draft_length": 2,
+            "startup_free_bytes": 9284390912,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "draft_initialization_ms": 23.489038,
+            "draft_ms": 196.43416000000002,
+            "verify_ms": 1870.614314,
+            "reconcile_ms": 40.490700000000004,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 19.569084025999995,
+          "prefill_tps": 418.61949129125793,
+          "ttft_s": 19.59129532519728,
+          "elapsed_s": 53.456456487067044,
+          "decode_tps": 7.529909713831221,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-register-verify-v6",
+            "draft_length": 2,
+            "startup_free_bytes": 9284390912,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 98,
+            "proposed": 196,
+            "accepted": 157,
+            "verified_rows": 294,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              71,
+              0
+            ],
+            "draft_initialization_ms": 2828.165146,
+            "draft_ms": 3408.250774,
+            "verify_ms": 29682.122151999993,
+            "reconcile_ms": 686.9999980000002,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 104.053448075,
+          "prefill_tps": 384.4178231476641,
+          "ttft_s": 104.08844487788156,
+          "elapsed_s": 146.24307875381783,
+          "decode_tps": 6.049372286840768,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-register-verify-v6",
+            "draft_length": 2,
+            "startup_free_bytes": 9284390912,
+            "prompt_rows": 40000,
+            "draft_prefill_rows": 39999,
+            "initialized": true,
+            "rounds": 105,
+            "proposed": 210,
+            "accepted": 150,
+            "verified_rows": 315,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              85,
+              65,
+              0
+            ],
+            "draft_initialization_ms": 13800.725225,
+            "draft_ms": 4537.175117000001,
+            "verify_ms": 36834.505402,
+            "reconcile_ms": 687.1678289999996,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "p65-nonstream",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.89703183,
+          "prefill_tps": 72.46119683400755,
+          "ttft_s": null,
+          "elapsed_s": 3.026466250885278,
+          "decode_tps": 7.106996473913449,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-register-verify-v6",
+            "draft_length": 2,
+            "startup_free_bytes": 9284390912,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "draft_initialization_ms": 23.132298,
+            "draft_ms": 195.692032,
+            "verify_ms": 1868.376562,
+            "reconcile_ms": 40.395688,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "raw-text",
+          "prompt": 5,
+          "output": 16,
+          "prefill_s": 0.8214148240000001,
+          "prefill_tps": 6.087058394748424,
+          "ttft_s": 0.8531833151355386,
+          "elapsed_s": 2.769730052910745,
+          "decode_tps": 7.825984219722984,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-register-verify-v6",
+            "draft_length": 2,
+            "startup_free_bytes": 9284390912,
+            "prompt_rows": 5,
+            "draft_prefill_rows": 4,
+            "initialized": true,
+            "rounds": 6,
+            "proposed": 11,
+            "accepted": 9,
+            "verified_rows": 17,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              6,
+              3,
+              0
+            ],
+            "draft_initialization_ms": 8.762241,
+            "draft_ms": 179.19892,
+            "verify_ms": 1691.661274,
+            "reconcile_ms": 40.438504,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "chat-stop",
+          "prompt": 20,
+          "output": 2,
+          "prefill_s": 0.82677144,
+          "prefill_tps": 24.190482438532225,
+          "ttft_s": 0.8448758609592915,
+          "elapsed_s": 1.1713817240670323,
+          "decode_tps": 3.062035891812932,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-register-verify-v6",
+            "draft_length": 2,
+            "startup_free_bytes": 9284390912,
+            "prompt_rows": 20,
+            "draft_prefill_rows": 19,
+            "initialized": true,
+            "rounds": 1,
+            "proposed": 2,
+            "accepted": 1,
+            "verified_rows": 3,
+            "committed_decode_tokens": 1,
+            "accepted_by_position": [
+              1,
+              0,
+              0
+            ],
+            "draft_initialization_ms": 10.641839,
+            "draft_ms": 32.616977,
+            "verify_ms": 290.365821,
+            "reconcile_ms": 2.702932,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "after-prefill-cancel",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.897271064,
+          "prefill_tps": 72.44187693987644,
+          "ttft_s": 1.1631600321270525,
+          "elapsed_s": 3.2738983132876456,
+          "decode_tps": 7.106320281383222,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-register-verify-v6",
+            "draft_length": 2,
+            "startup_free_bytes": 9284390912,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "draft_initialization_ms": 23.171595,
+            "draft_ms": 195.75475300000002,
+            "verify_ms": 1868.3102239999998,
+            "reconcile_ms": 40.470569,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "label": "after-decode-cancel",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.896833716,
+          "prefill_tps": 72.47720378969339,
+          "ttft_s": 1.2421726137399673,
+          "elapsed_s": 3.3528789579868317,
+          "decode_tps": 7.106532955821479,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-register-verify-v6",
+            "draft_length": 2,
+            "startup_free_bytes": 9284390912,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "draft_initialization_ms": 23.167435,
+            "draft_ms": 195.691779,
+            "verify_ms": 1868.3387020000002,
+            "reconcile_ms": 40.45351600000001,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ]
+    }
+  },
+  "limitations": [
+    "One fresh process per measured policy; engineering direction only, no repeated speedup claim.",
+    "v5 stopped after P8192; no P40000 or d3 qualification.",
+    "v6 completed all eight API/lifecycle requests for d2; d3 omitted after material regression.",
+    "No Nsight attribution: profiler failed startup reserve.",
+    "Code-level expanded-operand traffic explains a hypothesis, not measured stall attribution.",
+    "Batch Attention and memory reuse are numerically admitted dependencies, not independently selected performance winners."
+  ]
+}

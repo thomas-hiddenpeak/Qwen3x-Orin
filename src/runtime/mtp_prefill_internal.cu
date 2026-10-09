@@ -1,64 +1,54 @@
 #include "mtp_prefill_internal.h"
 #include <cuda_runtime.h>
+#include <cutlass/gemm/device/gemm.h>
+#include <cutlass/epilogue/thread/linear_combination.h>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 namespace q3x::runtime::mtp_detail {
 namespace {
-constexpr unsigned kBatch = kDraftPrefillBatch, kThreads = 256;
-__device__ float decode(std::uint16_t x) {
-  return __uint_as_float(static_cast<unsigned>(x) << 16);
+// One reduction mapping for full draft steps, live-KV appends and M1..32
+// initialization. This draft-only numerical identity is independent of the
+// target verifier's exact scalar FMA tree; no split-K or workspace is used.
+using Gemm = cutlass::gemm::device::Gemm<
+    cutlass::bfloat16_t, cutlass::layout::RowMajor,
+    cutlass::bfloat16_t, cutlass::layout::ColumnMajor,
+    cutlass::bfloat16_t, cutlass::layout::RowMajor,
+    float, cutlass::arch::OpClassTensorOp, cutlass::arch::Sm80,
+    cutlass::gemm::GemmShape<32, 128, 32>,
+    cutlass::gemm::GemmShape<32, 32, 32>,
+    cutlass::gemm::GemmShape<16, 8, 16>,
+    cutlass::epilogue::thread::LinearCombination<cutlass::bfloat16_t, 8, float, float>,
+    cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>, 3>;
+bool overlap(const void* a, std::size_t na, const void* b, std::size_t nb) {
+  auto x = reinterpret_cast<std::uintptr_t>(a), y = reinterpret_cast<std::uintptr_t>(b);
+  const auto max = std::numeric_limits<std::uintptr_t>::max();
+  return x > max - na || y > max - nb || (x < y + nb && y < x + na);
 }
-__device__ std::uint16_t encode(float x) {
-  unsigned bits = __float_as_uint(x);
-  if ((bits & 0x7fffffffU) > 0x7f800000U)
-    return static_cast<std::uint16_t>((bits >> 16) | 0x40U);
-  bits += 0x7fffU + ((bits >> 16) & 1U);
-  return static_cast<std::uint16_t>(bits >> 16);
 }
-// Same per-thread K sequence and 256-thread binary reduction as BF16
-// reference GEMV. Each decoded weight serves 32 independent accumulators.
-// No Tensor Core reassociation or change to the BF16 publication boundary.
-__global__ void project(const std::uint16_t* weights,
-                        const std::uint16_t* input, unsigned count,
-                        unsigned rows, unsigned columns,
-                        std::uint16_t* output) {
-  __shared__ float partial[kBatch][kThreads];
-  float sums[kBatch] = {};
-  const auto row = blockIdx.x;
-  for (unsigned k = threadIdx.x; k < columns; k += kThreads) {
-    const float w = decode(weights[static_cast<std::size_t>(row) * columns + k]);
-#pragma unroll
-    for (unsigned m = 0; m < kBatch; ++m)
-      if (m < count) sums[m] = fmaf(w, decode(input[m * columns + k]), sums[m]);
-  }
-#pragma unroll
-  for (unsigned m = 0; m < kBatch; ++m) partial[m][threadIdx.x] = sums[m];
-  __syncthreads();
-  for (unsigned stride = kThreads / 2; stride; stride >>= 1) {
-    if (threadIdx.x < stride) {
-#pragma unroll
-      for (unsigned m = 0; m < kBatch; ++m)
-        partial[m][threadIdx.x] += partial[m][threadIdx.x + stride];
-    }
-    __syncthreads();
-  }
-  if (threadIdx.x == 0)
-    for (unsigned m = 0; m < count; ++m)
-      output[m * rows + row] = encode(partial[m][0]);
-}
-}  // namespace
-
-// Source-private: operands are disjoint, construction-owned Draft regions.
 int launch_mtp_prefill_projection(const std::uint16_t* weights,
     const std::uint16_t* input, unsigned count, unsigned rows,
     unsigned columns, std::uint16_t* output, void* stream) noexcept {
-  if (!weights || !input || !output || count == 0 || count > kBatch ||
-      !((rows == 5120 && columns == 10240) ||
-        (rows == 1024 && columns == 5120))) return cudaErrorInvalidValue;
+  const bool shape = (rows == 5120 && (columns == 10240 || columns == 6144 || columns == 17408)) ||
+      ((rows == 1024 || rows == 12288 || rows == 17408) && columns == 5120);
+  if (!weights || !input || !output || count == 0 || count > kDraftPrefillBatch || !shape ||
+      ((reinterpret_cast<std::uintptr_t>(weights) | reinterpret_cast<std::uintptr_t>(input) |
+        reinterpret_cast<std::uintptr_t>(output)) & 15U)) return cudaErrorInvalidValue;
+  const std::size_t nw = 2ULL * rows * columns, ni = 2ULL * count * columns, no = 2ULL * count * rows;
+  if (overlap(weights, nw, input, ni) || overlap(weights, nw, output, no) ||
+      overlap(input, ni, output, no)) return cudaErrorInvalidValue;
+  using B = cutlass::bfloat16_t;
+  Gemm::Arguments args({static_cast<int>(count), static_cast<int>(rows), static_cast<int>(columns)},
+      {reinterpret_cast<const B*>(input), columns},
+      {reinterpret_cast<const B*>(weights), columns},
+      {reinterpret_cast<const B*>(output), rows}, {reinterpret_cast<B*>(output), rows},
+      {1.0F, 0.0F}, 1);
+  if (Gemm::get_workspace_size(args) != 0 || Gemm::can_implement(args) != cutlass::Status::kSuccess)
+    return cudaErrorInvalidValue;
   (void)cudaGetLastError();
-  project<<<rows, kThreads, 0, static_cast<cudaStream_t>(stream)>>>(
-      weights, input, count, rows, columns, output);
-  return cudaGetLastError();
+  Gemm op;
+  const auto status = op(args, nullptr, static_cast<cudaStream_t>(stream));
+  return status == cutlass::Status::kSuccess ? cudaGetLastError() : cudaErrorLaunchFailure;
 }
 }  // namespace q3x::runtime::mtp_detail

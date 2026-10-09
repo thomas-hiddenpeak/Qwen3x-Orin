@@ -81,7 +81,7 @@ def audit(out, records, draft):
             q.require(digest == w['prompt_token_ids_u32le_sha256'], 'prompt identity')
         m = w['mtp']; q.require(m['enabled'] and m['initialized'] and not m['failed'], 'MTP state')
         q.require(m['draft_length'] == draft and w['target_prefill_complete'] and
-                  m['verifier'] == 'multirow-vector-cache-v4', 'route identity')
+                  m['verifier'] == 'multirow-vector-attention-draft-mma-v7', 'route identity')
         q.require(m['startup_free_bytes'] >= 8*1024**3, 'composed memory reserve')
         panels = (w['prompt_tokens'] + 7999)//8000
         q.require(w['prefill_layer_hits'] == 64 and w['prefill_fill_hits'] == 64*panels and
@@ -96,7 +96,7 @@ def audit(out, records, draft):
         q.require(w['prefill_ms'] >= m['draft_initialization_ms'] >= 0, 'draft Prefill excluded')
         rows.append({'label': result['label'], 'prompt': w['prompt_tokens'], 'output': w['completion_tokens'],
                      'prefill_s': w['prefill_ms'] / 1000, 'prefill_tps': w['prompt_tokens'] * 1000 / w['prefill_ms'],
-                     'ttft_s': result['ttft_s'],
+                     'ttft_s': result['ttft_s'], 'elapsed_s': result['elapsed_s'],
                      'decode_tps': m['committed_decode_tokens'] * 1000 / w['decode_ms'] if w['decode_ms'] else None,
                      'mtp': m})
     cancelled = [w for w in receipts.values() if w.get('cancelled')]
@@ -130,7 +130,7 @@ def main():
     q.preflight(out, args.control_pid)
     prompt = json.loads(args.prompt_request.read_text())['prompt']
     q.require(len(prompt) >= 40000, 'real prompt fixture too short')
-    q.PROFILE = 'q3x.sm87.admission.mtp-multirow-api.v4' if args.draft_length else q.PROFILE
+    q.PROFILE = 'q3x.sm87.admission.mtp-multirow-api.v7' if args.draft_length else q.PROFILE
     key = os.urandom(24).hex(); keyfile = out / 'api-key'; keyfile.write_text(key); keyfile.chmod(0o600)
     cmd = [str(args.server.resolve()), str(args.model_dir.resolve()), '--port', '18872', '--api-key-file', str(keyfile)]
     if args.draft_length: cmd += ['--candidate-profile', 'whole-core-exact-decode']
@@ -189,7 +189,7 @@ def main():
             print(json.dumps({'stage': label, 'prompt': p, 'output': result['usage']['completion_tokens'],
                 'prefill_s': prefill/1000, 'prefill_tps': p*1000/prefill,
                 'decode_tps': (result['usage']['completion_tokens']-1)*1000/decode if decode else None,
-                'ttft_s': result['ttft_s'], 'mtp': w.get('mtp')}), flush=True)
+                'ttft_s': result['ttft_s'], 'elapsed_s': result['elapsed_s'], 'mtp': w.get('mtp')}), flush=True)
             if args.baseline:
                 base = next(r for r in json.loads((args.baseline / 'results.json').read_text()) if r['label']==label)
                 for k in ('request_sha256', 'text', 'usage', 'finish', 'done'):

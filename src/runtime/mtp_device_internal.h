@@ -93,6 +93,7 @@ class TargetTransaction final : public RoundBackend {
   RequestState& state_;
   Draft& draft_;
   void* snapshots_ = nullptr;
+  bool owns_snapshots_ = false;
   std::uint16_t* prompt_hidden_ = nullptr;
   std::uint64_t recurrent_offset_ = 0;
   std::uint64_t recurrent_bytes_ = 0;

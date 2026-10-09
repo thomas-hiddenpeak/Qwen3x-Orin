@@ -34,7 +34,9 @@ void cuda_check(cudaError_t error) {
 void* allocate(std::size_t bytes) {
   std::size_t free = 0, total = 0;
   cuda_check(cudaMemGetInfo(&free, &total));
-  check(free >= bytes && free - bytes >= kReserve, "MTP retained-free reserve");
+  if (free < bytes || free - bytes < kReserve)
+    throw std::runtime_error("MTP retained-free reserve: free=" + std::to_string(free) +
+        " requested=" + std::to_string(bytes) + " reserve=" + std::to_string(kReserve));
   void* result = nullptr;
   cuda_check(cudaMalloc(&result, bytes));
   return result;
@@ -205,9 +207,8 @@ struct Draft::Impl {
   }
   bool project(std::size_t index, const std::uint16_t* input, std::uint16_t* output) noexcept {
     const auto& spec = model::mtp_detail::kTensorSpecs[index];
-    const LinearWeight weight = Bf16LinearWeight{weights.tensor(index), spec.rows, spec.columns};
-    return call(launch_projection_to_bf16_reference_cuda(weight, input, scratch,
-                                                        scratch_count, output, stream));
+    return call(launch_mtp_prefill_projection(weights.tensor(index), input,
+        1, spec.rows, spec.columns, output, stream));
   }
   bool norm(const std::uint16_t* input, std::size_t index, std::uint16_t* output) noexcept {
     return call(launch_centered_rms_norm_reference_cuda(input, weights.tensor(index),
@@ -388,20 +389,29 @@ TargetTransaction::TargetTransaction(ReferenceRunner& target, RequestState& stat
         plan.gdn_state.arena_offset == recurrent_offset_ + plan.conv_state.byte_size,
         "MTP recurrent snapshot layout");
   slot_bytes_ = recurrent_bytes_ + 2 * H + 2 * V;
-  snapshots_ = allocate(5 * slot_bytes_);
-  try {
-    if (whole_core) prompt_hidden_ = static_cast<std::uint16_t*>(
-        allocate(2ULL * H * state_.max_sequence_length()));
-  } catch (...) {
-    cudaFree(snapshots_);
-    snapshots_ = nullptr;
-    throw;
+  if (whole_core) {
+    // Prefill's family workspace is dead after commit; all Decode users bind
+    // the disjoint C512 bundle. Borrow it without taking allocation ownership.
+    const auto views = state_.layer_major_p40_whole_core_views();
+    check(bool(views), "MTP whole-core scratch view");
+    const auto& workspace = views.value->linear.prompt_wide_workspace;
+    const std::uint64_t snapshot_bytes = 5 * slot_bytes_;
+    const std::uint64_t hidden_bytes = 2ULL * H * state_.max_sequence_length();
+    check(workspace.device_data &&
+          reinterpret_cast<std::uintptr_t>(workspace.device_data) % 256 == 0 &&
+          snapshot_bytes % 256 == 0 && workspace.byte_size >= snapshot_bytes + hidden_bytes,
+          "MTP post-Prefill workspace capacity/alignment");
+    snapshots_ = workspace.device_data;
+    prompt_hidden_ = reinterpret_cast<std::uint16_t*>(
+        static_cast<char*>(snapshots_) + snapshot_bytes);
+  } else {
+    snapshots_ = allocate(5 * slot_bytes_);
+    owns_snapshots_ = true;
   }
 }
 TargetTransaction::~TargetTransaction() {
   if (active_) (void)abort();
-  if (snapshots_) cudaFree(snapshots_);
-  if (prompt_hidden_) cudaFree(prompt_hidden_);
+  if (owns_snapshots_ && snapshots_) cudaFree(snapshots_);
 }
 bool TargetTransaction::initialize_whole_core_prefill(
     const std::uint32_t* prompt, std::uint32_t count,

@@ -9,6 +9,9 @@
 namespace q3x::runtime::mtp_detail {
 int launch_mtp_verify_projection(const std::uint8_t*, const std::uint8_t*, float,
     const std::uint16_t*, unsigned, unsigned, unsigned, std::uint16_t*, void*, const std::uint8_t*, const std::uint8_t*, unsigned) noexcept;
+int launch_mtp_verify_attention(const std::uint16_t*, const std::uint16_t*,
+    const std::uint16_t*, unsigned, unsigned, void*, std::size_t,
+    std::uint16_t*, void*) noexcept;
 bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
   constexpr std::size_t H = 5120, V = 248320;
   auto& v = target_.views_;
@@ -90,12 +93,32 @@ bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
       for (unsigned row = 0; row < rows_; ++row) {
         auto* query = v.projection[3] + row * 12288;
         auto* gate = query + 6144;
-        auto* out = v.projection[1] + row * 6144;
         const auto position = entry_position_ + row;
         if (!ok(launch_full_attention_preprocess_24_4_256_64_cuda(
               v.projection[0] + row * 12288, key + row * 1024,
               a->q_norm.data, a->k_norm.data, 1.e-6F, query, gate,
               v.rope_cos, v.rope_sin, position, 1, stream))) return false;
+      }
+      // Projection 2 is dead throughout full Attention. Bound the probability
+      // lifetime to this phase; small scratch plans retain scalar-row dispatch.
+      const std::size_t probability_bytes = rows_ * 24ULL *
+          (entry_position_ + rows_) * sizeof(float);
+      const std::size_t available_bytes =
+          state_.plan().prefill_chunk_size * 17408ULL * sizeof(std::uint16_t);
+      const bool batch_attention = rows_ > 1 && entry_position_ + 1 >= 512 &&
+          probability_bytes <= available_bytes;
+      if (batch_attention && !ok(launch_mtp_verify_attention(v.projection[3],
+            v.key_cache[layer], v.value_cache[layer], entry_position_ + 1, rows_,
+            v.projection[2], available_bytes, v.projection[1], stream))) return false;
+      for (unsigned row = 0; row < rows_; ++row) {
+        auto* query = v.projection[3] + row * 12288;
+        auto* gate = query + 6144;
+        auto* out = v.projection[1] + row * 6144;
+        const auto position = entry_position_ + row;
+        if (batch_attention) {
+          if (!ok(launch_sigmoid_gate_reference_cuda(out, gate, 6144, out, stream))) return false;
+          continue;
+        }
         if (position < 64) {
           if (!ok(launch_gqa_attention_sigmoid_gate_24_4_256_cuda(query,
                 v.key_cache[layer], v.value_cache[layer], position + 1, .0625F,

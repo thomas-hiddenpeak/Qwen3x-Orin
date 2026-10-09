@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-09-28
+  last_reviewed: 2026-10-09
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot: 2026-09-28. This replaceable page owns current defaults and measured
+Snapshot: 2026-10-09. This replaceable page owns current defaults and measured
 qualification; [SDD](SDD.md) owns design and [Roadmap](ROADMAP.md) owns remaining
 work. Historical failures and measurements retain their original scope.
 
@@ -93,60 +93,53 @@ text, usage and finish on eight requests each, including stream/nonstream,
 text/chat and recovery after real Prefill/Decode disconnects. Startup retains
 over 8 GiB free memory with the complete target acceleration inventory.
 
-The [efficiency composition](metadata/qwen36-27b-mtp-efficiency-direction-2026-09-28.json)
-now retains vectorized four-chain FP8/NVFP4 verification using the existing
-Decode sidecars, M32 draft-cache initialization and cache-only reconciliation.
-The isolated service profile is `q3x.sm87.admission.mtp-multirow-api.v4`, ELF
-`d55242273cb4b8b4765a731cbbf482ead0776e9448ff2673e9b2790d628e0a34`.
-The one intervening CTA-row feed repair regressed P65/8K and was removed;
-its completed requests and early-stop record remain preserved. Fewer registers
-or theoretical weight reuse did not predict whole-runner performance.
+The current [draft matrix composition](metadata/qwen36-27b-mtp-draft-matrix-direction-2026-10-09.json)
+restores the exact vector verifier and adds private BF16 Tensor Core drafting,
+causal query scheduling and post-Prefill workspace borrowing. Its isolated
+profile is `q3x.sm87.admission.mtp-multirow-api.v7`, ELF
+`614b480dc69e6718e13b83d524944826833b91a234d2d52018f4cb014f81d78a`.
+Both intervening weight-decoding replacements were slower and removed; the
+[rejection record](metadata/qwen36-27b-mtp-shared-verification-rejection-2026-10-09.json)
+retains every failure and frozen source. Fewer registers did not establish
+whole-runner gains. The earlier
+[v4 composition](metadata/qwen36-27b-mtp-efficiency-direction-2026-09-28.json)
+remains a reproduction anchor, not the current isolated implementation.
 
-The final composition passes nine complete P65 per-prefix state/full-logit
-comparisons, 11 full transaction state/logit/draft-KV cases, two initialization
-cancellation recoveries and two injected-failure recoveries. Its 31/32/33-row
-initialization boundaries are exact against full scalar replay. Both configured
-lengths pass all eight API/lifecycle requests, match baseline text/usage/finish,
-and preserve all generated token IDs against the predecessor MTP witnesses.
-This bounded numerical panel does not claim full-state equality at every
-served context or release/capability qualification.
+The new private draft reduction passes independent FP64 hidden/K/V maximum
+row-relative-L2 0.009382/0.001897/0.001300 against the original 0.02 bound.
+Target verification retains exact scalar arithmetic. P65/P509 pass all nine
+complete M2/3/4 prefix state/logit comparisons each; P65 additionally passes
+11 full transactions, initialization cancellation, injected-failure recovery,
+and exact cache replay with tail guards. Both policies pass eight API/lifecycle
+requests with matched baseline text/usage/finish. Workspace borrowing removes
+846,300,160 duplicate allocated bytes while preserving the 8-GiB reserve.
 
-**The 1.5x–3x owner target remains unmet; production is unchanged.** The table
-uses one fresh final process per policy and the retained same-request non-MTP
-baseline, not mirrored repeated means. Prefill includes draft initialization;
-MTP Decode includes the full controller/observer interval while the ordinary
-baseline retains its step timer. Complete external request intervals are also
-retained. Main requests are P65/O16 and P8192/P40000 O256.
+**The 1.5x–3x target remains unmet; production is unchanged.** The following
+2026-10-09 observations use one fresh process per policy, not mirrored repeated
+means. Prefill includes draft initialization; MTP Decode includes the complete
+controller/observer interval, while non-MTP retains its step timer. External
+total time is retained separately. These are bounded development observations,
+not release qualification or statistically repeated speedup claims.
 
-| P / O | Policy | Prefill seconds | Prefill token/s | External TTFT seconds | Decode token/s |
-| --- | --- | ---: | ---: | ---: | ---: |
-| 65 / 16 | non-MTP | 0.882 | 73.69 | 0.907 | 9.591 |
-| 65 / 16 | MTP d2 | 0.905 | 71.86 | 0.923 | 10.128 |
-| 65 / 16 | MTP d3 | 0.912 | 71.26 | 0.931 | 8.083 |
-| 8192 / 256 | non-MTP | 16.750 | 489.08 | 16.772 | 9.223 |
-| 8192 / 256 | MTP d2 | 19.576 | 418.48 | 19.598 | 10.707 |
-| 8192 / 256 | MTP d3 | 19.602 | 417.92 | 19.624 | 9.189 |
-| 40000 / 256 | non-MTP | 89.872 | 445.08 | 89.907 | 7.868 |
-| 40000 / 256 | MTP d2 | 104.045 | 384.45 | 104.080 | 7.910 |
-| 40000 / 256 | MTP d3 | 104.510 | 382.74 | 104.545 | 6.953 |
+| P / O | Policy | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 65 / 16 | non-MTP | 0.880 | 73.86 | 0.905 | 9.581 | 2.471 |
+| 65 / 16 | MTP d2 | 0.886 | 73.36 | 0.905 | 10.717 | 2.304 |
+| 65 / 16 | MTP d3 | 0.885 | 73.45 | 0.904 | 8.625 | 2.643 |
+| 8192 / 256 | non-MTP | 16.750 | 489.06 | 16.773 | 9.212 | 44.458 |
+| 8192 / 256 | MTP d2 | 17.290 | 473.81 | 17.312 | 11.560 | 39.371 |
+| 8192 / 256 | MTP d3 | 17.279 | 474.09 | 17.301 | 9.954 | 42.920 |
+| 40000 / 256 | non-MTP | 90.265 | 443.14 | 90.300 | 7.862 | 122.740 |
+| 40000 / 256 | MTP d2 | 92.996 | 430.13 | 93.031 | 8.636 | 122.560 |
+| 40000 / 256 | MTP d3 | 93.354 | 428.48 | 93.389 | 7.624 | 126.839 |
 
-For d2, 8K Decode improves directionally by 16.1% over non-MTP, but 40K is
-only about 0.5% higher, without repetition sufficient to claim a material gain.
-D3 is slower than d2 on this panel. D2's external complete request is
-43.415 versus 44.421 seconds at 8K, but 136.320 versus 122.322 seconds at
-40K: added initialization still makes the long request worse. These results
-retain a development implementation, not a generally faster serving policy.
-
-At 8K/40K, d2 acceptance remains 80.1%/71.4% and d3 remains 68.4%/63.7%.
-D2 initialization falls from about 3.25/15.84 seconds to 2.83/13.81 seconds;
-reconciliation falls from about 3.53/4.61 seconds to about 0.69 seconds each.
-Verification remains dominant: 19.63/26.91 seconds for d2. At 8K a 1.5x
-Decode target permits about 18.43 seconds for the entire 255-token interval,
-already less than verification alone. The next architecture must lower the
-complete verifier budget, including long-context KV traversal, and account
-for drafting and prompt initialization. No additional length scan or repeated
-qualification of this composition is pending. The [subsystem design](MTP_ADMISSION.md)
-and [Roadmap](ROADMAP.md) govern further work.
+D2's observed Decode improvements are about 25.5% at 8K and 9.8% at 40K.
+Its 40K total request remains effectively tied with non-MTP; d3 is slower.
+Draft initialization falls to 0.54/2.63 seconds, but d2 verification still
+takes 19.32/25.73 seconds. Complete 1.5x Decode budgets are approximately
+18.45/21.62 seconds. This composition is retained as a bounded dependency
+of the cooperative verifier in [Roadmap](ROADMAP.md), not a generally faster
+production policy or a reason to lower the target.
 
 ## Numerical baseline decision
 

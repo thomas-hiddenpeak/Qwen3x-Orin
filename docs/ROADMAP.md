@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-09-28
+  last_reviewed: 2026-10-09
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -18,6 +18,49 @@ q3x_document:
 This page owns unfinished work and dependency order. [Current Status](CURRENT_STATUS.md)
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
+
+## 2026-10-09 MTP cooperative verifier — next composition
+
+`WP-MTP-COOPERATIVE-VERIFY-20261009` / `AC-MTP-GREEDY-v5` follows the
+completed d2/d3 API return of the draft matrix path.
+[MTP Admission](MTP_ADMISSION.md#cooperative-verifier-composition-v5) defines
+warp-local packed-weight broadcast and actual shared-V query consumption.
+Exactly these two dependencies compose before the next API direction screen;
+no separate local-timing campaign or parameter scan is opened. The unchanged
+1.5x–3x product constraint selects a 15.7/17.9-second 8K/40K verifier budget.
+One composition plus at most one correctness repair is the bound; complete
+scalar state/logit identity, causal masks and the reserve remain mandatory.
+
+## 2026-10-09 MTP draft matrix execution — API return complete
+
+`WP-MTP-DRAFT-MMA-20261009` / `AC-MTP-GREEDY-v4` addresses the same
+1.5x–3x owner target. The v4 verifier is restored; numerically admitted causal
+query scheduling and post-Prefill workspace borrowing compose with one native
+BF16 draft matrix executor. The measured 2.83/13.80-second 8K/40K draft
+initialization and 3.41/4.54-second proposal costs select this dependency.
+The complete Decode budgets remain 18.45/21.62 seconds, so a draft-only win
+cannot close the verifier gap. The bounded composition is one fixed CUTLASS
+M1..32 executor, independent draft-oracle admission, then the existing
+P65/8K/40K d2/d3 API panel. No kernel-parameter scan is opened. Target state
+and logits remain bitwise scalar-equivalent; only the private draft reduction
+gets a separate numerical identity, subject to the existing independent
+FP64 0.02 relative-L2 bound and exact within-route cache replay.
+
+## 2026-10-09 MTP shared verification — closed negative
+
+`WP-MTP-SHARED-VERIFY-20261009` / `AC-MTP-GREEDY-v3` implements the next
+bounded composition described in [MTP Admission](MTP_ADMISSION.md#shared-verification-composition-v3).
+The originating owner constraint remains 1.5x–3x committed Decode versus the
+same-request ordinary production service. The previous 8K/40K full-Decode
+budgets of 18.43/21.61 seconds select shared decoded projection operands and
+causal multi-query Attention, with unchanged exact state/logit semantics.
+One initial composition and at most one causally justified repair must return
+to P65/8K/40K d2/d3 API; no launch-parameter or draft-length sweep is opened.
+Both weight-delivery implementations regressed API Decode and are removed.
+No third projection repair is permitted by this package. This is isolated
+development, not a production switch. Prefill initialization
+remains an explicitly measured unresolved cost; this package first returns the
+new verifier to the API before selecting its next prompt-side dependency.
 
 ## 2026-09-28 MTP — active, configured drafts 2 and 3
 

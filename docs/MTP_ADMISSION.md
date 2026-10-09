@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: isolated greedy MTP development boundaries and transaction contract
   effective: 2026-09-28
-  last_reviewed: 2026-09-28
+  last_reviewed: 2026-10-09
   supersedes: []
   superseded_by: []
   ssot_for: native MTP admission design and first composition scope
@@ -126,6 +126,161 @@ the independent M32 initialization/cache-only reconciliation changes. This is
 a bounded composition of already admitted mechanisms, not another projection
 variant or parameter scan. Profile v4 identifies that composition and returns
 to the complete d2/d3 API panel before any performance claim.
+
+## Shared verification composition v3
+
+`WP-MTP-SHARED-VERIFY-20261009` owns `AC-MTP-GREEDY-v3`. The previous
+composition's 8K/40K d2 verification alone exceeds the entire 1.5x Decode
+budget. Two coupled changes target that boundary, using the existing real API,
+M2..4 verifier and all eligible layers. Production and the scalar oracle stay
+unchanged. Artifacts belong under `.q3x-work/mtp-shared-verify-20261009/`.
+
+The exact computation ledger is:
+
+- Projection remains `RNE_BF16(scale * reduce((a0+a1)+(a2+a3)))`.
+  Each `ac` consumes exactly the scalar K subsequence through FP32 `fmaf`.
+  A single producer group decodes each quantized K tile into shared FP32
+  operands. Separate token groups consume those operands before a CTA barrier
+  permits overwrite. This removes repeated decoding without the rejected
+  cached-load variant's duplicate codebook work. FP8 keeps eight-warp and
+  NVFP4 one-warp reduction ownership. Additional shared stores/reads and
+  barriers are charged to the complete verifier; no permanent weight copy or
+  request allocation is added. The shared tile is CTA-owned, disjoint from
+  the cross-warp reduction storage, and expires after all row consumers.
+- Attention computes each row m on exactly `[0, entry+m+1)`. All Q/K/V
+  preprocessing completes first on the same stream. QK and ordered PV grids
+  interleave independent speculative rows over the same KV tiles, enabling
+  cache reuse and concurrent query consumers. Every score reduction,
+  per-row actual-length softmax, increasing-position PV FMA and BF16 output
+  boundary is unchanged; later KV rows never enter an earlier causal domain.
+  Probability storage aliases dead projection buffer 2 only during full
+  Attention, after preceding GDN consumers and before MLP reuse. Its capacity
+  must be checked for `rows * 24 * last_sequence * sizeof(float)`; otherwise
+  the established scalar-row route is used before any batch enqueue. No
+  partial failure falls back. Short-context arithmetic remains unchanged.
+
+The source translation uses the pinned vLLM/Marlin separation of packed
+operand delivery from consumption, and FlashInfer's grouped query/KV
+scheduling. SM87 realizes these using ordinary shared memory, barriers and
+existing asynchronous KV staging, without new-device ISA or changed tensor
+arithmetic. The prior [reference assessment](analysis/non-mtp-architecture-assessment-2026-09-28/README.md)
+also covers Triton/FLA and Mamba: their chunk reassociation does not satisfy
+this exact recurrent prefix contract and is not introduced. This is a native
+implementation, with no new imported source or runtime dependency.
+
+The fresh-host resource gate exposed a construction-time reserve shortfall.
+The composition therefore also removes duplicate transaction allocations in
+whole-core mode: its five immutable slots and normalized prompt capture borrow
+disjoint subranges of the existing `linear.prompt_wide_workspace`. Its producer
+lifetime begins only after successful target Prefill commit. All Prefill
+projection/GDN/Attention/MLP scratch consumers have completed then; scalar and
+multi-row Decode use the physically disjoint C512 bundle and persistent state.
+The next Prefill may overwrite the borrowed region only after the transaction
+retires or abort drains. No arithmetic or live state is deleted. The public
+prompt-hidden borrow expires on reset/new generation as before. Legacy mode
+retains its independent snapshot allocation. Geometry, range and alignment
+checks precede binding; destruction never frees request-owned storage. The
+service still checks actual free memory against the unchanged 8-GiB reserve.
+This is a bounded resource prerequisite in the same composition, not a reserve
+waiver or another projection variant.
+
+The [rejection record](metadata/qwen36-27b-mtp-shared-verification-rejection-2026-10-09.json)
+closes both v3 projection implementations without promotion. The first
+shared-FP32 operand composition is rejected after P65 and 8K API
+verification time regressed. P65 does not execute batched Attention, isolating
+the dominant change to projection delivery. A bounded Nsight attempt could not
+start under the unchanged reserve with profiler overhead; no profile or kernel
+attribution is claimed. The complete phase receipts and source traffic ledger
+still establish a negative direction. Expanded shared operands add four bytes
+per weight per producer and per row consumer, on top of codebook traffic.
+
+The one permitted repair restores register-resident row reuse and replaces
+random FP8/FP4 codebook accesses with exact register bit construction. FP8
+uses the same existing 256-code function, undoing the output sidecar's
+involutive swizzle first. E2M1 magnitudes 0/1 map to FP32 0/0.5; codes 2..7
+map to `(252+code)<<22`, then the sign bit is restored, including negative
+zero. Block scaling, all four FMA chains and reduction/publication stay fixed.
+No expanded decoded tile crosses shared memory. Only the 256-entry NVFP4
+block-scale table remains. This charges extra integer decode instructions
+against removed shared lookups and barriers. The admitted batch Attention and
+post-Prefill lifetime reuse compose with this repair in profile v6 and return
+immediately to the same API; there is no further repair or launch scan in v3.
+
+The smallest correctness gate is complete per-prefix state/full logits for
+M2/3/4 plus existing rejection/cancel/failure transactions. Long Attention also
+requires a P509 transition and P8192 same-history full-state oracle. The first
+composed service returns immediately to the three existing API lengths for
+both configured drafts, preserving startup reserve and reporting Prefill,
+TTFT, committed Decode and external total. One initial dataflow plus at most
+one causally explained correction bounds this version; a negative result
+closes or redesigns it instead of triggering a parameter scan. Target attainment
+and release qualification are separate from this reversible direction screen.
+
+## Draft matrix composition v4
+
+The shared-FP32 and register-bit-decode projections above both regressed the
+API and are rejected. `WP-MTP-DRAFT-MMA-20261009` restores the earlier exact
+vector verifier and composes the admitted query scheduling and storage reuse
+with a separate BF16 draft executor. This is not another weight-decoding
+repair. The 1.5x–3x target and complete verifier budget remain outstanding.
+
+The draft computes `RNE_BF16(sum_k BF16(A)*BF16(W))` with native CUTLASS
+SM80 Tensor Core FP32 accumulation, no split-K, and one fixed 32x128x32 CTA /
+32x32x32 warp / 16x8x16 instruction mapping for M1..32. It consumes original
+BF16 weights directly. No new packing, permanent weight copy, runtime
+allocation, algorithm search or cuBLAS dependency is introduced. The existing
+1,310,720-byte batch scratch, row normalization/RoPE and cancellation bounds
+remain unchanged. Launch validation checks the complete shape, alignment and
+disjoint spans before enqueue; CUTLASS nonzero workspace fails closed.
+
+This changes the private draft reduction tree, identified as
+`draft-bf16-mma-v1`; it does not claim old draft bit identity. Full draft steps,
+cache-only reconciliation and batch initialization all use the same fixed K
+order and MMA mapping, so their live K/V must agree exactly with each other.
+The independent CPU FP64 hidden/K/V oracle retains its predeclared 0.02 bound.
+Every main-model verification projection, recurrence, state snapshot, full
+logit and greedy commit remains exactly the existing scalar computation.
+Draft differences may change acceptance/work, but no unverified prediction
+reaches the API. The normal target-output and complete transaction checks
+remain mandatory. One executor implementation returns promptly to the existing
+real API panel for d2/d3; no performance claim precedes that composition.
+
+## Cooperative verifier composition v5
+
+`WP-MTP-COOPERATIVE-VERIFY-20261009` / `AC-MTP-GREEDY-v5` is the bounded
+successor to draft matrix composition. Its d2 API receipts still charge
+19.32/25.73 seconds to 8K/40K verification. The complete 1.5x budgets are
+18.45/21.62 seconds; after measured proposal/reconciliation, verification
+must fit approximately 15.7/17.9 seconds. This selects two residency changes,
+not a draft-length or launch-parameter sweep:
+
+- In projection, speculative rows become subgroups inside each warp. One
+  subgroup reads/decodes packed weights and broadcasts them with warp shuffles.
+  Each thread owns one token's four output channels and four original FMA
+  chains. Original K-lane identities are retained explicitly, then complete
+  chain merges are staged once at the end and reduced in the original warp
+  and FP8 eight-warp tree. There is no per-K-tile expanded shared-weight
+  publication or CTA barrier. This trades shuffle and final-partial movement
+  for fewer live accumulators and shared codebook conflicts. M2 uses two
+  token groups; M3/M4 use four with the fourth M3 group masked. Scale6
+  extraction preserves the exact packed bit fields without cross-token state.
+- Ordered Attention PV retains all speculative queries inside one CTA so each
+  V tile is physically loaded once for their six grouped query heads. Every
+  row has its own FP32 probability and two independent FP32 output chains,
+  consuming positions in exactly increasing order within its actual causal
+  end. Three physical buffers stage two future groups; M4 uses at most
+  43,008 shared bytes. Tail masks exclude future KV values before FMA.
+  QK, actual-length softmax, final BF16 rounding and public state are unchanged.
+
+This transfers the studied Marlin warp operand reuse and FlashInfer grouped
+query/V residency into native SM87 shuffle/cp.async primitives. FLA/Mamba
+recurrence remains unchanged. The two source-private kernels form one coupled
+candidate with the admitted draft matrix path; no new persistent allocation
+or weight sidecar is added. Minimum admission is all nine exact scalar prefix
+state/logit comparisons plus the long Attention oracle. One initial composition
+and at most one correctness repair return immediately to P65/8K/40K d2/d3 API.
+A negative direction archives this version rather than opening a parameter scan.
+Production and independent non-MTP baselines are unchanged.
 
 ## Checkpoint and draft model
 
@@ -269,8 +424,8 @@ The ordinary resident loader, text arena and installed ABI are unchanged.
 
 `Draft` borrows the base embedding/lm-head, MTP weights and target RoPE tables.
 Those owners must outlive it. Its single bounded workspace includes its own
-K/V and uses existing BF16 projection, normalization, RoPE, Attention, MLP and
-argmax kernels. Every step completes on its owned stream before position
+K/V. The draft matrix composition supplies private BF16 projections; existing
+normalization, RoPE, Attention, MLP and argmax operations remain unchanged. Every step completes on its owned stream before position
 publication; there is no allocation or implicit fallback in a step. Reset
 clears complete draft K/V and poison. Rewind changes only logical draft length;
 rejected rows are inaccessible and overwritten before reuse. `hidden()` is a
@@ -283,7 +438,7 @@ initialization; scalar full steps remain the independent cache oracle.
 pair using SM87 quantized-lm-head BF16 logits. Its explicit multi-row mode
 requires at least four rows of validated request scratch. Scalar mode remains
 the oracle; multi-row mode assembles the same complete prefix slots layer by
-layer, preserving token-ordered Conv/GDN and causal Attention. It reserves five immutable prefix
+layer, preserving token-ordered Conv/GDN and causal Attention. It binds five immutable prefix
 slots, each 78,446,592 recurrent/Conv bytes, 10,240 hidden bytes and 496,640
 full-logit bytes. Restoring logits prevents a rejected later speculative row
 from remaining visible at an earlier accepted boundary. Target KV is append-only
@@ -335,9 +490,11 @@ They remain mandatory during proposal steps. Reconciliation now uses the
 same live-KV deletion described in the efficiency composition above. No draft hidden
 export is valid after cache-only initialization until a successful full step.
 
-The current implementation batches at most 32 independent rows. FC/K/V reuse each
-decoded BF16 weight across rows while retaining the scalar 256-thread strided
-K accumulation, `fmaf`, binary reduction and BF16 publication. Normalization
+The implementation batches at most 32 independent rows. The original FC/K/V
+executor retained scalar 256-thread strided FMA and binary reduction. The
+active draft matrix composition above replaces that private draft arithmetic
+with one fixed MMA reduction for both batch and scalar execution, preserving
+BF16 publication and the independently checked draft error bound. Normalization
 and RoPE keep their existing per-row kernels and absolute positions. Dedicated
 1,310,720-byte construction-owned scratch does not alias scalar or cache storage.
 Each batch completes on the draft stream before its length is published;
@@ -361,8 +518,10 @@ Decode admission. It uses the engine's ordinary O1 whole-core generation to
 complete and validate Prefill before invoking the peer.
 
 `initialize_whole_core_prefill` requires that completed prompt boundary, its
-exact token IDs, no active transaction, and a non-poisoned runner. It reserves
-one separate normalized `[capacity,5120]` BF16 capture at construction. The
+exact token IDs, no active transaction, and a non-poisoned runner. It binds
+one normalized `[capacity,5120]` BF16 capture at construction. In the shared
+verification composition this and the snapshot slots borrow the dead
+post-Prefill workspace described above; the request state remains their owner. The
 complete layer-63 residual is still live; terminal-prefix deletion cannot be
 used for this mode. The adapter widens the existing independent row-wise final
 RMSNorm launch to P rows without changing its per-row reduction or BF16
@@ -394,7 +553,7 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
 production/install, and identifies itself as
-`q3x.sm87.admission.mtp-multirow-api.v4`. The startup-only
+`q3x.sm87.admission.mtp-multirow-api.v7`. The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.

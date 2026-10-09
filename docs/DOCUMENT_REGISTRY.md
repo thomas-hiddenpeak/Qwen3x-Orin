@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: exhaustive tracked-Markdown inventory and classification
   effective: 2026-08-09
-  last_reviewed: 2026-09-28
+  last_reviewed: 2026-10-09
   supersedes: []
   superseded_by: []
   ssot_for: tracked Markdown paths, primary classes, roles, and lifecycle states
@@ -173,6 +173,10 @@ authority only for its exact recorded protocol.
 | --- | --- | --- | --- |
 | `src/kernels/sm87/third_party/vllm_marlin/README.md` | `vendored_source_notice` | frozen | Vendored vLLM Marlin documentation/license provenance; third-party content boundary. |
 | `third_party/flashinfer/README.q3x.md` | `vendored_source_notice` | frozen | FlashInfer subset provenance and local integration notice; source ownership remains upstream. |
+
+The 2026-10-09 shared-verification work package updates the existing MTP SDD
+and Roadmap, followed by the bounded draft matrix composition; the registered
+document set and classes are unchanged.
 
 ## Integrity check
 

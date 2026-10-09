@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: per-request state, workspace, memory-plan, and lifecycle ownership contract
   effective: 2026-08-09
-  last_reviewed: 2026-09-28
+  last_reviewed: 2026-10-09
   supersedes: []
   superseded_by: []
   ssot_for: RequestState persistent state, workspace, RoPE, allocation, and lifecycle behavior
@@ -294,10 +294,11 @@ and historical plan examples are retained in
 ## Separate MTP scalar transaction storage
 
 The non-installable [MTP admission](MTP_ADMISSION.md#native-scalar-correctness-backend)
-borrows an exact Legacy-C512 or whole-core state and owns a separate five-slot
-recurrent/Conv, final-hidden and full-logit snapshot arena. The whole-core
-peer additionally owns a bounded prompt-normalized-hidden buffer; these
-allocations retain the same 8-GiB free-memory reserve. It neither changes the production state plan
+borrows an exact Legacy-C512 or whole-core state and binds five
+recurrent/Conv, final-hidden and full-logit snapshot slots. Legacy owns a
+separate allocation; whole-core borrows the post-Prefill workspace described
+below for those slots and bounded prompt-normalized hidden. The same 8-GiB
+free-memory reserve remains required. It neither changes the production state plan
 nor authorizes ordinary callers to rewind a live runner. Its private runner
 peer restores a complete saved prefix, synchronizes target/draft work, and
 publishes length before observation. Rejected append-only KV rows remain
@@ -313,3 +314,17 @@ slots layer by layer, with no added allocation. No partially assembled slot can 
 composition retains the full target arena/inventory and checks actual remaining
 free memory after constructing all draft/transaction owners. It grants no
 ordinary production or capacity qualification.
+
+
+### MTP post-Prefill workspace reuse
+
+The isolated shared-verification composition borrows whole-core
+`linear.prompt_wide_workspace` after successful Prefill commit for five
+immutable transaction snapshots followed by normalized prompt hidden. These
+subranges are disjoint and checked against the typed workspace's actual extent.
+They add no arena bytes and do not alias persistent state, prompt residual,
+final hidden, RoPE or the C512 Decode bundle. Prefill may overwrite them only
+outside an active transaction; all prior target/draft work must be drained.
+The MTP peer does not free this storage. Legacy state retains its separately
+owned snapshot allocation. The complete lifetime and resource gate are owned
+by [MTP Admission](MTP_ADMISSION.md#shared-verification-composition-v3).

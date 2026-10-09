@@ -104,13 +104,19 @@ struct PrefillCancel {
 };
 
 int main(int argc, char** argv) try {
-  if (argc != 4) { std::cerr << "MODEL PROMPT_U32 OUTPUT_DIRECTORY\n"; return 2; }
+  const bool prefix_only = argc == 5 && std::string(argv[4]) == "--prefix-only";
+  if (argc != 4 && !prefix_only) {
+    std::cerr << "MODEL PROMPT_U32 OUTPUT_DIRECTORY [--prefix-only]\n"; return 2;
+  }
+#if !defined(Q3X_MTP_WHOLE_CORE_TEST)
+  if (prefix_only) return 2;
+#endif
   const std::filesystem::path output(argv[3]);
   require(std::filesystem::is_directory(output), "output directory must exist");
   std::ifstream input(argv[2], std::ios::binary | std::ios::ate);
   require(bool(input), "prompt input");
   const auto size = input.tellg();
-  require(size >= 4 && size <= 513 * 4 && size % 4 == 0, "prompt must have 1..513 tokens");
+  require(size >= 4 && size <= (prefix_only ? 8192 : 513) * 4 && size % 4 == 0, "prompt outside declared correctness panel");
   std::vector<std::uint32_t> prompt(static_cast<std::size_t>(size) / 4);
   input.seekg(0);
   input.read(reinterpret_cast<char*>(prompt.data()), size);
@@ -238,6 +244,10 @@ int main(int argc, char** argv) try {
     std::cout << "verify_rows=" << count << " all_prefix_state_and_logits=bitwise_equal\n" << std::flush;
   }
 #endif
+  if (prefix_only) {
+    std::cout << "scope=prefix_state_logits_only checks=9 passed\n" << std::flush;
+    return 0;
+  }
   struct Case { unsigned length; int mismatch; bool cancel; bool fail; };
   std::vector<Case> cases;
   for (unsigned length : {2U, 3U}) {
@@ -422,7 +432,7 @@ int main(int argc, char** argv) try {
   }
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
   std::cout << "prefill_route=corrected_whole_core draft_initialization=batched_live_kv\n"
-               "verifier=multirow_vector_feed scope=multirow_correctness_only\n";
+               "verifier=multirow_vector_attention_draft_mma scope=multirow_correctness_only\n";
 #else
   std::cout << "verifier=scalar scope=scalar_correctness_only\n";
 #endif

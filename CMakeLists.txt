@@ -907,9 +907,10 @@ if(Q3X_BUILD_MTP_SERVICE_ADMISSION)
   target_sources(q3x_engine PRIVATE src/runtime/mtp_service_internal.cpp
     src/runtime/mtp_device_internal.cpp src/runtime/mtp_control.cpp
     src/model/mtp_weights_internal.cpp src/runtime/mtp_prefill_internal.cu
-    src/runtime/mtp_verify_internal.cpp src/runtime/mtp_verify_projection_internal.cu)
+    src/runtime/mtp_verify_internal.cpp src/runtime/mtp_verify_projection_internal.cu
+    src/runtime/mtp_verify_attention_internal.cu)
   set_target_properties(q3x_engine PROPERTIES CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}" CUDA_STANDARD 17)
-  target_include_directories(q3x_engine PRIVATE src)
+  target_include_directories(q3x_engine PRIVATE src ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cutlass/include)
 endif()
 set_target_properties(q3x_engine PROPERTIES
   EXPORT_NAME engine
@@ -1133,9 +1134,10 @@ if(BUILD_TESTING)
     add_executable(q3x_mtp_device_test
       tests/mtp_device_test.cpp src/runtime/mtp_device_internal.cpp
       src/runtime/mtp_verify_internal.cpp src/runtime/mtp_verify_projection_internal.cu
+      src/runtime/mtp_verify_attention_internal.cu
       src/runtime/mtp_prefill_internal.cu
       src/runtime/mtp_control.cpp src/model/mtp_weights_internal.cpp)
-    target_include_directories(q3x_mtp_device_test PRIVATE src)
+    target_include_directories(q3x_mtp_device_test PRIVATE src ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cutlass/include)
     target_link_libraries(q3x_mtp_device_test PRIVATE q3x::engine)
     set_target_properties(q3x_mtp_device_test PROPERTIES
       CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}" CUDA_STANDARD 17)
@@ -1143,9 +1145,10 @@ if(BUILD_TESTING)
       add_executable(q3x_mtp_whole_core_test
         tests/mtp_device_test.cpp src/runtime/mtp_device_internal.cpp
         src/runtime/mtp_verify_internal.cpp src/runtime/mtp_verify_projection_internal.cu
+        src/runtime/mtp_verify_attention_internal.cu
         src/runtime/mtp_prefill_internal.cu
         src/runtime/mtp_control.cpp src/model/mtp_weights_internal.cpp)
-      target_include_directories(q3x_mtp_whole_core_test PRIVATE src)
+      target_include_directories(q3x_mtp_whole_core_test PRIVATE src ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cutlass/include)
       target_compile_definitions(q3x_mtp_whole_core_test PRIVATE Q3X_MTP_WHOLE_CORE_TEST=1)
       target_link_libraries(q3x_mtp_whole_core_test PRIVATE q3x::engine)
       set_target_properties(q3x_mtp_whole_core_test PROPERTIES
