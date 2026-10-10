@@ -1,0 +1,36 @@
+{
+  "work_package_id": "WP-MTP-QK-POSITION-PARALLEL-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v56",
+  "source_parent": "40dd716ae0817af4667e88391b47fb52b050cd93",
+  "product_constraint": "1.5x\u20133x same-request committed Decode; configured drafts2/3; exact complete state/logits/output and joint Prefill/TTFT/Decode/total reporting",
+  "downward_budget": {
+    "remaining_40k_complete_decode_s": 2.27110563,
+    "historical_v48_qk_gpu_s": 2.214693856,
+    "scope": "QK cannot alone be presumed to close the gap; API selects composition"
+  },
+  "mechanism": "Four independent position warps per speculative row replace two, retaining 128-position score tile and six head queries per warp. 32 iterations replace64; four-position K rings replace two-position rings. Each K record still shared by all M rows. PV and softmax unchanged.",
+  "equivalence": "Each score has same lane offsets, eight products, parenthesized additions, live warp tree and scale; position ownership only. Causal guards unchanged. All threads commit/wait and synchronize before shared slot reuse. Grid/score stride unchanged.",
+  "resources": "128*M threads (256/384/512), shared K ring8192B plus M*6*128*4 score bytes; no new allocation or persistent state. Register/occupancy cost belongs to API fitness.",
+  "reference": {
+    "path": ".q3x-work/tmp-archive-20260809/flashinfer-audit.kaXayz/flashinfer/include/flashinfer/attention/decode.cuh",
+    "sha256": "bd699c64cff0af922305e532de587ff4db8bc377c198bd653db1d48aa74c2942",
+    "translation": "FlashInfer independent tz KV-position ownership; transfer independent QK spatial ownership only, not online softmax or output-state merge. No source import."
+  },
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs_max": 1,
+    "parameter_scans": 0,
+    "profiles": 0
+  },
+  "validation": [
+    "P513 full prefixes/transactions and P8192 complete prefixes",
+    "immediate d2 P65/8K/40K API; >3% slowdown stops; useful direction unlocks d3 otherwise remove"
+  ],
+  "retention_screen": {
+    "8k_decode_ratio_min": 1.0,
+    "40k_decode_ratio_min": 1.01,
+    "both_long_complete_decode_must_decrease": true
+  },
+  "expiry": "Next complete verifier API composition or archival; no production promotion",
+  "artifact_root": ".q3x-work/mtp-qk-position-parallel-20261010"
+}

@@ -1649,6 +1649,21 @@ restored. Long-context and d3 API checks are not run; no heuristic scan follows.
 This short-request rejection makes no claim about unmeasured long contexts.
 Production and the unmet 1.5x–3x objective remain unchanged.
 
+## QK position parallelism composition v56 — removed
+
+The [completed rejection](metadata/qwen36-27b-mtp-qk-position-parallel-rejection-2026-10-10.json)
+passes eighteen complete P513/P8192 prefixes and all eleven P513 transactions,
+including full state/logits, draft cache and failure recovery. At 8K d2,
+Prefill is 17.295 seconds / 473.67 token/s, TTFT 17.317 seconds,
+Decode 14.120 token/s and total 35.376 seconds. Output and work match v52,
+but verification adds 22.60 ms and full Decode adds 29.15 ms; the -0.16%
+direction misses the declared nonnegative 8K screen. Stop during post-8K wait,
+without 40K, d3 API or remaining lifecycle qualification. This is not a
+noise-qualified regression or a conclusion about unmeasured contexts.
+All new runtime/profile paths are removed and retained v52 restored.
+Production and the unmet 1.5x–3x objective remain unchanged; no position-count
+or launch scan follows.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

@@ -1,0 +1,240 @@
+{
+  "work_package_id": "WP-MTP-QK-POSITION-PARALLEL-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v56",
+  "source_parent": "40dd716",
+  "decision": "removed after negative P8192 API direction",
+  "decision_unit": "architecture_candidate",
+  "artifact_root": ".q3x-work/mtp-qk-position-parallel-20261010",
+  "numerical": {
+    "p513": {
+      "complete_prefixes": 9,
+      "state_logits_draft_cache": "bitwise_equal",
+      "seed_reuse": "pass",
+      "transaction_cases": 11,
+      "failure_recovery_cases": 2,
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 72.875
+      }
+    },
+    "p8192": {
+      "complete_prefixes": 9,
+      "state_logits_draft_cache": "bitwise_equal",
+      "seed_reuse": "pass",
+      "transaction_cases": 0,
+      "failure_recovery_cases": 0,
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 79.25
+      }
+    },
+    "resources": {
+      "registers_per_thread": 79,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "shared_bytes_by_M": {
+        "2": 14336,
+        "3": 17408,
+        "4": 20480
+      },
+      "threads_by_M": {
+        "2": 256,
+        "3": 384,
+        "4": 512
+      }
+    }
+  },
+  "api": {
+    "metrics": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8877768540000001,
+        "prefill_tps": 73.21659683639375,
+        "decode_tps": 12.821299894909105,
+        "ttft_s": 0.9065061029978096,
+        "elapsed_s": 2.0763378301635385,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-qk-position-parallel-v58",
+          "draft_length": 2,
+          "startup_free_bytes": 9859551232,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "entry_hidden_snapshots": 7,
+          "direct_gdn_state_rows": 912,
+          "seed_kv_reuses": 6,
+          "state_copy_bytes_elided": 1987054592,
+          "draft_initialization_ms": 5.687896,
+          "draft_ms": 124.052348,
+          "verify_ms": 1024.367751,
+          "reconcile_ms": 21.126727000000002,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.294815802000002,
+        "prefill_tps": 473.66795308988856,
+        "decode_tps": 14.120480323330728,
+        "ttft_s": 17.316905551124364,
+        "elapsed_s": 35.37610990414396,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-qk-position-parallel-v58",
+          "draft_length": 2,
+          "startup_free_bytes": 9859551232,
+          "prompt_rows": 8192,
+          "draft_prefill_rows": 8191,
+          "initialized": true,
+          "rounds": 98,
+          "proposed": 196,
+          "accepted": 157,
+          "verified_rows": 294,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            86,
+            71,
+            0
+          ],
+          "draft_ordered_attention_steps": 196,
+          "entry_hidden_snapshots": 98,
+          "direct_gdn_state_rows": 14112,
+          "seed_kv_reuses": 98,
+          "state_copy_bytes_elided": 29932693504,
+          "draft_initialization_ms": 545.919717,
+          "draft_ms": 2062.363856,
+          "verify_ms": 15629.431064999992,
+          "reconcile_ms": 362.0026290000001,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "comparison": [
+      {
+        "stage": "p65",
+        "decode_ratio_vs_v52": 0.9994763516149388,
+        "verify_saved_ms": -0.29888499999992746,
+        "full_decode_saved_s": -0.0006126310000000856,
+        "prefill_delta_s": 4.256200000007926e-05,
+        "total_delta_s": 0.00067911297082901
+      },
+      {
+        "stage": "p8192",
+        "decode_ratio_vs_v52": 0.9983855590254846,
+        "verify_saved_ms": -22.597391999994215,
+        "full_decode_saved_s": -0.02915498900000202,
+        "prefill_delta_s": 0.008372185999999004,
+        "total_delta_s": 0.037498726043850183
+      }
+    ],
+    "completed_api_checks": 2,
+    "output_ids_and_work_equal_v52": true
+  },
+  "cleanup": {
+    "success": false,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 75.218
+  },
+  "stop": {
+    "decision": "remove",
+    "reason": "8K complete Decode has negative direction and misses predeclared ratio>=1.0; no 40K or d3 qualification",
+    "owned_driver_pid": 1834430,
+    "cmdline_verified": true,
+    "stop_signal": "SIGINT",
+    "scope": "stop during post-8K inter-request wait"
+  },
+  "scope": "Two completed matched API cases. Driver interrupted in post-8K sleep; 40K, remaining lifecycle cases and d3 API not run. Single-process direction, not statistically qualified slowdown. No profile or parameter scan.",
+  "production_changed": false,
+  "target_achieved": false,
+  "restoration": {
+    "server": {
+      "retained_sha256": "666a9be89d636ca6e0ea71ed54d57eba2a968330b3081f45b6ec314ab2acdc53",
+      "rebuilt_sha256": "928a5ef3c3223727ce5d480ea4fca38b0e63323271bc7c911686579a40317c1d",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "e19d7675c60adf820ad7d81d2c98d0dd012752d9d264c8ce00c39c583a48cb2a",
+      "rebuilt_sha256": "b19306fc74ecf260e1771194b495781dd1f378c829020cd59a16e7145dcc3906",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "source_identity": "source-identity.json",
+  "artifact_manifest": "artifact-manifest.json",
+  "host_validation": {
+    "host-tests": {
+      "command": [
+        "ctest",
+        "--test-dir",
+        ".q3x-work/build/orin-whole-core-exact-decode-admission",
+        "--output-on-failure",
+        "-R",
+        "^(mtp_control|mtp_weights|reference_engine_control)$"
+      ],
+      "returncode": 0
+    },
+    "document-unit": {
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_document_control"
+      ],
+      "returncode": 0
+    },
+    "document-control": {
+      "command": [
+        "python3",
+        "-B",
+        "tools/docs/validate_document_control.py"
+      ],
+      "returncode": 0
+    },
+    "diff-check": {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0
+    }
+  },
+  "hygiene": {
+    "gpu_handle_inspection_returncode": 1,
+    "api_keys_removed": true,
+    "temporary_build_files_empty": true,
+    "worktree_count": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  }
+}

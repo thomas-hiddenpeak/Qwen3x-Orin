@@ -19,6 +19,31 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP QK position parallelism — closed without retention
+
+`WP-MTP-QK-POSITION-PARALLEL-20261010` / `AC-MTP-GREEDY-v56` owns one
+[spatial QK composition](metadata/qwen36-27b-mtp-qk-position-parallel-design-2026-10-10.json).
+Four independent positions per speculative row halve the serial position loop,
+retaining exact score arithmetic and sharing each K record across all rows.
+This is distinct from the rejected bulk-copy scheme's unchanged two-position
+consumer. Full P513/P8192 state/logit admission precedes immediate d2 API;
+>3% slowdown stops, useful direction unlocks d3, otherwise remove. One fixed
+composition, no launch/stage scan or profile. Production and the full
+1.5x–3x goal remain unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-qk-position-parallel-rejection-2026-10-10.json)
+passes eighteen complete P513/P8192 prefixes and all eleven P513 transactions,
+including full state/logits, draft cache and failure recovery. At 8K d2,
+Prefill is 17.295 seconds / 473.67 token/s, TTFT 17.317 seconds,
+Decode 14.120 token/s and total 35.376 seconds. Output and work match v52,
+but verification adds 22.60 ms and full Decode adds 29.15 ms; the -0.16%
+direction misses the declared nonnegative 8K screen. Stop during post-8K wait,
+without 40K, d3 API or remaining lifecycle qualification. This is not a
+noise-qualified regression or a conclusion about unmeasured contexts.
+All new runtime/profile paths are removed and retained v52 restored.
+Production and the unmet 1.5x–3x objective remain unchanged; no position-count
+or launch scan follows.
+
 ## 2026-10-10 MTP acceptance backoff — closed without retention
 
 `WP-MTP-ACCEPTANCE-BACKOFF-20261010` / `AC-MTP-GREEDY-v55` owns one
