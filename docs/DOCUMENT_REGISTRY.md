@@ -273,6 +273,10 @@ no Markdown path or classification changes.
 The completed retained-v31 budget diagnosis updates the existing Roadmap only;
 no Markdown path or classification changes.
 
+The QK live-reduction package completes both API panels and updates existing
+Roadmap, MTP SDD and Current Status. It remains a bounded development dependency;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

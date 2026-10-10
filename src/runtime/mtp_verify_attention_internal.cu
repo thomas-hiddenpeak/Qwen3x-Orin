@@ -39,6 +39,37 @@ __device__ __forceinline__ std::uint16_t encode_bf16_device(
   return static_cast<std::uint16_t>(bits >> 16U);
 }
 
+__device__ __forceinline__ float warp_sum_four(float s0, float s1,
+                                               float s2, float s3) {
+  const unsigned lane = threadIdx.x % 32;
+  const float p0 = __shfl_xor_sync(0xffffffffU, s0, 16);
+  const float p1 = __shfl_xor_sync(0xffffffffU, s1, 16);
+  const float p2 = __shfl_xor_sync(0xffffffffU, s2, 16);
+  const float p3 = __shfl_xor_sync(0xffffffffU, s3, 16);
+  const float t0 = __fadd_rn(lane < 16 ? s0 : p2, lane < 16 ? p0 : s2);
+  const float t1 = __fadd_rn(lane < 16 ? s1 : p3, lane < 16 ? p1 : s3);
+  const float q0 = __shfl_xor_sync(0xffffffffU, t0, 8);
+  const float q1 = __shfl_xor_sync(0xffffffffU, t1, 8);
+  float sum = __fadd_rn((lane & 8) ? q1 : t0, (lane & 8) ? t1 : q0);
+  sum = __fadd_rn(sum, __shfl_down_sync(0xffffffffU, sum, 4, 8));
+  sum = __fadd_rn(sum, __shfl_down_sync(0xffffffffU, sum, 2, 8));
+  sum = __fadd_rn(sum, __shfl_down_sync(0xffffffffU, sum, 1, 8));
+  return sum;
+}
+
+// Preserve two original ordered trees in independent sixteen-lane groups.
+__device__ __forceinline__ float warp_sum_two(float s0, float s1) {
+  const unsigned lane = threadIdx.x & 31;
+  const float p0 = __shfl_xor_sync(0xffffffffU, s0, 16);
+  const float p1 = __shfl_xor_sync(0xffffffffU, s1, 16);
+  float sum = __fadd_rn(lane < 16 ? s0 : p1, lane < 16 ? p0 : s1);
+  sum = __fadd_rn(sum, __shfl_down_sync(0xffffffffU, sum, 8, 16));
+  sum = __fadd_rn(sum, __shfl_down_sync(0xffffffffU, sum, 4, 16));
+  sum = __fadd_rn(sum, __shfl_down_sync(0xffffffffU, sum, 2, 16));
+  sum = __fadd_rn(sum, __shfl_down_sync(0xffffffffU, sum, 1, 16));
+  return sum;
+}
+
 // Keep all six queries resident across independent positions. Each warp
 // retains the scalar 256-dimension product/add tree. K is decoded once for
 // six heads; no position sum or tensorcore/reassociated dot is introduced.
@@ -99,18 +130,10 @@ __global__ void attention_scores_grouped_async_kernel(
           __fadd_rn(__fadd_rn(product[0], product[1]), __fadd_rn(product[2], product[3])),
           __fadd_rn(__fadd_rn(product[4], product[5]), __fadd_rn(product[6], product[7])));
     }
-    // Only lanes [0,stride) remain ancestors of the lane-zero output.
-    // Updating the other lanes removes predicated merge moves; no live
-    // operand or add changes. Interleave independent heads at each stage.
-#pragma unroll
-    for (unsigned int stride = 16; stride; stride >>= 1)
-#pragma unroll
-      for (unsigned int h = 0; h < 6; ++h)
-        sums[h] = __fadd_rn(sums[h], __shfl_down_sync(0xffffffffU, sums[h], stride));
-    if (lane == 0)
-#pragma unroll
-      for (unsigned int h = 0; h < 6; ++h)
-        score_tile[h][column] = sums[h] * 0.0625f;
+    const float first = warp_sum_four(sums[0], sums[1], sums[2], sums[3]);
+    const float last = warp_sum_two(sums[4], sums[5]);
+    if (!(lane & 7)) score_tile[lane/8][column] = first * 0.0625f;
+    if (!(lane & 15)) score_tile[4+lane/16][column] = last * 0.0625f;
     }
     __syncthreads();
     if (i + 3 < 16) asm volatile("cp.async.wait_group 2;" ::);

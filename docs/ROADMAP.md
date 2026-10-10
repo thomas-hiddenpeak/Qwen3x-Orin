@@ -19,6 +19,32 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP QK live reductions — API return complete
+
+`WP-MTP-QK-LIVE-REDUCTION-20261010` / `AC-MTP-GREEDY-v36` retains the
+1.5x–3x objective and complete 18.45/21.62-second Decode budgets. The
+[design](metadata/qwen36-27b-mtp-qk-live-reduction-design-2026-10-10.json)
+transfers the retained exact live-ancestor projection reduction to six QK head
+trees, eliminating dead-lane work without changing products, grids, causal
+bounds or KV ownership. Current matched QK work is 3.077 GPU seconds; this
+alone cannot close the remaining 40K gap. One fixed implementation plus at
+most one correctness repair passes directed trees and complete P513/P8192
+state/logits, then returns immediately to the same d2 API. Greater-than-3%
+regression stops; neutral removes; useful direction unlocks d3. No mapping
+or resource scan follows. Any useful prerequisite expires at the next full
+verifier API return or archival. Production remains unchanged.
+
+The [completed direction](metadata/qwen36-27b-mtp-qk-live-reduction-direction-2026-10-10.json) passes 24,576 raw FP32 roots,
+complete P513/P8192 state/logits and all sixteen d2/d3 API/lifecycle checks.
+Output and acceptance/work remain unchanged. Verification falls by about
+0.10 seconds at 8K and 0.57/0.63 seconds at 40K; d2 Decode is 12.978/9.872
+token/s. This exact reduction remains a bounded development dependency through
+the next full verifier API return or archival. There is no further QK mapping
+scan or qualification-only campaign. The single-process 40K total is mixed
+because Prefill is longer; no production selection follows. The 1.5x–3x goal
+remains unmet, with roughly 1.20/4.21 seconds still to remove from complete
+8K/40K Decode. The next architecture must address dominant target computation.
+
 ## 2026-10-10 retained MTP v31 budget — diagnosis complete
 
 `WP-MTP-V31-BUDGET-20261010` preserves the 1.5x–3x goal and complete

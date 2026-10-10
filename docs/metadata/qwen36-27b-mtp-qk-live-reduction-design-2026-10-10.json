@@ -1,0 +1,23 @@
+{
+  "work_package_id": "WP-MTP-QK-LIVE-REDUCTION-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v36",
+  "decision_unit": "architecture_candidate",
+  "source_parent": "0e8bbd1028f87de53b4c64b2a329591e95bcace6",
+  "goal": "1.5x\u20133x real API Decode vs same-request non-MTP, unchanged numerical/state/output",
+  "downward_budget": "Complete 8K/40K Decode <=18.45/21.62 s. Current v31 matched QK cost 3.07670208 GPU s/1680 calls; opportunity ceiling only, cannot alone close 4.774-second 40K gap.",
+  "mechanism": "Transfer retained exact projection live-ancestor mapping to six QK head trees: four eight-lane groups plus two sixteen-lane groups retain original operand-first adds. Eliminate dead-lane reduction work; original products, query residency, KV staging, grids, causal masks, score scaling and softmax/PV unchanged.",
+  "distinction": "No new CTA geometry, shared-KV ownership, approximate lattice/MMA or activation representation. Existing proved tree executor extends to another independent output family.",
+  "resource": "No allocation or new shared memory; compiler must not spill.",
+  "reference": "Existing native v30/v31 exact live-tree proof, studied FlashInfer grouped queries retained; no imported source.",
+  "numerical_gate": "Directed all-six-root raw-FP32 equality with original trees, complete P513 transaction/state/logit plus P8192 prefix equality.",
+  "api_return": "Immediately same P65/8K/40K d2 API, >3% regression stop; neutral remove; useful unlock d3. One implementation plus at most one correctness repair; no reduction/grid/resource scan.",
+  "expiry": "Any useful dependency expires at next complete verifier API return or archival; no promotion or target attainment from single direction.",
+  "artifact_root": ".q3x-work/mtp-qk-live-reduction-20261010",
+  "rollback_files": [
+    "src/runtime/mtp_verify_attention_internal.cu",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ]
+}
