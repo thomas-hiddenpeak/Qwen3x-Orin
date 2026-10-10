@@ -1,0 +1,46 @@
+{
+  "work_package_id": "WP-MTP-COMPLETE-FEED-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v48",
+  "source_parent": "5ed770fa91500d852aaff162adac264446d64052",
+  "profile": "q3x.sm87.admission.mtp-complete-feed-api.v51",
+  "product_constraint": "1.5x\u20133x same-request committed Decode; exact target state/logits/output, draft lengths2/3 and joint Prefill/TTFT/Decode/total reporting",
+  "downward_budget": {
+    "current_fp8_gpu_s": 5.869083328,
+    "remaining_40k_decode_s": 2.667068457,
+    "scope": "Family opportunity, not predicted savings."
+  },
+  "evidence": {
+    "source_report": ".q3x-work/mtp-projection-counters-20261010/profile/capture.ncu-rep",
+    "export_sha256": "7f5ebd013b9a731b1d78b9d87740a36b0c150c832fabc02a0ee39988df1aea19",
+    "scope": "Historical L0/M3/P65 FP8 cell, original retained projection source cb51d2e; not current full-model or DRAM attribution.",
+    "l2_miss_sectors": 1639364.0,
+    "sector_bytes": 32,
+    "l2_miss_bytes": 52459648.0,
+    "canonical_weight_bytes": 52428800,
+    "duration_value": 526.976,
+    "duration_unit": "us",
+    "finding": "L2 miss bytes closely match one canonical weight pass; the old cell supplies no evidence for duplicated activation DRAM as the large cost. Long-scoreboard waits remain aggregate, not PC attribution. Previous weight-only lookahead left activation loads on the current-iteration dependency path."
+  },
+  "mechanism": "One complete operand register pipeline: issue next packed weight and all M BF16 activation records before current codebook/FMA use. Unlike rejected v29 weight-only lookahead, activations also cross the iteration boundary. Current live-root epilogues retained. No shared ring, table replication, layout preparation or new allocation.",
+  "equivalence_ledger": [
+    "Identical original weight/cache loads, swizzle, activation conversion and table.",
+    "Same per-thread four FP32 FMA chains, K sequence, merges, live-root warp/final reductions, scale and BF16 output.",
+    "Current and next records separate; last iteration never reads beyond K. K5120/6144 are existing admitted shapes, now explicit instantiations.",
+    "No persistent model state, Prefill or non-MTP changes."
+  ],
+  "reference_transfer": "Previously pinned Marlin software operand pipeline translated into native exact SIMT. No source imported.",
+  "resource_contract": "256-thread blocks, original shared table/partials; retain M2/M3/M4 register-limited resident-block floors4/3/2 via launch bounds and reject any spill at static admission.",
+  "bounds": {
+    "implementations": 1,
+    "profiles": 0,
+    "parameter_scans": 0,
+    "correctness_repairs_max": 1
+  },
+  "gates": [
+    "build/static no-spill and generated instruction review",
+    "complete FP8 output/guard cases and full P65 prefix/cache/transaction admission",
+    "immediate d2 API P65/8K/40K; >3% slowdown stops, neutral removes, useful direction unlocks d3"
+  ],
+  "expiry": "First complete API decides removal or bounded next-verifier dependency. No production promotion or repeated feed-parameter scan.",
+  "artifact_root": ".q3x-work/mtp-fp8-complete-feed-20261010"
+}

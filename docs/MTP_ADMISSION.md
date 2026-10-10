@@ -1511,6 +1511,22 @@ passes complete numerical checks but slows the 8K d2 API. The experiment above
 is removed in full and v48 remains current. No 40K completion, d3, profile or
 lookup-layout scan follows; production and the target remain unchanged.
 
+## Complete FP8 operand feed composition v48 — removed
+
+The bounded [composition](metadata/qwen36-27b-mtp-complete-feed-design-2026-10-10.json)
+pipelines one packed weight record and all speculative activation records
+across each K1024 iteration. Current/next registers remain disjoint until the
+same ordered FMA chains finish. The last iteration issues no next read.
+Existing K5120/6144 shapes become fixed instantiations; original scalar trees,
+scale, BF16 publication, table, state and scratch are unchanged. Static
+admission rejects spills under the incumbent register-limited block floors.
+One real API return selects or removes the composition; no feed scan follows.
+
+The [static rejection](metadata/qwen36-27b-mtp-complete-feed-rejection-2026-10-10.json)
+shows that the compiled server moves every next-record load after current FMA,
+so the intended overlap above is absent. All new paths are removed before GPU
+testing; v48 remains current, with no new numerical or API performance claim.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

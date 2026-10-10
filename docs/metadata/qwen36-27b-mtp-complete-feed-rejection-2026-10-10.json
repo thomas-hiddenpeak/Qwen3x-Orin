@@ -1,0 +1,162 @@
+{
+  "work_package_id": "WP-MTP-COMPLETE-FEED-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v48",
+  "source_parent": "5ed770f",
+  "status": "closed_static_mechanism_not_realized_runtime_removed",
+  "decision": {
+    "status": "static_mechanism_rejected",
+    "binary": "source/server",
+    "binary_sha256": "d9ef4ca0ab5b7a937cad2879ab270f9eee6a7d5a571b06127ccd88219bc6ff25",
+    "kernel": "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj3ELb0ELj5120EEEvPKhfPKtjPt",
+    "loop_start": "0x6d0",
+    "loop_backedge": "0xff0",
+    "last_FFMA": "0xe90",
+    "global_load_addresses": [
+      "0xf50",
+      "0xf80",
+      "0xf90",
+      "0xfa0",
+      "0xfb0",
+      "0xfc0",
+      "0xfd0"
+    ],
+    "finding": "All next-record global loads in the compiled M3/K5120 canonical loop occur after every current-record FFMA, followed by the backedge and direct operand use. Compiler loop rotation/shortening removed the intended overlap with current FMA. Source order is not an implementation of the declared pipeline.",
+    "decision": "Reject this construction before GPU testing; remove runtime changes. No performance or numerical pass claimed from build/static inspection."
+  },
+  "source_identity": {
+    "oracle": "883200ef8d2e5956f9d6fba54c6059fadf16ae8b2595930f1b2030c3e33b41fd",
+    "candidate.patch": "fad6c3b7ce18a8449ca9dd5133a9c393335ba4447eaebfda90067dab54b6f81b",
+    "server": "d9ef4ca0ab5b7a937cad2879ab270f9eee6a7d5a571b06127ccd88219bc6ff25",
+    "tests/mtp_device_test.cpp": "149366fd54fb029b9c418426a00cc4b426d6756a111ba682510beb974b7f0b92",
+    "tools/evaluation/validate_mtp_service.py": "8600816dfcd915fd8d8396b55038fbf6832781797dd4f4121ec45ef3de169fe9",
+    "src/server/evaluation_server.cpp": "c8888c62ddb8b84040ae7a5aef14fc623355fbb7507b68caf05e510e52ada62a",
+    "src/runtime/reference_runner_terminal_prefix_internal.h": "734c3274f72079d9ef81b577b41d3445d9b982b5b9b209e53ad0dfc319f89f3f",
+    "src/runtime/reference_runner_full_attention_oracle_internal.h": "c86a676e530f839f0cc1bf347a46c47b5c5aba531751ea36ff14845b6d564352",
+    "src/runtime/mtp_verify_attention_internal.cu": "64eaf3c9a4e2813dad16620216d6789b493d191e12f93f158f40d541c92ba273",
+    "src/runtime/reference_engine_prefill_authority.h": "c0ce31dc6aa0747973e65a2ec994ac49c549176680df45978184ab0ffba29d11",
+    "src/runtime/reference_runner_gdn_exact_span_policy_internal.h": "2938439fa831120fdf2eb8a055725681703876043beb21953a9372a6ea055c94",
+    "src/runtime/p40_packed_projection_assets.cpp": "c938706571e986c93e326c53bef1d6ada8ad761bb574926155964084b42f2bd2",
+    "src/runtime/prefill_operator_bindings.cpp": "fcca07bb1efa85c7151e04550109e65f746770c1c0bcb6eb841bb4c3cf3ee15a",
+    "src/runtime/reference_engine_prefill_authority.cpp": "ddd98d3aa7f793d7fe395bc42447665773db5562dd8a5370dc4ae678d2565f90",
+    "src/runtime/mtp_prefill_internal.cu": "a73d0774d11bf9d1e642876d01e0239d62489d1c83af59539de9f835e43a07d2",
+    "src/runtime/mtp_prefill_internal.h": "eed816da8e20a804953732b09efc52a87e1b80a733303bae4c721f7ca166f054",
+    "src/runtime/reference_engine_decode_sidecar_policy_internal.h": "dafa71954aa685d464c59e2fcd82c053443a03b3b48c069b392e7a65e92bc8af",
+    "src/runtime/prefill_workspace_plan.cpp": "163d2314c1358ee797b961b92c9f5360f1b6e239260cc16d5d43d26576b81721",
+    "src/runtime/reference_oracle.cpp": "efde55942e91712f23dfa18092ca0df7ba9a37e111eccaf1ee947360b67777c7",
+    "src/runtime/mtp_verify_projection_internal.cu": "1dc2558cb2c8b048ab1ad37f06573e013886a1ed1214a6008fe30aeddb6c424d",
+    "src/runtime/prefill_route_evidence.cpp": "88bc0ae79d310c41da68b4cf4eb48af5e4a35b47cfd1c32d47aa5c8a4c32631b",
+    "src/runtime/reference_runner.cpp": "4b346183634201f13c355f5d6c71f0bd2ba832c782bee57050ca304c54073ebe",
+    "src/runtime/mtp_control.cpp": "33be43a79d8697dd6a84f8709977f6f8841a111a011b0688cf6b0a5a6fb6c591",
+    "src/runtime/reference_runner_prompt_wide_policy_internal.h": "263adf64953ffb2017133179f25bc1b9cd6bfa9d547dc69aa6d3e2fe3312924f",
+    "src/runtime/mtp_device_internal.h": "372bab3f5685ffecc8e7807cdb6403b48c8156b35409f6befe1dc69debb5eea6",
+    "src/runtime/reference_runner_layer_major_views.cpp": "927dca43bb145754e54a64fe4d540cf82a8d369d2d260925788c03575cd7d1f1",
+    "src/runtime/resident_weights.cpp": "518e26070a2a82110e45392ad33f7d65cf2394c0adf25719993c390e267f8e0c",
+    "src/runtime/mtp_control.h": "ca6290fa891f33ca4db4d0b4e9166ab84179c494eb6d5da090b0e193cd3ebaa3",
+    "src/runtime/reference_runner_gdn_c16_norm_gate_admission.h": "ee6e16b3fb5d687e150b180614d9af17c34d12d328e717f3d8790ba4de07ce8e",
+    "src/runtime/reference_runner_request_reset_policy_internal.h": "89786af4eff2129032cdfb2dd28bff4213374f25d170ff1ce0a1a4254fbf0d8c",
+    "src/runtime/reference_engine_final_token_policy_internal.h": "7b5f5c40a85fa8901a881baccf2c469e3f3248dbc355cba7b79ca6bdf4ec19fa",
+    "src/runtime/sm87_target_aot_layer0_m192_oracle_evidence_internal.h": "fb3c0d0a69f4bef6e42effd7c4363aeaa898f494be8f0c7bfd0db805da5d6b12",
+    "src/runtime/reference_runner_gdn_chunk64_native_admission.h": "bdc6e033a5d0834c48b23c25893ca8730e6a66bed6f67c7b940fa1c13dc62626",
+    "src/runtime/reference_benchmark.cpp": "56e24d5dbc5307e372de4dbf698995f9a3a0dbc33d5a9ac6dff3dda716b86315",
+    "src/runtime/mtp_verify_internal.cpp": "276251c5b308f97968d7a2a36278fd96202672b56da79d510651c27b09661e22",
+    "src/runtime/reference_runner_gdn_chunk64_reference_admission.h": "470cd583a991c6f35e01a8c05ae179c6af5472dd73bcecc547b6bce1979abbe6",
+    "src/runtime/request_state.cpp": "2cf9013f52516a332469f38656046e60bdf9ed5ba423a81f331d32161a2e4299",
+    "src/runtime/mtp_service_internal.h": "5057c4be1d74fa279228de09dc641f27c4d6904b854370db1451951e3601e137",
+    "src/runtime/sm87_target_aot_projection_device_assets.cpp": "9e2e5264fac95b68253953a4898eee0edd89bd8cf4894d814b75be79b5e14b19",
+    "src/runtime/model_weights.cpp": "5c6c83cb65a86bfab176ed8b3e318b4f41077576153fe4d5213b4deb4ccc6fd5",
+    "src/runtime/reference_engine.cpp": "11882af20bc850f04cd6dea385ea50fe7a55a11e44b45be5842cfc49c60ae350",
+    "src/runtime/sm87_target_aot_layer0_m192_oracle_internal.h": "e2abe3a9f197ce41689a2df37472ded3db502b7770599f9a5b99f043cdbbab56",
+    "src/runtime/decode_fused_gqa_internal.h": "1875825bb8a512b38cf98f254e0f6ee288f5cb88677c5fe0ddcc6cebac584ec4",
+    "src/runtime/reference_runner_decode_gqa_policy_internal.h": "5dc1685d01c6f5914502bde6dd69c61d539c831ee6848e140483936214f4bf77",
+    "src/runtime/mtp_service_internal.cpp": "ed1c665769137f31828e1acadc8225afc2f86f34ccfb3c6c678b5b6343c50c85",
+    "src/runtime/reference_engine_control.cpp": "48f496df165ffef84ab55b4e83940a1db5c626e84ea77aa07679ff5f572f3c5d",
+    "src/runtime/sm87_target_aot_projection_assets.cpp": "3bff89ff38766b6421d73c0beb289696c85ac8a43bfd47e1f0ec5cd73302cc9a",
+    "src/runtime/prefill_execution_plan.cpp": "ce7b6ac1708ff60a25d2d147affd057a46bec15bcfdf1d7dfd646e7e451cee12",
+    "src/runtime/mtp_engine_internal.h": "2652ee5b80f9bba6e706a5d05a580f919bfdf17b6df665a028dc0d0db3818e8f",
+    "src/runtime/mtp_device_internal.cpp": "2080c2a1a9633e21449242a3b6dd82cdf44451c86598a5a1b6d51e1e3ba5c89e",
+    "src/runtime/reference/decode_ops.cpp": "efffb0f7bf1d09ab5d0f3dccc44bbe285a905425191ddb3e7b929c3d71bd3582",
+    "src/runtime/reference/layout_ops.cpp": "bb9b5f59fea4da2095bca82154d7a9f212279e9e4efb789246a94c45ec7d7877",
+    "src/runtime/reference/gdn_decode.cpp": "2bab112355a441a9101c3ef4af7cc0a910445a0664adea3c5182ddc3a6db5823",
+    "include/q3x/server/evaluation_server.h": "35fd065d2cfab22f3e3e2cd1dcf630d5fa8af506a2e1956addd7574ce6caff31"
+  },
+  "static_resources": {
+    "fp8_kernels": [
+      "'_ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj4ELb0ELj6144EEEvPKhfPKtjPt' for 'sm_87'\nptxas info    : Function properties for _ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj4ELb0ELj6144EEEvPKhfPKtjPt\n    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads\nptxas info    : Used 101 registers, used 1 barriers, 1536 bytes smem, 392 bytes cmem[0]\nptxas info    : ",
+      "'_ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj4ELb0ELj5120EEEvPKhfPKtjPt' for 'sm_87'\nptxas info    : Function properties for _ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj4ELb0ELj5120EEEvPKhfPKtjPt\n    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads\nptxas info    : Used 101 registers, used 1 barriers, 1536 bytes smem, 392 bytes cmem[0]\nptxas info    : ",
+      "'_ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj4ELb1ELj6144EEEvPKhfPKtjPt' for 'sm_87'\nptxas info    : Function properties for _ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj4ELb1ELj6144EEEvPKhfPKtjPt\n    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads\nptxas info    : Used 112 registers, used 1 barriers, 1536 bytes smem, 392 bytes cmem[0]\nptxas info    : ",
+      "'_ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj3ELb0ELj6144EEEvPKhfPKtjPt' for 'sm_87'\nptxas info    : Function properties for _ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj3ELb0ELj6144EEEvPKhfPKtjPt\n    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads\nptxas info    : Used 80 registers, used 1 barriers, 1408 bytes smem, 392 bytes cmem[0]\nptxas info    : ",
+      "'_ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj3ELb0ELj5120EEEvPKhfPKtjPt' for 'sm_87'\nptxas info    : Function properties for _ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj3ELb0ELj5120EEEvPKhfPKtjPt\n    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads\nptxas info    : Used 80 registers, used 1 barriers, 1408 bytes smem, 392 bytes cmem[0]\nptxas info    : ",
+      "'_ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj3ELb1ELj6144EEEvPKhfPKtjPt' for 'sm_87'\nptxas info    : Function properties for _ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj3ELb1ELj6144EEEvPKhfPKtjPt\n    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads\nptxas info    : Used 80 registers, used 1 barriers, 1408 bytes smem, 392 bytes cmem[0]\nptxas info    : ",
+      "'_ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj2ELb0ELj6144EEEvPKhfPKtjPt' for 'sm_87'\nptxas info    : Function properties for _ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj2ELb0ELj6144EEEvPKhfPKtjPt\n    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads\nptxas info    : Used 64 registers, used 1 barriers, 1280 bytes smem, 392 bytes cmem[0]\nptxas info    : ",
+      "'_ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj2ELb0ELj5120EEEvPKhfPKtjPt' for 'sm_87'\nptxas info    : Function properties for _ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj2ELb0ELj5120EEEvPKhfPKtjPt\n    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads\nptxas info    : Used 64 registers, used 1 barriers, 1280 bytes smem, 392 bytes cmem[0]\nptxas info    : ",
+      "'_ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj2ELb1ELj6144EEEvPKhfPKtjPt' for 'sm_87'\nptxas info    : Function properties for _ZN3q3x7runtime10mtp_detail49_GLOBAL__N__86848a92_16_consumer_test_cu_17be61b08fp8_rowsILj2ELb1ELj6144EEEvPKhfPKtjPt\n    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads\nptxas info    : Used 62 registers, used 1 barriers, 1280 bytes smem, 392 bytes cmem[0]\nptxas info    : "
+    ],
+    "no_spills": true
+  },
+  "historical_memory_review": {
+    "source_report": ".q3x-work/mtp-projection-counters-20261010/profile/capture.ncu-rep",
+    "export_sha256": "7f5ebd013b9a731b1d78b9d87740a36b0c150c832fabc02a0ee39988df1aea19",
+    "scope": "Historical L0/M3/P65 FP8 cell, original retained projection source cb51d2e; not current full-model or DRAM attribution.",
+    "l2_miss_sectors": 1639364.0,
+    "sector_bytes": 32,
+    "l2_miss_bytes": 52459648.0,
+    "canonical_weight_bytes": 52428800,
+    "duration_value": 526.976,
+    "duration_unit": "us",
+    "finding": "L2 miss bytes closely match one canonical weight pass; the old cell supplies no evidence for duplicated activation DRAM as the large cost. Long-scoreboard waits remain aggregate, not PC attribution. Previous weight-only lookahead left activation loads on the current-iteration dependency path."
+  },
+  "prior_lineage_reconciliation": "v29 recorded only partial weight-load/FMA overlap (next loads0xc90..0xd90 among current FMA, branch0xf70). This v51 complete-record construction instead schedules all next loads after current FFMA; the former negative API observation does not establish that activation lookahead is unhelpful, and neither source-level scheduling description proves execution overlap.",
+  "tests": {
+    "build_server_and_oracle": "pass",
+    "synthetic_build": "pass",
+    "gpu_numerical": "not run",
+    "api_performance": "not run",
+    "new_profile": "not run"
+  },
+  "restoration": {
+    "server": {
+      "retained_sha256": "89bd285a10812d11f577b090b7a35b39cef2691919d2b7ae8574fe644f7d1aba",
+      "rebuilt_sha256": "175d37ea4a08cd93bcc76d75126c34a7550fd594878b0a59452bccc1b61543a1",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "54d6e014a188b016e7f62c64b75a4920eb6a4529b87aa25a82a0de59a92d7f51",
+      "rebuilt_sha256": "456e2c4203b7d4cc8f4f6b4aea2181a7b94e1bd789bbd4520db6f51b8f6f6652",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "next_action_constraint": "Any successor must first demonstrate the claimed producer/consumer overlap in the exact compiled server. Do not rerun this source-only pipeline or scan its launch parameters. A different native feed mechanism requires a new bounded work package and immediate API return.",
+  "current_performance_anchor": "docs/metadata/qwen36-27b-mtp-row-boundary-direction-2026-10-10.json",
+  "goal_achieved": false,
+  "production_unchanged": true,
+  "artifact_root": ".q3x-work/mtp-fp8-complete-feed-20261010",
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-fp8-complete-feed-20261010/artifact-manifest.json",
+    "sha256": "06639de9814ead98be16db35cb511471bbff919d6ecc66a6b3b6dd0037b46e6c",
+    "files": 90,
+    "bytes": 41432273
+  },
+  "validation": {
+    "host_ctests": 3,
+    "document_unit_tests": 7,
+    "document_control": "pass",
+    "diff_check": "pass",
+    "hygiene": {
+      "gpu_handles_empty": true,
+      "runtime_source_restored": true,
+      "no_gpu_test_started": true,
+      "worktree_count": 47,
+      "temporary_files": []
+    }
+  }
+}

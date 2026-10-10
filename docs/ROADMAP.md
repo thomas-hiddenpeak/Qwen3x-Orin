@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP complete FP8 operand feed — closed at static gate
+
+`WP-MTP-COMPLETE-FEED-20261010` / `AC-MTP-GREEDY-v48` owns one
+[complete operand pipeline](metadata/qwen36-27b-mtp-complete-feed-design-2026-10-10.json)
+against the remaining 2.67-second 40K Decode gap. Both next weights and next
+activations become register-resident before current ordered FMA consumption;
+the rejected weight-only v29 left activation reads on the current dependency
+path. Current epilogues, scalar arithmetic and storage ownership remain fixed.
+Historical L2 miss bytes closely match one weight pass, narrowing the traffic
+hypothesis without asserting a current DRAM or PC-stall cause. One no-spill/
+full-numerical gate returns immediately to d2 API; >3% slowdown stops, neutral
+removes, useful direction unlocks d3. No profile or parameter scan follows.
+Production and the complete 1.5x–3x target remain unchanged.
+
+The [completed static rejection](metadata/qwen36-27b-mtp-complete-feed-rejection-2026-10-10.json)
+passes builds and no-spill resource checks but fails its mechanism gate: in
+the actual server's M3/K5120 loop, all next-record global loads follow the
+last current FFMA. The compiler removed the intended overlap. This construction
+is removed before GPU numerical or API runs; no new performance result follows.
+Both retained-v48 executables are rebuilt with identical program sections.
+A successor must prove its native producer/consumer overlap before GPU testing;
+source ordering alone is insufficient. No launch/feed parameter scan follows.
+Production, retained metrics and the complete 1.5x–3x objective are unchanged.
+
 ## 2026-10-10 MTP FP8 lane-owned codebook — closed negative
 
 `WP-MTP-FP8-LANE-TABLE-20261010` / `AC-MTP-GREEDY-v47` addresses the
