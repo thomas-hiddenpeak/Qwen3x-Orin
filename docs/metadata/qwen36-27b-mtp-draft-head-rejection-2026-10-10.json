@@ -1,0 +1,337 @@
+{
+  "work_package_id": "WP-MTP-DRAFT-HEAD-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v61",
+  "parent": "34c9244",
+  "decision_unit": "architecture_candidate",
+  "decision": "Remove exact draft-head transfer after negative P8192 API direction",
+  "artifact_root": ".q3x-work/mtp-draft-head-20261010",
+  "source_identity": {
+    "oracle": "df67acac947ac3ca73c589f648c503e991fb3f72e4367ba0271860d339a3fc57",
+    "candidate.patch": "87233711a25e386ffac2627f74ff212280e2fe0b1263f743577345cfba2ca0d3",
+    "server": "86c575abe1f675b937eef374e958676b5ebd5878d2a48332fc0f66072448513d",
+    "tests/mtp_device_test.cpp": "149366fd54fb029b9c418426a00cc4b426d6756a111ba682510beb974b7f0b92",
+    "tools/evaluation/validate_mtp_service.py": "5333118975eee663fdeb3595a8d680389ef20d3eff2de0661eef41437f59ebdc",
+    "src/server/evaluation_server.cpp": "e4abc01128e8a76bbcd978145c34e20c443a6340b5dc86054695e539d0c16ac4",
+    "src/runtime/reference_runner_terminal_prefix_internal.h": "734c3274f72079d9ef81b577b41d3445d9b982b5b9b209e53ad0dfc319f89f3f",
+    "src/runtime/reference_runner_full_attention_oracle_internal.h": "c86a676e530f839f0cc1bf347a46c47b5c5aba531751ea36ff14845b6d564352",
+    "src/runtime/mtp_verify_attention_internal.cu": "363664a03a2d7778134736dad117696bdabf50723e9728d54c39bbea9ae4a249",
+    "src/runtime/reference_engine_prefill_authority.h": "c0ce31dc6aa0747973e65a2ec994ac49c549176680df45978184ab0ffba29d11",
+    "src/runtime/reference_runner_gdn_exact_span_policy_internal.h": "2938439fa831120fdf2eb8a055725681703876043beb21953a9372a6ea055c94",
+    "src/runtime/p40_packed_projection_assets.cpp": "c938706571e986c93e326c53bef1d6ada8ad761bb574926155964084b42f2bd2",
+    "src/runtime/prefill_operator_bindings.cpp": "fcca07bb1efa85c7151e04550109e65f746770c1c0bcb6eb841bb4c3cf3ee15a",
+    "src/runtime/reference_engine_prefill_authority.cpp": "ddd98d3aa7f793d7fe395bc42447665773db5562dd8a5370dc4ae678d2565f90",
+    "src/runtime/mtp_prefill_internal.cu": "a73d0774d11bf9d1e642876d01e0239d62489d1c83af59539de9f835e43a07d2",
+    "src/runtime/mtp_prefill_internal.h": "eed816da8e20a804953732b09efc52a87e1b80a733303bae4c721f7ca166f054",
+    "src/runtime/reference_engine_decode_sidecar_policy_internal.h": "dafa71954aa685d464c59e2fcd82c053443a03b3b48c069b392e7a65e92bc8af",
+    "src/runtime/prefill_workspace_plan.cpp": "163d2314c1358ee797b961b92c9f5360f1b6e239260cc16d5d43d26576b81721",
+    "src/runtime/reference_oracle.cpp": "efde55942e91712f23dfa18092ca0df7ba9a37e111eccaf1ee947360b67777c7",
+    "src/runtime/mtp_verify_projection_internal.cu": "f8efb743c991bf69541439b4be52df88a30348e556101541780886a76b8e08bb",
+    "src/runtime/prefill_route_evidence.cpp": "88bc0ae79d310c41da68b4cf4eb48af5e4a35b47cfd1c32d47aa5c8a4c32631b",
+    "src/runtime/reference_runner.cpp": "4b346183634201f13c355f5d6c71f0bd2ba832c782bee57050ca304c54073ebe",
+    "src/runtime/mtp_control.cpp": "33be43a79d8697dd6a84f8709977f6f8841a111a011b0688cf6b0a5a6fb6c591",
+    "src/runtime/reference_runner_prompt_wide_policy_internal.h": "263adf64953ffb2017133179f25bc1b9cd6bfa9d547dc69aa6d3e2fe3312924f",
+    "src/runtime/mtp_device_internal.h": "372bab3f5685ffecc8e7807cdb6403b48c8156b35409f6befe1dc69debb5eea6",
+    "src/runtime/reference_runner_layer_major_views.cpp": "927dca43bb145754e54a64fe4d540cf82a8d369d2d260925788c03575cd7d1f1",
+    "src/runtime/resident_weights.cpp": "518e26070a2a82110e45392ad33f7d65cf2394c0adf25719993c390e267f8e0c",
+    "src/runtime/mtp_control.h": "ca6290fa891f33ca4db4d0b4e9166ab84179c494eb6d5da090b0e193cd3ebaa3",
+    "src/runtime/reference_runner_gdn_c16_norm_gate_admission.h": "ee6e16b3fb5d687e150b180614d9af17c34d12d328e717f3d8790ba4de07ce8e",
+    "src/runtime/reference_runner_request_reset_policy_internal.h": "89786af4eff2129032cdfb2dd28bff4213374f25d170ff1ce0a1a4254fbf0d8c",
+    "src/runtime/reference_engine_final_token_policy_internal.h": "7b5f5c40a85fa8901a881baccf2c469e3f3248dbc355cba7b79ca6bdf4ec19fa",
+    "src/runtime/sm87_target_aot_layer0_m192_oracle_evidence_internal.h": "fb3c0d0a69f4bef6e42effd7c4363aeaa898f494be8f0c7bfd0db805da5d6b12",
+    "src/runtime/reference_runner_gdn_chunk64_native_admission.h": "bdc6e033a5d0834c48b23c25893ca8730e6a66bed6f67c7b940fa1c13dc62626",
+    "src/runtime/reference_benchmark.cpp": "56e24d5dbc5307e372de4dbf698995f9a3a0dbc33d5a9ac6dff3dda716b86315",
+    "src/runtime/mtp_verify_internal.cpp": "bbe4363c9af347c0057c9386a0dce4b8e1790e954a1b71a9f09627c18bc16310",
+    "src/runtime/reference_runner_gdn_chunk64_reference_admission.h": "470cd583a991c6f35e01a8c05ae179c6af5472dd73bcecc547b6bce1979abbe6",
+    "src/runtime/request_state.cpp": "2cf9013f52516a332469f38656046e60bdf9ed5ba423a81f331d32161a2e4299",
+    "src/runtime/mtp_service_internal.h": "5057c4be1d74fa279228de09dc641f27c4d6904b854370db1451951e3601e137",
+    "src/runtime/sm87_target_aot_projection_device_assets.cpp": "9e2e5264fac95b68253953a4898eee0edd89bd8cf4894d814b75be79b5e14b19",
+    "src/runtime/model_weights.cpp": "5c6c83cb65a86bfab176ed8b3e318b4f41077576153fe4d5213b4deb4ccc6fd5",
+    "src/runtime/reference_engine.cpp": "11882af20bc850f04cd6dea385ea50fe7a55a11e44b45be5842cfc49c60ae350",
+    "src/runtime/sm87_target_aot_layer0_m192_oracle_internal.h": "e2abe3a9f197ce41689a2df37472ded3db502b7770599f9a5b99f043cdbbab56",
+    "src/runtime/decode_fused_gqa_internal.h": "1875825bb8a512b38cf98f254e0f6ee288f5cb88677c5fe0ddcc6cebac584ec4",
+    "src/runtime/reference_runner_decode_gqa_policy_internal.h": "5dc1685d01c6f5914502bde6dd69c61d539c831ee6848e140483936214f4bf77",
+    "src/runtime/mtp_service_internal.cpp": "e7d25ef1b6ec2595e24d8097ec222569a624b320dc284b8311603b810b0c01b1",
+    "src/runtime/reference_engine_control.cpp": "48f496df165ffef84ab55b4e83940a1db5c626e84ea77aa07679ff5f572f3c5d",
+    "src/runtime/sm87_target_aot_projection_assets.cpp": "3bff89ff38766b6421d73c0beb289696c85ac8a43bfd47e1f0ec5cd73302cc9a",
+    "src/runtime/prefill_execution_plan.cpp": "ce7b6ac1708ff60a25d2d147affd057a46bec15bcfdf1d7dfd646e7e451cee12",
+    "src/runtime/mtp_engine_internal.h": "2652ee5b80f9bba6e706a5d05a580f919bfdf17b6df665a028dc0d0db3818e8f",
+    "src/runtime/mtp_device_internal.cpp": "bf387731d6f7cad76c32d3826d0e0810b5232dc93c53f96f0ad1a56a02bcda59",
+    "src/runtime/reference/decode_ops.cpp": "efffb0f7bf1d09ab5d0f3dccc44bbe285a905425191ddb3e7b929c3d71bd3582",
+    "src/runtime/reference/layout_ops.cpp": "bb9b5f59fea4da2095bca82154d7a9f212279e9e4efb789246a94c45ec7d7877",
+    "src/runtime/reference/gdn_decode.cpp": "2bab112355a441a9101c3ef4af7cc0a910445a0664adea3c5182ddc3a6db5823",
+    "include/q3x/server/evaluation_server.h": "cae7cc65626a9b4b73cc53022112becff994cf3c8c50e86846a0f7d128bd77cf"
+  },
+  "numerical": {
+    "complete_vocabulary_output_guard_cases": 6,
+    "vocabulary": 248320,
+    "invalid_zero_enqueue": true,
+    "P65_complete_prefixes": 9,
+    "P65_transactions": 11,
+    "injected_failure_recovery": 2,
+    "result": "bitwise full output/state/logits/cache pass"
+  },
+  "api": {
+    "metrics": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8884823660000001,
+        "prefill_tps": 73.15845816122815,
+        "decode_tps": 12.783528542785556,
+        "ttft_s": 0.9070584531873465,
+        "elapsed_s": 2.080427146051079,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-draft-head-v63",
+          "draft_length": 2,
+          "startup_free_bytes": 9892352000,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "entry_hidden_snapshots": 7,
+          "direct_gdn_state_rows": 912,
+          "seed_kv_reuses": 6,
+          "state_copy_bytes_elided": 1987054592,
+          "draft_initialization_ms": 5.674392,
+          "draft_ms": 127.063686,
+          "verify_ms": 1025.01414,
+          "reconcile_ms": 20.963727,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.321483468000004,
+        "prefill_tps": 472.93870730726024,
+        "decode_tps": 14.190027834836405,
+        "ttft_s": 17.343588838353753,
+        "elapsed_s": 35.314247441943735,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-draft-head-v63",
+          "draft_length": 2,
+          "startup_free_bytes": 9892352000,
+          "prompt_rows": 8192,
+          "draft_prefill_rows": 8191,
+          "initialized": true,
+          "rounds": 98,
+          "proposed": 196,
+          "accepted": 157,
+          "verified_rows": 294,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            86,
+            71,
+            0
+          ],
+          "draft_ordered_attention_steps": 196,
+          "entry_hidden_snapshots": 98,
+          "direct_gdn_state_rows": 14112,
+          "seed_kv_reuses": 98,
+          "state_copy_bytes_elided": 29932693504,
+          "draft_initialization_ms": 543.111485,
+          "draft_ms": 2107.5592160000006,
+          "verify_ms": 15498.363581999998,
+          "reconcile_ms": 359.9085240000001,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "comparison": [
+      {
+        "stage": "p65",
+        "decode_ratio_vs_v62": 0.9916266814228358,
+        "draft_saved_ms": -2.7703320000000105,
+        "verify_saved_ms": -7.62270100000012,
+        "full_decode_saved_s": -0.00982512599999974,
+        "prefill_delta_s": 0.0008638140000000183,
+        "total_delta_s": 0.0030621830374002457
+      },
+      {
+        "stage": "p8192",
+        "decode_ratio_vs_v62": 0.9976778216439266,
+        "draft_saved_ms": -44.80654600000116,
+        "verify_saved_ms": 0.7063969999962865,
+        "full_decode_saved_s": -0.04173039599999839,
+        "prefill_delta_s": 0.020991871999999745,
+        "total_delta_s": 0.0626225876621902
+      }
+    ],
+    "completed_api_checks": 2,
+    "output_ids_and_work_equal_v62": true
+  },
+  "cleanup": {
+    "synthetic": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "p65": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 71.0
+    },
+    "d2": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 72.531
+    }
+  },
+  "stop": {
+    "owned_pid": 1841222,
+    "verified_command": [
+      "/usr/bin/python3",
+      "-B",
+      "tools/evaluation/validate_mtp_service.py",
+      "--server",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-draft-head-20261010/source/server",
+      "--model-dir",
+      "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "--prompt-request",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/evidence/terminal-prefix-main-p40000-api-20260909-r2/request-body.json",
+      "--output",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-draft-head-20261010/d2",
+      "--baseline",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/baseline",
+      "--draft-length",
+      "2",
+      "--control-pid",
+      "1724085",
+      "--control-pid",
+      "1722995"
+    ],
+    "reason": "Completed P8192 direction does not clear predeclared nonnegative8K screen; stop before40K and d3. No scan.",
+    "stage": {
+      "stage": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "prefill_s": 17.321483468000004,
+      "prefill_tps": 472.93870730726024,
+      "decode_tps": 14.190027834836405,
+      "ttft_s": 17.343588838353753,
+      "elapsed_s": 35.314247441943735,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-draft-head-v63",
+        "draft_length": 2,
+        "startup_free_bytes": 9892352000,
+        "prompt_rows": 8192,
+        "draft_prefill_rows": 8191,
+        "initialized": true,
+        "rounds": 98,
+        "proposed": 196,
+        "accepted": 157,
+        "verified_rows": 294,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          86,
+          71,
+          0
+        ],
+        "draft_ordered_attention_steps": 196,
+        "entry_hidden_snapshots": 98,
+        "direct_gdn_state_rows": 14112,
+        "seed_kv_reuses": 98,
+        "state_copy_bytes_elided": 29932693504,
+        "draft_initialization_ms": 543.111485,
+        "draft_ms": 2107.5592160000006,
+        "verify_ms": 15498.363581999998,
+        "reconcile_ms": 359.9085240000001,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    "signal": "SIGINT",
+    "actual_shutdown_scope": "Auditor stack was in HTTP read when SIGINT arrived: P40000 request had already entered. No completed P40000 result; interrupted request is excluded from comparisons."
+  },
+  "scope": "Only P65/O16 and P8192/O256 d2 API complete. P40000 HTTP request already entered when SIGINT arrived and was cancelled; it has no timing/accuracy result. D3 API and remaining lifecycle unrun.",
+  "interpretation": "Paired decoder/live-tree executor transfer does not improve the composed runner: draft time adds44.806546ms at8K, verification is nearly unchanged. Geometry, decoder and reduction changes are not separately attributed. No parameter scan, profile or hardware-limit claim follows.",
+  "restoration": {
+    "server": {
+      "retained_sha256": "117ce095c0abdb69729ad6eb222e61300ba0b1bd7b60e18727f74cededcfe477",
+      "rebuilt_sha256": "f0360bf686a99dbcf22495e28997727d296ca85d9027478f05f90b5c44d18187",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "09b35f55b5581a3d3c92a2713f2f2f6b26292b1ce097136399259f9ce8ffa2a4",
+      "rebuilt_sha256": "857a9a19307d458320c0f2606a8b959a9ae7e9f8aef4cb525718506c4ffce718",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "production_changed": false,
+  "goal_achieved": false,
+  "host_validation": {
+    "host-tests": {
+      "command": [
+        "ctest",
+        "--test-dir",
+        ".q3x-work/build/orin-whole-core-exact-decode-admission",
+        "--output-on-failure",
+        "-R",
+        "^(mtp_control|mtp_weights|reference_engine_control)$"
+      ],
+      "returncode": 0
+    },
+    "document-unit": {
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_document_control"
+      ],
+      "returncode": 0
+    },
+    "document-control": {
+      "command": [
+        "python3",
+        "-B",
+        "tools/docs/validate_document_control.py"
+      ],
+      "returncode": 0
+    },
+    "diff-check": {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0
+    }
+  },
+  "hygiene": {
+    "gpu_handle_inspection_returncode": 1,
+    "api_keys_removed": true,
+    "temporary_build_files_empty": true,
+    "worktree_count": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "performance_authority": "One-process development direction; no repeated noise-qualified regression or architecture selection. No standalone decoder/geometry attribution."
+}

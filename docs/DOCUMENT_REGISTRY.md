@@ -399,6 +399,10 @@ The probability-publication composition completes both API panels and updates
 existing MTP SDD, Current Status and Roadmap as a bounded development dependency;
 no Markdown path or classification changes.
 
+The exact draft-head composition closes after negative P8192 API direction;
+existing MTP SDD and Roadmap record removal and frozen evidence;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

@@ -1731,6 +1731,17 @@ semantics and improves both long-context Decode intervals for d2/d3. This
 remains a bounded development dependency through the next complete verifier
 API return or archival, not production selection or full-target attainment.
 
+## Exact draft vocabulary composition v61 — removed
+
+The [bounded draft-head composition](metadata/qwen36-27b-mtp-draft-head-design-2026-10-10.json)
+transferred paired NVFP4 decoding and live-ancestor reductions to M1 draft
+full-vocabulary output. Original scalar arithmetic, all 248320 logits and
+argmax remained exact. The [completed rejection](metadata/qwen36-27b-mtp-draft-head-rejection-2026-10-10.json) passes full numerical
+admission but adds 44.81 ms of draft time at P8192/O256 d2; Decode is 14.190
+versus retained 14.223 token/s. All new runtime/profile paths are removed;
+retained v62, production and the full goal stay fixed. No launch/decoder scan
+or profile follows this closed composition.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

@@ -1,0 +1,33 @@
+{
+  "work_package_id": "WP-MTP-DRAFT-HEAD-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v61",
+  "parent": "34c9244",
+  "product_constraint": "1.5x\u20133x same-request committed Decode, configured drafts2/3, exact target state/output, joint Prefill/TTFT/Decode/total",
+  "downward_budget": {
+    "remaining_40k_decode_s": 1.766867074,
+    "historical_v48_draft_head_gpu_s": 0.914426304,
+    "scope": "family opportunity only; cannot alone promise full goal"
+  },
+  "mechanism": "Compose already admitted exact paired NVFP4 decoding and live-ancestor output trees into draft full-vocabulary head via M1 specialization of existing persistent verifier-head kernel. Original four FMA chains, ordered warp tree, scale and BF16 output unchanged. Full248320 logits and original argmax retained.",
+  "distinction": "Previously optimized target batched head did not change Draft::step, which still dispatches older scalar decoder and four separate warp reductions. No shortlist, approximate logits or modified proposal policy.",
+  "reference_translation": "Existing native paired-decoder/live-tree ledgers and pinned Marlin operand-reuse study; no new imported code or runtime dependency.",
+  "bounds": {
+    "compositions": 1,
+    "correctness_repairs_max": 1,
+    "scans": 0,
+    "profiles": 0
+  },
+  "gates": [
+    "Six full-vocabulary output/guard comparisons against actual production M1 head, including special values",
+    "P65 complete prefix/state/logit and transaction admission",
+    "Immediate d2 API; >3% slowdown stops; useful long direction unlocks d3 otherwise remove"
+  ],
+  "retention_screen": {
+    "8k_ratio_min": 1.0,
+    "40k_ratio_min": 1.01
+  },
+  "resources": "No new allocation, weight layout, startup reserve or state lifetime",
+  "artifact_root": ".q3x-work/mtp-draft-head-20261010",
+  "production_unchanged": true,
+  "physical_composition": "Existing verifier-head geometry:64 persistent CTAs,128 threads/four row-quad warps; source production M1 uses64 CTAs,256 threads/eight row-quad warps. M1 stages5120 BF16 activations and two256-entry packed codebooks. This is one composed executor transfer, not isolated decoder attribution or a launch sweep."
+}

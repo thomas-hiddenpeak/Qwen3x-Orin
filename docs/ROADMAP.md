@@ -19,6 +19,34 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP exact draft vocabulary — closed without retention
+
+`WP-MTP-DRAFT-HEAD-20261010` / `AC-MTP-GREEDY-v61` composes the
+[exact draft-head executor](metadata/qwen36-27b-mtp-draft-head-design-2026-10-10.json)
+from admitted paired decoding and live-ancestor reductions. Draft still uses
+the old scalar head although target verification already uses this arithmetic.
+The historical draft-head budget is 0.914 seconds; remaining 40K full Decode
+needs 1.767 seconds, so this component alone cannot claim the whole target.
+Six complete vocabulary/guard checks and P65 full-state transactions precede
+immediate d2 API. A >3% slowdown stops; useful long direction unlocks d3.
+One composition, at most one correctness repair, no parameter/profile scan.
+Production, full vocabulary, proposals, state and the full goal stay fixed.
+
+The [completed rejection](metadata/qwen36-27b-mtp-draft-head-rejection-2026-10-10.json) passes six full-vocabulary output/guard
+cases, nine complete P65 prefixes and eleven transactions including full state,
+logits, draft cache and failure recovery. P8192/O256 d2 retains exact output/work
+but Decode is 14.190 token/s versus retained v62 at 14.223 (-0.23%). Prefill
+is 17.321 seconds / 472.94 token/s, TTFT 17.344 seconds and total 35.314 seconds.
+Draft adds 44.81 ms, complete Decode 41.73 ms and total 62.62 ms. The subsequent
+40K request entered before the stop arrived and was cancelled; it supplies no
+completed result. D3 API and remaining lifecycle are not run.
+
+The nonnegative 8K screen closes this version. All new runtime/profile paths
+are removed and retained v62 is restored. This composed executor transfer did
+not return API value; decoder, reduction and launch geometry are not separately
+attributed. No further launch/tile/decoder scan or profile follows. Production
+and the full unmet 1.5x–3x target stay fixed.
+
 ## 2026-10-10 MTP probability publication — direction complete, retained dependency
 
 `WP-MTP-PROBABILITY-PUBLICATION-20261010` / `AC-MTP-GREEDY-v60` owns one
