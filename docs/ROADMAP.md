@@ -19,6 +19,29 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP NVFP4 native prefetch — closed without retention
+
+`WP-MTP-NV-NATIVE-PREFETCH-20261010` / `AC-MTP-GREEDY-v51` owns one
+[native operand-prefetch composition](metadata/qwen36-27b-mtp-nv-native-prefetch-design-2026-10-10.json)
+against the remaining 2.27-second 40K Decode gap. Gate/Up and Down issue
+cache hints for one valid next packed weight/scale and unstaged activation
+record. Demand reads and arithmetic remain original. Native early hints and
+no spills precede complete projection/P65 admission and immediate d2 API.
+>3% slowdown stops; useful direction unlocks d3, otherwise remove. No profile,
+distance/cache-level or register scan follows. Useful retention expires at the
+next complete verifier API return or archival; production and the goal stay fixed.
+
+The [completed rejection](metadata/qwen36-27b-mtp-nv-native-prefetch-rejection-2026-10-10.json) passes native instruction/no-spill gates, 45 complete projection cases,
+all P65 prefix state/logit/cache comparisons and transactions/recovery. D2 8K observes
+Prefill 17.299 seconds / 473.56 token/s, TTFT 17.321 seconds,
+Decode 14.061 token/s and total 35.457 seconds.
+The declared useful-direction screen is not met. All new NV prefetch and
+profile paths are removed and v52 rebuilt. The driver stops in its post-8K
+idle interval; 40K, d3 and remaining API lifecycle checks are not run. No prefetch-distance,
+cache-level or register scan follows; retained v52 observations remain current.
+These single-process observations do not qualify a speedup or hardware cause.
+The complete 1.5x–3x goal remains unmet.
+
 ## 2026-10-10 MTP Attention rendezvous — closed without retention
 
 `WP-MTP-ATTENTION-RENDEZVOUS-20261010` / `AC-MTP-GREEDY-v50` owns one

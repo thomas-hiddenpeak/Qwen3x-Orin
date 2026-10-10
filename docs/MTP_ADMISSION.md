@@ -1567,6 +1567,31 @@ ring or tile scan follows; retained v52 observations remain current.
 These single-process observations do not qualify a speedup or hardware cause.
 The complete 1.5x–3x goal remains unmet.
 
+## NVFP4 native prefetch composition v51 — removed
+
+The [bounded composition](metadata/qwen36-27b-mtp-nv-native-prefetch-design-2026-10-10.json)
+extends the retained cache-hint principle to Gate/Up and Down, keeping head
+and FP8 unchanged. Each original consumer hints one valid next K256 packed
+record and its scales; only globally resident activation rows receive hints.
+Gate shared inputs are excluded. Down scale6 words are hinted only for the
+next tile by their original 24 owners. The final phase issues no hint.
+Original demand loads, exact paired scaling, four chains, reduction, tensor
+scale, BF16 publication and state remain unchanged. Fixed launch bounds
+preserve the incumbent register CTA floors; spills reject before GPU checks.
+No new layout, allocation or correctness dependency on cache behavior exists.
+Complete numerical admission and the real API select this composition.
+
+The [completed rejection](metadata/qwen36-27b-mtp-nv-native-prefetch-rejection-2026-10-10.json) passes native instruction/no-spill gates, 45 complete projection cases,
+all P65 prefix state/logit/cache comparisons and transactions/recovery. D2 8K observes
+Prefill 17.299 seconds / 473.56 token/s, TTFT 17.321 seconds,
+Decode 14.061 token/s and total 35.457 seconds.
+The declared useful-direction screen is not met. All new NV prefetch and
+profile paths are removed and v52 rebuilt. The driver stops in its post-8K
+idle interval; 40K, d3 and remaining API lifecycle checks are not run. No prefetch-distance,
+cache-level or register scan follows; retained v52 observations remain current.
+These single-process observations do not qualify a speedup or hardware cause.
+The complete 1.5x–3x goal remains unmet.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

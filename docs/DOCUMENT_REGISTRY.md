@@ -352,6 +352,10 @@ The Attention rendezvous package closes without retention; existing MTP SDD and 
 record removal and frozen evidence;
 no Markdown path or classification changes.
 
+The NVFP4 native-prefetch package closes without retention; existing MTP SDD and Roadmap
+record removal and frozen evidence;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

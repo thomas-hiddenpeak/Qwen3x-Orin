@@ -1,0 +1,39 @@
+{
+  "work_package_id": "WP-MTP-NV-NATIVE-PREFETCH-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v51",
+  "source_parent": "014299a",
+  "product_constraint": "1.5x-3x real API committed Decode, d2/d3, exact state/logits/output and joint Prefill/TTFT/Decode/total",
+  "downward_budget": {
+    "remaining_40k_decode_s": 2.27110563,
+    "historical_v48_gate_down_gpu_s": 8.493408512,
+    "scope": "Family opportunity ceiling, not a prediction or hardware stall attribution."
+  },
+  "mechanism": "Transfer the retained native FP8 cache-hint mechanism to NVFP4 Gate/Up and Down: prefetch exactly one valid future K256 weight record, scale record and non-staged activation record. Head and FP8 stay v52.",
+  "equivalence_ledger": [
+    "All original demand reads, paired exact scaling, four FP32 FMA chains, live reductions, tensor scale and BF16 publication unchanged.",
+    "Tail base+256>=k issues no hint; packed/canonical addresses retain original record formulas.",
+    "Gate shared inputs are not prefetched as global; only M4 unstaged row is eligible.",
+    "Down scale6 prefetches only next-tile words for lanes0..23; original warp decode remains authoritative.",
+    "No shared ring, expanded layout, extra allocation, state or Prefill change."
+  ],
+  "reference_translation": "Existing retained v52 native PTX cache hints; no new imported source. Unlike rejected v33 register lookahead, hints have no returned operand register lifetime and must appear in final native code.",
+  "bounds": {
+    "implementations": 1,
+    "profiles": 0,
+    "parameter_scans": 0
+  },
+  "resource_contract": "Preserve original per-layout register CTA floors by fixed launch bounds; any spill fails static admission.",
+  "gates": [
+    "both builds and static native early hints/no spill",
+    "45 complete NV output/guard cases and full P65 scalar prefix/state/cache/transaction admission",
+    "immediate d2 P65/8K/40K API; >3% slowdown stops, useful unlocks d3, otherwise remove"
+  ],
+  "direction_retention_screen": {
+    "minimum_40k_decode_ratio_vs_v52": 1.01,
+    "minimum_8k_decode_ratio_vs_v52": 1.0,
+    "both_long_verify_time_must_decrease": true,
+    "scope": "Pragmatic direction floor, not noise qualification."
+  },
+  "expiry": "Useful dependency only through next complete verifier API return or archival; no distance/cache-level/register scan or production promotion.",
+  "artifact_root": ".q3x-work/mtp-nv-native-prefetch-20261010"
+}
