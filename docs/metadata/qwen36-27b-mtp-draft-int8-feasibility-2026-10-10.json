@@ -1,0 +1,249 @@
+{
+  "work_package_id": "WP-MTP-DRAFT-INT8-FEASIBILITY-20261010",
+  "source_base": "cf51dee89b001533d26272ca1488ee101dcd9f5c",
+  "status": "fixed_quantizer_rejected_before_gpu",
+  "decision": "Do not implement plain per-channel INT8 for all eight draft matrices. Full hidden/K/V errors exceed unchanged 0.02 bound. No runtime, GPU, acceptance or API claim. No quantizer/group-size scan follows under this package.",
+  "assessment": {
+    "scope": "CPU numerical feasibility only; original FP64 whole-layer comparator and fixed per-channel INT8 draft, BF16 scales and publication; no GPU/API or acceptance claim",
+    "original_native_comparison": {
+      "target_final_norm": {
+        "max_row_relative_l2": 5.963384100154866e-05,
+        "max_absolute_error": 0.0078125,
+        "elements": 332800,
+        "threshold_max_row_relative_l2": 0.005,
+        "pass": true
+      },
+      "hidden": {
+        "max_row_relative_l2": 0.009381707092506594,
+        "max_absolute_error": 0.671875,
+        "elements": 327680,
+        "pass": true
+      },
+      "k": {
+        "max_row_relative_l2": 0.0018966317489639915,
+        "max_absolute_error": 0.046875,
+        "elements": 65536,
+        "pass": true
+      },
+      "v": {
+        "max_row_relative_l2": 0.0013001843549924304,
+        "max_absolute_error": 0.125,
+        "elements": 65536,
+        "pass": true
+      }
+    },
+    "quantized_vs_original_fp64": {
+      "target_final_norm": {
+        "max_row_relative_l2": 5.963384100154866e-05,
+        "max_absolute_error": 0.0078125,
+        "elements": 332800,
+        "threshold_max_row_relative_l2": 0.005,
+        "pass": true
+      },
+      "hidden": {
+        "max_row_relative_l2": 0.1919706467739492,
+        "max_absolute_error": 3.46875,
+        "elements": 327680,
+        "pass": false
+      },
+      "k": {
+        "max_row_relative_l2": 0.13003292117261173,
+        "max_absolute_error": 1.1875,
+        "elements": 65536,
+        "pass": false
+      },
+      "v": {
+        "max_row_relative_l2": 0.11820507020220761,
+        "max_absolute_error": 1.921875,
+        "elements": 65536,
+        "pass": false
+      }
+    },
+    "pass": false,
+    "quantization": {
+      "mtp.fc.weight": {
+        "original_bytes": 104857600,
+        "quantized_bytes": 52439040,
+        "shape": [
+          5120,
+          10240
+        ],
+        "codes_sha256": "88649083592318e29ca1b3502db4f3ddb15ad0b840b768ac0fe6858a61840bd3",
+        "scales_fp32_expanded_sha256": "ce5c2b90886c1dbcb5870dfd5fd0aab2131ad2c30e3292438ca4bfc66ec0e753",
+        "zero_codes": 12061866
+      },
+      "mtp.layers.0.mlp.down_proj.weight": {
+        "original_bytes": 178257920,
+        "quantized_bytes": 89139200,
+        "shape": [
+          5120,
+          17408
+        ],
+        "codes_sha256": "834e8967e9d55e559ca35a82043dd9ffc2a567a74c1d8fde06772858ae133cd1",
+        "scales_fp32_expanded_sha256": "c68404ae76e4409530c5685de3e523790d76e6d2b4cc9d34a70cc5c24cbb6fdb",
+        "zero_codes": 1762622
+      },
+      "mtp.layers.0.mlp.gate_proj.weight": {
+        "original_bytes": 178257920,
+        "quantized_bytes": 89163776,
+        "shape": [
+          17408,
+          5120
+        ],
+        "codes_sha256": "0552ddd77495d128009583981366156a17dac432d7e0b5278d5ae8819d8936eb",
+        "scales_fp32_expanded_sha256": "437706351fbbedb1647da89d78d490bcec10e325f2a50038d969eb4a67be8494",
+        "zero_codes": 1187549
+      },
+      "mtp.layers.0.mlp.up_proj.weight": {
+        "original_bytes": 178257920,
+        "quantized_bytes": 89163776,
+        "shape": [
+          17408,
+          5120
+        ],
+        "codes_sha256": "d47aeca930518e930d1dd8ca4cc946b3b39df44f9764750c5816bdca4dbbbf1d",
+        "scales_fp32_expanded_sha256": "9c59450e69a606910d1388f1a70a3a14ef503c4362f11831fc9f449c52ff4ba9",
+        "zero_codes": 1156430
+      },
+      "mtp.layers.0.self_attn.k_proj.weight": {
+        "original_bytes": 10485760,
+        "quantized_bytes": 5244928,
+        "shape": [
+          1024,
+          5120
+        ],
+        "codes_sha256": "a8fa6d26aea768d97ca03849057cb712e4d1758f6e717b27b49fb28d228c7866",
+        "scales_fp32_expanded_sha256": "ff211a922d8fd3b9f45e7559210698d865aa1cbbf8d635bbf58631043b4624af",
+        "zero_codes": 93137
+      },
+      "mtp.layers.0.self_attn.o_proj.weight": {
+        "original_bytes": 62914560,
+        "quantized_bytes": 31467520,
+        "shape": [
+          5120,
+          6144
+        ],
+        "codes_sha256": "d2dfadbb05d83942b5c4b4304b641d92d544236f7ebaf1221fc6d9cae1168eea",
+        "scales_fp32_expanded_sha256": "aa751b9e6443bafbfba2e3f7f72ed2597cd0cdfb894faa7553dbacc4874c26cb",
+        "zero_codes": 727023
+      },
+      "mtp.layers.0.self_attn.q_proj.weight": {
+        "original_bytes": 125829120,
+        "quantized_bytes": 62939136,
+        "shape": [
+          12288,
+          5120
+        ],
+        "codes_sha256": "8ca7aa1cddf92f593ac4476fe223d32c6303e8116c11e4d718b8611bc5119957",
+        "scales_fp32_expanded_sha256": "df5c2ac26e65f1341cd21d3dec359228f14d8d1f14b76835462ab5c4145fa176",
+        "zero_codes": 927327
+      },
+      "mtp.layers.0.self_attn.v_proj.weight": {
+        "original_bytes": 10485760,
+        "quantized_bytes": 5244928,
+        "shape": [
+          1024,
+          5120
+        ],
+        "codes_sha256": "41910150c86253e2f8ba3d05a3d39778a64dfdb8304c3d6145865248f43912db",
+        "scales_fp32_expanded_sha256": "68d1569b8b7957df8bea2df2eb1a15eb65551ff4c61870b7767c873f1de1cd71",
+        "zero_codes": 81141
+      }
+    },
+    "source_capture_and_payload_authentication": "all prior hashes match",
+    "original_weight_bytes": 849346560,
+    "quantized_weight_and_scale_bytes": 424802304
+  },
+  "weight_diagnosis": {
+    "scope": "same fixed quantizer weight diagnosis only; no alternate quantizer or speed claim",
+    "tensors": {
+      "mtp.fc.weight": {
+        "weight_relative_l2": 0.1276748104645718,
+        "zero_code_fraction": 0.2300618362426758,
+        "row_max_at_embedding_diagonal": 0,
+        "row_max_at_hidden_diagonal": 5113,
+        "rows": 5120,
+        "embedding_diagonal_l2_energy_fraction": 0.00015042211324698163,
+        "hidden_diagonal_l2_energy_fraction": 0.3085625544837629
+      },
+      "mtp.layers.0.mlp.down_proj.weight": {
+        "weight_relative_l2": 0.01388611141098052,
+        "zero_code_fraction": 0.019776086246266086
+      },
+      "mtp.layers.0.mlp.gate_proj.weight": {
+        "weight_relative_l2": 0.009662910988765285,
+        "zero_code_fraction": 0.01332394095028148
+      },
+      "mtp.layers.0.mlp.up_proj.weight": {
+        "weight_relative_l2": 0.009296984927838559,
+        "zero_code_fraction": 0.012974795173196232
+      },
+      "mtp.layers.0.self_attn.k_proj.weight": {
+        "weight_relative_l2": 0.013225696151862172,
+        "zero_code_fraction": 0.017764472961425783
+      },
+      "mtp.layers.0.self_attn.o_proj.weight": {
+        "weight_relative_l2": 0.014984639987514618,
+        "zero_code_fraction": 0.023111438751220702
+      },
+      "mtp.layers.0.self_attn.q_proj.weight": {
+        "weight_relative_l2": 0.010519022496028107,
+        "zero_code_fraction": 0.014739465713500977
+      },
+      "mtp.layers.0.self_attn.v_proj.weight": {
+        "weight_relative_l2": 0.01080113443783251,
+        "zero_code_fraction": 0.015476417541503907
+      }
+    }
+  },
+  "interpretation": "FC has a dominant hidden-half diagonal: 5113/5120 row maxima lie there. With one scale per row, 23.0% of codes are zero and FC weight relative L2 error is 12.77%, versus 0.93\u20131.50% for the other matrices. This identifies a specific representation risk, not an isolated full-output causal attribution. A future outlier-preserving design requires a new bounded equivalence/error ledger and API composition; it is not selected here.",
+  "goal": "1.5x\u20133x same-request committed Decode remains active and unmet; draft savings alone cannot close 40K gap",
+  "production_unchanged_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+  "artifact_root": ".q3x-work/mtp-draft-int8-feasibility-20261010",
+  "evidence_sha256": {
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/assess.py": "93376597432da7ef1676c2215cc9180c80d1253d736621890b7f9ae5f231100f",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/assessment.log": "7aec967cdf0595a8af17cab3e620e60357a92d3f61ab2d79a8197d28c31623a2",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/weight-audit.py": "5d3a63345fbc6b6b0c8e6ef13dbd7bebe95eb1e8fe4ae1bb293988c3771d1f87",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/assessment.json": "1f1888f65ef510ec2e35c1c6da24dd10d54c858b4b93859c37ca90aac204543d",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/weight-audit.json": "3ab7937c049901ff5c89d680d05fd745d4861a1f14dcbe8466c778e576b30408",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/weight-audit.log": "13f4f100a4c16c5b4cef41e708a34abf7f0d334047fb5ca5882f675b70c242e3",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/oracle-transformation.py": "f2d38d14edbbb43fcf8b8e3e495986c7e18882c85347b1cb642a2af9ae579ae0",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/capture/int8-oracle.json": "0d58cf28ba7788b01fe49c21bdb59405d6db05e862b61afa2949962b04b988ec",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/capture/identity.json": "85caea4812fff5b839f132c793e81590d7475fd74cb6a6a5c09d46dd8a6e2e26",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/capture/target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/capture/original-fp64-k.npy": "2e2bbbedbc257aec5cb108270b3ed5414ed2c715f3adaf53690f34465aa1a9b6",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/capture/draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/capture/target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/capture/draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/capture/draft-prefill-hidden.bf16": "9c5811b3536f493466a8699092f6fd0bd624227239cd1acee52e7e0182666efb",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/capture/original-fp64-hidden.npy": "062f6b5dcfc7ac3155feb92ad3556ac3ed77115903cde6dfa6928ae7b91a1d83",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/capture/independent-draft-oracle.json": "86eaa164dbfcfe1c134eeed7df814abf1570d310f22844fbd5d20bb6433e3da1",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/capture/original-fp64-v.npy": "0944fe59b8330f55bd60be07a7bb3243aadff2e8813507949287476c19ae8e00",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/capture/prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    ".q3x-work/mtp-draft-int8-feasibility-20261010/capture/original-oracle.json": "86eaa164dbfcfe1c134eeed7df814abf1570d310f22844fbd5d20bb6433e3da1"
+  },
+  "scope": {
+    "original_reference": "independent CPU FP64 projections and causal Attention with original BF16 weights and BF16 boundaries",
+    "payload_authentication": "all prior capture and tensor hashes match",
+    "gpu_processes_started": 0,
+    "runtime_changes": 0,
+    "performance_measurements": 0,
+    "architecture_selected": false,
+    "target_met": false,
+    "host_sessions": [
+      {
+        "id": 65129,
+        "returncode": 0
+      },
+      {
+        "id": 7089,
+        "returncode": 0
+      }
+    ]
+  },
+  "closure": {
+    "new_worktrees": 0,
+    "artifact_bytes": 4120221,
+    "workspace_free_bytes": 426680209408
+  }
+}

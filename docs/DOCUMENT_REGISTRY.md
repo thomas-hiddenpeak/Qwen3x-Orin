@@ -238,6 +238,10 @@ The independent accumulation-chain package closes after negative P65 API
 direction. Existing MTP SDD, Current Status and Roadmap record removal and
 frozen evidence; no Markdown path or classification changes.
 
+The bounded draft INT8 host assessment rejects the fixed per-channel quantizer
+before GPU work and updates the existing Roadmap only; no Markdown path or
+classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

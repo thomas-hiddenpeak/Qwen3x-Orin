@@ -1,0 +1,25 @@
+{
+  "work_package_id": "WP-MTP-DRAFT-INT8-FEASIBILITY-20261010",
+  "source_base": "cf51dee89b001533d26272ca1488ee101dcd9f5c",
+  "goal": "1.5x\u20133x same-request committed Decode, drafts2/3, exact target verifier unchanged",
+  "decision_unit": "bounded host numerical feasibility, no runtime selection",
+  "downward_budget": {
+    "complete_decode_8k_s": 18.45,
+    "complete_decode_40k_s": 21.62,
+    "v31_draft_8k_s": 2.063282199,
+    "v31_draft_40k_s": 2.454739261,
+    "limitation": "Even complete draft elimination cannot close remaining 40K gap; any useful dependency must compose with further verifier work."
+  },
+  "proposal": "One fixed symmetric per-output-channel INT8 rounding of eight BF16 draft matrices, BF16 positive scales, codes -127..127 (packed U8B128). Norms unchanged. Compare complete teacher-forced P65 draft hidden/K/V with independently evaluated original FP64 layer at unchanged BF16 publication boundaries and 0.02 maximum-row relative L2 screen.",
+  "contract": "This is not authorization to alter target arithmetic, production accuracy or reduce the existing draft numerical bound. A host pass is feasibility only; a runtime successor must receive its own numerical identity, preserve exact within-route draft-cache replay, evaluate natural acceptance and return promptly to real d2/d3 API.",
+  "reference": "Vendored vLLM Marlin dequant.h supports kU8B128 BF16 operand decoding; this is source feasibility, not SM87 performance evidence. No imported code/runtime dependency is added.",
+  "source_capture": ".q3x-work/mtp-shared-verify-20261009/mma-oracle-p65",
+  "bounds": {
+    "quantizers": 1,
+    "scales": "BF16 per output channel, no group-size or quantization scan",
+    "cpu_original_and_quantized_runs": 1,
+    "gpu_runs": 0
+  },
+  "exit": "Fail closes this fixed quantizer; pass permits selecting one separately bounded native owner/consumer/API composition, no speedup claim from CPU errors.",
+  "artifact_root": ".q3x-work/mtp-draft-int8-feasibility-20261010"
+}

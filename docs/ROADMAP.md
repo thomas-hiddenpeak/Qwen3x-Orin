@@ -19,6 +19,35 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP draft INT8 feasibility — fixed quantizer rejected
+
+`WP-MTP-DRAFT-INT8-FEASIBILITY-20261010` preserves the 1.5x–3x target,
+18.45/21.62-second Decode budgets and exact target verification. The
+[design](metadata/qwen36-27b-mtp-draft-int8-feasibility-design-2026-10-10.json)
+assesses one fixed per-channel INT8 draft representation against the original
+independent FP64 full-layer reference on retained real P65 target hidden.
+The unchanged 0.02 maximum-row hidden/K/V bound is a feasibility screen;
+no runtime arithmetic, accuracy contract or numerical baseline changes here.
+The measured 2.06/2.45-second draft cost is only a bounded opportunity and
+cannot alone close the 40K gap. One original/quantized host pass either closes
+the fixed quantizer or selects a separately bounded native owner/consumer
+composition with immediate real API return and acceptance accounting. No
+quantizer/group-size scan or GPU process opens. Artifacts stay under
+`.q3x-work/mtp-draft-int8-feasibility-20261010/`; production is unchanged.
+
+The [completed assessment](metadata/qwen36-27b-mtp-draft-int8-feasibility-2026-10-10.json)
+reproduces the original BF16 draft's independent-reference pass but rejects
+this fixed INT8 representation before GPU work. Maximum-row hidden/K/V
+relative L2 is 0.19197/0.13003/0.11821 against the unchanged 0.02 bound.
+FC has 5,113 of 5,120 row maxima on its hidden-half diagonal; its one-scale
+quantization zeros 23.0% of codes and gives 12.77% weight relative L2 error.
+Other matrices have 0.93–1.50% weight error. This is a specific representation
+risk, not proof that every INT8 method fails or attribution of all output error
+to FC. No runtime, numerical contract, GPU process or performance baseline
+changes. The 1.5x–3x goal remains active; a future outlier-preserving proposal
+requires a new bounded design and real API return, and is not selected by
+this host-only closure. No quantizer/group-size scan follows here.
+
 ## 2026-10-10 MTP independent accumulation chains — closed negative
 
 `WP-MTP-CHAIN-PARTITION-20261010` / `AC-MTP-GREEDY-v31` keeps the
