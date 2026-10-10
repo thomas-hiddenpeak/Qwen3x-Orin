@@ -44,6 +44,16 @@ and immediate API return. The proposed arithmetic envelope requires explicit
 instruction/domain proof; neither sample equality nor offline norms replace it.
 No further center/tile scan or standalone timing is authorized by this package.
 
+The [native certificate/repair pipeline](metadata/qwen36-27b-mtp-bf16-certificate-pipeline-2026-10-10.json)
+now composes GPU outward-rounded weight/input norms, interval tests, repair
+compaction and the original scalar repair. All 2,688 real sampled outputs
+are bitwise exact: 1,852 certified and 836 repaired. Thirty-six K5120/6144,
+M2/3/4 ordinary/exceptional full-output cases also match the original GPU
+projection. No performance authority follows. Finish startup norm ownership,
+bounded request workspace and instruction/domain proof review, then complete
+state/logits and immediate API return. Do not add a standalone timing campaign
+or further component variants. Existing runtime/production remain unchanged.
+
 ## 2026-10-10 MTP FP8 normal consumer — closed without retention
 
 `WP-MTP-FP8-NORMAL-CONSUMER-20261010` / `AC-MTP-GREEDY-v57` implements

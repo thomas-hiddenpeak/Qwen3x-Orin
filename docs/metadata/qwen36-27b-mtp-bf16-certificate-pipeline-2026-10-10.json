@@ -1,0 +1,340 @@
+{
+  "scope": "Native GPU outward norms, certificate, compact repair and original scalar repair on captured real P65 M3 samples; not full runner or API qualification",
+  "projections": 28,
+  "elements": 2688,
+  "repairs": 836,
+  "certified": 1852,
+  "bitwise_output_pass": true,
+  "records": [
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/0",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "0.bf16": "9fed6510ba0f5e980aea8b6609a8968dae3e6ceee62cc4a57c58f5f30bdfa903",
+        "0.norms": "0ae2e2864063ee2fae7244f03519fe64e00c5ba5ed2db2e775a18cd3a86c3d06"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/1",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "1.bf16": "49045990504606503ffe4ba30f1b47217287091c74cd20b5a68b074ef9d0790b",
+        "1.norms": "459fe307e54ed9ef44cd85a1a9d8e486c3f72f4c45fa2b777475da73095090d8"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/2",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "2.bf16": "e54fdd6d01f7a6834b0eb409357c10bb550e132129bcab0776364060bac1ee9d",
+        "2.norms": "ac452c73d5e6988c35d8c08f56092a340137f0f6e196fe52d3a79f2aca844c76"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/6",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "6.bf16": "890462dec9c4810a4faffab1acdb6897f72d2acc3a7d8daca8eab516e62d0da4",
+        "6.norms": "cbec8d2538f4c6c109f4392ce195da4aa139d5f01fb5ed9c2a7aa538a88b18f8"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/7",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "7.bf16": "f7f8f2a01531c68965e54e9f3c20774591e0251079f52dc3c0e97781f7dc2422",
+        "7.norms": "28e5f314f9d06ab1c2e23d16458c7400877d4a40525fcc54adebf40367f305d0"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/8",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "8.bf16": "88a8af9254343aa7e2b2950af1b644e6cd63815d9fb366373eec08394ff62199",
+        "8.norms": "cd6b6ba0b3d9b0e9c1e1bb2d84f06e3e5bcc607df046c9f6368f64cd8d6b3e1d"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/9",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "9.bf16": "752a9e831830c08a1d418f191993594b06af36725ff056dad0a2ad77ad3e104f",
+        "9.norms": "1ea826eca6f5006f595e9685448036644e0add7e38cfff9abe247ff3a9a0dae9"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/13",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "13.bf16": "4febbaab8fef5925b7f6e28bbf4eedacd8106593a679b2e8935c01b6536b5c8d",
+        "13.norms": "6cdbac8a0af3b8d041a31d54b7b547f1b0ce0818e29aedff1beafa84c011d13c"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/14",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "14.bf16": "8513f7527fbec859f4579343d09e5463c974f8163b77ce5c28bca718fd8e085d",
+        "14.norms": "bd433ec68f4c432b8aee100e69b026079cebc91c4d7a2d4168af1430658615c0"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/15",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "15.bf16": "dcf674752a3d4f82da907817459a0112e7ad0cbd3e0b6743160439c50a6a58b8",
+        "15.norms": "771c1bc98de85d831bf9cb1604377e49fbb2ae2097d13baf0b1b4361e100aa87"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/19",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "19.bf16": "b21bf3ceccc064e9f8ca16b39af1ad8df3eb409b9a2e07ccb40239ceed574421",
+        "19.norms": "25b8582f4e2894179a1affbebec4adbaa480fa849e5ca504f709725ffde638ca"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/20",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "20.bf16": "30872fa2b697f63ce16a9093ea3c5c314b6267d3e774ff2eec77af9b5bdbea79",
+        "20.norms": "0fa06356bc13ba358e6272b373c2887c9462634a214c57f3e20c8d859f0ff944"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/21",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "21.bf16": "2d86bf51057d6a6391ec28ca1be2087df718dd1ef744d6503f83beadd24f9c8b",
+        "21.norms": "0bcf671fa7df0fb9a5b283f5e15726d993c67ff06b753cc05c05e59ab0e59d9c"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/22",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "22.bf16": "719f4702a4a979bc5d1ba43394e140f66db3cb51982a7f88c77909a612bc5cad",
+        "22.norms": "5c13b20dcd76c8410ba1ea65951d1daf3fc260ed8e29f25d895a83556c41c8b7"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/26",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "26.bf16": "8e8486c982593c708511344895b273bc7c03893f713e9197777c8200e96e3472",
+        "26.norms": "97ec2198bd7f1164a5cdbc2d9b2ed3645bf37be31a2383ab2fbf624a002ea3d3"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/27",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "27.bf16": "508dbcd11e4c0527b3e1c94c1a5ee9225ac485e63c2c0cb1a2d58dbb727ee366",
+        "27.norms": "4a9f7b40dfdcbc9a2e7c3e6ea63644f7a2a4534accbc0c6a0bcf096e3ba08de9"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/28",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "28.bf16": "9afbaf3b093c7cb458191507310fe8e53e110e3435394249c7563be1f0ab1ba4",
+        "28.norms": "e7e3365ac2bd038d165eb19ec353c477a4c08ab15fc01f62b5b2d4e4981d247e"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/32",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "32.bf16": "1cfb4930785b21e402c2db96eb4923d822dda68eb328609046a9abc3a9aca300",
+        "32.norms": "6ed8a2fc013a1ac0bca29843c2e39dc7285a1f926e0cc0787385344299d08a4f"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/33",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "33.bf16": "68ab31477bec3924877c4515f9df9c2949a6b76a3afcd21468fdef092a4d62ba",
+        "33.norms": "e5ba13c74e5af8c6cf1a432d800fb26b18472778dacf1ec9b64d71519436784c"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/34",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "34.bf16": "78591d90345711a52624c2e683fe325bfd1101d63b6d2e9196f6a38614485eb3",
+        "34.norms": "a8362ae1079b5f361df51994666ddd1a19f2762014e7eed49904344d3aba8408"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/35",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "35.bf16": "fb41705fca40736dafebb7d2934f430e159c6081818bfade2a7f54bcd93a51cf",
+        "35.norms": "8243bac046864eeea8c240236afdf1fe55212b14a24c41a0f94bca45e9b68185"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/39",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "39.bf16": "d3b75ebfe9c771a49b407fa26686fd5bbaa799646040ca51917f48e5f3126ea0",
+        "39.norms": "c61a54e8e0e9f701292ddc0b59156f1237a409b26102fae2a4513051878ced44"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/40",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "40.bf16": "b3dc19817dac2f544380edb7033a89e99bd118ccc14088836aabb570504d1de0",
+        "40.norms": "60abfac20965616b2432d3f28db96f0c48792c70d0b6556b88da13c2f5719f29"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/41",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "41.bf16": "c34d214537e5c79c51973a3067385ed16c379a7e6b5daf554042dd869ce4a799",
+        "41.norms": "f4b204eed92cd9025193d8186cf33b0632ef8309bc61b81f4c169b3eb97a19dd"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/45",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "45.bf16": "28d4d3d3e16300c4b500cb47c870f32438c12d03224a0be5cccd7d771b730075",
+        "45.norms": "f7c744fe13c8c2560d7b676ab815cd84f16d9fcdebb3e57b9d2bce1034b5a5be"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/46",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "46.bf16": "ee18d025c91bd9fccbc7e319f222ed088a5da0130357262509bfb5d5b39eb343",
+        "46.norms": "8b60266067ea6c0b6749d86c24ece4bf6d8ea9f59fbf1d19e4f0c06e899a717f"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/47",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "47.bf16": "3bf3f0dc0d2a841e148a261443e83fa6f8f813efb2b35dd28aa5d5d4b9b5ff66",
+        "47.norms": "c250f2fbef056e24a8072e00b90ea6c76809ff63fc92cffee1471f914eeacd68"
+      }
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/48",
+      "elements": 96,
+      "output_bitwise_equal": true,
+      "norms_outward_vs_fp64": true,
+      "hashes": {
+        "48.bf16": "e391bb30ab49bdc75208843876f3abe50c4d4e2d0395a29e77aa06e37618f440",
+        "48.norms": "e6fa5589970f1a997e4ddd4bd2036d08605970d7bda50276a3b7834011f1c567"
+      }
+    }
+  ],
+  "work_package_id": "WP-MTP-BF16-CERTIFICATE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v58",
+  "parent": "80273f3",
+  "status": "native_certificate_and_repair_complete_owner_and_API_pending",
+  "artifact_root": ".q3x-work/mtp-bf16-certificate-20261010",
+  "edge_cases": 36,
+  "edge_scope": "K5120/6144 by M2/3/4 by six patterns: finite, signed zeros, BF16 subnormal inputs, FP8 NaNs, nonfinite inputs/negative scale, extreme finite values; full output compared bitwise to unmodified scalar GPU projection",
+  "cleanup": {
+    "native-pipeline": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "edge": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    }
+  },
+  "production_changed": false,
+  "target_achieved": false,
+  "remaining": [
+    "Startup-owned immutable weight-norm inventory with failure-safe destruction and reserve accounting",
+    "Request-owned bounded workspace and zero request-time allocations",
+    "Instruction/domain envelope review and complete projection/state/logit integration",
+    "Immediate P65/8K/40K d2/d3 API comparison; no more standalone timing or component variant"
+  ],
+  "arithmetic_ledger": {
+    "safe_inputs": "Finite FP8 weights; BF16 activations zero or absolute value in[2^-32,128]; positive finite scale in[2^-32,2^32]. Nonfinite/out-of-domain values force original repair.",
+    "norm": "Per-output weight norm and per-row activation norm use FP32 multiply/add/sqrt round-up; multiplication of norms and radius terms round-up.",
+    "proposed_error_model": "MMA K16 zero start: at least single-precision accumulation with unspecified order/rounding; use at most16 one-ulp rounding steps, conservatively represented by gamma32 at u=2^-24. Three K128 and six final RN tree levels plus one RN scale are bounded within gamma64. Original scalar depth k/1024+11. This instruction/domain argument requires review before runtime publication authority; empirical checks alone are not proof.",
+    "interval": "radius=(gamma64+gamma_scalar)*upper_weight_norm*upper_activation_norm*positive_scale, rounded outward. Publish only a finite normal BF16 candidate whose closed error interval is strictly inside its adjacent midpoint cell; all others compact to original scalar repair.",
+    "exceptional": "NaN/infinite norms, unsafe input range, scale or output cell reject certification. Signed zero/subnormal output candidates use scalar repair."
+  },
+  "source_hashes": {
+    "pipeline.cu": "8466f9d17fa6f9b4fc9da78eb8c8b727b6dffdc913766fbae8cc10d3fe4fd109",
+    "pipeline": "cc0e1bcbab7c11a8c7bb2fda2e351ac46bf731ee3e665e65a237dd666ac2e4f2",
+    "pipeline-edge.cu": "9369ba7c1a5f9b84f727fbcc43ebfa749b0d0c6109e9a7b8071485914bfd2344",
+    "pipeline-edge": "64ff1f0bff3d5ec90385a4db9a166c6798a3838dd28aca77713a924379d608bf",
+    "baseline.cu": "6dedebc322f267baa969e1fc81dec3efe68c3600f4d12533502fba16f10de1ad"
+  },
+  "validation": {
+    "document-control": 0,
+    "document-unit": 0,
+    "diff-check": 0
+  },
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "runtime_source_unchanged": true
+  }
+}
