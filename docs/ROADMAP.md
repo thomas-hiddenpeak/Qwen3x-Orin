@@ -19,6 +19,33 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP short-chain native admission — prerequisite complete
+
+`WP-MTP-SHORT-CHAIN-DEVICE-20261010` preserves the 1.5x–3x objective and
+remaining 1.19/4.21-second Decode gap. The [design](metadata/qwen36-27b-mtp-short-chain-device-design-2026-10-10.json)
+checks one native BF16 matrix instruction that pairs two original short chains
+in disjoint K/column blocks. The earlier 128-cell host grouping was a proxy,
+not a realizable dense fragment; the explicit M3 mapping has 96 useful cells.
+One numerical device process must pass before one current P65 adjacent-row
+capture. Product, root, fragment and guard checks do not establish speedup.
+Coverage below 50% or numerical failure closes this version without scanning.
+After both gates, a bounded complete guard/operand/on-chip reduction/fallback
+executor must return promptly to the real API. Production remains unchanged.
+
+The [completed admission](metadata/qwen36-27b-mtp-short-chain-device-admission-2026-10-10.json)
+passes 16,255,180 native valid product pairs and 581,632 matrix output checks,
+with zero mismatches. Current P65 capture preserves all three complete prefix
+states/full logits and all 2,688 saved projection outputs. Actual paired M3
+complete-unit eligibility is 20,957/28,672 (73.09%), above the declared floor.
+One fixed separable exponent guard admits 2,448,199/2,752,512 individual roots
+(88.94%), with no false positives against the exact host predicate. This closes
+numerical feasibility, not runtime guard economics or a speedup. Temporary
+capture seams are removed and the exact retained v39 oracle is rebuilt.
+The next work is one composed executor with cheap guards, compact operands,
+on-chip original reductions and exact fallback, followed immediately by the
+same real API. No further standalone admission campaign is pending. The
+1.5x–3x target remains unmet and production is unchanged.
+
 ## 2026-10-10 MTP original short-chain exactness — host feasibility passed
 
 `WP-MTP-SHORT-CHAIN-LATTICE-20261010` keeps the 1.5x–3x goal and remaining

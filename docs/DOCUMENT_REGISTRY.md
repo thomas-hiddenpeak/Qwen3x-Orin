@@ -281,6 +281,11 @@ The original short-chain exactness assessment closes with a positive host
 feasibility result and updates the existing Roadmap;
 no Markdown path or classification changes.
 
+The short-chain native instruction and current-payload admission closes with
+positive numerical feasibility, including one conservative guard assessment.
+The existing Roadmap records the immediate composed-executor/API successor;
+no runtime, Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

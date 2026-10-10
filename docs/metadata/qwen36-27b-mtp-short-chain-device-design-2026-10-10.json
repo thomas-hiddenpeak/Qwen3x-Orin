@@ -1,0 +1,23 @@
+{
+  "work_package_id": "WP-MTP-SHORT-CHAIN-DEVICE-20261010",
+  "source_parent": "374f0f9",
+  "goal": "Same API d2/d3 Decode 1.5x\u20133x, exact target state/logits/output",
+  "downward_budget": "Remaining v39 full Decode gap 1.19/4.21 s at 8K/40K; FP8 opportunity ceiling 5.8685 GPU s in last matched v31 profile.",
+  "bounded_scope": "One numerical SM87 instruction process and, only on pass, one current P65 adjacent-output capture. No performance/profiler or production change. At most one harness correctness repair.",
+  "mapping": "BF16 m16n8k16: A has sixteen output rows and two original five/six-term chains padded to eight K positions each. B uses columns 0..3 for chain0 speculative rows and 4..7 for chain1, with zero cross blocks. C starts positive zero. Preserves independent chain roots; later original four-chain/warp/block merges remain outside this probe.",
+  "mapping_correction": "Prior 128-cell host unit grouped eight distinct chains for one M row and was explicitly a feasibility proxy. It is not a dense MMA fragment. This paired-chain mapping uses 16 outputs x 2 chains x M useful cells (96 at M3). No historical result is relabelled as a native mapping proof.",
+  "numerical": "Exhaust all finite E4M3 x normal-or-zero BF16 pairs with normal-or-zero finite products against scalar FMA(+0); directed mixed paired-chain matrices use exact normal FP32 lattice; actual real sampled unit roots also compare. Native instruction pass does not alone prove runtime guard economics.",
+  "current_capture": "If native gate passes, capture actual adjacent output groups from current v39 P65 teacher-forced M3 verifier across same 8-layer FP8 panel; hash-bind input/weight/full saved output. Assess paired-chain units under unchanged >=50% complete unit floor. Restore temporary capture-only seams after the one process.",
+  "next": "After both gates, specify guard and compact operand/on-chip reduction/fallback costs in one bounded composed executor, then immediate same real API. Close this version on numerical failure or coverage below floor; no instruction/layout scan.",
+  "reference": "https://docs.nvidia.com/cuda/archive/12.6.3/parallel-thread-execution/index.html#warp-level-matrix-fragment-mma-16816-float",
+  "artifacts": ".q3x-work/mtp-short-chain-device-20261010",
+  "production_changed": false,
+  "adjacent_output_selection": "First sixteen output rows and sixteen rows beginning at n/2, both aligned to sixteen; FP8 only, all original 28 captures in eight-layer panel.",
+  "bounded_guard_assessment": {
+    "choice": "One separable dyadic envelope: static minimum nonzero weight LSB exponent plus ceil-log2 of weight L1; dynamic minimum nonzero input LSB plus ceil-log2 of max absolute input. Admit if e_bound-e_min<=23, e_min>=-126 and e_bound<=127; all-zero roots +0, special values fail closed. Nonzero BF16 subnormal inputs are explicitly ineligible, even if their product could become normal; nonfinite values are ineligible before the zero shortcut.",
+    "proof": "All products and any signed subset lie on the e_min lattice with absolute magnitude <=2^e_bound <=(2^24-1)*2^e_min. This sufficient condition contains no runtime product evaluation.",
+    "metadata": "FP8 static exponents fit 4+5=9 bits per original chain: weight minimum -9..6, ceil-L1 exponent -9..12 with spare exceptional/zero codes. Dynamic input extrema computed once per input chain/M row, reused for every output.",
+    "selection": "One host evaluation on the new adjacent capture; require >=80% individual chain-root admission plus zero false positives against exact lattice and scalar roots before proposing a guarded executor. No guard formula/precision scan; native instruction and current complete-unit gates remain independently required.",
+    "claim": "No performance or production selection; static metadata traffic, preparation and fallback must be charged to the whole API."
+  }
+}

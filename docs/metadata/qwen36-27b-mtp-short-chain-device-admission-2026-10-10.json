@@ -1,0 +1,137 @@
+{
+  "work_package_id": "WP-MTP-SHORT-CHAIN-DEVICE-20261010",
+  "source_parent": "374f0f9",
+  "status": "native_and_current_payload_admission_pass_executor_pending",
+  "decision_authority": "Numerical feasibility prerequisite only; no runtime or performance selection",
+  "native_probe": {
+    "product_pairs_checked": 16255180,
+    "product_mismatches": 0,
+    "synthetic_matrices": 4096,
+    "real_matrices": 448,
+    "matrix_outputs": 581632,
+    "matrix_mismatches": 0,
+    "guards_pass": true,
+    "performance_claim": false
+  },
+  "current_adjacent_payload": {
+    "chains": 2752512,
+    "admitted_chains": 2733877,
+    "units": 28672,
+    "admitted_units": 20957,
+    "full_output_values": 2688,
+    "original_output_mismatches": 0,
+    "admitted_root_mismatches": 0,
+    "chain_fraction": 0.9932298206147694,
+    "complete_unit_fraction": 0.7309221540178571,
+    "independent_subset_chains": 64,
+    "directed_predicate_controls": 5
+  },
+  "separable_guard": {
+    "roots": 2752512,
+    "admitted": 2448199,
+    "exact_lattice": 2733877,
+    "false_positives": 0,
+    "fraction": 0.8894417172386533,
+    "proceed": true
+  },
+  "guard_contract": {
+    "choice": "One separable dyadic envelope: static minimum nonzero weight LSB exponent plus ceil-log2 of weight L1; dynamic minimum nonzero input LSB plus ceil-log2 of max absolute input. Admit if e_bound-e_min<=23, e_min>=-126 and e_bound<=127; all-zero roots +0, special values fail closed. Nonzero BF16 subnormal inputs are explicitly ineligible, even if their product could become normal; nonfinite values are ineligible before the zero shortcut.",
+    "proof": "All products and any signed subset lie on the e_min lattice with absolute magnitude <=2^e_bound <=(2^24-1)*2^e_min. This sufficient condition contains no runtime product evaluation.",
+    "metadata": "FP8 static exponents fit 4+5=9 bits per original chain: weight minimum -9..6, ceil-L1 exponent -9..12 with spare exceptional/zero codes. Dynamic input extrema computed once per input chain/M row, reused for every output.",
+    "selection": "One host evaluation on the new adjacent capture; require >=80% individual chain-root admission plus zero false positives against exact lattice and scalar roots before proposing a guarded executor. No guard formula/precision scan; native instruction and current complete-unit gates remain independently required.",
+    "claim": "No performance or production selection; static metadata traffic, preparation and fallback must be charged to the whole API."
+  },
+  "mapping": "One zero-start BF16 m16n8k16 pairs two original chains across sixteen output channels, with disjoint K/column blocks; M3 has 96 useful cells. The previous 128-cell grouping remains a historical feasibility proxy.",
+  "current_capture": "Current v39 P65 teacher-forced M3; 28 FP8 projections in layers 0/3/20/23/40/43/60/63; first sixteen and middle sixteen adjacent output channels. All three complete prefix states/full logits equal scalar.",
+  "native_real_payload": "448 matrices sampled from hash-authenticated historical captures, separate from the current adjacent-row capture. Native synthetic matrices also include M2/3/4, signs, zero and cancellation.",
+  "exception_obligations": "Runtime must reject nonfinite weights/inputs and nonzero BF16 subnormal inputs before all-zero shortcuts; normalize admitted zero roots to positive zero. A nonfinite weight in either paired chain contaminates cross-block multiplication by zero and must make both roots ineligible unless sanitized with a separately proved repair rule. All unadmitted roots execute original FMAs before any original reduction.",
+  "environment": {
+    "initial_attempt": {
+      "initial_attempt": "native",
+      "GPU_started": false,
+      "reason": "preflight classified current model-router control path PID1722995 above 5% one-core threshold",
+      "verified_executable": "/home/rm01/.codex/model-router/runtime/node/bin/node",
+      "verified_script": "/home/rm01/.codex/model-router/codex-router.js",
+      "action": "Preserve identified control process and explicitly allow it alongside Codex PID1724085; fresh ownership and cache preflight still required",
+      "timing_claim": false
+    },
+    "native": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "current_capture": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 61.593
+    },
+    "native_thermal_scope": "Process completed before a continuous temperature sample; preflight retained, no peak temperature claimed.",
+    "cache_preparation": "Separate successful recorded preflight/cache preparation for each completed device process; no cooling control."
+  },
+  "restoration": {
+    "runtime_sources_equal_HEAD": [
+      "src/runtime/mtp_device_internal.h",
+      "src/runtime/mtp_verify_internal.cpp",
+      "tests/mtp_device_test.cpp"
+    ],
+    "restored_oracle_sha256": "7dea01c5e5734f55e7b2644433b07b612c02d1abb05c7bd88cfd917c39e1cf4a",
+    "retained_service_sha256": "af282d9fcfd3c1c6c9a46ecbb9da8fbfdcb6efc1c616940b91b9ac3a5915a5d9",
+    "installed_production_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "prepared_native_payload_verified": "5f99fda0de1544b9ee536b18df30877752699ad1f8fe9da67a7b1b3b6130b6c3"
+  },
+  "next": "Implement one complete compact operand/guard/on-chip original reduction/exact fallback executor and immediately return through complete scalar-prefix admission to same d2/d3 API. Charge metadata preparation/traffic and repair cost; no additional standalone coverage or native instruction campaign.",
+  "limits": [
+    "No end-to-end executor or new performance result exists in this package.",
+    "Current coverage is limited to one P65 adjacent-row panel; runtime correctness must depend on guards, never assumed coverage.",
+    "Host guard coverage is not a device guard timing or complete-unit eligibility rate.",
+    "50%\u2013200% real API Decode goal remains unmet; production remains unchanged."
+  ],
+  "artifact_root": ".q3x-work/mtp-short-chain-device-20261010",
+  "evidence_sha256": {
+    ".q3x-work/mtp-short-chain-device-20261010/probe.cu": "83b8cef45568da19c7352e94a062718422c04ad22da4237cb1237b664714f7b7",
+    ".q3x-work/mtp-short-chain-device-20261010/probe": "0af30a61c887c640bce12d0cbbbc02c161078a42c4464ae96d342b85e034e59a",
+    ".q3x-work/mtp-short-chain-device-20261010/prepare.py": "a429f065fab696c6c6fe399906558e4632cca107f400dadf67122d57707d00fa",
+    ".q3x-work/mtp-short-chain-device-20261010/real-cases.json": "feb7e71f7a7211bb103bc6c8768e4bde4ff85b27c14f40d6469e95ba1175ac5b",
+    ".q3x-work/mtp-short-chain-device-20261010/real-cases.bin": "5f99fda0de1544b9ee536b18df30877752699ad1f8fe9da67a7b1b3b6130b6c3",
+    ".q3x-work/mtp-short-chain-device-20261010/run.py": "e4335f8bb90b702b68525badc746119acfbeb90ffe6f6c00ed0ed8fc4a3fceb0",
+    ".q3x-work/mtp-short-chain-device-20261010/run-capture.py": "f9f92fd12322d5b07256779371d115f2e253732b3bf8a60261abc52f2df6e8ad",
+    ".q3x-work/mtp-short-chain-device-20261010/audit-current.py": "20214aef14931661acd0c6479e4097a433ddd9a0c75290901740e6273bd508c4",
+    ".q3x-work/mtp-short-chain-device-20261010/guard.py": "8893abac675a926b19236aab4d4e0641a9a4f4973c41983b78752789996d8dca",
+    ".q3x-work/mtp-short-chain-device-20261010/guard-result.json": "82dd5055967b263cb147e092baf9eec273e6a5e4b29fc04973297b426e2321ca",
+    ".q3x-work/mtp-short-chain-device-20261010/current-result.json": "29c8cb1bc0b62c9ce9201da89cc6fa805214da90cd7ef684cb2e85c17f64f3cc",
+    ".q3x-work/mtp-short-chain-device-20261010/capture-manifest.json": "d87a28704f0a63d032e742b7729259c0321491db56b90a15d4758ec3bd51d2ea",
+    ".q3x-work/mtp-short-chain-device-20261010/restoration.json": "947f20e0dd78febdb42e9dbcd321d5800a02208eb286505aa987f14d7532cfa9",
+    ".q3x-work/mtp-short-chain-device-20261010/host-tests.log": "306216f1cb3dfe7283b981fe54eb0556fb5b55810311a43f0828e91a7d3aa0f9",
+    ".q3x-work/mtp-short-chain-device-20261010/native-r2/identity.json": "2abba28e65d9632413b338ff6630229173b5f7a264bdef94f2e4d1683d0c1b07",
+    ".q3x-work/mtp-short-chain-device-20261010/native-r2/run.log": "b2eb15e83cc68866474dca4fdfdc839fcc11f2128dac2d7b3b988d356d65d8c3",
+    ".q3x-work/mtp-short-chain-device-20261010/native-r2/cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+    ".q3x-work/mtp-short-chain-device-20261010/native-r2/preflight.json": "088557a5692be4d1f3c4e461cdeb8166c252e2be789b4d61ffcadc3c88554816",
+    ".q3x-work/mtp-short-chain-device-20261010/current-p65/identity.json": "fe1bdd24e0c5a20da7086ea4b87380896b9392114972231b02d2ea2de4f57d18",
+    ".q3x-work/mtp-short-chain-device-20261010/current-p65/run.log": "4a3acf5f2241e4a3eb15c92ded7b015ddbbcbd934e5bc944dfa7ee9948fa975b",
+    ".q3x-work/mtp-short-chain-device-20261010/current-p65/cleanup.json": "d330f91242ba6c4e6032447ff12359bd593170a90c4ba63b305fe47655d34afa",
+    ".q3x-work/mtp-short-chain-device-20261010/current-p65/preflight.json": "c2a268e298ba6f0330f547915e68e44b11f81f03e2be68076fe0113bb7fd9cf6",
+    ".q3x-work/mtp-short-chain-device-20261010/source/capture.patch": "c52728d7175476503c79cfa5d59b8eda508eb70fdff4847811b20bc60a186a28",
+    ".q3x-work/mtp-short-chain-device-20261010/source/identity.json": "cc33d0b13e5f5eb6c7cf180039d6bc9e024e014b4fd8d7196d7d4d0efd0652b8",
+    ".q3x-work/mtp-short-chain-device-20261010/build-restored.log": "31f02a706ae70ac9604fd66afe0b67503bdea47c241f4ec30b33287cbaab515f",
+    ".q3x-work/mtp-short-chain-device-20261010/hygiene.json": "ac69944ce75a7bc440b1e164095a00670091786bed95fa8dd3b07815f4e39615",
+    ".q3x-work/mtp-short-chain-device-20261010/document-check.log": "57a91e371360c5c62c31b923914883193a843eb29aaa5ff8b730a590e9660b01",
+    ".q3x-work/mtp-short-chain-device-20261010/document-unit.log": "1ef21b24f2acc64922fdd4c55e21f10fd0e2b5154a2f7c6c9cde0c3e2f36b3a4"
+  },
+  "closure": {
+    "host_contract_tests": "3/3 passed",
+    "document_control": "86 Markdown paths; 1185 links; zero errors",
+    "document_unit_tests": "7/7 passed",
+    "hygiene": {
+      "gpu_device_handles": {
+        "returncode": 1,
+        "stdout": "",
+        "stderr": ""
+      },
+      "worktrees": 47,
+      "workspace_storage": "35M\t.q3x-work/mtp-short-chain-device-20261010",
+      "disk": "Filesystem      Size  Used Avail Use% Mounted on\n/dev/nvme0n1p1  938G  494G  397G  56% /home/rm01\n",
+      "owned_gpu_build_processes_remaining": false,
+      "temporary_capture_source_restored": true
+    }
+  }
+}
