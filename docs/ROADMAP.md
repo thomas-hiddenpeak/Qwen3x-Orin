@@ -19,6 +19,34 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP probability publication — direction complete, retained dependency
+
+`WP-MTP-PROBABILITY-PUBLICATION-20261010` / `AC-MTP-GREEDY-v60` owns one
+[aligned probability publication](metadata/qwen36-27b-mtp-probability-publication-design-2026-10-10.json)
+composition across QK, exact softmax and ordered PV. Four-float aligned head
+strides permit 16-byte probability copies; padding never enters arithmetic.
+This retains the V producer and all original numerical operations. Complete
+probability/output and P513/P8192 state admission precede immediate d2 API;
+>3% slowdown stops, useful long direction unlocks d3, otherwise remove.
+No stride, tile, launch or profiler scan. Production and full goal stay fixed.
+
+The [completed direction](metadata/qwen36-27b-mtp-probability-publication-direction-2026-10-10.json) passes complete numerical admission and
+all sixteen d2/d3 API/lifecycle checks. D2 8K/40K Decode is
+14.223/10.902 token/s, versus v52 at 14.143/10.672. Corresponding Prefill is
+17.300/93.570 seconds (473.51/427.49 token/s), TTFT
+17.323/93.605 seconds and total 35.252/116.997 seconds. D2 40K total is
+0.228 seconds longer despite lower Decode; d3 similarly adds 0.357 seconds.
+No 40K total-latency win is claimed.
+The unchanged Prefill code does not explain or erase its observed variation.
+
+Both policies preserve output/work and improve the two long Decode intervals.
+This one-process direction is retained only as a bounded development dependency
+through the next complete verifier API return or archival. No further stride,
+tile, launch, profile or qualification-only scan belongs to this package.
+Production stays fixed. The full 1.5x–3x target is still active, with roughly
+1.77 seconds remaining in the 40K d2 complete-Decode budget; the next composition
+must remove that actual cost and report all four API metrics.
+
 ## 2026-10-10 MTP fused certificate — closed without retention
 
 `WP-MTP-FUSED-CERTIFICATE-20261010` / `AC-MTP-GREEDY-v59` owns one

@@ -155,9 +155,42 @@ __global__ void attention_scores_shared_rows_kernel(
     const unsigned int position = tile * 128 + column;
     const unsigned int actual = first_sequence + row;
     if (position < actual)
-      scores[row * 24 * (first_sequence + M - 1) +
-             (kv * 6 + h) * actual + position] = score_tile[row][h][column];
+      scores[(row * 24 + kv * 6 + h) *
+                 ((first_sequence + M + 2) & ~3U) + position] =
+          score_tile[row][h][column];
   }
+}
+
+// Same 256-thread max/sum trees and two expf evaluations as scalar softmax.
+// Padding owns storage only; actual causal columns alone enter arithmetic.
+__global__ void aligned_softmax(float* p, unsigned first_sequence,
+                                unsigned stride) {
+  const unsigned row = blockIdx.x, columns = first_sequence + row / 24;
+  p += row * stride;
+  __shared__ float partial[256];
+  float maximum = -__int_as_float(0x7f800000);
+  for (unsigned c = threadIdx.x; c < columns; c += 256)
+    maximum = fmaxf(maximum, p[c]);
+  partial[threadIdx.x] = maximum;
+  __syncthreads();
+  for (unsigned d = 128; d; d >>= 1) {
+    if (threadIdx.x < d)
+      partial[threadIdx.x] = fmaxf(partial[threadIdx.x], partial[threadIdx.x + d]);
+    __syncthreads();
+  }
+  maximum = partial[0];
+  float denominator = 0;
+  for (unsigned c = threadIdx.x; c < columns; c += 256)
+    denominator += expf(p[c] - maximum);
+  partial[threadIdx.x] = denominator;
+  __syncthreads();
+  for (unsigned d = 128; d; d >>= 1) {
+    if (threadIdx.x < d) partial[threadIdx.x] += partial[threadIdx.x + d];
+    __syncthreads();
+  }
+  denominator = partial[0];
+  for (unsigned c = threadIdx.x; c < columns; c += 256)
+    p[c] = expf(p[c] - maximum) / denominator;
 }
 
 // One CTA owns a KV head and 64 output dimensions. Its six consumer warps
@@ -167,7 +200,8 @@ __global__ void attention_scores_shared_rows_kernel(
 // public reference order, including the final partial tile.
 __device__ __forceinline__ void ordered_stage(
     std::uint16_t* vs, float* ps, const std::uint16_t* values,
-    const float* probabilities, unsigned int sequence, unsigned int first, unsigned int dimension) {
+    const float* probabilities, unsigned int sequence, unsigned int first,
+    unsigned int dimension, unsigned int probability_stride) {
   for (unsigned int i = threadIdx.x; i < 512; i += 192) {
     const unsigned int row = i / 8;
     const unsigned int column = (i % 8) * 8;
@@ -178,15 +212,19 @@ __device__ __forceinline__ void ordered_stage(
     asm volatile("cp.async.cg.shared.global [%0], [%1], 16, %2;" ::
                  "r"(dst), "l"(src), "r"(valid ? 16 : 0));
   }
-  for (unsigned int i = threadIdx.x; i < 384; i += 192) {
-    const unsigned int head = i / 64;
-    const unsigned int row = i % 64;
-    const bool valid = first + row < sequence;
-    const auto* src = probabilities + (valid ?
-        (blockIdx.y * 6 + head) * sequence + first + row : 0);
-    const auto dst = static_cast<unsigned int>(__cvta_generic_to_shared(ps + i));
-    asm volatile("cp.async.ca.shared.global [%0], [%1], 4, %2;" ::
-                 "r"(dst), "l"(src), "r"(valid ? 4 : 0));
+  // Each head has a 16-byte aligned physical stride. A partial final vector
+  // copies only valid probability bytes; no padding value is ever consumed.
+  for (unsigned int i = threadIdx.x; i < 96; i += 192) {
+    const unsigned int head = i / 16, row = (i % 16) * 4;
+    const unsigned int remaining =
+        first + row < sequence ? sequence - first - row : 0;
+    const unsigned int valid_bytes = (remaining < 4 ? remaining : 4) * 4;
+    const auto* src = probabilities + (valid_bytes ?
+        (blockIdx.y * 6 + head) * probability_stride + first + row : 0);
+    const auto dst = static_cast<unsigned int>(
+        __cvta_generic_to_shared(ps + head * 64 + row));
+    asm volatile("cp.async.ca.shared.global [%0], [%1], 16, %2;" ::
+                 "r"(dst), "l"(src), "r"(valid_bytes));
   }
   asm volatile("cp.async.commit_group;" ::);
 }
@@ -196,7 +234,8 @@ __global__ void attention_values_ordered_pair_kernel(
     unsigned int first_sequence, unsigned int rows, std::uint16_t* output) {
   const unsigned int m = blockIdx.x % rows, dimension = blockIdx.x / rows;
   const unsigned int sequence = first_sequence + m;
-  probabilities += m * 24 * (first_sequence + rows - 1);
+  const unsigned int probability_stride = (first_sequence + rows + 2) & ~3U;
+  probabilities += m * 24 * probability_stride;
   output += m * 6144;
   __shared__ __align__(16) std::uint16_t vs[4][64 * 64];
   __shared__ __align__(16) float ps[4][6 * 64];
@@ -208,14 +247,15 @@ __global__ void attention_values_ordered_pair_kernel(
   // all three initial tiles exist.
 #pragma unroll
   for (unsigned int stage = 0; stage < 3; ++stage)
-    ordered_stage(vs[stage], ps[stage], values, probabilities, sequence, stage * 64, dimension);
+    ordered_stage(vs[stage], ps[stage], values, probabilities, sequence,
+                  stage * 64, dimension, probability_stride);
   asm volatile("cp.async.wait_group 2;" ::);
   __syncthreads();
   unsigned int buffer = 0;
   for (unsigned int first = 0; first < sequence; first += 64) {
     if (first + 3 * 64 < sequence)
       ordered_stage(vs[(buffer + 3) & 3], ps[(buffer + 3) & 3], values,
-                    probabilities, sequence, first + 3 * 64, dimension);
+                    probabilities, sequence, first + 3 * 64, dimension, probability_stride);
     const auto* v = vs[buffer];
     const auto* p = ps[buffer] + head * 64;
     if (first + 64 <= sequence) {
@@ -277,7 +317,8 @@ int launch_mtp_verify_attention(const std::uint16_t* query,
       first_sequence > fused_decode::kMaximumSequence - (rows-1))
     return cudaErrorInvalidValue;
   const std::size_t last = first_sequence + rows - 1;
-  const std::size_t bytes = rows * 24 * last * sizeof(float);
+  const unsigned int probability_stride = (last + 3) & ~std::size_t(3);
+  const std::size_t bytes = rows * 24 * probability_stride * sizeof(float);
   if (workspace_bytes < bytes ||
       reinterpret_cast<std::uintptr_t>(workspace) % 16 ||
       reinterpret_cast<std::uintptr_t>(query) % 16 ||
@@ -305,11 +346,10 @@ int launch_mtp_verify_attention(const std::uint16_t* query,
         query,key,first_sequence,rows,probabilities);
   auto status = cudaGetLastError();
   if (status != cudaSuccess) return status;
-  for (unsigned m=0;m<rows;++m) {
-    auto* p = probabilities + m * 24 * last;
-    const int code = launch_softmax_reference_cuda(p,24,first_sequence+m,p,opaque);
-    if (code) return code;
-  }
+  aligned_softmax<<<24 * rows, 256, 0, stream>>>(
+      probabilities, first_sequence, probability_stride);
+  status = cudaGetLastError();
+  if (status != cudaSuccess) return status;
   attention_values_ordered_pair_kernel<<<dim3(4*rows,4),192,0,stream>>>(
       value,probabilities,first_sequence,rows,output);
   return cudaGetLastError();

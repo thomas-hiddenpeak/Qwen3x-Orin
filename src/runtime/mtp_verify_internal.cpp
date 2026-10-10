@@ -113,7 +113,7 @@ bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
       // Projection 2 is dead throughout full Attention. Bound the probability
       // lifetime to this phase; small scratch plans retain scalar-row dispatch.
       const std::size_t probability_bytes = rows_ * 24ULL *
-          (entry_position_ + rows_) * sizeof(float);
+          ((entry_position_ + rows_ + 3ULL) & ~3ULL) * sizeof(float);
       const std::size_t available_bytes =
           state_.plan().prefill_chunk_size * 17408ULL * sizeof(std::uint16_t);
       const bool batch_attention = rows_ > 1 && entry_position_ + 1 >= 512 &&

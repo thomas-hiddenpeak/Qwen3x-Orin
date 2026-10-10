@@ -1,0 +1,32 @@
+{
+  "work_package_id": "WP-MTP-PROBABILITY-PUBLICATION-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v60",
+  "parent": "1677083",
+  "product_constraint": "Exact target state/logits/output and drafts2/3;1.5x\u20133x same-request committed Decode, joint Prefill/TTFT/Decode/total",
+  "downward_budget": {
+    "remaining_40k_decode_s": 2.27110563,
+    "historical_v48_softmax_pv_gpu_s": 3.314992512,
+    "scope": "family opportunity only, not assumed saving"
+  },
+  "mechanism": "Aligned physical head stride round_up(last_sequence,4) shared by QK publication, exact batched256-thread softmax and PV16-byte probability copies. Valid causal length remains first_sequence+row; no padding enters arithmetic. Partial final vector uses exact valid byte count and zero fill.",
+  "distinction": "Not the rejected direct global PV, shared-row PV, or exp-lifetime softmax. Retains V producer/consumer and all reduction/exponential/division operations; changes probability layout and publication contract to enable vector copies.",
+  "equivalence": "QK products/tree unchanged. Per-row/head256-lane strided maximum, denominator addition and shared reduction tree unchanged; expf evaluated twice and same division. Independent rows execute in one grid. Ordered PV FMA and BF16 publication unchanged.",
+  "resources": "At most3 padded floats per head, bounded within existing phase-owned projection2 scratch; caller and callee use same aligned byte requirement. No allocation/state/capacity change.",
+  "bounds": {
+    "compositions": 1,
+    "correctness_repairs_max": 1,
+    "scans": 0,
+    "profiles": 0
+  },
+  "gates": [
+    "Complete probability/output numerical and tail checks",
+    "P513 full-state transactions and P8192 full prefixes",
+    "Immediate d2 API; >3% slowdown stop; useful long direction unlocks d3 otherwise remove"
+  ],
+  "retention_screen": {
+    "8k_ratio_min": 1.0,
+    "40k_ratio_min": 1.01
+  },
+  "artifact_root": ".q3x-work/mtp-probability-publication-20261010",
+  "production_unchanged": true
+}

@@ -1715,6 +1715,22 @@ not an isolated bandwidth/occupancy attribution or hardware-limit claim.
 No further bound, tile, repair-layout, launch scan or profile follows this
 closed version. Production and the full unmet 1.5x–3x target remain unchanged.
 
+## Aligned probability publication composition v60
+
+The [bounded composition](metadata/qwen36-27b-mtp-probability-publication-design-2026-10-10.json)
+uses one four-float-aligned physical head stride across speculative rows.
+QK publishes only actual causal positions. Softmax retains the original
+256-thread strided maximum/sum, shared trees, two expf evaluations and division;
+independent heads/rows share one grid. Ordered PV stages aligned four-float
+vectors with exact tail byte counts, then consumes only actual positions.
+The phase-owned projection2 workspace and alias bounds include the padding.
+V staging, ordered FMA, BF16 publication and full-state contract stay fixed.
+
+The [completed direction](metadata/qwen36-27b-mtp-probability-publication-direction-2026-10-10.json) preserves complete numerical/state and API
+semantics and improves both long-context Decode intervals for d2/d3. This
+remains a bounded development dependency through the next complete verifier
+API return or archival, not production selection or full-target attainment.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
@@ -1988,7 +2004,7 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
 production/install, and identifies itself as
-`q3x.sm87.admission.mtp-native-prefetch-api.v52`. The startup-only
+`q3x.sm87.admission.mtp-probability-publication-api.v62`. The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.

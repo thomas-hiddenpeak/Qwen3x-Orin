@@ -54,15 +54,16 @@ Decode token/s convergence target are not claimed achieved.
 
 ## MTP development status
 
-The isolated implementation now uses native FP8 cache-prefetch hints for the
-next weight/activation records on top of retained v48. Original demand loads,
-scalar arithmetic, state and Prefill are unchanged. Profile is
-`q3x.sm87.admission.mtp-native-prefetch-api.v52`, ELF
-`666a9be89d636ca6e0ea71ed54d57eba2a968330b3081f45b6ec314ab2acdc53`.
-The [completed direction](metadata/qwen36-27b-mtp-native-prefetch-direction-2026-10-10.json)
-passes 36 complete projection output/guard cases, full P65 target/cache prefixes
-and all rejection/cancellation/failure transactions plus sixteen d2/d3 API checks.
-Output and logical/physical work match v48. Production remains unchanged.
+The isolated implementation now uses four-float-aligned probability rows across
+QK publication, exact batched softmax and ordered PV. This permits 16-byte
+probability staging while retaining all original arithmetic and causal lengths.
+Profile is `q3x.sm87.admission.mtp-probability-publication-api.v62`; the measured
+server ELF is `117ce095c0abdb69729ad6eb222e61300ba0b1bd7b60e18727f74cededcfe477`.
+The [completed direction](metadata/qwen36-27b-mtp-probability-publication-direction-2026-10-10.json) binds the final formatted-source rebuild,
+whose program sections match the measured binary, and passes 36 complete
+probability/output/guard cases, eighteen P513/P8192 full prefixes, eleven P513
+transactions and sixteen d2/d3 API/lifecycle checks. Outputs and work match v52.
+The installed production artifact is unchanged.
 
 These 2026-10-10 observations use one fresh process per policy, not mirrored
 means or noise-qualified architecture selection. Prefill includes draft
@@ -71,23 +72,24 @@ after the first token.
 
 | P / O | Policy | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| 65 / 16 | d2 | 0.888 | 73.22 | 0.906 | 12.828 | 2.076 |
-| 8192 / 256 | d2 | 17.286 | 473.90 | 17.309 | 14.143 | 35.339 |
-| 40000 / 256 | d2 | 92.838 | 430.86 | 92.873 | 10.672 | 116.769 |
-| 65 / 16 | d3 | 0.888 | 73.23 | 0.906 | 11.264 | 2.238 |
-| 8192 / 256 | d3 | 17.263 | 474.54 | 17.285 | 13.018 | 36.874 |
-| 40000 / 256 | d3 | 92.879 | 430.67 | 92.914 | 9.977 | 118.474 |
+| 65 / 16 | d2 | 0.888 | 73.23 | 0.914 | 12.891 | 2.077 |
+| 8192 / 256 | d2 | 17.300 | 473.51 | 17.323 | 14.223 | 35.252 |
+| 40000 / 256 | d2 | 93.570 | 427.49 | 93.605 | 10.902 | 116.997 |
+| 65 / 16 | d3 | 0.888 | 73.17 | 0.914 | 11.323 | 2.239 |
+| 8192 / 256 | d3 | 17.308 | 473.29 | 17.331 | 13.115 | 36.775 |
+| 40000 / 256 | d3 | 93.818 | 426.36 | 93.853 | 10.210 | 118.831 |
 
 D2 Decode ratios against the same-request non-MTP anchor below are
-1.535x/1.357x at 8K/40K. The 8K observation exceeds
-1.5x but is not repeated qualification. **The complete 1.5x–3x goal remains
-unmet**; 40K still needs approximately 2.27 seconds removed from full Decode.
-The [v48 direction](metadata/qwen36-27b-mtp-row-boundary-direction-2026-10-10.json)
-is the preceding exact comparator. Retain this composition only as a bounded
-development dependency through the next complete verifier API return or
-archival. No prefetch-distance/cache-level scan or qualification-only campaign
-is active. Prefill timing variation is not attributed to the unchanged Prefill
-implementation. No production selection follows.
+1.544x/1.387x at 8K/40K. The 8K observation exceeds 1.5x but is
+not repeated qualification. **The complete 1.5x–3x goal remains unmet**;
+40K still needs approximately 1.77 seconds removed from full Decode.
+The [v52 direction](metadata/qwen36-27b-mtp-native-prefetch-direction-2026-10-10.json)
+is the preceding comparator. D2/d3 40K external totals are 0.228/0.357 seconds
+longer because their observed Prefill is longer; this does not establish a
+whole-request latency gain. Prefill code is unchanged and that variation is not attributed
+to this edit. Retain the composition only as a bounded development dependency
+through the next complete verifier API return or archival, with no stride,
+tile, launch scan or qualification-only campaign. No production selection follows.
 
 ### Preceding NV live-reduction direction
 
