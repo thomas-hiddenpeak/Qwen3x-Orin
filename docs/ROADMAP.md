@@ -19,6 +19,26 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP lossless FP8 traffic — closed at host gate
+
+`WP-MTP-LOSSLESS-FP8-20261010` preserves the 1.5x–3x objective and remaining
+1.19/4.21-second complete Decode gap. The [fixed packet design](metadata/qwen36-27b-mtp-lossless-fp8-design-2026-10-10.json)
+assesses all208 real FP8 tensors using six-bit palette codes, literal exceptions
+and bounded packet offsets. It preserves raw bytes and original arithmetic.
+Less than20% complete payload saving closes before GPU, without a format scan.
+A pass requires one separately bounded owner/decoder/executor composition and
+immediate real API return; compression alone grants no speedup or retention.
+Production and retained v39 remain unchanged.
+
+The [completed assessment](metadata/qwen36-27b-mtp-lossless-fp8-assessment-2026-10-10.json)
+authenticates all three shards and all208 FP8 tensors. Including literal
+exceptions, packet offsets and palettes, 7,214,202,880 raw bytes become
+6,702,302,636 bytes: only7.096% saving, below the declared20% floor. All3328
+sampled packet roundtrips and12 controls preserve raw bytes. The format closes
+before native implementation or GPU work; no alternate format scan follows.
+No speedup, hardware bound or new API measurement is claimed. The unchanged
+1.5x–3x goal still requires a materially larger complete-verifier improvement.
+
 ## 2026-10-10 MTP short-chain executor — closed negative
 
 `WP-MTP-SHORT-CHAIN-EXECUTOR-20261010` / `AC-MTP-GREEDY-v37` implements the

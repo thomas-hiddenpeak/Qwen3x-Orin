@@ -1,0 +1,15 @@
+{
+  "work_package_id": "WP-MTP-LOSSLESS-FP8-20261010",
+  "source_parent": "dd14d94",
+  "scope": "One host-only complete checkpoint assessment of one fixed lossless FP8 packet format before runtime implementation. No GPU, performance or numerical-contract change.",
+  "goal": "Same real API d2/d3 committed Decode 1.5x\u20133x; exact scalar target state/logits/output, production unchanged.",
+  "budget": "Retained v39 full Decode remaining gaps1.194/4.207 s at8K/40K. Matched v31 FP8 consumes5.8685 GPU s, of which canonical4.2674. Whole-family traffic reduction is only opportunity, not proportional latency proof.",
+  "hypothesis": "Replace repeated raw FP8 byte reads by a lossless six-bit palette plus literal exceptions; original scalar FMA/reduction/publication remains unchanged. This removes traffic instead of substituting a costly matrix/certificate executor.",
+  "format": "Per tensor top63 raw byte codes with deterministic count-descending/code-ascending ties; six-bit index63 escapes to one exact raw byte. Each128 weights has one32-bit exception-stream offset; warp ballots and popcount could locate literals without serial entropy state. Palette63 bytes per tensor. Packed indices96 bytes per128 weights. All raw codes including signed zero/NaN preserved. No compressed floating arithmetic.",
+  "assessment": "Read every208 FP8 tensor from pinned checkpoint, hash source ranges and shards, count exact exceptions and complete encoded bytes including palette/offsets. Independently roundtrip a fixed128-weight packet sample from every tensor plus exhaustive all-code and boundary controls. No alternate palette/packet scan.",
+  "gate": "Require at least20% total payload reduction before native decoding or owner implementation. Below this floor close the format before GPU; above it next bounded whole-executor package must include compact owner/decoder, preserve8GiB reserve, charge preparation, pass complete scalar-prefix and immediately return to real8K/40K d2 API. d3 only after useful d2.",
+  "limitations": "Compression ratio is not a runtime speedup or hardware bound. Passing alone cannot retain a runtime prerequisite or claim the remaining40K gap closed. Added loads/ballots/popcount/register pressure must be repaid in the full API.",
+  "reference_translation": "Retained vLLM/Marlin packed-operand producer/consumer principle, with native exact byte decode; no external runtime or ISA dependency. FlashInfer attention and FLA/Mamba recurrence boundaries unchanged.",
+  "artifacts": ".q3x-work/mtp-lossless-fp8-20261010",
+  "production_changed": false
+}

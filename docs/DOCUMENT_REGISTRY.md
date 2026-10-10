@@ -290,6 +290,10 @@ The short-chain executor closes after negative P8192 API direction and a bounded
 same-ELF diagnostic. Existing MTP SDD and Roadmap retain the rejection; the
 temporary Request State exception is removed. No Markdown path or class changes.
 
+The lossless FP8 packet host gate closes below its payload-saving floor
+and updates the existing Roadmap only;
+no runtime, Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

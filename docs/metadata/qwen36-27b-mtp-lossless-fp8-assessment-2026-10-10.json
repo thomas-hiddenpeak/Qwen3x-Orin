@@ -1,0 +1,93 @@
+{
+  "work_package_id": "WP-MTP-LOSSLESS-FP8-20261010",
+  "source_parent": "dd14d94",
+  "status": "closed_at_host_gate",
+  "decision": "Do not implement this six-bit palette/exception executor. Complete payload saving7.096% is below predeclared20% floor before any additional device decode cost. No format/packet scan follows.",
+  "goal": "Real API d2/d3 committed Decode1.5x\u20133x remains active and unmet.",
+  "assessment": {
+    "scope": "Complete pinned208 FP8 weight tensors, fixed lossless packet format; host-only byte-count and sampled packet roundtrip, no device or performance claim.",
+    "shards": [
+      {
+        "file": "model-00001-of-00003.safetensors",
+        "bytes": 9965652512,
+        "sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d"
+      },
+      {
+        "file": "model-00002-of-00003.safetensors",
+        "bytes": 9985757032,
+        "sha256": "06da4242b0f491118d19d4d4c7564307a7bd6059c6bed284e08c93f6fc5a556d"
+      },
+      {
+        "file": "model-00003-of-00003.safetensors",
+        "bytes": 1970287640,
+        "sha256": "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845"
+      }
+    ],
+    "source_sha256": "6d6c439d6b05d2ff7bdb9c8a521459ba3340ca18dae6fe95669ce58b38fa2b17",
+    "raw_bytes": 7214202880,
+    "encoded_bytes": 6702302636,
+    "saving": 0.07095728419547853,
+    "gate_floor": 0.2,
+    "gate_pass": false,
+    "controls": 12,
+    "roundtrip_packets": 3328,
+    "roundtrip_mismatches": 0
+  },
+  "tensor_saving_range": [
+    0.044524765014648415,
+    0.07717936833699546
+  ],
+  "exact_encoded_bytes_formula": "raw*6/8 + literal_exception_count + 4*(raw/128) + 63 per tensor",
+  "integrity": "All three complete shard hashes match pinned existing fixture. All208 source ranges hashed. Histogram counts exact.3328 fixed packets roundtrip byte-exact plus12 controls covering all byte codes, all-common, all-escape and mixed packets. This is not a full encoded-model roundtrip or native decoder proof.",
+  "scope": "Host-only feasibility, no GPU or model execution, no updated performance. Compression ratio does not prove runtime savings or a hardware ceiling. Runtime, default production and retained v39 unchanged.",
+  "retained_joint_metrics": {
+    "authority": "Existing v39 direction observations, not remeasured in this work package",
+    "source": "docs/metadata/qwen36-27b-mtp-qk-live-reduction-direction-2026-10-10.json",
+    "d2": [
+      {
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.326717195,
+        "prefill_tps": 472.795850928,
+        "ttft_s": 17.348849834,
+        "decode_tps": 12.978293517,
+        "external_total_s": 36.997288528
+      },
+      {
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 93.416381023,
+        "prefill_tps": 428.190426154,
+        "ttft_s": 93.451279695,
+        "decode_tps": 9.872146786,
+        "external_total_s": 119.283048785
+      }
+    ]
+  },
+  "artifacts": ".q3x-work/mtp-lossless-fp8-20261010",
+  "result_sha256": "918408ef3d44add0977317024f5cae1eb318ed8cfa1375580e0725ffef6df932",
+  "audit_source_sha256": "6d6c439d6b05d2ff7bdb9c8a521459ba3340ca18dae6fe95669ce58b38fa2b17",
+  "runtime_changed": false,
+  "production_changed": false,
+  "exception_count": 1066193532,
+  "exception_fraction": 0.14779089938762577,
+  "source_fixture_sha256": "792ce6afd2b4e459c436c4973d0e9199c2fa266ee279f4709d5b05b72d97c6d7",
+  "host_checks": {
+    "document_control": "86 Markdown paths,1190 links,zero errors",
+    "document_unit_tests": 7,
+    "git_diff_check": "pass"
+  },
+  "hygiene": {
+    "worktrees": 47,
+    "generated_artifacts_inside_workspace": true,
+    "gpu_processes_launched": 0,
+    "audit_process_exit_code": 0,
+    "model_read_only": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-lossless-fp8-20261010/artifact-manifest.json",
+    "sha256": "c5f00991a7cebcd8382bbf1d15684f52a2c7a8653f6f10f8ba4a1a9c1cf2c214",
+    "files": 6
+  }
+}
