@@ -1759,6 +1759,18 @@ This remains isolated development. The [completed direction](metadata/qwen36-27b
 passes complete state and both API panels and is retained only through the next
 complete MTP API composition or archival; no threshold/length/launch scan follows.
 
+## Verification frontier composition v64 — removed
+
+The [frontier design](metadata/qwen36-27b-mtp-frontier-design-2026-10-10.json)
+excluded the low-confidence trigger itself, including at the final draft
+position, and admitted empty submitted prefixes with first-seed KV reuse.
+It separated physically drafted, submitted and pruned tokens. Complete P65
+state/logit and empty-prefix cache checks passed, but the
+[API rejection](metadata/qwen36-27b-mtp-frontier-rejection-2026-10-10.json) found more rounds and slower complete Decode despite
+fewer verified rows. All new controller/counter/runtime/profile paths are
+removed; confidence lookahead v63 remains the active composition. No threshold
+or length scan follows this closed version; production and the target stay fixed.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

@@ -424,3 +424,5 @@ under ignored `.q3x-work/` is outside the tracked registry and cannot be an
 authoritative project document.
 
 Confidence lookahead design: `docs/metadata/qwen36-27b-mtp-confidence-design-2026-10-10.json` binds the isolated bounded composition and unchanged production boundary. Its completed direction updates the existing MTP SDD, Current Status and Roadmap without changing Markdown paths or classes.
+
+The verification-frontier package closes after negative P65 API direction and exact v64 restoration, updating the existing MTP SDD and Roadmap; no Markdown path or class changes. Its design is `docs/metadata/qwen36-27b-mtp-frontier-design-2026-10-10.json`.

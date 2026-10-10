@@ -19,6 +19,34 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP verification frontier — closed without retention
+
+`WP-MTP-FRONTIER-20261010` / `AC-MTP-GREEDY-v64` selects the
+[verification-frontier composition](metadata/qwen36-27b-mtp-frontier-design-2026-10-10.json).
+The remaining 40K d2 Decode gap is 1.264 seconds. Keep threshold 0.4 and maxima 2/3,
+but exclude the low-confidence trigger itself from target verification, including
+at the final configured draft position. Empty submitted prefixes remain valid
+seed-only target steps; produced seed KV is reusable independently of submission.
+Separate produced/submitted/pruned work so no draft cost disappears from metrics.
+One composition, at most one correctness repair; complete host/P65 state checks
+return immediately to d2 API. >3% slowdown or nonpositive 8K closes it; useful long
+direction unlocks d3. No threshold/length/launch scan or production change.
+
+The [completed rejection](metadata/qwen36-27b-mtp-frontier-rejection-2026-10-10.json) passes eighteen confidence CPU/device cases,
+nine complete P65 prefixes, fifteen state/logit transactions and four failure
+recoveries, including one real non-tail empty submission. P65/O16 d2 output is
+unchanged but Decode falls from 12.796 to 12.100 token/s (-5.44%). Prefill is
+0.889 seconds / 73.14 token/s, TTFT 0.907 seconds and total 2.147 seconds.
+The >3% stop cancels the already-entered 8K request; no completed 8K/40K/d3 or
+full lifecycle claim follows.
+
+Verified rows fall from 19 to 18, but acceptance falls from 8 to 7, rounds rise from 7 to 8 and actual
+drafting rises from 12 to 13. Dropping a low-confidence proposal loses useful work and
+adds another round here; row count alone did not predict API value. All new
+runtime/profile paths are removed and v64 is restored exactly. No threshold
+scan, further native variant or qualification follows this fixed package.
+Production and the full 1.5x–3x goal remain unchanged; v64's 40K gap is still 1.264 seconds.
+
 ## 2026-10-10 MTP confidence lookahead — direction complete, retained dependency
 
 `WP-MTP-CONFIDENCE-20261010` / `AC-MTP-GREEDY-v63` selects the

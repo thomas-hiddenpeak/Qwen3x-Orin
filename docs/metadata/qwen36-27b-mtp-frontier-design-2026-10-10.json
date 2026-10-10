@@ -1,0 +1,26 @@
+{
+  "work_package_id": "WP-MTP-FRONTIER-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v64",
+  "source_parent": "68fde6dddb244c7f93e70b1b518e164f0f221696",
+  "product_constraint": "50-200% same-request committed Decode uplift, maxima2/3, exact output/state and joint Prefill/TTFT/Decode/total",
+  "incumbent": "v64 confidence lookahead",
+  "budget": {
+    "p40000_complete_decode_gap_s": 1.264435332868,
+    "p40000_verified_rows": 305,
+    "p40000_committed": 255,
+    "p40000_verify_ms": 20175.239935,
+    "p40000_draft_ms": 2352.22152
+  },
+  "mechanism": "Confidence-gated verification frontier: evaluate unchanged fixed0.4 softmax confidence at every produced proposal including the configured maximum. Exclude the low-confidence trigger itself from target verification, rather than merely stopping later draft work. Actual submitted count can be0; keep first seed KV if produced, independently of submission count.",
+  "equivalence": "Any prefix of speculative proposals, including empty, is valid under greedy target verification: verify [seed,submitted proposals], select exact full state before each observer. Discarded proposal is never an accepted/output token. No target/draft arithmetic or numerical contract changes.",
+  "work_accounting": "Separate physically drafted tokens, submitted proposals, pruned tokens, actual verified rows and histogram; ordered draft hits follow physical drafting, verified=proposed+rounds. All draft/confidence cost remains in Decode.",
+  "reference_boundary": "Extends the already studied Hugging Face confidence lookahead mechanism; source strategy includes its trigger. Native frontier exclusion is a new hypothesis, not an upstream speed claim or threshold scan.",
+  "resources": "No new arena or allocation; existing fixed snapshots and dead draft scratch; maxima2/3 reserve unchanged.",
+  "validation": [
+    "host empty/bounded count and prefix-state tests",
+    "P65 complete state/logits and dynamic cancellation/failure transactions",
+    "immediate d2 P65/8K/40K real API, useful long direction unlocks d3"
+  ],
+  "stop": "One composition plus at most one correctness repair; >3% Decode slowdown at any bucket or nonpositive8K stops. No threshold/length/launch sweep. Remove negative composition; production unchanged.",
+  "artifact_root": ".q3x-work/mtp-frontier-20261010"
+}

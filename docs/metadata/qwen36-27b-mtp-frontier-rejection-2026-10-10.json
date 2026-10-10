@@ -1,0 +1,251 @@
+{
+  "work_package_id": "WP-MTP-FRONTIER-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v64",
+  "source_parent": "68fde6d",
+  "status": "closed_without_retention",
+  "decision_unit": "architecture_candidate",
+  "decision": "Remove frontier exclusion after >3% P65 API direction slowdown; restore v64 exactly. No threshold/length/launch scan or further qualification.",
+  "artifact_root": ".q3x-work/mtp-frontier-20261010",
+  "source_identity": {
+    "oracle": "a2a51d778486428c04f476f574ba64234f0ba990db912689f0868ea44b086767",
+    "candidate.patch": "4f41e6700962a235882ee51220d28ea37eebca559de3a5c2e13b7b40d0d9df55",
+    "server": "9511d7268b1394718084e1e24b407601fbe84148c8a0724eb2f7f08a34680a09",
+    "tests/mtp_device_test.cpp": "e6e3124b8fc302a1c55b3223c2d3175ea9df3c6710e5df06f05a346235ac0aee",
+    "tools/evaluation/validate_mtp_service.py": "f2a2026685d6d463d094cfac2e3710d74b110238bb08021c5cdeeb12eaeb8445",
+    "src/server/evaluation_server.cpp": "49ad27635e104ce60123a50f2ae12cf598d0eb35736189a7ccf2d38b79dcda87",
+    "src/runtime/reference_runner_terminal_prefix_internal.h": "734c3274f72079d9ef81b577b41d3445d9b982b5b9b209e53ad0dfc319f89f3f",
+    "src/runtime/reference_runner_full_attention_oracle_internal.h": "c86a676e530f839f0cc1bf347a46c47b5c5aba531751ea36ff14845b6d564352",
+    "src/runtime/mtp_verify_attention_internal.cu": "363664a03a2d7778134736dad117696bdabf50723e9728d54c39bbea9ae4a249",
+    "src/runtime/reference_engine_prefill_authority.h": "c0ce31dc6aa0747973e65a2ec994ac49c549176680df45978184ab0ffba29d11",
+    "src/runtime/reference_runner_gdn_exact_span_policy_internal.h": "2938439fa831120fdf2eb8a055725681703876043beb21953a9372a6ea055c94",
+    "src/runtime/p40_packed_projection_assets.cpp": "c938706571e986c93e326c53bef1d6ada8ad761bb574926155964084b42f2bd2",
+    "src/runtime/prefill_operator_bindings.cpp": "fcca07bb1efa85c7151e04550109e65f746770c1c0bcb6eb841bb4c3cf3ee15a",
+    "src/runtime/reference_engine_prefill_authority.cpp": "ddd98d3aa7f793d7fe395bc42447665773db5562dd8a5370dc4ae678d2565f90",
+    "src/runtime/mtp_prefill_internal.cu": "d3ad886d89a71e4932fdf67e95f6a88999f204d53768993ce4e92c707bf8d5d8",
+    "src/runtime/mtp_prefill_internal.h": "213b487fb003730aa4330f7a323eb484afaf1b5d61caca64ac4256fbd63f77f5",
+    "src/runtime/reference_engine_decode_sidecar_policy_internal.h": "dafa71954aa685d464c59e2fcd82c053443a03b3b48c069b392e7a65e92bc8af",
+    "src/runtime/prefill_workspace_plan.cpp": "163d2314c1358ee797b961b92c9f5360f1b6e239260cc16d5d43d26576b81721",
+    "src/runtime/reference_oracle.cpp": "efde55942e91712f23dfa18092ca0df7ba9a37e111eccaf1ee947360b67777c7",
+    "src/runtime/mtp_verify_projection_internal.cu": "a8d66377004621af008226512bc8fac0ac1bdf419aea7de64600d9a9f72b5c31",
+    "src/runtime/prefill_route_evidence.cpp": "88bc0ae79d310c41da68b4cf4eb48af5e4a35b47cfd1c32d47aa5c8a4c32631b",
+    "src/runtime/reference_runner.cpp": "4b346183634201f13c355f5d6c71f0bd2ba832c782bee57050ca304c54073ebe",
+    "src/runtime/mtp_control.cpp": "a7ca9c60ec0ac1c7f7be2f6ece0cb4c4488ac42b00af45101367f3cd55fbab40",
+    "src/runtime/reference_runner_prompt_wide_policy_internal.h": "263adf64953ffb2017133179f25bc1b9cd6bfa9d547dc69aa6d3e2fe3312924f",
+    "src/runtime/mtp_device_internal.h": "09071418d09ac4acb6faecc779832855468fc09e38404548c389da54893bdaf6",
+    "src/runtime/reference_runner_layer_major_views.cpp": "927dca43bb145754e54a64fe4d540cf82a8d369d2d260925788c03575cd7d1f1",
+    "src/runtime/resident_weights.cpp": "518e26070a2a82110e45392ad33f7d65cf2394c0adf25719993c390e267f8e0c",
+    "src/runtime/mtp_control.h": "100796cf517eb1c95976111204f808715fa0714d38c85b9afcd85fc5794196df",
+    "src/runtime/reference_runner_gdn_c16_norm_gate_admission.h": "ee6e16b3fb5d687e150b180614d9af17c34d12d328e717f3d8790ba4de07ce8e",
+    "src/runtime/reference_runner_request_reset_policy_internal.h": "89786af4eff2129032cdfb2dd28bff4213374f25d170ff1ce0a1a4254fbf0d8c",
+    "src/runtime/reference_engine_final_token_policy_internal.h": "7b5f5c40a85fa8901a881baccf2c469e3f3248dbc355cba7b79ca6bdf4ec19fa",
+    "src/runtime/sm87_target_aot_layer0_m192_oracle_evidence_internal.h": "fb3c0d0a69f4bef6e42effd7c4363aeaa898f494be8f0c7bfd0db805da5d6b12",
+    "src/runtime/reference_runner_gdn_chunk64_native_admission.h": "bdc6e033a5d0834c48b23c25893ca8730e6a66bed6f67c7b940fa1c13dc62626",
+    "src/runtime/reference_benchmark.cpp": "56e24d5dbc5307e372de4dbf698995f9a3a0dbc33d5a9ac6dff3dda716b86315",
+    "src/runtime/mtp_verify_internal.cpp": "bbe4363c9af347c0057c9386a0dce4b8e1790e954a1b71a9f09627c18bc16310",
+    "src/runtime/reference_runner_gdn_chunk64_reference_admission.h": "470cd583a991c6f35e01a8c05ae179c6af5472dd73bcecc547b6bce1979abbe6",
+    "src/runtime/request_state.cpp": "2cf9013f52516a332469f38656046e60bdf9ed5ba423a81f331d32161a2e4299",
+    "src/runtime/mtp_service_internal.h": "6ed1304c122c9569476246d8f98f522f1f0830f7ab12045ea1c2f89a70c6af5a",
+    "src/runtime/sm87_target_aot_projection_device_assets.cpp": "9e2e5264fac95b68253953a4898eee0edd89bd8cf4894d814b75be79b5e14b19",
+    "src/runtime/model_weights.cpp": "5c6c83cb65a86bfab176ed8b3e318b4f41077576153fe4d5213b4deb4ccc6fd5",
+    "src/runtime/reference_engine.cpp": "11882af20bc850f04cd6dea385ea50fe7a55a11e44b45be5842cfc49c60ae350",
+    "src/runtime/sm87_target_aot_layer0_m192_oracle_internal.h": "e2abe3a9f197ce41689a2df37472ded3db502b7770599f9a5b99f043cdbbab56",
+    "src/runtime/decode_fused_gqa_internal.h": "1875825bb8a512b38cf98f254e0f6ee288f5cb88677c5fe0ddcc6cebac584ec4",
+    "src/runtime/reference_runner_decode_gqa_policy_internal.h": "5dc1685d01c6f5914502bde6dd69c61d539c831ee6848e140483936214f4bf77",
+    "src/runtime/mtp_service_internal.cpp": "4d49f3c7534827d4f24bc8234b6e14e8d69a764dc66d487611f701c21def640e",
+    "src/runtime/reference_engine_control.cpp": "48f496df165ffef84ab55b4e83940a1db5c626e84ea77aa07679ff5f572f3c5d",
+    "src/runtime/sm87_target_aot_projection_assets.cpp": "3bff89ff38766b6421d73c0beb289696c85ac8a43bfd47e1f0ec5cd73302cc9a",
+    "src/runtime/prefill_execution_plan.cpp": "ce7b6ac1708ff60a25d2d147affd057a46bec15bcfdf1d7dfd646e7e451cee12",
+    "src/runtime/mtp_engine_internal.h": "2652ee5b80f9bba6e706a5d05a580f919bfdf17b6df665a028dc0d0db3818e8f",
+    "src/runtime/mtp_device_internal.cpp": "1d800c9788bec268b54be252c93474502cd64286b7650b9d29f6ff0351d42e14",
+    "src/runtime/reference/decode_ops.cpp": "efffb0f7bf1d09ab5d0f3dccc44bbe285a905425191ddb3e7b929c3d71bd3582",
+    "src/runtime/reference/layout_ops.cpp": "bb9b5f59fea4da2095bca82154d7a9f212279e9e4efb789246a94c45ec7d7877",
+    "src/runtime/reference/gdn_decode.cpp": "2bab112355a441a9101c3ef4af7cc0a910445a0664adea3c5182ddc3a6db5823",
+    "include/q3x/server/evaluation_server.h": "bd644b3037ee9bf44e7fd26ba68225d5d935856fca2defa9934db70f91c57ea2"
+  },
+  "numerical": {
+    "confidence_cpu_cases": 18,
+    "full_prefixes": 9,
+    "successful_full_state_transactions": 15,
+    "failure_recovery_transactions": 4,
+    "adaptive_successful_transactions": 4,
+    "zero_submitted_real_transactions_exercised": true,
+    "zero_count_host_checked": true,
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 72.312
+    },
+    "scope": "P65 full-state/logit and draft-cache admission, including one real non-tail empty submission for d2. Earlier provisional summary read only truncated final lines; complete log corrects it.",
+    "non_tail_empty_rounds_d2": 1
+  },
+  "host_controller": {
+    "returncode": 0,
+    "sha256": "a19de59fe91756248666ed1eb6658ab91cf6360eb9c1d6c4358f40ba45ae0c2c",
+    "output": "mtp_control_checks=188265\n"
+  },
+  "api": {
+    "metrics": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.888663902,
+        "prefill_tps": 73.14351337295571,
+        "decode_tps": 12.099879539810573,
+        "ttft_s": 0.9072891441173851,
+        "elapsed_s": 2.1469444101676345,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-frontier-v65",
+          "draft_length": 2,
+          "startup_free_bytes": 9870843904,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 8,
+          "proposed": 10,
+          "accepted": 7,
+          "verified_rows": 18,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            3,
+            0
+          ],
+          "confidence_threshold": 0.4,
+          "proposal_histogram": [
+            2,
+            2,
+            4,
+            0
+          ],
+          "drafted_tokens": 13,
+          "confidence_pruned_tokens": 3,
+          "draft_ordered_attention_steps": 0,
+          "entry_hidden_snapshots": 8,
+          "direct_gdn_state_rows": 864,
+          "seed_kv_reuses": 7,
+          "state_copy_bytes_elided": 1990500352,
+          "draft_initialization_ms": 5.638456,
+          "draft_ms": 136.621339,
+          "verify_ms": 1082.501015,
+          "reconcile_ms": 20.137192999999996,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "comparison": [
+      {
+        "stage": "p65",
+        "decode_ratio_vs_v64": 0.9455632929239115,
+        "decode_ratio_vs_nonmtp": 1.2629651660719723,
+        "draft_saved_ms": -10.562838,
+        "verify_saved_ms": -57.86724100000015,
+        "full_decode_saved_s": -0.06748419300000008,
+        "prefill_delta_s": -0.00030891799999999137,
+        "total_delta_s": 0.06714930292218924
+      }
+    ],
+    "completed_api_checks": 1,
+    "output_ids_equal_v64": true
+  },
+  "partial_audit": {
+    "completed_responses": 1,
+    "request_output_work_checks": "pass",
+    "full_audit": "incomplete as expected after early stop: missing Decode cancellation receipt; no full-lifecycle pass claimed",
+    "cancelled_request": {
+      "prompt": 8192,
+      "requested_output": 256,
+      "request_hash_matched": true,
+      "engine_result": false
+    },
+    "receipt_count": 2
+  },
+  "cleanup": {
+    "oracle": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 72.312
+    },
+    "d2": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 67.437
+    }
+  },
+  "restoration": {
+    "server": {
+      "retained_sha256": "c4d9df64972f64d9bafeba6d5a4e92376ef23d1b5e5956b1a491ad1e1dea3e05",
+      "rebuilt_sha256": "f08d8c8e826a80645113d1620f1872592da5c7c3230fe1adb5f05ab888fd494c",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "2779c9075d6b6ea19f7133721e7e1175830f6ad813d564ca6d2dc2fb601edda0",
+      "rebuilt_sha256": "ee619cfe81ad90f18a997318254bf56f83cbe53ba0a2733d57b68ad7cf12134b",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "interpretation": "Although verified rows fall19->18, accepted proposals fall8->7 and rounds increase7->8. Actual drafting rises12->13 despite submitted proposals dropping12->10. Full Decode adds67.484ms. Confidence pruning reduced rows but did not reduce complete generation work/latency. This is direction evidence, not a hardware limit or statistical regression claim.",
+  "scope": "P65/O16 d2 only. The next P8192/O256 request had entered and was cancelled, hash matched; no completed8K/40K/d3 or full lifecycle result.",
+  "production_changed": false,
+  "goal_achieved": false,
+  "incumbent": "v64 confidence lookahead retained at68fde6d",
+  "host_validation": {
+    "host-tests": {
+      "command": [
+        "ctest",
+        "--test-dir",
+        ".q3x-work/build/orin-whole-core-exact-decode-admission",
+        "--output-on-failure",
+        "-R",
+        "^(mtp_control|mtp_weights|reference_engine_control)$"
+      ],
+      "returncode": 0
+    },
+    "document-unit": {
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_document_control"
+      ],
+      "returncode": 0
+    },
+    "document-control": {
+      "command": [
+        "python3",
+        "-B",
+        "tools/docs/validate_document_control.py"
+      ],
+      "returncode": 0
+    },
+    "diff-check": {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0
+    }
+  },
+  "hygiene": {
+    "gpu_handle_inspection_returncode": 1,
+    "api_keys_removed": true,
+    "temporary_build_files_empty": true,
+    "worktree_count": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  }
+}
