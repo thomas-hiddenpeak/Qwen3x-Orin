@@ -1,0 +1,692 @@
+{
+  "work_package_id": "WP-MTP-NATIVE-PREFETCH-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v49",
+  "source_parent": "1967f35",
+  "status": "direction_complete_dependency_only",
+  "decision": "Retain the single native FP8 cache-prefetch composition as a bounded dependency through the next complete verifier API return or archival. Both policies reduce complete Decode and verification in both long contexts. No distance/cache-level scan, profile or production promotion.",
+  "source_identity": {
+    "oracle": "e19d7675c60adf820ad7d81d2c98d0dd012752d9d264c8ce00c39c583a48cb2a",
+    "candidate.patch": "123e8fa29a6cca48fc26db3bb6996695d10d1cf60ff79dd12a0baf8a6531eb27",
+    "server": "666a9be89d636ca6e0ea71ed54d57eba2a968330b3081f45b6ec314ab2acdc53",
+    "tests/mtp_device_test.cpp": "149366fd54fb029b9c418426a00cc4b426d6756a111ba682510beb974b7f0b92",
+    "tools/evaluation/validate_mtp_service.py": "9fc14988cd95157e58a50512769dc11c45accc0cf0a6a904687f264880aca2d6",
+    "src/server/evaluation_server.cpp": "06529ddc616502a34f56e04efd90b0fe8e0322e15444d8727b46cc218dd55293",
+    "src/runtime/reference_runner_terminal_prefix_internal.h": "734c3274f72079d9ef81b577b41d3445d9b982b5b9b209e53ad0dfc319f89f3f",
+    "src/runtime/reference_runner_full_attention_oracle_internal.h": "c86a676e530f839f0cc1bf347a46c47b5c5aba531751ea36ff14845b6d564352",
+    "src/runtime/mtp_verify_attention_internal.cu": "64eaf3c9a4e2813dad16620216d6789b493d191e12f93f158f40d541c92ba273",
+    "src/runtime/reference_engine_prefill_authority.h": "c0ce31dc6aa0747973e65a2ec994ac49c549176680df45978184ab0ffba29d11",
+    "src/runtime/reference_runner_gdn_exact_span_policy_internal.h": "2938439fa831120fdf2eb8a055725681703876043beb21953a9372a6ea055c94",
+    "src/runtime/p40_packed_projection_assets.cpp": "c938706571e986c93e326c53bef1d6ada8ad761bb574926155964084b42f2bd2",
+    "src/runtime/prefill_operator_bindings.cpp": "fcca07bb1efa85c7151e04550109e65f746770c1c0bcb6eb841bb4c3cf3ee15a",
+    "src/runtime/reference_engine_prefill_authority.cpp": "ddd98d3aa7f793d7fe395bc42447665773db5562dd8a5370dc4ae678d2565f90",
+    "src/runtime/mtp_prefill_internal.cu": "a73d0774d11bf9d1e642876d01e0239d62489d1c83af59539de9f835e43a07d2",
+    "src/runtime/mtp_prefill_internal.h": "eed816da8e20a804953732b09efc52a87e1b80a733303bae4c721f7ca166f054",
+    "src/runtime/reference_engine_decode_sidecar_policy_internal.h": "dafa71954aa685d464c59e2fcd82c053443a03b3b48c069b392e7a65e92bc8af",
+    "src/runtime/prefill_workspace_plan.cpp": "163d2314c1358ee797b961b92c9f5360f1b6e239260cc16d5d43d26576b81721",
+    "src/runtime/reference_oracle.cpp": "efde55942e91712f23dfa18092ca0df7ba9a37e111eccaf1ee947360b67777c7",
+    "src/runtime/mtp_verify_projection_internal.cu": "a8d66377004621af008226512bc8fac0ac1bdf419aea7de64600d9a9f72b5c31",
+    "src/runtime/prefill_route_evidence.cpp": "88bc0ae79d310c41da68b4cf4eb48af5e4a35b47cfd1c32d47aa5c8a4c32631b",
+    "src/runtime/reference_runner.cpp": "4b346183634201f13c355f5d6c71f0bd2ba832c782bee57050ca304c54073ebe",
+    "src/runtime/mtp_control.cpp": "33be43a79d8697dd6a84f8709977f6f8841a111a011b0688cf6b0a5a6fb6c591",
+    "src/runtime/reference_runner_prompt_wide_policy_internal.h": "263adf64953ffb2017133179f25bc1b9cd6bfa9d547dc69aa6d3e2fe3312924f",
+    "src/runtime/mtp_device_internal.h": "372bab3f5685ffecc8e7807cdb6403b48c8156b35409f6befe1dc69debb5eea6",
+    "src/runtime/reference_runner_layer_major_views.cpp": "927dca43bb145754e54a64fe4d540cf82a8d369d2d260925788c03575cd7d1f1",
+    "src/runtime/resident_weights.cpp": "518e26070a2a82110e45392ad33f7d65cf2394c0adf25719993c390e267f8e0c",
+    "src/runtime/mtp_control.h": "ca6290fa891f33ca4db4d0b4e9166ab84179c494eb6d5da090b0e193cd3ebaa3",
+    "src/runtime/reference_runner_gdn_c16_norm_gate_admission.h": "ee6e16b3fb5d687e150b180614d9af17c34d12d328e717f3d8790ba4de07ce8e",
+    "src/runtime/reference_runner_request_reset_policy_internal.h": "89786af4eff2129032cdfb2dd28bff4213374f25d170ff1ce0a1a4254fbf0d8c",
+    "src/runtime/reference_engine_final_token_policy_internal.h": "7b5f5c40a85fa8901a881baccf2c469e3f3248dbc355cba7b79ca6bdf4ec19fa",
+    "src/runtime/sm87_target_aot_layer0_m192_oracle_evidence_internal.h": "fb3c0d0a69f4bef6e42effd7c4363aeaa898f494be8f0c7bfd0db805da5d6b12",
+    "src/runtime/reference_runner_gdn_chunk64_native_admission.h": "bdc6e033a5d0834c48b23c25893ca8730e6a66bed6f67c7b940fa1c13dc62626",
+    "src/runtime/reference_benchmark.cpp": "56e24d5dbc5307e372de4dbf698995f9a3a0dbc33d5a9ac6dff3dda716b86315",
+    "src/runtime/mtp_verify_internal.cpp": "276251c5b308f97968d7a2a36278fd96202672b56da79d510651c27b09661e22",
+    "src/runtime/reference_runner_gdn_chunk64_reference_admission.h": "470cd583a991c6f35e01a8c05ae179c6af5472dd73bcecc547b6bce1979abbe6",
+    "src/runtime/request_state.cpp": "2cf9013f52516a332469f38656046e60bdf9ed5ba423a81f331d32161a2e4299",
+    "src/runtime/mtp_service_internal.h": "5057c4be1d74fa279228de09dc641f27c4d6904b854370db1451951e3601e137",
+    "src/runtime/sm87_target_aot_projection_device_assets.cpp": "9e2e5264fac95b68253953a4898eee0edd89bd8cf4894d814b75be79b5e14b19",
+    "src/runtime/model_weights.cpp": "5c6c83cb65a86bfab176ed8b3e318b4f41077576153fe4d5213b4deb4ccc6fd5",
+    "src/runtime/reference_engine.cpp": "11882af20bc850f04cd6dea385ea50fe7a55a11e44b45be5842cfc49c60ae350",
+    "src/runtime/sm87_target_aot_layer0_m192_oracle_internal.h": "e2abe3a9f197ce41689a2df37472ded3db502b7770599f9a5b99f043cdbbab56",
+    "src/runtime/decode_fused_gqa_internal.h": "1875825bb8a512b38cf98f254e0f6ee288f5cb88677c5fe0ddcc6cebac584ec4",
+    "src/runtime/reference_runner_decode_gqa_policy_internal.h": "5dc1685d01c6f5914502bde6dd69c61d539c831ee6848e140483936214f4bf77",
+    "src/runtime/mtp_service_internal.cpp": "f5dbd1d5bcf4f599786a589a767929403ab04686540fa335057e80c022d0abac",
+    "src/runtime/reference_engine_control.cpp": "48f496df165ffef84ab55b4e83940a1db5c626e84ea77aa07679ff5f572f3c5d",
+    "src/runtime/sm87_target_aot_projection_assets.cpp": "3bff89ff38766b6421d73c0beb289696c85ac8a43bfd47e1f0ec5cd73302cc9a",
+    "src/runtime/prefill_execution_plan.cpp": "ce7b6ac1708ff60a25d2d147affd057a46bec15bcfdf1d7dfd646e7e451cee12",
+    "src/runtime/mtp_engine_internal.h": "2652ee5b80f9bba6e706a5d05a580f919bfdf17b6df665a028dc0d0db3818e8f",
+    "src/runtime/mtp_device_internal.cpp": "2080c2a1a9633e21449242a3b6dd82cdf44451c86598a5a1b6d51e1e3ba5c89e",
+    "src/runtime/reference/decode_ops.cpp": "efffb0f7bf1d09ab5d0f3dccc44bbe285a905425191ddb3e7b929c3d71bd3582",
+    "src/runtime/reference/layout_ops.cpp": "bb9b5f59fea4da2095bca82154d7a9f212279e9e4efb789246a94c45ec7d7877",
+    "src/runtime/reference/gdn_decode.cpp": "2bab112355a441a9101c3ef4af7cc0a910445a0664adea3c5182ddc3a6db5823",
+    "include/q3x/server/evaluation_server.h": "e7ef8bbae649b8c4e5595e1448cfcdb80af41fe35ca5e2393e23c8903a02830c"
+  },
+  "compiled_mechanism": {
+    "binary_sha256": "666a9be89d636ca6e0ea71ed54d57eba2a968330b3081f45b6ec314ab2acdc53",
+    "all_six_specializations_pass": true,
+    "kernels": [
+      {
+        "kernel": "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj4ELb0EEEvPKhfPKtjjPt",
+        "native_hints": [
+          [
+            "0x770",
+            "CCTL.E.PF1 [R14]"
+          ],
+          [
+            "0x7d0",
+            "CCTL.E.PF1 [R10]"
+          ],
+          [
+            "0x820",
+            "CCTL.E.PF1 [R12]"
+          ],
+          [
+            "0x840",
+            "CCTL.E.PF1 [R6]"
+          ],
+          [
+            "0x850",
+            "CCTL.E.PF1 [R4]"
+          ],
+          [
+            "0x860",
+            "CCTL.E.PF1 [R8]"
+          ],
+          [
+            "0x870",
+            "CCTL.E.PF1 [R14]"
+          ],
+          [
+            "0x880",
+            "CCTL.E.PF1 [R16]"
+          ]
+        ],
+        "first_FFMA": "0xbf0",
+        "hints_before_current_FMA": true
+      },
+      {
+        "kernel": "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj4ELb1EEEvPKhfPKtjjPt",
+        "native_hints": [
+          [
+            "0x750",
+            "@!P0 CCTL.E.PF1 [R12]"
+          ],
+          [
+            "0x770",
+            "@!P0 CCTL.E.PF1 [R14]"
+          ],
+          [
+            "0x7a0",
+            "@!P0 CCTL.E.PF1 [R16]"
+          ],
+          [
+            "0x7c0",
+            "@!P0 CCTL.E.PF1 [R18]"
+          ],
+          [
+            "0x7d0",
+            "@!P0 CCTL.E.PF1 [R20]"
+          ]
+        ],
+        "first_FFMA": "0xb40",
+        "hints_before_current_FMA": true
+      },
+      {
+        "kernel": "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj3ELb0EEEvPKhfPKtjjPt",
+        "native_hints": [
+          [
+            "0x720",
+            "CCTL.E.PF1 [R46]"
+          ],
+          [
+            "0x760",
+            "CCTL.E.PF1 [R44]"
+          ],
+          [
+            "0x7a0",
+            "CCTL.E.PF1 [R36]"
+          ],
+          [
+            "0x7c0",
+            "CCTL.E.PF1 [R40]"
+          ],
+          [
+            "0x7d0",
+            "CCTL.E.PF1 [R38]"
+          ],
+          [
+            "0x7e0",
+            "CCTL.E.PF1 [R42]"
+          ],
+          [
+            "0x7f0",
+            "CCTL.E.PF1 [R46]"
+          ]
+        ],
+        "first_FFMA": "0xb10",
+        "hints_before_current_FMA": true
+      },
+      {
+        "kernel": "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj3ELb1EEEvPKhfPKtjjPt",
+        "native_hints": [
+          [
+            "0x6d0",
+            "@!P0 CCTL.E.PF1 [R46]"
+          ],
+          [
+            "0x6f0",
+            "@!P0 CCTL.E.PF1 [R48]"
+          ],
+          [
+            "0x700",
+            "@!P0 CCTL.E.PF1 [R50]"
+          ],
+          [
+            "0x710",
+            "@!P0 CCTL.E.PF1 [R70]"
+          ]
+        ],
+        "first_FFMA": "0x8d0",
+        "hints_before_current_FMA": true
+      },
+      {
+        "kernel": "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj2ELb0EEEvPKhfPKtjjPt",
+        "native_hints": [
+          [
+            "0x680",
+            "CCTL.E.PF1 [R54]"
+          ],
+          [
+            "0x6c0",
+            "CCTL.E.PF1 [R36]"
+          ],
+          [
+            "0x6f0",
+            "CCTL.E.PF1 [R34]"
+          ],
+          [
+            "0x710",
+            "CCTL.E.PF1 [R30]"
+          ],
+          [
+            "0x720",
+            "CCTL.E.PF1 [R32]"
+          ],
+          [
+            "0x730",
+            "CCTL.E.PF1 [R38]"
+          ]
+        ],
+        "first_FFMA": "0xa40",
+        "hints_before_current_FMA": true
+      },
+      {
+        "kernel": "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj2ELb1EEEvPKhfPKtjjPt",
+        "native_hints": [
+          [
+            "0x640",
+            "@!P0 CCTL.E.PF1 [R10]"
+          ],
+          [
+            "0x650",
+            "@!P0 CCTL.E.PF1 [R12]"
+          ],
+          [
+            "0x660",
+            "@!P0 CCTL.E.PF1 [R14]"
+          ]
+        ],
+        "first_FFMA": "0x8b0",
+        "hints_before_current_FMA": true
+      }
+    ],
+    "scope": "Static instruction presence/order, not cache hit or elapsed-time overlap proof."
+  },
+  "static_resources": {
+    "fp8_kernels": [
+      "'_ZN3q3x7runtime10mtp_detail49_GLOBAL__N__461943dc_16_consumer_test_cu_17be61b08fp8_rowsILj4ELb0EEEvPKhfPKtjjPt' for 'sm_87'\nptxas info    : Function properties for _ZN3q3x7runtime10mtp_detail49_GLOBAL__N__461943dc_16_consumer_test_cu_17be61b08fp8_rowsILj4ELb0EEEvPKhfPKtjjPt\n    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads\nptxas info    : Used 100 registers, used 1 barriers, 1536 bytes smem, 392 bytes cmem[0]\nptxas info    : ",
+      "'_ZN3q3x7runtime10mtp_detail49_GLOBAL__N__461943dc_16_consumer_test_cu_17be61b08fp8_rowsILj4ELb1EEEvPKhfPKtjjPt' for 'sm_87'\nptxas info    : Function properties for _ZN3q3x7runtime10mtp_detail49_GLOBAL__N__461943dc_16_consumer_test_cu_17be61b08fp8_rowsILj4ELb1EEEvPKhfPKtjjPt\n    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads\nptxas info    : Used 104 registers, used 1 barriers, 1536 bytes smem, 392 bytes cmem[0]\nptxas info    : ",
+      "'_ZN3q3x7runtime10mtp_detail49_GLOBAL__N__461943dc_16_consumer_test_cu_17be61b08fp8_rowsILj3ELb0EEEvPKhfPKtjjPt' for 'sm_87'\nptxas info    : Function properties for _ZN3q3x7runtime10mtp_detail49_GLOBAL__N__461943dc_16_consumer_test_cu_17be61b08fp8_rowsILj3ELb0EEEvPKhfPKtjjPt\n    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads\nptxas info    : Used 80 registers, used 1 barriers, 1408 bytes smem, 392 bytes cmem[0]\nptxas info    : ",
+      "'_ZN3q3x7runtime10mtp_detail49_GLOBAL__N__461943dc_16_consumer_test_cu_17be61b08fp8_rowsILj3ELb1EEEvPKhfPKtjjPt' for 'sm_87'\nptxas info    : Function properties for _ZN3q3x7runtime10mtp_detail49_GLOBAL__N__461943dc_16_consumer_test_cu_17be61b08fp8_rowsILj3ELb1EEEvPKhfPKtjjPt\n    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads\nptxas info    : Used 79 registers, used 1 barriers, 1408 bytes smem, 392 bytes cmem[0]\nptxas info    : ",
+      "'_ZN3q3x7runtime10mtp_detail49_GLOBAL__N__461943dc_16_consumer_test_cu_17be61b08fp8_rowsILj2ELb0EEEvPKhfPKtjjPt' for 'sm_87'\nptxas info    : Function properties for _ZN3q3x7runtime10mtp_detail49_GLOBAL__N__461943dc_16_consumer_test_cu_17be61b08fp8_rowsILj2ELb0EEEvPKhfPKtjjPt\n    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads\nptxas info    : Used 64 registers, used 1 barriers, 1280 bytes smem, 392 bytes cmem[0]\nptxas info    : ",
+      "'_ZN3q3x7runtime10mtp_detail49_GLOBAL__N__461943dc_16_consumer_test_cu_17be61b08fp8_rowsILj2ELb1EEEvPKhfPKtjjPt' for 'sm_87'\nptxas info    : Function properties for _ZN3q3x7runtime10mtp_detail49_GLOBAL__N__461943dc_16_consumer_test_cu_17be61b08fp8_rowsILj2ELb1EEEvPKhfPKtjjPt\n    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads\nptxas info    : Used 64 registers, used 1 barriers, 1280 bytes smem, 392 bytes cmem[0]\nptxas info    : "
+    ],
+    "no_spills": true
+  },
+  "api_metrics": {
+    "d2": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.887734292,
+        "prefill_tps": 73.22010717143729,
+        "decode_tps": 12.828017265433687,
+        "ttft_s": 0.9064084519632161,
+        "elapsed_s": 2.0756587171927094,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-native-prefetch-v52",
+          "draft_length": 2,
+          "startup_free_bytes": 9897504768,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "entry_hidden_snapshots": 7,
+          "direct_gdn_state_rows": 912,
+          "seed_kv_reuses": 6,
+          "state_copy_bytes_elided": 1987054592,
+          "draft_initialization_ms": 5.644399,
+          "draft_ms": 123.871202,
+          "verify_ms": 1024.068866,
+          "reconcile_ms": 20.997045,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.286443616000003,
+        "prefill_tps": 473.8973603811509,
+        "decode_tps": 14.143313868755879,
+        "ttft_s": 17.30856565805152,
+        "elapsed_s": 35.33861117810011,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-native-prefetch-v52",
+          "draft_length": 2,
+          "startup_free_bytes": 9897504768,
+          "prompt_rows": 8192,
+          "draft_prefill_rows": 8191,
+          "initialized": true,
+          "rounds": 98,
+          "proposed": 196,
+          "accepted": 157,
+          "verified_rows": 294,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            86,
+            71,
+            0
+          ],
+          "draft_ordered_attention_steps": 196,
+          "entry_hidden_snapshots": 98,
+          "direct_gdn_state_rows": 14112,
+          "seed_kv_reuses": 98,
+          "state_copy_bytes_elided": 29932693504,
+          "draft_initialization_ms": 543.563416,
+          "draft_ms": 2057.575223,
+          "verify_ms": 15606.833672999997,
+          "reconcile_ms": 360.4600970000001,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.83793898799999,
+        "prefill_tps": 430.858336969009,
+        "decode_tps": 10.671942050300698,
+        "ttft_s": 92.87308704527095,
+        "elapsed_s": 116.76896156929433,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-native-prefetch-v52",
+          "draft_length": 2,
+          "startup_free_bytes": 9897504768,
+          "prompt_rows": 40000,
+          "draft_prefill_rows": 39999,
+          "initialized": true,
+          "rounds": 105,
+          "proposed": 210,
+          "accepted": 150,
+          "verified_rows": 315,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            85,
+            65,
+            0
+          ],
+          "draft_ordered_attention_steps": 210,
+          "entry_hidden_snapshots": 105,
+          "direct_gdn_state_rows": 15120,
+          "seed_kv_reuses": 105,
+          "state_copy_bytes_elided": 32070743040,
+          "draft_initialization_ms": 2645.975331,
+          "draft_ms": 2466.3245780000007,
+          "verify_ms": 21068.789822999996,
+          "reconcile_ms": 354.3810830000003,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "d3": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.887624995,
+        "prefill_tps": 73.2291230712808,
+        "decode_tps": 11.264486515467555,
+        "ttft_s": 0.9064386528916657,
+        "elapsed_s": 2.2379411780275404,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-native-prefetch-v52",
+          "draft_length": 3,
+          "startup_free_bytes": 9875857408,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 6,
+          "proposed": 18,
+          "accepted": 9,
+          "verified_rows": 24,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            3,
+            2
+          ],
+          "draft_ordered_attention_steps": 0,
+          "entry_hidden_snapshots": 6,
+          "direct_gdn_state_rows": 1152,
+          "seed_kv_reuses": 6,
+          "state_copy_bytes_elided": 2285598720,
+          "draft_initialization_ms": 5.667877,
+          "draft_ms": 185.84296099999997,
+          "verify_ms": 1124.4626899999998,
+          "reconcile_ms": 20.946791,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.262883862,
+        "prefill_tps": 474.5441182068471,
+        "decode_tps": 13.017609096098033,
+        "ttft_s": 17.285019332077354,
+        "elapsed_s": 36.874174209777266,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-native-prefetch-v52",
+          "draft_length": 3,
+          "startup_free_bytes": 9875857408,
+          "prompt_rows": 8192,
+          "draft_prefill_rows": 8191,
+          "initialized": true,
+          "rounds": 84,
+          "proposed": 250,
+          "accepted": 171,
+          "verified_rows": 334,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            72,
+            58,
+            41
+          ],
+          "draft_ordered_attention_steps": 250,
+          "entry_hidden_snapshots": 84,
+          "direct_gdn_state_rows": 16032,
+          "seed_kv_reuses": 84,
+          "state_copy_bytes_elided": 31847387136,
+          "draft_initialization_ms": 539.695566,
+          "draft_ms": 2629.219071999999,
+          "verify_ms": 16583.508038999997,
+          "reconcile_ms": 371.58691499999975,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.878750008,
+        "prefill_tps": 430.66901736462484,
+        "decode_tps": 9.977240994992984,
+        "ttft_s": 92.91397271025926,
+        "elapsed_s": 118.47379503306001,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-native-prefetch-v52",
+          "draft_length": 3,
+          "startup_free_bytes": 9875857408,
+          "prompt_rows": 40000,
+          "draft_prefill_rows": 39999,
+          "initialized": true,
+          "rounds": 88,
+          "proposed": 262,
+          "accepted": 167,
+          "verified_rows": 350,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            72,
+            52,
+            43
+          ],
+          "draft_ordered_attention_steps": 262,
+          "entry_hidden_snapshots": 88,
+          "direct_gdn_state_rows": 16800,
+          "seed_kv_reuses": 88,
+          "state_copy_bytes_elided": 33371119616,
+          "draft_initialization_ms": 2630.0073,
+          "draft_ms": 3061.1071729999994,
+          "verify_ms": 22124.066737999998,
+          "reconcile_ms": 367.9629430000001,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ]
+  },
+  "comparison_vs_v48": {
+    "d2": [
+      {
+        "stage": "p65",
+        "decode_ratio_vs_v48": 1.0215424827863724,
+        "verify_saved_ms": 24.723658999999998,
+        "full_decode_saved_s": 0.02518996000000029,
+        "prefill_delta_s": 8.377899999989502e-05,
+        "total_delta_s": -0.0249887527897954
+      },
+      {
+        "stage": "p8192",
+        "decode_ratio_vs_v48": 1.0224308181400859,
+        "verify_saved_ms": 397.8094100000035,
+        "full_decode_saved_s": 0.4044213879999994,
+        "prefill_delta_s": -0.02391251799999594,
+        "total_delta_s": -0.4283311818726361
+      },
+      {
+        "stage": "p40000",
+        "decode_ratio_vs_v48": 1.0165713425247735,
+        "verify_saved_ms": 405.9907869999952,
+        "full_decode_saved_s": 0.3959628269999982,
+        "prefill_delta_s": 0.1273624349999949,
+        "total_delta_s": -0.2689301469363272
+      }
+    ],
+    "d3": [
+      {
+        "stage": "p65",
+        "decode_ratio_vs_v48": 1.0465206118501704,
+        "verify_saved_ms": 62.1217250000002,
+        "full_decode_saved_s": 0.061947713000000126,
+        "prefill_delta_s": -0.002134658999999761,
+        "total_delta_s": -0.063868991099298
+      },
+      {
+        "stage": "p8192",
+        "decode_ratio_vs_v48": 1.043946921222882,
+        "verify_saved_ms": 863.6493550000087,
+        "full_decode_saved_s": 0.8608696749999964,
+        "prefill_delta_s": -0.023992938999999325,
+        "total_delta_s": -0.8849020348861814
+      },
+      {
+        "stage": "p40000",
+        "decode_ratio_vs_v48": 1.035056506842104,
+        "verify_saved_ms": 899.4333729999926,
+        "full_decode_saved_s": 0.895980085999998,
+        "prefill_delta_s": -0.24988056000000824,
+        "total_delta_s": -1.145923099014908
+      }
+    ]
+  },
+  "remaining_goal_budget": [
+    {
+      "prompt": 65,
+      "decode_s": 1.169315545,
+      "target_1p5x_s": 1.0437832557891271,
+      "remaining_s": 0.12553228921087278,
+      "ratio_vs_non_mtp": 1.3389669626633507
+    },
+    {
+      "prompt": 8192,
+      "decode_s": 18.029720783,
+      "target_1p5x_s": 18.4539924513425,
+      "remaining_s": -0.4242716683425023,
+      "ratio_vs_non_mtp": 1.5352976904175804
+    },
+    {
+      "prompt": 40000,
+      "decode_s": 23.894432596999998,
+      "target_1p5x_s": 21.623326967132474,
+      "remaining_s": 2.271105629867524,
+      "ratio_vs_non_mtp": 1.3574287783996595
+    }
+  ],
+  "numerical": {
+    "complete_fp8_canonical_sidecar_special_code_guard_cases": 36,
+    "p65_complete_target_state_and_logits_prefixes": 9,
+    "p65_complete_draft_kv_prefixes": 9,
+    "seed_reuse_controls": 3,
+    "complete_transactions": 11,
+    "cache_tails": [
+      0,
+      1,
+      7,
+      8,
+      9,
+      31,
+      32,
+      33,
+      64
+    ],
+    "initialization_cancel_recovery": 2,
+    "injected_failure_recovery": 2,
+    "all_pass": true
+  },
+  "api": {
+    "successful_checks": 16,
+    "exact_output_and_logical_physical_work_equal_v48": true,
+    "non_mtp_output_equal": true
+  },
+  "cleanup": {
+    "synthetic": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "p65": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 69.031
+    },
+    "d2": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 79.312
+    },
+    "d3": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 79.937
+    }
+  },
+  "resources": {
+    "no_new_allocation": true,
+    "production_unchanged": true
+  },
+  "limitations": [
+    "One fresh process per policy, not mirrored/noise-qualified selection.",
+    "8K target crossing is not repeated qualification; the complete 1.5x\u20133x goal remains unmet.",
+    "Prefill code unchanged; timing differences not attributed to this edit.",
+    "Native hints are present before FMA, but no hardware-counter attribution establishes cache-hit rate or exact overlap savings.",
+    "The synthetic test was too short to record a temperature sample; it has correctness-only authority. Real-model telemetry is retained separately."
+  ],
+  "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+  "artifact_root": ".q3x-work/mtp-native-prefetch-20261010",
+  "host_validation": {
+    "host-tests": {
+      "command": [
+        "ctest",
+        "--test-dir",
+        ".q3x-work/build/orin-whole-core-exact-decode-admission",
+        "--output-on-failure",
+        "-R",
+        "^(mtp_control|mtp_weights|reference_engine_control)$"
+      ],
+      "returncode": 0
+    },
+    "document-unit": {
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_document_control"
+      ],
+      "returncode": 0
+    },
+    "document-control": {
+      "command": [
+        "python3",
+        "-B",
+        "tools/docs/validate_document_control.py"
+      ],
+      "returncode": 0
+    },
+    "diff-check": {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0
+    },
+    "server_fp8_no_local_load_store": {
+      "six_functions": true,
+      "LDL_STL_absent": true,
+      "scope": "actual frozen server SASS; synthetic ptxas register/smem resource counts recorded separately"
+    }
+  },
+  "hygiene": {
+    "gpu_handle_inspection_returncode": 1,
+    "api_keys_removed": true,
+    "temporary_build_files_empty": true,
+    "worktree_count": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  }
+}

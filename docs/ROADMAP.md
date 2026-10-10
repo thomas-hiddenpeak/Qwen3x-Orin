@@ -19,6 +19,29 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP native FP8 cache prefetch — API return complete
+
+`WP-MTP-NATIVE-PREFETCH-20261010` / `AC-MTP-GREEDY-v49` owns one
+[native cache-prefetch composition](metadata/qwen36-27b-mtp-native-prefetch-design-2026-10-10.json)
+against the remaining 2.67-second 40K Decode gap. An explicit cache hint for
+the next weight/activation records avoids v51's folded operand-register
+lifetime. Original demand loads, arithmetic and state remain authoritative.
+The exact compiled server must show early native prefetch and no spills before
+full numerical admission and immediate d2 API. >3% slowdown stops, neutral
+removes, useful direction unlocks d3. No distance/cache-level scan or profile
+follows. Production and the 1.5x–3x target remain unchanged.
+
+The [completed direction](metadata/qwen36-27b-mtp-native-prefetch-direction-2026-10-10.json)
+passes exact compiled-instruction/no-spill gates, 36 complete output/guard cases,
+all P65 numerical/cache/transaction checks and sixteen d2/d3 API checks.
+Both policies reduce complete Decode and verification at 8K/40K with identical
+output/work. D2 reaches 14.143/10.672 token/s, or
+1.535x/1.357x non-MTP. Retain this composition as a bounded
+next-verifier dependency, without a distance/cache-level scan or production
+promotion. The full 1.5x–3x goal remains unmet; 40K still needs approximately
+2.27 seconds removed from full Decode. These are single-process directions,
+not noise-qualified speedups or measured cache-hit attribution.
+
 ## 2026-10-10 MTP complete FP8 operand feed — closed at static gate
 
 `WP-MTP-COMPLETE-FEED-20261010` / `AC-MTP-GREEDY-v48` owns one

@@ -53,10 +53,17 @@ __device__ __forceinline__ float warp_sum_four(float s0, float s1,
   return sum;
 }
 
+// Cache warming has no register result or correctness dependency. The demand
+// loads below remain authoritative if the hardware ignores this hint.
+__device__ __forceinline__ void prefetch_fp8_operand(const void* p) {
+  asm volatile("prefetch.global.L1 [%0];" :: "l"(p) : "memory");
+}
+
 // Four output channels share vector activation loads. Each weight and scale
 // serves all speculative rows; the per-row four-chain arithmetic is unchanged.
 template<unsigned M, bool Sidecar>
-__global__ void fp8_rows(const std::uint8_t* weights, float scale,
+__global__ __launch_bounds__(256, (M==2 ? 4 : (M==3 ? 3 : 2)))
+void fp8_rows(const std::uint8_t* weights, float scale,
     const std::uint16_t* x, unsigned n, unsigned k, std::uint16_t* y) {
   __shared__ float table[256], partial[M][4][8];
   const unsigned tid = threadIdx.x, lane = tid % 32, warp = tid / 32;
@@ -66,6 +73,21 @@ __global__ void fp8_rows(const std::uint8_t* weights, float scale,
   const unsigned row = blockIdx.x * 4;
   float a[M][4][4] = {};
   for (unsigned base = tid * 4; base < k; base += 1024) {
+    // Warm exactly the next existing K block; the tail issues no hint.
+    if (base + 1024 < k) {
+      const unsigned next = base + 1024;
+      if constexpr (Sidecar) {
+        prefetch_fp8_operand(reinterpret_cast<const uint4*>(weights) +
+                             blockIdx.x * (k/4) + next/4);
+      } else {
+#pragma unroll
+        for (unsigned r=0;r<4;++r)
+          prefetch_fp8_operand(weights + (row+r)*k + next);
+      }
+#pragma unroll
+      for (unsigned m=0;m<M;++m)
+        prefetch_fp8_operand(x + m*k + next);
+    }
     uint4 packed;
     if constexpr (Sidecar) {
       packed = __ldcs(reinterpret_cast<const uint4*>(weights) +

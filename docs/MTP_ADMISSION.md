@@ -1527,6 +1527,23 @@ shows that the compiled server moves every next-record load after current FMA,
 so the intended overlap above is absent. All new paths are removed before GPU
 testing; v48 remains current, with no new numerical or API performance claim.
 
+## Native FP8 cache prefetch composition v49
+
+The bounded [composition](metadata/qwen36-27b-mtp-native-prefetch-design-2026-10-10.json)
+issues native L1 cache hints for exactly one valid future K1024 weight and
+activation record. Existing demand loads remain mandatory; hints have no
+correctness or cache-hit authority. All original scalar arithmetic, tables,
+publication and state ownership remain unchanged. The tail issues no hint.
+No extra operand lifetime, shared ring or allocation is introduced. Exact
+compiled instruction ordering and no-spill gates precede the full numerical
+and real API return; no prefetch distance or cache-level scan follows.
+
+The [completed direction](metadata/qwen36-27b-mtp-native-prefetch-direction-2026-10-10.json)
+passes static instruction/no-spill gates, complete numerical/cache checks and
+both API panels. Whole Decode reductions retain this composition only as a
+bounded next-verifier dependency. No prefetch-distance/cache-level scan,
+hardware cache-hit claim or production promotion follows.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
@@ -1800,7 +1817,7 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
 production/install, and identifies itself as
-`q3x.sm87.admission.mtp-row-boundary-api.v48`. The startup-only
+`q3x.sm87.admission.mtp-native-prefetch-api.v52`. The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.

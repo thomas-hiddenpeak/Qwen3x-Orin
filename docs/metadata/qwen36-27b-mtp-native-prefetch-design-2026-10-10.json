@@ -1,0 +1,37 @@
+{
+  "work_package_id": "WP-MTP-NATIVE-PREFETCH-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v49",
+  "source_parent": "1967f35633592fb3b823415e45e3de489d1887de",
+  "profile": "q3x.sm87.admission.mtp-native-prefetch-api.v52",
+  "product_constraint": "1.5x\u20133x same-request committed Decode with exact state/logits/output, d2/d3 and joint Prefill/TTFT/Decode/total reporting",
+  "downward_budget": {
+    "remaining_40k_decode_s": 2.667068457,
+    "current_fp8_gpu_s": 5.869083328,
+    "scope": "Measured whole-API family opportunity, not a prediction for a cache hint."
+  },
+  "mechanism": "Explicit native cache-prefetch requests warm one next K1024 block of weights and all M activation records. Demand loads and all arithmetic remain original. Unlike v51, no extra live operand registers can be folded back to the consumer; final SASS must contain cache-prefetch instructions before current FMA.",
+  "isa_reference": {
+    "url": "https://docs.nvidia.com/cuda/archive/12.8.0/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-prefetch-prefetchu",
+    "instruction": "prefetch.global.L1 [address]",
+    "scope": "Performance hint only; no correctness dependency or guaranteed cache hit/latency overlap. No source imported."
+  },
+  "equivalence_ledger": [
+    "Only prefetch valid next-record addresses when base+1024<k; no out-of-range tail hint.",
+    "All original demand loads, quantized decode, scalar FP32 FMA chains, reduction order, final scale and BF16 publication retained.",
+    "No arithmetic or numerical fallback depends on whether the cache hint is honored.",
+    "No shared or global allocation, expanded representation, state or Prefill changes."
+  ],
+  "resource_contract": "Original 256-thread/4-output grids and table; preserve M2/M3/M4 register block floors4/3/2 with fixed launch bounds. Reject spills at static gate.",
+  "bounds": {
+    "implementations": 1,
+    "parameter_scans": 0,
+    "profiles": 0
+  },
+  "gates": [
+    "exact compiled server contains early native prefetch and no spills",
+    "complete FP8 output/guard cases plus full P65 prefix/cache/transaction checks",
+    "immediate same P65/8K/40K d2 API; >3% slowdown stops, neutral removes; useful direction unlocks d3"
+  ],
+  "expiry": "Remove at failed gate or first negative/neutral API; useful direction is bounded next-verifier dependency, not production promotion. No prefetch distance/cache-level scan.",
+  "artifact_root": ".q3x-work/mtp-native-prefetch-20261010"
+}
