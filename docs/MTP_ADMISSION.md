@@ -1615,6 +1615,25 @@ copy-stage or register scan follows; retained v52 observations remain current.
 These single-process observations do not qualify a speedup or hardware cause.
 The complete 1.5x–3x goal remains unmet.
 
+## FP8 static-stage composition v53 — removed
+
+The [bounded composition](metadata/qwen36-27b-mtp-fp8-static-stages-design-2026-10-10.json)
+specializes the two admitted K sizes and fully expands their five/six K1024
+stages. Thread t still consumes `t*4+j*1024` in increasing j order. The same
+four FP32 chains, merges, reductions, scale and BF16 publication remain;
+prefetch has no correctness authority and skips the final stage. No returned
+lookahead operand structure or allocation is introduced. Compiled resource/
+stage inspection and complete numerical/API checks select this fixed dataflow.
+
+The [completed static rejection](metadata/qwen36-27b-mtp-fp8-static-stages-rejection-2026-10-10.json)
+builds both executables and the synthetic harness but fails the declared
+no-spill gate. The actual M3 canonical K5120/K6144 kernels use 8/16-byte stack
+frames and four/six local-memory instructions. This is a static resource
+rejection, not an observed API slowdown. All new source/profile paths are
+removed and retained v52 rebuilt with identical program sections. No GPU
+numerical/API run, profile or unroll/register scan follows. Current performance,
+production and the unmet 1.5x–3x objective remain unchanged.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

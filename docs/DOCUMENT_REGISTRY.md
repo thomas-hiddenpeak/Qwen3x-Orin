@@ -364,6 +364,10 @@ The element-certificate package closes at host feasibility; the existing
 Roadmap records its frozen result and lack of runtime changes;
 no Markdown path or classification changes.
 
+The FP8 static-stage package closes at its resource gate; existing MTP SDD
+and Roadmap record removal and frozen evidence;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

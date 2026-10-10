@@ -1,0 +1,38 @@
+{
+  "work_package_id": "WP-MTP-FP8-STATIC-STAGES-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v53",
+  "source_parent": "4a82a1b",
+  "product_constraint": "1.5x-3x real API committed Decode, exact state/logits/output, d2/d3 with joint Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "remaining_40k_decode_s": 2.27110563,
+    "historical_v48_fp8_gpu_s": 5.869083328,
+    "scope": "Opportunity budget, not predicted savings or instruction-stall diagnosis."
+  },
+  "mechanism": "Specialize the only admitted K5120/K6144 shapes and express all five/six K1024 stages statically. Retained native prefetch, original four FMA chains and reductions remain; stage offsets and final no-prefetch tail become compile-time facts.",
+  "distinction": "Rejected v51 had explicit unroll-1 and returned current/next operand records, which folded intended overlap. This has no register-feed structure and preserves retained v52 native hints. No unroll-factor or register scan.",
+  "equivalence_ledger": [
+    "For thread t, stage j consumes original base=t*4+j*1024 in increasing j order.",
+    "Each original a[m][r][c] receives the same five/six fmaf operations and initial positive zero.",
+    "Original codebook, scaled BF16 publication, four-chain merge and complete warp/block trees unchanged.",
+    "Native prefetch only when another admitted stage exists; original authoritative demand loads unchanged.",
+    "Shape admission restricts FP8 to K5120/6144; no other callers gain a changed fallback.",
+    "No new allocation, state, NVFP4, Attention or Prefill change; code-size/instruction-cache and scheduling costs must be charged to real API."
+  ],
+  "bounds": {
+    "implementations": 1,
+    "parameter_scans": 0,
+    "profiles": 0
+  },
+  "gates": [
+    "both builds and all-nine actual native fixed-stage kernels without spill; backward stage loop must be absent",
+    "36 complete FP8 projection/guard cases and full P65 state/cache/transactions",
+    "immediate d2 API vs v52; >3% slowdown stops, useful unlocks d3, otherwise remove"
+  ],
+  "direction_retention_screen": {
+    "minimum_8k_decode_ratio_vs_v52": 1.0,
+    "minimum_40k_decode_ratio_vs_v52": 1.01,
+    "both_long_verify_time_must_decrease": true
+  },
+  "expiry": "Useful dependency only until next complete verifier API return or archival; no unroll-factor/register scan or production switch.",
+  "artifact_root": ".q3x-work/mtp-fp8-static-stages-20261010"
+}

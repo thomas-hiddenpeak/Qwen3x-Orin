@@ -19,6 +19,27 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP FP8 static stages — closed at static gate
+
+`WP-MTP-FP8-STATIC-STAGES-20261010` / `AC-MTP-GREEDY-v53` owns one
+[fixed-stage FP8 composition](metadata/qwen36-27b-mtp-fp8-static-stages-design-2026-10-10.json).
+Specialize admitted K5120/K6144 into five/six ordered K1024 stages, preserving
+native hints, original demand loads and scalar arithmetic. Native no-loop/
+no-spill inspection precedes complete projection/P65 admission and immediate
+d2 API. >3% slowdown stops; useful direction unlocks d3, otherwise remove.
+Code size and scheduling costs belong to whole API fitness. No unroll-factor,
+register scan or profile follows. Useful retention expires at the next full
+verifier API return or archival. Production and the 1.5x–3x goal stay fixed.
+
+The [completed static rejection](metadata/qwen36-27b-mtp-fp8-static-stages-rejection-2026-10-10.json)
+builds both executables and the synthetic harness but fails the declared
+no-spill gate. The actual M3 canonical K5120/K6144 kernels use 8/16-byte stack
+frames and four/six local-memory instructions. This is a static resource
+rejection, not an observed API slowdown. All new source/profile paths are
+removed and retained v52 rebuilt with identical program sections. No GPU
+numerical/API run, profile or unroll/register scan follows. Current performance,
+production and the unmet 1.5x–3x objective remain unchanged.
+
 ## 2026-10-10 MTP element certificate — closed at host feasibility
 
 `WP-MTP-ELEMENT-CERTIFICATE-20261010` checks one [element-granular repair design](metadata/qwen36-27b-mtp-element-certificate-design-2026-10-10.json).
