@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP register codebook — closed negative
+
+`WP-MTP-REGISTER-CODEBOOK-20261010` / `AC-MTP-GREEDY-v44` preserves the
+1.5x–3x objective and remaining 0.41/3.14-second full Decode gap. The [design](metadata/qwen36-27b-mtp-register-codebook-design-2026-10-10.json)
+replaces repeated shared-memory E2M1 pair lookups with exact register byte
+selection, retaining v46 state ownership and v45 paired scaling. The historical
+NV projection family supplies a roughly 9.5-second opportunity budget, not
+predicted savings. One composition passes exhaustive pair/product and complete
+projection checks plus full P65 numerical admission, then returns immediately
+to P65/8K/40K d2 API. Greater-than-3% slowdown stops, neutral removes, useful
+direction unlocks d3. No decoder parameter scan or profile follows. Useful
+retention expires at the next complete verifier API return or archival.
+Production remains unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-register-codebook-rejection-2026-10-10.json)
+passes exhaustive raw pairs/scaled products, 45 complete projection/guard cases,
+full P65 target/cache prefix and transaction/recovery checks, but P65 d2 API
+Decode falls to 10.917 token/s versus v46 12.283.
+Prefill is 0.887 seconds / 73.27 token/s, external TTFT
+0.906 seconds and total 2.280 seconds. Output and physical/logical
+work match. The stop prevents a completed long-context/d3 panel. All new
+runtime paths are removed and v46 rebuilt; no codebook scan or profile follows.
+The 1.5x–3x goal remains active and unmet, with production unchanged.
+
 ## 2026-10-10 MTP expanded QKV representation — closed host assessment
 
 `WP-MTP-EXPANDED-QKV-ASSESSMENT-20261010` assesses exact BF16 expansion

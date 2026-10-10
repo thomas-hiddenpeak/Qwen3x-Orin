@@ -1,0 +1,28 @@
+{
+  "work_package_id": "WP-MTP-REGISTER-CODEBOOK-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v44",
+  "source_parent": "11f1efb57feedc50b596c1cabc6e10e6c95210eb",
+  "profile": "q3x.sm87.admission.mtp-register-codebook-api.v47",
+  "goal": "1.5x\u20133x same-request committed Decode d2/d3, exact complete state/logits/output",
+  "budget": {
+    "remaining_decode_8k_s": 0.409118278,
+    "remaining_decode_40k_s": 3.136127733,
+    "historical_v31_nv_projection_s": 9.50499488,
+    "scope": "NV projection family budget selects removal of repeated shared-memory codebook reads. Family duration is an opportunity ceiling, not predicted savings."
+  },
+  "composition": "Represent the complete eight-entry unsigned E2M1 codebook as immediate register bytes; two PRMTs select magnitude bytes for two weights, one assembles their BF16 lanes, bit operations restore signs. Existing exact BF16x2 scale products, scalar FP32 FMA chains, live reduction, final scale and publication remain unchanged. Apply to Gate/Up, canonical/packed Down and batched vocabulary. No expanded global weights, allocation, geometry or state changes.",
+  "reference_transfer": "Retained v45 exact paired-product proof and existing vLLM/Marlin in-register decoding principle. Native original implementation; no imported code or approximate MMA arithmetic.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs_max": 1,
+    "parameter_scans": 0,
+    "profiles": 0
+  },
+  "gates": [
+    "exhaustive 256 pair bit patterns and all 65536 pair/scale combinations including signed zeros and NaN class; complete scalar projection/guard panel",
+    "static resources and full P65 state/logit/cache/transaction/recovery",
+    "immediate P65/8K/40K d2 API; >3% slowdown stops; neutral removes; useful d2 unlocks d3"
+  ],
+  "expiry": "Immediate API return selects removal or bounded dependency through next complete verifier composition or archival. Production unchanged.",
+  "artifact_root": ".q3x-work/mtp-register-codebook-20261010"
+}

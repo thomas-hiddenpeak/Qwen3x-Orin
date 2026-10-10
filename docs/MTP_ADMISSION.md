@@ -1431,6 +1431,27 @@ passes complete numerical/cache admission and both API panels. Consistent
 whole Decode reductions retain this ownership composition only as a bounded
 next-verifier dependency. No noise-qualified selection or production follows.
 
+## Register codebook composition v44
+
+The isolated NVFP4 verifier represents the eight E2M1 magnitudes as two
+register byte tables. Two native byte permutations select low/high magnitude
+bytes for both weights; a third assembles the BF16 pair, and exact bit masks
+restore both signs, including negative zero. No shared-memory weight codebook
+load remains. The existing E4M3 scale table and exact paired scaling are
+unchanged. Gate/Up, canonical/packed Down and batched vocabulary retain their
+original scalar accumulation chains, reductions, final scale and BF16
+publication. FP8, draft, Attention, transaction state, launch geometry and
+resident inventory are unchanged. Additional integer instructions and register
+pressure are charged to the complete API; no instruction-count speedup is
+assumed. Exhaustive raw-pair and scaled-product checks precede complete
+projection/state admission and the bounded API return.
+
+The [completed rejection](metadata/qwen36-27b-mtp-register-codebook-rejection-2026-10-10.json)
+closes this composition after exact numerical admission and negative P65 API
+direction. The description above records the rejected experiment: all new
+register-codebook paths are removed, and retained v46 remains current.
+No further decoder scan or production change follows.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
