@@ -19,6 +19,28 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP FP8 ordinary-code groups — host screen passed, consumer pending
+
+`WP-MTP-FP8-NORMAL-GROUP-20261010` screens one
+[exact codebook-bypass opportunity](metadata/qwen36-27b-mtp-fp8-normal-group-design-2026-10-10.json).
+Authenticate real captured FP8 weights and count warp-uniform ordinary finite
+codes. Sparse sampled output rows provide only single-output group coverage,
+not the actual four-output consumer coverage. Below 50% closes this host
+screen without GPU work; a pass requires exact consumer/state admission and
+immediate full API composition. No code/shape scan or performance claim follows
+from this host statistic. The full objective and production remain unchanged.
+
+The [completed host screen](metadata/qwen36-27b-mtp-fp8-normal-group-feasibility-2026-10-10.json)
+authenticates 28 projections and 37,888 sampled single-output groups. Of these,
+33,597 (88.67%) contain only normal finite codes; all 238 ordinary-code
+integer conversions are exact. This passes the predeclared 50% screen, but
+says nothing measured about four-output coverage, branch cost or API speed.
+Proceed to one warp-uniform exact consumer with incumbent fallback, exhaustive
+full-output admission, complete target-prefix state/logits and immediate
+P65/8K/40K d2/d3 API return. Preserve sidecar xor decoding, signed zeros,
+subnormals and NaNs. One composition and at most one correctness repair;
+no conversion/launch scan. Production and current performance are unchanged.
+
 ## 2026-10-10 MTP QK position parallelism — closed without retention
 
 `WP-MTP-QK-POSITION-PARALLEL-20261010` / `AC-MTP-GREEDY-v56` owns one

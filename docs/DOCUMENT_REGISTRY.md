@@ -380,6 +380,9 @@ The QK position-parallel package closes after negative P8192 API direction;
 existing MTP SDD and Roadmap record removal and frozen evidence;
 no Markdown path or classification changes.
 
+The FP8 ordinary-code group assessment updates the existing Roadmap only;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

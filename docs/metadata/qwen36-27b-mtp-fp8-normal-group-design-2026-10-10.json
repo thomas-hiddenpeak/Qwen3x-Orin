@@ -1,0 +1,20 @@
+{
+  "work_package_id": "WP-MTP-FP8-NORMAL-GROUP-20261010",
+  "source_parent": "bf7af7d",
+  "decision_unit": "host_feasibility",
+  "product_constraint": "Exact MTP with configured drafts2/3, 1.5x\u20133x same-request committed Decode; joint Prefill/TTFT/Decode/total",
+  "downward_budget": {
+    "remaining_40k_decode_s": 2.27110563,
+    "historical_fp8_family_gpu_s": 5.869083328
+  },
+  "hypothesis": "Warp-uniform ordinary finite FP8 groups may bypass the shared codebook with exact integer BF16 construction. FP8 magnitudes8..126 map to BF16 ((magnitude<<4)+0x3c00) plus sign. Preserve original FMA and reductions; every other code uses incumbent lookup.",
+  "screen": "Authenticate existing 28 real projection captures; exhaustive normal-code identity; measure128-weight contiguous single-output groups corresponding to32 lanes times4 chain positions. Sparse output-row captures do not contain actual four adjacent outputs. Single-output coverage is only an optimistic marginal necessary condition, not actual quad coverage.",
+  "advance_gate": "At least50% sampled single-output groups entirely normal; otherwise no GPU implementation. Gate is engineering selection, not hardware/performance upper bound.",
+  "bounds": {
+    "screen_variants": 1,
+    "parameter_scans": 0,
+    "gpu_processes": 0
+  },
+  "composition_point": "Only if screen passes: exact full-output consumer proof, complete state/logits, then immediate same P65/8K/40K d2/d3 API; no production authority from this screen",
+  "artifact_root": ".q3x-work/mtp-fp8-normal-group-20261010"
+}
