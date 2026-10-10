@@ -32,7 +32,7 @@ class Draft {
   Draft(const Draft&) = delete;
   Draft& operator=(const Draft&) = delete;
   bool step(std::uint32_t token, const std::uint16_t* hidden,
-            bool logits, std::uint32_t& prediction) noexcept;
+            bool logits, std::uint32_t& prediction, float* confidence = nullptr) noexcept;
   // Initialize only live K/V from shifted tokens and independent target
   // hidden rows. Requires empty state. No final hidden/logits are produced.
   // Cancellation poisons and drains; successful reset is required for reuse.
@@ -85,6 +85,8 @@ class TargetTransaction final : public RoundBackend {
   bool begin(std::uint32_t verify_rows) noexcept override;
   bool propose(std::uint32_t seed, std::uint32_t count,
                std::uint32_t* draft) noexcept override;
+  bool propose_bounded(std::uint32_t seed, std::uint32_t maximum,
+      std::uint32_t* draft, std::uint32_t& actual) noexcept override;
   bool verify(std::uint32_t seed, const std::uint32_t* draft,
               std::uint32_t count, std::uint32_t* predictions) noexcept override;
   bool commit_prefix(std::uint32_t rows, std::uint32_t pending) noexcept override;

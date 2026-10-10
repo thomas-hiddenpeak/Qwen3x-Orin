@@ -16,6 +16,7 @@ struct RoundOptions {
   std::uint32_t available_target_rows = 0;
   std::uint32_t vocabulary_size = 0;
   std::uint32_t stop_token = 0;
+  bool confidence_lookahead = false;
 };
 
 enum class RoundStatus : std::uint8_t {
@@ -59,6 +60,13 @@ class RoundBackend {
   virtual bool begin(std::uint32_t verify_rows) noexcept = 0;
   virtual bool propose(std::uint32_t seed, std::uint32_t count,
                        std::uint32_t* draft) noexcept = 0;
+  // Capacity is reserved by begin(maximum+1). Return actual in 1..maximum;
+  // the backend must restrict staged verification to that count.
+  virtual bool propose_bounded(std::uint32_t seed, std::uint32_t maximum,
+      std::uint32_t* draft, std::uint32_t& actual) noexcept {
+    actual = maximum;
+    return propose(seed, maximum, draft);
+  }
   virtual bool verify(std::uint32_t seed, const std::uint32_t* draft,
                       std::uint32_t count,
                       std::uint32_t* predictions) noexcept = 0;

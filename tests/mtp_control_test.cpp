@@ -60,6 +60,7 @@ class Backend final : public mtp::RoundBackend {
   bool active = false;
   bool poisoned = false;
   Fault fault = Fault::kNone;
+  std::uint32_t bounded_count = 1;
 
   bool begin(std::uint32_t rows) noexcept override {
     ++begin_calls;
@@ -83,6 +84,13 @@ class Backend final : public mtp::RoundBackend {
     if (fault == Fault::kDraftId) draft[count - 1] = 65536;
     draft_state = cursor;  // Deliberately dirty until commit reconciliation.
     return true;
+  }
+  bool propose_bounded(std::uint32_t seed, std::uint32_t maximum,
+      std::uint32_t* ids, std::uint32_t& actual) noexcept override {
+    actual = bounded_count;
+    if (actual == 0 || actual > maximum) return true; // Deliberately invalid backend.
+    staged_rows = actual + 1;
+    return propose(seed, actual, ids);
   }
   bool verify(std::uint32_t seed, const std::uint32_t* draft,
               std::uint32_t count, std::uint32_t* predictions) noexcept override {
@@ -141,6 +149,28 @@ struct Observer {
   }
 };
 
+void bounded() {
+  for (unsigned length : {2U, 3U}) for (unsigned n = 0; n <= 4; ++n)
+    for (unsigned remaining = 1; remaining <= 10; ++remaining)
+      for (unsigned mismatch = 0; mismatch <= length; ++mismatch) {
+        Backend b; b.bounded_count = n; b.mismatch = mismatch;
+        auto o = options(b, length, remaining); o.confidence_lookahead = true;
+        State scalar = b.state; Observer observer{&b};
+        const auto r = mtp::run_round(o, b, Observer::call, &observer);
+        const auto maximum = std::min(length, remaining - 1);
+        if (maximum && (!n || n > maximum)) {
+          require(r.status == mtp::RoundStatus::kInvalidPrediction && b.poisoned && !observer.seen);
+          continue;
+        }
+        require(r.ok() && r.proposed_tokens == (maximum ? n : 0));
+        require(r.verified_rows == r.proposed_tokens + 1);
+        auto seed = o.seed_token;
+        for (unsigned i = 0; i < r.output_count; ++i) {
+          consume(scalar, seed); seed = predict(scalar); require(seed == r.output[i]);
+        }
+        require(scalar == b.state && b.state == b.draft_state);
+      }
+}
 void replay() {
   for (std::uint32_t length : {2U, 3U}) {
     for (std::uint32_t mismatch = 0; mismatch <= length; ++mismatch) {
@@ -255,6 +285,7 @@ void failures() {
 }  // namespace
 
 int main() {
+  bounded();
   replay();
   termination();
   failures();

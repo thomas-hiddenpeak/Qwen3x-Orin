@@ -14,6 +14,7 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstring>
+#include <cmath>
 #include <fcntl.h>
 #include <stdexcept>
 #include <string>
@@ -340,10 +341,10 @@ bool Draft::append_kv(std::uint32_t token, const std::uint16_t* hidden) noexcept
   return true;
 }
 bool Draft::step(std::uint32_t token, const std::uint16_t* hidden,
-                 bool with_logits, std::uint32_t& prediction) noexcept {
+                 bool with_logits, std::uint32_t& prediction, float* confidence) noexcept {
   auto& p = *impl_;
   if (p.poisoned) return false;
-  if (token >= V || hidden == nullptr || p.position >= p.capacity) {
+  if (token >= V || hidden == nullptr || p.position >= p.capacity || (confidence && !with_logits)) {
     return p.call(cudaErrorInvalidValue);
   }
   auto* key = p.key + 1024ULL * p.position;
@@ -380,9 +381,14 @@ bool Draft::step(std::uint32_t token, const std::uint16_t* hidden,
                p.base.lm_head(), p.final_hidden, p.scratch, p.scratch_count, p.logits, p.stream)) ||
         !call(launch_bf16_greedy_argmax_cuda(p.logits, V, p.argmax, p.stream))) return false;
     Bf16GreedyArgmaxResult host{};
+    if (confidence &&
+        (!call(launch_mtp_draft_confidence(p.logits, V, p.scratch, p.stream)) ||
+         !call(cudaMemcpyAsync(confidence, p.scratch, sizeof(float), cudaMemcpyDeviceToHost, p.stream))))
+      return false;
     if (!call(cudaMemcpyAsync(&host, p.argmax, sizeof(host), cudaMemcpyDeviceToHost, p.stream)) ||
         !call(cudaStreamSynchronize(p.stream))) return false;
-    if (host.has_nonfinite || host.index >= V) return p.call(cudaErrorInvalidValue);
+    if (host.has_nonfinite || host.index >= V ||
+        (confidence && (!std::isfinite(*confidence) || *confidence <= 0 || *confidence > 1))) return p.call(cudaErrorInvalidValue);
     prediction = host.index;
   } else {
     if (!call(cudaStreamSynchronize(p.stream))) return false;
@@ -549,6 +555,25 @@ bool TargetTransaction::propose(std::uint32_t seed, std::uint32_t count,
                      i == 0 ? input_hidden : draft_.hidden(), true, draft[i])) return false;
     if (i == 0) { cached_seed_ = seed; seed_cache_valid_ = true; }
   }
+  return true;
+}
+bool TargetTransaction::propose_bounded(std::uint32_t seed, std::uint32_t maximum,
+    std::uint32_t* draft, std::uint32_t& actual) noexcept {
+  actual = 0;
+  if (!active_ || verified_ || maximum == 0 || maximum + 1 != rows_ ||
+      draft == nullptr || draft_.position() + 1 != entry_position_) return false;
+  const auto* input_hidden = reinterpret_cast<const std::uint16_t*>(
+      static_cast<const char*>(snapshots_) + recurrent_bytes_);
+  for (std::uint32_t i = 0; i < maximum; ++i) {
+    float confidence = 1;
+    if (!draft_.step(i == 0 ? seed : draft[i - 1],
+        i == 0 ? input_hidden : draft_.hidden(), true, draft[i],
+        i + 1 < maximum ? &confidence : nullptr)) return false;
+    if (i == 0) { cached_seed_ = seed; seed_cache_valid_ = true; }
+    ++actual;
+    if (confidence < 0.4F) break;
+  }
+  rows_ = actual + 1;
   return true;
 }
 bool TargetTransaction::verify(std::uint32_t seed, const std::uint32_t* draft,

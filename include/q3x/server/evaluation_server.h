@@ -231,14 +231,14 @@ inline constexpr EvaluationProductionDeploymentPlan
       plan.max_sequence_length = 44'095U;
       plan.maximum_output_tokens = 4'096U;
 #if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
-      plan.id = "q3x.sm87.admission.mtp-probability-publication-api.v62";
+      plan.id = "q3x.sm87.admission.mtp-confidence-api.v64";
       plan.target_prompt_tokens = 40000U;
       plan.maximum_output_tokens = 4096U;
 #endif
       plan.request_arena_bytes = runtime::kWholeCoreCompiledArenaBytes;
       plan.decode_route_id = "fixed-gqa-ordered-pipeline-s512-44095.v7";
 #if defined(Q3X_ENABLE_MTP_SERVICE_ADMISSION)
-      plan.decode_route_id = "mtp-multirow-probability-publication.v62";
+      plan.decode_route_id = "mtp-multirow-confidence.v64";
 #endif
       plan.min_free_bytes_after_create = 8ULL * 1024ULL * 1024ULL * 1024ULL;
       plan.decode_gate_up_layers = runtime::kQwen36DenseLayerCount;

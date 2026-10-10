@@ -15,6 +15,9 @@
 #include <stdexcept>
 #include <vector>
 #include <chrono>
+#include <cmath>
+#include <cstring>
+#include <algorithm>
 
 namespace rt = q3x::runtime;
 namespace mtp = rt::mtp_detail;
@@ -79,6 +82,10 @@ struct Scripted final : mtp::RoundBackend {
     }
     return true;
   }
+  bool propose_bounded(std::uint32_t seed, std::uint32_t n,
+      std::uint32_t* ids, std::uint32_t& actual) noexcept override {
+    return inner.propose_bounded(seed, n, ids, actual);
+  }
   bool verify(std::uint32_t seed, const std::uint32_t* ids, std::uint32_t n,
               std::uint32_t* predictions) noexcept override {
     return inner.verify(seed, ids, n, predictions) && !fail_after_verify;
@@ -103,6 +110,44 @@ struct PrefillCancel {
   }
 };
 
+void confidence_test() {
+  std::uint16_t* input = nullptr; float* result = nullptr;
+  require(cudaMalloc(reinterpret_cast<void**>(&input), 2*248320) == cudaSuccess &&
+          cudaMalloc(reinterpret_cast<void**>(&result), 2*sizeof(float)) == cudaSuccess, "confidence allocation");
+  unsigned cases = 0;
+  for (unsigned n : {1U, 257U, 248320U}) for (unsigned mode = 0; mode < 6; ++mode) {
+    std::vector<std::uint16_t> bits(n);
+    std::vector<double> values(n);
+    for (unsigned i = 0; i < n; ++i) {
+      float f = mode == 0 ? 0 : mode == 1 ? (i == 0 ? 16 : -16) : float(int(i % 19) - 9)/4;
+      std::uint32_t b; std::memcpy(&b, &f, 4); bits[i] = b >> 16;
+      if (mode == 3 && i == n-1) bits[i] = 0x7f80;
+      if (mode == 4 && i == n-1) bits[i] = 0x7fc1;
+      if (mode == 5) bits[i] = i % 2 ? 0x8000 : 0x0001;
+      b = unsigned(bits[i]) << 16; std::memcpy(&f, &b, 4); values[i] = f;
+    }
+    float host[2] = {-1, 123};
+    require(cudaMemcpy(input, bits.data(), 2*n, cudaMemcpyHostToDevice) == cudaSuccess &&
+            cudaMemcpy(result, host, sizeof(host), cudaMemcpyHostToDevice) == cudaSuccess &&
+            mtp::launch_mtp_draft_confidence(input, n, result, nullptr) == cudaSuccess &&
+            cudaMemcpy(host, result, sizeof(host), cudaMemcpyDeviceToHost) == cudaSuccess,
+            "confidence execution");
+    require(host[1] == 123, "confidence guard");
+    if (mode == 3 || mode == 4) require(std::isnan(host[0]), "confidence nonfinite");
+    else {
+      const double m = *std::max_element(values.begin(), values.end());
+      double sum = 0; for (double v : values) sum += std::exp(v - m);
+      require(std::abs(host[0] - 1/sum) <= 2e-5/sum, "confidence CPU reference");
+    }
+    ++cases;
+  }
+  require(mtp::launch_mtp_draft_confidence(input, 0, result, nullptr) == cudaErrorInvalidValue &&
+          mtp::launch_mtp_draft_confidence(input, 248321, result, nullptr) == cudaErrorInvalidValue &&
+          mtp::launch_mtp_draft_confidence(input, 1, reinterpret_cast<float*>(input), nullptr) == cudaErrorInvalidValue,
+          "confidence invalid inputs");
+  require(cudaFree(input) == cudaSuccess && cudaFree(result) == cudaSuccess, "confidence release");
+  std::cout << "confidence_cpu_cases=" << cases << std::endl;
+}
 int main(int argc, char** argv) try {
   const bool prefix_only = argc == 5 && std::string(argv[4]) == "--prefix-only";
   if (argc != 4 && !prefix_only) {
@@ -122,6 +167,7 @@ int main(int argc, char** argv) try {
   input.read(reinterpret_cast<char*>(prompt.data()), size);
   require(bool(input), "prompt read incomplete");
   for (auto token : prompt) require(token < 248320, "prompt token out of range");
+  confidence_test();
   std::cout << "loading_base\n" << std::flush;
 #if defined(Q3X_MTP_WHOLE_CORE_TEST)
   rt::ReferenceEngineOptions engine_options;
@@ -302,7 +348,7 @@ int main(int argc, char** argv) try {
     std::cout << "scope=prefix_state_logits_only checks=9 passed\n" << std::flush;
     return 0;
   }
-  struct Case { unsigned length; int mismatch; bool cancel; bool fail; };
+  struct Case { unsigned length; int mismatch; bool cancel; bool fail; bool adaptive = false; };
   std::vector<Case> cases;
   for (unsigned length : {2U, 3U}) {
     cases.push_back({length, -1, false, false});
@@ -310,6 +356,11 @@ int main(int argc, char** argv) try {
       cases.push_back({length, int(mismatch), false, false});
     cases.push_back({length, int(length), true, false});
     cases.push_back({length, int(length), false, true});
+  }
+  for (unsigned length : {2U, 3U}) {
+    cases.push_back({length, -1, false, false, true});
+    cases.push_back({length, -1, false, true, true});
+    cases.push_back({length, -1, true, false, true});
   }
   for (const auto& test : cases) {
     const auto length = test.length;
@@ -413,6 +464,7 @@ int main(int argc, char** argv) try {
     Cancel cancellation;
     while (actual.size() < expected.size()) {
       mtp::RoundOptions options;
+      options.confidence_lookahead = test.adaptive;
       options.draft_length = length;
       options.seed_token = actual.back();
       options.remaining_output = expected.size() - actual.size();
@@ -437,7 +489,7 @@ int main(int argc, char** argv) try {
       accepted += result.accepted_tokens;
       rows += result.verified_rows;
       ++rounds;
-      if (test.cancel) require(result.status == mtp::RoundStatus::kCancelled &&
+      if (test.cancel && (!test.adaptive || result.status == mtp::RoundStatus::kCancelled)) require(result.status == mtp::RoundStatus::kCancelled &&
                                actual.size() == 3, "cancel publication boundary");
       if (result.status == mtp::RoundStatus::kStop || result.status == mtp::RoundStatus::kCancelled) break;
     }
@@ -485,7 +537,7 @@ int main(int argc, char** argv) try {
     require(read_device(draft.keys(), live_k.size()) == live_k, "draft K differs from target-conditioned replay");
     require(read_device(draft.values(), live_v.size()) == live_v, "draft V differs from target-conditioned replay");
     std::cout << "draft_length=" << length << " scripted_mismatch=" << test.mismatch
-              << " cancelled=" << test.cancel << " output_tokens=" << actual.size()
+              << " adaptive=" << test.adaptive << " cancelled=" << test.cancel << " output_tokens=" << actual.size()
               << " rounds=" << rounds << " proposed=" << proposed << " accepted=" << accepted
               << " verified_rows=" << rows << " target_state_and_full_logits=bitwise_equal draft_kv=bitwise_equal\n" << std::flush;
   }

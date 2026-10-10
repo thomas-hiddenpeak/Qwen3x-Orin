@@ -1,0 +1,26 @@
+{
+  "work_package": "WP-MTP-CONFIDENCE-20261010",
+  "architecture": "AC-MTP-GREEDY-v63",
+  "parent": "11729dd02df26f006b200debb0dc820bbb40b6cd",
+  "product_constraint": "50-200% committed decode uplift vs same-request non-MTP; configured maxima 2/3; joint Prefill/TTFT/decode/total",
+  "incumbent": "v62 probability publication",
+  "gap": {
+    "p40000_decode_saved_seconds_required": 1.766867073868,
+    "p40000_verified": 315,
+    "p40000_committed": 255,
+    "p40000_draft_ms": 2455.015895,
+    "p40000_verify_ms": 20574.123757
+  },
+  "mechanism": "After each proposal except maximum, compute its full-vocabulary softmax confidence. If below fixed 0.4, include that token and stop further drafting. Actual drafted count controls exact verification; no round-feedback heuristic.",
+  "reference": "https://huggingface.co/blog/dynamic_speculation_lookahead",
+  "contract": "Unchanged draft logits/argmax and target arithmetic. Capacity reserved for maximum; actual 1..maximum returned before verify. Tail count0 unchanged. All complete states before observer. Nonfinite confidence fails closed. Reuse dead draft scratch, same stream, no allocation.",
+  "admission": [
+    "host shortened-count/invalid-count/state tests",
+    "confidence device vs CPU probabilities",
+    "P65 exact full prefixes and adaptive full-state transactions",
+    "immediate P65/8192/40000 d2 API; useful long direction unlocks d3"
+  ],
+  "stop": "One implementation plus at most one correctness repair. >3% decode slowdown vs v62 stops immediately; nonpositive 8K stops before40K. No threshold/length/launch scan.",
+  "production_unchanged": true,
+  "artifact_root": ".q3x-work/mtp-confidence-20261010"
+}

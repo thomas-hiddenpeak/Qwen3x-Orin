@@ -20,7 +20,7 @@ RoundResult run_round(const RoundOptions& options, RoundBackend& backend,
   }
   // There must be room for the correction/bonus token. This also makes the
   // final one-token tail an ordinary target step, without unnecessary drafting.
-  const std::uint32_t count =
+  std::uint32_t count =
       std::min(options.draft_length, options.remaining_output - 1);
   std::array<std::uint32_t, kMaximumDraftLength> draft{};
   std::array<std::uint32_t, kMaximumVerifyRows> predictions{};
@@ -30,8 +30,13 @@ RoundResult run_round(const RoundOptions& options, RoundBackend& backend,
     return result;
   };
   if (!backend.begin(count + 1)) return fail(RoundStatus::kBackendFailure);
-  if (count != 0 && !backend.propose(options.seed_token, count, draft.data())) {
-    return fail(RoundStatus::kBackendFailure);
+  if (count != 0) {
+    const auto maximum = count;
+    const bool ok = options.confidence_lookahead
+        ? backend.propose_bounded(options.seed_token, maximum, draft.data(), count)
+        : backend.propose(options.seed_token, maximum, draft.data());
+    if (!ok) return fail(RoundStatus::kBackendFailure);
+    if (count == 0 || count > maximum) return fail(RoundStatus::kInvalidPrediction);
   }
   result.proposed_tokens = count;
   for (std::uint32_t i = 0; i < count; ++i) {

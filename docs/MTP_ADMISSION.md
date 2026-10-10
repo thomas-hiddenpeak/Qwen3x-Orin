@@ -1742,6 +1742,23 @@ versus retained 14.223 token/s. All new runtime/profile paths are removed;
 retained v62, production and the full goal stay fixed. No launch/decoder scan
 or profile follows this closed composition.
 
+## Confidence lookahead composition v63
+
+The active [confidence design](metadata/qwen36-27b-mtp-confidence-design-2026-10-10.json)
+retains configured maxima 2/3. The controller reserves maximum rows, then accepts
+an actual proposal count in 1..maximum from the bounded backend. The triggering
+low-confidence proposal is included; only subsequent proposals are elided.
+Confidence is the maximum-token softmax probability over unchanged full draft
+logits, with fixed threshold 0.4. The reduction reads logits after argmax on the
+same stream and borrows dead projection scratch. No target or draft arithmetic,
+argmax, allocation, KV ownership or prefix publication is changed. Nonfinite
+confidence fails closed. Zero-draft output tails retain their ordinary path.
+The service reports actual proposal-count histogram and confidence policy; all
+physical counters follow actual work. Scalar/fixed-count oracles remain available.
+This remains isolated development. The [completed direction](metadata/qwen36-27b-mtp-confidence-direction-2026-10-10.json)
+passes complete state and both API panels and is retained only through the next
+complete MTP API composition or archival; no threshold/length/launch scan follows.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
@@ -1799,7 +1816,8 @@ then emit the first mismatch's target prediction or the all-accepted bonus.
 Later predictions after a mismatch are invalid regardless of matching IDs.
 
 The private [controller](../src/runtime/mtp_control.h) admits configured d=2
-or 3. Effective d is at most remaining output minus one, so a final one-token
+or 3. Effective d is at most remaining output minus one and may be shortened by
+the active confidence policy before verification, so a final one-token
 tail executes no draft. Full request capacity is checked before a transaction;
 speculation never admits a larger `P+O-1` boundary. All returned token IDs must
 be in vocabulary, and the backend must reject non-finite target logits.
@@ -2015,7 +2033,7 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
 production/install, and identifies itself as
-`q3x.sm87.admission.mtp-probability-publication-api.v62`. The startup-only
+`q3x.sm87.admission.mtp-confidence-api.v64`. The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.

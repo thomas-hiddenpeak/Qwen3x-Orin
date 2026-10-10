@@ -19,6 +19,33 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP confidence lookahead — direction complete, retained dependency
+
+`WP-MTP-CONFIDENCE-20261010` / `AC-MTP-GREEDY-v63` selects the
+[bounded confidence composition](metadata/qwen36-27b-mtp-confidence-design-2026-10-10.json).
+The 40K complete Decode gap is 1.767 seconds. Use current draft logits to
+stop further proposals below fixed softmax confidence 0.4, keeping configured
+maxima 2/3 and the triggering proposal. Actual count selects exact target
+verification and full prefix commitment. This differs from rejected prior-round
+acceptance backoff. One composition, at most one correctness repair, no threshold
+scan; host/device state admission returns immediately to d2 API. A >3% slowdown
+or nonpositive 8K direction closes it before further long qualification.
+Useful long direction unlocks d3. Production and the full goal remain fixed.
+
+The [completed direction](metadata/qwen36-27b-mtp-confidence-direction-2026-10-10.json) passes eighteen confidence checks, complete
+P65 state/logit and dynamic transaction/cancellation/recovery admission, and all
+sixteen API/lifecycle checks. D2 8K/40K Decode is 14.503/11.141 token/s;
+Prefill is 17.292/92.827 seconds (473.76/430.91 token/s), TTFT
+17.314/92.862 seconds and total 34.897/115.751 seconds.
+Both maxima improve long Decode with fewer actual rows and unchanged outputs.
+D2 P65 is slightly slower; no blanket all-context improvement is claimed.
+
+Retain this one-process direction as a bounded development composition through
+the next complete MTP API return or archival, without threshold/length/launch
+scanning. This closes the fixed package. The full 1.5x–3x goal remains active;
+40K d2 still needs 1.264 seconds removed from full Decode. Production is
+unchanged; subsequent work must address that remaining whole-path budget.
+
 ## 2026-10-10 MTP uniform short-chain dispatch — closed at host feasibility
 
 `WP-MTP-UNIFORM-CHAIN-20261010` / `AC-MTP-GREEDY-v62` screens one

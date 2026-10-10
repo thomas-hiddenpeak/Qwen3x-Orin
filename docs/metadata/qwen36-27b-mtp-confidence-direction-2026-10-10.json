@@ -1,0 +1,561 @@
+{
+  "work_package_id": "WP-MTP-CONFIDENCE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v63",
+  "source_parent": "11729dd",
+  "status": "direction_complete_dependency_only",
+  "decision_unit": "architecture_candidate",
+  "decision": "Retain fixed confidence-based lookahead as a bounded development composition through the next complete MTP API return or archival. No confidence threshold/length/launch scan. Production unchanged; complete target not achieved.",
+  "artifact_root": ".q3x-work/mtp-confidence-20261010",
+  "source_identity": {
+    "oracle": "25b47d60ca0eb463b74022cb01b126ef70e13decc965ebd099a55ff6b8fb7c59",
+    "candidate.patch": "6fbe676737b339b8fd3cf864e9e378547a7b6397cf4d43005c9b7eb5666a7c3a",
+    "server": "c4d9df64972f64d9bafeba6d5a4e92376ef23d1b5e5956b1a491ad1e1dea3e05",
+    "tests/mtp_device_test.cpp": "8b56ef784628f750d8029e33584ba9a2e44decd4a6912045b94a443d80fcdd6e",
+    "tools/evaluation/validate_mtp_service.py": "61fd97595312b4156f6cb1c591031de9d517f5e4ba08e11707ba7517ed5936dd",
+    "src/server/evaluation_server.cpp": "8d36d07ef18657917a8b59568cb81072c8d5fe0730e6ee193b0f99886c89e24d",
+    "src/runtime/reference_runner_terminal_prefix_internal.h": "734c3274f72079d9ef81b577b41d3445d9b982b5b9b209e53ad0dfc319f89f3f",
+    "src/runtime/reference_runner_full_attention_oracle_internal.h": "c86a676e530f839f0cc1bf347a46c47b5c5aba531751ea36ff14845b6d564352",
+    "src/runtime/mtp_verify_attention_internal.cu": "363664a03a2d7778134736dad117696bdabf50723e9728d54c39bbea9ae4a249",
+    "src/runtime/reference_engine_prefill_authority.h": "c0ce31dc6aa0747973e65a2ec994ac49c549176680df45978184ab0ffba29d11",
+    "src/runtime/reference_runner_gdn_exact_span_policy_internal.h": "2938439fa831120fdf2eb8a055725681703876043beb21953a9372a6ea055c94",
+    "src/runtime/p40_packed_projection_assets.cpp": "c938706571e986c93e326c53bef1d6ada8ad761bb574926155964084b42f2bd2",
+    "src/runtime/prefill_operator_bindings.cpp": "fcca07bb1efa85c7151e04550109e65f746770c1c0bcb6eb841bb4c3cf3ee15a",
+    "src/runtime/reference_engine_prefill_authority.cpp": "ddd98d3aa7f793d7fe395bc42447665773db5562dd8a5370dc4ae678d2565f90",
+    "src/runtime/mtp_prefill_internal.cu": "d3ad886d89a71e4932fdf67e95f6a88999f204d53768993ce4e92c707bf8d5d8",
+    "src/runtime/mtp_prefill_internal.h": "213b487fb003730aa4330f7a323eb484afaf1b5d61caca64ac4256fbd63f77f5",
+    "src/runtime/reference_engine_decode_sidecar_policy_internal.h": "dafa71954aa685d464c59e2fcd82c053443a03b3b48c069b392e7a65e92bc8af",
+    "src/runtime/prefill_workspace_plan.cpp": "163d2314c1358ee797b961b92c9f5360f1b6e239260cc16d5d43d26576b81721",
+    "src/runtime/reference_oracle.cpp": "efde55942e91712f23dfa18092ca0df7ba9a37e111eccaf1ee947360b67777c7",
+    "src/runtime/mtp_verify_projection_internal.cu": "a8d66377004621af008226512bc8fac0ac1bdf419aea7de64600d9a9f72b5c31",
+    "src/runtime/prefill_route_evidence.cpp": "88bc0ae79d310c41da68b4cf4eb48af5e4a35b47cfd1c32d47aa5c8a4c32631b",
+    "src/runtime/reference_runner.cpp": "4b346183634201f13c355f5d6c71f0bd2ba832c782bee57050ca304c54073ebe",
+    "src/runtime/mtp_control.cpp": "e9a3ff8b786ba8d723ef2a69d9b9147b7f1e581d0c0b18f2b212ed3fcb3a318d",
+    "src/runtime/reference_runner_prompt_wide_policy_internal.h": "263adf64953ffb2017133179f25bc1b9cd6bfa9d547dc69aa6d3e2fe3312924f",
+    "src/runtime/mtp_device_internal.h": "beed773663a076b1d34451273554d0c676ad060dcd3dac815768a86048cb18d2",
+    "src/runtime/reference_runner_layer_major_views.cpp": "927dca43bb145754e54a64fe4d540cf82a8d369d2d260925788c03575cd7d1f1",
+    "src/runtime/resident_weights.cpp": "518e26070a2a82110e45392ad33f7d65cf2394c0adf25719993c390e267f8e0c",
+    "src/runtime/mtp_control.h": "6dbfe0f18529964feae507754e155d29144a45f31918b7477cccc2ba474ff807",
+    "src/runtime/reference_runner_gdn_c16_norm_gate_admission.h": "ee6e16b3fb5d687e150b180614d9af17c34d12d328e717f3d8790ba4de07ce8e",
+    "src/runtime/reference_runner_request_reset_policy_internal.h": "89786af4eff2129032cdfb2dd28bff4213374f25d170ff1ce0a1a4254fbf0d8c",
+    "src/runtime/reference_engine_final_token_policy_internal.h": "7b5f5c40a85fa8901a881baccf2c469e3f3248dbc355cba7b79ca6bdf4ec19fa",
+    "src/runtime/sm87_target_aot_layer0_m192_oracle_evidence_internal.h": "fb3c0d0a69f4bef6e42effd7c4363aeaa898f494be8f0c7bfd0db805da5d6b12",
+    "src/runtime/reference_runner_gdn_chunk64_native_admission.h": "bdc6e033a5d0834c48b23c25893ca8730e6a66bed6f67c7b940fa1c13dc62626",
+    "src/runtime/reference_benchmark.cpp": "56e24d5dbc5307e372de4dbf698995f9a3a0dbc33d5a9ac6dff3dda716b86315",
+    "src/runtime/mtp_verify_internal.cpp": "bbe4363c9af347c0057c9386a0dce4b8e1790e954a1b71a9f09627c18bc16310",
+    "src/runtime/reference_runner_gdn_chunk64_reference_admission.h": "470cd583a991c6f35e01a8c05ae179c6af5472dd73bcecc547b6bce1979abbe6",
+    "src/runtime/request_state.cpp": "2cf9013f52516a332469f38656046e60bdf9ed5ba423a81f331d32161a2e4299",
+    "src/runtime/mtp_service_internal.h": "6ed1304c122c9569476246d8f98f522f1f0830f7ab12045ea1c2f89a70c6af5a",
+    "src/runtime/sm87_target_aot_projection_device_assets.cpp": "9e2e5264fac95b68253953a4898eee0edd89bd8cf4894d814b75be79b5e14b19",
+    "src/runtime/model_weights.cpp": "5c6c83cb65a86bfab176ed8b3e318b4f41077576153fe4d5213b4deb4ccc6fd5",
+    "src/runtime/reference_engine.cpp": "11882af20bc850f04cd6dea385ea50fe7a55a11e44b45be5842cfc49c60ae350",
+    "src/runtime/sm87_target_aot_layer0_m192_oracle_internal.h": "e2abe3a9f197ce41689a2df37472ded3db502b7770599f9a5b99f043cdbbab56",
+    "src/runtime/decode_fused_gqa_internal.h": "1875825bb8a512b38cf98f254e0f6ee288f5cb88677c5fe0ddcc6cebac584ec4",
+    "src/runtime/reference_runner_decode_gqa_policy_internal.h": "5dc1685d01c6f5914502bde6dd69c61d539c831ee6848e140483936214f4bf77",
+    "src/runtime/mtp_service_internal.cpp": "1db6a41c936e88f194ba59bbe5223cb65fe4365441413281268605f3f6ac296e",
+    "src/runtime/reference_engine_control.cpp": "48f496df165ffef84ab55b4e83940a1db5c626e84ea77aa07679ff5f572f3c5d",
+    "src/runtime/sm87_target_aot_projection_assets.cpp": "3bff89ff38766b6421d73c0beb289696c85ac8a43bfd47e1f0ec5cd73302cc9a",
+    "src/runtime/prefill_execution_plan.cpp": "ce7b6ac1708ff60a25d2d147affd057a46bec15bcfdf1d7dfd646e7e451cee12",
+    "src/runtime/mtp_engine_internal.h": "2652ee5b80f9bba6e706a5d05a580f919bfdf17b6df665a028dc0d0db3818e8f",
+    "src/runtime/mtp_device_internal.cpp": "d8e038beca1ab5865cc0f58c83b9d8aa2561bec477c17a3d49e3e191557239ec",
+    "src/runtime/reference/decode_ops.cpp": "efffb0f7bf1d09ab5d0f3dccc44bbe285a905425191ddb3e7b929c3d71bd3582",
+    "src/runtime/reference/layout_ops.cpp": "bb9b5f59fea4da2095bca82154d7a9f212279e9e4efb789246a94c45ec7d7877",
+    "src/runtime/reference/gdn_decode.cpp": "2bab112355a441a9101c3ef4af7cc0a910445a0664adea3c5182ddc3a6db5823",
+    "include/q3x/server/evaluation_server.h": "b169dce84c08e426cad21feee9c744c3ea72b81ad3484f218f310ee7113d3a14"
+  },
+  "source_audit": {
+    "files": {
+      "model_executor/models/qwen3_5_mtp.py": "41259149b519ad31feb5fa9bd99b1e808515f1b73410a31653ffd0d3d58ca713",
+      "model_executor/models/qwen3_next.py": "e195dc4d5522a8cce5399cb35d9d96d6e5a0c07bf9460ef6912c840dcb7a6dc9",
+      "v1/spec_decode/llm_base_proposer.py": "aab141f140be6ee7e3a64ce9d866fc139db9d86477c295970f85b311ee00c3f0"
+    },
+    "finding": "Source-level recurrence audit: qwen3_5_mtp returns final normalized MTP hidden; proposer feeds returned hidden recursively. Native Draft::hidden returns final_hidden and matches this boundary. No reference execution or universal numerical audit claimed."
+  },
+  "numerical": {
+    "confidence_cpu_cases": 18,
+    "full_prefixes": 9,
+    "successful_full_state_transactions": 15,
+    "failure_recovery_transactions": 4,
+    "adaptive_successful_transactions": 4,
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 70.062
+    },
+    "scope": "P65 full Conv/GDN/live KV/hidden/logits and target-conditioned draft cache; fixed plus adaptive d2/d3, cancellation and failure recovery; not performance evidence"
+  },
+  "host_controller": {
+    "returncode": 0,
+    "sha256": "4ce1172fe5af37f4b3f4b9dd014281415b36e3fba8faa5ba42f57249748a7e02",
+    "output": "mtp_control_checks=187698\n"
+  },
+  "api": {
+    "d2": {
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.88897282,
+          "prefill_tps": 73.11809600657982,
+          "decode_tps": 12.796477644975838,
+          "ttft_s": 0.9076066892594099,
+          "elapsed_s": 2.0797951072454453,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-confidence-v64",
+            "draft_length": 2,
+            "startup_free_bytes": 9889685504,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "direct_gdn_state_rows": 912,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 1987054592,
+            "draft_initialization_ms": 5.68372,
+            "draft_ms": 126.058501,
+            "verify_ms": 1024.633774,
+            "reconcile_ms": 21.108492,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.29159881,
+          "prefill_tps": 473.7560760004702,
+          "decode_tps": 14.502880295828538,
+          "ttft_s": 17.313809075858444,
+          "elapsed_s": 34.89679443091154,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-confidence-v64",
+            "draft_length": 2,
+            "startup_free_bytes": 9889685504,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 98,
+            "proposed": 187,
+            "accepted": 157,
+            "verified_rows": 285,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              71,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              9,
+              89,
+              0
+            ],
+            "draft_ordered_attention_steps": 187,
+            "entry_hidden_snapshots": 98,
+            "direct_gdn_state_rows": 13680,
+            "seed_kv_reuses": 98,
+            "state_copy_bytes_elided": 29253216256,
+            "draft_initialization_ms": 540.97518,
+            "draft_ms": 1981.3893540000006,
+            "verify_ms": 15234.848680999996,
+            "reconcile_ms": 361.6787450000001,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 92.82690064399999,
+          "prefill_tps": 430.9095717135253,
+          "decode_tps": 11.141325073967586,
+          "ttft_s": 92.86201422987506,
+          "elapsed_s": 115.75139155704528,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-confidence-v64",
+            "draft_length": 2,
+            "startup_free_bytes": 9889685504,
+            "prompt_rows": 40000,
+            "draft_prefill_rows": 39999,
+            "initialized": true,
+            "rounds": 105,
+            "proposed": 200,
+            "accepted": 150,
+            "verified_rows": 305,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              64,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              10,
+              95,
+              0
+            ],
+            "draft_ordered_attention_steps": 200,
+            "entry_hidden_snapshots": 105,
+            "direct_gdn_state_rows": 14640,
+            "seed_kv_reuses": 105,
+            "state_copy_bytes_elided": 31315768320,
+            "draft_initialization_ms": 2642.169644,
+            "draft_ms": 2352.2215199999996,
+            "verify_ms": 20175.239935000012,
+            "reconcile_ms": 355.29160099999996,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "comparison": [
+        {
+          "stage": "p65",
+          "decode_ratio_vs_v62": 0.9926311517605346,
+          "decode_ratio_vs_nonmtp": 1.335674909890566,
+          "draft_saved_ms": -1.7651470000000131,
+          "verify_saved_ms": -7.2423350000000255,
+          "full_decode_saved_s": -0.008637746000000002,
+          "prefill_delta_s": 0.0013542679999999363,
+          "total_delta_s": 0.0024301442317664623
+        },
+        {
+          "stage": "p8192",
+          "decode_ratio_vs_v62": 1.0196739703063207,
+          "decode_ratio_vs_nonmtp": 1.5743296676584924,
+          "draft_saved_ms": 81.3633159999988,
+          "verify_saved_ms": 264.22129799999857,
+          "full_decode_saved_s": 0.34592179800000267,
+          "prefill_delta_s": -0.008892786000004094,
+          "total_delta_s": -0.3548304233700037
+        },
+        {
+          "stage": "p40000",
+          "decode_ratio_vs_v62": 1.0219519817802374,
+          "decode_ratio_vs_nonmtp": 1.4171324407147794,
+          "draft_saved_ms": 102.79437499999904,
+          "verify_saved_ms": 398.88382199999614,
+          "full_decode_saved_s": 0.5024317410000023,
+          "prefill_delta_s": -0.7434302380000162,
+          "total_delta_s": -1.2458596569485962
+        }
+      ],
+      "completed_api_checks": 8,
+      "output_ids_equal_v62": true
+    },
+    "d3": {
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.890091384,
+          "prefill_tps": 73.02620963242579,
+          "decode_tps": 12.142940851665493,
+          "ttft_s": 0.9088912452571094,
+          "elapsed_s": 2.1441544140689075,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-confidence-v64",
+            "draft_length": 3,
+            "startup_free_bytes": 9805611008,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 6,
+            "proposed": 16,
+            "accepted": 9,
+            "verified_rows": 22,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              3,
+              2
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              0,
+              2,
+              4
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 6,
+            "direct_gdn_state_rows": 1056,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 2134603776,
+            "draft_initialization_ms": 5.685505,
+            "draft_ms": 167.73243,
+            "verify_ms": 1046.094591,
+            "reconcile_ms": 21.063534999999998,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.295000509999998,
+          "prefill_tps": 473.66289438750647,
+          "decode_tps": 13.800936243824577,
+          "ttft_s": 17.317255578003824,
+          "elapsed_s": 35.79458315810189,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-confidence-v64",
+            "draft_length": 3,
+            "startup_free_bytes": 9805611008,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 85,
+            "proposed": 226,
+            "accepted": 170,
+            "verified_rows": 311,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              73,
+              57,
+              40
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              11,
+              7,
+              67
+            ],
+            "draft_ordered_attention_steps": 226,
+            "entry_hidden_snapshots": 85,
+            "direct_gdn_state_rows": 14928,
+            "seed_kv_reuses": 85,
+            "state_copy_bytes_elided": 30189888512,
+            "draft_initialization_ms": 546.810654,
+            "draft_ms": 2398.1701789999993,
+            "verify_ms": 15701.257916000002,
+            "reconcile_ms": 373.2398179999997,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 93.358837028,
+          "prefill_tps": 428.45435176107947,
+          "decode_tps": 10.612729279842728,
+          "ttft_s": 93.39399866806343,
+          "elapsed_s": 117.4233698840253,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-confidence-v64",
+            "draft_length": 3,
+            "startup_free_bytes": 9805611008,
+            "prompt_rows": 40000,
+            "draft_prefill_rows": 39999,
+            "initialized": true,
+            "rounds": 89,
+            "proposed": 244,
+            "accepted": 166,
+            "verified_rows": 333,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              73,
+              52,
+              41
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              5,
+              13,
+              71
+            ],
+            "draft_ordered_attention_steps": 244,
+            "entry_hidden_snapshots": 89,
+            "direct_gdn_state_rows": 15984,
+            "seed_kv_reuses": 89,
+            "state_copy_bytes_elided": 32166605824,
+            "draft_initialization_ms": 2658.090686,
+            "draft_ms": 2873.5575579999986,
+            "verify_ms": 20778.45739499999,
+            "reconcile_ms": 370.748198,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "comparison": [
+        {
+          "stage": "p65",
+          "decode_ratio_vs_v62": 1.0724589939808917,
+          "decode_ratio_vs_nonmtp": 1.2674598337006204,
+          "draft_saved_ms": 18.479668000000032,
+          "verify_saved_ms": 70.67315999999983,
+          "full_decode_saved_s": 0.08950755200000016,
+          "prefill_delta_s": 0.001729878000000018,
+          "total_delta_s": -0.09506485005840659
+        },
+        {
+          "stage": "p8192",
+          "decode_ratio_vs_v62": 1.0523225023542395,
+          "decode_ratio_vs_nonmtp": 1.4981316074411637,
+          "draft_saved_ms": 231.98600500000248,
+          "verify_saved_ms": 734.9753809999966,
+          "full_decode_saved_s": 0.9667632590000004,
+          "prefill_delta_s": -0.013448319000001874,
+          "total_delta_s": -0.9801398641429842
+        },
+        {
+          "stage": "p40000",
+          "decode_ratio_vs_v62": 1.0394639697491144,
+          "decode_ratio_vs_nonmtp": 1.3498971484217628,
+          "draft_saved_ms": 188.00093900000138,
+          "verify_saved_ms": 761.2677560000084,
+          "full_decode_saved_s": 0.948230376999998,
+          "prefill_delta_s": -0.45959768800000234,
+          "total_delta_s": -1.4074940220452845
+        }
+      ],
+      "completed_api_checks": 8,
+      "output_ids_equal_v62": true
+    }
+  },
+  "cleanup": {
+    "oracle-p65": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 70.062
+    },
+    "d2": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 79.593
+    },
+    "d3": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 81.25
+    }
+  },
+  "d2_remaining_seconds_to_1_5x_decode": {
+    "p65": 0.1284143142109999,
+    "p8192": -0.8712782043430032,
+    "p40000": 1.264435332867997
+  },
+  "scope": "One fresh process per configured maximum; ordinary engineering direction only, not noise-qualified architecture/release selection. Configured maxima2/3; actual counts0..maximum as output budget/confidence permits. Prefill includes draft initialization; Decode includes full controller and observer after first token.",
+  "interpretation": "Positive long-context complete Decode direction for both maxima; reduction in actual proposal/verification work is measured. Unchanged Prefill code timing variation is not attributed to this change. Complete deterministic outputs match v62 and ordinary baseline. Confidence is a scheduling heuristic, not proof of future acceptance.",
+  "production_changed": false,
+  "goal_achieved": false,
+  "host_validation": {
+    "host-tests": {
+      "command": [
+        "ctest",
+        "--test-dir",
+        ".q3x-work/build/orin-whole-core-exact-decode-admission",
+        "--output-on-failure",
+        "-R",
+        "^(mtp_control|mtp_weights|reference_engine_control)$"
+      ],
+      "returncode": 0
+    },
+    "document-unit": {
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_document_control"
+      ],
+      "returncode": 0
+    },
+    "document-control": {
+      "command": [
+        "python3",
+        "-B",
+        "tools/docs/validate_document_control.py"
+      ],
+      "returncode": 0
+    },
+    "diff-check": {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0
+    }
+  },
+  "hygiene": {
+    "gpu_handle_inspection_returncode": 1,
+    "worktree_count": 47,
+    "api_keys_removed": true,
+    "temporary_build_files_empty": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "final_build_identity": {
+    "server": {
+      "measured_sha256": "c4d9df64972f64d9bafeba6d5a4e92376ef23d1b5e5956b1a491ad1e1dea3e05",
+      "final_sha256": "c4d9df64972f64d9bafeba6d5a4e92376ef23d1b5e5956b1a491ad1e1dea3e05",
+      "whole_file_identical": true
+    },
+    "oracle": {
+      "measured_sha256": "25b47d60ca0eb463b74022cb01b126ef70e13decc965ebd099a55ff6b8fb7c59",
+      "final_sha256": "2779c9075d6b6ea19f7133721e7e1175830f6ad813d564ca6d2dc2fb601edda0",
+      "difference": "Only move unchanged confidence test after CLI/prompt validation; implementation source unchanged. Actual real-model path still executes the same confidence and state tests. No new real-model oracle run claimed.",
+      "invalid_cli_returncode": 2,
+      "invalid_cli_stderr": "MODEL PROMPT_U32 OUTPUT_DIRECTORY [--prefix-only]\n"
+    }
+  },
+  "final_source_identity": {
+    "oracle": "2779c9075d6b6ea19f7133721e7e1175830f6ad813d564ca6d2dc2fb601edda0",
+    "candidate.patch": "663681c7bac2cbf0c557630ea4d7e8731d449cc7db4440fd1f792a1a913ea8f9",
+    "server": "c4d9df64972f64d9bafeba6d5a4e92376ef23d1b5e5956b1a491ad1e1dea3e05",
+    "tests/mtp_control_test.cpp": "a4a11d34c61b8e024adcc510ab51f8008cf728b659ab55a29014e5c249e7bdf1",
+    "tests/mtp_device_test.cpp": "6d364eadf28f454aeee36a266d4d07cb557a00555a6393085b144896747dfccc",
+    "docs/DOCUMENT_REGISTRY.md": "bf4b342de3a5ac97a872dc7bc6a09c715d279def9b80bfe3ec4fb9279f7122fb",
+    "docs/ROADMAP.md": "fab0088330c274aa02af8fcb07eb8ee54391ce8d76048d199c9ba61fd26d6491",
+    "docs/MTP_ADMISSION.md": "f8f30ee8b722ff415453e7f29b8340ea4e07443cdecae455c26b8be5e982ae15",
+    "docs/CURRENT_STATUS.md": "6e731bfcdea9b0cae9035923c35e21fa45d4978f6e273a8ac453ea3bd14c1197",
+    "tools/evaluation/validate_mtp_service.py": "61fd97595312b4156f6cb1c591031de9d517f5e4ba08e11707ba7517ed5936dd",
+    "src/server/evaluation_server.cpp": "8d36d07ef18657917a8b59568cb81072c8d5fe0730e6ee193b0f99886c89e24d",
+    "src/runtime/mtp_prefill_internal.cu": "d3ad886d89a71e4932fdf67e95f6a88999f204d53768993ce4e92c707bf8d5d8",
+    "src/runtime/mtp_prefill_internal.h": "213b487fb003730aa4330f7a323eb484afaf1b5d61caca64ac4256fbd63f77f5",
+    "src/runtime/mtp_control.cpp": "e9a3ff8b786ba8d723ef2a69d9b9147b7f1e581d0c0b18f2b212ed3fcb3a318d",
+    "src/runtime/mtp_device_internal.h": "beed773663a076b1d34451273554d0c676ad060dcd3dac815768a86048cb18d2",
+    "src/runtime/mtp_control.h": "6dbfe0f18529964feae507754e155d29144a45f31918b7477cccc2ba474ff807",
+    "src/runtime/mtp_service_internal.h": "6ed1304c122c9569476246d8f98f522f1f0830f7ab12045ea1c2f89a70c6af5a",
+    "src/runtime/mtp_service_internal.cpp": "1db6a41c936e88f194ba59bbe5223cb65fe4365441413281268605f3f6ac296e",
+    "src/runtime/mtp_device_internal.cpp": "d8e038beca1ab5865cc0f58c83b9d8aa2561bec477c17a3d49e3e191557239ec",
+    "include/q3x/server/evaluation_server.h": "b169dce84c08e426cad21feee9c744c3ea72b81ad3484f218f310ee7113d3a14"
+  }
+}

@@ -422,3 +422,5 @@ link, or missing local link target. A
 wildcard such as `docs/analysis/**` is not a registration. Generated Markdown
 under ignored `.q3x-work/` is outside the tracked registry and cannot be an
 authoritative project document.
+
+Confidence lookahead design: `docs/metadata/qwen36-27b-mtp-confidence-design-2026-10-10.json` binds the isolated bounded composition and unchanged production boundary. Its completed direction updates the existing MTP SDD, Current Status and Roadmap without changing Markdown paths or classes.

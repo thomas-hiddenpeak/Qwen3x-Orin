@@ -54,47 +54,48 @@ Decode token/s convergence target are not claimed achieved.
 
 ## MTP development status
 
-The isolated implementation now uses four-float-aligned probability rows across
-QK publication, exact batched softmax and ordered PV. This permits 16-byte
-probability staging while retaining all original arithmetic and causal lengths.
-Profile is `q3x.sm87.admission.mtp-probability-publication-api.v62`; the measured
-server ELF is `117ce095c0abdb69729ad6eb222e61300ba0b1bd7b60e18727f74cededcfe477`.
-The [completed direction](metadata/qwen36-27b-mtp-probability-publication-direction-2026-10-10.json) binds the final formatted-source rebuild,
-whose program sections match the measured binary, and passes 36 complete
-probability/output/guard cases, eighteen P513/P8192 full prefixes, eleven P513
-transactions and sixteen d2/d3 API/lifecycle checks. Outputs and work match v52.
-The installed production artifact is unchanged.
+The isolated implementation uses confidence-based lookahead with configured
+maxima 2/3: after a draft token's softmax probability falls below fixed 0.4,
+retain that token and stop further drafting in the round. Exact target
+verification consumes only actual proposals. Target arithmetic, complete
+prefix state and greedy output remain unchanged. Profile is
+`q3x.sm87.admission.mtp-confidence-api.v64`; the measured server ELF is
+`c4d9df64972f64d9bafeba6d5a4e92376ef23d1b5e5956b1a491ad1e1dea3e05`.
+The [completed direction](metadata/qwen36-27b-mtp-confidence-direction-2026-10-10.json) binds eighteen confidence CPU/device cases,
+nine full P65 prefixes, fifteen full-state transactions, four failure/recovery
+transactions and all sixteen d2/d3 API/lifecycle checks. Dynamic cancellation
+and complete target-conditioned draft KV replay pass. Production is unchanged.
 
-These 2026-10-10 observations use one fresh process per policy, not mirrored
-means or noise-qualified architecture selection. Prefill includes draft
-initialization; Decode includes the complete controller/observer interval
-after the first token.
+These observations use one fresh process per policy, not repeated qualification.
+Prefill includes draft initialization; Decode includes the complete controller
+and observer interval after the first token.
 
-| P / O | Policy | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
+| P / O | Maximum | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| 65 / 16 | d2 | 0.888 | 73.23 | 0.914 | 12.891 | 2.077 |
-| 8192 / 256 | d2 | 17.300 | 473.51 | 17.323 | 14.223 | 35.252 |
-| 40000 / 256 | d2 | 93.570 | 427.49 | 93.605 | 10.902 | 116.997 |
-| 65 / 16 | d3 | 0.888 | 73.17 | 0.914 | 11.323 | 2.239 |
-| 8192 / 256 | d3 | 17.308 | 473.29 | 17.331 | 13.115 | 36.775 |
-| 40000 / 256 | d3 | 93.818 | 426.36 | 93.853 | 10.210 | 118.831 |
+| 65 / 16 | d2 | 0.889 | 73.12 | 0.908 | 12.796 | 2.080 |
+| 8192 / 256 | d2 | 17.292 | 473.76 | 17.314 | 14.503 | 34.897 |
+| 40000 / 256 | d2 | 92.827 | 430.91 | 92.862 | 11.141 | 115.751 |
+| 65 / 16 | d3 | 0.890 | 73.03 | 0.909 | 12.143 | 2.144 |
+| 8192 / 256 | d3 | 17.295 | 473.66 | 17.317 | 13.801 | 35.795 |
+| 40000 / 256 | d3 | 93.359 | 428.45 | 93.394 | 10.613 | 117.423 |
 
-D2 Decode ratios against the same-request non-MTP anchor below are
-1.544x/1.387x at 8K/40K. The 8K observation exceeds 1.5x but is
-not repeated qualification. **The complete 1.5x–3x goal remains unmet**;
-40K still needs approximately 1.77 seconds removed from full Decode.
-The [v52 direction](metadata/qwen36-27b-mtp-native-prefetch-direction-2026-10-10.json)
-is the preceding comparator. D2/d3 40K external totals are 0.228/0.357 seconds
-longer because their observed Prefill is longer; this does not establish a
-whole-request latency gain. Prefill code is unchanged and that variation is not attributed
-to this edit. Retain the composition only as a bounded development dependency
-through the next complete verifier API return or archival, with no stride,
-tile, launch scan or qualification-only campaign. No production selection follows.
+D2 reaches 1.574x/1.417x non-MTP Decode at 8K/40K.
+**The full 1.5x–3x goal remains unmet**; 40K still needs about
+1.26 seconds removed from complete Decode. Against the
+[v62 comparator](metadata/qwen36-27b-mtp-probability-publication-direction-2026-10-10.json),
+d2 removes 9/10 proposals and verified rows at 8K/40K while preserving accepted
+totals 157/150 and identical committed outputs. D2 complete Decode saves
+0.346/0.502 seconds; short P65 Decode is -0.74%.
+Prefill implementation is unchanged; its timing variation is not attributed to
+this change. All external totals remain visible above. Retain this as a bounded
+development composition through the next complete MTP API return or archival;
+no threshold, length or launch scan or qualification-only campaign is opened.
+It is not a production switch or a declaration of target completion.
 
 ### Preceding NV live-reduction direction
 
 The following dated closures preserve their original scope; they do not
-supersede the current v52 implementation above.
+supersede the current v64 implementation above.
 
 The preceding isolated source extends the exact live-ancestor reduction to
 NVFP4 Gate/Up, Down and batched target vocabulary outputs, on top of retained

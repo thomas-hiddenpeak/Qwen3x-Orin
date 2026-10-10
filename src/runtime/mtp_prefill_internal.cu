@@ -1,5 +1,6 @@
 #include "mtp_prefill_internal.h"
 #include <cuda_runtime.h>
+#include <math_constants.h>
 #include <cutlass/gemm/device/gemm.h>
 #include <cutlass/epilogue/thread/linear_combination.h>
 #include <cstddef>
@@ -21,11 +22,49 @@ using Gemm = cutlass::gemm::device::Gemm<
     cutlass::gemm::GemmShape<16, 8, 16>,
     cutlass::epilogue::thread::LinearCombination<cutlass::bfloat16_t, 8, float, float>,
     cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>, 3>;
+__global__ void draft_confidence(const std::uint16_t* logits, unsigned n, float* output) {
+  __shared__ float reduction[256];
+  float maximum = -CUDART_INF_F;
+  unsigned invalid = 0;
+  for (unsigned i = threadIdx.x; i < n; i += 256) {
+    const float x = __uint_as_float(unsigned(logits[i]) << 16);
+    invalid |= !isfinite(x);
+    maximum = fmaxf(maximum, x);
+  }
+  const int bad = __syncthreads_or(invalid);
+  reduction[threadIdx.x] = maximum;
+  __syncthreads();
+  for (unsigned stride = 128; stride; stride >>= 1) {
+    if (threadIdx.x < stride) reduction[threadIdx.x] = fmaxf(reduction[threadIdx.x], reduction[threadIdx.x + stride]);
+    __syncthreads();
+  }
+  maximum = reduction[0];
+  __syncthreads();
+  float sum = 0;
+  for (unsigned i = threadIdx.x; i < n; i += 256)
+    sum += expf(__uint_as_float(unsigned(logits[i]) << 16) - maximum);
+  reduction[threadIdx.x] = sum;
+  __syncthreads();
+  for (unsigned stride = 128; stride; stride >>= 1) {
+    if (threadIdx.x < stride) reduction[threadIdx.x] += reduction[threadIdx.x + stride];
+    __syncthreads();
+  }
+  if (threadIdx.x == 0) *output = bad ? CUDART_NAN_F : 1.0F / reduction[0];
+}
 bool overlap(const void* a, std::size_t na, const void* b, std::size_t nb) {
   auto x = reinterpret_cast<std::uintptr_t>(a), y = reinterpret_cast<std::uintptr_t>(b);
   const auto max = std::numeric_limits<std::uintptr_t>::max();
   return x > max - na || y > max - nb || (x < y + nb && y < x + na);
 }
+}
+int launch_mtp_draft_confidence(const std::uint16_t* logits, unsigned count,
+    float* output, void* stream) noexcept {
+  if (!logits || !output || count == 0 || count > 248320 ||
+      (reinterpret_cast<std::uintptr_t>(logits) & 1U) ||
+      (reinterpret_cast<std::uintptr_t>(output) & 3U) ||
+      overlap(logits, 2ULL * count, output, sizeof(float))) return cudaErrorInvalidValue;
+  draft_confidence<<<1, 256, 0, static_cast<cudaStream_t>(stream)>>>(logits, count, output);
+  return cudaGetLastError();
 }
 int launch_mtp_prefill_projection(const std::uint16_t* weights,
     const std::uint16_t* input, unsigned count, unsigned rows,

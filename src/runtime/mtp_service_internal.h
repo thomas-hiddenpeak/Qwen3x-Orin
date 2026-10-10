@@ -8,6 +8,7 @@ namespace q3x::runtime::mtp_detail {
 inline constexpr std::uint32_t kServicePromptLimit = 44095;
 inline constexpr std::uint32_t kServiceOutputLimit = 4096;
 struct ServiceReport {
+  std::array<std::uint64_t, 4> proposal_histogram{};
   std::uint32_t draft_length = 0, prompt_rows = 0, draft_rows = 0, rounds = 0;
   std::uint32_t proposed = 0, accepted = 0, verified = 0, committed = 0;
   std::array<std::uint32_t, 3> accepted_by_position{};

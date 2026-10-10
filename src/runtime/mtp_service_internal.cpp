@@ -33,6 +33,12 @@ struct TimedBackend final : RoundBackend {
     const auto start = Clock::now(); const bool ok = inner.propose(seed, count, ids);
     report.draft_ms += elapsed(start); return ok;
   }
+  bool propose_bounded(std::uint32_t seed, std::uint32_t maximum,
+      std::uint32_t* ids, std::uint32_t& actual) noexcept override {
+    const auto start = Clock::now();
+    const bool ok = inner.propose_bounded(seed, maximum, ids, actual);
+    report.draft_ms += elapsed(start); return ok;
+  }
   bool verify(std::uint32_t seed, const std::uint32_t* ids, std::uint32_t count,
               std::uint32_t* predictions) noexcept override {
     const auto start = Clock::now(); const bool ok = inner.verify(seed, ids, count, predictions);
@@ -114,11 +120,13 @@ ReferenceRunnerStatus Service::decode(reference_engine_detail::GenerationControl
       control.stop_reason = ReferenceStopReason::kCancelled; report_.cancelled = true; break;
     }
     RoundOptions round;
+    round.confidence_lookahead = true;
     round.draft_length = length_; round.seed_token = control.generated_token_ids.back();
     round.remaining_output = options.max_new_tokens - control.generated_token_ids.size();
     round.available_target_rows = state_.max_sequence_length() - state_.current_position();
     round.vocabulary_size = kReferenceVocabularySize; round.stop_token = options.stop_token_id;
     const auto result = run_round(round, backend, Observer::emit, &observer);
+    if (result.ok()) ++report_.proposal_histogram[result.proposed_tokens];
     ++report_.rounds; report_.proposed += result.proposed_tokens;
     report_.accepted += result.accepted_tokens; report_.verified += result.verified_rows;
     for (std::uint32_t i = 0; i < result.accepted_tokens; ++i) ++report_.accepted_by_position[i];
@@ -136,7 +144,7 @@ ReferenceRunnerStatus Service::decode(reference_engine_detail::GenerationControl
 std::string Service::report_json() const {
   const auto& r = report_;
   std::ostringstream out; out << std::setprecision(17) << std::boolalpha;
-  out << "{\"enabled\":true,\"verifier\":\"multirow-probability-publication-v62\",\"draft_length\":" << r.draft_length
+  out << "{\"enabled\":true,\"verifier\":\"multirow-confidence-v64\",\"draft_length\":" << r.draft_length
       << ",\"startup_free_bytes\":" << startup_free_bytes_
       << ",\"prompt_rows\":" << r.prompt_rows << ",\"draft_prefill_rows\":" << r.draft_rows
       << ",\"initialized\":" << r.initialized << ",\"rounds\":" << r.rounds
@@ -144,6 +152,8 @@ std::string Service::report_json() const {
       << ",\"verified_rows\":" << r.verified << ",\"committed_decode_tokens\":" << r.committed
       << ",\"accepted_by_position\":[" << r.accepted_by_position[0] << ','
       << r.accepted_by_position[1] << ',' << r.accepted_by_position[2] << ']'
+      << ",\"confidence_threshold\":0.4,\"proposal_histogram\":[" << r.proposal_histogram[0]
+      << ',' << r.proposal_histogram[1] << ',' << r.proposal_histogram[2] << ',' << r.proposal_histogram[3] << ']'
       << ",\"draft_ordered_attention_steps\":" << draft_.ordered_attention_steps()
       << ",\"entry_hidden_snapshots\":" << transaction_.entry_snapshots()
       << ",\"direct_gdn_state_rows\":" << transaction_.direct_gdn_rows()
