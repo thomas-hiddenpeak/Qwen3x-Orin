@@ -1,0 +1,43 @@
+{
+  "work_package_id": "WP-MTP-BF16-CERTIFICATE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v58",
+  "parent": "daafccd",
+  "profile": "q3x.sm87.admission.mtp-bf16-certificate-api.v60",
+  "product_constraint": "Exact target state/logits/output and configured drafts2/3; 1.5x\u20133x same-request committed Decode with joint phase metrics",
+  "downward_budget": {
+    "40k_remaining_complete_decode_s": 2.27110563
+  },
+  "composition": "208 immutable canonical FP8 norm views prepared at transaction construction; one failure-safe owned allocation for norms plus16MiB serialized request scratch. Exact original repair for every uncertified element. Target NVFP4, draft, Attention/GDN, Prefill arithmetic and prefix commit unchanged.",
+  "arithmetic_review": {
+    "source": "https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-instructions-mma",
+    "domain": "Finite E4M3 and BF16 activations zero or abs in[2^-32,128], positive scale[2^-32,2^32]. Products exact in FP32; nonzero lattice no finer than2^-41, so products and finite sums avoid FP32 underflow. Max5120/6144 term sums and scaled values avoid overflow. Unsafe inputs force repair.",
+    "rounding_model": "At-least-FP32 K16 accumulation with unspecified order/rounding is conservatively bounded by16 one-ulp rounding steps, gamma32 at u=2^-24. Any binary addition order has at most16 nodes on a term path. Three K128 RN tree levels, six final tree levels and one scale multiply give<=42; gamma64 is conservative. This is a target instruction precision model, not an assertion of RN Tensor Core order.",
+    "scalar": "Original 5/6 FMA chains, two within-thread merge levels, five warp levels, three block levels and scale: k/1024+11. Zero additions are exact.",
+    "norms": "Every square, accumulation, tree merge, square root, norm product and error-radius operation rounds upward. Cauchy-Schwarz upper-bounds sum(abs(products)). Triangle bound covers original and fast paths. Strict outward interval containment in adjacent BF16 midpoint cell proves same final bits for certified normal finite output. Invalid/ambiguous/exceptional values use original scalar path.",
+    "scope": "Candidate admission argument plus complete numerical comparisons; does not alone grant release authority."
+  },
+  "resources": {
+    "fp8_views": 208,
+    "workspace_bytes": 16777216,
+    "norm_bytes": 5373952,
+    "allocation_phase": "construction only; existing post-construction free-memory floor applies",
+    "failure": "constructor drains and frees its allocation on preparation failure; transaction drains/poisons uncertain requests before owner destruction"
+  },
+  "gates": [
+    "72 complete projection output/guard comparisons with ordinary/mixed/exceptional values",
+    "P65 complete prefixes/state/logits and transactions",
+    "Immediate d2 P65/8K/40K API; >3% slowdown stops. Useful direction unlocks d3, otherwise remove."
+  ],
+  "retention_screen": {
+    "8k_ratio_min": 1.0,
+    "40k_ratio_min": 1.01
+  },
+  "bounds": {
+    "compositions": 1,
+    "correctness_repairs_max": 1,
+    "profiles": 0,
+    "scans": 0
+  },
+  "artifact_root": ".q3x-work/mtp-bf16-certificate-api-20261010",
+  "production_unchanged": true
+}

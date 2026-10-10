@@ -19,40 +19,34 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-10-10 MTP direct-BF16 certificate — active composition
+## 2026-10-10 MTP direct-BF16 certificate — closed without retention
 
-`WP-MTP-BF16-CERTIFICATE-20261010` / `AC-MTP-GREEDY-v58` reopens the
-[direct-BF16/cheap-norm architecture](metadata/qwen36-27b-mtp-bf16-certificate-design-2026-10-10.json).
-The earlier 25% repair threshold was a host design screen, not an API rejection;
-31.1% sampled repair still leaves a conditional 1.77-second fast/certificate
-budget under ideal proportional repair. That assumption is not a measured
-cost. First implement the actual BF16 K16/balanced-tree center on authenticated
-real captures, then one runtime norm-owner/certificate/exact-repair composition
-and immediate full-state/API return. No FP16 conversion, residual/absolute
-MMAs, bound/tile scan or local timing campaign. Numerical proof and exceptional
-fallback remain mandatory; sampled agreement cannot prove a universal bound.
-Production and the complete 1.5x–3x target remain unchanged.
+`WP-MTP-BF16-CERTIFICATE-20261010` / `AC-MTP-GREEDY-v58` completes the
+[runtime composition](metadata/qwen36-27b-mtp-bf16-certificate-api-design-2026-10-10.json).
+It reopened the earlier host-only 25% repair screen through actual BF16 MMA,
+outward-rounded native norms/certificates and original scalar element repair.
+Construction owned norms for 208 FP8 views and fixed 16-MiB scratch; no
+request-time allocation or numerical waiver was introduced.
+The [native centers](metadata/qwen36-27b-mtp-bf16-certificate-native-2026-10-10.json)
+and [native pipeline](metadata/qwen36-27b-mtp-bf16-certificate-pipeline-2026-10-10.json)
+passed their bounded checks before the completed API return below.
 
-The [native center prerequisite](metadata/qwen36-27b-mtp-bf16-certificate-native-2026-10-10.json)
-now executes actual BF16 K16 MMA and balanced trees on 28 authenticated real
-P65 M3 captures. All 2,688 sampled BF16 outputs match the original scalar
-outputs; the offline conservative norm interval certifies 1,852 with no false
-certificates, leaving 31.1% for required exact repair. This grants no unchecked
-publication or performance authority. Next compose outward-rounded norm
-ownership, native certificate and original element repair, then full-state
-and immediate API return. The proposed arithmetic envelope requires explicit
-instruction/domain proof; neither sample equality nor offline norms replace it.
-No further center/tile scan or standalone timing is authorized by this package.
+The [completed API rejection](metadata/qwen36-27b-mtp-bf16-certificate-api-rejection-2026-10-10.json)
+passes 72 complete projection output/guard cases, nine full P65 prefixes and
+eleven transactions including state/logits, draft cache and failure recovery.
+P65/O16 d2 preserves output and work but Decode falls from 12.828 to
+7.597 token/s (-40.78%). Prefill is 0.889 seconds / 73.10 token/s,
+TTFT 0.908 seconds and external total 2.882 seconds. Verification adds
+804.86 ms and complete Decode adds 805.17 ms. Startup free memory is
+9,788,293,120 bytes, above the unchanged 8-GiB floor.
 
-The [native certificate/repair pipeline](metadata/qwen36-27b-mtp-bf16-certificate-pipeline-2026-10-10.json)
-now composes GPU outward-rounded weight/input norms, interval tests, repair
-compaction and the original scalar repair. All 2,688 real sampled outputs
-are bitwise exact: 1,852 certified and 836 repaired. Thirty-six K5120/6144,
-M2/3/4 ordinary/exceptional full-output cases also match the original GPU
-projection. No performance authority follows. Finish startup norm ownership,
-bounded request workspace and instruction/domain proof review, then complete
-state/logits and immediate API return. Do not add a standalone timing campaign
-or further component variants. Existing runtime/production remain unchanged.
+The declared 3% stop removes the entire norm-owner/certificate/repair runtime
+and its profile. Retained v52 is restored; long-context and d3 API checks are
+not run. The actual BF16-center and native-certificate prerequisites are now
+archived after their mandatory API return, not pending integration. The full
+composition loses; no isolated component or hardware-limit claim follows.
+No bound, repair-layout, launch scan or additional profile follows this closed
+version. Production and the unmet 1.5x–3x objective remain unchanged.
 
 ## 2026-10-10 MTP FP8 normal consumer — closed without retention
 

@@ -1679,6 +1679,25 @@ speedup; individual predicate/branch/conversion costs are not isolated.
 No converter or launch scan follows. Production and the unmet 1.5x–3x goal
 remain unchanged.
 
+## Direct-BF16 certified projection composition v58 — removed
+
+The [completed API rejection](metadata/qwen36-27b-mtp-bf16-certificate-api-rejection-2026-10-10.json)
+passes 72 complete projection output/guard cases, nine full P65 prefixes and
+eleven transactions including state/logits, draft cache and failure recovery.
+P65/O16 d2 preserves output and work but Decode falls from 12.828 to
+7.597 token/s (-40.78%). Prefill is 0.889 seconds / 73.10 token/s,
+TTFT 0.908 seconds and external total 2.882 seconds. Verification adds
+804.86 ms and complete Decode adds 805.17 ms. Startup free memory is
+9,788,293,120 bytes, above the unchanged 8-GiB floor.
+
+The declared 3% stop removes the entire norm-owner/certificate/repair runtime
+and its profile. Retained v52 is restored; long-context and d3 API checks are
+not run. The actual BF16-center and native-certificate prerequisites are now
+archived after their mandatory API return, not pending integration. The full
+composition loses; no isolated component or hardware-limit claim follows.
+No bound, repair-layout, launch scan or additional profile follows this closed
+version. Production and the unmet 1.5x–3x objective remain unchanged.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

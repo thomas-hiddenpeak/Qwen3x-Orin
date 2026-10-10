@@ -387,7 +387,8 @@ The FP8 normal-consumer composition closes after negative P65 API direction;
 existing MTP SDD and Roadmap record removal and frozen evidence;
 no Markdown path or classification changes.
 
-The direct-BF16 certificate composition updates the existing Roadmap;
+The direct-BF16 certificate runtime composition closes after negative P65 API
+direction; existing MTP SDD and Roadmap record removal and archived prerequisites;
 no Markdown path or classification changes.
 
 ## Integrity check
