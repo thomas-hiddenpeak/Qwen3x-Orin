@@ -1664,6 +1664,21 @@ All new runtime/profile paths are removed and retained v52 restored.
 Production and the unmet 1.5x–3x objective remain unchanged; no position-count
 or launch scan follows.
 
+## FP8 ordinary-code consumer composition v57 — removed
+
+The [completed rejection](metadata/qwen36-27b-mtp-fp8-normal-consumer-rejection-2026-10-10.json)
+passes 72 complete projection cases, nine full P65 prefixes and eleven
+transactions, including state/logits, cache and failure recovery. P65/O16 d2
+preserves output and work but Decode falls from 12.828 to 10.811 token/s
+(-15.73%). Prefill is 0.888 seconds / 73.19 token/s, TTFT 0.907 seconds and
+total 2.294 seconds. Verification adds 217.83 ms and full Decode adds 218.19 ms.
+The declared 3% stop closes this composition without long-context or d3 API
+qualification. All new runtime/profile paths are removed and retained v52
+restored. High sampled ordinary-code coverage did not establish consumer
+speedup; individual predicate/branch/conversion costs are not isolated.
+No converter or launch scan follows. Production and the unmet 1.5x–3x goal
+remain unchanged.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

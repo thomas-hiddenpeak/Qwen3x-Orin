@@ -1,0 +1,24 @@
+{
+  "work_package_id": "WP-MTP-FP8-NORMAL-CONSUMER-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v57",
+  "parent": "4037939",
+  "origin": "1.5x\u20133x exact same-request MTP Decode; configured drafts2/3; 40K complete Decode gap2.27110563s",
+  "mechanism": "One warp-wide predicate over all sixteen codes per lane. Ordinary magnitudes8..126 use exact integer FP32 construction, others use unchanged shared lookup. Undo xor swizzle before predicate; no new storage or arithmetic/reduction changes.",
+  "gates": [
+    "72 complete output/guard cases including normal-only and mixed-warp fallback",
+    "P65 full prefix state/logits/transactions",
+    "immediate d2 API P65/8K/40K; >3% slowdown stops; useful direction unlocks d3 otherwise remove"
+  ],
+  "retention_screen": {
+    "8k_ratio_min": 1.0,
+    "40k_ratio_min": 1.01
+  },
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "scans": 0,
+    "profiles": 0
+  },
+  "artifact_root": ".q3x-work/mtp-fp8-normal-consumer-20261010",
+  "production_unchanged": true
+}

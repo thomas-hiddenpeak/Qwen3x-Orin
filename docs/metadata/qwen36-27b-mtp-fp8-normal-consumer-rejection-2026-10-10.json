@@ -1,0 +1,161 @@
+{
+  "work_package_id": "WP-MTP-FP8-NORMAL-CONSUMER-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v57",
+  "parent": "4037939",
+  "decision": "Remove after negative P65 API direction",
+  "decision_unit": "architecture_candidate",
+  "artifact_root": ".q3x-work/mtp-fp8-normal-consumer-20261010",
+  "numerical": {
+    "complete_projection_cases": 72,
+    "complete_prefixes": 9,
+    "transactions": 11,
+    "injected_failure_recovery": 2,
+    "outcome": "bitwise full outputs/state/logits/cache and guards pass"
+  },
+  "api": {
+    "metrics": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.888040355,
+        "prefill_tps": 73.19487187043431,
+        "decode_tps": 10.810740866291347,
+        "ttft_s": 0.9066591253504157,
+        "elapsed_s": 2.294079013168812,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-fp8-normal-consumer-v59",
+          "draft_length": 2,
+          "startup_free_bytes": 9793646592,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "entry_hidden_snapshots": 7,
+          "direct_gdn_state_rows": 912,
+          "seed_kv_reuses": 6,
+          "state_copy_bytes_elided": 1987054592,
+          "draft_initialization_ms": 5.723969,
+          "draft_ms": 124.18318899999998,
+          "verify_ms": 1241.9022839999998,
+          "reconcile_ms": 21.027853,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "comparison": [
+      {
+        "stage": "p65",
+        "decode_ratio_vs_v52": 0.8427444898614158,
+        "verify_saved_ms": -217.8334179999997,
+        "full_decode_saved_s": -0.21819343200000008,
+        "prefill_delta_s": 0.00030606300000002307,
+        "total_delta_s": 0.21842029597610235
+      }
+    ],
+    "completed_api_checks": 1,
+    "output_ids_and_work_equal_v52": true
+  },
+  "cleanup": {
+    "synthetic": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 61.406
+    },
+    "p65": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 69.531
+    },
+    "d2": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 65.843
+    }
+  },
+  "scope": "One P65/O16 d2 API result. Long contexts, d3 API and remaining lifecycle checks not run after >3% stop. No profile, converter or launch scan.",
+  "causality": "Whole composition loses; no isolated attribution to vote, branch, integer arithmetic or registers is established. Prior high sampled normal-code coverage remains correct but did not establish speedup.",
+  "production_changed": false,
+  "target_achieved": false,
+  "restoration": {
+    "server": {
+      "retained_sha256": "666a9be89d636ca6e0ea71ed54d57eba2a968330b3081f45b6ec314ab2acdc53",
+      "rebuilt_sha256": "e81a96f07e9e28f808cf5ff5d725702769a4f62624a1a4d7e74976d6018b6123",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "e19d7675c60adf820ad7d81d2c98d0dd012752d9d264c8ce00c39c583a48cb2a",
+      "rebuilt_sha256": "92a480726c6cbc8c2d027699eda34e6a8c56d47dbcc85a18c2f9ad839d5fb927",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "host_validation": {
+    "host-tests": {
+      "command": [
+        "ctest",
+        "--test-dir",
+        ".q3x-work/build/orin-whole-core-exact-decode-admission",
+        "--output-on-failure",
+        "-R",
+        "^(mtp_control|mtp_weights|reference_engine_control)$"
+      ],
+      "returncode": 0
+    },
+    "document-unit": {
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_document_control"
+      ],
+      "returncode": 0
+    },
+    "document-control": {
+      "command": [
+        "python3",
+        "-B",
+        "tools/docs/validate_document_control.py"
+      ],
+      "returncode": 0
+    },
+    "diff-check": {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0
+    }
+  },
+  "hygiene": {
+    "gpu_handle_inspection_returncode": 1,
+    "api_keys_removed": true,
+    "temporary_build_files_empty": true,
+    "worktree_count": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  }
+}

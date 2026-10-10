@@ -19,7 +19,31 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-10-10 MTP FP8 ordinary-code groups — host screen passed, consumer pending
+## 2026-10-10 MTP FP8 normal consumer — closed without retention
+
+`WP-MTP-FP8-NORMAL-CONSUMER-20261010` / `AC-MTP-GREEDY-v57` implements
+one [exact warp-uniform consumer](metadata/qwen36-27b-mtp-fp8-normal-consumer-design-2026-10-10.json)
+following the passed host screen. Every lane checks all sixteen weight codes;
+only an all-normal warp bypasses the incumbent lookup. Preserve codebook
+swizzle, special values and all scalar arithmetic. Full-output and complete
+P65 prefix admission precede immediate d2 API; >3% slowdown stops, useful
+direction unlocks d3, otherwise remove. No converter or launch scan follows.
+Production and the complete 1.5x–3x goal remain unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-fp8-normal-consumer-rejection-2026-10-10.json)
+passes 72 complete projection cases, nine full P65 prefixes and eleven
+transactions, including state/logits, cache and failure recovery. P65/O16 d2
+preserves output and work but Decode falls from 12.828 to 10.811 token/s
+(-15.73%). Prefill is 0.888 seconds / 73.19 token/s, TTFT 0.907 seconds and
+total 2.294 seconds. Verification adds 217.83 ms and full Decode adds 218.19 ms.
+The declared 3% stop closes this composition without long-context or d3 API
+qualification. All new runtime/profile paths are removed and retained v52
+restored. High sampled ordinary-code coverage did not establish consumer
+speedup; individual predicate/branch/conversion costs are not isolated.
+No converter or launch scan follows. Production and the unmet 1.5x–3x goal
+remain unchanged.
+
+## 2026-10-10 MTP FP8 ordinary-code groups — host screen passed, consumer closed
 
 `WP-MTP-FP8-NORMAL-GROUP-20261010` screens one
 [exact codebook-bypass opportunity](metadata/qwen36-27b-mtp-fp8-normal-group-design-2026-10-10.json).
@@ -35,7 +59,8 @@ authenticates 28 projections and 37,888 sampled single-output groups. Of these,
 33,597 (88.67%) contain only normal finite codes; all 238 ordinary-code
 integer conversions are exact. This passes the predeclared 50% screen, but
 says nothing measured about four-output coverage, branch cost or API speed.
-Proceed to one warp-uniform exact consumer with incumbent fallback, exhaustive
+The completed consumer above supplies the bounded API return. Its design required
+one warp-uniform exact consumer with incumbent fallback, exhaustive
 full-output admission, complete target-prefix state/logits and immediate
 P65/8K/40K d2/d3 API return. Preserve sidecar xor decoding, signed zeros,
 subnormals and NaNs. One composition and at most one correctness repair;
