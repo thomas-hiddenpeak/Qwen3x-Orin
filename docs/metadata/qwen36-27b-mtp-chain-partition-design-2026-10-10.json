@@ -1,0 +1,35 @@
+{
+  "work_package_id": "WP-MTP-CHAIN-PARTITION-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v31",
+  "source_base": "2b0af3068ae56d2cc2a9fee18f5981aee1c7ec48",
+  "profile": "q3x.sm87.admission.mtp-chain-partition-api.v34",
+  "goal": "1.5x\u20133x same-request committed Decode, drafts 2/3, unchanged exact state and full logits",
+  "budget": {
+    "complete_decode_8k_s": 18.45,
+    "complete_decode_40k_s": 21.62,
+    "v31_gap_8k_s": 1.3,
+    "v31_gap_40k_s": 4.78,
+    "old_nv_family_gpu_s": 8.84489552,
+    "scope": "family opportunity ceiling only, not predicted savings"
+  },
+  "mechanism": "Partition each original NV thread's four independent FMA chains across four adjacent lanes. Original K lane becomes tid/4, chain=tid%4. A 128-thread CTA owns one output quad rather than four; each weight still serves all speculative rows. Chains merge in original (a0+a1)+(a2+a3) order within four-lane groups; one shared publication feeds unchanged 32-lane live-root warp reductions. Gate/Up and both Down layouts only; FP8/head unchanged.",
+  "distinction": "Closed token-ownership variants duplicate each full K reduction per token or broadcast operands between token groups. This partitions independent scalar accumulation chains, preserves register-local M reuse and uses no operand shuffle or per-K producer barrier. No continuation of closed register lookahead, decoder, layout or launch scan.",
+  "equivalence": "For old lane l, chain c, each consumer owns exactly k=tile*512+phase*256+l*8+c and +4, in original increasing tile/phase/half order. FP32 scale multiplication, fmaf, chain merge, original warp tree, tensor scale and BF16 publication unchanged. Immutable shared chain merges only after full K; CTA barrier before final consumers. No new arena or state changes.",
+  "reference_transfer": "Studied Marlin/Triton projection partitioning separates independent accumulators from the final reduction. Native SM87 lane groups retain the incumbent scalar FMA tree instead of importing MMA reassociation. No imported source or runtime dependency.",
+  "resource_contract": "128 threads, existing packed weights, no shared full-K activation copy or weight ring; bounded M*4*32 FP32 merged partials plus codebooks, no spills. Lower registers alone have no retention authority.",
+  "validation": [
+    "static no-spill and launch bounds",
+    "30 complete finite/NaN output/guard cases vs frozen v31",
+    "P65 all prefixes/full state/logits and transactions/recovery",
+    "immediate P65/8K/40K d2 API, >3% regression stops, neutral/negative removes, useful direction unlocks d3"
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs_max": 1,
+    "parameter_scans": 0,
+    "profiles": 0
+  },
+  "expiry": "next complete verifier API return or archive",
+  "production_unchanged": true,
+  "artifact_root": ".q3x-work/mtp-chain-partition-20261010"
+}

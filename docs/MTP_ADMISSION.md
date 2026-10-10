@@ -1109,6 +1109,29 @@ improve the complete runner. All new feed/profile/auditor paths are removed,
 restoring isolated v31. No d3 or further resource/feed scan follows. Frozen
 source has reproduction authority only; production is unchanged.
 
+## Independent accumulation chain composition v31
+
+Each NVFP4 128-thread CTA owns one original four-output group. Its lane mapping
+is `old_lane=tid/4`, `chain=tid%4`; every thread retains all M token accumulators
+for that chain. Its two products per K256 phase are at `old_lane*8+chain` and
+four positions later, preserving the original per-chain increasing K FMA order.
+Packed weight and scale values remain unchanged; no operand broadcast or
+inner-loop barrier is introduced. Chain pairs merge lower operand first, then
+`(a0+a1)+(a2+a3)` publishes one complete old-lane leaf to private shared storage.
+A uniform CTA barrier precedes one final warp per token, which reads the same
+32 leaves and uses the unchanged live-root reduction, tensor scale and BF16
+rounding. Shared partials occupy at most 2,048 bytes plus the existing codebooks.
+Gate/Up and canonical/packed Down change together; vocabulary and FP8 stay v31.
+No allocation, state, probability, numerical tolerance or production change is
+introduced. Full output/prefix checks admit the complete mapping before API
+selection; reduced register counts alone cannot select it.
+
+The [completed rejection](metadata/qwen36-27b-mtp-chain-partition-rejection-2026-10-10.json)
+closes this version after complete numerical admission and negative P65 API
+direction. All new chain-partition/profile/auditor paths are removed. Frozen
+source proves only the tested mapping and rejected direction; no long-context,
+d3 or production qualification follows. Retained isolated service is v31.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

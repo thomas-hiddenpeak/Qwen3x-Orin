@@ -19,6 +19,36 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP independent accumulation chains — closed negative
+
+`WP-MTP-CHAIN-PARTITION-20261010` / `AC-MTP-GREEDY-v31` keeps the
+1.5x–3x goal and 18.45/21.62-second complete Decode budgets. The
+[design](metadata/qwen36-27b-mtp-chain-partition-design-2026-10-10.json)
+partitions four independent NVFP4 FMA chains across adjacent lanes while
+preserving per-weight reuse across all speculative rows. Unlike closed token
+ownership or lookahead variants, it changes ownership of independent scalar
+chains and reconstructs the identical original tree after K completes. This
+addresses the older 8.845-second NV family ceiling; it is not a projected gain.
+FP8 and head stay v31. One fixed mapping, no spill and complete synthetic/P65
+state admission precede immediate P65/8K/40K d2 API; greater-than-3% regression
+stops, neutral/negative removes, useful direction unlocks d3. At most one
+correctness repair is allowed. No chain, grid, decoder, layout or resource scan
+follows. A useful dependency expires at the next complete verifier API return
+or archival. Artifacts stay under `.q3x-work/mtp-chain-partition-20261010/`;
+production remains unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-chain-partition-rejection-2026-10-10.json)
+passes the static no-spill gate, 30 complete output/guard cases and full P65
+prefix/state/logit/transaction checks. P65/O16 d2 preserves baseline output and
+work counts but Decode falls to 9.691 token/s versus v31 11.902, triggering
+the declared early stop. Verification adds 287.332 ms. The following 8K
+request is interrupted; there is no 40K, d3 or full API lifecycle claim.
+All new runtime/profile/auditor paths are removed and v31 rebuilt. Lower
+register pressure and exact arithmetic did not select a faster runner. No
+chain, ownership, grid or resource scan follows. The 1.5x–3x objective remains
+unmet; the next package must remove material complete-verifier work or change
+its producer/consumer boundaries, rather than repeat accumulator redistribution.
+
 ## 2026-10-10 MTP NV register feed — closed without retention
 
 `WP-MTP-NV-REGISTER-FEED-20261010` / `AC-MTP-GREEDY-v30` retains the

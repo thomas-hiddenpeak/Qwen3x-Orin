@@ -1,0 +1,277 @@
+{
+  "work_package_id": "WP-MTP-CHAIN-PARTITION-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v31",
+  "status": "closed_negative",
+  "decision": "P65 d2 triggers >3% negative direction stop. Remove chain-partition/profile/auditor changes and restore v31. No further chain/grid/resource scan.",
+  "source_identity": {
+    "source_base": "2b0af3068ae56d2cc2a9fee18f5981aee1c7ec48",
+    "files": {
+      "src/runtime/mtp_verify_projection_internal.cu": "dc1fe6ae90222fc6b4eb50c8c89644388bb789e6b89e690309c4bf7c5fd07da6",
+      "include/q3x/server/evaluation_server.h": "b317286efeab580ef5d25ad733ed4b35b1d15598c677cc6fccec373f29a31283",
+      "src/runtime/mtp_service_internal.cpp": "1c7f5716f6bc36ea70b191bfe89d73e9673f7e9c329d80aa881d0de70ab6b1f4",
+      "src/server/evaluation_server.cpp": "f4a4f9f963b7314c516aec5d44c52941a5ad1fc90188ee8439fd2787c57095b3",
+      "tools/evaluation/validate_mtp_service.py": "5edfbe833188495f4b314db1f5577be6b523476a7929131174e2cd831e60ac60"
+    },
+    "server_sha256": "6f97d35eb1941dcfd84a5420cdef13cd9379c3d884cd3c015e8d6906f5411247",
+    "synthetic_sha256": "9f612375cf0ff8c37205a67bbc5bad5b76b427f055a6f67821d33987c8a28985",
+    "patch_sha256": "428d49fdeee2c49fa63e0b7e8852c450f2f76c66c2e813f2e6449cc689bbab59"
+  },
+  "api_metrics": [
+    {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8872752230000001,
+      "prefill_tps": 73.25799066069492,
+      "ttft_s": 0.9134912146255374,
+      "elapsed_s": 2.4612470460124314,
+      "decode_tps": 9.690824409654503,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-chain-partition-v34",
+        "draft_length": 2,
+        "startup_free_bytes": 9900531712,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 5.704143,
+        "draft_ms": 124.42375,
+        "verify_ms": 1390.410559,
+        "reconcile_ms": 26.317146000000005,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "comparison": {
+    "decode_ratio_to_v31": 0.8142490964535357,
+    "verify_added_ms": 287.3320289999999,
+    "external_total_delta_s": 0.2877994100563228
+  },
+  "static": {
+    "compile_returncode": 0,
+    "resources": [
+      {
+        "m": 4,
+        "layout": 0,
+        "registers": 64,
+        "shared_bytes": 3136,
+        "spill_stores": 0,
+        "spill_loads": 0
+      },
+      {
+        "m": 4,
+        "layout": 2,
+        "registers": 48,
+        "shared_bytes": 3136,
+        "spill_stores": 0,
+        "spill_loads": 0
+      },
+      {
+        "m": 3,
+        "layout": 0,
+        "registers": 40,
+        "shared_bytes": 2624,
+        "spill_stores": 0,
+        "spill_loads": 0
+      },
+      {
+        "m": 3,
+        "layout": 2,
+        "registers": 48,
+        "shared_bytes": 2624,
+        "spill_stores": 0,
+        "spill_loads": 0
+      },
+      {
+        "m": 2,
+        "layout": 0,
+        "registers": 40,
+        "shared_bytes": 2112,
+        "spill_stores": 0,
+        "spill_loads": 0
+      },
+      {
+        "m": 2,
+        "layout": 2,
+        "registers": 40,
+        "shared_bytes": 2112,
+        "spill_stores": 0,
+        "spill_loads": 0
+      },
+      {
+        "m": 4,
+        "layout": 1,
+        "registers": 56,
+        "shared_bytes": 3136,
+        "spill_stores": 0,
+        "spill_loads": 0
+      },
+      {
+        "m": 3,
+        "layout": 1,
+        "registers": 48,
+        "shared_bytes": 2624,
+        "spill_stores": 0,
+        "spill_loads": 0
+      },
+      {
+        "m": 2,
+        "layout": 1,
+        "registers": 40,
+        "shared_bytes": 2112,
+        "spill_stores": 0,
+        "spill_loads": 0
+      }
+    ],
+    "scope": "static resources only, no performance authority"
+  },
+  "mapping_proof": {
+    "shapes_k": [
+      5120,
+      17408
+    ],
+    "mapping": {
+      "old_lane": "tid / 4",
+      "chain": "tid % 4",
+      "grid": "N / 4 CTAs of 128 threads"
+    },
+    "exact_chain_cases": 256,
+    "scale6_selection_cases": 64,
+    "scope": "host address/order proof only; full synthetic and real-prefix tests independently establish numerical admission"
+  },
+  "numerical": {
+    "synthetic_complete_output_guard_cases": 30,
+    "prefix_comparisons": 9,
+    "prefix_length": 65,
+    "full_transactions": 11,
+    "injected_verify_failure_recoveries": 2,
+    "initialization_cancel_recoveries": 2
+  },
+  "api": {
+    "completed_requests": 1,
+    "full_lifecycle_panel_completed": false,
+    "response_text_usage_finish_done": "completed_p65_matches_nonmtp",
+    "work_acceptance": "p65_matches_v31",
+    "p8192": "interrupted; no completed performance claim",
+    "p40000": "not run",
+    "d3": "not run"
+  },
+  "cleanup": {
+    "synthetic": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 61.187
+    },
+    "oracle-p65": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 69.5
+    },
+    "d2": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 65.781
+    }
+  },
+  "claim_boundary": {
+    "independent_processes": 1,
+    "mirrored_repetition": false,
+    "architecture_selection": false,
+    "production_eligible": false,
+    "target_met": false,
+    "goal": "1.5x\u20133x same-request committed Decode",
+    "reason": "P65 Decode -18.57%, verification +287.332ms. Lower register liveness does not select the complete runner. No hardware-limit or matched stall-cause claim."
+  },
+  "evidence_sha256": {
+    ".q3x-work/mtp-chain-partition-20261010/d2-process.json": "72beec45c663856f7d0a69ab80fccac9d857e9d2755feb5d33203f705fbe3a58",
+    ".q3x-work/mtp-chain-partition-20261010/frozen-identity.json": "9feaa4c583e495c02ed447fe7a24bdab55344d9e8109d05b9377659ed780b6f8",
+    ".q3x-work/mtp-chain-partition-20261010/build-service.log": "d9d85ccf29557079d9ff625dd3db97a8f2a332ed6a6826b2dad7e48fb7934b76",
+    ".q3x-work/mtp-chain-partition-20261010/d2-driver.log": "0aff415bfb8bc7bfc23825b82b3a582766a82b4c794f9949ea2cdf058f7d5b99",
+    ".q3x-work/mtp-chain-partition-20261010/d2-direction-decision.json": "436d1daa8b8b3a9d3542d49073bcc5894e87cdbab69da8d5a7cb06531a6487d7",
+    ".q3x-work/mtp-chain-partition-20261010/consumer-test.cu": "617630ab7942ecdea73518ecc99fd02f301adc6672fd0e2f4eb7b10da9469fa1",
+    ".q3x-work/mtp-chain-partition-20261010/d2-driver-result.json": "f346bf26f91708c8234ef60ac8945a4a99d849ac062a0919d5f0e8ccdced60e4",
+    ".q3x-work/mtp-chain-partition-20261010/baseline.cu": "c92aceca48327647117114320d823990b2860923b6b7213de6a05b66539f56df",
+    ".q3x-work/mtp-chain-partition-20261010/static-admission.json": "6fdfd3a45d40919635904652e9d4d57f2cc15f0d4549faa36b92951c2acfa409",
+    ".q3x-work/mtp-chain-partition-20261010/run-synthetic.py": "3c6b84b193343658e02a4b2ca9190550545ab9e6088cf7e1ad01fe68d1ee96d7",
+    ".q3x-work/mtp-chain-partition-20261010/consumer-test": "9f612375cf0ff8c37205a67bbc5bad5b76b427f055a6f67821d33987c8a28985",
+    ".q3x-work/mtp-chain-partition-20261010/mapping-proof.json": "10eb42039bdd1f89ff6ae8fee5751d3b02cbaa75770050e6a6866570c68ae9eb",
+    ".q3x-work/mtp-chain-partition-20261010/build-synthetic.log": "3ad906af44607e241f81a742904ec616089ffe8b29e237de2b06f9a1f4a82360",
+    ".q3x-work/mtp-chain-partition-20261010/run-oracle.py": "cab004969641267a53af19d54d7210f9546846e18e8df710551ba29d3d99500c",
+    ".q3x-work/mtp-chain-partition-20261010/build-oracle.log": "63cefee78f936bb63df7a9b78913039061fad5b8c518be1e17b5f246c2f0c3e6",
+    ".q3x-work/mtp-chain-partition-20261010/run-api.py": "f8520c1b4194ec88a251b7154184032f8041ddfe158291060cc776a03a0d97c9",
+    ".q3x-work/mtp-chain-partition-20261010/oracle-driver.log": "55636c89ab7f4d9d55fcbaff8f7fe0835a393c73e76bb59296bbbcf5d3acfbc6",
+    ".q3x-work/mtp-chain-partition-20261010/d2/results.json": "c1f56833ba7a91e55c9a0b53d69fa90d86929ed8bb1b18630044f94c30bc942b",
+    ".q3x-work/mtp-chain-partition-20261010/d2/identity.json": "87c660b49bfa11cc9308bd4f38a815c63039d1c40ddac5c1eba8e4694ca166e9",
+    ".q3x-work/mtp-chain-partition-20261010/d2/cache-preparation.json": "69384b79b3e97d17c12e97cf85378f2eda7af9bfd17589ed861d9dc9579a3262",
+    ".q3x-work/mtp-chain-partition-20261010/d2/health.json": "13f7fbad4e33cf32d7299583ed21a03d333d8626c7d162de7fdfc6773fb5b937",
+    ".q3x-work/mtp-chain-partition-20261010/d2/p65.json": "1fac9fe155a5fd0894c9ebb0b1e0c8926fdf215b34587735ae732530bb015fbb",
+    ".q3x-work/mtp-chain-partition-20261010/d2/cleanup.json": "8999488b0a511668e82a9646eaf800e925275631ae44fc20687027166585ed96",
+    ".q3x-work/mtp-chain-partition-20261010/d2/partial-audit.json": "04cc0f6e3ee5ed54e4ac7382a1922ebe59cc76dea81d8afb5542c27736b6ce71",
+    ".q3x-work/mtp-chain-partition-20261010/d2/preflight-console.log": "501885d302b5c002cb0568733e3b4af5292a05349cfce643e6b440178e2dfc28",
+    ".q3x-work/mtp-chain-partition-20261010/d2/telemetry.log": "323a1be343c8c399d6662ca7d1339c3b8469719e602b9db3f3365bc5de16766a",
+    ".q3x-work/mtp-chain-partition-20261010/d2/preflight.json": "01af1b07da6c554dad05d62bd7c611645ca8171dbf8e8df4fd960dee2a6e8057",
+    ".q3x-work/mtp-chain-partition-20261010/d2/server.log": "f91191e044d863c3b6fff335680f8231f45f028f19eee1111683da4a0a9be169",
+    ".q3x-work/mtp-chain-partition-20261010/source/candidate.patch": "428d49fdeee2c49fa63e0b7e8852c450f2f76c66c2e813f2e6449cc689bbab59",
+    ".q3x-work/mtp-chain-partition-20261010/source/server": "6f97d35eb1941dcfd84a5420cdef13cd9379c3d884cd3c015e8d6906f5411247",
+    ".q3x-work/mtp-chain-partition-20261010/synthetic/cache-preparation.json": "a338fb3cfd54c0d4ff0f104e0d58743e06c17bc054af0cfc75d5846ad01466dc",
+    ".q3x-work/mtp-chain-partition-20261010/synthetic/cleanup.json": "b4425185e509219175b02dbfbe77294d0f68c080cffe361f8ee7f25a8b65f612",
+    ".q3x-work/mtp-chain-partition-20261010/synthetic/run.log": "53c98643a6100bc09bdf62b876ac2384f85d924e625b1e2dc4cd0aaa209b1754",
+    ".q3x-work/mtp-chain-partition-20261010/synthetic/preflight-console.log": "4dd96ef4e5cf774aa316fd277c9c03ce13ca80e0c5c5d97c32e351b7da6682d0",
+    ".q3x-work/mtp-chain-partition-20261010/synthetic/telemetry.log": "88cd0728f8610e79ba4130f45064f70fc25a096ddc384ce4915802df35b1f6e0",
+    ".q3x-work/mtp-chain-partition-20261010/synthetic/preflight.json": "7e77815f2ff32161013a5adb5f4841e258a207e37ac91d016fc619df7bf3d232",
+    ".q3x-work/mtp-chain-partition-20261010/oracle-p65/identity.json": "cc1a45556fe380071d0783874e597e74fa4b75c8e8e76e2dfce756c752d58888",
+    ".q3x-work/mtp-chain-partition-20261010/oracle-p65/cache-preparation.json": "3f92c286d43c1769bc46d6c96b5a988027e410b6df5eec3a25a026397ea95d3b",
+    ".q3x-work/mtp-chain-partition-20261010/oracle-p65/target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+    ".q3x-work/mtp-chain-partition-20261010/oracle-p65/draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+    ".q3x-work/mtp-chain-partition-20261010/oracle-p65/target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+    ".q3x-work/mtp-chain-partition-20261010/oracle-p65/draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+    ".q3x-work/mtp-chain-partition-20261010/oracle-p65/draft-prefill-hidden.bf16": "9c5811b3536f493466a8699092f6fd0bd624227239cd1acee52e7e0182666efb",
+    ".q3x-work/mtp-chain-partition-20261010/oracle-p65/cleanup.json": "d015ee849c6c05706cfd43b74cd7f3836450c13f13808a6690cb638e8dbb8e04",
+    ".q3x-work/mtp-chain-partition-20261010/oracle-p65/run.log": "4dbd541ac45a1b121735c52626372e83f3b46fae1c49d010ca71a2dee2b58f36",
+    ".q3x-work/mtp-chain-partition-20261010/oracle-p65/preflight-console.log": "59c51d713580737edeb03947647fbaa17603f7263243d9ad9b64846e25c23475",
+    ".q3x-work/mtp-chain-partition-20261010/oracle-p65/q3x_mtp_whole_core_test": "745ea57c9e7024925398625baaa89e1563e467b27be5c7e1d8d786ca538b4954",
+    ".q3x-work/mtp-chain-partition-20261010/oracle-p65/telemetry.log": "251a380f20f6e168ad8d6a6dea232627e01fc82eb5fca88e1cc2b927fc02f43b",
+    ".q3x-work/mtp-chain-partition-20261010/oracle-p65/prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    ".q3x-work/mtp-chain-partition-20261010/oracle-p65/preflight.json": "27df7ea3f695985315380fdd93529d9d6a3fbe518872d65c23d5625a554cb063",
+    ".q3x-work/mtp-chain-partition-20261010/source/tools/evaluation/validate_mtp_service.py": "5edfbe833188495f4b314db1f5577be6b523476a7929131174e2cd831e60ac60",
+    ".q3x-work/mtp-chain-partition-20261010/source/src/server/evaluation_server.cpp": "f4a4f9f963b7314c516aec5d44c52941a5ad1fc90188ee8439fd2787c57095b3",
+    ".q3x-work/mtp-chain-partition-20261010/source/src/runtime/mtp_verify_projection_internal.cu": "dc1fe6ae90222fc6b4eb50c8c89644388bb789e6b89e690309c4bf7c5fd07da6",
+    ".q3x-work/mtp-chain-partition-20261010/source/src/runtime/mtp_service_internal.cpp": "1c7f5716f6bc36ea70b191bfe89d73e9673f7e9c329d80aa881d0de70ab6b1f4",
+    ".q3x-work/mtp-chain-partition-20261010/source/include/q3x/server/evaluation_server.h": "b317286efeab580ef5d25ad733ed4b35b1d15598c677cc6fccec373f29a31283"
+  },
+  "closure": {
+    "gpu_device_holders": [],
+    "fuser_returncode": 1,
+    "owned_model_processes": [],
+    "worktrees": "worktree /home/rm01/Qwen3x-Orin\nHEAD 2b0af3068ae56d2cc2a9fee18f5981aee1c7ec48\nbranch refs/heads/main\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/legacy-home-archive-20260809/q3x-m32-resrms-c1\nHEAD 2b204fdcc112fc6f5b54d7c1895a7d03fd87c21d\nbranch refs/heads/archive/m32-resrms-c1-20260820\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/legacy-home-archive-20260809/q3x-m32-resrms-c2\nHEAD d13073b1361ac93380acc13d5e20f11f0b33979e\nbranch refs/heads/archive/m32-resrms-c2-20260820\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/legacy-home-archive-20260809/q3x-m32-resrms-c3\nHEAD 765669504c9d67b5fcf815c86cdc1327bb8416c5\nbranch refs/heads/archive/m32-resrms-c3-20260820\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/legacy-home-archive-20260809/q3x-prefill-resnorm-baseline-8b2ec34\nHEAD 8b2ec349cf723b9055a64f160f9e98849d334751\ndetached\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/aot-quarantine-20260902\nHEAD 3969e80c4443dc209ce26fa9b38b84eb0c59a10b\nbranch refs/heads/codex/aot-quarantine-20260902\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/attention-fi-canonical-v2\nHEAD e2e97e489fe094eaf1ad3d0ce06e496e0d0725f2\nbranch refs/heads/codex/attention-fi-canonical-v2\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/baseline-0e18478\nHEAD 0e18478fa8906ca795c9c67b74fb7a6af707058b\ndetached\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/baseline-71dc398\nHEAD 71dc39806c425a8b00a038a946fcfd26cc9ced79\ndetached\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/candidate-gdn-splitkv\nHEAD 71dc39806c425a8b00a038a946fcfd26cc9ced79\ndetached\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/dirty-prefix-reset\nHEAD 888611949f2bf2ed7608af54a3156a46f12e408d\nbranch refs/heads/codex/dirty-prefix-reset\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/exact-api-composition-20260909\nHEAD 8740b4f170ea37021fca0d0df4a2fe936df86422\nbranch refs/heads/codex/exact-api-composition-20260909\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/exact-attention-q4-api-20260905\nHEAD dc138cbf3ab004deacefc2368df853208e651816\nbranch refs/heads/codex/exact-attention-q4-api-20260905\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/exact-candidate-contracts-20260909\nHEAD 00dcbd870aceac147f6030445c4a5d065f9e11d1\nbranch refs/heads/codex/exact-candidate-contracts-20260909\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/exact-score-feed-20260909\nHEAD 37b83e9bc44c5779a81831b0399bf10d8d096f8c\nbranch refs/heads/codex/exact-score-feed-20260909\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/exact-score-feed-correction-20260909\nHEAD 5f61b0925757f34db0f375d07a87c89ca22b82d4\nbranch refs/heads/codex/exact-score-feed-correction-20260909\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/exact-score-feed-off-20260909\nHEAD 09de1118aab685bc2d62cde21aadc2fa3b5d82f1\nbranch refs/heads/codex/exact-score-feed-off-20260909\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/graph-startup-attribution-20260909\nHEAD e30014e158fa69031bf551745d1c375209a61fc0\nbranch refs/heads/codex/graph-startup-attribution-20260909\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/graph-startup-diagnostic-20260909\nHEAD 1b04b005411ed78ba0d25f6057394771a9978b19\nbranch refs/heads/codex/graph-startup-diagnostic-20260909\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/graph-template-lifetime-20260909\nHEAD 0816bb201dd8460440441e4d64ea65d57a4b6340\nbranch refs/heads/codex/graph-template-lifetime-20260909\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/main-7a7-off-audit\nHEAD 7a7a32e36838238f9ebf5f79cbc2683129fcb496\ndetached\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/main-audit-1d727c7\nHEAD 1d727c7a103d8122707a845de87639e47c1da71d\ndetached\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/main-integration\nHEAD a344c0126f44b58c2be38185119e7c9f6a7200ae\nbranch refs/heads/codex/prefill-target-path\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/mainline-delivery-20260820\nHEAD 52654e28b619e53138c40c60e37bfc174a244afb\ndetached\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/ordinary-main-p40-nsys-evidence-20260909\nHEAD ac6b020c5a70e799451431372a99e15adf79d867\nbranch refs/heads/codex/ordinary-main-p40-nsys-evidence-20260909\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/ordinary-state-capture-20260909\nHEAD 8d677e06877c918454dcbb437c0382e2a1141564\nbranch refs/heads/codex/ordinary-state-capture-20260909\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/p3-business-first-aot-v1\nHEAD 1688f50ecc46e6e7c5696bcae541593c1aed6e2f\nbranch refs/heads/codex/p3-business-first-aot-v1\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/p3-real-p40-arithmetic-witness-v2\nHEAD c377cf3fbfb19683f2213b3b81024006dd61a5b3\nbranch refs/heads/codex/p3-real-p40-arithmetic-witness-v2\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/p40000-off-same-path-audit\nHEAD 3f0a2e648f7b9b5e747b8da8c1390f2634a23054\ndetached\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/p40016-selector-mlp-descriptor-fix\nHEAD e325c6ba7045eb7313f51ed4b2abd480a14e3dc7\nbranch refs/heads/fix/p40016-selector-mlp-descriptor\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/performance-absorption-20260821\nHEAD ded8fa231cbc201d71aac50d3827b5e8ad7384d4\nbranch refs/heads/codex/performance-absorption-20260821\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/performance-baseline-96cfe68\nHEAD 96cfe68d1ec8a4c49c75da02c9e6ec517288f6a3\ndetached\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/reset-baseline-128698f\nHEAD 128698f642890cfa13b846cbbae84dca4e228559\ndetached\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/sdd-leakage-refactor\nHEAD 6ce4116064ff35ba031c63edc6a9bd8a76dd65fa\nbranch refs/heads/codex/sdd-leakage-refactor\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/selector-exact-persistent-attention-v1\nHEAD e325c6ba7045eb7313f51ed4b2abd480a14e3dc7\nbranch refs/heads/codex/selector-exact-persistent-attention-v1\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/selector-exact-persistent-attention-v1-base-1e2af97\nHEAD 1e2af97b42dead324cc1c6968232690962d954d6\ndetached\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/sm87-aot-kill-test-v1\nHEAD dd0763de38fe8ded340c1ba9ae791202e0f92fd0\nbranch refs/heads/codex/sm87-aot-kill-test-v1\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/sm87-target-aot-operand-witness-v1\nHEAD b5c2723bb59191ad2d0ae435e80ef063d66f0956\nbranch refs/heads/codex/sm87-target-aot-operand-witness-v1\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/terminal-prefix-elision-20260909\nHEAD 414e7326600e8948f9f475af51cb8e36561b88d3\nbranch refs/heads/codex/terminal-prefix-elision-20260909\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/terminal-prefix-main-integration-20260909\nHEAD 851f56d066a29ca7113ccbe923b327ca6f0b4316\nbranch refs/heads/codex/terminal-prefix-main-integration-20260909\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/terminal-prefix-off-20260909\nHEAD 055fb2457ac8cf7804950cf965d83001f0305d9e\nbranch refs/heads/codex/terminal-prefix-off-20260909\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/v10-correctness-fix-20260902\nHEAD adb85c022315ddc3d8df6f127530c70b88919a03\nbranch refs/heads/codex/v10-correctness-fix-20260902\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/v10-fast-exact-dual-stream-20260905\nHEAD cbf19460cc40ed0316c59c7585a7f6dc631eae89\nbranch refs/heads/codex/v10-fast-exact-dual-stream-20260905\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/v10-fast-exact-fp8-m128n256-20260905\nHEAD 260f4fce5aa5ff5afb671c8cbac94b9b390fd5a2\nbranch refs/heads/codex/v10-fast-exact-fp8-m128n256-20260905\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/v10-fast-exact-fp8-m128n256-serial-mlp-20260905\nHEAD 6abdcecebeb3bf5fae1399ef1ee6bb1157a1990d\nbranch refs/heads/codex/v10-fast-exact-fp8-m128n256-serial-mlp-20260905\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/v10-fast-exact-v1-20260905\nHEAD adb85c022315ddc3d8df6f127530c70b88919a03\nbranch refs/heads/codex/v10-fast-exact-v1-20260905\n\nworktree /home/rm01/Qwen3x-Orin/.q3x-work/worktrees/v4-closeout-20260820\nHEAD f3545240075651eaa54a5bea6c0f15ee9dfd9a3e\nbranch refs/heads/archive/v4-construction-ownership-20260820\n\n",
+    "new_worktrees_created": 0,
+    "artifact_bytes": 32188925,
+    "workspace_free_bytes": 426702893056,
+    "installed_production_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "restored_builds": {
+      "service_sha256": "c17d406c6460bf6805b6ee2eb4ccb0ae3c4414b0e003c181c00e72db960821a0",
+      "oracle_sha256": "753d74cc537414246c583157eb6445f9829d7ab874d9d38c26fe8ac79592d265",
+      "both_build_returncodes": 0
+    },
+    "host_validation": {
+      "ctest_passed": 3,
+      "document_unit_tests_passed": 7,
+      "document_registered_markdown": 86,
+      "document_links": 1151,
+      "diff_check": "pass"
+    }
+  }
+}

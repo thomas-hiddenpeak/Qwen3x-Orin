@@ -107,6 +107,14 @@ token/s and total 37.382 s. At 40K, these are 92.631 s / 431.82 token/s,
 0.305/0.301 seconds. This is direction rejection, not statistical regression.
 D3 is not run. Retained v31 metrics and the unmet 1.5x–3x goal are unchanged.
 
+The later [independent-chain direction](metadata/qwen36-27b-mtp-chain-partition-rejection-2026-10-10.json)
+passes 30 complete output/guard cases and full P65 state/logit/transaction
+checks, but is removed after P65/O16 d2 regresses to 9.691 Decode token/s.
+Prefill is 0.887 s / 73.26 token/s, external TTFT 0.913 s and total 2.461 s.
+Output and work match the baseline, but verification adds 287.332 ms versus
+v31. The following 8K request is interrupted; 40K/d3 and the complete API
+lifecycle panel are not run. Retained v31 and the unmet goal remain unchanged.
+
 ### Preceding FP8 live-reduction direction
 
 The preceding isolated source uses exact live-ancestor FP8 reductions on top of
