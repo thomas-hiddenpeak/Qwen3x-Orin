@@ -302,6 +302,10 @@ The shared-row PV recomposition closes without retention after complete numerica
 and d2 API checks. Existing MTP SDD and Roadmap record removal and evidence;
 no Markdown path or classification changes.
 
+The Gate/Up shared-input chain composition closes after negative P65 API
+direction. Existing MTP SDD and Roadmap record removal and frozen evidence;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

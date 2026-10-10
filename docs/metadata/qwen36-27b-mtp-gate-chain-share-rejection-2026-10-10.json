@@ -1,0 +1,164 @@
+{
+  "work_package_id": "WP-MTP-GATE-CHAIN-SHARE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v40",
+  "source_parent": "96d692d",
+  "status": "closed_negative",
+  "decision": "Remove shared-input Gate/Up chain composition after P65 >3% slowdown. No further geometry/resource scan or profile. Restore retained v41.",
+  "source_identity": {
+    "server": "d75b50ab5b4e01a21b13e5472f35b2e0581585411da8f5ef7b4bf0330402c953",
+    "oracle": "d88c842c18c40cdb702a91a764e29c3b92836044c55604a6ad7623938cb399d4",
+    "candidate.patch": "ec664f046e9258b4d8f4ee437fb89318c6f5282c1926d7de086c36e64790c400",
+    "src/runtime/mtp_verify_projection_internal.cu": "27b1c702bd11e079cb2e03a12a453bcce9932d9b13c9da53787d70532575b264",
+    "src/runtime/mtp_service_internal.cpp": "c8064a1b6802b6d03d4907e3c3d3c33a3e4669f257a5f2fd97d3dbf5c593e5d3",
+    "src/server/evaluation_server.cpp": "35307170eca58758d1c3faf8c4782dfb3ab73812b692ac7c5c8e22f75a58d459",
+    "include/q3x/server/evaluation_server.h": "d892d8a1b7c4022adf4dbe90430301a16fe7794a27949bd194437e3aab0fee53",
+    "tools/evaluation/validate_mtp_service.py": "d312e008a2df29d7475aefaf5249a5addfafb98c751f3d252ab36b94bd7c8885"
+  },
+  "api_metrics": [
+    {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.889742764,
+      "prefill_tps": 73.05482284315605,
+      "decode_tps": 10.74838689105238,
+      "ttft_s": 0.9084078059531748,
+      "elapsed_s": 2.3037075917236507,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-gate-chain-share-v43",
+        "draft_length": 2,
+        "startup_free_bytes": 9857671168,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 5.71257,
+        "draft_ms": 124.214817,
+        "verify_ms": 1238.606329,
+        "reconcile_ms": 26.382867000000005,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "comparison_vs_v41": {
+    "decode_ratio_vs_v41": 0.904850314918779,
+    "verify_added_ms": 133.34799199999998,
+    "prefill_delta_s": 0.0009968509999998788,
+    "total_delta_s": 0.13353526685386896,
+    "exact_output_ids_accounting_and_work": true
+  },
+  "numerical": {
+    "synthetic_complete_cases": 9,
+    "synthetic_output_elements": 470016,
+    "complete_prefix_states_full_logits": 9,
+    "complete_transactions": 11,
+    "cache_tail_cases": 9,
+    "init_cancel_recovery": 2,
+    "injected_failure_recovery": 2,
+    "same_input_draft_steps": 3,
+    "all_passed": true
+  },
+  "resources": {
+    "passed": true,
+    "resources": [
+      {
+        "m": 4,
+        "registers": 56,
+        "shared_bytes": 40000,
+        "spills": 0
+      },
+      {
+        "m": 3,
+        "registers": 48,
+        "shared_bytes": 37952,
+        "spills": 0
+      },
+      {
+        "m": 2,
+        "registers": 40,
+        "shared_bytes": 25664,
+        "spills": 0
+      }
+    ]
+  },
+  "cleanup": {
+    "synthetic": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "p65": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 67.781
+    },
+    "d2": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 64.468
+    }
+  },
+  "api_scope": "One completed P65/O16 d2 request audited with all candidate per-request/startup checks and matching exact token IDs/accounting/work to v41 and non-MTP output. Full driver audit correctly fails missing Decode cancellation; separately named bounded-request auditor excludes only unexecuted lifecycle requirements. Next 8K request interrupted at bounded Prefill cancellation. No 8K/40K/d3 timing or full lifecycle pass. Driver -2 is intentional stop; server cleanup exit0 and no telemetry errors.",
+  "finding": "Preserving full-K shared BF16 activation and N16 ownership does not make this Gate/Up chain redistribution faster. This isolates Gate/Up from closed v34 Down changes, without a measured hardware-stall cause or universal performance bound.",
+  "goal": "1.5x–3x active and unmet; retained v41 joint metrics unchanged",
+  "production_unchanged": true,
+  "artifacts": ".q3x-work/mtp-gate-chain-share-20261010",
+  "restoration": {
+    "server": {
+      "retained_sha256": "1843fefb9c65adb41b0047931df7aa233d84d47ee817ce9d37eb7e8034da1f2e",
+      "rebuilt_sha256": "8018b156b298c05c3deb6314a3016b1d798ce1ba4e6a81ab0d858a7b1036ccce",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "69583ae6f4148abfcd4a8acaa247bf3ed9db97a31a8b4ced1c7061a854b03f77",
+      "rebuilt_sha256": "fa715a4cea685590f6fff7fcdb6eae043164eca853f8d8c877f90df84fc21e39",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "hygiene": {
+    "device_handles_empty": true,
+    "device_audit_exit": 1,
+    "worktree_count": 47,
+    "workspace_bytes": 48892598,
+    "owned_gpu_and_build_processes_completed": true
+  },
+  "host_checks": {
+    "host_ctest_passed": 3,
+    "document_unit_tests_passed": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1200,
+      "errors": 0
+    },
+    "diff_check": "pass"
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-gate-chain-share-20261010/artifact-manifest.json",
+    "sha256": "fd42deca645f3c126e9e14c6a845b1fa04c67fe58613b72cd3ada549d33e87ae",
+    "files": 114
+  }
+}

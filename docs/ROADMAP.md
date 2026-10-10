@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP Gate/Up shared-input chain composition — closed negative
+
+`WP-MTP-GATE-CHAIN-SHARE-20261010` / `AC-MTP-GREEDY-v40` preserves the
+1.5x–3x goal and remaining 1.16/3.94-second complete Decode gap. The
+[fixed design](metadata/qwen36-27b-mtp-gate-chain-share-design-2026-10-10.json)
+composes independent Gate/Up chains with retained full-K input sharing and
+original N16 output ownership. The closed v34 removed that producer reuse and
+also changed Down; this composition retains Down and all other v41 execution.
+One fixed implementation must pass static resource and full numerical gates,
+then immediately return to P65/8K/40K d2 API. Greater-than-3% slowdown stops,
+neutral removes, useful direction unlocks d3. No geometry or resource scan
+follows. A useful dependency expires at the next full verifier API return or
+archival. Production remains unchanged; family cost is not projected savings.
+
+The [completed rejection](metadata/qwen36-27b-mtp-gate-chain-share-rejection-2026-10-10.json)
+passes static resource, nine complete output/guard cases and all P65 numerical
+and transaction checks, but P65/O16 d2 Decode falls to 10.748 token/s versus
+retained v41 11.879. Output and acceptance/work are identical; verification
+adds 133.3 ms. The declared stop interrupts the following 8K request before
+completion; no 40K, d3 or full API lifecycle panel follows. All new runtime
+paths are removed and v41 rebuilt. Retaining input reuse does not rescue this
+chain-consumer composition. No further chain, geometry or resource scan opens.
+The 1.5x–3x goal remains active and unmet; production is unchanged.
+
 ## 2026-10-10 MTP shared-row PV recomposition — closed without retention
 
 `WP-MTP-PV-ROW-COMPOSE-20261010` / `AC-MTP-GREEDY-v39` preserves the1.5x–3x

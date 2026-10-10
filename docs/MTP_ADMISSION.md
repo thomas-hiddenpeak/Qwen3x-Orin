@@ -1324,6 +1324,31 @@ checks and all persistent state boundaries. Its API comparison against v41
 separates PV from the earlier failed large-CTA QK/PV combination; it does not
 reverse that historical result or permit a geometry scan.
 
+## Gate/Up shared-input chain composition v40 — removed
+
+The following describes the removed experiment for reproduction only. The
+[completed rejection](metadata/qwen36-27b-mtp-gate-chain-share-rejection-2026-10-10.json)
+passes numerical admission but loses the P65 API direction screen. All new
+runtime/profile paths are removed, retaining v41. Lower register pressure
+with preserved input sharing did not produce a faster complete verifier.
+
+
+A fixed 512-thread CTA retains sixteen output channels and the existing
+immutable `min(M,3)` complete BF16 input rows; M4's last row stays global.
+Group `tid/128` selects one original output quad, lane `(tid/4)%32` selects
+its original K subsequence, and `tid%4` selects one original FMA chain.
+Each thread retains all M rows and four output channels for that chain.
+Original block-scale multiplication and tile/phase/half order are unchanged.
+Adjacent chain pairs merge lower operand first, then `(a0+a1)+(a2+a3)` is
+published into disjoint `[M,4,4,32]` FP32 partial storage. A uniform barrier
+precedes one warp per row/group consuming the original 32 leaves through
+unchanged live-root reduction, tensor scale and BF16 rounding. All threads
+participate in producer and reduction barriers. Static storage is at most
+40,000 bytes; no allocation, state, weight layout or numerical change occurs.
+Only packed Gate/Up selects this consumer; Down, head, FP8 and Attention retain
+v41. Complete canonical-output and scalar-prefix oracles precede real API
+selection. Lower registers alone establish no performance authority.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

@@ -1,0 +1,47 @@
+{
+  "work_package_id": "WP-MTP-GATE-CHAIN-SHARE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v40",
+  "source_base": "96d692d509a52272b2f99e4ce668a229bd1e3770",
+  "profile": "q3x.sm87.admission.mtp-gate-chain-share-api.v43",
+  "goal": "1.5x–3x same-request committed Decode, drafts 2/3, unchanged exact target state/full logits/output",
+  "budget": {
+    "complete_decode_8k_s": 18.453992451,
+    "complete_decode_40k_s": 21.623326967,
+    "remaining_8k_s": 1.159208785,
+    "remaining_40k_s": 3.937932175,
+    "historical_matched_gate_up_gpu_s": 5.934205216,
+    "scope": "family opportunity only, not projected savings"
+  },
+  "mechanism": "Gate/Up-only coupled chain-consumer and immutable full-K input producer. Fixed 512-thread CTA preserves original N16 output coverage and min(M,3) input sharing. Each original lane has four adjacent independent chain consumers, sharing the same packed words and preserving M-row weight reuse. Final original chain merge publishes partial[M][4 groups][4 outputs][32 lanes]; M*4 warps finish original live-root reductions.",
+  "distinction": "Closed v34 changed Gate/Up and Down together, removed full-K input sharing and reduced CTA coverage N16 to N4. This composition retains the proved v28 producer lifetime and N16 output ownership while partitioning Gate/Up consumers; Down/head/FP8/Attention remain v41. Fixed geometry follows preserved ownership, not a thread-count scan. No positive inference from earlier chain rejection.",
+  "equivalence": "For group g, old lane l and chain c, original K sequence tile*512+phase*256+l*8+half*4+c remains ordered tile/phase/half. Original FP4*FP8 FP32 multiply then fmaf. Lower-operand-first (a0+a1)+(a2+a3), original warp tree, tensor scale and BF16 publication. All producer/partial barriers uniform; disjoint static shared storage; no new state or allocation.",
+  "references": "Existing pinned Marlin/Triton independent accumulation and immutable input residency study; native SIMT translation, no MMA reassociation or imported source. FLA/Mamba state remains unchanged.",
+  "resource_contract": {
+    "threads": 512,
+    "outputs_per_cta": 16,
+    "shared_M2_M3_M4": [
+      25664,
+      37952,
+      40000
+    ],
+    "maximum_registers": 64,
+    "spills": 0,
+    "failure_action": "close before GPU, no resource scan"
+  },
+  "validation": [
+    "static resource gate",
+    "complete packed Gate/Up outputs and guards vs canonical incumbent M2/3/4 finite/NaN/activation-special cases",
+    "P65 full prefix state/logits, transactions, cache/recovery",
+    "immediate P65/8K/40K d2 API; >3% slowdown stops, neutral removes, useful direction unlocks d3"
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs_max": 1,
+    "parameter_scans": 0,
+    "profiles": 0
+  },
+  "expiry": "next complete verifier API return or archive",
+  "assessed_not_selected": "Moving weight scale to precomputed activation products duplicates operand lookup across M rows and adds traffic. No equivalence or speedup claim.",
+  "production_unchanged": true,
+  "artifact_root": ".q3x-work/mtp-gate-chain-share-20261010"
+}
