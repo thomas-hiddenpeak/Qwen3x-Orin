@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP Gate/Up input residency — closed without retention
+
+`WP-MTP-GATE-RESIDENCY-20261010` / `AC-MTP-GREEDY-v46` preserves the
+1.5x–3x objective and remaining 2.67-second 40K full Decode gap. The [design](metadata/qwen36-27b-mtp-gate-residency-design-2026-10-10.json)
+keeps existing Gate/Up shared inputs and paired codebooks resident across
+disjoint output groups. The rejected v9 bundle did not isolate this dependency;
+its FP8 executor is not reintroduced. Current exact paired scaling, K chains
+and publication remain unchanged. One fixed resident-wave grid passes native
+resource, complete projection and full P65 state/cache gates before immediately
+returning to P65/8K/40K d2 API. Greater-than-3% slowdown stops, neutral removes,
+useful direction unlocks d3. No geometry scan or profile follows. Useful
+retention expires at the next complete verifier API return or archival;
+production and its reserve remain unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-gate-residency-rejection-2026-10-10.json)
+passes native occupancy, 45 complete projection/guard cases, all P65 numerical/
+transaction checks and all eight d2 API checks. Outputs and physical/logical
+work match v48, but 8K/40K Decode is 13.744/10.439 token/s versus
+13.833/10.498. These single-process differences establish no useful direction,
+not a statistical regression. Lower register use and staging requests do not
+select the composition. All new Gate/Up/resource-plan/profile paths are removed
+and v48 rebuilt. No d3, profile or geometry scan follows; the full 1.5x–3x
+objective remains active and unmet, and production remains unchanged.
+
 ## 2026-10-10 MTP row boundary composition — API return complete
 
 `WP-MTP-ROW-BOUNDARY-20261010` / `AC-MTP-GREEDY-v45` preserves the

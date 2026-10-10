@@ -329,6 +329,10 @@ The independent-row boundary package completes both API panels and updates
 existing MTP SDD, Current Status and Roadmap as a bounded dependency;
 no Markdown path or classification changes.
 
+The Gate/Up input-residency package closes without retention after complete
+d2 API checks. Existing MTP SDD and Roadmap record removal and frozen evidence;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

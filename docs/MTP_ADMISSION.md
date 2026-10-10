@@ -1472,6 +1472,28 @@ passes complete numerical/cache admission and both API panels. Whole Decode
 reductions retain this scheduling composition only as a bounded next-verifier
 dependency, without noise-qualified selection or production promotion.
 
+## Gate/Up input residency composition v46
+
+Only the isolated coupled Gate/Up consumer extends shared activation and
+paired-codebook lifetime across disjoint output groups. Each warp keeps the
+same four channel owners, original K traversal, exact paired scaling, four
+FP32 chains, live reduction, tensor scale and BF16 publication. Accumulators
+reset before each new group; immutable inputs/codebooks need no intervening
+barrier. Existing M4 staging still caps at three rows. Construction queries each frozen kernel's
+native active-block capacity after the shared-memory carveout, then fixes the
+grid to one resident wave on sixteen SMs at 128 threads per CTA. Private atomic
+host plans avoid constructor races; zero/uninitialized capacity rejects before
+enqueue. No request-time query or timing-based tuning occurs. Down, head,
+FP8, Attention, request allocation and state ownership remain unchanged.
+The complete numerical and API return controls retention; structural staging
+reductions do not constitute measured DRAM savings or acceleration.
+
+The [completed rejection](metadata/qwen36-27b-mtp-gate-residency-rejection-2026-10-10.json)
+closes this composition after complete numerical and d2 API checks without
+useful performance direction. The description above is the rejected experiment;
+all persistent Gate/Up and atomic host-plan paths are removed and v48 remains
+current. No geometry scan, d3 or production change follows.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

@@ -1,0 +1,38 @@
+{
+  "work_package_id": "WP-MTP-GATE-RESIDENCY-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v46",
+  "source_parent": "14527a3a57a9ea91a8352fff5dfb0d88ec0d1045",
+  "profile": "q3x.sm87.admission.mtp-gate-residency-api.v49",
+  "goal": "1.5x\u20133x same-request committed Decode with d2/d3, exact complete state/logits/output and joint Prefill/TTFT/Decode/total metrics",
+  "budget": {
+    "remaining_40k_decode_s": 2.667068457,
+    "historical_v31_gate_up_s": 5.934205216,
+    "scope": "Remove repeated activation/codebook staging over output groups. Family duration and structural byte counts are opportunity bounds, not projected timing savings; the full goal is unchanged."
+  },
+  "history": "The rejected v9 combined persistent FP8 plus replicated codebook, NV Gate/Up, batched target head and ordered draft attention. It did not independently reject Gate/Up. The head and ordered draft later passed separate API compositions. This fixed successor isolates Gate/Up input lifetime on current exact paired weights/live reductions and v48 row boundaries. No rejected FP8 executor or decoder change is reintroduced.",
+  "composition": "Keep existing capped-three-row shared activation and paired shared codebooks live across disjoint output groups. Each warp owns the same four output channels and all original K chains; only its outer output loop changes. Down, head, FP8, Attention and state are unchanged.",
+  "grid_contract": {
+    "threads": 128,
+    "SMs": 16,
+    "rule": "For each M2/M3/M4, constructor sets max-shared carveout, queries cudaOccupancyMaxActiveBlocksPerMultiprocessor once for the frozen kernel, and publishes grid = active_blocks * 16. No per-request query, timing feedback or scan. Private atomic host slots avoid races between equivalent constructors; uninitialized plans reject before enqueue.",
+    "pre_gpu_static_revision": "Initial incumbent-based 80/64/48 estimates were replaced before any GPU admission because persistent-loop compilation changed register counts to 70/96/123 and driver-reserved shared memory also affects occupancy. Resource-derived whole-wave planning removes this assumption rather than testing grid variants."
+  },
+  "structural_input_staging": {
+    "old_d2_bytes_per_gate_up_projection": 33423360,
+    "semantics": "Shared-input staging requests only, not measured DRAM traffic. Original inputs remain read-only and all weights are still consumed.",
+    "new_formula": "grid(M3) * 3 * 5120 * 2; grid is recorded by native resource admission"
+  },
+  "bounds": {
+    "compositions": 1,
+    "correctness_repairs_max": 1,
+    "profiles": 0,
+    "geometry_scans": 0
+  },
+  "gates": [
+    "compile resource check and native occupancy admission; 45 complete projection/special-value/guard cases",
+    "full P65 scalar-prefix state/logit/cache and recovery admission",
+    "immediate P65/8K/40K d2 API; >3% slowdown stops; neutral removes; useful d2 unlocks d3"
+  ],
+  "expiry": "Immediate API selects removal or bounded dependency through next complete verifier API return or archival. Production and the 8-GiB reserve unchanged.",
+  "artifact_root": ".q3x-work/mtp-gate-residency-20261010"
+}
