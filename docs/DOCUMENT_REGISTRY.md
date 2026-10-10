@@ -403,6 +403,10 @@ The exact draft-head composition closes after negative P8192 API direction;
 existing MTP SDD and Roadmap record removal and frozen evidence;
 no Markdown path or classification changes.
 
+The uniform-chain feasibility package closes at its failed host coverage gate
+and updates the existing Roadmap only;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

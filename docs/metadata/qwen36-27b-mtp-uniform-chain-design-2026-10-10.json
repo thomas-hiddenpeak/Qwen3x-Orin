@@ -1,0 +1,17 @@
+{
+  "work_package_id": "WP-MTP-UNIFORM-CHAIN-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v62",
+  "parent": "b02a32e",
+  "product_constraint": "1.5x\u20133x same-request Decode with exact target state/output and drafts2/3; preserve joint API metrics",
+  "downward_budget": {
+    "remaining_40k_decode_s": 1.766867074,
+    "historical_v48_fp8_family_gpu_s": 5.869083328
+  },
+  "hypothesis": "Uniform native-MMA unit dispatch would avoid executing elementwise repair alongside successful matrix results. Existing failed direct-chain executor has per-output divergent repair; no measured stall attribution is claimed.",
+  "screen": "Reuse hash-authenticated v39 real P65 M3 adjacent16-output captures. AND the unchanged nine-bit separable guard over all96 useful roots of each16-output,two-chain,M3 MMA unit. This is an upper bound for any cheaper aggregate implementation of that same guard, not a new error bound.",
+  "decision": "Require at least50% completely admitted units before native uniform dispatch. Below50% closes this fixed architecture without GPU work; no predicate/group/threshold scan.",
+  "composition_if_pass": "One native uniform dispatch implementation retaining original scalar fallback/trees, complete numerical P65 admission, then immediate d2/d3 API. No local speedup claim before API.",
+  "scope": "Host feasibility only on retained historical inputs; not current coverage qualification, runtime timing or a hardware limit",
+  "artifact_root": ".q3x-work/mtp-uniform-chain-20261010",
+  "production_unchanged": true
+}

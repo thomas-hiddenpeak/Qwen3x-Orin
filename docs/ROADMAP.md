@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP uniform short-chain dispatch — closed at host feasibility
+
+`WP-MTP-UNIFORM-CHAIN-20261010` / `AC-MTP-GREEDY-v62` screens one
+[uniform dispatch architecture](metadata/qwen36-27b-mtp-uniform-chain-design-2026-10-10.json).
+The rejected direct-chain executor interleaves per-element scalar repair with
+MMA outputs; that is a source fact, not measured stall attribution. Reuse the
+unchanged nine-bit predicate across complete N16/two-chain/M3 native units.
+At least 50% complete-unit coverage in authenticated historical real captures
+is required before one native implementation and immediate API composition.
+Lower coverage closes the fixed design without GPU work. No guard, grouping,
+threshold or launch scan. Production, exact state and the full goal stay fixed.
+
+The [completed host screen](metadata/qwen36-27b-mtp-uniform-chain-feasibility-2026-10-10.json)
+authenticates all 28 historical P65 M3 FP8 captures. The unchanged cheap guard
+admits 2,448,199/2,752,512 individual roots (88.94%), but only 3,130/28,672 complete
+96-root native units (10.92%). The 50% complete-unit floor fails; no native
+implementation, GPU process or new API timing is opened. The earlier 73.09%
+complete-unit observation used the exact-product lattice predicate, not this
+cheap runtime guard. Neither rate establishes executor speed.
+
+This closes the fixed uniform-dispatch proposal without a guard/group/threshold
+scan. It does not relax the numerical contract, prove a hardware limit or
+supersede retained v62 performance. Production and the full goal stay fixed.
+
 ## 2026-10-10 MTP exact draft vocabulary — closed without retention
 
 `WP-MTP-DRAFT-HEAD-20261010` / `AC-MTP-GREEDY-v61` composes the
