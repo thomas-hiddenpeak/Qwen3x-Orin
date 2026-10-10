@@ -1,0 +1,303 @@
+{
+  "scope": "Actual native BF16 MMA centers on authenticated sampled P65 M3 operands; offline FP64-norm certificate assessment, not runtime certification or performance evidence",
+  "projections": 28,
+  "elements": 2688,
+  "certified_elements": 1852,
+  "repair_fraction": 0.31101190476190477,
+  "raw_bf16_mismatches": 0,
+  "false_certificates": 0,
+  "records": [
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/0",
+      "center_sha256": "57c121204ca978bf8a1feadb4504144ba1bc3ec4e5972075bf44c51b0f0af0d9",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 76,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0019270450251234839
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/1",
+      "center_sha256": "9fc44fec5cb8a1e1ba21f10a26826f77df59be697ad1ea917ec23382a110d198",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 73,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0007411327413417813
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/2",
+      "center_sha256": "2ff5b254be6bbdf7c4b53e9b322f0cc84f74ad2eadeee72e4f3b278162757bf9",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 26,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0003822792713164539
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/6",
+      "center_sha256": "b11d5ad553538dc4dc9f6d44da48a311267bc5c947d64267ee989e0988c23921",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 72,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0014672870774322694
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/7",
+      "center_sha256": "0cb8676ef31034878046bdfa80ca4fad79af1f237de8d7305861acd49a95a388",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 51,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0008192183723062394
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/8",
+      "center_sha256": "89f84a3175a5e4572dc8e1e0675d18ae4c18536b3eae9d7345482318b0b64504",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 58,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0021585251060549098
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/9",
+      "center_sha256": "c7c06b6b1f5ceb6bd6fd7ce4cd30a8afb004738919228a72be4f9f749ed6d2bc",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 62,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0005385336295557916
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/13",
+      "center_sha256": "22867b7788cb4b3e31312d408a4de9a0ac6029d6d7d9ba784f437f6abcf6840a",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 58,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.001616856490573895
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/14",
+      "center_sha256": "b12401cbdfb48e03bea9f6c9d7ff6489d379d276ea7f56c319e2ec150d71cf56",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 74,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0015748787745043162
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/15",
+      "center_sha256": "888a7f2948a3e7b97a1f79f8d2e346f2f3b26a87cae62d6d9db3df7e95eb2232",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 67,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0005891863332244461
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/19",
+      "center_sha256": "fd7873a10a17840e6987b3f4bf49d806745318343f4fbc6871e1490d8ffd35c5",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 78,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.00188960309302701
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/20",
+      "center_sha256": "3c0ae05793cb94fe2dba8265e268dd66938ec547e246d66e642dccb227a50fd5",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 66,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0012340092520325503
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/21",
+      "center_sha256": "d4f7407a3166d90106a02f578e4d84a31a60e6f5e0248efd03ec7dfb6bce9ba7",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 54,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0005655739332043019
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/22",
+      "center_sha256": "d8abdad7a8e60ca58f021f8e535a08828fb87a7c96cafc55b0630f0f7ff529ba",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 70,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0007162101479608792
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/26",
+      "center_sha256": "8c2ed55f238b3aa4040685ebe89931df617468d48d286c5b62077a5a206571f1",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 64,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.001322782048873825
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/27",
+      "center_sha256": "493b873f12149a687fcde2d280e4eb4eb6ae057283fcc7fd4c03293be0ac1454",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 65,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.001187953398987735
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/28",
+      "center_sha256": "18287f1bd8fe270591475a5792f431ff9bff48805b8a45146a6244cbae46e99a",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 72,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0010575844242459195
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/32",
+      "center_sha256": "1bb4d437b38fa4321f64072ec30fefe46d2734c3fe22e11908e216f0771a3fd8",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 71,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0011929789830935288
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/33",
+      "center_sha256": "1a190155c1ca796c9fb824f1cb6921e0efa825eb7e0b7e7e6a4777e07fb711be",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 67,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0009616234222335767
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/34",
+      "center_sha256": "5b47d4dab4978557766b41d1dfcbd1704709b3c357a294429bb7ca93f0f2bb8f",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 60,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0011171299265817852
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/35",
+      "center_sha256": "d40df35651af146c50c0b4e5f7bc53815b2dade73578debef6ae7d20162fbbb4",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 63,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0006415319466403325
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/39",
+      "center_sha256": "ed7ca70cc7a71aa85082cf2cba0066962fb43e6dd60907ecf3ebe3d3d4f4b2b0",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 68,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0025380530793822137
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/40",
+      "center_sha256": "ccd03529fb4db11775d19e11cb3e279923adacb9be1aba11e0a4f020d1547971",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 90,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.002339542444346841
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/41",
+      "center_sha256": "e5978f043ce2fe4a047fbdc5a0161ae67beee8c1dd3f992fa14d420f4d4150e2",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 62,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0005109018401437296
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/45",
+      "center_sha256": "968a0d1d0a64553e1cf79572e0a760744f78b8e3d0da3ff56353dab27f0015a0",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 80,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0013823748769690425
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/46",
+      "center_sha256": "2510ba6c05ecac2d3eb7ed785c8cab7b30027bdb51d207f35238e149218ff855",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 78,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.001919709611754388
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/47",
+      "center_sha256": "6059e2e65f6be3656fdc4cf4c976abaeadc6a4f8d049d12ecd5649fb8935cefb",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 77,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.0012445215751540498
+    },
+    {
+      "capture": ".q3x-work/mtp-certified-publication-20261010/p65/projections/48",
+      "center_sha256": "0f980057708c98fda88f681c587c11e84765e8075b425f51d62df0946a3e7db2",
+      "elements": 96,
+      "raw_bf16_mismatches": 0,
+      "certified_elements": 50,
+      "false_certificates": 0,
+      "maximum_normalized_center_error": 0.000613335732012841
+    }
+  ],
+  "work_package_id": "WP-MTP-BF16-CERTIFICATE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v58",
+  "parent": "1b4fd14",
+  "status": "native_center_prerequisite_complete_runtime_composition_pending",
+  "artifact_root": ".q3x-work/mtp-bf16-certificate-20261010",
+  "cleanup": {
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": null
+  },
+  "production_changed": false,
+  "target_achieved": false,
+  "next_required": [
+    "Outward-rounded startup-owned FP8 weight norms and request activation norms",
+    "Native interval test with explicit safety predicates, exact original repair for every uncertified element",
+    "Complete projection outputs, exceptional cases and full prefix-state/logit admission",
+    "Immediate same P65/8K/40K d2/d3 API comparison with joint phase metrics"
+  ],
+  "limitations": [
+    "All raw sampled BF16 values matching does not authorize unchecked publication.",
+    "Offline FP64 norm assessment is not the native outward-rounded certificate.",
+    "No scalar repair, runtime owner, full-state integration or performance gain is established by this prerequisite.",
+    "The proposed envelope still needs explicit instruction/domain proof; sampled agreement is not universal proof."
+  ],
+  "source_hashes": {
+    "center.cu": "32a80e936422b98e6fd727575d02bec947ca3e0352d4e2ebb0c9b148a6d34889",
+    "center": "ae17518df5e33effbbff3e7627e3fc8457260c9a4a0e88320a6c44a9bac936f9",
+    "audit.py": "f2e7503443ea543360c792847b962bc4d584d334bbc36ae4520b0cd03029d4aa",
+    "inputs.json": "86446963fd03996825bd8a795a4a1c8119c45da914984ce8256a454e47e424cc"
+  },
+  "validation": {
+    "document-control": 0,
+    "document-unit": 0,
+    "diff-check": 0
+  },
+  "hygiene": {
+    "runtime_source_unchanged": true,
+    "gpu_handles_empty": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  }
+}

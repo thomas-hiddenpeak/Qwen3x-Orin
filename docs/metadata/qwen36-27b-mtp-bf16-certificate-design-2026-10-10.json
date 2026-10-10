@@ -1,0 +1,24 @@
+{
+  "work_package_id": "WP-MTP-BF16-CERTIFICATE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v58",
+  "parent": "1b4fd14",
+  "product_constraint": "Exact full target state/logits and same-request 1.5x\u20133x committed Decode, drafts2/3 and joint phase metrics",
+  "downward_budget": {
+    "remaining_40k_decode_s": 2.27110563,
+    "historical_fp8_family_s": 5.869083328,
+    "host_surrogate_repair_fraction": 0.31101190476190477,
+    "ideal_proportional_fast_certificate_budget_s": 1.77262291295
+  },
+  "decision": "Prior25% host screen was a design choice, not measured whole-API failure. Reopen only as new direct-BF16/cheap-norm composition, not old FP16 residual/absolute MMA executor.",
+  "prerequisite": "Implement direct BF16 zero-start K16 MMA with balanced K128/final trees on authenticated captured real operands. Compare actual centers and offline conservative certificate to original full sampled BF16 outputs. No speedup authority.",
+  "proof_boundary": "PTX specifies at least single-precision accumulation, but unspecified order/rounding/subnormal handling. gamma64 envelope is an explicit proposed bound with finite normal safe operands; runtime certification still requires outward-rounded norm construction and exceptional fallback review. Passing sampled device checks does not prove this bound universally.",
+  "reference": "https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-instructions-mma",
+  "bounds": {
+    "native_executor_variants": 1,
+    "bound_or_tile_scan": 0,
+    "profiles": 0
+  },
+  "composition_deadline": "This prerequisite must immediately feed one runtime norm-owner/certificate/original-element-repair composition, full state/logit admission and same API panel, or be archived; no standalone local timing campaign.",
+  "production_unchanged": true,
+  "artifact_root": ".q3x-work/mtp-bf16-certificate-20261010"
+}
