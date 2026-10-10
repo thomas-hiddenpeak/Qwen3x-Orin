@@ -270,6 +270,9 @@ The activation-publication package closes after negative P65 API direction.
 Existing Roadmap, MTP SDD and Current Status record removal and frozen evidence;
 no Markdown path or classification changes.
 
+The completed retained-v31 budget diagnosis updates the existing Roadmap only;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

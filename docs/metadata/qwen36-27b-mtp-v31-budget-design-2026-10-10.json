@@ -1,0 +1,12 @@
+{
+  "work_package_id": "WP-MTP-V31-BUDGET-20261010",
+  "decision_unit": "diagnostic",
+  "source_parent": "54ba93a47c79ce47d05c21062828b486693dfe9b",
+  "goal": "1.5x\u20133x committed Decode; complete 8K/40K budgets 18.45/21.62 seconds",
+  "question": "After retained draft/head/projection changes, which complete v31 execution family must supply the remaining 40K 4.78 seconds? Previous full-model attribution is v7, not current v31.",
+  "protocol": "One same-frozen-v31-ELF P40000/O256 d2 real API Nsight Systems capture after prior valid unprofiled v31 result. No numerical/runtime changes. Count GPU family work, copies and uncovered interval; separate verifier, draft/head where symbols permit.",
+  "binary_sha256": "0049caf79b62156af12b1b0b6d193df23def2283a6f9184b20b81b78ee2183b8",
+  "unprofiled_authority": "docs/metadata/qwen36-27b-mtp-nv-live-reduction-direction-2026-10-10.json",
+  "bounds": "One capture; resource or ownership failure closes collection. No NCU replay, parameter scan, baseline replacement or production promotion. Use attribution to select a materially different complete architecture; profile timing is diagnostic only.",
+  "artifacts": ".q3x-work/mtp-v31-budget-20261010"
+}

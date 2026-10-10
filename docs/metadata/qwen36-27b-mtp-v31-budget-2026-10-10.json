@@ -1,0 +1,220 @@
+{
+  "work_package_id": "WP-MTP-V31-BUDGET-20261010",
+  "status": "diagnosis_complete",
+  "authority": "T4 same-ELF real-API diagnosis only; no new performance baseline or production qualification",
+  "identity": {
+    "command": [
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-nv-live-reduction-20261010/source/server",
+      "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "--port",
+      "18871",
+      "--api-key-file",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-v31-budget-20261010/profile/api-key",
+      "--nvtx-phase-ranges",
+      "--candidate-profile",
+      "whole-core-exact-decode"
+    ],
+    "executable_sha256": "0049caf79b62156af12b1b0b6d193df23def2283a6f9184b20b81b78ee2183b8",
+    "git": "54ba93a47c79ce47d05c21062828b486693dfe9b",
+    "driver_sha256": "00616df01715aa9a551b7520b29c8dde325d930c87487276936bcad31537edc9",
+    "fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "authority": "T4 diagnostic only; WP-MTP-V31-BUDGET-20261010; one same-v31-ELF completed P40000/O256 d2 workload, identify remaining verifier budget; not performance selection"
+  },
+  "output": {
+    "equal": true,
+    "fields": [
+      "request_sha256",
+      "text",
+      "usage",
+      "finish",
+      "done"
+    ],
+    "prior": "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-nv-live-reduction-20261010/d2/p40000.json"
+  },
+  "work_counts_equal_to_unprofiled_v31": [
+    "rounds",
+    "proposed",
+    "accepted",
+    "verified_rows",
+    "committed_decode_tokens",
+    "accepted_by_position",
+    "draft_ordered_attention_steps"
+  ],
+  "profile_run_metrics": {
+    "prefill_seconds": 92.677568399,
+    "prefill_tokens_per_second": 431.60390039356713,
+    "external_ttft_seconds": 93.07707736594602,
+    "committed_decode_tokens_per_second": 9.578557880806462,
+    "external_total_seconds": 127.37526937806979,
+    "mtp": {
+      "enabled": true,
+      "verifier": "multirow-nv-live-reduction-v31",
+      "draft_length": 2,
+      "startup_free_bytes": 8967725056,
+      "prompt_rows": 40000,
+      "draft_prefill_rows": 39999,
+      "initialized": true,
+      "rounds": 105,
+      "proposed": 210,
+      "accepted": 150,
+      "verified_rows": 315,
+      "committed_decode_tokens": 255,
+      "accepted_by_position": [
+        85,
+        65,
+        0
+      ],
+      "draft_ordered_attention_steps": 210,
+      "draft_initialization_ms": 2682.612159,
+      "draft_ms": 2468.205468,
+      "verify_ms": 23591.121697999984,
+      "reconcile_ms": 457.1252689999997,
+      "cancelled": false,
+      "failed": false
+    }
+  },
+  "unprofiled_v31_authority": "docs/metadata/qwen36-27b-mtp-nv-live-reduction-direction-2026-10-10.json",
+  "analysis": {
+    "scope": "T4 diagnostic from first verifier FP8 through last generation kernel; excludes first proposal/entry snapshot, includes later draft/reconciliation; not unprofiled Decode",
+    "start_ns": 92727891904,
+    "end_ns": 119323259040,
+    "interval_s": 26.595367136,
+    "families": {
+      "verify_gate_up": {
+        "seconds": 5.934205215999973,
+        "calls": 13440
+      },
+      "verify_fp8_canonical": {
+        "seconds": 4.2674427200000205,
+        "calls": 15120
+      },
+      "verify_qk": {
+        "seconds": 3.0767020799999965,
+        "calls": 1680
+      },
+      "verify_down_packed": {
+        "seconds": 2.429469888000001,
+        "calls": 5565
+      },
+      "verify_pv": {
+        "seconds": 2.317943360000002,
+        "calls": 1680
+      },
+      "verify_fp8_sidecar": {
+        "seconds": 1.6010719360000056,
+        "calls": 6720
+      },
+      "draft_matrix_including_reconcile": {
+        "seconds": 1.361944352,
+        "calls": 2429
+      },
+      "softmax_target_and_draft": {
+        "seconds": 0.9923499199999996,
+        "calls": 5248
+      },
+      "draft_vocabulary": {
+        "seconds": 0.916232512,
+        "calls": 208
+      },
+      "verify_vocabulary": {
+        "seconds": 0.6674263039999998,
+        "calls": 105
+      },
+      "residual_norm": {
+        "seconds": 0.6050919359999847,
+        "calls": 40320
+      },
+      "verify_down_canonical": {
+        "seconds": 0.4738934719999995,
+        "calls": 1155
+      },
+      "target_gdn": {
+        "seconds": 0.44212339199999545,
+        "calls": 15120
+      },
+      "other": {
+        "seconds": 0.32840041600001013,
+        "calls": 38032
+      },
+      "draft_pv": {
+        "seconds": 0.143472064,
+        "calls": 208
+      },
+      "draft_qk": {
+        "seconds": 0.128556864,
+        "calls": 208
+      },
+      "target_conv": {
+        "seconds": 0.07017411200000052,
+        "calls": 15120
+      }
+    },
+    "copies": [
+      {
+        "kind": 2,
+        "calls": 523,
+        "bytes": 4184,
+        "seconds": 0.00041296
+      },
+      {
+        "kind": 8,
+        "calls": 31947,
+        "bytes": 53214640128,
+        "seconds": 0.521793824
+      }
+    ],
+    "gpu_activity_union_s": 26.278707328,
+    "uncovered_interval_s": 0.316659808,
+    "sqlite_sha256": "e10f05c16f5f3106945e9e5b3209ac4d2f9e82db9d4f5c968216f99f5d365b3e"
+  },
+  "derived_budget": {
+    "verifier_projection_gpu_seconds": 14.706083232,
+    "verifier_qk_pv_gpu_seconds": 5.394645439999998,
+    "remaining_unprofiled_40k_decode_savings_for_1_5x_seconds": 4.774381010875764,
+    "all_copy_plus_uncovered_interval_seconds": 0.838866592
+  },
+  "cleanup": {
+    "server_returncode": 0,
+    "clock_errors": [],
+    "max_temp_c": 76.75
+  },
+  "gpu_clock_values": {
+    "gpu_cur_freq": [
+      1300500000
+    ],
+    "gpu_min_freq": [
+      1300500000
+    ],
+    "gpu_max_freq": [
+      1300500000
+    ]
+  },
+  "decision": "Close collection. Dominant current verifier projections and ordered Attention require a complete executor/computation response. Copy/coordination/host-gap work alone cannot supply the remaining 4.78 seconds. Do not reopen rejected operand/layout/cache/grid sweeps or infer a hardware ceiling.",
+  "limits": [
+    "Window starts at first verifier projection; excludes first proposal and entry snapshot.",
+    "GPU duration sums are family work, not independently additive whole-API savings.",
+    "Softmax combines draft/target, draft matrix combines proposal/reconciliation.",
+    "No hardware stall counters or bank-conflict attribution.",
+    "One profiled request; not independent-process performance selection.",
+    "No code/numerical/default route change; 1.5x\u20133x goal remains unmet."
+  ],
+  "kernel_detail_artifact": ".q3x-work/mtp-v31-budget-20261010/analysis.json",
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-v31-budget-20261010/artifact-manifest.json",
+    "sha256": "a923f270f6752c59153158a892704fa8f7fe0a0ac05e6a7bea3b2872b6e93d28",
+    "files": 26
+  },
+  "verification": {
+    "document_control": "86 paths, 1177 links, zero errors",
+    "document_unit_tests": 7,
+    "diff_check": "pass",
+    "hygiene": {
+      "live_owned_gpu_processes": [],
+      "device_handles": [],
+      "worktrees": 47,
+      "new_worktrees": 0,
+      "artifact_bytes": 84670340,
+      "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+    }
+  }
+}

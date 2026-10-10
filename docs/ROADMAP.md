@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 retained MTP v31 budget — diagnosis complete
+
+`WP-MTP-V31-BUDGET-20261010` preserves the 1.5x–3x goal and complete
+18.45/21.62-second Decode budgets. The [design](metadata/qwen36-27b-mtp-v31-budget-design-2026-10-10.json)
+permits one same-frozen-v31-ELF P40000/O256 d2 real API capture after its
+completed unprofiled direction. The old full-model attribution predates the
+retained draft/head/projection changes. This capture updates family/copy/gap
+attribution to select the next complete execution response; it changes no
+performance baseline, runtime or production route. Close on completion or
+resource failure, with no NCU replay or parameter scan. Artifacts remain under
+`.q3x-work/mtp-v31-budget-20261010/`.
+
+The [completed diagnosis](metadata/qwen36-27b-mtp-v31-budget-2026-10-10.json)
+preserves output, acceptance and work counts at the same frozen v31 ELF.
+From first verifier projection to last generation kernel, current verifier
+projections take 14.706 GPU seconds, QK/PV 5.395, all copies 0.522 and the
+uncovered activity interval 0.317. The latter two together are far below the
+remaining 4.774-second unprofiled 40K Decode gap. Collection is closed; no
+hardware-stall cause, ceiling or new performance baseline is claimed. The next
+complete computation/executor response must address dominant verification;
+copy/coordination work and repeated rejected layout/feed variants cannot
+substitute for that budget. Production, retained v31 and the unmet goal remain
+unchanged.
+
 ## 2026-10-10 MTP activation publication — closed negative
 
 `WP-MTP-ACTIVATION-PUBLICATION-20261010` / `AC-MTP-GREEDY-v35` targets the
