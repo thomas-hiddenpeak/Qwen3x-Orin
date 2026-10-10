@@ -1,0 +1,160 @@
+{
+  "work_package_id": "WP-MTP-SINGLE-PRODUCT-MMA-20261010",
+  "source_base": "3b99a4b9c5c002f58e6ef99fc094dde46e16ecc3",
+  "decision": "Reject direct single-product BF16 MMA substitution for the original scalar FP32 FMA chain. Ordinary finite inputs already produce a different final BF16 publication; no runtime implementation or numerical waiver.",
+  "status": "numerical_prerequisite_rejected_before_model_integration",
+  "numerical_result": {
+    "scope": "synthetic numerical prerequisite, no timing",
+    "device": "Orin",
+    "guards_pass": true,
+    "cases": [
+      {
+        "name": "exact_one",
+        "outputs": 128,
+        "fp32_mismatches": 0,
+        "bf16_mismatches": 0,
+        "mma_bits": "3f800000",
+        "fma_bits": "3f800000",
+        "mma_bf16": "3f80",
+        "fma_bf16": "3f80"
+      },
+      {
+        "name": "exact_three",
+        "outputs": 128,
+        "fp32_mismatches": 0,
+        "bf16_mismatches": 0,
+        "mma_bits": "40400000",
+        "fma_bits": "40400000",
+        "mma_bf16": "4040",
+        "fma_bf16": "4040"
+      },
+      {
+        "name": "finite_rounding",
+        "outputs": 128,
+        "fp32_mismatches": 128,
+        "bf16_mismatches": 0,
+        "mma_bits": "3f800000",
+        "fma_bits": "3f800001",
+        "mma_bf16": "3f80",
+        "fma_bf16": "3f80"
+      },
+      {
+        "name": "bf16_midpoint",
+        "outputs": 128,
+        "fp32_mismatches": 128,
+        "bf16_mismatches": 128,
+        "mma_bits": "3f817fff",
+        "fma_bits": "3f818000",
+        "mma_bf16": "3f81",
+        "fma_bf16": "3f82"
+      },
+      {
+        "name": "zero_start_fp8_bf16_chain",
+        "outputs": 128,
+        "fp32_mismatches": 128,
+        "bf16_mismatches": 128,
+        "mma_bits": "3f817fff",
+        "fma_bits": "3f818000",
+        "mma_bf16": "3f81",
+        "fma_bf16": "3f82"
+      }
+    ],
+    "direct_substitution_admitted": false
+  },
+  "counterexample": {
+    "weight_fp8_codes": [
+      "38",
+      "03",
+      "b8",
+      "03"
+    ],
+    "weights": [
+      "1",
+      "3/512",
+      "-1",
+      "3/512"
+    ],
+    "activation_bf16_bits": [
+      "3f80",
+      "4000",
+      "3400",
+      "3780"
+    ],
+    "activations": [
+      "1",
+      "2",
+      "2^-23",
+      "2^-16"
+    ],
+    "chain": "acc=+0; for i=0..3: acc=FMA_RN(weight[i],activation[i],acc)",
+    "scalar_fp32_hex": "3f818000",
+    "mma_fp32_hex": "3f817fff",
+    "scalar_bf16_hex": "3f82",
+    "mma_bf16_hex": "3f81",
+    "source_embedding": "These four products can occupy K indices 0/1024/2048/3072 of FP8 thread 0 chain 0, with every other input/weight zero and tensor scale 1. This is a synthetic contract counterexample, not a checkpoint capture or frequency estimate."
+  },
+  "reference": {
+    "official_url": "https://docs.nvidia.com/cuda/archive/12.6.3/parallel-thread-execution/index.html#warp-level-matrix-instructions-mma",
+    "finding": "BF16 MMA accumulation order, rounding and subnormal handling unspecified; fixed scalar RNE equivalence not guaranteed."
+  },
+  "build": {
+    "command": "/usr/local/cuda/bin/nvcc -std=c++17 -O3 -arch=sm_87 -Xptxas=-v probe.cu -o probe",
+    "sass": "HMMA.16816.F32.BF16 and FFMA both present",
+    "registers": 29,
+    "stack_bytes": 24,
+    "spill_load_bytes": 0,
+    "spill_store_bytes": 0
+  },
+  "environment": {
+    "preflight_decision": {
+      "accepted": true,
+      "collection_errors": [],
+      "reasons": [],
+      "result": "pass"
+    },
+    "gpu_holders_before": [],
+    "cache_drop_rc": 0,
+    "cleanup": {
+      "returncode": 3,
+      "errors": [],
+      "max_temperature": null
+    },
+    "temperature_scope": "Process shorter than monitor sample interval; no in-process temperature sample retained. Preflight telemetry retained. No timing or performance authority."
+  },
+  "limits": [
+    "Synthetic T1 numerical rejection only; no real-model speed, acceptance, Prefill, TTFT, Decode or total-request measurement.",
+    "Not a complete model of all MMA rounding or a proof that every Tensor Core algorithm is invalid.",
+    "No capacity/reserve, production arithmetic, target baseline or 1.5x\u20133x objective changes.",
+    "Passing samples would not have established universal equivalence; finite counterexamples suffice to reject direct substitution."
+  ],
+  "production_unchanged_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+  "evidence_sha256": {
+    ".q3x-work/mtp-single-product-mma-20261010/build.log": "5c1112c262f8675238ce961ec0094d4c102106dd2733cfdb0260145e2c419c79",
+    ".q3x-work/mtp-single-product-mma-20261010/driver.log": "65e6085e89339fdb2de7aa0d2396707f6e1899a53a83ac78cdd9148f74288e81",
+    ".q3x-work/mtp-single-product-mma-20261010/numerical/cache-preparation.json": "09a4dd26abe739a50c23694bf79f290186d695fe1f4ff5b0382b9d8cca6e938d",
+    ".q3x-work/mtp-single-product-mma-20261010/numerical/cleanup.json": "066acc52520c51b04de9c146371affe10a410dcfd66ff1527745f5af1d722771",
+    ".q3x-work/mtp-single-product-mma-20261010/numerical/identity.json": "d1690dc635cc95c1ee97220127271964cc4080dec441a857871b0b82150e3948",
+    ".q3x-work/mtp-single-product-mma-20261010/numerical/preflight-console.log": "ed398d07bf0b775372b5a284e2fbf5b3664c9d8bb7d599726bad80afcfa97c8c",
+    ".q3x-work/mtp-single-product-mma-20261010/numerical/preflight.json": "7aa519f006789dd8220d514843fbbd39858745363d6e8a5a403e0e09c88cbc61",
+    ".q3x-work/mtp-single-product-mma-20261010/numerical/run.log": "6f9a8ee4264a20dbd37f08260ea0b140cb77a64e0c7acc37ea1a4e6233f1e3ff",
+    ".q3x-work/mtp-single-product-mma-20261010/numerical/telemetry.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-single-product-mma-20261010/probe": "c504723335b5ca842512745f5018be974136c73b12c61580d1f194056c9008e4",
+    ".q3x-work/mtp-single-product-mma-20261010/probe.cu": "3097bfafd927247ebeea8285445523f2ae36225992e1a83aabc3870ea442266f",
+    ".q3x-work/mtp-single-product-mma-20261010/probe.sass": "390dcd8282a1579e373885e9a41950e713b082a4238018f358e29cd5ba1ad05d",
+    ".q3x-work/mtp-single-product-mma-20261010/run.py": "d93c1b37ec0d6859aed5cfa5c9621513ba37d7a1ef00b76b87f2e2839c1b71e7"
+  },
+  "closure": {
+    "gpu_handles": [],
+    "gpu_handle_audit_returncode": 1,
+    "owned_probe_processes": [],
+    "new_worktrees_created": 0,
+    "artifact_bytes": 1155683,
+    "goal": "active, incomplete"
+  },
+  "validation": {
+    "document_control": "PASS; 86 tracked/registered Markdown, 1157 local links",
+    "document_control_unit": "7 passed",
+    "git_diff_check": "pass",
+    "production_runtime_tests": "not rerun; runtime unchanged"
+  }
+}

@@ -246,6 +246,10 @@ The role-aware draft representation package updates the existing Roadmap and
 closes at its failed host numerical gate. No native owner/consumer or MTP
 numerical-contract extension is selected; no Markdown path or class changes.
 
+The scalar-chain Tensor Core numerical feasibility package updates the existing
+Roadmap and closes direct substitution after finite SM87 counterexamples;
+no runtime integration, Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

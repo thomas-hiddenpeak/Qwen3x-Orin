@@ -19,6 +19,32 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP scalar-chain Tensor Core mapping — direct substitution rejected
+
+`WP-MTP-SINGLE-PRODUCT-MMA-20261010` retains the 1.5x–3x goal and complete
+18.45/21.62-second Decode budgets. The [bounded design](metadata/qwen36-27b-mtp-single-product-mma-design-2026-10-10.json)
+tests a different executor prerequisite: one nonzero product per MMA output,
+with the original FP32 accumulator carried in original chain order. NVIDIA's
+ISA does not guarantee identical rounding to scalar FMA. One directed SM87
+numerical process therefore checks finite rounding and final BF16 publication
+before any runtime integration. A finite counterexample closes this direct
+substitution; a sample pass alone is not equivalence proof or selection. No
+timing, profiler or geometry scan follows this screen. Artifacts remain under
+`.q3x-work/mtp-single-product-mma-20261010/`; production is unchanged.
+
+The [completed numerical screen](metadata/qwen36-27b-mtp-single-product-mma-2026-10-10.json)
+confirms ordinary finite counterexamples on SM87. Exact layout controls and
+guards pass, and GPU scalar FMA agrees with independent host/directed bits.
+The zero-start four-product chain yields scalar FP32 `0x3f818000` versus MMA
+`0x3f817fff`, publishing different BF16 values `0x3f82` versus `0x3f81` on
+all 128 outputs. Every operand is an exactly representable FP8 weight or BF16
+activation. Thus eliminating multi-product reassociation does not make this
+instruction a drop-in scalar FMA. The direct substitution is closed before
+runtime integration, with no timing or hardware-performance conclusion. A
+sample cannot quantify real-model mismatch frequency. Retained v31 and the
+unmet 1.5x–3x objective remain unchanged; a successor must supply a different
+proved computation or exact execution dataflow and a bounded real API return.
+
 ## 2026-10-10 MTP role-aware draft representation — rejected before GPU
 
 `WP-MTP-MIXED-DRAFT-20261010` keeps the 1.5x–3x goal and exact target

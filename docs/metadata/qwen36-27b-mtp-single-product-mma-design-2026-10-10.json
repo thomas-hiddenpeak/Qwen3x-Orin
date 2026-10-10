@@ -1,0 +1,25 @@
+{
+  "work_package_id": "WP-MTP-SINGLE-PRODUCT-MMA-20261010",
+  "source_base": "3b99a4b",
+  "goal": "1.5x–3x same-workload committed Decode, drafts 2/3, unchanged exact target state/output",
+  "decision_unit": "bounded numerical instruction feasibility; no performance authority",
+  "downward_trace": "Retained v31 d2 complete Decode needs about 1.30/4.78 seconds less at 8K/40K. Its verifier costs 17.149/23.402 seconds. Prior real P40000 attribution identifies projections as dominant. A different executor would need to preserve the original FP32 chain at each step, not merely a BF16 input/output dtype.",
+  "hypothesis": "Encode one nonzero BF16 product per MMA output and instruction, preserving each scalar chain's product order and FP32 carried accumulator. Independent output channels/chains could then map to Tensor Core output coordinates without a K reduction reassociation. This is distinct from the rejected multi-product certificate executors.",
+  "equivalence_gate": "For one product, MMA(A,B,C) must reproduce fma.rn.f32(a,b,c), including ordinary finite values. Exact BF16 products alone do not prove identical accumulator rounding. NVIDIA PTX 8.5 leaves BF16 MMA accumulation rounding unspecified.",
+  "reference": {
+    "url": "https://docs.nvidia.com/cuda/archive/12.6.3/parallel-thread-execution/index.html#warp-level-matrix-instructions-mma",
+    "local_source": "src/kernels/sm87/third_party/vllm_marlin/marlin_mma.h",
+    "scope": "Official ISA numerical contract and already vendored BF16 instruction form; no code import or runtime dependency. Newer-device numerical studies do not establish SM87 semantics."
+  },
+  "screen": {
+    "instruction": "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32, SM87",
+    "ownership": "One warp per fixed case; A[:,0]=a, B[0,:]=b, every other operand zero. All 128 outputs checked, plus guard bytes.",
+    "cases": "Exact-operation controls; finite normal rounding boundaries including a BF16-publication midpoint; a zero-start four-product chain using exactly representable FP8 weights and BF16 activations.",
+    "oracles": "Explicit GPU __fmaf_rn plus independent host std::fma and directed hexadecimal expected bits; compare FP32 and final BF16 outputs.",
+    "budget": "One synthetic numerical GPU process after build and recorded host/device preflight. No timing, local benchmark, profiler, geometry scan or full-model run if any ordinary finite counterexample exists.",
+    "failure": "A valid counterexample closes direct single-product MMA substitution. It does not establish a hardware speed ceiling or exclude a separately proved corrected computation.",
+    "success": "Passing finite samples is necessary but insufficient. A full exceptional-value/equivalence proof and a bounded native verifier composition with immediate real d2/d3 API return would still be required. No runtime selection from T1."
+  },
+  "upward_return": "Only an admitted complete executor may return through scalar-prefix state/logits and the same P65/8K/40K API panel with Prefill/TTFT/Decode/total and natural work accounting. Production, reserve and numerical baseline stay unchanged.",
+  "artifact_root": ".q3x-work/mtp-single-product-mma-20261010"
+}
