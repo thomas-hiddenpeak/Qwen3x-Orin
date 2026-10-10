@@ -19,6 +19,37 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP direct PV consumption — closed negative
+
+`WP-MTP-DIRECT-PV-20261010` / `AC-MTP-GREEDY-v32` keeps the 1.5x–3x goal
+and complete 18.45/21.62-second Decode budgets. The [design](metadata/qwen36-27b-mtp-direct-pv-design-2026-10-10.json)
+removes the shared PV producer/copy ring and CTA barriers, retaining the exact
+increasing-position FMA chains in independent full-head consumers. Repeated
+global V loads replace physical shared reuse, so only the complete API selects
+the trade. This differs from the rejected shared-KV ownership and rounding
+elision mechanisms. The older 2.318-second PV attribution cannot alone close
+the 40K gap and is not a projected gain.
+
+One fixed implementation plus at most one correctness repair passes static
+resource review and complete P513/P8192 scalar state/logit admission, then
+returns immediately to P65/8K/40K d2 API; useful direction unlocks d3. A
+greater-than-3% long-context regression stops; neutral/negative removes the
+new route. No prefetch/cache/grid scan follows. A useful dependency expires at
+the next complete verifier API return or archival. Artifacts remain under
+`.q3x-work/mtp-direct-pv-20261010/`; production is unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-direct-pv-rejection-2026-10-10.json)
+passes the static no-spill gate, all eighteen P513/P8192 prefix comparisons
+and full P513 transaction/recovery checks. P65 output/performance is unchanged,
+but P8192/O256 d2 Decode falls to 11.750 token/s versus v31 12.914, with
+identical acceptance/work. Verification adds 1.950 seconds; external total
+adds 1.981 seconds. The declared stop occurs during the idle gap before 40K;
+40K, d3 and the full API lifecycle panel are not run. All new runtime paths
+are removed and v31 restored. No cache/prefetch/grid scan follows. This closes
+direct global consumption without a hardware-stall claim; the 1.5x–3x goal
+remains active and unmet, and the next architecture must address a materially
+different complete verification budget rather than repeat PV ownership variants.
+
 ## 2026-10-10 MTP scalar-chain Tensor Core mapping — direct substitution rejected
 
 `WP-MTP-SINGLE-PRODUCT-MMA-20261010` retains the 1.5x–3x goal and complete

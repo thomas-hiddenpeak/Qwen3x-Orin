@@ -1,0 +1,267 @@
+{
+  "work_package_id": "WP-MTP-DIRECT-PV-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v32",
+  "status": "closed_negative",
+  "decision": "Restore retained v31. P8192 d2 triggers predeclared >3% negative direction gate; no 40K/d3, full API lifecycle, profile or cache/prefetch/grid scan.",
+  "source_identity": {
+    "git": "4dfa987e4f38dec19b76c52cd198e2c1aae2cfdd",
+    "files": {
+      "src/runtime/mtp_verify_attention_internal.cu": "06e4629422175b1b1f9790d971576764db3678890c95b9f51dcccb6b5cb7b57d",
+      "src/runtime/mtp_service_internal.cpp": "e8048f24adc0b34dc62a4acec12cd4be202388a383ccb03f2c0fb877d1af6537",
+      "src/server/evaluation_server.cpp": "620057c72c1ea26705b50e7943a7c1477bad70e53ea3be982a26272a040a4cdd",
+      "include/q3x/server/evaluation_server.h": "ec7309c389259c0a5d4ad89538f5a395588d32e0573f3bd9afd37a4bb5382063",
+      "tools/evaluation/validate_mtp_service.py": "8bfbee91ab9aebf42a886e388feb89d27a363041b0978cab39c2d53cb23ee6f2"
+    },
+    "server_sha256": "064ea153cd5f46f814b2203f7dfeaec1e137c3e847f724b30778b74b22c16027",
+    "oracle_sha256": "8d729bcea29b4270fe42b39474c9f969c3aa05aeeb704a01aadb7e50210b81c0",
+    "profile": "q3x.sm87.admission.mtp-direct-pv-api.v35"
+  },
+  "static": {
+    "pv_registers": 40,
+    "pv_shared_bytes": 0,
+    "pv_stack_bytes": 0,
+    "pv_local_bytes": 0,
+    "scope": "source-only resource gate, not timing"
+  },
+  "numerical": {
+    "oracle-p513": {
+      "prefix_state_full_logits_comparisons": 9,
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 70.125
+      },
+      "full_transactions": 11,
+      "cache_tail_cases": 9,
+      "initialization_cancel_recoveries": 2,
+      "injected_verify_failure_recoveries": 2
+    },
+    "oracle-p8192": {
+      "prefix_state_full_logits_comparisons": 9,
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 77.468
+      }
+    }
+  },
+  "api_metrics": [
+    {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8853965039999999,
+      "prefill_tps": 73.41343647320298,
+      "ttft_s": 0.9114407878369093,
+      "elapsed_s": 2.171810475643724,
+      "decode_tps": 11.901089039778054,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-direct-pv-v35",
+        "draft_length": 2,
+        "startup_free_bytes": 9914490880,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 5.706224,
+        "draft_ms": 124.205916,
+        "verify_ms": 1102.922405,
+        "reconcile_ms": 26.487233,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "prefill_s": 17.333850967,
+      "prefill_tps": 472.60127109641377,
+      "ttft_s": 17.35594699298963,
+      "elapsed_s": 39.05814270302653,
+      "decode_tps": 11.750092648017528,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-direct-pv-v35",
+        "draft_length": 2,
+        "startup_free_bytes": 9914490880,
+        "prompt_rows": 8192,
+        "draft_prefill_rows": 8191,
+        "initialized": true,
+        "rounds": 98,
+        "proposed": 196,
+        "accepted": 157,
+        "verified_rows": 294,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          86,
+          71,
+          0
+        ],
+        "draft_ordered_attention_steps": 196,
+        "draft_initialization_ms": 547.048559,
+        "draft_ms": 2065.5291070000007,
+        "verify_ms": 19098.871786,
+        "reconcile_ms": 449.5232570000001,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "partial_api_audit": {
+    "scope": "two completed requests only; lifecycle/P40000/d3 not run",
+    "complete_per_request_receipts": "pass",
+    "health_capacity_inventory": "pass",
+    "baseline_body_output_usage_finish_done": "all match",
+    "work_and_acceptance": "match v31",
+    "comparisons": [
+      {
+        "label": "p65",
+        "decode_ratio_to_v31": 0.999961467447313,
+        "verify_added_ms": -0.15612499999997453,
+        "external_total_delta_s": -0.001637160312384367
+      },
+      {
+        "label": "p8192",
+        "decode_ratio_to_v31": 0.9099052787104188,
+        "verify_added_ms": 1950.1760329999997,
+        "external_total_delta_s": 1.9811493600718677
+      }
+    ]
+  },
+  "cleanup": {
+    "d2": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 73.562
+    },
+    "driver": {
+      "returncode": -2,
+      "early_stop": true
+    }
+  },
+  "claim_boundary": {
+    "same_elf_independent_processes_per_policy": 1,
+    "policy_tested": 2,
+    "completed_api_requests": 2,
+    "baseline_output_usage_finish_done": "all equal",
+    "p40000": "not started; interrupt during preceding declared idle gap",
+    "d3": "not run",
+    "complete_lifecycle_panel": "not run",
+    "synthetic_timing": false,
+    "mirrored_selection": false,
+    "production_eligible": false,
+    "goal": "1.5x\u20133x same-request committed Decode; active and unmet",
+    "causality": "Only PV executor changed, with same work and output. Matched component hardware counters were not collected; do not assign a particular cache/traffic/stall cause.",
+    "prefill": "unchanged code; interval difference is not attributed to this PV edit"
+  },
+  "production_unchanged_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+  "restored_source": {
+    "src/runtime/mtp_verify_attention_internal.cu": "da82d824c994d9b444d8f71de63c0661a79234dc4ea8f7cd97db2f30a7e36342",
+    "src/runtime/mtp_service_internal.cpp": "07595112223923c8c8c56b8c2a4743b09cc05f7344eb991e64b167cad6446360",
+    "src/server/evaluation_server.cpp": "641502e5537e5b1f049fa53714ccd3d8cb2e88e2c3d51d9e092613cbebced34e",
+    "include/q3x/server/evaluation_server.h": "02feb1efddef68e6d4102e172791528661cbaacc1868ab6b74f31b4fb344a433",
+    "tools/evaluation/validate_mtp_service.py": "53342b29778520b9d473d774a2edc57aa8015f38a8d23f12d985b0063c863ffa"
+  },
+  "evidence_sha256": {
+    ".q3x-work/mtp-direct-pv-20261010/build-oracle.log": "10ab8a8a7f6a1cd7d710380251d107ad8b59540cc1d6057702166804d6910db3",
+    ".q3x-work/mtp-direct-pv-20261010/build-service.log": "828808b4ea6ec00858f46b5419448d9751ba0e69b2e68ea6353c314e9ba0019d",
+    ".q3x-work/mtp-direct-pv-20261010/d2/audited-metrics.json": "ef66af015325fa5752bbe8c85d1cd473a5cb4ea918e44e3f23050b36c81c5461",
+    ".q3x-work/mtp-direct-pv-20261010/d2/cache-preparation.json": "76c1870cf72d3db5bbe54ae2c33c34d495866cc23104a543234014a962ddd2d9",
+    ".q3x-work/mtp-direct-pv-20261010/d2/cleanup.json": "f2441fac7fc9405f71e49c2a2bc106f482428652121e73e8995e1a9fb4f9a986",
+    ".q3x-work/mtp-direct-pv-20261010/d2/health.json": "257651393fcc31216bc1e3e68cfaf5edab1121f3f4fd8b71b874037b9738d803",
+    ".q3x-work/mtp-direct-pv-20261010/d2/identity.json": "c63ed18e14f3c89dd29394c6f23c66c0e609aeadacbc1d606376e87ba32e5527",
+    ".q3x-work/mtp-direct-pv-20261010/d2/p65.json": "b94521282e7861c19454c83c3ca8f344e1eeb40b3cab5e35c12f2a849a4c7b2f",
+    ".q3x-work/mtp-direct-pv-20261010/d2/p8192.json": "c0167745cf717f01740b6cfe4e81275d6bb392a685e24d7c53abf6d28b997b8d",
+    ".q3x-work/mtp-direct-pv-20261010/d2/preflight-console.log": "5723746d6498d2772d9215eed387d7ce8f0415630e73ac3ba7a6bc0fef42452b",
+    ".q3x-work/mtp-direct-pv-20261010/d2/preflight.json": "23024ec71ceb4d319c62afc18ddc3379518c8009b39539dca7c413a93b607bf9",
+    ".q3x-work/mtp-direct-pv-20261010/d2/results.json": "27f1a5e202e9bd60435c731b43d2bc6aede268d2d852e9f13e1e73df3aed6eba",
+    ".q3x-work/mtp-direct-pv-20261010/d2/server.log": "70490c9c3e7c32b27078bb222aec73f187816a9ed7bd3128b5613a29c3f3880e",
+    ".q3x-work/mtp-direct-pv-20261010/d2/telemetry.log": "b7612028dd72eeacc03b0ce181a3589033d5835307d5e05ee4d0d08b79fd9192",
+    ".q3x-work/mtp-direct-pv-20261010/d2-direction-decision.json": "6468bce8116510d6e8ea258954a773388afc0963e73141fa44f9647475293dce",
+    ".q3x-work/mtp-direct-pv-20261010/d2-driver-result.json": "f346bf26f91708c8234ef60ac8945a4a99d849ac062a0919d5f0e8ccdced60e4",
+    ".q3x-work/mtp-direct-pv-20261010/d2-driver.log": "5b39b2d845062bb22b8520575bdc08d0e58e83b1ff2fb2a567cc8dce289d7505",
+    ".q3x-work/mtp-direct-pv-20261010/d2-process.json": "a449b30c35627e5df32bba50bf3e5e1776dc6d98aea86237ea15891bbdf80570",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p513/cache-preparation.json": "70601dce7bc441d82990a0bc501ed9c42033b409d4dffba70051a7ff525ca098",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p513/cleanup.json": "90afd060a9603a3e34ca57cdd37e99f36610f842f7effc6a84936424d4b5450b",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p513/draft-prefill-hidden.bf16": "13062726b0754407510df8ecd7a5ceabf7a19ed2422f2c43d1e1f97fd043adf2",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p513/draft-prefill-k.bf16": "6565a9b8300a56643ac620003ae25f90c24a35833466ce3da559f244bd815f6d",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p513/draft-prefill-v.bf16": "c76d605d38c0d364a1c941f9add0714e57d895fc72304ddf1c10e08c310cd714",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p513/identity.json": "ecf61ff11c63b297e1fb3dadf6e9f603c95e780dc84a02eaee21c023351b1913",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p513/preflight-console.log": "5abd2fd75dc5cf72d972ff244c2bf330abc453fea3eaf7d906fb5b6e948b1ed3",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p513/preflight.json": "388a97693a841d45d61e3caf9048c6bd1026580ccbb9295ff28c627f8b71c35c",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p513/prompt.u32": "1e43eb1b2b20d294699de49bcd732d1c5e10cfe1f95f1933a0142c1143e823fd",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p513/q3x_mtp_whole_core_test": "8d729bcea29b4270fe42b39474c9f969c3aa05aeeb704a01aadb7e50210b81c0",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p513/run.log": "6a39b01aecf6c13fe910644d9452ac53ab23f913f858eb7afff30104218e6639",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p513/target-hidden.bf16": "74a1e2b6396dc43fa90f3fdc258ed17613922d83ae639eae818a58f7afacf9a6",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p513/target-residual.bf16": "af6f0594c7e94ec0c43586c02668da3b6bd9ffb264055a037ab6da6cd51a2825",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p513/telemetry.log": "7ba62c8d3a58997ca65f41360d6fba5b9f50e77da2b3a179780d7be71dec0a5f",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p513-driver.log": "48aa779b6f3091a7f6e16f7abfeebd18d49748e7ab9cfc1aa75b4f7d9cb33c46",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p8192/cache-preparation.json": "ab15ac04a38b2c2225bb18c4f70b89ddfeeb250142142ae737741235bee6eebc",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p8192/cleanup.json": "88ad936cec0b0fb693dc2e92f462f1adea7041d296bbaaa8b54a0a8b63f0e1ff",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p8192/identity.json": "879254b12215e4503c9c5993b88627f0f3fe911695728c0fb23d3ee39b721759",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p8192/preflight-console.log": "3ec5dd1a2bd595f68f0bb25db68711b1560bdfd8993c32043bcbe096186f9184",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p8192/preflight.json": "e180cba206894ba1efa4b7a72d895df3d877ea67cac2bbf3ddebb74e224c4cd3",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p8192/prompt.u32": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p8192/q3x_mtp_whole_core_test": "8d729bcea29b4270fe42b39474c9f969c3aa05aeeb704a01aadb7e50210b81c0",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p8192/run.log": "5dc6110225e5170dfbb3621db7ada7f98d4a6d15d8adf40f1f9279bbfc2054a8",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p8192/telemetry.log": "341122e1a9aea1c55bfbdd81a89fe761f8f481304310ce1ee4c684ce3d455fec",
+    ".q3x-work/mtp-direct-pv-20261010/oracle-p8192-driver.log": "1fe14328e71ed926a24986c8d550c4e1a96d66bef079243c450a08ace4e80222",
+    ".q3x-work/mtp-direct-pv-20261010/partial-audit.json": "c418c1bceeb53a3b9ee6bef3bbeec355e6c7af141b534dd957d91b55490b9b8f",
+    ".q3x-work/mtp-direct-pv-20261010/partial-auditor.py": "79c1a07ad68f04e6b99bddeab1e76cb7f836a33fcb010de489617ec2d5bff728",
+    ".q3x-work/mtp-direct-pv-20261010/resources.txt": "577ef9a9cf13ba70f8a36ab3bf87ef254278deadf94e0547395e3c0ef84d4340",
+    ".q3x-work/mtp-direct-pv-20261010/restore-oracle.log": "10ab8a8a7f6a1cd7d710380251d107ad8b59540cc1d6057702166804d6910db3",
+    ".q3x-work/mtp-direct-pv-20261010/restore-service.log": "828808b4ea6ec00858f46b5419448d9751ba0e69b2e68ea6353c314e9ba0019d",
+    ".q3x-work/mtp-direct-pv-20261010/restored-source.json": "ed09de4d89757e1519c53080bb37cb1207eda85dcafb44b4537a18c8f0674a3a",
+    ".q3x-work/mtp-direct-pv-20261010/run-api.py": "5551bf627e6c53e8950a2892da4805613436a32ad7418e45acc5078e7de6516f",
+    ".q3x-work/mtp-direct-pv-20261010/run-oracle.py": "1fb1136066184435cc6400bf4f96499cb6bfd1bf401647d81387a13e5b5ce3a9",
+    ".q3x-work/mtp-direct-pv-20261010/source/candidate.patch": "588f5df144f5605634432bdb486d4614c1e768e5b4bf5e317891e51533d2901f",
+    ".q3x-work/mtp-direct-pv-20261010/source/identity.json": "9ddec4fcf975cc8c214412f802ceb249f06c57992d0c419bd0af688b9ded0f2d",
+    ".q3x-work/mtp-direct-pv-20261010/source/include/q3x/server/evaluation_server.h": "ec7309c389259c0a5d4ad89538f5a395588d32e0573f3bd9afd37a4bb5382063",
+    ".q3x-work/mtp-direct-pv-20261010/source/oracle": "8d729bcea29b4270fe42b39474c9f969c3aa05aeeb704a01aadb7e50210b81c0",
+    ".q3x-work/mtp-direct-pv-20261010/source/server": "064ea153cd5f46f814b2203f7dfeaec1e137c3e847f724b30778b74b22c16027",
+    ".q3x-work/mtp-direct-pv-20261010/source/src/runtime/mtp_service_internal.cpp": "e8048f24adc0b34dc62a4acec12cd4be202388a383ccb03f2c0fb877d1af6537",
+    ".q3x-work/mtp-direct-pv-20261010/source/src/runtime/mtp_verify_attention_internal.cu": "06e4629422175b1b1f9790d971576764db3678890c95b9f51dcccb6b5cb7b57d",
+    ".q3x-work/mtp-direct-pv-20261010/source/src/server/evaluation_server.cpp": "620057c72c1ea26705b50e7943a7c1477bad70e53ea3be982a26272a040a4cdd",
+    ".q3x-work/mtp-direct-pv-20261010/source/tools/evaluation/validate_mtp_service.py": "8bfbee91ab9aebf42a886e388feb89d27a363041b0978cab39c2d53cb23ee6f2",
+    ".q3x-work/mtp-direct-pv-20261010/static-check.json": "17237d221ade1111dd0a945802247359e1677abc0b545a03a18d6bf6430d695b"
+  },
+  "restored_build_sha256": {
+    ".q3x-work/build/orin-mtp-service-admission/qwen3x-eval-server-mtp-admission": "683556111243079caad032bb01fb1605d334d54b19270e61f921365f8414a91a",
+    ".q3x-work/build/orin-whole-core-exact-decode-admission/q3x_mtp_whole_core_test": "4bc3be35bdc3631084915970553196728a56effeee909668ce47b783fdc01f20"
+  },
+  "closure": {
+    "restored_service_build": "pass; completed target in retained log",
+    "restored_oracle_build": "pass; completed target in retained log",
+    "host_ctests": "3/3 pass",
+    "document_validator": {
+      "tracked": 86,
+      "registered": 86,
+      "links": 1161,
+      "errors": 0
+    },
+    "document_units": "7/7 pass",
+    "diff_check": "pass",
+    "gpu_handle_inspection": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": ""
+    },
+    "owned_model_build_processes": [],
+    "existing_worktrees": 47,
+    "new_worktrees": 0,
+    "artifact_bytes": 74377803
+  }
+}

@@ -250,6 +250,10 @@ The scalar-chain Tensor Core numerical feasibility package updates the existing
 Roadmap and closes direct substitution after finite SM87 counterexamples;
 no runtime integration, Markdown path or classification changes.
 
+The direct PV composition closes after negative P8192 API direction. Existing
+MTP SDD, Current Status and Roadmap record removal and frozen evidence;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

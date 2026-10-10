@@ -115,6 +115,14 @@ Output and work match the baseline, but verification adds 287.332 ms versus
 v31. The following 8K request is interrupted; 40K/d3 and the complete API
 lifecycle panel are not run. Retained v31 and the unmet goal remain unchanged.
 
+The subsequent [direct-PV direction](metadata/qwen36-27b-mtp-direct-pv-rejection-2026-10-10.json)
+passes complete P513/P8192 state/logit checks but is removed after negative
+P8192/O256 d2 API direction. Prefill is 17.334 s / 472.60 token/s, external
+TTFT 17.356 s, Decode 11.750 token/s and total 39.058 s. Work and acceptance
+match v31, but verification adds 1.950 seconds and Decode falls by 9.01%.
+The run stops before 40K, d3 and the full API lifecycle panel. Retained v31,
+production and the unmet 1.5x–3x goal remain unchanged.
+
 ### Preceding FP8 live-reduction direction
 
 The preceding isolated source uses exact live-ancestor FP8 reductions on top of

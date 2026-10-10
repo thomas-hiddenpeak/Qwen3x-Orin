@@ -1132,6 +1132,33 @@ direction. All new chain-partition/profile/auditor paths are removed. Frozen
 source proves only the tested mapping and rejected direction; no long-context,
 d3 or production qualification follows. Retained isolated service is v31.
 
+## Direct PV consumption composition v32
+
+The target verifier's long Attention retains original QK and row-wise softmax.
+PV assigns one 128-thread CTA to one query head and speculative row, with two
+adjacent output dimensions per thread. Four raw BF16 V pairs and FP32
+probabilities are prefetched in thread-private registers through read-only
+global loads. Each accumulator still consumes every actual causal position
+once in increasing order with the original FP32 FMA, then publishes BF16 once.
+The final partial group consumes only valid positions. Later speculative KV
+rows never enter an earlier query, and probability slots retain their actual
+per-head stride inside the existing fixed maximum-length row slot.
+
+There is no shared producer, async-copy ring, inter-warp data dependence or
+CTA barrier in this PV executor. The old shared V reuse across six heads is
+traded for independent cached reads. Cache misses change cost, never results.
+Total warp count remains 96 per speculative row. No allocation, state layout,
+inventory, reserve, failure or production boundary changes. Complete P513/P8192
+scalar state/logits admit one composition before its immediate real API return;
+resource savings alone provide no performance authority.
+
+The [completed rejection](metadata/qwen36-27b-mtp-direct-pv-rejection-2026-10-10.json)
+passes complete P513/P8192 state/logit admission but regresses d2 P8192/O256
+Decode by 9.01% versus retained v31, with identical acceptance and work.
+The new direct consumer and profile/auditor wiring are removed. No 40K/d3
+or full API lifecycle qualification follows; frozen source is reproduction
+evidence only. Removing shared publication did not select a faster runner.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

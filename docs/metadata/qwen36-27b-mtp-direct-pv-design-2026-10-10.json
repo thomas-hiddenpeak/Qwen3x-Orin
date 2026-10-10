@@ -1,0 +1,16 @@
+{
+  "work_package_id": "WP-MTP-DIRECT-PV-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v32",
+  "source_base": "4dfa987",
+  "profile": "q3x.sm87.admission.mtp-direct-pv-api.v35",
+  "product_constraint": "1.5x–3x same-request committed Decode with drafts 2/3, exact target state/logits and original independent numerical baseline",
+  "downward_budget": {"complete_decode_8k_s":18.45,"complete_decode_40k_s":21.62,"v31_remaining_8k_s":1.30,"v31_remaining_40k_s":4.78,"older_matched_40k_pv_gpu_s":2.318012128,"authority":"Old v7 family attribution is a ceiling, not current matched v31 latency or a projected gain; PV alone cannot close the full gap."},
+  "mechanism": "Remove the shared V/probability producer, copy ring and CTA barriers. One 128-thread CTA owns one full query-head output; each lane retains the original two output accumulators. Four independent raw position records are prefetched in registers with read-only global loads. Adjacent speculative-row/head CTAs may reuse immutable KV through cache, with no cache correctness assumption.",
+  "equivalence": {"original":"For each row/head/dimension: a=+0; for s=0..actual_sequence-1: a=fma.rn.f32(P[s],FP32(BF16(V[s,d])),a); publish RNE_BF16(a).","candidate":"Identical ordered recurrence and publication. Only immutable operand loads and independent-output ownership change. No padded/future position enters an FMA; each row uses its actual causal length and original probability stride.","unchanged":"QK, softmax, projection, draft, recurrence, immutable snapshots, state/logit publication, failures, startup inventory and reserve."},
+  "trade": "Old 16*M CTAs of six warps share a V tile across heads; new 24*M CTAs of four warps have the same 96*M total warps and no shared allocation/barriers. Global V reads are repeated across six heads; cache reuse is a hypothesis, and read traffic/latency may outweigh deleted materialization. No hardware-stall or gain claim from source alone.",
+  "reference_translation": "Previously studied FlashInfer grouped-query KV reuse and existing SM87 ordered Attention expose shared producer/consumer ownership. This alternative removes that boundary rather than enlarging shared KV as in rejected v19. Native CUDA read-only loads and registers only; no imported code or dependency. vLLM/Marlin projections and FLA/Mamba recurrence stay unchanged.",
+  "selection": {"variants":1,"correctness_repairs_max":1,"minimum_admission":"Build/static no-spill review, full P513 prefix/state/logit/transaction/recovery and P8192 complete prefix comparison against scalar on identical history.","api":"Immediate same P65/8K/40K d2 API/lifecycle panel versus frozen v31/non-MTP, all Prefill/TTFT/Decode/total and work counts. Short P65 is unaffected sanity only. Greater-than-3% long-context Decode regression stops; neutral/negative removes. Useful direction unlocks d3.","expiry":"Useful dependency only through next complete verifier API return or archival; no launch/prefetch/cache/grid scan or qualification-only campaign."},
+  "resources":"No new allocation or arena/sidecar; all prior capacity and 8-GiB startup reserve gates remain.",
+  "artifact_root":".q3x-work/mtp-direct-pv-20261010",
+  "production":"Unchanged installed non-MTP service; admission only"
+}
