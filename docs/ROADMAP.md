@@ -19,6 +19,38 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP softmax lifetime composition — closed without retention
+
+`WP-MTP-SOFTMAX-LIFETIME-20261010` / `AC-MTP-GREEDY-v29` keeps the
+1.5x–3x goal and 18.45/21.62-second complete Decode budgets. The
+[design](metadata/qwen36-27b-mtp-softmax-lifetime-design-2026-10-10.json)
+selects one complete normalization-lifetime change: batch all speculative
+head rows in one grid, compute exponentials once in existing dead score cells,
+and retain the exact original denominator tree with warp-local final ancestors.
+The older matched softmax attribution is below one second and includes draft;
+this is a bounded prerequisite, not a claim to close the full remaining gap.
+QK/PV, projections, draft and all state/publication semantics stay v31.
+
+One implementation plus at most one correctness repair passes complete FP32
+probability/guard tests and P513/P8192 state/logit admission, then returns
+immediately to P65/8K/40K d2 API. Greater-than-3% regression stops; neutral or
+negative removes it. Useful direction unlocks d3 and retains only a bounded
+dependency through the next complete verifier API return or archival. No local
+parameter/timing or profiler campaign opens; artifacts stay under
+`.q3x-work/mtp-softmax-lifetime-20261010/`. Production is unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-softmax-lifetime-rejection-2026-10-10.json)
+passes 60 full FP32 probability/guard cases, all eighteen P513/P8192 prefix
+comparisons, full P513 transactions/recovery and eight d2 API/lifecycle checks.
+Work and acceptance match v31. D2 observes 12.984/9.724 token/s at 8K/40K
+versus 12.914/9.660: only +0.55%/+0.67% in one process, without noise
+separation. The 40K external request is 0.403 seconds longer. This does not
+establish a material whole-product gain; all new runtime/profile/auditor paths
+are removed and v31 restored. D3 is not run. No further softmax mapping,
+exponential-storage or launch scan follows. The 1.5x–3x goal remains active
+and unmet; the next package must address a materially larger complete verifier
+budget, rather than compound additional sub-percent normalization variants.
+
 ## 2026-10-10 MTP NV live reduction composition — API return complete
 
 `WP-MTP-NV-LIVE-REDUCTION-20261010` / `AC-MTP-GREEDY-v28` retains the

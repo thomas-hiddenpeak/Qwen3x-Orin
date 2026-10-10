@@ -1063,6 +1063,32 @@ remains dependency-only in isolated v31 through the next complete verifier
 API return. No numerical waiver, new allocation or production switch follows;
 the single-process positive direction does not establish the 1.5x–3x objective.
 
+## Softmax lifetime composition v29
+
+One 256-thread CTA owns each `(speculative row, head)` with its original actual
+causal length and fixed maximum-length row slot. A single grid replaces serial
+row launches. Thread-local maximum and denominator traverse the same strided
+columns. Shared stages 128/64/32 followed by warp stages 16/8/4/2/1 preserve
+the original ordered 256-leaf tree; explicit barriers protect the root broadcast
+and later scratch reuse. No online normalization or changed exp approximation
+is introduced.
+
+After maximum publication, each thread computes the original `expf(score-max)`
+once and overwrites only its own now-dead score cells. These FP32 values feed
+the unchanged sequential denominator and final division, replacing duplicate
+exponential evaluation. The existing workspace already has exactly this
+producer/consumer lifetime; padding and earlier-row causal ends remain untouched.
+QK/PV, BF16 output/state, failure, capacity and production contracts remain
+unchanged. Complete FP32 probability equality and real-prefix state/logits
+admit the composition before its immediate API return.
+
+The [completed rejection](metadata/qwen36-27b-mtp-softmax-lifetime-rejection-2026-10-10.json)
+closes this version after complete probability/state/logit checks and all eight
+d2 API/lifecycle requests. The small single-process Decode differences do not
+establish material runner value. All described new softmax paths are removed;
+isolated source is restored to v31, with no d3 or further normalization scan.
+Frozen source retains reproduction authority only; production is unchanged.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

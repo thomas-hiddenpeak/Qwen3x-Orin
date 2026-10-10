@@ -1,0 +1,508 @@
+{
+  "work_package_id": "WP-MTP-SOFTMAX-LIFETIME-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v29",
+  "status": "closed_without_retention",
+  "decision": "Neutral complete API direction; no demonstrated material gain. Remove new runtime/profile/auditor paths and restore v31. No d3, profile, parameter sweep or qualification-only continuation.",
+  "source_identity": {
+    "source_base": "5e07a30c653bd2adfbb86421b531b13eee17926f",
+    "profile": "q3x.sm87.admission.mtp-softmax-lifetime-api.v32",
+    "files": {
+      "src/runtime/mtp_verify_attention_internal.cu": "85f4d614adb34cb953198731d2d0125bc999d8ecca154a9f20e02eb8fb427f5d",
+      "src/runtime/mtp_service_internal.cpp": "a0633110491b2a2be5aa47f3bccb2db681f96ae78853a66530cddfc21b2c943f",
+      "src/server/evaluation_server.cpp": "aa385992340f90054dac6a4eb296bf9209043b853ca1b4c054bce8a0055b3e53",
+      "include/q3x/server/evaluation_server.h": "c930a6d6916400cefc6cb86b87300db4096e8c7a698b9b59a63ebd865ceae101",
+      "tools/evaluation/validate_mtp_service.py": "4dc576acf76bb286a81e69d3484b2be03db7ac41f451b6d6d869af6bfa582f72"
+    },
+    "server_sha256": "430661b12cec43d1a2d90c77c26379a964075fc93f4280def739aa3a1cc80ab6",
+    "source_patch_sha256": "eaa8b91199495702651113a7811341f99c0c3acdeeb5dd4ac8ea2268db9a8bcb",
+    "synthetic_sha256": "ef122478d50b655c5c5d4fbefd07857dcbea137a85558d2d867315314a90aeec",
+    "synthetic_source_sha256": "9814a14e0c07886cba3eecee0c3fd6cb6a6db48329d45a389682d58c1861606f",
+    "baseline_source_sha256": "f8ae1ac90d4301e78cfe5324566b572116e91d5d95068c8c6ca14755dd6330de"
+  },
+  "api_metrics": [
+    {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.887278856,
+      "prefill_tps": 73.25769070282004,
+      "ttft_s": 0.9133750610053539,
+      "elapsed_s": 2.1733664548955858,
+      "decode_tps": 11.903739732520556,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-softmax-lifetime-v32",
+        "draft_length": 2,
+        "startup_free_bytes": 9919971328,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 5.728955,
+        "draft_ms": 124.278846,
+        "verify_ms": 1102.8785460000001,
+        "reconcile_ms": 26.245711,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "prefill_s": 17.310981630999997,
+      "prefill_tps": 473.22561912549236,
+      "ttft_s": 17.333189378958195,
+      "elapsed_s": 36.9727092590183,
+      "decode_tps": 12.98420395715035,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-softmax-lifetime-v32",
+        "draft_length": 2,
+        "startup_free_bytes": 9919971328,
+        "prompt_rows": 8192,
+        "draft_prefill_rows": 8191,
+        "initialized": true,
+        "rounds": 98,
+        "proposed": 196,
+        "accepted": 157,
+        "verified_rows": 294,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          86,
+          71,
+          0
+        ],
+        "draft_ordered_attention_steps": 196,
+        "draft_initialization_ms": 548.444294,
+        "draft_ms": 2064.018232,
+        "verify_ms": 17042.550952,
+        "reconcile_ms": 444.8592260000004,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "p40000",
+      "prompt": 40000,
+      "output": 256,
+      "prefill_s": 93.27702429900002,
+      "prefill_tps": 428.8301465511998,
+      "ttft_s": 93.31217838823795,
+      "elapsed_s": 119.5365648008883,
+      "decode_tps": 9.72435569358504,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-softmax-lifetime-v32",
+        "draft_length": 2,
+        "startup_free_bytes": 9919971328,
+        "prompt_rows": 40000,
+        "draft_prefill_rows": 39999,
+        "initialized": true,
+        "rounds": 105,
+        "proposed": 210,
+        "accepted": 150,
+        "verified_rows": 315,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          85,
+          65,
+          0
+        ],
+        "draft_ordered_attention_steps": 210,
+        "draft_initialization_ms": 2674.185679,
+        "draft_ms": 2456.783956,
+        "verify_ms": 23226.778338999997,
+        "reconcile_ms": 445.22617999999983,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "p65-nonstream",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.883291254,
+      "prefill_tps": 73.58841119013276,
+      "ttft_s": null,
+      "elapsed_s": 2.158508877735585,
+      "decode_tps": 11.938412385605575,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-softmax-lifetime-v32",
+        "draft_length": 2,
+        "startup_free_bytes": 9919971328,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 5.382423,
+        "draft_ms": 123.207209,
+        "verify_ms": 1100.882885,
+        "reconcile_ms": 26.206474999999998,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "raw-text",
+      "prompt": 5,
+      "output": 16,
+      "prefill_s": 0.817271285,
+      "prefill_tps": 6.117919584070545,
+      "ttft_s": 0.8489866489544511,
+      "elapsed_s": 1.9408744000829756,
+      "decode_tps": 13.736180715391281,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-softmax-lifetime-v32",
+        "draft_length": 2,
+        "startup_free_bytes": 9919971328,
+        "prompt_rows": 5,
+        "draft_prefill_rows": 4,
+        "initialized": true,
+        "rounds": 6,
+        "proposed": 11,
+        "accepted": 9,
+        "verified_rows": 17,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          6,
+          3,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 2.083349,
+        "draft_ms": 113.07904200000002,
+        "verify_ms": 947.359555,
+        "reconcile_ms": 26.175628000000003,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "chat-stop",
+      "prompt": 20,
+      "output": 2,
+      "prefill_s": 0.8217447689999999,
+      "prefill_tps": 24.338457334311308,
+      "ttft_s": 0.8397930189967155,
+      "elapsed_s": 1.0253821131773293,
+      "decode_tps": 5.386362285488459,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-softmax-lifetime-v32",
+        "draft_length": 2,
+        "startup_free_bytes": 9919971328,
+        "prompt_rows": 20,
+        "draft_prefill_rows": 19,
+        "initialized": true,
+        "rounds": 1,
+        "proposed": 2,
+        "accepted": 1,
+        "verified_rows": 3,
+        "committed_decode_tokens": 1,
+        "accepted_by_position": [
+          1,
+          0,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 2.687995,
+        "draft_ms": 20.51269,
+        "verify_ms": 162.475898,
+        "reconcile_ms": 1.765874,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "after-prefill-cancel",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8833747749999998,
+      "prefill_tps": 73.58145357954103,
+      "ttft_s": 1.1547235921025276,
+      "elapsed_s": 2.411050524096936,
+      "decode_tps": 11.938406333017664,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-softmax-lifetime-v32",
+        "draft_length": 2,
+        "startup_free_bytes": 9919971328,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 5.382135,
+        "draft_ms": 123.177322,
+        "verify_ms": 1100.795104,
+        "reconcile_ms": 26.211530000000003,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "after-decode-cancel",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.883200788,
+      "prefill_tps": 73.59594882970146,
+      "ttft_s": 1.0876562497578561,
+      "elapsed_s": 2.3442466068081558,
+      "decode_tps": 11.937019093560465,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-softmax-lifetime-v32",
+        "draft_length": 2,
+        "startup_free_bytes": 9919971328,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 5.354551,
+        "draft_ms": 123.21335400000001,
+        "verify_ms": 1100.896097,
+        "reconcile_ms": 26.223083,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "comparisons": [
+    {
+      "label": "p65",
+      "decode_ratio_to_v31": 1.0001841857712988,
+      "prefill_ratio_to_v31": 1.0001823660082494,
+      "verify_saved_ms": 0.1999839999998585,
+      "external_total_delta_s": -8.118106052279472e-05
+    },
+    {
+      "label": "p8192",
+      "decode_ratio_to_v31": 1.0054725587595372,
+      "prefill_ratio_to_v31": 1.0001852667940334,
+      "verify_saved_ms": 106.14480099999855,
+      "external_total_delta_s": -0.10428408393636346
+    },
+    {
+      "label": "p40000",
+      "decode_ratio_to_v31": 1.006669419111606,
+      "prefill_ratio_to_v31": 1.0062381979790145,
+      "verify_saved_ms": 175.5092730000033,
+      "external_total_delta_s": 0.40345535380765796
+    }
+  ],
+  "static": {
+    "nonzero_spills": false,
+    "authority": "static resource only, no timing",
+    "softmax_resources": [
+      [
+        "ptxas info    : Compiling entry function '_ZN8baseline14softmax_kernelEPKfmmPf' for 'sm_87'",
+        "ptxas info    : Function properties for _ZN8baseline14softmax_kernelEPKfmmPf",
+        "    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads",
+        "ptxas info    : Used 26 registers, used 1 barriers, 1024 bytes smem, 384 bytes cmem[0]",
+        "ptxas info    : Compile time = 20.088 ms"
+      ],
+      [
+        "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail49_GLOBAL__N__87b35700_16_consumer_test_cu_9b4399f133attention_softmax_lifetime_kernelEPfjj' for 'sm_87'",
+        "ptxas info    : Function properties for _ZN3q3x7runtime10mtp_detail49_GLOBAL__N__87b35700_16_consumer_test_cu_9b4399f133attention_softmax_lifetime_kernelEPfjj",
+        "    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads",
+        "ptxas info    : Used 22 registers, used 1 barriers, 1024 bytes smem, 368 bytes cmem[0]",
+        "ptxas info    : Compile time = 24.672 ms"
+      ]
+    ]
+  },
+  "numerical": {
+    "synthetic_full_probability_guard_cases": 60,
+    "prefix_comparisons": 18,
+    "prefix_lengths": [
+      513,
+      8192
+    ],
+    "full_transactions": 11,
+    "injected_verify_failure_recoveries": 2,
+    "initialization_cancel_recoveries": 2
+  },
+  "api": {
+    "successful_requests": 8,
+    "response_text_usage_finish_done": "all_match_nonmtp",
+    "work_acceptance": "all_match_v31"
+  },
+  "cleanup": {
+    "synthetic": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "oracle-p513": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 71.937
+    },
+    "oracle-p8192": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 78.875
+    },
+    "d2": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 81.0
+    }
+  },
+  "claim_boundary": {
+    "independent_processes": 1,
+    "mirrored_repetition": false,
+    "architecture_selection": false,
+    "production_eligible": false,
+    "target_met": false,
+    "goal": "1.5x\u20133x same-request committed Decode",
+    "d3_not_run": true,
+    "reason": "8K/40K Decode only +0.55%/+0.67%, no noise separation; 40K external total +0.403s. Prefill code unchanged, observed interval +0.62%; do not attribute that difference to the softmax edit."
+  },
+  "evidence_sha256": {
+    ".q3x-work/mtp-softmax-lifetime-20261010/finalize-rejection.py": "9ec1aa1913aca8ed0b82f5c490159da1e87f9424e182b32b3356317750fef036",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2-process.json": "307e9f6f1a201a321b9ba95d16b7be4da61d183d8fc6ab0c21d60f5536274ec7",
+    ".q3x-work/mtp-softmax-lifetime-20261010/static-check.json": "aabe5d1c0411c80a249d4d93d1503f9625f1c30c047b207c46dfb29ec98344f8",
+    ".q3x-work/mtp-softmax-lifetime-20261010/finalize.py": "3f398edf7655aeb318009ca377cb35c17a1f5d231ad6afac16c9e58101eb4c28",
+    ".q3x-work/mtp-softmax-lifetime-20261010/build-service.log": "828808b4ea6ec00858f46b5419448d9751ba0e69b2e68ea6353c314e9ba0019d",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2-driver.log": "76a90b86ec20a9838fbfec32d70316e5236d2eb825a60eb1772c4cd29f76d42d",
+    ".q3x-work/mtp-softmax-lifetime-20261010/consumer-test.cu": "9814a14e0c07886cba3eecee0c3fd6cb6a6db48329d45a389682d58c1861606f",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2-driver-result.json": "cc3f040330893c99443996540ed3cff211f307c74af640795549cdc2a450f183",
+    ".q3x-work/mtp-softmax-lifetime-20261010/baseline-softmax.cuh": "f8ae1ac90d4301e78cfe5324566b572116e91d5d95068c8c6ca14755dd6330de",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p513-driver.log": "45fde13fb9b4c8b668942077a2f5a7c8ed4298f214ea7a6e4fd9fe91e85eba57",
+    ".q3x-work/mtp-softmax-lifetime-20261010/run-synthetic.py": "b2800ab28900fedcf328ba79f3ddd68d7502079cb4fd97fd4ff04ac4d584691d",
+    ".q3x-work/mtp-softmax-lifetime-20261010/consumer-test": "ef122478d50b655c5c5d4fbefd07857dcbea137a85558d2d867315314a90aeec",
+    ".q3x-work/mtp-softmax-lifetime-20261010/build-synthetic.log": "e82a7a491f3cf412fa35260ee9817c1a519faaed656fb196bafecb594e7177c6",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p8192-driver.log": "1fe14328e71ed926a24986c8d550c4e1a96d66bef079243c450a08ace4e80222",
+    ".q3x-work/mtp-softmax-lifetime-20261010/run-oracle.py": "2e5679901ee962b2b65bcc79f13243d48d62d5b61b8ccf9089b304b9cf22fac2",
+    ".q3x-work/mtp-softmax-lifetime-20261010/build-oracle.log": "10ab8a8a7f6a1cd7d710380251d107ad8b59540cc1d6057702166804d6910db3",
+    ".q3x-work/mtp-softmax-lifetime-20261010/run-api.py": "7b387b6c40a68859887d15afd935e5aa073aa27ed85128badd461bf3e0268d6a",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/results.json": "3e1b9e0df9daf1560215c42b15919fcae43eaa10a2cd25edd3baaf456a71e71f",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/identity.json": "0dde3740b2b5c5951cc77d5224cb8d8a050edda08fa8641d5f3c22d8bd97fa0d",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/cache-preparation.json": "320e3b1730afc00d2413ee2885ef2c635656403b70b7bda5c32e228f1e6a872b",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/p65-nonstream.json": "5409004f7c53006258c7b405def814ffc9e6e3b6a442808725c2021043777cb5",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/requests.jsonl": "95b070910f4d06a4321231a45c5a2352f40f39ab788acf09605dc47f0f3bf29d",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/chat-stop.json": "da8dbbe27de5483527a672ff2e47488984164ce8fa2eb4b866dd5d104aa0c3a8",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/health.json": "9a8962707a4e7a4a3bc74f3c908356c66293a78f60cca20d10c82139c57c40f5",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/p65.json": "9ffa11550bbe2b40f916bd686dc488c1c3d796dba6b0794615f7b3db347394f0",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/cleanup.json": "a530e95ec4f1d6fbca5f5805dd1a5d03831eacb54c8c1a7bbc17f0649dc42a83",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/preflight-console.log": "45b5fcba672508fbf3a1ed49897ea46f6e2e0bbb0a9aa3ec9543e6f963f5f4ab",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/p8192.json": "13f9e5b0af2166e9b11bbed8b905a6ded8103dda00b4fcbf47317e797764e26f",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/telemetry.log": "93abbb7f113b6e4b4149db768f79511e8ccda4dc0572c4f2e4ac134a6c151be5",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/p40000.json": "2e2d29a3e3dc40129cb23b651f736e4bc7a034d4550c3285a4ac1321b64246f3",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/after-prefill-cancel.json": "b4b3556903c8a86924bb5b966da77e7b55663e80166c94a5a5356961ad9dbe60",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/preflight.json": "379c69d93e28f24a8bf1e5d4905adc16ee87a6216b8f5c28557811819c89e850",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/server.log": "6a23e15fc3547f8f55377960286fd5d0dd6a18bfc8f9cc9738b3af38fbd96800",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/after-decode-cancel.json": "ff9e3a6ec6d82c37f2080ce95884c8666d59b82bc61f183aa6d2d68c0eda5152",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/raw-text.json": "f4476a9d684c15f687155a759368b29d888c4cc7258ea8558d11b52500410fcd",
+    ".q3x-work/mtp-softmax-lifetime-20261010/d2/audited-metrics.json": "1f4d36fd7f3bc04e99154aaf86573f0442aae4c70148ac61616bb2ccc7a37366",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p8192/identity.json": "f9b1c85f8887057dd1b57b467b5e1810aafdec48b62f8e67dafad5c8429a57d8",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p8192/cache-preparation.json": "a5ba9454f83bf24fdfd4720681e3ca075d0644c0ef4a29ce7aa6a7fa4bf7d236",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p8192/cleanup.json": "2d9fdef2763268879281f16a922245941ba0cfc9497c498d6cd610ba5acf22a4",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p8192/run.log": "5dc6110225e5170dfbb3621db7ada7f98d4a6d15d8adf40f1f9279bbfc2054a8",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p8192/preflight-console.log": "3d2277416566c5b9b8b22a6cd35d87c5aa84533ebfec3a267f49bc0c7944b61f",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p8192/q3x_mtp_whole_core_test": "6ed4623ca3bbe8742b645418d5474de837bfd792334a328148fe1bc3d42164df",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p8192/telemetry.log": "b9c6fa19e7e9aba1e0078a5046ebc74ecab9886ce8e61dac57ebc71f227f8599",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p8192/prompt.u32": "1c62527726da9158c03006c561cfd1958fdf06a56086e6170b69fc49a3e5de70",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p8192/preflight.json": "ce2043fb179f4998168a4dd8abf1acc9dbce719c6e414be2f8e82b1a3e0d6bfb",
+    ".q3x-work/mtp-softmax-lifetime-20261010/source/source.patch": "eaa8b91199495702651113a7811341f99c0c3acdeeb5dd4ac8ea2268db9a8bcb",
+    ".q3x-work/mtp-softmax-lifetime-20261010/source/identity.json": "71961a42acaa5c0140a5038c8df907628493e0d4a8eb3bb35c795ba861fb0174",
+    ".q3x-work/mtp-softmax-lifetime-20261010/source/server": "430661b12cec43d1a2d90c77c26379a964075fc93f4280def739aa3a1cc80ab6",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p513/identity.json": "99eea586a8f767ece0a573c567c24ea9f2292dea7e33bdda38e35c64969157dc",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p513/cache-preparation.json": "e0def83f31c1a0829f29eb926462a79bf99b3012d53f340c8da7aad4d63bdf8c",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p513/target-hidden.bf16": "74a1e2b6396dc43fa90f3fdc258ed17613922d83ae639eae818a58f7afacf9a6",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p513/draft-prefill-v.bf16": "c76d605d38c0d364a1c941f9add0714e57d895fc72304ddf1c10e08c310cd714",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p513/target-residual.bf16": "af6f0594c7e94ec0c43586c02668da3b6bd9ffb264055a037ab6da6cd51a2825",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p513/draft-prefill-k.bf16": "6565a9b8300a56643ac620003ae25f90c24a35833466ce3da559f244bd815f6d",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p513/draft-prefill-hidden.bf16": "13062726b0754407510df8ecd7a5ceabf7a19ed2422f2c43d1e1f97fd043adf2",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p513/cleanup.json": "686d17abaaa82b2442ad3077a2f4ec8e00297040fd3f9b5a5f3815b2d8ed7e48",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p513/run.log": "26dd77c7861dc988cfd66f5d2cd062baf0d242c068b7b2e20d3c35f0d8ed88c1",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p513/preflight-console.log": "b9560e8a43b8071121dda882d61c648e3c11dc6bb283f3a40af9940498107bf3",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p513/q3x_mtp_whole_core_test": "6ed4623ca3bbe8742b645418d5474de837bfd792334a328148fe1bc3d42164df",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p513/telemetry.log": "c11532c586d7f48c3b13d7a3af1c8b5deb3a61d0bcc8cdf325d9b29a0a3a25f5",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p513/prompt.u32": "1e43eb1b2b20d294699de49bcd732d1c5e10cfe1f95f1933a0142c1143e823fd",
+    ".q3x-work/mtp-softmax-lifetime-20261010/oracle-p513/preflight.json": "b40c857abea1349dd8ad742b6055ef0977176de08b452afe752737efb71e6ff4",
+    ".q3x-work/mtp-softmax-lifetime-20261010/synthetic/cache-preparation.json": "1dd41de65e49c32e8f380ed4502f48baedada5ac80ddfe9d8cc630797cf1fbfa",
+    ".q3x-work/mtp-softmax-lifetime-20261010/synthetic/cleanup.json": "10fe18f519f304d4289d8041535323fa09484f3e7a031ca311d7ed6ec48778bb",
+    ".q3x-work/mtp-softmax-lifetime-20261010/synthetic/run.log": "26602cd7b7e5d30026e81417311b98281b2740bbe484c1c8c3852c8e0e962971",
+    ".q3x-work/mtp-softmax-lifetime-20261010/synthetic/preflight-console.log": "b1670f4d42b99bfb82d5efcde69d005ecce1a004934c32bc39bd343efff27b84",
+    ".q3x-work/mtp-softmax-lifetime-20261010/synthetic/telemetry.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-softmax-lifetime-20261010/synthetic/preflight.json": "e303a03f06e7e2e14346ff396055cee7bc92ce1f605ec68303234f170e807860",
+    ".q3x-work/mtp-softmax-lifetime-20261010/source/tools/evaluation/validate_mtp_service.py": "4dc576acf76bb286a81e69d3484b2be03db7ac41f451b6d6d869af6bfa582f72",
+    ".q3x-work/mtp-softmax-lifetime-20261010/source/src/server/evaluation_server.cpp": "aa385992340f90054dac6a4eb296bf9209043b853ca1b4c054bce8a0055b3e53",
+    ".q3x-work/mtp-softmax-lifetime-20261010/source/src/runtime/mtp_verify_attention_internal.cu": "85f4d614adb34cb953198731d2d0125bc999d8ecca154a9f20e02eb8fb427f5d",
+    ".q3x-work/mtp-softmax-lifetime-20261010/source/src/runtime/mtp_service_internal.cpp": "a0633110491b2a2be5aa47f3bccb2db681f96ae78853a66530cddfc21b2c943f",
+    ".q3x-work/mtp-softmax-lifetime-20261010/source/include/q3x/server/evaluation_server.h": "c930a6d6916400cefc6cb86b87300db4096e8c7a698b9b59a63ebd865ceae101",
+    ".q3x-work/mtp-softmax-lifetime-20261010/closure.json": "71c71d72afe76878ceae2e7fce41f86afb117c1a17b73ab18d3b48a314002efb",
+    ".q3x-work/mtp-softmax-lifetime-20261010/restored-source.json": "ed09de4d89757e1519c53080bb37cb1207eda85dcafb44b4537a18c8f0674a3a",
+    ".q3x-work/mtp-softmax-lifetime-20261010/build-restored-service.log": "828808b4ea6ec00858f46b5419448d9751ba0e69b2e68ea6353c314e9ba0019d",
+    ".q3x-work/mtp-softmax-lifetime-20261010/build-restored-oracle.log": "10ab8a8a7f6a1cd7d710380251d107ad8b59540cc1d6057702166804d6910db3"
+  },
+  "closure": {
+    "restored_source_matches": "5e07a30",
+    "restored_builds": "service and oracle completed exit0",
+    "restored_service_sha256": "f0feb9875b85fd0dd4a143f893f36bf9c6becc0474000c47daf39109ee0f8543",
+    "installed_production_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "gpu_holders": [],
+    "owned_processes": [],
+    "new_worktrees": 0,
+    "artifact_bytes": 62827147,
+    "workspace_free_bytes": 426858663936,
+    "host_checks": {
+      "ctest_passed": [
+        "mtp_control",
+        "mtp_weights",
+        "reference_engine_control"
+      ],
+      "document_control": {
+        "registered": 86,
+        "links": 1143,
+        "errors": 0
+      },
+      "document_unit_tests": 7,
+      "git_diff_check": "pass"
+    }
+  }
+}

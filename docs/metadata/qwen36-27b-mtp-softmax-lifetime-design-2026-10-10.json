@@ -1,0 +1,38 @@
+{
+  "work_package_id": "WP-MTP-SOFTMAX-LIFETIME-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v29",
+  "source_base": "5e07a30c653bd2adfbb86421b531b13eee17926f",
+  "profile": "q3x.sm87.admission.mtp-softmax-lifetime-api.v32",
+  "decision_unit": "architecture_candidate",
+  "goal": "1.5x\u20133x same-request committed Decode, configured drafts2/3; exact full target state/logits",
+  "downward_budget": {
+    "complete_decode_8k_s": 18.45,
+    "complete_decode_40k_s": 21.62,
+    "v31_remaining_decode_gap_8k_s": 1.3,
+    "v31_remaining_decode_gap_40k_s": 4.78,
+    "v7_softmax_post_first_verifier_gpu_s": 0.983433408,
+    "scope": "older matched whole-model attribution includes target and draft; ceiling only, cannot alone close goal"
+  },
+  "mechanism": "One CTA per (speculative row,head) in one grid; same 256-thread strided max/sum and ordered 128/64/32 shared tree followed by exact warp16/8/4/2/1. Materialize expf(score-max) once in the existing score slot, reuse for unchanged division after same FP32 denominator. No online normalization or reassociation. QK/PV unchanged.",
+  "reference": {
+    "path": ".q3x-work/tmp-archive-20260809/flashinfer-audit.kaXayz/flashinfer/include/flashinfer/attention/decode.cuh",
+    "sha256": "bd699c64cff0af922305e532de587ff4db8bc377c198bd653db1d48aa74c2942",
+    "translation": "Study compute_qk retains exponentials for denominator and value consumption. Transfer lifetime reuse and batched query scheduling only; reject its online max/rescale/exp2 and reduction order for this exact verifier. Native implementation, no source import."
+  },
+  "equivalence": "Each original score is dead after max and its expf evaluation. A thread overwrites only its strided cells after the whole maximum tree; all original expf inputs/results and denominator additions/divisions remain bit-identical. Shared reductions preserve original 256-leaf topology, no changed root order; barriers protect root broadcast and scratch reuse. Causal lengths and row slots unchanged.",
+  "resources": "No allocation/arena/sidecar changes; partial256 floats per CTA. Model/state/capacity/reserve untouched.",
+  "validation": [
+    "60 full FP32 probability/guard cases: firstS512/513/8192/40000/44092, M2/3/4, four finite/zero/extreme/nonfinite patterns against extracted unmodified scalar kernel",
+    "P513 complete prefix state/logits, transactions, fault/recovery; P8192 prefix-only complete state/logits",
+    "Immediate P65/8K/40K d2 API; >3% regression early stop; neutral/negative removes; useful direction d3 complete panel"
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs_max": 1,
+    "local_timing_variants": 0,
+    "new_profiles": 0
+  },
+  "expiry": "next complete verifier API return or archive; dependency-only until whole target qualified",
+  "artifact_root": ".q3x-work/mtp-softmax-lifetime-20261010",
+  "production_unchanged": true
+}

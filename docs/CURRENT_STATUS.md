@@ -88,6 +88,16 @@ reduction mapping scan or qualification-only campaign is active. Complete
 Decode still exceeds the 18.45/21.62-second minimum-target budgets; next work
 must address the remaining verifier cost, particularly at 40K.
 
+The subsequent [softmax-lifetime direction](metadata/qwen36-27b-mtp-softmax-lifetime-rejection-2026-10-10.json)
+passes complete FP32 probabilities, P513/P8192 state/logits and eight d2 API
+checks, but is removed without retention. At 8K, Prefill is 17.311 s / 473.23
+token/s, external TTFT 17.333 s, Decode 12.984 token/s and total 36.973 s;
+at 40K, 93.277 s / 428.83 token/s, 93.312 s, 9.724 token/s and 119.537 s.
+These single-process Decode differences of +0.55%/+0.67% versus v31 have no
+noise qualification, and 40K total is 0.403 seconds longer. Prefill code is
+unchanged; that interval difference is not attributed to this edit. D3 is not
+run. The retained v31 table, production and unmet goal remain unchanged.
+
 ### Preceding FP8 live-reduction direction
 
 The preceding isolated source uses exact live-ancestor FP8 reductions on top of
