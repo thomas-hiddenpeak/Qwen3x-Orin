@@ -1,0 +1,37 @@
+{
+  "work_package_id": "WP-MTP-MIXED-DRAFT-20261010",
+  "source_base": "badb413",
+  "decision_unit": "bounded draft representation feasibility followed by native composition only if admitted",
+  "goal": "1.5x–3x same-request committed Decode with configured drafts 2/3 and exact target verification",
+  "downward_budget": {
+    "complete_decode_8k_s": 18.45,
+    "complete_decode_40k_s": 21.62,
+    "v31_draft_8k_s": 2.063282199,
+    "v31_draft_40k_s": 2.454739261,
+    "limitation": "Draft savings cannot alone close the remaining 4.78-second 40K gap; any retained dependency must compose with further verifier work. No projected API gain."
+  },
+  "causal_origin": "The rejected all-matrix per-channel INT8 audit found 5113/5120 FC row maxima on the hidden-half diagonal. Preserve that complete matrix in original BF16; change the seven other matrices to one fixed group128 representation. This is a role-aware owner/consumer change, not another all-matrix per-channel variant.",
+  "representation": {
+    "fc": "original BF16, unchanged",
+    "other_seven_matrices": "Per output row and contiguous K128 group: BF16 scale = RNE(max(abs(W))/127), symmetric RNE integer codes clipped to [-127,127], U8B128 storage. A zero group uses scale 1 and code 0.",
+    "consumer_weight": "RNE_BF16(FP32(q) * FP32(BF16 scale)), before BF16 Tensor Core multiplication",
+    "norms": "original BF16, unchanged"
+  },
+  "reference": "Vendored vLLM Marlin dequant.h kU8B128 BF16 specialization and marlin_template.h scale() apply BF16 __hmul2 to grouped B fragments before MMA. Pinned upstream ccd49f6821ee110cc5a2b1aba620a8a1d66c7cbb; no new imported source or runtime dependency.",
+  "host_screen": {
+    "inputs": "Authenticated retained real P65 target-hidden, tokens and original independent FP64 full-layer outputs from the preceding feasibility audit; no new GPU capture.",
+    "arithmetic": "Independent FP64 projections on reconstructed BF16 operands; original BF16 publication, normalization, causal Attention and residual boundaries.",
+    "gate": "Unchanged maximum-row relative L2 <=0.02 for complete hidden/K/V against original full-layer FP64 reference, finite values and matching capture/checkpoint hashes. This isolates representation error and does not qualify a GPU reduction.",
+    "budget": "One fixed representation and one full 64-row host evaluation; no group-size, scale or outlier-threshold scan. Failure closes before runtime implementation."
+  },
+  "conditional_composition": {
+    "numerical_identity": "draft-fc-bf16-group128-int8-v1, private admission only",
+    "owner": "Retain authenticated original weights; add one private packed owner and fixed scratch before readiness, no allocation/repacking during requests, unchanged 8-GiB actual startup reserve.",
+    "consumer": "FC retains CUTLASS; remaining projections consume packed INT8 directly through a fixed Marlin BF16 path. Full steps, cache-only append and initialization share one fixed physical M32 geometry, padded rows never reaching state.",
+    "gates": "Independent original-weight GPU draft oracle at unchanged 0.02 bound, exact within-route complete cache replay/guards, exact target prefix state/full logits and transaction/recovery admission.",
+    "api_return": "Immediately after admission, one P65/8K/40K d2 process versus retained v31 and non-MTP; report Prefill/TTFT/Decode/total and natural acceptance/work. Useful direction unlocks d3. Greater-than-3% Decode regression stops; neutral/negative removes the new route. At most one correctness repair, no local timing scan.",
+    "expiry": "A useful dependency must return in the next complete verifier architecture or be archived; no production promotion from a direction screen."
+  },
+  "artifact_root": ".q3x-work/mtp-mixed-draft-20261010",
+  "production": "Unchanged non-MTP installed service; no target numerical waiver or accuracy-baseline substitution"
+}

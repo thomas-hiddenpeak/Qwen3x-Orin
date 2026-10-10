@@ -1,0 +1,209 @@
+{
+  "work_package_id": "WP-MTP-MIXED-DRAFT-20261010",
+  "source_base": "badb4135b73e7d0d433d37c396b24af23aa6bde2",
+  "status": "fixed_mixed_representation_rejected_before_gpu",
+  "decision": "Preserve original draft BF16 execution. FC preservation plus fixed group128 INT8 for seven other matrices fails the unchanged complete hidden 0.02 bound. Conditional native composition not implemented; no quantizer/group-size scan follows.",
+  "assessment": {
+    "scope": "Host representation feasibility only; original FP64 layer comparator, BF16 group-scale multiplication before projection. No GPU reduction, acceptance or performance result.",
+    "pass": false,
+    "comparisons": {
+      "target_final_norm": {
+        "max_row_relative_l2": 5.963384100154866e-05,
+        "max_absolute_error": 0.0078125,
+        "elements": 332800,
+        "threshold_max_row_relative_l2": 0.005,
+        "pass": true
+      },
+      "hidden": {
+        "max_row_relative_l2": 0.03698465208311101,
+        "max_absolute_error": 1.3984375,
+        "elements": 327680,
+        "pass": false
+      },
+      "k": {
+        "max_row_relative_l2": 0.008094315098736685,
+        "max_absolute_error": 0.0625,
+        "elements": 65536,
+        "pass": true
+      },
+      "v": {
+        "max_row_relative_l2": 0.006036070342496047,
+        "max_absolute_error": 0.125,
+        "elements": 65536,
+        "pass": true
+      }
+    },
+    "quantization": {
+      "mtp.layers.0.mlp.down_proj.weight": {
+        "shape": [
+          5120,
+          17408
+        ],
+        "group_size": 128,
+        "original_bytes": 178257920,
+        "quantized_bytes": 90521600,
+        "codes_u8b128_sha256": "1d1a3ab0a7fd08a0aad5ded869cd05abb47b3b658d402516c1ed973b4ea393bc",
+        "scales_bf16_sha256": "00bdaa0628e322d6e09fc7e3d1ad219856867ba6c98375e7405d20a295a508d1",
+        "weight_relative_l2": 0.007582287015860546,
+        "zero_codes": 971126
+      },
+      "mtp.layers.0.mlp.gate_proj.weight": {
+        "shape": [
+          17408,
+          5120
+        ],
+        "group_size": 128,
+        "original_bytes": 178257920,
+        "quantized_bytes": 90521600,
+        "codes_u8b128_sha256": "e3997b0acd067b267ef7872782564fe580fa4c3d22e4f45b0fa22d588da25447",
+        "scales_bf16_sha256": "1fbbd6a6fd377fe6598fdd068014dae20c8e8449696572bf7faf3692ff0f4688",
+        "weight_relative_l2": 0.006824828850003903,
+        "zero_codes": 812005
+      },
+      "mtp.layers.0.mlp.up_proj.weight": {
+        "shape": [
+          17408,
+          5120
+        ],
+        "group_size": 128,
+        "original_bytes": 178257920,
+        "quantized_bytes": 90521600,
+        "codes_u8b128_sha256": "c1c153608e99bd124c78e736f3fa9422ceeca006548d0c62ab64af4969705e11",
+        "scales_bf16_sha256": "2a5506a1cf3e959a1ab4f2cf6e398f5d4a8cec06f96db918cc1b96335e705814",
+        "weight_relative_l2": 0.006780887409247722,
+        "zero_codes": 813797
+      },
+      "mtp.layers.0.self_attn.k_proj.weight": {
+        "shape": [
+          1024,
+          5120
+        ],
+        "group_size": 128,
+        "original_bytes": 10485760,
+        "quantized_bytes": 5324800,
+        "codes_u8b128_sha256": "0ee10ee9be7e956a561bdecb8ee0f9a42f726bab563d41e802dfb2d40665e6ab",
+        "scales_bf16_sha256": "ac6e5afaf689503c2fc2790a78f3e4e2dbf3e39db75eacf557391962c60ab211",
+        "weight_relative_l2": 0.007843190583374895,
+        "zero_codes": 54946
+      },
+      "mtp.layers.0.self_attn.o_proj.weight": {
+        "shape": [
+          5120,
+          6144
+        ],
+        "group_size": 128,
+        "original_bytes": 62914560,
+        "quantized_bytes": 31948800,
+        "codes_u8b128_sha256": "d3304441cde023c343b361285c0d339933e07fb23a13681dc03ac308d9faafdc",
+        "scales_bf16_sha256": "fd9d9fb30ea439d9f43ade60cf64dcc15fd1d853065ce9e86829c6801bab395f",
+        "weight_relative_l2": 0.007825616562242533,
+        "zero_codes": 355785
+      },
+      "mtp.layers.0.self_attn.q_proj.weight": {
+        "shape": [
+          12288,
+          5120
+        ],
+        "group_size": 128,
+        "original_bytes": 125829120,
+        "quantized_bytes": 63897600,
+        "codes_u8b128_sha256": "01965bf7b903743c9ab288e4a964f1b67ebbac1419c5aaa730ad8855a3fc27b5",
+        "scales_bf16_sha256": "a2f335635504913fdca4222d0025999ab0177bbdb8b8399793d2961245c91f20",
+        "weight_relative_l2": 0.0070161857943288105,
+        "zero_codes": 595483
+      },
+      "mtp.layers.0.self_attn.v_proj.weight": {
+        "shape": [
+          1024,
+          5120
+        ],
+        "group_size": 128,
+        "original_bytes": 10485760,
+        "quantized_bytes": 5324800,
+        "codes_u8b128_sha256": "4162d04b4e67f1617a3deb3b9d80e4d64ce58ca17756f9d261289960c48f4bcf",
+        "scales_bf16_sha256": "dea95b417ed10c5816bbe2d97a814cbfb554568c782964a59da905c9a1d4e246",
+        "weight_relative_l2": 0.007135605328717901,
+        "zero_codes": 52327
+      }
+    },
+    "original_reference_and_capture_hashes": {
+      "target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+      "draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+      "target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+      "draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+      "draft-prefill-hidden.bf16": "9c5811b3536f493466a8699092f6fd0bd624227239cd1acee52e7e0182666efb",
+      "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+      "original-fp64-hidden.npy": "062f6b5dcfc7ac3155feb92ad3556ac3ed77115903cde6dfa6928ae7b91a1d83",
+      "original-fp64-k.npy": "2e2bbbedbc257aec5cb108270b3ed5414ed2c715f3adaf53690f34465aa1a9b6",
+      "original-fp64-v.npy": "0944fe59b8330f55bd60be07a7bb3243aadff2e8813507949287476c19ae8e00"
+    },
+    "checkpoint_payload_authentication": "all prior payload hashes match",
+    "original_matrix_bytes": 849346560,
+    "mixed_matrix_and_scale_bytes": 482918400,
+    "additional_private_packed_owner_bytes": 378060800
+  },
+  "independent_saved_output_recalculation": {
+    "formula": "sqrt(sum((mixed-original)^2)/sum(original^2)) per complete row; agrees within 1e-14",
+    "hidden_failing_rows_of_64": 2,
+    "hidden_max_row_zero_based": 18,
+    "k_failing_rows": 0,
+    "v_failing_rows": 0
+  },
+  "limitations": [
+    "Host reconstruction plus independent FP64 accumulation isolates representation error; it does not emulate or qualify a native GPU MMA reduction.",
+    "Only authenticated retained P65 teacher-forced inputs are evaluated; no recursive acceptance or long-context result.",
+    "This rejection covers the fixed mixed representation, not all INT8 methods or a hardware bound.",
+    "No new Prefill, TTFT, Decode or total-request timing; retained v31 single-process observations remain unchanged.",
+    "No production switch or change to the original-weight independent reference, exact target numerical contract or 1.5x\u20133x objective."
+  ],
+  "execution": {
+    "command": "OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 python3 -B .q3x-work/mtp-mixed-draft-20261010/assess.py",
+    "exit_code": 0,
+    "meaning": "assessment completed; numerical pass is false",
+    "gpu_processes_started": 0,
+    "runtime_files_changed": 0,
+    "external_inputs": "read-only authenticated original model and retained captures"
+  },
+  "production_unchanged_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+  "evidence_sha256": {
+    ".q3x-work/mtp-mixed-draft-20261010/assess.py": "c2db6f8fbe07dc8ed4aaeb5ea3fe6dfe538a9784df87a9b479f1c69207a16abc",
+    ".q3x-work/mtp-mixed-draft-20261010/assessment.json": "1a39e6f01f940832a50c509c2590b7e4131d4484faf5087f6d5f6e3914d22174",
+    ".q3x-work/mtp-mixed-draft-20261010/assessment.log": "7f6f87c65386c7f092fe4b2f31b602a70a60dbadf10e258de2ef867fe9732b40",
+    ".q3x-work/mtp-mixed-draft-20261010/capture/draft-prefill-hidden.bf16": "9c5811b3536f493466a8699092f6fd0bd624227239cd1acee52e7e0182666efb",
+    ".q3x-work/mtp-mixed-draft-20261010/capture/draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+    ".q3x-work/mtp-mixed-draft-20261010/capture/draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+    ".q3x-work/mtp-mixed-draft-20261010/capture/mixed-fp64-hidden.npy": "bd929c82d9402c73190ba16e2c2c5f93f4e91fa3d8b157cf3ceee86950a57913",
+    ".q3x-work/mtp-mixed-draft-20261010/capture/mixed-fp64-k.npy": "0634e96b5a90e3f17187db6eb8b170c839288df5ced8013143bf254f620d20d7",
+    ".q3x-work/mtp-mixed-draft-20261010/capture/mixed-fp64-v.npy": "d7738e4f3f3e1bb44ec893b12994135c286dc5c70393f49611e369a7bbe75a11",
+    ".q3x-work/mtp-mixed-draft-20261010/capture/mixed-oracle.json": "009a05aa6fa379c6f348654e4bf49fa259dbcb869a162bbe7ad30f57f473f6c5",
+    ".q3x-work/mtp-mixed-draft-20261010/capture/original-fp64-hidden.npy": "062f6b5dcfc7ac3155feb92ad3556ac3ed77115903cde6dfa6928ae7b91a1d83",
+    ".q3x-work/mtp-mixed-draft-20261010/capture/original-fp64-k.npy": "2e2bbbedbc257aec5cb108270b3ed5414ed2c715f3adaf53690f34465aa1a9b6",
+    ".q3x-work/mtp-mixed-draft-20261010/capture/original-fp64-v.npy": "0944fe59b8330f55bd60be07a7bb3243aadff2e8813507949287476c19ae8e00",
+    ".q3x-work/mtp-mixed-draft-20261010/capture/prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    ".q3x-work/mtp-mixed-draft-20261010/capture/target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+    ".q3x-work/mtp-mixed-draft-20261010/capture/target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+    ".q3x-work/mtp-mixed-draft-20261010/oracle-transformation.py": "4ca4d2de60b2d104d118d084e21f79df18763a40de8780e0ecedaffb8d96a1b0"
+  },
+  "source_sha256": {
+    "tools/evaluation/validate_mtp_draft.py": "6699df34a5bb94fc12131d979cbc7b514bd95ca3bb190de5da642cbee3515f46",
+    "src/kernels/sm87/third_party/vllm_marlin/dequant.h": "39c4640d2de39374ef5d96e7fa27701a675922113c3f5b05d45369321090e728",
+    "src/kernels/sm87/third_party/vllm_marlin/marlin_template.h": "c4cae347301f41d16b67fe48c1bff0a3c1ffea7e32e759502a7634088fab73ce"
+  },
+  "validation": {
+    "document_control": "PASS; 86 tracked/registered Markdown, 1155 local links",
+    "document_control_unit": "7 passed",
+    "git_diff_check": "pass",
+    "runtime_tests": "not rerun; no runtime changes"
+  },
+  "closure": {
+    "assessment_process": "exited 0; numerical rejection retained",
+    "gpu_handles": {
+      "returncode": 1,
+      "holders": []
+    },
+    "new_worktrees_created": 0,
+    "artifact_bytes": 5944230,
+    "production_hash_verified_unchanged": true,
+    "goal": "active and unmet"
+  }
+}

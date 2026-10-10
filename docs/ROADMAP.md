@@ -19,6 +19,34 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP role-aware draft representation — rejected before GPU
+
+`WP-MTP-MIXED-DRAFT-20261010` keeps the 1.5x–3x goal and exact target
+verification. The [bounded design](metadata/qwen36-27b-mtp-mixed-draft-design-2026-10-10.json)
+responds to the measured FC diagonal risk by preserving the complete FC matrix
+in BF16 and using one fixed K128-group INT8 representation for the other seven
+draft matrices. Its host screen includes BF16 operand reconstruction before
+independent FP64 projections and compares complete hidden/K/V to the original
+reference at the unchanged 0.02 bound. One fixed full-layer evaluation either
+closes this representation or proceeds directly to a separately identified
+native packed owner/consumer and the same real d2/d3 API. No group-size or
+quantizer scan follows. Draft savings alone cannot close the 40K budget gap;
+any retained dependency must compose with further verifier work. Artifacts
+stay under `.q3x-work/mtp-mixed-draft-20261010/`; production is unchanged.
+
+The [completed assessment](metadata/qwen36-27b-mtp-mixed-draft-2026-10-10.json)
+authenticates all reused captures, original independent outputs and checkpoint
+payloads. K/V pass at 0.008094/0.006036 maximum-row relative L2, but complete
+hidden fails at 0.036985, with two of 64 rows above 0.02. Preserving FC and
+using grouped scales substantially reduces this representation's error but
+does not meet the unchanged full-layer contract. The conditional native
+owner/consumer is therefore not implemented; no GPU, acceptance or performance
+result follows. This fixed representation is closed without a quantizer or
+group-size scan. Retained v31, production and performance observations are
+unchanged. The 1.5x–3x objective remains active and unmet; a successor must
+address the complete verifier budget with a new bounded architecture and real
+API return, rather than treat lower weight error as a delivered improvement.
+
 ## 2026-10-10 MTP draft INT8 feasibility — fixed quantizer rejected
 
 `WP-MTP-DRAFT-INT8-FEASIBILITY-20261010` preserves the 1.5x–3x target,

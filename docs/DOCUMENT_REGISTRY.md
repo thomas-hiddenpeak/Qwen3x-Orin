@@ -242,6 +242,10 @@ The bounded draft INT8 host assessment rejects the fixed per-channel quantizer
 before GPU work and updates the existing Roadmap only; no Markdown path or
 classification changes.
 
+The role-aware draft representation package updates the existing Roadmap and
+closes at its failed host numerical gate. No native owner/consumer or MTP
+numerical-contract extension is selected; no Markdown path or class changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:
