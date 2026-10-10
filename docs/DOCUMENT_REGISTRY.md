@@ -294,6 +294,10 @@ The lossless FP8 packet host gate closes below its payload-saving floor
 and updates the existing Roadmap only;
 no runtime, Markdown path or classification changes.
 
+The compact QK row-sharing composition completes both API panels and updates
+existing MTP SDD, Current Status and Roadmap as a bounded dependency;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

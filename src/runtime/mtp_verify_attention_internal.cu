@@ -76,6 +76,7 @@ __device__ __forceinline__ float warp_sum_two(float s0, float s1) {
 __device__ __forceinline__ void stage_keys(
     std::uint16_t* destination, const std::uint16_t* keys,
     unsigned int sequence, unsigned int first) {
+  if (threadIdx.x < 64) {
   const unsigned int row = threadIdx.x / 32;
   const unsigned int column = (threadIdx.x % 32) * 8;
   const bool valid = first + row < sequence;
@@ -83,21 +84,24 @@ __device__ __forceinline__ void stage_keys(
   const auto dst = static_cast<unsigned int>(__cvta_generic_to_shared(destination + row * 256 + column));
   asm volatile("cp.async.cg.shared.global [%0], [%1], 16, %2;" ::
                "r"(dst), "l"(source), "r"(valid ? 16 : 0));
+  }
   asm volatile("cp.async.commit_group;" ::);
 }
 
-__global__ void attention_scores_grouped_async_kernel(
+template<unsigned M>
+__global__ void attention_scores_shared_rows_kernel(
     const std::uint16_t* query, const std::uint16_t* keys,
     unsigned int first_sequence, unsigned int rows, float* scores) {
-  const unsigned int m = blockIdx.x % rows, tile = blockIdx.x / rows;
+  const unsigned int warp = threadIdx.x >> 5;
+  const unsigned int m = warp % M, position_warp = warp / M;
+  const unsigned int tile = blockIdx.x;
   const unsigned int sequence = first_sequence + m;
   query += m * 12288;
-  scores += m * 24 * (first_sequence + rows - 1);
+
   constexpr unsigned int offsets[8] = {0, 128, 64, 192, 32, 160, 96, 224};
-  __shared__ float score_tile[6][128];
-  __shared__ __align__(16) std::uint16_t key_tiles[4][8 * 256];
+  __shared__ float score_tile[M][6][128];
+  __shared__ __align__(16) std::uint16_t key_tiles[4][2 * 256];
   const unsigned int lane = threadIdx.x & 31;
-  const unsigned int warp = threadIdx.x >> 5;
   const unsigned int kv = blockIdx.y;
   float queries[6][8];
 #pragma unroll
@@ -107,19 +111,19 @@ __global__ void attention_scores_grouped_async_kernel(
       queries[h][j] = decode_bf16_device(query[(kv * 6 + h) * 256 + lane + offsets[j]]);
 #pragma unroll
   for (unsigned int stage = 0; stage < 3; ++stage)
-    stage_keys(key_tiles[stage], keys, sequence, tile * 128 + stage * 8);
+    stage_keys(key_tiles[stage], keys, first_sequence + M - 1, tile * 128 + stage * 2);
   asm volatile("cp.async.wait_group 2;" ::);
   __syncthreads();
-  for (unsigned int i = 0; i < 16; ++i) {
-    if (i + 3 < 16)
-      stage_keys(key_tiles[(i + 3) & 3], keys, sequence, tile * 128 + (i + 3) * 8);
-    const unsigned int column = i * 8 + warp;
+  for (unsigned int i = 0; i < 64; ++i) {
+    if (i + 3 < 64)
+      stage_keys(key_tiles[(i + 3) & 3], keys, first_sequence + M - 1, tile * 128 + (i + 3) * 2);
+    const unsigned int column = i * 2 + position_warp;
     const unsigned int position = tile * 128 + column;
     if (position < sequence) {
     float key[8], sums[6];
 #pragma unroll
     for (unsigned int j = 0; j < 8; ++j)
-      key[j] = decode_bf16_device(key_tiles[i & 3][warp * 256 + lane + offsets[j]]);
+      key[j] = decode_bf16_device(key_tiles[i & 3][position_warp * 256 + lane + offsets[j]]);
 #pragma unroll
     for (unsigned int h = 0; h < 6; ++h) {
       float product[8];
@@ -132,24 +136,27 @@ __global__ void attention_scores_grouped_async_kernel(
     }
     const float first = warp_sum_four(sums[0], sums[1], sums[2], sums[3]);
     const float last = warp_sum_two(sums[4], sums[5]);
-    if (!(lane & 7)) score_tile[lane/8][column] = first * 0.0625f;
-    if (!(lane & 15)) score_tile[4+lane/16][column] = last * 0.0625f;
+    if (!(lane & 7)) score_tile[m][lane/8][column] = first * 0.0625f;
+    if (!(lane & 15)) score_tile[m][4+lane/16][column] = last * 0.0625f;
     }
     __syncthreads();
-    if (i + 3 < 16) asm volatile("cp.async.wait_group 2;" ::);
-    else if (i + 2 < 16) asm volatile("cp.async.wait_group 1;" ::);
+    if (i + 3 < 64) asm volatile("cp.async.wait_group 2;" ::);
+    else if (i + 2 < 64) asm volatile("cp.async.wait_group 1;" ::);
     else asm volatile("cp.async.wait_group 0;" ::);
     __syncthreads();
   }
   __syncthreads();
   // Publish adjacent positions together instead of one four-byte global
   // store per warp. Invalid tail cells are never read or published.
-  for (unsigned int i = threadIdx.x; i < 6 * 128; i += 256) {
-    const unsigned int h = i / 128;
+  for (unsigned int i = threadIdx.x; i < M * 6 * 128; i += 64 * M) {
+    const unsigned int row = i / (6 * 128);
+    const unsigned int h = (i / 128) % 6;
     const unsigned int column = i % 128;
     const unsigned int position = tile * 128 + column;
-    if (position < sequence)
-      scores[(kv * 6 + h) * sequence + position] = score_tile[h][column];
+    const unsigned int actual = first_sequence + row;
+    if (position < actual)
+      scores[row * 24 * (first_sequence + M - 1) +
+             (kv * 6 + h) * actual + position] = score_tile[row][h][column];
   }
 }
 
@@ -286,9 +293,16 @@ int launch_mtp_verify_attention(const std::uint16_t* query,
   (void)cudaGetLastError();
   const auto stream = static_cast<cudaStream_t>(opaque);
   auto* probabilities = static_cast<float*>(workspace);
-  attention_scores_grouped_async_kernel
-      <<<dim3(((last + 127)/128)*rows,4),256,0,stream>>>(
-          query,key,first_sequence,rows,probabilities);
+  const dim3 score_grid((last + 127)/128,4);
+  if (rows == 2)
+    attention_scores_shared_rows_kernel<2><<<score_grid,128,0,stream>>>(
+        query,key,first_sequence,rows,probabilities);
+  else if (rows == 3)
+    attention_scores_shared_rows_kernel<3><<<score_grid,192,0,stream>>>(
+        query,key,first_sequence,rows,probabilities);
+  else
+    attention_scores_shared_rows_kernel<4><<<score_grid,256,0,stream>>>(
+        query,key,first_sequence,rows,probabilities);
   auto status = cudaGetLastError();
   if (status != cudaSuccess) return status;
   for (unsigned m=0;m<rows;++m) {

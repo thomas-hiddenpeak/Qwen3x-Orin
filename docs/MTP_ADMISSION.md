@@ -1284,6 +1284,26 @@ scratch and expire before later Attention/argmax consumers. Errors drain and
 poison, with no fallback after partial enqueue. Full scalar-prefix state/logits
 and real API direction select the composed executor; coverage alone is no gain.
 
+## Compact shared-row QK composition v38
+
+One CTA owns two independent key positions and all speculative rows for one KV
+head. Its2*M warps each retain the original six queries and complete eight-product
+and live-ancestor trees. A producer pair stages each K position once into a
+four-buffer ring; every row consumer completes before reuse. The128-position
+tile executes64 two-position iterations. Per-row actual causal extents guard
+products and publication, while staging safely uses the latest extent. Separate
+M*6*128 FP32 score storage precedes coalesced global publication. M2/3/4 uses
+128/192/256 threads and10240/13312/16384 shared bytes. This avoids the rejected
+v19 head split and8*M-warp CTA. Softmax, PV, state, workspace and failure
+semantics remain unchanged. Complete scalar-prefix admission and the real API
+select the composition; shared bytes or traffic alone establish no gain.
+
+The [completed direction](metadata/qwen36-27b-mtp-qk-row-share-direction-2026-10-10.json)
+passes complete P513/P8192 state/logits and both API panels. Small consistent
+verification reductions retain this exact executor only as a bounded
+next-composition dependency. No noise-qualified selection or production claim
+follows; the service below identifies the cumulative admission as v41.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
@@ -1555,7 +1575,7 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
 production/install, and identifies itself as
-`q3x.sm87.admission.mtp-qk-live-reduction-api.v39`. The startup-only
+`q3x.sm87.admission.mtp-qk-row-share-api.v41`. The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.

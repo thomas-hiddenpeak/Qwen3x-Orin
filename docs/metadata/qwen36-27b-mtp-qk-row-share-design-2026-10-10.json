@@ -1,0 +1,24 @@
+{
+  "work_package_id": "WP-MTP-QK-ROW-SHARE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v38",
+  "source_parent": "bf2df6c",
+  "goal": "Same real API d2/d3 committed Decode1.5x\u20133x without target state/logit/output changes.",
+  "budget": "v39 full Decode gap1.194/4.207s at8K/40K. Older matched v31 QK3.077 GPU s bounds family opportunity only; this dependency alone cannot close40K.",
+  "mechanism": "One CTA owns two independent K positions and all M speculative rows for one KV head.2*M warps retain all six queries per warp, original8-product and live-tree reductions. One producer pair stages each K position once for all rows using four small buffers; fixed128-position tile means64 iterations. M2/3/4 uses128/192/256 threads, not rejected v19 512/768/1024. Score tiles retain separate row/head storage and coalesced publication.",
+  "distinction": "v19 split six heads into two groups and allocated8*M warps. This composition retains complete six-head trees in each warp and has2*M warps, decoupling shared-row lifetime from the previous large CTA. No head split, new query staging, repeated global query loads or matrix arithmetic.",
+  "equivalence": "Each query/head/position executes same eight FMA(+0) products, same parenthesized tree, same warp live-tree adds and1/16 scale. K loads may use latest-row extent, but each row applies original actual sequence before any product/publication. Softmax/PV, query preprocessing, KV writes and all persistent state unchanged.",
+  "ownership": "CTA shared K ring4*2*256*2=4096B and score tileM*6*128*4; no request arena/new global allocation. Original alias/capacity checks and failure return remain.",
+  "reference_translation": "FlashInfer grouped query/KV reuse translated with existing SM87 cp.async. Native original scalar reduction and retained v39 exact trees; no new import or runtime dependency. FLA/Mamba recurrence and vLLM/Marlin projections unchanged.",
+  "selection": "One implementation plus at most one correctness repair. Build no-spill review, full P513 prefix/state/logit/transaction and P8192 complete prefixes, then immediate sameP65/8K/40K d2 API. Greater-than3% long-context slowdown stops; neutral removes; useful unlocks d3. No geometry/tile/lookahead scan.",
+  "expiry": "Useful dependency only through next complete verifier API return or archival; full target and production qualification remain required.",
+  "profile": "q3x.sm87.admission.mtp-qk-row-share-api.v41",
+  "rollback_files": [
+    "src/runtime/mtp_verify_attention_internal.cu",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "artifacts": ".q3x-work/mtp-qk-row-share-20261010",
+  "production_changed": false
+}

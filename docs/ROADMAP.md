@@ -19,6 +19,29 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP compact QK row sharing — API return complete
+
+`WP-MTP-QK-ROW-SHARE-20261010` / `AC-MTP-GREEDY-v38` preserves the1.5x–3x
+objective and remaining1.19/4.21-second complete Decode gap. The [design](metadata/qwen36-27b-mtp-qk-row-share-design-2026-10-10.json)
+shares each K position across all speculative rows in a compact2*M-warp CTA,
+keeping all six query heads and original numerical trees. This replaces the
+rejected large8*M-warp/head-split ownership, not its parameters. One fixed
+implementation passes P513/P8192 full state/logits and immediately returns to
+8K/40K d2 API; useful direction unlocks d3, greater-than3% slowdown stops and
+neutral removes. No geometry or staging scan follows. Any useful dependency
+expires at the next complete verifier API return or archival. Production is
+unchanged; this QK budget alone cannot close the40K target gap.
+
+The [completed direction](metadata/qwen36-27b-mtp-qk-row-share-direction-2026-10-10.json)
+preserves all complete numerical/transaction checks and all sixteen d2/d3 API
+outputs and work counts. Verification falls by34/51ms at8K and269/306ms at40K.
+D2 Decode is13.001/9.976 token/s; its non-MTP ratios remain only1.411x/1.269x.
+This is a small bounded dependency through the next complete verifier API
+return or archival, not noise-qualified architecture selection. Prefill changes
+are outside the edited code; no whole-request attribution or production
+promotion follows. No mapping or staging scan remains active. The1.5x–3x
+goal remains unmet, with approximately1.16/3.94 seconds left in full Decode.
+
 ## 2026-10-10 MTP lossless FP8 traffic — closed at host gate
 
 `WP-MTP-LOSSLESS-FP8-20261010` preserves the 1.5x–3x objective and remaining

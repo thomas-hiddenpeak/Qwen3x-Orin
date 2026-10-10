@@ -1,0 +1,437 @@
+{
+  "work_package_id": "WP-MTP-QK-ROW-SHARE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v38",
+  "source_parent": "bf2df6c",
+  "status": "direction_complete_dependency_only",
+  "decision": "Retain exact compact QK sharing as a bounded dependency through next complete verifier API return or archival. Consistent small long-context verify reductions for d2/d3; no mapping/staging scan or qualification-only campaign. Not noise-qualified architecture selection or production promotion.",
+  "source_identity": {
+    "oracle": "69583ae6f4148abfcd4a8acaa247bf3ed9db97a31a8b4ced1c7061a854b03f77",
+    "candidate.patch": "ca831cf3b106680662b32779f75d90e56fafadc79286bcb0964b8c5fce8f6dfc",
+    "server": "1843fefb9c65adb41b0047931df7aa233d84d47ee817ce9d37eb7e8034da1f2e",
+    "tools/evaluation/validate_mtp_service.py": "b842b33dcad465f98579a851713468a33bd3cfee27442502ce18d95b5da9ed15",
+    "src/server/evaluation_server.cpp": "31b6845dc5794831480a18706c36e568e998cf14130d6a68e976434920ba747c",
+    "src/runtime/mtp_verify_attention_internal.cu": "64eaf3c9a4e2813dad16620216d6789b493d191e12f93f158f40d541c92ba273",
+    "src/runtime/mtp_service_internal.cpp": "e851ab4db2de9790ed1dbdf46d5ae74cb71d7c902fa03347ffa84500b888c5a4",
+    "include/q3x/server/evaluation_server.h": "5e73b1bbf0e5a81241df4cf4edc9f982e7693f0fff7af5ab1d23c3abd8cd0fbf"
+  },
+  "api_metrics": {
+    "d2": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.888745913,
+        "prefill_tps": 73.13676389305657,
+        "decode_tps": 11.878635298941322,
+        "ttft_s": 0.9074542196467519,
+        "elapsed_s": 2.1701723248697817,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-qk-row-share-v41",
+          "draft_length": 2,
+          "startup_free_bytes": 9783181312,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "draft_initialization_ms": 5.723478,
+          "draft_ms": 124.32668600000001,
+          "verify_ms": 1105.258337,
+          "reconcile_ms": 26.749248,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.317448864000003,
+        "prefill_tps": 473.0488921511851,
+        "decode_tps": 13.001447185069814,
+        "ttft_s": 17.340038934722543,
+        "elapsed_s": 36.95350116491318,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-qk-row-share-v41",
+          "draft_length": 2,
+          "startup_free_bytes": 9783181312,
+          "prompt_rows": 8192,
+          "draft_prefill_rows": 8191,
+          "initialized": true,
+          "rounds": 98,
+          "proposed": 196,
+          "accepted": 157,
+          "verified_rows": 294,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            86,
+            71,
+            0
+          ],
+          "draft_ordered_attention_steps": 196,
+          "draft_initialization_ms": 547.433099,
+          "draft_ms": 2062.9356669999993,
+          "verify_ms": 17012.777876999997,
+          "reconcile_ms": 449.4885259999999,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.968569527,
+        "prefill_tps": 430.25293605688074,
+        "decode_tps": 9.976034380129834,
+        "ttft_s": 93.00400058273226,
+        "elapsed_s": 118.56683535687625,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-qk-row-share-v41",
+          "draft_length": 2,
+          "startup_free_bytes": 9783181312,
+          "prompt_rows": 40000,
+          "draft_prefill_rows": 39999,
+          "initialized": true,
+          "rounds": 105,
+          "proposed": 210,
+          "accepted": 150,
+          "verified_rows": 315,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            85,
+            65,
+            0
+          ],
+          "draft_ordered_attention_steps": 210,
+          "draft_initialization_ms": 2666.946619,
+          "draft_ms": 2455.0007680000003,
+          "verify_ms": 22561.843765,
+          "reconcile_ms": 450.00501699999984,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p65-nonstream",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8838919150000001,
+        "prefill_tps": 73.53840316550469,
+        "decode_tps": 11.927350896904066,
+        "ttft_s": null,
+        "elapsed_s": 2.160344935953617,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-qk-row-share-v41",
+          "draft_length": 2,
+          "startup_free_bytes": 9783181312,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "draft_initialization_ms": 5.364818,
+          "draft_ms": 123.112808,
+          "verify_ms": 1101.889713,
+          "reconcile_ms": 26.449851000000002,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "d3": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8875094280000001,
+        "prefill_tps": 73.2386585982273,
+        "decode_tps": 9.790272431522126,
+        "ttft_s": 0.9061678117141128,
+        "elapsed_s": 2.4381308159790933,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-qk-row-share-v41",
+          "draft_length": 3,
+          "startup_free_bytes": 9905065984,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 6,
+          "proposed": 18,
+          "accepted": 9,
+          "verified_rows": 24,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            3,
+            2
+          ],
+          "draft_ordered_attention_steps": 0,
+          "draft_initialization_ms": 5.799223,
+          "draft_ms": 185.628881,
+          "verify_ms": 1314.839812,
+          "reconcile_ms": 26.241237,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.343090203000003,
+        "prefill_tps": 472.34950081635105,
+        "decode_tps": 11.39461269034,
+        "ttft_s": 17.365405421238393,
+        "elapsed_s": 39.744507228024304,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-qk-row-share-v41",
+          "draft_length": 3,
+          "startup_free_bytes": 9905065984,
+          "prompt_rows": 8192,
+          "draft_prefill_rows": 8191,
+          "initialized": true,
+          "rounds": 84,
+          "proposed": 250,
+          "accepted": 171,
+          "verified_rows": 334,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            72,
+            58,
+            41
+          ],
+          "draft_ordered_attention_steps": 250,
+          "draft_initialization_ms": 552.653735,
+          "draft_ms": 2628.808937000001,
+          "verify_ms": 19229.767343,
+          "reconcile_ms": 445.13485699999995,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.946528822,
+        "prefill_tps": 430.3549632994168,
+        "decode_tps": 8.952312212652627,
+        "ttft_s": 92.98160323081538,
+        "elapsed_s": 121.46747625526041,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-qk-row-share-v41",
+          "draft_length": 3,
+          "startup_free_bytes": 9905065984,
+          "prompt_rows": 40000,
+          "draft_prefill_rows": 39999,
+          "initialized": true,
+          "rounds": 88,
+          "proposed": 262,
+          "accepted": 167,
+          "verified_rows": 350,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            72,
+            52,
+            43
+          ],
+          "draft_ordered_attention_steps": 262,
+          "draft_initialization_ms": 2695.579329,
+          "draft_ms": 3060.528467,
+          "verify_ms": 24899.254129000004,
+          "reconcile_ms": 445.4192069999998,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p65-nonstream",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.883061607,
+        "prefill_tps": 73.60754842555396,
+        "decode_tps": 9.857041668695903,
+        "ttft_s": null,
+        "elapsed_s": 2.423750776797533,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-qk-row-share-v41",
+          "draft_length": 3,
+          "startup_free_bytes": 9905065984,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 6,
+          "proposed": 18,
+          "accepted": 9,
+          "verified_rows": 24,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            3,
+            2
+          ],
+          "draft_ordered_attention_steps": 0,
+          "draft_initialization_ms": 5.394834,
+          "draft_ms": 184.515519,
+          "verify_ms": 1305.778521,
+          "reconcile_ms": 26.187414,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ]
+  },
+  "comparison_vs_v39": {
+    "d2": [
+      {
+        "stage": "p8192",
+        "decode_ratio_vs_v39": 1.0017840302344818,
+        "verify_saved_ms": 33.51749400000335,
+        "prefill_delta_s": -0.009268330999997687,
+        "total_delta_s": -0.04378736298531294
+      },
+      {
+        "stage": "p40000",
+        "decode_ratio_vs_v39": 1.0105233032733518,
+        "verify_saved_ms": 269.0809929999814,
+        "prefill_delta_s": -0.44781149600001413,
+        "total_delta_s": -0.7162134279496968
+      }
+    ],
+    "d3": [
+      {
+        "stage": "p8192",
+        "decode_ratio_vs_v39": 1.0027147112878003,
+        "verify_saved_ms": 51.25004599999738,
+        "prefill_delta_s": 0.012026867000002994,
+        "total_delta_s": -0.04876945586875081
+      },
+      {
+        "stage": "p40000",
+        "decode_ratio_vs_v39": 1.011031972536184,
+        "verify_saved_ms": 305.9440799999975,
+        "prefill_delta_s": -0.7008998489999954,
+        "total_delta_s": -1.0152861406095326
+      }
+    ]
+  },
+  "remaining_goal_budget": [
+    {
+      "prompt": 8192,
+      "decode_s": 19.613201236,
+      "target_1p5x_s": 18.4539924513425,
+      "remaining_s": 1.1592087846574977,
+      "ratio_vs_non_mtp": 1.4113447541753326
+    },
+    {
+      "prompt": 40000,
+      "decode_s": 25.561259141999997,
+      "target_1p5x_s": 21.623326967132474,
+      "remaining_s": 3.937932174867523,
+      "ratio_vs_non_mtp": 1.26891207786413
+    }
+  ],
+  "numerical": {
+    "p513_complete_prefixes": 9,
+    "p8192_complete_prefixes": 9,
+    "p513_transactions": 11,
+    "cache_tail_cases": 9,
+    "initialization_cancel_recovery": 2,
+    "injected_failure_recovery": 2,
+    "same_input_draft_steps_each_process": 3,
+    "all_complete_state_logits_exact": true
+  },
+  "api": {
+    "successful_checks": 16,
+    "exact_output_ids_accounting_work_equal_v39": true,
+    "same_non_mtp_output_accounting_match": true,
+    "scope": "Eight driver checks per policy; see frozen raw requests/witnesses for exact stream/text/chat/cancellation/recovery scope. Not general release qualification."
+  },
+  "resources": {
+    "qk_registers": 79,
+    "qk_shared_bytes_M2_M3_M4": [
+      10240,
+      13312,
+      16384
+    ],
+    "no_spills": true,
+    "pv_unchanged": true,
+    "no_new_allocation": true
+  },
+  "cleanup": {
+    "p513": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 69.812
+    },
+    "p8192": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 77.281
+    },
+    "d2": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 79.937
+    },
+    "d3": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 80.218
+    }
+  },
+  "limitations": [
+    "One fresh process per policy, compared with prior v39 direction; no mirrored noise qualification.",
+    "Prefill code unchanged. Its interval changes and corresponding part of total changes are not attributed to QK.",
+    "No hardware-stall, measured DRAM-saving or new QK-family profile claim. Shared ownership alone does not predict latency.",
+    "D3 remains slower than d2. The1.5x\u20133x target remains unmet; installed non-MTP production unchanged."
+  ],
+  "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+  "artifact_root": ".q3x-work/mtp-qk-row-share-20261010",
+  "hygiene": {
+    "device_handles_empty": true,
+    "worktree_count": 47,
+    "workspace_bytes": "77677442",
+    "source_and_executables_still_frozen": true
+  },
+  "host_checks": {
+    "ctest": 3,
+    "document_control": "document-control: PASS\ntracked_markdown: 86\nregistry_entries: 86\nrequired_headers: 41\nheaders_checked: 57\nlocal_links_checked: 1194\nerrors: 0",
+    "document_unit_tests": 7,
+    "diff_check": "pass"
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-qk-row-share-20261010/artifact-manifest.json",
+    "sha256": "3461abf632742b30d4b0e90c2e42b96f99a28748639318782c0d93dd8c7b392c",
+    "files": 101
+  }
+}

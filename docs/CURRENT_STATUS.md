@@ -54,39 +54,39 @@ Decode token/s convergence target are not claimed achieved.
 
 ## MTP development status
 
-The isolated implementation now extends exact live-ancestor reduction to the
-six QK head trees, retaining every original product, ordered live addition,
-causal range and state boundary. Profile is
-`q3x.sm87.admission.mtp-qk-live-reduction-api.v39`, ELF
-`af282d9fcfd3c1c6c9a46ecbb9da8fbfdcb6efc1c616940b91b9ac3a5915a5d9`.
-The [completed direction](metadata/qwen36-27b-mtp-qk-live-reduction-direction-2026-10-10.json) passes 24,576 raw FP32 roots,
-complete P513/P8192 prefix state/logits and full P513 transaction/recovery
-checks. All sixteen d2/d3 API/lifecycle requests match the same non-MTP
-request/output/usage/finish, with unchanged work and acceptance versus v31.
-Production remains unchanged.
+The isolated implementation now shares each K position across speculative rows
+in a compact2*M-warp CTA, preserving all six head trees and complete target
+arithmetic/state boundaries. Profile is
+`q3x.sm87.admission.mtp-qk-row-share-api.v41`, ELF
+`1843fefb9c65adb41b0047931df7aa233d84d47ee817ce9d37eb7e8034da1f2e`.
+The [completed direction](metadata/qwen36-27b-mtp-qk-row-share-direction-2026-10-10.json)
+passes complete P513/P8192 prefix state/logits, full P513 transaction/recovery,
+and sixteen d2/d3 API checks with unchanged output and acceptance/work versus
+v39. Production remains unchanged.
 
-These 2026-10-10 results use one fresh process per policy. Prefill includes
-required draft initialization; Decode includes the full controller/observer
-interval after the first token. They are direction observations, not mirrored
-noise qualification, architecture selection or release evidence.
+These2026-10-10 results use one fresh process per policy, not mirrored means
+or noise-qualified architecture selection. Prefill includes draft initialization;
+Decode includes the full controller/observer interval after the first token.
 
 | P / O | Policy | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| 65 / 16 | d2 | 0.887 | 73.27 | 0.913 | 11.894 | 2.174 |
-| 8192 / 256 | d2 | 17.327 | 472.80 | 17.349 | 12.978 | 36.997 |
-| 40000 / 256 | d2 | 93.416 | 428.19 | 93.451 | 9.872 | 119.283 |
-| 65 / 16 | d3 | 0.887 | 73.28 | 0.906 | 9.830 | 2.432 |
-| 8192 / 256 | d3 | 17.331 | 472.68 | 17.353 | 11.364 | 39.793 |
-| 40000 / 256 | d3 | 93.647 | 427.13 | 93.683 | 8.855 | 122.483 |
+| 65 / 16 | d2 | 0.889 | 73.14 | 0.907 | 11.879 | 2.170 |
+| 8192 / 256 | d2 | 17.317 | 473.05 | 17.340 | 13.001 | 36.954 |
+| 40000 / 256 | d2 | 92.969 | 430.25 | 93.004 | 9.976 | 118.567 |
+| 65 / 16 | d3 | 0.888 | 73.24 | 0.906 | 9.790 | 2.438 |
+| 8192 / 256 | d3 | 17.343 | 472.35 | 17.365 | 11.395 | 39.745 |
+| 40000 / 256 | d3 | 92.947 | 430.35 | 92.982 | 8.952 | 121.467 |
 
-Both policies reduce 8K verification by about 0.10 seconds and 40K by
-0.57/0.63 seconds. D2 is still faster than d3; its ratios against the non-MTP
-anchor below are about 1.409x/1.256x. **The 1.5x–3x target remains unmet.**
-This exact computation reduction is retained only through the next complete
-verifier API return or archival. No further QK mapping scan is active.
-40K Prefill is 0.718/0.531 seconds longer in these observations, despite no
-Prefill code change; d2 external total is 0.150 seconds longer and d3 0.100
-seconds shorter. This mixed full-request result does not select production.
+Verification decreases by about34/51ms at8K and269/306ms at40K for d2/d3
+versus the [v39 direction](metadata/qwen36-27b-mtp-qk-live-reduction-direction-2026-10-10.json).
+D2 remains faster than d3; its ratios against the non-MTP anchor below are
+about1.411x/1.269x. **The1.5x–3x target remains unmet**, with approximately
+1.16/3.94 seconds still to remove from complete8K/40K Decode. This small
+consistent direction is retained only as a bounded development dependency
+through the next complete verifier API return or archival. No further mapping
+scan or qualification-only campaign is active. Prefill is lower by about
+0.45/0.70 seconds at40K despite no Prefill code change; that part of the total
+request improvement is not attributed to QK. No production selection follows.
 
 ### Preceding NV live-reduction direction
 
