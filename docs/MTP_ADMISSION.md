@@ -1494,6 +1494,23 @@ useful performance direction. The description above is the rejected experiment;
 all persistent Gate/Up and atomic host-plan paths are removed and v48 remains
 current. No geometry scan, d3 or production change follows.
 
+## FP8 lane-owned codebook composition v47 — removed
+
+The bounded [composition](metadata/qwen36-27b-mtp-fp8-lane-table-design-2026-10-10.json)
+replicates the original 256-code FP32 table across 32 consumer-lane banks.
+Each producer converts its original code once and broadcasts it within its
+warp; the existing CTA barrier publishes all replicas. Packed feed, row/channel
+ownership, original scalar chains, ordered reductions, final scale and BF16
+publication remain unchanged. No full-K input staging, persistent grid,
+allocation or state contract is added. Additional shared capacity and stores
+are charged to the complete API, which immediately selects or removes this
+one composition. No bank-stall claim follows from family timing alone.
+
+The [completed rejection](metadata/qwen36-27b-mtp-fp8-lane-table-rejection-2026-10-10.json)
+passes complete numerical checks but slows the 8K d2 API. The experiment above
+is removed in full and v48 remains current. No 40K completion, d3, profile or
+lookup-layout scan follows; production and the target remain unchanged.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

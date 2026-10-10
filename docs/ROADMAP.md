@@ -19,6 +19,29 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP FP8 lane-owned codebook — closed negative
+
+`WP-MTP-FP8-LANE-TABLE-20261010` / `AC-MTP-GREEDY-v47` addresses the
+remaining 2.67-second 40K Decode gap with one [packed FP8 consumer composition](metadata/qwen36-27b-mtp-fp8-lane-table-design-2026-10-10.json).
+A lane-owned codebook removes possible lookup bank aliasing while preserving
+all scalar arithmetic and current output ownership. Unlike the rejected v12
+bundle, it adds neither full-K input staging nor a persistent output grid.
+The 5.869-second family is an opportunity budget, not evidence of bank stalls.
+One static/full-numerical gate returns directly to the d2 API; >3% slowdown
+stops, neutral removes and useful direction unlocks d3. No parameter scan or
+profile follows. Production and the complete 1.5x–3x target remain unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-fp8-lane-table-rejection-2026-10-10.json)
+passes all 36 complete FP8 output/guard cases and full P65 prefix, state/logit,
+cache and transaction checks. P8192/O256 d2 nevertheless falls to 13.398
+Decode token/s versus v48 13.833, with identical output and work and
+0.602 seconds more verification. Prefill is 17.299 seconds / 473.55 token/s,
+external TTFT 17.321 seconds and total 36.354 seconds. The declared stop
+interrupts 40K; d3 and the remaining API lifecycle panel are not run.
+All lane-table and profile paths are removed and retained v48 rebuilt.
+No lookup-layout scan or profiler follows. This closes the consumer-table
+hypothesis without establishing a hardware cause or changing the unmet goal.
+
 ## 2026-10-10 retained-v48 budget reconciliation — complete
 
 `WP-MTP-V48-BUDGET-20261010` uses one [bounded diagnostic](metadata/qwen36-27b-mtp-v48-budget-design-2026-10-10.json)

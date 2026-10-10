@@ -1,0 +1,41 @@
+{
+  "work_package_id": "WP-MTP-FP8-LANE-TABLE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v47",
+  "source_parent": "31dfebe05051a931a566dc6083a393a42bc72586",
+  "profile": "q3x.sm87.admission.mtp-fp8-lane-table-api.v50",
+  "product_constraint": "1.5x\u20133x same-request committed Decode with exact target state/logits/output and joint Prefill/TTFT/Decode/total reporting",
+  "budget": {
+    "remaining_40k_decode_s": 2.667068457,
+    "current_fp8_family_s": 5.869083328,
+    "authority": "Current same-ELF 40K NSys family opportunity; not measured bank-conflict cause or forecast."
+  },
+  "mechanism": "Replicate FP8 codebook across 32 lane-owned banks without full-K activation staging or persistent output grid. Each code is converted once; warp broadcast publishes copies. Keep packed inputs and original four-channel row reuse, chains, reductions and output.",
+  "resource_trade": {
+    "extra_shared_bytes_per_CTA": 31744,
+    "extra_shared_stores_per_CTA": 7936,
+    "extra_per_thread_shuffles": 32,
+    "extra_resident_weight_bytes": 0,
+    "removed": "Possible serialization between distinct lookup words in one bank; the bank index is now exactly lane. Global traffic and scalar FMA work unchanged."
+  },
+  "numerical_ledger": [
+    "For every raw code c, table[c^(c>>5)][lane] is exactly fp8(c), including signed zero and signed quiet NaN.",
+    "CTA barrier completes every replica before use. All M rows reuse the same register weight.",
+    "Identical global activation/weight loads, K-lane chains, merge, live-root warp tree, final eight-warp tree, tensor scale and BF16 publication.",
+    "No persistent state, lifetime, allocation or non-MTP changes."
+  ],
+  "prior_lineage": "v12 bundled a replicated table with full-K input staging, fixed 32 persistent CTAs, old epilogues and other projection changes. This candidate excludes those residency constraints and uses current v48 arithmetic. It does not claim v12 established shared-bank causality.",
+  "reference_transfer": "Previously studied Marlin separates compressed feed from on-chip operand consumers. Native SM87 lane ownership removes bank aliasing while preserving scalar arithmetic; no upstream source or runtime dependency imported.",
+  "bounds": {
+    "compositions": 1,
+    "parameter_scans": 0,
+    "profiles": 0,
+    "correctness_repairs_max": 1
+  },
+  "gates": [
+    "build/static resource sanity; complete FP8 canonical/sidecar special-code output/guard checks",
+    "full P65 scalar prefix state/logit/cache/transaction admission",
+    "immediate P65/8K/40K d2 API; >3% slowdown stops, neutral removes, useful direction unlocks d3"
+  ],
+  "expiry": "Retain only as bounded next-verifier dependency after useful composed API return; otherwise remove. No production promotion.",
+  "artifact_root": ".q3x-work/mtp-fp8-lane-table-20261010"
+}
