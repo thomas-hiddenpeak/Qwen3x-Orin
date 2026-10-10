@@ -1,0 +1,162 @@
+{
+  "work_package_id": "WP-MTP-FUSED-CERTIFICATE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v59",
+  "parent": "78c2909",
+  "decision": "Remove complete fused producer/certificate composition after negative P65 API direction",
+  "decision_unit": "architecture_candidate",
+  "artifact_root": ".q3x-work/mtp-fused-certificate-20261010",
+  "numerical": {
+    "complete_projection_guard_cases": 72,
+    "complete_prefixes": 9,
+    "transactions": 11,
+    "injected_failure_recovery": 2,
+    "result": "bitwise full outputs/state/logits/cache pass"
+  },
+  "api": {
+    "metrics": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8878083830000002,
+        "prefill_tps": 73.2139966738746,
+        "decode_tps": 7.4654223250302225,
+        "ttft_s": 0.906388380099088,
+        "elapsed_s": 2.9156014011241496,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-fused-certificate-v61",
+          "draft_length": 2,
+          "startup_free_bytes": 9852510208,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "entry_hidden_snapshots": 7,
+          "direct_gdn_state_rows": 912,
+          "seed_kv_reuses": 6,
+          "state_copy_bytes_elided": 1987054592,
+          "draft_initialization_ms": 5.652807,
+          "draft_ms": 124.11911800000001,
+          "verify_ms": 1863.57894,
+          "reconcile_ms": 21.143089,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "comparison": [
+      {
+        "stage": "p65",
+        "decode_ratio_vs_v52": 0.5819622916431921,
+        "verify_saved_ms": -839.510074,
+        "full_decode_saved_s": -0.8399478760000001,
+        "prefill_delta_s": 7.40910000002204e-05,
+        "total_delta_s": 0.8399426839314401
+      }
+    ],
+    "completed_api_checks": 1,
+    "output_ids_and_work_equal_v52": true
+  },
+  "cleanup": {
+    "synthetic": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 60.781
+    },
+    "p65": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 69.218
+    },
+    "d2": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 66.125
+    }
+  },
+  "scope": "One P65/O16 d2 API; long contexts, d3 API and remaining lifecycle not run after3% stop. No profile or bound/tile/repair-layout scan.",
+  "interpretation": "Removing global K128 partial/center publications and two kernel boundaries did not improve composed API. No isolated bandwidth, scheduling or hardware-limit attribution is made.",
+  "production_changed": false,
+  "goal_achieved": false,
+  "restoration": {
+    "server": {
+      "retained_sha256": "666a9be89d636ca6e0ea71ed54d57eba2a968330b3081f45b6ec314ab2acdc53",
+      "rebuilt_sha256": "2821787f5bb2e98cbb12ab955457f807ff7cf5ed73ca845c36292d805f230579",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "e19d7675c60adf820ad7d81d2c98d0dd012752d9d264c8ce00c39c583a48cb2a",
+      "rebuilt_sha256": "455e3bdfedd83e4d30a7e3209e84199fdc4d686e9b88816c1891ca90a065f09f",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "new_header_removed": true
+  },
+  "host_validation": {
+    "host-tests": {
+      "command": [
+        "ctest",
+        "--test-dir",
+        ".q3x-work/build/orin-whole-core-exact-decode-admission",
+        "--output-on-failure",
+        "-R",
+        "^(mtp_control|mtp_weights|reference_engine_control)$"
+      ],
+      "returncode": 0
+    },
+    "document-unit": {
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_document_control"
+      ],
+      "returncode": 0
+    },
+    "document-control": {
+      "command": [
+        "python3",
+        "-B",
+        "tools/docs/validate_document_control.py"
+      ],
+      "returncode": 0
+    },
+    "diff-check": {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0
+    }
+  },
+  "hygiene": {
+    "gpu_handle_inspection_returncode": 1,
+    "api_keys_removed": true,
+    "temporary_build_files_empty": true,
+    "worktree_count": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "work_package_id": "WP-MTP-FUSED-CERTIFICATE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v59",
+  "parent": "78c2909",
+  "origin": "Exact target state/output;1.5x\u20133x same-request MTP Decode; configured drafts2/3. Remaining40K complete Decode gap2.27110563s.",
+  "distinction": "New producer/consumer lifetime composition, not a gamma/repair threshold change. v60 external K128 partials, finish and certify are replaced by one CTA-resident producer/tree/certificate.",
+  "mechanism": "CTA256 threads owns16 output columns;8 warps form2 output groups times4 independent K128 producers. Original eight-leaf trees publish to16KiB shared, then original64-leaf tree and certificate consume after barrier. Global partial/center writes and two kernel boundaries are removed. Norm owner and original scalar element repair unchanged.",
+  "equivalence": "Identical K16 zero-start BF16 MMA, leaf ownership and both balanced trees; shared publication happens-before final read. Same causal independent projection elements, norm bounds, strict certificate, special-value repair and full-state contract.",
+  "resource": "256KiB fixed scratch replaces16MiB; immutable norm inventory unchanged; no request-time allocation. More producer work per CTA is charged to actual API.",
+  "bounds": {
+    "compositions": 1,
+    "correctness_repairs_max": 1,
+    "gamma_tile_or_launch_scans": 0,
+    "profiles": 0
+  },
+  "gates": [
+    "72 full projection/guard cases",
+    "P65 complete prefixes/state/logits/transactions",
+    "Immediate d2 P65/8K/40K API; >3% slowdown stop, useful direction unlocks d3 otherwise remove"
+  ],
+  "retention_screen": {
+    "8k_ratio_min": 1.0,
+    "40k_ratio_min": 1.01
+  },
+  "artifact_root": ".q3x-work/mtp-fused-certificate-20261010",
+  "production_unchanged": true
+}

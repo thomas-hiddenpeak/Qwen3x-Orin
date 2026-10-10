@@ -1698,6 +1698,23 @@ composition loses; no isolated component or hardware-limit claim follows.
 No bound, repair-layout, launch scan or additional profile follows this closed
 version. Production and the unmet 1.5x–3x objective remain unchanged.
 
+## Fused certificate composition v59 — removed
+
+The [completed rejection](metadata/qwen36-27b-mtp-fused-certificate-rejection-2026-10-10.json)
+passes 72 full projection/guard cases, nine complete P65 prefixes and eleven
+transactions including state/logits, draft cache and failure recovery.
+P65/O16 d2 preserves output and work but Decode is 7.465 token/s versus
+retained v52 at 12.828 (-41.80%). Prefill is 0.888 seconds / 73.21 token/s,
+TTFT 0.906 seconds and total 2.916 seconds. Verification adds 839.51 ms and
+complete Decode adds 839.95 ms. The declared 3% stop removes this composition;
+long contexts, d3 API and remaining lifecycle checks are not run.
+
+All new runtime/profile paths are removed and retained v52 restored. Removing
+external intermediate publications did not yield upward API value; this is
+not an isolated bandwidth/occupancy attribution or hardware-limit claim.
+No further bound, tile, repair-layout, launch scan or profile follows this
+closed version. Production and the full unmet 1.5x–3x target remain unchanged.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
