@@ -1,0 +1,228 @@
+{
+  "work_package_id": "WP-MTP-SHORT-CHAIN-EXECUTOR-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v37",
+  "source_parent": "221cbf9",
+  "status": "closed_negative",
+  "decision": "Remove v40 after completed P8192/O256 d2 falls below the predeclared 97% v39 direction floor. Retain v39; 1.5x\u20133x objective remains unmet.",
+  "source_identity": {
+    "candidate.patch": "7db40212ec2d63d9abcf8cfd99cee0a7ee2d50a859d7d6c0606d155b39d80075",
+    "server": "449b85957c5ca2aa809db7c0876f53bd66c4448194bace7d7b09142366c39610",
+    "tools/evaluation/validate_mtp_service.py": "895270be3c8a7b25f877ebe8fced2544adc121cc86b2cd6bf055bd38f993d08e",
+    "src/server/evaluation_server.cpp": "4704c8461b5d8b18709ea6fbd634a7bc46e4e144abbad4d544aeb536d9f44d33",
+    "src/runtime/mtp_verify_projection_internal.cu": "0975c97c9f6bcb900024cc2be0df726eb2dfd2cb3e20fbd60507108a2bef329d",
+    "src/runtime/mtp_device_internal.h": "113aa434ccbcba02b1e94c416adcd163e69e1be016fc2e7020d9873c03019d45",
+    "src/runtime/mtp_verify_internal.cpp": "4aa614f68a40e8b7c0ab8ee6748eeb486a2a2740f2723df41e7e30da14a5e63f",
+    "src/runtime/mtp_service_internal.cpp": "08ee981fce1ea8b3374c4f6f8ab832eff6961d0827fd7b85129773054935c20e",
+    "src/runtime/mtp_device_internal.cpp": "d6cd503585e86ed88a4d2d5d32bcd244afcb120941d151e1b500f43a01f86b28",
+    "include/q3x/server/evaluation_server.h": "b2e7e7d7771f7b1b4616d8543176d99041e42d8a2014b0ee38732122065f35ee"
+  },
+  "numerical_source_identity": {
+    "oracle": "ab182d359bbceb2f90f9ccad53d2980d49c966faccebd28c5a322a5a7d554f97",
+    "candidate.patch": "8462084f64cc08449fdb23a2cf2f4ceada1c7092c72ba0b219b8319fd1139546",
+    "server": "240dd03d1fd187208a159ccb533fe6df59de35ff781ac01d6dadc85a55e2b890",
+    "tools/evaluation/validate_mtp_service.py": "895270be3c8a7b25f877ebe8fced2544adc121cc86b2cd6bf055bd38f993d08e",
+    "src/server/evaluation_server.cpp": "4704c8461b5d8b18709ea6fbd634a7bc46e4e144abbad4d544aeb536d9f44d33",
+    "src/runtime/mtp_verify_projection_internal.cu": "0975c97c9f6bcb900024cc2be0df726eb2dfd2cb3e20fbd60507108a2bef329d",
+    "src/runtime/mtp_device_internal.h": "113aa434ccbcba02b1e94c416adcd163e69e1be016fc2e7020d9873c03019d45",
+    "src/runtime/mtp_verify_internal.cpp": "4aa614f68a40e8b7c0ab8ee6748eeb486a2a2740f2723df41e7e30da14a5e63f",
+    "src/runtime/mtp_service_internal.cpp": "08ee981fce1ea8b3374c4f6f8ab832eff6961d0827fd7b85129773054935c20e",
+    "src/runtime/mtp_device_internal.cpp": "d6cd503585e86ed88a4d2d5d32bcd244afcb120941d151e1b500f43a01f86b28"
+  },
+  "api_metrics": [
+    {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8880482810000001,
+      "prefill_tps": 73.19421859226593,
+      "decode_tps": 3.8990331374137113,
+      "ttft_s": 0.9066037591546774,
+      "elapsed_s": 4.753659802023321,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-short-chain-v40",
+        "draft_length": 2,
+        "startup_free_bytes": 9890963456,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 5.794254,
+        "draft_ms": 124.39182,
+        "verify_ms": 3690.15548,
+        "reconcile_ms": 26.221877,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "stage": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "prefill_s": 17.297683221,
+      "prefill_tps": 473.58943364476823,
+      "decode_tps": 4.290977022129067,
+      "ttft_s": 17.319897096138448,
+      "elapsed_s": 76.74716267408803,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-short-chain-v40",
+        "draft_length": 2,
+        "startup_free_bytes": 9890963456,
+        "prompt_rows": 8192,
+        "draft_prefill_rows": 8191,
+        "initialized": true,
+        "rounds": 98,
+        "proposed": 196,
+        "accepted": 157,
+        "verified_rows": 294,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          86,
+          71,
+          0
+        ],
+        "draft_ordered_attention_steps": 196,
+        "draft_initialization_ms": 557.713328,
+        "draft_ms": 2065.174721000001,
+        "verify_ms": 56828.09769200001,
+        "reconcile_ms": 445.5213520000004,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "comparison": {
+    "incumbent_p8192_decode_tps": 12.978293517,
+    "decode_ratio": 0.3306272135476367,
+    "verify_added_ms": 39781.80232100001,
+    "external_total_added_s": 39.74987414608803,
+    "baseline_request_output_usage_finish_equal": true,
+    "acceptance_work_unchanged": true,
+    "exact_generated_ids_match_v39": true
+  },
+  "numerical": {
+    "complete_synthetic_cases": 24,
+    "raw_bf16_outputs": 2304,
+    "metadata_host_oracle": true,
+    "tail_canaries_per_case": 32,
+    "p65_complete_prefix_state_full_logits": 9,
+    "transactions": 11,
+    "cache_tail_cases": 9,
+    "initialization_cancel_recovery": 2,
+    "injected_failure_recovery": 2,
+    "same_input_draft_steps": 3
+  },
+  "diagnostic": {
+    "scope": "One same v40 ELF P65/O16 d2 API capture after rejection; diagnostic only, not an unprofiled timing baseline.",
+    "kernels": [
+      {
+        "name": "void q3x::runtime::mtp_detail::<unnamed>::fp8_short_rows<(unsigned int)3, (unsigned int)5120>(const unsigned char *, float, const unsigned char *, const unsigned int *, const unsigned int *, const unsigned short *, unsigned int, unsigned short *)",
+        "calls": 864,
+        "seconds": 1.9585851199999995
+      },
+      {
+        "name": "void q3x::runtime::mtp_detail::<unnamed>::fp8_short_rows<(unsigned int)3, (unsigned int)6144>(const unsigned char *, float, const unsigned char *, const unsigned int *, const unsigned int *, const unsigned short *, unsigned int, unsigned short *)",
+        "calls": 384,
+        "seconds": 0.7863818559999995
+      },
+      {
+        "name": "q3x::runtime::mtp_detail::<unnamed>::short_chain_metadata(const unsigned char *, unsigned int, unsigned int, unsigned char *, unsigned int *)",
+        "calls": 208,
+        "seconds": 0.16675056
+      },
+      {
+        "name": "q3x::runtime::mtp_detail::<unnamed>::short_chain_input(const unsigned short *, unsigned int, unsigned int *)",
+        "calls": 1248,
+        "seconds": 0.005765728000000004
+      }
+    ]
+  },
+  "cleanup": {
+    "synthetic": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "p65": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 67.156
+    },
+    "d2": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 69.062
+    },
+    "p65-profile": {
+      "server_returncode": 0,
+      "clock_errors": [],
+      "max_temp_c": 61.875
+    }
+  },
+  "scope": "Direction only, one unprofiled process. P65 and P8192 requests complete; stop in idle gap before P40000. No d3 or complete API/lifecycle claim. Driver SIGINT(-2) is the intentional stop; server cleanup returns0. Synthetic ends before first telemetry sample, no maximum temperature claim. Profile is same API ELF with matched request/output/work, not a speed baseline.",
+  "corrections": "One compile-time local-name redeclaration fixed before GPU. Compiled server header profile v39 mismatch corrected to v40 before first API; initial server never executed. Source/oracle numerical CUDA unchanged by header correction.",
+  "mechanism_conclusion": "Repeated FP8 executor costs dominate new preparation. High exact-root eligibility does not imply useful matrix execution. Source includes staged operands, bounds, root repair and original merges; NSYS does not isolate these subcosts or establish a hardware stall cause. No guard/layout/grid scan follows.",
+  "production_unchanged": true,
+  "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+  "artifact_root": ".q3x-work/mtp-short-chain-executor-20261010",
+  "restoration": {
+    "server": {
+      "retained_sha256": "af282d9fcfd3c1c6c9a46ecbb9da8fbfdcb6efc1c616940b91b9ac3a5915a5d9",
+      "rebuilt_sha256": "7f9905ca53e26e65020b92b94154d09bea08108062edcb238f3e15fd9763c8bf",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "difference": "Only nvcc temporary compilation-unit filename PID in nonloaded ELF symbol string table; all other sections including text/CUDA fatbin/build-id identical.",
+      "all_other_sections_identical": true
+    },
+    "oracle": {
+      "retained_sha256": "7dea01c5e5734f55e7b2644433b07b612c02d1abb05c7bd88cfd917c39e1cf4a",
+      "rebuilt_sha256": "e72ede8da9f45cb3600a452290c254ea0b84ab89948a367f7e71be0741ec4470",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "difference": "Only nvcc temporary compilation-unit filename PID in nonloaded ELF symbol string table; all other sections including text/CUDA fatbin/build-id identical.",
+      "all_other_sections_identical": true
+    },
+    "source_files_equal_HEAD": [
+      "src/runtime/mtp_verify_projection_internal.cu",
+      "src/runtime/mtp_verify_internal.cpp",
+      "src/runtime/mtp_device_internal.h",
+      "src/runtime/mtp_device_internal.cpp",
+      "src/runtime/mtp_service_internal.cpp",
+      "tools/evaluation/validate_mtp_service.py",
+      "src/server/evaluation_server.cpp",
+      "include/q3x/server/evaluation_server.h"
+    ],
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "host_checks": {
+    "ctest_passes": 3,
+    "document_control": "86 Markdown paths,1188 links,zero errors",
+    "document_unit_tests": 7,
+    "git_diff_check": "pass"
+  },
+  "hygiene": {
+    "device_handles_empty": true,
+    "worktree_count": 47,
+    "workspace_bytes": "68985467",
+    "device_inspection_stderr": ""
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-short-chain-executor-20261010/artifact-manifest.json",
+    "sha256": "ac5d668c759ed4dfc5bf8a5b004fba9e2d427ba360b7bb71cc70607cab9c7601",
+    "files": 114
+  }
+}

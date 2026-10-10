@@ -1,0 +1,23 @@
+{
+  "work_package_id": "WP-MTP-SHORT-CHAIN-EXECUTOR-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v37",
+  "source_parent": "221cbf9",
+  "goal": "Same production API d2/d3 committed Decode 1.5x\u20133x without state/logit/output changes",
+  "budget": "v39 remaining full Decode gap 1.194/4.207 s at 8K/40K. Matched v31 FP8 family 5.8685 GPU seconds is opportunity only, not projected savings.",
+  "prerequisite": "Native exact short-chain and current payload admission 221cbf9",
+  "composition": "One fixed N16, 256-thread executor. Eight original warp K-groups are staged serially in coalesced canonical bytes, decoded once to BF16. Each warp handles one original thread per iteration, pairing c0/c1 then c2/c3 in zero-start m16n8k16. Four such iterations assemble the original 32-thread warp; original four-chain, warp and eight-warp sums follow on chip. All M rows share operands.",
+  "guard": "Fixed separable exponent predicate previously proved. Static nine-bit weight metadata: minimum nonzero LSB and ceil-log2 L1 with zero/unsafe tags; planar 8-bit + one-bit storage. Dynamic min LSB/max-magnitude bound computed once per projection and shared by every output. Nonfinite weights in either paired chain force both roots to original FMA. Nonfinite/subnormal BF16 inputs force their root to original FMA. Eligible zero results normalize positive zero.",
+  "ownership": "1,547,698,176 bytes static metadata after aligned snapshots plus complete prompt hidden in existing whole-core GDN workspace; no overlapping hidden lifetime or new allocation. Lazy first multirow verification prepares all208 FP8 tensors once per request on target stream; cost included in full Decode and verify. Initialization and abort invalidate readiness. Legacy retains old route before enqueue. Dynamic input stats use dead validated C512 FP32 scratch before original later consumers.",
+  "metadata_formula": "sum_N=1343488; each output uses1024 low bytes +128 high-mask bytes; all source bytes immutable. Metadata is a derived numerical bound, not a repacked weight or approximate code.",
+  "numerical": "All unadmitted roots execute original ordered five/six FMA chains from +0 before original merges; no approximate root may publish. Target scale and BF16 round remain original.",
+  "bounds": "One implementation plus at most one correctness repair. No layout/grid/guard scan. Complete synthetic outputs/specials/guards and P65 scalar-prefix transaction admission, then immediately P65/8K/40K d2 API. Fixed metadata preparation is charged and short O16 cannot alone reject O256 amortization. Greater than3% long-context slowdown stops; neutral/negative removes. Useful d2 unlocks d3.",
+  "expiry": "Complete first API return selects retention or archive; no additional prerequisite-only campaign. Useful dependency only until next complete verifier API return or archive.",
+  "profile": "q3x.sm87.admission.mtp-short-chain-api.v40",
+  "production_changed": false,
+  "artifacts": ".q3x-work/mtp-short-chain-executor-20261010",
+  "post_rejection_diagnostic": {
+    "question": "Separate once-per-request weight-bound preparation, per-projection input bounds, and repeated composed executor cost; decide whether preparation amortization can explain the negative API direction.",
+    "scope": "One same frozen v40 API ELF P65/O16 d2 NSYS capture after completed P65 and P8192 negative API direction. No NCU, no parameter changes, no retention authority.",
+    "stop": "Close after one capture or resource failure; remove executor regardless."
+  }
+}

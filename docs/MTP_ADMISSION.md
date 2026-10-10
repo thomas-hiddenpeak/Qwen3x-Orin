@@ -1248,6 +1248,42 @@ and API behavior for both policies. The exact QK execution is retained only
 as a bounded development dependency, with no production or full-target claim.
 The service composition below identifies this cumulative implementation as v39.
 
+## Exact short-chain matrix composition v37 — removed
+
+The following describes the removed v40 experiment for reproduction only.
+The [rejection](metadata/qwen36-27b-mtp-short-chain-executor-rejection-2026-10-10.json)
+closes it after exact numerical admission but negative P65/8K API direction.
+All runtime and borrowed-bound ownership changes are removed; the retained
+service remains v39. Numerical eligibility alone did not produce fast execution.
+
+The native/current-payload proof admitted an isolated FP8 executor at M2..4.
+A 256-thread CTA owns sixteen output channels, staging one original warp's
+128 chains at a time. Canonical packed inputs are read coalesced and decoded
+once into shared BF16. Two zero-start BF16 m16n8k16 instructions compute the
+four original five/six-product chains for each original thread and all M rows.
+Disjoint K/column blocks preserve chain identity. Every eligible signed subset
+is exactly normal FP32 or zero under the proved exponent envelope. Zero roots
+are canonicalized to positive zero. Uncertified roots run their original
+ordered FMAs before the unchanged four-chain, 32-lane and eight-warp merges,
+tensor scale and BF16 publication. Nonfinite weight in either paired block
+forces both roots to repair because zero multiplication can propagate NaN.
+Nonfinite and nonzero subnormal BF16 inputs fail eligibility before zero tests.
+No approximate intermediate gains publication authority.
+
+Static minimum-LSB and ceil-L1 bounds occupy nine bits per chain in separate
+low-byte/high-bit arrays. Their 1,547,698,176 bytes borrow aligned whole-core
+GDN scratch strictly after all five immutable snapshots and complete prompt
+hidden. Both earlier ranges retain their existing lifetimes. Construction
+checks every source shape and borrowed extent. The first multirow verification
+prepares every bound once on the target stream; original weights never change.
+Initialization and abort invalidate readiness; new Prefill cannot overlap an
+active transaction. No allocation or public ABI is added, and legacy owners
+retain the old executor before enqueue. Complete verification timing includes
+preparation. Dynamic per-input-chain bounds use dead, range-checked C512 FP32
+scratch and expire before later Attention/argmax consumers. Errors drain and
+poison, with no fallback after partial enqueue. Full scalar-prefix state/logits
+and real API direction select the composed executor; coverage alone is no gain.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

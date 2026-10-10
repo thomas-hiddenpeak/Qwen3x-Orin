@@ -286,6 +286,10 @@ positive numerical feasibility, including one conservative guard assessment.
 The existing Roadmap records the immediate composed-executor/API successor;
 no runtime, Markdown path or classification changes.
 
+The short-chain executor closes after negative P8192 API direction and a bounded
+same-ELF diagnostic. Existing MTP SDD and Roadmap retain the rejection; the
+temporary Request State exception is removed. No Markdown path or class changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

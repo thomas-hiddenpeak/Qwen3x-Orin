@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP short-chain executor — closed negative
+
+`WP-MTP-SHORT-CHAIN-EXECUTOR-20261010` / `AC-MTP-GREEDY-v37` implements the
+[fixed complete executor](metadata/qwen36-27b-mtp-short-chain-executor-design-2026-10-10.json)
+after native/current-payload admission. The unchanged 1.5x–3x goal and
+1.19/4.21-second remaining complete Decode gap select compact operands,
+nine-bit metadata, cheap runtime guards, exact short-chain repairs and on-chip
+original reductions together. Preparation and repair remain charged to Decode.
+One implementation plus at most one correctness repair returns through complete
+synthetic/P65 state admission immediately to 8K/40K d2 API; useful direction
+unlocks d3. Greater-than-3% long-context slowdown stops; neutral removes.
+No further guard/layout/grid scan is active. Production remains unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-short-chain-executor-rejection-2026-10-10.json)
+preserves all synthetic and full P65 state/logit/transaction checks, plus both
+completed API outputs and work counts. P8192/O256 d2 Decode falls to 4.291
+token/s versus retained v39 12.978, so 40K/d3 are not run. One same-ELF P65
+profile assigns 2.745 GPU seconds to repeated FP8 execution, versus 0.167 to
+one-time metadata and 0.006 to input bounds. Preparation amortization cannot
+rescue this version. The executor and borrowed ownership are removed and v39
+rebuilt; no guard/layout/grid scan or additional certificate campaign follows.
+The 1.5x–3x objective remains unmet. A successor must eliminate repeated
+execution cost, not merely increase numerical eligibility or move preparation.
+
 ## 2026-10-10 MTP short-chain native admission — prerequisite complete
 
 `WP-MTP-SHORT-CHAIN-DEVICE-20261010` preserves the 1.5x–3x objective and
