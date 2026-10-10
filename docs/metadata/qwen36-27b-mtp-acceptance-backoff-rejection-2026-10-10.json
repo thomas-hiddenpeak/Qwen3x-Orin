@@ -1,0 +1,189 @@
+{
+  "decision": "remove",
+  "reason": "P65 d2 Decode -6.6821% exceeds predeclared 3% stop loss; no long-context or d3 qualification",
+  "comparison": {
+    "metrics": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.889603683,
+        "prefill_tps": 73.06624426373918,
+        "decode_tps": 11.970840316263663,
+        "ttft_s": 0.9082346647046506,
+        "elapsed_s": 2.161206377670169,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-native-prefetch-v52",
+          "draft_length": 2,
+          "draft_policy": "acceptance-backoff-v1",
+          "proposal_length_rounds": [
+            0,
+            4,
+            4,
+            0
+          ],
+          "startup_free_bytes": 9872080896,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 8,
+          "proposed": 12,
+          "accepted": 7,
+          "verified_rows": 20,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            5,
+            2,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "entry_hidden_snapshots": 8,
+          "direct_gdn_state_rows": 960,
+          "seed_kv_reuses": 8,
+          "state_copy_bytes_elided": 2141495296,
+          "draft_initialization_ms": 5.629138,
+          "draft_ms": 124.12827300000001,
+          "verify_ms": 1109.1838750000002,
+          "reconcile_ms": 19.313867000000005,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "comparison": [
+      {
+        "stage": "p65",
+        "decode_ratio_vs_v52": 0.9331793112346545,
+        "full_decode_saved_s": -0.08372932100000008,
+        "prefill_delta_s": 0.0018693910000000535,
+        "total_delta_s": 0.08554766047745943,
+        "work_before": {
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "draft_ms": 123.871202,
+          "verify_ms": 1024.068866,
+          "reconcile_ms": 20.997045
+        },
+        "work_after": {
+          "rounds": 8,
+          "proposed": 12,
+          "accepted": 7,
+          "verified_rows": 20,
+          "draft_ms": 124.12827300000001,
+          "verify_ms": 1109.1838750000002,
+          "reconcile_ms": 19.313867000000005
+        },
+        "proposal_length_rounds": [
+          0,
+          4,
+          4,
+          0
+        ]
+      }
+    ],
+    "completed_api_checks": 1,
+    "output_ids_equal_v52": true,
+    "dynamic_work_receipts_valid": true,
+    "work_counts_expected_to_change": true
+  },
+  "work_package_id": "WP-MTP-ACCEPTANCE-BACKOFF-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v55",
+  "source_parent": "7a16215",
+  "artifact_root": ".q3x-work/mtp-acceptance-backoff-20261010",
+  "production_changed": false,
+  "target_achieved": false,
+  "numerical": {
+    "full_prefixes": 9,
+    "mixed_budget_transactions": 11,
+    "complete_state_logits_draft_cache": "bitwise pass",
+    "configured_maxima": [
+      2,
+      3
+    ]
+  },
+  "scope": "One P65/O16 d2 API check. Long contexts, d3 API and remaining lifecycle checks not run after early stop. No profile or heuristic scan.",
+  "cleanup": {
+    "p65": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 70.281
+    },
+    "d2": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 67.25
+    }
+  },
+  "restoration": {
+    "server": {
+      "retained_sha256": "666a9be89d636ca6e0ea71ed54d57eba2a968330b3081f45b6ec314ab2acdc53",
+      "rebuilt_sha256": "641c9ca42140e03b09c75a289c14aaad7db181069fe342f0f796d09e1a20f5be",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "e19d7675c60adf820ad7d81d2c98d0dd012752d9d264c8ce00c39c583a48cb2a",
+      "rebuilt_sha256": "547629f1d8c6589d1f0acfba7c7c563549406ac3cd5ae79f00725049f6cfb3d4",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "host_validation": {
+    "host-tests": {
+      "command": [
+        "ctest",
+        "--test-dir",
+        ".q3x-work/build/orin-whole-core-exact-decode-admission",
+        "--output-on-failure",
+        "-R",
+        "^(mtp_control|mtp_weights|reference_engine_control)$"
+      ],
+      "returncode": 0
+    },
+    "document-unit": {
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_document_control"
+      ],
+      "returncode": 0
+    },
+    "document-control": {
+      "command": [
+        "python3",
+        "-B",
+        "tools/docs/validate_document_control.py"
+      ],
+      "returncode": 0
+    },
+    "diff-check": {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0
+    }
+  },
+  "hygiene": {
+    "gpu_handle_inspection_returncode": 1,
+    "api_keys_removed": true,
+    "temporary_build_files_empty": true,
+    "worktree_count": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  }
+}

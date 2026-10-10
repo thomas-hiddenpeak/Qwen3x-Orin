@@ -1634,6 +1634,21 @@ removed and retained v52 rebuilt with identical program sections. No GPU
 numerical/API run, profile or unroll/register scan follows. Current performance,
 production and the unmet 1.5x–3x objective remain unchanged.
 
+## Acceptance-backoff composition v55 — removed
+
+The [completed rejection](metadata/qwen36-27b-mtp-acceptance-backoff-rejection-2026-10-10.json)
+passes all nine P65 complete prefixes and eleven mixed-budget transactions,
+including cache and failure recovery. P65/O16 d2 preserves output IDs but
+Decode falls from 12.828 to 11.971 token/s (-6.68%), triggering the declared
+3% stop. Prefill is 0.890 seconds / 73.07 token/s, TTFT 0.908 seconds and
+external total 2.161 seconds. Proposals remain twelve, but accepted proposals
+fall from eight to seven, rounds rise from seven to eight and verified rows
+from nineteen to twenty. Acceptance history did not reduce work here.
+All new controller/service/report/test paths are removed and retained v52
+restored. Long-context and d3 API checks are not run; no heuristic scan follows.
+This short-request rejection makes no claim about unmeasured long contexts.
+Production and the unmet 1.5x–3x objective remain unchanged.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

@@ -19,6 +19,31 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP acceptance backoff — closed without retention
+
+`WP-MTP-ACCEPTANCE-BACKOFF-20261010` / `AC-MTP-GREEDY-v55` owns one
+[request-local draft-budget composition](metadata/qwen36-27b-mtp-acceptance-backoff-design-2026-10-10.json).
+Keep configured maxima 2/3; after rejection reduce the next budget by one to
+minimum one, and after full acceptance increase by one up to the maximum.
+Existing exact operators and commit/observer semantics stay fixed. Host replay
+and full P65 mixed-budget state/cache/recovery checks precede immediate d2 API;
+>3% slowdown stops, useful direction unlocks d3, otherwise remove. Report changed
+work and exact output separately. No heuristic/length/threshold scan or profile
+follows. Production and the 1.5x–3x objective remain unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-acceptance-backoff-rejection-2026-10-10.json)
+passes all nine P65 complete prefixes and eleven mixed-budget transactions,
+including cache and failure recovery. P65/O16 d2 preserves output IDs but
+Decode falls from 12.828 to 11.971 token/s (-6.68%), triggering the declared
+3% stop. Prefill is 0.890 seconds / 73.07 token/s, TTFT 0.908 seconds and
+external total 2.161 seconds. Proposals remain twelve, but accepted proposals
+fall from eight to seven, rounds rise from seven to eight and verified rows
+from nineteen to twenty. Acceptance history did not reduce work here.
+All new controller/service/report/test paths are removed and retained v52
+restored. Long-context and d3 API checks are not run; no heuristic scan follows.
+This short-request rejection makes no claim about unmeasured long contexts.
+Production and the unmet 1.5x–3x objective remain unchanged.
+
 ## 2026-10-10 MTP static-gate API reconciliation — complete without retention
 
 `WP-MTP-STATIC-GATE-API-20261010` / `AC-MTP-GREEDY-v54` [reopens the exact frozen v56 binary](metadata/qwen36-27b-mtp-static-gate-api-design-2026-10-10.json)

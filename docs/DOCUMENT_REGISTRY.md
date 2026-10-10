@@ -372,6 +372,10 @@ The static-gate API reconciliation completes without retention and records a
 successor decision in the existing Roadmap; prior evidence stays frozen and
 no Markdown classification changes.
 
+The acceptance-backoff package closes after negative P65 API direction;
+existing MTP SDD and Roadmap record removal and frozen evidence;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

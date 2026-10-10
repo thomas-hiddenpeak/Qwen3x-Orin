@@ -1,0 +1,45 @@
+{
+  "work_package_id": "WP-MTP-ACCEPTANCE-BACKOFF-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v55",
+  "source_parent": "7a16215",
+  "product_constraint": "1.5x-3x same-request committed Decode with exact state/logits/output, configured draft maxima 2/3 and joint Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "remaining_40k_decode_s": 2.27110563,
+    "current_40k_d2_rounds": 105,
+    "current_40k_d2_proposed": 210,
+    "current_40k_d2_accepted": 150,
+    "current_40k_d2_verify_ms": 21068.789823,
+    "current_40k_d2_draft_ms": 2466.324578
+  },
+  "mechanism": "Request-local acceptance-driven draft budget starts at configured maximum 2/3, decreases by one to minimum one after rejection, increases by one to configured maximum after full acceptance. Tail cap remains remaining_output-1. No confidence kernel, offline length scan or new arithmetic.",
+  "reference_translation": {
+    "huggingface": "https://huggingface.co/blog/dynamic_speculation_lookahead",
+    "vllm": "https://docs.vllm.ai/en/v0.25.1/features/speculative_decoding/dynamic_speculative_decoding/",
+    "scope": "HF describes acceptance-history heuristic and confidence-driven alternative, with workload-dependent outcomes. vLLM separately supports batch-size-conditioned lookahead. Translate only bounded adaptive work selection; no source import or guaranteed speedup."
+  },
+  "equivalence_ledger": [
+    "Budget is fixed before transaction begin; begin/verify use the same effective row count.",
+    "Configured public length remains 2/3; adaptive effective count is 1..configured maximum, or zero for final one-token tail.",
+    "Every shorter round uses already exact M2/M3/M4/scalar-tail operators. Rejections/cancel/EOS still commit complete target prefix before observer.",
+    "Budget belongs to one decode call and resets at each request; no carry across cancellation or recovery.",
+    "Record proposal-length histogram; verify weighted count and logical/physical receipts. Work counts may change; output IDs must remain identical.",
+    "No target/draft arithmetic, Prefill, allocation, capacity or reserve change."
+  ],
+  "bounds": {
+    "policies": 1,
+    "length_or_threshold_scans": 0,
+    "profiles": 0
+  },
+  "gates": [
+    "host controller dynamic-budget/state replay and invalid-budget tests",
+    "full real P65 prefixes plus mixed-budget transactions/recovery",
+    "immediate d2 API P65/8K/40K; >3% slowdown stops, useful direction unlocks d3, otherwise remove"
+  ],
+  "direction_retention_screen": {
+    "minimum_8k_decode_ratio_vs_v52": 1.0,
+    "minimum_40k_decode_ratio_vs_v52": 1.01,
+    "both_long_complete_decode_must_decrease": true
+  },
+  "expiry": "One configured-max-2/3 API composition. No heuristic/threshold scan; useful policy is dependency-only through next full API composition or archival.",
+  "artifact_root": ".q3x-work/mtp-acceptance-backoff-20261010"
+}
