@@ -19,6 +19,33 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP direct short-chain execution — closed negative
+
+`WP-MTP-DIRECT-CHAIN-20261010` / `AC-MTP-GREEDY-v41` preserves the
+1.5x–3x goal and remaining 1.16/3.94-second full Decode gap. The [design](metadata/qwen36-27b-mtp-direct-chain-design-2026-10-10.json)
+reuses proved exact short-chain eligibility but replaces the rejected executor's
+expanded shared operands and serial eight-group loop with direct packed register
+fragments and independent original-warp producers. A separate original-tree
+merge consumes bounded FP32 roots. Preparation and repairs remain charged.
+One fixed composition passes full synthetic/P65 admission, then returns
+immediately to 8K/40K d2 API; greater-than-3% slowdown stops, neutral removes,
+useful direction unlocks d3. No guard, layout, resource or geometry scan follows.
+Any useful dependency expires at the next complete verifier API return or
+archival. Production and its numerical contract remain unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-direct-chain-rejection-2026-10-10.json)
+passes all synthetic and full P65 numerical/transaction checks, but P8192/O256
+d2 Decode falls to 3.061 token/s versus retained v41 13.001.
+Prefill is 17.302 seconds / 473.46 token/s, external TTFT
+17.325 seconds and total 100.624 seconds. Both completed API outputs
+and acceptance/work match; verification adds 63.684 seconds at 8K.
+The declared stop prevents 40K/d3 and the remaining API lifecycle panel.
+All new executor, metadata ownership and profile paths are removed and v41
+rebuilt. Direct fragments and independent warp producers do not make this
+exact short-chain executor competitive; numerical eligibility alone cannot
+select it. No profile or further guard/layout/grid scan follows. The 1.5x–3x
+goal remains active and unmet, and production remains unchanged.
+
 ## 2026-10-10 MTP Gate/Up shared-input chain composition — closed negative
 
 `WP-MTP-GATE-CHAIN-SHARE-20261010` / `AC-MTP-GREEDY-v40` preserves the

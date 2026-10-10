@@ -1,0 +1,34 @@
+{
+  "work_package_id": "WP-MTP-DIRECT-CHAIN-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v41",
+  "source_parent": "faa5bac486a7c05988c28fce357acdb803579ce4",
+  "profile": "q3x.sm87.admission.mtp-direct-chain-api.v44",
+  "goal": "1.5x–3x committed Decode d2/d3, exact target state/full logits/output",
+  "budget": {
+    "remaining_decode_8k_s": 1.159208785,
+    "remaining_decode_40k_s": 3.937932175,
+    "matched_v31_fp8_family_gpu_s": 5.868514656,
+    "scope": "opportunity only, not projected savings"
+  },
+  "prerequisite": "221cbf9 exact zero-start short-chain native/current-payload proof; unchanged nine-bit sufficient guard and original FMA repair. dd14d94 executor was rejected, not retained.",
+  "composition": "Replace the rejected executor entire operand and reduction publication. Canonical uint32 words load directly into warp registers; existing exact FP8 table supplies BF16 A fragments without expanded shared weights/activation arrays. One CTA owns N16 and one original 128-K-index warp group, with eight groups independently scheduled. Four steps and two zero-start paired-chain MMAs form original chain and 32-lane roots. A same-stream final kernel performs original eight-warp tree from bounded FP32 partials. No eight-group serial loop or inner operand producer barriers remain.",
+  "equivalence": "Retain exact paired chain coordinate mapping, zero-start MMA guards, original fmaf repairs and positive-zero canonicalization. Original four-chain, 32-lane, eight-warp merges, tensor scale and BF16 publication. No approximate result escapes guard/repair. Global partials are original FP32 roots, not reassociated sums.",
+  "ownership": "Reuse proven 1,547,698,176-byte metadata borrow strictly after five snapshots and complete prompt hidden in whole-core GDN workspace. Once/request preparation remains charged to verification. Original C512 FP32 scratch holds M*1024 input-bound words then M*N*8 original FP32 warp roots, maximum 1,589,248 bytes, disjoint from input/output and retired before later consumers. No new allocation or inventory change.",
+  "source_assessment": "Target rows have no duplicate already-consumed seed computation. First draft KV reconciliation could reuse same-input cache but its sub-second budget cannot close the dominant gap and is not selected. Direct fragments without compact scalar roots were previously tested with costly full-dot certificates; this retains the separately proved original short-chain closure instead.",
+  "reference_transfer": "Previously pinned Marlin direct register fragment delivery and native PTX m16n8k16 mapping, translated to existing canonical FP8 bytes and exact original short chains. No new imported code or runtime dependency.",
+  "gates": [
+    "all six M/K kernels no spills and legal launch/shared limits; no register/grid scan",
+    "24 synthetic full-output/special/metadata/tail cases against original FP8 scalar trees",
+    "P65 complete prefix state/full logits and transaction/cache/recovery",
+    "immediate P65/8K/40K d2 API, preparation included; >3% long-context slowdown stops; neutral removes; useful direction unlocks d3"
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs_max": 1,
+    "parameter_scans": 0,
+    "profiles": 0
+  },
+  "expiry": "first full API return decides removal or dependency retention; useful dependency only through next complete verifier composition",
+  "production_unchanged": true,
+  "artifact_root": ".q3x-work/mtp-direct-chain-20261010"
+}

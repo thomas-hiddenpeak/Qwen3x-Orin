@@ -306,6 +306,10 @@ The Gate/Up shared-input chain composition closes after negative P65 API
 direction. Existing MTP SDD and Roadmap record removal and frozen evidence;
 no Markdown path or classification changes.
 
+The direct short-chain composition closes after negative P8192 API direction.
+Existing MTP SDD and Roadmap retain the rejection; the temporary Request State
+exception is removed. No Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

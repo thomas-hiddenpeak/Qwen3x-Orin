@@ -1349,6 +1349,39 @@ Only packed Gate/Up selects this consumer; Down, head, FP8 and Attention retain
 v41. Complete canonical-output and scalar-prefix oracles precede real API
 selection. Lower registers alone establish no performance authority.
 
+## Direct short-chain execution composition v41 — removed
+
+The following describes the removed experiment for reproduction only. The
+[completed rejection](metadata/qwen36-27b-mtp-direct-chain-rejection-2026-10-10.json)
+preserves numerical admission but loses the P8192 API direction screen. All
+new runtime, metadata borrow and profile paths are removed, retaining v41.
+The direct-fragment executor has no current execution or ownership authority.
+
+
+This isolated composition retains the native short-chain proof and fixed
+nine-bit guard from v37, including original FMA repair and zero-root handling.
+One 256-thread CTA owns sixteen outputs and one of eight original warp groups.
+Each native warp reads packed canonical FP8 words directly into registers,
+expands exact BF16 fragments with the existing codebook and supplies original
+BF16 inputs directly. Four fixed steps produce the same original 32-lane roots.
+There is no expanded shared operand array or eight-group serial producer loop.
+A uniform final barrier protects shared original leaves before warp reduction;
+each CTA publishes disjoint FP32 roots. A same-stream kernel restores the
+unchanged eight-warp tree using retained four-root live ownership, including
+its leading zero additions, tensor scale
+and BF16 publication. Nonfinite paired-block and input guards remain unchanged.
+
+The existing whole-core family arena lends exactly 1,547,698,176 metadata bytes
+after aligned snapshots and complete prompt hidden. All ranges remain disjoint;
+initialization and abort invalidate readiness and the next Prefill may reuse
+them only outside a transaction. Once/request preparation remains charged to
+Decode. C512 FP32 scratch holds input bounds followed by original warp roots,
+at most 1,589,248 bytes; it expires before Attention/argmax reuse. Complete
+extent/alignment checks precede enqueue. Legacy keeps the established route;
+selected failures drain and poison without fallback. No allocation, public ABI,
+accuracy tolerance, state or production change is introduced. Full numerical
+admission and actual API fitness select this complete executor, not eligibility.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
