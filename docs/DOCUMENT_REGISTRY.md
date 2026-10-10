@@ -317,6 +317,10 @@ no Markdown path or classification changes.
 The prefix-publication package completes both API panels and updates existing
 MTP SDD, Request State, Current Status and Roadmap as a bounded dependency; no Markdown path or classification changes.
 
+The expanded-QKV representation assessment closes at its host traffic screen
+and updates the existing Roadmap only; no runtime, state contract, Markdown
+path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

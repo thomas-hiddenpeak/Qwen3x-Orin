@@ -1,0 +1,336 @@
+{
+  "work_package_id": "WP-MTP-EXPANDED-QKV-ASSESSMENT-20261010",
+  "source_parent": "b287161c512246b156df7a9ff91b84818b366044",
+  "status": "closed_host_assessment_no_runtime_selected",
+  "product_goal": "1.5x\u20133x real API committed Decode, d2/d3, exact state/logits/output; remaining v46 d2 8K/40K budgets 0.409118278/3.136127733 seconds",
+  "hypothesis": "Expand only the 48 GDN input-QKV FP8 matrices to exact BF16 once per request in dead Prefill family storage, reuse across all verification rounds, preserve original accumulation and charge preparation to Decode.",
+  "source_binding": {
+    "historical_projection_file": ".q3x-work/mtp-nv-live-reduction-20261010/source/src/runtime/mtp_verify_projection_internal.cu",
+    "current_projection_file": "src/runtime/mtp_verify_projection_internal.cu",
+    "fp8_kernel_bytes_equal": true,
+    "fp8_kernel_sha256": "22b7041c88cabaae7cfb81a6261d9e4e55d378b8b0f282a461cc45558047204e",
+    "historical_profile_analysis": ".q3x-work/mtp-v31-budget-20261010/analysis.json",
+    "historical_profile_analysis_sha256": "3f0f9d9b3cfef7fc4bd1bf5ddb61d14bd06fc056c61c2dc08855d16d6127ae17",
+    "historical_sqlite_sha256": "e10f05c16f5f3106945e9e5b3209ac4d2f9e82db9d4f5c968216f99f5d365b3e"
+  },
+  "profile_cell": {
+    "name": "void q3x::runtime::mtp_detail::<unnamed>::fp8_rows<(unsigned int)3, (bool)0>(const unsigned char *, float, const unsigned short *, unsigned int, unsigned int, unsigned short *)",
+    "geometry": [
+      2560,
+      1,
+      1,
+      256,
+      1,
+      1
+    ],
+    "registers": 80,
+    "shared_bytes": 1408,
+    "seconds": 2.0505428159999926,
+    "calls": 5040
+  },
+  "capacity": {
+    "family_bytes": 5985767424,
+    "snapshot_hole": [
+      2356490240,
+      2751257600
+    ],
+    "expanded_bytes": 5033164800,
+    "fits": true,
+    "placements": [
+      {
+        "linear_layer_index": 0,
+        "offset": 0,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 1,
+        "offset": 104857600,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 2,
+        "offset": 209715200,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 3,
+        "offset": 314572800,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 4,
+        "offset": 419430400,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 5,
+        "offset": 524288000,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 6,
+        "offset": 629145600,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 7,
+        "offset": 734003200,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 8,
+        "offset": 838860800,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 9,
+        "offset": 943718400,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 10,
+        "offset": 1048576000,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 11,
+        "offset": 1153433600,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 12,
+        "offset": 1258291200,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 13,
+        "offset": 1363148800,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 14,
+        "offset": 1468006400,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 15,
+        "offset": 1572864000,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 16,
+        "offset": 1677721600,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 17,
+        "offset": 1782579200,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 18,
+        "offset": 1887436800,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 19,
+        "offset": 1992294400,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 20,
+        "offset": 2097152000,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 21,
+        "offset": 2202009600,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 22,
+        "offset": 2751257600,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 23,
+        "offset": 2856115200,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 24,
+        "offset": 2960972800,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 25,
+        "offset": 3065830400,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 26,
+        "offset": 3170688000,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 27,
+        "offset": 3275545600,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 28,
+        "offset": 3380403200,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 29,
+        "offset": 3485260800,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 30,
+        "offset": 3590118400,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 31,
+        "offset": 3694976000,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 32,
+        "offset": 3799833600,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 33,
+        "offset": 3904691200,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 34,
+        "offset": 4009548800,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 35,
+        "offset": 4114406400,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 36,
+        "offset": 4219264000,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 37,
+        "offset": 4324121600,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 38,
+        "offset": 4428979200,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 39,
+        "offset": 4533836800,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 40,
+        "offset": 4638694400,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 41,
+        "offset": 4743552000,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 42,
+        "offset": 4848409600,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 43,
+        "offset": 4953267200,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 44,
+        "offset": 5058124800,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 45,
+        "offset": 5162982400,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 46,
+        "offset": 5267840000,
+        "bytes": 104857600
+      },
+      {
+        "linear_layer_index": 47,
+        "offset": 5372697600,
+        "bytes": 104857600
+      }
+    ],
+    "scope": "Proposed phase borrow only; no current ownership contract or implementation is changed."
+  },
+  "conditional_traffic_screen": {
+    "bf16_weight_bytes_per_projection": 104857600,
+    "projection_calls": 5040,
+    "all_weight_read_bytes": 528482304000,
+    "documented_peak_bytes_per_second": 204800000000.0,
+    "zero_cache_ideal_read_seconds": 2.58048,
+    "optimistic_cache_bytes_per_call": 16777216,
+    "discounted_ideal_read_seconds": 2.1676032,
+    "bandwidth_required_to_match_old_cell_GB_s": 257.728002495902,
+    "assumptions": [
+      "Every unique expanded weight is consumed once per projection; no repeated weight reads are charged.",
+      "Allow 16 MiB of already resident useful expanded weights for every projection, exceeding documented 4 MiB GPU L2 plus sixteen 192 KiB L1 caches.",
+      "All DRAM bandwidth is available to weights; activation, state, stores and preparation cost are zero.",
+      "No undocumented memory compression is credited. This is a screening model, not a measured DRAM counter or universal hardware bound."
+    ]
+  },
+  "official_reference": {
+    "url": "https://www.nvidia.com/content/dam/en-zz/Solutions/gtcf21/jetson-orin/nvidia-jetson-agx-orin-technical-brief.pdf",
+    "title": "NVIDIA Jetson AGX Orin Series Technical Brief v1.2",
+    "pages": "5 (GPU caches), 10 (memory); printed page numbering",
+    "facts": [
+      "4 MB GPU L2 and 192 KB L1 per SM, up to 16 SMs",
+      "256-bit LPDDR5 at up to 3200 MHz; 204.8 GB/s peak"
+    ]
+  },
+  "decision": "Do not implement or launch a GPU experiment for this expansion. Capacity is sufficient, but doubled weight traffic is unfavorable even under the optimistic screening model. The affected old measured cell is also smaller than the remaining 40K full Decode gap. This rejects this proposed representation only, not the MTP objective or future exact compressed/compute dataflows.",
+  "limitations": [
+    "Historical v31 profile, not a fresh v46 profile; identical FP8 function does not make all surrounding scheduling/cache conditions identical.",
+    "No candidate binary exists and no empirical slowdown is claimed.",
+    "No API, Prefill, TTFT, Decode or end-to-end number is updated.",
+    "No runtime, request ownership, allocation, production or numerical-contract changes."
+  ],
+  "bounds": {
+    "gpu_runs": 0,
+    "runtime_mutations": 0,
+    "variants": 1,
+    "closed": true
+  },
+  "validation": {
+    "document_control_errors": 0,
+    "document_unit_tests": 7,
+    "diff_check": "pass",
+    "hygiene": {
+      "gpu_handle_inspection_returncode": 1,
+      "owned_gpu_processes_started": 0,
+      "worktrees": 47,
+      "runtime_diff": ""
+    }
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-expanded-qkv-assessment-20261010/artifact-manifest.json",
+    "sha256": "d8a007b7ad718be68c46e430b9b0fd1dc66a9b21213465cb300b088d1d9cc572"
+  }
+}

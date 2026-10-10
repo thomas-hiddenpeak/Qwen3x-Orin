@@ -19,6 +19,22 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP expanded QKV representation — closed host assessment
+
+`WP-MTP-EXPANDED-QKV-ASSESSMENT-20261010` assesses exact BF16 expansion
+of the 48 GDN input-QKV matrices in dead Prefill storage against the remaining
+0.41/3.14-second 8K/40K full Decode budgets. The [completed assessment](metadata/qwen36-27b-mtp-expanded-qkv-assessment-2026-10-10.json)
+proves the proposed 5,033,164,800-byte layout fits, but does not authorize a
+storage borrow. The unchanged FP8 consumer's historical same-model 40K cell
+costs 2.051 seconds over 5,040 calls. Expanded weight traffic alone takes
+2.168 seconds in an optimistic model allowing 16 MiB of useful cached weights
+per call and full documented peak bandwidth, before any preparation or other
+traffic. This is a conditional host screen, not measured candidate performance
+or a hardware impossibility claim. Do not implement this representation or
+repeat a GPU screen. No runtime or current API metrics change; retained v46
+and the 1.5x–3x objective remain active. Further verifier work must address
+the complete remaining budget without assuming decoded storage is free.
+
 ## 2026-10-10 MTP prefix publication — API return complete
 
 `WP-MTP-PREFIX-PUBLICATION-20261010` / `AC-MTP-GREEDY-v43` preserves the
