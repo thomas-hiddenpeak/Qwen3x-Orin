@@ -1,0 +1,28 @@
+{
+  "work_package_id": "WP-MTP-PV-ROW-COMPOSE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v39",
+  "decision_unit": "architecture_candidate",
+  "source_parent": "bb66cc7",
+  "goal": "Real API d2/d3 committed Decode1.5x\u20133x, exact target state/logits/output.",
+  "budget": "v41 remaining full Decode gaps1.159/3.938s at8K/40K. Older matched v31 PV2.318 GPU s is opportunity only and cannot alone close40K.",
+  "mechanism": "Compose retained compact QK with the existing exact shared-row PV component from rejected v19. Each192-thread CTA owns six heads and32 output dimensions; each lane has M independent ordered FMA accumulators. One V tile is staged and decoded for all M rows, with distinct original FP32 probabilities; fixed four-buffer64-position ring and32 CTAs.",
+  "reason_for_recomposition": "v19 changed QK and PV together; its negative whole result did not attribute PV separately. Current compact QK is numerically admitted and direction-positive. This is one bounded component recomposition against v41, not a tile/format/grid repair of rejected v19. The old result remains negative for its original composition.",
+  "source_reused": ".q3x-work/mtp-shared-kv-20261010/source/src/runtime/mtp_verify_attention_internal.cu",
+  "source_sha256": "466f2bdf90a1981a3be005d4e2e5efdd9a070e1eaacd4f6d014d78f98bab5850",
+  "equivalence": "For every row/head/dimension preserve a=+0, ascending-position fma.rn.f32(P,V,a), actual causal length and single final BF16 publication. Future rows may be staged but never enter earlier-row arithmetic. Retained QK, softmax, projection, snapshots, draft and output semantics unchanged.",
+  "ownership": "Per-CTA V4*64*32*2 plus P4*M*6*64*4 shared bytes, respectively28672/34816/40960 forM2/3/4. No new request allocation or global workspace. Consumers retire before ring overwrite. Existing capacity/alias/failure and8GiB reserve gates remain.",
+  "trade": "Fewer V reads/decodes but twice as many dimension slices/probability staging compared with v41; more per-thread accumulators and different total CTA count. No assumed DRAM reduction or component gain; full API selects.",
+  "reference": "Previously studied FlashInfer grouped-query producer/consumer reuse, translated with existing SM87 cp.async and exact scalar arithmetic. Reuse native historical PV source only; no external runtime dependency. vLLM/Marlin projection and FLA/Mamba recurrence unchanged.",
+  "selection": "One fixed composition plus at most one correctness repair, no parameter scan. Complete P513 state/logit/transaction andP8192 prefixes, then immediate P65/8K/40K d2 API. Greater-than3% long-context slowdown stops; neutral removes; useful direction unlocks d3.",
+  "expiry": "Useful only as bounded dependency through next complete verifier API return or archival. No noise-qualified selection or production promotion from a direction run.",
+  "profile": "q3x.sm87.admission.mtp-pv-row-compose-api.v42",
+  "rollback_files": [
+    "src/runtime/mtp_verify_attention_internal.cu",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "artifacts": ".q3x-work/mtp-pv-row-compose-20261010",
+  "production_changed": false
+}

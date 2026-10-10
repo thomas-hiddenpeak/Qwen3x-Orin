@@ -1,0 +1,271 @@
+{
+  "work_package_id": "WP-MTP-PV-ROW-COMPOSE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v39",
+  "source_parent": "bb66cc7",
+  "status": "closed_without_retention",
+  "decision": "Remove shared-row PV after complete numerical and d2 API panel finds no useful gain over v41. No d3, parameter/staging scan or new profile. Restore retained compact QK v41.",
+  "source_identity": {
+    "oracle": "15b7d98e4c034d56239ad0ec29ba12368da220849c9b0fc818b92873aebe298b",
+    "candidate.patch": "bc5c1edc40f83ce2c5eb19413f2a81bbdd82a3986ebef17e752d5abbc6cd783d",
+    "server": "53eaa34729686999fd9015d953184d3d6fe5f654829137015a5a8d8e761588a7",
+    "tools/evaluation/validate_mtp_service.py": "843ec8a010ecc9e881f4cf91aa9ce69ade3e8b957607ef37c3495752e84eb378",
+    "src/server/evaluation_server.cpp": "60672da491239ebfa6336ab570f6639176bd13a964887bcf22d131eb3def841a",
+    "src/runtime/mtp_verify_attention_internal.cu": "54ccad18563ad03a8e00487223f78d979f89b665bbe04dc7d3c90d8efc1b4105",
+    "src/runtime/mtp_service_internal.cpp": "37d73343381499bafe5b6bb558fcdd6c5c18f978f2ec9dcf976a9e9c8bfffba7",
+    "include/q3x/server/evaluation_server.h": "c9432ffc1a6ef1b133092e1d313e8a5e44da1d2bbe53e7faa3c7aeda69eb47ee"
+  },
+  "api_metrics": [
+    {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8868117689999999,
+      "prefill_tps": 73.29627579626766,
+      "decode_tps": 11.8148293646459,
+      "ttft_s": 0.9055058620870113,
+      "elapsed_s": 2.1749625019729137,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-pv-row-compose-v42",
+        "draft_length": 2,
+        "startup_free_bytes": 9904971776,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 5.701749,
+        "draft_ms": 124.486534,
+        "verify_ms": 1112.154857,
+        "reconcile_ms": 26.565205,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "stage": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "prefill_s": 17.315995296,
+      "prefill_tps": 473.08860160595873,
+      "decode_tps": 12.98945610028005,
+      "ttft_s": 17.338128204923123,
+      "elapsed_s": 36.969723843969405,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-pv-row-compose-v42",
+        "draft_length": 2,
+        "startup_free_bytes": 9904971776,
+        "prompt_rows": 8192,
+        "draft_prefill_rows": 8191,
+        "initialized": true,
+        "rounds": 98,
+        "proposed": 196,
+        "accepted": 157,
+        "verified_rows": 294,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          86,
+          71,
+          0
+        ],
+        "draft_ordered_attention_steps": 196,
+        "draft_initialization_ms": 546.083575,
+        "draft_ms": 2065.668331,
+        "verify_ms": 17028.838601999996,
+        "reconcile_ms": 449.11822399999994,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "stage": "p40000",
+      "prompt": 40000,
+      "output": 256,
+      "prefill_s": 93.220180536,
+      "prefill_tps": 429.0916384199953,
+      "decode_tps": 9.956848465422372,
+      "ttft_s": 93.2553359027952,
+      "elapsed_s": 118.86738604400307,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-pv-row-compose-v42",
+        "draft_length": 2,
+        "startup_free_bytes": 9904971776,
+        "prompt_rows": 40000,
+        "draft_prefill_rows": 39999,
+        "initialized": true,
+        "rounds": 105,
+        "proposed": 210,
+        "accepted": 150,
+        "verified_rows": 315,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          85,
+          65,
+          0
+        ],
+        "draft_ordered_attention_steps": 210,
+        "draft_initialization_ms": 2658.559053,
+        "draft_ms": 2457.5472320000003,
+        "verify_ms": 22609.390805,
+        "reconcile_ms": 449.63566699999967,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "stage": "p65-nonstream",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8827121740000001,
+      "prefill_tps": 73.63668692304678,
+      "decode_tps": 11.921548504749794,
+      "ttft_s": null,
+      "elapsed_s": 2.159789612982422,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-pv-row-compose-v42",
+        "draft_length": 2,
+        "startup_free_bytes": 9904971776,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 5.316626,
+        "draft_ms": 123.279035,
+        "verify_ms": 1102.37255,
+        "reconcile_ms": 26.432502,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "comparison_vs_v41": [
+    {
+      "stage": "p8192",
+      "decode_ratio": 0.9990777115332565,
+      "verify_added_ms": 16.060724999999366,
+      "prefill_delta_s": -0.0014535680000022921,
+      "total_delta_s": 0.016222679056227207
+    },
+    {
+      "stage": "p40000",
+      "decode_ratio": 0.9980767994599461,
+      "verify_added_ms": 47.54703999999765,
+      "prefill_delta_s": 0.2516110090000012,
+      "total_delta_s": 0.3005506871268153
+    }
+  ],
+  "numerical": {
+    "p513_complete_prefixes": 9,
+    "p8192_complete_prefixes": 9,
+    "p513_transactions": 11,
+    "cache_tail_cases": 9,
+    "initialization_cancel_recovery": 2,
+    "injected_failure_recovery": 2,
+    "same_input_draft_steps_each_process": 3,
+    "all_complete_state_logits_exact": true
+  },
+  "api": {
+    "successful_checks": 8,
+    "exact_generated_ids_accounting_work_equal_v41": true,
+    "same_non_mtp_output_accounting_match": true
+  },
+  "resources": {
+    "pv_registers_M2_M3_M4": [
+      40,
+      48,
+      50
+    ],
+    "pv_shared_bytes_M2_M3_M4": [
+      28672,
+      34816,
+      40960
+    ],
+    "no_spills": true,
+    "qk_unchanged": true,
+    "no_new_allocation": true
+  },
+  "cleanup": {
+    "p513": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 72.937
+    },
+    "p8192": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 78.531
+    },
+    "d2": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 81.0
+    }
+  },
+  "scope": "One fresh d2 process, direction only. No mirrored noise qualification or statistical regression claim. Prefill code unchanged; its variation is not attributed to PV. No hardware-stall, actual DRAM-saving or impossibility claim.",
+  "finding": "With retained compact QK unchanged, this PV component still yields no useful complete-Decode gain. The earlier combined v19 failure did not establish that separately; this result closes the fixed recomposition. No claim that sharing cannot work under any architecture.",
+  "goal": "1.5x\u20133x remains active and unmet. Retained v41 joint metrics unchanged.",
+  "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+  "production_unchanged": true,
+  "artifacts": ".q3x-work/mtp-pv-row-compose-20261010",
+  "restoration": {
+    "server": {
+      "retained_sha256": "1843fefb9c65adb41b0047931df7aa233d84d47ee817ce9d37eb7e8034da1f2e",
+      "rebuilt_sha256": "088e457a5e454581231af3d54d022c07843eb33eab48de5b61e77c5364b3b5df",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "69583ae6f4148abfcd4a8acaa247bf3ed9db97a31a8b4ced1c7061a854b03f77",
+      "rebuilt_sha256": "57eb18833ba889ccd3379ca846f0d73c7b3fa16bceb010d316cc97a2d00b01b3",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "hygiene": {
+    "device_handles_empty": true,
+    "worktree_count": 47,
+    "workspace_bytes": "76417933"
+  },
+  "host_checks": {
+    "ctest": 3,
+    "document_control": "document-control: PASS\ntracked_markdown: 86\nregistry_entries: 86\nrequired_headers: 41\nheaders_checked: 57\nlocal_links_checked: 1197\nerrors: 0",
+    "document_unit_tests": 7,
+    "diff_check": "pass"
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-pv-row-compose-20261010/artifact-manifest.json",
+    "sha256": "5fd36ff2a520a07106f9df55b4dfe48f30867e1ecfb147e565a31959f8a74927",
+    "files": 78
+  }
+}

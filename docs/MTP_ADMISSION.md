@@ -1304,6 +1304,26 @@ verification reductions retain this exact executor only as a bounded
 next-composition dependency. No noise-qualified selection or production claim
 follows; the service below identifies the cumulative admission as v41.
 
+## Shared-row PV recomposition v39 — removed
+
+The following describes the removed experiment for reproduction only.
+The [completed rejection](metadata/qwen36-27b-mtp-pv-row-compose-rejection-2026-10-10.json)
+passes full numerical and d2 API checks but finds no useful gain. All new paths
+are removed; the current service remains v41.
+
+The compact QK was composed once with the historical exact shared-row PV
+component. A192-thread CTA owns one KV head and32 dimensions; six warps retain
+one independent ordered accumulator per speculative row and lane. A four-buffer
+ring stages64 V positions once for all rows and each row's distinct original
+FP32 probabilities. Every row applies its actual causal end before FMA and
+publishes BF16 once. Staging to the latest causal extent does not authorize
+future-position arithmetic. All consumers retire before buffer reuse.
+M2/3/4 uses28672/34816/40960 shared bytes and no new request storage. This
+recomposition retains current QK and softmax, original alias/capacity/failure
+checks and all persistent state boundaries. Its API comparison against v41
+separates PV from the earlier failed large-CTA QK/PV combination; it does not
+reverse that historical result or permit a geometry scan.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

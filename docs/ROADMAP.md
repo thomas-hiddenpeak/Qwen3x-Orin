@@ -19,6 +19,26 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP shared-row PV recomposition — closed without retention
+
+`WP-MTP-PV-ROW-COMPOSE-20261010` / `AC-MTP-GREEDY-v39` preserves the1.5x–3x
+goal and remaining1.16/3.94-second full Decode gap. The [fixed composition](metadata/qwen36-27b-mtp-pv-row-compose-design-2026-10-10.json)
+adds the existing exact shared-row PV component to retained compact QK. The
+historical v19 combined failure did not identify PV's separate contribution;
+this one composition answers that question without a tile or staging scan.
+Full P513/P8192 admission returns immediately to8K/40K d2 API; greater-than3%
+slowdown stops, neutral removes, useful direction unlocks d3. A useful dependency
+expires at the next complete verifier API return or archival. PV alone cannot
+close the40K gap. Production remains unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-pv-row-compose-rejection-2026-10-10.json)
+preserves full P513/P8192 numerical checks and all eight d2 API checks, with
+unchanged output and acceptance/work. Decode is12.989/9.957 token/s at8K/40K,
+respectively0.09%/0.19% below retained v41 in one process. This provides no
+useful gain or statistical regression claim. All new PV/profile/auditor paths
+are removed and v41 rebuilt. No d3, profile or staging/geometry scan follows.
+Retained v41 and the unmet1.5x–3x objective remain unchanged.
+
 ## 2026-10-10 MTP compact QK row sharing — API return complete
 
 `WP-MTP-QK-ROW-SHARE-20261010` / `AC-MTP-GREEDY-v38` preserves the1.5x–3x

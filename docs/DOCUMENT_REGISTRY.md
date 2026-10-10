@@ -298,6 +298,10 @@ The compact QK row-sharing composition completes both API panels and updates
 existing MTP SDD, Current Status and Roadmap as a bounded dependency;
 no Markdown path or classification changes.
 
+The shared-row PV recomposition closes without retention after complete numerical
+and d2 API checks. Existing MTP SDD and Roadmap record removal and evidence;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:
