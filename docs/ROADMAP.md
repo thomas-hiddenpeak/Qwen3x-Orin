@@ -19,6 +19,28 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP prefix publication — API return complete
+
+`WP-MTP-PREFIX-PUBLICATION-20261010` / `AC-MTP-GREEDY-v43` preserves the
+1.5x–3x goal and remaining 0.75/3.51-second full Decode gap. The [design](metadata/qwen36-27b-mtp-prefix-publication-design-2026-10-10.json)
+removes dead entry snapshots, publishes original GDN states directly into
+immutable prefix slots, and reuses the exact first seed-conditioned draft KV.
+This bounded transaction prerequisite cannot alone close the 40K gap. One
+composition passes full P513 state/logit/cache and recovery checks, then
+immediately returns to P65/8K/40K d2 API. Greater-than-3% slowdown stops,
+neutral removes, useful direction unlocks d3. No profile or parameter scan
+follows; useful retention expires at the next complete verifier API return or
+archival. Production and observer-visible state semantics remain unchanged.
+
+The [completed direction](metadata/qwen36-27b-mtp-prefix-publication-direction-2026-10-10.json)
+preserves every P513 target/cache prefix and transaction/recovery check plus
+all sixteen d2/d3 API outputs. Both policies reduce verification, reconciliation
+and complete Decode at 8K/40K. D2 reaches 13.518/10.299 token/s,
+only 1.467x/1.310x non-MTP. Retain this exact ownership composition as a
+bounded next-verifier dependency, without further transaction scans or production
+promotion. The 1.5x–3x goal remains active and unmet; full Decode still needs
+approximately 0.41/3.14 seconds removed at 8K/40K.
+
 ## 2026-10-10 MTP paired weight decoding — API return complete
 
 `WP-MTP-PAIRED-WEIGHT-DECODE-20261010` / `AC-MTP-GREEDY-v42` preserves the

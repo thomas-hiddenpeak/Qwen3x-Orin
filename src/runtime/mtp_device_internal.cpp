@@ -473,6 +473,8 @@ bool TargetTransaction::initialize_whole_core_prefill(
       residual.row_capacity < count || !residual.storage.device_data) return false;
   target_.request_reuse_boundary_ = 2;
   target_.committed_request_positions_ = 0;
+  seed_cache_valid_ = false;
+  entry_snapshots_ = direct_gdn_rows_ = seed_kv_reuses_ = 0;
   const auto fail = [this]() noexcept { (void)abort(); return false; };
   auto stream = static_cast<cudaStream_t>(target_.stream_);
   // Same independent one-row reduction as the ordinary final-row handoff;
@@ -505,6 +507,14 @@ const float* TargetTransaction::sines(const ReferenceRunner& runner) noexcept {
 bool TargetTransaction::snapshot(std::uint32_t slot) noexcept {
   auto stream = static_cast<cudaStream_t>(target_.stream_);
   auto* dst = static_cast<char*>(snapshots_) + slot_bytes_ * slot;
+  if (slot == 0) {
+    // Entry recurrent state and logits have no consumer: abort always poisons.
+    if (cudaMemcpyAsync(dst + recurrent_bytes_, hidden(target_), 2 * H,
+                        cudaMemcpyDeviceToDevice, stream) != cudaSuccess ||
+        cudaStreamSynchronize(stream) != cudaSuccess) return false;
+    ++entry_snapshots_;
+    return true;
+  }
   return cudaMemcpyAsync(dst, static_cast<char*>(state_.arena_data()) + recurrent_offset_,
                          recurrent_bytes_, cudaMemcpyDeviceToDevice, stream) == cudaSuccess &&
          cudaMemcpyAsync(dst + recurrent_bytes_, hidden(target_), 2 * H,
@@ -519,6 +529,7 @@ bool TargetTransaction::begin(std::uint32_t rows) noexcept {
       draft_.position() + 1 != state_.current_position() ||
       rows > state_.max_sequence_length() - state_.current_position()) return false;
   active_ = true;
+  seed_cache_valid_ = false;
   verified_ = false;
   committed_ = 0;
   entry_position_ = state_.current_position();
@@ -529,12 +540,14 @@ bool TargetTransaction::begin(std::uint32_t rows) noexcept {
 }
 bool TargetTransaction::propose(std::uint32_t seed, std::uint32_t count,
                                 std::uint32_t* draft) noexcept {
-  if (!active_ || verified_ || count + 1 != rows_ || draft == nullptr) return false;
+  if (!active_ || verified_ || count + 1 != rows_ || draft == nullptr ||
+      draft_.position() + 1 != entry_position_) return false;
   auto* input_hidden = reinterpret_cast<const std::uint16_t*>(
       static_cast<const char*>(snapshots_) + recurrent_bytes_);
   for (std::uint32_t i = 0; i < count; ++i) {
     if (!draft_.step(i == 0 ? seed : draft[i - 1],
                      i == 0 ? input_hidden : draft_.hidden(), true, draft[i])) return false;
+    if (i == 0) { cached_seed_ = seed; seed_cache_valid_ = true; }
   }
   return true;
 }
@@ -555,10 +568,10 @@ bool TargetTransaction::verify(std::uint32_t seed, const std::uint32_t* draft,
       predictions[i] = predictions_[i] = step.value->prediction->predicted_token_id;
     }
   }
-  // Draft cache entries produced from recursive draft hidden must be rebuilt
-  // from target hidden, including accepted proposals. Rewind only here; saved
-  // target prefixes remain available until finish.
-  if (!draft_.rewind(entry_position_ - 1)) return false;
+  // The first proposal already used the immutable target entry hidden.
+  // All later recursive-draft rows remain invalid until target reconciliation.
+  seed_cache_valid_ = seed_cache_valid_ && count != 0 && cached_seed_ == seed;
+  if (!draft_.rewind(entry_position_ - (seed_cache_valid_ ? 0 : 1))) return false;
   verified_ = true;
   return true;
 }
@@ -577,7 +590,11 @@ bool TargetTransaction::commit_prefix(std::uint32_t rows, std::uint32_t pending)
       cudaStreamSynchronize(stream) != cudaSuccess) return false;
   const auto* previous_hidden = reinterpret_cast<const std::uint16_t*>(
       static_cast<const char*>(snapshots_) + (rows - 1) * slot_bytes_ + recurrent_bytes_);
-  if (!draft_.append_kv(inputs_[rows - 1], previous_hidden)) return false;
+  if (rows == 1 && seed_cache_valid_) {
+    if (draft_.position() != entry_position_) return false;
+    ++seed_kv_reuses_;
+    seed_cache_valid_ = false;
+  } else if (!draft_.append_kv(inputs_[rows - 1], previous_hidden)) return false;
   if (!state_.set_sequence_length(entry_position_ + rows)) return false;
   target_.trace_valid_ = false;
   target_.retained_prefill_hidden_valid_ = false;
@@ -589,6 +606,7 @@ bool TargetTransaction::finish() noexcept {
       state_.current_position() != entry_position_ + committed_ ||
       draft_.position() + 1 != state_.current_position()) return false;
   active_ = false;
+  seed_cache_valid_ = false;
   verified_ = false;
   return true;
 }
@@ -601,6 +619,7 @@ bool TargetTransaction::abort() noexcept {
   target_.request_reuse_boundary_ = 2;
   target_.committed_request_positions_ = 0;
   active_ = false;
+  seed_cache_valid_ = false;
   verified_ = false;
   return status == cudaSuccess && draft_ok;
 }

@@ -251,19 +251,38 @@ int main(int argc, char** argv) try {
     std::array<std::uint32_t, 3> proposals{};
     std::array<std::uint32_t, 4> predictions{};
     for (unsigned i = 0; i + 1 < count; ++i) proposals[i] = expected[i + 1];
-    require(transaction.begin(count) &&
-            transaction.verify(seed, proposals.data(), count - 1, predictions.data()),
+    require(transaction.begin(count), "multi-row begin");
+    if (count >= 3) {
+      std::array<std::uint32_t, 3> ignored_proposals{};
+      // M3 checks a mismatched seed cannot authorize reuse; M4 checks reuse.
+      const auto proposed_seed = count == 3 ? (seed + 1) % 248320 : seed;
+      require(transaction.propose(proposed_seed, count - 1, ignored_proposals.data()),
+              "prefix reuse admission proposal");
+    }
+    require(transaction.verify(seed, proposals.data(), count - 1, predictions.data()),
             "multi-row staged prefix verification");
-    std::vector<std::vector<char>> prefix_states;
+    std::vector<std::vector<char>> prefix_states, prefix_keys, prefix_values;
     for (unsigned i = 0; i < count; ++i) {
       require(predictions[i] == expected[i + 1] &&
               transaction.commit_prefix(i + 1, predictions[i]), "multi-row prefix selection");
       prefix_states.push_back(live_state(*request, *target));
+      prefix_keys.push_back(read_device(draft.keys(), draft.position() * 2048ULL));
+      prefix_values.push_back(read_device(draft.values(), draft.position() * 2048ULL));
     }
     require(transaction.finish(), "multi-row prefix finish");
+    require(transaction.entry_snapshots() == 1 &&
+            transaction.direct_gdn_rows() == count * 48ULL &&
+            transaction.seed_kv_reuses() == (count == 4 ? 1U : 0U),
+            "seed reuse must require a matching completed proposal");
     require(bool(target->reset()) && draft.reset(), "scalar prefix reset");
     require(initialize() == expected[0], "scalar prefix seed");
     for (unsigned i = 0; i < count; ++i) {
+      std::uint32_t ignored = 0;
+      require(draft.step(expected[i], mtp::TargetTransaction::hidden(*target), false, ignored),
+              "independent full-step prefix KV replay");
+      require(read_device(draft.keys(), draft.position() * 2048ULL) == prefix_keys[i] &&
+              read_device(draft.values(), draft.position() * 2048ULL) == prefix_values[i],
+              "prefix draft KV differs from full-step replay");
       require(step(*target, expected[i], true) == predictions[i], "scalar prefix prediction");
       const auto scalar_state = live_state(*request, *target);
       if (scalar_state != prefix_states[i]) {
@@ -275,7 +294,8 @@ int main(int argc, char** argv) try {
       }
       require(scalar_state == prefix_states[i], "multi-row full prefix differs");
     }
-    std::cout << "verify_rows=" << count << " all_prefix_state_and_logits=bitwise_equal\n" << std::flush;
+    std::cout << "verify_rows=" << count << " all_prefix_state_and_logits=bitwise_equal"
+              << " draft_prefix_kv=bitwise_equal seed_reuse_control=pass\n" << std::flush;
   }
 #endif
   if (prefix_only) {
@@ -385,6 +405,8 @@ int main(int argc, char** argv) try {
 #endif
     std::vector<std::uint32_t> actual{seed};
     unsigned proposed = 0, accepted = 0, rows = 0, rounds = 0;
+    const auto reuse_before = transaction.seed_kv_reuses();
+    std::uint64_t expected_reuses = 0;
     Scripted backend(transaction, expected);
     backend.mismatch = test.mismatch;
     backend.fail_after_verify = test.fail;
@@ -407,6 +429,9 @@ int main(int argc, char** argv) try {
       }
       if (!result.ok()) std::cerr << "round=" << rounds << " status=" << int(result.status) << " draft_error=" << draft.error() << '\n';
       require(result.ok(), "MTP round");
+      expected_reuses += result.proposed_tokens != 0;
+      require(transaction.seed_kv_reuses() == reuse_before + expected_reuses,
+              "first seed KV reuse missing or leaked across a zero-draft tail");
       actual.insert(actual.end(), result.output.begin(), result.output.begin() + result.output_count);
       proposed += result.proposed_tokens;
       accepted += result.accepted_tokens;

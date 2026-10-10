@@ -47,13 +47,19 @@ bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
   };
   // Each prefix slot is assembled layer by layer. No slot is visible until
   // every layer, normalized hidden and full logits have completed.
-  const auto save_region = [&](unsigned row, const void* source, std::size_t bytes) {
+  const auto prefix_region = [&](unsigned row, const void* source,
+                                 std::size_t bytes) -> void* {
     const auto offset = static_cast<const char*>(source) -
                         static_cast<const char*>(state_.arena_data());
-    if (offset < 0 || std::uint64_t(offset) < recurrent_offset_ ||
-        std::uint64_t(offset) + bytes > recurrent_offset_ + recurrent_bytes_) return false;
-    return ok(cudaMemcpyAsync(static_cast<char*>(snapshots_) + (row + 1) * slot_bytes_ +
-                 offset - recurrent_offset_, source, bytes, cudaMemcpyDeviceToDevice, stream));
+    if (row >= rows_ || offset < 0 || std::uint64_t(offset) < recurrent_offset_ ||
+        std::uint64_t(offset) + bytes > recurrent_offset_ + recurrent_bytes_) return nullptr;
+    return static_cast<char*>(snapshots_) + (row + 1) * slot_bytes_ +
+           offset - recurrent_offset_;
+  };
+  const auto save_region = [&](unsigned row, const void* source, std::size_t bytes) {
+    void* destination = prefix_region(row, source, bytes);
+    return destination && ok(cudaMemcpyAsync(destination, source, bytes,
+                                             cudaMemcpyDeviceToDevice, stream));
   };
   if (!active_ || verified_ || rows_ < 1 || rows_ > 4 ||
       state_.current_position() != entry_position_) return false;
@@ -73,15 +79,20 @@ bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
               v.fp32_scratch, v.fp32_scratch_elements, v.linear_a + row * 48,
               v.linear_b + row * 48, stream))) return false;
       for (unsigned row = 0; row < rows_; ++row) {
+        constexpr std::size_t state_bytes = 48ULL * 128 * 128 * 2;
+        auto* state_output = static_cast<std::uint16_t*>(
+            prefix_region(row, v.gdn_state[layer], state_bytes));
+        const auto* state_input = row ? static_cast<const std::uint16_t*>(
+            prefix_region(row - 1, v.gdn_state[layer], state_bytes)) : v.gdn_state[layer];
+        if (!state_input || !state_output) return false;
         if (!ok(launch_causal_conv1d_silu_update_reference_cuda(v.projection[0] + row * 10240,
               a->conv1d.data, v.conv_state[layer], v.projection[0] + row * 10240, {}, stream)) ||
             !ok(launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
               v.projection[0] + row * 10240, v.linear_a + row * 48, v.linear_b + row * 48,
-              a->a_log.data, a->dt_bias.data, v.gdn_state[layer], v.gdn_state[layer],
+              a->a_log.data, a->dt_bias.data, state_input, state_output,
               1.e-6F, a->norm.data, v.projection[1] + row * 6144, 48, 128, 1.e-6F,
               v.projection[2] + row * 6144, {}, stream)) ||
-            !save_region(row, v.conv_state[layer], 10240 * 3 * 2) ||
-            !save_region(row, v.gdn_state[layer], 48 * 128 * 128 * 2)) return false;
+            !save_region(row, v.conv_state[layer], 10240 * 3 * 2)) return false;
       }
       if (!project(a->out_proj, v.projection[2], v.hidden[1])) return false;
     } else if (const auto* a = std::get_if<FullAttentionWeights>(&w.attention)) {
@@ -185,6 +196,8 @@ bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
     if (results[row].has_nonfinite || results[row].index >= V) return false;
     predictions[row] = predictions_[row] = results[row].index;
   }
-  return bool(state_.set_sequence_length(entry_position_ + rows_));
+  direct_gdn_rows_ += rows_ * 48ULL;
+  // The staged state is private until commit_prefix restores a complete prefix.
+  return true;
 }
 }  // namespace q3x::runtime::mtp_detail

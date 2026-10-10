@@ -1,0 +1,466 @@
+{
+  "work_package_id": "WP-MTP-PREFIX-PUBLICATION-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v43",
+  "source_parent": "4a297bb",
+  "status": "direction_complete_dependency_only",
+  "decision": "Retain direct immutable GDN publication, live-only entry capture and exact first-seed KV reuse as a bounded dependency through next complete verifier API return or archival. Whole Decode and both affected phase intervals improve at both long contexts for both policies. No further scan or profile; no noise-qualified architecture selection or production promotion.",
+  "source_identity": {
+    "oracle": "794e4b10758e2483ad8815cf955573e1803e829885c98c60a760d06d8d442b38",
+    "candidate.patch": "c4d5955be319932b5caaa2d8841ae04e03fc45830c2343f9fd0e99e76afb51a5",
+    "server": "f757459c85b9a7a008ebb423e9b3a9eed4a0ee2903a40388d93f013275955c75",
+    "tests/mtp_device_test.cpp": "149366fd54fb029b9c418426a00cc4b426d6756a111ba682510beb974b7f0b92",
+    "tools/evaluation/validate_mtp_service.py": "29e76720a50677897be14ae05b699a989dcd493a9afef6e197f802e476978aed",
+    "src/server/evaluation_server.cpp": "c117710242936f214dfefb9379be1c961005e58743115b21e05a83a9e6c83698",
+    "src/runtime/reference_runner_terminal_prefix_internal.h": "734c3274f72079d9ef81b577b41d3445d9b982b5b9b209e53ad0dfc319f89f3f",
+    "src/runtime/reference_runner_full_attention_oracle_internal.h": "c86a676e530f839f0cc1bf347a46c47b5c5aba531751ea36ff14845b6d564352",
+    "src/runtime/mtp_verify_attention_internal.cu": "64eaf3c9a4e2813dad16620216d6789b493d191e12f93f158f40d541c92ba273",
+    "src/runtime/reference_engine_prefill_authority.h": "c0ce31dc6aa0747973e65a2ec994ac49c549176680df45978184ab0ffba29d11",
+    "src/runtime/reference_runner_gdn_exact_span_policy_internal.h": "2938439fa831120fdf2eb8a055725681703876043beb21953a9372a6ea055c94",
+    "src/runtime/p40_packed_projection_assets.cpp": "c938706571e986c93e326c53bef1d6ada8ad761bb574926155964084b42f2bd2",
+    "src/runtime/prefill_operator_bindings.cpp": "fcca07bb1efa85c7151e04550109e65f746770c1c0bcb6eb841bb4c3cf3ee15a",
+    "src/runtime/reference_engine_prefill_authority.cpp": "ddd98d3aa7f793d7fe395bc42447665773db5562dd8a5370dc4ae678d2565f90",
+    "src/runtime/mtp_prefill_internal.cu": "a73d0774d11bf9d1e642876d01e0239d62489d1c83af59539de9f835e43a07d2",
+    "src/runtime/mtp_prefill_internal.h": "eed816da8e20a804953732b09efc52a87e1b80a733303bae4c721f7ca166f054",
+    "src/runtime/reference_engine_decode_sidecar_policy_internal.h": "dafa71954aa685d464c59e2fcd82c053443a03b3b48c069b392e7a65e92bc8af",
+    "src/runtime/prefill_workspace_plan.cpp": "163d2314c1358ee797b961b92c9f5360f1b6e239260cc16d5d43d26576b81721",
+    "src/runtime/reference_oracle.cpp": "efde55942e91712f23dfa18092ca0df7ba9a37e111eccaf1ee947360b67777c7",
+    "src/runtime/mtp_verify_projection_internal.cu": "b06dcb7b9a727a2b7227feff56cbf115bfc0b608a60c5a991dbd93c1f8d84e63",
+    "src/runtime/prefill_route_evidence.cpp": "88bc0ae79d310c41da68b4cf4eb48af5e4a35b47cfd1c32d47aa5c8a4c32631b",
+    "src/runtime/reference_runner.cpp": "4b346183634201f13c355f5d6c71f0bd2ba832c782bee57050ca304c54073ebe",
+    "src/runtime/mtp_control.cpp": "33be43a79d8697dd6a84f8709977f6f8841a111a011b0688cf6b0a5a6fb6c591",
+    "src/runtime/reference_runner_prompt_wide_policy_internal.h": "263adf64953ffb2017133179f25bc1b9cd6bfa9d547dc69aa6d3e2fe3312924f",
+    "src/runtime/mtp_device_internal.h": "372bab3f5685ffecc8e7807cdb6403b48c8156b35409f6befe1dc69debb5eea6",
+    "src/runtime/reference_runner_layer_major_views.cpp": "927dca43bb145754e54a64fe4d540cf82a8d369d2d260925788c03575cd7d1f1",
+    "src/runtime/resident_weights.cpp": "518e26070a2a82110e45392ad33f7d65cf2394c0adf25719993c390e267f8e0c",
+    "src/runtime/mtp_control.h": "ca6290fa891f33ca4db4d0b4e9166ab84179c494eb6d5da090b0e193cd3ebaa3",
+    "src/runtime/reference_runner_gdn_c16_norm_gate_admission.h": "ee6e16b3fb5d687e150b180614d9af17c34d12d328e717f3d8790ba4de07ce8e",
+    "src/runtime/reference_runner_request_reset_policy_internal.h": "89786af4eff2129032cdfb2dd28bff4213374f25d170ff1ce0a1a4254fbf0d8c",
+    "src/runtime/reference_engine_final_token_policy_internal.h": "7b5f5c40a85fa8901a881baccf2c469e3f3248dbc355cba7b79ca6bdf4ec19fa",
+    "src/runtime/sm87_target_aot_layer0_m192_oracle_evidence_internal.h": "fb3c0d0a69f4bef6e42effd7c4363aeaa898f494be8f0c7bfd0db805da5d6b12",
+    "src/runtime/reference_runner_gdn_chunk64_native_admission.h": "bdc6e033a5d0834c48b23c25893ca8730e6a66bed6f67c7b940fa1c13dc62626",
+    "src/runtime/reference_benchmark.cpp": "56e24d5dbc5307e372de4dbf698995f9a3a0dbc33d5a9ac6dff3dda716b86315",
+    "src/runtime/mtp_verify_internal.cpp": "172fe3998e989832c79b64ccb48b1af85228c6b0dc705186c5367036292ef1a0",
+    "src/runtime/reference_runner_gdn_chunk64_reference_admission.h": "470cd583a991c6f35e01a8c05ae179c6af5472dd73bcecc547b6bce1979abbe6",
+    "src/runtime/request_state.cpp": "2cf9013f52516a332469f38656046e60bdf9ed5ba423a81f331d32161a2e4299",
+    "src/runtime/mtp_service_internal.h": "5057c4be1d74fa279228de09dc641f27c4d6904b854370db1451951e3601e137",
+    "src/runtime/sm87_target_aot_projection_device_assets.cpp": "9e2e5264fac95b68253953a4898eee0edd89bd8cf4894d814b75be79b5e14b19",
+    "src/runtime/model_weights.cpp": "5c6c83cb65a86bfab176ed8b3e318b4f41077576153fe4d5213b4deb4ccc6fd5",
+    "src/runtime/reference_engine.cpp": "11882af20bc850f04cd6dea385ea50fe7a55a11e44b45be5842cfc49c60ae350",
+    "src/runtime/sm87_target_aot_layer0_m192_oracle_internal.h": "e2abe3a9f197ce41689a2df37472ded3db502b7770599f9a5b99f043cdbbab56",
+    "src/runtime/decode_fused_gqa_internal.h": "1875825bb8a512b38cf98f254e0f6ee288f5cb88677c5fe0ddcc6cebac584ec4",
+    "src/runtime/reference_runner_decode_gqa_policy_internal.h": "5dc1685d01c6f5914502bde6dd69c61d539c831ee6848e140483936214f4bf77",
+    "src/runtime/mtp_service_internal.cpp": "bbf58cfe9455f1668ca271036596f4552d3993ce1036caed1bf98bb7e7bb2320",
+    "src/runtime/reference_engine_control.cpp": "48f496df165ffef84ab55b4e83940a1db5c626e84ea77aa07679ff5f572f3c5d",
+    "src/runtime/sm87_target_aot_projection_assets.cpp": "3bff89ff38766b6421d73c0beb289696c85ac8a43bfd47e1f0ec5cd73302cc9a",
+    "src/runtime/prefill_execution_plan.cpp": "ce7b6ac1708ff60a25d2d147affd057a46bec15bcfdf1d7dfd646e7e451cee12",
+    "src/runtime/mtp_engine_internal.h": "2652ee5b80f9bba6e706a5d05a580f919bfdf17b6df665a028dc0d0db3818e8f",
+    "src/runtime/mtp_device_internal.cpp": "2080c2a1a9633e21449242a3b6dd82cdf44451c86598a5a1b6d51e1e3ba5c89e",
+    "src/runtime/reference/decode_ops.cpp": "efffb0f7bf1d09ab5d0f3dccc44bbe285a905425191ddb3e7b929c3d71bd3582",
+    "src/runtime/reference/layout_ops.cpp": "bb9b5f59fea4da2095bca82154d7a9f212279e9e4efb789246a94c45ec7d7877",
+    "src/runtime/reference/gdn_decode.cpp": "2bab112355a441a9101c3ef4af7cc0a910445a0664adea3c5182ddc3a6db5823",
+    "include/q3x/server/evaluation_server.h": "adbcceb6a90a1d29e3db880c129a49ae882284e25bce9374228fc1367de117a1"
+  },
+  "api_metrics": {
+    "d2": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8866624940000001,
+        "prefill_tps": 73.30861566813945,
+        "decode_tps": 12.28331968178832,
+        "ttft_s": 0.9052088279277086,
+        "elapsed_s": 2.126324406825006,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-prefix-publication-v46",
+          "draft_length": 2,
+          "startup_free_bytes": 9878581248,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "entry_hidden_snapshots": 7,
+          "direct_gdn_state_rows": 912,
+          "seed_kv_reuses": 6,
+          "state_copy_bytes_elided": 1987054592,
+          "draft_initialization_ms": 5.651474,
+          "draft_ms": 124.132972,
+          "verify_ms": 1075.674454,
+          "reconcile_ms": 20.981150000000003,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.308478006,
+        "prefill_tps": 473.29406994423397,
+        "decode_tps": 13.518448980313993,
+        "ttft_s": 17.33065750822425,
+        "elapsed_s": 36.19412177009508,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-prefix-publication-v46",
+          "draft_length": 2,
+          "startup_free_bytes": 9878581248,
+          "prompt_rows": 8192,
+          "draft_prefill_rows": 8191,
+          "initialized": true,
+          "rounds": 98,
+          "proposed": 196,
+          "accepted": 157,
+          "verified_rows": 294,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            86,
+            71,
+            0
+          ],
+          "draft_ordered_attention_steps": 196,
+          "entry_hidden_snapshots": 98,
+          "direct_gdn_state_rows": 14112,
+          "seed_kv_reuses": 98,
+          "state_copy_bytes_elided": 29932693504,
+          "draft_initialization_ms": 543.625235,
+          "draft_ms": 2060.613366000001,
+          "verify_ms": 16437.164492000007,
+          "reconcile_ms": 360.3051269999999,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 93.110589259,
+        "prefill_tps": 429.5966798012035,
+        "decode_tps": 10.2990959651466,
+        "ttft_s": 93.14598313998431,
+        "elapsed_s": 117.90704851597548,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-prefix-publication-v46",
+          "draft_length": 2,
+          "startup_free_bytes": 9878581248,
+          "prompt_rows": 40000,
+          "draft_prefill_rows": 39999,
+          "initialized": true,
+          "rounds": 105,
+          "proposed": 210,
+          "accepted": 150,
+          "verified_rows": 315,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            85,
+            65,
+            0
+          ],
+          "draft_ordered_attention_steps": 210,
+          "entry_hidden_snapshots": 105,
+          "direct_gdn_state_rows": 15120,
+          "seed_kv_reuses": 105,
+          "state_copy_bytes_elided": 32070743040,
+          "draft_initialization_ms": 2645.726152,
+          "draft_ms": 2451.9028000000003,
+          "verify_ms": 21948.296536000005,
+          "reconcile_ms": 353.806592,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "d3": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.888708621,
+        "prefill_tps": 73.13983285867101,
+        "decode_tps": 10.494338141910198,
+        "ttft_s": 0.9073040247894824,
+        "elapsed_s": 2.336540814023465,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-prefix-publication-v46",
+          "draft_length": 3,
+          "startup_free_bytes": 9879859200,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 6,
+          "proposed": 18,
+          "accepted": 9,
+          "verified_rows": 24,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            3,
+            2
+          ],
+          "draft_ordered_attention_steps": 0,
+          "entry_hidden_snapshots": 6,
+          "direct_gdn_state_rows": 1152,
+          "seed_kv_reuses": 6,
+          "state_copy_bytes_elided": 2285598720,
+          "draft_initialization_ms": 5.79799,
+          "draft_ms": 186.038709,
+          "verify_ms": 1221.879426,
+          "reconcile_ms": 21.071808,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.316598343,
+        "prefill_tps": 473.07212639204664,
+        "decode_tps": 12.17211471304397,
+        "ttft_s": 17.338785890024155,
+        "elapsed_s": 38.28861081972718,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-prefix-publication-v46",
+          "draft_length": 3,
+          "startup_free_bytes": 9879859200,
+          "prompt_rows": 8192,
+          "draft_prefill_rows": 8191,
+          "initialized": true,
+          "rounds": 84,
+          "proposed": 250,
+          "accepted": 171,
+          "verified_rows": 334,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            72,
+            58,
+            41
+          ],
+          "draft_ordered_attention_steps": 250,
+          "entry_hidden_snapshots": 84,
+          "direct_gdn_state_rows": 16032,
+          "seed_kv_reuses": 84,
+          "state_copy_bytes_elided": 31847387136,
+          "draft_initialization_ms": 553.59432,
+          "draft_ms": 2635.0713040000005,
+          "verify_ms": 17936.221041,
+          "reconcile_ms": 373.74095299999993,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 93.545762928,
+        "prefill_tps": 427.5982016501065,
+        "decode_tps": 9.447921246570418,
+        "ttft_s": 93.58121492015198,
+        "elapsed_s": 120.572871172335,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-prefix-publication-v46",
+          "draft_length": 3,
+          "startup_free_bytes": 9879859200,
+          "prompt_rows": 40000,
+          "draft_prefill_rows": 39999,
+          "initialized": true,
+          "rounds": 88,
+          "proposed": 262,
+          "accepted": 167,
+          "verified_rows": 350,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            72,
+            52,
+            43
+          ],
+          "draft_ordered_attention_steps": 262,
+          "entry_hidden_snapshots": 88,
+          "direct_gdn_state_rows": 16800,
+          "seed_kv_reuses": 88,
+          "state_copy_bytes_elided": 33371119616,
+          "draft_initialization_ms": 2697.219669,
+          "draft_ms": 3067.2154249999985,
+          "verify_ms": 23547.86334700001,
+          "reconcile_ms": 370.3865419999999,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ]
+  },
+  "comparison_vs_v45": {
+    "d2": [
+      {
+        "stage": "p65",
+        "decode_ratio_vs_v45": 1.0183182759623828,
+        "verify_saved_ms": 10.849866999999904,
+        "reconcile_saved_ms": 5.430606999999998,
+        "full_decode_saved_s": 0.02236969700000002,
+        "prefill_delta_s": -0.0006939949999998918,
+        "total_delta_s": -0.023105100262910128
+      },
+      {
+        "stage": "p8192",
+        "decode_ratio_vs_v45": 1.0183020101487947,
+        "verify_saved_ms": 171.04642699999386,
+        "reconcile_saved_ms": 87.75717000000037,
+        "full_decode_saved_s": 0.3452328439999981,
+        "prefill_delta_s": 0.013589692000000042,
+        "total_delta_s": -0.3315878030844033
+      },
+      {
+        "stage": "p40000",
+        "decode_ratio_vs_v45": 1.014942119343202,
+        "verify_saved_ms": 183.02635999999256,
+        "reconcile_saved_ms": 94.39460900000012,
+        "full_decode_saved_s": 0.36995872700000376,
+        "prefill_delta_s": 0.36870144799999593,
+        "total_delta_s": -0.0009823953732848167
+      }
+    ],
+    "d3": [
+      {
+        "stage": "p65",
+        "decode_ratio_vs_v45": 1.017414766463564,
+        "verify_saved_ms": 14.223296000000119,
+        "reconcile_saved_ms": 5.479010000000006,
+        "full_decode_saved_s": 0.024891659999999982,
+        "prefill_delta_s": 0.0014345560000000868,
+        "total_delta_s": -0.026800367049872875
+      },
+      {
+        "stage": "p8192",
+        "decode_ratio_vs_v45": 1.0164813149266878,
+        "verify_saved_ms": 197.3420449999976,
+        "reconcile_saved_ms": 76.02734499999991,
+        "full_decode_saved_s": 0.3452756899999976,
+        "prefill_delta_s": -0.0063926730000005705,
+        "total_delta_s": -0.3515520002692938
+      },
+      {
+        "stage": "p40000",
+        "decode_ratio_vs_v45": 1.0133086434603855,
+        "verify_saved_ms": 206.58423499999844,
+        "reconcile_saved_ms": 78.9636120000003,
+        "full_decode_saved_s": 0.35920113999999614,
+        "prefill_delta_s": 0.1679682449999973,
+        "total_delta_s": -0.1909103635698557
+      }
+    ]
+  },
+  "remaining_goal_budget": [
+    {
+      "prompt": 8192,
+      "decode_s": 18.863110729000002,
+      "target_1p5x_s": 18.4539924513425,
+      "remaining_s": 0.40911827765750175,
+      "ratio_vs_non_mtp": 1.4674667966857242
+    },
+    {
+      "prompt": 40000,
+      "decode_s": 24.759454699999996,
+      "target_1p5x_s": 21.623326967132474,
+      "remaining_s": 3.1361277328675214,
+      "ratio_vs_non_mtp": 1.3100042324719985
+    }
+  ],
+  "numerical": {
+    "p513_complete_prefix_states_full_logits": 9,
+    "p513_complete_prefix_draft_kv": 9,
+    "seed_reuse_controls": [
+      "no proposal: no reuse",
+      "different seed: no reuse",
+      "matching completed proposal: reuse first row only"
+    ],
+    "p513_complete_transactions": 11,
+    "cache_tail_cases": 9,
+    "initialization_cancel_recovery": 2,
+    "injected_failure_recovery": 2,
+    "same_input_ordered_draft_steps": 3,
+    "all_complete_state_logits_cache_exact": true
+  },
+  "api": {
+    "successful_checks": 16,
+    "exact_output_ids_accounting_logical_work_equal_v45": true,
+    "same_non_mtp_output_accounting_match": true,
+    "new_physical_publication_and_reuse_counters_audited": true,
+    "scope": "Eight driver checks per policy including text/chat/stream/nonstream/cancellation/recovery. Logical target rows and proposal/acceptance are unchanged; redundant copy and cache-only work is eliminated. Not general release qualification."
+  },
+  "resources": {
+    "no_new_allocation": true,
+    "five_slot_geometry_unchanged": true,
+    "all_kernel_arithmetic_unchanged": true,
+    "production_unchanged": true
+  },
+  "cleanup": {
+    "p513": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 72.531
+    },
+    "d2": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 80.312
+    },
+    "d3": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 81.656
+    }
+  },
+  "limitations": [
+    "One fresh process per policy against prior v45 direction, not mirrored noise qualification.",
+    "Elided copy bytes are source-derived physical counts, not measured DRAM savings or timing attribution.",
+    "Prefill implementation is unchanged; its interval differences are not attributed to this edit.",
+    "The 1.5x–3x goal remains active and unmet; production stays non-MTP."
+  ],
+  "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+  "artifact_root": ".q3x-work/mtp-prefix-publication-20261010",
+  "final_checks": {
+    "host_control_tests": 3,
+    "document_unit_tests": 7,
+    "document_control": {
+      "markdown": 86,
+      "links": 1210,
+      "errors": 0
+    },
+    "diff_check": "pass",
+    "hygiene": {
+      "gpu_handles": {
+        "returncode": 1,
+        "stdout": "",
+        "stderr": ""
+      },
+      "worktree_count": 47,
+      "api_key_files": [],
+      "temporary_files": []
+    }
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-prefix-publication-20261010/artifact-manifest.json",
+    "sha256": "5c19ad4e84ee6f686a77740734e0ad3853fcb1e90930c8cd7b5e944db6ecf6a7",
+    "files": 135,
+    "bytes": 65732457
+  }
+}

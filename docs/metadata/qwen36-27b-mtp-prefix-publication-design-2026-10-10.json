@@ -1,0 +1,38 @@
+{
+  "work_package_id": "WP-MTP-PREFIX-PUBLICATION-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v43",
+  "source_parent": "4a297bb1407699e059dbd2a4930a9af64bf5fd5a",
+  "profile": "q3x.sm87.admission.mtp-prefix-publication-api.v46",
+  "goal": "1.5x–3x same-request committed Decode for d2/d3, exact full state/logits/output",
+  "budget": {
+    "remaining_full_decode_8k_s": 0.754351122,
+    "remaining_full_decode_40k_s": 3.50608646,
+    "matched_v31_all_copy_and_uncovered_s": 0.838866592,
+    "v45_d2_reconciliation_8k_40k_s": [
+      0.448062297,
+      0.448201201
+    ],
+    "scope": "Bounded transaction prerequisite; alone cannot close 40K. Eliminate dead publication before next complete verifier composition. No projected speedup from byte counts."
+  },
+  "composition": [
+    "Entry snapshot publishes only its live normalized hidden; entry recurrent/logit copies have no consumer. Five-slot allocation remains unchanged.",
+    "Each original ordered GDN update writes its existing BF16 state output directly into the immutable prefix slot. The next speculative row reads that slot. Remove the subsequent state copy. No recurrent arithmetic or rounding changes.",
+    "Reuse only the first draft KV row created from the actual seed and immutable target entry hidden. Later recursive-draft rows remain invalid and are rebuilt from target hidden. Direct verification without proposal and zero-draft tails use ordinary reconciliation."
+  ],
+  "state_contract": "Complete target/draft state is restored and synchronized before every observer. Private multirow verification leaves canonical state unpublished until commit; logical position is not speculatively advanced by this verifier. Failure drains/poisons and never rolls back to entry slot. Scalar oracle and non-MTP retain their own state semantics. Reuse eligibility requires a completed first proposal at the entry position with matching seed and resets at begin/finish/abort/initialization. No allocation or public ABI change.",
+  "attestation": "Per-request entry hidden snapshots, directly published GDN rows and first-seed KV reuse counts audited against physical rounds/verified rows. Eliminated copy bytes are structural counts, never elapsed-time attribution.",
+  "reference_transfer": "Existing vLLM/Mamba/FLA state ownership and producer/consumer liveness principle; preserve native BF16 recurrence rather than importing reassociation. Existing full-step/cache-only same-input draft oracle proves seed KV identity. No external source or runtime import.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs_max": 1,
+    "profiles": 0,
+    "parameter_scans": 0
+  },
+  "gates": [
+    "host controller and full builds with frozen binaries",
+    "full P513 scalar-prefix state/full-logit and draft-KV transactions, rejection/cancellation/failure recovery; direct-verify and reuse counter assertions",
+    "immediate P65/8K/40K d2 API; >3% regression stops; neutral removes; useful d2 unlocks d3"
+  ],
+  "expiry": "First API return decides removal or bounded dependency through next complete verifier composition or archival. Production unchanged.",
+  "artifact_root": ".q3x-work/mtp-prefix-publication-20261010"
+}

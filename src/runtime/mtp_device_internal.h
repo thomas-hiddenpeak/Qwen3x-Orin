@@ -79,6 +79,9 @@ class TargetTransaction final : public RoundBackend {
                                     void* cancel_context = nullptr,
                                     bool committed_service_handoff = false) noexcept;
   const std::uint16_t* prompt_hidden() const noexcept { return prompt_hidden_; }
+  std::uint64_t entry_snapshots() const noexcept { return entry_snapshots_; }
+  std::uint64_t direct_gdn_rows() const noexcept { return direct_gdn_rows_; }
+  std::uint64_t seed_kv_reuses() const noexcept { return seed_kv_reuses_; }
   bool begin(std::uint32_t verify_rows) noexcept override;
   bool propose(std::uint32_t seed, std::uint32_t count,
                std::uint32_t* draft) noexcept override;
@@ -105,6 +108,9 @@ class TargetTransaction final : public RoundBackend {
   std::uint32_t committed_ = 0;
   std::array<std::uint32_t, 4> inputs_{};
   std::array<std::uint32_t, 4> predictions_{};
+  std::uint64_t entry_snapshots_ = 0, direct_gdn_rows_ = 0, seed_kv_reuses_ = 0;
+  std::uint32_t cached_seed_ = 0;
+  bool seed_cache_valid_ = false;
   bool active_ = false;
   bool verified_ = false;
 };

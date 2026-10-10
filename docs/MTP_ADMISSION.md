@@ -1403,6 +1403,34 @@ passes complete numerical admission and both API panels. Consistent whole
 Decode reductions retain this decoder only as a bounded next-composition
 dependency; no noise-qualified selection or production claim follows.
 
+## Direct prefix publication composition v43
+
+The isolated transaction retains the five-slot allocation but materializes only
+normalized entry hidden in slot zero: no successful observer or rollback reads
+its recurrent state or logits. Abort still drains and poisons. Multirow GDN
+updates use the same operator, arithmetic and BF16 publication with distinct
+input/output pointers: row zero reads canonical state, later rows read the
+preceding immutable prefix, and each writes directly into its own slot.
+Conv snapshots remain unchanged. Complete slots gain authority only after all
+layers, hidden and full logits pass. The private verifier does not publish a
+speculative canonical position; commit restores complete state and length before
+every observer. No external reader may inspect an active uncommitted transaction.
+
+The first completed draft step consumes the actual seed, entry target hidden
+and position, so its K/V equals cache-only reconstruction. The transaction may
+retain exactly that row after verification when the recorded seed matches.
+Later recursive rows remain outside the live prefix and are overwritten from
+target hidden. Direct verification without a proposal and zero-draft tails
+retain ordinary append. Begin, initialization, finish and abort invalidate reuse
+eligibility. Per-request entry-snapshot, direct-GDN-row and seed-KV-reuse counters
+attest this route; source byte elimination is not a timing claim. No allocation,
+public ABI, accuracy or production change follows from this composition.
+
+The [completed direction](metadata/qwen36-27b-mtp-prefix-publication-direction-2026-10-10.json)
+passes complete numerical/cache admission and both API panels. Consistent
+whole Decode reductions retain this ownership composition only as a bounded
+next-verifier dependency. No noise-qualified selection or production follows.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
@@ -1443,8 +1471,9 @@ scalar Decode's four independent accumulation chains, parenthesized merge,
 warp/block reduction, final scale and BF16 publication. The generic small-M
 projection dispatcher has a different one-chain reduction and is not an exact
 Decode verifier. BF16 A/B and causal Attention retain the scalar numerical
-path. Conv/GDN updates remain token-ordered, with each layer's complete state
-copied into its corresponding immutable prefix slot after every update. Slots
+path. Conv/GDN updates remain token-ordered: Conv state is copied after each
+update, while GDN writes directly into its corresponding immutable prefix slot
+under the direct-publication contract above. Slots
 are assembled across all 64 layers and gain no publication authority until
 normalized hidden, full logits and finiteness checks have also completed.
 Existing request-owned C512 scratch supplies the bounded row buffers, with no
@@ -1565,8 +1594,9 @@ full-logit bytes. Restoring logits prevents a rejected later speculative row
 from remaining visible at an earlier accepted boundary. Target KV is append-only
 within a round, so prefix selection preserves its earlier rows and publishes
 only the accepted logical length. The adapter copies the selected recurrent
-and hidden snapshot, rebuilds one draft row from the corresponding target
-hidden, and completes both streams before publishing that token. It never
+and hidden snapshot, rebuilds the target-conditioned draft row unless the
+first-seed reuse proof above applies, and completes both streams before publishing
+that token. It never
 borrows the ordinary engine's successful-request prefix-reset authority.
 Abort drains execution, poisons target and draft, and requires explicit full
 reset. Both owners must outlive the adapter, including destruction/abort.
@@ -1674,7 +1704,7 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
 production/install, and identifies itself as
-`q3x.sm87.admission.mtp-paired-weight-decode-api.v45`. The startup-only
+`q3x.sm87.admission.mtp-prefix-publication-api.v46`. The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.

@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: per-request state, workspace, memory-plan, and lifecycle ownership contract
   effective: 2026-08-09
-  last_reviewed: 2026-10-09
+  last_reviewed: 2026-10-10
   supersedes: []
   superseded_by: []
   ssot_for: RequestState persistent state, workspace, RoPE, allocation, and lifecycle behavior
@@ -302,7 +302,8 @@ free-memory reserve remains required. It neither changes the production state pl
 nor authorizes ordinary callers to rewind a live runner. Its private runner
 peer restores a complete saved prefix, synchronizes target/draft work, and
 publishes length before observation. Rejected append-only KV rows remain
-outside the live prefix; accepted draft KV is rebuilt using target hidden.
+outside the live prefix; accepted draft KV is rebuilt using target hidden,
+except for the proved first-seed reuse defined in MTP Admission.
 Abort poisons both participants and grants no successful-request reuse
 boundary. Whole-core prompt capture retains the existing per-row final-norm arithmetic.
 Draft-cache initialization additionally reserves 1,310,720 bytes of dedicated
@@ -328,3 +329,11 @@ outside an active transaction; all prior target/draft work must be drained.
 The MTP peer does not free this storage. Legacy state retains its separately
 owned snapshot allocation. The complete lifetime and resource gate are owned
 by [MTP Admission](MTP_ADMISSION.md#shared-verification-composition-v3).
+
+Within the isolated [direct prefix publication](MTP_ADMISSION.md#direct-prefix-publication-composition-v43)
+composition, the five-slot extent is unchanged. Slot zero publishes only live
+entry hidden; up to four following slots retain complete immutable prefixes.
+The GDN producer writes directly into those prefixes. Canonical state may be
+unpublished while the private transaction is active, but complete selected
+state and position must be restored before every observer. Abort grants no
+entry rollback or successful reuse authority.
