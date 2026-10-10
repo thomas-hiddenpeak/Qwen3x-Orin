@@ -19,6 +19,27 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP element certificate — closed at host feasibility
+
+`WP-MTP-ELEMENT-CERTIFICATE-20261010` checks one [element-granular repair design](metadata/qwen36-27b-mtp-element-certificate-design-2026-10-10.json).
+A direct-BF16 fast path would remove the old FP16 conversion/residual-MMAs;
+a cheap norm envelope would replace absolute-product MMAs, with original scalar
+repair only for uncertified elements. Before any GPU implementation, reuse pinned
+real FP8 inputs and screen one conservative envelope at <=25% sampled repair.
+This is a host feasibility surrogate, not runtime certification or timing.
+Failure closes the direction without a bound/tile scan; success requires a
+concrete runtime proof and immediate numerical/API composition. The full
+1.5x–3x target and production default stay unchanged.
+
+The [completed feasibility screen](metadata/qwen36-27b-mtp-element-certificate-rejection-2026-10-10.json)
+authenticates 28 real FP8 projections and 2,688 sampled M3 elements. The fixed
+norm envelope certifies 1,852 elements around the FP64 central-dot surrogate;
+31.1% require repair, exceeding the predeclared 25% screen. Close this design
+without runtime changes, a GPU test or bound/tile scanning. The surrogate is
+not an actual MMA evaluation or an upper bound on runtime certification rate;
+this does not establish a hardware limit or target impossibility. Current v52
+API observations and the unmet 1.5x–3x goal remain unchanged.
+
 ## 2026-10-10 MTP QK bulk publication — closed without retention
 
 `WP-MTP-QK-BULK-PUBLICATION-20261010` / `AC-MTP-GREEDY-v52` owns one

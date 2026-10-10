@@ -1,0 +1,20 @@
+{
+  "work_package_id": "WP-MTP-ELEMENT-CERTIFICATE-20261010",
+  "source_parent": "a44827e",
+  "product_constraint": "Exact full-prefix target state/logits and 1.5x-3x same-request API Decode; current remaining 40K gap 2.271105630 seconds.",
+  "question": "Does element-granular repair with a cheap norm certificate justify implementing a new direct-BF16 fast executor, unlike old FP16 conversion plus absolute/residual MMA?",
+  "candidate": "FP8 only. K16 zero-start BF16 MMA, balanced K128 and final trees, conservative gamma(64,2^-24) envelope; cached weight L2 norms and request activation L2 norm replace absolute/residual MMAs. All uncertified elements use original scalar semantics.",
+  "scope": "Host feasibility only, not a runtime certificate proof, numerical-policy amendment or performance result.",
+  "real_inputs": ".q3x-work/mtp-certified-publication-20261010/p65/projections",
+  "fixed_gate": {
+    "maximum_sampled_optimistic_repair_fraction": 0.25,
+    "reason": "FP8 family 5.869 seconds must cover 2.271-second gap plus nonfree fast path/certificate/compaction. Larger repair fractions do not select this implementation direction. This is a design screen, not an impossibility bound."
+  },
+  "bounds": {
+    "host_surrogates": 1,
+    "bound_or_tile_scan": false,
+    "new_gpu_processes_before_screen": 0
+  },
+  "return_point": "If useful, declare one concrete bounded runtime proof/executor and return through full prefix checks directly to real API d2/d3. Otherwise close without GPU mutation.",
+  "artifact_root": ".q3x-work/mtp-element-certificate-20261010"
+}
