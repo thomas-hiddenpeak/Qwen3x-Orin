@@ -1302,7 +1302,7 @@ The [completed direction](metadata/qwen36-27b-mtp-qk-row-share-direction-2026-10
 passes complete P513/P8192 state/logits and both API panels. Small consistent
 verification reductions retain this exact executor only as a bounded
 next-composition dependency. No noise-qualified selection or production claim
-follows; the service below identifies the cumulative admission as v41.
+follows; that completed direction identified the cumulative admission as v41.
 
 ## Shared-row PV recomposition v39 — removed
 
@@ -1381,6 +1381,27 @@ extent/alignment checks precede enqueue. Legacy keeps the established route;
 selected failures drain and poison without fallback. No allocation, public ABI,
 accuracy tolerance, state or production change is introduced. Full numerical
 admission and actual API fitness select this complete executor, not eligibility.
+
+## Paired weight decoding composition v42
+
+The isolated verifier represents each E2M1 pair in one BF16x2 shared lookup
+and each E4M3 scale as two identical BF16 lanes. Every finite product is
+exactly representable: the significand needs at most six bits and the nonzero
+range is normal BF16. Native SM87 `fma.rn.bf16x2` with a negative-zero addend
+computes both scaled weights; the negative zero retains multiplication's signed
+zero. Expanded FP32 operands enter the unchanged four FMA chains and original
+reduction/publication. Complete special-value checks remain mandatory.
+Gate/Up, Down and batched target head share this decoder; FP8, draft, Attention,
+input staging, launch geometry, resident inventory and state ownership are
+unchanged. The two 256-entry shared tables are CTA-owned and initialized before
+a uniform barrier. No new global allocation or retained representation exists.
+This one complete composition is selected only by numerical admission and the
+real API return; paired instructions alone establish no acceleration.
+
+The [completed direction](metadata/qwen36-27b-mtp-paired-weight-decode-direction-2026-10-10.json)
+passes complete numerical admission and both API panels. Consistent whole
+Decode reductions retain this decoder only as a bounded next-composition
+dependency; no noise-qualified selection or production claim follows.
 
 ## Checkpoint and draft model
 
@@ -1653,7 +1674,7 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
 production/install, and identifies itself as
-`q3x.sm87.admission.mtp-qk-row-share-api.v41`. The startup-only
+`q3x.sm87.admission.mtp-paired-weight-decode-api.v45`. The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.

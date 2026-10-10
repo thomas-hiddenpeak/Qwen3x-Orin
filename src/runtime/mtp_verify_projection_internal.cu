@@ -141,11 +141,20 @@ __device__ __forceinline__ unsigned scale6_codes(const std::uint8_t* scales,
 
 __device__ __constant__ float nv_values[16]={0.f,.5f,1.f,1.5f,2.f,3.f,4.f,6.f,
                                             -0.f,-.5f,-1.f,-1.5f,-2.f,-3.f,-4.f,-6.f};
+// Products of finite E2M1 and E4M3 operands fit exactly in BF16.
+// The negative-zero addend preserves the sign of a zero multiplication.
+__device__ __forceinline__ unsigned scaled_weight_pair(unsigned pair,
+                                                       unsigned scale) {
+  unsigned result;
+  asm("fma.rn.bf16x2 %0, %1, %2, %3;" : "=r"(result)
+      : "r"(pair), "r"(scale), "r"(0x80008000U));
+  return result;
+}
 template<unsigned M, unsigned Layout>
 __global__ void nvfp4_rows(const std::uint8_t* weights, const std::uint8_t* scales,
     unsigned scale_base, float scale, const std::uint16_t* x,
     unsigned n, unsigned k, std::uint16_t* y) {
-  __shared__ float table[256], values[16];
+  __shared__ unsigned table[256], values[256];
   // Share complete immutable inputs across the four original warp consumers.
   // Cap at three rows so M4 retains four-CTA shared-memory capacity.
   constexpr unsigned staged_rows = Layout==1 ? (M<3 ? M : 3) : 0;
@@ -155,8 +164,12 @@ __global__ void nvfp4_rows(const std::uint8_t* weights, const std::uint8_t* scal
       reinterpret_cast<ulonglong2*>(activation)[i]=
           reinterpret_cast<const ulonglong2*>(x)[i];
   }
-  for (unsigned i=threadIdx.x;i<256;i+=blockDim.x) table[i]=fp8(i);
-  if(threadIdx.x<16) values[threadIdx.x]=nv_values[threadIdx.x];
+  for (unsigned i=threadIdx.x;i<256;i+=blockDim.x) {
+    const unsigned scale = __float_as_uint(fp8(i)) >> 16;
+    table[i] = scale | (scale << 16);
+    values[i] = (__float_as_uint(nv_values[i & 15]) >> 16) |
+                (__float_as_uint(nv_values[i >> 4]) & 0xffff0000U);
+  }
   __syncthreads();
   const unsigned lane=threadIdx.x%32, row=(blockIdx.x*4+threadIdx.x/32)*4;
   float a[M][4][4]={};
@@ -189,7 +202,7 @@ __global__ void nvfp4_rows(const std::uint8_t* weights, const std::uint8_t* scal
         for(unsigned r=0;r<4;++r) codes |= unsigned(scales[(row+r)*(k/16)+base/16])<<(r*8);
       }
       const unsigned words[4]={packed.x,packed.y,packed.z,packed.w};
-      float bs[4];
+      unsigned bs[4];
 #pragma unroll
       for(unsigned r=0;r<4;++r) bs[r]=table[(codes>>(r*8))&255];
       ulonglong2 acts[M];
@@ -204,15 +217,24 @@ __global__ void nvfp4_rows(const std::uint8_t* weights, const std::uint8_t* scal
 #pragma unroll
       for(unsigned half=0;half<2;++half)
 #pragma unroll
-        for(unsigned c=0;c<4;++c) {
-          float av[M];
+        for(unsigned pair=0;pair<2;++pair) {
+          float av0[M], av1[M];
 #pragma unroll
-          for(unsigned m=0;m<M;++m) av[m]=bf16((half?acts[m].y:acts[m].x)>>(c*16));
+          for(unsigned m=0;m<M;++m) {
+            const auto raw = half ? acts[m].y : acts[m].x;
+            av0[m]=bf16(raw>>(pair*32));
+            av1[m]=bf16(raw>>(pair*32+16));
+          }
 #pragma unroll
           for(unsigned r=0;r<4;++r) {
-            const float w=values[(words[r]>>((half*4+c)*4))&15]*bs[r];
+            const unsigned weights2=scaled_weight_pair(
+                values[(words[r]>>((half*2+pair)*8))&255],bs[r]);
+            const float w0=bf16(weights2),w1=bf16(weights2>>16);
 #pragma unroll
-            for(unsigned m=0;m<M;++m) a[m][r][c]=fmaf(w,av[m],a[m][r][c]);
+            for(unsigned m=0;m<M;++m) {
+              a[m][r][pair*2]=fmaf(w0,av0[m],a[m][r][pair*2]);
+              a[m][r][pair*2+1]=fmaf(w1,av1[m],a[m][r][pair*2+1]);
+            }
           }
         }
     }
@@ -231,15 +253,19 @@ template<unsigned M, unsigned Layout, bool Persistent = false>
 __global__ void nvfp4_head_rows(const std::uint8_t* weights, const std::uint8_t* scales,
     unsigned scale_base, float scale, const std::uint16_t* x,
     unsigned n, unsigned k, std::uint16_t* y) {
-  __shared__ float table[256], values[16];
+  __shared__ unsigned table[256], values[256];
   __shared__ __align__(16) std::uint16_t activation[Persistent ? M*5120 : 1];
   if constexpr(Persistent) {
     for(unsigned i=threadIdx.x;i<M*5120/8;i+=blockDim.x)
       reinterpret_cast<ulonglong2*>(activation)[i]=reinterpret_cast<const ulonglong2*>(x)[i];
     x=activation;
   }
-  for (unsigned i=threadIdx.x;i<256;i+=blockDim.x) table[i]=fp8(i);
-  if(threadIdx.x<16) values[threadIdx.x]=nv_values[threadIdx.x];
+  for (unsigned i=threadIdx.x;i<256;i+=blockDim.x) {
+    const unsigned scale = __float_as_uint(fp8(i)) >> 16;
+    table[i] = scale | (scale << 16);
+    values[i] = (__float_as_uint(nv_values[i & 15]) >> 16) |
+                (__float_as_uint(nv_values[i >> 4]) & 0xffff0000U);
+  }
   __syncthreads();
   const unsigned lane=threadIdx.x%32;
   const unsigned first=(blockIdx.x*4+threadIdx.x/32)*4;
@@ -274,7 +300,7 @@ __global__ void nvfp4_head_rows(const std::uint8_t* weights, const std::uint8_t*
         for(unsigned r=0;r<4;++r) codes |= unsigned(scales[(row+r)*(k/16)+base/16])<<(r*8);
       }
       const unsigned words[4]={packed.x,packed.y,packed.z,packed.w};
-      float bs[4];
+      unsigned bs[4];
 #pragma unroll
       for(unsigned r=0;r<4;++r) bs[r]=table[(codes>>(r*8))&255];
       ulonglong2 acts[M];
@@ -283,15 +309,24 @@ __global__ void nvfp4_head_rows(const std::uint8_t* weights, const std::uint8_t*
 #pragma unroll
       for(unsigned half=0;half<2;++half)
 #pragma unroll
-        for(unsigned c=0;c<4;++c) {
-          float av[M];
+        for(unsigned pair=0;pair<2;++pair) {
+          float av0[M], av1[M];
 #pragma unroll
-          for(unsigned m=0;m<M;++m) av[m]=bf16((half?acts[m].y:acts[m].x)>>(c*16));
+          for(unsigned m=0;m<M;++m) {
+            const auto raw = half ? acts[m].y : acts[m].x;
+            av0[m]=bf16(raw>>(pair*32));
+            av1[m]=bf16(raw>>(pair*32+16));
+          }
 #pragma unroll
           for(unsigned r=0;r<4;++r) {
-            const float w=values[(words[r]>>((half*4+c)*4))&15]*bs[r];
+            const unsigned weights2=scaled_weight_pair(
+                values[(words[r]>>((half*2+pair)*8))&255],bs[r]);
+            const float w0=bf16(weights2),w1=bf16(weights2>>16);
 #pragma unroll
-            for(unsigned m=0;m<M;++m) a[m][r][c]=fmaf(w,av[m],a[m][r][c]);
+            for(unsigned m=0;m<M;++m) {
+              a[m][r][pair*2]=fmaf(w0,av0[m],a[m][r][pair*2]);
+              a[m][r][pair*2+1]=fmaf(w1,av1[m],a[m][r][pair*2+1]);
+            }
           }
         }
     }

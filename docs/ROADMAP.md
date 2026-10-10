@@ -19,6 +19,27 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP paired weight decoding — API return complete
+
+`WP-MTP-PAIRED-WEIGHT-DECODE-20261010` / `AC-MTP-GREEDY-v42` preserves the
+1.5x–3x objective and remaining 1.16/3.94-second full Decode gap. The [design](metadata/qwen36-27b-mtp-paired-weight-decode-design-2026-10-10.json)
+replaces repeated scalar NVFP4 decoding/scaling with exact paired products,
+keeping all FP32 accumulation and state boundaries. One fixed composition
+passes exhaustive product and full numerical checks, then immediately returns
+to P65/8K/40K d2 API. Greater-than-3% slowdown stops, neutral removes, useful
+direction unlocks d3. No parameter scan or profile follows. Any useful dependency
+expires at the next complete verifier API return or archival. Production is
+unchanged; family timing is an opportunity ceiling, not predicted savings.
+
+The [completed direction](metadata/qwen36-27b-mtp-paired-weight-decode-direction-2026-10-10.json)
+passes exhaustive native products, 45 complete output/guard cases, full P65
+numerical/transaction checks and all sixteen d2/d3 API checks. Both policies
+reduce verification and complete Decode at 8K/40K with unchanged output/work.
+D2 reaches 13.275/10.147 token/s, only 1.441x/1.291x non-MTP.
+Retain this exact decoder as a bounded next-composition dependency, with no
+further decoder/resource scan or production promotion. The 1.5x–3x goal remains
+active and unmet; the remaining full Decode gap is 0.75/3.51 seconds.
+
 ## 2026-10-10 MTP direct short-chain execution — closed negative
 
 `WP-MTP-DIRECT-CHAIN-20261010` / `AC-MTP-GREEDY-v41` preserves the

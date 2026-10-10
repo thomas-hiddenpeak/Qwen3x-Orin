@@ -310,6 +310,10 @@ The direct short-chain composition closes after negative P8192 API direction.
 Existing MTP SDD and Roadmap retain the rejection; the temporary Request State
 exception is removed. No Markdown path or classification changes.
 
+The paired weight-decoding package completes both API panels and updates
+existing MTP SDD, Current Status and Roadmap as a bounded dependency;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

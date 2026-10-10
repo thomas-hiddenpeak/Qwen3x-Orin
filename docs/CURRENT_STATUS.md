@@ -54,44 +54,44 @@ Decode token/s convergence target are not claimed achieved.
 
 ## MTP development status
 
-The isolated implementation now shares each K position across speculative rows
-in a compact2*M-warp CTA, preserving all six head trees and complete target
-arithmetic/state boundaries. Profile is
-`q3x.sm87.admission.mtp-qk-row-share-api.v41`, ELF
-`1843fefb9c65adb41b0047931df7aa233d84d47ee817ce9d37eb7e8034da1f2e`.
-The [completed direction](metadata/qwen36-27b-mtp-qk-row-share-direction-2026-10-10.json)
-passes complete P513/P8192 prefix state/logits, full P513 transaction/recovery,
-and sixteen d2/d3 API checks with unchanged output and acceptance/work versus
-v39. Production remains unchanged.
+The isolated implementation now decodes and scales NVFP4 weights in exact
+pairs before the unchanged FP32 accumulation, on top of retained v41. Profile
+is `q3x.sm87.admission.mtp-paired-weight-decode-api.v45`, ELF
+`84d88d547d8b8048ef82d6ad7d25e810112aae27062e436ae6d135d825d0183e`.
+The [completed direction](metadata/qwen36-27b-mtp-paired-weight-decode-direction-2026-10-10.json)
+passes exhaustive paired-product checks, 45 complete projection/special-value
+cases, full P65 prefix state/logits and transaction/recovery, and sixteen
+d2/d3 API checks. All output and acceptance/work match retained v41. Production
+remains unchanged.
 
-These2026-10-10 results use one fresh process per policy, not mirrored means
-or noise-qualified architecture selection. Prefill includes draft initialization;
-Decode includes the full controller/observer interval after the first token.
+These 2026-10-10 observations use one fresh process per policy, not mirrored
+means or noise-qualified architecture selection. Prefill includes draft
+initialization; Decode includes the complete controller/observer interval
+after the first token.
 
 | P / O | Policy | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| 65 / 16 | d2 | 0.889 | 73.14 | 0.907 | 11.879 | 2.170 |
-| 8192 / 256 | d2 | 17.317 | 473.05 | 17.340 | 13.001 | 36.954 |
-| 40000 / 256 | d2 | 92.969 | 430.25 | 93.004 | 9.976 | 118.567 |
-| 65 / 16 | d3 | 0.888 | 73.24 | 0.906 | 9.790 | 2.438 |
-| 8192 / 256 | d3 | 17.343 | 472.35 | 17.365 | 11.395 | 39.745 |
-| 40000 / 256 | d3 | 92.947 | 430.35 | 92.982 | 8.952 | 121.467 |
+| 65 / 16 | d2 | 0.887 | 73.25 | 0.906 | 12.062 | 2.149 |
+| 8192 / 256 | d2 | 17.295 | 473.67 | 17.317 | 13.275 | 36.526 |
+| 40000 / 256 | d2 | 92.742 | 431.30 | 92.777 | 10.147 | 117.908 |
+| 65 / 16 | d3 | 0.887 | 73.26 | 0.906 | 10.315 | 2.363 |
+| 8192 / 256 | d3 | 17.323 | 472.90 | 17.345 | 11.975 | 38.640 |
+| 40000 / 256 | d3 | 93.378 | 428.37 | 93.413 | 9.324 | 120.764 |
 
-Verification decreases by about34/51ms at8K and269/306ms at40K for d2/d3
-versus the [v39 direction](metadata/qwen36-27b-mtp-qk-live-reduction-direction-2026-10-10.json).
-D2 remains faster than d3; its ratios against the non-MTP anchor below are
-about1.411x/1.269x. **The1.5x–3x target remains unmet**, with approximately
-1.16/3.94 seconds still to remove from complete8K/40K Decode. This small
-consistent direction is retained only as a bounded development dependency
-through the next complete verifier API return or archival. No further mapping
-scan or qualification-only campaign is active. Prefill is lower by about
-0.45/0.70 seconds at40K despite no Prefill code change; that part of the total
-request improvement is not attributed to QK. No production selection follows.
+D2 Decode ratios against the same-request non-MTP anchor below are
+1.441x/1.291x at 8K/40K. **The 1.5x–3x goal remains
+unmet**, with approximately 0.75/3.51 seconds still to remove from full
+Decode. The [v41 direction](metadata/qwen36-27b-mtp-qk-row-share-direction-2026-10-10.json)
+remains the preceding exact comparator. This improvement is retained only as
+a bounded development dependency through the next complete verifier API return
+or archival. No further decoder scan or qualification-only campaign is active.
+Prefill code is unchanged; its timing differences are not attributed to this
+change. No production selection follows.
 
 ### Preceding NV live-reduction direction
 
 The following dated closures preserve their original scope; they do not
-supersede the current v39 implementation above.
+supersede the current v45 implementation above.
 
 The preceding isolated source extends the exact live-ancestor reduction to
 NVFP4 Gate/Up, Down and batched target vocabulary outputs, on top of retained

@@ -1,0 +1,32 @@
+{
+  "work_package_id": "WP-MTP-PAIRED-WEIGHT-DECODE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v42",
+  "source_parent": "cae01dd6ca45060b6eb6276085d61ecae33b34cc",
+  "profile": "q3x.sm87.admission.mtp-paired-weight-decode-api.v45",
+  "goal": "1.5x–3x same-request d2/d3 committed Decode, exact target state/full logits/output",
+  "budget": {
+    "remaining_full_decode_8k_s": 1.159208785,
+    "remaining_full_decode_40k_s": 3.937932175,
+    "matched_v31_gate_down_head_gpu_s": 9.50499488,
+    "scope": "family opportunity only, not projected savings"
+  },
+  "assessment": "Full decoded FP8 input weights exceed dead family capacity; full BF16 Gate/Up is 22,817,013,760 bytes. Do not overwrite immutable sidecars/graph assets or weaken reserve. Instead remove repeated scalar decoding/scaling without new resident representation. Prior v26 used a 4096-entry joint scale/code table; this uses independent 256-entry pair and scale tables and one native packed operation per two weights. Original scalar register-bit and chain redistribution failures are not reopened.",
+  "equivalence": "Each finite E4M3 times E2M1 product has at most six significant bits and lies in normal BF16 range unless zero. Two products therefore fit exactly in BF16. fma.rn.bf16x2 with packed negative-zero addend preserves multiplication zero sign while requiring only SM80. Expand each lane to FP32, then preserve original four FP32 fmaf chains, chain merge, warp tree, tensor scale and BF16 output. No target accumulation precision changes. Exhaustive special-value and full-output checks gate integration.",
+  "mechanism": "Replace two FP4 lookups and two scalar scale multiplications with one packed 256-entry E2M1 pair lookup and one fma.rn.bf16x2. Each shared scale entry contains two exact BF16 copies. Gate/Up, canonical/packed Down and target head share this decoder. Input staging, grids, weights, scale6, FP8, Attention, draft, state and ownership remain retained v41.",
+  "reference": "NVIDIA PTX ISA half-precision fma: bf16x2 requires SM80; bf16x2 mul requires SM90 and is not used. https://docs.nvidia.com/cuda/parallel-thread-execution/#half-precision-floating-point-instructions-fma . Existing pinned Marlin separates decode from accumulation; native implementation, no source import.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs_max": 1,
+    "parameter_scans": 0,
+    "profiles": 0
+  },
+  "gates": [
+    "static SM87 packed instruction and no spills across dispatched NV kernels",
+    "exhaustive 65536 scale/pair combinations plus complete canonical/packed/head M2..4 output guards and specials",
+    "P65 complete scalar prefix state/full logits and transaction/cache/recovery",
+    "immediate P65/8K/40K d2 API; greater-than-3% slowdown stops; neutral removes; useful d2 unlocks d3"
+  ],
+  "expiry": "First full API return decides removal or bounded dependency through next complete verifier composition. No production promotion from direction.",
+  "production_unchanged": true,
+  "artifact_root": ".q3x-work/mtp-paired-weight-decode-20261010"
+}
