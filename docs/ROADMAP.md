@@ -19,6 +19,39 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP NV register feed — closed without retention
+
+`WP-MTP-NV-REGISTER-FEED-20261010` / `AC-MTP-GREEDY-v30` retains the
+1.5x–3x goal and 18.45/21.62-second complete Decode budgets. The
+[design](metadata/qwen36-27b-mtp-nv-register-feed-design-2026-10-10.json)
+selects one raw-record lookahead in NVFP4 Gate/Up and Down, preserving scale
+ownership and original arithmetic. This family has a much longer consumption
+loop than the closed FP8 lookahead; its existing real-input counter evidence
+supports a bounded test, not a transferred performance claim. The old 8.845-second
+family attribution is a ceiling only. FP8 and vocabulary execution stay v31.
+
+Fixed launch bounds preserve the incumbent per-role M2/3/4 CTA floors. Any
+spill or resource-floor loss closes this implementation before GPU execution;
+no resource, launch, decoder or layout scan is admitted. If admitted, complete
+synthetic and P65 state/logit checks precede immediate P65/8K/40K d2 API.
+Greater-than-3% regression stops; neutral/negative removes; useful direction
+unlocks d3. One implementation plus at most one correctness repair is the bound.
+A useful result expires at the next complete verifier API return or archival.
+Artifacts stay under `.q3x-work/mtp-nv-register-feed-20261010/`; production
+is unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-nv-register-feed-rejection-2026-10-10.json)
+passes the static no-spill/resource floor, 30 complete synthetic outputs/guards,
+full P65 state/logit/transaction checks and all eight d2 API/lifecycle requests.
+Work and acceptance match v31. D2 Decode is 12.698/9.527 token/s at 8K/40K,
+versus retained 12.914/9.660; external total adds 0.305/0.301 seconds. This is
+a negative direction screen, not a statistically qualified regression. All new
+runtime/profile/auditor changes are removed and v31 restored. D3 is not run;
+no register, launch, feed or resource scan follows. Earlier weight issue and
+no spills do not establish whole-runner benefit. The 1.5x–3x goal remains
+active and unmet; the next package must address the complete verifier budget
+with a materially different execution response and immediate real API return.
+
 ## 2026-10-10 MTP softmax lifetime composition — closed without retention
 
 `WP-MTP-SOFTMAX-LIFETIME-20261010` / `AC-MTP-GREEDY-v29` keeps the

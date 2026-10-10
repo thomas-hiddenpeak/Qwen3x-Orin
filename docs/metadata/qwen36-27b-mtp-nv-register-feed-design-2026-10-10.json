@@ -1,0 +1,56 @@
+{
+  "work_package_id": "WP-MTP-NV-REGISTER-FEED-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v30",
+  "source_base": "7e9b5c925b45710deb83498978853e524be99fee",
+  "profile": "q3x.sm87.admission.mtp-nv-register-feed-api.v33",
+  "decision_unit": "architecture_candidate",
+  "goal": "1.5x\u20133x same-request committed Decode; configured drafts2/3, exact target state/full logits",
+  "downward_budget": {
+    "complete_decode_8k_s": 18.45,
+    "complete_decode_40k_s": 21.62,
+    "v31_remaining_decode_gap_8k_s": 1.3,
+    "v31_remaining_decode_gap_40k_s": 4.78,
+    "v7_nv_verifier_gpu_s": 8.84489552,
+    "scope": "old matched attribution is a family ceiling, not projected savings"
+  },
+  "evidence": "Real-input Gate M3 NCU long-scoreboard2.339997 cycles/issue, total6.68, no spills. Prior FP8-only register lookahead neutral; its K5120 loop has240 FMA/thread versus NV1920. That closed FP8 mechanism cannot establish benefit or rejection for NV. All shared-ring/decoder/layout scans remain closed.",
+  "mechanism": "Read next immutable raw four-output weight record into registers before current NV codebook/scale/activation and FMA consumption. Scales retain original per-tile/phase ownership. Exactly one record lookahead, no new shared writes or per-tile barriers. Gate/Up, canonical and packed Down only; vocabulary/FP8 unchanged.",
+  "equivalence": "Original raw bytes and cache operators, original block scales and FP4 decoder, exact K order/four FMA chains/live reduction/scale/BF16 publication. Last phase issues no next read. No new allocation, numerical or state boundary.",
+  "resource_contract": {
+    "threads": 128,
+    "minimum_ctas_by_M2_M3_M4": {
+      "Gate_Layout1": [
+        7,
+        5,
+        4
+      ],
+      "Down_Layout2": [
+        6,
+        4,
+        3
+      ],
+      "canonical_Layout0": [
+        5,
+        4,
+        3
+      ]
+    },
+    "stop": "Reject nonzero spills or loss of incumbent resource floors before GPU; no launch-bound scan or resource waiver"
+  },
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs_max": 1,
+    "local_timing_variants": 0,
+    "new_profiles": 0
+  },
+  "validation": [
+    "Static no-spill/resource and bounded SASS order audit; failure closes before GPU",
+    "30 complete finite/NaN projection/vocabulary output/guard cases frozen v31; unchanged head is a control",
+    "P65 full prefix/state/logits, transactions/recovery",
+    "Immediate P65/8K/40K d2 API vs v31; >3% regression stops; neutral/negative removes; useful direction d3 panel"
+  ],
+  "reference_transfer": "Pinned Marlin packed operand producer/consumer lookahead translated to exact SIMT registers; distinct NV role with longer current consume. No imported source, MMA or source-layout change.",
+  "expiry": "next complete verifier API return or archive; dependency-only until whole target qualified",
+  "artifact_root": ".q3x-work/mtp-nv-register-feed-20261010",
+  "production_unchanged": true
+}

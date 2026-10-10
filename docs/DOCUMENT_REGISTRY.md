@@ -230,6 +230,10 @@ The softmax-lifetime composition closes without retention after numerical and
 d2 API checks. Existing MTP SDD, Current Status and Roadmap record its removal
 and frozen evidence; no Markdown path or classification changes.
 
+The NV register-feed package closes without retention after complete numerical
+and d2 API checks. Existing MTP SDD, Current Status and Roadmap record removal
+and frozen evidence; no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

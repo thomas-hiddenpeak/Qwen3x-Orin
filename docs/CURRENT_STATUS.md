@@ -98,6 +98,15 @@ noise qualification, and 40K total is 0.403 seconds longer. Prefill code is
 unchanged; that interval difference is not attributed to this edit. D3 is not
 run. The retained v31 table, production and unmet goal remain unchanged.
 
+The subsequent [NV register-feed direction](metadata/qwen36-27b-mtp-nv-register-feed-rejection-2026-10-10.json)
+also passes numerical and eight d2 API/lifecycle checks, but is removed. At 8K,
+Prefill is 17.278 s / 474.13 token/s, external TTFT 17.300 s, Decode 12.698
+token/s and total 37.382 s. At 40K, these are 92.631 s / 431.82 token/s,
+92.666 s, 9.527 token/s and 119.434 s. Single-process Decode differences are
+-1.67%/-1.38% versus v31 with unchanged work and acceptance; total adds
+0.305/0.301 seconds. This is direction rejection, not statistical regression.
+D3 is not run. Retained v31 metrics and the unmet 1.5x–3x goal are unchanged.
+
 ### Preceding FP8 live-reduction direction
 
 The preceding isolated source uses exact live-ancestor FP8 reductions on top of

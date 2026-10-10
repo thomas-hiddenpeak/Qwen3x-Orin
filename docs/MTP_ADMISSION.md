@@ -1089,6 +1089,26 @@ establish material runner value. All described new softmax paths are removed;
 isolated source is restored to v31, with no d3 or further normalization scan.
 Frozen source retains reproduction authority only; production is unchanged.
 
+## NV register feed composition v30
+
+Gate/Up and Down retain one current and one next raw four-output weight record
+per thread. The next K256 record is read before current decoding/consumption;
+block-scale ownership and scale6 phase exchange retain the original K512 loop.
+Only independent immutable read timing changes. The last phase reads no future
+record; head and FP8 execution remain v31. Original decoders, four FMA chains,
+K subsequences, live-root reductions, tensor scaling and BF16 publication are
+unchanged. No shared producer ring, per-tile barrier, layout or allocation is
+introduced. Fixed per-role launch bounds preserve the incumbent CTA floors;
+nonzero spills fail static admission. Complete full-output and real-prefix
+state/logit checks precede the immediate complete API comparison.
+
+The [completed rejection](metadata/qwen36-27b-mtp-nv-register-feed-rejection-2026-10-10.json)
+closes this version after static resource, complete synthetic/real-prefix and
+all eight d2 API checks. Earlier raw loads preserve the arithmetic but do not
+improve the complete runner. All new feed/profile/auditor paths are removed,
+restoring isolated v31. No d3 or further resource/feed scan follows. Frozen
+source has reproduction authority only; production is unchanged.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
