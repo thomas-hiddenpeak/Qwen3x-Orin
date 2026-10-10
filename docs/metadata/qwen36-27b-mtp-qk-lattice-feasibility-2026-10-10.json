@@ -1,0 +1,322 @@
+{
+  "record": "mtp-qk-lattice-feasibility-closure-v1",
+  "source_parent": "4e380acf991b1c6a6d3203a5c31cf3650fbc22c9",
+  "work_package_id": "WP-MTP-QK-LATTICE-20261010",
+  "decision_unit": "bounded_host_feasibility",
+  "decision": "closed_below_feasibility_floor",
+  "goal": "Real API MTP d2/d3 1.5x to 3x Decode versus matched non-MTP remains active and unmet.",
+  "design": {
+    "path": "docs/metadata/qwen36-27b-mtp-qk-lattice-design-2026-10-10.json",
+    "sha256": "13a7762805dfe2e540c1b7b2347061d327133806466fe7cabb78e34c596bcb40"
+  },
+  "payload_scope": "Authenticated historical real first-step Legacy-Prefill inputs, not current corrected-Prefill/MTP query distribution. A favorable historical screen must obtain a current MTP capture before any implementation selection. A negative result closes only this proposed broad-cooperative admission, not all QK acceleration.",
+  "capture_sha256": "431a86cb352ca305f5275de26cf1dbf312efe8fdf04043daba53780d9bb6ccd6",
+  "prompt_ids_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+  "payload_manifest_sha256": "b9dfd16e714a03a6ae408c4ec9eade714b194ee1d03d4c09a2bb09342a8e180e",
+  "authenticated_inputs": [
+    {
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json.attention.layer3.query.bf16",
+      "layer": 3,
+      "role": "query",
+      "shape": [
+        24,
+        256
+      ],
+      "dtype": "BF16",
+      "bytes": 12288,
+      "sha256": "e0acd723f7e000915abfc6c908af17fb6ef5ce4e770723478ed16ea2b6f004a6"
+    },
+    {
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json.attention.layer3.key.bf16",
+      "layer": 3,
+      "role": "key",
+      "shape": [
+        40000,
+        4,
+        256
+      ],
+      "dtype": "BF16",
+      "bytes": 81920000,
+      "sha256": "09db14db10671a1dfecf7b68d04e03fb49c34c82485e2935c924bd371b891aa0"
+    },
+    {
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json.attention.layer23.query.bf16",
+      "layer": 23,
+      "role": "query",
+      "shape": [
+        24,
+        256
+      ],
+      "dtype": "BF16",
+      "bytes": 12288,
+      "sha256": "2b88d6dba1c074cad82d5d56b01e1734a59bf75fb44155361072e0fd5b3ffd66"
+    },
+    {
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json.attention.layer23.key.bf16",
+      "layer": 23,
+      "role": "key",
+      "shape": [
+        40000,
+        4,
+        256
+      ],
+      "dtype": "BF16",
+      "bytes": 81920000,
+      "sha256": "61b1353d132f1a107a70fc96a1988b3ddb8c922609e79fd1f488c722c04311fd"
+    },
+    {
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json.attention.layer43.query.bf16",
+      "layer": 43,
+      "role": "query",
+      "shape": [
+        24,
+        256
+      ],
+      "dtype": "BF16",
+      "bytes": 12288,
+      "sha256": "e339b8e7846b579118036a3eaa7e5dfdb5e9f512b366518f9335a905b8324343"
+    },
+    {
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json.attention.layer43.key.bf16",
+      "layer": 43,
+      "role": "key",
+      "shape": [
+        40000,
+        4,
+        256
+      ],
+      "dtype": "BF16",
+      "bytes": 81920000,
+      "sha256": "664ebd74fc910d49db08db156b0f2b0da171cdc29dea683d3d754ebba8dafde0"
+    },
+    {
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json.attention.layer63.query.bf16",
+      "layer": 63,
+      "role": "query",
+      "shape": [
+        24,
+        256
+      ],
+      "dtype": "BF16",
+      "bytes": 12288,
+      "sha256": "a6be9cb259c96ba0dfffad2683d70d703d0f1314767770c94c02fd1ab2e5d41a"
+    },
+    {
+      "path": "/home/rm01/Qwen3x-Orin/.q3x-work/decode-exact-performance-20260927/v6-ordered-p40000.json.attention.layer63.key.bf16",
+      "layer": 63,
+      "role": "key",
+      "shape": [
+        40000,
+        4,
+        256
+      ],
+      "dtype": "BF16",
+      "bytes": 81920000,
+      "sha256": "be1de009f295347b19eb8ecf987827875a844519999773c3eff5812ca7e8fa04"
+    }
+  ],
+  "tile_starts": [
+    0,
+    1290,
+    2580,
+    3870,
+    5160,
+    6450,
+    7740,
+    9030,
+    10320,
+    11610,
+    12900,
+    14190,
+    15480,
+    16770,
+    18060,
+    19350,
+    20641,
+    21931,
+    23221,
+    24511,
+    25801,
+    27091,
+    28381,
+    29671,
+    30961,
+    32251,
+    33541,
+    34831,
+    36121,
+    37411,
+    38701,
+    39992
+  ],
+  "numerical": {
+    "controls": [
+      {
+        "case": "unit",
+        "eligible": true,
+        "expected": true
+      },
+      {
+        "case": "cancellation",
+        "eligible": true,
+        "expected": true
+      },
+      {
+        "case": "signed_zeros",
+        "eligible": true,
+        "expected": true
+      },
+      {
+        "case": "large_spread",
+        "eligible": false,
+        "expected": false
+      },
+      {
+        "case": "subnormal_input",
+        "eligible": false,
+        "expected": false
+      },
+      {
+        "case": "subnormal_product",
+        "eligible": false,
+        "expected": false
+      },
+      {
+        "case": "overflow",
+        "eligible": false,
+        "expected": false
+      },
+      {
+        "case": "nan",
+        "eligible": false,
+        "expected": false
+      },
+      {
+        "case": "zero_times_inf",
+        "eligible": false,
+        "expected": false
+      },
+      {
+        "case": "fp32_minimum",
+        "eligible": true,
+        "expected": true
+      }
+    ],
+    "eligible_groups": 672226,
+    "groups": 786432,
+    "eligible_group_fraction": 0.8547795613606771,
+    "admitted_original_tree_mismatches": 0,
+    "independent_exact_integer_groups": 64,
+    "subsets_per_group": 256,
+    "layers": [
+      {
+        "layer": 3,
+        "groups": 196608,
+        "eligible_groups": 168604,
+        "group_fraction": 0.8575642903645834,
+        "cooperative_units": 4096,
+        "eligible_cooperative_units": 258,
+        "cooperative_fraction": 0.06298828125,
+        "admitted_tree_mismatches": 0
+      },
+      {
+        "layer": 23,
+        "groups": 196608,
+        "eligible_groups": 173330,
+        "group_fraction": 0.8816019694010416,
+        "cooperative_units": 4096,
+        "eligible_cooperative_units": 351,
+        "cooperative_fraction": 0.085693359375,
+        "admitted_tree_mismatches": 0
+      },
+      {
+        "layer": 43,
+        "groups": 196608,
+        "eligible_groups": 163972,
+        "group_fraction": 0.8340047200520834,
+        "cooperative_units": 4096,
+        "eligible_cooperative_units": 186,
+        "cooperative_fraction": 0.04541015625,
+        "admitted_tree_mismatches": 0
+      },
+      {
+        "layer": 63,
+        "groups": 196608,
+        "eligible_groups": 166320,
+        "group_fraction": 0.845947265625,
+        "cooperative_units": 4096,
+        "eligible_cooperative_units": 195,
+        "cooperative_fraction": 0.047607421875,
+        "admitted_tree_mismatches": 0
+      }
+    ]
+  },
+  "cooperative_admission": {
+    "cooperative_units": 16384,
+    "eligible_cooperative_units": 990,
+    "cooperative_fraction": 0.0604248046875
+  },
+  "interpretation": [
+    "The exact subset-sum guard admits most individual original eight-product subtrees, but only 6.04% of fixed six-query/eight-key cooperative units. The predeclared 50% feasibility floor is not met.",
+    "No current MTP capture, MMA executor, per-cell repair, GPU timing, profiler or parameter scan follows this closed broad-cooperative hypothesis.",
+    "This is a conditional scalar-arithmetic proof and historical real-input coverage result, not native MMA qualification, a current workload distribution or a hardware ceiling. QK alone cannot supply the complete 40K remaining budget."
+  ],
+  "harness_correction": {
+    "initial_log": ".q3x-work/mtp-qk-lattice-20261010/assessment.log",
+    "reason": "Initial capture-status assertion expected passed; authenticated schema uses pass. Corrected this spelling before any payload assessment. No predicate, sample or floor changed.",
+    "initial_exit": 1,
+    "completed_exit": 0
+  },
+  "changes": {
+    "runtime": false,
+    "production": false,
+    "new_performance_measurement": false,
+    "retained_profile": "q3x.sm87.admission.mtp-nv-live-reduction-api.v31",
+    "installed_server_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "prior_metrics_authority": "docs/metadata/qwen36-27b-mtp-nv-live-reduction-direction-2026-10-10.json",
+  "next_constraint": "Select a materially different complete verifier response against 18.45/21.62-second full Decode budgets, with exact state/logits and immediate real API return; no extension of this lattice mapping is selected.",
+  "artifacts": [
+    {
+      "path": ".q3x-work/mtp-qk-lattice-20261010/assess.py",
+      "bytes": 7983,
+      "sha256": "c8256824bd53b499040320ef6648e08f156659be42fb154f21cece400d251a03"
+    },
+    {
+      "path": ".q3x-work/mtp-qk-lattice-20261010/assessment-r2.log",
+      "bytes": 1064,
+      "sha256": "df71b0e5af1bc1d31f38e5c674b00e06e9db48921e2ea7aa0695ed5e1a77fbcb"
+    },
+    {
+      "path": ".q3x-work/mtp-qk-lattice-20261010/assessment.json",
+      "bytes": 6647,
+      "sha256": "129dd4b87f9915f68dc26e4f647a5c7fbe51bd86d5d35bb48b8321f3b30e3adf"
+    },
+    {
+      "path": ".q3x-work/mtp-qk-lattice-20261010/assessment.log",
+      "bytes": 310,
+      "sha256": "c29c0fed9f981d53a47024c00e73c54c52c2cab56523cd8bfe6c062161b78fd1"
+    }
+  ],
+  "validation": {
+    "document_control": {
+      "passed": true,
+      "tracked_markdown": 86,
+      "local_links": 1167,
+      "errors": 0
+    },
+    "document_control_units": {
+      "passed": 7
+    },
+    "git_diff_check": true,
+    "runtime_tests": "Not rerun: no runtime source, build, or dispatch changed."
+  },
+  "hygiene": {
+    "gpu_handle_inspection": "fuser exit 1 with no device holders",
+    "model_or_assessment_processes_remaining": 0,
+    "existing_worktrees": 47,
+    "new_worktrees": 0,
+    "workspace_artifact_bytes": 16004,
+    "installed_production_hash_unchanged": true
+  }
+}

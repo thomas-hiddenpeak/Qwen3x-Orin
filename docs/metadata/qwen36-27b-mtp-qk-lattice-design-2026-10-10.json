@@ -1,0 +1,41 @@
+{
+  "record": "mtp-qk-lattice-feasibility-design-v1",
+  "source_parent": "4e380ac",
+  "work_package_id": "WP-MTP-QK-LATTICE-20261010",
+  "decision_unit": "bounded_host_feasibility",
+  "product_constraint": "Same-workload real API MTP d2/d3 committed Decode 1.5x to 3x non-MTP, with exact target state/logits and joint Prefill/TTFT/Decode/total reporting.",
+  "downward_budget": {
+    "complete_decode_seconds_8k_40k": [18.45, 21.62],
+    "remaining_v31_seconds_8k_40k_approximate": [1.30, 4.78],
+    "older_v7_qk_gpu_seconds_40k": 3.077223808,
+    "scope": "The old attribution is an opportunity ceiling, not a current v31 profile or projected gain. QK alone cannot close the 40K gap."
+  },
+  "hypothesis": "A zero-start 8-product reduction may be order-independent when its entire signed subset-sum lattice is exactly FP32 representable. This differs from the rejected MMA carry-in substitution and approximate publication certificates.",
+  "host_predicate": {
+    "operands": "Finite normal BF16 or zero; eight original lane offsets 0,128,64,192,32,160,96,224.",
+    "calculation": "Represent each nonzero exact product as odd positive integer magnitude times 2^e. At common minimum exponent e0, sum absolute integer magnitudes A. Admit only e0 >= -126, A <= 2^24-1 and e0+floor(log2(A)) <= 127. All-zero groups are separately admissible with positive-zero normalization.",
+    "proof_scope": "Every signed subset sum has magnitude <= A in the same lattice; all intermediate exact sums therefore fit normal FP32 or zero. This proves order-independent scalar arithmetic under the predicate. It does not by itself prove undocumented native MMA product behavior, fragment correctness, or a useful GPU executor.",
+    "oracle": "Compare the original explicit balanced FP32 tree against independently reconstructed exact integer sum for every admitted sample; directed exponent/exception controls fail closed. Original 32-lane tree and final scale would stay unchanged."
+  },
+  "payload": {
+    "manifest": ".q3x-work/decode-exact-performance-20260927/payload-manifest.json",
+    "manifest_sha256": "b9dfd16e714a03a6ae408c4ec9eade714b194ee1d03d4c09a2bb09342a8e180e",
+    "layers": [3, 23, 43, 63],
+    "sequence": 40000,
+    "sampling": "32 disjoint eight-position tiles, starts floor(i*(40000-8)/31), all four KV heads, six query heads and 32 original lane groups; fixed before viewing results.",
+    "authority": "Authenticated historical real first-step Legacy-Prefill inputs, not current corrected-Prefill/MTP query distribution. A favorable historical screen must obtain a current MTP capture before any implementation selection. A negative result closes only this proposed broad-cooperative admission, not all QK acceleration."
+  },
+  "selection": {
+    "cooperative_unit": "One original lane subgroup across six query heads and eight key positions (48 output cells). A uniform exact-only native matrix operation needs all useful cells admitted; per-cell repair would be a separate architecture and is not opened here.",
+    "proceed_floor": "At least 50% cooperative units admitted across the fixed panel, plus zero admitted scalar-oracle mismatches. This is a feasibility floor, not a speedup threshold; guard/feed/repair costs are not measured.",
+    "bound": "One host assessment. Below floor, archive with no GPU or parameter scan. Above floor, first bind current corrected-Prefill/MTP payload and a separate exact native-instruction proof, then declare one composed executor with immediate same P65/8K/40K d2 API return; useful direction unlocks d3.",
+    "forbidden": "No numerical tolerance change, production mutation, runtime guard/repair kernel, GPU timing or profiler within this host package."
+  },
+  "references": [
+    "https://docs.nvidia.com/cuda/archive/12.6.3/parallel-thread-execution/index.html#warp-level-matrix-instructions-mma",
+    "docs/metadata/qwen36-27b-mtp-single-product-mma-2026-10-10.json",
+    "docs/metadata/qwen36-27b-mtp-bottleneck-reset-2026-10-10.json"
+  ],
+  "artifacts": ".q3x-work/mtp-qk-lattice-20261010/",
+  "rollback_boundary": "Host-only new assessment; retained v31 source and installed production remain untouched."
+}

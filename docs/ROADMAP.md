@@ -19,6 +19,33 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP exact QK lattice — broad-cooperative proposal closed
+
+`WP-MTP-QK-LATTICE-20261010` preserves the 1.5x–3x real API objective and
+18.45/21.62-second complete Decode budgets. Its [design](metadata/qwen36-27b-mtp-qk-lattice-design-2026-10-10.json)
+checks one exact integer-lattice predicate for the original eight-product QK
+subtrees. All signed intermediate sums must fit FP32 exactly before any
+order-independent executor could be considered. One authenticated historical
+real-input panel checks coverage and the original scalar tree; its older
+Legacy Prefill inputs cannot establish current MTP eligibility or performance.
+Below 50% complete cooperative-unit coverage, close this broad-cooperative
+proposal without a GPU or parameter scan. Above that floor, current MTP capture
+and an independent native-instruction proof must precede a separately bounded
+executor with immediate real API return. The old 3.077-second QK attribution
+cannot alone close the 40K gap. Artifacts remain under
+`.q3x-work/mtp-qk-lattice-20261010/`; runtime and production are unchanged.
+
+The [completed assessment](metadata/qwen36-27b-mtp-qk-lattice-feasibility-2026-10-10.json)
+authenticates the four-layer P40000 payload panel and checks 786,432 original
+eight-product groups. Of these, 672,226 satisfy the exact predicate, with zero
+admitted scalar-tree mismatches; independent integer checks cover every subset
+of 64 selected admitted groups. Only 990 of 16,384 complete cooperative units
+pass (6.04%), below the declared floor. This broad-cooperative proposal closes
+before current-MTP capture or GPU implementation. No per-cell repair or mapping
+scan follows. The historical-input scope cannot establish current MTP eligibility,
+native instruction equivalence or a performance ceiling. Retained v31 and its
+performance observations remain unchanged; the 1.5x–3x objective stays active.
+
 ## 2026-10-10 MTP Gate/Up producer-consumer fusion — closed without retention
 
 `WP-MTP-GATE-PAIR-20261010` / `AC-MTP-GREEDY-v33` preserves the 1.5x–3x
