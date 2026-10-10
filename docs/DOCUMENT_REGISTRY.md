@@ -277,6 +277,10 @@ The QK live-reduction package completes both API panels and updates existing
 Roadmap, MTP SDD and Current Status. It remains a bounded development dependency;
 no Markdown path or classification changes.
 
+The original short-chain exactness assessment closes with a positive host
+feasibility result and updates the existing Roadmap;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

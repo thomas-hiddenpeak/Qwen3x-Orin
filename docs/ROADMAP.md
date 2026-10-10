@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP original short-chain exactness — host feasibility passed
+
+`WP-MTP-SHORT-CHAIN-LATTICE-20261010` keeps the 1.5x–3x goal and remaining
+1.19/4.21-second full Decode gap. The [design](metadata/qwen36-27b-mtp-short-chain-lattice-design-2026-10-10.json)
+checks exact integer-lattice closure of the original five/six-product FP8
+chains, preserving every later reduction and publication. This differs from
+approximate full-K certificates and rounded-carry MMA substitution. One
+hash-authenticated historical real-input host panel reproduces complete scalar
+outputs and assesses 128-cell cooperative units. Below 50% complete-unit
+coverage, close without GPU; a pass requires separate current-payload and
+native-instruction proof before a bounded executor and immediate API return.
+No numerical waiver, timing or parameter scan opens here. Production remains
+unchanged; artifacts stay under `.q3x-work/mtp-short-chain-lattice-20261010/`.
+
+The [completed host assessment](metadata/qwen36-27b-mtp-short-chain-lattice-feasibility-2026-10-10.json)
+reproduces all 2,688 captured outputs and finds 2,734,028 of 2,752,512 chains
+exact (99.33%). Complete 128-cell coverage is 13,616/21,504 (63.32%), above
+the declared floor; every admitted root matches its independent integer sum.
+This closes the host assessment positively, with no GPU or performance claim.
+Next admission must bind current adjacent output groups and prove native
+zero-start instruction behavior. Runtime guard cost, compact operand delivery,
+on-chip original-tree merging and fallback remain unresolved; repeating the
+old costly certificate executor is not selected. The 1.5x–3x goal is unmet.
+
 ## 2026-10-10 MTP QK live reductions — API return complete
 
 `WP-MTP-QK-LIVE-REDUCTION-20261010` / `AC-MTP-GREEDY-v36` retains the

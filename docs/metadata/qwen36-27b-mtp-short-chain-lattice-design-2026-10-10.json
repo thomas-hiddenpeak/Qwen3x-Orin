@@ -1,0 +1,16 @@
+{
+  "work_package_id": "WP-MTP-SHORT-CHAIN-LATTICE-20261010",
+  "source_parent": "4c17ed3",
+  "decision_unit": "bounded_host_feasibility",
+  "goal": "Same real API d2/d3 1.5x\u20133x Decode, exact state/logits/output; joint Prefill/TTFT/Decode/total",
+  "downward_budget": "Current d2 still needs about 1.19/4.21 s removed from full 8K/40K Decode. Last matched v31 FP8 projection attribution is 5.8685 GPU s at 40K; unchanged projection source, opportunity ceiling only.",
+  "mechanism": "Assess original zero-start FP8 FMA chains, each K/1024=5 or 6 exact products, rather than an approximate full-K sum or MMA with rounded carry-in. Preserve the original four-chain merge, warp/eight-warp reduction, scale and BF16 publication.",
+  "predicate": "Normalize each exact FP32 product to signed odd integer times power of two. At minimum nonzero exponent e, absolute aligned integer sum must be <=2^24-1, e>=-126, and largest exponent<=127. Every signed subset sum is then exact normal FP32 or zero. All-zero chain retains positive zero.",
+  "payload": "All 28 FP8 captures from authenticated historical real P65 teacher-forced projection panel at layers 0/3/20/23/40/43/60/63; 32 sampled output rows each, M3. Frozen rounding-audit manifest hashes bind every input/weight/output/meta. No current distribution or timing claim.",
+  "oracle": "Reproduce full original scalar FP8 reduction and every saved BF16 output, compare all admitted chain roots to independent integer sums, enumerate every signed subset for 64 admitted directed/sample chains.",
+  "cooperative_unit": "For each M row, 16 sampled output rows by 8 adjacent original chains: 128 cells matching one prospective zero-start matrix result. Both cell and complete unit fractions reported; sampled output-row grouping is a feasibility proxy, not a packed device layout.",
+  "proceed_floor": "At least 50% complete units admitted, zero original-output or admitted-root mismatches. Otherwise close broad-cooperative proposal without GPU.",
+  "bound": "One host assessment. A pass only opens separately bounded current-payload binding, native-instruction proof and on-chip short-chain executor with immediate real API return. No native kernel, GPU, timing, parameter scan or tolerance waiver in this package.",
+  "artifacts": ".q3x-work/mtp-short-chain-lattice-20261010",
+  "production_changed": false
+}
