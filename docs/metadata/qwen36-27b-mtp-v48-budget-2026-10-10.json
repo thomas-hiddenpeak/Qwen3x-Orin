@@ -1,0 +1,205 @@
+{
+  "work_package_id": "WP-MTP-V48-BUDGET-20261010",
+  "decision_unit": "diagnostic",
+  "status": "closed_priority_reconciled",
+  "identity": {
+    "command": [
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-row-boundary-20261010/source/server",
+      "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "--port",
+      "18871",
+      "--api-key-file",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-v48-budget-20261010/profile/api-key",
+      "--nvtx-phase-ranges",
+      "--candidate-profile",
+      "whole-core-exact-decode"
+    ],
+    "executable_sha256": "89bd285a10812d11f577b090b7a35b39cef2691919d2b7ae8574fe644f7d1aba",
+    "git": "d38691ea0c1f676c0556b979cf3a1ab8e285d083",
+    "driver_sha256": "6979bbbe3dc62aa2eefe55cfd672e5ffe6c040ccd7d5065e5362f4f609a74dcf",
+    "fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "authority": "T4 diagnostic only; WP-MTP-V48-BUDGET-20261010; one same-v48-ELF completed P40000/O256 d2 workload, identify remaining verifier budget; not performance selection"
+  },
+  "same_request_output_ids_and_work": {
+    "pass": true,
+    "fields": [
+      "generated_token_ids",
+      "prompt_token_ids_u32le_sha256",
+      "completion_tokens",
+      "target_prefill_complete"
+    ],
+    "mtp_fields": [
+      "rounds",
+      "proposed",
+      "accepted",
+      "verified_rows",
+      "committed_decode_tokens",
+      "accepted_by_position",
+      "draft_ordered_attention_steps",
+      "entry_hidden_snapshots",
+      "direct_gdn_state_rows",
+      "seed_kv_reuses",
+      "state_copy_bytes_elided"
+    ]
+  },
+  "analysis": {
+    "scope": "T4 diagnostic from first verifier FP8 through last generation kernel; excludes first proposal/entry snapshot, includes later draft/reconciliation; not unprofiled Decode",
+    "start_ns": 92826776544,
+    "end_ns": 117303338816,
+    "interval_s": 24.476562272,
+    "families": {
+      "verify_gate_up": {
+        "seconds": 5.802301279999986,
+        "calls": 13440
+      },
+      "verify_fp8_canonical": {
+        "seconds": 4.277210208000014,
+        "calls": 15120
+      },
+      "verify_pv": {
+        "seconds": 2.3174607679999997,
+        "calls": 1680
+      },
+      "verify_down_packed": {
+        "seconds": 2.251230112000012,
+        "calls": 5565
+      },
+      "verify_qk": {
+        "seconds": 2.214693855999999,
+        "calls": 1680
+      },
+      "verify_fp8_sidecar": {
+        "seconds": 1.5918731199999996,
+        "calls": 6720
+      },
+      "draft_matrix_including_reconcile": {
+        "seconds": 1.2737987519999991,
+        "calls": 2114
+      },
+      "softmax_target_and_draft": {
+        "seconds": 0.9975317440000016,
+        "calls": 5248
+      },
+      "draft_vocabulary": {
+        "seconds": 0.9144263040000001,
+        "calls": 208
+      },
+      "verify_vocabulary": {
+        "seconds": 0.5776495999999998,
+        "calls": 105
+      },
+      "target_gdn": {
+        "seconds": 0.45177183999999787,
+        "calls": 15120
+      },
+      "verify_down_canonical": {
+        "seconds": 0.4398771200000003,
+        "calls": 1155
+      },
+      "other": {
+        "seconds": 0.31750761600001143,
+        "calls": 37402
+      },
+      "residual_norm": {
+        "seconds": 0.19941699199999915,
+        "calls": 13440
+      },
+      "draft_pv": {
+        "seconds": 0.14349862400000007,
+        "calls": 208
+      },
+      "draft_qk": {
+        "seconds": 0.12856096000000009,
+        "calls": 208
+      },
+      "target_conv": {
+        "seconds": 0.06201907200000049,
+        "calls": 15120
+      }
+    },
+    "copies": [
+      {
+        "kind": 2,
+        "calls": 523,
+        "bytes": 4184,
+        "seconds": 0.000400672
+      },
+      {
+        "kind": 8,
+        "calls": 16619,
+        "bytes": 21222840320,
+        "seconds": 0.267894336
+      }
+    ],
+    "gpu_activity_union_s": 24.229122976,
+    "uncovered_interval_s": 0.247439296,
+    "sqlite_sha256": "c1b9e68ccfa2888e84b928b9df89a309d02d3b7394d3e8caaeba6a7724a9374d"
+  },
+  "historical_family_delta_seconds": {
+    "verify_gate_up": -0.13190393599998718,
+    "verify_fp8_canonical": 0.009767487999993385,
+    "verify_qk": -0.8620082239999975,
+    "verify_down_packed": -0.1782397759999892,
+    "verify_pv": -0.00048259200000222435,
+    "verify_fp8_sidecar": -0.00919881600000605,
+    "draft_matrix_including_reconcile": -0.08814560000000093,
+    "softmax_target_and_draft": 0.005181824000002,
+    "draft_vocabulary": -0.0018062079999998648,
+    "verify_vocabulary": -0.08977670400000004,
+    "residual_norm": -0.4056749439999855,
+    "verify_down_canonical": -0.034016351999999195,
+    "target_gdn": 0.009648448000002419,
+    "other": -0.010892799999998704,
+    "draft_pv": 2.656000000006431e-05,
+    "draft_qk": 4.096000000092248e-06,
+    "target_conv": -0.008155040000000037
+  },
+  "unprofiled_anchor": {
+    "record": "docs/metadata/qwen36-27b-mtp-row-boundary-direction-2026-10-10.json",
+    "P": 40000,
+    "O": 256,
+    "draft_length": 2,
+    "prefill_s": 92.710576553,
+    "prefill_tps": 431.45023456,
+    "external_ttft_s": 92.745903197,
+    "committed_decode_tps": 10.497976486,
+    "external_total_s": 117.037891716,
+    "remaining_full_decode_1_5x_gap_s": 2.667068457
+  },
+  "decision": {
+    "prioritize": "FP8 packed projection operand delivery; 5.869083328 seconds remains unchanged from v31. Gate/Up is comparably large but the just-completed persistent-input composition failed; do not reopen its grid scan.",
+    "exclude_as_primary": [
+      "Launch/copy-only architecture: even ideal elimination of measured copies plus uncovered intervals is about 0.516 seconds, below the 2.667-second unprofiled target gap. This is an opportunity comparison, not an exact speedup prediction.",
+      "GDN-only architecture: 0.452 seconds cannot alone close the gap.",
+      "Repeat PV row-sharing or expanded QKV storage: previous API/traffic gates already closed them."
+    ],
+    "next_boundary": "One distinct packed FP8 consumer architecture must preserve scalar chains and return directly to the current real API. No new NCU, repeated profile, parameter sweep or target relaxation is authorized by this record.",
+    "not_established": "No DRAM bandwidth, shared-bank or PC-stall causality follows from NSys. Older layer-0 NCU has narrower scope and did not establish bank conflicts."
+  },
+  "opportunity": {
+    "fp8_s": 5.869083328000014,
+    "copies_plus_uncovered_s": 0.515734304,
+    "fp8_fraction_of_window": 0.23978380880365543
+  },
+  "cleanup": {
+    "server_returncode": 0,
+    "clock_errors": [],
+    "max_temp_c": 77.906
+  },
+  "production_unchanged": true,
+  "goal_achieved": false,
+  "artifact_root": ".q3x-work/mtp-v48-budget-20261010",
+  "artifact_manifest_sha256": "6f712a050ae56e56cbbd33ffd4e034cb7db703d22c00e1cfd7e7f13eb89ee123",
+  "validation": {
+    "document_control": "pass",
+    "document_unit_tests": 7,
+    "diff_check": "pass",
+    "hygiene": {
+      "gpu_handles_empty": true,
+      "worktree_count": 47,
+      "production_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+      "api_key_removed": true,
+      "runtime_diff_empty": true
+    }
+  }
+}

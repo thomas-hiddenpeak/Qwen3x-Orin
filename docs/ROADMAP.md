@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 retained-v48 budget reconciliation — complete
+
+`WP-MTP-V48-BUDGET-20261010` uses one [bounded diagnostic](metadata/qwen36-27b-mtp-v48-budget-design-2026-10-10.json)
+on the exact retained v48 API binary and P40000/O256 d2 request. It asks which
+verifier families still dominate the remaining 2.67-second full Decode gap
+after QK, paired weights, prefix publication and row-boundary changes. One
+NSys capture reconciles kernel families, copies and uncovered intervals with
+the old v31 ranking. No NCU, runtime mutation or parameter scan is included.
+The historical analysis window is retained explicitly; profiler durations do
+not replace unprofiled API metrics. Completion must select or exclude the next
+architecture directions, not open a repetition campaign. The full 1.5x–3x
+target and production remain unchanged.
+
+The [completed diagnosis](metadata/qwen36-27b-mtp-v48-budget-2026-10-10.json)
+preserves exact request/output/work and normal shutdown. Current FP8 costs
+5.869 seconds, Gate/Up 5.802 and QK/PV 4.532 in the declared diagnostic window.
+Copies plus uncovered intervals total 0.516 seconds; a launch/copy-only change
+cannot supply the remaining 2.67-second budget in this opportunity comparison.
+Prioritize a distinct packed FP8 consumer composition, preserving original
+scalar chains, rather than repeating the closed Gate/Up/PV/storage variants.
+No hardware-stall cause or new runtime implementation is selected by NSys.
+No further capture, NCU or parameter scan follows this diagnostic package.
+Unprofiled v48 metrics, production and the unmet goal remain unchanged.
+
 ## 2026-10-10 MTP Gate/Up input residency — closed without retention
 
 `WP-MTP-GATE-RESIDENCY-20261010` / `AC-MTP-GREEDY-v46` preserves the

@@ -1,0 +1,24 @@
+{
+  "work_package_id": "WP-MTP-V48-BUDGET-20261010",
+  "decision_unit": "diagnostic",
+  "source_parent": "d38691ea0c1f676c0556b979cf3a1ab8e285d083",
+  "question": "After retained QK, paired NV weights, prefix publication and row-boundary compositions, which current complete-API verifier families still dominate the remaining 2.667-second 40K d2 Decode gap? Reconcile current kernel/copy/uncovered costs with old v31 priorities before selecting the next architecture.",
+  "real_api_anchor": "docs/metadata/qwen36-27b-mtp-row-boundary-direction-2026-10-10.json",
+  "binary_sha256": "89bd285a10812d11f577b090b7a35b39cef2691919d2b7ae8574fe644f7d1aba",
+  "profile": "q3x.sm87.admission.mtp-row-boundary-api.v48",
+  "workload": {
+    "P": 40000,
+    "O": 256,
+    "draft_length": 2,
+    "same_request_and_output_as_anchor": true
+  },
+  "bounds": {
+    "nsys_captures": 1,
+    "ncu_captures": 0,
+    "runtime_mutations": 0,
+    "parameter_scans": 0
+  },
+  "analysis_boundary": "From first multirow target FP8 kernel through last generation kernel, matching v31 diagnostic window. Excludes first proposal/entry snapshot; not relabelled as full unprofiled Decode. Report current API anchor alongside it.",
+  "exit": "Rank current phase budgets and select or exclude next architecture directions from this one capture; no repeated evidence campaign and no production/target/threshold change.",
+  "artifact_root": ".q3x-work/mtp-v48-budget-20261010"
+}
