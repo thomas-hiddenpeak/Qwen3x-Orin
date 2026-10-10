@@ -150,11 +150,11 @@ bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
       }
       if (!project(a->o_proj, v.projection[1], v.hidden[1])) return false;
     } else return false;
-    for (unsigned row = 0; row < rows_; ++row)
-      if (!ok(launch_residual_add_centered_rms_norm_5120_cuda(
-            v.hidden[0] + row * H, v.hidden[1] + row * H,
-            w.post_attention_layernorm.data, 1.e-6F, v.hidden[2] + row * H,
-            v.hidden[1] + row * H, stream))) return false;
+    // One CTA per independent row preserves the original 256-lane tree
+    // and BF16 residual publication without a cooperative grid per row.
+    if (!ok(launch_residual_add_headwise_centered_rms_norm_prefill_5120_cuda(
+          v.hidden[0], v.hidden[1], w.post_attention_layernorm.data,
+          rows_, H, 1.e-6F, v.hidden[2], v.hidden[1], stream))) return false;
     if (!project(w.mlp.gate_proj, v.hidden[1], v.projection[0]) ||
         !project(w.mlp.up_proj, v.hidden[1], v.projection[1]) ||
         !ok(launch_silu_mul_reference_cuda(v.projection[0], v.projection[1],
@@ -162,11 +162,9 @@ bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
         !project(w.mlp.down_proj, v.projection[0], v.projection[1])) return false;
     const auto* next_norm = layer == 63 ? model.final_norm().data :
                                          model.layer(layer + 1).input_layernorm.data;
-    for (unsigned row = 0; row < rows_; ++row)
-      if (!ok(launch_residual_add_centered_rms_norm_5120_cuda(
-            v.hidden[2] + row * H, v.projection[1] + row * H,
-            next_norm, 1.e-6F, v.hidden[0] + row * H,
-            v.hidden[1] + row * H, stream))) return false;
+    if (!ok(launch_residual_add_headwise_centered_rms_norm_prefill_5120_cuda(
+          v.hidden[2], v.projection[1], next_norm, rows_, H, 1.e-6F,
+          v.hidden[0], v.hidden[1], stream))) return false;
   }
   // Projection 0 is dead after the final layer. Service-sized C512 storage can
   // stage all vocabulary rows; smaller oracle arenas keep the scalar boundary.

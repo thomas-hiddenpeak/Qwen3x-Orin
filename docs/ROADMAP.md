@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP row boundary composition — API return complete
+
+`WP-MTP-ROW-BOUNDARY-20261010` / `AC-MTP-GREEDY-v45` preserves the
+1.5x–3x objective and remaining 0.41/3.14-second full Decode gap. The [design](metadata/qwen36-27b-mtp-row-boundary-design-2026-10-10.json)
+reuses the existing exact independent-row residual/norm operator in both
+per-layer boundaries, removing repeated scalar cooperative-grid launches.
+The historical family costs 0.605 seconds and cannot alone close 40K; this
+is a bounded scheduling prerequisite, not a reduced product objective.
+One composition passes full P65 state/logit/cache and recovery admission,
+then immediately returns to P65/8K/40K d2 API. Greater-than-3% slowdown stops,
+neutral removes, useful direction unlocks d3. No kernel/geometry scan or
+profile follows. Useful retention expires at the next complete verifier API
+return or archival; production remains unchanged.
+
+The [completed direction](metadata/qwen36-27b-mtp-row-boundary-direction-2026-10-10.json)
+preserves every P65 state/cache prefix and transaction/recovery check plus all
+sixteen d2/d3 API outputs. Both policies reduce verification and complete Decode
+at 8K/40K. D2 reaches 13.833/10.498 token/s, or
+1.502x/1.335x non-MTP. The narrow single-process 8K crossing is not
+repeated qualification. Retain this scheduling composition as a bounded next-
+verifier dependency, without further geometry scans or production promotion.
+The full 1.5x–3x goal remains active and unmet; 40K still needs approximately
+2.67 seconds removed from full Decode.
+
 ## 2026-10-10 MTP register codebook — closed negative
 
 `WP-MTP-REGISTER-CODEBOOK-20261010` / `AC-MTP-GREEDY-v44` preserves the

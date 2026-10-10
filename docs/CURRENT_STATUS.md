@@ -54,16 +54,15 @@ Decode token/s convergence target are not claimed achieved.
 
 ## MTP development status
 
-The isolated implementation now publishes exact GDN state directly into
-immutable prefixes, captures only live entry hidden and reuses the first
-seed-conditioned draft KV row, on top of retained v45. Profile is
-`q3x.sm87.admission.mtp-prefix-publication-api.v46`, ELF
-`f757459c85b9a7a008ebb423e9b3a9eed4a0ee2903a40388d93f013275955c75`.
-The [completed direction](metadata/qwen36-27b-mtp-prefix-publication-direction-2026-10-10.json)
-passes complete P513 prefix state/logits and draft KV, all rejection/cancellation/
-failure transactions, and sixteen d2/d3 API checks. Output and logical
-acceptance/verification work match v45; new counters attest eliminated copies
-and seed KV reconstruction. Production remains unchanged.
+The isolated implementation now executes both per-layer residual/norm
+boundaries with the existing exact independent-row kernel, removing repeated
+scalar cooperative-grid launches on top of retained v46. Profile is
+`q3x.sm87.admission.mtp-row-boundary-api.v48`, ELF
+`89bd285a10812d11f577b090b7a35b39cef2691919d2b7ae8574fe644f7d1aba`.
+The [completed direction](metadata/qwen36-27b-mtp-row-boundary-direction-2026-10-10.json)
+passes complete P65 target/cache prefixes and all rejection/cancellation/failure
+transactions plus sixteen d2/d3 API checks. Output and logical/physical work
+match v46. Production remains unchanged.
 
 These 2026-10-10 observations use one fresh process per policy, not mirrored
 means or noise-qualified architecture selection. Prefill includes draft
@@ -72,27 +71,28 @@ after the first token.
 
 | P / O | Policy | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| 65 / 16 | d2 | 0.887 | 73.31 | 0.905 | 12.283 | 2.126 |
-| 8192 / 256 | d2 | 17.308 | 473.29 | 17.331 | 13.518 | 36.194 |
-| 40000 / 256 | d2 | 93.111 | 429.60 | 93.146 | 10.299 | 117.907 |
-| 65 / 16 | d3 | 0.889 | 73.14 | 0.907 | 10.494 | 2.337 |
-| 8192 / 256 | d3 | 17.317 | 473.07 | 17.339 | 12.172 | 38.289 |
-| 40000 / 256 | d3 | 93.546 | 427.60 | 93.581 | 9.448 | 120.573 |
+| 65 / 16 | d2 | 0.888 | 73.23 | 0.906 | 12.557 | 2.101 |
+| 8192 / 256 | d2 | 17.310 | 473.24 | 17.332 | 13.833 | 35.767 |
+| 40000 / 256 | d2 | 92.711 | 431.45 | 92.746 | 10.498 | 117.038 |
+| 65 / 16 | d3 | 0.890 | 73.05 | 0.908 | 10.764 | 2.302 |
+| 8192 / 256 | d3 | 17.287 | 473.89 | 17.309 | 12.470 | 37.759 |
+| 40000 / 256 | d3 | 93.129 | 429.51 | 93.164 | 9.639 | 119.620 |
 
 D2 Decode ratios against the same-request non-MTP anchor below are
-1.467x/1.310x at 8K/40K. **The 1.5x–3x goal remains
-unmet**, with approximately 0.41/3.14 seconds still to remove from full
-Decode. The [v45 direction](metadata/qwen36-27b-mtp-paired-weight-decode-direction-2026-10-10.json)
-is the preceding exact comparator. Retain this improvement only as a bounded
+1.502x/1.335x at 8K/40K. The 8K observation narrowly crosses
+1.5x but is not repeated qualification. **The complete 1.5x–3x goal remains
+unmet**; 40K still needs approximately 2.67 seconds removed from full Decode.
+The [v46 direction](metadata/qwen36-27b-mtp-prefix-publication-direction-2026-10-10.json)
+is the preceding exact comparator. Retain this composition only as a bounded
 development dependency through the next complete verifier API return or
-archival. No transaction-layout scan or qualification-only campaign is active.
+archival. No geometry scan or qualification-only campaign is active.
 Prefill code is unchanged; its timing differences are not attributed to this
 change. No production selection follows.
 
 ### Preceding NV live-reduction direction
 
 The following dated closures preserve their original scope; they do not
-supersede the current v46 implementation above.
+supersede the current v48 implementation above.
 
 The preceding isolated source extends the exact live-ancestor reduction to
 NVFP4 Gate/Up, Down and batched target vocabulary outputs, on top of retained

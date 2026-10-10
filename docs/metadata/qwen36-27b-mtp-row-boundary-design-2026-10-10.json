@@ -1,0 +1,34 @@
+{
+  "work_package_id": "WP-MTP-ROW-BOUNDARY-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v45",
+  "source_parent": "6f7496b4d84902151d902a56c9ff533f64b46874",
+  "profile": "q3x.sm87.admission.mtp-row-boundary-api.v48",
+  "goal": "1.5x\u20133x same-request committed Decode for d2/d3; exact state/logits/output; joint Prefill/TTFT/Decode/total reporting",
+  "budget": {
+    "remaining_full_decode_8k_s": 0.409118278,
+    "remaining_full_decode_40k_s": 3.136127733,
+    "historical_v31_residual_norm_s": 0.605091936,
+    "scope": "Remove per-row cooperative boundary in composed verifier. A bounded architecture prerequisite; this family alone cannot close 40K. No forecast from launch count."
+  },
+  "composition": "Replace two per-layer scalar cooperative-grid residual/norm row loops with the existing exact independent-row Prefill kernel, one CTA per row. No new CUDA arithmetic, model representation, state publication, scratch allocation or geometry tuning.",
+  "numerical_ledger": [
+    "Residual operands remain left + right and publish BF16 before normalization.",
+    "Each of the same 256 reduction lanes consumes indices lane + 256*j for j=0..19 in the same ordered fmaf chain.",
+    "The same shared binary tree reduces offsets 128/64/32/16/8/4/2/1.",
+    "Identical rsqrt(sum/5120+epsilon), centered gamma (weight+1), multiply order and BF16 output.",
+    "The first boundary has normalized_output == right, explicitly supported; residual output is disjoint. The second has disjoint inputs/outputs. No row communicates with another."
+  ],
+  "reference_transfer": "Reuse already admitted native prompt-wide independent-row ownership; this is the same batching principle studied in vLLM/FLA but imports no source, numerical tree or state algorithm.",
+  "bounds": {
+    "compositions": 1,
+    "correctness_repairs_max": 1,
+    "profiles": 0,
+    "parameter_scans": 0
+  },
+  "gates": [
+    "build and full P65 scalar-prefix state/logit/cache/rejection/cancellation/failure admission",
+    "immediate P65/8K/40K d2 API, >3% slowdown stops; neutral removes; useful d2 unlocks d3"
+  ],
+  "expiry": "Immediate API decides removal or bounded dependency through next complete verifier API return or archival. No production promotion.",
+  "artifact_root": ".q3x-work/mtp-row-boundary-20261010"
+}

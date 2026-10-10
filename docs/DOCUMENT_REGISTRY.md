@@ -325,6 +325,10 @@ The register-codebook package closes after negative P65 API direction; existing
 MTP SDD and Roadmap record removal and frozen evidence;
 no Markdown path or classification changes.
 
+The independent-row boundary package completes both API panels and updates
+existing MTP SDD, Current Status and Roadmap as a bounded dependency;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:
