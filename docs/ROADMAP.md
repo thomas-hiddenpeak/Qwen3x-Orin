@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP activation publication — closed negative
+
+`WP-MTP-ACTIVATION-PUBLICATION-20261010` / `AC-MTP-GREEDY-v35` targets the
+unchanged 1.5x–3x objective and 18.45/21.62-second complete Decode budgets.
+The [design](metadata/qwen36-27b-mtp-activation-publication-design-2026-10-10.json)
+publishes exact FP32 inputs once per transformer projection for all output
+consumers. Original FMA/reduction/publication boundaries remain unchanged;
+doubled input traffic and producer overhead must be repaid in the actual API.
+One implementation plus at most one correctness repair passes resource and
+full numerical admission, then immediately returns to P65/8K/40K d2 API.
+Greater-than-3% slowdown stops; neutral removes; useful direction unlocks d3.
+No parameter scan follows. Any retained dependency expires at the next full
+verifier API return or archival. Production remains unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-activation-publication-rejection-2026-10-10.json)
+passes all 65,536 BF16 patterns, 72 complete projection cases and full P65
+state/logit/transaction checks. P65/O16 d2 preserves output and work, but
+Decode falls to 10.737 token/s versus v31 11.902, a 9.78% negative direction.
+Verification adds 136.775 ms. The stop occurs before 8K; no 40K, d3 or full
+API lifecycle claim follows. All new runtime/profile/auditor paths are removed
+and v31 rebuilt. No activation representation/cache/grid scan follows. The
+1.5x–3x goal remains active and unmet; removing unpack instructions without
+improving the complete projection execution cost did not deliver the target.
+
 ## 2026-10-10 MTP batched cache reconciliation — closed without retention
 
 `WP-MTP-BATCH-RECONCILE-20261010` / `AC-MTP-GREEDY-v34` preserves the

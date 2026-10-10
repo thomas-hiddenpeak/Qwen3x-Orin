@@ -1210,6 +1210,25 @@ not produce a useful complete-runner gain. Prepared-prefix authority and its
 executor/wiring are removed, restoring v31. Frozen source retains reproduction
 authority only; no d3, batching scan or production change follows.
 
+## Exact activation publication composition v35
+
+Every transformer projection expands each original BF16 input bit pattern once
+into existing request-owned FP32 scratch. Same-stream consumers load those
+exact bits with unchanged quantized decoding, four FMA chains, ordered merges,
+tensor scaling and BF16 output. Maximum storage is 278,528 bytes, disjoint from
+inputs/outputs/weights; earlier scratch consumers have retired and later
+Attention/argmax consumers begin after projection completion. Validation rejects
+insufficient, misaligned or overlapping scratch before enqueue. No allocation,
+new stream or fallback after enqueue is introduced. The vocabulary head retains
+its original BF16 executor. Complete output/state/logit checks precede the real
+API tradeoff between removed unpacking and increased activation traffic.
+
+The [completed rejection](metadata/qwen36-27b-mtp-activation-publication-rejection-2026-10-10.json)
+passes complete synthetic and real-prefix numerical admission but regresses
+P65 d2 API Decode. The producer, scratch binding, FP32 consumers and distinct
+profile are removed; retained isolated source is v31. Frozen source has
+reproduction authority only, with no long-context or production claim.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

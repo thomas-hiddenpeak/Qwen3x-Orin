@@ -266,6 +266,10 @@ The batched cache-reconciliation package closes without retention after complete
 numerical and d2 API checks. Existing Roadmap, MTP SDD and Current Status record
 removal and frozen evidence; no Markdown path or classification changes.
 
+The activation-publication package closes after negative P65 API direction.
+Existing Roadmap, MTP SDD and Current Status record removal and frozen evidence;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

@@ -1,0 +1,202 @@
+{
+  "work_package_id": "WP-MTP-ACTIVATION-PUBLICATION-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v35",
+  "status": "closed_negative",
+  "decision": "Remove exact activation publication after P65 API Decode slowdown exceeds 3%; no further cache/geometry/dtype scan. Restore retained v31. Goal 1.5x\u20133x remains unmet.",
+  "source_identity": {
+    "source/change.patch": "f61a3facd78092a946d844b0c0a6d39595318f77a51f1f0c15fbd46c7eab8746",
+    "source/oracle": "cca035119c09ccce4413342b640f84f21ee0002af99da4de3665efd7bd3d1c9c",
+    "source/server": "6d097e3c93217d9ee65160866c7c4eb70550b3c144b224b7098e65c9930fd810",
+    "source/tools/evaluation/validate_mtp_service.py": "5db22376e664d4d693bd66a4e30700cdba6d8b3996805bdbb12af10b611a0009",
+    "source/src/server/evaluation_server.cpp": "5db2e7956eb7289b306128dd402c0e48db5396aa06325f466a70a70b41feba62",
+    "source/src/runtime/mtp_verify_projection_internal.cu": "05f228ee996f07bb1737903f8b6529d9b0c92dd4cb881245f71291bbdaf3a9ea",
+    "source/src/runtime/mtp_verify_internal.cpp": "09106fa567b807339389999586d37c1095707d3381f2e3d5898ab6ab0f420c0b",
+    "source/src/runtime/mtp_service_internal.cpp": "1d3e32c63308683770c73dde52b4f58202654868106e10a6c6c20c44e43f37be",
+    "source/include/q3x/server/evaluation_server.h": "f04f6d4181164ce143b520bfb4ebca90136eb6da299fc1680e66a5cc271971ed"
+  },
+  "api_metrics": [
+    {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8882565,
+      "prefill_tps": 73.1770609052678,
+      "ttft_s": 0.914288179948926,
+      "elapsed_s": 2.3112848079763353,
+      "decode_tps": 10.736992028934424,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-activation-publication-v38",
+        "draft_length": 2,
+        "startup_free_bytes": 9924321280,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 5.635427,
+        "draft_ms": 124.25930100000002,
+        "verify_ms": 1239.8531540000001,
+        "reconcile_ms": 26.264741,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "comparison": {
+    "incumbent_decode_tps": 11.9015476368,
+    "decode_ratio": 0.9021509098308584,
+    "verify_added_ms": 136.77462400000013,
+    "external_total_delta_s": 0.13783717201633516,
+    "baseline_output_and_accounting_equal": true,
+    "acceptance_work_unchanged": true
+  },
+  "numerical": {
+    "all_65536_bf16_codes_exact": true,
+    "complete_projection_cases": 72,
+    "output_and_scratch_guards": true,
+    "invalid_capacity_alignment_input_alias_rejected": true,
+    "p65_complete_prefixes": 9,
+    "transactions": 11,
+    "cache_tail_cases": 9,
+    "initialization_cancel_recovery": 2,
+    "injected_failure_recovery": 2
+  },
+  "resources": {
+    "no_spills": true,
+    "kernels": [
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b08fp8_rowsILj4ELb0EEEvPKhfPKfjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 110 registers, used 1 barriers, 1536 bytes smem, 392 bytes cmem[0]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b08fp8_rowsILj4ELb1EEEvPKhfPKfjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 109 registers, used 1 barriers, 1536 bytes smem, 392 bytes cmem[0]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b010nvfp4_rowsILj4ELj0EEEvPKhS5_jfPKfjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 136 registers, used 1 barriers, 1088 bytes smem, 400 bytes cmem[0], 8 bytes cmem[2]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b010nvfp4_rowsILj4ELj2EEEvPKhS5_jfPKfjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 130 registers, used 1 barriers, 1088 bytes smem, 400 bytes cmem[0], 16 bytes cmem[2]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b015nvfp4_head_rowsILj4ELj0ELb1EEEvPKhS5_jfPKtjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 128 registers, used 1 barriers, 42048 bytes smem, 400 bytes cmem[0], 8 bytes cmem[2]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b08fp8_rowsILj3ELb0EEEvPKhfPKfjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 80 registers, used 1 barriers, 1408 bytes smem, 392 bytes cmem[0]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b08fp8_rowsILj3ELb1EEEvPKhfPKfjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 80 registers, used 1 barriers, 1408 bytes smem, 392 bytes cmem[0]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b010nvfp4_rowsILj3ELj0EEEvPKhS5_jfPKfjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 113 registers, used 1 barriers, 1088 bytes smem, 400 bytes cmem[0], 8 bytes cmem[2]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b010nvfp4_rowsILj3ELj2EEEvPKhS5_jfPKfjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 99 registers, used 1 barriers, 1088 bytes smem, 400 bytes cmem[0], 16 bytes cmem[2]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b015nvfp4_head_rowsILj3ELj0ELb1EEEvPKhS5_jfPKtjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 128 registers, used 1 barriers, 31808 bytes smem, 400 bytes cmem[0], 8 bytes cmem[2]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b08fp8_rowsILj2ELb0EEEvPKhfPKfjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 64 registers, used 1 barriers, 1280 bytes smem, 392 bytes cmem[0]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b08fp8_rowsILj2ELb1EEEvPKhfPKfjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 64 registers, used 1 barriers, 1280 bytes smem, 392 bytes cmem[0]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b010nvfp4_rowsILj2ELj0EEEvPKhS5_jfPKfjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 80 registers, used 1 barriers, 1088 bytes smem, 400 bytes cmem[0], 8 bytes cmem[2]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b010nvfp4_rowsILj2ELj2EEEvPKhS5_jfPKfjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 85 registers, used 1 barriers, 1088 bytes smem, 400 bytes cmem[0], 8 bytes cmem[2]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b015nvfp4_head_rowsILj2ELj0ELb1EEEvPKhS5_jfPKtjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 80 registers, used 1 barriers, 21568 bytes smem, 400 bytes cmem[0], 8 bytes cmem[2]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b010nvfp4_rowsILj4ELj1EEEvPKhS5_jfPKfjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 136 registers, used 1 barriers, 1088 bytes smem, 400 bytes cmem[0], 8 bytes cmem[2]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b010nvfp4_rowsILj3ELj1EEEvPKhS5_jfPKfjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 96 registers, used 1 barriers, 1088 bytes smem, 400 bytes cmem[0], 8 bytes cmem[2]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b010nvfp4_rowsILj2ELj1EEEvPKhS5_jfPKfjjPt' for 'sm_87'",
+        "resources": "ptxas info    : Used 72 registers, used 1 barriers, 1088 bytes smem, 400 bytes cmem[0], 8 bytes cmem[2]"
+      },
+      {
+        "kernel": "ptxas info    : Compiling entry function '_ZN3q3x7runtime10mtp_detail44_GLOBAL__N__1fe0598f_11_fp8_test_cu_17be61b018publish_activationEPKtjPf' for 'sm_87'",
+        "resources": "ptxas info    : Used 10 registers, used 0 barriers, 376 bytes cmem[0]"
+      }
+    ]
+  },
+  "cleanup": {
+    "synthetic-fp8": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "synthetic-nv": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 60.312
+    },
+    "p65": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 68.625
+    },
+    "d2": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 65.437
+    }
+  },
+  "scope": "Direction only. Stop occurred after printing P65 metric and before built-in baseline comparison; independent frozen successful-request audit subsequently passes output/accounting/route. No P8192 or P40000 request began; no d3 or full lifecycle panel. Synthetic FP8 completes before first telemetry sample; preflight exists, no temperature maximum claimed.",
+  "mechanism_conclusion": "Exact representation and removed repeated unpacking are valid, but added publication/activation traffic and changed residency do not improve this complete runner. No hardware-stall attribution or impossibility claim.",
+  "production_unchanged": true,
+  "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+  "artifact_root": ".q3x-work/mtp-activation-publication-20261010",
+  "restoration": {
+    "source_restored_exactly": true,
+    "server_sha256": "c49bc0bd8d0bac4c1d0a55a9e4161435c5b1f886f76191033564d31f89306d95",
+    "oracle_sha256": "ccaf9e24bd36aba1520d80603d694d6e05da5d8a16efe378b51d49e60b22bd7a",
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "restored_profile": "q3x.sm87.admission.mtp-nv-live-reduction-api.v31",
+    "fresh_mtimes_forced_recompilation": true,
+    "worktrees": 47
+  },
+  "host_checks": {
+    "ctest": 3,
+    "document_control": "86 Markdown paths, 1175 links, zero errors",
+    "document_unit_tests": 7
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-activation-publication-20261010/artifact-manifest.json",
+    "sha256": "e96beb0f35719f9d4e13f81ffa0e3cdee46c8dbe06da0d0e04d2aa16da1b9844",
+    "files": 80
+  }
+}

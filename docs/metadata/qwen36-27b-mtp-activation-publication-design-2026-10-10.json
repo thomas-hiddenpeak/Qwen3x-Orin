@@ -1,0 +1,29 @@
+{
+  "work_package_id": "WP-MTP-ACTIVATION-PUBLICATION-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v35",
+  "decision_unit": "architecture_candidate",
+  "source_parent": "d98ebd7594075ff1b8c1af91189092760d48eeb5",
+  "goal": "1.5x–3x real API committed Decode vs same-request non-MTP",
+  "incumbent": "isolated v31",
+  "profile": "q3x.sm87.admission.mtp-activation-publication-api.v38",
+  "budget_seconds": {
+    "8192": 18.45,
+    "40000": 21.62
+  },
+  "mechanism": "Projection-wide exact BF16 bit expansion to FP32, reused by all transformer FP8/NVFP4 output groups. Same packed weights, four FMA chains and ordered reductions. Head unchanged.",
+  "lifetime": "Existing target FP32 scratch, at most 4*17408 floats; producer and consumer ordered on target stream, no allocation; old projection/Attention/argmax consumers disjoint in time.",
+  "cost": "Additional producer launch and doubled activation load bytes; removes per-output-group unpack/shifts and Gate BF16 shared staging. Gate fixed MaxL1 carveout. No weight or numerical change.",
+  "reference_translation": "Previously pinned Marlin/vLLM separates activation preparation from repeated consumers; native SM87 FP32 bit publication imports no source or MMA reassociation.",
+  "ceiling": "Older matched v7 projection family 16.29 GPU seconds is an opportunity ceiling, not current attribution or projected gain.",
+  "bound": "One fixed implementation plus at most one correctness repair. No spills; FP8 CTA floors 4/3/2 via launch bounds. Complete synthetic all roles plus P65 full-state/logit/transaction oracle, then immediate P65/8K/40K d2 API. >3% slowdown stops; neutral removes; useful unlocks d3. No grid/cache/shape scan.",
+  "expiry": "Next complete verifier API return or archival; no production promotion",
+  "artifact_root": ".q3x-work/mtp-activation-publication-20261010",
+  "rollback_files": [
+    "src/runtime/mtp_verify_projection_internal.cu",
+    "src/runtime/mtp_verify_internal.cpp",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ]
+}

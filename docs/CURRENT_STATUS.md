@@ -142,6 +142,14 @@ nearly unchanged 40K total do not select useful whole-runner retention.
 Work/output match v31; d3 is not run. Retained v31, production and the unmet
 1.5x–3x objective remain unchanged.
 
+The subsequent [activation-publication direction](metadata/qwen36-27b-mtp-activation-publication-rejection-2026-10-10.json)
+passes complete numerical admission but is removed after negative P65/O16 d2
+API direction. Prefill is 0.888 s / 73.18 token/s, external TTFT 0.914 s,
+Decode 10.737 token/s and total 2.311 s. This is 9.78% slower Decode than
+retained v31, with identical output and work; verification adds 136.775 ms.
+The run stops before 8K, 40K and d3. Retained v31, production and the unmet
+1.5x–3x objective remain unchanged.
+
 ### Preceding FP8 live-reduction direction
 
 The preceding isolated source uses exact live-ancestor FP8 reductions on top of
