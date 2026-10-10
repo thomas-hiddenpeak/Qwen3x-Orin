@@ -368,6 +368,10 @@ The FP8 static-stage package closes at its resource gate; existing MTP SDD
 and Roadmap record removal and frozen evidence;
 no Markdown path or classification changes.
 
+The static-gate API reconciliation completes without retention and records a
+successor decision in the existing Roadmap; prior evidence stays frozen and
+no Markdown classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

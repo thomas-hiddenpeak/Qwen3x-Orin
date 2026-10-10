@@ -1,0 +1,32 @@
+{
+  "work_package_id": "WP-MTP-STATIC-GATE-API-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v54",
+  "source_parent": "a48a2bd",
+  "product_constraint": "Real API 1.5x-3x committed Decode with exact target state/logits/output, d2/d3 and joint Prefill/TTFT/Decode/total.",
+  "prior_decision": "docs/metadata/qwen36-27b-mtp-fp8-static-stages-rejection-2026-10-10.json",
+  "reopening_reason": "Actual server SASS has no backward branches; M3 canonical spill accesses are four/six fixed instructions per thread, not a repeated dynamic K-loop. A no-spill local resource screen alone cannot establish whole-product fitness. Evaluate identical frozen binary without altering stage or register choices.",
+  "binary_sha256": "a2309c0164da4d32f20f8b0dc823a9befc637c75deb499a72f16d789af8bab88",
+  "downward_budget": {
+    "remaining_40k_decode_s": 2.27110563,
+    "historical_fp8_gpu_s": 5.869083328
+  },
+  "bounds": {
+    "runtime_mutations": 0,
+    "parameter_scans": 0,
+    "profiles": 0,
+    "candidate_api_processes": 2
+  },
+  "gates": [
+    "static source/binary identity and bounded local-access review",
+    "36 complete projection cases and full P65 prefixes/cache/transactions",
+    "d2 API P65/8K/40K; >3% slowdown stops, useful direction unlocks d3, otherwise close"
+  ],
+  "direction_retention_screen": {
+    "minimum_8k_decode_ratio_vs_v52": 1.0,
+    "minimum_40k_decode_ratio_vs_v52": 1.01,
+    "both_long_verify_time_must_decrease": true
+  },
+  "production_policy": "Current source and installed release remain v52/non-MTP while frozen candidate is evaluated. Only useful complete result can restore candidate source as a bounded development dependency; no production switch.",
+  "expiry": "One exact-binary API return or earlier correctness/negative direction; no factor/register scan.",
+  "artifact_root": ".q3x-work/mtp-static-gate-api-20261010"
+}

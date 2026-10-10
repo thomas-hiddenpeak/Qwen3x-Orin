@@ -19,6 +19,29 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP static-gate API reconciliation — complete without retention
+
+`WP-MTP-STATIC-GATE-API-20261010` / `AC-MTP-GREEDY-v54` [reopens the exact frozen v56 binary](metadata/qwen36-27b-mtp-static-gate-api-design-2026-10-10.json)
+without a source/parameter mutation. SASS shows no backward branches and only
+four/six fixed spill accesses per thread in two M3 kernels. The earlier local
+no-spill screen remains recorded; it did not establish API fitness. Complete
+projection/P65 checks precede one d2 API return; >3% slowdown stops, useful
+direction unlocks d3, otherwise close. Current source/production stays unchanged
+until useful API evidence. No stage/register scan or profile follows. This
+corrects decision scope without weakening numerical or device-safety gates.
+
+The [completed API reconciliation](metadata/qwen36-27b-mtp-static-gate-api-rejection-2026-10-10.json)
+passes 36 complete projection cases, all P65 prefix/cache/transaction checks
+and eight d2 API checks, preserving output and logical/physical work. At 8K,
+Prefill is 17.303 seconds / 473.45 token/s, TTFT 17.325 seconds,
+Decode 14.269 token/s and total 35.196 seconds. At 40K these are
+92.757 seconds / 431.23 token/s, 92.793 seconds, 10.758 token/s and
+116.497 seconds. Decode directions of +0.89%/+0.81% correct any inference
+that spill presence proved a slowdown, but do not meet this package's 1%
+40K floor or provide noise qualification. Candidate source is not restored;
+d3 is not run and no parameter scan follows. Retained v52, production and
+the complete unmet 1.5x–3x target remain unchanged.
+
 ## 2026-10-10 MTP FP8 static stages — closed at static gate
 
 `WP-MTP-FP8-STATIC-STAGES-20261010` / `AC-MTP-GREEDY-v53` owns one
