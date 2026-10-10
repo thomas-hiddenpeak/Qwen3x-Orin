@@ -1,0 +1,33 @@
+{
+  "work_package_id": "WP-MTP-NV-LIVE-REDUCTION-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v28",
+  "decision_unit": "architecture_candidate",
+  "source_base": "55c236e",
+  "profile": "q3x.sm87.admission.mtp-nv-live-reduction-api.v31",
+  "goal": "1.5x\u20133x same-request committed Decode; exact target state/full logits; configured drafts2/3",
+  "downward_budget": {
+    "complete_decode_8k_s": 18.45,
+    "complete_decode_40k_s": 21.62,
+    "v30_verify_8k_s": 17.465190672,
+    "v30_verify_40k_s": 23.749910461,
+    "v7_nv_projection_gpu_s": 8.84489552,
+    "v7_combined_target_draft_head_gpu_s": 2.29999552
+  },
+  "rationale": "Transfer the already proved live-ancestor tree to the remaining quantized verifier families and target head. NV mainloops are longer so tail savings are not assumed to meet the full target; one composed API result decides whether this low-cost prerequisite is worth retaining. No weight-decoder, layout, grid or stage scan.",
+  "equivalence": "Reuse unchanged warp_sum_four: identical four-chain merged leaves and every ordered stage16/8/4/2/1 addition, scale, BF16 rounding. Only root lane ownership changes 0 to 0/8/16/24. Persistent head row loop and all mainloops remain fixed.",
+  "resources": "No new allocations/shared storage, request or model lifetime; startup preparation unchanged. Verify no spills.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs_max": 1,
+    "local_timing_variants": 0,
+    "new_profiles": 0
+  },
+  "validation": [
+    "30 complete finite/NaN output/guard cases across canonical Gate, coupled Gate, canonical Down, packed Down and full vocabulary, M2..4, frozen v30 comparator",
+    "P65 complete prefix/state/logit and transactions/recovery",
+    "Immediate P65/8K/40K d2 API versus frozen v30; greater than3% regression stops, neutral/negative removes; useful direction unlocks d3"
+  ],
+  "composition": "v30 plus exact NV reduction mapping; useful direction dependency_only through next complete verifier API return or archive; no production promotion",
+  "artifact_root": ".q3x-work/mtp-nv-live-reduction-20261010",
+  "production_unchanged": true
+}

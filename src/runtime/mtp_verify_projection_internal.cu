@@ -218,12 +218,14 @@ __global__ void nvfp4_rows(const std::uint8_t* weights, const std::uint8_t* scal
     }
   }
 #pragma unroll
-  for(unsigned m=0;m<M;++m)
+  for(unsigned m=0;m<M;++m) {
+    float merged[4];
 #pragma unroll
-    for(unsigned r=0;r<4;++r) {
-      const float sum=warp_sum((a[m][r][0]+a[m][r][1])+(a[m][r][2]+a[m][r][3]))*scale;
-      if(!lane) y[m*n+row+r]=rounded(sum);
-    }
+    for(unsigned r=0;r<4;++r)
+      merged[r]=(a[m][r][0]+a[m][r][1])+(a[m][r][2]+a[m][r][3]);
+    const float sum=warp_sum_four(merged[0],merged[1],merged[2],merged[3])*scale;
+    if(!(lane&7)) y[m*n+row+lane/8]=rounded(sum);
+  }
 }
 template<unsigned M, unsigned Layout, bool Persistent = false>
 __global__ void nvfp4_head_rows(const std::uint8_t* weights, const std::uint8_t* scales,
@@ -295,12 +297,14 @@ __global__ void nvfp4_head_rows(const std::uint8_t* weights, const std::uint8_t*
     }
   }
 #pragma unroll
-  for(unsigned m=0;m<M;++m)
+  for(unsigned m=0;m<M;++m) {
+    float merged[4];
 #pragma unroll
-    for(unsigned r=0;r<4;++r) {
-      const float sum=warp_sum((a[m][r][0]+a[m][r][1])+(a[m][r][2]+a[m][r][3]))*scale;
-      if(!lane) y[m*n+row+r]=rounded(sum);
-    }
+    for(unsigned r=0;r<4;++r)
+      merged[r]=(a[m][r][0]+a[m][r][1])+(a[m][r][2]+a[m][r][3]);
+    const float sum=warp_sum_four(merged[0],merged[1],merged[2],merged[3])*scale;
+    if(!(lane&7)) y[m*n+row+lane/8]=rounded(sum);
+  }
   }
 }
 template<unsigned M>

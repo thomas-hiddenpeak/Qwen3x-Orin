@@ -54,7 +54,43 @@ Decode token/s convergence target are not claimed achieved.
 
 ## MTP development status
 
-The current isolated source uses exact live-ancestor FP8 reductions on top of
+The current isolated source extends the exact live-ancestor reduction to
+NVFP4 Gate/Up, Down and batched target vocabulary outputs, on top of retained
+v30. Mainloops and numerical/state boundaries remain unchanged. Profile is
+`q3x.sm87.admission.mtp-nv-live-reduction-api.v31`, ELF
+`0049caf79b62156af12b1b0b6d193df23def2283a6f9184b20b81b78ee2183b8`.
+The [completed direction](metadata/qwen36-27b-mtp-nv-live-reduction-direction-2026-10-10.json)
+passes 30 complete output/guard cases, full P65 prefix/state/logit and
+transaction/recovery admission, and all eight API/lifecycle requests per
+policy. All sixteen responses match the non-MTP baseline, with unchanged
+work and acceptance counts versus v30. Production is unchanged.
+
+These 2026-10-10 observations use one fresh process per policy, not mirrored
+means or release qualification. Prefill includes draft initialization; Decode
+includes the complete controller/observer interval after the first token.
+
+| P / O | Policy | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 65 / 16 | d2 | 0.887 | 73.27 | 0.913 | 11.902 | 2.173 |
+| 8192 / 256 | d2 | 17.308 | 473.31 | 17.330 | 12.914 | 37.077 |
+| 40000 / 256 | d2 | 92.699 | 431.51 | 92.734 | 9.660 | 119.133 |
+| 65 / 16 | d3 | 0.885 | 73.41 | 0.904 | 9.842 | 2.428 |
+| 8192 / 256 | d3 | 17.303 | 473.45 | 17.325 | 11.310 | 39.871 |
+| 40000 / 256 | d3 | 93.117 | 429.57 | 93.152 | 8.665 | 122.582 |
+
+D2 verification falls by approximately 0.316/0.348 seconds at 8K/40K against
+v30; d3 falls by 0.291/0.313 seconds. D2 Decode ratios versus the non-MTP
+anchor below are about 1.402x/1.229x. **The 1.5x–3x objective remains unmet.**
+D3 remains slower than d2. The small consistent direction is retained only as
+a bounded development dependency through the next complete verifier API return
+or archival, not statistically qualified architecture selection. No further
+reduction mapping scan or qualification-only campaign is active. Complete
+Decode still exceeds the 18.45/21.62-second minimum-target budgets; next work
+must address the remaining verifier cost, particularly at 40K.
+
+### Preceding FP8 live-reduction direction
+
+The preceding isolated source uses exact live-ancestor FP8 reductions on top of
 retained v28. Four output trees share warp lanes as their live leaf count falls;
 every original ordered addition and publication remains intact. Profile is
 `q3x.sm87.admission.mtp-live-reduction-api.v30`, ELF

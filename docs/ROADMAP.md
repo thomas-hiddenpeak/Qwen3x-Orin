@@ -19,6 +19,35 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP NV live reduction composition — API return complete
+
+`WP-MTP-NV-LIVE-REDUCTION-20261010` / `AC-MTP-GREEDY-v28` retains the
+1.5x–3x objective and 18.45/21.62-second complete Decode budgets. The
+[design](metadata/qwen36-27b-mtp-nv-live-reduction-design-2026-10-10.json)
+composes the proved v30 live-ancestor reduction with NVFP4 Gate/Up, Down and
+target vocabulary finalization. Longer NV mainloops limit the source-level
+opportunity; instruction ratios are not measured latency or a speedup claim.
+One fixed reuse of the existing helper, without new grids/layouts/decoders,
+returns through complete synthetic and P65 state/logit admission to the real
+P65/8K/40K d2 API. Greater-than-3% regression stops; neutral/negative removes
+the new mapping, and useful direction unlocks d3. At most one correctness
+repair is allowed. A useful result is only a bounded prerequisite through the
+next complete verifier API return or archival. Artifacts remain under
+`.q3x-work/mtp-nv-live-reduction-20261010/`; production is unchanged.
+
+The [completed direction](metadata/qwen36-27b-mtp-nv-live-reduction-direction-2026-10-10.json)
+passes all numerical checks and both complete API panels. D2 observes
+12.914/9.660 token/s at 8K/40K versus v30 12.708/9.533; d3 observes
+11.310/8.665 versus 11.164/8.574, with identical work and acceptance counts.
+The exact mapping remains a bounded development dependency through the next
+complete verifier architecture's first API return or archival. No further
+mapping/grid scan or qualification-only campaign follows. This is a small
+single-process direction, not statistical architecture selection or production
+promotion. The 1.5x–3x objective remains active and unmet: even d2 still needs
+about 1.30/4.78 seconds less complete Decode at 8K/40K. A successor must name
+a materially different complete verifier response and promptly return to the
+same real API rather than repeat tail-reduction variants.
+
 ## 2026-10-10 MTP causal proposal reuse — assessment complete
 
 `WP-MTP-CAUSAL-REUSE-20261010` keeps the 1.5x–3x objective and the
