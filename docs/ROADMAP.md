@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP Attention rendezvous — closed without retention
+
+`WP-MTP-ATTENTION-RENDEZVOUS-20261010` / `AC-MTP-GREEDY-v50` owns one
+[QK/PV synchronization composition](metadata/qwen36-27b-mtp-attention-rendezvous-design-2026-10-10.json)
+against the remaining 2.27-second 40K Decode gap. One retained post-wait CTA
+barrier retires current readers and publishes next operands; the redundant
+pre-wait barrier is removed. Ring ownership and scalar arithmetic are unchanged.
+Full P513/P8192 state/logit admission returns immediately to d2 API; >3%
+slowdown stops, neutral removes, useful direction unlocks d3. No profile or
+parameter scan follows. Useful retention expires at the next full verifier API
+return or archival. Production and the complete 1.5x–3x goal remain unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-attention-rendezvous-rejection-2026-10-10.json) preserves all eighteen complete P513/P8192
+prefix state/logit comparisons and P513 transactions/recovery. D2 8K observes
+Prefill 17.319 seconds / 473.01 token/s, TTFT 17.341 seconds,
+Decode 14.139 token/s and total 35.376 seconds.
+The declared useful-direction screen is not met. All new synchronization and
+profile paths are removed and v52 rebuilt. The following 40K request is
+interrupted before completion; d3 and remaining API lifecycle checks are not
+run. No further barrier,
+ring or tile scan follows; retained v52 observations remain current.
+These single-process observations do not qualify a speedup or hardware cause.
+The complete 1.5x–3x goal remains unmet.
+
 ## 2026-10-10 MTP native FP8 cache prefetch — API return complete
 
 `WP-MTP-NATIVE-PREFETCH-20261010` / `AC-MTP-GREEDY-v49` owns one

@@ -1544,6 +1544,29 @@ both API panels. Whole Decode reductions retain this composition only as a
 bounded next-verifier dependency. No prefetch-distance/cache-level scan,
 hardware cache-hit claim or production promotion follows.
 
+## Attention rendezvous composition v50 — removed
+
+The [bounded composition](metadata/qwen36-27b-mtp-attention-rendezvous-design-2026-10-10.json)
+removes only the pre-wait CTA barrier from each QK/PV ring iteration. Every
+thread completes current reads, waits on its original async groups, then reaches
+the retained barrier. That barrier both retires all old consumers and publishes
+next operands before the next producer may reuse the old slot. Current and
+three-ahead slots are distinct; tail wait counts stay unchanged. No arithmetic,
+causal extent, launch shape, buffer, allocation or state contract changes.
+Complete scalar-prefix checks and the real API select the trade.
+
+The [completed rejection](metadata/qwen36-27b-mtp-attention-rendezvous-rejection-2026-10-10.json) preserves all eighteen complete P513/P8192
+prefix state/logit comparisons and P513 transactions/recovery. D2 8K observes
+Prefill 17.319 seconds / 473.01 token/s, TTFT 17.341 seconds,
+Decode 14.139 token/s and total 35.376 seconds.
+The declared useful-direction screen is not met. All new synchronization and
+profile paths are removed and v52 rebuilt. The following 40K request is
+interrupted before completion; d3 and remaining API lifecycle checks are not
+run. No further barrier,
+ring or tile scan follows; retained v52 observations remain current.
+These single-process observations do not qualify a speedup or hardware cause.
+The complete 1.5x–3x goal remains unmet.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

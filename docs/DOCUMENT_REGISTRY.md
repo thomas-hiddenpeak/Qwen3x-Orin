@@ -348,6 +348,10 @@ The native FP8 cache-prefetch package completes both API panels and updates
 existing MTP SDD, Current Status and Roadmap as a bounded dependency;
 no Markdown path or classification changes.
 
+The Attention rendezvous package closes without retention; existing MTP SDD and Roadmap
+record removal and frozen evidence;
+no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:

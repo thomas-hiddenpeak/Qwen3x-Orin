@@ -1,0 +1,38 @@
+{
+  "work_package_id": "WP-MTP-ATTENTION-RENDEZVOUS-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v50",
+  "source_parent": "de6bda4",
+  "product_constraint": "50%-200% real API committed Decode acceleration, d2/d3, exact state/logits/output, joint Prefill/TTFT/Decode/total",
+  "downward_budget": {
+    "remaining_40k_decode_s": 2.27110563,
+    "historical_v48_QK_PV_gpu_s": 4.532154624,
+    "scope": "Opportunity ceiling, not a prediction or current stall attribution; cannot assume every barrier is exposed."
+  },
+  "mechanism": "Merge duplicate per-iteration CTA rendezvous in private MTP QK and PV rings. Original async groups, slots, data and numerical operations remain unchanged.",
+  "equivalence_ledger": [
+    "Iteration i stages i+3 in a distinct slot; current consumer reads slot i.",
+    "Every thread finishes its current reads before executing its per-thread wait and the retained CTA barrier.",
+    "The retained barrier therefore retires all current readers and publishes waited copies before iteration i+1 can stage i+4 into old slot i.",
+    "Tail wait counts and all arithmetic/causal predicates remain unchanged; no buffer, launch, state or allocation change."
+  ],
+  "reference_translation": "Existing FlashInfer-derived cp.async ring, preserving source license and original scalar semantics; change only the redundant rendezvous boundary. Prior direct-PV and shared-row PV variants changed ownership and are not reopened.",
+  "bounds": {
+    "implementations": 1,
+    "parameter_scans": 0,
+    "profiles": 0
+  },
+  "gates": [
+    "both builds",
+    "full P513 transactions and all M2/3/4 prefix state/logits; P8192 prefix-only",
+    "immediate d2 P65/8K/40K API vs v52; >3% slowdown stops, neutral removes, useful unlocks d3"
+  ],
+  "expiry": "Useful result dependency-only through next complete verifier API return or archival; no production promotion or barrier/tile scan.",
+  "artifact_root": ".q3x-work/mtp-attention-rendezvous-20261010",
+  "direction_retention_screen": {
+    "declared_before_api": true,
+    "minimum_40k_decode_ratio_vs_v52": 1.01,
+    "minimum_8k_decode_ratio_vs_v52": 1.0,
+    "both_long_verify_time_must_decrease": true,
+    "scope": "Pragmatic direction threshold to avoid retaining neutral sub-percent changes, not noise qualification."
+  }
+}
