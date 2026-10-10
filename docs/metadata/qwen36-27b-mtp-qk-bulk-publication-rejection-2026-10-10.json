@@ -1,0 +1,324 @@
+{
+  "work_package_id": "WP-MTP-QK-BULK-PUBLICATION-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v52",
+  "source_parent": "99ca940",
+  "status": "closed_without_retention_runtime_removed",
+  "source_identity": {
+    "oracle": "29fa6924b3170d06ed79369373f173de685235c9128602bd3138ad4a8dd3dbcd",
+    "candidate.patch": "8d7f644f32737f2959ec6e68301a5f3610ce47dbc7b917bc882061387e0ad76f",
+    "server": "1d81a3951b114f00e1a9c3f646fd630b72af4b9c288e09665f757d04fa77e7d1",
+    "tests/mtp_device_test.cpp": "149366fd54fb029b9c418426a00cc4b426d6756a111ba682510beb974b7f0b92",
+    "tools/evaluation/validate_mtp_service.py": "047a9962b471592e71bcd362f4d15310b790f810e64720da336915fd0627c83a",
+    "src/server/evaluation_server.cpp": "fd4ee26bc385b48b045e518aa2c95b1f7c8f79042fcdb4f8701e8f189a1e0bbf",
+    "src/runtime/reference_runner_terminal_prefix_internal.h": "734c3274f72079d9ef81b577b41d3445d9b982b5b9b209e53ad0dfc319f89f3f",
+    "src/runtime/reference_runner_full_attention_oracle_internal.h": "c86a676e530f839f0cc1bf347a46c47b5c5aba531751ea36ff14845b6d564352",
+    "src/runtime/mtp_verify_attention_internal.cu": "e348309c97e6a9966eda0dcb825bd4df5963915b73582b873869ce6da0b61d06",
+    "src/runtime/reference_engine_prefill_authority.h": "c0ce31dc6aa0747973e65a2ec994ac49c549176680df45978184ab0ffba29d11",
+    "src/runtime/reference_runner_gdn_exact_span_policy_internal.h": "2938439fa831120fdf2eb8a055725681703876043beb21953a9372a6ea055c94",
+    "src/runtime/p40_packed_projection_assets.cpp": "c938706571e986c93e326c53bef1d6ada8ad761bb574926155964084b42f2bd2",
+    "src/runtime/prefill_operator_bindings.cpp": "fcca07bb1efa85c7151e04550109e65f746770c1c0bcb6eb841bb4c3cf3ee15a",
+    "src/runtime/reference_engine_prefill_authority.cpp": "ddd98d3aa7f793d7fe395bc42447665773db5562dd8a5370dc4ae678d2565f90",
+    "src/runtime/mtp_prefill_internal.cu": "a73d0774d11bf9d1e642876d01e0239d62489d1c83af59539de9f835e43a07d2",
+    "src/runtime/mtp_prefill_internal.h": "eed816da8e20a804953732b09efc52a87e1b80a733303bae4c721f7ca166f054",
+    "src/runtime/reference_engine_decode_sidecar_policy_internal.h": "dafa71954aa685d464c59e2fcd82c053443a03b3b48c069b392e7a65e92bc8af",
+    "src/runtime/prefill_workspace_plan.cpp": "163d2314c1358ee797b961b92c9f5360f1b6e239260cc16d5d43d26576b81721",
+    "src/runtime/reference_oracle.cpp": "efde55942e91712f23dfa18092ca0df7ba9a37e111eccaf1ee947360b67777c7",
+    "src/runtime/mtp_verify_projection_internal.cu": "a8d66377004621af008226512bc8fac0ac1bdf419aea7de64600d9a9f72b5c31",
+    "src/runtime/prefill_route_evidence.cpp": "88bc0ae79d310c41da68b4cf4eb48af5e4a35b47cfd1c32d47aa5c8a4c32631b",
+    "src/runtime/reference_runner.cpp": "4b346183634201f13c355f5d6c71f0bd2ba832c782bee57050ca304c54073ebe",
+    "src/runtime/mtp_control.cpp": "33be43a79d8697dd6a84f8709977f6f8841a111a011b0688cf6b0a5a6fb6c591",
+    "src/runtime/reference_runner_prompt_wide_policy_internal.h": "263adf64953ffb2017133179f25bc1b9cd6bfa9d547dc69aa6d3e2fe3312924f",
+    "src/runtime/mtp_device_internal.h": "372bab3f5685ffecc8e7807cdb6403b48c8156b35409f6befe1dc69debb5eea6",
+    "src/runtime/reference_runner_layer_major_views.cpp": "927dca43bb145754e54a64fe4d540cf82a8d369d2d260925788c03575cd7d1f1",
+    "src/runtime/resident_weights.cpp": "518e26070a2a82110e45392ad33f7d65cf2394c0adf25719993c390e267f8e0c",
+    "src/runtime/mtp_control.h": "ca6290fa891f33ca4db4d0b4e9166ab84179c494eb6d5da090b0e193cd3ebaa3",
+    "src/runtime/reference_runner_gdn_c16_norm_gate_admission.h": "ee6e16b3fb5d687e150b180614d9af17c34d12d328e717f3d8790ba4de07ce8e",
+    "src/runtime/reference_runner_request_reset_policy_internal.h": "89786af4eff2129032cdfb2dd28bff4213374f25d170ff1ce0a1a4254fbf0d8c",
+    "src/runtime/reference_engine_final_token_policy_internal.h": "7b5f5c40a85fa8901a881baccf2c469e3f3248dbc355cba7b79ca6bdf4ec19fa",
+    "src/runtime/sm87_target_aot_layer0_m192_oracle_evidence_internal.h": "fb3c0d0a69f4bef6e42effd7c4363aeaa898f494be8f0c7bfd0db805da5d6b12",
+    "src/runtime/reference_runner_gdn_chunk64_native_admission.h": "bdc6e033a5d0834c48b23c25893ca8730e6a66bed6f67c7b940fa1c13dc62626",
+    "src/runtime/reference_benchmark.cpp": "56e24d5dbc5307e372de4dbf698995f9a3a0dbc33d5a9ac6dff3dda716b86315",
+    "src/runtime/mtp_verify_internal.cpp": "276251c5b308f97968d7a2a36278fd96202672b56da79d510651c27b09661e22",
+    "src/runtime/reference_runner_gdn_chunk64_reference_admission.h": "470cd583a991c6f35e01a8c05ae179c6af5472dd73bcecc547b6bce1979abbe6",
+    "src/runtime/request_state.cpp": "2cf9013f52516a332469f38656046e60bdf9ed5ba423a81f331d32161a2e4299",
+    "src/runtime/mtp_service_internal.h": "5057c4be1d74fa279228de09dc641f27c4d6904b854370db1451951e3601e137",
+    "src/runtime/sm87_target_aot_projection_device_assets.cpp": "9e2e5264fac95b68253953a4898eee0edd89bd8cf4894d814b75be79b5e14b19",
+    "src/runtime/model_weights.cpp": "5c6c83cb65a86bfab176ed8b3e318b4f41077576153fe4d5213b4deb4ccc6fd5",
+    "src/runtime/reference_engine.cpp": "11882af20bc850f04cd6dea385ea50fe7a55a11e44b45be5842cfc49c60ae350",
+    "src/runtime/sm87_target_aot_layer0_m192_oracle_internal.h": "e2abe3a9f197ce41689a2df37472ded3db502b7770599f9a5b99f043cdbbab56",
+    "src/runtime/decode_fused_gqa_internal.h": "1875825bb8a512b38cf98f254e0f6ee288f5cb88677c5fe0ddcc6cebac584ec4",
+    "src/runtime/reference_runner_decode_gqa_policy_internal.h": "5dc1685d01c6f5914502bde6dd69c61d539c831ee6848e140483936214f4bf77",
+    "src/runtime/mtp_service_internal.cpp": "b090fb88cb0dd7abb1f658a44b4bc9118611f275ac32d0d326e70f48f4eae470",
+    "src/runtime/reference_engine_control.cpp": "48f496df165ffef84ab55b4e83940a1db5c626e84ea77aa07679ff5f572f3c5d",
+    "src/runtime/sm87_target_aot_projection_assets.cpp": "3bff89ff38766b6421d73c0beb289696c85ac8a43bfd47e1f0ec5cd73302cc9a",
+    "src/runtime/prefill_execution_plan.cpp": "ce7b6ac1708ff60a25d2d147affd057a46bec15bcfdf1d7dfd646e7e451cee12",
+    "src/runtime/mtp_engine_internal.h": "2652ee5b80f9bba6e706a5d05a580f919bfdf17b6df665a028dc0d0db3818e8f",
+    "src/runtime/mtp_device_internal.cpp": "2080c2a1a9633e21449242a3b6dd82cdf44451c86598a5a1b6d51e1e3ba5c89e",
+    "src/runtime/reference/decode_ops.cpp": "efffb0f7bf1d09ab5d0f3dccc44bbe285a905425191ddb3e7b929c3d71bd3582",
+    "src/runtime/reference/layout_ops.cpp": "bb9b5f59fea4da2095bca82154d7a9f212279e9e4efb789246a94c45ec7d7877",
+    "src/runtime/reference/gdn_decode.cpp": "2bab112355a441a9101c3ef4af7cc0a910445a0664adea3c5182ddc3a6db5823",
+    "include/q3x/server/evaluation_server.h": "cb389fe756d4f83d75a3231016daba4904705fbdcfa33920bc63be2dc42afeed"
+  },
+  "static_resources": {
+    "kernels": [
+      {
+        "rows": 4,
+        "registers": 88,
+        "shared_bytes": 28672,
+        "stack_bytes": 0,
+        "local_bytes": 0
+      },
+      {
+        "rows": 3,
+        "registers": 88,
+        "shared_bytes": 25600,
+        "stack_bytes": 0,
+        "local_bytes": 0
+      },
+      {
+        "rows": 2,
+        "registers": 88,
+        "shared_bytes": 22528,
+        "stack_bytes": 0,
+        "local_bytes": 0
+      }
+    ],
+    "no_local_memory": true,
+    "trade": "Registers rise from 79 to 88; occupancy can decline. Whole API must select; no resource scan."
+  },
+  "comparison_vs_v52": {
+    "d2": {
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.88643615,
+          "prefill_tps": 73.32733440530376,
+          "decode_tps": 12.817145887746017,
+          "ttft_s": 0.9050066908821464,
+          "elapsed_s": 2.0752198616974056,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-qk-bulk-publication-v55",
+            "draft_length": 2,
+            "startup_free_bytes": 9858613248,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "direct_gdn_state_rows": 912,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 1987054592,
+            "draft_initialization_ms": 5.699978,
+            "draft_ms": 124.114952,
+            "verify_ms": 1024.9245230000001,
+            "reconcile_ms": 20.904095,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.296591609000004,
+          "prefill_tps": 473.619322533893,
+          "decode_tps": 14.11231722042534,
+          "ttft_s": 17.318769792094827,
+          "elapsed_s": 35.38842667778954,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-qk-bulk-publication-v55",
+            "draft_length": 2,
+            "startup_free_bytes": 9858613248,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 98,
+            "proposed": 196,
+            "accepted": 157,
+            "verified_rows": 294,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              71,
+              0
+            ],
+            "draft_ordered_attention_steps": 196,
+            "entry_hidden_snapshots": 98,
+            "direct_gdn_state_rows": 14112,
+            "seed_kv_reuses": 98,
+            "state_copy_bytes_elided": 29932693504,
+            "draft_initialization_ms": 538.358689,
+            "draft_ms": 2058.406926000001,
+            "verify_ms": 15647.716530000003,
+            "reconcile_ms": 358.4055619999998,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "comparison": [
+        {
+          "stage": "p65",
+          "decode_ratio_vs_v52": 0.9991525286049495,
+          "verify_saved_ms": -0.8556570000000647,
+          "full_decode_saved_s": -0.0009918019999999306,
+          "prefill_delta_s": -0.0012981420000000021,
+          "total_delta_s": -0.00043885549530386925
+        },
+        {
+          "stage": "p8192",
+          "decode_ratio_vs_v52": 0.9978083885701629,
+          "verify_saved_ms": -40.88285700000597,
+          "full_decode_saved_s": -0.039600931999999034,
+          "prefill_delta_s": 0.010147993000000355,
+          "total_delta_s": 0.04981549968943
+        }
+      ],
+      "completed_api_checks": 2,
+      "output_ids_and_work_equal_v52": true
+    }
+  },
+  "numerical": {
+    "p513_complete_target_state_logits_prefixes": 9,
+    "p8192_complete_target_state_logits_prefixes": 9,
+    "p513_transactions": 11,
+    "p513_initialization_cancel_recovery": 2,
+    "p513_injected_failure_recovery": 2,
+    "all_pass": true
+  },
+  "cleanup": {
+    "p513": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 71.437
+    },
+    "p8192": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 77.937
+    },
+    "d2": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 72.468
+    }
+  },
+  "remaining_goal_budget": [
+    {
+      "prompt": 65,
+      "decode_s": 1.1703073469999998,
+      "target_1p5x_s": 1.0437832557891271,
+      "remaining_s": 0.1265240912108727,
+      "ratio_vs_non_mtp": 1.3378322264635758
+    },
+    {
+      "prompt": 8192,
+      "decode_s": 18.069321714999997,
+      "target_1p5x_s": 18.4539924513425,
+      "remaining_s": -0.38467073634250326,
+      "ratio_vs_non_mtp": 1.5319329144510585
+    }
+  ],
+  "production_unchanged": true,
+  "goal_achieved": false,
+  "limitations": [
+    "Single fresh process per policy, not mirrored or noise-qualified selection.",
+    "No hardware-stall attribution or profiler run.",
+    "Prefill implementation unchanged; timing differences are not attributed to the change.",
+    "The complete 1.5x\u20133x objective remains active and unmet."
+  ],
+  "artifact_root": ".q3x-work/mtp-qk-bulk-publication-20261010",
+  "restoration": {
+    "server": {
+      "retained_sha256": "666a9be89d636ca6e0ea71ed54d57eba2a968330b3081f45b6ec314ab2acdc53",
+      "rebuilt_sha256": "5596103209241407441de30576a5874a6a583a2f852d3f854b6735959c5ea823",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "e19d7675c60adf820ad7d81d2c98d0dd012752d9d264c8ce00c39c583a48cb2a",
+      "rebuilt_sha256": "186a569fb9be023e897b333c5580fe1d5311f5dec7734ec596f78ccd459b5811",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "decision": {
+    "decision": "remove",
+    "reason": "Completed P8192 direction fails predeclared minimum ratio >=1 and verification decrease; no further qualification or parameter scan.",
+    "p8192_decode_ratio_vs_v52": 0.9978083885701543,
+    "p8192_verify_saved_ms": -40.88285700000415,
+    "manual_stop": true,
+    "automatic_3_percent_stop": false,
+    "owned_driver_pid": 1830316,
+    "interrupted_request": "None: post-P8192 idle interval interrupted; P40000 not run."
+  },
+  "host_validation": {
+    "host-tests": {
+      "command": [
+        "ctest",
+        "--test-dir",
+        ".q3x-work/build/orin-whole-core-exact-decode-admission",
+        "--output-on-failure",
+        "-R",
+        "^(mtp_control|mtp_weights|reference_engine_control)$"
+      ],
+      "returncode": 0
+    },
+    "document-unit": {
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "tests.test_document_control"
+      ],
+      "returncode": 0
+    },
+    "document-control": {
+      "command": [
+        "python3",
+        "-B",
+        "tools/docs/validate_document_control.py"
+      ],
+      "returncode": 0
+    },
+    "diff-check": {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0
+    }
+  },
+  "hygiene": {
+    "gpu_handle_inspection_returncode": 1,
+    "api_keys_removed": true,
+    "temporary_build_files_empty": true,
+    "worktree_count": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  }
+}

@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP QK bulk publication — closed without retention
+
+`WP-MTP-QK-BULK-PUBLICATION-20261010` / `AC-MTP-GREEDY-v52` owns one
+[immutable K-tile composition](metadata/qwen36-27b-mtp-qk-bulk-publication-design-2026-10-10.json).
+Publish 32 K positions once and consume sixteen original two-position steps
+before retiring the tile. This replaces the fine-grained copy ring, preserving
+all scalar arithmetic, causal domains and query/output ownership. The historical
+2.215-second QK family cannot alone close the remaining 2.27-second Decode gap;
+this is a bounded composition prerequisite. Full P513/P8192 admission returns
+immediately to d2 API; >3% slowdown stops, useful direction unlocks d3, otherwise
+remove. No tile/pipeline scan or profile follows. Useful retention expires at
+the next complete verifier API return or archival; production stays unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-qk-bulk-publication-rejection-2026-10-10.json) preserves all eighteen complete P513/P8192
+prefix state/logit comparisons and P513 transactions/recovery. D2 8K observes
+Prefill 17.297 seconds / 473.62 token/s, TTFT 17.319 seconds,
+Decode 14.112 token/s and total 35.388 seconds.
+The declared useful-direction screen is not met. All new QK publication and
+profile paths are removed and v52 rebuilt. The driver stops in its post-8K
+idle interval; 40K, d3 and remaining API lifecycle checks are not run. No bulk tile,
+copy-stage or register scan follows; retained v52 observations remain current.
+These single-process observations do not qualify a speedup or hardware cause.
+The complete 1.5x–3x goal remains unmet.
+
 ## 2026-10-10 MTP NVFP4 native prefetch — closed without retention
 
 `WP-MTP-NV-NATIVE-PREFETCH-20261010` / `AC-MTP-GREEDY-v51` owns one

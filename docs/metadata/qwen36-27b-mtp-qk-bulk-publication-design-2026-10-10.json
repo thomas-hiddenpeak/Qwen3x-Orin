@@ -1,0 +1,39 @@
+{
+  "work_package_id": "WP-MTP-QK-BULK-PUBLICATION-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v52",
+  "source_parent": "99ca940",
+  "product_constraint": "1.5x-3x same-request real API Decode, d2/d3, exact target state/logits/output and joint Prefill/TTFT/Decode/total",
+  "downward_budget": {
+    "remaining_40k_decode_s": 2.27110563,
+    "historical_v48_qk_gpu_s": 2.214693856,
+    "scope": "Opportunity ceiling only; QK alone cannot close the whole gap even if eliminated. Bounded composition prerequisite, not target relaxation."
+  },
+  "mechanism": "Publish 32 immutable K positions per CTA once, then consume 16 original two-position iterations without inner producer barriers. Four publications retain the original 128-position output tile, query ownership, score staging and scalar arithmetic.",
+  "equivalence_ledger": [
+    "Original query/key 8-product trees, ordered pair merges, warp reductions and 0.0625 scale unchanged.",
+    "Causal per-row predicates and physical scores indexing unchanged.",
+    "Cooperative 16-byte copies cover all 32*256 BF16 elements; invalid positions zero-filled and never consumed.",
+    "All copies wait before uniform CTA publication; a uniform retirement barrier precedes next overwrite. No consumer reads a partial tile.",
+    "Shared K storage grows from 4096 to 16384 bytes; total shared M2/3/4=22528/25600/28672 bytes. One fixed 32-position block keeps M2 producer at eight copies/thread and avoids a whole-128-position allocation.",
+    "No new persistent allocation, state, Prefill, PV, launch grid or projection change."
+  ],
+  "distinction": "Rejected v53 merely merged duplicate barriers in the same two-position four-stage ring. This replaces that ring with immutable bulk publication and amortizes producer ownership across sixteen iterations. No continuation of a barrier or tile scan.",
+  "reference_translation": "Existing licensed FlashInfer-derived cooperative cp.async delivery and grouped-query ownership, translated to a bulk immutable SM87 tile. No imported source or new ISA.",
+  "bounds": {
+    "implementations": 1,
+    "parameter_scans": 0,
+    "profiles": 0
+  },
+  "gates": [
+    "both builds and static resources",
+    "P513 complete prefixes/transactions and P8192 complete prefixes",
+    "immediate d2 API vs retained v52; >3% slowdown stops, useful unlocks d3, otherwise remove"
+  ],
+  "direction_retention_screen": {
+    "minimum_8k_decode_ratio_vs_v52": 1.0,
+    "minimum_40k_decode_ratio_vs_v52": 1.01,
+    "both_long_verify_time_must_decrease": true
+  },
+  "expiry": "Useful dependency only until next complete verifier API return or archival; no production promotion or tile/pipeline scan.",
+  "artifact_root": ".q3x-work/mtp-qk-bulk-publication-20261010"
+}

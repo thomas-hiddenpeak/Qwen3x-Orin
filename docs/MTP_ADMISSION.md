@@ -1592,6 +1592,29 @@ cache-level or register scan follows; retained v52 observations remain current.
 These single-process observations do not qualify a speedup or hardware cause.
 The complete 1.5x–3x goal remains unmet.
 
+## QK bulk publication composition v52 — removed
+
+The [bounded composition](metadata/qwen36-27b-mtp-qk-bulk-publication-design-2026-10-10.json)
+replaces QK's four-stage two-position ring with a 32-position immutable tile.
+Cooperative 16-byte copies cover the complete tile, zero-filling invalid tails.
+A wait plus uniform CTA barrier publishes every copy. Sixteen original
+iterations consume their two positions with unchanged product/add trees,
+query ownership, per-row causal predicates and score publication. A uniform
+retirement barrier precedes the next overwrite. Shared K storage is 16 KiB;
+there is no new persistent allocation, PV, Prefill or state change. Full-prefix
+oracles and the real API select this one fixed composition; no tile scan follows.
+
+The [completed rejection](metadata/qwen36-27b-mtp-qk-bulk-publication-rejection-2026-10-10.json) preserves all eighteen complete P513/P8192
+prefix state/logit comparisons and P513 transactions/recovery. D2 8K observes
+Prefill 17.297 seconds / 473.62 token/s, TTFT 17.319 seconds,
+Decode 14.112 token/s and total 35.388 seconds.
+The declared useful-direction screen is not met. All new QK publication and
+profile paths are removed and v52 rebuilt. The driver stops in its post-8K
+idle interval; 40K, d3 and remaining API lifecycle checks are not run. No bulk tile,
+copy-stage or register scan follows; retained v52 observations remain current.
+These single-process observations do not qualify a speedup or hardware cause.
+The complete 1.5x–3x goal remains unmet.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
