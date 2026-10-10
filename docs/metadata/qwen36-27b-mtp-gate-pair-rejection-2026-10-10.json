@@ -1,0 +1,642 @@
+{
+  "work_package_id": "WP-MTP-GATE-PAIR-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v33",
+  "status": "closed_without_retention",
+  "decision": "Remove paired Gate/Up producer-consumer path. Complete d2 API is neutral; no d3, profiler or parameter scan. Restore retained v31.",
+  "source_identity": {
+    "source_base": "dd36916e36077edda0f7f078f2439543f5d6a63d",
+    "files": {
+      "src/runtime/mtp_verify_projection_internal.cu": "171025d2a60686c6ed9f078dfc21c9d0f531fefca71fe923bbb32723b86261a2",
+      "src/runtime/mtp_verify_internal.cpp": "3a93a0da95a7dbb6cb1f58ba3ef2dc612642ea715a2039ff8bb4ce6abdd72dea",
+      "src/runtime/mtp_service_internal.cpp": "30aa24e06036424f6d38120374d55a3688f5481b5ee6016a72a6ed3e64bbe4b2",
+      "src/server/evaluation_server.cpp": "f579c7bee6c836c9a4c22ade1194dbb40cc46ab1cb5041f877eb5202a3127bd2",
+      "include/q3x/server/evaluation_server.h": "6bfa551f2ab8a2a092ec8a9fbdfb8e0b26f12892ab2c5989aa361cce46c4ecd3",
+      "tools/evaluation/validate_mtp_service.py": "9cdc827933435af8cf68e4d1d1d9f845a5dd9a27e907ee4c753678abcf7a077a"
+    },
+    "server_sha256": "090ee300e2edbf8c771115738ca8a313ebdb8fd9b32cbe15f9524929b2122095",
+    "oracle_sha256": "18ac5cbf5340b1a7989beefbe3f4a3b519ada36b3f01fb6f935e7177e1f709fb",
+    "synthetic_sha256": "5184f3cc15c0c7b7db0538100c22c80b968b0e69b4561ddcf4d8661117a6bdf3",
+    "profile": "q3x.sm87.admission.mtp-gate-pair-api.v36"
+  },
+  "static": {
+    "instantiations": [
+      {
+        "rows": 4,
+        "registers": 128,
+        "shared_bytes": 32064,
+        "stack_bytes": 0,
+        "local_bytes": 0
+      },
+      {
+        "rows": 3,
+        "registers": 128,
+        "shared_bytes": 32000,
+        "stack_bytes": 0,
+        "local_bytes": 0
+      },
+      {
+        "rows": 2,
+        "registers": 80,
+        "shared_bytes": 21696,
+        "stack_bytes": 0,
+        "local_bytes": 0
+      }
+    ],
+    "resident_cta_floor": {
+      "M2": 3,
+      "M3": 2,
+      "M4": 2
+    },
+    "scope": "static resources only; no timing"
+  },
+  "schedule_assessment": {
+    "source_base": "dd36916e36077edda0f7f078f2439543f5d6a63d",
+    "profile_record": "docs/metadata/qwen36-27b-mtp-bottleneck-reset-2026-10-10.json",
+    "profile_record_sha256": "169401fbff484ea4bcb7361e77f7673ac2a95e2d5c44e4d5f8235ce5c96fc051",
+    "sqlite_sha256": "593f59b5b3cc247772b9eb2e767099e9071349cab249476ec9455e5390dcb7df",
+    "interval_ns": [
+      92812707904,
+      122586929024
+    ],
+    "copies": [
+      {
+        "kind": 2,
+        "count": 523,
+        "bytes": 4184,
+        "gpu_seconds": 0.000403872
+      },
+      {
+        "kind": 8,
+        "count": 31632,
+        "bytes": 53058198528,
+        "gpu_seconds": 0.5159722880000001
+      }
+    ],
+    "scope": "Existing v7 T4 duration sums, not new GPU or v31 timing. Not a hardware bound; excludes first entry snapshot/proposal. All copies give a generous opportunity envelope for in-interval snapshot removal only.",
+    "controller_audit": "run_round verifies seed plus drafts. Each published token commits one consumed row; the last published token is pending for the next round, so consuming it next round is required, not duplicate work.",
+    "decision": "Do not select state-copy elimination as main response to 4.78-second remaining 40K gap. Preserve exact state/observer contract.",
+    "acceptance_sources": {
+      "docs/metadata/qwen36-27b-mtp-efficiency-direction-2026-09-28.json": "e57bbc29f143f82e240f520220663250ca3ccc6e9f26ca41eb2b0f0434a12d63",
+      "docs/metadata/qwen36-27b-mtp-nv-live-reduction-direction-2026-10-10.json": "f1b8b39672c078a906e148495b2ecb5d53ba5795a6a3a918c1572bfa8f8f230f"
+    },
+    "acceptance_comparisons": [
+      {
+        "draft": 2,
+        "label": "p8192",
+        "counts": {
+          "rounds": 98,
+          "proposed": 196,
+          "accepted": 157,
+          "verified_rows": 294,
+          "accepted_by_position": [
+            86,
+            71,
+            0
+          ]
+        },
+        "equal": true
+      },
+      {
+        "draft": 2,
+        "label": "p40000",
+        "counts": {
+          "rounds": 105,
+          "proposed": 210,
+          "accepted": 150,
+          "verified_rows": 315,
+          "accepted_by_position": [
+            85,
+            65,
+            0
+          ]
+        },
+        "equal": true
+      },
+      {
+        "draft": 3,
+        "label": "p8192",
+        "counts": {
+          "rounds": 84,
+          "proposed": 250,
+          "accepted": 171,
+          "verified_rows": 334,
+          "accepted_by_position": [
+            72,
+            58,
+            41
+          ]
+        },
+        "equal": true
+      },
+      {
+        "draft": 3,
+        "label": "p40000",
+        "counts": {
+          "rounds": 88,
+          "proposed": 262,
+          "accepted": 167,
+          "verified_rows": 350,
+          "accepted_by_position": [
+            72,
+            52,
+            43
+          ]
+        },
+        "equal": true
+      }
+    ],
+    "acceptance_scope": "Identical aggregate counts on these fixed requests, not proof of identical proposals at every round or every prompt.",
+    "authenticated_source_report_sha256": "195aae6debc54f27b4f3f1aacef2a158d54ca21fd09b07fd41480fac01d81301",
+    "sqlite_provenance": "Existing derived export has its own retained hash; original nsys-rep authenticated against prior tracked record. No new profiler collection."
+  },
+  "numerical": {
+    "complete_synthetic_output_guard_cases": 12,
+    "invalid_argument_output_guards": "pass",
+    "full_prefix_state_logits_comparisons": 9,
+    "transactions": 11,
+    "draft_cache_tail_cases": 9,
+    "initialization_cancel_recoveries": 2,
+    "injected_verify_failure_recoveries": 2
+  },
+  "api_metrics": [
+    {
+      "label": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8875075269999999,
+      "prefill_tps": 73.23881547204051,
+      "ttft_s": 0.9061328819952905,
+      "elapsed_s": 2.173005434218794,
+      "decode_tps": 11.839084143857226,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-gate-pair-v36",
+        "draft_length": 2,
+        "startup_free_bytes": 9903996928,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 5.726869,
+        "draft_ms": 124.13215100000001,
+        "verify_ms": 1110.1550140000002,
+        "reconcile_ms": 26.397651,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "p8192",
+      "prompt": 8192,
+      "output": 256,
+      "prefill_s": 17.302251878,
+      "prefill_tps": 473.4643824262099,
+      "ttft_s": 17.324322002008557,
+      "elapsed_s": 37.06852253805846,
+      "decode_tps": 12.915358587436474,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-gate-pair-v36",
+        "draft_length": 2,
+        "startup_free_bytes": 9903996928,
+        "prompt_rows": 8192,
+        "draft_prefill_rows": 8191,
+        "initialized": true,
+        "rounds": 98,
+        "proposed": 196,
+        "accepted": 157,
+        "verified_rows": 294,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          86,
+          71,
+          0
+        ],
+        "draft_ordered_attention_steps": 196,
+        "draft_initialization_ms": 544.824269,
+        "draft_ms": 2063.9931850000007,
+        "verify_ms": 17143.932018999993,
+        "reconcile_ms": 447.982775,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "p40000",
+      "prompt": 40000,
+      "output": 256,
+      "prefill_s": 92.650329436,
+      "prefill_tps": 431.73079085089245,
+      "ttft_s": 92.68521711369976,
+      "elapsed_s": 119.09623976796865,
+      "decode_tps": 9.655630395528021,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-gate-pair-v36",
+        "draft_length": 2,
+        "startup_free_bytes": 9903996928,
+        "prompt_rows": 40000,
+        "draft_prefill_rows": 39999,
+        "initialized": true,
+        "rounds": 105,
+        "proposed": 210,
+        "accepted": 150,
+        "verified_rows": 315,
+        "committed_decode_tokens": 255,
+        "accepted_by_position": [
+          85,
+          65,
+          0
+        ],
+        "draft_ordered_attention_steps": 210,
+        "draft_initialization_ms": 2655.271557,
+        "draft_ms": 2455.5010539999994,
+        "verify_ms": 23412.165813,
+        "reconcile_ms": 447.8287100000004,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "p65-nonstream",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8829228250000001,
+      "prefill_tps": 73.61911840935814,
+      "ttft_s": null,
+      "elapsed_s": 2.157677779905498,
+      "decode_tps": 11.94253123081589,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-gate-pair-v36",
+        "draft_length": 2,
+        "startup_free_bytes": 9903996928,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 5.320977,
+        "draft_ms": 123.10249199999998,
+        "verify_ms": 1100.443487,
+        "reconcile_ms": 26.323725,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "raw-text",
+      "prompt": 5,
+      "output": 16,
+      "prefill_s": 0.818009148,
+      "prefill_tps": 6.112401080384984,
+      "ttft_s": 0.8502682559192181,
+      "elapsed_s": 1.9413206800818443,
+      "decode_tps": 13.746610351655084,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-gate-pair-v36",
+        "draft_length": 2,
+        "startup_free_bytes": 9903996928,
+        "prompt_rows": 5,
+        "draft_prefill_rows": 4,
+        "initialized": true,
+        "rounds": 6,
+        "proposed": 11,
+        "accepted": 9,
+        "verified_rows": 17,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          6,
+          3,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 2.085075,
+        "draft_ms": 112.92876899999999,
+        "verify_ms": 946.5094469999999,
+        "reconcile_ms": 26.350766,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "chat-stop",
+      "prompt": 20,
+      "output": 2,
+      "prefill_s": 0.821267448,
+      "prefill_tps": 24.352602856359653,
+      "ttft_s": 0.8391792271286249,
+      "elapsed_s": 1.02474154997617,
+      "decode_tps": 5.3880744455159535,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-gate-pair-v36",
+        "draft_length": 2,
+        "startup_free_bytes": 9903996928,
+        "prompt_rows": 20,
+        "draft_prefill_rows": 19,
+        "initialized": true,
+        "rounds": 1,
+        "proposed": 2,
+        "accepted": 1,
+        "verified_rows": 3,
+        "committed_decode_tokens": 1,
+        "accepted_by_position": [
+          1,
+          0,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 2.671832,
+        "draft_ms": 20.544987,
+        "verify_ms": 162.380576,
+        "reconcile_ms": 1.772592,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "after-prefill-cancel",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8830799129999999,
+      "prefill_tps": 73.60602256162971,
+      "ttft_s": 1.153585756663233,
+      "elapsed_s": 2.4098412129096687,
+      "decode_tps": 11.939271012611353,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-gate-pair-v36",
+        "draft_length": 2,
+        "startup_free_bytes": 9903996928,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 5.330544,
+        "draft_ms": 123.198749,
+        "verify_ms": 1100.486875,
+        "reconcile_ms": 26.396592000000005,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    {
+      "label": "after-decode-cancel",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.8828714290000002,
+      "prefill_tps": 73.62340411629742,
+      "ttft_s": 1.0872769299894571,
+      "elapsed_s": 2.3434431673958898,
+      "decode_tps": 11.940769532206303,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-gate-pair-v36",
+        "draft_length": 2,
+        "startup_free_bytes": 9903996928,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "draft_initialization_ms": 5.332976,
+        "draft_ms": 123.134685,
+        "verify_ms": 1100.449465,
+        "reconcile_ms": 26.356302,
+        "cancelled": false,
+        "failed": false
+      }
+    }
+  ],
+  "comparisons": [
+    {
+      "label": "p65",
+      "decode_ratio_to_v31": 0.9947516495468947,
+      "verify_delta_ms": 7.076484000000164,
+      "total_delta_s": -0.00044220173731446266
+    },
+    {
+      "label": "p8192",
+      "decode_ratio_to_v31": 1.0001413016202163,
+      "verify_delta_ms": -4.763734000007389,
+      "total_delta_s": -0.008470804896205664
+    },
+    {
+      "label": "p40000",
+      "decode_ratio_to_v31": 0.9995549471554876,
+      "verify_delta_ms": 9.878200999999535,
+      "total_delta_s": -0.03686967911198735
+    },
+    {
+      "label": "p65-nonstream",
+      "decode_ratio_to_v31": 1.000336997530946,
+      "verify_delta_ms": -0.530681000000186,
+      "total_delta_s": -0.0004657362587749958
+    },
+    {
+      "label": "raw-text",
+      "decode_ratio_to_v31": 1.0008410671091117,
+      "verify_delta_ms": -1.0055860000001076,
+      "total_delta_s": 0.0009930357336997986
+    },
+    {
+      "label": "chat-stop",
+      "decode_ratio_to_v31": 1.0002019719705904,
+      "verify_delta_ms": -0.08317400000001385,
+      "total_delta_s": -0.0006179497577250004
+    },
+    {
+      "label": "after-prefill-cancel",
+      "decode_ratio_to_v31": 1.0002656925573574,
+      "verify_delta_ms": -0.5168019999998705,
+      "total_delta_s": 0.0030579701997339725
+    },
+    {
+      "label": "after-decode-cancel",
+      "decode_ratio_to_v31": 1.0002852514512524,
+      "verify_delta_ms": -0.48539400000004207,
+      "total_delta_s": -0.0003249957226216793
+    }
+  ],
+  "api": {
+    "completed_requests": 8,
+    "output_usage_finish_done_vs_non_mtp": "all match",
+    "work_and_acceptance_vs_v31": "all match",
+    "cancellation_recovery": "Prefill and Decode pass",
+    "processes_per_policy": 1,
+    "draft_policy_tested": 2,
+    "d3": "not run after neutral d2",
+    "scope": "engineering direction only, no mirrored selection, release or speedup claim"
+  },
+  "cleanup": {
+    "synthetic": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 59.125
+    },
+    "oracle-p65": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 67.593
+    },
+    "d2": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 78.281
+    }
+  },
+  "restored_source": {
+    "src/runtime/mtp_verify_projection_internal.cu": "f15e2ea589dee642654f1e75b028a1e401bf59e7902931d0cd1c1d2cc79e1895",
+    "src/runtime/mtp_verify_internal.cpp": "f8f786b4dd1d3d1ba393a786db1fcef77045e6a8aee2f69cb12f728275eb072f",
+    "src/runtime/mtp_service_internal.cpp": "07595112223923c8c8c56b8c2a4743b09cc05f7344eb991e64b167cad6446360",
+    "src/server/evaluation_server.cpp": "641502e5537e5b1f049fa53714ccd3d8cb2e88e2c3d51d9e092613cbebced34e",
+    "include/q3x/server/evaluation_server.h": "02feb1efddef68e6d4102e172791528661cbaacc1868ab6b74f31b4fb344a433",
+    "tools/evaluation/validate_mtp_service.py": "53342b29778520b9d473d774a2edc57aa8015f38a8d23f12d985b0063c863ffa"
+  },
+  "claim_boundary": {
+    "production_changed": false,
+    "prefill_code_changed": false,
+    "goal": "1.5x\u20133x remains active and unmet",
+    "cause": "Duplicate input production and global intermediate publication are removed, but complete verification is unchanged. No matched hardware counters assign a stall cause.",
+    "profile_assessment": "Reused v7 copy durations are diagnostic only; no fresh v31 profile or hardware bound."
+  },
+  "production_unchanged_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+  "closure": {
+    "restored_builds": "service and oracle pass",
+    "host_ctests": "3/3 pass",
+    "documentation": {
+      "tracked": 86,
+      "registered": 86,
+      "links": 1165,
+      "errors": 0,
+      "units_passed": 7
+    },
+    "diff_check": "pass",
+    "gpu_handles": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": ""
+    },
+    "owned_model_build_processes": [],
+    "existing_worktrees": 47,
+    "new_worktrees": 0,
+    "artifact_bytes": 49891531
+  },
+  "restored_build_sha256": {
+    ".q3x-work/build/orin-mtp-service-admission/qwen3x-eval-server-mtp-admission": "62e499f251255b0eac89339b3144aed085f243ba17b2b80a0baf0642cfe64678",
+    ".q3x-work/build/orin-whole-core-exact-decode-admission/q3x_mtp_whole_core_test": "bce466f0540de712d7da97f2e419be46a2f92175597737bf67800ef514589f9e"
+  },
+  "evidence_sha256": {
+    ".q3x-work/mtp-gate-pair-20261010/baseline.cu": "c92aceca48327647117114320d823990b2860923b6b7213de6a05b66539f56df",
+    ".q3x-work/mtp-gate-pair-20261010/build-oracle.log": "25729462a24d10d24dc07b80c514236b695da0a18d85dc2daf1e39cb7f3593e0",
+    ".q3x-work/mtp-gate-pair-20261010/build-service.log": "54f27b52a70503a055e610949a4dcfb2b1fab0126dc5e8c0d2f7366c54be11bc",
+    ".q3x-work/mtp-gate-pair-20261010/build-synthetic.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".q3x-work/mtp-gate-pair-20261010/consumer-test": "5184f3cc15c0c7b7db0538100c22c80b968b0e69b4561ddcf4d8661117a6bdf3",
+    ".q3x-work/mtp-gate-pair-20261010/consumer-test.cu": "97fa22469ff31e336f66dcc1b508cf1d7e4362ae524c120b6b4ba62afb39480d",
+    ".q3x-work/mtp-gate-pair-20261010/d2/after-decode-cancel.json": "9a9a04eff6697782f91482c2afbec5f79f81c43d9cbdbb2e1fcb8cd6bdfe4a5e",
+    ".q3x-work/mtp-gate-pair-20261010/d2/after-prefill-cancel.json": "61cb98a2fffb32824380df4a0efc7c04e60f9c46534dbcd61bdf5ec07d1db4e1",
+    ".q3x-work/mtp-gate-pair-20261010/d2/audited-metrics.json": "fae72a4be7f2bbef80260961f327dd5901bb3b04a9afc609662ea5fa5bc07f34",
+    ".q3x-work/mtp-gate-pair-20261010/d2/cache-preparation.json": "8001192aacb99605b2212aa362488a6a205a60c8cbe0855fb9d0367651925855",
+    ".q3x-work/mtp-gate-pair-20261010/d2/chat-stop.json": "5156b8b7171f3d158ab5671a603fad971b25255a49cc0374c2d8fdc2d25b19bf",
+    ".q3x-work/mtp-gate-pair-20261010/d2/cleanup.json": "c6a0ce85a7939c9419889956d3024b87a2d7dc6516d18bdc95fb5b66f839c6e5",
+    ".q3x-work/mtp-gate-pair-20261010/d2/health.json": "81ecf07c2cc8ac8e36e3e6be8612c2ab276b1345513e1cda48d2de7755f55a55",
+    ".q3x-work/mtp-gate-pair-20261010/d2/identity.json": "33fee14d485554829973e947cd15dafc9016b429d5d7a9851502a5b4dbe973d3",
+    ".q3x-work/mtp-gate-pair-20261010/d2/p40000.json": "37ad92930c84bbd77783087cd3185f31dcfb69ead8a535426f075f82fb7be70e",
+    ".q3x-work/mtp-gate-pair-20261010/d2/p65-nonstream.json": "771b344441e2fd1354dc95e4faaccd6d529f221da6049fd74e65ffc82464c4ba",
+    ".q3x-work/mtp-gate-pair-20261010/d2/p65.json": "d7343e0e66f51a620ccf8cd91c9684e1ca15c8b656174f04ce656a6fe5990006",
+    ".q3x-work/mtp-gate-pair-20261010/d2/p8192.json": "f4fd778c2ec1b89bf8877bcbb00246b2e928ee448a168ae8aebf69d8e53305cb",
+    ".q3x-work/mtp-gate-pair-20261010/d2/preflight-console.log": "f72fc17b1a723daef830da6b4b8b7faea623e6d8c29643cc0fcb7847a0a71f77",
+    ".q3x-work/mtp-gate-pair-20261010/d2/preflight.json": "58d435faa91a3d39f60baa06d532686f0a114906ca7c4d1aa22cb3d4bb0d00dd",
+    ".q3x-work/mtp-gate-pair-20261010/d2/raw-text.json": "b0fd40f637c330aa72ae6e0f3ff736f0988f37fb20275e448e181966dc919143",
+    ".q3x-work/mtp-gate-pair-20261010/d2/requests.jsonl": "2bb2402599b709cd0b6f4b31c62fd48e31a4d36f444216fb6e65eaebfe07cfe9",
+    ".q3x-work/mtp-gate-pair-20261010/d2/results.json": "08611912302ed0ab3b668e60973db26965db5b7996d303629b778c086e51388c",
+    ".q3x-work/mtp-gate-pair-20261010/d2/server.log": "8017c0385a300cb77da6ac1de168041b5a692821f8f2d23afb4dfa682f2b1c2d",
+    ".q3x-work/mtp-gate-pair-20261010/d2/telemetry.log": "19d2bea14b9534fffd756faf07331b3ebdacebbd6151763032d4ed99ccf525c4",
+    ".q3x-work/mtp-gate-pair-20261010/d2-driver-result.json": "cc3f040330893c99443996540ed3cff211f307c74af640795549cdc2a450f183",
+    ".q3x-work/mtp-gate-pair-20261010/d2-driver.log": "faf12c3b7e1c3a61d2519d3dd65497e3017798e775147adba3cf8e902c9ae3ca",
+    ".q3x-work/mtp-gate-pair-20261010/d2-process.json": "d05cd32153b19589f52d7818b13ffd5c043c8016b825c262777608e5f1501f8b",
+    ".q3x-work/mtp-gate-pair-20261010/mtp_verify_projection_internal.cu": "171025d2a60686c6ed9f078dfc21c9d0f531fefca71fe923bbb32723b86261a2",
+    ".q3x-work/mtp-gate-pair-20261010/oracle-p65/cache-preparation.json": "539b54eb8fdd754c2a4c6ac90bd8c59a26764a9a0cb139e5cbdeded70bbfccd7",
+    ".q3x-work/mtp-gate-pair-20261010/oracle-p65/cleanup.json": "925641e98a68b2e63e0a22f493fdda464b5cea8b40a123ea0ee722ac100235f5",
+    ".q3x-work/mtp-gate-pair-20261010/oracle-p65/draft-prefill-hidden.bf16": "9c5811b3536f493466a8699092f6fd0bd624227239cd1acee52e7e0182666efb",
+    ".q3x-work/mtp-gate-pair-20261010/oracle-p65/draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+    ".q3x-work/mtp-gate-pair-20261010/oracle-p65/draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+    ".q3x-work/mtp-gate-pair-20261010/oracle-p65/identity.json": "d30e87b2c49e5f76630d513e1e4fdc178561e22526c198f3d18ba6c8b9e35755",
+    ".q3x-work/mtp-gate-pair-20261010/oracle-p65/preflight-console.log": "7e52ecc04ad1d54554fd960b31f11a902004135367868680fcab36607b8ccc8f",
+    ".q3x-work/mtp-gate-pair-20261010/oracle-p65/preflight.json": "45d07dd31ffc4ab06c73947ec5cc307155b622253c414eebe86ac818036f5933",
+    ".q3x-work/mtp-gate-pair-20261010/oracle-p65/prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+    ".q3x-work/mtp-gate-pair-20261010/oracle-p65/q3x_mtp_whole_core_test": "18ac5cbf5340b1a7989beefbe3f4a3b519ada36b3f01fb6f935e7177e1f709fb",
+    ".q3x-work/mtp-gate-pair-20261010/oracle-p65/run.log": "cd3ef3cbf29dc1256e5d526c4ffadb0bffebb8ef6b2e9b9fa580682460847b4a",
+    ".q3x-work/mtp-gate-pair-20261010/oracle-p65/target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+    ".q3x-work/mtp-gate-pair-20261010/oracle-p65/target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+    ".q3x-work/mtp-gate-pair-20261010/oracle-p65/telemetry.log": "70459ef34891ffc9b0353cb9ea1ab791d4460aea93d227ecfe23a57aa1a7744f",
+    ".q3x-work/mtp-gate-pair-20261010/oracle-p65-driver.log": "fba20cf0b8fac465ae88a820ea0a7a5a8bce9283d916f53f28013ba84586db70",
+    ".q3x-work/mtp-gate-pair-20261010/resources.txt": "8c272848f7820e8e43ecdcd087a64bb22c37b6a6cc66af480065af19434ccf57",
+    ".q3x-work/mtp-gate-pair-20261010/restore-oracle.log": "c2ef572ea81c7b113b29f84378ae66322830ff2a28554a9eb6da0d166a66c911",
+    ".q3x-work/mtp-gate-pair-20261010/restore-service.log": "4ab546cb4231a6ac3b54eb7703ecb53390c548c72048fef328cdbe56295902a5",
+    ".q3x-work/mtp-gate-pair-20261010/restored-source.json": "64d2ccb21c2159c713721e6ad6677b7ea41ce17f548be024782d59d0373b55e4",
+    ".q3x-work/mtp-gate-pair-20261010/run-api.py": "42a7ebaf789fc80fa8b1750a900b5d920f5c19175ae2abed6957b9c9262c541c",
+    ".q3x-work/mtp-gate-pair-20261010/run-oracle.py": "d29c9df5389f56bd1c210b280a39166270895307f810038167bbab8c725dcfd1",
+    ".q3x-work/mtp-gate-pair-20261010/run-synthetic.py": "90ede1b73af575f7d2145609819fac478075a21d9a1c3b7bd0e22f1d2aa2d8f8",
+    ".q3x-work/mtp-gate-pair-20261010/schedule-audit.json": "bbdc492bbfa9f918567f4cb18e274db31c7e12885fa9500f26bf705cbb15828c",
+    ".q3x-work/mtp-gate-pair-20261010/source/candidate.patch": "71e14edf39ba151be23d89b824b21dfdf7af850d0a64d95e20e0ffb94614987d",
+    ".q3x-work/mtp-gate-pair-20261010/source/identity.json": "f3b7cf2842d3ac7ef564744c9ab861088702e2ba87331840be3ae4ec8fd7a975",
+    ".q3x-work/mtp-gate-pair-20261010/source/include/q3x/server/evaluation_server.h": "6bfa551f2ab8a2a092ec8a9fbdfb8e0b26f12892ab2c5989aa361cce46c4ecd3",
+    ".q3x-work/mtp-gate-pair-20261010/source/oracle": "18ac5cbf5340b1a7989beefbe3f4a3b519ada36b3f01fb6f935e7177e1f709fb",
+    ".q3x-work/mtp-gate-pair-20261010/source/server": "090ee300e2edbf8c771115738ca8a313ebdb8fd9b32cbe15f9524929b2122095",
+    ".q3x-work/mtp-gate-pair-20261010/source/src/runtime/mtp_service_internal.cpp": "30aa24e06036424f6d38120374d55a3688f5481b5ee6016a72a6ed3e64bbe4b2",
+    ".q3x-work/mtp-gate-pair-20261010/source/src/runtime/mtp_verify_internal.cpp": "3a93a0da95a7dbb6cb1f58ba3ef2dc612642ea715a2039ff8bb4ce6abdd72dea",
+    ".q3x-work/mtp-gate-pair-20261010/source/src/runtime/mtp_verify_projection_internal.cu": "171025d2a60686c6ed9f078dfc21c9d0f531fefca71fe923bbb32723b86261a2",
+    ".q3x-work/mtp-gate-pair-20261010/source/src/server/evaluation_server.cpp": "f579c7bee6c836c9a4c22ade1194dbb40cc46ab1cb5041f877eb5202a3127bd2",
+    ".q3x-work/mtp-gate-pair-20261010/source/tools/evaluation/validate_mtp_service.py": "9cdc827933435af8cf68e4d1d1d9f845a5dd9a27e907ee4c753678abcf7a077a",
+    ".q3x-work/mtp-gate-pair-20261010/static-check.json": "3e8a1b4dfac77124fedc828a0ac142e044dbf564ee70d03e6ca4a188b1d35467",
+    ".q3x-work/mtp-gate-pair-20261010/synthetic/cache-preparation.json": "e9a4be17ca3881766a103f2a2f116467425ca41716095a724b23a4fe67901ce7",
+    ".q3x-work/mtp-gate-pair-20261010/synthetic/cleanup.json": "ae1ac4d302332f197b6a85dfaa059c46d095b45bc725c2bb993a2463a5338b18",
+    ".q3x-work/mtp-gate-pair-20261010/synthetic/preflight-console.log": "ec8bcd2cc04d47840edcf304377c1079c89ddd2e1bbb102a99f0d88e1cc7da02",
+    ".q3x-work/mtp-gate-pair-20261010/synthetic/preflight.json": "023300b5870f19b44c89877ead7964943d28042211570748f945ebb267247f86",
+    ".q3x-work/mtp-gate-pair-20261010/synthetic/run.log": "3dd6dffb6203eaa7878ca6f56edec2fc4ba52a42f329cce5004a5ea9230837d9",
+    ".q3x-work/mtp-gate-pair-20261010/synthetic/telemetry.log": "3ee4c6d0e1c2c0e8a596d2fa771420a54ac39d2da1ba97076ebb96d7a144ab39",
+    ".q3x-work/mtp-gate-pair-20261010/synthetic-driver.log": "c27834764c96d54e59e7063cb85548f3e4121243527c9d36bd71c333cab18762"
+  }
+}

@@ -1159,6 +1159,33 @@ The new direct consumer and profile/auditor wiring are removed. No 40K/d3
 or full API lifecycle qualification follows; frozen source is reproduction
 evidence only. Removing shared publication did not select a faster runner.
 
+## Gate/Up paired publication composition v33
+
+One 256-thread CTA owns sixteen Gate and sixteen matching Up channels. Each
+four-warp half retains the original K subsequences, four FP32 FMA chains,
+ordered live-root reduction, independent tensor scale and BF16 publication.
+The halves share one immutable `min(M,3)`-row input and codebook publication;
+M4's fourth row retains its original global reads. Neither half reads peer
+accumulators. Both rounded BF16 result vectors enter a private at-most-256-byte
+pair buffer before a uniform CTA barrier. Each output then evaluates the
+original `g/(1+expf(-g))*u` in FP32 from those BF16 operands and rounds once to
+BF16 into the existing Gate output buffer. The Up intermediate has no later
+consumer and need not reach global memory.
+
+This preserves every numerical publication while removing duplicate input/table
+initialization and two kernel boundaries per layer. It introduces no allocation,
+weight layout, state or observer change. Absent paired sidecars or M1 selects the
+established path before enqueue; a selected paired launch failure drains and
+poisons rather than falling back. Complete original-output guards and real
+scalar-prefix/full-logit admission precede the immediate real API comparison.
+The implementation has no performance or production authority before that return.
+
+The [completed rejection](metadata/qwen36-27b-mtp-gate-pair-rejection-2026-10-10.json)
+passes full output/state/logit and d2 API/lifecycle checks, but 8K/40K complete
+verification is effectively unchanged. The paired executor and wiring are
+removed, restoring v31. Frozen source retains reproduction authority only;
+no d3 or further producer/consumer mapping scan follows.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

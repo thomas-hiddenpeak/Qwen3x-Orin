@@ -19,6 +19,37 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP Gate/Up producer-consumer fusion — closed without retention
+
+`WP-MTP-GATE-PAIR-20261010` / `AC-MTP-GREEDY-v33` preserves the 1.5x–3x
+goal and 18.45/21.62-second complete Decode budgets. The [design](metadata/qwen36-27b-mtp-gate-pair-design-2026-10-10.json)
+selects one paired Gate/Up executor: separate original warp consumers share
+input/table publication, then original BF16-rounded values feed exact SiLU
+inside the CTA. It halves duplicate input production without doubling each
+thread's accumulators and removes dead global intermediate publication. The
+older 5.874-second family attribution is a ceiling, not projected savings.
+State-copy removal and draft precision retuning are not selected by the bounded
+source/evidence audit. No state, numerical, acceptance or inventory change occurs.
+
+One fixed implementation plus at most one correctness repair passes no-spill
+and resource-floor checks, complete producer/SiLU output guards and P65 full
+prefix/state/logit transactions, then immediately returns to the same P65/8K/40K
+d2 API. Greater-than-3% slowdown stops; neutral/negative removes; useful direction
+unlocks d3. No launch/register/stage scan follows. A useful dependency expires
+at the next complete verifier API return or archival. Artifacts stay under
+`.q3x-work/mtp-gate-pair-20261010/`; production remains unchanged.
+
+The [completed direction](metadata/qwen36-27b-mtp-gate-pair-rejection-2026-10-10.json)
+passes all static, twelve full-output/guard, complete P65 state/logit/transaction
+and eight d2 API/lifecycle checks. Work and acceptance match v31. At 8K/40K,
+Decode is 12.915/9.656 token/s versus 12.914/9.660, only +0.014%/-0.045% in
+one process; verification differs by -4.8/+9.9 ms. No useful whole-runner gain
+is established. All new runtime/profile/auditor paths are removed and v31
+rebuilt. No d3, profiler, producer-grid or register scan follows. The 1.5x–3x
+goal remains active and unmet; fewer publications and launches did not address
+the material verifier cost. A successor needs a different complete computation
+or execution response with an immediate real API return.
+
 ## 2026-10-10 MTP direct PV consumption — closed negative
 
 `WP-MTP-DIRECT-PV-20261010` / `AC-MTP-GREEDY-v32` keeps the 1.5x–3x goal

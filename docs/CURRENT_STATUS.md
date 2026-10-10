@@ -123,6 +123,15 @@ match v31, but verification adds 1.950 seconds and Decode falls by 9.01%.
 The run stops before 40K, d3 and the full API lifecycle panel. Retained v31,
 production and the unmet 1.5x–3x goal remain unchanged.
 
+The subsequent [paired Gate/Up direction](metadata/qwen36-27b-mtp-gate-pair-rejection-2026-10-10.json)
+passes complete numerical admission and all eight d2 API/lifecycle requests,
+but is removed without retention. At 8K, Prefill is 17.302 s / 473.46 token/s,
+external TTFT 17.324 s, Decode 12.915 token/s and total 37.069 s; at 40K,
+92.650 s / 431.73 token/s, 92.685 s, 9.656 token/s and 119.096 s respectively.
+Single-process Decode differences of +0.014%/-0.045% versus v31 establish no
+useful gain or statistical regression. Output and work are unchanged; d3 is
+not run. Retained v31, production and the unmet 1.5x–3x objective are unchanged.
+
 ### Preceding FP8 live-reduction direction
 
 The preceding isolated source uses exact live-ancestor FP8 reductions on top of

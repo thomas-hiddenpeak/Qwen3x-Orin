@@ -1,0 +1,51 @@
+{
+  "work_package_id": "WP-MTP-GATE-PAIR-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v33",
+  "source_base": "dd36916",
+  "profile": "q3x.sm87.admission.mtp-gate-pair-api.v36",
+  "product_constraint": "1.5x–3x committed Decode for the same production requests; drafts 2/3; exact target state/full logits; report Prefill, TTFT, Decode and total together.",
+  "downward_budget": {
+    "complete_decode_8k_s": 18.45,
+    "complete_decode_40k_s": 21.62,
+    "remaining_8k_s": 1.3,
+    "remaining_40k_s": 4.78,
+    "older_v7_gate_up_gpu_s": 5.87424864,
+    "authority": "Old matched family attribution is an opportunity envelope, not v31 latency or an expected gain."
+  },
+  "assessment": {
+    "record": ".q3x-work/mtp-gate-pair-20261010/schedule-audit.json",
+    "finding": "Old 40K trace D2D copies total only 0.516 GPU seconds. Control source consumes each committed row exactly once; pending bonus consumption next round is required. Original scalar-draft and retained MMA-draft acceptance counts match at 8K/40K, so no measured precision-induced acceptance loss selects draft retuning."
+  },
+  "mechanism": "A 256-thread CTA assigns four original warps to Gate and four to Up for the same sixteen output channels. Both halves share one immutable input publication and FP8/FP4 tables; each thread retains only one original projection accumulator set. Rounded BF16 Gate/Up values cross a bounded CTA-local pair buffer, then original SiLU multiplication publishes the sole live MLP input directly.",
+  "equivalence": {
+    "original": "g=BF16_RNE(scale_g*original_reduce(original_four_chains(Wg,x))); u=BF16_RNE(scale_u*original_reduce(original_four_chains(Wu,x))); y=BF16_RNE((FP32(g)/(1+expf(-FP32(g))))*FP32(u)).",
+    "candidate": "Identical expression, scalar K subsequences, FMA order, live-root tree, tensor scale and both intermediate BF16 rounding points. Only input/table and producer-consumer ownership change.",
+    "forbidden": "No MMA reassociation, approximate SiLU, moved scale, changed activation dtype, target or draft state, acceptance policy, allocation or inventory."
+  },
+  "resources": {
+    "threads_per_cta": 256,
+    "gate_warps": 4,
+    "up_warps": 4,
+    "staged_rows": "min(M,3)",
+    "pair_buffer_bytes": "2*M*16*2 <=256",
+    "expected_shared_max_bytes": 32064,
+    "minimum_resident_ctas": {
+      "M2": 3,
+      "M3": 2,
+      "M4": 2
+    },
+    "spill_bytes": 0,
+    "numerical_admission": "complete original Gate/Up+SiLU outputs and guards at M2/3/4 including nonfinite/rounding cases, then complete P65 scalar prefixes/state/logits and transactions."
+  },
+  "trade": "Halves repeated input/table initialization and removes intermediate global Gate/Up publication and two launches per layer. Adds a CTA barrier across independent producer halves and bounded shared pair publication. Preserves original per-thread accumulator count. Hardware counters are not extrapolated into speedup.",
+  "reference_translation": "Native scalar Gate/Up coupled-feed and existing exact BF16 SiLU publication; already studied vLLM/Marlin paired MLP producer-consumer principle. SM87 uses ordinary warps/shared memory; no new source import, runtime dependency, FLA/Mamba recurrence transformation or FlashInfer Attention change.",
+  "selection": {
+    "variants": 1,
+    "correctness_repairs_max": 1,
+    "static_gate": "No spills or declared resident-CTA floor loss; no register/grid/stage scan.",
+    "api_return": "Immediately after minimal numerical admission: same P65/8K/40K d2 API, >3% slowdown stops. Useful direction unlocks d3 and complete lifecycle. Neutral/negative removes. No local timing campaign.",
+    "expiry": "Any useful dependency must compose at the next complete verifier API return or be archived. No production or target-achievement claim from local evidence."
+  },
+  "artifact_root": ".q3x-work/mtp-gate-pair-20261010",
+  "production": "unchanged non-MTP installed binary"
+}

@@ -254,6 +254,10 @@ The direct PV composition closes after negative P8192 API direction. Existing
 MTP SDD, Current Status and Roadmap record removal and frozen evidence;
 no Markdown path or classification changes.
 
+The Gate/Up paired publication package closes without retention after numerical
+and complete d2 API checks. Existing MTP SDD, Current Status and Roadmap record
+removal and frozen evidence; no Markdown path or classification changes.
+
 ## Integrity check
 
 After all intended Markdown changes, run:
