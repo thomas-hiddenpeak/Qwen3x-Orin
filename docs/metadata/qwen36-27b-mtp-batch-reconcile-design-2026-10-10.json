@@ -1,0 +1,39 @@
+{
+  "record": "mtp-batch-reconcile-design-v1",
+  "source_parent": "8e4c37d93dd751ecfbfdfde15c3879bb78807d99",
+  "work_package_id": "WP-MTP-BATCH-RECONCILE-20261010",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v34",
+  "product_constraint": "Same-load d2/d3 API Decode 1.5x to 3x non-MTP, exact full target state/logits and joint Prefill/TTFT/Decode/total reporting.",
+  "downward_budget": {
+    "complete_decode_seconds_8k_40k": [
+      18.45,
+      21.62
+    ],
+    "v31_reconcile_ms_8k_40k": [
+      446.805602,
+      446.972709
+    ],
+    "scope": "This bounded prerequisite cannot alone close the 1.30/4.78-second full gap. It removes repeated FC/K/V weight traversals across one accepted prefix, not the dominant target verification arithmetic."
+  },
+  "mechanism": "After target verification supplies every immutable prefix hidden, first commit batches the contiguous valid input/previous-target-hidden pairs into existing M32 cache-only scratch. Each later commit publishes only its own prepared logical draft length. Target state restoration and observer order remain unchanged.",
+  "numerical_contract": "Original BF16 MMA FC/K/V and norm/RoPE arithmetic; complete live cache must match independent scalar full draft replay. Future prepared cache rows stay inaccessible on early cancellation/EOS and are overwritten before reuse.",
+  "lifetime": "No allocation or new stream. Prepared watermark invalidated by rewind/reset/step/append/poison and transaction finish. Preparation synchronizes before readiness; every observer still sees complete target and draft prefix state.",
+  "reference_translation": "Reuse the already admitted shifted-target-hidden batched initialization dataflow; independent rows require no Q/O/MLP execution. No new external source or dependency.",
+  "identity": {
+    "profile": "q3x.sm87.admission.mtp-batch-reconcile-api.v37",
+    "verifier": "multirow-batch-reconcile-v37",
+    "decode": "mtp-multirow-batch-reconcile.v37"
+  },
+  "validation": "One fixed implementation plus at most one correctness repair. Full P65 prefix/state/logit/cache/transaction/cancel/failure oracle, then immediate same P65/8K/40K d2 API. Greater than 3% slowdown stops; neutral removes. Useful direction unlocks d3. No batching-size, draft-length or layout scan.",
+  "expiry": "Useful dependency returns in next complete verifier API composition or is archived. No production or goal-attainment claim from a small gain.",
+  "artifacts": ".q3x-work/mtp-batch-reconcile-20261010",
+  "incumbent_files": {
+    "src/runtime/mtp_device_internal.h": "5c0340f2ef0779b03524ee50c0e1b6e0eda9dbe2f564d13afe42e306b5d14430",
+    "src/runtime/mtp_device_internal.cpp": "966cd31a66f0462d77869c11e3fffc8901eef20fbde11832057d7b3f8851f559",
+    "src/runtime/mtp_service_internal.cpp": "07595112223923c8c8c56b8c2a4743b09cc05f7344eb991e64b167cad6446360",
+    "src/server/evaluation_server.cpp": "641502e5537e5b1f049fa53714ccd3d8cb2e88e2c3d51d9e092613cbebced34e",
+    "include/q3x/server/evaluation_server.h": "02feb1efddef68e6d4102e172791528661cbaacc1868ab6b74f31b4fb344a433",
+    "tools/evaluation/validate_mtp_service.py": "53342b29778520b9d473d774a2edc57aa8015f38a8d23f12d985b0063c863ffa",
+    "tests/mtp_device_test.cpp": "01ea1c31f36f77b734d5c2fee7e3e7092cb100f3647bbd68f366861964223be0"
+  }
+}

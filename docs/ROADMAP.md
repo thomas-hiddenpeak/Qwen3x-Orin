@@ -19,6 +19,34 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 MTP batched cache reconciliation — closed without retention
+
+`WP-MTP-BATCH-RECONCILE-20261010` / `AC-MTP-GREEDY-v34` preserves the
+1.5x–3x goal and 18.45/21.62-second complete Decode budgets. The [design](metadata/qwen36-27b-mtp-batch-reconcile-design-2026-10-10.json)
+batches already available target-conditioned cache rows before publishing each
+accepted logical prefix. It removes repeated FC/K/V weight traversals while
+preserving per-token observer state and the original draft arithmetic. The
+approximately 0.447-second reconciliation phase bounds this prerequisite;
+it cannot alone close the remaining complete-verifier gap.
+
+One implementation plus at most one correctness repair returns through full
+P65 state/logit/cache/transaction admission immediately to the same d2 API.
+Greater-than-3% slowdown stops; neutral removes; useful direction unlocks d3.
+No batch-size or draft-length scan follows. Any useful dependency expires at
+the next complete verifier API return or archival. Artifacts remain under
+`.q3x-work/mtp-batch-reconcile-20261010/`; production is unchanged.
+
+The [completed direction](metadata/qwen36-27b-mtp-batch-reconcile-rejection-2026-10-10.json)
+passes all nine complete target and draft-cache prefix comparisons, tail and
+prepared-authority guards, full transaction/recovery admission and all eight
+d2 API/lifecycle checks. Work and acceptance match v31. Reconciliation falls
+by 131/125 ms at 8K/40K, but complete Decode changes only +0.61%/+0.36% in
+one process, and 40K external total is effectively unchanged. This does not
+select useful whole-runner retention. All new runtime/profile/test/auditor paths
+are removed and v31 rebuilt. No d3, repetition or batching scan follows. The
+1.5x–3x objective remains unmet; dominant target verification, rather than this
+small coordination phase, must supply the remaining complete Decode savings.
+
 ## 2026-10-10 MTP exact QK lattice — broad-cooperative proposal closed
 
 `WP-MTP-QK-LATTICE-20261010` preserves the 1.5x–3x real API objective and

@@ -1186,6 +1186,30 @@ verification is effectively unchanged. The paired executor and wiring are
 removed, restoring v31. Frozen source retains reproduction authority only;
 no d3 or further producer/consumer mapping scan follows.
 
+## Batched cache reconciliation composition v34
+
+After complete target verification, the first prefix commit prepares all
+contiguous valid input-token/previous-target-hidden pairs together. The existing
+cache-only M1..32 FC/K/V executor and scratch handle at most four independent
+rows, with unchanged BF16 arithmetic and absolute RoPE positions. Preparation
+does not advance logical draft length. A checked prepared watermark permits
+exactly one successive row to become visible at each commit, after the matching
+target recurrent/hidden/full-logit restoration and before its observer.
+
+Cancellation or EOS may leave physically prepared rows beyond the live prefix;
+they are inaccessible and overwritten before reuse. Reset, rewind, full step,
+ordinary append, poison and transaction retirement invalidate prepared authority.
+No new allocation, stream, capacity or numerical tolerance is introduced.
+Scalar transactions retain independent per-row replay. Complete live-cache and
+target-state comparisons admit the composition before immediate API selection;
+the bounded reconciliation budget does not establish the full speedup goal.
+
+The [completed direction](metadata/qwen36-27b-mtp-batch-reconcile-rejection-2026-10-10.json)
+passes complete state/cache and API checks, but its small phase reduction does
+not produce a useful complete-runner gain. Prepared-prefix authority and its
+executor/wiring are removed, restoring v31. Frozen source retains reproduction
+authority only; no d3, batching scan or production change follows.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

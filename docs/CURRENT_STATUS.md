@@ -132,6 +132,16 @@ Single-process Decode differences of +0.014%/-0.045% versus v31 establish no
 useful gain or statistical regression. Output and work are unchanged; d3 is
 not run. Retained v31, production and the unmet 1.5x–3x objective are unchanged.
 
+The subsequent [batched cache-reconciliation direction](metadata/qwen36-27b-mtp-batch-reconcile-rejection-2026-10-10.json)
+passes complete state/cache and eight d2 API checks but is removed without
+retention. At 8K, Prefill is 17.298 s / 473.57 token/s, TTFT 17.321 s,
+Decode 12.993 token/s and total 36.947 s; at 40K, 92.779 s / 431.13 token/s,
+92.813 s, 9.694 token/s and 119.118 s respectively. Reconciliation saves
+131/125 ms, but single-process Decode differences of +0.61%/+0.36% and a
+nearly unchanged 40K total do not select useful whole-runner retention.
+Work/output match v31; d3 is not run. Retained v31, production and the unmet
+1.5x–3x objective remain unchanged.
+
 ### Preceding FP8 live-reduction direction
 
 The preceding isolated source uses exact live-ancestor FP8 reductions on top of
