@@ -19,6 +19,31 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 current MTP budget — reconciled
+
+`WP-MTP-V79-BUDGET-20261014` freezes one unchanged v79 P40000/O256 d2
+NSys capture under its [design](metadata/qwen36-27b-mtp-v79-budget-design-2026-10-14.json).
+The earlier v64 trace predates the draft matrix, Gate input and GDN graph
+changes. Reconcile current kernel families, copies and uncovered intervals
+against the same-output/work API anchor before selecting another architecture.
+This is diagnostic only: no NCU replay, parameter scan, performance baseline
+update or production change. One capture is the bound; the full goal remains.
+
+The [completed trace](metadata/qwen36-27b-mtp-v79-budget-2026-10-14.json)
+preserves the exact request, output IDs and complete work. Its low-overhead
+graph granularity measures 1,680 fixed GDN segments at 10.800 seconds in
+aggregate, with QK/PV separately at 2.143/2.180 seconds. Graph-external draft
+matrix work is 1.004 seconds and draft vocabulary is 0.876 seconds. Graph
+spans include internal gaps; neither their kernel breakdown nor total GPU
+idle is measured. Graph-external D2D plus outside-span time is 0.342 seconds,
+less than the retained 0.440-second 40K d2 gap, but it is not a global upper
+bound on copies/gaps. No new runtime architecture or speedup is selected.
+Return to materially changed projection/operand consumption; the source audit
+confirms simple Gate/Up/SiLU fusion and full-input FP8 persistence were already
+implemented in closed experiments. No second trace or geometry scan follows.
+Normal v79 Prefill/TTFT/Decode/total observations remain unchanged, and the
+full 1.5x–3x objective remains open.
+
 ## 2026-10-14 GDN row-state reuse — closed neutral
 
 `WP-MTP-GDN-ROW-REUSE-20261014` / `AC-MTP-GREEDY-v81` owns the

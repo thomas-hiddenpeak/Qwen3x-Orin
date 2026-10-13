@@ -1,0 +1,17 @@
+{
+  "work_package_id": "WP-MTP-V79-BUDGET-20261014",
+  "decision_unit": "diagnostic",
+  "source_parent": "f64d0c0",
+  "product_constraint": "Same-workload MTP committed Decode 1.5x\u20133x non-MTP, exact output and complete state; drafts2/3, Prefill/TTFT/Decode/total together.",
+  "question": "After v73 weight-major draft, v75 Gate slices and v79 GDN graphs, which current GPU families and uncovered intervals can fund the remaining full-Decode gap?",
+  "anchor": "qwen36-27b-mtp-gdn-graphs-direction-2026-10-14.json",
+  "remaining_p40000_d2_s": 0.439699315,
+  "protocol": "One unchanged measured v79 ELF P40000/O256 d2 NSys cuda/nvtx capture, same request/output IDs and complete work; T4 diagnostic only, no NCU replay or second profile.",
+  "scope": "No runtime/source/production mutation or new benchmark baseline. Freeze current family/union/copy cost; next implementation must remove a budgeted boundary and return to full API.",
+  "prior_source_audit": {
+    "gate_pair": "Old Gate+Up experiment already includes BF16 pair publication and SiLU; simple fusion is not new.",
+    "persistent_fp8": "Old composition already loops across output groups while staging full input and lane-replicated LUT. Repeating persistence alone is not selected; coupled negative result does not isolate each mechanism."
+  },
+  "stop": "One completed capture or resource/ownership/safety failure; do not extend profiler collection. Compare complete witness before using attribution.",
+  "granularity_note_before_result": "NSys current default records graph aggregates, not graph node kernels. Retain this low-overhead capture: report fixed GDN segments as a separate aggregate and only classify non-graph kernels. Include graph activities in GPU union. No per-node GDN/Gate/FP8 attribution inside graphs and no repeated node trace."
+}

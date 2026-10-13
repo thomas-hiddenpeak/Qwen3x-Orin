@@ -1,0 +1,282 @@
+{
+  "work_package_id": "WP-MTP-V79-BUDGET-20261014",
+  "decision_unit": "diagnostic",
+  "status": "closed_budget_reconciled",
+  "source_parent": "f64d0c0",
+  "identity": {
+    "command": [
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-graphs-20261014/source/server",
+      "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "--port",
+      "18871",
+      "--api-key-file",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-v79-budget-20261014/profile/api-key",
+      "--nvtx-phase-ranges",
+      "--candidate-profile",
+      "whole-core-exact-decode"
+    ],
+    "executable_sha256": "622bf0c2b6b8919188354b6022943e7d5576afea47cd0f1d8421bacf9f8cfc81",
+    "git": "f64d0c0ab016685c0eb4a867c071a9e76b8e2090",
+    "driver_sha256": "62f8e19ae49a8180a554614ac78bd0bb640839eb2dfe5fdd6bbf1ad6054353a4",
+    "fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "authority": "T4 diagnostic only; WP-MTP-V79-BUDGET-20261014; one same-v79-ELF completed P40000/O256 d2 workload, identify remaining verifier budget; not performance selection"
+  },
+  "design": "docs/metadata/qwen36-27b-mtp-v79-budget-design-2026-10-14.json",
+  "same_request_output_ids_and_work": {
+    "pass": true,
+    "fields": [
+      "generated_token_ids",
+      "prompt_token_ids_u32le_sha256",
+      "completion_tokens",
+      "target_prefill_complete"
+    ],
+    "mtp_fields": [
+      "enabled",
+      "verifier",
+      "draft_length",
+      "prompt_rows",
+      "draft_prefill_rows",
+      "initialized",
+      "rounds",
+      "proposed",
+      "accepted",
+      "verified_rows",
+      "committed_decode_tokens",
+      "accepted_by_position",
+      "confidence_threshold",
+      "proposal_histogram",
+      "draft_ordered_attention_steps",
+      "entry_hidden_snapshots",
+      "direct_gdn_state_rows",
+      "seed_kv_reuses",
+      "state_copy_bytes_elided",
+      "cancelled",
+      "failed"
+    ],
+    "reserve_bytes": 10028036096
+  },
+  "analysis": {
+    "scope": "T4 diagnostic from first fixed GDN graph through last generation kernel; excludes first proposal/entry snapshot and pre-graph embedding/norm, includes later draft/reconciliation; not unprofiled Decode. Graph spans include unobserved intra-graph gaps; node kernel breakdown is unavailable.",
+    "start_ns": 92156067808,
+    "end_ns": 114310149504,
+    "interval_s": 22.154081696,
+    "families": {
+      "verify_pv": {
+        "seconds": 2.1801728639999998,
+        "calls": 1680
+      },
+      "verify_qk": {
+        "seconds": 2.1429965120000003,
+        "calls": 1680
+      },
+      "verify_gate_up": {
+        "seconds": 1.3314600320000003,
+        "calls": 3360
+      },
+      "draft_matrix_including_reconcile": {
+        "seconds": 1.0040601920000003,
+        "calls": 2034
+      },
+      "verify_fp8_canonical": {
+        "seconds": 0.9040941119999996,
+        "calls": 5040
+      },
+      "draft_vocabulary": {
+        "seconds": 0.8759109119999997,
+        "calls": 198
+      },
+      "verify_vocabulary": {
+        "seconds": 0.5942341439999999,
+        "calls": 105
+      },
+      "verify_down_packed": {
+        "seconds": 0.5442869439999997,
+        "calls": 1365
+      },
+      "verify_softmax": {
+        "seconds": 0.5008048960000001,
+        "calls": 1680
+      },
+      "verify_fp8_sidecar": {
+        "seconds": 0.35332143999999943,
+        "calls": 1680
+      },
+      "draft_pv": {
+        "seconds": 0.13668176,
+        "calls": 198
+      },
+      "draft_qk": {
+        "seconds": 0.122298272,
+        "calls": 198
+      },
+      "verify_down_canonical": {
+        "seconds": 0.11847065600000006,
+        "calls": 315
+      },
+      "other": {
+        "seconds": 0.11708134399999964,
+        "calls": 16826
+      },
+      "residual_norm": {
+        "seconds": 0.05023702400000001,
+        "calls": 3360
+      },
+      "softmax_target_and_draft": {
+        "seconds": 0.03520297600000003,
+        "calls": 198
+      }
+    },
+    "copies": [
+      {
+        "kind": 2,
+        "calls": 607,
+        "bytes": 4440,
+        "seconds": 0.000556576
+      },
+      {
+        "kind": 8,
+        "calls": 1479,
+        "bytes": 20288798720,
+        "seconds": 0.218465088
+      }
+    ],
+    "observed_kernel_copy_and_graph_span_union_s": 22.03068192,
+    "outside_observed_span_s": 0.123399776,
+    "gdn_graph_spans": {
+      "seconds": 10.800346176,
+      "calls": 1680,
+      "distinct_execs": 32
+    },
+    "limitation": "Graph spans are not active-kernel union and outside span is not total GPU idle. Non-graph family times exclude all kernels/copies inside GDN graphs.",
+    "sqlite_sha256": "cf11ebbb96aeeadde8aac2ca19277bb5e91b5530839697a6d53b8d90fbec4526"
+  },
+  "unprofiled_anchor": {
+    "stage": "p40000",
+    "prompt": 40000,
+    "output": 256,
+    "prefill_s": 91.96837493299999,
+    "prefill_tps": 434.9321169275901,
+    "decode_tps": 11.557797953041481,
+    "ttft_s": 92.00359633399785,
+    "elapsed_s": 114.06819580799856,
+    "mtp": {
+      "enabled": true,
+      "verifier": "multirow-gdn-graphs-v79",
+      "draft_length": 2,
+      "startup_free_bytes": 11030355968,
+      "prompt_rows": 40000,
+      "draft_prefill_rows": 39999,
+      "initialized": true,
+      "rounds": 105,
+      "proposed": 200,
+      "accepted": 150,
+      "verified_rows": 305,
+      "committed_decode_tokens": 255,
+      "accepted_by_position": [
+        86,
+        64,
+        0
+      ],
+      "confidence_threshold": 0.4,
+      "proposal_histogram": [
+        0,
+        10,
+        95,
+        0
+      ],
+      "draft_ordered_attention_steps": 200,
+      "entry_hidden_snapshots": 105,
+      "direct_gdn_state_rows": 14640,
+      "seed_kv_reuses": 105,
+      "state_copy_bytes_elided": 31315768320,
+      "draft_initialization_ms": 2656.536793,
+      "draft_ms": 2144.263816999999,
+      "verify_ms": 19570.736997000004,
+      "reconcile_ms": 343.14954099999994,
+      "cancelled": false,
+      "failed": false
+    }
+  },
+  "profiled_api_not_selection": {
+    "prefill_s": 92.11570886100002,
+    "prefill_tps": 434.23646731480795,
+    "ttft_s": 92.4597732129987,
+    "decode_tps": 11.498113548270602,
+    "elapsed_s": 119.72155541800021,
+    "limitation": "Profiler capture/flush and instrumentation affect intervals. No baseline update or speedup attribution."
+  },
+  "decision": {
+    "remaining_p40000_d2_full_decode_gap_s": 0.439699315,
+    "projection_boundary": "Fixed three-GDN-layer graphs aggregate10.800346176s; this includes projections, recurrence, copies and internal scheduling. Do not relabel it GDN-recurrence cost or infer individual projection savings. Original v64 source attribution remains historical context.",
+    "attention_boundary": "Current graph-external QK+PV cost4.323169376s. Original ordered reductions and causal prefixes remain mandatory; prior shared-row, row-warp, bulk-publication and position-parallel variants stay closed.",
+    "secondary_boundary": "Graph-external D2D0.218465088s plus0.123399776s outside observed spans does not itself cover0.439699315s. This is not a universal copy/idle ceiling: in-graph copies and gaps are not individually observed.",
+    "next_scope": "Return to a materially changed exact projection/operand-consumption architecture with this whole-runner budget. Simple Gate/Up/SiLU fusion and full-input FP8 persistence are already tried; no repeat of those constructions, no further profile or geometry scan. No new runtime architecture is selected by this diagnosis.",
+    "no_claims": [
+      "No measured bandwidth, shared-bank, instruction-stall or hardware-ceiling cause.",
+      "No new API speedup, production switch or achievement of the full1.5x\u20133x goal.",
+      "No extra d3 or numerical run for unchanged runtime; inherited admission scope remains the v79 record."
+    ]
+  },
+  "cleanup": {
+    "server_returncode": 0,
+    "clock_errors": [],
+    "max_temp_c": 73.875
+  },
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "removed_owned_profiler_locks": [
+      "profile/tmp/nvidia/nsight_systems/NSys-SessionManager.lock-4026531836-2026.1.3",
+      "profile/tmp/nvidia/nsight_systems/telemetry-2002/telemetry.lock"
+    ],
+    "remaining_api_keys": 0,
+    "remaining_tmp_files": [],
+    "worktree_count": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "clock_samples": 187,
+    "gpu_clock_values": {
+      "gpu_cur_freq": [
+        1300500000
+      ],
+      "gpu_min_freq": [
+        1300500000
+      ],
+      "gpu_max_freq": [
+        1300500000
+      ]
+    }
+  },
+  "production_unchanged": true,
+  "goal_achieved": false,
+  "runtime_mutations": 0,
+  "artifact_root": ".q3x-work/mtp-v79-budget-20261014",
+  "artifact_manifest": ".q3x-work/mtp-v79-budget-20261014/artifact-manifest.json",
+  "source_audit": [
+    {
+      "path": ".q3x-work/mtp-gate-pair-20261010/source/src/runtime/mtp_verify_projection_internal.cu",
+      "sha256": "171025d2a60686c6ed9f078dfc21c9d0f531fefca71fe923bbb32723b86261a2"
+    },
+    {
+      "path": ".q3x-work/mtp-shared-verify-20261009/persistent-source/src/runtime/mtp_verify_projection_internal.cu",
+      "sha256": "1b9d2c8ea88e0e5f54fce6852aa11f2754eead837c5ae786e7e0bdcff2a5d032"
+    },
+    {
+      "path": "src/runtime/mtp_verify_projection_internal.cu",
+      "sha256": "16f46af79670539c91099788e00ba3de86fde915f48f26b91a3742b2a2174bef"
+    },
+    {
+      "path": "src/runtime/mtp_verify_attention_internal.cu",
+      "sha256": "363664a03a2d7778134736dad117696bdabf50723e9728d54c39bbea9ae4a249"
+    }
+  ],
+  "validation": {
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "links": 1365,
+      "errors": 0
+    },
+    "document_unit_tests": 7,
+    "git_diff_check": "pass",
+    "runtime_tests": "Not rerun: no runtime mutation; actual API output/work and reserve checked in this diagnostic."
+  }
+}
