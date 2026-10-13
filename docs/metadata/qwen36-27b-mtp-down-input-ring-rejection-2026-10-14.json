@@ -1,0 +1,269 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-DOWN-INPUT-RING-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v75",
+  "source_parent": "09b1aa9",
+  "decision_unit": "architecture_candidate",
+  "decision": "remove_after_negative_api_direction",
+  "profile": "q3x.sm87.admission.mtp-down-input-ring-api.v76",
+  "production_changed": false,
+  "goal_complete": false,
+  "server_sha256": "faba12d281889b3fa002935203a9ee2a75cf2f32124b00808a28d9c7a66c8c5d",
+  "oracle_sha256": "93e3a403ddee9885f2f6cb7a255cd44bc5dd3f32c06778eb9de7ef18223e9861",
+  "artifact_root": ".q3x-work/mtp-down-input-ring-20261014",
+  "implementation": "Canonical/packed NVFP4 M2/M3 shared two K512 input slices across four warp consumers; original Gate and M4 retained. Same scalar arithmetic and no weight staging, sidecar, allocation or cache-carveout change.",
+  "numerical": {
+    "complete_synthetic_nv_output_guard_cases": 30,
+    "synthetic_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 59.281
+    },
+    "complete_target_prefixes": 9,
+    "complete_state_cache_transactions": 15,
+    "verify_failure_recoveries": 4,
+    "initialization_cancel_recoveries": 8,
+    "oracle_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 67.687
+    },
+    "target_contract": "Complete same-history GDN/Conv/KV/hidden/logits and draft cache bitwise equality, unchanged committed target output. Private draft arithmetic unchanged; no repeated independent FP64 qualification claimed."
+  },
+  "actual_server_resources": [
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb8610nvfp4_rowsILj4ELj0EEEvPKhS5_jfPKtjjPt:",
+      "resources": "REG:157 STACK:0 SHARED:2048 LOCAL:0 CONSTANT[0]:400 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb8610nvfp4_rowsILj4ELj2EEEvPKhS5_jfPKtjjPt:",
+      "resources": "REG:126 STACK:0 SHARED:2048 LOCAL:0 CONSTANT[0]:400 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb8610nvfp4_rowsILj3ELj0EEEvPKhS5_jfPKtjjPt:",
+      "resources": "REG:96 STACK:0 SHARED:8192 LOCAL:0 CONSTANT[0]:400 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb8610nvfp4_rowsILj3ELj2EEEvPKhS5_jfPKtjjPt:",
+      "resources": "REG:96 STACK:0 SHARED:8192 LOCAL:0 CONSTANT[0]:400 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb8610nvfp4_rowsILj2ELj0EEEvPKhS5_jfPKtjjPt:",
+      "resources": "REG:72 STACK:0 SHARED:6144 LOCAL:0 CONSTANT[0]:400 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb8610nvfp4_rowsILj2ELj2EEEvPKhS5_jfPKtjjPt:",
+      "resources": "REG:72 STACK:0 SHARED:6144 LOCAL:0 CONSTANT[0]:400 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb8610nvfp4_rowsILj4ELj1EEEvPKhS5_jfPKtjjPt:",
+      "resources": "REG:128 STACK:0 SHARED:32768 LOCAL:0 CONSTANT[0]:400 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb8610nvfp4_rowsILj3ELj1EEEvPKhS5_jfPKtjjPt:",
+      "resources": "REG:96 STACK:0 SHARED:8192 LOCAL:0 CONSTANT[0]:400 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb8610nvfp4_rowsILj2ELj1EEEvPKhS5_jfPKtjjPt:",
+      "resources": "REG:71 STACK:0 SHARED:6144 LOCAL:0 CONSTANT[0]:400 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    }
+  ],
+  "api": {
+    "d2": {
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8922765159999999,
+          "prefill_tps": 72.84737279805312,
+          "decode_tps": 13.034470365086696,
+          "ttft_s": 0.9109983240014117,
+          "elapsed_s": 2.061669355000049,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-down-input-ring-v76",
+            "draft_length": 2,
+            "startup_free_bytes": 11007438848,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "direct_gdn_state_rows": 912,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 1987054592,
+            "draft_initialization_ms": 5.710614,
+            "draft_ms": 111.91026399999998,
+            "verify_ms": 1018.172351,
+            "reconcile_ms": 20.311678999999998,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.248394991,
+          "prefill_tps": 474.9427412970589,
+          "decode_tps": 14.726582652398925,
+          "ttft_s": 17.270412092999322,
+          "elapsed_s": 34.58632761199988,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-down-input-ring-v76",
+            "draft_length": 2,
+            "startup_free_bytes": 11007438848,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 98,
+            "proposed": 187,
+            "accepted": 157,
+            "verified_rows": 285,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              71,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              9,
+              89,
+              0
+            ],
+            "draft_ordered_attention_steps": 187,
+            "entry_hidden_snapshots": 98,
+            "direct_gdn_state_rows": 13680,
+            "seed_kv_reuses": 98,
+            "state_copy_bytes_elided": 29253216256,
+            "draft_initialization_ms": 571.000161,
+            "draft_ms": 1785.8336689999999,
+            "verify_ms": 15176.807984000005,
+            "reconcile_ms": 347.89125300000006,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "comparison": [
+        {
+          "stage": "p65",
+          "decode_ratio_vs_v75": 0.9796870613968609,
+          "decode_ratio_vs_nonmtp": 1.3605161915157082,
+          "draft_saved_ms": 1.824569000000011,
+          "verify_saved_ms": -25.20496500000013,
+          "draft_initialization_delta_ms": 0.008578999999999226,
+          "reconcile_saved_ms": 0.022486999999998147,
+          "full_decode_saved_s": -0.02337602300000019,
+          "prefill_delta_s": -0.0008060830000001795,
+          "total_delta_s": 0.022709822998876916
+        },
+        {
+          "stage": "p8192",
+          "decode_ratio_vs_v75": 0.9835247327375717,
+          "decode_ratio_vs_nonmtp": 1.5986132064790655,
+          "draft_saved_ms": 3.625845000000254,
+          "verify_saved_ms": -287.31468700001096,
+          "draft_initialization_delta_ms": 8.285036000000105,
+          "reconcile_saved_ms": -1.2119060000001127,
+          "full_decode_saved_s": -0.28527956900000007,
+          "prefill_delta_s": 0.014464839000002172,
+          "total_delta_s": 0.2996896040021966
+        }
+      ],
+      "completed_api_checks": 2,
+      "output_ids_equal_v75": true,
+      "work_differences": [
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "fields": {}
+        }
+      ]
+    }
+  },
+  "api_cleanup": {
+    "success": false,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 69.156
+  },
+  "driver_result": {
+    "returncode": -2,
+    "early_stop": true
+  },
+  "scope_limits": [
+    "One fresh process, two completed requests; no mirrored repetition or statistical regression claim.",
+    "Predeclared nonpositive8K stop reached: no40K/d3 or full lifecycle panel run. Intentional interrupted driver exit-2; server exit0 and no cleanup errors.",
+    "Complete output IDs, request hashes and non-timing work equal v75.",
+    "Prefill/private draft unchanged; timing variations are not attributed to this edit.",
+    "No hardware counters establish a stall cause or actual occupancy. Fewer registers/global demands did not improve full API direction; no further input-ring/stage/cache scan."
+  ],
+  "engineering_conclusion": "Remove candidate after8K Decode14.72658 versus14.97327 (-1.6475%). Verification adds287.315ms and fullDecode adds285.280ms. Lower register counts do not select whole-runner value. Restore currentv75; full1.5x-3x goal remains open.",
+  "artifact_manifest": ".q3x-work/mtp-down-input-ring-20261014/artifact-manifest.json",
+  "restoration": {
+    "server": {
+      "retained_sha256": "10a1eacc4e4c553891442722c4ac568f3d81cfb8a0b12cb705833d3363f81f54",
+      "rebuilt_sha256": "ae932ec5dd00465bd8a2aba86930838064ecd5f461f77b9e23f5d254844e3732",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "ee5703b08c4a6fd820c4cd68aeec2a9f7f69836bc0c8efb202f585f5f30b10c8",
+      "rebuilt_sha256": "59f330cb6a5871a63510c6660a909bf4da8ca54e4791648c38a54f66f4628d14",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "api_keys_remaining": 0,
+    "temporary_files_remaining": 0,
+    "registered_worktrees": 47,
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "validation": {
+    "host_ctests": 3,
+    "document_unit_tests": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1339,
+      "errors": 0
+    },
+    "git_diff_check": "pass"
+  }
+}

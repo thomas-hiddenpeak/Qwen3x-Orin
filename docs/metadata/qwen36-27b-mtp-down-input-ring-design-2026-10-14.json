@@ -1,0 +1,45 @@
+{
+  "work_package_id": "WP-MTP-DOWN-INPUT-RING-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v75",
+  "source_parent": "09b1aa9",
+  "profile": "q3x.sm87.admission.mtp-down-input-ring-api.v76",
+  "product_constraint": "1.5x-3x same-request committed Decode, maxima2/3, exact target state/logits/output and joint Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "remaining_v75_40k_full_decode_s": 0.662287993,
+    "v64_unchanged_down_profile_gpu_s": 2.658671552,
+    "scope": "Unchanged Down family historical profile, not a new timing or stall diagnosis; eliminating entire family is only an upper opportunity bound."
+  },
+  "mechanism": "Only canonical/packed NVFP4 M2/M3: publish two K512 input slices through16B cp.async and four original warp consumers. Supports actual K including canonical K5120 tests and real Down K17408. Replace four warp-global reads with one CTA producer plus shared reads. Original Gate M2/M3/M4 and Down M4 unchanged. Fixed128-thread16-output geometry, no weight staging, sidecar, allocation or cache-carveout change.",
+  "numerical_ledger": [
+    "Preserve input BF16 bits at original row*k+tile*512+offset; prime two tiles, publish current after wait/barrier, retire every consumer before overwrite with tile+2.",
+    "Preserve FP4/scale decode, each of four ordered FP32 FMA chains, merge and warp tree, tensor scale and final BF16 rounding.",
+    "Same complete target recurrent/Conv/KV/hidden/logits prefix and draft cache/output contract. Private draft and Prefill unchanged."
+  ],
+  "distinction": "Unlike retained Gate narrowing an already shared full input, Down introduces shared input reuse across four warps. It adds two barriers perK512 (34 tiles atK17408), so fewer global demands are not a speedup claim. Unlike rejected v11 it stages no packed weights.",
+  "reference": {
+    "path": "src/kernels/sm87/third_party/vllm_marlin/marlin.cuh",
+    "sha256": "f1accfc126d83fbabf4b8108c690b5d9367d4ca9d649101dcc0e52cb8a943b77",
+    "transfer": "Pinned SM80+16B cp.async commit/wait producer lifetime; native implementation, no imported source or dependency. Existing vLLM/FlashInfer/FLA/Mamba assessment remains applicable to unchanged subsystems."
+  },
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "parameter_scans": 0,
+    "profiler_captures": 0
+  },
+  "gates": [
+    "Build no spills and30completeNVoutput/guardcases.",
+    "P65 complete prefix/state/cache/failure transactions.",
+    "Immediate d2P65/8K/40K API againstv75; >3percent slowdown or nonpositive8K closes. Useful long direction unlocksd3; reject materiald3regression. No profiler/parameter scan."
+  ],
+  "expiry": "Next complete API composition or rejection; no local tuning or qualification-only campaign. Production unchanged.",
+  "artifact_root": ".q3x-work/mtp-down-input-ring-20261014",
+  "rollback_files": [
+    "src/runtime/mtp_verify_projection_internal.cu",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "production_changed": false
+}

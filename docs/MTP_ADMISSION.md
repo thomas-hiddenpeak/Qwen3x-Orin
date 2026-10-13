@@ -1953,6 +1953,22 @@ admitted shape bodies exactly, full projection guards pass, and the final binary
 passes sixteen API/lifecycle checks. This bounded development retention expires
 at the next complete architecture API return or archival; production is unchanged.
 
+## Down input reuse v75
+
+The [bounded composition](metadata/qwen36-27b-mtp-down-input-ring-design-2026-10-14.json)
+adds two K512 BF16 slices only to canonical/packed NVFP4 M2/M3. Each slice
+has one asynchronous producer and four original warp consumers; all readers
+retire before slot overwrite. Original Gate and M4 bodies remain unchanged.
+Every weight decode, scalar FMA/reduction and publication boundary is preserved.
+Complete target-state and API admission select the added synchronization cost;
+input traffic reduction alone has no performance authority.
+
+The [completed rejection](metadata/qwen36-27b-mtp-down-input-ring-rejection-2026-10-14.json)
+passes complete numerical/state admission but loses 1.65% at the 8K d2 API.
+The added producer is removed and v75 restored; lower registers and repeated
+input demand do not establish a useful composition. No 40K/d3 qualification or
+further input-ring tuning follows. The target and production remain unchanged.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

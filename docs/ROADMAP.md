@@ -19,6 +19,31 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 Down input reuse — closed negative
+
+`WP-MTP-DOWN-INPUT-RING-20261014` / `AC-MTP-GREEDY-v75` owns the
+[bounded input producer](metadata/qwen36-27b-mtp-down-input-ring-design-2026-10-14.json).
+The remaining 0.662-second 40K full-Decode gap selects unchanged Down input
+ownership: four warp consumers share two K512 BF16 slices for M2/M3.
+Gate and M4 remain unchanged. Added barriers may outweigh reduced global
+input demand. Exact arithmetic/state admission returns immediately to d2 API;
+3% slowdown or nonpositive 8K closes, useful long direction unlocks d3.
+One implementation and one possible correctness repair, no parameter/profile
+scan. Production and the full 1.5x–3x objective remain unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-down-input-ring-rejection-2026-10-14.json)
+passes 30 complete projection output/guard cases, nine complete target prefixes,
+fifteen state/cache transactions and four verification-failure recoveries.
+At P8192/O256 d2, output and complete work match v75, but Decode falls from
+14.973 to 14.727 token/s (-1.65%). Prefill is 17.248 seconds / 474.94 token/s,
+TTFT 17.270 seconds and total 34.586 seconds. Verification adds 287.315ms;
+complete Decode adds 285.280ms despite lower M3 registers.
+
+The predeclared stop closes this architecture before 40K/d3 and full lifecycle
+qualification. All candidate runtime/profile paths are removed, restoring v75.
+No further input-ring tuning or profiler campaign follows. Production and the
+remaining 0.662-second v75 40K budget stay unchanged; the full goal remains open.
+
 ## 2026-10-13 Gate/Up input lifetime — API composition complete
 
 `WP-MTP-GATE-INPUT-RING-20261013` / `AC-MTP-GREEDY-v73` owns the
