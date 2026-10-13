@@ -172,16 +172,36 @@ __device__ __forceinline__ unsigned scaled_weight_pair(unsigned pair,
       : "r"(pair), "r"(scale), "r"(0x80008000U));
   return result;
 }
+// Inputs already share one publication across four warp consumers. Limit
+// that publication's lifetime to the existing K512 weight tile; packed weights
+// remain register-owned. Every slot retires before its next producer writes.
+template<unsigned Rows>
+__device__ __forceinline__ void stage_gate_input(std::uint16_t* destination,
+    const std::uint16_t* input, unsigned tile) {
+  for (unsigned i = threadIdx.x; i < Rows * 512 / 8; i += blockDim.x) {
+    const unsigned row = i / 64, col = (i % 64) * 8;
+    const unsigned address = static_cast<unsigned>(
+        __cvta_generic_to_shared(destination + row * 512 + col));
+    const auto* source = input + row * 5120 + tile * 512 + col;
+    asm volatile("cp.async.cg.shared.global [%0], [%1], 16;" ::
+        "r"(address), "l"(source) : "memory");
+  }
+  asm volatile("cp.async.commit_group;" ::: "memory");
+}
 template<unsigned M, unsigned Layout>
 __global__ void nvfp4_rows(const std::uint8_t* weights, const std::uint8_t* scales,
     unsigned scale_base, float scale, const std::uint16_t* x,
     unsigned n, unsigned k, std::uint16_t* y) {
   __shared__ unsigned table[256], values[256];
-  // Share complete immutable inputs across the four original warp consumers.
-  // Cap at three rows so M4 retains four-CTA shared-memory capacity.
+  // API-selected M2/M3 ring; M4 retains the original full-input publication.
+  constexpr bool input_ring = Layout==1 && M<4;
   constexpr unsigned staged_rows = Layout==1 ? (M<3 ? M : 3) : 0;
-  __shared__ __align__(16) std::uint16_t activation[staged_rows ? staged_rows*5120 : 1];
-  if constexpr (Layout==1) {
+  __shared__ __align__(16) std::uint16_t activation[staged_rows ? (input_ring ? 2*staged_rows*512 : staged_rows*5120) : 1];
+  if constexpr (input_ring) {
+    stage_gate_input<staged_rows>(activation, x, 0);
+    stage_gate_input<staged_rows>(activation + staged_rows*512, x, 1);
+    asm volatile("cp.async.wait_group 1;" ::: "memory");
+  } else if constexpr (Layout==1) {
     for(unsigned i=threadIdx.x;i<staged_rows*5120/8;i+=blockDim.x)
       reinterpret_cast<ulonglong2*>(activation)[i]=
           reinterpret_cast<const ulonglong2*>(x)[i];
@@ -232,7 +252,7 @@ __global__ void nvfp4_rows(const std::uint8_t* weights, const std::uint8_t* scal
       for(unsigned m=0;m<M;++m) {
         if constexpr(Layout==1) {
           acts[m]=m<staged_rows ?
-              *reinterpret_cast<const ulonglong2*>(activation+m*5120+base) :
+              *reinterpret_cast<const ulonglong2*>(activation+(input_ring ? (tile&1)*staged_rows*512+m*512+phase*256+lane*8 : m*5120+base)) :
               *reinterpret_cast<const ulonglong2*>(x+m*k+base);
         } else acts[m]=*reinterpret_cast<const ulonglong2*>(x+m*k+base);
       }
@@ -259,6 +279,16 @@ __global__ void nvfp4_rows(const std::uint8_t* weights, const std::uint8_t* scal
             }
           }
         }
+    }
+    if constexpr (input_ring) {
+      __syncthreads();
+      if (tile + 2 < k/512) {
+        stage_gate_input<staged_rows>(activation+(tile&1)*staged_rows*512, x, tile+2);
+        asm volatile("cp.async.wait_group 1;" ::: "memory");
+      } else {
+        asm volatile("cp.async.wait_group 0;" ::: "memory");
+      }
+      __syncthreads();
     }
   }
 #pragma unroll

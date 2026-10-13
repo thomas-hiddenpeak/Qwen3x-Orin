@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-10-13
+  last_reviewed: 2026-10-14
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -19,11 +19,52 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-13 Gate/Up input lifetime — API composition complete
+
+`WP-MTP-GATE-INPUT-RING-20261013` / `AC-MTP-GREEDY-v73` owns the
+[bounded input producer](metadata/qwen36-27b-mtp-gate-input-ring-design-2026-10-13.json).
+The remaining 0.992-second 40K full-Decode gap selects the unchanged Gate/Up
+family. Replace complete shared inputs with two K512 slices, preserving all
+four warp consumers and exact scalar arithmetic. M3/M4 shared storage falls
+from 32 KiB to 8 KiB; extra barriers and asynchronous copies may offset that
+resource benefit, so only composed API fitness selects it. This is input
+lifetime replacement, not the rejected compressed-weight staging lineage.
+One fixed structure, one possible correctness repair, no parameter/profiler
+scan. Complete numerical/state admission returns immediately to d2 API;
+3% slowdown or nonpositive 8K closes, useful long direction unlocks d3.
+Production and the full objective remain unchanged.
+
+The [first API return](metadata/qwen36-27b-mtp-gate-input-ring-direction-2026-10-13.json)
+passes all eight d2 checks with 8K/40K Decode 14.954/11.440 token/s, but d3
+8K falls from 14.008 to 13.862 token/s and stops before 40K. This complete
+replacement is not retained. D2 has no M4 verification, while d3 mostly does.
+
+`WP-MTP-GATE-INPUT-COMPOSITION-20261013` / `AC-MTP-GREEDY-v74` owns one
+[bounded composition](metadata/qwen36-27b-mtp-gate-input-composition-design-2026-10-13.json):
+keep the admitted M2/M3 ring and restore original M4 full-input publication.
+These exact shape bodies already passed complete state/cache admission; the
+combined binary repeats full projection guards, then returns immediately to
+both d2/d3 API panels. No new tile, stage, launch or threshold variant. This is
+a temporary dependency until that return, not a production or full-goal claim.
+
+The [completed composition](metadata/qwen36-27b-mtp-gate-input-composition-direction-2026-10-13.json) passes all sixteen d2/d3 API and recovery
+checks. GPU instruction words prove exact reuse of admitted M2/M3 and original
+M4 bodies; complete synthetic outputs/guards also pass. Final d2 8K/40K Decode
+is 14.973/11.442 token/s, saving 0.323/0.330 seconds of complete Decode versus v73.
+At 40K, Prefill is 92.160 seconds / 434.03 token/s, TTFT 92.196 seconds and
+external total 114.483 seconds. D3's original long-context performance is preserved.
+
+Retain only this shape composition as a bounded development dependency through
+the next complete MTP architecture API return or archival. No production switch,
+statistical selection, new stall cause or further input-ring tuning is claimed.
+The full 1.5x–3x objective remains open; the remaining 40K full-Decode gap is
+approximately 0.662 seconds. Next work must address that whole-runner budget.
+
 ## 2026-10-13 draft weight-major matrix — API return complete
 
 `WP-MTP-DRAFT-WEIGHT-MAJOR-20261013` / `AC-MTP-GREEDY-v72` owns the
 [common private draft executor](metadata/qwen36-27b-mtp-draft-weight-major-design-2026-10-13.json).
-The current matrix path pads M1 into32 token rows. A native weight-major
+The preceding matrix path padded M1 into 32 token rows. A native weight-major
 BF16 executor uses64 weight rows,8/16/32 token-column buckets and one K128
 shared double buffer. Every count uses the same per-output K16 order, so
 initialization, drafting and cache reconciliation must still agree exactly.

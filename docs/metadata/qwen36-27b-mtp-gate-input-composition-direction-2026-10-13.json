@@ -1,0 +1,545 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-GATE-INPUT-COMPOSITION-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v74",
+  "source_parent": "8811fad",
+  "decision_unit": "architecture_candidate",
+  "decision": "retain_bounded_development_composition",
+  "production_changed": false,
+  "goal_complete": false,
+  "profile": "q3x.sm87.admission.mtp-gate-input-composition-api.v75",
+  "server_sha256": "10a1eacc4e4c553891442722c4ac568f3d81cfb8a0b12cb705833d3363f81f54",
+  "oracle_sha256": "ee5703b08c4a6fd820c4cd68aeec2a9f7f69836bc0c8efb202f585f5f30b10c8",
+  "artifact_root": ".q3x-work/mtp-gate-input-composition-20261013",
+  "implementation": "Gate/Up Layout1 M2/M3 use admitted two K512 input slices and original four warp consumers; M4 restores original full-input shared publication. No new tile/stage/launch/threshold variant, no allocation/sidecar or target/draft arithmetic change.",
+  "numerical": {
+    "complete_synthetic_nv_output_guard_cases": 30,
+    "synthetic_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 60.375
+    },
+    "composition_proof": {
+      "2": {
+        "admitted_binary": ".q3x-work/mtp-gate-input-ring-20261013/source/server",
+        "instruction_word_count": 1392,
+        "identical_instruction_words": true
+      },
+      "3": {
+        "admitted_binary": ".q3x-work/mtp-gate-input-ring-20261013/source/server",
+        "instruction_word_count": 1680,
+        "identical_instruction_words": true
+      },
+      "4": {
+        "admitted_binary": ".q3x-work/mtp-draft-weight-major-20261013/source/server",
+        "instruction_word_count": 1840,
+        "identical_instruction_words": true
+      }
+    },
+    "composition_scope": "Exactly one selected function per saved SASS file. M2/M3 instruction words equal v74, M4 equals v73; complete output/guard cases pass on composed binary. Selected bodies already passed nine complete target prefixes, fifteen state/cache transactions and four verify-failure recoveries in their respective admissions. No redundant full-model numerical run is claimed for composition.",
+    "preceding_full_state_record": "docs/metadata/qwen36-27b-mtp-gate-input-ring-direction-2026-10-13.json",
+    "original_m4_state_record": "docs/metadata/qwen36-27b-mtp-draft-weight-major-direction-2026-10-13.json"
+  },
+  "actual_server_resources": [
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb8610nvfp4_rowsILj4ELj1EEEvPKhS5_jfPKtjjPt:",
+      "resources": "REG:128 STACK:0 SHARED:32768 LOCAL:0 CONSTANT[0]:400 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb8610nvfp4_rowsILj3ELj1EEEvPKhS5_jfPKtjjPt:",
+      "resources": "REG:96 STACK:0 SHARED:8192 LOCAL:0 CONSTANT[0]:400 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb8610nvfp4_rowsILj2ELj1EEEvPKhS5_jfPKtjjPt:",
+      "resources": "REG:71 STACK:0 SHARED:6144 LOCAL:0 CONSTANT[0]:400 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    }
+  ],
+  "api": {
+    "d2": {
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8930825990000001,
+          "prefill_tps": 72.78162184861917,
+          "decode_tps": 13.30472849820211,
+          "ttft_s": 0.9115486510017945,
+          "elapsed_s": 2.038959532001172,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gate-input-composition-v75",
+            "draft_length": 2,
+            "startup_free_bytes": 11074383872,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "direct_gdn_state_rows": 912,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 1987054592,
+            "draft_initialization_ms": 5.702035,
+            "draft_ms": 113.734833,
+            "verify_ms": 992.9673859999999,
+            "reconcile_ms": 20.334165999999996,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.233930152,
+          "prefill_tps": 475.34137180249144,
+          "decode_tps": 14.973271298840164,
+          "ttft_s": 17.256023947000358,
+          "elapsed_s": 34.28663800799768,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gate-input-composition-v75",
+            "draft_length": 2,
+            "startup_free_bytes": 11074383872,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 98,
+            "proposed": 187,
+            "accepted": 157,
+            "verified_rows": 285,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              71,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              9,
+              89,
+              0
+            ],
+            "draft_ordered_attention_steps": 187,
+            "entry_hidden_snapshots": 98,
+            "direct_gdn_state_rows": 13680,
+            "seed_kv_reuses": 98,
+            "state_copy_bytes_elided": 29253216256,
+            "draft_initialization_ms": 562.715125,
+            "draft_ms": 1789.4595140000001,
+            "verify_ms": 14889.493296999994,
+            "reconcile_ms": 346.67934699999995,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 92.160441202,
+          "prefill_tps": 434.025699945672,
+          "decode_tps": 11.442358690020193,
+          "ttft_s": 92.19572497699846,
+          "elapsed_s": 114.48290571599864,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gate-input-composition-v75",
+            "draft_length": 2,
+            "startup_free_bytes": 11074383872,
+            "prompt_rows": 40000,
+            "draft_prefill_rows": 39999,
+            "initialized": true,
+            "rounds": 105,
+            "proposed": 200,
+            "accepted": 150,
+            "verified_rows": 305,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              64,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              10,
+              95,
+              0
+            ],
+            "draft_ordered_attention_steps": 200,
+            "entry_hidden_snapshots": 105,
+            "direct_gdn_state_rows": 14640,
+            "seed_kv_reuses": 105,
+            "state_copy_bytes_elided": 31315768320,
+            "draft_initialization_ms": 2747.962063,
+            "draft_ms": 2147.20748,
+            "verify_ms": 19792.122071,
+            "reconcile_ms": 341.3735800000001,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "comparison": [
+        {
+          "stage": "p65",
+          "decode_ratio_vs_v73": 1.0262410401944702,
+          "decode_ratio_vs_nonmtp": 1.3887252829243781,
+          "draft_saved_ms": -0.3983779999999939,
+          "verify_saved_ms": 30.058800000000247,
+          "draft_initialization_delta_ms": 0.06146000000000029,
+          "reconcile_saved_ms": -0.0765849999999979,
+          "full_decode_saved_s": 0.029584640000000162,
+          "prefill_delta_s": 0.0014157919999999713,
+          "total_delta_s": -0.028273267002077773
+        },
+        {
+          "stage": "p8192",
+          "decode_ratio_vs_v73": 1.018978936455883,
+          "decode_ratio_vs_nonmtp": 1.6253919736511744,
+          "draft_saved_ms": 3.023133999999345,
+          "verify_saved_ms": 319.8861790000101,
+          "draft_initialization_delta_ms": 3.188325999999961,
+          "reconcile_saved_ms": 0.04648300000002337,
+          "full_decode_saved_s": 0.32321786600000024,
+          "prefill_delta_s": 0.05321943400000251,
+          "total_delta_s": -0.2700787730027514
+        },
+        {
+          "stage": "p40000",
+          "decode_ratio_vs_v73": 1.0147917796117214,
+          "decode_ratio_vs_nonmtp": 1.4554227248795073,
+          "draft_saved_ms": 4.628932999999961,
+          "verify_saved_ms": 323.9865179999979,
+          "draft_initialization_delta_ms": 23.77853099999993,
+          "reconcile_saved_ms": 0.5786780000000249,
+          "full_decode_saved_s": 0.3296439049999975,
+          "prefill_delta_s": -0.014437412999996013,
+          "total_delta_s": -0.34390013400116004
+        }
+      ],
+      "completed_api_checks": 8,
+      "output_ids_equal_v73": true,
+      "work_differences": [
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8119cea78cd55fac50289ca366297b20e119a60acf07d2b0db69a85d4145c40b",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "11fcd5bfa1b8c0c077956e1056c92c1b453df2592f59178fe5242f5a5b7ef36a",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "c8c3f21bc490496a1f5aaa00d4cd62b6327e4e1342486711d688a316d91cf5c1",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        }
+      ]
+    },
+    "d3": {
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8898211130000001,
+          "prefill_tps": 73.04839034539742,
+          "decode_tps": 12.412195816489259,
+          "ttft_s": 0.908475105999969,
+          "elapsed_s": 2.1167975349999324,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gate-input-composition-v75",
+            "draft_length": 3,
+            "startup_free_bytes": 10960322560,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 6,
+            "proposed": 16,
+            "accepted": 9,
+            "verified_rows": 22,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              3,
+              2
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              0,
+              2,
+              4
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 6,
+            "direct_gdn_state_rows": 1056,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 2134603776,
+            "draft_initialization_ms": 5.573746,
+            "draft_ms": 150.73986000000002,
+            "verify_ms": 1037.122607,
+            "reconcile_ms": 20.310361,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.102791026,
+          "prefill_tps": 478.98614837463435,
+          "decode_tps": 14.0115432160247,
+          "ttft_s": 17.12510950000069,
+          "elapsed_s": 35.32469570900139,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gate-input-composition-v75",
+            "draft_length": 3,
+            "startup_free_bytes": 10960322560,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 85,
+            "proposed": 226,
+            "accepted": 170,
+            "verified_rows": 311,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              73,
+              57,
+              40
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              11,
+              7,
+              67
+            ],
+            "draft_ordered_attention_steps": 226,
+            "entry_hidden_snapshots": 85,
+            "direct_gdn_state_rows": 14928,
+            "seed_kv_reuses": 85,
+            "state_copy_bytes_elided": 30189888512,
+            "draft_initialization_ms": 550.384944,
+            "draft_ms": 2163.361301,
+            "verify_ms": 15672.058734999999,
+            "reconcile_ms": 359.5578699999998,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 91.95556622,
+          "prefill_tps": 434.9926996730313,
+          "decode_tps": 10.752154297091653,
+          "ttft_s": 91.99046061400077,
+          "elapsed_s": 115.70823279999968,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gate-input-composition-v75",
+            "draft_length": 3,
+            "startup_free_bytes": 10960322560,
+            "prompt_rows": 40000,
+            "draft_prefill_rows": 39999,
+            "initialized": true,
+            "rounds": 89,
+            "proposed": 244,
+            "accepted": 166,
+            "verified_rows": 333,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              73,
+              52,
+              41
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              5,
+              13,
+              71
+            ],
+            "draft_ordered_attention_steps": 244,
+            "entry_hidden_snapshots": 89,
+            "direct_gdn_state_rows": 15984,
+            "seed_kv_reuses": 89,
+            "state_copy_bytes_elided": 32166605824,
+            "draft_initialization_ms": 2682.614181,
+            "draft_ms": 2620.250280000001,
+            "verify_ms": 20735.24126700001,
+            "reconcile_ms": 356.1754419999998,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "comparison": [
+        {
+          "stage": "p65",
+          "decode_ratio_vs_v73": 1.012323247538829,
+          "decode_ratio_vs_nonmtp": 1.295564216082734,
+          "draft_saved_ms": -0.10629400000001965,
+          "verify_saved_ms": 15.055560999999898,
+          "draft_initialization_delta_ms": 0.11182300000000023,
+          "reconcile_saved_ms": -0.0699120000000022,
+          "full_decode_saved_s": 0.014892506999999888,
+          "prefill_delta_s": -0.0014714899999997977,
+          "total_delta_s": -0.01639703299952089
+        },
+        {
+          "stage": "p8192",
+          "decode_ratio_vs_v73": 1.0002298289806415,
+          "decode_ratio_vs_nonmtp": 1.520993604353994,
+          "draft_saved_ms": 3.8402969999988272,
+          "verify_saved_ms": 2.3184720000044763,
+          "draft_initialization_delta_ms": 6.2175640000000385,
+          "reconcile_saved_ms": -1.9870639999995774,
+          "full_decode_saved_s": 0.00418272199999592,
+          "prefill_delta_s": -0.12661782399999666,
+          "total_delta_s": -0.13062605199957034
+        },
+        {
+          "stage": "p40000",
+          "decode_ratio_vs_v73": 1.0002674139201166,
+          "decode_ratio_vs_nonmtp": 1.367631458629831,
+          "draft_saved_ms": 4.527766999999585,
+          "verify_saved_ms": 3.5520269999942684,
+          "draft_initialization_delta_ms": 30.719396999999844,
+          "reconcile_saved_ms": -1.6726269999995225,
+          "full_decode_saved_s": 0.0063420360000030485,
+          "prefill_delta_s": -0.1623447500000168,
+          "total_delta_s": -0.16921127599925967
+        }
+      ],
+      "completed_api_checks": 8,
+      "output_ids_equal_v73": true,
+      "work_differences": [
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8119cea78cd55fac50289ca366297b20e119a60acf07d2b0db69a85d4145c40b",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "11fcd5bfa1b8c0c077956e1056c92c1b453df2592f59178fe5242f5a5b7ef36a",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "c8c3f21bc490496a1f5aaa00d4cd62b6327e4e1342486711d688a316d91cf5c1",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        }
+      ]
+    }
+  },
+  "api_cleanup": {
+    "d2": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 76.562
+    },
+    "d3": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 75.406
+    }
+  },
+  "remaining_40k_d2_full_decode_s": 0.6622879929999996,
+  "scope_limits": [
+    "One fresh process per maximum; no mirrored repetition, statistical selection or production qualification.",
+    "All16 compared API output IDs/request hashes and complete non-timing work match retainedv73.",
+    "Prefill and draft implementation unchanged; their timing variation is not attributed to verifier input lifetime.",
+    "No fresh profiler establishes occupancy/cache/stall cause. No further shape/stage/threshold scan.",
+    "Initial complete ring replacement was not retained: its d3 8K regression and stopped panel remain separately recorded."
+  ],
+  "expiry": "Bounded development dependency through next complete MTP architecture API return or archival; no production authority.",
+  "artifact_manifest": ".q3x-work/mtp-gate-input-composition-20261013/artifact-manifest.json",
+  "measurement_dates_local": [
+    "2026-10-13",
+    "2026-10-14"
+  ],
+  "validation": {
+    "host_ctests": 3,
+    "document_unit_tests": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1335,
+      "errors": 0
+    },
+    "git_diff_check": "pass"
+  },
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "api_keys_remaining": 0,
+    "workspace_tmp_files": [],
+    "registered_worktrees": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "final_source_matches_measured_freeze": true
+  },
+  "engineering_conclusion": "Retain only M2/M3 input-ring plus original M4. Actual kernel instruction words equal separately admitted bodies and all16 final API checks preserve output/work. D2 saves0.323/0.330s complete Decode at8K/40K versus v73, while d3 long context is essentially unchanged. D2 reaches1.625x/1.455x non-MTP and remaining40K gap0.662s keeps the full objective open. No production or repeated qualification claim."
+}

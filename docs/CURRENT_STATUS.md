@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-10-13
+  last_reviewed: 2026-10-14
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot: 2026-10-13. This replaceable page owns current defaults and measured
+Snapshot: 2026-10-14. This replaceable page owns current defaults and measured
 qualification; [SDD](SDD.md) owns design and [Roadmap](ROADMAP.md) owns remaining
 work. Historical failures and measurements retain their original scope.
 
@@ -54,54 +54,54 @@ Decode token/s convergence target are not claimed achieved.
 
 ## MTP development status
 
-The isolated implementation retains the common weight-major BF16 draft
-executor and confidence lookahead with configured maxima 2/3. Original BF16
-weights feed native FP32 MMA; every M1..32 count uses the same K16 order for
-initialization, full steps and cache append. Fixed 0.4 confidence retains the
-triggering proposal and suppresses later drafting in that round. Target scalar
-arithmetic, complete prefix state and committed output are unchanged. Profile is
-`q3x.sm87.admission.mtp-draft-weight-major-api.v73`; measured server ELF is
-`17c775f22a97122728c70bdf3faf441e59676e6a88bcd2fbddce4d6da2b2f829`.
+The isolated implementation composes Gate/Up M2/M3 K512 input double
+buffering with the original M4 full-input publication. It retains the common
+weight-major BF16 draft executor and fixed 0.4 confidence lookahead with
+configured maxima 2/3. Target scalar arithmetic, complete prefix state and
+committed output remain unchanged. Profile is
+`q3x.sm87.admission.mtp-gate-input-composition-api.v75`; measured server ELF is
+`10a1eacc4e4c553891442722c4ac568f3d81cfb8a0b12cb705833d3363f81f54`.
 
-The [completed direction](metadata/qwen36-27b-mtp-draft-weight-major-direction-2026-10-13.json) binds 60 complete projection output/guard/
-single-row-versus-batch checks, nine real-model target prefixes, fifteen full
-state/cache transactions, four injected-failure recoveries and sixteen d2/d3
-API/lifecycle checks. Independent CPU FP64 complete draft hidden/K/V maximum
-row-relative-L2 is 0.009382/0.001897/0.001300, within the unchanged 0.02 bound.
-All compared API output IDs and non-timing work equal the retained
-[v64 comparator](metadata/qwen36-27b-mtp-confidence-direction-2026-10-10.json).
+The [completed composition](metadata/qwen36-27b-mtp-gate-input-composition-direction-2026-10-13.json) passes all sixteen d2/d3 API/lifecycle
+checks with identical target output IDs and complete non-timing work against
+the [v73 comparator](metadata/qwen36-27b-mtp-draft-weight-major-direction-2026-10-13.json).
+The first complete input-ring replacement improved d2 but regressed d3 and
+was not retained. The selected M2/M3 GPU instructions equal that admitted
+implementation; M4 instructions equal the original v73 implementation.
+Both shape sets had already passed complete real-model state/cache admission;
+the final binary additionally passes all 30 complete NV output/guard cases.
+The private draft and its independent FP64 hidden/K/V bound are unchanged.
 Production remains the ordinary non-MTP artifact above.
 
-These 2026-10-13 observations use one fresh process per maximum, not mirrored
+These 2026-10-13/14 observations use one fresh process per maximum, not mirrored
 repetition or release qualification. Prefill includes draft initialization;
 Decode includes the complete controller and observer interval after the first
 token. External total remains an independent complete-request observation.
 
 | P / O | Maximum | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| 65 / 16 | d2 | 0.892 | 72.90 | 0.910 | 12.965 | 2.067 |
-| 8192 / 256 | d2 | 17.181 | 476.81 | 17.203 | 14.694 | 34.557 |
-| 40000 / 256 | d2 | 92.175 | 433.96 | 92.210 | 11.276 | 114.827 |
-| 65 / 16 | d3 | 0.891 | 72.93 | 0.910 | 12.261 | 2.133 |
-| 8192 / 256 | d3 | 17.229 | 475.47 | 17.252 | 14.008 | 35.455 |
-| 40000 / 256 | d3 | 92.118 | 434.23 | 92.153 | 10.749 | 115.877 |
+| 65 / 16 | d2 | 0.893 | 72.78 | 0.912 | 13.305 | 2.039 |
+| 8192 / 256 | d2 | 17.234 | 475.34 | 17.256 | 14.973 | 34.287 |
+| 40000 / 256 | d2 | 92.160 | 434.03 | 92.196 | 11.442 | 114.483 |
+| 65 / 16 | d3 | 0.890 | 73.05 | 0.908 | 12.412 | 2.117 |
+| 8192 / 256 | d3 | 17.103 | 478.99 | 17.125 | 14.012 | 35.325 |
+| 40000 / 256 | d3 | 91.956 | 434.99 | 91.990 | 10.752 | 115.708 |
 
-D2 reaches 1.595x/1.434x non-MTP Decode at 8K/40K. **The full 1.5x–3x
+D2 reaches 1.625x/1.455x non-MTP Decode at 8K/40K. **The full 1.5x–3x
 goal remains unmet**; 40K still needs approximately
-0.992 seconds removed from complete Decode. Against v64, d2 saves
-0.229/0.273 seconds of complete Decode, including 0.189/0.200 seconds of draft
-time. These are bounded direction observations, not statistical selection.
-Target Prefill is unchanged; its interval variation is not claimed as a draft
-executor speedup, and initialization cost is separately retained in the record.
-D3 remains slower than d2 on these requests. Retain this composition only
-through the next complete MTP architecture API return or archival. No further
-tile/stage/threshold scan or qualification-only campaign is opened. No production
-switch or completed target is claimed.
+0.662 seconds removed from complete Decode. Against v73, d2 saves
+0.323/0.330 seconds of complete Decode. D3 long-context performance remains essentially
+unchanged and slower than d2. Prefill/draft implementation is unchanged; its
+interval variation is not attributed to verifier input lifetime. Static shared
+storage reduction is not proof of actual occupancy, cache or stall causes.
+Retain this as a bounded development composition through the next complete MTP
+architecture API return or archival. No further shape/stage/threshold scan or
+qualification-only campaign follows. Production remains unchanged and the full goal stays open.
 
 ### Preceding NV live-reduction direction
 
 The following dated closures preserve their original scope; they do not
-supersede the current v64 implementation above.
+supersede the current implementation above.
 
 The preceding isolated source extends the exact live-ancestor reduction to
 NVFP4 Gate/Up, Down and batched target vocabulary outputs, on top of retained

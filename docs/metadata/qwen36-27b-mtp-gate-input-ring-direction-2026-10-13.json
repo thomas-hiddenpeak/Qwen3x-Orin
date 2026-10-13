@@ -1,0 +1,411 @@
+{
+  "date": "2026-10-13",
+  "work_package_id": "WP-MTP-GATE-INPUT-RING-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v73",
+  "source_parent": "8811fad",
+  "decision": "Mixed API direction; complete M2/M3/M4 replacement not retained. M2/M3 survive only as dependency of one explicit composition with original M4. No production change.",
+  "server_sha256": "026cadf337a01e41789c7100d350ad94013148fe498666bb1f3df715eb6a6bfc",
+  "oracle_sha256": "e378dd5bc4f0af32d9f2517edc7eee74ec4b1ee43841d1500ce0b873f8942bf0",
+  "profile": "q3x.sm87.admission.mtp-gate-input-ring-api.v74",
+  "artifact_root": ".q3x-work/mtp-gate-input-ring-20261013",
+  "numerical": {
+    "complete_synthetic_cases": 30,
+    "complete_target_prefixes": 9,
+    "state_cache_transactions": 15,
+    "verify_failure_recoveries": 4,
+    "oracle_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 67.968
+    }
+  },
+  "api": {
+    "d2": {
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.891742836,
+          "prefill_tps": 72.89096965618909,
+          "decode_tps": 13.205418640703982,
+          "ttft_s": 0.9102302610008337,
+          "elapsed_s": 2.046079062998615,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gate-input-ring-v74",
+            "draft_length": 2,
+            "startup_free_bytes": 11061641216,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "direct_gdn_state_rows": 912,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 1987054592,
+            "draft_initialization_ms": 5.578234,
+            "draft_ms": 113.02620100000001,
+            "verify_ms": 1002.2568819999999,
+            "reconcile_ms": 20.253105,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.182521192,
+          "prefill_tps": 476.7635615554549,
+          "decode_tps": 14.954061731080397,
+          "ttft_s": 17.20461627000259,
+          "elapsed_s": 34.25709650800127,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gate-input-ring-v74",
+            "draft_length": 2,
+            "startup_free_bytes": 11061641216,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 98,
+            "proposed": 187,
+            "accepted": 157,
+            "verified_rows": 285,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              71,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              9,
+              89,
+              0
+            ],
+            "draft_ordered_attention_steps": 187,
+            "entry_hidden_snapshots": 98,
+            "direct_gdn_state_rows": 13680,
+            "seed_kv_reuses": 98,
+            "state_copy_bytes_elided": 29253216256,
+            "draft_initialization_ms": 550.919759,
+            "draft_ms": 1784.964393999999,
+            "verify_ms": 14914.979116000006,
+            "reconcile_ms": 347.6608359999999,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 92.027355237,
+          "prefill_tps": 434.6533690660473,
+          "decode_tps": 11.439582736401606,
+          "ttft_s": 92.06240778700158,
+          "elapsed_s": 114.35500161200252,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gate-input-ring-v74",
+            "draft_length": 2,
+            "startup_free_bytes": 11061641216,
+            "prompt_rows": 40000,
+            "draft_prefill_rows": 39999,
+            "initialized": true,
+            "rounds": 105,
+            "proposed": 200,
+            "accepted": 150,
+            "verified_rows": 305,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              64,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              10,
+              95,
+              0
+            ],
+            "draft_ordered_attention_steps": 200,
+            "entry_hidden_snapshots": 105,
+            "direct_gdn_state_rows": 14640,
+            "seed_kv_reuses": 105,
+            "state_copy_bytes_elided": 31315768320,
+            "draft_initialization_ms": 2683.923277,
+            "draft_ms": 2142.6356069999997,
+            "verify_ms": 19801.881416000004,
+            "reconcile_ms": 341.7354510000001,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "comparison": [
+        {
+          "stage": "p65",
+          "decode_ratio_vs_v73": 1.0185809175941318,
+          "decode_ratio_vs_nonmtp": 1.378359486285243,
+          "draft_saved_ms": 0.31025399999998626,
+          "verify_saved_ms": 20.76930400000026,
+          "draft_initialization_delta_ms": -0.06234099999999998,
+          "reconcile_saved_ms": 0.004475999999996816,
+          "full_decode_saved_s": 0.021106014999999978,
+          "prefill_delta_s": 7.602899999992196e-05,
+          "total_delta_s": -0.021153736004634993
+        },
+        {
+          "stage": "p8192",
+          "decode_ratio_vs_v73": 1.017671664014547,
+          "decode_ratio_vs_nonmtp": 1.6233067194251023,
+          "draft_saved_ms": 7.518254000000525,
+          "verify_saved_ms": 294.4003599999978,
+          "draft_initialization_delta_ms": -8.607039999999984,
+          "reconcile_saved_ms": -0.9350059999999303,
+          "full_decode_saved_s": 0.30134116099999986,
+          "prefill_delta_s": 0.0018104740000026709,
+          "total_delta_s": -0.2996202729991637
+        },
+        {
+          "stage": "p40000",
+          "decode_ratio_vs_v73": 1.0145455878090486,
+          "decode_ratio_vs_nonmtp": 1.4550696345692704,
+          "draft_saved_ms": 9.200806000000284,
+          "verify_saved_ms": 314.2271729999957,
+          "draft_initialization_delta_ms": -40.26025500000014,
+          "reconcile_saved_ms": 0.21680700000001707,
+          "full_decode_saved_s": 0.324236029999998,
+          "prefill_delta_s": -0.14752337800000248,
+          "total_delta_s": -0.4718042379972758
+        }
+      ],
+      "completed_api_checks": 8,
+      "output_ids_equal_v73": true,
+      "work_differences": [
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8119cea78cd55fac50289ca366297b20e119a60acf07d2b0db69a85d4145c40b",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "11fcd5bfa1b8c0c077956e1056c92c1b453df2592f59178fe5242f5a5b7ef36a",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "c8c3f21bc490496a1f5aaa00d4cd62b6327e4e1342486711d688a316d91cf5c1",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        }
+      ]
+    },
+    "d3": {
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8922384999999999,
+          "prefill_tps": 72.85047663825311,
+          "decode_tps": 12.219517492670231,
+          "ttft_s": 0.9108509659999982,
+          "elapsed_s": 2.138297871002578,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gate-input-ring-v74",
+            "draft_length": 3,
+            "startup_free_bytes": 11058012160,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 6,
+            "proposed": 16,
+            "accepted": 9,
+            "verified_rows": 22,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              3,
+              2
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              0,
+              2,
+              4
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 6,
+            "direct_gdn_state_rows": 1056,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 2134603776,
+            "draft_initialization_ms": 5.644727,
+            "draft_ms": 150.912205,
+            "verify_ms": 1055.965767,
+            "reconcile_ms": 20.314564,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.221012979,
+          "prefill_tps": 475.6979168408766,
+          "decode_tps": 13.861634381190749,
+          "ttft_s": 17.243207303999952,
+          "elapsed_s": 35.63955067999996,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gate-input-ring-v74",
+            "draft_length": 3,
+            "startup_free_bytes": 11058012160,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 85,
+            "proposed": 226,
+            "accepted": 170,
+            "verified_rows": 311,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              73,
+              57,
+              40
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              11,
+              7,
+              67
+            ],
+            "draft_ordered_attention_steps": 226,
+            "entry_hidden_snapshots": 85,
+            "direct_gdn_state_rows": 14928,
+            "seed_kv_reuses": 85,
+            "state_copy_bytes_elided": 30189888512,
+            "draft_initialization_ms": 563.029427,
+            "draft_ms": 2171.121213,
+            "verify_ms": 15860.969596000006,
+            "reconcile_ms": 359.40769100000017,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "comparison": [
+        {
+          "stage": "p65",
+          "decode_ratio_vs_v73": 0.9966086431785196,
+          "decode_ratio_vs_nonmtp": 1.2754527752671525,
+          "draft_saved_ms": -0.2786389999999983,
+          "verify_saved_ms": -3.787599,
+          "draft_initialization_delta_ms": 0.18280399999999997,
+          "reconcile_saved_ms": -0.0741150000000026,
+          "full_decode_saved_s": -0.0041630410000002005,
+          "prefill_delta_s": 0.0009458970000000289,
+          "total_delta_s": 0.005103303003124893
+        },
+        {
+          "stage": "p8192",
+          "decode_ratio_vs_v73": 0.9895284175859878,
+          "decode_ratio_vs_nonmtp": 1.504720566080963,
+          "draft_saved_ms": -3.9196150000011585,
+          "verify_saved_ms": -186.5923890000031,
+          "draft_initialization_delta_ms": 18.862047000000075,
+          "reconcile_saved_ms": -1.8368849999999384,
+          "full_decode_saved_s": -0.19263626800000466,
+          "prefill_delta_s": -0.00839587099999406,
+          "total_delta_s": 0.18422891899899696
+        }
+      ],
+      "completed_api_checks": 2,
+      "output_ids_equal_v73": true,
+      "work_differences": [
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "fields": {}
+        }
+      ]
+    }
+  },
+  "api_cleanup": {
+    "d2": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 75.593
+    },
+    "d3": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 70.75
+    }
+  },
+  "limits": [
+    "d2 all8 API checks pass; d3 P65/8K only, stopped before40K/full lifecycle after nonpositive8K.",
+    "No measured occupancy/cache/stall cause. Static shared reduction cannot override d3 regression.",
+    "D2 exclusively exercises M2/M3; d3 predominantly M4, so one shape composition is justified, not a tile/stage/register scan."
+  ],
+  "composition_successor": "WP-MTP-GATE-INPUT-COMPOSITION-20261013 / AC-MTP-GREEDY-v74",
+  "expiry": "One immediate API return of M2/M3 ring plus original M4, else archive.",
+  "production_changed": false,
+  "goal_complete": false,
+  "artifact_manifest": ".q3x-work/mtp-gate-input-ring-20261013/artifact-manifest.json",
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "api_keys_remaining": 0,
+    "workspace_tmp_files": [],
+    "registered_worktrees": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "final_source_matches_measured_freeze": true
+  }
+}

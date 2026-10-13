@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: isolated greedy MTP development boundaries and transaction contract
   effective: 2026-09-28
-  last_reviewed: 2026-10-13
+  last_reviewed: 2026-10-14
   supersedes: []
   superseded_by: []
   ssot_for: native MTP admission design and first composition scope
@@ -1926,6 +1926,33 @@ target claim follows. All observed proposal/acceptance counts and target output
 IDs match v64, though future private draft differences remain permitted under
 the explicit numerical and verification contracts above.
 
+## Gate/Up input lifetime composition v73 — superseded
+
+The [bounded composition](metadata/qwen36-27b-mtp-gate-input-ring-design-2026-10-13.json)
+replaces only Layout1 complete-input publication with two K512 BF16 slices.
+All four original warp consumers share each immutable slice. Sixteen-byte
+asynchronous producers prime two slices and publish each through wait/barrier;
+consumers retire before that slot is overwritten two tiles later. M4's fourth
+row retains its existing global read. No packed weight staging, new allocation,
+changed scale/FP4 decode, scalar FMA chain/reduction, BF16 rounding or target
+state contract is introduced. Extra synchronization is part of the complete
+API cost. Numerical admission alone cannot retain this resource trade.
+
+The [first return](metadata/qwen36-27b-mtp-gate-input-ring-direction-2026-10-13.json)
+shows positive d2 and negative d3 direction. The complete replacement is not
+retained. Its [bounded successor](metadata/qwen36-27b-mtp-gate-input-composition-design-2026-10-13.json)
+composes unchanged admitted M2/M3 slices with the original M4 full-input body.
+All counts keep exactly their previously checked computation and state contract;
+only the final binary's complete API return can select this composition.
+
+## Gate/Up shape composition v74
+
+The [completed composition](metadata/qwen36-27b-mtp-gate-input-composition-direction-2026-10-13.json) retains only M2/M3 input slices; M4 uses
+its original full-input publication. Actual GPU instruction words match those
+admitted shape bodies exactly, full projection guards pass, and the final binary
+passes sixteen API/lifecycle checks. This bounded development retention expires
+at the next complete architecture API return or archival; production is unchanged.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
@@ -2200,7 +2227,7 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
 production/install, and identifies itself as
-`q3x.sm87.admission.mtp-draft-weight-major-api.v73`. The startup-only
+`q3x.sm87.admission.mtp-gate-input-composition-api.v75`. The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.

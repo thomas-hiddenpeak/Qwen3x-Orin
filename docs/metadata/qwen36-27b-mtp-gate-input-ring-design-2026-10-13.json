@@ -1,0 +1,45 @@
+{
+  "work_package_id": "WP-MTP-GATE-INPUT-RING-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v73",
+  "source_parent": "8811fad",
+  "profile": "q3x.sm87.admission.mtp-gate-input-ring-api.v74",
+  "product_constraint": "1.5x-3x same-request committed Decode, maxima2/3, exact target state/logits/output and joint Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "remaining_v73_40k_full_decode_s": 0.991931898,
+    "v64_unchanged_gate_up_profile_gpu_s": 5.666291904,
+    "scope": "Gate/Up unchanged between v64 and v73; old family profile qualifies opportunity, not new timing or stall attribution."
+  },
+  "mechanism": "Only coupled-feed Gate/Up Layout1: replace complete immutable M input publication with two K512 slices for min(M,3) rows,16B cp.async producer, existing128-thread/16-output consumers. Fourth M4 row remains global. Same total input global/shared payload and four-warp reuse; no weight staging or repacking. Shrink M3/M4 shared32768 to8192 and M2 shared22528 to6144; add per-K512 consumer/overwrite barriers and asynchronous waits. One fixed geometry aligned to the existing K512 weight loop, not a stage/tile scan.",
+  "numerical_ledger": [
+    "Every staged BF16 byte equals its original x[m*K+tile*512+offset]. Prime tiles0/1, wait for current before consumption, wait for all consumers before overwrite, stage tile+2, no tail overread.",
+    "FP4 pair decoding, scale lookup, original four FP32 FMA chains, merge/live-warp tree, final scale and BF16 publication remain unchanged.",
+    "Other projection layouts, Attention, recurrent state, snapshots, private draft executor and production remain unchanged."
+  ],
+  "distinction": "The rejected v11 staged compressed weight records in three buffers, while this package narrows the lifetime of already-shared immutable inputs and retains current register weight ownership. It adds no packed-weight shared traffic. Earlier full-K publication is retained only where its resource cost is useful; this tests a coherent producer/consumer replacement, not a parameter scan.",
+  "reference": {
+    "path": "src/kernels/sm87/third_party/vllm_marlin/marlin.cuh",
+    "sha256": "f1accfc126d83fbabf4b8108c690b5d9367d4ca9d649101dcc0e52cb8a943b77",
+    "transfer": "Pinned SM80+16B cp.async commit/wait producer lifetime; native implementation, no imported source or dependency. Existing vLLM/FlashInfer/FLA/Mamba assessment remains applicable to unchanged subsystems."
+  },
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "parameter_scans": 0,
+    "profiler_captures": 0
+  },
+  "gates": [
+    "Compile/no spills and complete canonical-oracle NV output/guard cases including exceptional data.",
+    "P65 complete target prefixes/state/cache/failure transactions.",
+    "Immediate d2P65/8K/40K API vs retainedv73, >3 percent slowdown or nonpositive8K closes; useful long direction unlocksd3."
+  ],
+  "expiry": "Next complete API composition or rejection; no local tuning or qualification-only campaign. Production unchanged.",
+  "artifact_root": ".q3x-work/mtp-gate-input-ring-20261013",
+  "rollback_files": [
+    "src/runtime/mtp_verify_projection_internal.cu",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "production_changed": false
+}

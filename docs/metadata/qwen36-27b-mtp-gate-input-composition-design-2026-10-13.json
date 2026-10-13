@@ -1,0 +1,23 @@
+{
+  "work_package_id": "WP-MTP-GATE-INPUT-COMPOSITION-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v74",
+  "source_parent": "8811fad",
+  "profile": "q3x.sm87.admission.mtp-gate-input-composition-api.v75",
+  "product_constraint": "Unchanged1.5x-3x same-request Decode, maxima2/3, exact numerical/state/output, joint Prefill/TTFT/Decode/total.",
+  "origin": "Preceding v74 real API: d2 M2/M3 improves full Decode at8K/40K; d3 mostlyM4 regresses8K by1.047%. Preserve useful M2/M3 input lifetime and restore original full-input M4, rather than retain a known losing shape.",
+  "numerical": "Only compile-time M specialization; M2/M3 execute admitted v74 body, M4 original v73 body. Each shape already passed complete target state/cache/transactions. Repeat complete synthetic outputs for composition and immediately return final binary to real d2/d3 API. Target arithmetic/working state and private draft unchanged.",
+  "resources": "M2/M3 shared6144/8192; M4 restored32768, original128 threads and16 outputs. No new allocation, launch shape, stage depth or tuning.",
+  "bounds": {
+    "implementations": 1,
+    "new_variants": 0,
+    "profiler_captures": 0
+  },
+  "gates": [
+    "Build/no spills and complete30 original scalar NV output/guard cases.",
+    "No repeat numerical oracle solely for composing unchanged separately admitted shape bodies; API final binary checks target output/work and recovery.",
+    "Immediate d2/d3 final API; >3% slowdown stops; retain only d2 benefit with d3 no material regression. No subsequent shape/stage/threshold scan."
+  ],
+  "expiry": "One complete composed API return or archive all new paths.",
+  "artifact_root": ".q3x-work/mtp-gate-input-composition-20261013",
+  "production_changed": false
+}
