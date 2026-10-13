@@ -436,3 +436,5 @@ The private vocabulary-coverage diagnosis closes after failed d2 coverage with v
 The fixed GDN graph composition completes both API panels and updates existing MTP SDD, Current Status and Roadmap as a bounded development dependency; no Markdown paths or classes change.
 
 The prefix-commit overlap work package closes after nonpositive 8K API direction with v79 restored. Existing Roadmap and MTP SDD retain frozen evidence; no Markdown paths or classifications change.
+
+The direct Down-scale package closes neutral after complete d2 API checks and v79 restoration. Existing Roadmap and MTP SDD retain frozen evidence; no Markdown paths or classifications change.

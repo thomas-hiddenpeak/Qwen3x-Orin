@@ -1,0 +1,41 @@
+{
+  "work_package_id": "WP-MTP-DOWN-SCALE-DIRECT-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v80",
+  "source_parent": "ed062c3",
+  "profile": "q3x.sm87.admission.mtp-down-scale-direct-api.v81",
+  "decision_unit": "architecture_candidate",
+  "product_constraint": "1.5x–3x same-workload committed Decode, maxima2/3, exact target state/logits/output; joint Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "remaining_40k_d2_s": 0.439699315,
+    "historical_v64_packed_down_gpu_s": 2.206432,
+    "scope": "Historical packed Down is a cost opportunity, not current causal/stall evidence or predicted saving. Short and long contexts both execute this family."
+  },
+  "mechanism": "Keep existing consumer-order packed Down weights for53eligible layers; use already-resident canonical8bit block_scale instead of6bit sidecar extraction and warp shuffles. New private Layout3 reads exactly same scale[(output_row)*(K/16)+base/16], shared BF16-pair LUT and unchanged four FP32 FMA chains/tree/final scale/BF16. No new allocation or producer, no changes to canonical Down, Gate, FP8, vocab head or drafting. Existing sidecar inventory/validation stays fixed.",
+  "equivalence_ledger": [
+    "Consumer-order weight permutation unchanged. Canonical E4M3 code equals reconstructed scale6 code by existing authenticated sidecar producer contract.",
+    "Only scale address/load/decode changes. BF16 pair multiplication and every FP32 accumulation/reduction/publication remain identical.",
+    "Four byte loads per phase replace packed warp scale extraction. Extra address/load instructions and scale traffic may outweigh removed unpack/shuffle; API decides.",
+    "All memory lifetime, prefix state, graph capture, policy and output contracts unchanged."
+  ],
+  "reference_translation": "Native consumer-order weight feed follows the already audited vLLM/Marlin separation of weight representation and scale delivery. This uses canonical resident scales and no imported source or newer ISA. Previous pair-layout replacement changed whole ownership and is not reopened.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "parameter_scans": 0,
+    "profiler_captures": 0
+  },
+  "gates": [
+    "30complete NV synthetic output/guard cases including exceptional codes, then P65full prefix/state/cache/failure checks.",
+    "Immediate d2P65/8K/40K API; >3%slowdown or nonpositive8K closes. Useful long direction unlocksd3. Exact output and complete non-timing work; unchanged8GiBreserve."
+  ],
+  "expiry": "One API composition then bounded retention or restorev79. No layout/unpack parameter scan.",
+  "artifact_root": ".q3x-work/mtp-down-scale-direct-20261014",
+  "rollback_files": [
+    "src/runtime/mtp_verify_projection_internal.cu",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "production_changed": false
+}

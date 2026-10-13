@@ -2035,6 +2035,22 @@ below retained v79 with no useful reconciliation saving. The predeclared stop
 closes before40K/d3; this scheduling change is removed. Canonical restoration
 and draft append retain their preceding sequential completion order.
 
+## Direct Down scales composition v80 — removed
+
+The [bounded composition](metadata/qwen36-27b-mtp-down-scale-direct-design-2026-10-14.json)
+retains authenticated consumer-order Down weight bytes while reading canonical
+E4M3 block-scale codes from their existing resident owner. It removes only
+six-bit extraction and scale shuffles; BF16 pair multiplication, scalar FMA
+chains, reduction, tensor scale and BF16 publication stay unchanged. No new
+memory owner or runtime packing is introduced. Existing startup inventory is
+still mandatory. Complete output/state admission returns directly to the API.
+
+The [completed direction](metadata/qwen36-27b-mtp-down-scale-direct-rejection-2026-10-14.json)
+preserves complete outputs/state and all eight d2 API/lifecycle checks, but
+8K/40K differences of +0.29%/+0.13% provide no qualified useful gain.
+The construction is removed; retained Down uses the preceding scale6 feed.
+D3 and further scale/layout scanning are not run.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

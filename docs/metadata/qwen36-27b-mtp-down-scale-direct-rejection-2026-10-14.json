@@ -1,0 +1,335 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-DOWN-SCALE-DIRECT-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v80",
+  "source_parent": "ed062c3",
+  "decision_unit": "architecture_candidate",
+  "decision": "remove_neutral_API_direction",
+  "production_changed": false,
+  "goal_complete": false,
+  "candidate_profile": "q3x.sm87.admission.mtp-down-scale-direct-api.v81",
+  "retained_profile": "q3x.sm87.admission.mtp-gdn-graphs-api.v79",
+  "server_sha256": "fe1c0a681b718e61dfc986d1a644ac0db94d67681995c3f3077ff1ac334970cb",
+  "oracle_sha256": "e4813b562ee4dc24159afbb27b6380bd4a197f447ff8a52aec1c576fce463cad",
+  "artifact_root": ".q3x-work/mtp-down-scale-direct-20261014",
+  "implementation": "Keep packed consumer-order Down weights and read existing canonical8bit scales instead of6bit reconstruction/warp shuffles. Exact unchanged paired weight multiply/FMA/reduction/publication; no owner or allocation change.",
+  "numerical": {
+    "complete_synthetic_output_guard_cases": 30,
+    "synthetic_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 59.5
+    },
+    "complete_target_prefixes": 9,
+    "complete_state_cache_transactions": 15,
+    "verification_failure_recoveries": 4,
+    "initialization_cancel_recoveries": 8,
+    "oracle_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 67.812
+    },
+    "scope": "Complete synthetic output/guard and real same-history target recurrent/Conv/KV/hidden/full-logit and draft-KV comparisons. Draft arithmetic unchanged; no new independent FP64 draft run."
+  },
+  "resources": [
+    {
+      "rows": 4,
+      "registers": 127,
+      "shared_bytes": 2048,
+      "stack_spills": "0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads"
+    },
+    {
+      "rows": 3,
+      "registers": 122,
+      "shared_bytes": 2048,
+      "stack_spills": "0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads"
+    },
+    {
+      "rows": 2,
+      "registers": 79,
+      "shared_bytes": 2048,
+      "stack_spills": "0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads"
+    }
+  ],
+  "api": {
+    "d2": {
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.891323447,
+          "prefill_tps": 72.92526660077866,
+          "decode_tps": 13.517148493940537,
+          "ttft_s": 0.9173171010006627,
+          "elapsed_s": 2.026991596001608,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-down-scale-direct-v81",
+            "draft_length": 2,
+            "startup_free_bytes": 10937577472,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "direct_gdn_state_rows": 912,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 1987054592,
+            "draft_initialization_ms": 5.533709,
+            "draft_ms": 112.685761,
+            "verify_ms": 975.9785449999999,
+            "reconcile_ms": 20.262246999999995,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.150169601,
+          "prefill_tps": 477.66291474588894,
+          "decode_tps": 15.187667912310273,
+          "ttft_s": 17.17234140099754,
+          "elapsed_s": 33.96254729499924,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-down-scale-direct-v81",
+            "draft_length": 2,
+            "startup_free_bytes": 10937577472,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 98,
+            "proposed": 187,
+            "accepted": 157,
+            "verified_rows": 285,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              71,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              9,
+              89,
+              0
+            ],
+            "draft_ordered_attention_steps": 187,
+            "entry_hidden_snapshots": 98,
+            "direct_gdn_state_rows": 13680,
+            "seed_kv_reuses": 98,
+            "state_copy_bytes_elided": 29253216256,
+            "draft_initialization_ms": 547.383391,
+            "draft_ms": 1782.0750270000005,
+            "verify_ms": 14654.074763999995,
+            "reconcile_ms": 348.57048399999996,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 92.03121837500001,
+          "prefill_tps": 434.63512388819873,
+          "decode_tps": 11.572710396768908,
+          "ttft_s": 92.06646679200276,
+          "elapsed_s": 114.10264977500265,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-down-scale-direct-v81",
+            "draft_length": 2,
+            "startup_free_bytes": 10937577472,
+            "prompt_rows": 40000,
+            "draft_prefill_rows": 39999,
+            "initialized": true,
+            "rounds": 105,
+            "proposed": 200,
+            "accepted": 150,
+            "verified_rows": 305,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              64,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              10,
+              95,
+              0
+            ],
+            "draft_ordered_attention_steps": 200,
+            "entry_hidden_snapshots": 105,
+            "direct_gdn_state_rows": 14640,
+            "seed_kv_reuses": 105,
+            "state_copy_bytes_elided": 31315768320,
+            "draft_initialization_ms": 2671.408397,
+            "draft_ms": 2138.7237950000003,
+            "verify_ms": 19547.701274999992,
+            "reconcile_ms": 342.4090769999998,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "comparison": [
+        {
+          "stage": "p65",
+          "decode_ratio_vs_v79": 1.00456307032685,
+          "decode_ratio_vs_nonmtp": 1.410897326399035,
+          "draft_saved_ms": 0.5211389999999909,
+          "verify_saved_ms": 4.4133509999999205,
+          "draft_initialization_delta_ms": 0.031959999999999766,
+          "reconcile_saved_ms": 0.13981600000000682,
+          "full_decode_saved_s": 0.005063646000000199,
+          "prefill_delta_s": -0.0001465010000000211,
+          "total_delta_s": -0.0052190239985066
+        },
+        {
+          "stage": "p8192",
+          "decode_ratio_vs_v79": 1.0029053437540818,
+          "decode_ratio_vs_nonmtp": 1.6486653471015909,
+          "draft_saved_ms": 4.416986999999608,
+          "verify_saved_ms": 44.32244600000013,
+          "draft_initialization_delta_ms": 2.6492250000000013,
+          "reconcile_saved_ms": 0.5919890000000123,
+          "full_decode_saved_s": 0.04878054100000284,
+          "prefill_delta_s": -0.03541186399999674,
+          "total_delta_s": -0.08433016300114105
+        },
+        {
+          "stage": "p40000",
+          "decode_ratio_vs_v79": 1.0012902495603415,
+          "decode_ratio_vs_nonmtp": 1.4720029459133381,
+          "draft_saved_ms": 5.540021999998771,
+          "verify_saved_ms": 23.035722000011447,
+          "draft_initialization_delta_ms": 14.871603999999934,
+          "reconcile_saved_ms": 0.740464000000145,
+          "full_decode_saved_s": 0.02843012800000011,
+          "prefill_delta_s": 0.06284344200001613,
+          "total_delta_s": 0.0344539670040831
+        }
+      ],
+      "completed_api_checks": 8,
+      "output_ids_equal_v79": true,
+      "work_differences": [
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8119cea78cd55fac50289ca366297b20e119a60acf07d2b0db69a85d4145c40b",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "11fcd5bfa1b8c0c077956e1056c92c1b453df2592f59178fe5242f5a5b7ef36a",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "c8c3f21bc490496a1f5aaa00d4cd62b6327e4e1342486711d688a316d91cf5c1",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        }
+      ]
+    }
+  },
+  "api_cleanup": {
+    "d2": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 75.156
+    }
+  },
+  "conclusion": "8K/40K Decode differs only+0.2905%/+0.1290% in one process without noise qualification; full Decode saves0.04878/0.02843s and40K total adds0.03445s. This does not select useful whole-product retention. Close without d3, repetition or profiler, restorev79.",
+  "scope_limits": [
+    "No statistical speedup or regression claim.",
+    "Eight API/lifecycle checks preserve complete output IDs and non-timing work versusv79.",
+    "Prefill unchanged; its variation is not attributed to the Down edit.",
+    "No fresh memory-traffic, cache or hardware-stall attribution. Removed unpack instructions do not prove whole-product benefit.",
+    "Existing startup inventory and8GiBreserve preserved.",
+    "Only this direct-scale delivery construction closes; no global performance ceiling or impossibility claim."
+  ],
+  "expiry": "Closed after one complete d2 API return. No layout/scale/launch scan follows.",
+  "artifact_manifest": ".q3x-work/mtp-down-scale-direct-20261014/artifact-manifest.json",
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "api_keys_remaining": 0,
+    "temporary_files_remaining": 0,
+    "registered_worktrees": 47,
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "restoration": {
+    "server": {
+      "retained_sha256": "622bf0c2b6b8919188354b6022943e7d5576afea47cd0f1d8421bacf9f8cfc81",
+      "rebuilt_sha256": "37b01b52bcc81c0ba03c2bbddd21e256e6083175fbcb853d0bd6613f6d1f32fd",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "3bc8bb3fe1e639a43a1d4466a98702a19ed701e03cb3d4cfd90246e84cc5b834",
+      "rebuilt_sha256": "b764c49cbbad7cc67eb8757591237b3ed874e041ebbec67658be1800f3302553",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "validation": {
+    "host_ctests": 3,
+    "document_unit_tests": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1359,
+      "errors": 0
+    },
+    "git_diff_check": "pass"
+  }
+}

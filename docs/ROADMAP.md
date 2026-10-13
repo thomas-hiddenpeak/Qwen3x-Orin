@@ -19,6 +19,29 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 direct Down scales — closed neutral
+
+`WP-MTP-DOWN-SCALE-DIRECT-20261014` / `AC-MTP-GREEDY-v80` owns the
+[bounded scale delivery change](metadata/qwen36-27b-mtp-down-scale-direct-design-2026-10-14.json).
+Keep consumer-order packed Down weights and read existing canonical eight-bit
+scales, removing six-bit extraction and warp shuffles. Exact arithmetic and
+state remain unchanged; additional scale loads may offset the saved work.
+The historical packed-Down budget is 2.206 seconds; the remaining 40K complete
+Decode gap is 0.440 seconds. Neither predicts a gain. Complete synthetic and
+state admission returns immediately to d2 API; 3% slowdown or nonpositive 8K
+closes, useful long direction unlocks d3. One implementation, no layout or
+profiler scan, no allocation, policy or production change.
+
+The [completed direction](metadata/qwen36-27b-mtp-down-scale-direct-rejection-2026-10-14.json)
+passes 30 complete synthetic cases, nine complete prefixes, fifteen state/cache
+transactions and all eight d2 API/lifecycle checks with unchanged output/work.
+At 8K/40K, Decode is 15.188/11.573 token/s, only +0.29%/+0.13% in one process
+without noise qualification. Prefill is 17.150/92.031 seconds (477.66/434.64
+token/s), TTFT is 17.172/92.066 seconds and total is 33.963/114.103 seconds.
+The 40K total is 0.034 seconds longer. This does not select useful retention;
+remove the new kernel dispatch/profile and restore v79 without d3, repetition,
+profiler or layout scanning. Production and the full goal remain unchanged.
+
 ## 2026-10-14 prefix commit overlap — closed
 
 `WP-MTP-COMMIT-OVERLAP-20261014` / `AC-MTP-GREEDY-v79` owns one
