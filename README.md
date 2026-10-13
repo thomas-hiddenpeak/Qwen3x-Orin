@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: product introduction, bounded evaluation quick start, and high-level navigation
   effective: 2026-08-09
-  last_reviewed: 2026-09-28
+  last_reviewed: 2026-10-14
   supersedes: []
   superseded_by: []
   ssot_for: concise project introduction and bounded functional evaluation entry; dynamic state remains in docs/CURRENT_STATUS.md
@@ -20,10 +20,12 @@ NVIDIA Jetson AGX Orin (SM87)**. It provides OpenAI-compatible text and chat
 endpoints with streaming, using native kernels and a fixed execution plan.
 
 The default production service is `qwen3x-eval-server`: corrected whole-core
-Prefill plus ordered v7 Decode, packaged as **0.8.1**. The bounded production
+Prefill plus ordered v7 Decode, packaged as **0.8.2**. The bounded production
 switch is complete. Longer-context support and the remaining performance
 and full-release goals are tracked in [Current Status](docs/CURRENT_STATUS.md)
-and the [Roadmap](docs/ROADMAP.md).
+and the [Roadmap](docs/ROADMAP.md). The [0.8.2 corrective package](docs/metadata/qwen36-27b-softmax-package-2026-10-14.json)
+adds the validated softmax synchronization repair; its bounded installed checks
+do not renew the historical two-hour reliability qualification.
 
 ## Supported scope
 
@@ -110,7 +112,7 @@ The preset explicitly selects `BUILD_TESTING=OFF` and
 OFF also defaults to the service, but an existing CMake cache can retain old
 settings. Use the preset and a separate directory for experiments; do not mix
 production with admission options. C++ consumers must rebuild against the
-exact 0.8.1 installed package and its exported geometry definitions.
+exact 0.8.2 installed package and its exported geometry definitions.
 
 The release CTest lane checks the gateway, sealed identity, documentation,
 installed package and validation-tool failure cases even though `BUILD_TESTING=OFF`; production test

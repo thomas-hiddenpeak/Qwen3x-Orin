@@ -1,0 +1,267 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-SOFTMAX-PACKAGE-20261014",
+  "status": "bounded numerical correction installed and validated",
+  "parent_git": "26489169993dabc29c37e3ac5b5b816f912fc1b7",
+  "version": "0.8.2",
+  "install_prefix": "/home/rm01/Qwen3x-Orin/.q3x-work/install/softmax-sync-20261014",
+  "server_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+  "profile": "q3x.sm87.production.whole-core-service.v1",
+  "model": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "scope": "Installed synchronization-only corrective patch, not performance selection, renewed two-hour reliability or full product release qualification.",
+  "release_qualified": false,
+  "mtp_enabled_in_installed_package": false,
+  "previous_install_preserved": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+  "no_systemd_or_running_deployment_switch": true,
+  "numerical_admission": "2648916 and docs/metadata/qwen36-27b-softmax-sync-2026-10-14.json retain independent CPU, root racecheck, full Attention/Graph and state/transaction admission. No kernel edits in this packaging milestone.",
+  "gpu_code_identity": {
+    "baseline": "previously validated corrected non-MTP b320fc0",
+    "candidate": "installed0.8.2",
+    "gpu_fatbin_sections_identical": true,
+    "sections": {
+      ".nv_fatbin": "a1aad5c3dc7446c47aafb80b82562f9587adc07f5550e8633f350daf45c795ce"
+    },
+    "scope": "GPU code identical to corrected source-built comparator; package host/version identities revalidated separately."
+  },
+  "package_boundaries": {
+    "server_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "needed": [
+      "libicuuc.so.74",
+      "libicui18n.so.74",
+      "libcudart.so.13",
+      "libstdc++.so.6",
+      "libm.so.6",
+      "libgcc_s.so.1",
+      "libc.so.6",
+      "ld-linux-aarch64.so.1"
+    ],
+    "no_cublas_dynamic_dependency_or_API_symbol": true,
+    "no_mtp_detail_symbols": true,
+    "symbol_dump_sha256": "6e1b10367a8113c5427ada74f8927760a184b58b75fa5f15dd6a810b2549675d",
+    "initial_broad_substring_assertion": "Rejected historical source/wrapper names containing cublas. Source inspection shows those projection wrappers execute CUTLASS; they are not cuBLAS APIs. No runtime/library exclusion waived.",
+    "native_source": "src/kernels/sm87/fp8_dequant_cublas_projection.cu",
+    "native_source_sha256": "016d3b1be2c0d399b62bc6fb9c8f5df95783417eedd837485f3bbbc93403e536"
+  },
+  "host_validation": {
+    "production_ctests": 6,
+    "qualification_unit_tests": 17,
+    "initial_failures": "The installed test initially retained the 0.8.1 help regex, then PATCH=1 consumer assertion. Both exact-version expectations were corrected; initial five tests and final package test pass. Failed logs remain.",
+    "full_qualify_mode_unchanged": "7200 seconds and eight cancellation cycles; new numerical-patch guards require all fixtures, 60 seconds reuse and two cancellation cycles."
+  },
+  "api_validation": {
+    "patch": {
+      "summary": {
+        "passed": true,
+        "functional": {
+          "multilingual_parity_pairs": 24,
+          "cancel_recovery_cycles": 2,
+          "slow_ingress_clients": 12,
+          "queue_overload_http": 429
+        },
+        "capability": {
+          "valid": 98,
+          "correct": 79,
+          "reference_answers_equal": 98
+        },
+        "soak": {
+          "seconds": 60,
+          "requests": 15,
+          "rss_growth_kib": 0,
+          "inter_request_idle_seconds": 1.0
+        },
+        "requests": 184,
+        "mode": "numerical-patch",
+        "complete_witnesses": 184,
+        "capacity_metrics": [
+          {
+            "request_id": "cmpl-q3x-65",
+            "prompt_tokens": 8192,
+            "output_tokens": 256,
+            "prefill_seconds": 16.765609879,
+            "prefill_tok_s": 488.6192664104039,
+            "external_ttft_seconds": 16.786042931002157,
+            "decode_tok_s": 9.222011240088696,
+            "request_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+            "text_sha256": "02884d62c051880cf2790a9f07403cca9a3ea19c5d8a4f62f6706cdb95d9149b"
+          },
+          {
+            "request_id": "cmpl-q3x-66",
+            "prompt_tokens": 40000,
+            "output_tokens": 256,
+            "prefill_seconds": 89.991196753,
+            "prefill_tok_s": 444.4879215217964,
+            "external_ttft_seconds": 90.02595477999421,
+            "decode_tok_s": 7.866191703667165,
+            "request_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+            "text_sha256": "fca071470d3d6ceba279c818b429fe3b3a8c3bc7d579d6e3f75dddb1b5673b77"
+          },
+          {
+            "request_id": "cmpl-q3x-67",
+            "prompt_tokens": 40000,
+            "output_tokens": 4096,
+            "prefill_seconds": 90.17548013199999,
+            "prefill_tok_s": 443.57956222076666,
+            "external_ttft_seconds": 90.20873089400266,
+            "decode_tok_s": 7.779428679948539,
+            "request_sha256": "986af6402ad2efc387dc603ecb40e086a3a5397fab4576edae8cfafecabc283d",
+            "text_sha256": "1bb9d1082243fe5c34d8750cf1ee97cb790b8706a8a8fbd487a5171f7c2245d4"
+          },
+          {
+            "request_id": "cmpl-q3x-68",
+            "prompt_tokens": 44095,
+            "output_tokens": 1,
+            "prefill_seconds": 101.62592690700001,
+            "prefill_tok_s": 433.89518149588196,
+            "external_ttft_seconds": 101.66092056899652,
+            "decode_tok_s": null,
+            "request_sha256": "d534ee502991ded431c9d78b40c09193916a173d22c58446c8af5bac1a4c12fa",
+            "text_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+          }
+        ]
+      },
+      "cleanup": {
+        "server_returncode": 0,
+        "clock_errors": [],
+        "max_temp_c": 79.25
+      },
+      "complete_response_comparisons": 184,
+      "labeled_response_comparisons": 155,
+      "labeled_results": 155
+    },
+    "restart": {
+      "summary": {
+        "passed": true,
+        "soak": {
+          "seconds": 0,
+          "requests": 0,
+          "rss_growth_kib": 0,
+          "inter_request_idle_seconds": 1.0
+        },
+        "requests": 11,
+        "mode": "restart",
+        "complete_witnesses": 11,
+        "capacity_metrics": []
+      },
+      "cleanup": {
+        "server_returncode": 0,
+        "clock_errors": [],
+        "max_temp_c": 70.093
+      },
+      "complete_response_comparisons": 11,
+      "labeled_response_comparisons": 3,
+      "labeled_results": 3
+    }
+  },
+  "restart_same_package_consistency": true,
+  "paired_capacity_metrics": [
+    {
+      "request_id": "cmpl-q3x-65",
+      "prompt_tokens": 8192,
+      "output_tokens": 256,
+      "prefill_seconds": 16.765609879,
+      "prefill_tok_s": 488.6192664104039,
+      "external_ttft_seconds": 16.786042931002157,
+      "decode_tok_s": 9.222011240088696,
+      "request_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+      "text_sha256": "02884d62c051880cf2790a9f07403cca9a3ea19c5d8a4f62f6706cdb95d9149b",
+      "external_total_seconds": 44.43960914800118
+    },
+    {
+      "request_id": "cmpl-q3x-66",
+      "prompt_tokens": 40000,
+      "output_tokens": 256,
+      "prefill_seconds": 89.991196753,
+      "prefill_tok_s": 444.4879215217964,
+      "external_ttft_seconds": 90.02595477999421,
+      "decode_tok_s": 7.866191703667165,
+      "request_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+      "text_sha256": "fca071470d3d6ceba279c818b429fe3b3a8c3bc7d579d6e3f75dddb1b5673b77",
+      "external_total_seconds": 122.44610910199845
+    },
+    {
+      "request_id": "cmpl-q3x-67",
+      "prompt_tokens": 40000,
+      "output_tokens": 4096,
+      "prefill_seconds": 90.17548013199999,
+      "prefill_tok_s": 443.57956222076666,
+      "external_ttft_seconds": 90.20873089400266,
+      "decode_tok_s": 7.779428679948539,
+      "request_sha256": "986af6402ad2efc387dc603ecb40e086a3a5397fab4576edae8cfafecabc283d",
+      "text_sha256": "1bb9d1082243fe5c34d8750cf1ee97cb790b8706a8a8fbd487a5171f7c2245d4",
+      "external_total_seconds": 616.6448836929994
+    },
+    {
+      "request_id": "cmpl-q3x-68",
+      "prompt_tokens": 44095,
+      "output_tokens": 1,
+      "prefill_seconds": 101.62592690700001,
+      "prefill_tok_s": 433.89518149588196,
+      "external_ttft_seconds": 101.66092056899652,
+      "decode_tok_s": null,
+      "request_sha256": "d534ee502991ded431c9d78b40c09193916a173d22c58446c8af5bac1a4c12fa",
+      "text_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "external_total_seconds": 101.66123381999932
+    }
+  ],
+  "measurement_scope": "One process, no speedup or statistical regression claim. Pure engine Prefill, (O-1)/Decode interval, external TTFT and total from the same request. O1 has no Decode rate. 60-second capacity spacing and one-second reuse/capability cadence.",
+  "mtp_continuity": {
+    "retained_profile": "q3x.sm87.admission.mtp-softmax-sync-api.v86",
+    "retained_non_mtp_comparator": "b320fc0bdf2d734591c180f1f3e71556f2ee4535fba373cb2bf68fbc9c459614",
+    "d2_decode_ratios_P65_P8192_P40000": [
+      1.4021049863,
+      1.641006589,
+      1.4657244889
+    ],
+    "goal_achieved": false,
+    "next": "Complete Decode gap remains 72.798 ms short and 505.033 ms at 40K for the 1.5x floor. No new MTP performance observation in this package. Seed-prefix overlap is an unimplemented proposal, not an active runtime or gain."
+  },
+  "artifact_directory": ".q3x-work/softmax-package-20261014",
+  "artifact_manifest": ".q3x-work/softmax-package-20261014/artifact-manifest.json",
+  "evidence_sha256": {
+    "install-identity.json": "af4e7b7d8e2f32d2227ac74b643e0b998c4faa15718bf886011bcfe1f2c8fa38",
+    "gpu-code-identity.json": "3b3dfef3b9b75c3bd970a3dc3787dd7a442ed9c0b96c52e4ddab24a81063d6da",
+    "package-boundaries.json": "d5c873ec64779cdfa691acff1c95e4ef61c338667336d5bd87035f80d1beff98",
+    "comparison.json": "84fb68ad70743a88f65c08df4ef88ebd1751d4114060069eac8dfac0a3050465",
+    "source-final.patch": "6f13c87bb7793807e38f6911a4d65a44b59096f986d26a9b0913f94ad079baba",
+    "host-qualification-tests.log": "c69eb32cd6bb8b95b29500a7799b0afc368b29fd53fef950a41568da14b8785c",
+    "production-tests.log": "e3649f97b53d5ffcf3d1c60b913c2cd0aa7c7b94b7c3b277446d86a780803515",
+    "package-test-corrected.log": "baed5ea61eeacebabe907721c662c26dcb34b92a1dd1c97030f20ed2087895a3",
+    "package-test-final.log": "7c052e3cd6c2823174734c1da8a5a66b6f0fdb3c15b401e03e5bbe314ff612cf",
+    "hygiene.json": "ace38e3949db8770ed6f20edad92ca4a6a65d1e2341a6cf41b78fca81fed3b4b",
+    "final-preflight.json": "889d854e261c3d7d00c3976cb55dff3ad8e84540d86d7e278d11d87759425386",
+    "final-host-validation.json": "04028ed900bd32c3ec928cab47980261357da03013dad3195660262b3d729eb0",
+    "compare-package.py": "5014c339eb0be623e18f68d4bf2d03fe97b008bea6fb834e648ab1b4c565915a",
+    "short-attention-screen.json": "1ff4894e5efba0b94889cd89388062e50d9c39b5d02532470c038815cc177cdd",
+    "seed-prefix-overlap-proposal.json": "315c0c13ee645caae7459666e78e124962c0a7bf6dcd6a172613a87030a834cd"
+  },
+  "hygiene": {
+    "gpu_handles": 0,
+    "registered_worktrees": 47,
+    "candidate_install_files_rehashed": 81,
+    "predecessor_immutable": true,
+    "api_keys_remaining": 0,
+    "owned_tmp_entries": 0,
+    "all_model_processes_exited_zero": true
+  },
+  "final_host_validation": {
+    "document_control": {
+      "passed": true,
+      "tracked_markdown": 86,
+      "registry_entries": 86,
+      "headers_checked": 57,
+      "local_links_checked": 1389,
+      "errors": 0
+    },
+    "document_control_unit": {
+      "passed": true,
+      "tests": 7
+    },
+    "git_diff_check": {
+      "passed": true
+    }
+  },
+  "comparison_note": "An early invocation preceded restart summary creation and failed closed with FileNotFoundError; rerun only after restart exit0. Full response comparison includes all184+11 receipts, not only155+3 labeled bodies."
+}

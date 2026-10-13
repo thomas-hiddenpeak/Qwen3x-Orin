@@ -19,7 +19,26 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
-## 2026-10-14 softmax synchronization repair — source/API complete, packaging pending
+## 2026-10-14 softmax corrected package — complete
+
+`WP-SOFTMAX-PACKAGE-20261014` completes the remaining installed-artifact
+boundary of the synchronization repair, under this [bounded delivery contract](metadata/qwen36-27b-softmax-package-design-2026-10-14.json).
+Package 0.8.2 changes version/export identity only beyond the admitted repair.
+Keep the predecessor immutable; check the new exact installation, full supported
+capacity, 98 pinned capability answers, cancellation and fresh-process recovery.
+A dedicated numerical-patch mode performs those gates plus bounded request reuse;
+it does not claim a renewed two-hour reliability qualification or relax the
+existing full qualification mode. This is a correctness delivery prerequisite,
+not another performance experiment. The [completed delivery](metadata/qwen36-27b-softmax-package-2026-10-14.json)
+passes six applicable host/package tests, all 184 patch and 11 restart requests,
+complete predecessor response comparisons and owned shutdown. No further patch
+qualification loop is open. Resume MTP architecture work against the corrected
+v86 comparator: the short/40K full-Decode deficits remain 72.798/505.033 ms for
+the 1.5x floor. The full 1.5x–3x objective stays active. A seed-prefix/draft overlap
+proposal requires a bounded ownership/cost design before implementation; it has
+no current runtime or measured-gain authority.
+
+## 2026-10-14 softmax synchronization repair — source/API and package complete
 
 `WP-SOFTMAX-SYNC-20261014` preserves the independently discovered shared-memory
 lifetime repair after the PV experiment closes. Maximum reduction readers must
@@ -34,9 +53,8 @@ passes CPU comparison, root racecheck, complete P513 state/transactions and all
 24 API/lifecycle requests across corrected non-MTP/d2/d3. Complete responses
 match their predecessors; MTP token IDs and all non-timing work remain equal.
 Current Status owns the paired measurements and remaining target gap. The source
-repair is retained. The installed artifact still requires bounded exact-package
-correctness qualification before replacement; this ordinary direction panel does
-not silently authorize a deployed binary switch. Subsequent MTP optimization uses
+repair is retained. The separate exact-package work above closes corrective
+installation without a deployed process switch or full release claim. Subsequent MTP optimization uses
 the corrected comparator and unchanged full 1.5x–3x goal. No repeated PV work or
 extra hardware profile is selected by this closure.
 

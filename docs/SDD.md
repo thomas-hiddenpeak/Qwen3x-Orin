@@ -6,7 +6,7 @@ q3x_document:
   owner: project-owner
   authority: end-to-end external-to-internal runner system design
   effective: 2026-08-09
-  last_reviewed: 2026-09-28
+  last_reviewed: 2026-10-14
   supersedes: []
   superseded_by: []
   ssot_for: runner product shape, system boundaries, lifecycle, and release architecture
@@ -229,7 +229,7 @@ by [Current Status](CURRENT_STATUS.md), not inferred from this profile contract.
 
 The ordinary `orin-release` preset and fresh `BUILD_TESTING=OFF` build select
 `Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION`. This sealed build uses
-package ABI 0.8.1 and `BUILD_TESTING=OFF`. It fixes the corrected whole-core
+package ABI 0.8.2 and `BUILD_TESTING=OFF`. It fixes the corrected whole-core
 Prefill and scalar-equivalent ordered v7 Decode in one compiled plan,
 `q3x.sm87.production.whole-core-service.v1`. The normal server invocation
 uses that plan without a candidate, development or tactic selector. The installed-artifact qualification selects it as the ordinary default;
@@ -266,7 +266,12 @@ distinct: this bounded service does not claim the future 60K/130K capacity or
 locked 2s/4s Prefill SLOs. Its request witness identifies the corrected Prefill
 contract, scalar-equivalent Decode, actual rows and physical role counts.
 
-### 3.3 Service reliability boundary (0.8.1)
+Package 0.8.2 adds a CTA lifetime barrier between the softmax maximum read
+and shared denominator reuse, preserving the arithmetic and publication contract.
+The bounded exact-installed patch procedure owns its corrective delivery; the
+0.8.1 sustained-service evidence remains scoped to its original artifact.
+
+### 3.3 Service reliability boundary (introduced in 0.8.1)
 
 Byte-level token output is serialized incrementally as UTF-8. At most three
 incomplete bytes are carried between token callbacks. Invalid or terminally
@@ -410,7 +415,7 @@ position mismatch, or any uncertain boundary requires the conservative full
 reset. The request witness records the selected mode, cleared positions,
 zeroed bytes, and synchronized cleanup duration. This public receipt and the
 associated C++ object-layout changes originated in package ABI 0.7.0. The
-current service exports ABI 0.8.1; 0.x consumers must rebuild against the exact
+current service exports ABI 0.8.2; 0.x consumers must rebuild against the exact
 installed version.
 
 The v3 profile identity superseded v2 for the 0.7.0 reset-policy route.

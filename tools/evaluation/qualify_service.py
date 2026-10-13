@@ -228,14 +228,22 @@ def preflight(out, allow):
     require(drop.returncode == 0, 'cache preparation failed')
 
 
+def validate_mode(args, prompt):
+    require(isinstance(prompt, list) and len(prompt) >= 8192, 'real prompt fixture must provide >=8192 token IDs')
+    if args.mode in ('qualify', 'numerical-patch'):
+        require(len(prompt) >= 40000 and args.long_prompt_request and args.capability_cases and args.reference_results,
+                'qualification requires P40/long prompt, capability and reference fixtures')
+        if args.mode == 'qualify':
+            require(args.soak_seconds >= 7200 and args.cancel_cycles >= 8, 'qualification needs 2h soak and 8 cancellation cycles')
+        else:
+            require(args.soak_seconds >= 60 and args.cancel_cycles >= 2,
+                    'numerical patch needs 60s reuse and 2 cancellation cycles')
+
+
 def run(args):
     out = args.output.resolve(); out.relative_to(ROOT / '.q3x-work'); out.mkdir(parents=True, exist_ok=False)
     prompt = json.loads(args.prompt_request.read_text())['prompt']
-    require(isinstance(prompt, list) and len(prompt) >= 8192, 'real prompt fixture must provide >=8192 token IDs')
-    if args.mode == 'qualify':
-        require(len(prompt) >= 40000 and args.long_prompt_request and args.capability_cases and args.reference_results,
-                'qualification requires P40/long prompt, capability and reference fixtures')
-        require(args.soak_seconds >= 7200 and args.cancel_cycles >= 8, 'qualification needs 2h soak and 8 cancellation cycles')
+    validate_mode(args, prompt)
     preflight(out, args.allow_pid)
     key = os.urandom(24).hex(); key_path = out / 'api-key'; key_path.write_text(key); key_path.chmod(0o600)
     command = [str(args.server.resolve()), str(args.model_dir.resolve()), '--port', str(args.port), '--api-key-file', str(key_path)]
@@ -247,7 +255,9 @@ def run(args):
                                'driver_sha256': digest(Path(__file__)),
                                'mode': args.mode, 'soak_seconds': args.soak_seconds,
                                'soak_interval_seconds': args.soak_interval_seconds,
-                               'capacity_idle_seconds': 60})
+                               'capacity_idle_seconds': 60,
+                               'qualification_scope': ('bounded numerical patch; not full release or renewed 2h reliability qualification'
+                                   if args.mode == 'numerical-patch' else args.mode)})
     env = {k: v for k, v in os.environ.items() if not k.startswith(('Q3X_', 'VLLM_'))}
     for name, relative in (('TMPDIR', 'tmp'), ('CUDA_CACHE_PATH', 'cache/cuda'),
                            ('XDG_CACHE_HOME', 'cache')):
@@ -296,7 +306,7 @@ def run(args):
             require(len(prompt) >= 40000, 'performance panel requires real P40000 input')
             for p in (1, 65, 513, 1089, 8192, 40000):
                 client.request(body_for(prompt[:p], 256 if p >= 8192 else 16), label=f'performance-{p}')
-        if args.mode == 'qualify':
+        if args.mode in ('qualify', 'numerical-patch'):
             for p, o in [(8192, 256), (40000, 256), (40000, 4096)]:
                 print(f'capacity request P{p}/O{o}', flush=True)
                 client.request(body_for(prompt[:p], o), label=f'capacity-{p}-{o}')
@@ -385,7 +395,7 @@ def main():
     parser.add_argument('--reference-results', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--port', type=int, default=18871)
-    parser.add_argument('--mode', choices=('smoke', 'qualify', 'restart', 'performance'), default='smoke')
+    parser.add_argument('--mode', choices=('smoke', 'qualify', 'numerical-patch', 'restart', 'performance'), default='smoke')
     parser.add_argument('--soak-seconds', type=int, default=0)
     parser.add_argument('--soak-interval-seconds', type=float, default=1.0)
     parser.add_argument('--cancel-cycles', type=int, default=1)

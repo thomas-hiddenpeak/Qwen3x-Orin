@@ -6,7 +6,7 @@ q3x_document:
   owner: evaluation-maintainers
   authority: external API evaluation protocol, metric semantics, and artifact requirements
   effective: 2026-08-09
-  last_reviewed: 2026-09-28
+  last_reviewed: 2026-10-14
   supersedes: []
   superseded_by: []
   ssot_for: EvalScope and target-length external evaluation procedure
@@ -55,6 +55,22 @@ checks. Its current numerical reference is independently validated FP32 GDN
 and FP64 same-input Decode, not old Legacy per-token BF16 recurrence.
 The following historical preparation rules remain relevant only within their
 explicit route/version scope.
+
+### Bounded numerical-patch validation
+
+`qualify_service.py --mode numerical-patch` is reserved for a named, admitted
+synchronization-only corrective package such as the [softmax package](metadata/qwen36-27b-softmax-package-design-2026-10-14.json).
+It requires the P40 and maximum-prompt fixtures, all 98 pinned capability cases
+and reference answers, at least two cancellation cycles and 60 seconds of reuse.
+It exercises the full existing functional, P40000/O4096 and P44095/O1 capacity
+panels on the exact installed binary. A separate fresh-process restart closes
+the package boundary. Preserve all output, route, preflight and artifact checks.
+
+This mode is bounded patch evidence, not full release or performance promotion.
+It does not renew the predecessor's two-hour sustained-service result. The
+`qualify` mode still requires its original two-hour/eight-cycle protocol.
+Do not relabel a patch pass as full qualification or use it to waive a changed
+API, memory ownership, numerical class or performance-selection contract.
 
 ### Historical preparation and erratum
 

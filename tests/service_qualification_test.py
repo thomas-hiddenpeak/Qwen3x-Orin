@@ -10,6 +10,38 @@ sys.path.insert(0, str(ROOT / 'tools/evaluation'))
 from compare_service_runs import PerformanceRegression, compare_runs
 
 
+class QualificationModeContract(unittest.TestCase):
+    def setUp(self):
+        from types import SimpleNamespace
+        from qualify_service import validate_mode
+        self.validate = validate_mode
+        self.args = SimpleNamespace(mode='numerical-patch', long_prompt_request=Path('long'),
+            capability_cases=Path('cases'), reference_results=Path('reference'),
+            soak_seconds=60, cancel_cycles=2)
+        self.prompt = [1] * 40000
+
+    def test_patch_does_not_weaken_full_qualification(self):
+        self.validate(self.args, self.prompt)
+        self.args.mode = 'qualify'
+        with self.assertRaisesRegex(RuntimeError, '2h soak'):
+            self.validate(self.args, self.prompt)
+
+    def test_patch_requires_complete_numerical_inputs(self):
+        for field in ('long_prompt_request', 'capability_cases', 'reference_results'):
+            original = getattr(self.args, field)
+            setattr(self.args, field, None)
+            with self.assertRaisesRegex(RuntimeError, 'reference fixtures'):
+                self.validate(self.args, self.prompt)
+            setattr(self.args, field, original)
+
+    def test_patch_rejects_short_prompt_and_missing_reuse(self):
+        with self.assertRaisesRegex(RuntimeError, 'reference fixtures'):
+            self.validate(self.args, self.prompt[:8192])
+        self.args.soak_seconds = 0
+        with self.assertRaisesRegex(RuntimeError, '60s reuse'):
+            self.validate(self.args, self.prompt)
+
+
 class ComparisonContract(unittest.TestCase):
     def setUp(self):
         work = ROOT / '.q3x-work'

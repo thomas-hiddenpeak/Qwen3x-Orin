@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-SOFTMAX-PACKAGE-20261014",
+  "parent": "2648916",
+  "product_constraint": "Deliver corrected ordinary numerical reference before completing production MTP qualification; retain unchanged 1.5x\u20133x MTP objective and all accuracy/output contracts.",
+  "change": "Package0.8.2 with existing four softmax lifetime barriers; no further kernel, model, API, state or MTP change. Update exact-version consumer.",
+  "validation_class": "bounded correctness patch delivery, not performance selection or full release qualification",
+  "gates": [
+    "Existing root racecheck, independent CPU and complete P513 state/transaction gates from2648916 remain arithmetic admission.",
+    "Exact new install: six production CTests, package consumer, dependency/selector/symbol checks.",
+    "One exact-installed numerical-patch API process: multilingual streaming/usage/queue behavior, two cancellation cycles, P8192/O256,P40000/O256,P40000/O4096,P44095/O1,98pinned capability answers,60s bounded reuse.",
+    "Fresh installed-process restart and exact response comparisons; paired Prefill/TTFT/Decode/total with no speedup claim.",
+    "No change to original full qualification mode:2h reuse,8 cancellation cycles and all earlier gates still required when that mode is requested."
+  ],
+  "scope_limit": "Patch validates unchanged synchronization-only computation and package deployment. Does not renew 2h reliability or achieve MTP acceleration; corrected MTPv86 comparison remains source/binary-scoped.",
+  "rollback": "Preserve installed5ee0.8.1 immutable; select new separately installed artifact only after applicable checks. A failed gate retains candidate evidence and no promotion.",
+  "artifacts": ".q3x-work/softmax-package-20261014",
+  "install_prefix": ".q3x-work/install/softmax-sync-20261014",
+  "bounds": {
+    "kernel_variants": 0,
+    "profiles": 0,
+    "full_soak_repeats": 0
+  }
+}

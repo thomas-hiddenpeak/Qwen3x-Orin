@@ -456,3 +456,9 @@ The partitioned PV pipeline package updates existing MTP SDD, Roadmap and Curren
 The partitioned PV composition is removed after negative 8K direction; the independently discovered softmax synchronization repair remains and refreshes the API comparator. Existing MTP SDD, Current Status and Roadmap own that boundary; no Markdown paths or classes change.
 
 The Decode common-op contract now records the shared softmax lifetime barrier and targeted CPU/racecheck regression. Its existing path and contract classification are unchanged.
+
+The bounded softmax corrected-package work updates Roadmap and the evaluation procedure without changing Markdown paths or classes. The separate numerical-patch mode does not supersede full service qualification.
+
+The 0.8.2 softmax corrective package closes its installed boundary and updates
+existing README, SDD, Current Status, Roadmap and evaluation procedure. Historical
+reliability evidence remains scoped to 0.8.1; no Markdown paths or classes change.

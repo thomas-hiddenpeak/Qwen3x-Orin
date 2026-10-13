@@ -23,12 +23,15 @@ work. Historical failures and measurements retain their original scope.
 
 **The corrected whole-core Prefill service is the ordinary mainline default.**
 `orin-release` and fresh `BUILD_TESTING=OFF` builds select
-`Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=ON`, package 0.8.1, profile
+`Q3X_BUILD_WHOLE_CORE_SERVICE_PRODUCTION=ON`, package 0.8.2, profile
 `q3x.sm87.production.whole-core-service.v1`, without a candidate/tactic selector.
 The exact installed binary is
-`5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33`.
-The 0.8.1 [industrialization record](metadata/qwen36-27b-service-industrialization-2026-09-28.json)
-binds the current artifact and reliability checks. Model arithmetic is unchanged.
+`6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f`, installed under
+`.q3x-work/install/softmax-sync-20261014/`. The [0.8.2 patch record](metadata/qwen36-27b-softmax-package-2026-10-14.json)
+binds this artifact and its bounded corrective validation. No systemd unit or
+running deployment was switched. The preserved 0.8.1 [industrialization record](metadata/qwen36-27b-service-industrialization-2026-09-28.json)
+binds the predecessor and its two-hour reliability checks. Arithmetic is unchanged;
+0.8.2 repairs shared-memory synchronization.
 The preceding 0.8.0 [production record](metadata/qwen36-27b-whole-core-service-production-2026-09-28.json)
 binds the frozen source, artifact, installed consumer, independent numerical
 references, capability, route, lifecycle and mirrored API checks.
@@ -43,7 +46,7 @@ owner-only Bearer key file; TLS termination is external.
 
 The installed service has no admission/tactic CLI, forced-token or state
 inspection hook, cuBLAS/cuBLASLt dynamic dependency, or request-time projection
-workspace growth. It exports the exact 0.8.1 geometry to installed consumers.
+workspace growth. It exports the exact 0.8.2 geometry to installed consumers.
 The diagnostic `qwen3x-orin generate` CLI retains its explicit legacy options;
 use `qwen3x-eval-server` for this production route.
 
@@ -62,11 +65,24 @@ causal domains and state semantics are unchanged. CPU comparisons, root racechec
 72 complete Attention/Graph cases and P513 full-state/transaction checks pass.
 Prior ordinary bitwise equality did not prove absence of this race.
 
-**Source is repaired; the installed 5ee artifact above is unchanged and still
-contains the identified gap.** The corrected ordinary production-profile binary
-has fresh P65/8K/40K and eight API/lifecycle checks, but is not installed or release
-qualified by this direction screen. Exact-artifact packaging remains outstanding.
-Existing historical qualification/measurements retain their original scope.
+**The corrected 0.8.2 package is installed and its bounded checks are complete.**
+All 184 patch requests and 11 fresh-process requests have complete route receipts.
+The 98 pinned capability answers match the reference (79 correct); full capacity,
+multilingual parity, cancellation, queue behavior and bounded reuse pass. The old
+5ee artifact is preserved unchanged and contains the race; it is historical.
+This does not renew two-hour reliability, select a performance improvement or
+complete full release qualification.
+
+The following same-request non-MTP patch observations are separate from the MTP
+comparator below. Pure Prefill and Decode use engine intervals; TTFT and total
+are external. Each row is one observation, with 60-second capacity spacing.
+
+| P / O | Prefill s | Prefill token/s | TTFT s | Decode token/s | Total s |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 8192 / 256 | 16.766 | 488.62 | 16.786 | 9.222 | 44.440 |
+| 40000 / 256 | 89.991 | 444.49 | 90.026 | 7.866 | 122.446 |
+| 40000 / 4096 | 90.175 | 443.58 | 90.209 | 7.779 | 616.645 |
+| 44095 / 1 | 101.626 | 433.90 | 101.661 | N/A | 101.661 |
 
 ## MTP development status
 
@@ -109,7 +125,8 @@ D2 reaches 1.402x/1.641x/1.466x non-MTP Decode at P65/8K/40K; d3 reaches 1.310x/
 against the refreshed comparator. The repair resolves a race; it is not a newly
 qualified speedup. Prefill interval variation is not attributed to the added
 Decode synchronization. Use these corrected source-built comparators for the
-next bounded architecture; retain the installed predecessor's separate boundary.
+next bounded architecture. The corrected 0.8.2 installation has identical GPU
+code, but its separate patch observations do not silently replace that denominator.
 
 ### Preceding NV live-reduction direction
 
@@ -634,7 +651,7 @@ The long-output finish is `length` with 4,096 actual generated tokens.
 Use the root [quick start](../README.md#functional-evaluation-quick-start) or
 `cmake --preset orin-release`, build, then install under `.q3x-work/install/`.
 An existing hand-configured cache may retain OFF; the ordinary preset explicitly
-sets the production option ON. Consumers must request exact package 0.8.1.
+sets the production option ON. Consumers must request exact package 0.8.2.
 
 The frozen correct candidate `f322f10` remains the numerical/performance
 reproduction anchor. To reproduce Legacy, explicitly configure

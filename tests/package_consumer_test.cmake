@@ -46,7 +46,7 @@ if(Q3X_EXPECT_EVAL_SERVER)
     ERROR_VARIABLE server_help_error
   )
   if(NOT server_help_result EQUAL 0 OR
-     NOT server_help_output MATCHES "evaluation server 0\\.8\\.1" OR
+     NOT server_help_output MATCHES "evaluation server 0\\.8\\.2" OR
      NOT server_help_output MATCHES
        "${Q3X_EXPECT_PROFILE}")
     message(FATAL_ERROR
