@@ -1,0 +1,193 @@
+{
+  "date": "2026-10-13",
+  "work_package_id": "WP-MTP-FP8-ACTIVATION-STAGE-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v68",
+  "source_parent": "88e1d4e",
+  "decision_unit": "architecture_candidate",
+  "decision": {
+    "decision": "remove",
+    "reason": "Completed P65 d2 Decode -5.9336 percent exceeds predeclared3 percent stop loss; no completed8K/40K/d3 result.",
+    "numerical_pass": true,
+    "api_checks_completed": 1,
+    "goal_complete": false,
+    "production_changed": false
+  },
+  "production_changed": false,
+  "goal_complete": false,
+  "profile": "q3x.sm87.admission.mtp-fp8-activation-stage-api.v69",
+  "server_sha256": "49e9a418919de086e5c2258fbd522094270aa93329c4ffaf61e3ca0377250b14",
+  "oracle_sha256": "a24756e9f63ba0228ccb565ab05d8448df8a83d30a6c51f6c9f4acbf81358de8",
+  "artifact_root": ".q3x-work/mtp-fp8-activation-stage-20261013",
+  "numerical": {
+    "synthetic_full_output_guard_cases": 72,
+    "payload_scope": "All six FP8 roles/layouts, M2/3/4, finite/NaN FP8 codes and finite/signed-zero/subnormal/Inf/NaN BF16 activations;128-bit and legacy8-byte aligned inputs.",
+    "prefix_groups": 3,
+    "complete_prefixes": 9,
+    "transactions": 15,
+    "failure_recoveries": 4,
+    "synthetic_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 59.281
+    },
+    "oracle_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 68.281
+    }
+  },
+  "actual_server_resources": [
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj4ELb1EEEvPKhfPKtjjPt:",
+      "resources": "REG:107 STACK:0 SHARED:38400 LOCAL:0 CONSTANT[0]:392 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj4ELb0EEEvPKhfPKtjjPt:",
+      "resources": "REG:101 STACK:0 SHARED:38400 LOCAL:0 CONSTANT[0]:392 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj3ELb1EEEvPKhfPKtjjPt:",
+      "resources": "REG:79 STACK:0 SHARED:38272 LOCAL:0 CONSTANT[0]:392 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj3ELb0EEEvPKhfPKtjjPt:",
+      "resources": "REG:80 STACK:0 SHARED:38272 LOCAL:0 CONSTANT[0]:392 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj2ELb1EEEvPKhfPKtjjPt:",
+      "resources": "REG:64 STACK:0 SHARED:25856 LOCAL:0 CONSTANT[0]:392 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj2ELb0EEEvPKhfPKtjjPt:",
+      "resources": "REG:64 STACK:0 SHARED:25856 LOCAL:0 CONSTANT[0]:392 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    }
+  ],
+  "api": {
+    "metrics": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.890128238,
+        "prefill_tps": 73.02318612658146,
+        "decode_tps": 12.037183959040654,
+        "ttft_s": 0.9087412799999584,
+        "elapsed_s": 2.154785451000862,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-fp8-activation-stage-v69",
+          "draft_length": 2,
+          "startup_free_bytes": 11056209920,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "confidence_threshold": 0.4,
+          "proposal_histogram": [
+            1,
+            0,
+            6,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "entry_hidden_snapshots": 7,
+          "direct_gdn_state_rows": 912,
+          "seed_kv_reuses": 6,
+          "state_copy_bytes_elided": 1987054592,
+          "draft_initialization_ms": 5.667126,
+          "draft_ms": 127.083815,
+          "verify_ms": 1097.681208,
+          "reconcile_ms": 20.991305999999998,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "comparison": [
+      {
+        "stage": "p65",
+        "decode_ratio_vs_v64": 0.9406638524286957,
+        "decode_ratio_vs_nonmtp": 1.2564211063300108,
+        "draft_saved_ms": -1.0253139999999945,
+        "verify_saved_ms": -73.04743400000007,
+        "full_decode_saved_s": -0.07394106599999994,
+        "prefill_delta_s": 0.0011554179999999636,
+        "total_delta_s": 0.07499034375541669
+      }
+    ],
+    "completed_api_checks": 1,
+    "output_ids_equal_v64": true,
+    "work_equal_v64": true
+  },
+  "api_cleanup": {
+    "success": false,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 63.625
+  },
+  "driver_result": {
+    "returncode": -2,
+    "early_stop": true
+  },
+  "restoration": {
+    "server": {
+      "retained_sha256": "c4d9df64972f64d9bafeba6d5a4e92376ef23d1b5e5956b1a491ad1e1dea3e05",
+      "rebuilt_sha256": "78b5ccaf3a4aa8537a62372e02ea4325a2ef1f36ddf31394c909c8d2111fc6bd",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "2779c9075d6b6ea19f7133721e7e1175830f6ad813d564ca6d2dc2fb601edda0",
+      "rebuilt_sha256": "daf9ca8123209fd726258875f5622c24555a4147471f50a06ec752c22bfd6032",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "hygiene": {
+    "gpu_handles": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": ""
+    },
+    "keys_removed": true,
+    "temporary_directory_empty": true,
+    "registered_worktrees": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "limits": [
+    "One valid P65/O16 d2 result;8K had entered when the watch driver interrupted it, so it has no completed output or timing claim. No40K/d3 or full lifecycle panel.",
+    "Whole Decode adds73.941066ms, of which verification adds73.047434ms. Exact output and work counts are unchanged.",
+    "Added shared publication and maximum-shared carveout are the composed change; no new counter capture isolates shared traffic, cache pressure or another stall cause.",
+    "No numerical fallback or production promotion. No parameter/carveout/profiler scan follows this closed version. The1.5x\u20133x goal remains active."
+  ],
+  "validation": {
+    "host_ctest_passed": 3,
+    "host_ctest_failed": 0,
+    "document_unit_passed": 7,
+    "document_control": {
+      "passed": true,
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1309
+    },
+    "git_diff_check": true
+  },
+  "artifact_manifest": ".q3x-work/mtp-fp8-activation-stage-20261013/artifact-manifest.json"
+}

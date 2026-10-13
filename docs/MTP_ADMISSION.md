@@ -1823,6 +1823,24 @@ scan or policy implementation follows. This dependency is archived, all host
 telemetry changes are removed and v64 remains current. The result does not
 claim every cost-based scheduler fails or that the product target is impossible.
 
+## FP8 activation publication composition v68 — removed
+
+The [bounded candidate](metadata/qwen36-27b-mtp-fp8-activation-stage-design-2026-10-13.json)
+publishes min(M,3) complete BF16 inputs into CTA-owned shared storage using
+128-bit copies. The existing LUT barrier orders consumers, so no inner barrier
+is introduced. K5120/6144 use a fixed 6144-element row stride; M4's fourth row
+keeps its existing global load and prefetch. No new weight layout, arena,
+round allocation, FMA order or rounding is introduced. Shared residency ends
+with the CTA; maximum shared carveout admits the original register occupancy
+floors. This is a demand-placement/vector-width hypothesis, not additional
+activation reuse or a performance claim. Complete API selection bounds it.
+
+The [completed rejection](metadata/qwen36-27b-mtp-fp8-activation-stage-rejection-2026-10-13.json)
+passes complete numerical/state admission but regresses P65 API Decode by 5.93%,
+triggering the 3% stop loss. All new input staging and profile paths are removed;
+v64 is restored. The exact whole-path loss does not establish a measured
+cache/shared-memory stall cause, and no carveout or launch scan follows.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

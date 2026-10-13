@@ -1,0 +1,43 @@
+{
+  "work_package_id": "WP-MTP-FP8-ACTIVATION-STAGE-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v68",
+  "source_parent": "88e1d4e",
+  "product_constraint": "1.5x\u20133x same-request committed Decode, maxima2/3, exact target full state/logits/output, paired Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "remaining_v64_40k_full_decode_s": 1.264435333,
+    "historical_v48_fp8_gpu_s": 5.869083328,
+    "logical_activation_read_bytes_per_weight_byte": "M/2 per CTA before cache reuse; incumbent reads M*K BF16 for N/4 CTAs. New 128-bit publication halves input global instruction count relative to current64-bit demand reads for staged rows, before cache effects.",
+    "qualification": "L1 residency and current stall attribution are not assumed measured; this is an operand-delivery hypothesis, not a promised phase or API gain."
+  },
+  "mechanism": "Stage complete unchanged BF16 input for min(M,3) rows in CTA-owned shared memory before the existing LUT barrier. Use128-bit coalesced publication, unchanged64-bit shared reads in the K loop; M4 final row keeps native global load/prefetch. Packed weight loads and weight prefetch remain native. Fixed6144-row stride fits K5120/6144; set maximum shared carveout to admit incumbent register-limited CTA counts.",
+  "equivalence": "Pure bit-preserving input storage transfer. Same K subsequences, FP32 FMA chains, scalar weight decoding, complete live warp/block reduction, global scale and BF16 publication. No projection reassociation, packed-weight shared ring or inner CTA rendezvous. Inputs remain immutable through launch; publication is CTA-private and the existing full-CTA LUT barrier releases all consumers.",
+  "resources": {
+    "staged_rows": "min(M,3)",
+    "activation_bytes": "min(M,3)*6144*2",
+    "maximum_static_shared_bytes": 38400,
+    "request_allocation_bytes": 0,
+    "new_steady_state_barriers": 0
+  },
+  "reference": "Transfer existing retained NV Gate input residency to FP8 as an upfront operand-publication schedule. FP8 has no extra intra-CTA activation reuse claim: the benefit hypothesis is demand-load placement/vector width, with extra shared movement charged to API. Prior FP32 global activation expansion and compressed-weight asynchronous pipelines are distinct and remain closed. Existing Marlin cooperative operand staging is reference only; no imports or dependencies.",
+  "gates": [
+    "Compile and no-spill/resource admission.",
+    "Complete scalar-incumbent FP8 output/guard checks for canonical/sidecar and M2/3/4, finite and exceptional payloads.",
+    "P65 complete scalar target/state/cache transactions, then immediate d2 P65/8K/40K API; >3 percent slowdown or nonpositive8K stops. Useful long direction unlocks d3."
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "profiler_captures": 0,
+    "parameter_scans": 0
+  },
+  "expiry": "Next complete API composition or explicit rejection; no local timing campaign.",
+  "production_changed": false,
+  "artifact_root": ".q3x-work/mtp-fp8-activation-stage-20261013",
+  "rollback_files": [
+    "src/runtime/mtp_verify_projection_internal.cu",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ]
+}

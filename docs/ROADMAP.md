@@ -19,6 +19,34 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-13 FP8 activation publication — closed negative
+
+`WP-MTP-FP8-ACTIVATION-STAGE-20261013` / `AC-MTP-GREEDY-v68` owns the
+[complete-input publication](metadata/qwen36-27b-mtp-fp8-activation-stage-design-2026-10-13.json).
+The remaining 40K full-Decode budget and historical 5.869-second FP8 family
+select this fixed operand-delivery change. Publish unchanged BF16 input rows
+with 128-bit copies before the existing CTA barrier; consume them from shared
+memory through the unchanged scalar FMA/reduction trees. M4 stages three rows
+and retains its last global row. No extra intra-CTA reuse or measured stall
+cause is assumed. Fixed shared carveout, no spill, complete numerical and
+state admission precede immediate API selection. One implementation and one
+possible correctness repair; no parameter/profiler scan. Nonpositive8K or
+>3% slowdown closes it; useful long direction unlocks d3. Production stays fixed.
+
+The [completed rejection](metadata/qwen36-27b-mtp-fp8-activation-stage-rejection-2026-10-13.json)
+passes 72 full FP8 output/guard cases, nine complete prefixes, fifteen state/cache
+transactions and four failure recoveries. P65/O16 d2 preserves output and work
+but Decode falls to 12.037 token/s from 12.796 (-5.93%). Prefill is 0.890 seconds /
+73.02 token/s, TTFT 0.909 seconds and total 2.155 seconds. Verification adds
+73.047ms; complete Decode adds 73.941ms.
+
+The predeclared 3% stop loss closes this composition. The already-entered 8K
+request is interrupted and has no completed timing/output claim; 40K/d3 and
+full lifecycle qualification do not follow. All candidate paths are removed
+and v64 program sections restored exactly. There is no new profiler attribution
+for the added shared traffic or changed cache partition, and no subsequent
+carveout/launch scan. The full 1.5x–3x goal and production remain unchanged.
+
 ## 2026-10-13 lookahead cost — diagnosis archived
 
 `WP-MTP-LOOKAHEAD-COST-20261013` / `AC-MTP-GREEDY-v67` owns the
