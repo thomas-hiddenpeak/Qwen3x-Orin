@@ -1,0 +1,522 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-SOFTMAX-SYNC-20261014",
+  "source_parent": "3cd3088",
+  "status": "source_repair_and_bounded_API_revalidation_complete",
+  "product_constraint": "Correct reference and target numerical execution before assessing the owner 1.5x\u20133x MTP Decode objective; preserve output/state and report Prefill/TTFT/Decode/total.",
+  "discovery": "Root racecheck during the separate PV experiment reports cross-warp reads of shared reduced maximum overlapping denominator writes. Ordinary output equality did not prove race freedom.",
+  "repair": "One CTA lifetime barrier after maximum=partial[0] in MTP aligned_softmax and three reference softmax kernels. No arithmetic, reduction, precision, causal-domain, state or allocation change.",
+  "scope_files": [
+    "src/runtime/mtp_verify_attention_internal.cu",
+    "src/kernels/reference/decode_ops.cu",
+    "tests/decode_ops_cuda_test.cu"
+  ],
+  "reference_regression": {
+    "columns": [
+      37,
+      256,
+      257,
+      513
+    ],
+    "rows": 5,
+    "cpu_abs_tolerance": 3e-06,
+    "short_fused_sequences": [
+      1,
+      16,
+      20,
+      32,
+      44,
+      64
+    ],
+    "checks": [
+      "CPU softmax",
+      "generic Attention",
+      "scalar/shared-tree/production short fused Attention complete output",
+      "nonfinite propagation",
+      "root racecheck"
+    ],
+    "note": "--report-api-errors no suppresses deliberately injected stale host API errors in the existing regression test; GPU race diagnostics remain enabled."
+  },
+  "correctness": {
+    "reference-racecheck": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 59.343
+    },
+    "synccheck-fixed-softmax": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "racecheck-fixed-softmax": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 61.781
+    },
+    "synthetic-fixed-softmax": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 59.125
+    },
+    "payload-check": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "payload_timing": {
+      "median_ms": 1.7926560045,
+      "min_ms": 1.78966403,
+      "max_ms": 1.796288013,
+      "samples": 8,
+      "scope": "component only; different binaries, not whole API or speedup qualification",
+      "complete_output_equal": true
+    },
+    "synthetic_cases": 72,
+    "oracle": {
+      "complete_prefixes": 9,
+      "state_cache_transactions": 15,
+      "verification_failure_recoveries": 4,
+      "initialization_cancel_recoveries": 8,
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 72.812
+      }
+    }
+  },
+  "source_and_binary_identity": {
+    "performance_pipeline_removed": true,
+    "softmax_correctness_fix_retained": true,
+    "profile": "q3x.sm87.admission.mtp-softmax-sync-api.v86",
+    "files": {
+      "nonmtp": "b320fc0bdf2d734591c180f1f3e71556f2ee4535fba373cb2bf68fbc9c459614",
+      "source.patch": "80f01664cfa073b7e7c6794816e0485c8116dea6409ff9e84823278eadc4df29",
+      "oracle": "5671b5e1e6d67a6cf696590cb5059faffdb23b1de23f641482ccf349e34f2178",
+      "server": "72caa037fd493e53d24bbaf3c799b9faca895706f509458d77b87cf7373a0927",
+      "tests/decode_ops_cuda_test.cu": "435a64e17fdd9c73e477a2fed7213d2af7eb852754390a9b467c0d1d88874b44",
+      "include/q3x/server/evaluation_server.h": "134c6a598c8ff7bf7d6f1c4435559fe0cc864282d3852a7192310d3071c7cb5d",
+      "src/server/evaluation_server.cpp": "c8fcbf52dc69d8cd9b42ce7e448a16e0d3e46159e796325d2b94342238195b5d",
+      "src/runtime/mtp_verify_attention_internal.cu": "dae91bde16a7fd63e252897ad354d07abef730c57f94181a13494d3ecdba54b2",
+      "src/runtime/mtp_service_internal.cpp": "2e3a5de72aff38b43ba137adbeb617efc4faaa3f812cdaa55aa82bca6454792f",
+      "src/kernels/reference/decode_ops.cu": "5cf7b20a77360d47a680f0bfa3fa1baa5e4496bf2c550a88b79f2b4ccaf09da0",
+      "tools/evaluation/validate_mtp_service.py": "7b6bd441fa93cf2c52deca8488a66bfa864669a4c3555afcc2977a5ea6ac371f"
+    },
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "api": {
+    "baseline": {
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 76.218
+      },
+      "completed_api_checks": 8,
+      "all_response_text_usage_finish_request_identity_equal_predecessor": true,
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.895281797,
+          "prefill_tps": 72.60283881321894,
+          "decode_tps": 9.590927706696325,
+          "ttft_s": 0.9140951560038957,
+          "elapsed_s": 2.4779739930017968,
+          "mtp": null
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 16.803328857,
+          "prefill_tps": 487.5224468744086,
+          "decode_tps": 9.221900628247822,
+          "ttft_s": 16.825088190002134,
+          "elapsed_s": 44.47980284400546,
+          "mtp": null
+        },
+        {
+          "stage": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 90.108501859,
+          "prefill_tps": 443.90927797902145,
+          "decode_tps": 7.871552387943655,
+          "ttft_s": 90.14411646600638,
+          "elapsed_s": 122.5422826300055,
+          "mtp": null
+        }
+      ],
+      "nonmtp_output_scope": "Complete response text/usage/finish plus pinned input identity; no generated-token-ID witness on this ordinary route.",
+      "completed_physical_route_witnesses_audited": 8,
+      "route_audit_scope": "Exact response binding, full prompt identity, phase/operator coverage and no forbidden/fallback route; ordinary direction, no mirrored or installed qualification."
+    },
+    "d2": {
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 76.937
+      },
+      "completed_api_checks": 8,
+      "all_response_text_usage_finish_request_identity_equal_predecessor": true,
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8908400780000001,
+          "prefill_tps": 72.96483578279242,
+          "decode_tps": 13.447487561074006,
+          "ttft_s": 0.9169587750002393,
+          "elapsed_s": 2.0323370300029637,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-softmax-sync-v86",
+            "draft_length": 2,
+            "startup_free_bytes": 10899103744,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "direct_gdn_state_rows": 912,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 1987054592,
+            "draft_initialization_ms": 5.709196,
+            "draft_ms": 113.685322,
+            "verify_ms": 980.7653470000001,
+            "reconcile_ms": 20.249626,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.356116606000004,
+          "prefill_tps": 471.99498516667194,
+          "decode_tps": 15.133199694392973,
+          "ttft_s": 17.378250087997003,
+          "elapsed_s": 34.22890222800197,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-softmax-sync-v86",
+            "draft_length": 2,
+            "startup_free_bytes": 10899103744,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 98,
+            "proposed": 187,
+            "accepted": 157,
+            "verified_rows": 285,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              71,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              9,
+              89,
+              0
+            ],
+            "draft_ordered_attention_steps": 187,
+            "entry_hidden_snapshots": 98,
+            "direct_gdn_state_rows": 13680,
+            "seed_kv_reuses": 98,
+            "state_copy_bytes_elided": 29253216256,
+            "draft_initialization_ms": 567.124371,
+            "draft_ms": 1787.433875,
+            "verify_ms": 14710.021078999998,
+            "reconcile_ms": 348.16364999999996,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 92.99170704000001,
+          "prefill_tps": 430.14588368395215,
+          "decode_tps": 11.537527100568102,
+          "ttft_s": 93.02695358300116,
+          "elapsed_s": 115.13031591699837,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-softmax-sync-v86",
+            "draft_length": 2,
+            "startup_free_bytes": 10899103744,
+            "prompt_rows": 40000,
+            "draft_prefill_rows": 39999,
+            "initialized": true,
+            "rounds": 105,
+            "proposed": 200,
+            "accepted": 150,
+            "verified_rows": 305,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              64,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              10,
+              95,
+              0
+            ],
+            "draft_ordered_attention_steps": 200,
+            "entry_hidden_snapshots": 105,
+            "direct_gdn_state_rows": 14640,
+            "seed_kv_reuses": 105,
+            "state_copy_bytes_elided": 31315768320,
+            "draft_initialization_ms": 2763.18352,
+            "draft_ms": 2144.4493610000004,
+            "verify_ms": 19610.349731000002,
+            "reconcile_ms": 341.98977600000006,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "all_token_ids_and_nontiming_work_equal_v79": true,
+      "decode_ratio_vs_corrected_nonmtp": {
+        "p65": 1.4021049863283876,
+        "p8192": 1.6410065890363328,
+        "p40000": 1.4657244888872722
+      }
+    },
+    "d3": {
+      "cleanup": {
+        "success": true,
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 76.5
+      },
+      "completed_api_checks": 8,
+      "all_response_text_usage_finish_request_identity_equal_predecessor": true,
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.890368964,
+          "prefill_tps": 73.00344309845013,
+          "decode_tps": 12.560131230528667,
+          "ttft_s": 0.9164118230037275,
+          "elapsed_s": 2.1105673080019187,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-softmax-sync-v86",
+            "draft_length": 3,
+            "startup_free_bytes": 10880253952,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 6,
+            "proposed": 16,
+            "accepted": 9,
+            "verified_rows": 22,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              3,
+              2
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              0,
+              2,
+              4
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 6,
+            "direct_gdn_state_rows": 1056,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 2134603776,
+            "draft_initialization_ms": 5.582827,
+            "draft_ms": 151.07842,
+            "verify_ms": 1022.0736370000001,
+            "reconcile_ms": 20.375711000000003,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.341853777,
+          "prefill_tps": 472.38317802360973,
+          "decode_tps": 14.150626913764706,
+          "ttft_s": 17.363936189001834,
+          "elapsed_s": 35.38462983699719,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-softmax-sync-v86",
+            "draft_length": 3,
+            "startup_free_bytes": 10880253952,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 85,
+            "proposed": 226,
+            "accepted": 170,
+            "verified_rows": 311,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              73,
+              57,
+              40
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              11,
+              7,
+              67
+            ],
+            "draft_ordered_attention_steps": 226,
+            "entry_hidden_snapshots": 85,
+            "direct_gdn_state_rows": 14928,
+            "seed_kv_reuses": 85,
+            "state_copy_bytes_elided": 30189888512,
+            "draft_initialization_ms": 555.327259,
+            "draft_ms": 2174.461922,
+            "verify_ms": 15480.455957000007,
+            "reconcile_ms": 360.726227,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 92.79853335700001,
+          "prefill_tps": 431.0412950829541,
+          "decode_tps": 10.845885227429667,
+          "ttft_s": 92.83354380499804,
+          "elapsed_s": 116.34636673700152,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-softmax-sync-v86",
+            "draft_length": 3,
+            "startup_free_bytes": 10880253952,
+            "prompt_rows": 40000,
+            "draft_prefill_rows": 39999,
+            "initialized": true,
+            "rounds": 89,
+            "proposed": 244,
+            "accepted": 166,
+            "verified_rows": 333,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              73,
+              52,
+              41
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              5,
+              13,
+              71
+            ],
+            "draft_ordered_attention_steps": 244,
+            "entry_hidden_snapshots": 89,
+            "direct_gdn_state_rows": 15984,
+            "seed_kv_reuses": 89,
+            "state_copy_bytes_elided": 32166605824,
+            "draft_initialization_ms": 2697.002946,
+            "draft_ms": 2632.041228,
+            "verify_ms": 20517.126201999992,
+            "reconcile_ms": 357.1883500000001,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "all_token_ids_and_nontiming_work_equal_v79": true,
+      "decode_ratio_vs_corrected_nonmtp": {
+        "p65": 1.3095846006387122,
+        "p8192": 1.5344588370882664,
+        "p40000": 1.3778584824057836
+      }
+    }
+  },
+  "qualification_scope": "One fresh process per configuration, ordinary direction/revalidation. No mirrored repetition, full capability/release qualification, or production installation claim. Non-MTP complete text/usage/finish checked; MTP generated IDs and all non-timing work checked against v79.",
+  "current_isolated_profile": "q3x.sm87.admission.mtp-softmax-sync-api.v86",
+  "installed_artifact_unchanged": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+  "production_note": "Default source contains fix; installed predecessor remains unchanged and contains the identified lifetime gap. Corrected non-MTP comparator is a source-built ordinary production-profile binary, not a silently replaced install.",
+  "next": "Use corrected comparator for subsequent MTP work. Complete exact installed-artifact correctness packaging before replacing deployed predecessor; continue architecture work toward unchanged full1.5x\u20133x target.",
+  "goal_achieved": false,
+  "artifact_root": ".q3x-work/mtp-pv-partitioned-20261014",
+  "corrected_production_help_contract": "pass",
+  "reference_test_binary_sha256": "da2e64d0896fdb743072cfb175810965658b3bacf06441e511542d49a388123a",
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "api_keys_remaining": 0,
+    "temporary_files_remaining": 0,
+    "registered_worktrees": 47,
+    "performance_pipeline_removed": true,
+    "softmax_correctness_fix_retained": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "restoration": {
+    "performance_pipeline_removed": true,
+    "softmax_correctness_fix_retained": true,
+    "profile": "q3x.sm87.admission.mtp-softmax-sync-api.v86",
+    "files": {
+      "nonmtp": "b320fc0bdf2d734591c180f1f3e71556f2ee4535fba373cb2bf68fbc9c459614",
+      "source.patch": "80f01664cfa073b7e7c6794816e0485c8116dea6409ff9e84823278eadc4df29",
+      "oracle": "5671b5e1e6d67a6cf696590cb5059faffdb23b1de23f641482ccf349e34f2178",
+      "server": "72caa037fd493e53d24bbaf3c799b9faca895706f509458d77b87cf7373a0927",
+      "tests/decode_ops_cuda_test.cu": "435a64e17fdd9c73e477a2fed7213d2af7eb852754390a9b467c0d1d88874b44",
+      "include/q3x/server/evaluation_server.h": "134c6a598c8ff7bf7d6f1c4435559fe0cc864282d3852a7192310d3071c7cb5d",
+      "src/server/evaluation_server.cpp": "c8fcbf52dc69d8cd9b42ce7e448a16e0d3e46159e796325d2b94342238195b5d",
+      "src/runtime/mtp_verify_attention_internal.cu": "dae91bde16a7fd63e252897ad354d07abef730c57f94181a13494d3ecdba54b2",
+      "src/runtime/mtp_service_internal.cpp": "2e3a5de72aff38b43ba137adbeb617efc4faaa3f812cdaa55aa82bca6454792f",
+      "src/kernels/reference/decode_ops.cu": "5cf7b20a77360d47a680f0bfa3fa1baa5e4496bf2c550a88b79f2b4ccaf09da0",
+      "tools/evaluation/validate_mtp_service.py": "7b6bd441fa93cf2c52deca8488a66bfa864669a4c3555afcc2977a5ea6ac371f"
+    },
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "validation": {
+    "host_ctests": 3,
+    "document_unit_tests": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1384,
+      "errors": 0
+    },
+    "git_diff_check": "pass"
+  }
+}

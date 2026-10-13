@@ -2112,6 +2112,36 @@ stop; the compact table, resource preferences and profile are removed. Restore
 v79 without long/d3 qualification or another table variant. The preceding bank
 counters motivate the attempt but do not override its negative API direction.
 
+## Partitioned PV pipeline v84
+
+The [bounded composition](metadata/qwen36-27b-mtp-pv-partitioned-design-2026-10-14.json)
+retains one KV head and 64 output dimensions per CTA, adding two producer
+warps to the six unchanged consumer warps. Four CTA-owned pipeline stages
+publish original V/P async copies and retire all consumers before reuse.
+Every consumer keeps its two FP32 accumulators in original ascending-position
+order, actual causal range and final BF16 rounding. Tail stage counts match
+for both roles; barriers outlive outstanding copies and readers. There is no
+persistent allocation, request-state change or partial fallback. Complete
+output, Graph and synchronization checks precede the real API composition.
+
+The initial library pipeline and a minimal library-only reproducer both fail
+root synccheck with missing-wait reports. The one bounded repair uses explicit
+ready IDs 1..4 and empty IDs 5..8. Every ready phase joins 64 producer arrivals
+after async completion with 192 consumer waits; every reused empty phase joins
+192 consumer releases with 64 producer waits. Four initial copies and shrinking
+tail wait counts keep all copies ordered. Original roles, stages, grid and
+arithmetic stay fixed. The failed tool results remain evidence, not waived gates.
+
+This composition is removed after nonpositive 8K API direction. The original
+v79 PV/GDN execution remains, with an independent correctness repair in softmax:
+a CTA barrier retires every read of the reduced maximum before the shared array
+is reused for the denominator. The same lifetime fix applies to scalar/reference
+softmax, including short fused Attention. Arithmetic and all state boundaries
+remain exact; v86 identifies the corrected isolated MTP composition. Prior
+ordinary bitwise equality alone did not detect this race. Root instrumentation,
+CPU and complete model-state comparisons cover the repair; fresh paired API
+comparators are [refreshed](metadata/qwen36-27b-softmax-sync-2026-10-14.json) for subsequent target qualification. The installed predecessor is unchanged.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
@@ -2386,7 +2416,7 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
 production/install, and identifies itself as
-`q3x.sm87.admission.mtp-gdn-graphs-api.v79`. The startup-only
+`q3x.sm87.admission.mtp-softmax-sync-api.v86`. The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.

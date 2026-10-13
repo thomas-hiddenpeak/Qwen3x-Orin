@@ -1143,6 +1143,8 @@ __global__ void softmax_kernel(const float* const input,
       __syncthreads();
     }
     maximum = partial[0];
+    // All readers must retire before partial is reused for the sum.
+    __syncthreads();
 
     float denominator = 0.0F;
     for (std::size_t column = threadIdx.x; column < columns;
@@ -1657,6 +1659,8 @@ gqa_sigmoid_gate_shared_tree_predecessor_24_4_256_test_kernel(
     __syncthreads();
   }
   maximum = partial[0];
+  // All readers must retire before partial is reused for the sum.
+  __syncthreads();
 
   float denominator = 0.0F;
   for (std::size_t position = threadIdx.x; position < sequence_length;
@@ -1799,6 +1803,8 @@ __global__ void gqa_sigmoid_gate_24_4_256_kernel(
     __syncthreads();
   }
   maximum = partial[0];
+  // All readers must retire before partial is reused for the sum.
+  __syncthreads();
 
   float denominator = 0.0F;
   for (std::size_t position = threadIdx.x; position < sequence_length;

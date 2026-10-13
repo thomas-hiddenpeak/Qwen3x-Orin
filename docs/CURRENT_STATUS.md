@@ -52,48 +52,64 @@ future complete product: `production_eligible=true`, `release_qualified=false`.
 60K/130K capacity, the locked 2s/4s TTFT targets and the approximately 8.55
 Decode token/s convergence target are not claimed achieved.
 
+## Softmax synchronization repair
+
+The [2026-10-14 repair](metadata/qwen36-27b-softmax-sync-2026-10-14.json) fixes
+a shared-memory lifetime race in MTP aligned softmax and three scalar/reference
+sites. Every thread now finishes reading the reduced maximum before denominator
+partials overwrite the shared array. Arithmetic, reductions, BF16 publication,
+causal domains and state semantics are unchanged. CPU comparisons, root racecheck,
+72 complete Attention/Graph cases and P513 full-state/transaction checks pass.
+Prior ordinary bitwise equality did not prove absence of this race.
+
+**Source is repaired; the installed 5ee artifact above is unchanged and still
+contains the identified gap.** The corrected ordinary production-profile binary
+has fresh P65/8K/40K and eight API/lifecycle checks, but is not installed or release
+qualified by this direction screen. Exact-artifact packaging remains outstanding.
+Existing historical qualification/measurements retain their original scope.
+
 ## MTP development status
 
-The isolated implementation now replays 48 startup-created GDN graph execs:
-16 fixed three-layer segments for each M2/M3/M4. It retains Gate/Up M2/M3
-input slices, original M4, the weight-major BF16 draft executor and fixed 0.4
-confidence lookahead with configured maxima 2/3. Original arithmetic, complete
-prefix state and committed output remain unchanged. Profile is
-`q3x.sm87.admission.mtp-gdn-graphs-api.v79`; measured server ELF is
-`622bf0c2b6b8919188354b6022943e7d5576afea47cd0f1d8421bacf9f8cfc81`.
+Current isolated source retains v79's GDN graphs, Gate/Up composition, weight-major
+BF16 draft and fixed 0.4 confidence lookahead, with the softmax lifetime repair.
+Its profile is `q3x.sm87.admission.mtp-softmax-sync-api.v86`; the measured server
+ELF is `72caa037fd493e53d24bbaf3c799b9faca895706f509458d77b87cf7373a0927`.
+The partitioned PV experiment is [removed after negative 8K direction](metadata/qwen36-27b-mtp-pv-partitioned-rejection-2026-10-14.json).
+The independent correctness fix is retained regardless of that rejection.
 
-The [completed composition](metadata/qwen36-27b-mtp-gdn-graphs-direction-2026-10-14.json) passes nine complete
-prefixes, fifteen target-state/draft-cache transactions, four verification-failure
-recoveries and all sixteen d2/d3 API/lifecycle checks. Output IDs and complete
-non-timing work equal the [v75 comparator](metadata/qwen36-27b-mtp-gate-input-composition-direction-2026-10-13.json).
-Graphs are captured/uploaded at owner construction with fixed addresses and
-released after stream drain. No graph creation or allocation enters a round.
-The 8-GiB reserve remains satisfied. Existing numerical kernels and private
-draft FP64 contract are unchanged; production remains the non-MTP artifact above.
+The [fresh paired API record](metadata/qwen36-27b-softmax-sync-2026-10-14.json)
+passes eight checks for each configuration. Non-MTP complete responses, usage,
+finish and physical route witnesses match their predecessor; ordinary receipts
+do not expose generated token IDs. Both MTP configurations additionally preserve
+all generated IDs and non-timing work versus v79, with complete target state/logit
+and cache admission. Cancellation/recovery, startup reserve and cleanup pass.
+The corrected non-MTP comparator ELF is
+`b320fc0bdf2d734591c180f1f3e71556f2ee4535fba373cb2bf68fbc9c459614`.
 
-These 2026-10-14 observations use one fresh process per maximum, not mirrored
-repetition or release qualification. Prefill includes draft initialization;
-Decode includes the complete controller/observer interval after the first token.
-External total remains an independent complete-request observation.
+These are 2026-10-14 single-process observations per configuration, not mirrored
+release qualification. MTP Prefill includes draft initialization; Decode counts
+committed tokens after the first and includes the complete controller interval.
+External TTFT and total independently measure the complete request.
 
-| P / O | Maximum | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
+| P / O | Configuration | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| 65 / 16 | d2 | 0.891 | 72.91 | 0.917 | 13.456 | 2.032 |
-| 8192 / 256 | d2 | 17.186 | 476.68 | 17.208 | 15.144 | 34.047 |
-| 40000 / 256 | d2 | 91.968 | 434.93 | 92.004 | 11.558 | 114.068 |
-| 65 / 16 | d3 | 0.891 | 72.99 | 0.917 | 12.566 | 2.110 |
-| 8192 / 256 | d3 | 17.215 | 475.86 | 17.237 | 14.166 | 35.238 |
-| 40000 / 256 | d3 | 92.073 | 434.44 | 92.109 | 10.854 | 115.604 |
+| 65 / 16 | non-MTP | 0.895 | 72.60 | 0.914 | 9.591 | 2.478 |
+| 8192 / 256 | non-MTP | 16.803 | 487.52 | 16.825 | 9.222 | 44.480 |
+| 40000 / 256 | non-MTP | 90.109 | 443.91 | 90.144 | 7.872 | 122.542 |
+| 65 / 16 | d2 | 0.891 | 72.96 | 0.917 | 13.447 | 2.032 |
+| 8192 / 256 | d2 | 17.356 | 471.99 | 17.378 | 15.133 | 34.229 |
+| 40000 / 256 | d2 | 92.992 | 430.15 | 93.027 | 11.538 | 115.130 |
+| 65 / 16 | d3 | 0.890 | 73.00 | 0.916 | 12.560 | 2.111 |
+| 8192 / 256 | d3 | 17.342 | 472.38 | 17.364 | 14.151 | 35.385 |
+| 40000 / 256 | d3 | 92.799 | 431.04 | 92.834 | 10.846 | 116.346 |
 
-D2 reaches 1.644x/1.470x non-MTP Decode at 8K/40K. **The full 1.5x–3x
-goal remains unmet**; 40K still needs approximately 0.440 seconds removed from
-complete Decode. Against v75, d2 saves 0.192/0.223 seconds of complete Decode;
-d3 saves 0.199/0.223 seconds. D3 remains slower than d2. Prefill/draft arithmetic
-is unchanged, and its interval variation is not attributed to graph scheduling.
-No new hardware-counter cause or statistically repeated gain is claimed.
-Retain this bounded development composition through the next complete MTP
-architecture API return or archival. No graph-granularity scan or qualification-only
-campaign follows; production and the full objective remain unchanged.
+D2 reaches 1.402x/1.641x/1.466x non-MTP Decode at P65/8K/40K; d3 reaches 1.310x/1.534x/1.378x.
+**The full 1.5x–3x objective remains unmet.** D2 still needs approximately
+0.073 seconds removed from short Decode and 0.505 seconds from 40K Decode
+against the refreshed comparator. The repair resolves a race; it is not a newly
+qualified speedup. Prefill interval variation is not attributed to the added
+Decode synchronization. Use these corrected source-built comparators for the
+next bounded architecture; retain the installed predecessor's separate boundary.
 
 ### Preceding NV live-reduction direction
 

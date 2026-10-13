@@ -179,6 +179,8 @@ __global__ void aligned_softmax(float* p, unsigned first_sequence,
     __syncthreads();
   }
   maximum = partial[0];
+  // Retire every maximum read before any warp publishes its denominator.
+  __syncthreads();
   float denominator = 0;
   for (unsigned c = threadIdx.x; c < columns; c += 256)
     denominator += expf(p[c] - maximum);

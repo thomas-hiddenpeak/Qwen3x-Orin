@@ -450,3 +450,9 @@ The bounded FP8 operand-feed attribution completes one small-resident capture an
 The compact FP8 table package closes after negative short API direction with v79 restored. Existing MTP SDD and Roadmap retain the numerical pass and frozen rejection; no Markdown paths or classes change.
 
 The bounded current PV operand-feed diagnosis completes its real-API capture and small-resident hardware attribution, selecting one producer/consumer implementation proposal in the existing Roadmap; no Markdown path or classification changes.
+
+The partitioned PV pipeline package updates existing MTP SDD, Roadmap and Current Status, including the independently discovered softmax lifetime race; no Markdown path or classification changes.
+
+The partitioned PV composition is removed after negative 8K direction; the independently discovered softmax synchronization repair remains and refreshes the API comparator. Existing MTP SDD, Current Status and Roadmap own that boundary; no Markdown paths or classes change.
+
+The Decode common-op contract now records the shared softmax lifetime barrier and targeted CPU/racecheck regression. Its existing path and contract classification are unchanged.

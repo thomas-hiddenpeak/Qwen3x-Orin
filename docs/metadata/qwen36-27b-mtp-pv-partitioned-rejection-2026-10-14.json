@@ -1,0 +1,234 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-PV-PARTITIONED-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v84",
+  "source_parent": "3cd3088",
+  "decision": "closed_negative_pipeline_removed",
+  "artifact_root": ".q3x-work/mtp-pv-partitioned-20261014",
+  "initial_failures": {
+    "unprivileged_synccheck": "Instrumentation unavailable; not a pass.",
+    "library_candidate_synccheck_errors": 1952,
+    "minimal_library_reproducer_synccheck_errors": 384,
+    "named_barrier_before_softmax_fix": "Zero synchronization errors but numerical failure; racecheck found independent shared-maximum lifetime races. Not waived."
+  },
+  "correctness": {
+    "reference-racecheck": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 59.343
+    },
+    "synccheck-fixed-softmax": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "racecheck-fixed-softmax": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 61.781
+    },
+    "synthetic-fixed-softmax": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 59.125
+    },
+    "payload-check": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "payload_timing": {
+      "median_ms": 1.7926560045,
+      "min_ms": 1.78966403,
+      "max_ms": 1.796288013,
+      "samples": 8,
+      "scope": "component only; different binaries, not whole API or speedup qualification",
+      "complete_output_equal": true
+    },
+    "synthetic_cases": 72,
+    "oracle": {
+      "complete_prefixes": 9,
+      "state_cache_transactions": 15,
+      "verification_failure_recoveries": 4,
+      "initialization_cancel_recoveries": 8,
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 72.812
+      }
+    }
+  },
+  "api": {
+    "metrics": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.901621015,
+        "prefill_tps": 72.09237464368552,
+        "decode_tps": 13.436190055445783,
+        "ttft_s": 0.9280258200014941,
+        "elapsed_s": 2.0443741050039534,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-pv-partitioned-v85",
+          "draft_length": 2,
+          "startup_free_bytes": 10874699776,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "confidence_threshold": 0.4,
+          "proposal_histogram": [
+            1,
+            0,
+            6,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "entry_hidden_snapshots": 7,
+          "direct_gdn_state_rows": 912,
+          "seed_kv_reuses": 6,
+          "state_copy_bytes_elided": 1987054592,
+          "draft_initialization_ms": 5.540778,
+          "draft_ms": 114.073045,
+          "verify_ms": 981.126346,
+          "reconcile_ms": 20.407319,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.296001679,
+        "prefill_tps": 473.6354766862878,
+        "decode_tps": 15.007898570501535,
+        "ttft_s": 17.318102771998383,
+        "elapsed_s": 34.30944441199972,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-pv-partitioned-v85",
+          "draft_length": 2,
+          "startup_free_bytes": 10874699776,
+          "prompt_rows": 8192,
+          "draft_prefill_rows": 8191,
+          "initialized": true,
+          "rounds": 98,
+          "proposed": 187,
+          "accepted": 157,
+          "verified_rows": 285,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            86,
+            71,
+            0
+          ],
+          "confidence_threshold": 0.4,
+          "proposal_histogram": [
+            0,
+            9,
+            89,
+            0
+          ],
+          "draft_ordered_attention_steps": 187,
+          "entry_hidden_snapshots": 98,
+          "direct_gdn_state_rows": 13680,
+          "seed_kv_reuses": 98,
+          "state_copy_bytes_elided": 29253216256,
+          "draft_initialization_ms": 538.950949,
+          "draft_ms": 1789.6393340000006,
+          "verify_ms": 14847.550430000003,
+          "reconcile_ms": 348.66869599999995,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "comparison": [
+      {
+        "stage": "p65",
+        "decode_ratio_vs_v79": 0.9985464272767559,
+        "decode_ratio_vs_nonmtp": 1.402447020147469,
+        "draft_saved_ms": -0.866145000000003,
+        "verify_saved_ms": -0.7344500000001517,
+        "draft_initialization_delta_ms": 0.0390290000000002,
+        "reconcile_saved_ms": -0.005255999999999261,
+        "full_decode_saved_s": -0.0016227509999997558,
+        "prefill_delta_s": 0.010151067000000014,
+        "total_delta_s": 0.012163485003839014
+      },
+      {
+        "stage": "p8192",
+        "decode_ratio_vs_v79": 0.9910344209380119,
+        "decode_ratio_vs_nonmtp": 1.6291508642973482,
+        "draft_saved_ms": -3.147320000000491,
+        "verify_saved_ms": -149.15322000000742,
+        "draft_initialization_delta_ms": -5.783216999999922,
+        "reconcile_saved_ms": 0.4937770000000228,
+        "full_decode_saved_s": -0.1523346289999985,
+        "prefill_delta_s": 0.11042021400000124,
+        "total_delta_s": 0.2625669539993396
+      }
+    ],
+    "completed_api_checks": 2,
+    "output_ids_equal_v79": true,
+    "work_differences": [
+      {
+        "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+        "fields": {}
+      },
+      {
+        "request_body_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+        "fields": {}
+      }
+    ]
+  },
+  "api_cleanup": {
+    "success": false,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 69.406
+  },
+  "stop": "Nonpositive 8K d2 crosses the predeclared stop; no 40K/d3, repeat, profiler or further role/stage/carveout scan.",
+  "attribution": "API comparison includes independent synchronization repair. No isolated PV API cause claimed; captured PV-only median is 1.7926560045ms versus predecessor1.3407360315ms.",
+  "restoration": {
+    "performance_pipeline_removed": true,
+    "softmax_correctness_fix_retained": true,
+    "profile": "q3x.sm87.admission.mtp-softmax-sync-api.v86",
+    "files": {
+      "nonmtp": "b320fc0bdf2d734591c180f1f3e71556f2ee4535fba373cb2bf68fbc9c459614",
+      "source.patch": "80f01664cfa073b7e7c6794816e0485c8116dea6409ff9e84823278eadc4df29",
+      "oracle": "5671b5e1e6d67a6cf696590cb5059faffdb23b1de23f641482ccf349e34f2178",
+      "server": "72caa037fd493e53d24bbaf3c799b9faca895706f509458d77b87cf7373a0927",
+      "tests/decode_ops_cuda_test.cu": "435a64e17fdd9c73e477a2fed7213d2af7eb852754390a9b467c0d1d88874b44",
+      "include/q3x/server/evaluation_server.h": "134c6a598c8ff7bf7d6f1c4435559fe0cc864282d3852a7192310d3071c7cb5d",
+      "src/server/evaluation_server.cpp": "c8fcbf52dc69d8cd9b42ce7e448a16e0d3e46159e796325d2b94342238195b5d",
+      "src/runtime/mtp_verify_attention_internal.cu": "dae91bde16a7fd63e252897ad354d07abef730c57f94181a13494d3ecdba54b2",
+      "src/runtime/mtp_service_internal.cpp": "2e3a5de72aff38b43ba137adbeb617efc4faaa3f812cdaa55aa82bca6454792f",
+      "src/kernels/reference/decode_ops.cu": "5cf7b20a77360d47a680f0bfa3fa1baa5e4496bf2c550a88b79f2b4ccaf09da0",
+      "tools/evaluation/validate_mtp_service.py": "7b6bd441fa93cf2c52deca8488a66bfa864669a4c3555afcc2977a5ea6ac371f"
+    },
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "independent_fix": "qwen36-27b-softmax-sync-2026-10-14.json",
+  "production_changed": false,
+  "goal_achieved": false,
+  "payload_source_scope": {
+    "payload_binary_sha256": "39aac8bf50dc9311e3a1d3fc7e15e48f767623fd6baa5be32ee4852b22379d23",
+    "included_attention_source": "pre-softmax-fix/source/src/runtime/mtp_verify_attention_internal.cu",
+    "included_attention_sha256": "aaa818bed98a1fd78e42ff31b2cd618f9a601bf26856b3df22516b4537ace686",
+    "scope": "Binary built before independent softmax fix; it invokes only attention_values_partitioned_kernel, identical in both frozen sources. Softmax never executes in this PV-only replay. Candidate full-model binary includes softmax fix.",
+    "pre_post_attention_source_only_difference": "2-line maximum-read lifetime barrier in aligned_softmax; PV source identical."
+  }
+}

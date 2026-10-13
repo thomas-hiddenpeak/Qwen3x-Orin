@@ -1542,7 +1542,7 @@ void execute_job(runtime::ReferenceEngine& engine,
     receipt << std::setprecision(17) << std::boolalpha
         << "{\"schema\":\"mtp-multirow-api-witness-v1\",\"request_id\":\"" << job->id
         << "\",\"request_body_sha256\":\"" << job->request_body_sha256
-        << "\",\"profile\":\"q3x.sm87.admission.mtp-gdn-graphs-api.v79\",\"engine_result\":"
+        << "\",\"profile\":\"q3x.sm87.admission.mtp-softmax-sync-api.v86\",\"engine_result\":"
         << bool(generated) << ",\"cancelled\":"
         << (generated ? generated.value->stop_reason == runtime::ReferenceStopReason::kCancelled
                       : generated.diagnostic.code == runtime::ReferenceEngineError::kCancelled)

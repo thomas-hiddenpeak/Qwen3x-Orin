@@ -19,6 +19,58 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 softmax synchronization repair — source/API complete, packaging pending
+
+`WP-SOFTMAX-SYNC-20261014` preserves the independently discovered shared-memory
+lifetime repair after the PV experiment closes. Maximum reduction readers must
+all retire before the same shared array becomes denominator storage. One CTA
+barrier fixes the MTP aligned softmax and three scalar/reference sites without
+changing operands, arithmetic, reductions or publication. The source retains the
+v79 PV/GDN architecture with isolated MTP identity
+`q3x.sm87.admission.mtp-softmax-sync-api.v86`.
+
+The [completed repair/API record](metadata/qwen36-27b-softmax-sync-2026-10-14.json)
+passes CPU comparison, root racecheck, complete P513 state/transactions and all
+24 API/lifecycle requests across corrected non-MTP/d2/d3. Complete responses
+match their predecessors; MTP token IDs and all non-timing work remain equal.
+Current Status owns the paired measurements and remaining target gap. The source
+repair is retained. The installed artifact still requires bounded exact-package
+correctness qualification before replacement; this ordinary direction panel does
+not silently authorize a deployed binary switch. Subsequent MTP optimization uses
+the corrected comparator and unchanged full 1.5x–3x goal. No repeated PV work or
+extra hardware profile is selected by this closure.
+
+## 2026-10-14 partitioned PV pipeline — closed negative
+
+`WP-MTP-PV-PARTITIONED-20261014` / `AC-MTP-GREEDY-v84` implements the
+[bounded producer/consumer composition](metadata/qwen36-27b-mtp-pv-partitioned-design-2026-10-14.json)
+selected by the real-payload diagnosis. Two producer warps independently fill
+four stages; the existing six head warps consume original ordered FP32 FMAs.
+Stage completion and reader retirement govern visibility and reuse. Grid,
+causal lengths, operands and BF16 publication remain fixed. Complete synthetic,
+Graph/synchronization and captured-output checks plus P513 state admission
+return immediately to d2 API, then d3 for useful direction. One implementation,
+no profiler or role/tile/stage/carveout scan. Extra barriers and producer resources
+must pay for themselves in complete Decode; the full 1.5x–3x goal remains.
+
+Admission exposes an independent softmax lifetime race in both MTP and its
+reference predecessor. Preserve this finding separately from PV performance:
+add the missing maximum-read retirement barrier, validate it with instrumented
+and CPU comparisons, and revalidate scalar/API behavior. The existing production
+binary is not silently replaced, and the non-MTP denominator must be refreshed
+before full MTP target qualification. This correctness prerequisite may survive
+PV rejection; it is not another pipeline/parameter variant.
+
+The [completed negative direction](metadata/qwen36-27b-mtp-pv-partitioned-rejection-2026-10-14.json) passes 72 synthetic/Graph cases, root
+synchronization/race checks, captured 40K PV output, nine full model prefixes
+and fifteen state/cache transactions. P8192 d2 API Decode is 15.008 token/s,
+0.90% below v79; Prefill is 17.296 seconds / 473.64 token/s, TTFT 17.318 seconds,
+and total 34.309 seconds. Output and non-timing work are unchanged. This meets
+the predeclared nonpositive-8K stop: remove the partitioned pipeline, retain the
+independent synchronization fix, and do not run 40K/d3 for this rejected version.
+The composition includes that fix, so no isolated PV API attribution is claimed.
+The real-payload PV component itself is slower (1.793 versus 1.341 ms median).
+
 ## 2026-10-14 ordered PV feed attribution — complete
 
 `WP-MTP-PV-FEED-AUDIT-20261014` owns the

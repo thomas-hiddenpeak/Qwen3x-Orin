@@ -5950,9 +5950,9 @@ void test_qk_rope_tile_perf(TestContext& test, cudaStream_t stream) {
                          label + " repeated identity key");
 }
 
-void test_softmax(TestContext& test, cudaStream_t stream) {
+void test_softmax_case(TestContext& test, cudaStream_t stream,
+                       const std::size_t kColumns) {
   constexpr std::size_t kRows = 5U;
-  constexpr std::size_t kColumns = 37U;
   ManagedBuffer<float> values;
   ManagedBuffer<float> output;
   bool ready = test.cuda_ok(values.allocate(kRows * kColumns),
@@ -5980,6 +5980,15 @@ void test_softmax(TestContext& test, cudaStream_t stream) {
       test.expect_near(output[index], cpu[index], 3.0e-6F,
                        "CUDA softmax element " + std::to_string(index));
     }
+  }
+}
+
+void test_softmax(TestContext& test, cudaStream_t stream) {
+  // Exercise idle warps, complete strides and partial strides. Racecheck
+  // must also run this panel: numerical agreement alone missed the shared
+  // maximum-to-denominator lifetime hazard.
+  for (const std::size_t columns : {37U, 256U, 257U, 513U}) {
+    test_softmax_case(test, stream, columns);
   }
 }
 
@@ -10673,7 +10682,13 @@ void test_nonfinite(TestContext& test, cudaStream_t stream) {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+  const bool softmax_sync_only =
+      argc == 2 && std::strcmp(argv[1], "--softmax-sync-only") == 0;
+  if (argc != 1 && !softmax_sync_only) {
+    std::cerr << "usage: q3x_decode_ops_cuda_test [--softmax-sync-only]\n";
+    return 2;
+  }
   TestContext test;
   test_launch_validation(test);
   test_residual_add_launch_validation(test);
@@ -10699,6 +10714,15 @@ int main() {
   if (!test.cuda_ok(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
                     "create decode-op stream")) {
     return 1;
+  }
+
+  if (softmax_sync_only) {
+    test_softmax(test, stream);
+    test_attention(test, stream);
+    test_fused_gqa_sigmoid_gate_exact(test, stream);
+    test_nonfinite(test, stream);
+    (void)test.cuda_ok(cudaStreamDestroy(stream), "destroy softmax-check stream");
+    return test.failures() == 0 ? 0 : 1;
   }
 
   test_embedding(test, stream);

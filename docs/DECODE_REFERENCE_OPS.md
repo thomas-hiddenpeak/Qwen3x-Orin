@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: Decode common-operation numerical and dimension contract
   effective: 2026-08-09
-  last_reviewed: 2026-09-28
+  last_reviewed: 2026-10-14
   supersedes: []
   superseded_by: []
   ssot_for: reference Decode common-op dimensions, arithmetic, and error behavior
@@ -101,6 +101,22 @@ Q/K centered norms at 24x256 and 4x256, GDN plain/fused norms at 48x128, GDN
 24-query/4-KV/head-dim-256 GQA with
 attention scale `1/sqrt(256) = 1/16`; awkward tails and non-finite propagation
 are also covered.
+
+Softmax's shared reduction array has two distinct lifetimes: maximum and
+denominator. All threads must finish reading the reduced maximum before any
+thread overwrites that storage with its denominator partial. A CTA barrier
+separates those lifetimes in both the generic and short fused implementations;
+the MTP aligned implementation has the same obligation. This changes no FP32
+reduction or rounding rule.
+
+The targeted `q3x_decode_ops_cuda_test --softmax-sync-only` regression covers
+CPU softmax comparisons at 37/256/257/513 columns, generic Attention, all six
+short fused lengths and nonfinite propagation. Run racecheck with device
+instrumentation enabled in addition to ordinary numerical comparison: matching
+outputs alone missed the lifetime race. The existing test deliberately injects
+stale host API errors, so `--report-api-errors no` suppresses those expected API
+messages only; GPU hazards must still fail through `--error-exitcode 1`.
+Follow the repository preflight/workspace requirements for that device process.
 
 The residual-add alias gate uses a 777-element BF16 payload, which leaves a
 nine-element CTA tail, and requires bitwise agreement for out-of-place, exact

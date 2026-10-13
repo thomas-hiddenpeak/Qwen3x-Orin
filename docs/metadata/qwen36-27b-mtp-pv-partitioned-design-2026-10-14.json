@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-PV-PARTITIONED-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v84",
+  "source_parent": "3cd3088",
+  "profile": "q3x.sm87.admission.mtp-pv-partitioned-api.v85",
+  "decision_unit": "architecture_candidate",
+  "product_constraint": "1.5x\u20133x real API Decode relative to non-MTP, exact target/output, drafts2/3, paired Prefill/TTFT/Decode/total.",
+  "origin": "qwen36-27b-mtp-pv-feed-audit-2026-10-14.json",
+  "downward_budget": {
+    "current_40k_d2_pv_s": 2.180172864,
+    "remaining_40k_d2_s": 0.439699315
+  },
+  "mechanism": "64producer+192consumer threads perCTA; four cuda::pipeline stages. Producers independently acquire/copy/commit original V and aligned P bytes with SM80cp.async; consumers wait, run unchanged two ordered FP32FMA chains perlane and release after reading. Original grid/tile/causal range/output retained. No perroundallocation or newstate.",
+  "numerical_and_ownership": [
+    "Identical increasing-position FMA, FP32probabilities, BF16final publication.",
+    "All64producers commit eachstage, all192consumers release eachstage; shared full/empty barriers establish visibility and prevent premature reuse.",
+    "Finite and special values, alltail lengths, repeat andCUDA Graph replay must match original completeoutput.",
+    "Producer/consumer quit only after equalstagecounts; constructor/libraryreference-counted sharedbarriers live until allparticipants retire."
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "profiles": 0,
+    "tile_stage_carveout_or_role_count_scans": 0
+  },
+  "gates": [
+    "Build/SASS/resourcecheck,72syntheticcompleteAttention/guard+Graphcases,6shortsynccheck/racecheckcases andcapturedreal40KcompletePVoutput.",
+    "CompleteP513prefix/state/cache/failureoracle, immediately d2P65/8K/40K API; >3percent slowdown ornonpositive8Kcloses. Useful longdirection unlocksd3."
+  ],
+  "composition_deadline": "One complete API return or earlystop thenretainwithboundednextarchitectureexpiry orremove. No hardware counter speedup forecast.",
+  "rollback_files": [
+    "src/runtime/mtp_verify_attention_internal.cu",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "artifact_root": ".q3x-work/mtp-pv-partitioned-20261014",
+  "production_changed": false,
+  "correctness_repair": {
+    "reason": "The candidate and minimal cuda::memcpy_async/cuda::pipeline reproducer both trigger Missing wait under root synccheck. This does not establish an upstream library defect, and the failing checks are not waived.",
+    "repair": "Replace that library handshake with eight explicit named CTA barriers: readyIDs1..4, emptyIDs5..8, each256participants. Producer64 publishes after all local oldest async copies complete; consumer192 joins ready, computes original FMAs, releases empty only when reused. Producer joins empty before overwrite. Four initial groups, same4buffers and64/192roles, no stage or role scan.",
+    "safety": "Supportedsequence>=512 meansatleast8tiles, sofourinitialgroupsalwaysvalid. Nearend waitgroup count shrinks3/2/1/0. Everyready has64arrive+192sync; everyreusedempty has192arrive+64sync. No one exits before its final matching barrier/copy publication.",
+    "initial_synthetic_pass": 72,
+    "initial_synccheck": "failed1952errors",
+    "library_reproducer_synccheck": "failed384errors",
+    "one_correctness_repair_used": true
+  },
+  "final_handshake": "Explicit8namedCTAbarriers replacesfailedlibraryhandshake; scope/counts/orderunchanged.",
+  "discovered_correctness_prerequisite": {
+    "finding": "Racecheck reports maximum-read/denominator-write shared-memory races in unchanged aligned_softmax and baseline::softmax_kernel. Reference decode_ops.cu has the same lifetime at3sites. Ordinary bitwise output agreement did not prove race freedom.",
+    "repair": "CTA barrier after all maximum=partial[0] reads, before shared partial reuse. No arithmetic/reduction/causal/rounding change. Applies to MTP alignedsoftmax and3reference softmax sites, independently of PV retention.",
+    "regression": "Extend reference CPU-comparison softmax columns37/256/257/513 and add --softmax-sync-only covering generic attention, fused short attention and nonfinite checks. Run instrumented checks and real scalar-prefix/API gates.",
+    "production_boundary": "Installed5ee artifact remains unchanged; source fix requires fresh real API/numerical verification and denominator revalidation before MTP goal completion. Existing measured output/time facts remain scoped; latent race cannot be waived by previous agreement."
+  }
+}
