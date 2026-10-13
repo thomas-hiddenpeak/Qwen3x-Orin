@@ -1,0 +1,43 @@
+{
+  "work_package_id": "WP-MTP-VOCAB-COVERAGE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v77",
+  "source_parent": "6ab6e32",
+  "profile": "q3x.sm87.admission.mtp-vocab-coverage-api.v78",
+  "product_constraint": "1.5x\u20133x committed Decode under exact target state/output, maxima2/3 and joint Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "remaining_v75_40k_d2_full_decode_s": 0.662287993,
+    "v64_private_draft_head_gpu_s": 0.874418464,
+    "vocabulary": 248320,
+    "fixed_shortlist": 8192,
+    "ideal_fraction_removed": 0.9670103092783505,
+    "scope": "Historical unchanged private head budget; no real sparse-head speedup or hardware bound inferred."
+  },
+  "diagnostic": "Keep exact current full-vocabulary drafting and verification. At each round copy already-complete entry target logits into bounded host storage and record exact rank of each proposal and target prediction after verification. Rank is descending BF16 value with lowest token ID tie-breaking; +/-0 tie. Single fixed top8192 scope, no token/prompt special cases, no threshold scan.",
+  "numerical_contract": "No numerical/algorithm changes. Complete API output and aggregate non-timing work must equalv75; discard timing as optimization authority because additional D2H/ranking/logging is charged. No new GPU kernel or draft-state arithmetic.",
+  "reference": {
+    "path": ".q3x-work/tmp-archive-20260809/q3x-vllm-startup-audit-N1aJhv/vllm/vllm/model_executor/models/qwen3_eagle3.py",
+    "sha256": "cd2f9592e6383bd60886d53c355297aa4cffd3dce4af29e50dc7db5a1914d492",
+    "transfer": "Pinned EAGLE3 reduced draft head and explicit draft-to-target mapping show reduced draft vocabulary is an architecture, but trained mapping/checkpoint does not exist here. Entry-target ranking is a new hypothesis, not equivalence to EAGLE3 or universal acceptance guarantee. No imported code."
+  },
+  "bounds": {
+    "api_processes": 2,
+    "candidate_sizes": 1,
+    "profiler_captures": 0,
+    "host_storage_bytes": 496640
+  },
+  "gates": [
+    "Complete d2 API panel, then d3 only if every bucket preserves at least99percent of previously accepted proposals under fixedtop8192; small bucket requires zero excluded accepted tokens.",
+    "Proposal membership is only a feasibility gate, not a counterfactual acceptance or runtime result. A successor must account for changed shortlist-normalized confidence and return to complete state/API tests.",
+    "Failed coverage closes this entry-logit shortlist without larger-size/history/threshold scans. Successful coverage admits exactly one bounded sparse-head implementation and immediate API composition; do not extend tracing for its own sake."
+  ],
+  "artifact_root": ".q3x-work/mtp-vocab-coverage-20261014",
+  "rollback_files": [
+    "src/runtime/mtp_device_internal.h",
+    "src/runtime/mtp_device_internal.cpp",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "production_changed": false
+}

@@ -1984,6 +1984,21 @@ preserves complete state/output but gives effectively identical8K Decode.
 The dispatch edit is removed and v75 restored; no40K/d3 or full lifecycle
 qualification follows. Fewer launches did not establish useful API value.
 
+## Private vocabulary coverage v77
+
+The [bounded diagnosis](metadata/qwen36-27b-mtp-vocab-coverage-design-2026-10-14.json)
+reads complete entry target logits into496,640 host bytes per transaction owner.
+After unchanged verification it records proposal/target ranks and contiguous
+acceptance. No logits, confidence, recurrence, selection or state commit changes.
+This checks one fixed entry-target top8,192 hypothesis, not a sparse execution
+or counterfactual acceptance claim. Instrumented timing cannot select performance.
+
+The [completed diagnosis](metadata/qwen36-27b-mtp-vocab-coverage-rejection-2026-10-14.json)
+fails the declared coverage gate in all three d2 buckets despite unchanged
+outputs and work. Diagnostic code is removed and v75 restored; no shortlist
+runtime, d3 trace or vocabulary-size scan follows. This rejects only the fixed
+entry-target selector and establishes no general MTP or vocabulary limit.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

@@ -430,3 +430,5 @@ The verification-frontier package closes after negative P65 API direction and ex
 The Down input-reuse package closes after negative 8K API direction and v75 restoration. Existing MTP SDD and Roadmap retain the frozen rejection; no Markdown paths or classifications change.
 
 The A/B dispatch package closes neutral at the8K API return with v75 restored. Existing MTP SDD and Roadmap retain its evidence; no Markdown paths or classes change.
+
+The private vocabulary-coverage diagnosis closes after failed d2 coverage with v75 restored. Existing MTP SDD and Roadmap retain the specific rejection; no Markdown path or class changes.

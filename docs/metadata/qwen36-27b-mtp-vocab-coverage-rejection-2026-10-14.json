@@ -1,0 +1,442 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-VOCAB-COVERAGE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v77",
+  "source_parent": "6ab6e32",
+  "decision_unit": "bounded_architecture_feasibility_diagnostic",
+  "decision": "close_entry_target_top8192_hypothesis",
+  "profile": "q3x.sm87.admission.mtp-vocab-coverage-api.v78",
+  "production_changed": false,
+  "goal_complete": false,
+  "server_sha256": "03313f06143c14e461cd775db503476a1cb226207b63f8ee944cce035cb7d899",
+  "artifact_root": ".q3x-work/mtp-vocab-coverage-20261014",
+  "implementation": "Read complete entry target logits into fixed496640-byte host array, then rank original proposals/verified predictions without changing selection, arithmetic, confidence, state or output. Lower token ID breaks equal BF16 values including signedzero.",
+  "coverage": {
+    "policy": "d2",
+    "fixed_top_k": 8192,
+    "requests": [
+      {
+        "prompt": 65,
+        "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "accepted_covered": 6,
+        "accepted_coverage": 0.75,
+        "accepted_missing": [
+          {
+            "entry_position": 73,
+            "draft_position": 2,
+            "entry_target_rank": 12579
+          },
+          {
+            "entry_position": 76,
+            "draft_position": 1,
+            "entry_target_rank": 21776
+          }
+        ],
+        "coverage_gate": false
+      },
+      {
+        "prompt": 8192,
+        "request_body_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+        "rounds": 98,
+        "proposed": 187,
+        "accepted": 157,
+        "accepted_covered": 150,
+        "accepted_coverage": 0.9554140127388535,
+        "accepted_missing": [
+          {
+            "entry_position": 8206,
+            "draft_position": 2,
+            "entry_target_rank": 17445
+          },
+          {
+            "entry_position": 8219,
+            "draft_position": 2,
+            "entry_target_rank": 22204
+          },
+          {
+            "entry_position": 8227,
+            "draft_position": 1,
+            "entry_target_rank": 65802
+          },
+          {
+            "entry_position": 8227,
+            "draft_position": 2,
+            "entry_target_rank": 38173
+          },
+          {
+            "entry_position": 8242,
+            "draft_position": 1,
+            "entry_target_rank": 231349
+          },
+          {
+            "entry_position": 8280,
+            "draft_position": 2,
+            "entry_target_rank": 44064
+          },
+          {
+            "entry_position": 8357,
+            "draft_position": 1,
+            "entry_target_rank": 146960
+          }
+        ],
+        "coverage_gate": false
+      },
+      {
+        "prompt": 40000,
+        "request_body_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+        "rounds": 105,
+        "proposed": 200,
+        "accepted": 150,
+        "accepted_covered": 139,
+        "accepted_coverage": 0.9266666666666666,
+        "accepted_missing": [
+          {
+            "entry_position": 40068,
+            "draft_position": 2,
+            "entry_target_rank": 28268
+          },
+          {
+            "entry_position": 40089,
+            "draft_position": 2,
+            "entry_target_rank": 19221
+          },
+          {
+            "entry_position": 40110,
+            "draft_position": 2,
+            "entry_target_rank": 23598
+          },
+          {
+            "entry_position": 40185,
+            "draft_position": 2,
+            "entry_target_rank": 8833
+          },
+          {
+            "entry_position": 40210,
+            "draft_position": 2,
+            "entry_target_rank": 36282
+          },
+          {
+            "entry_position": 40226,
+            "draft_position": 1,
+            "entry_target_rank": 89006
+          },
+          {
+            "entry_position": 40232,
+            "draft_position": 1,
+            "entry_target_rank": 39940
+          },
+          {
+            "entry_position": 40238,
+            "draft_position": 2,
+            "entry_target_rank": 22035
+          },
+          {
+            "entry_position": 40244,
+            "draft_position": 2,
+            "entry_target_rank": 9551
+          },
+          {
+            "entry_position": 40247,
+            "draft_position": 1,
+            "entry_target_rank": 8802
+          },
+          {
+            "entry_position": 40249,
+            "draft_position": 2,
+            "entry_target_rank": 190471
+          }
+        ],
+        "coverage_gate": false
+      }
+    ],
+    "coverage_pass": false,
+    "scope": "Observed accepted-token membership only, not counterfactual acceptance, normalization, runtime or production evidence."
+  },
+  "trace_artifact": ".q3x-work/mtp-vocab-coverage-20261014/d2-coverage.json",
+  "trace_integrity": "For each unique performance request, trace count equals rounds, proposals and contiguous accepts equal complete API counters, and accepted proposal/target ranks agree. All full successful request output IDs and non-timing work equalv75.",
+  "api": {
+    "d2": {
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8933039319999999,
+          "prefill_tps": 72.76358882074193,
+          "decode_tps": 13.168246618939872,
+          "ttft_s": 0.9119007890003559,
+          "elapsed_s": 2.050813821002521,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-vocab-coverage-v78",
+            "draft_length": 2,
+            "startup_free_bytes": 10991628288,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "direct_gdn_state_rows": 912,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 1987054592,
+            "draft_initialization_ms": 5.84201,
+            "draft_ms": 113.03114199999999,
+            "verify_ms": 1004.6923680000001,
+            "reconcile_ms": 20.375691,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.135975052,
+          "prefill_tps": 478.0585858196545,
+          "decode_tps": 14.903161726396752,
+          "ttft_s": 17.158079911998357,
+          "elapsed_s": 34.26880658400114,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-vocab-coverage-v78",
+            "draft_length": 2,
+            "startup_free_bytes": 10991628288,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 98,
+            "proposed": 187,
+            "accepted": 157,
+            "verified_rows": 285,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              71,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              9,
+              89,
+              0
+            ],
+            "draft_ordered_attention_steps": 187,
+            "entry_hidden_snapshots": 98,
+            "direct_gdn_state_rows": 13680,
+            "seed_kv_reuses": 98,
+            "state_copy_bytes_elided": 29253216256,
+            "draft_initialization_ms": 586.183813,
+            "draft_ms": 1789.7079380000005,
+            "verify_ms": 14956.332364000005,
+            "reconcile_ms": 350.5724859999999,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 92.07633364899999,
+          "prefill_tps": 434.4221627294825,
+          "decode_tps": 11.402320723968558,
+          "ttft_s": 92.11157409400039,
+          "elapsed_s": 114.47704515399892,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-vocab-coverage-v78",
+            "draft_length": 2,
+            "startup_free_bytes": 10991628288,
+            "prompt_rows": 40000,
+            "draft_prefill_rows": 39999,
+            "initialized": true,
+            "rounds": 105,
+            "proposed": 200,
+            "accepted": 150,
+            "verified_rows": 305,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              64,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              10,
+              95,
+              0
+            ],
+            "draft_ordered_attention_steps": 200,
+            "entry_hidden_snapshots": 105,
+            "direct_gdn_state_rows": 14640,
+            "seed_kv_reuses": 105,
+            "state_copy_bytes_elided": 31315768320,
+            "draft_initialization_ms": 2857.411519,
+            "draft_ms": 2146.1226039999997,
+            "verify_ms": 19859.997966999985,
+            "reconcile_ms": 343.4543709999999,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "comparison": [
+        {
+          "stage": "p65",
+          "decode_ratio_vs_v75": 0.9897418516070673,
+          "decode_ratio_vs_nonmtp": 1.3744795328951223,
+          "draft_saved_ms": 0.7036910000000063,
+          "verify_saved_ms": -11.724982000000182,
+          "draft_initialization_delta_ms": 0.13997499999999974,
+          "reconcile_saved_ms": -0.04152500000000359,
+          "full_decode_saved_s": -0.011685096000000339,
+          "prefill_delta_s": 0.0002213329999998237,
+          "total_delta_s": 0.011854289001348661
+        },
+        {
+          "stage": "p8192",
+          "decode_ratio_vs_v75": 0.9953176850239237,
+          "decode_ratio_vs_nonmtp": 1.6177813764709534,
+          "draft_saved_ms": -0.24842400000034104,
+          "verify_saved_ms": -66.83906700001171,
+          "draft_initialization_delta_ms": 23.468688000000043,
+          "reconcile_saved_ms": -3.8931389999999624,
+          "full_decode_saved_s": -0.08011657799999838,
+          "prefill_delta_s": -0.09795510000000007,
+          "total_delta_s": -0.017831423996540252
+        },
+        {
+          "stage": "p40000",
+          "decode_ratio_vs_v75": 0.9965008992344773,
+          "decode_ratio_vs_nonmtp": 1.4503300541087223,
+          "draft_saved_ms": 1.0848760000003494,
+          "verify_saved_ms": -67.87589599998319,
+          "draft_initialization_delta_ms": 109.44945600000028,
+          "reconcile_saved_ms": -2.080790999999806,
+          "full_decode_saved_s": -0.07825342899999654,
+          "prefill_delta_s": -0.08410755300000972,
+          "total_delta_s": -0.005860561999725178
+        }
+      ],
+      "completed_api_checks": 8,
+      "output_ids_equal_v75": true,
+      "work_differences": [
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8119cea78cd55fac50289ca366297b20e119a60acf07d2b0db69a85d4145c40b",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "11fcd5bfa1b8c0c077956e1056c92c1b453df2592f59178fe5242f5a5b7ef36a",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "c8c3f21bc490496a1f5aaa00d4cd62b6327e4e1342486711d688a316d91cf5c1",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        }
+      ]
+    }
+  },
+  "api_cleanup": {
+    "success": true,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 74.562
+  },
+  "driver_result": {
+    "returncode": 0,
+    "early_stop": false
+  },
+  "engineering_conclusion": "Entry-target top8192 excludes2of8,7of157 and11of150 already accepted drafts atP65/8192/40000. All fail the declared gate. Do not implement this shortlist or scan larger sizes/history/thresholds; d3 not run. Remove read-only instrumentation and restorev75.",
+  "scope_limits": [
+    "Instrumented API timing includes D2H/ranking/logging; no performance selection, speedup or regression authority. Prefill/TTFT/Decode/total are retained together only as diagnostics.",
+    "Observed membership does not determine counterfactual acceptance after a changed proposal or shortlist-normalized confidence. No actual sparse-head runtime was measured.",
+    "This closes only the predeclared entry-target top8192 construction, not all reduced-vocabulary architectures or MTP feasibility.",
+    "Pinned EAGLE3 uses a model-specific reduced-head mapping that this checkpoint does not provide. Source study does not qualify the new ranking hypothesis.",
+    "Target numerical/GDN/Conv/KV/logits and private draft algorithms unchanged. All8d2 API/lifecycle checks pass; no redundant full-state or independent FP64 oracle is claimed for read-only telemetry.",
+    "No d3 diagnostic after failed d2 coverage and no profiler/repetition-only campaign. Full1.5x\u20133x goal remains open."
+  ],
+  "artifact_manifest": ".q3x-work/mtp-vocab-coverage-20261014/artifact-manifest.json",
+  "restoration": {
+    "server": {
+      "retained_sha256": "10a1eacc4e4c553891442722c4ac568f3d81cfb8a0b12cb705833d3363f81f54",
+      "rebuilt_sha256": "ae932ec5dd00465bd8a2aba86930838064ecd5f461f77b9e23f5d254844e3732",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "ee5703b08c4a6fd820c4cd68aeec2a9f7f69836bc0c8efb202f585f5f30b10c8",
+      "rebuilt_sha256": "59f330cb6a5871a63510c6660a909bf4da8ca54e4791648c38a54f66f4628d14",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "api_keys_remaining": 0,
+    "temporary_files_remaining": 0,
+    "registered_worktrees": 47,
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "validation": {
+    "host_ctests": 3,
+    "document_unit_tests": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1347,
+      "errors": 0
+    },
+    "git_diff_check": "pass"
+  }
+}

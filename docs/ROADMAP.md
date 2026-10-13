@@ -19,6 +19,31 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 private vocabulary coverage — closed
+
+`WP-MTP-VOCAB-COVERAGE-20261014` / `AC-MTP-GREEDY-v77` owns one
+[fixed coverage check](metadata/qwen36-27b-mtp-vocab-coverage-design-2026-10-14.json).
+The unchanged private head scans248,320 words, historically0.874s at40K d2.
+Audit whether entry-target top8,192 includes at least99% of accepted drafts
+in every bucket, with zero exclusions in the short bucket. Preserve actual
+full-vocabulary drafting, confidence, target verification and output throughout.
+Additional D2H/ranking/logging makes timing diagnostic only. One d2 API panel;
+passing coverage admits d3, then one sparse-head implementation or archival.
+No vocabulary-size/history/threshold scan, model retraining or production change.
+
+The [completed diagnosis](metadata/qwen36-27b-mtp-vocab-coverage-rejection-2026-10-14.json)
+preserves all eight d2 API/lifecycle outputs and complete work. The fixed list
+covers only6/8,150/157 and139/150 accepted proposals atP65/8192/40000,
+failing every predeclared coverage gate. Some accepted words rank far below
+the cutoff in entry logits; the next-token distribution is not a sufficient
+selector for later draft tokens under this construction.
+
+Close this specific shortlist without d3, sparse-head implementation or a
+size/history/threshold scan. All diagnostic code is removed and v75 restored.
+Timing includes extra copies/ranking and cannot select performance. This is
+observed membership, not counterfactual acceptance or a bound on all vocabulary
+reduction methods. Production and the full1.5x–3x objective remain unchanged.
+
 ## 2026-10-14 A/B row dispatch — closed neutral
 
 `WP-MTP-AB-BATCH-20261014` / `AC-MTP-GREEDY-v76` owns the
