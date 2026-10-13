@@ -1969,6 +1969,21 @@ The added producer is removed and v75 restored; lower registers and repeated
 input demand do not establish a useful composition. No 40K/d3 qualification or
 further input-ring tuning follows. The target and production remain unchanged.
 
+## A/B row dispatch v76
+
+The [bounded composition](metadata/qwen36-27b-mtp-ab-batch-design-2026-10-14.json)
+reuses the existing BF16 pair tile kernel with gridY equal to verifier rows.
+Every independent token CTA keeps the same scalar FMA chain,256-thread shared
+reduction and BF16 publication; A/B completion precedes all ordered Conv/GDN
+consumers on the original stream. Complete batch range validation replaces
+repeated row validation. No new kernel, storage or numerical identity is added.
+Full-state and composed API checks determine retention; production is unchanged.
+
+The [completed direction](metadata/qwen36-27b-mtp-ab-batch-rejection-2026-10-14.json)
+preserves complete state/output but gives effectively identical8K Decode.
+The dispatch edit is removed and v75 restored; no40K/d3 or full lifecycle
+qualification follows. Fewer launches did not establish useful API value.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

@@ -1,0 +1,42 @@
+{
+  "work_package_id": "WP-MTP-AB-BATCH-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v76",
+  "source_parent": "736e7ee",
+  "profile": "q3x.sm87.admission.mtp-ab-batch-api.v77",
+  "decision_unit": "architecture_candidate",
+  "product_constraint": "1.5x\u20133x same-request committed Decode, maxima2/3, exact target state/output, joint Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "remaining_v75_40k_full_decode_s": 0.662287993,
+    "unchanged_v64_ab_kernel_s": 0.183878208,
+    "ab_calls_before": 14640,
+    "ab_calls_after_expected": 5040,
+    "scope": "Original AB kernel profile only; removed launch gaps not attributed. This limited budget alone cannot establish full goal."
+  },
+  "mechanism": "For all48GDNlayers invoke the existing BF16 pair tile dispatcher once with rows_ instead of rows_ independent M1 dispatches. Same compiled kernel and gridX48/gridZ2, gridY expands1toM; no new kernel or allocation. Same kernel outputtoken*48 and inputtoken*5120 mapping.",
+  "numerical_ledger": [
+    "Each CTA retains original256thread strided FP32 FMA chain, complete shared binary reduction and BF16 rounding. Only independent token CTAs share one launch.",
+    "A/B complete before token-ordered Conv/GDN begins on same stream. No recurrence, weight format, draft, Attention, Prefill or nonMTP change.",
+    "Existing complete bounds/cross-alias validation covers the entire batch before enqueue. Request buffers already contain rows_*48 outputs."
+  ],
+  "reference_translation": "Existing native BF16 pair-grid implementation in src/kernels/reference/gemv_reference.cu and dispatcher; no imported source or runtime dependency. Already studied vLLM batching principle only; no Tensor Core or recurrence reassociation.",
+  "gates": [
+    "Build plus fullP65 prefixes/state/cache/failure oracle; new numerical kernel not introduced, no redundant synthetic kernel suite.",
+    "Immediate d2P65/8K/40K API; >3%slowdown or nonpositive8K closes. Useful long direction unlocksd3; no materiald3regression."
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "parameter_scans": 0,
+    "profiler_captures": 0
+  },
+  "expiry": "Next complete API return or archive; no qualification-only campaign.",
+  "artifact_root": ".q3x-work/mtp-ab-batch-20261014",
+  "rollback_files": [
+    "src/runtime/mtp_verify_internal.cpp",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "production_changed": false
+}

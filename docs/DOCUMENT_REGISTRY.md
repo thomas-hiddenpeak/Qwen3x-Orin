@@ -428,3 +428,5 @@ Confidence lookahead design: `docs/metadata/qwen36-27b-mtp-confidence-design-202
 The verification-frontier package closes after negative P65 API direction and exact v64 restoration, updating the existing MTP SDD and Roadmap; no Markdown path or class changes. Its design is `docs/metadata/qwen36-27b-mtp-frontier-design-2026-10-10.json`.
 
 The Down input-reuse package closes after negative 8K API direction and v75 restoration. Existing MTP SDD and Roadmap retain the frozen rejection; no Markdown paths or classifications change.
+
+The A/B dispatch package closes neutral at the8K API return with v75 restored. Existing MTP SDD and Roadmap retain its evidence; no Markdown paths or classes change.

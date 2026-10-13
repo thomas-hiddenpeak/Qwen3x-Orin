@@ -1,0 +1,239 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-AB-BATCH-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v76",
+  "source_parent": "736e7ee",
+  "decision_unit": "architecture_candidate",
+  "decision": "remove_neutral_api_direction",
+  "profile": "q3x.sm87.admission.mtp-ab-batch-api.v77",
+  "production_changed": false,
+  "goal_complete": false,
+  "server_sha256": "7c6f8d4b4c522c36e24b1452da33bcbfa5a91055790fadb8f4710c0a226af346",
+  "oracle_sha256": "159818fc94d80ee5ffbbff53aad034e020d0f9f668b056c79b2f619bb24b4cd5",
+  "artifact_root": ".q3x-work/mtp-ab-batch-20261014",
+  "implementation": "Reuse original BF16 pair tile kernel for all verifier token rows in one dispatch per GDN layer. Same256thread FMA/reduction/publication and independent CTA outputs. No kernel, allocation, sidecar, arithmetic or policy change.",
+  "numerical": {
+    "complete_target_prefixes": 9,
+    "complete_state_cache_transactions": 15,
+    "verification_failure_recoveries": 4,
+    "initialization_cancel_recoveries": 8,
+    "oracle_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 68.281
+    },
+    "unchanged_kernel_source": {
+      "source": {
+        "src/kernels/reference/gemv_reference.cu": {
+          "same_as_retained_commit": "09b1aa9",
+          "sha256": "06a563859101ebb220b6e0f8909a58fa465d7c33241016dbdcab84a2bf830de3"
+        },
+        "src/kernels/reference/projection_dispatch.cpp": {
+          "same_as_retained_commit": "09b1aa9",
+          "sha256": "1f110c4dca60a4403c5a728cb63b1ccb07fce492c8c902e891f29eeed166ec76"
+        }
+      },
+      "scope": "Unchanged kernel and dispatcher source; whole ELF fatbinary identity not established by aggregate section check, no binary identity claim."
+    },
+    "scope": "No new numerical kernel; complete real-model state oracle admits new dispatch. No redundant synthetic or independent private draft FP64 run."
+  },
+  "api": {
+    "d2": {
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.891640078,
+          "prefill_tps": 72.89937005276697,
+          "decode_tps": 13.22499781893336,
+          "ttft_s": 0.9102778119995492,
+          "elapsed_s": 2.044360569998389,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-ab-batch-v77",
+            "draft_length": 2,
+            "startup_free_bytes": 11046035456,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "direct_gdn_state_rows": 912,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 1987054592,
+            "draft_initialization_ms": 5.541915,
+            "draft_ms": 113.006101,
+            "verify_ms": 1000.520405,
+            "reconcile_ms": 20.306585,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.183566875999997,
+          "prefill_tps": 476.73454871826584,
+          "decode_tps": 14.973214771928541,
+          "ttft_s": 17.205715366999357,
+          "elapsed_s": 34.236384921001445,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-ab-batch-v77",
+            "draft_length": 2,
+            "startup_free_bytes": 11046035456,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 98,
+            "proposed": 187,
+            "accepted": 157,
+            "verified_rows": 285,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              71,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              9,
+              89,
+              0
+            ],
+            "draft_ordered_attention_steps": 187,
+            "entry_hidden_snapshots": 98,
+            "direct_gdn_state_rows": 13680,
+            "seed_kv_reuses": 98,
+            "state_copy_bytes_elided": 29253216256,
+            "draft_initialization_ms": 549.037328,
+            "draft_ms": 1787.8727150000004,
+            "verify_ms": 14889.938789,
+            "reconcile_ms": 347.80871700000023,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "comparison": [
+        {
+          "stage": "p65",
+          "decode_ratio_vs_v75": 0.9940073426316424,
+          "decode_ratio_vs_nonmtp": 1.3804031281250366,
+          "draft_saved_ms": 0.7287319999999937,
+          "verify_saved_ms": -7.553019000000063,
+          "draft_initialization_delta_ms": -0.16012000000000004,
+          "reconcile_saved_ms": 0.027580999999997857,
+          "full_decode_saved_s": -0.006796966000000237,
+          "prefill_delta_s": -0.0014425210000000854,
+          "total_delta_s": 0.005401037997216918
+        },
+        {
+          "stage": "p8192",
+          "decode_ratio_vs_v75": 0.9999962248121673,
+          "decode_ratio_vs_nonmtp": 1.6253858374911723,
+          "draft_saved_ms": 1.5867989999997008,
+          "verify_saved_ms": -0.4454920000061975,
+          "draft_initialization_delta_ms": -13.677796999999941,
+          "reconcile_saved_ms": -1.1293700000002787,
+          "full_decode_saved_s": -6.42930000012143e-05,
+          "prefill_delta_s": -0.050363276000002344,
+          "total_delta_s": -0.05025308699623565
+        }
+      ],
+      "completed_api_checks": 2,
+      "output_ids_equal_v75": true,
+      "work_differences": [
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "fields": {}
+        }
+      ]
+    }
+  },
+  "api_cleanup": {
+    "success": false,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 69.218
+  },
+  "driver_result": {
+    "returncode": -2,
+    "early_stop": true
+  },
+  "engineering_conclusion": "8K Decode14.9732148 versus14.9732713 is effectively identical (fullDecode+0.0000643s). Fewer expected launches did not produce useful API gain. Predeclared nonpositive stop closes before40K/d3; restorev75, no parameter/profiler scan.",
+  "scope_limits": [
+    "One process and two requests, no repetition or statistical regression claim.",
+    "Output IDs, request hashes, complete non-timing work and target numerical/state contract remain exact.",
+    "Prefill unchanged; observed variation is not a benefit of this edit.",
+    "14,640to5,040 A/B launches is source-derived for prior40K work, not a new40K/profile measurement. Kernel profilebudget0.184s predates this edit and cannot establish measured launch overhead.",
+    "Intentional driver interruption(-2), serverexit0 and no cleanup errors; no full lifecycle result claimed.",
+    "Whole-fatbinary identity check did not establish equal sections. Unchanged kernel source and fresh complete state/API checks are retained; no identical GPU binary claim."
+  ],
+  "artifact_manifest": ".q3x-work/mtp-ab-batch-20261014/artifact-manifest.json",
+  "restoration": {
+    "server": {
+      "retained_sha256": "10a1eacc4e4c553891442722c4ac568f3d81cfb8a0b12cb705833d3363f81f54",
+      "rebuilt_sha256": "ae932ec5dd00465bd8a2aba86930838064ecd5f461f77b9e23f5d254844e3732",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "ee5703b08c4a6fd820c4cd68aeec2a9f7f69836bc0c8efb202f585f5f30b10c8",
+      "rebuilt_sha256": "59f330cb6a5871a63510c6660a909bf4da8ca54e4791648c38a54f66f4628d14",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "api_keys_remaining": 0,
+    "temporary_files_remaining": 0,
+    "registered_worktrees": 47,
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "validation": {
+    "host_ctests": 3,
+    "document_unit_tests": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1343,
+      "errors": 0
+    },
+    "git_diff_check": "pass"
+  }
+}

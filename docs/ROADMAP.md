@@ -19,6 +19,29 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 A/B row dispatch — closed neutral
+
+`WP-MTP-AB-BATCH-20261014` / `AC-MTP-GREEDY-v76` owns the
+[bounded dispatch composition](metadata/qwen36-27b-mtp-ab-batch-design-2026-10-14.json).
+Each GDN layer currently launches the same BF16 A/B kernel separately per row.
+One existing tile dispatch combines independent token CTAs with identical
+per-output FMA/reduction/publication. In the40K d2 workload this removes9,600
+launches; the old kernel budget is only0.184s, so this cannot alone claim the
+remaining0.662s goal. Full state admission returns immediately to API;
+3% slowdown or nonpositive8K closes, useful long direction unlocksd3.
+One dispatch edit, no kernel/shape/profiler scan or production change.
+
+The [completed direction](metadata/qwen36-27b-mtp-ab-batch-rejection-2026-10-14.json)
+passes nine complete prefixes, fifteen state/cache transactions and four
+verification-failure recoveries. P8192/O256 d2 output and work match v75;
+Decode14.973215 versus14.973271 token/s is effectively identical, with only
+0.0000643s full-Decode difference. Prefill is17.184s /476.73token/s,
+TTFT17.206s and total34.236s; its variation is not caused by this dispatch edit.
+The predeclared nonpositive stop closes before40K/d3 and full lifecycle checks.
+The dispatch/profile edit is removed and v75 restored, with no parameter or
+profiler scan. Fewer launches alone did not transfer value to the API.
+Production and the full1.5x–3x objective remain unchanged.
+
 ## 2026-10-14 Down input reuse — closed negative
 
 `WP-MTP-DOWN-INPUT-RING-20261014` / `AC-MTP-GREEDY-v75` owns the
