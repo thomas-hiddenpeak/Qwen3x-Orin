@@ -19,6 +19,35 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-13 draft weight-major matrix — API return complete
+
+`WP-MTP-DRAFT-WEIGHT-MAJOR-20261013` / `AC-MTP-GREEDY-v72` owns the
+[common private draft executor](metadata/qwen36-27b-mtp-draft-weight-major-design-2026-10-13.json).
+The current matrix path pads M1 into32 token rows. A native weight-major
+BF16 executor uses64 weight rows,8/16/32 token-column buckets and one K128
+shared double buffer. Every count uses the same per-output K16 order, so
+initialization, drafting and cache reconciliation must still agree exactly.
+The private draft numerical identity changes and must pass the unchanged
+independent FP64 hidden/K/V0.02 bound; target state/output remain bitwise exact.
+One implementation plus one possible correctness repair returns directly to
+API. No tile/stage scan;3% slowdown or nonpositive8K stops, useful long direction
+unlocks d3. This matrix budget alone cannot claim the full goal; production stays fixed.
+
+The [completed direction](metadata/qwen36-27b-mtp-draft-weight-major-direction-2026-10-13.json) passes complete projection, independent
+FP64 draft, full target-state/cache and all sixteen d2/d3 API/lifecycle checks.
+D2 8K/40K Decode is 14.694/11.276 token/s, about 1.3%/1.2% above v64;
+complete Decode saves 0.229/0.273 seconds with identical output and work.
+At 40K, Prefill is 92.175 seconds / 433.96 token/s, TTFT 92.210 seconds and
+external total 114.827 seconds. The record reports every d2/d3 phase together.
+
+Retain the fixed executor as a bounded development composition through the
+next complete MTP architecture API return or archival. This is one process per
+maximum, not statistical architecture selection or production qualification.
+The full 1.5x–3x target is still open: d2 reaches 1.595x/1.434x non-MTP at
+8K/40K, with about 0.992 seconds still to remove from 40K complete Decode.
+Next work must address that remaining composed budget. No matrix tile/stage
+scan or repetition-only campaign follows; production is unchanged.
+
 ## 2026-10-13 retained MTP budget — complete diagnostic
 
 `WP-MTP-V64-BUDGET-20261013` owns one

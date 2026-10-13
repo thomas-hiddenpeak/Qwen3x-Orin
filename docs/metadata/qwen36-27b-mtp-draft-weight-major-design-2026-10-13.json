@@ -1,0 +1,54 @@
+{
+  "work_package_id": "WP-MTP-DRAFT-WEIGHT-MAJOR-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v72",
+  "source_parent": "512b2b3",
+  "product_constraint": "1.5x-3x same-request committed Decode with maxima2/3, full exact target state/logits/output; joint Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "current_v64_draft_and_reconcile_matrix_gpu_s": 1.216531072,
+    "current_v64_40k_draft_ms": 2352.22152,
+    "remaining_v64_40k_full_decode_s": 1.264435333,
+    "scope": "Matrix opportunity alone is below the full gap; this is a bounded composed improvement candidate, never sole completion or a hardware ceiling."
+  },
+  "finding": "Current private BF16 CUTLASS projection uses32x128x32 CTA forM1..32, padding proposal rows. Target scalar exactness does not require this private draft tile. A common weight-major kernel can reduce proposal padding while preserving batch/scalar cache identity.",
+  "mechanism": "Native BF16 m16n8k16 FP32 MMA. CTA covers64 weight rows and8/16/32 token columns selected only by count<=8/16/32;4 output warp groups per8-token group,128/256/512 threads. Shared K128 two-buffer producer for canonical weights and inputs;16-byte cp.async copies. In-row eight-element XOR swizzle usingrow&7 prevents stride128 fragment bank aliasing. Each output carries FP32 accumulator through ascending K16, then BF16 RNE once. No splitK, quantization, sidecar or request allocation.",
+  "numerical_identity": "draft-bf16-weight-major-v2",
+  "numerical_boundary": "Private draft reduction may differ from CUTLASS v1. All counts1..32 use the same per-output K16 sequence, including initialization/full step/cache-only append. Require full draft hidden/K/V independent CPU FP64 max-row relativeL2<=0.02 without widening; complete target-state/full-logit/committed output must remain bitwise scalar target. Acceptance/work changes are allowed and explicitly reported, not compared as unchanged by assumption.",
+  "resources": {
+    "shared_bytes_by_column_bucket": {
+      "8": 36864,
+      "16": 40960,
+      "32": 49152
+    },
+    "threads_by_column_bucket": {
+      "8": 128,
+      "16": 256,
+      "32": 512
+    },
+    "persistent_bytes_added": 0,
+    "request_allocations": 0,
+    "required_spills": 0
+  },
+  "reference_transfer": "Existing CUTLASS/Marlin separation of shared operand producer and Tensor Core consumer, translated to native SM87 cp.async and inline MMA. No imported source/runtime dependency, no cuBLAS production route.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "tile_or_stage_scans": 0,
+    "profiler_captures": 0
+  },
+  "gates": [
+    "Compile/resource and finite full-output guard plus M1/batch identity across six projection roles and count1/2/3/7/8/9/16/17/31/32.",
+    "Real P65 complete target prefixes/transactions/cache initialization and independent CPU FP64 full draft hidden/K/V<=0.02.",
+    "Immediate d2 P65/8K/40K API; >3 percent slowdown/nonpositive8K closes. Useful long direction unlocksd3. Report changed acceptance/work and all Prefill/TTFT/Decode/total."
+  ],
+  "expiry": "Next complete composed API or rejection. No local tuning or repeated evidence campaign; production unchanged.",
+  "artifact_root": ".q3x-work/mtp-draft-weight-major-20261013",
+  "rollback_files": [
+    "src/runtime/mtp_prefill_internal.cu",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "profile": "q3x.sm87.admission.mtp-draft-weight-major-api.v73",
+  "production_changed": false
+}

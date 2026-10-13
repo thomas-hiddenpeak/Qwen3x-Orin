@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current implementation, qualification, production, metric, and blocker snapshot
   effective: 2026-08-12
-  last_reviewed: 2026-10-10
+  last_reviewed: 2026-10-13
   supersedes: []
   superseded_by: []
   ssot_for: current delivered state and open production gaps
@@ -15,7 +15,7 @@ q3x_document:
 
 # Qwen3x-Orin current status
 
-Snapshot: 2026-10-10. This replaceable page owns current defaults and measured
+Snapshot: 2026-10-13. This replaceable page owns current defaults and measured
 qualification; [SDD](SDD.md) owns design and [Roadmap](ROADMAP.md) owns remaining
 work. Historical failures and measurements retain their original scope.
 
@@ -54,43 +54,49 @@ Decode token/s convergence target are not claimed achieved.
 
 ## MTP development status
 
-The isolated implementation uses confidence-based lookahead with configured
-maxima 2/3: after a draft token's softmax probability falls below fixed 0.4,
-retain that token and stop further drafting in the round. Exact target
-verification consumes only actual proposals. Target arithmetic, complete
-prefix state and greedy output remain unchanged. Profile is
-`q3x.sm87.admission.mtp-confidence-api.v64`; the measured server ELF is
-`c4d9df64972f64d9bafeba6d5a4e92376ef23d1b5e5956b1a491ad1e1dea3e05`.
-The [completed direction](metadata/qwen36-27b-mtp-confidence-direction-2026-10-10.json) binds eighteen confidence CPU/device cases,
-nine full P65 prefixes, fifteen full-state transactions, four failure/recovery
-transactions and all sixteen d2/d3 API/lifecycle checks. Dynamic cancellation
-and complete target-conditioned draft KV replay pass. Production is unchanged.
+The isolated implementation retains the common weight-major BF16 draft
+executor and confidence lookahead with configured maxima 2/3. Original BF16
+weights feed native FP32 MMA; every M1..32 count uses the same K16 order for
+initialization, full steps and cache append. Fixed 0.4 confidence retains the
+triggering proposal and suppresses later drafting in that round. Target scalar
+arithmetic, complete prefix state and committed output are unchanged. Profile is
+`q3x.sm87.admission.mtp-draft-weight-major-api.v73`; measured server ELF is
+`17c775f22a97122728c70bdf3faf441e59676e6a88bcd2fbddce4d6da2b2f829`.
 
-These observations use one fresh process per policy, not repeated qualification.
-Prefill includes draft initialization; Decode includes the complete controller
-and observer interval after the first token.
+The [completed direction](metadata/qwen36-27b-mtp-draft-weight-major-direction-2026-10-13.json) binds 60 complete projection output/guard/
+single-row-versus-batch checks, nine real-model target prefixes, fifteen full
+state/cache transactions, four injected-failure recoveries and sixteen d2/d3
+API/lifecycle checks. Independent CPU FP64 complete draft hidden/K/V maximum
+row-relative-L2 is 0.009382/0.001897/0.001300, within the unchanged 0.02 bound.
+All compared API output IDs and non-timing work equal the retained
+[v64 comparator](metadata/qwen36-27b-mtp-confidence-direction-2026-10-10.json).
+Production remains the ordinary non-MTP artifact above.
+
+These 2026-10-13 observations use one fresh process per maximum, not mirrored
+repetition or release qualification. Prefill includes draft initialization;
+Decode includes the complete controller and observer interval after the first
+token. External total remains an independent complete-request observation.
 
 | P / O | Maximum | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| 65 / 16 | d2 | 0.889 | 73.12 | 0.908 | 12.796 | 2.080 |
-| 8192 / 256 | d2 | 17.292 | 473.76 | 17.314 | 14.503 | 34.897 |
-| 40000 / 256 | d2 | 92.827 | 430.91 | 92.862 | 11.141 | 115.751 |
-| 65 / 16 | d3 | 0.890 | 73.03 | 0.909 | 12.143 | 2.144 |
-| 8192 / 256 | d3 | 17.295 | 473.66 | 17.317 | 13.801 | 35.795 |
-| 40000 / 256 | d3 | 93.359 | 428.45 | 93.394 | 10.613 | 117.423 |
+| 65 / 16 | d2 | 0.892 | 72.90 | 0.910 | 12.965 | 2.067 |
+| 8192 / 256 | d2 | 17.181 | 476.81 | 17.203 | 14.694 | 34.557 |
+| 40000 / 256 | d2 | 92.175 | 433.96 | 92.210 | 11.276 | 114.827 |
+| 65 / 16 | d3 | 0.891 | 72.93 | 0.910 | 12.261 | 2.133 |
+| 8192 / 256 | d3 | 17.229 | 475.47 | 17.252 | 14.008 | 35.455 |
+| 40000 / 256 | d3 | 92.118 | 434.23 | 92.153 | 10.749 | 115.877 |
 
-D2 reaches 1.574x/1.417x non-MTP Decode at 8K/40K.
-**The full 1.5x–3x goal remains unmet**; 40K still needs about
-1.26 seconds removed from complete Decode. Against the
-[v62 comparator](metadata/qwen36-27b-mtp-probability-publication-direction-2026-10-10.json),
-d2 removes 9/10 proposals and verified rows at 8K/40K while preserving accepted
-totals 157/150 and identical committed outputs. D2 complete Decode saves
-0.346/0.502 seconds; short P65 Decode is -0.74%.
-Prefill implementation is unchanged; its timing variation is not attributed to
-this change. All external totals remain visible above. Retain this as a bounded
-development composition through the next complete MTP API return or archival;
-no threshold, length or launch scan or qualification-only campaign is opened.
-It is not a production switch or a declaration of target completion.
+D2 reaches 1.595x/1.434x non-MTP Decode at 8K/40K. **The full 1.5x–3x
+goal remains unmet**; 40K still needs approximately
+0.992 seconds removed from complete Decode. Against v64, d2 saves
+0.229/0.273 seconds of complete Decode, including 0.189/0.200 seconds of draft
+time. These are bounded direction observations, not statistical selection.
+Target Prefill is unchanged; its interval variation is not claimed as a draft
+executor speedup, and initialization cost is separately retained in the record.
+D3 remains slower than d2 on these requests. Retain this composition only
+through the next complete MTP architecture API return or archival. No further
+tile/stage/threshold scan or qualification-only campaign is opened. No production
+switch or completed target is claimed.
 
 ### Preceding NV live-reduction direction
 

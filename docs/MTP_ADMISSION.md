@@ -1900,6 +1900,32 @@ prevents further qualification. All row-warp producer, consumer and profile
 changes are removed; retained v64 remains current, with no subsequent tile,
 carveout or stage scan and no production change.
 
+## Private draft weight-major composition v72
+
+The [bounded executor](metadata/qwen36-27b-mtp-draft-weight-major-design-2026-10-13.json)
+uses original BF16 weights and inputs with native FP32 MMA accumulation.
+Weight rows occupy the16-row instruction axis; token rows occupy8 columns.
+CTA weight coverage is64, with token-column buckets8/16/32 and K128 shared
+double buffering. Sixteen-byte producers use a fixed eight-element XOR
+permutation within each shared row; all consumers undo that address mapping.
+Every output follows the same ascending K16 accumulation and BF16 publication
+for M1..32, preserving exact batch/full-step/cache-append identity. No new
+allocation, sidecar, target arithmetic or production route is introduced.
+
+This is `draft-bf16-weight-major-v2`, not claimed CUTLASS-v1 bit identity.
+Independent complete draft hidden/K/V FP64 relative L2 must remain at most0.02;
+complete target state/logits and committed API outputs retain their exact
+scalar contract. Proposal acceptance may change and must be reported. Full
+API fitness, including draft initialization in Prefill, selects the composition.
+
+The [completed API return](metadata/qwen36-27b-mtp-draft-weight-major-direction-2026-10-13.json) admits the unchanged FP64 bound and
+complete target-state/cache contract, then passes all sixteen d2/d3 API checks.
+The fixed executor is retained only as a bounded development dependency through
+the next complete architecture API return or archival; no production or full
+target claim follows. All observed proposal/acceptance counts and target output
+IDs match v64, though future private draft differences remain permitted under
+the explicit numerical and verification contracts above.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
@@ -2174,7 +2200,7 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
 production/install, and identifies itself as
-`q3x.sm87.admission.mtp-confidence-api.v64`. The startup-only
+`q3x.sm87.admission.mtp-draft-weight-major-api.v73`. The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.
