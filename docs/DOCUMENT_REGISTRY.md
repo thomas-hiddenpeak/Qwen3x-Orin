@@ -462,3 +462,7 @@ The bounded softmax corrected-package work updates Roadmap and the evaluation pr
 The 0.8.2 softmax corrective package closes its installed boundary and updates
 existing README, SDD, Current Status, Roadmap and evaluation procedure. Historical
 reliability evidence remains scoped to 0.8.1; no Markdown paths or classes change.
+
+The fixed seed-prefix scheduling composition closes after negative short API
+direction and exact v86 source restoration. Existing MTP SDD and Roadmap retain
+the frozen rejection; no Markdown path or classification changes.

@@ -1,0 +1,178 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-SEED-PREFIX-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v85",
+  "source_parent": "e57aa66",
+  "decision": "removed after negative short API direction",
+  "profile": "q3x.sm87.admission.mtp-seed-prefix-api.v87",
+  "retained_profile": "q3x.sm87.admission.mtp-softmax-sync-api.v86",
+  "production_changed": false,
+  "goal_achieved": false,
+  "admission": {
+    "full_prefix_comparisons": 18,
+    "state_cache_transactions": 15,
+    "verify_failure_recovery": 4,
+    "initialization_cancel_recovery": 8,
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 68.5
+    },
+    "scope": "Exact full-state/cache admission; no performance claim."
+  },
+  "comparison": {
+    "complete_output_and_usage_equal_nonmtp_and_v86": true,
+    "all_generated_ids_equal_v86": true,
+    "all_non_timing_work_equal_v86": true,
+    "changed_mtp_fields": {
+      "verifier": [
+        "multirow-softmax-sync-v86",
+        "multirow-seed-prefix-v87"
+      ],
+      "startup_free_bytes": [
+        10899103744,
+        10929111040
+      ],
+      "draft_initialization_ms": [
+        5.709196,
+        5.493909
+      ],
+      "draft_ms": [
+        113.685322,
+        177.555817
+      ],
+      "verify_ms": [
+        980.7653470000001,
+        993.1629459999998
+      ],
+      "reconcile_ms": [
+        20.249626,
+        20.364802
+      ]
+    },
+    "decode_delta_percent": -6.4136756497260805,
+    "server_sha256": "f400eab22e5720381cd29b7e2226366a6d301c659e5e87b16f6402761768eb63",
+    "oracle_sha256": "13380472eb6ebb9773c9ea8f40ebf671ec04bd9f13225b0486fb7fdff388c317",
+    "completed_requests": 1,
+    "p8192": "cancelled at bounded Prefill after short direction stop; not a performance result",
+    "p40000_and_d3": "not run"
+  },
+  "api_observation": {
+    "stage": "p65",
+    "prompt": 65,
+    "output": 16,
+    "prefill_s": 0.891434386,
+    "prefill_tps": 72.91619105211407,
+    "decode_tps": 12.585009325869459,
+    "ttft_s": 0.917541324000922,
+    "elapsed_s": 2.1094213780015707,
+    "mtp": {
+      "enabled": true,
+      "verifier": "multirow-seed-prefix-v87",
+      "draft_length": 2,
+      "startup_free_bytes": 10929111040,
+      "prompt_rows": 65,
+      "draft_prefill_rows": 64,
+      "initialized": true,
+      "rounds": 7,
+      "proposed": 12,
+      "accepted": 8,
+      "verified_rows": 19,
+      "committed_decode_tokens": 15,
+      "accepted_by_position": [
+        4,
+        4,
+        0
+      ],
+      "confidence_threshold": 0.4,
+      "proposal_histogram": [
+        1,
+        0,
+        6,
+        0
+      ],
+      "draft_ordered_attention_steps": 0,
+      "entry_hidden_snapshots": 7,
+      "direct_gdn_state_rows": 912,
+      "seed_kv_reuses": 6,
+      "state_copy_bytes_elided": 1987054592,
+      "draft_initialization_ms": 5.493909,
+      "draft_ms": 177.555817,
+      "verify_ms": 993.1629459999998,
+      "reconcile_ms": 20.364802,
+      "cancelled": false,
+      "failed": false
+    }
+  },
+  "api_driver_terminal": {
+    "returncode": -2,
+    "early_stop": true
+  },
+  "api_cleanup": {
+    "success": false,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 65.187
+  },
+  "scope": "One completed P65/O16 d2 direction; not statistical regression, long-context or d3 evidence. Correctness admission covers18 complete prefixes,15 transactions,4 postverify failures and8 initialization-cancel recoveries.",
+  "finding": "Private target-prefix overlap adds about63.870ms to measured draft phase and12.398ms to verification versus v86 on the matched short request; full Decode is6.414%slower. Phase attribution includes earlier target submission/work and contention; without profiler evidence it does not isolate GPU stall or hardware saturation. Numerical/output correctness alone does not select useful overlap.",
+  "closure": "Restore all runtime/header/test/validator files exactly to e57aa66, preserve frozen source/ELFs and all failed direction records. No prefix-depth/stream-priority scan or profiler follows. No new package/installed service change.",
+  "next_constraint": "Original50%\u2013200%goal remains; corrected v86 d2 short/40K full-Decode gaps72.798/505.033ms for1.5xfloor remain. Need a materially different architecture removing work, not another duplicate-prefix scheduling variant.",
+  "artifacts": ".q3x-work/mtp-seed-prefix-overlap-20261014",
+  "manifest": ".q3x-work/mtp-seed-prefix-overlap-20261014/artifact-manifest.json",
+  "evidence_sha256": {
+    "source-identity.json": "f942928f1ef0447a9bc24db349639bee0cfea6b56b56b28a1734ef3e55ee895a",
+    "source/candidate.patch": "2fd3da576eaaeaab82cc2e1d40eac17ef47358b253cfa320c8770611c18f9212",
+    "admission-summary.json": "fd522cc9e9174a898811e6e4a734bd24b7297e93d9ad917ef0b7cb4aa4545475",
+    "comparison.json": "5849de818f3d0aa0123a92e9ee7d0fea02566ec33805c1a783cf06ac01c57c5a",
+    "d2-direction-decision.json": "90af4d3f317c9f98044f0d7cbd704847c44e0be43ad86ee38aee71130c85f5a4",
+    "d2-driver-result.json": "f346bf26f91708c8234ef60ac8945a4a99d849ac062a0919d5f0e8ccdced60e4",
+    "d2/identity.json": "8b8e1466abf725af78934792dce8b18256e6e399920c67d8ca8515f4924f5b5d",
+    "d2/preflight.json": "03c44864f91b2cb3feb533e18e49920827152944dd3f260a3e1198077421cb14",
+    "d2/cache-preparation.json": "7fdec5646c2efa3015b02def0e2da604ea92e88630af64eef4eb0e5f1b83bc64",
+    "d2/cleanup.json": "e516f6c4d4e7f28dc797cd7c0e33f122e4fe917a3f107272932398fa067f70b2",
+    "p65-oracle/identity.json": "0ffe493ab819d15aab5c8cfac99530323e0e05a48df3ed1200b4fcf4dad82c58",
+    "p65-oracle/preflight.json": "8c1a1c1b89019bddfdaf1d567756d2657733b507c1e0599d4d27a0f44e8545f2",
+    "p65-oracle/cleanup.json": "d8d2ed5d09d9e1e5f4a6b80b9e658c11ff6204fa4c84af428f908dfd6ee69a39",
+    "hygiene.json": "98bc8c0a9934d83e39e1358b78cf6dbe3f6998d766b2d66e5751266bed10571e",
+    "final-preflight.json": "62405be0420f65b4bf05455b347870026ea482082d1c6ddabbc5473bbaf63aa9",
+    "host-tests.log": "d1ed312aa57c208cb3e5652bc2d15b76654fe3bb97c2bceb2278ea4dca2b9e82",
+    "docs-check.log": "30fae9b63e1d8408af90c3a1446a1120b6f884097ac6a795b4144c97f5c602ec",
+    "docs-unit.log": "8b7e512968e6a5deb912fd2e792d270ea2de69a48eaed57569bb781df265ff31",
+    "restored-service-build.log": "de90928077e7a77ee4eb9499d2ead686a74efbe70492d41a3249ddfc3d37273b",
+    "restored-oracle-build.log": "d49e125fe64a1af86f3960d82f9dedcceb30b9fc4ed52deaf9417da3aea503d2"
+  },
+  "hygiene": {
+    "source_runtime_test_validator_exactly_restored": true,
+    "installed_082_unchanged": true,
+    "gpu_handles": 0,
+    "registered_worktrees": 47,
+    "api_keys": 0,
+    "temporary_entries": 0,
+    "preflight_decision": {
+      "accepted": true,
+      "collection_errors": [],
+      "reasons": [],
+      "result": "pass"
+    }
+  },
+  "host_validation": {
+    "ctests_passed": 3,
+    "document_unit_tests_passed": 7,
+    "registered_markdown": 86,
+    "local_links_checked": 1393,
+    "errors": 0
+  },
+  "restored_builds": {
+    "service": {
+      "path": ".q3x-work/build/orin-mtp-service-admission/qwen3x-eval-server-mtp-admission",
+      "sha256": "bf8da63509f50c8894aa4a20a9a53d777a2d70f24442f3f65d4bc9eb69ba8c16",
+      "scope": "Restored source rebuilt to remove stale experimental executable; no new performance measurement."
+    },
+    "oracle": {
+      "path": ".q3x-work/build/orin-whole-core-exact-decode-admission/q3x_mtp_whole_core_test",
+      "sha256": "5671b5e1e6d67a6cf696590cb5059faffdb23b1de23f641482ccf349e34f2178",
+      "scope": "Restored source rebuilt to remove stale experimental executable; no new performance measurement."
+    }
+  }
+}

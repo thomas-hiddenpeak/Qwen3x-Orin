@@ -19,6 +19,29 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 seed-prefix/draft overlap — closed negative
+
+`WP-MTP-SEED-PREFIX-20261014` / `AC-MTP-GREEDY-v85` implements the
+[bounded scheduling composition](metadata/qwen36-27b-mtp-seed-prefix-design-2026-10-14.json).
+Overlap the known seed's first eight target layers with private drafting, backfill
+remaining rows through those layers and join ordinary multirow verification.
+Full state/logit/cache semantics, target arithmetic and publication remain exact.
+Additional prefix weight reads and GPU contention are charged to complete API
+Decode. One fixed composition and one correctness repair return directly to
+P65/8K/40K d2, then d3 only for useful direction. No prefix-length or profiler
+scan; the 72.798/505.033-ms short/40K floor gaps and full 1.5x–3x goal remain.
+
+The [completed direction](metadata/qwen36-27b-mtp-seed-prefix-rejection-2026-10-14.json)
+passes eighteen complete prefix comparisons, fifteen state/cache transactions,
+four verification-failure and eight initialization-cancel recoveries. P65/O16 d2
+then reaches only12.585 Decode token/s,6.414% below retained v86; Prefill is
+0.891 seconds /72.92 token/s, TTFT0.918 seconds and total2.109 seconds.
+Output IDs and non-timing work are unchanged. This meets the predeclared short
+stop. The subsequent8K request is cancelled;40K/d3 are not run. Remove all new
+runtime paths and restore v86. No prefix-depth/stream-priority or profiler scan
+follows. The full1.5x–3x objective remains; a successor must remove work or a
+material dependency without repeating this duplicated-prefix composition.
+
 ## 2026-10-14 softmax corrected package — complete
 
 `WP-SOFTMAX-PACKAGE-20261014` completes the remaining installed-artifact
@@ -34,9 +57,8 @@ passes six applicable host/package tests, all 184 patch and 11 restart requests,
 complete predecessor response comparisons and owned shutdown. No further patch
 qualification loop is open. Resume MTP architecture work against the corrected
 v86 comparator: the short/40K full-Decode deficits remain 72.798/505.033 ms for
-the 1.5x floor. The full 1.5x–3x objective stays active. A seed-prefix/draft overlap
-proposal requires a bounded ownership/cost design before implementation; it has
-no current runtime or measured-gain authority.
+the 1.5x floor. The full 1.5x–3x objective stays active. The seed-prefix/draft overlap
+successor above is closed negative and adds no retained runtime or gain.
 
 ## 2026-10-14 softmax synchronization repair — source/API and package complete
 

@@ -1,0 +1,36 @@
+{
+  "work_package_id": "WP-MTP-SEED-PREFIX-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v85",
+  "source_parent": "e57aa66",
+  "profile": "q3x.sm87.admission.mtp-seed-prefix-api.v87",
+  "product_constraint": "Exact committed output and full target state/logits; same-workload 1.5x\u20133x Decode, drafts2/3 and paired Prefill/TTFT/Decode/total.",
+  "budget": {
+    "short_full_decode_gap_ms": 72.798,
+    "p40000_full_decode_gap_ms": 505.033,
+    "opportunity": "Draft whole-round time about16.24/20.42ms at short/40K bounds possible overlap, not predicted saving. Extra prefix projections, weight traffic, graphs and contention must pay for themselves."
+  },
+  "mechanism": "Enqueue seed-only first8targetlayers before bounded private drafting. After IDs are known, backfill rows1..d through layers0..7, preserving row0 hidden/residual at layer8, then run ordinary multirow layers8..63 and full logits. Existing separate streams and scratch; immutable entry hidden read by draft. No partial publication. Fixed8-layer boundary; no scan.",
+  "ledger": [
+    "GDN global row r reads canonical state for r0 or immutable snapshot r for r>0, writes snapshot r+1. Conv prefix updates remain row ordered separately per layer.",
+    "Backfill shifts only hidden buffers by one row; projection scratch is reused after seed prefix on same target stream. Seed row0 hidden/residual remains live and untouched.",
+    "KV appends at entry+rowoffset; causal attention includes only previous positions. Exact scalar and multirow arithmetic remain original.",
+    "Eight additional construction-owned GDN graphs: two M1 seed segments and six M1/2/3 offset1 backfill segments. Original48graphs retained. No request allocation/capture.",
+    "Only bounded proposal route overlaps; ordinary scripted/fixed proposal and zero-draft tails preserve complete verifier. A different seed after early work fails closed; abort drains both owners and poisons.",
+    "No race between draft and target: only immutable weights/RoPE/entry hidden are shared. Draft workspace is separately allocated. Full target verification completes before normal prefix commit."
+  ],
+  "reference": "Reuse pinned vLLM hidden/proposal contract and native graph ownership audited in qwen36-27b-mtp-gdn-graphs-design-2026-10-14.json. This is native scheduling, no external source import. Prior commit-overlap duplicated no target computation and was neutral; this hypothesis overlaps target computation and explicitly charges duplicated prefix work.",
+  "gates": [
+    "Build both isolated service and full-state oracle.",
+    "P65 full prefix/cache/adaptive rejection/cancel/failure oracle, including early-prefix route coverage; then immediate P65/8K/40K d2 API.",
+    "Stop at >3%short slowdown or nonpositive8K; useful direction alone unlocks d3 and further qualification.",
+    "Preserve 8GiB reserve, profile/witness/work/output identity, preflight and cleanup."
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "prefix_length_scans": 0,
+    "profiles": 0
+  },
+  "artifact_root": ".q3x-work/mtp-seed-prefix-overlap-20261014",
+  "production_changed": false
+}

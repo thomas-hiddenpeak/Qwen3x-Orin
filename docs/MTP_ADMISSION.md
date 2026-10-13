@@ -2142,6 +2142,28 @@ ordinary bitwise equality alone did not detect this race. Root instrumentation,
 CPU and complete model-state comparisons cover the repair; fresh paired API
 comparators are [refreshed](metadata/qwen36-27b-softmax-sync-2026-10-14.json) for subsequent target qualification. The installed predecessor is unchanged.
 
+## Seed-prefix scheduling composition v85 — removed
+
+The [fixed scheduling design](metadata/qwen36-27b-mtp-seed-prefix-design-2026-10-14.json)
+starts layers 0..7 for the already-known seed on the target stream before bounded
+private drafting. Draft reads the immutable entry hidden on its separate stream.
+Backfill uses hidden rows 1..d and the seed's immutable GDN prefix, preserving
+row0 residual/normalized hidden at layer8. Projection scratch is sequentially
+reused on the target stream. Causal KV and per-layer Conv order are unchanged.
+Layers8..63 and full logits rejoin ordinary multirow execution before any commit.
+Eight startup-owned graphs supplement the original48; no round allocation or
+capture. Fixed/scripted proposal oracles and zero-draft tails retain complete
+verification. Seed mismatch after early work fails closed; abort drains both
+streams and poisons. This is isolated development with no performance claim.
+
+The [completed rejection](metadata/qwen36-27b-mtp-seed-prefix-rejection-2026-10-14.json)
+preserves full target state/logits/cache and exact API output/work but slows
+P65/O16 d2 Decode by6.414%. The predeclared short stop closes the candidate;
+8K is cancelled before completion and40K/d3 are not run. All new scheduling,
+row-offset helpers, graph variants and admission tests are frozen then removed.
+The original v86 execution order and profile remain current. No prefix-size,
+priority or profiler scan follows this closed composition.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
