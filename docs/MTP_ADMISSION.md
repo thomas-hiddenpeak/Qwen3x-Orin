@@ -1862,6 +1862,24 @@ further context/d3 qualification. All certificate-owner, producer, dispatch
 and profile changes are removed; retained confidence v64 remains current.
 No production error-bound proof or further tuning authority follows.
 
+## FP8 output ownership composition v70 — removed
+
+The [bounded candidate](metadata/qwen36-27b-mtp-fp8-output-partition-design-2026-10-13.json)
+splits four independent output channels across two 256-thread groups in one
+512-thread CTA. Each group retains the original K indices, M-row reuse,
+four FMA chains and chain merge. Two-output live-root reduction preserves
+the original32-lane tree; eight warp roots per output retain the final tree,
+scale and BF16 publication. Immutable lookup and partials share CTA lifetime.
+No model format, allocation, state or production boundary changes. Added
+activation demand and reduced register liveness are charged to real API fitness;
+no local resource improvement alone grants retention.
+
+The [completed rejection](metadata/qwen36-27b-mtp-fp8-output-partition-rejection-2026-10-13.json)
+passes complete numerical/state admission but regresses P65 d2 API Decode by
+7.46%. All new output ownership, two-tree reduction and profile paths are
+removed. Retained v64 remains current; no geometry scan or production change
+follows this closed composition.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

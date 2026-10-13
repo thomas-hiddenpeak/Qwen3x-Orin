@@ -1,0 +1,44 @@
+{
+  "work_package_id": "WP-MTP-FP8-OUTPUT-PARTITION-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v70",
+  "source_parent": "510666c",
+  "product_constraint": "1.5x-3x same-request committed Decode, maxima2/3, full exact target state/logits/output and joint Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "remaining_v64_40k_full_decode_s": 1.264435333,
+    "historical_v48_fp8_gpu_s": 5.869083328
+  },
+  "mechanism": "One fixed512-thread CTA covers the same four output channels. Two256-thread groups each own two outputs, retaining original K ownership and M-row weight reuse. Per-thread independent accumulators halve. Two-output live-root warp reduction preserves original32-lane trees, then the original8-warp roots publish final BF16 outputs. One shared FP8 lookup and partial lifetime. Native packed weight sidecar and K1024 cache hints remain; no expanded weights or input staging.",
+  "distinction": "The closed NV chain partition redistributes four terms of each accumulation among lanes. This partitions independent FP8 output channels, never the scalar K chains or tokens. No continuation of Tensor Core certificate, token-group operand broadcast, activation staging or launch scan.",
+  "resource_hypothesis": "M3/M4 half accumulator liveness may admit two512-thread CTAs versus retained3/2 256-thread CTAs. Activation demand duplicates across the two output groups; packed sidecar demand uses aligned64-bit halves. No claimed stall cause or guaranteed speedup.",
+  "equivalence": "Each original output/m/token retains four FP32 fmaf chains in original increasingK1024 order, original chain merge, original32-lane and8-warp sums including zero additions, final scale/BF16 RNE. Input and output buffers/state boundaries unchanged.",
+  "reference_transfer": "Previously studied Marlin/Triton output ownership and register residency translated to native scalar chains on SM87; no imported source or runtime dependency.",
+  "resources": {
+    "request_allocations": 0,
+    "persistent_bytes_added": 0,
+    "cta_threads": 512,
+    "channels_per_thread": 2,
+    "minimum_ctas_per_sm": 2,
+    "required_spills": 0
+  },
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "parameter_scans": 0,
+    "profiles": 0
+  },
+  "gates": [
+    "Compile512-thread no-spill and twoCTA resource feasibility; fail closed without launch/register tuning.",
+    "72 complete FP8 output/guard cases and P65 full prefixes/state/cache transactions.",
+    "Immediate d2 API; >3 percent slowdown/nonpositive8K stops. Useful long direction unlocksd3."
+  ],
+  "expiry": "Next composed API result or rejection, no local performance campaign.",
+  "artifact_root": ".q3x-work/mtp-fp8-output-partition-20261013",
+  "rollback_files": [
+    "src/runtime/mtp_verify_projection_internal.cu",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "production_changed": false
+}

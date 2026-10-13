@@ -19,6 +19,31 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-13 FP8 output ownership — closed negative
+
+`WP-MTP-FP8-OUTPUT-PARTITION-20261013` / `AC-MTP-GREEDY-v70` owns the
+[fixed output partition](metadata/qwen36-27b-mtp-fp8-output-partition-design-2026-10-13.json).
+The remaining 40K full-Decode budget selects lower accumulator liveness in the
+FP8 verifier. Two 256-thread groups share one CTA and split four independent
+outputs, preserving every scalar chain and reduction. This doubles input
+demand between groups but may admit more active warps for M3/M4. Compile
+and exact numerical admission return immediately to the API. One fixed512-thread
+structure, no register/launch scan; spills, >3% slowdown or nonpositive8K close
+it. Useful long direction unlocks d3. Production and the full goal stay fixed.
+
+The [completed rejection](metadata/qwen36-27b-mtp-fp8-output-partition-rejection-2026-10-13.json)
+passes 72 complete projection outputs/guards, nine real-model prefixes, fifteen
+state/cache transactions and four failure recoveries. M2/M3/M4 registers fall
+to 40/52/60–61 without spills, but P65/O16 d2 Decode falls to 11.842 token/s
+from 12.796 (-7.46%). Prefill is 0.892 seconds / 72.83 token/s, TTFT 0.911
+seconds and external total 2.178 seconds; verification adds 94.061ms.
+
+The 3% stop closes the fixed structure. The already-entered 8K request is
+cancelled; 40K/d3 and full lifecycle qualification do not follow. All candidate
+runtime/profile paths are removed and v64 restored. No measured stall cause,
+actual occupancy gain or universal hardware limit is inferred; no output-count,
+register or launch scan follows. Production and the full target stay unchanged.
+
 ## 2026-10-13 weight-major certificate — closed negative
 
 `WP-MTP-WEIGHT-MAJOR-CERTIFICATE-20261013` / `AC-MTP-GREEDY-v69` owns the

@@ -1,0 +1,212 @@
+{
+  "date": "2026-10-13",
+  "work_package_id": "WP-MTP-FP8-OUTPUT-PARTITION-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v70",
+  "source_parent": "510666c",
+  "decision_unit": "architecture_candidate",
+  "decision": {
+    "decision": "remove",
+    "reason": "P65/O16 d2 Decode -7.45717 percent beyond predeclared3 percent stop loss. No completed8K/40K/d3 result.",
+    "numerical_pass": true,
+    "api_checks_completed": 1,
+    "goal_complete": false,
+    "production_changed": false
+  },
+  "production_changed": false,
+  "goal_complete": false,
+  "profile": "q3x.sm87.admission.mtp-fp8-output-partition-api.v71",
+  "server_sha256": "aca30b699943e27c1184e37db9eca68de5c4ae828aa5728921546dfc3831eaea",
+  "oracle_sha256": "51ab6f55a142ddee38ad5cce3fbb5e22782f73303b3e151ef96653032055dcff",
+  "artifact_root": ".q3x-work/mtp-fp8-output-partition-20261013",
+  "numerical": {
+    "synthetic": {
+      "full_output_guard_cases": 72,
+      "all_passed": true,
+      "scope": "Six FP8 roles/layouts x M2/3/4 x four patterns, finite/NaN weights, finite/signedzero/subnormal/Inf/NaN BF16;8/16-byte aligned inputs. No performance authority.",
+      "binary_sha256": "58bf715bb5616e374ebb91fdf857932fafc61304229d969c35dc22f0bf43f4ef",
+      "consumer_source_sha256": "a31627d8e077feb19ef33cd17e952d1892d9066ad96ad33a9ebe6b87b0b66b8c"
+    },
+    "synthetic_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "full_state": {
+      "prefix_groups": 3,
+      "complete_prefixes": 9,
+      "transactions": 15,
+      "failure_recoveries": 4,
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 69.25
+      }
+    }
+  },
+  "actual_server_resources": [
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj4ELb0EEEvPKhfPKtjjPt:",
+      "resources": "REG:60 STACK:0 SHARED:1536 LOCAL:0 CONSTANT[0]:392 TEXTURE:0 SURFACE:0 SAMPLER:0",
+      "two512_thread_ctas_register_feasible": true
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj4ELb1EEEvPKhfPKtjjPt:",
+      "resources": "REG:61 STACK:0 SHARED:1536 LOCAL:0 CONSTANT[0]:392 TEXTURE:0 SURFACE:0 SAMPLER:0",
+      "two512_thread_ctas_register_feasible": true
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj3ELb0EEEvPKhfPKtjjPt:",
+      "resources": "REG:52 STACK:0 SHARED:1408 LOCAL:0 CONSTANT[0]:392 TEXTURE:0 SURFACE:0 SAMPLER:0",
+      "two512_thread_ctas_register_feasible": true
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj3ELb1EEEvPKhfPKtjjPt:",
+      "resources": "REG:52 STACK:0 SHARED:1408 LOCAL:0 CONSTANT[0]:392 TEXTURE:0 SURFACE:0 SAMPLER:0",
+      "two512_thread_ctas_register_feasible": true
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj2ELb0EEEvPKhfPKtjjPt:",
+      "resources": "REG:40 STACK:0 SHARED:1280 LOCAL:0 CONSTANT[0]:392 TEXTURE:0 SURFACE:0 SAMPLER:0",
+      "two512_thread_ctas_register_feasible": true
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj2ELb1EEEvPKhfPKtjjPt:",
+      "resources": "REG:40 STACK:0 SHARED:1280 LOCAL:0 CONSTANT[0]:392 TEXTURE:0 SURFACE:0 SAMPLER:0",
+      "two512_thread_ctas_register_feasible": true
+    }
+  ],
+  "api": {
+    "metrics": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8924867239999998,
+        "prefill_tps": 72.83021500720946,
+        "decode_tps": 11.842222900060534,
+        "ttft_s": 0.9109838799995487,
+        "elapsed_s": 2.177519339000355,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-fp8-output-partition-v71",
+          "draft_length": 2,
+          "startup_free_bytes": 11093524480,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "confidence_threshold": 0.4,
+          "proposal_histogram": [
+            1,
+            0,
+            6,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "entry_hidden_snapshots": 7,
+          "direct_gdn_state_rows": 912,
+          "seed_kv_reuses": 6,
+          "state_copy_bytes_elided": 1987054592,
+          "draft_initialization_ms": 5.676979,
+          "draft_ms": 126.634054,
+          "verify_ms": 1118.694624,
+          "reconcile_ms": 20.947769,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "comparison": [
+      {
+        "stage": "p65",
+        "decode_ratio_vs_v64": 0.9254283271232875,
+        "decode_ratio_vs_nonmtp": 1.2360713974405741,
+        "draft_saved_ms": -0.5755529999999993,
+        "verify_saved_ms": -94.06085000000007,
+        "full_decode_saved_s": -0.09445651399999999,
+        "prefill_delta_s": 0.0035139039999998456,
+        "total_delta_s": 0.09772423175490985
+      }
+    ],
+    "completed_api_checks": 1,
+    "output_ids_equal_v64": true,
+    "work_equal_v64": true
+  },
+  "api_cleanup": {
+    "success": false,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 63.718
+  },
+  "api_driver_result": {
+    "returncode": -2,
+    "early_stop": true
+  },
+  "scope_limits": [
+    "Only P65/O16 d2 completed. Already-entered8K cancelled with no completed timing/output. No40K/d3/full lifecycle or repeated qualification.",
+    "No profiler claim attributes the cost to added input demand, sidecar load width or scheduling. Static register/resource improvement does not establish actual occupancy or performance.",
+    "No subsequent CTA/output-count/register/length scan. No global hardware-bound claim."
+  ],
+  "engineering_conclusion": "Exact output ownership partition passes all declared numerical gates and lowers M2/M3/M4 registers to40/52/60-61 with no spills, but real P65 complete Decode adds94.456514ms and verification adds94.060850ms. Remove fixed composition and restorev64. Full1.5x-3x target remains open.",
+  "rollback_files": [
+    "src/runtime/mtp_verify_projection_internal.cu",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "restoration": {
+    "server": {
+      "retained_sha256": "c4d9df64972f64d9bafeba6d5a4e92376ef23d1b5e5956b1a491ad1e1dea3e05",
+      "rebuilt_sha256": "8c3435da9339474332a8a78be5f095e6f522526db5e5d36c675ea3bf28fe315f",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "2779c9075d6b6ea19f7133721e7e1175830f6ad813d564ca6d2dc2fb601edda0",
+      "rebuilt_sha256": "3ab4543d1297fe907f62da7084a420aad2f713101584fc45156194163fe389da",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "validation": {
+    "host_ctests": 3,
+    "document_unit_tests": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1317,
+      "errors": 0
+    },
+    "git_diff_check": "pass"
+  },
+  "hygiene": {
+    "gpu_handles": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": ""
+    },
+    "api_keys_remaining": 0,
+    "workspace_tmp_files": [],
+    "registered_worktrees": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "artifact_manifest": ".q3x-work/mtp-fp8-output-partition-20261013/artifact-manifest.json"
+}
