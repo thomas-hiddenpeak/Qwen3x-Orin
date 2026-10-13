@@ -482,3 +482,7 @@ no Markdown paths or classifications change.
 The sign-separated NVFP4 composition closes after negative short API direction
 and exact v86 source restoration. Existing MTP SDD and Roadmap retain its
 numerical admission and rejection; no Markdown paths or classifications change.
+
+The arithmetic FP8 reconstruction composition closes after negative short API
+direction and exact v86 source restoration. Existing MTP SDD and Roadmap retain
+its full numerical admission and rejection; no Markdown paths or classes change.

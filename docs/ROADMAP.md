@@ -19,6 +19,31 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 arithmetic FP8 reconstruction — closed negative
+
+`WP-MTP-FP8-ARITHMETIC-DECODE-20261014` / `AC-MTP-GREEDY-v89` owns one
+[exact arithmetic composition](metadata/qwen36-27b-mtp-fp8-arithmetic-decode-design-2026-10-14.json).
+Replace verifier FP8 shared lookup/init with exact FP32 bit assembly and binary
+scaling, including subnormals, signed zero and signed qNaN. Existing global
+weights, launch geometry, scalar chains and state remain unchanged. This removes
+the lookup boundary rather than changing its layout; no table or decoder scan.
+All raw/sidecar codes, complete projections and P65 state admission return
+immediately to d2 P65/8K/40K API; useful direction unlocks d3. One composition,
+one correctness repair maximum, no profiling. Short >3% slowdown or nonpositive
+8K closes this version. Retained v86 and the full 1.5x–3x goal stay unchanged.
+
+The [completed direction](metadata/qwen36-27b-mtp-fp8-arithmetic-decode-rejection-2026-10-14.json)
+passes all 512 raw/sidecar encoding cases, 72 full projection/guard checks,
+nine complete target prefixes and fifteen state/cache transactions. Frozen API
+machine code preserves non-FTZ binary scaling and has no spills. P65/O16 d2
+Decode falls from 13.447 to 12.355 token/s (-8.125%), with identical output,
+acceptance and physical work; verification adds 99.619 ms. Prefill is 0.891
+seconds / 72.99 token/s, TTFT 0.917 seconds and total 2.131 seconds. The short
+stop cancels further qualification; no completed 8K/40K/d3 result is claimed.
+Remove all candidate code and identities, restoring v86. Replacing shared
+traffic with exact arithmetic did not yield API benefit. No decoder instruction,
+lookup, launch or profiler scan follows. The full goal remains unmet.
+
 ## 2026-10-14 sign-separated NVFP4 codebooks — closed negative
 
 `WP-MTP-NV-SIGNED-CODEBOOKS-20261014` / `AC-MTP-GREEDY-v88` implements the

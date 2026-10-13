@@ -1,0 +1,221 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-FP8-ARITHMETIC-DECODE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v89",
+  "source_parent": "3ba0e560efaf513ad27b023a55465091b6de3143",
+  "decision": "removed after negative short API direction",
+  "candidate_profile": "q3x.sm87.admission.mtp-fp8-arithmetic-api.v91",
+  "retained_profile": "q3x.sm87.admission.mtp-softmax-sync-api.v86",
+  "production_changed": false,
+  "goal_achieved": false,
+  "minimum_admission": {
+    "resources": [
+      {
+        "rows": 4,
+        "sidecar": false,
+        "stack": 0,
+        "spill_stores": 0,
+        "spill_loads": 0,
+        "registers": 99,
+        "static_shared": 512
+      },
+      {
+        "rows": 4,
+        "sidecar": true,
+        "stack": 0,
+        "spill_stores": 0,
+        "spill_loads": 0,
+        "registers": 102,
+        "static_shared": 512
+      },
+      {
+        "rows": 3,
+        "sidecar": false,
+        "stack": 0,
+        "spill_stores": 0,
+        "spill_loads": 0,
+        "registers": 80,
+        "static_shared": 384
+      },
+      {
+        "rows": 3,
+        "sidecar": true,
+        "stack": 0,
+        "spill_stores": 0,
+        "spill_loads": 0,
+        "registers": 80,
+        "static_shared": 384
+      },
+      {
+        "rows": 2,
+        "sidecar": false,
+        "stack": 0,
+        "spill_stores": 0,
+        "spill_loads": 0,
+        "registers": 56,
+        "static_shared": 256
+      },
+      {
+        "rows": 2,
+        "sidecar": true,
+        "stack": 0,
+        "spill_stores": 0,
+        "spill_loads": 0,
+        "registers": 62,
+        "static_shared": 256
+      }
+    ],
+    "original_fp8_values_raw_and_sidecar_exact_cases": 512,
+    "complete_projection_output_and_guard_cases": 72,
+    "runtime_correctness_repairs": 0,
+    "sass_audit": "sass-audit.json",
+    "no_ftz": true
+  },
+  "frozen_api_sass": {
+    "binary_sha256": "5e557e30ead689f8116f06000f4bdb58799c622753c9874d54b228afe6c4fdbf",
+    "functions": {
+      "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj4ELb0EEEvPKhfPKtjjPt": {
+        "multiply_by_2_to_120": 16,
+        "ftz_muls": 0
+      },
+      "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj4ELb1EEEvPKhfPKtjjPt": {
+        "multiply_by_2_to_120": 16,
+        "ftz_muls": 0
+      },
+      "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj3ELb0EEEvPKhfPKtjjPt": {
+        "multiply_by_2_to_120": 16,
+        "ftz_muls": 0
+      },
+      "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj3ELb1EEEvPKhfPKtjjPt": {
+        "multiply_by_2_to_120": 16,
+        "ftz_muls": 0
+      },
+      "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj2ELb0EEEvPKhfPKtjjPt": {
+        "multiply_by_2_to_120": 16,
+        "ftz_muls": 0
+      },
+      "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj2ELb1EEEvPKhfPKtjjPt": {
+        "multiply_by_2_to_120": 16,
+        "ftz_muls": 0
+      }
+    }
+  },
+  "model_admission": {
+    "identity": {
+      "command": [
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-fp8-arithmetic-decode-20261014/oracle-p65/q3x_mtp_whole_core_test",
+        "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-fp8-arithmetic-decode-20261014/oracle-p65/prompt.u32",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-fp8-arithmetic-decode-20261014/oracle-p65"
+      ],
+      "binary_sha256": "0944d5a067868499e0b6560f3f19bbe58221f8c4206d4155a4e6c134a63cac5a",
+      "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+      "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+      "git": "3ba0e560efaf513ad27b023a55465091b6de3143",
+      "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+    },
+    "complete_prefixes": 9,
+    "state_cache_transactions": 15,
+    "verification_failure_recoveries": 4,
+    "draft_initialization_cancel_recoveries": 8,
+    "complete_state_logits_and_cache_bitwise_equal": true,
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 69.062
+    }
+  },
+  "api": {
+    "complete_output_and_usage_equal_nonmtp_and_v86": true,
+    "all_generated_ids_equal_v86": true,
+    "all_non_timing_work_equal_v86": true,
+    "completed_requests": 1,
+    "server_sha256": "5e557e30ead689f8116f06000f4bdb58799c622753c9874d54b228afe6c4fdbf",
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.890584075,
+        "prefill_tps": 72.98580990233853,
+        "ttft_s": 0.9166380769966054,
+        "decode_tps": 12.354913511956598,
+        "elapsed_s": 2.130757590995927,
+        "incumbent_decode_tps": 13.447487561074006,
+        "decode_delta_percent": -8.124744820586749,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-fp8-arithmetic-v91"
+          ],
+          "startup_free_bytes": [
+            10899103744,
+            10963894272
+          ],
+          "draft_initialization_ms": [
+            5.709196,
+            5.657837
+          ],
+          "draft_ms": [
+            113.685322,
+            112.677932
+          ],
+          "verify_ms": [
+            980.7653470000001,
+            1080.384387
+          ],
+          "reconcile_ms": [
+            20.249626,
+            20.269637000000003
+          ]
+        }
+      }
+    ],
+    "driver_terminal": {
+      "returncode": -2,
+      "early_stop": true
+    },
+    "cleanup": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 64.687
+    }
+  },
+  "interpretation": {
+    "verification_delta_ms": 99.61903999999993,
+    "draft_delta_ms": -1.007390000000001,
+    "acceptance_and_work_unchanged": true,
+    "statement": "All512 raw/sidecar codes and complete target state are exact. Removing shared lookup/init/barrier in favor of FP32 reconstruction adds99.619ms verification and loses8.125% short API Decode. No new profile isolates the internal hardware cause; fewer shared transactions is not a product speedup.",
+    "unrun": "8K request cancelled during early-stop cleanup; no completed8K/40K/d3 result. Partial panel is not a validation pass.",
+    "next_scope": "Close this direct decoder without instruction/lookup/launch/profile scanning. Retained v86 real-API budget and1.5x-3x goal remain active; next implementation requires a materially changed dataflow."
+  },
+  "host_validation": {
+    "ctests": [
+      "whole_core_exact_decode_plan",
+      "mtp_control",
+      "mtp_weights"
+    ],
+    "passed": 3,
+    "document_control_unit_tests": 7,
+    "document_control_log": "document-control: PASS\ntracked_markdown: 86\nregistry_entries: 86\nrequired_headers: 41\nheaders_checked: 57\nlocal_links_checked: 1411\nerrors: 0\n"
+  },
+  "hygiene": {
+    "runtime_source_equal_parent": true,
+    "restored_profile": "q3x.sm87.admission.mtp-softmax-sync-api.v86",
+    "restored_server_sha256": "698319e2fd0eb9235cca5cd3b891b7189fcafe01610c830e8affc02ae1a74884",
+    "restored_oracle_sha256": "afcff66c00b857957ce7e36993057628f694acc71972acc770ab405c8da1b2f1",
+    "installed_082_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "gpu_holders": [],
+    "worktree_count": 47,
+    "api_keys_remaining": [],
+    "temporary_files": []
+  },
+  "artifact_root": ".q3x-work/mtp-fp8-arithmetic-decode-20261014",
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-fp8-arithmetic-decode-20261014/artifact-manifest.json",
+    "sha256": "85fa4889a9831554a72057d795da5bd4df3228292a891c85f4536d693607abc2",
+    "files": 119,
+    "bytes": 52110474
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-FP8-ARITHMETIC-DECODE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v89",
+  "source_parent": "3ba0e560efaf513ad27b023a55465091b6de3143",
+  "decision_unit": "architecture_candidate",
+  "product_constraint": "50%-200% Decode uplift at real API; preserve full target state/logits/output and report Prefill/TTFT/Decode/total",
+  "budget": {
+    "short_floor_gap_s": 0.072797995333,
+    "p40000_floor_gap_s": 0.505033430333,
+    "v79_graph_external_fp8_s": 1.257415552,
+    "scope": "FP8 number excludes GDN graph interiors and is not a full family time or predicted savings."
+  },
+  "mechanism": "Only verifier FP8 M2..4: replace shared code lookup/init/barrier with direct exact bit assembly plus FP32 multiply by 2^120, explicit signed qNaN for magnitudes127. Undo existing sidecar XOR in registers; canonical bytes need no XOR. Original scalar accumulation and reduction unchanged.",
+  "equivalence": "Interpret ((code&127)<<20)|((code&128)<<24) as FP32 and multiply by 2^120 using fmul.rn without FTZ. FP32 subnormal mag<8 maps exactly to E4M3 subnormal; all other finite products are exact and in range. Preserve signed zero and signed qNaN. Exhaustive GPU 256-code proof gates real model.",
+  "novelty": "No replicated/shared table, register-byte selector, new weight representation or launch change. Earlier NV register-codebook and FP8 table layouts remain closed. Arithmetic encoding replaces memory lookup; no parameter scan.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "profiler": 0,
+    "parameter_scan": false
+  },
+  "static_gate": "No spills, unchanged launch bounds and block residency capacity. Inspect fmul.rn non-FTZ and explicit NaN path.",
+  "admission": [
+    "All256 raw codes and all256 sidecar codes GPU bitwise equal",
+    "72 full FP8 projection/guard cases including exceptional values",
+    "P65 full target-prefix/state/cache/failure/recovery",
+    "Immediate d2 P65/O16, P8192/O256, P40000/O256 API; useful direction unlocks d3"
+  ],
+  "stop": "Short >3% regression, nonpositive8K, numerical failure after one repair, or resource gate failure closes this version. Neutral complete API is not retention.",
+  "production_changed": false,
+  "artifact_root": ".q3x-work/mtp-fp8-arithmetic-decode-20261014",
+  "prior_first_use_assessment": "Existing v64 short trace: first M3 verify158.651ms versus subsequent149.604..149.738ms; not current causal profile, no new GPU run and no startup mechanism selected."
+}
