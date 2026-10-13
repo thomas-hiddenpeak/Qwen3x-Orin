@@ -25,6 +25,30 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-14 sign-separated NVFP4 codebooks — closed negative
+
+`WP-MTP-NV-SIGNED-CODEBOOKS-20261014` / `AC-MTP-GREEDY-v88` implements the
+[fixed composition](metadata/qwen36-27b-mtp-nv-signed-codebooks-design-2026-10-14.json)
+selected by the completed NVFP4 attribution. Only M3 coupled Gate/Up changes:
+positive pair and packed scale words are replicated per lane, restoring exact
+signs before the unchanged BF16 multiplication and FP32 chains. Shared storage
+is 30,720 bytes; compilation must preserve at most 96 registers and zero spills.
+One composition and at most one correctness repair return through full state
+admission to P65/8K/40K d2 API, then d3 only for useful direction. Short >3%
+slowdown or nonpositive 8K closes this version. No profile or parameter scan.
+The full goal, corrected v86 comparator and production boundary remain unchanged.
+
+The [completed direction](metadata/qwen36-27b-mtp-nv-signed-codebooks-rejection-2026-10-14.json)
+passes 95-register/no-spill admission, twelve full projection/guard cases, nine
+complete target prefixes and fifteen state/cache transactions. P65/O16 d2
+Decode falls from 13.447 to 12.152 token/s (-9.637%), with identical output,
+acceptance and physical work; verification adds 119.084 ms. Prefill is 0.892
+seconds / 72.88 token/s, TTFT 0.918 seconds and total 2.152 seconds. The short
+stop cancels further qualification; no complete 8K/40K or d3 result is claimed.
+All candidate runtime code and identities are removed, restoring v86. Reduced
+lookup conflicts and preserved compiled residency did not yield API benefit.
+No table, occupancy, launch or profiler scan follows. The full goal is unmet.
+
 ## Product trace and bounded composition
 
 The product question is whether committed-token throughput improves on the

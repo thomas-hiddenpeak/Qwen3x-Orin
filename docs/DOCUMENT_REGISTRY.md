@@ -478,3 +478,7 @@ rejection with v86 restored; no Markdown path or classification changes.
 The NVFP4 verifier feed diagnosis completes its small-resident capture and
 selects one exact sign-separated codebook composition in the existing Roadmap;
 no Markdown paths or classifications change.
+
+The sign-separated NVFP4 composition closes after negative short API direction
+and exact v86 source restoration. Existing MTP SDD and Roadmap retain its
+numerical admission and rejection; no Markdown paths or classifications change.

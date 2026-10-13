@@ -1,0 +1,148 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-NV-SIGNED-CODEBOOKS-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v88",
+  "source_parent": "5afb46541348309f5787bdcb72c5e161154006a4",
+  "decision": "removed after negative short API direction",
+  "candidate_profile": "q3x.sm87.admission.mtp-nv-signed-codebooks-api.v90",
+  "retained_profile": "q3x.sm87.admission.mtp-softmax-sync-api.v86",
+  "production_changed": false,
+  "goal_achieved": false,
+  "minimum_admission": {
+    "registers": 95,
+    "static_shared_bytes": 30720,
+    "spills_bytes": 0,
+    "host_exhaustive_proof": {
+      "path": ".q3x-work/mtp-nv-feed-audit-20261014/sign-symmetry-proof.json",
+      "sha256": "8e9b9efe6d1f1bf93ea12c158bf70b079c561c6740c682b65475af9b57eb365c"
+    },
+    "projection_output_cases": 12,
+    "full_output_equal": true,
+    "guards_pass": true,
+    "initial_harness_failure": "synthetic-harness-correction.json",
+    "runtime_correctness_repairs": 0
+  },
+  "model_admission": {
+    "identity": {
+      "command": [
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-nv-signed-codebooks-20261014/oracle-p65/q3x_mtp_whole_core_test",
+        "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-nv-signed-codebooks-20261014/oracle-p65/prompt.u32",
+        "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-nv-signed-codebooks-20261014/oracle-p65"
+      ],
+      "binary_sha256": "7a79b676f972986f85744d1fd20ccd2835fa5f20139e2b269f11e8f1d2b75cbc",
+      "prompt_sha256": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548",
+      "source_fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+      "git": "5afb46541348309f5787bdcb72c5e161154006a4",
+      "scope": "layer-major multi-row verifier against scalar full-prefix state/logit oracle; no API performance authority"
+    },
+    "complete_prefixes": 9,
+    "state_cache_transactions": 15,
+    "verification_failure_recoveries": 4,
+    "draft_initialization_cancel_recoveries": 8,
+    "complete_state_logits_and_cache_bitwise_equal": true,
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 67.875
+    }
+  },
+  "api": {
+    "complete_output_and_usage_equal_nonmtp_and_v86": true,
+    "all_generated_ids_equal_v86": true,
+    "all_non_timing_work_equal_v86": true,
+    "completed_requests": 1,
+    "server_sha256": "8ec84891b9c0135f81354bd5ed5668df06d8166e1610524cbd7dcb20bc7980ac",
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.89191899,
+        "prefill_tps": 72.87657368972489,
+        "ttft_s": 0.9180467609985499,
+        "decode_tps": 12.151544526806182,
+        "elapsed_s": 2.152364973000658,
+        "incumbent_decode_tps": 13.447487561074006,
+        "decode_delta_percent": -9.637064383826955,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-nv-signed-codebooks-v90"
+          ],
+          "startup_free_bytes": [
+            10899103744,
+            11003359232
+          ],
+          "draft_initialization_ms": [
+            5.709196,
+            5.609146
+          ],
+          "draft_ms": [
+            113.685322,
+            113.527128
+          ],
+          "verify_ms": [
+            980.7653470000001,
+            1099.849033
+          ],
+          "reconcile_ms": [
+            20.249626,
+            20.265535000000003
+          ]
+        }
+      }
+    ],
+    "driver_terminal": {
+      "returncode": -2,
+      "early_stop": true
+    },
+    "cleanup": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 63.937
+    }
+  },
+  "interpretation": {
+    "verification_delta_ms": 119.08368599999983,
+    "draft_delta_ms": -0.15819399999999462,
+    "acceptance_and_work_unchanged": true,
+    "statement": "The signed replicated codebooks preserve operands, state and compiled residency capacity but lose 9.637% short API Decode. Verification adds 119.084 ms. Additional representation/initialization work has no net product benefit. No new profile isolates the internal cause; bank conflict removal alone did not predict speedup.",
+    "unrun": "8K request cancelled during early-stop cleanup; no completed 8K/40K/d3 result. Partial panel is not a validation pass.",
+    "next_scope": "Close this representation and all table/occupancy/launch scans. Retained v86 real-API budget and 1.5x-3x goal remain active; next implementation requires a materially changed dataflow."
+  },
+  "host_validation": {
+    "ctests": [
+      "whole_core_exact_decode_plan",
+      "mtp_control",
+      "mtp_weights"
+    ],
+    "passed": 3,
+    "document_control_unit_tests": 7,
+    "document_control": {
+      "paths": 86,
+      "headers_checked": 57,
+      "links": 1407,
+      "errors": 0
+    }
+  },
+  "hygiene": {
+    "runtime_source_equal_parent": true,
+    "restored_profile": "q3x.sm87.admission.mtp-softmax-sync-api.v86",
+    "restored_server_sha256": "c0ab6a0f769dc1bd882379d56e6c771d95fd316677c0694d4c29abcf8f114b7d",
+    "restored_oracle_sha256": "bed37b91d96dd1ddbf8a034fd78a22c29b581042cca3a079616b55bc41597e4e",
+    "installed_082_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "gpu_holders": [],
+    "worktree_count": 47,
+    "api_keys_remaining": [],
+    "temporary_files": []
+  },
+  "artifact_root": ".q3x-work/mtp-nv-signed-codebooks-20261014",
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-nv-signed-codebooks-20261014/artifact-manifest.json",
+    "sha256": "0fa34b6bec8fd1723c997f189ae5b43b2f8ab1875ae0187bad38dbafbd085552",
+    "files": 128,
+    "bytes": 49043751
+  }
+}

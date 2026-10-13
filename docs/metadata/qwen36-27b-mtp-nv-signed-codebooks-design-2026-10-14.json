@@ -1,0 +1,32 @@
+{
+  "work_package_id": "WP-MTP-NV-SIGNED-CODEBOOKS-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v88",
+  "source_parent": "5afb465",
+  "decision_unit": "architecture_candidate",
+  "product_constraint": "50%-200% full API Decode uplift with exact target state/output; report Prefill, TTFT, Decode, total",
+  "budget_deficit_seconds": {
+    "P65": 0.072797995333,
+    "P40000": 0.505033430333
+  },
+  "scope": "Only nvfp4_rows<3,1>, coupled Gate/Up. No global allocation, weight, launch geometry, input ring or arithmetic changes.",
+  "mechanism": "Lane-replicated positive FP4 pair and packed positive E4M3 codebooks with exact sign restoration. 30720 static shared bytes.",
+  "resource_gate": {
+    "max_registers": 96,
+    "spills": 0,
+    "required_blocks_per_sm": 5
+  },
+  "bounds": {
+    "compositions": 1,
+    "correctness_repairs": 1,
+    "profiling": 0,
+    "parameter_scan": false
+  },
+  "admission": [
+    "T0 resource gate",
+    "exhaustive operands and complete projection output/guards",
+    "P65 full state/cache/recovery",
+    "immediate P65/O16, P8192/O256, P40000/O256 d2 API against corrected v86; useful direction unlocks d3"
+  ],
+  "stop": "Resource failure, numerical failure after one repair, short >3% slowdown, or nonpositive 8K closes version. Neutral complete API is not retention.",
+  "production_switch": false
+}

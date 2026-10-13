@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 sign-separated NVFP4 codebooks — closed negative
+
+`WP-MTP-NV-SIGNED-CODEBOOKS-20261014` / `AC-MTP-GREEDY-v88` implements the
+[fixed composition](metadata/qwen36-27b-mtp-nv-signed-codebooks-design-2026-10-14.json)
+selected by the completed NVFP4 attribution. Only M3 coupled Gate/Up changes:
+positive pair and packed scale words are replicated per lane, restoring exact
+signs before the unchanged BF16 multiplication and FP32 chains. Shared storage
+is 30,720 bytes; compilation must preserve at most 96 registers and zero spills.
+One composition and at most one correctness repair return through full state
+admission to P65/8K/40K d2 API, then d3 only for useful direction. Short >3%
+slowdown or nonpositive 8K closes this version. No profile or parameter scan.
+The full goal, corrected v86 comparator and production boundary remain unchanged.
+
+The [completed direction](metadata/qwen36-27b-mtp-nv-signed-codebooks-rejection-2026-10-14.json)
+passes 95-register/no-spill admission, twelve full projection/guard cases, nine
+complete target prefixes and fifteen state/cache transactions. P65/O16 d2
+Decode falls from 13.447 to 12.152 token/s (-9.637%), with identical output,
+acceptance and physical work; verification adds 119.084 ms. Prefill is 0.892
+seconds / 72.88 token/s, TTFT 0.918 seconds and total 2.152 seconds. The short
+stop cancels further qualification; no complete 8K/40K or d3 result is claimed.
+All candidate runtime code and identities are removed, restoring v86. Reduced
+lookup conflicts and preserved compiled residency did not yield API benefit.
+No table, occupancy, launch or profiler scan follows. The full goal is unmet.
+
 ## 2026-10-14 NVFP4 verifier feed attribution — complete
 
 `WP-MTP-NV-FEED-AUDIT-20261014` owns the
@@ -44,9 +68,8 @@ addresses over 2,097,152 combinations. Select one M3 coupled Gate/Up composition
 sign-free pair/scale codebooks with lane-owned words, restoring original sign
 bits before unchanged scaled multiplication. Its 30,720-byte shared allocation
 preserves five-block capacity if compilation stays at most 96 registers without
-spills. Extra initialization/bit work must still win at the real API. Implement
-this fixed composition next; no more profiling or table/launch scanning. Current
-API metrics and the full goal are unchanged.
+spills. Extra initialization/bit work must still win at the real API. The fixed composition is now closed negative above; no more profiling or
+table/launch scanning follows. Retained API metrics and the full goal are unchanged.
 
 ## 2026-10-14 full-Attention static tails — closed neutral
 
