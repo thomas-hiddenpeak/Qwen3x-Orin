@@ -19,6 +19,33 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 exact FP8 operand-feed attribution — complete
+
+`WP-MTP-PROJECTION-FEED-AUDIT-20261014` owns a
+[bounded component diagnosis](metadata/qwen36-27b-mtp-projection-feed-audit-design-2026-10-14.json)
+of the unchanged M3 canonical GDN QKV verifier. The real v79 API cost record
+selects this projection family; four actual layers are fixed from code entropy
+before timing. A checkpoint-weight-only rotation precedes one median-layer NCU
+capture. Deterministic inputs do not claim real-prompt activation coverage or
+API speed. Only 200 MiB of weights are resident, with the 8-GiB reserve;
+full-model replay, parameter scans and repeated counter attempts are excluded.
+The question is whether memory delivery, shared-table traffic or instruction
+issue limits this exact kernel. Counters must guide a bounded implementation,
+not become a hardware impossibility or a whole-product performance claim.
+
+The [completed small-resident capture](metadata/qwen36-27b-mtp-projection-feed-audit-2026-10-14.json)
+succeeds without the earlier full-model replay exhaustion. Four layer medians
+are 0.3715–0.3726 ms; one median-layer NCU capture records 4,122,311 shared
+wavefronts against 1,728,000 ideal (2.386x), 80 registers and 50% theoretical
+occupancy. These are component facts, not model speedups or DRAM saturation.
+The next bounded proposal is an exact BF16 codebook representation with
+32 lane replicas: 16 KiB rather than the rejected 32-KiB FP32 table, four
+128-bit publication rounds rather than 32 scalar rounds, and FP32 expansion
+at consumption. Host proof covers all 256 codes and the subword bank mapping;
+GPU numerical/resource admission and full API composition are still pending.
+No runtime change or new API metric is selected here. Do not reuse the
+profiler's heuristic speedup estimate as a forecast or repeat its collection.
+
 ## 2026-10-14 draft FC embedding-prefix cache — closed neutral
 
 `WP-MTP-FC-EMBEDDING-CACHE-20261014` / `AC-MTP-GREEDY-v82` follows the

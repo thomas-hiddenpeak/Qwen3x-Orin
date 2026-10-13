@@ -1,0 +1,36 @@
+{
+  "work_package_id": "WP-MTP-PROJECTION-FEED-AUDIT-20261014",
+  "decision_unit": "diagnostic",
+  "source_parent": "823b554",
+  "product_constraint": "1.5x\u20133x same-workload committed Decode at d2/d3, exact target state/logits/output, paired Prefill/TTFT/Decode/total.",
+  "api_anchor": "docs/metadata/qwen36-27b-mtp-v79-budget-2026-10-14.json",
+  "question": "In unchanged M3 canonical FP8 GDN QKV, does DRAM/operand delivery or instruction/shared-table issue limit the exact verifier? Do not infer a global hardware bound.",
+  "scope": "Checkpoint-weight-only component attribution, deterministic BF16 activations; no data-dependent skipping. Not real-prompt activation or whole-model timing.",
+  "selection": {
+    "role": "linear_attn.in_proj_qkv",
+    "shape": [
+      3,
+      10240,
+      5120
+    ],
+    "criterion": "Ascending entropy of all48real FP8 code histograms; fixed ranks0,23,35,47 before timing",
+    "tensors": [
+      "model.language_model.layers.13.linear_attn.in_proj_qkv.weight",
+      "model.language_model.layers.21.linear_attn.in_proj_qkv.weight",
+      "model.language_model.layers.28.linear_attn.in_proj_qkv.weight",
+      "model.language_model.layers.0.linear_attn.in_proj_qkv.weight"
+    ]
+  },
+  "bounds": {
+    "implementations": 0,
+    "component_processes": 1,
+    "ncu_processes": 1,
+    "profiled_kernels": 1,
+    "profile_layer_index": 1,
+    "gpu_weight_bytes": 209715200,
+    "full_resident_model_replay": false,
+    "kernel_or_parameter_scan": false
+  },
+  "protocol": "T2 unchanged-kernel four-layer rotation then one T4 capture of median layer after same four-layer warmup; preflight/cache preparation per process, 8GiB reserve and >90C stop. No clock/fan control. Stop on resource/ownership or tool failure without replay variations.",
+  "exit": "Record causal evidence or unsupported counters, then select a bounded computation/dataflow change or reject a proposed mechanism; no further counter campaign. Exact original source and output hashes bind probe."
+}

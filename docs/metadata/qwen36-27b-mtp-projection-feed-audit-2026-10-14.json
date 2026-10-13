@@ -1,0 +1,408 @@
+{
+  "work_package_id": "WP-MTP-PROJECTION-FEED-AUDIT-20261014",
+  "decision_unit": "diagnostic",
+  "status": "closed_select_compact_representation_proposal",
+  "source_parent": "823b554",
+  "design": "docs/metadata/qwen36-27b-mtp-projection-feed-audit-design-2026-10-14.json",
+  "source_sha256": "16f46af79670539c91099788e00ba3de86fde915f48f26b91a3742b2a2174bef",
+  "payload": {
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "selection_source": ".q3x-work/mtp-lossless-fp8-20261010/result.json",
+    "selection_source_sha256": "918408ef3d44add0977317024f5cae1eb318ed8cfa1375580e0725ffef6df932",
+    "shards": [
+      {
+        "path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+        "file": "model-00001-of-00003.safetensors",
+        "bytes": 9965652512,
+        "sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d"
+      },
+      {
+        "path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00002-of-00003.safetensors",
+        "file": "model-00002-of-00003.safetensors",
+        "bytes": 9985757032,
+        "sha256": "06da4242b0f491118d19d4d4c7564307a7bd6059c6bed284e08c93f6fc5a556d"
+      }
+    ],
+    "tensors": [
+      {
+        "index": 0,
+        "tensor": "model.language_model.layers.13.linear_attn.in_proj_qkv.weight",
+        "shape": [
+          10240,
+          5120
+        ],
+        "weight_sha256": "69c0f4ae135830ce1911cc0611bd209a4ecaa5845d7ef43643a7f2d7272aa3aa",
+        "weight_file": "weight-0.bin",
+        "file_offset": 4134914592,
+        "scale_tensor": "model.language_model.layers.13.linear_attn.in_proj_qkv.weight_scale",
+        "scale_file": "scale-0.bin",
+        "scale_offset": 126764,
+        "scale_bits": "0100f839",
+        "scale_sha256": "b7cadc6b7bae92704d98e7ea7838323c2cef0535b9f89189fd6eee4c3afdc7bb",
+        "entropy": 6.482809948188882
+      },
+      {
+        "index": 1,
+        "tensor": "model.language_model.layers.21.linear_attn.in_proj_qkv.weight",
+        "shape": [
+          10240,
+          5120
+        ],
+        "weight_sha256": "3e93eb102383b8e94e5fe8f4873168b82cb68e33410c591f87f14352f918d389",
+        "weight_file": "weight-1.bin",
+        "file_offset": 5302438432,
+        "scale_tensor": "model.language_model.layers.21.linear_attn.in_proj_qkv.weight_scale",
+        "scale_file": "scale-1.bin",
+        "scale_offset": 127212,
+        "scale_bits": "b76d8b3a",
+        "scale_sha256": "8bf7658e32a1dfa9d299af107f7324f5b0b7413050dd8d1507b85221aaa55951",
+        "entropy": 6.500268760228363
+      },
+      {
+        "index": 2,
+        "tensor": "model.language_model.layers.28.linear_attn.in_proj_qkv.weight",
+        "shape": [
+          10240,
+          5120
+        ],
+        "weight_sha256": "fa92fa53b6de62a79677eaf2ba810311fffb6aa9fff0048b5d8ab57b30fa0e03",
+        "weight_file": "weight-2.bin",
+        "file_offset": 428642152,
+        "scale_tensor": "model.language_model.layers.28.linear_attn.in_proj_qkv.weight_scale",
+        "scale_file": "scale-2.bin",
+        "scale_offset": 135668,
+        "scale_bits": "0100403a",
+        "scale_sha256": "4280f576896cf1bc92c75084797ff965d179493d0b3058b59f144a661fcb655a",
+        "entropy": 6.510047648681989
+      },
+      {
+        "index": 3,
+        "tensor": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+        "shape": [
+          10240,
+          5120
+        ],
+        "weight_sha256": "66eeb8a7cfd3f577a4f7bafdb5b68f4f7ba3cb1aa9717801082791b2de696ed7",
+        "weight_file": "weight-3.bin",
+        "file_offset": 3485125152,
+        "scale_tensor": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight_scale",
+        "scale_file": "scale-3.bin",
+        "scale_offset": 126516,
+        "scale_bits": "0000843a",
+        "scale_sha256": "d552446f521b6f79296f0473d8e8a66303ca4d1299688f286b90c7c923527021",
+        "entropy": 6.526123711628864
+      }
+    ],
+    "activation": {
+      "scope": "deterministic BF16 fixture, not real prompt activation",
+      "shape": [
+        3,
+        5120
+      ],
+      "bytes": 30720,
+      "sha256": "b7944821f9727e416c5b7307725da00183b558f7568999efda356168e13d4592"
+    },
+    "source_sha256": "16f46af79670539c91099788e00ba3de86fde915f48f26b91a3742b2a2174bef"
+  },
+  "model_metadata_sha256": {
+    "config.json": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "hf_quant_config.json": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "model.safetensors.index.json": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2"
+  },
+  "timing_identity": {
+    "command": [
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-projection-feed-audit-20261014/probe",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-projection-feed-audit-20261014/payload",
+      "timing"
+    ],
+    "binary_sha256": "82f1285e5d3f23b05fa427f9af9191295dc3063b4ad27e400de6f17d7f63ffda",
+    "driver_sha256": "764a6fb48feb419fcc6446a505114c1b3b2958cfdbea06203a2cfe7b469d261d",
+    "payload_manifest_sha256": "71d3df7a08a5ab6880b90a0d8ff22d4d0c4f7eb107e5c10f6f668f1ea50a0703",
+    "source_sha256": "16f46af79670539c91099788e00ba3de86fde915f48f26b91a3742b2a2174bef",
+    "git": "823b5549a8a011be82cd6afa8111641863ce533d",
+    "scope": "checkpoint_weight_only; unchanged exact M3 canonical FP8 component, diagnostic not API performance"
+  },
+  "profile_identity": {
+    "command": [
+      "sudo",
+      "-n",
+      "env",
+      "TMPDIR=/home/rm01/Qwen3x-Orin/.q3x-work/mtp-projection-feed-audit-20261014/profile/tmp",
+      "CUDA_CACHE_PATH=/home/rm01/Qwen3x-Orin/.q3x-work/mtp-projection-feed-audit-20261014/profile/cache/cuda",
+      "XDG_CACHE_HOME=/home/rm01/Qwen3x-Orin/.q3x-work/mtp-projection-feed-audit-20261014/profile/cache",
+      "/usr/local/cuda/bin/ncu",
+      "--clock-control",
+      "none",
+      "--cache-control",
+      "none",
+      "--kernel-name-base",
+      "function",
+      "--kernel-name",
+      "regex:.*fp8_rows.*",
+      "--launch-skip",
+      "4",
+      "--launch-count",
+      "1",
+      "--export",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-projection-feed-audit-20261014/profile/capture",
+      "--section",
+      "SpeedOfLight",
+      "--section",
+      "MemoryWorkloadAnalysis",
+      "--section",
+      "SchedulerStats",
+      "--section",
+      "WarpStateStats",
+      "--section",
+      "LaunchStats",
+      "--section",
+      "Occupancy",
+      "--section",
+      "SourceCounters",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-projection-feed-audit-20261014/probe",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-projection-feed-audit-20261014/payload",
+      "profile"
+    ],
+    "binary_sha256": "82f1285e5d3f23b05fa427f9af9191295dc3063b4ad27e400de6f17d7f63ffda",
+    "driver_sha256": "764a6fb48feb419fcc6446a505114c1b3b2958cfdbea06203a2cfe7b469d261d",
+    "payload_manifest_sha256": "71d3df7a08a5ab6880b90a0d8ff22d4d0c4f7eb107e5c10f6f668f1ea50a0703",
+    "source_sha256": "16f46af79670539c91099788e00ba3de86fde915f48f26b91a3742b2a2174bef",
+    "git": "823b5549a8a011be82cd6afa8111641863ce533d",
+    "scope": "checkpoint_weight_only; unchanged exact M3 canonical FP8 component, diagnostic not API performance"
+  },
+  "analysis": {
+    "scope": "T2 checkpoint-weight-only unchanged canonical M3 GDN QKV, four fixed real weight layers with deterministic BF16 inputs; one T4 median-layer profile. No architecture selection or real-prompt/API throughput authority.",
+    "timing": [
+      {
+        "index": 0,
+        "samples": 8,
+        "min_ms": 0.371232003,
+        "median_ms": 0.3715200126,
+        "max_ms": 0.3745920062,
+        "output_fnv64": "cd34a2ef3bbaad59"
+      },
+      {
+        "index": 1,
+        "samples": 8,
+        "min_ms": 0.3707199991,
+        "median_ms": 0.37179200349999997,
+        "max_ms": 0.3752320111,
+        "output_fnv64": "78bae85978782dcc"
+      },
+      {
+        "index": 2,
+        "samples": 8,
+        "min_ms": 0.3711679876,
+        "median_ms": 0.37169601025,
+        "max_ms": 0.3748480082,
+        "output_fnv64": "f237f2661234520e"
+      },
+      {
+        "index": 3,
+        "samples": 8,
+        "min_ms": 0.3715200126,
+        "median_ms": 0.3725759983,
+        "max_ms": 0.3761279881,
+        "output_fnv64": "6fce9a7fe075ca5d"
+      }
+    ],
+    "profile_output_fingerprint_matches_timing": true,
+    "repeat_check": "Each process compares complete output vectors to its warmup; cross-process retained FNV64 fingerprint only, not a new independent numerical oracle.",
+    "metrics": {
+      "gpu__time_duration.avg": {
+        "value": "375.840000",
+        "unit": "us"
+      },
+      "l1tex__throughput.avg.pct_of_peak_sustained_active": {
+        "value": "85.558019",
+        "unit": "%"
+      },
+      "gpu__compute_memory_throughput.avg.pct_of_peak_sustained_elapsed": {
+        "value": "84.825235",
+        "unit": "%"
+      },
+      "sm__throughput.avg.pct_of_peak_sustained_elapsed": {
+        "value": "69.774730",
+        "unit": "%"
+      },
+      "memory_l1_wavefronts_shared": {
+        "value": "4122311",
+        "unit": "sectors"
+      },
+      "memory_l1_wavefronts_shared_ideal": {
+        "value": "1728000",
+        "unit": "sectors"
+      },
+      "derived__memory_l1_wavefronts_shared_excessive": {
+        "value": "2394311",
+        "unit": ""
+      },
+      "smsp__issue_active.avg.per_cycle_active": {
+        "value": "0.70",
+        "unit": ""
+      },
+      "sm__warps_active.avg.pct_of_peak_sustained_active": {
+        "value": "49.009343",
+        "unit": "%"
+      },
+      "smsp__average_warps_issue_stalled_barrier_per_issue_active.ratio": {
+        "value": "0.743425",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_branch_resolving_per_issue_active.ratio": {
+        "value": "0.112515",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_dispatch_stall_per_issue_active.ratio": {
+        "value": "0.401469",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_drain_per_issue_active.ratio": {
+        "value": "0.013626",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_imc_miss_per_issue_active.ratio": {
+        "value": "0.015174",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_lg_throttle_per_issue_active.ratio": {
+        "value": "0.013788",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_long_scoreboard_per_issue_active.ratio": {
+        "value": "1.573082",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_math_pipe_throttle_per_issue_active.ratio": {
+        "value": "0.767408",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_membar_per_issue_active.ratio": {
+        "value": "0",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_mio_throttle_per_issue_active.ratio": {
+        "value": "0.185641",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_misc_per_issue_active.ratio": {
+        "value": "0.000501",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_no_instruction_per_issue_active.ratio": {
+        "value": "0.054864",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_not_selected_per_issue_active.ratio": {
+        "value": "1.786555",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_selected_per_issue_active.ratio": {
+        "value": "1.000000",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_short_scoreboard_per_issue_active.ratio": {
+        "value": "0.398247",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_sleeping_per_issue_active.ratio": {
+        "value": "0",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_tex_throttle_per_issue_active.ratio": {
+        "value": "0",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_wait_per_issue_active.ratio": {
+        "value": "1.043290",
+        "unit": "inst"
+      }
+    },
+    "shared_wavefront_ratio": 2.3855966435185185,
+    "excessive_shared_fraction": 0.5808176530106535,
+    "resource": {
+      "registers_per_thread": 80,
+      "static_shared_bytes": 1408,
+      "resident_blocks_register_limit": 3,
+      "theoretical_occupancy_percent": 50,
+      "launch": [
+        2560,
+        256
+      ]
+    },
+    "replay_passes": 18,
+    "notes": [
+      "NCU event interval2418.7ms includes profiler replay/instrumentation and is not used as kernel or API speed. Raw counter duration375.84us is diagnostic only.",
+      "Tool did not collect DRAM counters on this device; memory throughput is not DRAM bandwidth. Do not claim external-memory saturation.",
+      "Shared excess2,394,311 over ideal1,728,000 wavefronts is a measured workload fact. Source mapping points to data-dependent codebook lookups; no per-source-line stall decomposition is claimed.",
+      "Occupancy and shared-memory speedup hints from Nsight are heuristics, not predicted end-to-end gains.",
+      "Initial report import encountered embedded Python user-site codec warnings; re-importing same report with PYTHONNOUSERSITE=1 resolved warnings. No new profiling process or collection.",
+      "Short timing process exited before tegrastats yielded a sample; preflight telemetry exists. This narrows continuous temperature coverage and is not a new performance qualification."
+    ]
+  },
+  "compact_representation_proof": {
+    "authority": "Host representation/address proof for one proposed successor, no GPU/performance admission",
+    "fp8_codes_exactly_representable_in_bf16_bits": 256,
+    "special_codes": "signed zero and signed canonical quiet NaN included",
+    "bank_pair_cases": 1048576,
+    "maximum_distinct_words_per_bank": 2,
+    "unique_bf16_publication_cells": 8192,
+    "publication_rounds_per_thread": 4,
+    "store_bytes_per_instruction": 16,
+    "shared_table_bytes": 16384,
+    "reference": "https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html",
+    "assumption": "Documented32banks, successive32bitwords, same-word read broadcast; actual instruction and resource behavior must be checked after compilation."
+  },
+  "decision": {
+    "next_work_package_proposal": "WP-MTP-COMPACT-FP8-TABLE-20261014 / AC-MTP-GREEDY-v83",
+    "mechanism": "Store FP8 codebook values exactly as BF16 with32lane replicas (16KiB total). A32bit bank word holds paired lane replicas; expand the16bit word to identical FP32 only at consumption. Publish with four warp-broadcast/128bit-store rounds, replacing the old32-round scalar publication. Preserve packed global feed, all FMA chains, reduction and output boundaries. Explicit shared carveout must preserve available residency.",
+    "why_new": "The closed32KiB FP32 lane-table construction used32shuffle/store publication rounds. This representation halves shared storage and publication bytes with a different subword consumer; it is not a scan of replica count or a revival of that exact implementation. Measured excess shared wavefronts now supplies causal motivation, not a speedup guarantee.",
+    "contract": "All256code values including signed zero/canonical quiet NaN roundtrip bitwise. Host address proof covers1,048,576code-pair cases, <=2distinct words per bank and exact unique publication of8192cells. New device/SASS/resources and full output/state admission remain required.",
+    "composition_boundary": "One compact-table implementation, no alternate layouts or parameters. Complete M2/3/4 canonical/sidecar special-code outputs and P65 full prefix state, then immediate d2 API; useful long direction unlocks d3. No further profiler in this work package.",
+    "limits": [
+      "BF16 storage does not relax target precision: operands must expand to exactly original FP32 bits.",
+      "More shared storage than current1KiB table and extra expansion instructions can offset reduced conflicts.",
+      "NCU heuristic57.58%local-speedup and occupancy hint50% are not forecasts; never add or present as project performance.",
+      "No DRAM-bandwidth or whole-model hardware-ceiling conclusion. One median layer and deterministic activations do not cover all production roles."
+    ]
+  },
+  "cleanup": {
+    "timing": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "profile": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 60.156
+    }
+  },
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "tmp_files_remaining": 0,
+    "removed_owned_profiler_locks": [
+      "profile/tmp/nvidia/nsight_compute/lock.b44726f4-bbf8-5ce7-b22b-76f2ca117534",
+      "profile/tmp/nvidia/nsight_compute/lock"
+    ],
+    "registered_worktrees": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "production_changed": false,
+  "runtime_mutations": 0,
+  "goal_achieved": false,
+  "api_metrics": "No new API run. Retained v79 d2/d3 paired Prefill/TTFT/Decode/total remain owned by CURRENT_STATUS and qwen36-27b-mtp-gdn-graphs-direction-2026-10-14.json.",
+  "artifact_root": ".q3x-work/mtp-projection-feed-audit-20261014",
+  "artifact_manifest": ".q3x-work/mtp-projection-feed-audit-20261014/artifact-manifest.json",
+  "validation": {
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "links": 1372,
+      "errors": 0
+    },
+    "document_unit_tests": 7,
+    "git_diff_check": "pass",
+    "runtime_tests": "Not repeated: no runtime change; T2 probe compares complete repeated outputs, T4 matches retained fingerprint."
+  }
+}
