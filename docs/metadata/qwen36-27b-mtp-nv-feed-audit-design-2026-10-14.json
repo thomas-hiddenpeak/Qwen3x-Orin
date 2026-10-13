@@ -1,0 +1,35 @@
+{
+  "work_package_id": "WP-MTP-NV-FEED-AUDIT-20261014",
+  "decision_unit": "diagnostic",
+  "source_parent": "755075b",
+  "goal": "Owner50%-200%same-workload Decode improvement with exact target output/state; drafts2/3; joint Prefill/TTFT/Decode/total.",
+  "api_anchor": "docs/metadata/qwen36-27b-mtp-v79-budget-2026-10-14.json",
+  "downward_budget": {
+    "short_floor_gap_ms": 72.797995333,
+    "p40000_floor_gap_ms": 505.033430333,
+    "nongraph_gate_up_seconds": 1.331460032,
+    "scope": "Known40K API trace excludes GDN graph internals from family timing. Static-tail graph extension just closed neutral. No extrapolated whole-family time or speedup claim."
+  },
+  "question": "In retained M3 coupled NVFP4 Gate, are shared lookup/feed, register residency or instruction/weight delivery the dominant constraints? Resolve whether a new dataflow is warranted; do not reopen rejected parameter/codebook scans.",
+  "payload_scope": "checkpoint_weight_only dense value-independent projection with deterministic BF16 input; not real-prompt activation or API timing.",
+  "layer_selection": "All64Gate tensors: rank by complete16-code FP4 entropy, tie by layer, choose ranks0/31/47/63 before timing; retain complete FP4 and256-code scale histograms. Up not profiled and receives no independent attribution claim.",
+  "shape": [
+    3,
+    17408,
+    5120
+  ],
+  "kernel": "unchanged nvfp4_rows<3,1>, original startup coupled-feed pack and current K512 input ring",
+  "bounds": {
+    "component_processes": 1,
+    "ncu_processes": 1,
+    "profiled_kernels": 1,
+    "profile_layer_index": 1,
+    "full_model_replay": false,
+    "kernel_parameter_scans": 0,
+    "runtime_mutations": 0
+  },
+  "protocol": "Authenticate pinned shards and tensors/scales. Four-layer T2 rotation eight rounds, compare full outputs against original scalar reference for eachrow. Then one same-ELF T4 median-layer capture after four-layer warmup. Preflight/cache prep before each GPUprocess;8GiBreserve and90Cstop; no fan/clock mutation. Tool/resource failure closes capture without replay variants.",
+  "exit": "One evidence-backed architecture choice or explicit rejection of a mechanism; no repeat profile or parameter campaign. Preserve existing APIs and goal.",
+  "artifact_root": ".q3x-work/mtp-nv-feed-audit-20261014",
+  "production_unchanged": true
+}

@@ -474,3 +474,7 @@ complete numerical admission and rejection; no Markdown paths or classes change.
 The full-Attention static-tail composition closes neutral after complete d2
 API checks. Existing MTP SDD and Roadmap retain the exact admission and frozen
 rejection with v86 restored; no Markdown path or classification changes.
+
+The NVFP4 verifier feed diagnosis completes its small-resident capture and
+selects one exact sign-separated codebook composition in the existing Roadmap;
+no Markdown paths or classifications change.

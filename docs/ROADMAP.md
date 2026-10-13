@@ -19,6 +19,35 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 NVFP4 verifier feed attribution — complete
+
+`WP-MTP-NV-FEED-AUDIT-20261014` owns the
+[fixed Gate attribution](metadata/qwen36-27b-mtp-nv-feed-audit-design-2026-10-14.json).
+The current real API budget selects NVFP4 verification after private-head and
+static Graph changes fail to close the gap. Choose four of all 64 real Gate
+weights by complete code entropy before timing; retain scales and tensor scale.
+Run unchanged M3 coupled-feed projection with deterministic BF16 inputs and
+complete scalar-output checks, then one small-resident median-layer NCU capture.
+This is checkpoint-weight-only attribution, not prompt activation or API speed.
+No full-model replay, new kernel, parameter scan or repeated profile is opened.
+The result must select a bounded dataflow or reject a proposed mechanism; the
+full goal and corrected v86 comparison remain unchanged.
+
+The [completed attribution](metadata/qwen36-27b-mtp-nv-feed-audit-2026-10-14.json)
+preserves complete scalar outputs across four preselected Gate layers and one
+small-resident NCU capture. Shared transactions are 2.008x ideal, with 50.187%
+excess; L1/TEX throughput is 82.66%. These are not latency or DRAM-bandwidth
+fractions. Registers limit residency to five blocks; actual shared partition
+167,936 bytes leaves room for a different exact representation. The bounded
+host proof reconstructs all original FP4-pair/E4M3 operands and lane bank
+addresses over 2,097,152 combinations. Select one M3 coupled Gate/Up composition:
+sign-free pair/scale codebooks with lane-owned words, restoring original sign
+bits before unchanged scaled multiplication. Its 30,720-byte shared allocation
+preserves five-block capacity if compilation stays at most 96 registers without
+spills. Extra initialization/bit work must still win at the real API. Implement
+this fixed composition next; no more profiling or table/launch scanning. Current
+API metrics and the full goal are unchanged.
+
 ## 2026-10-14 full-Attention static tails — closed neutral
 
 `WP-MTP-FA-TAIL-GRAPHS-20261014` / `AC-MTP-GREEDY-v87` implements the

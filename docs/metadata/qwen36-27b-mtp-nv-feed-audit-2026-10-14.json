@@ -1,0 +1,266 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-NV-FEED-AUDIT-20261014",
+  "source_parent": "755075b",
+  "decision": "diagnosis complete; select one sign-separated lane-owned NV codebook composition",
+  "production_changed": false,
+  "goal_achieved": false,
+  "analysis": {
+    "scope": "T2checkpoint_weight_only unchangedM3coupled NVFP4Gate, four preselected real layers and deterministic BF16 inputs; oneT4layer58capture. No API speed or production selection.",
+    "timing": [
+      {
+        "layer": 20,
+        "min_ms": 0.4101119936,
+        "median_ms": 0.41150400045,
+        "max_ms": 0.5860159993
+      },
+      {
+        "layer": 58,
+        "min_ms": 0.4112640023,
+        "median_ms": 0.41396799685,
+        "max_ms": 0.4165120125
+      },
+      {
+        "layer": 27,
+        "min_ms": 0.4094719887,
+        "median_ms": 0.4120479971,
+        "max_ms": 0.4164479971
+      },
+      {
+        "layer": 34,
+        "min_ms": 0.4093759954,
+        "median_ms": 0.41137599945000003,
+        "max_ms": 0.4170559943
+      }
+    ],
+    "profile_full_outputs_equal_timing_and_scalar": true,
+    "output_sha256": {
+      "0": "9b975e46518ef1c64134fd909b3a0b4780760b88f88b482293ee5395c01e3bad",
+      "1": "833de8d571de17283e9ef883defc9b1beafe9386612787c851774d6a29798fb3",
+      "2": "9b9b1bb0991372e5c364077e280ce81a1151cb2f9ebe5945addd94f45166e246",
+      "3": "7f9e59bddbc6eb42039b31e84c8a8589a810b0323d393083594889acf47d32a1"
+    },
+    "metrics": {
+      "gpu__time_duration.avg": {
+        "value": "409.888000",
+        "unit": "us"
+      },
+      "l1tex__throughput.avg.pct_of_peak_sustained_active": {
+        "value": "82.655499",
+        "unit": "%"
+      },
+      "gpu__compute_memory_throughput.avg.pct_of_peak_sustained_elapsed": {
+        "value": "81.311899",
+        "unit": "%"
+      },
+      "sm__throughput.avg.pct_of_peak_sustained_elapsed": {
+        "value": "71.374061",
+        "unit": "%"
+      },
+      "memory_l1_wavefronts_shared": {
+        "value": "6150621",
+        "unit": "sectors"
+      },
+      "memory_l1_wavefronts_shared_ideal": {
+        "value": "3063808",
+        "unit": "sectors"
+      },
+      "derived__memory_l1_wavefronts_shared_excessive": {
+        "value": "3086813",
+        "unit": ""
+      },
+      "smsp__issue_active.avg.per_cycle_active": {
+        "value": "0.73",
+        "unit": ""
+      },
+      "sm__warps_active.avg.pct_of_peak_sustained_active": {
+        "value": "40.955104",
+        "unit": "%"
+      },
+      "smsp__average_warps_issue_stalled_barrier_per_issue_active.ratio": {
+        "value": "0.676472",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_branch_resolving_per_issue_active.ratio": {
+        "value": "0.056562",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_dispatch_stall_per_issue_active.ratio": {
+        "value": "0.285649",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_drain_per_issue_active.ratio": {
+        "value": "0.005133",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_imc_miss_per_issue_active.ratio": {
+        "value": "0.012023",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_lg_throttle_per_issue_active.ratio": {
+        "value": "0.000064",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_long_scoreboard_per_issue_active.ratio": {
+        "value": "1.477390",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_math_pipe_throttle_per_issue_active.ratio": {
+        "value": "0.624183",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_membar_per_issue_active.ratio": {
+        "value": "0",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_mio_throttle_per_issue_active.ratio": {
+        "value": "0.110397",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_misc_per_issue_active.ratio": {
+        "value": "0.000194",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_no_instruction_per_issue_active.ratio": {
+        "value": "0.070776",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_not_selected_per_issue_active.ratio": {
+        "value": "1.280636",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_selected_per_issue_active.ratio": {
+        "value": "0.999999",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_short_scoreboard_per_issue_active.ratio": {
+        "value": "0.503168",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_sleeping_per_issue_active.ratio": {
+        "value": "0",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_tex_throttle_per_issue_active.ratio": {
+        "value": "0",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_wait_per_issue_active.ratio": {
+        "value": "0.607713",
+        "unit": "inst"
+      }
+    },
+    "shared_wavefront_ratio": 2.00750862978359,
+    "excessive_shared_fraction": 0.5018701363650923,
+    "resources": {
+      "registers": 96,
+      "static_shared_bytes": 8192,
+      "driver_shared_bytes": 1024,
+      "shared_partition_bytes": 167936,
+      "register_block_limit": 5,
+      "shared_block_limit": 18,
+      "theoretical_occupancy_percent": 41.67,
+      "achieved_occupancy_percent": 40.96,
+      "grid": 1088,
+      "threads": 128,
+      "spills": 0
+    },
+    "replay_passes": 18,
+    "caveats": [
+      "NCU event interval2535.818604ms includes18replays/instrumentation; it is not used as kernel or API timing. Counter duration409.888us is diagnostic only.",
+      "No fixed-frequency profiler control was requested. NCU reports1.29GHz; preflight/telemetry contextualize the capture, not release qualification.",
+      "DRAM counters unavailable on this Jetson capture. Memory throughput81.31%is not measured DRAM bandwidth; no DRAM-saturation claim.",
+      "Shared excess is measured for the kernel, not separately attributed to individual source loads. Source has data-dependent FP4-pair/E4M3 tables; staged activation addresses are regular.",
+      "Nsight speedup hints are heuristics, not end-to-end predictions.",
+      "First timing layer has a0.586msoutlier; all eight samples retained, no rerun or omission.",
+      "Short T2process ended before periodic telemetry produced a sample; five-sample preflight exists. No continuous timing-envelope qualification."
+    ]
+  },
+  "operand_and_bank_proof": {
+    "status": "host finite-domain operand/layout proof only, not a GPU kernel or speedup",
+    "pair_codes": 256,
+    "scale_codes": 256,
+    "pair_scale_lane_combinations": 2097152,
+    "rebuilt_bf16_operands_bitwise_equal": true,
+    "signed_zero_and_nan_sign_bits_preserved": true,
+    "shared_word_bank_equals_lane": true,
+    "shared_bytes": 30720,
+    "with_driver_shared_bytes": 31744,
+    "current_shared_partition_bytes": 167936,
+    "block_limit_shared": 5,
+    "current_register_block_limit": 5,
+    "implementation_gate": "M3 Layout1 only, actual compiled registers<=96 and no spills; M2/M4 and other layouts unchanged. One implementation and one correctness repair, no occupancy/layout scan.",
+    "mechanism": "Magnitude-only128-slot FP4pair array (64used) replicated32lanes, plus64packed magnitude-pair E4M3 words replicated32lanes. Restore original sign bits before unchanged BF16x2 scaled multiplication. Initialization writes only reachable pair slots.",
+    "new_cost": "24576bytes codebooks,6144bytes incumbent ring;32initialization stores/thread versus4 previously, plus exact index/sign extraction. API must pay this cost; no predicted gain."
+  },
+  "timing_cleanup": {
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": null
+  },
+  "profile_cleanup": {
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 60.125
+  },
+  "payload_manifest_sha256": "697a7c3c6261f6312e1d732bb8433bcf3137c4787c6b69d05725c96c1f67456f",
+  "profile_identity": {
+    "command": [
+      "sudo",
+      "-n",
+      "env",
+      "TMPDIR=/home/rm01/Qwen3x-Orin/.q3x-work/mtp-nv-feed-audit-20261014/profile/tmp",
+      "CUDA_CACHE_PATH=/home/rm01/Qwen3x-Orin/.q3x-work/mtp-nv-feed-audit-20261014/profile/cache/cuda",
+      "XDG_CACHE_HOME=/home/rm01/Qwen3x-Orin/.q3x-work/mtp-nv-feed-audit-20261014/profile/cache",
+      "/usr/local/cuda/bin/ncu",
+      "--clock-control",
+      "none",
+      "--cache-control",
+      "none",
+      "--kernel-name-base",
+      "function",
+      "--kernel-name",
+      "regex:.*nvfp4_rows.*",
+      "--launch-skip",
+      "4",
+      "--launch-count",
+      "1",
+      "--export",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-nv-feed-audit-20261014/profile/capture",
+      "--section",
+      "SpeedOfLight",
+      "--section",
+      "MemoryWorkloadAnalysis",
+      "--section",
+      "SchedulerStats",
+      "--section",
+      "WarpStateStats",
+      "--section",
+      "LaunchStats",
+      "--section",
+      "Occupancy",
+      "--section",
+      "SourceCounters",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-nv-feed-audit-20261014/probe",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-nv-feed-audit-20261014/payload",
+      "profile",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-nv-feed-audit-20261014/profile"
+    ],
+    "binary_sha256": "a3a9e5fdc39d96a98efbbde20485cd7c7486c096ce250a5416153e1a05dc581c",
+    "driver_sha256": "14dd1985b50754dbd4b78e495cf9c5c31c7a3013c668aa85def1941c7e5f3e8e",
+    "payload_manifest_sha256": "697a7c3c6261f6312e1d732bb8433bcf3137c4787c6b69d05725c96c1f67456f",
+    "source_sha256": "16f46af79670539c91099788e00ba3de86fde915f48f26b91a3742b2a2174bef",
+    "git": "755075b808f5476d46e914645bad34724f5fa5f0",
+    "scope": "checkpoint_weight_only; unchanged exact M3 coupled NVFP4 Gate component, diagnostic not API performance"
+  },
+  "next_architecture": {
+    "scope": "Only M3 coupled Gate/Up; M2/M4 and other layouts retain current implementation.",
+    "mechanism": "Store sign-free FP4 pairs in128slots (64reachable), plus64words packing pairs of positive E4M3 BF16 codes. Replicate each word across32lanes; restore sign bits before original BF16x2 product. Exact finite-domain operands and original scalar FMA/reductions remain.",
+    "resource_gate": "30720static shared+1024driver preserves5blocks within167936partition. Actual compilation must stay at most96registers and zero spills. No resource/launch/layout scan.",
+    "trade": "Additional table initialization and bit extraction must pay for themselves at complete API; conflicts do not predict speedup.",
+    "distinction": "Previous FP8 compact-table and NV register-codebook experiments remain closed. This changes both NV finite-domain representation and bank ownership using sign symmetry; no global sidecar or changed input ring.",
+    "composition_bound": "One implementation and at most one correctness repair, full operand/output/state checks then immediateP65/8K/40Kd2API, d3 only useful direction. No new profiler."
+  },
+  "artifact_root": ".q3x-work/mtp-nv-feed-audit-20261014",
+  "current_api_metrics": "No fresh API measurement in this diagnostic. CURRENT_STATUS corrected v86 Prefill/TTFT/Decode/total remain current. Full50%-200%goal unchanged."
+}
