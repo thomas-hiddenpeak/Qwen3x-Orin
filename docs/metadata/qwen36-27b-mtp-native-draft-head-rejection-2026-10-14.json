@@ -1,0 +1,352 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-NATIVE-DRAFT-HEAD-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v86",
+  "source_parent": "f2c9be71f4c8663f84607a7d44cf59a5cec5deb7",
+  "decision": "removed after negative short API direction",
+  "profile": "q3x.sm87.admission.mtp-native-draft-head-api.v88",
+  "retained_profile": "q3x.sm87.admission.mtp-softmax-sync-api.v86",
+  "production_changed": false,
+  "goal_achieved": false,
+  "head_admission": {
+    "native_head": {
+      "registers": 95,
+      "static_shared_bytes": 31744,
+      "stack_bytes": 0,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0,
+      "cta_threads": 128,
+      "grid_ctas": 3880
+    },
+    "synthetic_conversion": {
+      "pair_cases": 65536,
+      "scalar_products": 131072,
+      "signed_zero_exact": true,
+      "nan_preserved": true
+    },
+    "real_payload": {
+      "rows": 9,
+      "vocabulary": 248320,
+      "input_output_guards": true,
+      "graph_replays": 3
+    },
+    "fp64": {
+      "pass": true,
+      "reference": "Independent FP64 exact NVFP4/E4M3 decoding, full K dot and tensor scale; compared against complete BF16 outputs, no original-reduction equivalence claim.",
+      "bound_relative_l2": 0.02,
+      "numpy": "2.4.6",
+      "rows": [
+        {
+          "capture_row": 0,
+          "reference_argmax": 198,
+          "matrix": {
+            "relative_l2": 0.0016586282865207157,
+            "maximum_absolute_error": 0.015624124842115172,
+            "argmax": 198
+          },
+          "scalar": {
+            "relative_l2": 0.001658627727109156,
+            "maximum_absolute_error": 0.015624124842115172,
+            "argmax": 198
+          },
+          "argmax_equal_scalar": true
+        },
+        {
+          "capture_row": 1,
+          "reference_argmax": 198,
+          "matrix": {
+            "relative_l2": 0.0016656785045506453,
+            "maximum_absolute_error": 0.031016899232739092,
+            "argmax": 198
+          },
+          "scalar": {
+            "relative_l2": 0.0016656780981741531,
+            "maximum_absolute_error": 0.031016899232739092,
+            "argmax": 198
+          },
+          "argmax_equal_scalar": true
+        },
+        {
+          "capture_row": 2,
+          "reference_argmax": 25,
+          "matrix": {
+            "relative_l2": 0.0016594644377144116,
+            "maximum_absolute_error": 0.03120640869954272,
+            "argmax": 25
+          },
+          "scalar": {
+            "relative_l2": 0.0016594638938474163,
+            "maximum_absolute_error": 0.03120640869954272,
+            "argmax": 25
+          },
+          "argmax_equal_scalar": true
+        },
+        {
+          "capture_row": 16,
+          "reference_argmax": 10505,
+          "matrix": {
+            "relative_l2": 0.0016621475798889024,
+            "maximum_absolute_error": 0.03128446930205264,
+            "argmax": 10505
+          },
+          "scalar": {
+            "relative_l2": 0.0016621458283306207,
+            "maximum_absolute_error": 0.031246993184144145,
+            "argmax": 10505
+          },
+          "argmax_equal_scalar": true
+        },
+        {
+          "capture_row": 32,
+          "reference_argmax": 13,
+          "matrix": {
+            "relative_l2": 0.001656912827306679,
+            "maximum_absolute_error": 0.052282427740170334,
+            "argmax": 13
+          },
+          "scalar": {
+            "relative_l2": 0.0016569121732128978,
+            "maximum_absolute_error": 0.052282427740170334,
+            "argmax": 13
+          },
+          "argmax_equal_scalar": true
+        },
+        {
+          "capture_row": 64,
+          "reference_argmax": 20668,
+          "matrix": {
+            "relative_l2": 0.0016603976816064456,
+            "maximum_absolute_error": 0.03792056744250516,
+            "argmax": 20668
+          },
+          "scalar": {
+            "relative_l2": 0.0016603975177574269,
+            "maximum_absolute_error": 0.03792056744250516,
+            "argmax": 20668
+          },
+          "argmax_equal_scalar": true
+        },
+        {
+          "capture_row": 128,
+          "reference_argmax": 20668,
+          "matrix": {
+            "relative_l2": 0.0016642367295130482,
+            "maximum_absolute_error": 0.062273731355386275,
+            "argmax": 20668
+          },
+          "scalar": {
+            "relative_l2": 0.0016642359704220119,
+            "maximum_absolute_error": 0.062273731355386275,
+            "argmax": 20668
+          },
+          "argmax_equal_scalar": true
+        },
+        {
+          "capture_row": 256,
+          "reference_argmax": 303,
+          "matrix": {
+            "relative_l2": 0.0016655257364556492,
+            "maximum_absolute_error": 0.060420068539539074,
+            "argmax": 303
+          },
+          "scalar": {
+            "relative_l2": 0.0016655241688445965,
+            "maximum_absolute_error": 0.060420068539539074,
+            "argmax": 303
+          },
+          "argmax_equal_scalar": true
+        },
+        {
+          "capture_row": 511,
+          "reference_argmax": 321,
+          "matrix": {
+            "relative_l2": 0.0016581725973873287,
+            "maximum_absolute_error": 0.03530401165088293,
+            "argmax": 321
+          },
+          "scalar": {
+            "relative_l2": 0.0016581709896954133,
+            "maximum_absolute_error": 0.03530401165088293,
+            "argmax": 321
+          },
+          "argmax_equal_scalar": true
+        }
+      ],
+      "payload_sha256": "0cad7830cfaf66702bb90ebe83094604edf83e186075c491f2549245f7c8609d",
+      "script_sha256": "1434ab5f8ed1fc3c891a80b4df4f20b5dfc1a08e922945856a68642d57c3ae6c",
+      "scope": "Fixed nine historical target-conditioned draft rows; no recursive-acceptance or API speed claim."
+    },
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "telemetry_scope": "Short numerical process ended before first tegrastats interval; complete five-sample preflight passed. No component timing claim.",
+    "tests_scope": "Private head only; whole target transaction admission recorded separately."
+  },
+  "target_admission": {
+    "full_prefix_comparisons": 9,
+    "state_cache_transactions": 15,
+    "verify_failure_recovery": 4,
+    "initialization_cancel_recovery": 8,
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 68.437
+    }
+  },
+  "comparison": {
+    "complete_output_and_usage_equal_nonmtp_and_v86": true,
+    "all_generated_ids_equal_v86": true,
+    "all_non_timing_work_equal_v86": true,
+    "prefill_route_and_request_identity_equal": true,
+    "changed_mtp_fields": {
+      "verifier": [
+        "multirow-softmax-sync-v86",
+        "multirow-native-draft-head-v88"
+      ],
+      "startup_free_bytes": [
+        10899103744,
+        10979405824
+      ],
+      "draft_initialization_ms": [
+        5.709196,
+        5.542585
+      ],
+      "draft_ms": [
+        113.685322,
+        149.66746799999999
+      ],
+      "verify_ms": [
+        980.7653470000001,
+        981.1075239999999
+      ],
+      "reconcile_ms": [
+        20.249626,
+        20.466997999999997
+      ]
+    },
+    "decode_delta_percent": -3.1437193816398645,
+    "draft_delta_ms": 35.982145999999986,
+    "verify_delta_ms": 0.34217699999976503,
+    "server_sha256": "fbb38f6ab58629ab07c76510747482192828f3e2069ae2edaefe8ab47c7ab442",
+    "oracle_sha256": "97c0603b49bcb346521554594094c344e1674d2ce12fab4757de8b74ed8a8aff",
+    "completed_requests": 1,
+    "p8192": "cancelled at bounded Prefill after short direction stop; not a performance result",
+    "p40000_and_d3": "not run"
+  },
+  "api_observation": {
+    "stage": "p65",
+    "prompt": 65,
+    "output": 16,
+    "prefill_s": 0.8916322980000001,
+    "prefill_tps": 72.90000614132082,
+    "decode_tps": 13.024736288272912,
+    "ttft_s": 0.9102852910000365,
+    "elapsed_s": 2.06177758800186,
+    "mtp": {
+      "enabled": true,
+      "verifier": "multirow-native-draft-head-v88",
+      "draft_length": 2,
+      "startup_free_bytes": 10979405824,
+      "prompt_rows": 65,
+      "draft_prefill_rows": 64,
+      "initialized": true,
+      "rounds": 7,
+      "proposed": 12,
+      "accepted": 8,
+      "verified_rows": 19,
+      "committed_decode_tokens": 15,
+      "accepted_by_position": [
+        4,
+        4,
+        0
+      ],
+      "confidence_threshold": 0.4,
+      "proposal_histogram": [
+        1,
+        0,
+        6,
+        0
+      ],
+      "draft_ordered_attention_steps": 0,
+      "entry_hidden_snapshots": 7,
+      "direct_gdn_state_rows": 912,
+      "seed_kv_reuses": 6,
+      "state_copy_bytes_elided": 1987054592,
+      "draft_initialization_ms": 5.542585,
+      "draft_ms": 149.66746799999999,
+      "verify_ms": 981.1075239999999,
+      "reconcile_ms": 20.466997999999997,
+      "cancelled": false,
+      "failed": false
+    }
+  },
+  "api_driver_terminal": {
+    "returncode": -2,
+    "early_stop": true
+  },
+  "api_cleanup": {
+    "success": false,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 64.5
+  },
+  "scope": "One completed P65/O16 d2 direction, not statistical regression, long-context or d3 evidence. Historical real hidden fixtures assess the private head; current model transactions assess full target state/cache.",
+  "finding": "Direct original NVFP4-to-shared-BF16 weight-major MMA passes the numerical contract but adds 35.982146ms to private drafting with unchanged proposals/acceptance. Complete short Decode is slower by 3.143719% (exact value in comparison). Removing a persistent repack does not establish faster execution. No profiler evidence or hardware-stall attribution is claimed.",
+  "closure": "Freeze source/ELFs and all records; restore all runtime/header/validator files exactly to f2c9be7 and rebuild cached service/oracle. No tile/stage/launch/head variant or profiler follows this closed composition.",
+  "next_constraint": "Full owner 50%-200% objective remains active. The corrected v86 short/40K 1.5x-floor gaps of72.798/505.033ms remain; select materially different work elimination or architecture, not another private-head mapping scan.",
+  "artifacts": ".q3x-work/mtp-native-draft-head-20261014",
+  "checks": {
+    "host_ctests": 3,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "headers_checked": 57,
+      "local_links": 1397,
+      "errors": 0
+    },
+    "document_unit_tests": 7
+  },
+  "hygiene": {
+    "gpu_holders": [],
+    "registered_worktrees": 47,
+    "api_keys_remaining": [],
+    "task_tmp_files": [],
+    "production_sha256_unchanged": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "historical_production_sha256_unchanged": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "restored_binaries_sha256": {
+      "service": "4cdbaa54b6cee85f690de65080448768253e9c810a89a60f9383634413abc62c",
+      "oracle": "cec4a9e0569dc3bcb36b003fb4327ad733308c90c4d0028c00e9f6c01ddeef73"
+    },
+    "restored_binary_scope": "Both rebuilt from exact f2c9be7 code, no native_draft_head symbol; not new performance comparators.",
+    "all_artifacts_inside_workspace": true,
+    "owned_server_exit": 0,
+    "no_deployment_switch": true
+  },
+  "artifacts_manifest": {
+    "path": ".q3x-work/mtp-native-draft-head-20261014/artifact-manifest.json",
+    "sha256": "f11b4760fe00651644d0aabc0d5539dd5dacac7ddfc460131f4af03981d52ca3",
+    "files": 141,
+    "bytes": 63644736
+  },
+  "reproduction": {
+    "head_harness_rebuild": [
+      "/usr/local/cuda/bin/nvcc",
+      "-O3",
+      "-std=c++17",
+      "-arch=sm_87",
+      "-Iinclude",
+      "-I.q3x-work/mtp-native-draft-head-20261014/source/src/runtime",
+      ".q3x-work/mtp-native-draft-head-20261014/head-test.cu",
+      ".q3x-work/build/orin-mtp-service-admission/libq3x_kernels.a",
+      "-o",
+      ".q3x-work/mtp-native-draft-head-20261014/head-test-rebuilt"
+    ],
+    "rebuild_scope": "Use frozen runtime include, not restored active source. Scalar kernel library unchanged. GPU numerical/API replays still require fresh preflight.",
+    "fp64_python": "/home/rm01/vllmEvn/.venv/bin/python -B",
+    "cpu_threads": "OPENBLAS_NUM_THREADS=2",
+    "read_only_payload": ".q3x-work/mtp-draft-matrix-head-20261013/payload",
+    "candidate_runtime_patch": ".q3x-work/mtp-native-draft-head-20261014/source/candidate.patch"
+  }
+}

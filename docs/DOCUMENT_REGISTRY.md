@@ -466,3 +466,7 @@ reliability evidence remains scoped to 0.8.1; no Markdown paths or classes chang
 The fixed seed-prefix scheduling composition closes after negative short API
 direction and exact v86 source restoration. Existing MTP SDD and Roadmap retain
 the frozen rejection; no Markdown path or classification changes.
+
+The native private vocabulary composition closes after negative short API
+direction with v86 restored. The existing MTP SDD and Roadmap retain its
+complete numerical admission and rejection; no Markdown paths or classes change.

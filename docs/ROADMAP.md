@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 native private draft vocabulary — closed negative
+
+`WP-MTP-NATIVE-DRAFT-HEAD-20261014` / `AC-MTP-GREEDY-v86` implements the
+[fixed native head](metadata/qwen36-27b-mtp-native-draft-head-design-2026-10-14.json).
+The existing real 40K trace assigns 0.876 seconds to private vocabulary work.
+Original canonical NVFP4 weights feed a weight-major BF16 MMA directly, without
+Marlin repacking or its additional 715 MB retained copy. Full vocabulary,
+private FP64 error bound and exact target state/output remain mandatory.
+One composition and at most one correctness repair return immediately to
+P65/8K/40K d2 API; useful direction unlocks d3. Short >3% slowdown or nonpositive
+8K closes the version. No parameter/profile scan is selected. The complete
+1.5x–3x goal and 72.798/505.033-ms short/40K floor gaps remain unchanged.
+
+The [completed direction](metadata/qwen36-27b-mtp-native-draft-head-rejection-2026-10-14.json)
+passes all quantized code pairs, nine complete real vocabulary FP64 checks,
+nine target prefixes, fifteen state/cache transactions and recovery checks.
+P65/O16 d2 Decode is 13.025 token/s, 3.144% below retained v86, with unchanged
+output and acceptance. Prefill is 0.892 seconds / 72.90 token/s, TTFT 0.910
+seconds and total 2.062 seconds. Private drafting adds 35.982 ms. The short
+stop closes this version; 8K is cancelled before completion and 40K/d3 are not
+run. All new code and identities are removed, restoring v86. No head mapping,
+stage or profiler scan follows. Original packed storage without a repacked
+copy did not make the complete runner faster; the full goal remains active.
+
 ## 2026-10-14 seed-prefix/draft overlap — closed negative
 
 `WP-MTP-SEED-PREFIX-20261014` / `AC-MTP-GREEDY-v85` implements the

@@ -1,0 +1,33 @@
+{
+  "work_package_id": "WP-MTP-NATIVE-DRAFT-HEAD-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v86",
+  "decision_unit": "architecture_candidate",
+  "status": "declared before implementation",
+  "origin": "Owner 50%-200% same-workload committed Decode improvement; d2 corrected v86 currently 1.402/1.641/1.466x at P65/8192/40000.",
+  "budget": {
+    "short_floor_gap_ms": 72.797995333,
+    "p40000_floor_gap_ms": 505.033430333,
+    "prior_profile_draft_full_head_seconds": 0.875910912,
+    "scope": "Existing v79 real API trace; not a new profile or speedup prediction."
+  },
+  "route": "Draft::step full lm_head only; original authenticated NVFP4 [248320,5120], BF16 hidden; target unchanged",
+  "candidate_profile": "q3x.sm87.admission.mtp-native-draft-head-api.v88",
+  "incumbent_profile": "q3x.sm87.admission.mtp-softmax-sync-api.v86",
+  "equivalence_ledger": {
+    "equation": "y[n] = BF16_RNE(global_scale * sum_k(BF16_input[k] * FP4(weight[n,k]) * E4M3(blockscale[n,k/16])))",
+    "private_numerical_identity": "draft-native-nvfp4-weight-major-v1; ascending K16 FP32 MMA, no scalar-chain identity claim",
+    "decode": "FP4 times E4M3 exactly representable in BF16 for finite codes; signed zero preserved by packed BF16 FMA with negative-zero addend; all 256 scale codes tested",
+    "ownership": "128-thread CTA, 64 output rows, 8 token columns with one live token; K128 two-stage raw packed/scales/input async staging, one shared decoded-weight tile; full K ascending, no split K",
+    "memory": "No global allocation, repack, persistent sidecar or new arena; read original canonical weights/scales; shared memory bounded per CTA",
+    "state": "No target arithmetic/Conv/GDN/KV/hidden/full-logit/argmax/publication change. Private proposals may differ; complete committed target IDs and output must match."
+  },
+  "reference_transfer": "Existing repository draft-weight-major-v2 mapping; prior vLLM/Marlin study motivates operand reuse but rejected ACv66 repack is not revived. No external source imported.",
+  "validation": {
+    "numerical": "Nine authenticated historical target-conditioned full-vocabulary inputs, independent FP64 per-row relative L2 <= 0.02, compare scalar too; exhaustive codes and guards; complete current P65 prefix/state/cache/recovery oracle.",
+    "api": "Immediate P65/O16, P8192/P40000 O256 d2; d3 only for useful direction; complete output/usage/finish/route and Prefill, TTFT, Decode, total.",
+    "stop": "Short slowdown >3%, or nonpositive 8K direction; no claim from interrupted panel.",
+    "bound": "One fixed composition, at most one correctness repair, no tile/stage/launch/confidence scan or profiler. Negative API closes and removes runtime."
+  },
+  "artifact_root": ".q3x-work/mtp-native-draft-head-20261014",
+  "production_unchanged": true
+}

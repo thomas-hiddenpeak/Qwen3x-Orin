@@ -2164,6 +2164,30 @@ row-offset helpers, graph variants and admission tests are frozen then removed.
 The original v86 execution order and profile remain current. No prefix-size,
 priority or profiler scan follows this closed composition.
 
+## Native private vocabulary composition v86 — removed
+
+The [bounded native head](metadata/qwen36-27b-mtp-native-draft-head-design-2026-10-14.json)
+reads the authenticated original NVFP4 head, with no derived resident copy.
+A fixed 64-output-row/8-token-column CTA stages two K128 packed-weight, scale
+and input tiles, decodes exact finite FP4/E4M3 products to shared BF16, and
+accumulates ascending K16 FP32 MMA before tensor scaling and BF16 publication.
+Only one token column is live. Full vocabulary argmax/confidence remain intact.
+This is a distinct private draft numerical identity, admitted by independent
+full-vector FP64 relative L2 at most 0.02; scalar draft bit identity is not claimed.
+Target verification, complete state, committed tokens and API outputs remain
+exact. Stream-owned shared tiles retire before reuse; there is no new allocation,
+workspace growth or persistent sidecar. Invalid shapes/pointers fail before enqueue.
+The fixed composition returns directly to real API under the Roadmap stop rule;
+no performance or production claim precedes that return.
+
+The [completed rejection](metadata/qwen36-27b-mtp-native-draft-head-rejection-2026-10-14.json)
+passes the unchanged private numerical bound (maximum relative L2 0.001666)
+and complete target transaction contract. The short d2 API direction is 3.144%
+slower, with identical output IDs and non-timing work. The predeclared stop
+removes this head, integration and route identity; v86 retains its original
+scalar private head. No new allocation or numerical change is retained, and
+no further head-layout or pipeline scan follows this closed composition.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
