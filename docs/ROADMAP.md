@@ -19,6 +19,36 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-13 lookahead cost — diagnosis archived
+
+`WP-MTP-LOOKAHEAD-COST-20261013` / `AC-MTP-GREEDY-v67` owns the
+[round-cost composition](metadata/qwen36-27b-mtp-lookahead-cost-design-2026-10-13.json).
+The unchanged 1.5x–3x target selects removal of wasted verification work.
+D3 reduces 40K rounds but adds rows and loses Decode; aggregate acceptance
+cannot choose a useful next proposal. First retain already-computed confidence
+and phase costs in a bounded host trace, without additional GPU operations.
+One existing API panel for each configured maximum must preserve outputs and
+all work counts. The diagnostic then either selects one cost-based policy
+for immediate full-state/API composition or closes; no threshold scan or
+further trace-only campaign. Production and target arithmetic stay fixed.
+
+The [completed diagnosis](metadata/qwen36-27b-mtp-lookahead-cost-closeout-2026-10-13.json)
+preserves all sixteen d2/d3 API outputs and work counts. At 40K, observed
+mean verification costs for two/three/four target rows are approximately
+155/196/245ms. These shape-conditioned means are diagnostic, not matched
+counterfactual timings. More accepted proposals do not by themselves overcome
+this cost. A 0.987-confidence short-prompt proposal is rejected while a
+0.311-confidence proposal is accepted: draft softmax is not target acceptance
+probability. Later confidence and ungenerated counterfactuals remain unobserved.
+
+No calibrated cost policy is justified by this single prompt's conditional
+samples. The package closes through its explicit archival branch, without
+fitting or scanning request-specific thresholds. This does not reject all
+future adaptive scheduling or establish a hardware bound. Temporary telemetry
+is removed and v64 is restored; no further trace-only campaign remains.
+The next implementation must address the remaining whole-verifier budget or
+supply a materially new acceptance mechanism; the 1.5x–3x goal is unchanged.
+
 ## 2026-10-13 private draft matrix head — closed without retention
 
 `WP-MTP-DRAFT-MATRIX-HEAD-20261013` / `AC-MTP-GREEDY-v66` owns the

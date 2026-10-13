@@ -1,0 +1,819 @@
+{
+  "date": "2026-10-13",
+  "work_package_id": "WP-MTP-LOOKAHEAD-COST-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v67",
+  "source_parent": "2e65125",
+  "decision_unit": "bounded diagnostic dependency",
+  "decision": {
+    "decision": "archive diagnostic and restore v64",
+    "reason": "Archive host trace and preserve v64. Observations do not select a defensible calibrated cost policy; do not use draft softmax as target acceptance probability or fit a request-specific threshold. No further trace-only campaign or policy scan in this package.",
+    "d2_checks": 8,
+    "d3_checks": 8,
+    "policy_implemented": false,
+    "goal_complete": false
+  },
+  "production_changed": false,
+  "goal_complete": false,
+  "diagnostic_profile": "q3x.sm87.admission.mtp-round-cost-api.v68",
+  "server_sha256": "6f5783e1027155920def951f18ec5dc9aa39a83753f69b5ebe58e3f241052470",
+  "artifact_root": ".q3x-work/mtp-lookahead-cost-20261013",
+  "analysis": {
+    "scope": "Diagnostic unchanged algorithm; shape-conditioned observed means are not causal paired kernel costs or unobserved counterfactual performance. Confidence bins describe calibration, not a threshold sweep or fitted policy.",
+    "policies": {
+      "2": {
+        "checks": 8,
+        "output_and_work_equal_v64": true,
+        "trace_counts_and_intervals_pass": true,
+        "stages": [
+          {
+            "stage": "p65",
+            "prompt": 65,
+            "output": 16,
+            "prefill_s": 0.8903099669999999,
+            "prefill_tps": 73.00828072162872,
+            "decode_tps": 12.819943768410539,
+            "ttft_s": 0.9090906860001269,
+            "elapsed_s": 2.0789903299992147,
+            "work": {
+              "enabled": true,
+              "verifier": "multirow-round-cost-v68",
+              "draft_length": 2,
+              "startup_free_bytes": 11017621504,
+              "prompt_rows": 65,
+              "draft_prefill_rows": 64,
+              "initialized": true,
+              "rounds": 7,
+              "proposed": 12,
+              "accepted": 8,
+              "verified_rows": 19,
+              "committed_decode_tokens": 15,
+              "accepted_by_position": [
+                4,
+                4,
+                0
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                1,
+                0,
+                6,
+                0
+              ],
+              "draft_ordered_attention_steps": 0,
+              "entry_hidden_snapshots": 7,
+              "direct_gdn_state_rows": 912,
+              "seed_kv_reuses": 6,
+              "state_copy_bytes_elided": 1987054592,
+              "draft_initialization_ms": 5.691775,
+              "draft_ms": 125.47729100000001,
+              "verify_ms": 1023.3277529999999,
+              "reconcile_ms": 20.834663,
+              "cancelled": false,
+              "failed": false
+            },
+            "observed_shape_costs": [
+              {
+                "proposals": 0,
+                "rounds": 1,
+                "accepted": 0,
+                "committed": 1,
+                "mean_draft_ms": 0,
+                "mean_verify_ms": 116.36723700000005,
+                "mean_total_ms": 118.208186
+              },
+              {
+                "proposals": 2,
+                "rounds": 6,
+                "accepted": 8,
+                "committed": 14,
+                "mean_draft_ms": 20.912881833333334,
+                "mean_verify_ms": 151.16008599999998,
+                "mean_total_ms": 175.30692866666666
+              }
+            ],
+            "confidence_descriptive_bins": [
+              {
+                "confidence_position": 0,
+                "lower": 0.4,
+                "upper": 0.6,
+                "observed": 2,
+                "prefix_through_position_accepted": 1,
+                "next_proposal_observed": 2,
+                "prefix_through_next_accepted": 1
+              },
+              {
+                "confidence_position": 0,
+                "lower": 0.8,
+                "upper": 1,
+                "observed": 4,
+                "prefix_through_position_accepted": 3,
+                "next_proposal_observed": 4,
+                "prefix_through_next_accepted": 3
+              }
+            ]
+          },
+          {
+            "stage": "p8192",
+            "prompt": 8192,
+            "output": 256,
+            "prefill_s": 17.057363768,
+            "prefill_tps": 480.2617867227747,
+            "decode_tps": 14.53232611850865,
+            "ttft_s": 17.07968020699991,
+            "elapsed_s": 34.62731956400057,
+            "work": {
+              "enabled": true,
+              "verifier": "multirow-round-cost-v68",
+              "draft_length": 2,
+              "startup_free_bytes": 11017621504,
+              "prompt_rows": 8192,
+              "draft_prefill_rows": 8191,
+              "initialized": true,
+              "rounds": 98,
+              "proposed": 187,
+              "accepted": 157,
+              "verified_rows": 285,
+              "committed_decode_tokens": 255,
+              "accepted_by_position": [
+                86,
+                71,
+                0
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                0,
+                9,
+                89,
+                0
+              ],
+              "draft_ordered_attention_steps": 187,
+              "entry_hidden_snapshots": 98,
+              "direct_gdn_state_rows": 13680,
+              "seed_kv_reuses": 98,
+              "state_copy_bytes_elided": 29253216256,
+              "draft_initialization_ms": 546.01724,
+              "draft_ms": 1977.1326230000002,
+              "verify_ms": 15207.662135999995,
+              "reconcile_ms": 357.43880800000017,
+              "cancelled": false,
+              "failed": false
+            },
+            "observed_shape_costs": [
+              {
+                "proposals": 1,
+                "rounds": 9,
+                "accepted": 3,
+                "committed": 12,
+                "mean_draft_ms": 10.662879666666667,
+                "mean_verify_ms": 129.3494153333332,
+                "mean_total_ms": 141.4993298888889
+              },
+              {
+                "proposals": 2,
+                "rounds": 89,
+                "accepted": 154,
+                "committed": 243,
+                "mean_draft_ms": 21.136704561797757,
+                "mean_verify_ms": 157.79233031460672,
+                "mean_total_ms": 182.84904384269663
+              }
+            ],
+            "confidence_descriptive_bins": [
+              {
+                "confidence_position": 0,
+                "lower": 0,
+                "upper": 0.4,
+                "observed": 9,
+                "prefix_through_position_accepted": 3,
+                "next_proposal_observed": 0,
+                "prefix_through_next_accepted": 0
+              },
+              {
+                "confidence_position": 0,
+                "lower": 0.4,
+                "upper": 0.6,
+                "observed": 6,
+                "prefix_through_position_accepted": 5,
+                "next_proposal_observed": 6,
+                "prefix_through_next_accepted": 4
+              },
+              {
+                "confidence_position": 0,
+                "lower": 0.6,
+                "upper": 0.8,
+                "observed": 8,
+                "prefix_through_position_accepted": 7,
+                "next_proposal_observed": 8,
+                "prefix_through_next_accepted": 5
+              },
+              {
+                "confidence_position": 0,
+                "lower": 0.8,
+                "upper": 1,
+                "observed": 75,
+                "prefix_through_position_accepted": 71,
+                "next_proposal_observed": 75,
+                "prefix_through_next_accepted": 62
+              }
+            ]
+          },
+          {
+            "stage": "p40000",
+            "prompt": 40000,
+            "output": 256,
+            "prefill_s": 92.188703415,
+            "prefill_tps": 433.89264105315107,
+            "decode_tps": 11.172641511335462,
+            "ttft_s": 92.22410296799899,
+            "elapsed_s": 115.04968649299917,
+            "work": {
+              "enabled": true,
+              "verifier": "multirow-round-cost-v68",
+              "draft_length": 2,
+              "startup_free_bytes": 11017621504,
+              "prompt_rows": 40000,
+              "draft_prefill_rows": 39999,
+              "initialized": true,
+              "rounds": 105,
+              "proposed": 200,
+              "accepted": 150,
+              "verified_rows": 305,
+              "committed_decode_tokens": 255,
+              "accepted_by_position": [
+                86,
+                64,
+                0
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                0,
+                10,
+                95,
+                0
+              ],
+              "draft_ordered_attention_steps": 200,
+              "entry_hidden_snapshots": 105,
+              "direct_gdn_state_rows": 14640,
+              "seed_kv_reuses": 105,
+              "state_copy_bytes_elided": 31315768320,
+              "draft_initialization_ms": 2665.995152,
+              "draft_ms": 2349.177593,
+              "verify_ms": 20117.49576,
+              "reconcile_ms": 351.7210949999999,
+              "cancelled": false,
+              "failed": false
+            },
+            "observed_shape_costs": [
+              {
+                "proposals": 1,
+                "rounds": 10,
+                "accepted": 2,
+                "committed": 12,
+                "mean_draft_ms": 11.798346900000018,
+                "mean_verify_ms": 154.6566582999999,
+                "mean_total_ms": 167.7105611
+              },
+              {
+                "proposals": 2,
+                "rounds": 95,
+                "accepted": 148,
+                "committed": 243,
+                "mean_draft_ms": 23.4862539368421,
+                "mean_verify_ms": 195.48346502105267,
+                "mean_total_ms": 222.59444111578946
+              }
+            ],
+            "confidence_descriptive_bins": [
+              {
+                "confidence_position": 0,
+                "lower": 0,
+                "upper": 0.4,
+                "observed": 10,
+                "prefix_through_position_accepted": 2,
+                "next_proposal_observed": 0,
+                "prefix_through_next_accepted": 0
+              },
+              {
+                "confidence_position": 0,
+                "lower": 0.4,
+                "upper": 0.6,
+                "observed": 13,
+                "prefix_through_position_accepted": 6,
+                "next_proposal_observed": 13,
+                "prefix_through_next_accepted": 6
+              },
+              {
+                "confidence_position": 0,
+                "lower": 0.6,
+                "upper": 0.8,
+                "observed": 20,
+                "prefix_through_position_accepted": 16,
+                "next_proposal_observed": 20,
+                "prefix_through_next_accepted": 10
+              },
+              {
+                "confidence_position": 0,
+                "lower": 0.8,
+                "upper": 1,
+                "observed": 62,
+                "prefix_through_position_accepted": 62,
+                "next_proposal_observed": 62,
+                "prefix_through_next_accepted": 48
+              }
+            ]
+          }
+        ]
+      },
+      "3": {
+        "checks": 8,
+        "output_and_work_equal_v64": true,
+        "trace_counts_and_intervals_pass": true,
+        "stages": [
+          {
+            "stage": "p65",
+            "prompt": 65,
+            "output": 16,
+            "prefill_s": 0.8922401410000002,
+            "prefill_tps": 72.85034265231516,
+            "decode_tps": 12.100387154468423,
+            "ttft_s": 0.9110552790007205,
+            "elapsed_s": 2.1506099000016548,
+            "work": {
+              "enabled": true,
+              "verifier": "multirow-round-cost-v68",
+              "draft_length": 3,
+              "startup_free_bytes": 11079155712,
+              "prompt_rows": 65,
+              "draft_prefill_rows": 64,
+              "initialized": true,
+              "rounds": 6,
+              "proposed": 16,
+              "accepted": 9,
+              "verified_rows": 22,
+              "committed_decode_tokens": 15,
+              "accepted_by_position": [
+                4,
+                3,
+                2
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                0,
+                0,
+                2,
+                4
+              ],
+              "draft_ordered_attention_steps": 0,
+              "entry_hidden_snapshots": 6,
+              "direct_gdn_state_rows": 1056,
+              "seed_kv_reuses": 6,
+              "state_copy_bytes_elided": 2134603776,
+              "draft_initialization_ms": 5.752635,
+              "draft_ms": 167.386774,
+              "verify_ms": 1051.088974,
+              "reconcile_ms": 20.807767999999996,
+              "cancelled": false,
+              "failed": false
+            },
+            "observed_shape_costs": [
+              {
+                "proposals": 2,
+                "rounds": 2,
+                "accepted": 2,
+                "committed": 4,
+                "mean_draft_ms": 20.775173,
+                "mean_verify_ms": 150.192791,
+                "mean_total_ms": 173.6170635
+              },
+              {
+                "proposals": 3,
+                "rounds": 4,
+                "accepted": 7,
+                "committed": 11,
+                "mean_draft_ms": 31.459107000000003,
+                "mean_verify_ms": 187.675848,
+                "mean_total_ms": 223.09827575
+              }
+            ],
+            "confidence_descriptive_bins": [
+              {
+                "confidence_position": 0,
+                "lower": 0.4,
+                "upper": 0.6,
+                "observed": 2,
+                "prefix_through_position_accepted": 1,
+                "next_proposal_observed": 2,
+                "prefix_through_next_accepted": 1
+              },
+              {
+                "confidence_position": 0,
+                "lower": 0.8,
+                "upper": 1,
+                "observed": 4,
+                "prefix_through_position_accepted": 3,
+                "next_proposal_observed": 4,
+                "prefix_through_next_accepted": 2
+              },
+              {
+                "confidence_position": 1,
+                "lower": 0,
+                "upper": 0.4,
+                "observed": 2,
+                "prefix_through_position_accepted": 1,
+                "next_proposal_observed": 0,
+                "prefix_through_next_accepted": 0
+              },
+              {
+                "confidence_position": 1,
+                "lower": 0.4,
+                "upper": 0.6,
+                "observed": 2,
+                "prefix_through_position_accepted": 1,
+                "next_proposal_observed": 2,
+                "prefix_through_next_accepted": 1
+              },
+              {
+                "confidence_position": 1,
+                "lower": 0.8,
+                "upper": 1,
+                "observed": 2,
+                "prefix_through_position_accepted": 1,
+                "next_proposal_observed": 2,
+                "prefix_through_next_accepted": 1
+              }
+            ]
+          },
+          {
+            "stage": "p8192",
+            "prompt": 8192,
+            "output": 256,
+            "prefill_s": 17.161787909,
+            "prefill_tps": 477.3395431430511,
+            "decode_tps": 13.83653853750638,
+            "ttft_s": 17.184003209000366,
+            "elapsed_s": 35.614084053000624,
+            "work": {
+              "enabled": true,
+              "verifier": "multirow-round-cost-v68",
+              "draft_length": 3,
+              "startup_free_bytes": 11079155712,
+              "prompt_rows": 8192,
+              "draft_prefill_rows": 8191,
+              "initialized": true,
+              "rounds": 85,
+              "proposed": 226,
+              "accepted": 170,
+              "verified_rows": 311,
+              "committed_decode_tokens": 255,
+              "accepted_by_position": [
+                73,
+                57,
+                40
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                0,
+                11,
+                7,
+                67
+              ],
+              "draft_ordered_attention_steps": 226,
+              "entry_hidden_snapshots": 85,
+              "direct_gdn_state_rows": 14928,
+              "seed_kv_reuses": 85,
+              "state_copy_bytes_elided": 30189888512,
+              "draft_initialization_ms": 549.399491,
+              "draft_ms": 2391.9410230000008,
+              "verify_ms": 15664.996896999999,
+              "reconcile_ms": 368.22796499999987,
+              "cancelled": false,
+              "failed": false
+            },
+            "observed_shape_costs": [
+              {
+                "proposals": 1,
+                "rounds": 11,
+                "accepted": 5,
+                "committed": 16,
+                "mean_draft_ms": 10.620379454545455,
+                "mean_verify_ms": 129.28465018181802,
+                "mean_total_ms": 141.60542236363636
+              },
+              {
+                "proposals": 2,
+                "rounds": 7,
+                "accepted": 4,
+                "committed": 11,
+                "mean_draft_ms": 21.248588000000023,
+                "mean_verify_ms": 157.80035571428593,
+                "mean_total_ms": 180.95395985714285
+              },
+              {
+                "proposals": 3,
+                "rounds": 67,
+                "accepted": 161,
+                "committed": 228,
+                "mean_draft_ms": 31.736966164179112,
+                "mean_verify_ms": 196.09348141791043,
+                "mean_total_ms": 232.91205037313432
+              }
+            ],
+            "confidence_descriptive_bins": [
+              {
+                "confidence_position": 0,
+                "lower": 0,
+                "upper": 0.4,
+                "observed": 10,
+                "prefix_through_position_accepted": 4,
+                "next_proposal_observed": 0,
+                "prefix_through_next_accepted": 0
+              },
+              {
+                "confidence_position": 0,
+                "lower": 0.4,
+                "upper": 0.6,
+                "observed": 8,
+                "prefix_through_position_accepted": 5,
+                "next_proposal_observed": 8,
+                "prefix_through_next_accepted": 5
+              },
+              {
+                "confidence_position": 0,
+                "lower": 0.6,
+                "upper": 0.8,
+                "observed": 5,
+                "prefix_through_position_accepted": 5,
+                "next_proposal_observed": 5,
+                "prefix_through_next_accepted": 3
+              },
+              {
+                "confidence_position": 0,
+                "lower": 0.8,
+                "upper": 1,
+                "observed": 61,
+                "prefix_through_position_accepted": 58,
+                "next_proposal_observed": 61,
+                "prefix_through_next_accepted": 49
+              },
+              {
+                "confidence_position": 1,
+                "lower": 0,
+                "upper": 0.4,
+                "observed": 7,
+                "prefix_through_position_accepted": 0,
+                "next_proposal_observed": 0,
+                "prefix_through_next_accepted": 0
+              },
+              {
+                "confidence_position": 1,
+                "lower": 0.4,
+                "upper": 0.6,
+                "observed": 6,
+                "prefix_through_position_accepted": 4,
+                "next_proposal_observed": 6,
+                "prefix_through_next_accepted": 3
+              },
+              {
+                "confidence_position": 1,
+                "lower": 0.6,
+                "upper": 0.8,
+                "observed": 4,
+                "prefix_through_position_accepted": 3,
+                "next_proposal_observed": 4,
+                "prefix_through_next_accepted": 2
+              },
+              {
+                "confidence_position": 1,
+                "lower": 0.8,
+                "upper": 1,
+                "observed": 57,
+                "prefix_through_position_accepted": 50,
+                "next_proposal_observed": 57,
+                "prefix_through_next_accepted": 35
+              }
+            ]
+          },
+          {
+            "stage": "p40000",
+            "prompt": 40000,
+            "output": 256,
+            "prefill_s": 92.37334992800001,
+            "prefill_tps": 433.025326364994,
+            "decode_tps": 10.636857193238054,
+            "ttft_s": 92.40846423699986,
+            "elapsed_s": 116.38368785999955,
+            "work": {
+              "enabled": true,
+              "verifier": "multirow-round-cost-v68",
+              "draft_length": 3,
+              "startup_free_bytes": 11079155712,
+              "prompt_rows": 40000,
+              "draft_prefill_rows": 39999,
+              "initialized": true,
+              "rounds": 89,
+              "proposed": 244,
+              "accepted": 166,
+              "verified_rows": 333,
+              "committed_decode_tokens": 255,
+              "accepted_by_position": [
+                73,
+                52,
+                41
+              ],
+              "confidence_threshold": 0.4,
+              "proposal_histogram": [
+                0,
+                5,
+                13,
+                71
+              ],
+              "draft_ordered_attention_steps": 244,
+              "entry_hidden_snapshots": 89,
+              "direct_gdn_state_rows": 15984,
+              "seed_kv_reuses": 89,
+              "state_copy_bytes_elided": 32166605824,
+              "draft_initialization_ms": 2673.00088,
+              "draft_ms": 2869.219089,
+              "verify_ms": 20733.198897999988,
+              "reconcile_ms": 365.848547,
+              "cancelled": false,
+              "failed": false
+            },
+            "observed_shape_costs": [
+              {
+                "proposals": 1,
+                "rounds": 5,
+                "accepted": 1,
+                "committed": 6,
+                "mean_draft_ms": 11.74437880000005,
+                "mean_verify_ms": 154.55238699999973,
+                "mean_total_ms": 167.54907120000001
+              },
+              {
+                "proposals": 2,
+                "rounds": 13,
+                "accepted": 13,
+                "committed": 26,
+                "mean_draft_ms": 23.606165769230795,
+                "mean_verify_ms": 195.63800300000014,
+                "mean_total_ms": 221.91058761538463
+              },
+              {
+                "proposals": 3,
+                "rounds": 71,
+                "accepted": 152,
+                "committed": 223,
+                "mean_draft_ms": 35.26221183098591,
+                "mean_verify_ms": 245.3118721690139,
+                "mean_total_ms": 285.22024250704226
+              }
+            ],
+            "confidence_descriptive_bins": [
+              {
+                "confidence_position": 0,
+                "lower": 0,
+                "upper": 0.4,
+                "observed": 4,
+                "prefix_through_position_accepted": 0,
+                "next_proposal_observed": 0,
+                "prefix_through_next_accepted": 0
+              },
+              {
+                "confidence_position": 0,
+                "lower": 0.4,
+                "upper": 0.6,
+                "observed": 14,
+                "prefix_through_position_accepted": 8,
+                "next_proposal_observed": 14,
+                "prefix_through_next_accepted": 6
+              },
+              {
+                "confidence_position": 0,
+                "lower": 0.6,
+                "upper": 0.8,
+                "observed": 12,
+                "prefix_through_position_accepted": 9,
+                "next_proposal_observed": 12,
+                "prefix_through_next_accepted": 5
+              },
+              {
+                "confidence_position": 0,
+                "lower": 0.8,
+                "upper": 1,
+                "observed": 58,
+                "prefix_through_position_accepted": 55,
+                "next_proposal_observed": 58,
+                "prefix_through_next_accepted": 41
+              },
+              {
+                "confidence_position": 1,
+                "lower": 0,
+                "upper": 0.4,
+                "observed": 13,
+                "prefix_through_position_accepted": 2,
+                "next_proposal_observed": 0,
+                "prefix_through_next_accepted": 0
+              },
+              {
+                "confidence_position": 1,
+                "lower": 0.4,
+                "upper": 0.6,
+                "observed": 16,
+                "prefix_through_position_accepted": 9,
+                "next_proposal_observed": 16,
+                "prefix_through_next_accepted": 7
+              },
+              {
+                "confidence_position": 1,
+                "lower": 0.6,
+                "upper": 0.8,
+                "observed": 16,
+                "prefix_through_position_accepted": 10,
+                "next_proposal_observed": 16,
+                "prefix_through_next_accepted": 7
+              },
+              {
+                "confidence_position": 1,
+                "lower": 0.8,
+                "upper": 1,
+                "observed": 39,
+                "prefix_through_position_accepted": 31,
+                "next_proposal_observed": 39,
+                "prefix_through_next_accepted": 27
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "decision": "Archive host trace and preserve v64. Observations do not select a defensible calibrated cost policy; do not use draft softmax as target acceptance probability or fit a request-specific threshold. No further trace-only campaign or policy scan in this package.",
+    "limitations": [
+      "One real prompt and its prefixes; descriptive small conditional samples are not an acceptance model or proof that every cost-based scheduler fails.",
+      "Final-slot confidence is unobserved. Later-token acceptance after an earlier rejection is not labelled. Missing counterfactual routes are not reconstructed.",
+      "Changing proposal length changes future round boundaries; summing local savings does not predict full-request speed.",
+      "No numerical algorithm changed, no new full-state oracle run, no production or speedup selection. The paired original full-state evidence remains scoped to the unchanged arithmetic."
+    ]
+  },
+  "cleanup": {
+    "2": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 74.593
+    },
+    "3": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 76.312
+    }
+  },
+  "restoration": {
+    "server": {
+      "retained_sha256": "c4d9df64972f64d9bafeba6d5a4e92376ef23d1b5e5956b1a491ad1e1dea3e05",
+      "rebuilt_sha256": "25dc0d2bf6828815c3a766bed67177c2e38f73f70064b1c41b751c44ae8f91fc",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "2779c9075d6b6ea19f7133721e7e1175830f6ad813d564ca6d2dc2fb601edda0",
+      "rebuilt_sha256": "170985c63a3f7942b2106770e2c0cf821e99f58c78198aa23c4d0ddee9b50dac",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "hygiene": {
+    "gpu_handles": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": ""
+    },
+    "keys_removed": true,
+    "temporary_directory_empty": true,
+    "registered_worktrees": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "finding": "Existing raw draft confidence cannot be substituted for a calibrated target-acceptance probability. At short P65 position65 first proposal confidence0.98689425 is rejected; d3 position67 second confidence0.31065264 is accepted. At 40K d3, second-confidence>=0.8 has27/39 third-prefix acceptances, but this is one selected conditional sample, not a deployed acceptance model. Shape costs and changed subsequent round boundaries preclude summing imagined local savings into full-API claims.",
+  "next_action": "Close current confidence-only cost-calibration dependency; no request-specific threshold scan or additional trace-only campaign. Remaining verification budget or a materially new acceptance mechanism must select the next implementation. Preserve the full 1.5x\u20133x goal and incumbent.",
+  "validation": {
+    "host_ctest_passed": 3,
+    "host_ctest_failed": 0,
+    "document_unit_passed": 7,
+    "document_control": {
+      "passed": true,
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1305
+    },
+    "git_diff_check": true
+  },
+  "artifact_manifest": ".q3x-work/mtp-lookahead-cost-20261013/artifact-manifest.json"
+}

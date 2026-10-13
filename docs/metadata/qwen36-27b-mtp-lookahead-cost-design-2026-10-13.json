@@ -1,0 +1,41 @@
+{
+  "work_package_id": "WP-MTP-LOOKAHEAD-COST-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v67",
+  "source_parent": "2e65125",
+  "product_constraint": "1.5x\u20133x committed Decode versus same-request non-MTP; configured maxima2/3; exact target state/logits/output; joint Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "remaining_v64_short_decode_s": 0.128414314,
+    "remaining_v64_40k_decode_s": 1.264435333,
+    "v64_40k_d2_verified_rows": 305,
+    "v64_40k_d3_verified_rows": 333,
+    "finding": "D3 reduces rounds105 to89 but adds verified rows305 to333 and slows complete Decode. Aggregate receipts cannot identify which additional proposals earn their marginal cost."
+  },
+  "first_dependency": "Record already-computed draft confidence, actual proposal/acceptance/commit counts, entry position and complete per-round phase elapsed times in a bounded host array. No extra confidence kernel, proposal, numerical operation or GPU synchronization; serialize after generation. Unobserved final-slot confidence is -1, not manufactured as1.",
+  "numerical_contract": "No algorithm or numerical change for trace dependency. Same request full outputs and all aggregate work counters must equal retained v64 before using observations. Existing full-state evidence remains same algorithms; no new full-model oracle campaign for host-only telemetry.",
+  "diagnostic_limit": "One fresh actual API process each for maxima2/3 on existing P65/8K/40K requests. No profiler and no performance selection claim for instrumented timing. Bind costs to observed shapes only; unobserved counterfactual latency is an estimate, not measured speed.",
+  "next_decision": "Use per-round evidence to decide one materially different cost-based lookahead composition or reject scheduling direction. Do not scan confidence thresholds, train and qualify on the same token trace, or reopen prior one-round acceptance-backoff/frontier-exclusion policies. A successor must use an online request-local decision without prompt/token-ID special cases and return promptly to exact state/API gates.",
+  "bounds": {
+    "diagnostic_processes": 2,
+    "policy_implementations": 1,
+    "correctness_repairs": 1,
+    "threshold_scans": 0,
+    "profiler_captures": 0
+  },
+  "expiry": "After this one trace panel, implement one justified cost policy and compose at real API, or archive the scheduling dependency; no additional trace-only campaign.",
+  "production_changed": false,
+  "artifact_root": ".q3x-work/mtp-lookahead-cost-20261013",
+  "rollback_files": [
+    "src/runtime/mtp_device_internal.h",
+    "src/runtime/mtp_device_internal.cpp",
+    "src/runtime/mtp_service_internal.h",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "reference": {
+    "path": ".q3x-work/tmp-archive-20260809/q3x-vllm-startup-audit-N1aJhv/vllm/docs/features/speculative_decoding/dynamic_speculative_decoding.md",
+    "sha256": "6fc3b6564089697f2666e5a1252dd991414750a724d96ae655f4dbc2791d0833",
+    "transfer": "vLLM relates speculation length to verification compute/latency rather than acceptance alone. Its concurrency lookup does not solve this single-request per-round decision; no source import or runtime dependency."
+  }
+}

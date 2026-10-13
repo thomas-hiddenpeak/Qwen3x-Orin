@@ -1803,6 +1803,26 @@ end-to-end improvement. This does not establish a useful robust whole-product
 benefit. The candidate and private head wrapper are removed; retained v64's
 scalar draft head remains current. No d3 qualification or parameter scan follows.
 
+## Round-cost lookahead composition v67 — archived
+
+The [bounded work package](metadata/qwen36-27b-mtp-lookahead-cost-design-2026-10-13.json)
+first observes existing confidence decisions and complete round costs.
+A constructor-owned host array holds at most 4096 entries, bounded by the
+service output cap; no per-round allocation or extra device operation occurs.
+Only probabilities already copied by the incumbent policy are recorded;
+unobserved final-slot values remain explicitly unavailable. Entry position,
+actual proposal/acceptance/commit counts and phase intervals preserve request
+identity. Serialization follows generation timing. This diagnostic cannot
+select production or claim a speedup; one subsequent policy/API composition
+or explicit archival bounds its lifetime.
+
+The [completed diagnosis](metadata/qwen36-27b-mtp-lookahead-cost-closeout-2026-10-13.json)
+passes sixteen unchanged-output/work API checks. It does not justify a
+calibrated cost policy from the observed confidence values, and no threshold
+scan or policy implementation follows. This dependency is archived, all host
+telemetry changes are removed and v64 remains current. The result does not
+claim every cost-based scheduler fails or that the product target is impossible.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
