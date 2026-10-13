@@ -2068,6 +2068,28 @@ the 8K API return. The new kernel and integration are removed; the existing
 startup graphs retain per-token GDN calls. No completed 40K/d3 or full lifecycle
 qualification is claimed for the removed composition.
 
+## Immutable FC prefix memoization v82 — removed
+
+The [bounded design](metadata/qwen36-27b-mtp-fc-embedding-cache-design-2026-10-14.json)
+retains FP32 FC accumulators immediately after the embedding half, before any
+BF16 publication. Entries depend only on immutable weights, embedding norm
+and complete token ID. A hit initializes the original accumulator registers
+and executes the original ascending-K16 hidden half. Misses execute all K and
+publish the prefix. The private draft owns a fixed 256-slot cache in its arena;
+no request-time growth occurs. Exact tags reject collisions. Ordered enqueue
+precedes tag publication, failed execution poisons the owner, and full reset
+drains before invalidating tags. Rewind does not change immutable entries.
+Prompt initialization and all other projections remain unchanged. Cache
+counters are diagnostic work receipts, not accepted-token counts. Complete
+miss/hit FC output and prefix state/cache admission precedes the API return.
+
+The [completed direction](metadata/qwen36-27b-mtp-fc-embedding-cache-rejection-2026-10-14.json)
+passes complete miss/hit FC output, real prefix state/cache and d2 API checks.
+The whole-path change remains neutral (+0.269% at 8K, +0.074% at 40K in one
+process); 40K total is longer. Cache state, methods, kernel dispatch and new
+witness counters are removed, restoring v79. No d3 or policy/size scan follows.
+This closes this bounded implementation, not all immutable-prefix reuse.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

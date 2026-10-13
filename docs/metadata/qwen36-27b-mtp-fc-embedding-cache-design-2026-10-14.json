@@ -1,0 +1,43 @@
+{
+  "work_package_id": "WP-MTP-FC-EMBEDDING-CACHE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v82",
+  "source_parent": "cd2ffba",
+  "profile": "q3x.sm87.admission.mtp-fc-embedding-cache-api.v83",
+  "product_constraint": "Same-workload1.5x\u20133x Decode, drafts2/3, exact target state/logits/output and admitted private draft; Prefill/TTFT/Decode/total together.",
+  "downward_budget": {
+    "v79_graph_external_draft_matrix_s": 1.004060192,
+    "remaining_p40000_d2_s": 0.439699315,
+    "scope": "Matrix family includes FC and other projections; saving half of FC on hits is below this family ceiling and cannot by itself be assumed to close all contexts."
+  },
+  "mechanism": "Memoize FP32 accumulator after first5120 of10240 FC inputs, keyed by complete token ID in256direct-mapped slots. Same normalized embedding and immutable FC weights produce identical prefix. On hit initialize the same MMA accumulator and continue ascendingK16 from5120. On miss store prefix then complete original sequence. No reassociation or intermediate BF16 rounding. Prompt initialization unchanged.",
+  "ownership": "5,242,880byte owner-allocated cache in draft arena, no round allocation. Full tags initialized invalid; publish host tag only after successful same-stream enqueue. Failure poisons owner; reset drains and invalidates all tags/counters. Rewind retains immutable token-only entries. Exact-tag collisions recompute/replace.",
+  "numeric_gate": "Complete FC outputs on miss/hit, changed hidden half, guards and invalid arguments against original weight-major executor; P65 full state/cache and failure recovery; unchanged arithmetic means no new private FP64 tolerance.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "cache_size_scans": 0,
+    "profiles": 0
+  },
+  "api_return": "Immediately d2P65/8K/40K after numerical admission. >3% slowdown or nonpositive8K closes; useful long direction unlocks d3. Record hit/miss counts and byte reserve.",
+  "expiry": "One API composition then retain useful bounded dependency or remove; no cache policy scan.",
+  "reference_translation": "Native ascending-K16 weight-major MMA executor, vLLM embedding-first FC concat and unchanged-position input shift. Prefix memoization changes reuse only, not draft model or verification policy. No imported code.",
+  "rollback_files": [
+    "src/runtime/mtp_prefill_internal.cu",
+    "src/runtime/mtp_prefill_internal.h",
+    "src/runtime/mtp_device_internal.cpp",
+    "src/runtime/mtp_device_internal.h",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "artifact_root": ".q3x-work/mtp-fc-embedding-cache-20261014",
+  "production_changed": false,
+  "pre_api_refined_budget": {
+    "scope": "Read-only same v79 trace; draft weight-major grid80 preceded by draft RMSNorm identifies FC from literal call order. Includes post-first-graph FC only, so first proposal FC excluded.",
+    "calls": 348,
+    "seconds": 0.198553376,
+    "ideal_half_fc_ceiling_s": 0.099276688,
+    "decision": "FC exact reuse has at most about0.10s opportunity in this traced window, before cache misses/overhead; cannot independently close0.440s or whole goal. Finish the already-built correctness/API direction once, then retain only justified composition value or archive. No additional implementation variant."
+  }
+}

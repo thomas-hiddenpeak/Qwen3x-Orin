@@ -442,3 +442,5 @@ The direct Down-scale package closes neutral after complete d2 API checks and v7
 The GDN row-state reuse package closes neutral after its 8K API return with v79 restored. Existing Roadmap and MTP SDD retain frozen evidence; no Markdown paths or classifications change.
 
 The current v79 budget diagnosis updates the existing Roadmap; no Markdown paths or classifications change.
+
+The FC embedding-prefix cache package closes neutral after full d2 API checks with v79 restored. Existing MTP SDD and Roadmap retain the evidence; no Markdown paths or classes change.

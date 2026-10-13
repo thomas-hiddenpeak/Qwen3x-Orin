@@ -19,6 +19,35 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 draft FC embedding-prefix cache — closed neutral
+
+`WP-MTP-FC-EMBEDDING-CACHE-20261014` / `AC-MTP-GREEDY-v82` follows the
+[current budget](metadata/qwen36-27b-mtp-v79-budget-2026-10-14.json).
+The [bounded design](metadata/qwen36-27b-mtp-fc-embedding-cache-design-2026-10-14.json)
+memoizes the FC accumulator after its immutable normalized-embedding half.
+A full-token-tag hit continues the same FP32 MMA sequence at the hidden half;
+a miss publishes the prefix and completes the original sequence. This removes
+repeated computation without changing arithmetic, proposal policy or target
+state. A fixed 256-slot owner cache costs 5 MiB and invalidates on reset.
+Synthetic full-FC/cache guards and complete P65 state admission return directly
+to d2 API, then d3 only for useful direction. One implementation, no cache-size
+scan or profiler. The 1.004-second matrix-family budget includes other work;
+cache hits cannot be assumed to close the full 1.5x–3x objective.
+
+The [completed direction](metadata/qwen36-27b-mtp-fc-embedding-cache-rejection-2026-10-14.json)
+passes 18 complete FC rows, nine model prefixes, fifteen state/cache transactions
+and all eight d2 API/lifecycle checks. Hits are 5/21, 242/344 and 192/350 at
+P65/8K/40K, with unchanged output and proposal/verification work. At 8K/40K,
+Decode is 15.184/11.566 token/s, only +0.269%/+0.074% without noise qualification.
+Prefill is 17.213/92.056 seconds (475.91/434.52 token/s), TTFT 17.236/92.091
+seconds and total 34.030/114.139 seconds. The 40K total increases 0.071 seconds.
+Close this neutral product direction, remove cache/dispatch/profile/counters
+and restore v79 without d3 or a cache scan. Refined source-correlated timing
+isolates FC at 0.199 seconds, not the whole 1.004-second matrix family; even
+ideal half-FC reuse is only 0.099 seconds before misses and overhead. Select
+future implementations from the exact removable role before coding. The full
+goal remains unchanged; mathematical work elimination alone is not enough.
+
 ## 2026-10-14 current MTP budget — reconciled
 
 `WP-MTP-V79-BUDGET-20261014` freezes one unchanged v79 P40000/O256 d2
