@@ -1,0 +1,126 @@
+{
+  "work_package_id": "WP-MTP-DRAFT-MATRIX-HEAD-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v66",
+  "source_parent": "9af037c",
+  "product_constraint": "1.5x\u20133x same-request committed Decode, exact target full logits/state/output, configured maxima2/3, joint Prefill/TTFT/Decode/total.",
+  "mechanism": "Reuse native vendored Marlin BF16xNVFP4 M1 executor for private draft full vocabulary. Original NVFP4 checkpoint weights/block/tensor scales; startup-only packed sidecars, fixed M8 N128 K128 tile, original complete argmax and confidence consumer. No shortlist or omitted vocabulary.",
+  "numerical_boundary": "Extends the existing private BF16 draft matrix arithmetic class to its shared vocabulary projection. Draft reduction may differ from scalar; this is not claimed bitwise draft-logit equivalence. Target verification/commit arithmetic remains byte-exact. Predeclare independent FP64 full-vocabulary relative L2<=0.02 on nine fixed captured draft hidden rows; compare full scalar head separately and report argmax differences. Any failed bound rejects, no widening. Complete transaction and API output gates remain mandatory.",
+  "downward_budget": {
+    "historical_v48_draft_head_s": 0.914426304,
+    "remaining_v64_40k_decode_s": 1.264435332868,
+    "scope": "Head family alone cannot prove the full target; whole API selects retained value."
+  },
+  "memory": {
+    "packed_weight_bytes": 635699200,
+    "packed_scale_bytes": 79462400,
+    "reduction_bytes": 131072,
+    "retained_bytes": 715293184,
+    "startup_temporary_bytes": 635699200,
+    "reserve_bytes": 8589934592,
+    "request_allocations": 0,
+    "pre_device_resource_correction": "Marlin global_reduce_fp32 indexes padded M16 fragments even with M8 execution: 16 resident slots *16*128*4=131072 bytes. Corrected before first GPU enqueue; not a kernel parameter variant."
+  },
+  "reference": "Existing pinned Apache-2.0 Marlin implementation and native format preparation; no new dependency or source import. Unlike removed exact M1 paired decoder transfer, this is packed tensor-core execution and a separately qualified private draft numerical identity.",
+  "scale_audit": {
+    "tensor": {
+      "dtype": "F8_E4M3",
+      "shape": [
+        248320,
+        320
+      ],
+      "data_offsets": [
+        849451096,
+        928913496
+      ]
+    },
+    "scale_payload_sha256": "e20faadf62bd2b3bf88f2fc9fbf4f42462fdfdd0f4bc9f23d7eaabcc1b697f9b",
+    "file_offset": 849458200,
+    "histogram": {
+      "69": 4,
+      "70": 11,
+      "71": 27,
+      "72": 53,
+      "73": 126,
+      "74": 380,
+      "75": 696,
+      "76": 1380,
+      "77": 2144,
+      "78": 2788,
+      "79": 3760,
+      "80": 6546,
+      "81": 11414,
+      "82": 16119,
+      "83": 22636,
+      "84": 33887,
+      "85": 49516,
+      "86": 73477,
+      "87": 113311,
+      "88": 238084,
+      "89": 613680,
+      "90": 1158630,
+      "91": 1968113,
+      "92": 3049203,
+      "93": 3907730,
+      "94": 4548192,
+      "95": 5194725,
+      "96": 7423077,
+      "97": 9719104,
+      "98": 9082808,
+      "99": 7844799,
+      "100": 7075543,
+      "101": 5261350,
+      "102": 3982178,
+      "103": 2871468,
+      "104": 2418713,
+      "105": 1480863,
+      "106": 667587,
+      "107": 299260,
+      "108": 154429,
+      "109": 75997,
+      "110": 39381,
+      "111": 19637,
+      "112": 13609,
+      "113": 7304,
+      "114": 3480,
+      "115": 2056,
+      "116": 1346,
+      "117": 814,
+      "118": 557,
+      "119": 198,
+      "120": 138,
+      "121": 53,
+      "122": 10,
+      "123": 2,
+      "124": 4,
+      "125": 2,
+      "126": 1
+    },
+    "global_scale": 0.00013514928286895156,
+    "global_scale_payload_sha256": "b557db0d8fe7c9e774a616d6a611ba9c530c9126c9992bdbf8edf1c36a57bcfd",
+    "finding": "All block scale codes69..126. With factor1 the existing scale transform has no low-scale deletion or half overflow on this pinned payload. This is format feasibility, not a numerical or speed pass."
+  },
+  "gates": [
+    "Compile and fixed-shape/alias/resource checks.",
+    "Nine complete independent FP64 vocabulary vectors plus scalar-head comparison, using authenticated P513 draft hidden captures at rows0,1,2,16,32,64,128,256,511.",
+    "Full P65 scalar-target state/logit/cache transactions then immediate d2 P65/8K/40K API; >3% slowdown or nonpositive 8K stops. Useful long direction unlocks d3."
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "profiler_captures": 0,
+    "parameter_scans": 0
+  },
+  "expiry": "Mandatory next full API return or rejection; no uncomposed performance retention.",
+  "rollback_files": [
+    "src/kernels/sm87/nvfp4_marlin_w4a16.cu",
+    "src/runtime/mtp_device_internal.cpp",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "new_files": [
+    "src/runtime/mtp_draft_head_internal.h"
+  ],
+  "artifact_root": ".q3x-work/mtp-draft-matrix-head-20261013"
+}

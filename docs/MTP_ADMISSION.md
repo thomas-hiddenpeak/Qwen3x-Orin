@@ -1781,6 +1781,28 @@ and full-prefix/state admission, but finds no useful 8K API Decode gain. All
 new arithmetic and profile paths are removed; confidence lookahead v63 remains
 active. No guard/launch/tile scan or independent performance claim follows.
 
+## Private draft matrix head composition v66 — removed
+
+The [bounded candidate](metadata/qwen36-27b-mtp-draft-matrix-head-design-2026-10-13.json)
+extends private draft matrix arithmetic to full-vocabulary projection, with
+original NVFP4 weights and exact source scale preparation on the pinned head.
+A distinct draft head numerical identity uses native BF16 Marlin accumulation;
+it does not claim scalar draft-logit bit identity. Independent FP64 full-vector
+relative L2 must not exceed 0.02 on the declared panel. This changes possible
+proposals and confidence only; target arithmetic, complete prefix state and
+greedy committed output remain exact. No vocabulary entry is omitted.
+One constructor-owned 715,293,184-byte region retains packed weights/scales,
+reduction scratch and locks; a 635,699,200-byte startup transpose temporary is
+released before readiness. Existing reserve checks, failure cleanup and owned
+stream ordering apply. There is no request-time allocation or production route.
+
+The [completed API direction](metadata/qwen36-27b-mtp-draft-matrix-head-rejection-2026-10-13.json)
+passes the numerical and complete d2 API panel but shows less than 0.5% Decode
+direction in every bucket, with 715,293,184 extra retained bytes and no 40K
+end-to-end improvement. This does not establish a useful robust whole-product
+benefit. The candidate and private head wrapper are removed; retained v64's
+scalar draft head remains current. No d3 qualification or parameter scan follows.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

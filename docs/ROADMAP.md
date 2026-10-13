@@ -19,6 +19,37 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-13 private draft matrix head — closed without retention
+
+`WP-MTP-DRAFT-MATRIX-HEAD-20261013` / `AC-MTP-GREEDY-v66` owns the
+[packed draft vocabulary composition](metadata/qwen36-27b-mtp-draft-matrix-head-design-2026-10-13.json).
+Extend the private BF16 draft matrix executor to the full NVFP4 vocabulary
+using existing Marlin preparation and one fixed M1 mapping. No token shortlist.
+The draft reduction changes; independent FP64 full-logit relative L2 must stay
+at or below 0.02 on the fixed nine-row real capture panel before API use.
+Every target state, full logit and committed token retains the scalar contract.
+Startup-only sidecars preserve the 8-GiB reserve. One implementation, one possible
+correctness repair, no profiler or parameter scan. Full-state admission returns
+immediately to d2 API; nonpositive 8K or >3% slowdown closes it, useful long
+results unlock d3. The full 1.5x–3x goal remains active; production is unchanged.
+
+The [completed direction](metadata/qwen36-27b-mtp-draft-matrix-head-rejection-2026-10-13.json)
+passes nine full-vocabulary independent FP64 comparisons (maximum relative L2
+0.001666), complete P65 state/cache transactions and all eight d2 API/lifecycle
+checks. D2 Decode is 12.855/14.563/11.193 token/s at P65/8K/40K, only
+0.45%/0.42%/0.47% above retained v64. At 40K, Prefill is 93.046 seconds /
+429.89 token/s, TTFT 93.082 seconds and external total 115.865 seconds.
+Complete Decode saves 106.380ms, including 61.204ms less draft time, while
+external total adds 113.111ms. Work and committed outputs are unchanged.
+
+This single-process direction does not establish a useful robust gain for
+715,293,184 additional retained bytes. It does not prove a statistical
+regression or a hardware ceiling. Unchanged Prefill/verification timing
+variation is not causally attributed to the head. The useful-long-direction
+condition for d3 is not established; no d3 run or further tuning follows.
+All candidate runtime/profile changes are removed and v64 is restored.
+The full 1.5x–3x objective remains open; production is unchanged.
+
 ## 2026-10-13 exact QK pair fusion — closed without retention
 
 `WP-MTP-QK-PAIR-FMA-20261013` / `AC-MTP-GREEDY-v65` owns one

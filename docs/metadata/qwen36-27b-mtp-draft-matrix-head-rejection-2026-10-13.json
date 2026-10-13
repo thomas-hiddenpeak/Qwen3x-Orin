@@ -1,0 +1,432 @@
+{
+  "work_package_id": "WP-MTP-DRAFT-MATRIX-HEAD-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v66",
+  "date": "2026-10-13",
+  "source_parent": "9af037c",
+  "decision_unit": "architecture_candidate",
+  "decision": {
+    "decision": "remove; no d3 qualification",
+    "reason": "The completed d2 API panel shows only 0.42\u20130.47 percent Decode direction over retained v64, with 715293184 additional retained bytes and no 40K end-to-end gain. This single-process observation does not establish a robust useful whole-product gain. The predeclared useful-long-direction condition for d3 is not established. No new numerical failure, hardware bound or statistically proven regression is claimed.",
+    "numerical_pass": true,
+    "d2_complete": true,
+    "d3_run": false,
+    "goal_unchanged": true
+  },
+  "production_changed": false,
+  "goal_complete": false,
+  "candidate_profile": "q3x.sm87.admission.mtp-draft-matrix-head-api.v67",
+  "candidate_server_sha256": "d007fbf7e61b118846e4b5b0ce9592fb754fab6a7b5d80d8cf2f54e28b114689",
+  "candidate_oracle_sha256": "8284350a1b7c6bfe3e87f1803a15455c27ac5058f7f42c255fff89df39bd835e",
+  "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+  "artifact_root": ".q3x-work/mtp-draft-matrix-head-20261013",
+  "numerical": {
+    "head": {
+      "pass": true,
+      "reference": "Independent FP64 exact NVFP4/E4M3 decoding, full K dot and tensor scale; compared against complete BF16 outputs, no original-reduction equivalence claim.",
+      "bound_relative_l2": 0.02,
+      "numpy": "2.4.6",
+      "rows": [
+        {
+          "capture_row": 0,
+          "reference_argmax": 198,
+          "matrix": {
+            "relative_l2": 0.0016586277533147775,
+            "maximum_absolute_error": 0.015624124842115172,
+            "argmax": 198
+          },
+          "scalar": {
+            "relative_l2": 0.001658627727109156,
+            "maximum_absolute_error": 0.015624124842115172,
+            "argmax": 198
+          },
+          "argmax_equal_scalar": true
+        },
+        {
+          "capture_row": 1,
+          "reference_argmax": 198,
+          "matrix": {
+            "relative_l2": 0.0016656781225089015,
+            "maximum_absolute_error": 0.031016899232739092,
+            "argmax": 198
+          },
+          "scalar": {
+            "relative_l2": 0.0016656780981741531,
+            "maximum_absolute_error": 0.031016899232739092,
+            "argmax": 198
+          },
+          "argmax_equal_scalar": true
+        },
+        {
+          "capture_row": 2,
+          "reference_argmax": 25,
+          "matrix": {
+            "relative_l2": 0.0016594639034363244,
+            "maximum_absolute_error": 0.03120640869954272,
+            "argmax": 25
+          },
+          "scalar": {
+            "relative_l2": 0.0016594638938474163,
+            "maximum_absolute_error": 0.03120640869954272,
+            "argmax": 25
+          },
+          "argmax_equal_scalar": true
+        },
+        {
+          "capture_row": 16,
+          "reference_argmax": 10505,
+          "matrix": {
+            "relative_l2": 0.001662145857697881,
+            "maximum_absolute_error": 0.031246993184144145,
+            "argmax": 10505
+          },
+          "scalar": {
+            "relative_l2": 0.0016621458283306207,
+            "maximum_absolute_error": 0.031246993184144145,
+            "argmax": 10505
+          },
+          "argmax_equal_scalar": true
+        },
+        {
+          "capture_row": 32,
+          "reference_argmax": 13,
+          "matrix": {
+            "relative_l2": 0.0016569122280380713,
+            "maximum_absolute_error": 0.052282427740170334,
+            "argmax": 13
+          },
+          "scalar": {
+            "relative_l2": 0.0016569121732128978,
+            "maximum_absolute_error": 0.052282427740170334,
+            "argmax": 13
+          },
+          "argmax_equal_scalar": true
+        },
+        {
+          "capture_row": 64,
+          "reference_argmax": 20668,
+          "matrix": {
+            "relative_l2": 0.001660397520844137,
+            "maximum_absolute_error": 0.03792056744250516,
+            "argmax": 20668
+          },
+          "scalar": {
+            "relative_l2": 0.0016603975177574269,
+            "maximum_absolute_error": 0.03792056744250516,
+            "argmax": 20668
+          },
+          "argmax_equal_scalar": true
+        },
+        {
+          "capture_row": 128,
+          "reference_argmax": 20668,
+          "matrix": {
+            "relative_l2": 0.0016642359944905203,
+            "maximum_absolute_error": 0.062273731355386275,
+            "argmax": 20668
+          },
+          "scalar": {
+            "relative_l2": 0.0016642359704220119,
+            "maximum_absolute_error": 0.062273731355386275,
+            "argmax": 20668
+          },
+          "argmax_equal_scalar": true
+        },
+        {
+          "capture_row": 256,
+          "reference_argmax": 303,
+          "matrix": {
+            "relative_l2": 0.0016655241794675327,
+            "maximum_absolute_error": 0.060420068539539074,
+            "argmax": 303
+          },
+          "scalar": {
+            "relative_l2": 0.0016655241688445965,
+            "maximum_absolute_error": 0.060420068539539074,
+            "argmax": 303
+          },
+          "argmax_equal_scalar": true
+        },
+        {
+          "capture_row": 511,
+          "reference_argmax": 321,
+          "matrix": {
+            "relative_l2": 0.0016581710042482157,
+            "maximum_absolute_error": 0.03530401165088293,
+            "argmax": 321
+          },
+          "scalar": {
+            "relative_l2": 0.0016581709896954133,
+            "maximum_absolute_error": 0.03530401165088293,
+            "argmax": 321
+          },
+          "argmax_equal_scalar": true
+        }
+      ],
+      "payload_sha256": "0cad7830cfaf66702bb90ebe83094604edf83e186075c491f2549245f7c8609d",
+      "script_sha256": "9f745fd7dfd04ccff7704c0e5820af1543b17585d46b3089856c42baeff09e7b",
+      "scope": "Fixed nine historical target-conditioned draft rows; no recursive-acceptance or API speed claim."
+    },
+    "head_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 59.406
+    },
+    "full_state_transactions": 15,
+    "failure_recoveries": 4,
+    "prefix_groups": 3,
+    "complete_prefixes": 9,
+    "oracle_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 68.281
+    }
+  },
+  "api": {
+    "metrics": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.890223153,
+        "prefill_tps": 73.01540044308419,
+        "decode_tps": 12.854670118107885,
+        "ttft_s": 0.9089018459999352,
+        "elapsed_s": 2.0757611249991896,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-draft-matrix-head-v67",
+          "draft_length": 2,
+          "startup_free_bytes": 9766330368,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "confidence_threshold": 0.4,
+          "proposal_histogram": [
+            1,
+            0,
+            6,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "entry_hidden_snapshots": 7,
+          "direct_gdn_state_rows": 912,
+          "seed_kv_reuses": 6,
+          "state_copy_bytes_elided": 1987054592,
+          "draft_initialization_ms": 5.781829,
+          "draft_ms": 121.35856,
+          "verify_ms": 1024.2362210000001,
+          "reconcile_ms": 20.889003999999996,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.193875724,
+        "prefill_tps": 476.4487153158395,
+        "decode_tps": 14.563122437957949,
+        "ttft_s": 17.21609019099924,
+        "elapsed_s": 34.726359581,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-draft-matrix-head-v67",
+          "draft_length": 2,
+          "startup_free_bytes": 9766330368,
+          "prompt_rows": 8192,
+          "draft_prefill_rows": 8191,
+          "initialized": true,
+          "rounds": 98,
+          "proposed": 187,
+          "accepted": 157,
+          "verified_rows": 285,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            86,
+            71,
+            0
+          ],
+          "confidence_threshold": 0.4,
+          "proposal_histogram": [
+            0,
+            9,
+            89,
+            0
+          ],
+          "draft_ordered_attention_steps": 187,
+          "entry_hidden_snapshots": 98,
+          "direct_gdn_state_rows": 13680,
+          "seed_kv_reuses": 98,
+          "state_copy_bytes_elided": 29253216256,
+          "draft_initialization_ms": 560.129889,
+          "draft_ms": 1923.4243049999995,
+          "verify_ms": 15222.82737,
+          "reconcile_ms": 358.69247499999994,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 93.04612471499999,
+        "prefill_tps": 429.89431448671166,
+        "decode_tps": 11.193350638426075,
+        "ttft_s": 93.08152600100038,
+        "elapsed_s": 115.86450249100017,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-draft-matrix-head-v67",
+          "draft_length": 2,
+          "startup_free_bytes": 9766330368,
+          "prompt_rows": 40000,
+          "draft_prefill_rows": 39999,
+          "initialized": true,
+          "rounds": 105,
+          "proposed": 200,
+          "accepted": 150,
+          "verified_rows": 305,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            86,
+            64,
+            0
+          ],
+          "confidence_threshold": 0.4,
+          "proposal_histogram": [
+            0,
+            10,
+            95,
+            0
+          ],
+          "draft_ordered_attention_steps": 200,
+          "entry_hidden_snapshots": 105,
+          "direct_gdn_state_rows": 14640,
+          "seed_kv_reuses": 105,
+          "state_copy_bytes_elided": 31315768320,
+          "draft_initialization_ms": 2731.653897,
+          "draft_ms": 2291.017227,
+          "verify_ms": 20132.165191999993,
+          "reconcile_ms": 352.806301,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "comparison": [
+      {
+        "stage": "p65",
+        "decode_ratio_vs_v64": 1.0045475383731783,
+        "decode_ratio_vs_nonmtp": 1.341748942797385,
+        "draft_saved_ms": 4.69994100000001,
+        "verify_saved_ms": 0.3975529999997889,
+        "full_decode_saved_s": 0.005306481999999946,
+        "prefill_delta_s": 0.0012503329999999924,
+        "total_delta_s": -0.0040339822462556185
+      },
+      {
+        "stage": "p8192",
+        "decode_ratio_vs_v64": 1.0041538053752495,
+        "decode_ratio_vs_nonmtp": 1.5808691266944268,
+        "draft_saved_ms": 57.965049000001045,
+        "verify_saved_ms": 12.021310999994967,
+        "full_decode_saved_s": 0.07273305399999686,
+        "prefill_delta_s": -0.09772308599999846,
+        "total_delta_s": -0.170434849911544
+      },
+      {
+        "stage": "p40000",
+        "decode_ratio_vs_v64": 1.0046696029523499,
+        "decode_ratio_vs_nonmtp": 1.423749886543812,
+        "draft_saved_ms": 61.20429299999978,
+        "verify_saved_ms": 43.074743000019225,
+        "full_decode_saved_s": 0.10638000999999875,
+        "prefill_delta_s": 0.2192240709999993,
+        "total_delta_s": 0.1131109339548857
+      }
+    ],
+    "completed_api_checks": 8,
+    "output_ids_equal_v64": true
+  },
+  "api_cleanup": {
+    "success": true,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 75.656
+  },
+  "work_counts_equal_v64": [
+    "rounds",
+    "proposed",
+    "accepted",
+    "verified_rows",
+    "accepted_by_position",
+    "proposal_histogram",
+    "committed_decode_tokens"
+  ],
+  "restoration": {
+    "server": {
+      "retained_sha256": "c4d9df64972f64d9bafeba6d5a4e92376ef23d1b5e5956b1a491ad1e1dea3e05",
+      "rebuilt_sha256": "25dc0d2bf6828815c3a766bed67177c2e38f73f70064b1c41b751c44ae8f91fc",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "2779c9075d6b6ea19f7133721e7e1175830f6ad813d564ca6d2dc2fb601edda0",
+      "rebuilt_sha256": "170985c63a3f7942b2106770e2c0cf821e99f58c78198aa23c4d0ddee9b50dac",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "hygiene": {
+    "gpu_handles": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": ""
+    },
+    "keys_removed": true,
+    "temporary_directory_empty": true,
+    "registered_worktrees": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "authority": "One fresh d2 process with complete numerical and eight API/lifecycle checks; no repetitions, noise qualification, d3 or production promotion. Full-vector draft FP64 admission is not scalar draft-logit bit equality. Target state/output remain exact.",
+  "interpretation": "Full 40K Decode saves 0.106380010 s; draft phase saves 0.061204293 s and verifier 0.043074743 s. No causal claim for unchanged verifier/Prefill variation. External total adds 0.113110934 s. Less than 0.5 percent direction at all buckets does not establish robust value for 715293184 extra retained bytes. No hardware-bound conclusion.",
+  "remaining_work": "1.5x\u20133x goal remains active. Restore retained confidence v64; no head parameter scan or d3 qualification of this version.",
+  "validation": {
+    "host_ctest": {
+      "passed": 3,
+      "failed": 0
+    },
+    "document_unit": {
+      "passed": 7,
+      "failed": 0
+    },
+    "document_control": {
+      "passed": true,
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1301
+    },
+    "git_diff_check": true
+  },
+  "artifact_manifest": ".q3x-work/mtp-draft-matrix-head-20261013/artifact-manifest.json"
+}
