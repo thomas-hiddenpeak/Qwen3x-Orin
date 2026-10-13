@@ -1,0 +1,25 @@
+{
+  "work_package_id": "WP-MTP-V64-BUDGET-20261013",
+  "decision_unit": "diagnostic",
+  "source_parent": "bf24964",
+  "question": "Reconcile retainedv64 complete real API verifier costs after confidence, FP8 prefetch and probability publication. Which current family-level dataflow can cover the remaining1.264435333s 40K d2 full-Decode budget without repeating rejected register or Tensor Core schemes?",
+  "real_api_anchor": "docs/metadata/qwen36-27b-mtp-confidence-direction-2026-10-10.json",
+  "binary_sha256": "c4d9df64972f64d9bafeba6d5a4e92376ef23d1b5e5956b1a491ad1e1dea3e05",
+  "profile": "q3x.sm87.admission.mtp-confidence-api.v64",
+  "workload": {
+    "P": 40000,
+    "O": 256,
+    "draft_length": 2,
+    "same_request_output_and_work_as_anchor": true
+  },
+  "bounds": {
+    "nsys_captures": 1,
+    "ncu_captures": 0,
+    "runtime_mutations": 0,
+    "parameter_scans": 0
+  },
+  "safety": "Nsight Systems timeline only, no kernel replay or counter capture. Unchanged8GiB startup reserve and normal preflight/ownership/90C stop; allocation error aborts rather than disk fallback.",
+  "analysis_boundary": "First multirow target FP8 kernel through last generation kernel, matching precedingv48 diagnostic window; excludes first proposal/entry snapshot and is not unprofiled Decode.",
+  "exit": "One capture ranks current budgets and selects or excludes an architecture-level next implementation. No repeat, local tuning or qualification-only campaign; no production/target change.",
+  "artifact_root": ".q3x-work/mtp-v64-budget-20261013"
+}

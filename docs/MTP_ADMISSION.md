@@ -1880,6 +1880,19 @@ passes complete numerical/state admission but regresses P65 d2 API Decode by
 removed. Retained v64 remains current; no geometry scan or production change
 follows this closed composition.
 
+## PV row-warp composition v71
+
+The [bounded candidate](metadata/qwen36-27b-mtp-pv-row-warps-design-2026-10-13.json)
+assigns each speculative row six separate consumer warps inside a single CTA.
+The 32-dimension, four-buffer 64-position V ring is shared; probabilities retain
+separate row/head storage and existing aligned strides. Each lane owns one
+original ascending-position FP32 FMA chain and publishes BF16 once. CTA-wide
+producer/barrier progress follows the longest causal length; each consumer's
+arithmetic and probability copy remain limited to its own actual length.
+No future-row operand reaches an earlier causal result. There is no new arena,
+request allocation, target-state boundary or production route. Full-prefix and
+API selection, not fewer source-level loads, decide retention.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

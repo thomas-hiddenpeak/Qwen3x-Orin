@@ -19,6 +19,37 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-13 retained MTP budget — complete diagnostic
+
+`WP-MTP-V64-BUDGET-20261013` owns one
+[unchanged-v64 API timeline](metadata/qwen36-27b-mtp-v64-budget-design-2026-10-13.json).
+The previous family profile predates retained FP8 prefetch, probability
+publication and confidence work. Reconcile the current P40000/O256 d2 verifier
+budget with exact prior output and work before selecting another architecture.
+One Nsight Systems capture, no kernel replay, NCU, runtime mutation or scan.
+This diagnostic has no speedup or production authority; one analysis selects
+or excludes a next implementation and closes the package.
+
+The [completed timeline](metadata/qwen36-27b-mtp-v64-budget-2026-10-13.json)
+authenticates identical request, output and complete work. In the declared
+23.000-second diagnostic window, Gate/Up costs 5.666s, FP8 aggregate 5.346s,
+QK 2.142s and PV 2.180s. Copy plus uncovered intervals total 0.507s, below the
+remaining 1.264s full-Decode budget. These are profile costs, not updated API
+baselines or stall attribution. No repeated profile/NCU follows.
+
+## 2026-10-13 PV row warps — active composition
+
+`WP-MTP-PV-ROW-WARPS-20261013` / `AC-MTP-GREEDY-v71` owns the
+[shared V / independent row consumers](metadata/qwen36-27b-mtp-pv-row-warps-design-2026-10-13.json).
+The current PV budget selects one 32-dimension CTA with 6*M head warps and one
+ordered accumulator per lane. Distinct speculative rows consume one shared V
+ring concurrently. This differs from the closed 192-thread serial-M consumer.
+Probability demand doubles relative to the 64-dimension incumbent, so fewer V
+loads or static concurrency cannot select it. Complete numerical/state admission
+returns directly to d2 API; 3% slowdown or nonpositive 8K closes it, useful long
+direction unlocks d3. One structure/one possible correctness repair, no tile,
+launch or profiler scan. Production and the full goal remain unchanged.
+
 ## 2026-10-13 FP8 output ownership — closed negative
 
 `WP-MTP-FP8-OUTPUT-PARTITION-20261013` / `AC-MTP-GREEDY-v70` owns the

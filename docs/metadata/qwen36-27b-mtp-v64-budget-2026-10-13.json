@@ -1,0 +1,262 @@
+{
+  "work_package_id": "WP-MTP-V64-BUDGET-20261013",
+  "decision_unit": "diagnostic",
+  "status": "closed_budget_reconciled",
+  "source_parent": "bf24964",
+  "identity": {
+    "command": [
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-confidence-20261010/final-source/server",
+      "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "--port",
+      "18871",
+      "--api-key-file",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-v64-budget-20261013/profile/api-key",
+      "--nvtx-phase-ranges",
+      "--candidate-profile",
+      "whole-core-exact-decode"
+    ],
+    "executable_sha256": "c4d9df64972f64d9bafeba6d5a4e92376ef23d1b5e5956b1a491ad1e1dea3e05",
+    "git": "bf249640a7c2e6b885439f59d3bb5e4c20111d87",
+    "driver_sha256": "eefc91b87694d46b7924b9ef3b89a71af119b08bebdec84690196f766de97319",
+    "fixture_sha256": "6fb5c1cedfd37f9d50036e8c98f985bcff0269331e1e051c205e8434eb313944",
+    "authority": "T4 diagnostic only; WP-MTP-V64-BUDGET-20261013; one same-v64-ELF completed P40000/O256 d2 workload, identify remaining verifier budget; not performance selection"
+  },
+  "same_request_output_ids_and_work": {
+    "pass": true,
+    "fields": [
+      "generated_token_ids",
+      "prompt_token_ids_u32le_sha256",
+      "completion_tokens",
+      "target_prefill_complete"
+    ],
+    "mtp_fields": [
+      "enabled",
+      "verifier",
+      "draft_length",
+      "prompt_rows",
+      "draft_prefill_rows",
+      "initialized",
+      "rounds",
+      "proposed",
+      "accepted",
+      "verified_rows",
+      "committed_decode_tokens",
+      "accepted_by_position",
+      "confidence_threshold",
+      "proposal_histogram",
+      "draft_ordered_attention_steps",
+      "entry_hidden_snapshots",
+      "direct_gdn_state_rows",
+      "seed_kv_reuses",
+      "state_copy_bytes_elided",
+      "cancelled",
+      "failed"
+    ]
+  },
+  "analysis": {
+    "scope": "T4 diagnostic from first verifier FP8 through last generation kernel; excludes first proposal/entry snapshot, includes later draft/reconciliation; not unprofiled Decode",
+    "start_ns": 92212638656,
+    "end_ns": 115212925024,
+    "interval_s": 23.000286368,
+    "families": {
+      "verify_gate_up": {
+        "seconds": 5.666291904000022,
+        "calls": 13440
+      },
+      "verify_fp8_canonical": {
+        "seconds": 3.9300666559999797,
+        "calls": 15120
+      },
+      "verify_down_packed": {
+        "seconds": 2.206431999999998,
+        "calls": 5565
+      },
+      "verify_pv": {
+        "seconds": 2.180443295999998,
+        "calls": 1680
+      },
+      "verify_qk": {
+        "seconds": 2.142271775999996,
+        "calls": 1680
+      },
+      "verify_fp8_sidecar": {
+        "seconds": 1.415520480000005,
+        "calls": 6720
+      },
+      "draft_matrix_including_reconcile": {
+        "seconds": 1.2165310720000022,
+        "calls": 2034
+      },
+      "draft_vocabulary": {
+        "seconds": 0.8744184639999998,
+        "calls": 198
+      },
+      "verify_vocabulary": {
+        "seconds": 0.5955983679999999,
+        "calls": 105
+      },
+      "verify_softmax": {
+        "seconds": 0.5033826239999999,
+        "calls": 1680
+      },
+      "verify_down_canonical": {
+        "seconds": 0.4522395520000008,
+        "calls": 1155
+      },
+      "target_gdn": {
+        "seconds": 0.4376091199999986,
+        "calls": 14640
+      },
+      "other": {
+        "seconds": 0.3192095040000102,
+        "calls": 36506
+      },
+      "residual_norm": {
+        "seconds": 0.19898073599999824,
+        "calls": 13440
+      },
+      "draft_pv": {
+        "seconds": 0.1367158719999999,
+        "calls": 198
+      },
+      "draft_qk": {
+        "seconds": 0.12232927999999993,
+        "calls": 198
+      },
+      "target_conv": {
+        "seconds": 0.060480576000000355,
+        "calls": 14640
+      },
+      "softmax_target_and_draft": {
+        "seconds": 0.035100832000000005,
+        "calls": 198
+      }
+    },
+    "copies": [
+      {
+        "kind": 2,
+        "calls": 607,
+        "bytes": 4440,
+        "seconds": 0.000628416
+      },
+      {
+        "kind": 8,
+        "calls": 16119,
+        "bytes": 21188280320,
+        "seconds": 0.263948672
+      }
+    ],
+    "gpu_activity_union_s": 22.7581992,
+    "uncovered_interval_s": 0.242087168,
+    "sqlite_sha256": "ed8819552122802ebb59e195b2e3aee1979b437fd71c0c89d4434295e8197f87"
+  },
+  "unprofiled_anchor": {
+    "stage": "p40000",
+    "prompt": 40000,
+    "output": 256,
+    "prefill_s": 92.82690064399999,
+    "prefill_tps": 430.9095717135253,
+    "decode_tps": 11.141325073967586,
+    "ttft_s": 92.86201422987506,
+    "elapsed_s": 115.75139155704528,
+    "mtp": {
+      "enabled": true,
+      "verifier": "multirow-confidence-v64",
+      "draft_length": 2,
+      "startup_free_bytes": 9889685504,
+      "prompt_rows": 40000,
+      "draft_prefill_rows": 39999,
+      "initialized": true,
+      "rounds": 105,
+      "proposed": 200,
+      "accepted": 150,
+      "verified_rows": 305,
+      "committed_decode_tokens": 255,
+      "accepted_by_position": [
+        86,
+        64,
+        0
+      ],
+      "confidence_threshold": 0.4,
+      "proposal_histogram": [
+        0,
+        10,
+        95,
+        0
+      ],
+      "draft_ordered_attention_steps": 200,
+      "entry_hidden_snapshots": 105,
+      "direct_gdn_state_rows": 14640,
+      "seed_kv_reuses": 105,
+      "state_copy_bytes_elided": 31315768320,
+      "draft_initialization_ms": 2642.169644,
+      "draft_ms": 2352.2215199999996,
+      "verify_ms": 20175.239935000012,
+      "reconcile_ms": 355.29160099999996,
+      "cancelled": false,
+      "failed": false
+    }
+  },
+  "profiled_api_not_selection": {
+    "prefill_s": 92.16811008900001,
+    "prefill_tps": 433.9895866517706,
+    "decode_tps": 11.074047195331692,
+    "ttft_s": 92.56993700400017,
+    "elapsed_s": 122.73016085899872,
+    "limitation": "Capture start/flush and profiler instrumentation affect these external intervals; do not update any baseline."
+  },
+  "decision": {
+    "next_architecture": "PV row-warp producer/consumer composition: give each speculative row independent head warps consuming one shared V tile. Preserve ascending-position FP32 FMA and causal tails. Fixed32 dimensions and6*M warps, not old192-thread serial-M accumulator PV.",
+    "budget": "CurrentPV2.180443296s exceeds remaining1.264435333s full-Decode gap as an opportunity ceiling only; closing the gap solely here would require58.0 percent reduction, which is not predicted. Gate5.666s andFP8 aggregate5.346s remain larger families, but recently closed ownership/decoder schemes grant no continuation scan.",
+    "exclude_as_primary": [
+      "Copies plus uncovered intervals total0.506664256s; eliminating those alone cannot cover1.264435333s in this window comparison.",
+      "GDN alone0.437609120s and target softmax alone0.503382624s cannot independently cover the gap.",
+      "Repeat FP8 output partition or certified TensorCore variants; these remain rejected by real API."
+    ],
+    "why_new": "Current PV launches48 CTAs atM3,192 threads each,39 registers and38912 shared bytes. Prior shared-row PV used32 CTAs but only192 threads and M serial accumulators per lane. Proposed independent row warps change consumer concurrency and share V across rows; added probability staging and synchronization remain charged to wholeAPI. Static geometry alone proves no speedup or actual occupancy.",
+    "not_established": "No memory-bandwidth, bank-conflict or per-instruction stall attribution. No repeated profile or NCU authorized."
+  },
+  "cleanup": {
+    "server_returncode": 0,
+    "clock_errors": [],
+    "max_temp_c": 73.968
+  },
+  "production_unchanged": true,
+  "goal_achieved": false,
+  "artifact_root": ".q3x-work/mtp-v64-budget-20261013",
+  "validation": {
+    "document_unit_tests": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1321,
+      "errors": 0
+    },
+    "git_diff_check": "pass",
+    "runtime_mutations": 0
+  },
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "api_keys_remaining": 0,
+    "removed_unowned_tool_locks": [
+      "profile/tmp/nvidia/nsight_systems/NSys-SessionManager.lock-4026531836-2026.1.3",
+      "profile/tmp/nvidia/nsight_systems/telemetry-2002/telemetry.lock"
+    ],
+    "workspace_tmp_files": [],
+    "registered_worktrees": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "gpu_clock_samples": 190,
+    "gpu_clock_values": {
+      "gpu_cur_freq": [
+        1300500000
+      ],
+      "gpu_min_freq": [
+        1300500000
+      ],
+      "gpu_max_freq": [
+        1300500000
+      ]
+    }
+  },
+  "artifact_manifest": ".q3x-work/mtp-v64-budget-20261013/artifact-manifest.json"
+}

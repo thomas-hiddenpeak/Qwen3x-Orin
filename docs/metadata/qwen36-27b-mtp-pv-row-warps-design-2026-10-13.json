@@ -1,0 +1,53 @@
+{
+  "work_package_id": "WP-MTP-PV-ROW-WARPS-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v71",
+  "decision_unit": "architecture_candidate",
+  "source_parent": "bf24964",
+  "product_constraint": "1.5x-3x same-request committed Decode with maxima2/3, exact full target state/logits/output; joint Prefill/TTFT/Decode/total.",
+  "budget_source": "docs/metadata/qwen36-27b-mtp-v64-budget-2026-10-13.json",
+  "budget": {
+    "remaining_v64_40k_full_decode_s": 1.264435333,
+    "current_v64_pv_gpu_s": 2.180443296,
+    "required_pv_only_reduction_fraction": 0.5798982873434926,
+    "authority": "Opportunity ceiling only, not expected savings or a universal bound."
+  },
+  "mechanism": "One32-dimension CTA with6*M warps. Each speculative row owns six independent head warps and one FP32 accumulator per lane. Shared four-buffer64-position V ring is produced once for all rows; row/head probability rings remain distinct. Fixed32 CTAs cover all KV heads and256 dimensions. M2/3/4 block sizes384/576/768, no scan.",
+  "distinction": "Closed PV row-compose used192 threads and M serial accumulators per lane. This uses independent row warps to preserve consumer concurrency while sharing V. Retained PV usesM separate CTAs and64 dimensions/two accumulators per lane. This is one coupled producer/consumer architecture, not a repair or parameter scan of either old arrangement.",
+  "equivalence": "For each(row,head,dimension), accumulator starts+0 and consumes original ascending-position fma.rn.f32(P,V,acc) through actual first_sequence+row, then original BF16 RNE once. Shared V may include later rows but earlier consumers never use them. All threads advance rings/barriers through the longest sequence; each warp masks only arithmetic and probability valid bytes to its own causal length. QK, full FP32 softmax probabilities, projections, state and draft unchanged.",
+  "ownership": {
+    "shared_v_bytes": 16384,
+    "shared_probability_bytes_by_M": {
+      "2": 12288,
+      "3": 18432,
+      "4": 24576
+    },
+    "request_allocations": 0,
+    "persistent_bytes_added": 0,
+    "probability_stride": "existing round_up4 physical extent; valid-byte cp.async tails, no padding consumed"
+  },
+  "traffic_trade": "At fixed sequence, V demand is shared across M rows but probability demand doubles relative to64-dimension incumbent. Separate consumer warps remove per-thread M accumulator serialization; increased block size can reduce scheduling flexibility. These are source-level demands, not measuredDRAM or occupancy claims.",
+  "reference_transfer": "Previously studied FlashInfer grouped-query producer/consumer lifetime on native SM87 cp.async; exact ordered scalar accumulation instead of reassociation. No new imported code/runtime dependency.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "tile_or_launch_scans": 0,
+    "profiler_captures": 0
+  },
+  "gates": [
+    "Compile no spill and bounded perCTA shared/threads.",
+    "Complete synthetic PV output/guard tailsM2/3/4 includingS512/513/514/515/8192/44092.",
+    "P513 complete prefixes/state/cache/failure andP8192 complete prefixes against scalar target.",
+    "Immediate d2 P65/8K/40K API with3 percent slowdown or nonpositive8K stop. Useful long direction unlocksd3."
+  ],
+  "expiry": "Next complete API composition or archival; no independent local performance campaign.",
+  "artifact_root": ".q3x-work/mtp-pv-row-warps-20261013",
+  "rollback_files": [
+    "src/runtime/mtp_verify_attention_internal.cu",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "profile": "q3x.sm87.admission.mtp-pv-row-warps-api.v72",
+  "production_changed": false
+}
