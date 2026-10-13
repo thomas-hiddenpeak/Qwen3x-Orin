@@ -19,6 +19,26 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-10 retained MTP Attention counters — closed inconclusive
+
+`WP-MTP-V64-ATTENTION-COUNTERS-20261010` owns the
+[fixed two-launch diagnostic](metadata/qwen36-27b-mtp-v64-attention-counters-design-2026-10-10.json).
+The retained v64 40K d2 complete-Decode gap is 1.264 seconds. Historical QK/PV
+GPU intervals total 4.532 seconds but do not identify the current limiting
+instruction or movement. Capture the first QK and PV launches in one unchanged
+v64 P40000/O256 API request. Authenticate output and complete work against the
+unprofiled request. No profiler timing is a performance selection result.
+One capture, two launches, no sweep or runtime mutation; choose one causal
+implementation hypothesis or close as inconclusive. Production stays fixed.
+
+The [2026-10-13 recovery closeout](metadata/qwen36-27b-mtp-v64-attention-counters-closeout-2026-10-13.json)
+finds an interrupted capture after NCU reported allocation error 12 and disk
+backup during kernel replay. No report or complete API receipt survived; no
+counter, speed, or reboot-cause claim follows. Owned processes are absent and
+GPU handles empty; the stale key and tool pipes are removed. This fixed capture
+is closed without repetition. Future profiling must bound replay memory and
+stop on allocation errors. Retained v64 and production are unchanged.
+
 ## 2026-10-10 MTP verification frontier — closed without retention
 
 `WP-MTP-FRONTIER-20261010` / `AC-MTP-GREEDY-v64` selects the

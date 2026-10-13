@@ -1,0 +1,37 @@
+{
+  "work_package_id": "WP-MTP-V64-ATTENTION-COUNTERS-20261010",
+  "source_parent": "51398a7",
+  "decision_unit": "diagnostic",
+  "status": "declared",
+  "product_constraint": "1.5x\u20133x same-request committed Decode with exact target state/output and joint Prefill/TTFT/Decode/total reporting",
+  "downward_budget": {
+    "remaining_40k_decode_s": 1.264435332868,
+    "historical_v48_qk_s": 2.214693856,
+    "historical_v48_pv_s": 2.317460768,
+    "scope": "Old family opportunity only; no current measured savings or hardware ceiling."
+  },
+  "question": "On the retained v64 real P40000/O256 d2 API, do the first QK and ordered PV launches expose dominant shared-memory, instruction, barrier or dependency costs that justify a materially changed dataflow?",
+  "protocol": {
+    "server_sha256": "c4d9df64972f64d9bafeba6d5a4e92376ef23d1b5e5956b1a491ad1e1dea3e05",
+    "comparator": "docs/metadata/qwen36-27b-mtp-confidence-direction-2026-10-10.json",
+    "api_requests": 1,
+    "ncu_launches_max": 2,
+    "kernel_invocation": 1,
+    "sections": [
+      "SpeedOfLight",
+      "MemoryWorkloadAnalysis",
+      "SchedulerStats",
+      "WarpStateStats",
+      "LaunchStats",
+      "Occupancy",
+      "SourceCounters"
+    ],
+    "clock_control": "none",
+    "cache_control": "none",
+    "deadline_s": 1200,
+    "mutation_count": 0,
+    "authority": "T4 only; profiled API latency cannot select performance; first-layer observations are not a general layer panel."
+  },
+  "stop": "One bounded capture; no counter sweep. Select a causal implementation hypothesis or close diagnostic as inconclusive. Any implementation needs a new bounded architecture package and immediate API return.",
+  "artifact_root": ".q3x-work/mtp-v64-attention-counters-20261010"
+}

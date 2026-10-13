@@ -1,0 +1,44 @@
+{
+  "work_package_id": "WP-MTP-V64-ATTENTION-COUNTERS-20261010",
+  "status": "closed_inconclusive",
+  "closed_on": "2026-10-13",
+  "source_parent": "51398a7",
+  "scope": "Interrupted T4 diagnostic; no valid counters, completed API response, state oracle, or fresh performance result.",
+  "observations": [
+    "First setup attempt rejected API-key ownership before readiness; key ownership was corrected for the second attempt.",
+    "Second process reached readiness and began P40000/O256. NCU reported NvMap allocation error12 at the first matched PV launch and fell back to backing up memory to file.",
+    "No capture.ncu-rep, completion witness or cleanup receipt exists. The original driver and server are absent on recovery after a host reboot. The cause of reboot is not established by these files.",
+    "GPU device-handle inspection on recovery is empty. Exact stale key and temporary tool pipes removed; regular diagnostic tool files archived within this package.",
+    "Removed a 31,149,015,087-byte incomplete replay-memory backup; retained small tool logs. This payload is not a usable profile report."
+  ],
+  "decision": "Do not repeat full-resident kernel replay. No bottleneck or performance claim follows. Close this fixed capture budget; any future counters require bounded memory behavior and immediate allocation-error stop. Continue implementation from admitted arithmetic/dataflow contracts and real API selection.",
+  "runtime_changed": false,
+  "production_changed": false,
+  "target_complete": false,
+  "retained_profile": "q3x.sm87.admission.mtp-confidence-api.v64",
+  "evidence_sha256": {
+    ".q3x-work/mtp-v64-attention-counters-20261010/profile/server.log": "fc48f7fc7ac7aff7d91ef000957a9da9a08d2c1b8c925f86f71bfc2a6793ccbc",
+    ".q3x-work/mtp-v64-attention-counters-20261010/profile/identity.json": "15f1acb38f4102559dc31d0b36e3ed8ed0a2436d026cf55995515c97d4c5d500",
+    ".q3x-work/mtp-v64-attention-counters-20261010/profile/preflight.json": "2fff215bbe016fac3e511fa0371a760720cf514f05155a884db3d8bffc003259",
+    ".q3x-work/mtp-v64-attention-counters-20261010/profile/cache-preparation.json": "ad56a74339d7db4a66e4915e5fb5fe5f131b19ef9bf549b36aabd1a01b315030",
+    ".q3x-work/mtp-v64-attention-counters-20261010/profile/profiler-command.json": "08797c5b9f15dc6016c9e05a8ac9ec60c3ed28049b63c8b1f58b3f5b1a321e29",
+    ".q3x-work/mtp-v64-attention-counters-20261010/profile/telemetry.log": "f888fc1c71a6b40afa752d950be1038bcaad421abd4f604b3da584dc9a3f9558",
+    ".q3x-work/mtp-v64-attention-counters-20261010/driver.log": "a4b91f96c48a8333ea8c67a2c7820c04007f02c86ae11c4a7f63b3b5a23ab52d",
+    ".q3x-work/mtp-v64-attention-counters-20261010/setup-failure/server.log": "90a5dd47723c83ebb4786e0e9c49e1a964a4f07e834de312483433611155b041"
+  },
+  "recovery_hygiene": {
+    "date": "2026-10-13",
+    "removed_incomplete_replay_backup": ".q3x-work/mtp-v64-attention-counters-20261010/interrupted-tool-files/0e07-a6b9-ea4f-47e4",
+    "removed_bytes": 31149015087,
+    "reason": "Interrupted NCU kernel-replay memory backup, not a profile report; no valid counters. Unusable project-owned temporary payload.",
+    "gpu_handles_empty": true,
+    "stale_key_removed": true,
+    "tool_tmp_empty": true,
+    "old_driver_and_server_absent": true
+  },
+  "validation": {
+    "document_control": "PASS: 86 tracked, 86 registered, 1293 links, zero errors",
+    "document_unit": "7 passed",
+    "git_diff_check": "passed"
+  }
+}
