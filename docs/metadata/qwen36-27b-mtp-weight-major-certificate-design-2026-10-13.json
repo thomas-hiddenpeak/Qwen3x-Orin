@@ -1,0 +1,54 @@
+{
+  "work_package_id": "WP-MTP-WEIGHT-MAJOR-CERTIFICATE-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v69",
+  "source_parent": "35d4749",
+  "product_constraint": "1.5x\u20133x same-request committed Decode, maxima2/3, exact full target state/logits/output, paired Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "remaining_v64_40k_full_decode_s": 1.264435333,
+    "historical_v48_fp8_gpu_s": 5.869083328,
+    "preceding_fused_certificate_short_verify_ms": 1863.57894,
+    "incumbent_v64_short_verify_ms": 1024.633774
+  },
+  "finding": "The prior fused certificate maps token rows to MMA M16, leaving only2/3/4 of16 rows active. Two warp output groups produce16 columns. Its inner fp8() reconstructs every weight through integer bit logic. Changing gamma alone does not remove this operand/zero-work overhead.",
+  "mechanism": "One combined weight-major BF16 MMA producer: weights occupy16 matrix rows, token vectors occupy2/3/4 of8 columns. One warp covers16 outputs, replacing two8-output warps and halving MMA calls for the same useful products. Eight warp K128 producers replace four two-warp producers. Prepublish the same swizzled256-entry BF16 weight lookup in CTA shared memory; aligned16-bit packed FP8 pairs replace scalar code conversion. Preserve zero-start K16 MMA, balanced8-leaf and64-leaf trees, outward norm construction, gamma64 interval, strict BF16 cell test and original compact scalar-element repair.",
+  "numerical_boundary": "No smaller gamma, changed tolerance or universal tensor-FMA identity is claimed. This is isolated performance admission of the same proposed conservative certificate class, with unchanged normal-safe operand guard and exceptional repair. PTX still leaves accumulation order/rounding/subnormal handling unspecified; sampled state passes are not promoted into a universal hardware proof. Production selection would require closing that proof boundary and complete final qualification.",
+  "equivalence": "Transposed real dot products and identical source FP8->BF16 table bits. Candidate FP32 centers need not be bitwise identical to the old Tensor Core orientation. The unchanged certificate/repair must publish complete scalar-incumbent BF16 outputs; full state and API outputs remain mandatory. No target-state rounding boundary changes.",
+  "reference": {
+    "url": "https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-instructions-mma",
+    "reviewed": "2026-10-13",
+    "finding": "BF16/TF32 mma precision and fragment layout define the experimental boundary; do not infer scalar-FMA bit identity. Uses existing native inline PTX, no source import or runtime dependency."
+  },
+  "resources": {
+    "workspace_bytes": 262144,
+    "norm_inventory": "208 immutable FP8 projections, bounded constructor allocation with8GiB free reserve",
+    "shared_partial_bytes": 16384,
+    "shared_lookup_bytes": 1024,
+    "request_allocations": 0
+  },
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "gamma_or_tile_scans": 0,
+    "profiler_captures": 0
+  },
+  "gates": [
+    "Compile/resources and complete72 scalar FP8 output/guard cases, including exceptional repair.",
+    "P65 complete scalar-target prefixes/state/cache transactions; immediate d2 API with3 percent slowdown/nonpositive8K stop. Useful long direction unlocks d3."
+  ],
+  "expiry": "Next complete API composition or explicit rejection; no local performance campaign.",
+  "artifact_root": ".q3x-work/mtp-weight-major-certificate-20261013",
+  "rollback_files": [
+    "src/runtime/mtp_verify_projection_internal.cu",
+    "src/runtime/mtp_verify_internal.cpp",
+    "src/runtime/mtp_device_internal.h",
+    "src/runtime/mtp_device_internal.cpp",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "new_files": [
+    "src/runtime/mtp_certificate_internal.h"
+  ],
+  "production_changed": false
+}

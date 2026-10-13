@@ -19,6 +19,36 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-13 weight-major certificate — closed negative
+
+`WP-MTP-WEIGHT-MAJOR-CERTIFICATE-20261013` / `AC-MTP-GREEDY-v69` owns the
+[weight-major producer](metadata/qwen36-27b-mtp-weight-major-certificate-design-2026-10-13.json).
+The prior certified Tensor Core producer wastes token padding on the 16-row
+axis and reconstructs FP8 values in its inner loop. Move weights to 16 rows
+and token inputs to 8 columns, halve MMA calls, and publish the existing exact
+BF16 code lookup once per CTA. This is one coupled dataflow, with unchanged
+gamma64, strict certificate and scalar repair; no tolerance or bound scan.
+The original full-state/output contract remains mandatory. PTX's unspecified
+rounding still prevents claiming universal scalar-FMA identity or production
+proof from sampled tests. Compile/numerical/state admission returns immediately
+to d2 API; 3% slowdown or nonpositive 8K closes it, useful long direction unlocks
+d3. One implementation and one correctness repair; no profiler campaign.
+Production and the full 1.5x–3x goal remain unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-weight-major-certificate-rejection-2026-10-13.json)
+passes 72 complete FP8 outputs/guards, nine real-model prefixes, fifteen full
+state/cache transactions and four failure recoveries. P65/O16 d2 preserves
+output and work but Decode falls from 12.796 to 8.586 token/s (-32.91%).
+Prefill is 0.892 seconds / 72.84 token/s, TTFT 0.911 seconds and total 2.658
+seconds. Verification adds 574.962ms and complete Decode adds 574.886ms.
+
+The predeclared stop loss closes this composition. The already-entered 8K
+request is cancelled; no completed 8K/40K/d3 or full lifecycle result follows.
+All candidate runtime/profile changes are removed and v64 restored. Resource
+improvements and sampled numerical passes do not qualify the proposed interval
+bound for production, and no gamma/tile/threshold or profiler scan follows.
+The full 1.5x–3x objective remains open; production is unchanged.
+
 ## 2026-10-13 FP8 activation publication — closed negative
 
 `WP-MTP-FP8-ACTIVATION-STAGE-20261013` / `AC-MTP-GREEDY-v68` owns the

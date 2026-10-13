@@ -1841,6 +1841,27 @@ triggering the 3% stop loss. All new input staging and profile paths are removed
 v64 is restored. The exact whole-path loss does not establish a measured
 cache/shared-memory stall cause, and no carveout or launch scan follows.
 
+## Weight-major certified producer composition v69 — removed
+
+The [bounded candidate](metadata/qwen36-27b-mtp-weight-major-certificate-design-2026-10-13.json)
+transposes the old experimental BF16 MMA producer: 16 weight rows by 8 token
+columns replace token-major padding. An exact BF16 lookup and packed pair
+loads replace repeated FP8 bit construction. Eight K producers share the
+same bounded partial store, followed by the existing certificate and compact
+scalar repair. Immutable outward weight norms and fixed scratch are created
+under the unchanged reserve; rounds allocate nothing. Gamma64, normal-safe
+guards, strict BF16 cells and target state/output obligations are unchanged.
+This numerical admission does not claim a universal hardware proof from
+sampled cases and cannot select production. One complete API return or
+rejection bounds this composition.
+
+The [completed rejection](metadata/qwen36-27b-mtp-weight-major-certificate-rejection-2026-10-13.json)
+passes the complete bounded numerical/state panel but loses 32.91% P65 API
+Decode against v64, with unchanged output and work. The stop loss prevents
+further context/d3 qualification. All certificate-owner, producer, dispatch
+and profile changes are removed; retained confidence v64 remains current.
+No production error-bound proof or further tuning authority follows.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

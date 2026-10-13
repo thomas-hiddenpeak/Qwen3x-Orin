@@ -1,0 +1,208 @@
+{
+  "date": "2026-10-13",
+  "work_package_id": "WP-MTP-WEIGHT-MAJOR-CERTIFICATE-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v69",
+  "source_parent": "35d4749",
+  "decision_unit": "architecture_candidate",
+  "decision": {
+    "decision": "remove",
+    "reason": "P65/O16 d2 Decode 8.58573652 versus retained12.79647764 (-32.90547 percent), beyond predeclared3 percent stop loss. No completed8K/40K/d3 result.",
+    "numerical_pass": true,
+    "api_checks_completed": 1,
+    "goal_complete": false,
+    "production_changed": false
+  },
+  "production_changed": false,
+  "goal_complete": false,
+  "profile": "q3x.sm87.admission.mtp-weight-major-certificate-api.v70",
+  "server_sha256": "0f19fa7a339dec29726dbbb08f84b61c7ab9db693cdd7cab569474761f8a4bfa",
+  "oracle_sha256": "0952fe0384b03600f5f9de9efb277a64c4a907b735e6760d72fa221fa038df27",
+  "artifact_root": ".q3x-work/mtp-weight-major-certificate-20261013",
+  "numerical": {
+    "synthetic": {
+      "full_output_guard_cases": 72,
+      "all_passed": true,
+      "payload_scope": "Six FP8 roles/layouts x M2/3/4 x four patterns; finite/NaN weights and normal/zero/signed-zero/subnormal/large/Inf/NaN activations. No synthetic performance authority.",
+      "binary_sha256": "da657787bad76d04f93ba7770aecab3239031765c452b99a6b554459e94257e5",
+      "consumer_source_sha256": "df44f1a281bdb0f352b3271e0adbabd5723e1ad8b1f2791f541a3419bff65279",
+      "baseline_source_sha256": "6dedebc322f267baa969e1fc81dec3efe68c3600f4d12533502fba16f10de1ad"
+    },
+    "synthetic_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 59.343
+    },
+    "full_state": {
+      "prefix_groups": 3,
+      "complete_prefixes": 9,
+      "transactions": 15,
+      "failure_recoveries": 4,
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 68.656
+      }
+    },
+    "proof_boundary": "Sampled complete output/state passes only. Unspecified PTX accumulation semantics mean the proposed gamma64 certificate has no universal production proof. Bounds and strict repair conditions were not relaxed."
+  },
+  "actual_server_resources": [
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail18certificate_detail5normsILb0EEEvPKvjPf:",
+      "resources": "REG:12 STACK:0 SHARED:1024 LOCAL:0 CONSTANT[0]:376 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail18certificate_detail5normsILb1EEEvPKvjPf:",
+      "resources": "REG:15 STACK:0 SHARED:1024 LOCAL:0 CONSTANT[0]:376 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail18certificate_detail10repair_fp8EPKhPKtjjfPKjS8_Pt:",
+      "resources": "REG:37 STACK:0 SHARED:1056 LOCAL:0 CONSTANT[0]:408 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail18certificate_detail13fused_certifyEPKhPKtPKfS8_jjjfPtPjSA_:",
+      "resources": "REG:44 STACK:0 SHARED:17408 LOCAL:0 CONSTANT[0]:424 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    }
+  ],
+  "api": {
+    "metrics": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.892310182,
+        "prefill_tps": 72.84462433714558,
+        "decode_tps": 8.585736519811837,
+        "ttft_s": 0.9108141229989997,
+        "elapsed_s": 2.657820696998897,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-weight-major-certificate-v70",
+          "draft_length": 2,
+          "startup_free_bytes": 11135254528,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "confidence_threshold": 0.4,
+          "proposal_histogram": [
+            1,
+            0,
+            6,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "entry_hidden_snapshots": 7,
+          "direct_gdn_state_rows": 912,
+          "seed_kv_reuses": 6,
+          "state_copy_bytes_elided": 1987054592,
+          "draft_initialization_ms": 5.738054,
+          "draft_ms": 126.19803199999998,
+          "verify_ms": 1599.595481,
+          "reconcile_ms": 20.900640000000003,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "comparison": [
+      {
+        "stage": "p65",
+        "decode_ratio_vs_v64": 0.6709452990122462,
+        "decode_ratio_vs_nonmtp": 0.8961648017996808,
+        "draft_saved_ms": -0.13953099999997676,
+        "verify_saved_ms": -574.9617070000002,
+        "full_decode_saved_s": -0.5748860920000001,
+        "prefill_delta_s": 0.0033373620000000104,
+        "total_delta_s": 0.5780255897534516
+      }
+    ],
+    "completed_api_checks": 1,
+    "output_ids_equal_v64": true,
+    "work_equal_v64": true
+  },
+  "api_cleanup": {
+    "success": false,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 64.437
+  },
+  "api_driver_result": {
+    "returncode": -2,
+    "early_stop": true
+  },
+  "scope_limits": [
+    "Only P65/O16 d2 completed. Already-entered8K request cancelled at bounded Prefill safe point; no completed8K timing/output claim.",
+    "40K,d3,full API lifecycle and repeated qualification not run after stop loss.",
+    "The standalone and actual-server kernel resources show44 registers,17408 shared bytes,no local/stack storage. These do not establish performance.",
+    "No fresh profiler cause attribution, gamma/tile/threshold scan, or universal hardware bound.",
+    "Original compact scalar repair remains in candidate; queue compaction was not newly introduced."
+  ],
+  "engineering_conclusion": "Weight-major BF16 MMA with shared exact lookup preserves the bounded numerical panel but does not close the scalar-incumbent API budget. Verification adds574.961707ms, complete Decode adds574.886092ms and external total adds578.025590ms. Remove complete candidate and restore retainedv64; no retuning of this version. The1.5x-3x goal remains open.",
+  "rollback_files": [
+    "src/runtime/mtp_verify_projection_internal.cu",
+    "src/runtime/mtp_verify_internal.cpp",
+    "src/runtime/mtp_device_internal.h",
+    "src/runtime/mtp_device_internal.cpp",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "removed_new_files": [
+    "src/runtime/mtp_certificate_internal.h"
+  ],
+  "restoration": {
+    "server": {
+      "retained_sha256": "c4d9df64972f64d9bafeba6d5a4e92376ef23d1b5e5956b1a491ad1e1dea3e05",
+      "rebuilt_sha256": "9a4804443bd99c918655f4e09f8ac1239777b152d20f35cde3252fadc229663b",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "2779c9075d6b6ea19f7133721e7e1175830f6ad813d564ca6d2dc2fb601edda0",
+      "rebuilt_sha256": "ab9bf60e86e7e539725907a2d4aedd1aa3603b5e2a39acf9454c0b477deeaeb7",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "validation": {
+    "host_ctests": 3,
+    "document_unit_tests": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1313,
+      "errors": 0
+    },
+    "git_diff_check": "pass"
+  },
+  "hygiene": {
+    "gpu_handles": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": ""
+    },
+    "api_keys_remaining": 0,
+    "workspace_tmp_files": [],
+    "registered_worktrees": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "artifact_manifest": ".q3x-work/mtp-weight-major-certificate-20261013/artifact-manifest.json"
+}
