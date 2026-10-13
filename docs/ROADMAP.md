@@ -19,6 +19,33 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 compact exact FP8 table — closed negative
+
+`WP-MTP-COMPACT-FP8-TABLE-20261014` / `AC-MTP-GREEDY-v83` implements the
+[bounded compact representation](metadata/qwen36-27b-mtp-compact-fp8-table-design-2026-10-14.json)
+selected by the preceding hardware attribution. Store exact FP8 values in a
+16-KiB replicated BF16 table, publish through four vector-store rounds, and
+expand to unchanged FP32 operands at consumption. Original global feed,
+scalar chains and all state boundaries remain fixed. Resource-derived shared
+partition preferences preserve the original launch-bound residency targets;
+there is no carveout/layout sweep. Complete lookup/output/state admission
+returns directly to d2 API, and useful long direction unlocks d3. One
+implementation, no further profiler or codebook variant. Measured conflicts
+motivate the change but do not predict the full 1.5x–3x goal.
+
+The [completed direction](metadata/qwen36-27b-mtp-compact-fp8-table-rejection-2026-10-14.json)
+passes all 8192 lookup cells, 72 complete projection/guard cases, nine model
+prefixes and fifteen state/cache transactions. P65 d2 Decode is 13.048 token/s,
+3.028% below retained v79, crossing the predeclared short-request stop. Prefill
+is 0.892 seconds / 72.89 token/s, TTFT 0.918 seconds and total 2.067 seconds;
+output and non-timing work are unchanged. Verification adds 35.027 ms. Remove
+the table, shared preferences and route identity, restoring v79. The already
+started 8K request is cancelled at a bounded Prefill safe point; no long-context
+or d3 result is claimed. The server exits cleanly. No repeats, further profiler
+or codebook/carveout variants follow. Reduced theoretical bank multiplicity did
+not establish whole-product value. Current retained metrics and the full
+1.5x–3x objective remain unchanged.
+
 ## 2026-10-14 exact FP8 operand-feed attribution — complete
 
 `WP-MTP-PROJECTION-FEED-AUDIT-20261014` owns a

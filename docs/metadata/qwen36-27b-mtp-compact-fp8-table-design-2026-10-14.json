@@ -1,0 +1,35 @@
+{
+  "work_package_id": "WP-MTP-COMPACT-FP8-TABLE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v83",
+  "source_parent": "1bb9d3b",
+  "profile": "q3x.sm87.admission.mtp-compact-fp8-table-api.v84",
+  "product_constraint": "1.5x\u20133x same-workload committed Decode; exact target state/logits/output, d2/d3 and paired Prefill/TTFT/Decode/total.",
+  "origin": "qwen36-27b-mtp-projection-feed-audit-2026-10-14.json",
+  "downward_budget": {
+    "remaining_40k_d2_s": 0.439699315,
+    "scope": "Exact verifier FP8 feed is a main family in API provenance; one M3 real-weight kernel has2.386xideal shared wavefronts. Counter hints are not speedup forecasts or a whole-model limit."
+  },
+  "mechanism": "FP8 values represented exactly in BF16,256codes x32lane replicas =16KiB. Four warp-shuffle/128bitstore rounds publish the table. Convert each16bit lookup to identical FP32 bits at consumption; at most2distinct words per bank by address proof. Keep original global loads/prefetch, all chains/reductions, scale and BF16 output.",
+  "residency": "Fixed resource-derived preference: M2 maxshared to allow4CTAs; M3/M4 50percent shared carveout (rounded supported configuration) for original3/2CTA launch bounds without reserving the maximum shared partition. No carveout sweep. Added shared footprint and shift instructions may outweigh conflict savings.",
+  "equivalence": "All256FP8codes include signed zero and canonical signed qNaN, exactly roundtrip through high16bits. Existing canonical code swizzle and output-sidecar code words unchanged. Every table cell has one producer before CTA barrier. No private draft, state, allocation or non-MTP change.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "layout_or_carveout_scans": 0,
+    "profiles": 0
+  },
+  "gates": [
+    "Build/SASS/resource sanity; all8192lookup cells and72completeFP8output/guard cases forM2/3/4 canonical/sidecar, including specials and8byteinput alignment.",
+    "Complete P65state/cache/failure oracle, immediately d2P65/8K/40K API; >3percent slowdown or nonpositive8K closes, useful long direction unlocksd3."
+  ],
+  "expiry": "One complete API composition then justified bounded retention or removal. No revived32KiB scalar-published table or another replica-count variant.",
+  "rollback_files": [
+    "src/runtime/mtp_verify_projection_internal.cu",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "artifact_root": ".q3x-work/mtp-compact-fp8-table-20261014",
+  "production_changed": false
+}

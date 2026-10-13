@@ -446,3 +446,5 @@ The current v79 budget diagnosis updates the existing Roadmap; no Markdown paths
 The FC embedding-prefix cache package closes neutral after full d2 API checks with v79 restored. Existing MTP SDD and Roadmap retain the evidence; no Markdown paths or classes change.
 
 The bounded FP8 operand-feed attribution completes one small-resident capture and selects a compact-representation proposal in the existing Roadmap; no Markdown paths or classes change.
+
+The compact FP8 table package closes after negative short API direction with v79 restored. Existing MTP SDD and Roadmap retain the numerical pass and frozen rejection; no Markdown paths or classes change.

@@ -1,0 +1,320 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-COMPACT-FP8-TABLE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v83",
+  "source_parent": "1bb9d3b",
+  "decision_unit": "architecture_candidate",
+  "decision": "remove_after_predeclared_short_API_stop",
+  "production_changed": false,
+  "goal_complete": false,
+  "candidate_profile": "q3x.sm87.admission.mtp-compact-fp8-table-api.v84",
+  "retained_profile": "q3x.sm87.admission.mtp-gdn-graphs-api.v79",
+  "server_sha256": "827eb342563352f92e444c00367dc7ca631b63d0817a72aca58402f627a228d3",
+  "oracle_sha256": "19bb3da192a5e9b9d83f9ba6e09ff282e760309f0c8eb036956759dd09293527",
+  "artifact_root": ".q3x-work/mtp-compact-fp8-table-20261014",
+  "implementation": "FP8 values represented exactly in BF16,256codes x32lane replicas =16KiB. Four warp-shuffle/128bitstore rounds publish the table. Convert each16bit lookup to identical FP32 bits at consumption; at most2distinct words per bank by address proof. Keep original global loads/prefetch, all chains/reductions, scale and BF16 output.",
+  "shared_partition_preference": "Fixed resource-derived preference: M2 maxshared to allow4CTAs; M3/M4 50percent shared carveout (rounded supported configuration) for original3/2CTA launch bounds without reserving the maximum shared partition. No carveout sweep. Added shared footprint and shift instructions may outweigh conflict savings.",
+  "numerical": {
+    "lookup_cells_bitwise_equal": 8192,
+    "complete_synthetic_output_guard_cases": 72,
+    "synthetic_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "real_model_oracle": {
+      "complete_prefixes": 9,
+      "state_cache_transactions": 15,
+      "verification_failure_recoveries": 4,
+      "initialization_cancel_recoveries": 8,
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 68.781
+      }
+    },
+    "scope": "Same-history complete recurrent/Conv/KV/hidden/full-logit and draft-KV comparisons. Draft arithmetic unchanged; no new FP64 draft assessment needed. The synthetic process finished before a telemetry sample; its process temperature maximum is unavailable, with preflight telemetry retained."
+  },
+  "resources": [
+    {
+      "rows": 4,
+      "sidecar": true,
+      "registers": 107,
+      "shared_bytes": 16896,
+      "stack_bytes": 0,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0
+    },
+    {
+      "rows": 4,
+      "sidecar": false,
+      "registers": 102,
+      "shared_bytes": 16896,
+      "stack_bytes": 0,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0
+    },
+    {
+      "rows": 3,
+      "sidecar": true,
+      "registers": 79,
+      "shared_bytes": 16768,
+      "stack_bytes": 0,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0
+    },
+    {
+      "rows": 3,
+      "sidecar": false,
+      "registers": 79,
+      "shared_bytes": 16768,
+      "stack_bytes": 0,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0
+    },
+    {
+      "rows": 2,
+      "sidecar": true,
+      "registers": 64,
+      "shared_bytes": 16640,
+      "stack_bytes": 0,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0
+    },
+    {
+      "rows": 2,
+      "sidecar": false,
+      "registers": 63,
+      "shared_bytes": 16640,
+      "stack_bytes": 0,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0
+    }
+  ],
+  "sass": [
+    {
+      "function": "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj4ELb1EEEvPKhfPKtjjPt",
+      "lds_u16": 16,
+      "sts128": 4,
+      "ffma": 64
+    },
+    {
+      "function": "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj4ELb0EEEvPKhfPKtjjPt",
+      "lds_u16": 16,
+      "sts128": 4,
+      "ffma": 64
+    },
+    {
+      "function": "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj3ELb1EEEvPKhfPKtjjPt",
+      "lds_u16": 16,
+      "sts128": 4,
+      "ffma": 48
+    },
+    {
+      "function": "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj3ELb0EEEvPKhfPKtjjPt",
+      "lds_u16": 16,
+      "sts128": 4,
+      "ffma": 48
+    },
+    {
+      "function": "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj2ELb1EEEvPKhfPKtjjPt",
+      "lds_u16": 16,
+      "sts128": 4,
+      "ffma": 32
+    },
+    {
+      "function": "_ZN3q3x7runtime10mtp_detail66_GLOBAL__N__fd80dec9_33_mtp_verify_projection_internal_cu_49bccb868fp8_rowsILj2ELb0EEEvPKhfPKtjjPt",
+      "lds_u16": 16,
+      "sts128": 4,
+      "ffma": 32
+    }
+  ],
+  "api": {
+    "d2": {
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.891720968,
+          "prefill_tps": 72.8927571881432,
+          "decode_tps": 13.04830949390371,
+          "ttft_s": 0.9179565449958318,
+          "elapsed_s": 2.0674440279981354,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-compact-fp8-table-v84",
+            "draft_length": 2,
+            "startup_free_bytes": 10956795904,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "direct_gdn_state_rows": 912,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 1987054592,
+            "draft_initialization_ms": 5.735895,
+            "draft_ms": 112.969747,
+            "verify_ms": 1015.418656,
+            "reconcile_ms": 20.416802000000004,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "comparison": [
+        {
+          "stage": "p65",
+          "decode_ratio_vs_v79": 0.9697200451446457,
+          "decode_ratio_vs_nonmtp": 1.3619606966090991,
+          "draft_saved_ms": 0.23715299999999218,
+          "verify_saved_ms": -35.026760000000195,
+          "draft_initialization_delta_ms": 0.23414599999999997,
+          "reconcile_saved_ms": -0.014739000000002278,
+          "full_decode_saved_s": -0.034809054999999756,
+          "prefill_delta_s": 0.0002510199999999907,
+          "total_delta_s": 0.035233407998020994
+        }
+      ],
+      "completed_api_checks": 1,
+      "output_ids_equal_v79": true,
+      "work_differences": [
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        }
+      ]
+    }
+  },
+  "api_cleanup": {
+    "d2": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 64.0
+    }
+  },
+  "early_stop": {
+    "stage": {
+      "stage": "p65",
+      "prompt": 65,
+      "output": 16,
+      "prefill_s": 0.891720968,
+      "prefill_tps": 72.8927571881432,
+      "decode_tps": 13.04830949390371,
+      "ttft_s": 0.9179565449958318,
+      "elapsed_s": 2.0674440279981354,
+      "mtp": {
+        "enabled": true,
+        "verifier": "multirow-compact-fp8-table-v84",
+        "draft_length": 2,
+        "startup_free_bytes": 10956795904,
+        "prompt_rows": 65,
+        "draft_prefill_rows": 64,
+        "initialized": true,
+        "rounds": 7,
+        "proposed": 12,
+        "accepted": 8,
+        "verified_rows": 19,
+        "committed_decode_tokens": 15,
+        "accepted_by_position": [
+          4,
+          4,
+          0
+        ],
+        "confidence_threshold": 0.4,
+        "proposal_histogram": [
+          1,
+          0,
+          6,
+          0
+        ],
+        "draft_ordered_attention_steps": 0,
+        "entry_hidden_snapshots": 7,
+        "direct_gdn_state_rows": 912,
+        "seed_kv_reuses": 6,
+        "state_copy_bytes_elided": 1987054592,
+        "draft_initialization_ms": 5.735895,
+        "draft_ms": 112.969747,
+        "verify_ms": 1015.418656,
+        "reconcile_ms": 20.416802000000004,
+        "cancelled": false,
+        "failed": false
+      }
+    },
+    "early_stop": true,
+    "v79_direction_decode_tps": 13.45574896511229,
+    "reason": "completed API direction below retained implementation; no further qualification"
+  },
+  "conclusion": "P65 d2 Decode13.04830949 versus13.45574897 token/s (-3.028percent), crossing the predeclared3percent stop. Verify adds35.02676ms and complete Decode adds34.809055ms, with identical output and complete non-timing work. Remove and restorev79; no8K/40K/d3 qualification, repeats or profiler.",
+  "scope_limits": [
+    "One completed short API direction, not statistically qualified regression or release selection.",
+    "The driver interrupted the already-started next8Krequest at a bounded Prefill safe point; no completed8Kmetric exists. Server exits0, driver -2 is intentional SIGINT, full panel success=false.",
+    "FP8 shared-conflict evidence belongs to the preceding unchanged-kernel capture. New SASS validates representation/publication only; no new cache/bank/occupancy runtime counters establish why this version loses.",
+    "Fewer logical conflicts cannot be equated with net savings: larger shared allocation, publication, address/expansion and L1 partition remain charged to whole runner.",
+    "Prefill arithmetic unchanged; its tiny interval difference is not attributed to this Decode edit.",
+    "8GiB reserve retained; no full-model profiler replay or production modification.",
+    "This closes one compact lane-table construction, not all FP8 architectures or the owner goal."
+  ],
+  "expiry": "Closed after first API stop. No lane-replica, codebook, carveout or publication scan follows.",
+  "artifact_manifest": ".q3x-work/mtp-compact-fp8-table-20261014/artifact-manifest.json",
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "api_keys_remaining": 0,
+    "temporary_files_remaining": 0,
+    "registered_worktrees": 47,
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "restoration": {
+    "server": {
+      "retained_sha256": "622bf0c2b6b8919188354b6022943e7d5576afea47cd0f1d8421bacf9f8cfc81",
+      "rebuilt_sha256": "9ea4f07307ebf777ca5b4a4a49e8f5c21cb25dd878f0f6aa33ce611b06f2296b",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "3bc8bb3fe1e639a43a1d4466a98702a19ed701e03cb3d4cfd90246e84cc5b834",
+      "rebuilt_sha256": "4fcc6c419490605e26f84350ef04c0a17b279c6d5bbf7315ba526bd4df503de8",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "validation": {
+    "host_ctests": 3,
+    "document_unit_tests": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1376,
+      "errors": 0
+    },
+    "git_diff_check": "pass"
+  }
+}

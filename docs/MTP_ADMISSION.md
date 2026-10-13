@@ -2090,6 +2090,28 @@ process); 40K total is longer. Cache state, methods, kernel dispatch and new
 witness counters are removed, restoring v79. No d3 or policy/size scan follows.
 This closes this bounded implementation, not all immutable-prefix reuse.
 
+## Compact FP8 operand table v83 — removed
+
+The [bounded design](metadata/qwen36-27b-mtp-compact-fp8-table-design-2026-10-14.json)
+uses an exact BF16 representation for every FP8 code, including signed zero
+and canonical signed quiet NaN. Its 256-by-32 lane table occupies 16 KiB.
+Four warp-broadcast/vector-store rounds publish uniquely owned cells before
+the original CTA barrier. Each consumer expands a 16-bit word back to exactly
+the original FP32 bits; all target FMA chains, warp/block reductions, scales
+and output publication remain unchanged. The canonical swizzle and sidecar
+are unmodified. Resource preferences are fixed by M2/M3/M4 launch bounds;
+no persistent allocation or state/ownership change is introduced. Complete
+lookup and projection outputs plus real prefix-state admission precede API
+selection. Shared traffic and expansion instructions remain charged to the
+whole runner; this is not a numerical-contract relaxation.
+
+The [completed composition](metadata/qwen36-27b-mtp-compact-fp8-table-rejection-2026-10-14.json)
+passes exhaustive lookup/output and real prefix/state checks, but short d2 API
+Decode regresses 3.028% with unchanged output/work. It crosses the declared
+stop; the compact table, resource preferences and profile are removed. Restore
+v79 without long/d3 qualification or another table variant. The preceding bank
+counters motivate the attempt but do not override its negative API direction.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
