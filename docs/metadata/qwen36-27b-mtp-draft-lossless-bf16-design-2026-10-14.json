@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-DRAFT-LOSSLESS-BF16-20261014",
+  "decision_unit": "bounded host feasibility assessment",
+  "source_parent": "407b60927b6d1735c6eef1f6566b5e452a1487ed",
+  "product_constraint": "Unchanged real-API 50%-200% Decode goal with exact target/output, private numerical admission and full Prefill/TTFT/Decode/total accounting",
+  "origin": "Current v79 graph-external private BF16 matrix work including cache reconciliation is1.004060192s at40K d2; weight movement is a hypothesis, not a measured bandwidth bottleneck. Short/40K gaps remain72.798/505.033ms.",
+  "scope": "All eight original private BF16 dense matrices, pinned shard3 authenticated; seven normalization tensors remain raw. No target weights, runtime or GPU process.",
+  "format": {
+    "weights_per_packet": 256,
+    "header_bytes": 8,
+    "offset_bytes_per_packet_plus_sentinel": 8,
+    "compressed_payload_bytes": 384,
+    "raw_payload_bytes": 512,
+    "alignment": 8,
+    "encoding": "256 sign/mantissa bytes plus128 bytes packing two four-bit exponent deltas. Base exponent is minimum of all256 exponents. Compress iff max-min<=15; otherwise exact raw BF16 packet. Header holds base and raw flag; other bytes zero. Offset table indexed by packet; final sentinel included."
+  },
+  "gate": "At least20% total resident byte saving across all dense matrices including headers, raw fallback, offsets and alignment; every source word roundtrips exactly. Failure closes this fixed format before GPU, no block-size/exponent-bit/exception-format scan.",
+  "admission_if_pass": "One separately declared private owner/decoder/executor composition with exact original BF16 bits and original MMA/reductions, existing numerical/resource admission and immediate real API return. No speedup/retention from compression alone.",
+  "ceiling": "Even eliminating20% of the1.004s private matrix interval only bounds0.201s if all that interval scaled with bytes; not a prediction and insufficient alone for the full0.505s40K gap. Only a product-positive composed dependency could be retained.",
+  "bounds": {
+    "formats": 1,
+    "gpu_processes": 0,
+    "profiler": 0,
+    "parameter_scan": false
+  },
+  "production_changed": false,
+  "artifact_root": ".q3x-work/mtp-draft-lossless-bf16-20261014"
+}

@@ -1,0 +1,11 @@
+{
+  "date": "2026-10-14",
+  "corrects": "qwen36-27b-mtp-fp8-arithmetic-decode-design-2026-10-14.json",
+  "original_claim": "novelty described arithmetic encoding replacing shared lookup but did not identify the earlier packed FP8 reconstruction family",
+  "correction": "MTP_ADMISSION.md Packed FP8 and draft Attention composition v7 already documents exact exponent-bias reconstruction through FP16/half2 with explicit NaN repair. The later unary FP32 scaling implementation is a related instruction-path variant, not a new mathematical/dataflow family. Its measured negative result and numerical passes are unchanged.",
+  "evidence": [
+    "docs/MTP_ADMISSION.md#packed-fp8-and-draft-attention-composition-v7",
+    "docs/metadata/qwen36-27b-mtp-fp8-arithmetic-decode-rejection-2026-10-14.json"
+  ],
+  "consequence": "Do not reopen this family via another scalar/packed arithmetic type or bias conversion. Audit lineage across SDD and Roadmap before declaring a new mechanism."
+}

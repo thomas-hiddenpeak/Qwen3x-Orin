@@ -19,6 +19,32 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 private BF16 traffic assessment — complete, composition selected
+
+`WP-MTP-DRAFT-LOSSLESS-BF16-20261014` owns one
+[fixed lossless packet assessment](metadata/qwen36-27b-mtp-draft-lossless-bf16-design-2026-10-14.json).
+Authenticate all eight original draft dense matrices. Each 256-word packet
+uses sign/mantissa bytes plus four-bit exponent deltas if its exponent range
+fits; otherwise retain raw BF16. Count all headers, offsets, alignment and raw
+fallback, and roundtrip every source word. Less than 20% total saving closes
+before GPU work, without a format scan. A pass only selects a separately
+bounded owner/decoder/executor and real API composition. The 1.004-second
+historical private-matrix interval is not proof of bandwidth limitation, and
+20% of that interval cannot alone close the 0.505-second 40K gap. No runtime,
+production or performance claim changes; the full 1.5x–3x goal stays active.
+
+The [complete checkpoint assessment](metadata/qwen36-27b-mtp-draft-lossless-bf16-assessment-2026-10-14.json)
+reduces 849,346,560 dense-weight bytes to 667,009,984 bytes including every
+header, offset and raw fallback: 21.468% saving. Every original word roundtrips,
+with 1,215 explicit wire-packet checks. No GPU process or API measurement runs.
+Select one private M1 sidecar plus producer/consumer composition described in
+the assessment: 128 producer and 128 consumer threads, original M64/C8/K128
+MMA, two buffers and explicit ready/retired ownership. Original weights remain
+for Prefill, so sidecars add resident bytes; eight-byte alignment needs safe
+raw loads. One implementation and one correctness repair return directly to
+state admission and d2 API, then d3 only for useful direction. No format/tile/
+producer-count scan. This planned composition is not retained runtime code.
+
 ## 2026-10-14 arithmetic FP8 reconstruction — closed negative
 
 `WP-MTP-FP8-ARITHMETIC-DECODE-20261014` / `AC-MTP-GREEDY-v89` owns one
@@ -43,6 +69,11 @@ stop cancels further qualification; no completed 8K/40K/d3 result is claimed.
 Remove all candidate code and identities, restoring v86. Replacing shared
 traffic with exact arithmetic did not yield API benefit. No decoder instruction,
 lookup, launch or profiler scan follows. The full goal remains unmet.
+
+The [lineage erratum](metadata/qwen36-27b-mtp-fp8-arithmetic-lineage-erratum-2026-10-14.json)
+links the older half2 exponent-bias reconstruction. The unary FP32 path is a
+related instruction variant, not a new mathematical family; no further
+scalar/packed arithmetic conversion variants are selected.
 
 ## 2026-10-14 sign-separated NVFP4 codebooks — closed negative
 

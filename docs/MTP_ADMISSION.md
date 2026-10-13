@@ -25,6 +25,28 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## Planned private lossless BF16 composition v90
+
+The [host assessment](metadata/qwen36-27b-mtp-draft-lossless-bf16-assessment-2026-10-14.json)
+selects one private M1 composition; it is not implemented or API-admitted.
+Eight authenticated dense matrices gain exact packet sidecars; original BF16
+weights remain for Prefill/oracle. No request-time allocation or fallback is
+allowed, and startup must preserve the 8-GiB reserve after the additional
+667,009,984-byte payload plus inter-tensor alignment. Partial startup owns and
+releases every new allocation. The canonical target verifier is unchanged.
+
+A fixed 256-thread block separates 128 producers from the original 128-thread
+M64/C8/K128 consumer. Two shared weight/input buffers use separate ready and
+retired barriers. Producers reconstruct exact BF16 words from bounded packets;
+consumers retain the original ascending K16 MMA, rounding and output mapping.
+Raw packets are only eight-byte aligned and require safe loads. Compile at
+most 64 registers and 36,864 static shared bytes without spills. Full encoding,
+output/guard and synchronization checks plus complete P65 state/cache admission
+return immediately to d2 API; useful direction admits d3. One implementation,
+one correctness repair, no format/tile/producer-count or profiler scan. Short
+>3% slowdown or nonpositive 8K closes the composition. Compression is not an
+API speedup, and the complete 1.5x–3x goal stays active.
+
 ## 2026-10-14 arithmetic FP8 reconstruction — closed negative
 
 `WP-MTP-FP8-ARITHMETIC-DECODE-20261014` / `AC-MTP-GREEDY-v89` owns one
@@ -49,6 +71,11 @@ stop cancels further qualification; no completed 8K/40K/d3 result is claimed.
 Remove all candidate code and identities, restoring v86. Replacing shared
 traffic with exact arithmetic did not yield API benefit. No decoder instruction,
 lookup, launch or profiler scan follows. The full goal remains unmet.
+
+The [lineage erratum](metadata/qwen36-27b-mtp-fp8-arithmetic-lineage-erratum-2026-10-14.json)
+links the older half2 exponent-bias reconstruction. The unary FP32 path is a
+related instruction variant, not a new mathematical family; no further
+scalar/packed arithmetic conversion variants are selected.
 
 ## 2026-10-14 sign-separated NVFP4 codebooks — closed negative
 

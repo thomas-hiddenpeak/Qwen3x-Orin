@@ -486,3 +486,11 @@ numerical admission and rejection; no Markdown paths or classifications change.
 The arithmetic FP8 reconstruction composition closes after negative short API
 direction and exact v86 source restoration. Existing MTP SDD and Roadmap retain
 its full numerical admission and rejection; no Markdown paths or classes change.
+
+The private BF16 host traffic assessment updates the existing Roadmap; the FP8
+lineage correction is appended to Roadmap and MTP SDD without rewriting frozen
+observations. No Markdown paths or classifications change.
+
+The private BF16 host assessment completes and selects a bounded planned M1
+composition in the existing MTP SDD and Roadmap. It does not change runtime
+status or Markdown classifications.

@@ -1,0 +1,242 @@
+{
+  "work_package_id": "WP-MTP-DRAFT-LOSSLESS-BF16-20261014",
+  "source_parent": "407b60927b6d1735c6eef1f6566b5e452a1487ed",
+  "scope": "host-only authenticated full-checkpoint dense-weight storage assessment; no GPU kernel or timing",
+  "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+  "shard": {
+    "path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00003-of-00003.safetensors",
+    "file": "model-00003-of-00003.safetensors",
+    "bytes": 1970287640,
+    "sha256": "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845"
+  },
+  "model_metadata_sha256": {
+    "config.json": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "hf_quant_config.json": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "model.safetensors.index.json": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2"
+  },
+  "catalog_sha256": "ea082e771ad0ad7bbecbae76d473100a5d9700d87320f26a356d55c23c1e18fd",
+  "driver_sha256": "04019b8a64778db178ae692c981cdad2f965a0b5902b65eda6fa79c58fde6d7e",
+  "dense_source_bytes": 849346560,
+  "dense_encoded_bytes": 667009984,
+  "saving_fraction": 0.21467865366994598,
+  "norm_bytes_unchanged": 52224,
+  "all_dense_source_words_roundtrip": true,
+  "wire_packet_checks": 1215,
+  "threshold": 0.2,
+  "gate_pass": true,
+  "gpu_processes": 0,
+  "speedup_claim": false,
+  "production_changed": false,
+  "matrices": [
+    {
+      "tensor": "mtp.fc.weight",
+      "shape": [
+        5120,
+        10240
+      ],
+      "dtype": "BF16",
+      "file": "model-00003-of-00003.safetensors",
+      "offset": 59416,
+      "source_bytes": 104857600,
+      "source_sha256": "6c980c668ecda0a41cdffda7dda4ddffa38992c6da18b2e4d37a3c61c074acd2",
+      "roundtrip_sha256": "6c980c668ecda0a41cdffda7dda4ddffa38992c6da18b2e4d37a3c61c074acd2",
+      "packets": 204800,
+      "compressed_packets": 200240,
+      "raw_packets": 4560,
+      "compressed_fraction": 0.977734375,
+      "headers_payload_alignment_bytes": 80865280,
+      "offset_table_bytes": 1638408,
+      "total_resident_bytes": 82503688,
+      "saving_fraction": 0.21318351745605468
+    },
+    {
+      "tensor": "mtp.layers.0.mlp.down_proj.weight",
+      "shape": [
+        5120,
+        17408
+      ],
+      "dtype": "BF16",
+      "file": "model-00003-of-00003.safetensors",
+      "offset": 104927256,
+      "source_bytes": 178257920,
+      "source_sha256": "c7b165adc61189a84b0ed6c82272a5595622c8a79177e7d76af11b11f6f73c49",
+      "roundtrip_sha256": "c7b165adc61189a84b0ed6c82272a5595622c8a79177e7d76af11b11f6f73c49",
+      "packets": 348160,
+      "compressed_packets": 341985,
+      "raw_packets": 6175,
+      "compressed_fraction": 0.9822639016544118,
+      "headers_payload_alignment_bytes": 137269120,
+      "offset_table_bytes": 2785288,
+      "total_resident_bytes": 140054408,
+      "saving_fraction": 0.21431593053481157
+    },
+    {
+      "tensor": "mtp.layers.0.mlp.gate_proj.weight",
+      "shape": [
+        17408,
+        5120
+      ],
+      "dtype": "BF16",
+      "file": "model-00003-of-00003.safetensors",
+      "offset": 283185176,
+      "source_bytes": 178257920,
+      "source_sha256": "23b1c2045e6dcc23cdc066e13a383e872c4b2d8234b9bffc852b8fed3d710ba3",
+      "roundtrip_sha256": "23b1c2045e6dcc23cdc066e13a383e872c4b2d8234b9bffc852b8fed3d710ba3",
+      "packets": 348160,
+      "compressed_packets": 343275,
+      "raw_packets": 4885,
+      "compressed_fraction": 0.9859690946691176,
+      "headers_payload_alignment_bytes": 137104000,
+      "offset_table_bytes": 2785288,
+      "total_resident_bytes": 139889288,
+      "saving_fraction": 0.2152422287884881
+    },
+    {
+      "tensor": "mtp.layers.0.mlp.up_proj.weight",
+      "shape": [
+        17408,
+        5120
+      ],
+      "dtype": "BF16",
+      "file": "model-00003-of-00003.safetensors",
+      "offset": 461443096,
+      "source_bytes": 178257920,
+      "source_sha256": "72b51d96bf39559f5064ace7006275f497f013926eb5f31680a029e8d3ca64a7",
+      "roundtrip_sha256": "72b51d96bf39559f5064ace7006275f497f013926eb5f31680a029e8d3ca64a7",
+      "packets": 348160,
+      "compressed_packets": 343227,
+      "raw_packets": 4933,
+      "compressed_fraction": 0.9858312270220588,
+      "headers_payload_alignment_bytes": 137110144,
+      "offset_table_bytes": 2785288,
+      "total_resident_bytes": 139895432,
+      "saving_fraction": 0.2152077618767233
+    },
+    {
+      "tensor": "mtp.layers.0.self_attn.k_proj.weight",
+      "shape": [
+        1024,
+        5120
+      ],
+      "dtype": "BF16",
+      "file": "model-00003-of-00003.safetensors",
+      "offset": 639711768,
+      "source_bytes": 10485760,
+      "source_sha256": "c6062cbf6b80a9bc00c33bdf8a5d51aca468c7fa780aeb69a4305999e1f8911e",
+      "roundtrip_sha256": "c6062cbf6b80a9bc00c33bdf8a5d51aca468c7fa780aeb69a4305999e1f8911e",
+      "packets": 20480,
+      "compressed_packets": 20126,
+      "raw_packets": 354,
+      "compressed_fraction": 0.98271484375,
+      "headers_payload_alignment_bytes": 8073472,
+      "offset_table_bytes": 163848,
+      "total_resident_bytes": 8237320,
+      "saving_fraction": 0.21442794799804688
+    },
+    {
+      "tensor": "mtp.layers.0.self_attn.o_proj.weight",
+      "shape": [
+        5120,
+        6144
+      ],
+      "dtype": "BF16",
+      "file": "model-00003-of-00003.safetensors",
+      "offset": 650197528,
+      "source_bytes": 62914560,
+      "source_sha256": "8baeb5584dc22b31c0514accb927b9ddb8cff2cfc41761306ccb4c9bc3e7fb9c",
+      "roundtrip_sha256": "8baeb5584dc22b31c0514accb927b9ddb8cff2cfc41761306ccb4c9bc3e7fb9c",
+      "packets": 122880,
+      "compressed_packets": 120672,
+      "raw_packets": 2208,
+      "compressed_fraction": 0.98203125,
+      "headers_payload_alignment_bytes": 48451584,
+      "offset_table_bytes": 983048,
+      "total_resident_bytes": 49434632,
+      "saving_fraction": 0.2142576853434245
+    },
+    {
+      "tensor": "mtp.layers.0.self_attn.q_proj.weight",
+      "shape": [
+        12288,
+        5120
+      ],
+      "dtype": "BF16",
+      "file": "model-00003-of-00003.safetensors",
+      "offset": 713112600,
+      "source_bytes": 125829120,
+      "source_sha256": "5478fde596f7e16e1036b9855452b76d4a8451df102cefe2698a6fe259931334",
+      "roundtrip_sha256": "5478fde596f7e16e1036b9855452b76d4a8451df102cefe2698a6fe259931334",
+      "packets": 245760,
+      "compressed_packets": 242173,
+      "raw_packets": 3587,
+      "compressed_fraction": 0.9854044596354167,
+      "headers_payload_alignment_bytes": 96797056,
+      "offset_table_bytes": 1966088,
+      "total_resident_bytes": 98763144,
+      "saving_fraction": 0.21510105133056645
+    },
+    {
+      "tensor": "mtp.layers.0.self_attn.v_proj.weight",
+      "shape": [
+        1024,
+        5120
+      ],
+      "dtype": "BF16",
+      "file": "model-00003-of-00003.safetensors",
+      "offset": 838941720,
+      "source_bytes": 10485760,
+      "source_sha256": "238e64e585d0fb5b0e945c47e096d0fbbc2cf7f6100d3b85a50e3e94d649ef49",
+      "roundtrip_sha256": "238e64e585d0fb5b0e945c47e096d0fbbc2cf7f6100d3b85a50e3e94d649ef49",
+      "packets": 20480,
+      "compressed_packets": 20167,
+      "raw_packets": 313,
+      "compressed_fraction": 0.984716796875,
+      "headers_payload_alignment_bytes": 8068224,
+      "offset_table_bytes": 163848,
+      "total_resident_bytes": 8232072,
+      "saving_fraction": 0.21492843627929692
+    }
+  ],
+  "result_identity": {
+    "path": ".q3x-work/mtp-draft-lossless-bf16-20261014/result.json",
+    "sha256": "b6218cdc7d84ad96b651a0bf1ccf44430ccad7224464f44ea297cfdb66d4ce4f"
+  },
+  "decision": "Fixed format passes host20% complete-byte gate. Select one separately bounded private M1 owner/producer/consumer composition; no implementation, GPU or speedup admission yet.",
+  "limitations": [
+    "21.47% refers to encoded dense-weight payload including its indexing, not whole-runner memory or traffic measured on device.",
+    "Original BF16 weights must remain for Prefill and the numerical oracle. A composed M1 sidecar adds667009984bytes plus inter-tensor alignment; reserve must be rechecked.",
+    "The existing1.004s private matrix interval is not proven bandwidth-bound; scalar decompression and synchronization can erase the savings.",
+    "Eight-byte packet alignment does not permit unconditional16-byte raw loads. The consumer must use aligned8-byte loads or safe scalar words.",
+    "Full goal remains unmet; current v86 API metrics are unchanged."
+  ],
+  "next_composition": {
+    "scope": "Private M1 dense projection only; original Prefill, canonical BF16 owner, target verifier and output semantics unchanged.",
+    "candidate": "AC-MTP-GREEDY-v90 (planned, not implemented)",
+    "dataflow": "Original M64/C8/K128 MMA consumer with128 threads, paired with128 producer threads. Two shared weight/input buffers; distinct ready/retired named barriers allow producers to load/decode the next packet while consumers execute the current ascending K16 sequence. Exact original BF16 bits at every shared publication.",
+    "owner": "Startup authenticated canonical weights generate eight exact sidecars and offset tables. Retain originals for Prefill/oracle; no request allocation, repacking or fallback. Partial construction must free all owned sidecars. Actual retained-free reserve>=8GiB.",
+    "resource_gate": "No spills, at most64registers and36864static shared bytes for the fixed256-thread block. Do not scan producer count/tile/buffer/format.",
+    "admission": "Full host pack validity, GPU word/output guards and producer-consumer race checks; complete P65 state/cache/recovery; immediate d2 P65/8K/40K API. Useful direction unlocks d3.",
+    "bound": "One owner/consumer implementation, at most one correctness repair, no profiling or tuning. Short>3%regression/nonpositive8K or resource failure closes this composition."
+  },
+  "hygiene": {
+    "runtime_diff_empty": true,
+    "worktree_count": 47,
+    "installed_082_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "host_assessment_exit_code": 0,
+    "gpu_processes_started": 0,
+    "large_payload_copies_retained": false
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-draft-lossless-bf16-20261014/artifact-manifest.json",
+    "sha256": "00753bf8e826d38d08d072c5cd2947344314fdd0c8309adcadd67a4d4a30de30",
+    "files": 6,
+    "bytes": 274096
+  },
+  "document_validation": {
+    "paths": 86,
+    "headers_checked": 57,
+    "links": 1416,
+    "errors": 0,
+    "unit_tests_passed": 7
+  }
+}
