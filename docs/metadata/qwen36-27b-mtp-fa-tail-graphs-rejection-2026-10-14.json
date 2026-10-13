@@ -1,0 +1,397 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-FA-TAIL-GRAPHS-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v87",
+  "source_parent": "ec68c22",
+  "decision": "removed after neutral complete d2 API direction",
+  "candidate_profile": "q3x.sm87.admission.mtp-fa-tail-graphs-api.v89",
+  "retained_profile": "q3x.sm87.admission.mtp-softmax-sync-api.v86",
+  "production_changed": false,
+  "goal_achieved": false,
+  "admission": {
+    "p65": {
+      "full_prefix_comparisons": 9,
+      "state_cache_transactions": 15,
+      "verify_failure_recovery": 4,
+      "initialization_cancel_recovery": 8,
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 68.718
+      }
+    },
+    "p513": {
+      "full_prefix_comparisons": 9,
+      "ordered_attention_same_input_steps": 3,
+      "scope": "prefix-only batched Attention/static-tail/GDN handoff; complete state/logits/KV, no API performance authority",
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 67.75
+      }
+    },
+    "scope": "18 complete target prefixes,15 full state/cache transactions,4 verification-failure and8 initialization-cancel recoveries. Exact target state/logits and private cache; no numerical kernel change."
+  },
+  "comparison": {
+    "complete_output_and_usage_equal_nonmtp_and_v86": true,
+    "all_generated_ids_equal_v86": true,
+    "all_non_timing_work_equal_v86": true,
+    "completed_requests": 8,
+    "server_sha256": "75ca6b8c91177fc3f311626245ef086e5486f35bc942e7316e9be50d0c9be00f",
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.890837378,
+        "prefill_tps": 72.96505692871814,
+        "ttft_s": 0.9168360990006477,
+        "decode_tps": 13.467748248599474,
+        "elapsed_s": 2.0305958399985684,
+        "incumbent_decode_tps": 13.447487561074006,
+        "decode_delta_percent": 0.15066522600188925,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-fa-tail-graphs-v89"
+          ],
+          "startup_free_bytes": [
+            10899103744,
+            10989146112
+          ],
+          "draft_initialization_ms": [
+            5.709196,
+            5.587639
+          ],
+          "draft_ms": [
+            113.685322,
+            112.834364
+          ],
+          "verify_ms": [
+            980.7653470000001,
+            979.7546070000001
+          ],
+          "reconcile_ms": [
+            20.249626,
+            20.419404000000007
+          ]
+        }
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.333736861000002,
+        "prefill_tps": 472.60438217633094,
+        "ttft_s": 17.35594204100198,
+        "decode_tps": 15.151337134557043,
+        "elapsed_s": 34.186418183999194,
+        "incumbent_decode_tps": 15.133199694392973,
+        "decode_delta_percent": 0.11985198457924451,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-fa-tail-graphs-v89"
+          ],
+          "startup_free_bytes": [
+            10899103744,
+            10989146112
+          ],
+          "draft_initialization_ms": [
+            567.124371,
+            557.209344
+          ],
+          "draft_ms": [
+            1787.433875,
+            1787.5869629999986
+          ],
+          "verify_ms": [
+            14710.021078999998,
+            14688.430701999998
+          ],
+          "reconcile_ms": [
+            348.16364999999996,
+            349.39744200000024
+          ]
+        }
+      },
+      {
+        "label": "p40000",
+        "prompt": 40000,
+        "output": 256,
+        "prefill_s": 92.785597263,
+        "prefill_tps": 431.10139051668045,
+        "ttft_s": 92.8210955350005,
+        "decode_tps": 11.54334871652132,
+        "elapsed_s": 114.91331141800038,
+        "incumbent_decode_tps": 11.537527100568102,
+        "decode_delta_percent": 0.05045809125709955,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-fa-tail-graphs-v89"
+          ],
+          "startup_free_bytes": [
+            10899103744,
+            10989146112
+          ],
+          "draft_initialization_ms": [
+            2763.18352,
+            2719.630815
+          ],
+          "draft_ms": [
+            2144.4493610000004,
+            2146.37547
+          ],
+          "verify_ms": [
+            19610.349731000002,
+            19594.788126999993
+          ],
+          "reconcile_ms": [
+            341.98977600000006,
+            344.33162200000004
+          ]
+        }
+      },
+      {
+        "label": "p65-nonstream",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.887105848,
+        "prefill_tps": 73.2719777989785,
+        "ttft_s": null,
+        "decode_tps": 13.51136052081791,
+        "elapsed_s": 2.0160376589992666,
+        "incumbent_decode_tps": 13.49893798050364,
+        "decode_delta_percent": 0.09202605665876717,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-fa-tail-graphs-v89"
+          ],
+          "startup_free_bytes": [
+            10899103744,
+            10989146112
+          ],
+          "draft_initialization_ms": [
+            5.486379,
+            5.381205
+          ],
+          "draft_ms": [
+            111.45577499999999,
+            111.53735200000001
+          ],
+          "verify_ms": [
+            979.350562,
+            978.047639
+          ],
+          "reconcile_ms": [
+            20.180542,
+            20.363432999999997
+          ]
+        }
+      },
+      {
+        "label": "raw-text",
+        "prompt": 5,
+        "output": 16,
+        "prefill_s": 0.821036973,
+        "prefill_tps": 6.089859731566559,
+        "ttft_s": 0.8509084039978916,
+        "decode_tps": 15.68388355608559,
+        "elapsed_s": 1.807229300000472,
+        "incumbent_decode_tps": 15.66792242035734,
+        "decode_delta_percent": 0.10187142430262419,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-fa-tail-graphs-v89"
+          ],
+          "startup_free_bytes": [
+            10899103744,
+            10989146112
+          ],
+          "draft_initialization_ms": [
+            2.009168,
+            1.993907
+          ],
+          "draft_ms": [
+            101.880886,
+            101.968523
+          ],
+          "verify_ms": [
+            834.956802,
+            833.7546990000001
+          ],
+          "reconcile_ms": [
+            20.252028999999997,
+            20.376936999999998
+          ]
+        }
+      },
+      {
+        "label": "chat-stop",
+        "prompt": 20,
+        "output": 2,
+        "prefill_s": 0.8251625810000001,
+        "prefill_tps": 24.237647780589313,
+        "ttft_s": 0.8430632059971686,
+        "decode_tps": 6.1833610293287755,
+        "elapsed_s": 1.0047500129949185,
+        "incumbent_decode_tps": 6.177296692656819,
+        "decode_delta_percent": 0.09817136805434501,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-fa-tail-graphs-v89"
+          ],
+          "startup_free_bytes": [
+            10899103744,
+            10989146112
+          ],
+          "draft_initialization_ms": [
+            2.739701,
+            2.681178
+          ],
+          "draft_ms": [
+            18.559472,
+            18.549206
+          ],
+          "verify_ms": [
+            142.409807,
+            142.266616
+          ],
+          "reconcile_ms": [
+            0.873895,
+            0.8634
+          ]
+        }
+      },
+      {
+        "label": "after-prefill-cancel",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8872762490000001,
+        "prefill_tps": 73.2579059489735,
+        "ttft_s": 1.154424125001242,
+        "decode_tps": 13.509969544223472,
+        "elapsed_s": 2.2646540549976635,
+        "incumbent_decode_tps": 13.495296844515208,
+        "decode_delta_percent": 0.10872454216690475,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-fa-tail-graphs-v89"
+          ],
+          "startup_free_bytes": [
+            10899103744,
+            10989146112
+          ],
+          "draft_initialization_ms": [
+            5.465386,
+            5.413973
+          ],
+          "draft_ms": [
+            111.483423,
+            111.540809
+          ],
+          "verify_ms": [
+            979.426308,
+            978.078039
+          ],
+          "reconcile_ms": [
+            20.269213000000004,
+            20.343655
+          ]
+        }
+      },
+      {
+        "label": "after-decode-cancel",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.887727932,
+        "prefill_tps": 73.22063174643918,
+        "ttft_s": 1.0682474369968986,
+        "decode_tps": 13.468307612223892,
+        "elapsed_s": 2.181840215998818,
+        "incumbent_decode_tps": 13.496089089807466,
+        "decode_delta_percent": -0.2058483565031799,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-softmax-sync-v86",
+            "multirow-fa-tail-graphs-v89"
+          ],
+          "startup_free_bytes": [
+            10899103744,
+            10989146112
+          ],
+          "draft_initialization_ms": [
+            5.468907,
+            5.385269
+          ],
+          "draft_ms": [
+            111.43958300000001,
+            112.32923299999999
+          ],
+          "verify_ms": [
+            979.470597,
+            980.104874
+          ],
+          "reconcile_ms": [
+            20.225565,
+            20.887660999999998
+          ]
+        }
+      }
+    ],
+    "driver_terminal": {
+      "returncode": 0,
+      "early_stop": false
+    },
+    "cleanup": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 75.812
+    }
+  },
+  "oracle_sha256": "9f22a26a7a32bd0ecaf38c6a4b50f949de3486fa7009231117130260b9796141",
+  "decision_scope": "Single process direction, not statistical gain/regression or release qualification. D3 performance not run because no useful d2 direction.",
+  "finding": "The fixed FA-tail islands remove112 direct kernel submissions per round with one extra graph launch, preserving all kernel work and output. Observed Decode differences +0.151/+0.120/+0.050% atP65/8K/40K do not establish useful whole-product value or clear noise. The 40K total reduction is chiefly a Prefill interval difference; Prefill code is unchanged, and that variation is not attributed to Graph replay. No new profiler attribution is claimed.",
+  "closure": "All graph helper/table/lifecycle/dispatch and route/validator changes restored exactly toec68c22; frozen patch and ELFs retained. Rebuild both cached binaries to original48GDNgraphs. No graph-granularity, dynamic-update or profiler scan follows.",
+  "next_constraint": "Full owner50%-200%objective remains active with unchanged corrected v86 comparator. Small host-submission and private-head changes have not closed short72.798ms/40K505.033ms minimum-target gaps; next architecture must address material verifier arithmetic/data movement or lawful work deletion rather than another graph granularity.",
+  "artifact_root": ".q3x-work/mtp-fa-tail-graphs-20261014",
+  "checks": {
+    "host_ctests": 3,
+    "document_unit_tests": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "headers_checked": 57,
+      "local_links": 1401,
+      "errors": 0
+    }
+  },
+  "hygiene": {
+    "gpu_holders": [],
+    "registered_worktrees": 47,
+    "api_keys_remaining": [],
+    "task_tmp_files": [],
+    "production_sha256_unchanged": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "historical_production_sha256_unchanged": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33",
+    "restored_binaries": {
+      "service": "4cdbaa54b6cee85f690de65080448768253e9c810a89a60f9383634413abc62c",
+      "oracle": "cec4a9e0569dc3bcb36b003fb4327ad733308c90c4d0028c00e9f6c01ddeef73"
+    },
+    "restored_binary_scope": "Exact original source; cached binaries byte-identical to preceding restored0.8.2 v86 builds, not new performance measurements.",
+    "owned_server_exit": 0,
+    "all_artifacts_inside_workspace": true,
+    "no_deployment_switch": true
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-fa-tail-graphs-20261014/artifact-manifest.json",
+    "sha256": "119d8979ed27022c674f5689f5e21f9dd7b71b67b78a9c160e8742f1449eadee",
+    "files": 128,
+    "bytes": 63007042
+  }
+}

@@ -2188,6 +2188,28 @@ removes this head, integration and route identity; v86 retains its original
 scalar private head. No new allocation or numerical change is retained, and
 no further head-layout or pipeline scan follows this closed composition.
 
+## Static full-Attention tail composition v87 — removed
+
+The [bounded graph composition](metadata/qwen36-27b-mtp-fa-tail-graphs-design-2026-10-14.json)
+places fixed FA output/MLP work and the following three GDN layers in one
+single-stream captured island. The initial three GDN layers form the first
+island; the final FA tail has no following GDN. Three row-count plans have
+17 startup-owned execs each, replacing the prior 48 GDN execs with 51 total.
+Q/K/V cache append, RoPE, causal Attention and per-row gates finish dynamically
+before replay; no position-dependent pointer or sequence length is captured.
+The islands execute original kernels, arithmetic and immutable prefix writes
+in original order. No request-time graph creation/update, allocation or fallback
+is allowed. M1 remains ordinary. Topology checks and partial-construction cleanup
+retain the existing ownership boundary; the actual startup reserve is rechecked.
+Complete target state/logits/cache and real API fitness admit this composition.
+
+The [completed direction](metadata/qwen36-27b-mtp-fa-tail-graphs-rejection-2026-10-14.json)
+preserves complete P65/P513 state and all eight d2 API checks, but the three
+Decode observations differ by at most 0.151% from v86. This does not establish
+a useful gain. New islands, helper, lifecycle table and profile are removed;
+the original 48 GDN graphs remain. No d3 performance or production claim and
+no further graph granularity/update scan follow this closed version.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

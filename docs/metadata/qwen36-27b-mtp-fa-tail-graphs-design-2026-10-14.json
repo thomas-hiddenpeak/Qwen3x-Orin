@@ -1,0 +1,33 @@
+{
+  "work_package_id": "WP-MTP-FA-TAIL-GRAPHS-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v87",
+  "source_parent": "ec68c22",
+  "profile": "q3x.sm87.admission.mtp-fa-tail-graphs-api.v89",
+  "product_constraint": "50%-200% same-workload committed Decode improvement; exact target state/full logits/output, drafts2/3, paired Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "short_1_5x_gap_ms": 72.797995333,
+    "p40000_1_5x_gap_ms": 505.033430333,
+    "existing_trace_outside_observed_span_seconds": 0.123399776,
+    "boundary_work": "Seven static FA-tail launches per layer,16layers per round; fixed GDN captures already retained. New static islands remove these112 direct submissions/round, adding only one graph launch/round.",
+    "scope": "Outside graph/kernel/copy span is not total GPU idle or a graph speedup bound; graph internal scheduling is not visible. No claim this dependency alone closes the goal."
+  },
+  "mechanism": "Startup captures initialGDN0..2 plus16islands eachFA O-projection+postnorm+Gate/Up+SiLU+Down+nextnorm+following3GDNlayers (no followingGDN at layer63).51owned execs forM2/3/4. Dynamic Q/K/V, KVappend, preprocess/RoPE, Attention, gates remain ordinary calls. M1 unchanged. No request capture, update, allocation or kernel change.",
+  "equivalence_ledger": [
+    "Original exact kernels, arguments, publication boundaries and single-stream order, now captured across the statically addressed FA-tail/GDN boundary.",
+    "At entry to each FA-tail graph, all row attention outputs have been gated on the same stream. Output/MLP consumes the same scratch, then following GDN layers consume the same normalized hidden.",
+    "All row prefixes still assemble immutable full state/logits before commit. No observer boundary moves. Graphs capture neither entry_position nor a position-dependent KV/RoPE pointer.",
+    "Constructor authenticates16groups3GDN+1FA before capture; failed partial creation drains/destroys all handles; destructor drains before scratch owner release.",
+    "No persistent data arena growth; graph execcount48->51. Actual composed8GiBreserve remains a gate."
+  ],
+  "reference_transfer": "Existing native graph ownership and previously pinned vLLM model/proposer audit in qwen36-27b-mtp-gdn-graphs-design-2026-10-14.json; no external source imported. This first captures FA static tail, rather than scanning previous GDN segment lengths or changing Attention arithmetic.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "profiler_captures": 0,
+    "graph_granularity_scans": 0
+  },
+  "validation": "P65completeprefix/state/cache/recovery plusP513prefix-only for batched Attention handoff; immediateP65/8192/40000d2 API, short>3%slowdown or nonpositive8K closes; useful direction unlocksd3. Preserve full output/acceptance/physical counters and report every metric.",
+  "expiry": "One complete API return or archive; no granularity/graph-update/launch scan follows this package.",
+  "artifact_root": ".q3x-work/mtp-fa-tail-graphs-20261014",
+  "production_unchanged": true
+}

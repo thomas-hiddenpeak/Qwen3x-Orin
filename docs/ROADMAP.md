@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 full-Attention static tails — closed neutral
+
+`WP-MTP-FA-TAIL-GRAPHS-20261014` / `AC-MTP-GREEDY-v87` implements the
+[fixed static-island composition](metadata/qwen36-27b-mtp-fa-tail-graphs-design-2026-10-14.json).
+Capture each full-Attention O/MLP tail together with following three GDN layers;
+position-dependent Q/K/V, preprocessing and Attention remain outside. Original
+arithmetic and state ordering are unchanged. The resulting 51 startup-owned
+execs remove 112 direct submissions per round at one additional graph launch.
+This is the first captured FA-tail boundary, not a GDN granularity scan.
+P65 full transactions and P513 prefix admission return directly to d2 API;
+useful direction unlocks d3. One composition, one correctness repair maximum,
+no profiler or granularity scan. Short >3% slowdown or nonpositive 8K closes
+this version. The full goal and 72.798/505.033-ms short/40K gaps remain active.
+
+The [completed direction](metadata/qwen36-27b-mtp-fa-tail-graphs-rejection-2026-10-14.json)
+passes eighteen complete prefixes, fifteen state/cache transactions and all
+eight d2 API/lifecycle requests, preserving outputs, token IDs and physical work.
+Decode changes only +0.151%/+0.120%/+0.050% at P65/8K/40K. At 40K, Prefill is
+92.786 seconds / 431.10 token/s, TTFT 92.821 seconds, Decode 11.543 token/s and
+total 114.913 seconds. This single-process near-tie establishes no useful gain;
+Prefill variation is not attributed to unchanged Prefill code. Remove the new
+islands and restore the original 48 GDN graphs and v86 identity. D3 is not run;
+no granularity, dynamic-update or profiler scan follows. The full goal remains.
+
 ## 2026-10-14 native private draft vocabulary — closed negative
 
 `WP-MTP-NATIVE-DRAFT-HEAD-20261014` / `AC-MTP-GREEDY-v86` implements the
