@@ -6,7 +6,7 @@ q3x_document:
   owner: runtime-maintainers
   authority: isolated greedy MTP development boundaries and transaction contract
   effective: 2026-09-28
-  last_reviewed: 2026-10-10
+  last_reviewed: 2026-10-13
   supersedes: []
   superseded_by: []
   ssot_for: native MTP admission design and first composition scope
@@ -1770,6 +1770,16 @@ state/logit and empty-prefix cache checks passed, but the
 fewer verified rows. All new controller/counter/runtime/profile paths are
 removed; confidence lookahead v63 remains the active composition. No threshold
 or length scan follows this closed version; production and the target stay fixed.
+
+## Exact QK pair fusion composition v65 — removed
+
+The [bounded design](metadata/qwen36-27b-mtp-qk-pair-fma-design-2026-10-13.json)
+fused exact nonzero BF16 products into their original pair sums under runtime
+range guards. Higher trees and all state remained unchanged. The
+[completed rejection](metadata/qwen36-27b-mtp-qk-pair-fma-rejection-2026-10-13.json) passes native bitwise pair, complete Attention
+and full-prefix/state admission, but finds no useful 8K API Decode gain. All
+new arithmetic and profile paths are removed; confidence lookahead v63 remains
+active. No guard/launch/tile scan or independent performance claim follows.
 
 ## Checkpoint and draft model
 

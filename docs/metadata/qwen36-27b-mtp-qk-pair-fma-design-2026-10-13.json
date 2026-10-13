@@ -1,0 +1,38 @@
+{
+  "work_package_id": "WP-MTP-QK-PAIR-FMA-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v65",
+  "source_parent": "0369cb2",
+  "product_constraint": "Exact complete state/output, configured maxima2/3, same-request 1.5x\u20133x committed Decode; joint Prefill, TTFT, Decode and total.",
+  "downward_budget": {
+    "remaining_40k_decode_s": 1.264435332868,
+    "historical_qk_gpu_s": 2.214693856,
+    "arithmetic_removed": "24 of 90 scalar multiply/add instructions per lane across six heads, before guard overhead. This is not a timing prediction and cannot alone establish target completion."
+  },
+  "mechanism": "Fuse each even BF16 product into its original first-level pair sum only when that product is exact, finite and nonzero FP32. Query guards hoisted over positions; four key guards shared over six heads. Warp-uniform original-path fallback preserves arbitrary inputs. All higher additions, warp trees, scale, softmax, PV and state unchanged.",
+  "proof": [
+    "Require even-index operands unbiased exponent -63..63 (BF16 absolute bits 0x2000..0x5f7f); exclude zeros and all special values. Each product has <=16 significant bits, magnitude >=2^-126 and <=(255/128)^2*2^126, so exact finite nonzero FP32.",
+    "For exact nonzero p0, RN(RN(a0*b0+0)+p1) equals RN(a0*b0+p1). p1 remains the original fma(a1,b1,+0); no reassociation of any higher tree.",
+    "Excluding zero p0 avoids -0 from odd underflow changing the original +0 pair result. NaN propagation must pass directed raw-bit native tests, not be assumed from real algebra.",
+    "The runtime guard is the authority, not a historical activation distribution. No state flags, new workspace or allocations."
+  ],
+  "gates": [
+    "Static no-spill check; directed raw pair and full probability/output guards.",
+    "P513 full-state transactions and P8192 complete prefixes against scalar.",
+    "Immediate d2 P65/8K/40K API; >3% slowdown or nonpositive 8K closes; useful long result unlocks d3."
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "profilers": 0,
+    "parameter_scans": 0
+  },
+  "expiry": "First complete API return or rejection. No production promotion or qualification-only extension.",
+  "artifact_root": ".q3x-work/mtp-qk-pair-fma-20261013",
+  "rollback_files": [
+    "src/runtime/mtp_verify_attention_internal.cu",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ]
+}

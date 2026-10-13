@@ -6,7 +6,7 @@ q3x_document:
   owner: project-maintainers
   authority: current delivery dependency order and exit criteria
   effective: 2026-08-10
-  last_reviewed: 2026-10-10
+  last_reviewed: 2026-10-13
   supersedes: [docs/ROADMAP_LEGACY.md]
   superseded_by: []
   ssot_for: active unfinished delivery slices and their ordering
@@ -18,6 +18,33 @@ q3x_document:
 This page owns unfinished work and dependency order. [Current Status](CURRENT_STATUS.md)
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
+
+## 2026-10-13 exact QK pair fusion — closed without retention
+
+`WP-MTP-QK-PAIR-FMA-20261013` / `AC-MTP-GREEDY-v65` owns one
+[guarded pair-fusion composition](metadata/qwen36-27b-mtp-qk-pair-fma-design-2026-10-13.json).
+The current 40K d2 full-Decode gap is 1.264 seconds. Exact nonzero BF16 products
+can fuse into their original pair sums without changing a higher reduction.
+Runtime range guards and the original exceptional path preserve arbitrary
+inputs. This removes arithmetic rather than changing Attention tile sizes.
+One implementation, at most one correctness repair, no profiler or parameter
+scan. Directed numerical and full-prefix checks precede immediate d2 API;
+>3% slowdown or nonpositive 8K closes it. Useful long direction unlocks d3.
+Production stays fixed; the full 1.5x–3x goal remains active.
+
+The [completed rejection](metadata/qwen36-27b-mtp-qk-pair-fma-rejection-2026-10-13.json) passes 62,914,560 native raw pair cases,
+72 complete score/probability/output/guard cases, eighteen P513/P8192 prefixes,
+fifteen full-state transactions and four failure recoveries. P8192/O256 d2
+preserves output and work but Decode is 14.496 token/s versus v64 at 14.503
+(-0.05%). Prefill is 17.241 seconds / 475.15 token/s, TTFT 17.263 seconds and
+total 34.855 seconds. Unchanged Prefill code does not justify attributing its
+50.571ms lower observation to QK; complete Decode adds 8.762ms.
+
+This is neutral direction, not a statistically established regression. The
+predeclared nonpositive 8K stop prevents 40K/d3 and the full lifecycle panel.
+All candidate runtime/profile paths are removed and v64 program sections restored
+exactly. No further guard, launch, tile or profiler scan follows this package.
+Production and the full 1.5x–3x goal remain unchanged.
 
 ## 2026-10-10 retained MTP Attention counters — closed inconclusive
 
