@@ -19,6 +19,37 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 ordered PV feed attribution — complete
+
+`WP-MTP-PV-FEED-AUDIT-20261014` owns the
+[bounded current-path diagnosis](metadata/qwen36-27b-mtp-pv-feed-audit-design-2026-10-14.json).
+The current 40K d2 trace assigns 2.180 seconds to ordered PV. Earlier shared-row
+variants did not transfer fewer logical V loads to API gains. Capture one complete
+real first-round V/probability/output payload through the existing P40000/O256
+API and require unchanged output/work. Instrumented timing is not a baseline.
+Restore ordinary source, then use that small resident payload for one unchanged
+PV timing/check and one NCU capture. Resolve actual residency, stalls and traffic
+before selecting another architecture. No full-model replay or parameter scan;
+this work neither changes production nor closes the 1.5x–3x goal.
+
+The [completed real-payload diagnosis](metadata/qwen36-27b-mtp-pv-feed-audit-2026-10-14.json)
+preserves full API output/work and checks every replay against the captured
+complete PV output. Eight unchanged-kernel samples have median 1.340736 ms.
+One small-resident NCU capture succeeds with over 58 GiB free: the actual shared
+partition is 167,936 bytes and permits four CTAs, disproving the initial
+small-partition suspicion. The 48-CTA grid supplies three CTAs per SM on average;
+achieved occupancy is 32.12%. Shared conflicts are only 245 excess wavefronts
+out of 19,565,140. Neither carveout nor bank-layout scanning is selected.
+Barrier and wait diagnostics motivate one independent producer/consumer
+pipeline proposal: 64 producer threads, the existing 192 consumers, unchanged
+four buffers and original ordered FMAs. Stage completion and reader retirement
+replace lockstep copying/compute ownership. This differs from the removed
+single-barrier deletion and shared-row variants. Extra synchronization and
+producer resources must still pay for themselves at API return. No new runtime
+is retained by this diagnosis; restore v79, do not repeat the profile, and
+implement this one bounded composition next. Counters do not predict speedup;
+current Prefill/TTFT/Decode/total and the full goal remain unchanged.
+
 ## 2026-10-14 compact exact FP8 table — closed negative
 
 `WP-MTP-COMPACT-FP8-TABLE-20261014` / `AC-MTP-GREEDY-v83` implements the

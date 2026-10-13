@@ -448,3 +448,5 @@ The FC embedding-prefix cache package closes neutral after full d2 API checks wi
 The bounded FP8 operand-feed attribution completes one small-resident capture and selects a compact-representation proposal in the existing Roadmap; no Markdown paths or classes change.
 
 The compact FP8 table package closes after negative short API direction with v79 restored. Existing MTP SDD and Roadmap retain the numerical pass and frozen rejection; no Markdown paths or classes change.
+
+The bounded current PV operand-feed diagnosis completes its real-API capture and small-resident hardware attribution, selecting one producer/consumer implementation proposal in the existing Roadmap; no Markdown path or classification changes.

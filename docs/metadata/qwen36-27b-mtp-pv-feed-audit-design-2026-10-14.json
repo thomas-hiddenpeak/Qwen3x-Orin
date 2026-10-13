@@ -1,0 +1,25 @@
+{
+  "work_package_id": "WP-MTP-PV-FEED-AUDIT-20261014",
+  "source_parent": "138111e",
+  "decision_unit": "component_diagnosis",
+  "product_constraint": "1.5x\u20133x same-workload committed Decode, exact target/output, d2/d3 and paired Prefill/TTFT/Decode/total.",
+  "origin": "qwen36-27b-mtp-v79-budget-2026-10-14.json",
+  "downward_budget": {
+    "current_40k_d2_pv_s": 2.180172864,
+    "remaining_40k_d2_s": 0.439699315
+  },
+  "question": "Determine actual current PV shared-memory occupancy, issue/stall and memory behavior before selecting another architecture. Source shows38912Bshared perCTA and only48CTAs forM3; prior shared-row variants reduced logicalVloads but lost API. Do not infer occupancy or bottleneck from source alone.",
+  "payload": "One instrumented v79 real P40000/O256d2 API request; first M3 PV atsequence40001, first full-attention layer. Freeze complete real V/probability/output. Capture changes no arithmetic, counters or output but timings are instrumentation-distorted.",
+  "sequence": "Capture and require unchanged complete output/work; restore normal source. Standalone unchanged PV consumes that exact payload, compares complete output, runs8 unprofiled component samples then one NCU capture with only payload resident.",
+  "limits": {
+    "api_capture_processes": 1,
+    "small_resident_ncu_captures": 1,
+    "new_runtime_variants": 0,
+    "full_model_replay": false,
+    "profiling_device_payload_bytes": 93484160
+  },
+  "bound": "One capture and one hardware diagnosis then choose one materially changed dataflow or close; no tile/stage/carveout scan or automatic resurrection of rejected row-sharing.",
+  "safety": "Each process uses host/device preflight, cache-drop attempt,8GiBreserve and90Cstop. No fan/controller inspection; full resident NCU prohibited.",
+  "artifact_root": ".q3x-work/mtp-pv-feed-audit-20261014",
+  "production_changed": false
+}

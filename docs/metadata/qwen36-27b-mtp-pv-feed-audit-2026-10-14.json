@@ -1,0 +1,290 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-PV-FEED-AUDIT-20261014",
+  "source_parent": "138111e",
+  "decision": "complete_diagnosis_select_partitioned_producer_consumer_proposal",
+  "decision_unit": "component_diagnosis",
+  "production_changed": false,
+  "goal_complete": false,
+  "artifact_root": ".q3x-work/mtp-pv-feed-audit-20261014",
+  "payload": {
+    "scope": "real v79 API P40000/O256 d2, first M3 verification, first full-attention layer3; V and exact FP32 probabilities after original softmax, full BF16 PV output",
+    "first_sequence": 40001,
+    "rows": 3,
+    "probability_stride": 40004,
+    "value_shape": [
+      40003,
+      4,
+      256
+    ],
+    "output_shape": [
+      3,
+      24,
+      256
+    ],
+    "source_sha256": "363664a03a2d7778134736dad117696bdabf50723e9728d54c39bbea9ae4a249",
+    "model": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "capture_identity": {
+      "server_sha256": "2910b8a43f0a60d9f80d1c9dc636f022f0a1313006db40893dd61a92fd42d848",
+      "capture_source_sha256": "8e586059a7dd56358925d2d647e09071099f8ecff7f2936e5e2d45cd9e7627b5",
+      "original_source_sha256": "363664a03a2d7778134736dad117696bdabf50723e9728d54c39bbea9ae4a249",
+      "parent": "138111e"
+    },
+    "request_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+    "prompt_u32le_sha256": "76cd23e2d60a9473af0ff24767b1b7ca614b36857697b420246731165156f78f",
+    "complete_output_and_nontiming_work_equal_v79": true,
+    "files": {
+      "value.bf16": {
+        "bytes": 81926144,
+        "sha256": "9a42444d1e9cfa6675f33dfa904fb7f1a816addc472b3eb1848ba18c1c5c9b98"
+      },
+      "probability.f32": {
+        "bytes": 11521152,
+        "sha256": "a634ce89174c729dbf74a023ad0ef0b5972735855a7023ed6c273e6c1573a554"
+      },
+      "output.bf16": {
+        "bytes": 36864,
+        "sha256": "4eff4e8e61ce9d3dde961e83100434476d1635907ee199e0ace0af9c0372e18b"
+      }
+    },
+    "padding": "Physical probability tail may contain uninitialized dead bytes. Complete file is authenticated, but original consumer reads each row only to first_sequence+row."
+  },
+  "analysis": {
+    "scope": "Current real API first M3 PV, layer3, first_sequence40001. Same captured full output checked in every component replay; timing and counters diagnose only this payload, not API speed or all layers.",
+    "timing": {
+      "samples": 8,
+      "min_ms": 1.339488029,
+      "median_ms": 1.3407360315,
+      "max_ms": 1.343840003
+    },
+    "metrics": {
+      "gpu__time_duration.avg": {
+        "value": "1.340608",
+        "unit": "ms"
+      },
+      "l1tex__throughput.avg.pct_of_peak_sustained_active": {
+        "value": "68.964025",
+        "unit": "%"
+      },
+      "gpu__compute_memory_throughput.avg.pct_of_peak_sustained_elapsed": {
+        "value": "68.708056",
+        "unit": "%"
+      },
+      "sm__throughput.avg.pct_of_peak_sustained_elapsed": {
+        "value": "71.941266",
+        "unit": "%"
+      },
+      "memory_l1_wavefronts_shared": {
+        "value": "19565140",
+        "unit": "sectors"
+      },
+      "memory_l1_wavefronts_shared_ideal": {
+        "value": "19564895",
+        "unit": "sectors"
+      },
+      "derived__memory_l1_wavefronts_shared_excessive": {
+        "value": "245",
+        "unit": ""
+      },
+      "smsp__issue_active.avg.per_cycle_active": {
+        "value": "0.72",
+        "unit": ""
+      },
+      "sm__warps_active.avg.pct_of_peak_sustained_active": {
+        "value": "32.118343",
+        "unit": "%"
+      },
+      "launch__occupancy_limit_shared_mem": {
+        "value": "4.000000",
+        "unit": "block"
+      },
+      "launch__shared_mem_config_size": {
+        "value": "167.936000",
+        "unit": "Kbyte"
+      },
+      "launch__waves_per_multiprocessor": {
+        "value": "0.75",
+        "unit": ""
+      },
+      "smsp__average_warps_issue_stalled_barrier_per_issue_active.ratio": {
+        "value": "1.050943",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_branch_resolving_per_issue_active.ratio": {
+        "value": "0.112714",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_dispatch_stall_per_issue_active.ratio": {
+        "value": "0.216675",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_drain_per_issue_active.ratio": {
+        "value": "0.000099",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_imc_miss_per_issue_active.ratio": {
+        "value": "0.003317",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_lg_throttle_per_issue_active.ratio": {
+        "value": "0",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_long_scoreboard_per_issue_active.ratio": {
+        "value": "0.020731",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_math_pipe_throttle_per_issue_active.ratio": {
+        "value": "0.144864",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_membar_per_issue_active.ratio": {
+        "value": "0",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_mio_throttle_per_issue_active.ratio": {
+        "value": "0.150281",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_misc_per_issue_active.ratio": {
+        "value": "0.000001",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_no_instruction_per_issue_active.ratio": {
+        "value": "0.140000",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_not_selected_per_issue_active.ratio": {
+        "value": "1.217788",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_selected_per_issue_active.ratio": {
+        "value": "0.999993",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_short_scoreboard_per_issue_active.ratio": {
+        "value": "0.297238",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_sleeping_per_issue_active.ratio": {
+        "value": "0",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_tex_throttle_per_issue_active.ratio": {
+        "value": "0",
+        "unit": "inst"
+      },
+      "smsp__average_warps_issue_stalled_wait_per_issue_active.ratio": {
+        "value": "0.961961",
+        "unit": "inst"
+      }
+    },
+    "shared_excess_fraction": 1.252227175476383e-05,
+    "resources": {
+      "registers_per_thread": 39,
+      "spill_bytes": 0,
+      "static_shared_bytes": 38912,
+      "driver_shared_bytes": 1024,
+      "actual_shared_partition_bytes": 167936,
+      "shared_block_limit": 4,
+      "register_block_limit": 8,
+      "warp_block_limit": 8,
+      "grid_ctas": 48,
+      "sm_count": 16,
+      "threads_per_cta": 192,
+      "theoretical_occupancy_percent": 50,
+      "grid_uniform_upper_occupancy_percent": 37.5,
+      "achieved_occupancy_percent": 32.118343
+    },
+    "replay_passes": 18,
+    "timing_reserve_bytes": 62998843392,
+    "profile_reserve_bytes": 62731423744,
+    "notes": [
+      "Reject the initial too-small-shared-partition suspicion: actual167936B partition permits4CTAs, grid has only3perSM on average. No carveout adjustment is selected.",
+      "Shared wavefront excess245/19565140 is negligible in this capture; another bank-layout change is not selected.",
+      "Barrier1.050943 and wait0.961961 cycles per issue are diagnostic categories, not additive recoverable time or speedup estimates. Long-scoreboard0.020731 is small; do not claim exposed DRAM latency dominates.",
+      "No DRAM counters collected. L1/TEX68.96percent and memory aggregate68.71percent are not DRAM bandwidth.",
+      "NCU instrumented CUDAevent2715.156494ms is excluded; no end-to-end improvement or hardware bound follows.",
+      "No clock/cache changes made by NCU. Report warns about unfixed clock/cache protocol; sampled temperatures/clocks are retained context, no release claim.",
+      "Short component timing completed before first tegrastats sample; preflight telemetry retained."
+    ]
+  },
+  "proposal": {
+    "status": "selected_for_one_bounded_implementation_not_yet_built",
+    "mechanism": "Split current PV CTA into64producer threads and192consumer threads. Keep same grid,64position tiles, four physical buffers, six head warps and two ordered accumulators per lane. Producers independently acquire free stages, copy original V/P operands and publish completion; consumers wait for a produced stage, perform unchanged ascending-position FP32 FMAs and release it after all readers retire.",
+    "invariants": [
+      "Same per-row causal range andFP32probability; no padding operand consumed.",
+      "No FMA reassociation, split position sum, BF16 boundary change, target state change or extra request allocation.",
+      "Every stage reused only after all192consumers release; all64producers commit at a converged boundary.",
+      "Tail commits and waits have identical counts across participating roles; no early thread exit before pipeline drain."
+    ],
+    "distinction": "Material producer/consumer ownership change, not removed v50 pre-wait-barrier deletion, historical shared-row PV, tile/stage/carveout scan or generic request graph.",
+    "upward_return": "One correctness implementation then same captured full-output check, full synthetic Attention/guards and P513 state/cache oracle, promptly d2P65/8K/40K API; useful direction unlocks d3. No new profiler or parameter scan. No speedup assumed from barrier counters."
+  },
+  "references": {
+    "official_pipeline_guide": "https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/pipelines.html",
+    "consulted": "2026-10-14",
+    "local_sources": {
+      "/usr/local/cuda/targets/sbsa-linux/include/cccl/cuda/pipeline": "aad044b0fa1914fd4b9f70c3ba3638a91e9603e963cffcf48d9b05bbfae55017",
+      "third_party/cutlass/include/cutlass/pipeline/sm90_pipeline.hpp": "7c61d847933cb12a14fcdc68cec902b44c802c9eb34273218c29e601f9c53dee"
+    },
+    "translation": "Study full/empty stage ownership in CUTLASS producer-acquire/consumer-wait/release; its TMA/cluster shell is not SM87 eligible. The installed cuda::pipeline provides separate producer/consumer counts and stage barriers; use SM80 async copies, no imported source or TMA. Added shared barriers and idle producer warps may outweigh gains."
+  },
+  "capture_cleanup": {
+    "server_returncode": 0,
+    "clock_errors": [],
+    "max_temp_c": 73.937
+  },
+  "timing_cleanup": {
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": null
+  },
+  "profile_cleanup": {
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 64.312
+  },
+  "restoration": {
+    "server": {
+      "retained_sha256": "622bf0c2b6b8919188354b6022943e7d5576afea47cd0f1d8421bacf9f8cfc81",
+      "rebuilt_sha256": "ea5dae311209e22d2e00552497c3f459f9ef87f3e6a83b1452047deb4b789a3a",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "3bc8bb3fe1e639a43a1d4466a98702a19ed701e03cb3d4cfd90246e84cc5b834",
+      "rebuilt_sha256": "4fcc6c419490605e26f84350ef04c0a17b279c6d5bbf7315ba526bd4df503de8",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    }
+  },
+  "current_API_metrics": "Unchanged v79 values in CURRENT_STATUS; capture timings include D2H/file I/O and cannot update Prefill/TTFT/Decode/total baseline.",
+  "artifact_manifest": ".q3x-work/mtp-pv-feed-audit-20261014/artifact-manifest.json",
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "source_restored_exactly": true,
+    "api_keys_remaining": 0,
+    "temporary_files_remaining": 0,
+    "registered_worktrees": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "validation": {
+    "document_unit_tests": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "links": 1378,
+      "errors": 0
+    },
+    "git_diff_check": "pass",
+    "scope": "No new runtime retained. Captured API full output/work and replay full PV equality, plus restored ELF program sections, are the pertinent checks; no repeated model qualification."
+  }
+}
