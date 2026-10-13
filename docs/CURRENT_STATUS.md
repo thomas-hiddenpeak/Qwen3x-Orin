@@ -54,49 +54,46 @@ Decode token/s convergence target are not claimed achieved.
 
 ## MTP development status
 
-The isolated implementation composes Gate/Up M2/M3 K512 input double
-buffering with the original M4 full-input publication. It retains the common
-weight-major BF16 draft executor and fixed 0.4 confidence lookahead with
-configured maxima 2/3. Target scalar arithmetic, complete prefix state and
-committed output remain unchanged. Profile is
-`q3x.sm87.admission.mtp-gate-input-composition-api.v75`; measured server ELF is
-`10a1eacc4e4c553891442722c4ac568f3d81cfb8a0b12cb705833d3363f81f54`.
+The isolated implementation now replays 48 startup-created GDN graph execs:
+16 fixed three-layer segments for each M2/M3/M4. It retains Gate/Up M2/M3
+input slices, original M4, the weight-major BF16 draft executor and fixed 0.4
+confidence lookahead with configured maxima 2/3. Original arithmetic, complete
+prefix state and committed output remain unchanged. Profile is
+`q3x.sm87.admission.mtp-gdn-graphs-api.v79`; measured server ELF is
+`622bf0c2b6b8919188354b6022943e7d5576afea47cd0f1d8421bacf9f8cfc81`.
 
-The [completed composition](metadata/qwen36-27b-mtp-gate-input-composition-direction-2026-10-13.json) passes all sixteen d2/d3 API/lifecycle
-checks with identical target output IDs and complete non-timing work against
-the [v73 comparator](metadata/qwen36-27b-mtp-draft-weight-major-direction-2026-10-13.json).
-The first complete input-ring replacement improved d2 but regressed d3 and
-was not retained. The selected M2/M3 GPU instructions equal that admitted
-implementation; M4 instructions equal the original v73 implementation.
-Both shape sets had already passed complete real-model state/cache admission;
-the final binary additionally passes all 30 complete NV output/guard cases.
-The private draft and its independent FP64 hidden/K/V bound are unchanged.
-Production remains the ordinary non-MTP artifact above.
+The [completed composition](metadata/qwen36-27b-mtp-gdn-graphs-direction-2026-10-14.json) passes nine complete
+prefixes, fifteen target-state/draft-cache transactions, four verification-failure
+recoveries and all sixteen d2/d3 API/lifecycle checks. Output IDs and complete
+non-timing work equal the [v75 comparator](metadata/qwen36-27b-mtp-gate-input-composition-direction-2026-10-13.json).
+Graphs are captured/uploaded at owner construction with fixed addresses and
+released after stream drain. No graph creation or allocation enters a round.
+The 8-GiB reserve remains satisfied. Existing numerical kernels and private
+draft FP64 contract are unchanged; production remains the non-MTP artifact above.
 
-These 2026-10-13/14 observations use one fresh process per maximum, not mirrored
+These 2026-10-14 observations use one fresh process per maximum, not mirrored
 repetition or release qualification. Prefill includes draft initialization;
-Decode includes the complete controller and observer interval after the first
-token. External total remains an independent complete-request observation.
+Decode includes the complete controller/observer interval after the first token.
+External total remains an independent complete-request observation.
 
 | P / O | Maximum | Prefill s | Prefill token/s | External TTFT s | Decode token/s | External total s |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| 65 / 16 | d2 | 0.893 | 72.78 | 0.912 | 13.305 | 2.039 |
-| 8192 / 256 | d2 | 17.234 | 475.34 | 17.256 | 14.973 | 34.287 |
-| 40000 / 256 | d2 | 92.160 | 434.03 | 92.196 | 11.442 | 114.483 |
-| 65 / 16 | d3 | 0.890 | 73.05 | 0.908 | 12.412 | 2.117 |
-| 8192 / 256 | d3 | 17.103 | 478.99 | 17.125 | 14.012 | 35.325 |
-| 40000 / 256 | d3 | 91.956 | 434.99 | 91.990 | 10.752 | 115.708 |
+| 65 / 16 | d2 | 0.891 | 72.91 | 0.917 | 13.456 | 2.032 |
+| 8192 / 256 | d2 | 17.186 | 476.68 | 17.208 | 15.144 | 34.047 |
+| 40000 / 256 | d2 | 91.968 | 434.93 | 92.004 | 11.558 | 114.068 |
+| 65 / 16 | d3 | 0.891 | 72.99 | 0.917 | 12.566 | 2.110 |
+| 8192 / 256 | d3 | 17.215 | 475.86 | 17.237 | 14.166 | 35.238 |
+| 40000 / 256 | d3 | 92.073 | 434.44 | 92.109 | 10.854 | 115.604 |
 
-D2 reaches 1.625x/1.455x non-MTP Decode at 8K/40K. **The full 1.5x–3x
-goal remains unmet**; 40K still needs approximately
-0.662 seconds removed from complete Decode. Against v73, d2 saves
-0.323/0.330 seconds of complete Decode. D3 long-context performance remains essentially
-unchanged and slower than d2. Prefill/draft implementation is unchanged; its
-interval variation is not attributed to verifier input lifetime. Static shared
-storage reduction is not proof of actual occupancy, cache or stall causes.
-Retain this as a bounded development composition through the next complete MTP
-architecture API return or archival. No further shape/stage/threshold scan or
-qualification-only campaign follows. Production remains unchanged and the full goal stays open.
+D2 reaches 1.644x/1.470x non-MTP Decode at 8K/40K. **The full 1.5x–3x
+goal remains unmet**; 40K still needs approximately 0.440 seconds removed from
+complete Decode. Against v75, d2 saves 0.192/0.223 seconds of complete Decode;
+d3 saves 0.199/0.223 seconds. D3 remains slower than d2. Prefill/draft arithmetic
+is unchanged, and its interval variation is not attributed to graph scheduling.
+No new hardware-counter cause or statistically repeated gain is claimed.
+Retain this bounded development composition through the next complete MTP
+architecture API return or archival. No graph-granularity scan or qualification-only
+campaign follows; production and the full objective remain unchanged.
 
 ### Preceding NV live-reduction direction
 

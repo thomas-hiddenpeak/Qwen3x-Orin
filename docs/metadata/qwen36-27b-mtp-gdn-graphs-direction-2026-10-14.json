@@ -1,0 +1,518 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-GDN-GRAPHS-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v78",
+  "source_parent": "80dfc03",
+  "decision_unit": "architecture_candidate",
+  "decision": "retain_bounded_development_composition",
+  "production_changed": false,
+  "goal_complete": false,
+  "profile": "q3x.sm87.admission.mtp-gdn-graphs-api.v79",
+  "server_sha256": "622bf0c2b6b8919188354b6022943e7d5576afea47cd0f1d8421bacf9f8cfc81",
+  "oracle_sha256": "3bc8bb3fe1e639a43a1d4466a98702a19ed701e03cb3d4cfd90246e84cc5b834",
+  "artifact_root": ".q3x-work/mtp-gdn-graphs-20261014",
+  "implementation": "48startup-created/uploaded transaction-owned graph execs,16three-GDN-layer segments each forM2/M3/M4. Original projections/Conv/GDN/prefix copies/MLP/norm sequence and fixed addresses. Attention andM1 uncaptured. No graph creation/allocation in requests, no numerical or proposal-policy change.",
+  "numerical": {
+    "complete_target_prefixes": 9,
+    "complete_state_cache_transactions": 15,
+    "verification_failure_recoveries": 4,
+    "initialization_cancel_recoveries": 8,
+    "oracle_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 67.937
+    },
+    "scope": "Complete same-history GDN/Conv/KV/hidden/full logits and draft-KV bitwise checks. Existing kernels/private draft unchanged; no redundant synthetic or independent FP64 run claimed."
+  },
+  "build_correction": "Initial build used unavailable legacy5argument cudaGraphInstantiate signature with currentCUDA13 headers. Corrected to cudaGraphInstantiateWithFlags before any GPU run; initial failure log retained. No algorithm or graph granularity variant.",
+  "api": {
+    "d2": {
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.891469948,
+          "prefill_tps": 72.91328232188484,
+          "decode_tps": 13.45574896511229,
+          "ttft_s": 0.9174151990009705,
+          "elapsed_s": 2.0322106200001144,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gdn-graphs-v79",
+            "draft_length": 2,
+            "startup_free_bytes": 11030355968,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "direct_gdn_state_rows": 912,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 1987054592,
+            "draft_initialization_ms": 5.501749,
+            "draft_ms": 113.20689999999999,
+            "verify_ms": 980.3918959999999,
+            "reconcile_ms": 20.402063000000002,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.185581465,
+          "prefill_tps": 476.6786632552267,
+          "decode_tps": 15.143670344261698,
+          "ttft_s": 17.20796849600083,
+          "elapsed_s": 34.04687745800038,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gdn-graphs-v79",
+            "draft_length": 2,
+            "startup_free_bytes": 11030355968,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 98,
+            "proposed": 187,
+            "accepted": 157,
+            "verified_rows": 285,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              71,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              9,
+              89,
+              0
+            ],
+            "draft_ordered_attention_steps": 187,
+            "entry_hidden_snapshots": 98,
+            "direct_gdn_state_rows": 13680,
+            "seed_kv_reuses": 98,
+            "state_copy_bytes_elided": 29253216256,
+            "draft_initialization_ms": 544.734166,
+            "draft_ms": 1786.4920140000002,
+            "verify_ms": 14698.397209999996,
+            "reconcile_ms": 349.162473,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 91.96837493299999,
+          "prefill_tps": 434.9321169275901,
+          "decode_tps": 11.557797953041481,
+          "ttft_s": 92.00359633399785,
+          "elapsed_s": 114.06819580799856,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gdn-graphs-v79",
+            "draft_length": 2,
+            "startup_free_bytes": 11030355968,
+            "prompt_rows": 40000,
+            "draft_prefill_rows": 39999,
+            "initialized": true,
+            "rounds": 105,
+            "proposed": 200,
+            "accepted": 150,
+            "verified_rows": 305,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              64,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              10,
+              95,
+              0
+            ],
+            "draft_ordered_attention_steps": 200,
+            "entry_hidden_snapshots": 105,
+            "direct_gdn_state_rows": 14640,
+            "seed_kv_reuses": 105,
+            "state_copy_bytes_elided": 31315768320,
+            "draft_initialization_ms": 2656.536793,
+            "draft_ms": 2144.263816999999,
+            "verify_ms": 19570.736997000004,
+            "reconcile_ms": 343.14954099999994,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "comparison": [
+        {
+          "stage": "p65",
+          "decode_ratio_vs_v75": 1.0113508867866479,
+          "decode_ratio_vs_nonmtp": 1.4044885463886083,
+          "draft_saved_ms": 0.5279330000000044,
+          "verify_saved_ms": 12.575490000000059,
+          "draft_initialization_delta_ms": -0.20028600000000019,
+          "reconcile_saved_ms": -0.06789700000000565,
+          "full_decode_saved_s": 0.012653572999999696,
+          "prefill_delta_s": -0.001612651000000076,
+          "total_delta_s": -0.006748912001057761
+        },
+        {
+          "stage": "p8192",
+          "decode_ratio_vs_v75": 1.011380214919016,
+          "decode_ratio_vs_nonmtp": 1.6438892836389685,
+          "draft_saved_ms": 2.9674999999999727,
+          "verify_saved_ms": 191.09608699999808,
+          "draft_initialization_delta_ms": -17.980958999999984,
+          "reconcile_saved_ms": -2.483126000000027,
+          "full_decode_saved_s": 0.19162823400000306,
+          "prefill_delta_s": -0.04834868700000072,
+          "total_delta_s": -0.23976054999729968
+        },
+        {
+          "stage": "p40000",
+          "decode_ratio_vs_v75": 1.0100887645763081,
+          "decode_ratio_vs_nonmtp": 1.4701061421098258,
+          "draft_saved_ms": 2.9436630000009245,
+          "verify_saved_ms": 221.38507399999799,
+          "draft_initialization_delta_ms": -91.42526999999973,
+          "reconcile_saved_ms": -1.7759609999998247,
+          "full_decode_saved_s": 0.22258867800000104,
+          "prefill_delta_s": -0.19206626900000856,
+          "total_delta_s": -0.4147099080000771
+        }
+      ],
+      "completed_api_checks": 8,
+      "output_ids_equal_v75": true,
+      "work_differences": [
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8119cea78cd55fac50289ca366297b20e119a60acf07d2b0db69a85d4145c40b",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "11fcd5bfa1b8c0c077956e1056c92c1b453df2592f59178fe5242f5a5b7ef36a",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "c8c3f21bc490496a1f5aaa00d4cd62b6327e4e1342486711d688a316d91cf5c1",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        }
+      ]
+    },
+    "d3": {
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.890576944,
+          "prefill_tps": 72.98639431204498,
+          "decode_tps": 12.56625229801569,
+          "ttft_s": 0.9166191099975549,
+          "elapsed_s": 2.110199652997835,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gdn-graphs-v79",
+            "draft_length": 3,
+            "startup_free_bytes": 11024527360,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 6,
+            "proposed": 16,
+            "accepted": 9,
+            "verified_rows": 22,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              3,
+              2
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              0,
+              2,
+              4
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 6,
+            "direct_gdn_state_rows": 1056,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 2134603776,
+            "draft_initialization_ms": 5.438335,
+            "draft_ms": 150.683263,
+            "verify_ms": 1021.9959439999999,
+            "reconcile_ms": 20.267826999999997,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.215262486,
+          "prefill_tps": 475.8568163954512,
+          "decode_tps": 14.166107737376846,
+          "ttft_s": 17.23737106000044,
+          "elapsed_s": 35.2383988900001,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gdn-graphs-v79",
+            "draft_length": 3,
+            "startup_free_bytes": 11024527360,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 85,
+            "proposed": 226,
+            "accepted": 170,
+            "verified_rows": 311,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              73,
+              57,
+              40
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              11,
+              7,
+              67
+            ],
+            "draft_ordered_attention_steps": 226,
+            "entry_hidden_snapshots": 85,
+            "direct_gdn_state_rows": 14928,
+            "seed_kv_reuses": 85,
+            "state_copy_bytes_elided": 30189888512,
+            "draft_initialization_ms": 539.541724,
+            "draft_ms": 2166.626128,
+            "verify_ms": 15471.476319000005,
+            "reconcile_ms": 358.314727,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p40000",
+          "prompt": 40000,
+          "output": 256,
+          "prefill_s": 92.073271736,
+          "prefill_tps": 434.43660951563953,
+          "decode_tps": 10.854063299835765,
+          "ttft_s": 92.10888154999702,
+          "elapsed_s": 115.60398706099659,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gdn-graphs-v79",
+            "draft_length": 3,
+            "startup_free_bytes": 11024527360,
+            "prompt_rows": 40000,
+            "draft_prefill_rows": 39999,
+            "initialized": true,
+            "rounds": 89,
+            "proposed": 244,
+            "accepted": 166,
+            "verified_rows": 333,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              73,
+              52,
+              41
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              5,
+              13,
+              71
+            ],
+            "draft_ordered_attention_steps": 244,
+            "entry_hidden_snapshots": 89,
+            "direct_gdn_state_rows": 15984,
+            "seed_kv_reuses": 89,
+            "state_copy_bytes_elided": 32166605824,
+            "draft_initialization_ms": 2628.101487,
+            "draft_ms": 2624.1014630000004,
+            "verify_ms": 20509.894088,
+            "reconcile_ms": 355.06580299999985,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "comparison": [
+        {
+          "stage": "p65",
+          "decode_ratio_vs_v75": 1.012411702474253,
+          "decode_ratio_vs_nonmtp": 1.3116443736690417,
+          "draft_saved_ms": 0.05659700000001067,
+          "verify_saved_ms": 15.126663000000121,
+          "draft_initialization_delta_ms": -0.1354109999999995,
+          "reconcile_saved_ms": 0.0425340000000034,
+          "full_decode_saved_s": 0.014815518000000027,
+          "prefill_delta_s": 0.0007558309999998736,
+          "total_delta_s": -0.006597882002097322
+        },
+        {
+          "stage": "p8192",
+          "decode_ratio_vs_v75": 1.0110312275364055,
+          "decode_ratio_vs_nonmtp": 1.5377720308850404,
+          "draft_saved_ms": -3.2648269999999684,
+          "verify_saved_ms": 200.58241599999383,
+          "draft_initialization_delta_ms": -10.843219999999974,
+          "reconcile_saved_ms": 1.2431429999998045,
+          "full_decode_saved_s": 0.19856993000000145,
+          "prefill_delta_s": 0.11247146000000185,
+          "total_delta_s": -0.08629681900129071
+        },
+        {
+          "stage": "p40000",
+          "decode_ratio_vs_v75": 1.009478007841803,
+          "decode_ratio_vs_nonmtp": 1.380593880319421,
+          "draft_saved_ms": -3.8511829999993097,
+          "verify_saved_ms": 225.3471790000076,
+          "draft_initialization_delta_ms": -54.51269400000001,
+          "reconcile_saved_ms": 1.1096389999999587,
+          "full_decode_saved_s": 0.22267163299999737,
+          "prefill_delta_s": 0.1177055160000009,
+          "total_delta_s": -0.10424573900309042
+        }
+      ],
+      "completed_api_checks": 8,
+      "output_ids_equal_v75": true,
+      "work_differences": [
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "337f99c0f0d5da5e3e4008873b0d69758409a852cf9ff1f6e5697796799fb20c",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8119cea78cd55fac50289ca366297b20e119a60acf07d2b0db69a85d4145c40b",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "11fcd5bfa1b8c0c077956e1056c92c1b453df2592f59178fe5242f5a5b7ef36a",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "c8c3f21bc490496a1f5aaa00d4cd62b6327e4e1342486711d688a316d91cf5c1",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        }
+      ]
+    }
+  },
+  "api_cleanup": {
+    "d2": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 75.5
+    },
+    "d3": {
+      "success": true,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 75.843
+    }
+  },
+  "remaining_40k_d2_full_decode_s": 0.4396993149999986,
+  "scope_limits": [
+    "One fresh process per maximum, no mirrored repetition or statistically qualified architecture/release selection.",
+    "All16API outputs/request hashes and complete non-timing work equalv75.",
+    "Prefill/private draft unchanged; timing variations are not attributed to graph scheduling.",
+    "Startup retains8GiBfree reserve; successful API recovery and complete state oracle exercise graph replay. No destructive device fault injection or exhaustive constructor-failure campaign claimed.",
+    "No fresh profiler quantifies graph scheduling causes or eliminated bubbles; consistent API direction selects only bounded development retention.",
+    "Model hidden/normalization audit found no discrepancy against pinned reference sources; no speculative semantic fix was made."
+  ],
+  "expiry": "Bounded dependency through next complete MTP architecture API return or archival; no graph-granularity/parameter scan or qualification-only campaign.",
+  "artifact_manifest": ".q3x-work/mtp-gdn-graphs-20261014/artifact-manifest.json",
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "api_keys_remaining": 0,
+    "temporary_files_remaining": 0,
+    "registered_worktrees": 47,
+    "final_source_matches_measured_freeze": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "validation": {
+    "host_ctests": 3,
+    "document_unit_tests": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1351,
+      "errors": 0
+    },
+    "git_diff_check": "pass"
+  },
+  "model_audit_additional_reference": {
+    "path": ".q3x-work/tmp-archive-20260809/q3x-vllm-startup-audit-N1aJhv/vllm/vllm/v1/worker/gpu_model_runner.py",
+    "sha256": "06d7cbe79fb8cd32b913a8d731a1a98ab7fcbba87d17c345e08cf6be8f460953",
+    "scope": "Ordinary MTP has no EAGLE3 auxiliary hidden selection; Qwen3 model provides no get_mtp_target_hidden_states override. Target hidden reaches proposer without a new semantic transform."
+  },
+  "engineering_conclusion": "Retain fixed startup GDN graph composition through next full API return or archival. D2 completeDecode saves0.192/0.223s at8K/40K; d3 saves0.199/0.223s with exact output/work. D2 reaches1.644x/1.470x non-MTP; remaining40K gap0.440s keeps full goal open. No production or repeated statistical qualification claim."
+}

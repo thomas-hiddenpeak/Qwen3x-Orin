@@ -67,7 +67,7 @@ authority only for its exact recorded protocol.
 | `docs/DESIGN.md` | `subsystem_design_index` | active | Compatibility entry point and map of detailed subsystem contracts; subordinate to `docs/SDD.md`. |
 | `docs/PREFILL_ARCHITECTURE_RESET.md` | `subsystem_sdd` | active | Prefill input/output, state, ownership, synchronization, failure, handoff, and architecture-candidate contract; owns no delivery order or mechanism rule. |
 | `docs/MTP_ADMISSION.md` | `subsystem_sdd` | active | Isolated greedy MTP draft/verification and transaction contract; configured drafts 2/3, bounded API composition, no default-route authority. |
-| `docs/ROADMAP.md` | `active_plan` | active | SSOT for current dependency order, milestones, and exit criteria; includes retained Gate/Up shape composition and private draft matrix API composition, with preceding closed directions; not an experiment ledger. |
+| `docs/ROADMAP.md` | `active_plan` | active | SSOT for current dependency order, milestones, and exit criteria; includes retained GDN graph, Gate/Up shape and private draft matrix API composition, with preceding closed directions; not an experiment ledger. |
 | `docs/SDD.md` | `system_sdd` | active | SSOT for the externally callable runner design from API and target workloads inward to kernels/deployment. |
 | `docs/decisions/0001-end-state-first-leakage.md` | `accepted_adr` | active | Accepted decision recording end-state-first/leakage as the system design and evolution model; subordinate only to normative policy. |
 | `docs/decisions/0002-prefill-attention-vllm-numerical-alignment.md` | `accepted_adr` | active | Accepted decision aligning prefill full-attention to the vLLM/FlashInfer BF16-probability numerical class with split-P tensor route; owner instruction 2026-09-21. |
@@ -432,3 +432,5 @@ The Down input-reuse package closes after negative 8K API direction and v75 rest
 The A/B dispatch package closes neutral at the8K API return with v75 restored. Existing MTP SDD and Roadmap retain its evidence; no Markdown paths or classes change.
 
 The private vocabulary-coverage diagnosis closes after failed d2 coverage with v75 restored. Existing MTP SDD and Roadmap retain the specific rejection; no Markdown path or class changes.
+
+The fixed GDN graph composition completes both API panels and updates existing MTP SDD, Current Status and Roadmap as a bounded development dependency; no Markdown paths or classes change.

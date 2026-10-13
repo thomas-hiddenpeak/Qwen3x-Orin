@@ -1999,6 +1999,23 @@ outputs and work. Diagnostic code is removed and v75 restored; no shortlist
 runtime, d3 trace or vocabulary-size scan follows. This rejects only the fixed
 entry-target selector and establishes no general MTP or vocabulary limit.
 
+## Fixed GDN segment graphs v78
+
+The [bounded composition](metadata/qwen36-27b-mtp-gdn-graphs-design-2026-10-14.json)
+builds 48 transaction-owned graph execs before service readiness, one per fixed
+three-GDN-layer segment andM2/3/4. Existing snapshot and request addresses
+outlive every replay. Original kernel order, recurrence and full-prefix
+publication remain fixed; actual positions affect only uncaptured Attention.
+Capture adds no report work, and completed verification accounts once. Missing
+graphs fail closed; failed construction and destruction drain and release all
+owned graph resources. M1, private drafting and installed production are unchanged.
+
+The [completed composition](metadata/qwen36-27b-mtp-gdn-graphs-direction-2026-10-14.json) passes complete
+state/cache admission and all sixteen d2/d3 API/lifecycle checks with identical
+output/work. Both maxima improve full Decode consistently in this one-process
+panel. Retain the fixed graph composition through the next complete architecture
+API return or archival; this does not qualify production or the full goal.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
@@ -2273,7 +2290,7 @@ CPU prompt-normalization/draft oracle and unchanged production boundary.
 Prefill, batched shifted draft cache and exact multi-row verifier into the
 ordinary generation controller and HTTP gateway. It requires testing, excludes
 production/install, and identifies itself as
-`q3x.sm87.admission.mtp-gate-input-composition-api.v75`. The startup-only
+`q3x.sm87.admission.mtp-gdn-graphs-api.v79`. The startup-only
 `Q3X_MTP_DRAFT_LENGTH` must be exactly 2 or 3. Capacity remains
 `P+O-1<=44095`, O1..4096, with the complete target acceleration inventory and
 an additional post-composition 8-GiB free-memory check.

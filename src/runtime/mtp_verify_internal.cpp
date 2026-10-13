@@ -12,6 +12,141 @@ int launch_mtp_verify_projection(const std::uint8_t*, const std::uint8_t*, float
 int launch_mtp_verify_attention(const std::uint16_t*, const std::uint16_t*,
     const std::uint16_t*, unsigned, unsigned, void*, std::size_t,
     std::uint16_t*, void*) noexcept;
+bool TargetTransaction::enqueue_gdn_block(unsigned first, unsigned count) noexcept {
+  constexpr std::size_t H = 5120;
+  auto& v = target_.views_;
+  const auto& model = *target_.weights_;
+  auto stream = static_cast<cudaStream_t>(target_.stream_);
+  const auto ok = [](int status) { return status == cudaSuccess; };
+  const auto project = [&](const LinearWeight& w, const std::uint16_t* x,
+                            std::uint16_t* y) {
+    if (count > 1) {
+      if (const auto* f = std::get_if<Fp8LinearWeight>(&w))
+        return ok(launch_mtp_verify_projection(f->weight, nullptr, f->weight_scale,
+            x, count, f->output_size, f->input_size, y, stream, f->m1_aosoa4_preswizzled_weight, nullptr, 0));
+      if (const auto* q = std::get_if<NvFp4LinearWeight>(&w))
+        return ok(launch_mtp_verify_projection(q->packed_weight, q->block_scale, q->weight_scale_2,
+            x, count, q->output_size, q->input_size, y, stream,
+            q->decode_gate_up_coupled_feed_sidecar ? q->decode_gate_up_coupled_feed_sidecar :
+              q->down_consumer_order_weight, q->down_scale6_sidecar, q->down_scale6_base));
+    }
+    return ok(launch_projection_tile_to_bf16_cuda(ProjectionBackend::kSm87WeightOnly,
+        w, x, count, v.fp32_scratch, v.fp32_scratch_elements, y, stream));
+  };
+  const auto prefix_region = [&](unsigned row, const void* source,
+                                 std::size_t bytes) -> void* {
+    const auto offset = static_cast<const char*>(source) -
+                        static_cast<const char*>(state_.arena_data());
+    if (row >= count || offset < 0 || std::uint64_t(offset) < recurrent_offset_ ||
+        std::uint64_t(offset) + bytes > recurrent_offset_ + recurrent_bytes_) return nullptr;
+    return static_cast<char*>(snapshots_) + (row + 1) * slot_bytes_ +
+           offset - recurrent_offset_;
+  };
+  const auto save_region = [&](unsigned row, const void* source, std::size_t bytes) {
+    void* destination = prefix_region(row, source, bytes);
+    return destination && ok(cudaMemcpyAsync(destination, source, bytes,
+                                             cudaMemcpyDeviceToDevice, stream));
+  };
+  for (unsigned layer = first; layer < first + 3; ++layer) {
+    const auto& w = model.layer(layer);
+    const auto* a = std::get_if<LinearAttentionWeights>(&w.attention);
+    if (!a) return false;
+    if (!project(a->in_proj_qkv, v.hidden[1], v.projection[0]) ||
+        !project(a->in_proj_z, v.hidden[1], v.projection[1])) return false;
+    // Preserve the incumbent direct BF16 A/B pair arithmetic per row.
+    for (unsigned row = 0; row < count; ++row)
+      if (!ok(launch_projection_pair_tile_to_bf16_cuda(ProjectionBackend::kSm87WeightOnly,
+            a->in_proj_a, a->in_proj_b, v.hidden[1] + row * H, 1,
+            v.fp32_scratch, v.fp32_scratch_elements, v.linear_a + row * 48,
+            v.linear_b + row * 48, stream))) return false;
+    for (unsigned row = 0; row < count; ++row) {
+      constexpr std::size_t state_bytes = 48ULL * 128 * 128 * 2;
+      auto* state_output = static_cast<std::uint16_t*>(
+          prefix_region(row, v.gdn_state[layer], state_bytes));
+      const auto* state_input = row ? static_cast<const std::uint16_t*>(
+          prefix_region(row - 1, v.gdn_state[layer], state_bytes)) : v.gdn_state[layer];
+      if (!state_input || !state_output) return false;
+      if (!ok(launch_causal_conv1d_silu_update_reference_cuda(v.projection[0] + row * 10240,
+            a->conv1d.data, v.conv_state[layer], v.projection[0] + row * 10240, {}, stream)) ||
+          !ok(launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+            v.projection[0] + row * 10240, v.linear_a + row * 48, v.linear_b + row * 48,
+            a->a_log.data, a->dt_bias.data, state_input, state_output,
+            1.e-6F, a->norm.data, v.projection[1] + row * 6144, 48, 128, 1.e-6F,
+            v.projection[2] + row * 6144, {}, stream)) ||
+          !save_region(row, v.conv_state[layer], 10240 * 3 * 2)) return false;
+    }
+    if (!project(a->out_proj, v.projection[2], v.hidden[1])) return false;
+    // One CTA per independent row preserves the original 256-lane tree
+    // and BF16 residual publication without a cooperative grid per row.
+    if (!ok(launch_residual_add_headwise_centered_rms_norm_prefill_5120_cuda(
+          v.hidden[0], v.hidden[1], w.post_attention_layernorm.data,
+          count, H, 1.e-6F, v.hidden[2], v.hidden[1], stream))) return false;
+    if (!project(w.mlp.gate_proj, v.hidden[1], v.projection[0]) ||
+        !project(w.mlp.up_proj, v.hidden[1], v.projection[1]) ||
+        !ok(launch_silu_mul_reference_cuda(v.projection[0], v.projection[1],
+              count * 17408, v.projection[0], stream)) ||
+        !project(w.mlp.down_proj, v.projection[0], v.projection[1])) return false;
+    const auto* next_norm = layer == 63 ? model.final_norm().data :
+                                         model.layer(layer + 1).input_layernorm.data;
+    if (!ok(launch_residual_add_headwise_centered_rms_norm_prefill_5120_cuda(
+          v.hidden[2], v.projection[1], next_norm, count, H, 1.e-6F,
+          v.hidden[0], v.hidden[1], stream))) return false;
+  }
+  return true;
+}
+
+void TargetTransaction::release_gdn_graphs() noexcept {
+  bool any = false;
+  for (auto handle : gdn_graphs_) any |= handle != nullptr;
+  if (any) (void)cudaStreamSynchronize(static_cast<cudaStream_t>(target_.stream_));
+  for (auto& handle : gdn_graphs_) {
+    if (handle) (void)cudaGraphExecDestroy(static_cast<cudaGraphExec_t>(handle));
+    handle = nullptr;
+  }
+}
+
+bool TargetTransaction::prepare_gdn_graphs() noexcept {
+  auto stream = static_cast<cudaStream_t>(target_.stream_);
+  if (cudaStreamSynchronize(stream) != cudaSuccess) return false;
+  const auto& model = *target_.weights_;
+  for (unsigned group = 0; group < 16; ++group) {
+    for (unsigned j = 0; j < 3; ++j)
+      if (!std::holds_alternative<LinearAttentionWeights>(model.layer(group * 4 + j).attention))
+        return false;
+    if (!std::holds_alternative<FullAttentionWeights>(model.layer(group * 4 + 3).attention))
+      return false;
+  }
+  for (unsigned count = 2; count <= 4; ++count) {
+    for (unsigned group = 0; group < 16; ++group) {
+      if (cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal) != cudaSuccess) {
+        release_gdn_graphs(); return false;
+      }
+      const bool recorded = enqueue_gdn_block(group * 4, count);
+      cudaGraph_t graph = nullptr;
+      const auto end_status = cudaStreamEndCapture(stream, &graph);
+      if (!recorded || end_status != cudaSuccess || !graph) {
+        if (graph) (void)cudaGraphDestroy(graph);
+        release_gdn_graphs(); return false;
+      }
+      cudaGraphExec_t executable = nullptr;
+      const auto status = cudaGraphInstantiateWithFlags(&executable, graph, 0);
+      (void)cudaGraphDestroy(graph);
+      if (status != cudaSuccess) {
+        if (executable) (void)cudaGraphExecDestroy(executable);
+        release_gdn_graphs(); return false;
+      }
+      gdn_graphs_[(count - 2) * 16 + group] = executable;
+      if (cudaGraphUpload(executable, stream) != cudaSuccess) {
+        release_gdn_graphs(); return false;
+      }
+    }
+  }
+  if (cudaStreamSynchronize(stream) != cudaSuccess) {
+    release_gdn_graphs(); return false;
+  }
+  return true;
+}
+
 bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
   constexpr std::size_t H = 5120, V = 248320;
   auto& v = target_.views_;
@@ -68,6 +203,12 @@ bool TargetTransaction::verify_multirow(std::uint32_t* predictions) noexcept {
           V, H, inputs_[row], v.hidden[0] + row * H, stream))) return false;
   if (!norm(v.hidden[0], model.layer(0).input_layernorm.data, v.hidden[1])) return false;
   for (unsigned layer = 0; layer < 64; ++layer) {
+    if (rows_ > 1 && layer % 4 == 0) {
+      const auto graph = static_cast<cudaGraphExec_t>(gdn_graphs_[(rows_ - 2) * 16 + layer / 4]);
+      if (!graph || !ok(cudaGraphLaunch(graph, stream))) return false;
+      layer += 2;
+      continue;
+    }
     const auto& w = model.layer(layer);
     if (const auto* a = std::get_if<LinearAttentionWeights>(&w.attention)) {
       if (!project(a->in_proj_qkv, v.hidden[1], v.projection[0]) ||

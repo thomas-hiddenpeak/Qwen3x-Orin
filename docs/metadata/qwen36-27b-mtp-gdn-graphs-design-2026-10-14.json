@@ -1,0 +1,51 @@
+{
+  "work_package_id": "WP-MTP-GDN-GRAPHS-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v78",
+  "source_parent": "80dfc03",
+  "profile": "q3x.sm87.admission.mtp-gdn-graphs-api.v79",
+  "product_constraint": "1.5x\u20133x same-workload committed Decode with exact full target state/logits/output, maxima2/3, joint Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "remaining_v75_40k_d2_full_decode_s": 0.662287993,
+    "historical_v64_uncovered_gpu_window_s": 0.242087168,
+    "scope": "Uncovered profile interval is only a scheduling opportunity ceiling, not predicted graph saving. This composition alone cannot establish whole goal. AB dispatch batching was neutral; graph replay replaces the larger fixed multi-layer submission sequence."
+  },
+  "mechanism": "At transaction construction capture and instantiate16three-GDN-layer segments for eachM2/3/4 (48execs). Each contains original projections, row-ordered Conv/GDN, immutable prefix state publication and MLP/norms. Fixed storage and weights, no position/token value in captured parameters. First embedding/norm and fullAttention stay ordinary dynamic calls. Upload at startup and retain for owner lifetime; no capture/instantiate/allocation in a request. Missing graph fails closed. M1 keeps original route.",
+  "numerical_ledger": [
+    "Exactly original kernel calls, parameters and stream order within each segment; independent graph scheduling must retain DAG dependencies from single-stream capture.",
+    "Prefix snapshots, inputs/outputs and live state addresses remain stable until owner destruction; target sequence position does not enter captured GDN/MLP arithmetic.",
+    "No host report-counter increments during capture. Existing completed-verification counter updates once after success.",
+    "Full model topology must match16groups of3GDN+1fullAttention before graph construction. Construction failure destroys partial graphs and owned snapshot memory; destruction drains before releasing execs."
+  ],
+  "reference_audit": {
+    "source_sha256": {
+      ".q3x-work/tmp-archive-20260809/q3x-vllm-startup-audit-N1aJhv/vllm/vllm/model_executor/models/qwen3_next.py": "e195dc4d5522a8cce5399cb35d9d96d6e5a0c07bf9460ef6912c840dcb7a6dc9",
+      ".q3x-work/tmp-archive-20260809/q3x-vllm-startup-audit-N1aJhv/vllm/vllm/model_executor/models/qwen3_5_mtp.py": "41259149b519ad31feb5fa9bd99b1e808515f1b73410a31653ffd0d3d58ca713",
+      ".q3x-work/tmp-archive-20260809/q3x-vllm-startup-audit-N1aJhv/vllm/vllm/v1/spec_decode/llm_base_proposer.py": "7b746db4c7e08d5ddf4d7e93f74c0d3de612edb78cc042c6ec80dc79966fca48"
+    },
+    "finding": "Qwen3NextModel returns final normalized hidden; Qwen3_5MTP applies separate preFC embedding/hidden norms and returns its normalized hidden. Proposer recursively passes returned hidden. No semantic mismatch established; no change to hidden/token/position contract.",
+    "translation": "Reuse existing native CUDA Graph ownership/error discipline from reference_runner.cpp; no imported code, Tensor Core reassociation or new reference-model dependency."
+  },
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "graph_execs": 48,
+    "parameter_scans": 0,
+    "profiler_captures": 0
+  },
+  "gates": [
+    "Build andP65fullprefix/state/cache/failure oracle. Existing kernels unchanged; graph execution is admitted by full state comparison, not resource counts.",
+    "Immediate d2P65/8K/40K API, >3%slowdown or nonpositive8K closes; useful long direction unlocksd3. Preserve8GiBstartupreserve and complete lifecycle cleanup."
+  ],
+  "expiry": "One complete API composition or archive; no graph granularity or profiler scan.",
+  "artifact_root": ".q3x-work/mtp-gdn-graphs-20261014",
+  "rollback_files": [
+    "src/runtime/mtp_device_internal.h",
+    "src/runtime/mtp_device_internal.cpp",
+    "src/runtime/mtp_verify_internal.cpp",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "production_changed": false
+}

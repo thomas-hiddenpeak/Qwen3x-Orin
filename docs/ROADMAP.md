@@ -19,6 +19,33 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 fixed GDN segments — API composition complete
+
+`WP-MTP-GDN-GRAPHS-20261014` / `AC-MTP-GREEDY-v78` owns the
+[startup graph composition](metadata/qwen36-27b-mtp-gdn-graphs-design-2026-10-14.json).
+Capture 16 three-GDN-layer segments for each M2/M3/M4 at owner construction,
+then replay unchanged kernel sequences at fixed addresses. Attention remains
+dynamic. No graph creation or allocation enters a round; partial construction
+and destruction have explicit drain/release boundaries. The 0.242s historical
+uncovered interval cannot alone establish the remaining 0.662s goal.
+Complete state admission returns immediately to d2 API; 3% slowdown or
+nonpositive 8K closes, useful long direction unlocks d3. One fixed granularity,
+no graph/profiler scan, no arithmetic, policy or production change.
+
+The [completed composition](metadata/qwen36-27b-mtp-gdn-graphs-direction-2026-10-14.json) passes complete
+prefix/state/cache/failure admission and all sixteen d2/d3 API/lifecycle checks,
+with identical output IDs and work against v75. D2 8K/40K Decode reaches
+15.144/11.558 token/s, saving 0.192/0.223 seconds of full Decode. D3 improves
+at all three buckets and remains slower than d2. At 40K d2, Prefill is
+91.968 seconds / 434.93 token/s, TTFT 92.004 seconds and total 114.068 seconds.
+
+Retain this fixed graph composition as a bounded development dependency
+through the next complete architecture API return or archival. It is one
+process per maximum, not statistical selection or production qualification.
+D2 reaches 1.644x/1.470x non-MTP at 8K/40K; the remaining 40K full-Decode gap
+is 0.440 seconds and the full 1.5x–3x goal remains open. No graph granularity,
+threshold or profiler scan follows. Production remains unchanged.
+
 ## 2026-10-14 private vocabulary coverage — closed
 
 `WP-MTP-VOCAB-COVERAGE-20261014` / `AC-MTP-GREEDY-v77` owns one

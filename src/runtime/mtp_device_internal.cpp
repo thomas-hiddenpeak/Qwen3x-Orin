@@ -445,9 +445,18 @@ TargetTransaction::TargetTransaction(ReferenceRunner& target, RequestState& stat
     snapshots_ = allocate(5 * slot_bytes_);
     owns_snapshots_ = true;
   }
+  try {
+    check(!multirow_ || prepare_gdn_graphs(), "MTP fixed GDN graph preparation");
+  } catch (...) {
+    release_gdn_graphs();
+    if (owns_snapshots_ && snapshots_) cudaFree(snapshots_);
+    snapshots_ = nullptr;
+    throw;
+  }
 }
 TargetTransaction::~TargetTransaction() {
   if (active_) (void)abort();
+  release_gdn_graphs();
   if (owns_snapshots_ && snapshots_) cudaFree(snapshots_);
 }
 bool TargetTransaction::initialize_whole_core_prefill(

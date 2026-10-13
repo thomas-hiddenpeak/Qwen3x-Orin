@@ -94,6 +94,10 @@ class TargetTransaction final : public RoundBackend {
   bool abort() noexcept override;
  private:
   bool verify_multirow(std::uint32_t* predictions) noexcept;
+  bool enqueue_gdn_block(unsigned first_layer, unsigned rows) noexcept;
+  bool prepare_gdn_graphs() noexcept;
+  void release_gdn_graphs() noexcept;
+  std::array<void*, 48> gdn_graphs_{};
   bool multirow_ = false;
   bool snapshot(std::uint32_t slot) noexcept;
   ReferenceRunner& target_;

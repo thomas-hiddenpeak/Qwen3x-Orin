@@ -81,7 +81,7 @@ def audit(out, records, draft):
             q.require(digest == w['prompt_token_ids_u32le_sha256'], 'prompt identity')
         m = w['mtp']; q.require(m['enabled'] and m['initialized'] and not m['failed'], 'MTP state')
         q.require(m['draft_length'] == draft and w['target_prefill_complete'] and
-                  m['verifier'] == 'multirow-gate-input-composition-v75', 'route identity')
+                  m['verifier'] == 'multirow-gdn-graphs-v79', 'route identity')
         q.require(m['startup_free_bytes'] >= 8*1024**3, 'composed memory reserve')
         hits = m['draft_ordered_attention_steps']
         q.require(0 <= hits <= m['proposed'], 'draft ordered work count')
@@ -145,7 +145,7 @@ def main():
     q.preflight(out, args.control_pid)
     prompt = json.loads(args.prompt_request.read_text())['prompt']
     q.require(len(prompt) >= 40000, 'real prompt fixture too short')
-    q.PROFILE = 'q3x.sm87.admission.mtp-gate-input-composition-api.v75' if args.draft_length else q.PROFILE
+    q.PROFILE = 'q3x.sm87.admission.mtp-gdn-graphs-api.v79' if args.draft_length else q.PROFILE
     key = os.urandom(24).hex(); keyfile = out / 'api-key'; keyfile.write_text(key); keyfile.chmod(0o600)
     cmd = [str(args.server.resolve()), str(args.model_dir.resolve()), '--port', '18872', '--api-key-file', str(keyfile)]
     if args.draft_length: cmd += ['--candidate-profile', 'whole-core-exact-decode']
