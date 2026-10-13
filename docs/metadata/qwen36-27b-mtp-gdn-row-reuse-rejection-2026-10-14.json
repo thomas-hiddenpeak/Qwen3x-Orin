@@ -1,0 +1,289 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-GDN-ROW-REUSE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v81",
+  "source_parent": "7446e98",
+  "decision_unit": "architecture_candidate",
+  "decision": "remove_neutral_API_direction",
+  "production_changed": false,
+  "goal_complete": false,
+  "candidate_profile": "q3x.sm87.admission.mtp-gdn-row-reuse-api.v82",
+  "retained_profile": "q3x.sm87.admission.mtp-gdn-graphs-api.v79",
+  "server_sha256": "57873cda3edab266a09c1e8c5cea8817cfc83957821b7a97ae8de89e0b34713b",
+  "oracle_sha256": "1ba7e14dcc9ebeb495f64543ca4dac4f86fa79c08d64615647bdc40f1fd7229c",
+  "artifact_root": ".q3x-work/mtp-gdn-row-reuse-20261014",
+  "implementation": "One256-thread CTA per value head prepares original independent Q/K/gates forM2/3/4, carries one eight-value-row batch in16packed BF16words per lane across all tokens, writes every immutable prefix and computes current raw output from unrounded FP32 updates; original head norm follows complete raw BF16 outputs. Conv updates and snapshots remain original ordered calls before this kernel. Startup GDN graph captures composition.",
+  "numerical": {
+    "complete_synthetic_cases": 12,
+    "synthetic_prefix_states": 36,
+    "synthetic_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": null
+    },
+    "complete_model_target_prefixes": 9,
+    "complete_state_cache_transactions": 15,
+    "verification_failure_recoveries": 4,
+    "initialization_cancel_recoveries": 8,
+    "oracle_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 68.406
+    },
+    "scope": "All complete prefix states, outputs, guards and unchanged entry state pass synthetic scalar-composite comparison; whole model uses separately linked original scalar runner to compare complete recurrent/Conv/KV/hidden/full-logits and draft-KV. Private draft arithmetic unchanged."
+  },
+  "synthetic_identity_label_erratum": {
+    "original": "synthetic complete NV projection output/guard correctness only",
+    "correction": "The inherited scope label in synthetic/identity.json is wrong. Actual hashed consumer-test executes12GDNcases shown in run.log, not NV projections. Original raw identity is preserved; build.py, frozen GDN source, baseline.cu and command hashes establish actual scope.",
+    "effect": "Metadata label only; no timing or performance authority assigned to this run."
+  },
+  "resources": [
+    {
+      "rows": 4,
+      "registers": 56,
+      "shared_bytes": 37664,
+      "stack_spills": "0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads"
+    },
+    {
+      "rows": 3,
+      "registers": 56,
+      "shared_bytes": 36632,
+      "stack_spills": "0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads"
+    },
+    {
+      "rows": 2,
+      "registers": 48,
+      "shared_bytes": 35600,
+      "stack_spills": "0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads"
+    }
+  ],
+  "api": {
+    "d2": {
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.8934293439999998,
+          "prefill_tps": 72.75337488803144,
+          "decode_tps": 13.470353711417635,
+          "ttft_s": 0.9120269909981289,
+          "elapsed_s": 2.0254152689994953,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gdn-row-reuse-v82",
+            "draft_length": 2,
+            "startup_free_bytes": 10975809536,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "direct_gdn_state_rows": 912,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 1987054592,
+            "draft_initialization_ms": 5.711024,
+            "draft_ms": 113.25560500000002,
+            "verify_ms": 979.579533,
+            "reconcile_ms": 20.34510699999999,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.2177918,
+          "prefill_tps": 475.78691246574374,
+          "decode_tps": 15.149627688836503,
+          "ttft_s": 17.24000468400118,
+          "elapsed_s": 34.072419138999976,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-gdn-row-reuse-v82",
+            "draft_length": 2,
+            "startup_free_bytes": 10975809536,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 98,
+            "proposed": 187,
+            "accepted": 157,
+            "verified_rows": 285,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              71,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              9,
+              89,
+              0
+            ],
+            "draft_ordered_attention_steps": 187,
+            "entry_hidden_snapshots": 98,
+            "direct_gdn_state_rows": 13680,
+            "seed_kv_reuses": 98,
+            "state_copy_bytes_elided": 29253216256,
+            "draft_initialization_ms": 568.931579,
+            "draft_ms": 1786.1952229999993,
+            "verify_ms": 14691.421778,
+            "reconcile_ms": 349.00915299999986,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "comparison": [
+        {
+          "stage": "p65",
+          "decode_ratio_vs_v79": 1.0010853908127457,
+          "decode_ratio_vs_nonmtp": 1.406012965353465,
+          "draft_saved_ms": -0.048705000000026644,
+          "verify_saved_ms": 0.8123629999998911,
+          "draft_initialization_delta_ms": 0.20927499999999988,
+          "reconcile_saved_ms": 0.05695600000001022,
+          "full_decode_saved_s": 0.001208644000000092,
+          "prefill_delta_s": 0.0019593959999998356,
+          "total_delta_s": -0.006795351000619121
+        },
+        {
+          "stage": "p8192",
+          "decode_ratio_vs_v79": 1.0003933884216558,
+          "decode_ratio_vs_nonmtp": 1.644535970649636,
+          "draft_saved_ms": 0.2967910000008942,
+          "verify_saved_ms": 6.975431999995635,
+          "draft_initialization_delta_ms": 24.197413000000097,
+          "reconcile_saved_ms": 0.15332000000012158,
+          "full_decode_saved_s": 0.0066215519999950345,
+          "prefill_delta_s": 0.03221033500000203,
+          "total_delta_s": 0.025541680999594973
+        }
+      ],
+      "completed_api_checks": 2,
+      "output_ids_equal_v79": true,
+      "work_differences": [
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "fields": {}
+        }
+      ]
+    }
+  },
+  "api_cleanup": {
+    "d2": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 71.687
+    }
+  },
+  "stop_decision": {
+    "decision": "remove_neutral_API_direction",
+    "reason": "Completed8K Decode15.149627688836503 versus15.143670344261698 is only+0.0393%, with no noise qualification or useful whole-API gain. Stop without extending measurement or tuning.",
+    "scope": "Engineering neutral rejection, not the automatic nonpositive gate or a statistical regression claim. Any subsequent in-flight request is interrupted, not a completed40Kresult.",
+    "owned_driver_pid": 40245,
+    "observed_command": [
+      "/home/rm01/miniconda3/bin/python3",
+      "-B",
+      "tools/evaluation/validate_mtp_service.py",
+      "--server",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-row-reuse-20261014/source/server",
+      "--model-dir",
+      "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "--prompt-request",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/evidence/terminal-prefix-main-p40000-api-20260909-r2/request-body.json",
+      "--output",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-gdn-row-reuse-20261014/d2",
+      "--baseline",
+      "/home/rm01/Qwen3x-Orin/.q3x-work/mtp-shared-verify-20261009/baseline",
+      "--draft-length",
+      "2",
+      "--control-pid",
+      "2982",
+      "--control-pid",
+      "2556"
+    ]
+  },
+  "driver_result": {
+    "returncode": -2,
+    "early_stop": false
+  },
+  "conclusion": "8K Decode15.149627688836503 versus15.143670344261698 differs only+0.0393% with no noise qualification. No useful whole-API gain selects this extra recurrence implementation. Close after completed8K, interrupt subsequent request and restorev79.",
+  "scope_limits": [
+    "One candidate process; no statistical speedup or regression claim.",
+    "Only two completed API observations. No completed40K or d3/full-lifecycle claim; subsequent40Krequest was interrupted. Owned server exits0, driver KeyboardInterrupt is retained.",
+    "Manual neutral stop is distinct from automatic nonpositive8K stop; wrapper early_stop=False must not be interpreted as a complete panel.",
+    "State-load elimination is not a measured DRAM saving; original adjacent rows may already use cache. No new cache, bandwidth or stall attribution is claimed.",
+    "Prefill unchanged; its timing difference is not attributed to the recurrence.",
+    "No geometry/register/profiler scan; this one construction closes without a global ceiling claim."
+  ],
+  "expiry": "Closed after API neutral direction; no retained new kernel or state/layout contract.",
+  "artifact_manifest": ".q3x-work/mtp-gdn-row-reuse-20261014/artifact-manifest.json",
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "api_keys_remaining": 0,
+    "temporary_files_remaining": 0,
+    "registered_worktrees": 47,
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "restoration": {
+    "server": {
+      "retained_sha256": "622bf0c2b6b8919188354b6022943e7d5576afea47cd0f1d8421bacf9f8cfc81",
+      "rebuilt_sha256": "37b01b52bcc81c0ba03c2bbddd21e256e6083175fbcb853d0bd6613f6d1f32fd",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "3bc8bb3fe1e639a43a1d4466a98702a19ed701e03cb3d4cfd90246e84cc5b834",
+      "rebuilt_sha256": "b764c49cbbad7cc67eb8757591237b3ed874e041ebbec67658be1800f3302553",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "validation": {
+    "host_ctests": 3,
+    "document_unit_tests": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1363,
+      "errors": 0
+    },
+    "git_diff_check": "pass"
+  }
+}

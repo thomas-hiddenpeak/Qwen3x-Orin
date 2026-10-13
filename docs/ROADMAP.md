@@ -19,6 +19,32 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 GDN row-state reuse — closed neutral
+
+`WP-MTP-GDN-ROW-REUSE-20261014` / `AC-MTP-GREEDY-v81` owns the
+[bounded recurrence composition](metadata/qwen36-27b-mtp-gdn-row-reuse-design-2026-10-14.json).
+Retain packed BF16 state across speculative rows within each independent
+value-row batch. Publish every complete prefix and use unrounded FP32 updates
+for current outputs. Original Conv, reduction trees and scalar FMA order stay
+fixed. Precompute independent Q/K/gates, then recur, then apply the original
+head normalization. Additional registers/shared inputs may offset saved state
+reads; the historical 0.438-second GDN budget cannot alone establish the full
+goal. Complete synthetic and state admission returns directly to d2 API;
+3% slowdown or nonpositive 8K closes, useful long direction unlocks d3.
+One implementation, no geometry/profiler scan or production change.
+
+The [completed direction](metadata/qwen36-27b-mtp-gdn-row-reuse-rejection-2026-10-14.json)
+passes twelve complete synthetic cases, nine complete model prefixes, fifteen
+state/cache transactions and all bounded failure/cancel recovery checks.
+At 8K d2, Prefill is 17.218 seconds / 475.79 token/s, TTFT 17.240 seconds,
+Decode 15.150 token/s and total 34.072 seconds. Output and work match v79,
+but Decode differs only +0.04% without noise qualification. Close this neutral
+construction after the completed 8K request; the subsequent 40K request is
+interrupted, and d3/full lifecycle are not qualified. Remove the new kernel,
+dispatch and profile, restore v79, and do not scan row/warp/register geometry.
+Fewer logical state loads did not establish useful API value or a DRAM saving.
+Production and the full 1.5x–3x objective remain unchanged.
+
 ## 2026-10-14 direct Down scales — closed neutral
 
 `WP-MTP-DOWN-SCALE-DIRECT-20261014` / `AC-MTP-GREEDY-v80` owns the

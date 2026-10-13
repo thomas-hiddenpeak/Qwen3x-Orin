@@ -2051,6 +2051,23 @@ preserves complete outputs/state and all eight d2 API/lifecycle checks, but
 The construction is removed; retained Down uses the preceding scale6 feed.
 D3 and further scale/layout scanning are not run.
 
+## GDN row-state reuse composition v81 — removed
+
+The [bounded composition](metadata/qwen36-27b-mtp-gdn-row-reuse-design-2026-10-14.json)
+orders unchanged Conv updates/snapshots before one multi-row GDN kernel per
+layer. Each value-row batch carries the exact rounded BF16 state between
+speculative tokens and still writes every immutable prefix. Current raw output
+uses the unrounded FP32 update. Q/K/gate preparation and final RMSNorm/SiLU
+are reordered only across independent rows; their reduction and publication
+boundaries remain exact. The existing snapshot/observer contract and startup
+GDN graphs remain mandatory. No production or numerical relaxation is granted.
+
+The [completed direction](metadata/qwen36-27b-mtp-gdn-row-reuse-rejection-2026-10-14.json)
+preserves full numerical/state/cache semantics but provides no useful gain at
+the 8K API return. The new kernel and integration are removed; the existing
+startup graphs retain per-token GDN calls. No completed 40K/d3 or full lifecycle
+qualification is claimed for the removed composition.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of

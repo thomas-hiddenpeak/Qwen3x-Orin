@@ -1,0 +1,46 @@
+{
+  "work_package_id": "WP-MTP-GDN-ROW-REUSE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v81",
+  "source_parent": "7446e98",
+  "profile": "q3x.sm87.admission.mtp-gdn-row-reuse-api.v82",
+  "product_constraint": "1.5x–3x same-workload Decode, d2/d3, exact full target state/logits/output, joint Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "historical_v64_gdn_gpu_s": 0.43760912,
+    "remaining_40k_d2_full_decode_s": 0.439699315,
+    "scope": "GDN family alone cannot establish the full goal. Reuse removes later-row input state reads and repeated kernel submissions, not mandatory prefix writes or arithmetic. Historical family timing is not a predicted saving."
+  },
+  "mechanism": "Each of48GDN layers uses one M2/3/4 kernel instead of token-separated recurrence kernels. First enqueue all original causal Conv updates and immutable Conv snapshots. A256thread CTA per value head precomputes identical Q/K/gates for every token. Each warp retains one eight-value-row state batch in16packed BF16 registers across all tokens, then processes the next state batch. Store every rounded prefix and compute each raw output from unrounded FP32 updates. Finish identical BF16 raw-output to RMSNorm/SiLU epilogue per token. Existing graph captures this sequence at startup.",
+  "equivalence_ledger": [
+    "Conv precedes GDN and is independent of recurrent GDN state; original Conv call order and snapshot copies remain exact.",
+    "Q/K normalization and alpha/beta are independent of recurrent state; their original128-lane reduction and scalar expressions are retained for each token.",
+    "For every state value: decay rounded previous state in FP32, K128 ordered FMA prediction, beta correction, FP32 FMA update, store RNE_BF16 prefix, ordered K128 FMA output using unrounded update. Packed carry contains exactly stored BF16 bits.",
+    "Different value-row batches are independent until head normalization; all raw BF16 outputs finish before identical256lane norm reduction and gate.",
+    "No state pointer substitution, missing prefix, changed arithmetic, temporary allocation or production change. Added registers/shared QK storage can outweigh fewer loads and launches."
+  ],
+  "reference_translation": "Native literal exact GDN composite and existing gdn_m16_register_state / exact-span register-carry ownership are references. FLA/Mamba chunk reassociation is excluded by scalar/BF16 prefix contract; no imported code or newer ISA.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "geometry_scans": 0,
+    "profiler_captures": 0
+  },
+  "gates": [
+    "Build/resources, complete same-input synthetic prefix/output/guards forM2/3/4 versus original composite including signed-zero/rounding/gate fixtures, then completeP65state/cache/failure oracle.",
+    "Immediate d2P65/8K/40K API; >3%slowdown or nonpositive8K closes. Useful long direction unlocksd3; preserve complete output/work and8GiBreserve."
+  ],
+  "expiry": "One API composition then bounded retention or archival; no row/warp/register tuning scan.",
+  "artifact_root": ".q3x-work/mtp-gdn-row-reuse-20261014",
+  "rollback_files": [
+    "CMakeLists.txt",
+    "src/runtime/mtp_verify_internal.cpp",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "new_files": [
+    "src/runtime/mtp_verify_gdn_internal.cu",
+    "src/runtime/mtp_verify_gdn_internal.h"
+  ],
+  "production_changed": false
+}

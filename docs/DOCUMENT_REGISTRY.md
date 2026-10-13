@@ -438,3 +438,5 @@ The fixed GDN graph composition completes both API panels and updates existing M
 The prefix-commit overlap work package closes after nonpositive 8K API direction with v79 restored. Existing Roadmap and MTP SDD retain frozen evidence; no Markdown paths or classifications change.
 
 The direct Down-scale package closes neutral after complete d2 API checks and v79 restoration. Existing Roadmap and MTP SDD retain frozen evidence; no Markdown paths or classifications change.
+
+The GDN row-state reuse package closes neutral after its 8K API return with v79 restored. Existing Roadmap and MTP SDD retain frozen evidence; no Markdown paths or classifications change.
