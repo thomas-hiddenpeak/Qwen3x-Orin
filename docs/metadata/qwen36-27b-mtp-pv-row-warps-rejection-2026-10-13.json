@@ -1,0 +1,260 @@
+{
+  "date": "2026-10-13",
+  "work_package_id": "WP-MTP-PV-ROW-WARPS-20261013",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v71",
+  "source_parent": "d190c7a",
+  "design_origin": "bf24964",
+  "decision_unit": "architecture_candidate",
+  "decision": {
+    "decision": "remove",
+    "reason": "Completed8K d2 Decode14.332434915 versus retained14.502880296 (-1.17525 percent); predeclared nonpositive8K stop. No40K/d3/full lifecycle qualification.",
+    "numerical_pass": true,
+    "api_checks_completed": 2,
+    "goal_complete": false,
+    "production_changed": false
+  },
+  "production_changed": false,
+  "goal_complete": false,
+  "profile": "q3x.sm87.admission.mtp-pv-row-warps-api.v72",
+  "server_sha256": "1ec9989d7312a75207e4f9fa3e7417543cea88b9b3503860b287b47157720dc7",
+  "oracle_sha256": "6e42f2697905f5a5e0005fb19a5d8f5a2526e625b8aa0a2da4662e236c45d7b5",
+  "artifact_root": ".q3x-work/mtp-pv-row-warps-20261013",
+  "numerical": {
+    "synthetic": {
+      "complete_attention_cases": 72,
+      "all_passed": true,
+      "scope": "Full QK scores, FP32 probabilities, BF16 PV outputs and probability/output guards atS512/513/514/515/8192/44092,M2/3/4,four finite/exceptional patterns; no performance authority.",
+      "binary_sha256": "ad9c0abae631c45d76bed37835b7e5bc2b59027e7ee1cdbc7fbbdbfcd7c6ff98",
+      "source_sha256": "51533e450f1d11d364f16b4d4c6d605563452d38d042f9ff1b139bf799df0b12"
+    },
+    "synthetic_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 59.718
+    },
+    "p513": {
+      "prefix_groups": 3,
+      "complete_prefixes": 9,
+      "transactions": 15,
+      "failure_recoveries": 4,
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 71.406
+      }
+    },
+    "p8192": {
+      "prefix_groups": 3,
+      "complete_prefixes": 9,
+      "cleanup": {
+        "returncode": 0,
+        "errors": [],
+        "max_temperature": 75.437
+      },
+      "scope": "Complete scalar-target prefixes/state/logits only; no API performance authority."
+    },
+    "total_complete_prefixes": 18
+  },
+  "actual_server_resources": [
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail65_GLOBAL__N__81cc8d2d_32_mtp_verify_attention_internal_cu_9b4399f133attention_values_row_warps_kernelILj4EEEvPKtPKfjPt:",
+      "resources": "REG:39 STACK:0 SHARED:40960 LOCAL:0 CONSTANT[0]:384 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail65_GLOBAL__N__81cc8d2d_32_mtp_verify_attention_internal_cu_9b4399f133attention_values_row_warps_kernelILj3EEEvPKtPKfjPt:",
+      "resources": "REG:39 STACK:0 SHARED:34816 LOCAL:0 CONSTANT[0]:384 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    },
+    {
+      "function": "Function _ZN3q3x7runtime10mtp_detail65_GLOBAL__N__81cc8d2d_32_mtp_verify_attention_internal_cu_9b4399f133attention_values_row_warps_kernelILj2EEEvPKtPKfjPt:",
+      "resources": "REG:39 STACK:0 SHARED:28672 LOCAL:0 CONSTANT[0]:384 TEXTURE:0 SURFACE:0 SAMPLER:0"
+    }
+  ],
+  "api": {
+    "metrics": [
+      {
+        "stage": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.892286754,
+        "prefill_tps": 72.84653695531605,
+        "decode_tps": 12.899295488207827,
+        "ttft_s": 0.9182645719993161,
+        "elapsed_s": 2.0810632559987425,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-pv-row-warps-v72",
+          "draft_length": 2,
+          "startup_free_bytes": 11117326336,
+          "prompt_rows": 65,
+          "draft_prefill_rows": 64,
+          "initialized": true,
+          "rounds": 7,
+          "proposed": 12,
+          "accepted": 8,
+          "verified_rows": 19,
+          "committed_decode_tokens": 15,
+          "accepted_by_position": [
+            4,
+            4,
+            0
+          ],
+          "confidence_threshold": 0.4,
+          "proposal_histogram": [
+            1,
+            0,
+            6,
+            0
+          ],
+          "draft_ordered_attention_steps": 0,
+          "entry_hidden_snapshots": 7,
+          "direct_gdn_state_rows": 912,
+          "seed_kv_reuses": 6,
+          "state_copy_bytes_elided": 1987054592,
+          "draft_initialization_ms": 5.673911,
+          "draft_ms": 125.52201499999998,
+          "verify_ms": 1015.708237,
+          "reconcile_ms": 20.816200000000002,
+          "cancelled": false,
+          "failed": false
+        }
+      },
+      {
+        "stage": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.255276509999998,
+        "prefill_tps": 474.75333097400477,
+        "decode_tps": 14.33243491456164,
+        "ttft_s": 17.277420757000073,
+        "elapsed_s": 35.069591679999576,
+        "mtp": {
+          "enabled": true,
+          "verifier": "multirow-pv-row-warps-v72",
+          "draft_length": 2,
+          "startup_free_bytes": 11117326336,
+          "prompt_rows": 8192,
+          "draft_prefill_rows": 8191,
+          "initialized": true,
+          "rounds": 98,
+          "proposed": 187,
+          "accepted": 157,
+          "verified_rows": 285,
+          "committed_decode_tokens": 255,
+          "accepted_by_position": [
+            86,
+            71,
+            0
+          ],
+          "confidence_threshold": 0.4,
+          "proposal_histogram": [
+            0,
+            9,
+            89,
+            0
+          ],
+          "draft_ordered_attention_steps": 187,
+          "entry_hidden_snapshots": 98,
+          "direct_gdn_state_rows": 13680,
+          "seed_kv_reuses": 98,
+          "state_copy_bytes_elided": 29253216256,
+          "draft_initialization_ms": 541.180275,
+          "draft_ms": 1979.735012,
+          "verify_ms": 15449.246255,
+          "reconcile_ms": 357.8684549999997,
+          "cancelled": false,
+          "failed": false
+        }
+      }
+    ],
+    "comparison": [
+      {
+        "stage": "p65",
+        "decode_ratio_vs_v64": 1.0080348550659453,
+        "decode_ratio_vs_nonmtp": 1.3464068642067561,
+        "draft_saved_ms": 0.5364860000000249,
+        "verify_saved_ms": 8.92553699999985,
+        "full_decode_saved_s": 0.009343364999999881,
+        "prefill_delta_s": 0.0033139340000000184,
+        "total_delta_s": 0.0012681487532972824
+      },
+      {
+        "stage": "p8192",
+        "decode_ratio_vs_v64": 0.9882474806527968,
+        "decode_ratio_vs_nonmtp": 1.5558273277804597,
+        "draft_saved_ms": 1.6543420000004971,
+        "verify_saved_ms": -214.39757400000417,
+        "full_decode_saved_s": -0.20909862500000287,
+        "prefill_delta_s": -0.03632230000000192,
+        "total_delta_s": 0.17279724908803473
+      }
+    ],
+    "completed_api_checks": 2,
+    "output_ids_equal_v64": true,
+    "work_equal_v64": true
+  },
+  "api_cleanup": {
+    "success": false,
+    "returncode": 0,
+    "errors": [],
+    "max_temperature": 72.218
+  },
+  "api_driver_result": {
+    "returncode": -2,
+    "early_stop": true
+  },
+  "scope_limits": [
+    "P65/O16 andP8192/O256 d2 completed; no40K/d3 or full API lifecycle/repeated qualification.",
+    "P65 does not execute the changed PV path; its+0.8 percent Decode variation is not a mechanism gain. Prefill code is unchanged and its timing variation is not attributed to PV.",
+    "No fresh profiler establishes a bandwidth, shared-bank, barrier or actual-occupancy cause. No subsequent shared carveout, block size, dimension, stage or length scan.",
+    "Negative engineering direction is not a universal hardware bound or statistically qualified regression."
+  ],
+  "engineering_conclusion": "Independent row warps plus shared V preserve exact declared scores/probabilities/output/state and use39 registers without spills. Nevertheless8K verification adds214.397574ms, full Decode adds209.098625ms and external total adds172.797249ms. The predeclared nonpositive8K stop removes this fixed composition and restoresv64; no local resource metric overrides the API. Full1.5x-3x goal remains open.",
+  "rollback_files": [
+    "src/runtime/mtp_verify_attention_internal.cu",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "restoration": {
+    "server": {
+      "retained_sha256": "c4d9df64972f64d9bafeba6d5a4e92376ef23d1b5e5956b1a491ad1e1dea3e05",
+      "rebuilt_sha256": "cf956a19cc454121fd38ec2066a2b3b3b163697b8994b6cfeb573014d3197065",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "2779c9075d6b6ea19f7133721e7e1175830f6ad813d564ca6d2dc2fb601edda0",
+      "rebuilt_sha256": "574ed549efb37104372101f3e9b42c3ddc84f32bd0f2a9563665e81c81599466",
+      "differing_sections": [
+        ".strtab"
+      ],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "validation": {
+    "host_ctests": 3,
+    "document_unit_tests": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1323,
+      "errors": 0
+    },
+    "git_diff_check": "pass"
+  },
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "api_keys_remaining": 0,
+    "workspace_tmp_files": [],
+    "registered_worktrees": 47,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "artifact_manifest": ".q3x-work/mtp-pv-row-warps-20261013/artifact-manifest.json"
+}

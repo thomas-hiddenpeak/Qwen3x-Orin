@@ -37,7 +37,7 @@ QK 2.142s and PV 2.180s. Copy plus uncovered intervals total 0.507s, below the
 remaining 1.264s full-Decode budget. These are profile costs, not updated API
 baselines or stall attribution. No repeated profile/NCU follows.
 
-## 2026-10-13 PV row warps — active composition
+## 2026-10-13 PV row warps — closed negative
 
 `WP-MTP-PV-ROW-WARPS-20261013` / `AC-MTP-GREEDY-v71` owns the
 [shared V / independent row consumers](metadata/qwen36-27b-mtp-pv-row-warps-design-2026-10-13.json).
@@ -49,6 +49,20 @@ loads or static concurrency cannot select it. Complete numerical/state admission
 returns directly to d2 API; 3% slowdown or nonpositive 8K closes it, useful long
 direction unlocks d3. One structure/one possible correctness repair, no tile,
 launch or profiler scan. Production and the full goal remain unchanged.
+
+The [completed rejection](metadata/qwen36-27b-mtp-pv-row-warps-rejection-2026-10-13.json)
+passes 72 complete Attention score/probability/output/guard cases, eighteen
+P513/P8192 prefixes, fifteen state/cache transactions and four failure recoveries.
+All three kernels use 39 registers without spills. At P8192/O256 d2, output
+and work remain exact but Decode falls from 14.503 to 14.332 token/s (-1.18%).
+Prefill is 17.255 seconds / 474.75 token/s, TTFT 17.277 seconds and total
+35.070 seconds. Verification adds 214.398ms; complete Decode adds 209.099ms.
+
+The predeclared nonpositive 8K stop prevents 40K/d3 and full lifecycle
+qualification. All new producer/consumer/profile paths are removed and v64
+restored. P65 does not execute this PV route, and its small timing variation
+is not attributed to the change. No new stall or bandwidth cause, carveout,
+stage or launch scan follows. Production and the full goal remain unchanged.
 
 ## 2026-10-13 FP8 output ownership — closed negative
 

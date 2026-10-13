@@ -1880,7 +1880,7 @@ passes complete numerical/state admission but regresses P65 d2 API Decode by
 removed. Retained v64 remains current; no geometry scan or production change
 follows this closed composition.
 
-## PV row-warp composition v71
+## PV row-warp composition v71 — removed
 
 The [bounded candidate](metadata/qwen36-27b-mtp-pv-row-warps-design-2026-10-13.json)
 assigns each speculative row six separate consumer warps inside a single CTA.
@@ -1892,6 +1892,13 @@ arithmetic and probability copy remain limited to its own actual length.
 No future-row operand reaches an earlier causal result. There is no new arena,
 request allocation, target-state boundary or production route. Full-prefix and
 API selection, not fewer source-level loads, decide retention.
+
+The [completed rejection](metadata/qwen36-27b-mtp-pv-row-warps-rejection-2026-10-13.json)
+passes complete numerical and long-prefix/state admission, but regresses 8K
+d2 API Decode by 1.18% with unchanged outputs/work. The nonpositive 8K stop
+prevents further qualification. All row-warp producer, consumer and profile
+changes are removed; retained v64 remains current, with no subsequent tile,
+carveout or stage scan and no production change.
 
 ## Checkpoint and draft model
 
