@@ -1,0 +1,43 @@
+{
+  "work_package_id": "WP-MTP-COMMIT-OVERLAP-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v79",
+  "source_parent": "f5dd51f",
+  "profile": "q3x.sm87.admission.mtp-commit-overlap-api.v80",
+  "decision_unit": "architecture_candidate",
+  "product_constraint": "Same-workload 1.5x–3x committed Decode, exact target state/logits/output, maxima 2/3; joint Prefill, TTFT, Decode and total.",
+  "downward_budget": {
+    "remaining_40k_d2_full_decode_s": 0.439699315,
+    "historical_v64_all_d2d_s": 0.263948672,
+    "historical_v64_all_reconcile_s": 0.35,
+    "scope": "All D2D is only a loose overlap ceiling, not predicted saving. Only non-seed selected prefixes do both copy and cache append. This cannot alone establish the full goal."
+  },
+  "mechanism": "Enqueue canonical recurrent/hidden/logit restoration on target stream, then run unchanged synchronous draft KV append on independent nonblocking draft stream before target stream synchronization. Verification already synchronized both snapshot production and draft rewind. Each stream reads immutable snapshots, writes physically disjoint canonical target or private draft storage. Join both before publishing logical target length or invoking any observer. No pointer redirection, no skipped restoration, no allocation or arithmetic change.",
+  "numerical_ledger": [
+    "Target copies preserve all 78,446,592 recurrent/Conv bytes, hidden and full vocabulary logits before each observer.",
+    "Draft append reads previous immutable snapshot hidden, not concurrently written canonical hidden. Weights/RoPE are read-only; draft workspace and K/V are separately allocated.",
+    "Draft append remains synchronous and preserves original projection/reduction order. Both completion statuses must pass before publication. On append failure still drain target; transaction abort poisons and requires reset.",
+    "First-seed reuse has no append and still waits for target copy. No work or acceptance policy change."
+  ],
+  "rejected_alternative": "Pointer-only prefix selection conflicts with arena_data contiguous canonical-state observations and fixed GDN graph input addresses. Do not change oracle to hide stale canonical bytes.",
+  "reference_translation": "Existing native owner streams already use cudaStreamNonBlocking and explicit immutable lifetime boundaries. Reorder independent branches and retain join; no imported code or dependency. Existing pinned vLLM/FLA/Mamba reference assessment remains arithmetic boundary context.",
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "parameter_scans": 0,
+    "profiler_captures": 0
+  },
+  "gates": [
+    "Build, complete P65 prefix/state/cache and failure/cancel oracle. No new kernel or arithmetic; no redundant synthetic or private FP64 rerun.",
+    "Immediate d2 P65/8192/40000 API: >3% slowdown or nonpositive 8K stops. Useful long-context gain unlocks d3 and full lifecycle. Preserve full output IDs and non-timing work, 8GiB reserve."
+  ],
+  "expiry": "One API return then retain bounded dependency or restore v79; no stream/priority scan.",
+  "artifact_root": ".q3x-work/mtp-commit-overlap-20261014",
+  "rollback_files": [
+    "src/runtime/mtp_device_internal.cpp",
+    "src/runtime/mtp_service_internal.cpp",
+    "src/server/evaluation_server.cpp",
+    "include/q3x/server/evaluation_server.h",
+    "tools/evaluation/validate_mtp_service.py"
+  ],
+  "production_changed": false
+}

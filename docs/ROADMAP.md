@@ -19,6 +19,30 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 prefix commit overlap — closed
+
+`WP-MTP-COMMIT-OVERLAP-20261014` / `AC-MTP-GREEDY-v79` owns one
+[bounded synchronization change](metadata/qwen36-27b-mtp-commit-overlap-design-2026-10-14.json).
+Canonical target-state copies and target-conditioned draft KV append read
+completed immutable snapshots and write disjoint owners. Enqueue both before
+joining, preserving full canonical state and draft cache before every observer.
+Pointer-only selection is not admitted by the existing raw-arena contract.
+The historical 0.264-second total D2D cost is only a loose ceiling; this cannot
+alone establish the remaining 0.440-second 40K budget or the complete goal.
+Complete state/failure admission returns immediately to d2 API; 3% slowdown
+or nonpositive 8K closes. Useful long direction unlocks d3. One implementation,
+no stream/priority scan, no numerical, policy or production change.
+
+The [completed direction](metadata/qwen36-27b-mtp-commit-overlap-rejection-2026-10-14.json)
+passes nine complete prefixes, fifteen state/cache transactions, four verification
+failure recoveries and eight initialization-cancel recoveries. At8K d2,
+Prefill is17.220s /475.72token/s, TTFT17.242s, Decode15.124token/s and
+total34.103s. Output and work match v79, but reconciliation saves only1.922ms
+and full Decode adds22.129ms. This is no useful API gain, not a statistically
+established regression. Stop before40K/d3 and the remaining lifecycle panel;
+remove the scheduling/profile change and restore v79. No stream/priority scan
+follows. Production and the full1.5x–3x objective remain unchanged.
+
 ## 2026-10-14 fixed GDN segments — API composition complete
 
 `WP-MTP-GDN-GRAPHS-20261014` / `AC-MTP-GREEDY-v78` owns the

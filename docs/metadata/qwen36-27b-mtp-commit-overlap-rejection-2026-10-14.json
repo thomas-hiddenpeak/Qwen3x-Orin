@@ -1,0 +1,225 @@
+{
+  "date": "2026-10-14",
+  "work_package_id": "WP-MTP-COMMIT-OVERLAP-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v79",
+  "source_parent": "f5dd51f",
+  "decision_unit": "architecture_candidate",
+  "decision": "remove_no_useful_API_gain",
+  "production_changed": false,
+  "goal_complete": false,
+  "candidate_profile": "q3x.sm87.admission.mtp-commit-overlap-api.v80",
+  "retained_profile": "q3x.sm87.admission.mtp-gdn-graphs-api.v79",
+  "server_sha256": "cd7d7fee3d07925033ac8f24924973f5be254f77adc67c0d9ff707474e0b7012",
+  "oracle_sha256": "421647fc68e1c41dd2e0bbd99ba98d5f6e9afcd619e26be51477df0b68abf3ff",
+  "artifact_root": ".q3x-work/mtp-commit-overlap-20261014",
+  "implementation": "Enqueue canonical recurrent/hidden/full-logit copies on target stream, run unchanged synchronous private draft KV append on independent nonblocking stream, then join target before publishing target length. Existing immutable snapshots provide both inputs; complete canonical target and draft state remain observable. No new kernels, allocations, pointer aliasing or arithmetic.",
+  "numerical": {
+    "complete_target_prefixes": 9,
+    "complete_state_cache_transactions": 15,
+    "verification_failure_recoveries": 4,
+    "initialization_cancel_recoveries": 8,
+    "oracle_cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 67.593
+    },
+    "scope": "Same-history complete target recurrent/Conv/KV/hidden/full logits and complete draft-KV equal scalar replay. No new projection/FP64 check needed because arithmetic unchanged; no injected CUDA copy or append fault claimed."
+  },
+  "api": {
+    "d2": {
+      "metrics": [
+        {
+          "stage": "p65",
+          "prompt": 65,
+          "output": 16,
+          "prefill_s": 0.88996815,
+          "prefill_tps": 73.03632158072175,
+          "decode_tps": 13.44897254852747,
+          "ttft_s": 0.9159350990012172,
+          "elapsed_s": 2.0311767189996317,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-commit-overlap-v80",
+            "draft_length": 2,
+            "startup_free_bytes": 10993991680,
+            "prompt_rows": 65,
+            "draft_prefill_rows": 64,
+            "initialized": true,
+            "rounds": 7,
+            "proposed": 12,
+            "accepted": 8,
+            "verified_rows": 19,
+            "committed_decode_tokens": 15,
+            "accepted_by_position": [
+              4,
+              4,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              1,
+              0,
+              6,
+              0
+            ],
+            "draft_ordered_attention_steps": 0,
+            "entry_hidden_snapshots": 7,
+            "direct_gdn_state_rows": 912,
+            "seed_kv_reuses": 6,
+            "state_copy_bytes_elided": 1987054592,
+            "draft_initialization_ms": 5.656786,
+            "draft_ms": 113.46813399999999,
+            "verify_ms": 980.9482139999999,
+            "reconcile_ms": 20.181556000000004,
+            "cancelled": false,
+            "failed": false
+          }
+        },
+        {
+          "stage": "p8192",
+          "prompt": 8192,
+          "output": 256,
+          "prefill_s": 17.220111208000002,
+          "prefill_tps": 475.7228278638652,
+          "decode_tps": 15.123794854861599,
+          "ttft_s": 17.24226362599802,
+          "elapsed_s": 34.10344875300143,
+          "mtp": {
+            "enabled": true,
+            "verifier": "multirow-commit-overlap-v80",
+            "draft_length": 2,
+            "startup_free_bytes": 10993991680,
+            "prompt_rows": 8192,
+            "draft_prefill_rows": 8191,
+            "initialized": true,
+            "rounds": 98,
+            "proposed": 187,
+            "accepted": 157,
+            "verified_rows": 285,
+            "committed_decode_tokens": 255,
+            "accepted_by_position": [
+              86,
+              71,
+              0
+            ],
+            "confidence_threshold": 0.4,
+            "proposal_histogram": [
+              0,
+              9,
+              89,
+              0
+            ],
+            "draft_ordered_attention_steps": 187,
+            "entry_hidden_snapshots": 98,
+            "direct_gdn_state_rows": 13680,
+            "seed_kv_reuses": 98,
+            "state_copy_bytes_elided": 29253216256,
+            "draft_initialization_ms": 564.87542,
+            "draft_ms": 1795.4012010000004,
+            "verify_ms": 14713.435082000005,
+            "reconcile_ms": 347.2407989999999,
+            "cancelled": false,
+            "failed": false
+          }
+        }
+      ],
+      "comparison": [
+        {
+          "stage": "p65",
+          "decode_ratio_vs_v79": 0.9994963924637424,
+          "decode_ratio_vs_nonmtp": 1.4037812353720596,
+          "draft_saved_ms": -0.26123400000000174,
+          "verify_saved_ms": -0.556318000000033,
+          "draft_initialization_delta_ms": 0.1550370000000001,
+          "reconcile_saved_ms": 0.2205069999999978,
+          "full_decode_saved_s": -0.0005616869999998109,
+          "prefill_delta_s": -0.0015017980000000541,
+          "total_delta_s": -0.0010339010004827287
+        },
+        {
+          "stage": "p8192",
+          "decode_ratio_vs_v79": 0.9986875381629242,
+          "decode_ratio_vs_nonmtp": 1.6417317416898143,
+          "draft_saved_ms": -8.909187000000202,
+          "verify_saved_ms": -15.037872000009884,
+          "draft_initialization_delta_ms": 20.141254000000004,
+          "reconcile_saved_ms": 1.9216740000000527,
+          "full_decode_saved_s": -0.022129218999999978,
+          "prefill_delta_s": 0.034529743000003776,
+          "total_delta_s": 0.05657129500104929
+        }
+      ],
+      "completed_api_checks": 2,
+      "output_ids_equal_v79": true,
+      "work_differences": [
+        {
+          "request_body_sha256": "d168ed345d04453efbc93d027019173f6ac2b9591718926e47f6b73b4e96aca9",
+          "fields": {}
+        },
+        {
+          "request_body_sha256": "8982bf37aa229b9a866a92bc1f9c1cd1be30beeafc301f2649c8b5cecbc5c730",
+          "fields": {}
+        }
+      ]
+    }
+  },
+  "api_cleanup": {
+    "d2": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 69.343
+    }
+  },
+  "early_stop": {
+    "returncode": -2,
+    "early_stop": true
+  },
+  "conclusion": "At8K reconciliation saves1.921674ms but completeDecode adds22.129219ms. The predeclared nonpositive8K stop rejects this scheduling composition. Physical independence permits concurrency but does not establish useful overlap or net API benefit. No hardware-stall or copy-engine attribution is claimed.",
+  "scope_limits": [
+    "One fresh candidate process, no mirrored repetition or statistical regression claim.",
+    "Two completed API outputs, request hashes and complete non-timing work equalv79.",
+    "40K/d3 and remaining lifecycle checks were not run after early stop. Server shutdown returned0; driver interruption and incomplete panel remain recorded.",
+    "Prefill code unchanged; its variation is not attributed to this scheduling change.",
+    "Pointer-only state switching was not implemented: raw-arena canonical state and fixed graph pointers require a different ownership architecture. This does not reject every possible future pointer design."
+  ],
+  "expiry": "Closed after one API return. Restore v79; no stream/priority/profiler scan.",
+  "artifact_manifest": ".q3x-work/mtp-commit-overlap-20261014/artifact-manifest.json",
+  "restoration": {
+    "server": {
+      "retained_sha256": "622bf0c2b6b8919188354b6022943e7d5576afea47cd0f1d8421bacf9f8cfc81",
+      "rebuilt_sha256": "622bf0c2b6b8919188354b6022943e7d5576afea47cd0f1d8421bacf9f8cfc81",
+      "differing_sections": [],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "oracle": {
+      "retained_sha256": "3bc8bb3fe1e639a43a1d4466a98702a19ed701e03cb3d4cfd90246e84cc5b834",
+      "rebuilt_sha256": "3bc8bb3fe1e639a43a1d4466a98702a19ed701e03cb3d4cfd90246e84cc5b834",
+      "differing_sections": [],
+      "all_program_sections_identical": true,
+      "difference_scope": "Only nvcc temporary compilation-unit PID in nonloaded symbol string table, if present."
+    },
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "hygiene": {
+    "gpu_handles_empty": true,
+    "api_keys_remaining": 0,
+    "temporary_files_remaining": 0,
+    "registered_worktrees": 47,
+    "source_restored_exactly": true,
+    "installed_sha256": "5ee029cc8877ad0086e5e6ea5bcf8d7674626e55cd96098d518252d33c14aa33"
+  },
+  "validation": {
+    "host_ctests": 3,
+    "document_unit_tests": 7,
+    "document_control": {
+      "tracked": 86,
+      "registered": 86,
+      "local_links": 1355,
+      "errors": 0
+    },
+    "git_diff_check": "pass"
+  }
+}

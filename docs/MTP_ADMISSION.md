@@ -2016,6 +2016,25 @@ output/work. Both maxima improve full Decode consistently in this one-process
 panel. Retain the fixed graph composition through the next complete architecture
 API return or archival; this does not qualify production or the full goal.
 
+## Prefix commit overlap composition v79 — removed
+
+The [bounded composition](metadata/qwen36-27b-mtp-commit-overlap-design-2026-10-14.json)
+enqueues unchanged canonical target-state restoration and independent draft
+KV reconciliation before joining both streams. Verification has already
+completed every immutable snapshot. Draft append reads the previous snapshot
+hidden and writes only private draft storage; target copies write canonical
+state, hidden and logits. Every observer still sees both complete selected
+prefixes and the published logical position. Append failure also drains target
+work before returning failure; abort retains poison/full-reset semantics.
+No pointer substitution, state elision, arithmetic change or production
+promotion is authorized. State admission returns directly to the real API.
+
+The [completed direction](metadata/qwen36-27b-mtp-commit-overlap-rejection-2026-10-14.json)
+preserves full state/cache and compared API outputs, but8K Decode is slightly
+below retained v79 with no useful reconciliation saving. The predeclared stop
+closes before40K/d3; this scheduling change is removed. Canonical restoration
+and draft append retain their preceding sequential completion order.
+
 ## Checkpoint and draft model
 
 The pinned revision is `0893e1606ff3d5f97a441f405d5fc541a6bdf404` of
