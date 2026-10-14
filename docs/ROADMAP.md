@@ -19,6 +19,34 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 private BF16 Down — closed without API gain
+
+`WP-MTP-BF16-DOWN-20261014` selects one
+[private precision-scope composition](metadata/qwen36-27b-mtp-bf16-down-design-2026-10-14.json).
+Keep the Gate/Up INT8 register executor, but return private Down to its
+already-resident original BF16 matrix and retained projection executor.
+Extra draft cost must be repaid by accepted tokens and fewer target rounds;
+closer weights alone do not guarantee better acceptance or speed. Preserve
+target arithmetic, state, cache construction and controller. Current P65
+state/transaction and independent original-weight FP64 admission return
+immediately to d2 API; useful full direction unlocks d3. Stop for over 3%
+short regression or nonpositive 8K/40K Decode. One fixed composition, no
+precision/quantizer/profile scan. v101 remains incumbent until real API selection.
+
+The [completed composition](metadata/qwen36-27b-mtp-bf16-down-rejection-2026-10-14.json)
+passes ten complete prefixes, fifteen transactions, four failure recoveries,
+eight initialization-cancel recoveries and independent original-weight FP64.
+Hidden maximum row error falls from 1.369% to 1.094%, but both completed API
+requests retain exactly the same acceptance and work counts. P65/8K Prefill is
+0.892/17.340 s (72.89/472.43 token/s), TTFT 0.910/17.363 s, Decode
+13.885/15.330 token/s and total 1.990/33.997 s. Decode changes -0.599%/-0.499%
+relative to v101; 8K draft time rises 84.950 ms. These are direction observations,
+not a statistically repeated regression. All output IDs match v101; text and usage match both v101
+and the non-MTP response oracle. Close before 40K/d3/lifecycle, restore all
+runtime and identity files and the measured v101 server, and retain only
+evidence. No precision-scope or profile scan follows. Current v101 joint metrics
+and the complete unmet objective remain unchanged.
+
 ## 2026-10-14 GDN publication density — closed at traffic gate
 
 `WP-MTP-STATE-DENSITY-20261014` selects one

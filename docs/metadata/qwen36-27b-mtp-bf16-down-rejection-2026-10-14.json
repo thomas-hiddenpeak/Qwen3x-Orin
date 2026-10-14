@@ -1,0 +1,211 @@
+{
+  "work_package_id": "WP-MTP-BF16-DOWN-20261014",
+  "architecture_candidate_id": "AC-MTP-BF16-DOWN-v111",
+  "decision_unit": "architecture_candidate",
+  "status": "rejected_at_two_request_API_direction",
+  "source_parent": "3563d0c",
+  "design": "docs/metadata/qwen36-27b-mtp-bf16-down-design-2026-10-14.json",
+  "artifacts": ".q3x-work/mtp-bf16-down-20261014",
+  "candidate_profile": "q3x.sm87.admission.mtp-bf16-down-api.v111",
+  "server_sha256": "532a19338b736ee49aeb9e6e048298808b0145218d0deecdf3117fd0c8bcd041",
+  "native_admission": {
+    "complete_prefixes": 10,
+    "transactions": 15,
+    "verify_failure_recoveries": 4,
+    "initialization_cancel_recoveries": 8,
+    "original_weight_fp64": {
+      "scope": "independent CPU FP64 projection and causal attention; BF16 boundaries",
+      "threshold_max_row_relative_l2": 0.02,
+      "prompt_tokens": 65,
+      "payload_sha256": {
+        "mtp.fc.weight": "6c980c668ecda0a41cdffda7dda4ddffa38992c6da18b2e4d37a3c61c074acd2",
+        "mtp.layers.0.input_layernorm.weight": "e7cb7c1d866d398bcf7364d954be1375182e8e13d25452ba03e897f830463368",
+        "mtp.layers.0.mlp.down_proj.weight": "c7b165adc61189a84b0ed6c82272a5595622c8a79177e7d76af11b11f6f73c49",
+        "mtp.layers.0.mlp.gate_proj.weight": "23b1c2045e6dcc23cdc066e13a383e872c4b2d8234b9bffc852b8fed3d710ba3",
+        "mtp.layers.0.mlp.up_proj.weight": "72b51d96bf39559f5064ace7006275f497f013926eb5f31680a029e8d3ca64a7",
+        "mtp.layers.0.post_attention_layernorm.weight": "de833fc6f9f1a7417f821493c0e2957acd8c59b81f473f334ad8d7a3dc4ca3bf",
+        "mtp.layers.0.self_attn.k_norm.weight": "f380c18beee48afc4cd4be27f66842607dcb9c28808dc3deb8b7ac38f4077ace",
+        "mtp.layers.0.self_attn.k_proj.weight": "c6062cbf6b80a9bc00c33bdf8a5d51aca468c7fa780aeb69a4305999e1f8911e",
+        "mtp.layers.0.self_attn.o_proj.weight": "8baeb5584dc22b31c0514accb927b9ddb8cff2cfc41761306ccb4c9bc3e7fb9c",
+        "mtp.layers.0.self_attn.q_norm.weight": "1344898b45615f1d4d068c8f9c100a8abb815e98da6fdf7263533476b5951635",
+        "mtp.layers.0.self_attn.q_proj.weight": "5478fde596f7e16e1036b9855452b76d4a8451df102cefe2698a6fe259931334",
+        "mtp.layers.0.self_attn.v_proj.weight": "238e64e585d0fb5b0e945c47e096d0fbbc2cf7f6100d3b85a50e3e94d649ef49",
+        "mtp.norm.weight": "afb1fb63456cc398278d672611e021405723698c729d723756766efb97ecbe87",
+        "mtp.pre_fc_norm_embedding.weight": "840a65af6198e9641e92ce89f1e2e3a936a03d582201f382a66e438d5e428716",
+        "mtp.pre_fc_norm_hidden.weight": "dd41de8359c0f3a4d89bebb11d03ca5040738a3e8682af20e43d4755ada20772",
+        "selected_embedding_rows": "3ceb8a71d82d00ea485f084a2b062670a2cbfa3caa9cb9b178ad2ff41b2a87b1",
+        "model.language_model.norm.weight": "b9f0006803317a0207979bb4dcb453698d257c0a2150cc4a867666c2a8cd3092"
+      },
+      "comparisons": {
+        "target_final_norm": {
+          "max_row_relative_l2": 5.963384100154866e-05,
+          "max_absolute_error": 0.0078125,
+          "elements": 332800,
+          "threshold_max_row_relative_l2": 0.005,
+          "pass": true
+        },
+        "hidden": {
+          "max_row_relative_l2": 0.01093533817775222,
+          "max_absolute_error": 0.671875,
+          "elements": 327680,
+          "pass": true
+        },
+        "k": {
+          "max_row_relative_l2": 0.0018966317489639915,
+          "max_absolute_error": 0.046875,
+          "elements": 65536,
+          "pass": true
+        },
+        "v": {
+          "max_row_relative_l2": 0.0013001843549924304,
+          "max_absolute_error": 0.125,
+          "elements": 65536,
+          "pass": true
+        }
+      },
+      "pass": true,
+      "capture_sha256": {
+        "target-hidden.bf16": "bed1eabf276ad7986cbd8278cc0fb25510bfc0f0e3f3ae11a00c48f36fa86293",
+        "draft-prefill-v.bf16": "3a9e8eddb8f5077816d794343f0f938c1129f5e5f2443a20d338041e993c18d0",
+        "target-residual.bf16": "a249f3aee2e8ce123d22f1947a9503e930a38edc6842801d67d26aecb1aef8a7",
+        "draft-prefill-k.bf16": "5c3dd0556fcbd545e3a95469c98c745b3c64ac510e855ab91c568db21f00707a",
+        "draft-prefill-hidden.bf16": "6defc1bc40ee5c1fd5ad81fcb954c4bc8a6552e78f3f2e4ab2e497084cb3ea43",
+        "prompt.u32": "bf26b499d75fba04136b6eed278fb050529afa5ca6a17c695baa8ecf475b9548"
+      }
+    },
+    "cleanup": {
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 69.218
+    },
+    "original_weight_and_common_capture_hashes_equal_v101": true
+  },
+  "api": {
+    "complete_output_and_usage_equal_nonmtp_and_v101": true,
+    "all_generated_ids_equal_v101": true,
+    "private_acceptance_changes_allowed_and_reported": true,
+    "physical_counters_match_actual_verifier_work": true,
+    "completed_requests": 2,
+    "server_sha256": "532a19338b736ee49aeb9e6e048298808b0145218d0deecdf3117fd0c8bcd041",
+    "rows": [
+      {
+        "label": "p65",
+        "prompt": 65,
+        "output": 16,
+        "prefill_s": 0.8917072750000001,
+        "prefill_tps": 72.89387652467005,
+        "ttft_s": 0.9100989069993375,
+        "decode_tps": 13.884685184743498,
+        "elapsed_s": 1.9904792000015732,
+        "incumbent_decode_tps": 13.96839569085758,
+        "decode_delta_percent": -0.5992850429407004,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-mlp-register-v101",
+            "multirow-bf16-down-v111"
+          ],
+          "startup_free_bytes": [
+            10553311232,
+            10768080896
+          ],
+          "draft_initialization_ms": [
+            5.419103,
+            5.539423
+          ],
+          "draft_ms": [
+            96.585497,
+            102.433396
+          ],
+          "verify_ms": [
+            959.5971870000001,
+            960.208983
+          ],
+          "reconcile_ms": [
+            17.314887,
+            17.303628
+          ]
+        }
+      },
+      {
+        "label": "p8192",
+        "prompt": 8192,
+        "output": 256,
+        "prefill_s": 17.340309784000002,
+        "prefill_tps": 472.42523934369405,
+        "ttft_s": 17.362533780004014,
+        "decode_tps": 15.329891276093452,
+        "elapsed_s": 33.99700363499869,
+        "incumbent_decode_tps": 15.406742861030079,
+        "decode_delta_percent": -0.4988178593608894,
+        "changed_mtp_fields": {
+          "verifier": [
+            "multirow-mlp-register-v101",
+            "multirow-bf16-down-v111"
+          ],
+          "startup_free_bytes": [
+            10553311232,
+            10768080896
+          ],
+          "draft_initialization_ms": [
+            531.398831,
+            565.761578
+          ],
+          "draft_ms": [
+            1539.310869,
+            1624.2604189999997
+          ],
+          "verify_ms": [
+            14710.987177999996,
+            14710.175459
+          ],
+          "reconcile_ms": [
+            295.933348,
+            294.89310500000005
+          ]
+        }
+      }
+    ],
+    "driver_terminal": {
+      "returncode": -2,
+      "early_stop": true
+    },
+    "cleanup": {
+      "success": false,
+      "returncode": 0,
+      "errors": [],
+      "max_temperature": 68.562
+    }
+  },
+  "interpretation": {
+    "original_weight_fp64_hidden_max_row_relative_l2": 0.01093533817775222,
+    "incumbent_hidden_max_row_relative_l2": 0.013687553141055709,
+    "acceptance_and_work_counts_unchanged": true,
+    "short_draft_time_increase_ms": 5.847898999999998,
+    "p8192_draft_time_increase_ms": 84.94954999999982,
+    "scope": "One fresh process, two completed requests; nonpositive direction, not statistically repeated regression or release selection. Lower FP64 error did not improve acceptance on these two requests. No general conclusion about all draft precision strategies."
+  },
+  "stop": "Stop after completed 8K request, before40K/d3/API lifecycle. Driver SIGINT during inter-request spacing is deliberate; both responses complete and server cleanup exit0/errors[].",
+  "production_changed": false,
+  "goal_completed": false,
+  "rollback": "Restore all five runtime/profile/auditor files to v101, rebuild source service/oracle, then restore measured v101 service artifact to build cache. No matrix-scope, quantizer or profile scan follows.",
+  "restoration": {
+    "source_runtime_profile_and_auditor_exactly_restored": true,
+    "fresh_restored_server_sha256": "3c9130cbd69d04caf4a98a961080fa190b0882d9b6a2a0b67680ef171dc346ef",
+    "fresh_restored_oracle_sha256": "54c23063f754ea71cbd9030dd572cc921553d8fa2d4cc698518ca2eff7a4b995",
+    "cached_measured_v101_server_sha256": "6d46918d3804e0db065529951292588abcb45c6cc96ae32b6ed9ddc2da215c09",
+    "gpu_handles_after": [],
+    "api_key_removed": true,
+    "worktree_count": 47
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-bf16-down-20261014/artifact-manifest.json",
+    "sha256": "eeada832b0e68584f45f2e3a1929526f13348fac3e241664cd0540c83d2654b5",
+    "files": 125,
+    "bytes": 76565852
+  },
+  "validation": {
+    "host_tests": 3,
+    "document_tests": 7,
+    "document_control": "document-control: PASS\ntracked_markdown: 86\nregistry_entries: 86\nrequired_headers: 41\nheaders_checked: 57\nlocal_links_checked: 1557\nerrors: 0"
+  }
+}

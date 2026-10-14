@@ -598,3 +598,7 @@ runtime removal. No Markdown path or classification changes.
 The bounded [GDN publication density check](metadata/qwen36-27b-mtp-state-density-design-2026-10-14.json) has diagnostic feasibility authority only.
 
 The [GDN publication density rejection](metadata/qwen36-27b-mtp-state-density-rejection-2026-10-14.json) records one real API diagnostic and complete instrumentation removal; no Markdown paths or classifications change.
+
+The [private BF16 Down design](metadata/qwen36-27b-mtp-bf16-down-design-2026-10-14.json) scopes one admission composition in existing MTP/Roadmap documents; no Markdown paths or classifications change.
+
+The [private BF16 Down rejection](metadata/qwen36-27b-mtp-bf16-down-rejection-2026-10-14.json) records numerical admission and a nonpositive two-request API direction with full runtime removal; no Markdown paths or classifications change.

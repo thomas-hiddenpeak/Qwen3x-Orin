@@ -1,0 +1,21 @@
+{
+  "work_package_id": "WP-MTP-BF16-DOWN-20261014",
+  "architecture_candidate_id": "AC-MTP-BF16-DOWN-v111",
+  "decision_unit": "architecture_candidate",
+  "status": "declared",
+  "incumbent_commit": "3563d0c",
+  "incumbent_profile": "q3x.sm87.admission.mtp-mlp-register-api.v101",
+  "candidate_profile": "q3x.sm87.admission.mtp-bf16-down-api.v111",
+  "parent_constraint": "Real same-request MTP Decode 1.5x\u20133x non-MTP, d2/d3, no target output/numerical regression; joint Prefill/TTFT/Decode/total reporting",
+  "gap": "Current d2 P65/P8192/P40000 ratios 1.456/1.671/1.476; short and long floor gaps 31.201/348.446 ms",
+  "mechanism": "Only private draft Down (tensor index 2) returns to original BF16 weights through retained M64C8K128 projection. Private Gate/Up keep group128 INT8 register decode. No target, FC, Attention, initialization, cache reconciliation or controller changes.",
+  "downward_budget": "Acceptance is a whole-runner cost: extra private Down traffic may be worthwhile if its closer-to-original hidden predicts more accepted tokens and reduces target rounds. At current 40K d2, 106 rounds verify 307 rows and accept149 drafts. This direction has no guaranteed numerical monotonicity or predicted speedup.",
+  "equivalence": "Target remains exact. Private Down consumes unchanged BF16 SiLU result, original BF16 checkpoint matrix, existing ascending K16 MMA and BF16 publication; compare complete draft layer to independently original-weight FP64 max-row L2<=0.02. Gate/Up quantization retained.",
+  "memory": "Retain current authenticated three-matrix packed allocation during reversible screen, including unused packed Down. No new allocation or scratch; original BF16 Down is already resident. If selected, remove unused packed Down in a separately validated packaging cleanup.",
+  "cost_estimate": "Original Down matrix178257920 bytes vs codes/scales90521600 bytes; adds87736320 logical weight bytes per proposal. Not a measured DRAM or latency estimate.",
+  "validation": "Build both isolated service and native oracle; current P65 complete prefix/state/transaction/recovery panel and original-weight FP64 draft check. Then immediately real d2 P65/O16, 8K/O256,40K/O256, normal API/lifecycle; useful whole direction unlocks d3. Existing mature projection primitives are reused; no kernel parameter sweep.",
+  "stop": "Reject before further API stages if short Decode regresses over3%, or d2 8K/40K is nonpositive relative to retained v101. Exact output/IDs/usage, reserve>=8GiB, state/numerical and ownership remain hard gates. Changed acceptance is allowed but never overrides whole API cost.",
+  "composition_deadline": "One fixed precision-scope composition, current numerical gate then immediate API return; no quantizer/group-size/matrix-scope scan or additional profiling after negative direction.",
+  "artifacts": ".q3x-work/mtp-bf16-down-20261014",
+  "production": "MTP admission only; ordinary non-MTP artifact and deployment unchanged."
+}
