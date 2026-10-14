@@ -520,3 +520,9 @@ opens one isolated exact producer/consumer composition with a bounded API return
 
 The [Conv/GDN rejection](metadata/qwen36-27b-mtp-conv-gdn-rejection-2026-10-14.json)
 closes that isolated composition without retention or production promotion.
+
+The [complete value-row design](metadata/qwen36-27b-mtp-row-owned-gdn-design-2026-10-14.json)
+opens one isolated register-ownership composition, with no production authority.
+
+The [complete value-row resource rejection](metadata/qwen36-27b-mtp-row-owned-gdn-rejection-2026-10-14.json)
+closes the construction before device execution; it has no performance authority.

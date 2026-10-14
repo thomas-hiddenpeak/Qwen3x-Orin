@@ -1,0 +1,45 @@
+{
+  "work_package_id": "WP-MTP-ROW-OWNED-GDN-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v94",
+  "source_parent": "b8ddbfb",
+  "profile": "q3x.sm87.admission.mtp-row-owned-gdn-api.v96",
+  "product_constraint": "MTP 1.5x\u20133x committed Decode on same real API workloads, drafts 2/3, exact target state/logits/output; paired Prefill/TTFT/Decode/total.",
+  "downward_budget": {
+    "short_gap_s": 0.0585616383337,
+    "40k_gap_s": 0.4497706153233,
+    "historical_gdn_graph_span_s": 10.800346176,
+    "limitation": "Graph span includes projections and inner gaps, not recurrence-only latency. No per-kernel speed forecast or hardware bound."
+  },
+  "lineage": {
+    "original_scalar": "gated_delta_net_update_kernel already assigns one value row per thread but reads strided scalar global state twice and performs unfused final normalization. That ownership alone is not new.",
+    "retained_eight_row": "Eight active dot lanes per warp; all lanes cooperatively load/update 8x128 state in shared scratch. Two batches cover the head.",
+    "old_m16_and_v81": "Packed state partitions held by key-owning lanes across tokens; still uses shared state scratch and partial dot-lane activity. Neither holds a complete state row in each thread.",
+    "difference": "Fixed 128-thread CTA per value head. Each thread vector-loads its full BF16 state row into 64 packed registers once, computes original prediction/update/output serial FMA chains locally, then vector-stores its complete rounded state. No row-batch scan or cross-token state reuse."
+  },
+  "ledger": [
+    "Same 128-lane Q/K tree and scalar alpha/beta. Original BF16 state remains stored in canonical row-major format.",
+    "Packed register words preserve all bits. Recompute alpha*S for the update pass exactly as the original scalar reference; explicit FP32 multiplication precedes each FMA. No algebraic prediction/output simplification.",
+    "Each prediction and output uses ascending 128-key FP32 FMA chain, starting +0. Updated state is rounded BF16; current output uses the unrounded FP32 update.",
+    "Keep BF16 raw output encode/decode, the 256-lane normalization tree including its first addition of zero, and original norm/SiLU/gate order. Intermediate raw output need not reach global memory because it has no external observer inside the fused kernel.",
+    "Per-token recurrence, Conv producer/copy, immutable prefix slots, canonical full commit, graphs, draft and numerical baseline remain unchanged. No new allocation or production dispatch.",
+    "Trade less-coalesced row vector accesses and repeated alpha multiplies against eliminating shared state scratch, warp transfers and inactive dot lanes. Real API selects, not theoretical lane utilization."
+  ],
+  "bounds": {
+    "implementations": 1,
+    "correctness_repairs": 1,
+    "profiles": 0,
+    "geometry_register_layout_scans": 0,
+    "maximum_registers": 160,
+    "maximum_static_shared_bytes": 2048,
+    "stack_and_spill_bytes": 0
+  },
+  "validation": "Compile/resource gate, complete M2/3/4 output/state/guards/Graph comparison, bounded root race/sync, complete P65 numerical and transactions, then immediate d2 short/8K/40K API. Short >3% regression or nonpositive8K stops; useful direction unlocks d3; neutral removes. No further launch/register/packing variants.",
+  "retention_expiry": "One API return selects removal or bounded prerequisite through next full verifier architecture return/archival.",
+  "artifact_root": ".q3x-work/mtp-row-owned-gdn-20261014",
+  "production_changed": false,
+  "compile_contract_repair": {
+    "initial": "255 registers,72-byte stack,68-byte spill stores/loads; no GPU process started. Compiler CSE defeats intended packed-state lifetime.",
+    "repair": "One bounded implementation correction: volatile exact PTX BF16-bit decode/mul and shared consumption prevent carrying decoded state and normalized keys between passes. Same layout, geometry, arithmetic and unchanged resource gate. No register-cap or performance scan.",
+    "stop": "If this correction still fails declared resources, close before GPU. No further implementation/resource variant."
+  }
+}

@@ -19,6 +19,31 @@ This page owns unfinished work and dependency order. [Current Status](CURRENT_ST
 owns delivered behavior and metrics; [SDD](SDD.md) owns architecture. The
 [Constitution](ENGINEERING_CONSTITUTION.md) retains all owner-set targets.
 
+## 2026-10-14 complete value-row register ownership — closed at compilation
+
+`WP-MTP-ROW-OWNED-GDN-20261014` / `AC-MTP-GREEDY-v94` owns one
+[row-owned GDN composition](metadata/qwen36-27b-mtp-row-owned-gdn-design-2026-10-14.json).
+The same 59/450-ms short/40K gap selects removing shared state staging and
+inactive dot lanes. Each thread holds one complete BF16 state row in packed
+registers, retaining both ascending scalar FMA chains and all rounding points.
+This differs from the old scalar path's repeated global reads and v81's
+key-partitioned cross-token state. The unchanged Conv and per-token prefix
+schedule remain. One fixed 128-thread composition must compile without spills,
+with at most 160 registers and 2 KiB shared memory. Complete state/Graph/race
+and P65 admission return immediately to d2 API, then d3 for useful direction.
+One correctness repair maximum; short >3% slowdown or nonpositive 8K stops.
+No register, launch, layout or profiler scan; no production or goal-completion claim.
+
+The [compile admission record](metadata/qwen36-27b-mtp-row-owned-gdn-rejection-2026-10-14.json)
+closes this construction before GPU execution. Both the initial source and one
+bounded exact operand-lifetime correction use 255 registers, 72 bytes of stack
+and 68 bytes each of spill stores/loads. Neither meets the declared 160-register,
+zero-spill gate. The specific allocation cause is not established; the first
+CSE hypothesis is not confirmed by the correction. All candidate code and
+identities are removed. No numerical, model or performance pass is claimed;
+no register-cap, unroll, launch or profiler scan follows. Retained v94 and the
+complete 1.5x–3x objective remain unchanged.
+
 ## 2026-10-14 direct Conv/GDN consumption — closed neutral
 
 `WP-MTP-CONV-GDN-20261014` / `AC-MTP-GREEDY-v93` owns one

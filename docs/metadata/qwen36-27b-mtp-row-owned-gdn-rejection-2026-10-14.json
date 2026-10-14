@@ -1,0 +1,53 @@
+{
+  "work_package_id": "WP-MTP-ROW-OWNED-GDN-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v94",
+  "source_parent": "b8ddbfb",
+  "decision": "remove_failed_resource_admission",
+  "production_changed": false,
+  "goal_complete": false,
+  "artifact_root": ".q3x-work/mtp-row-owned-gdn-20261014",
+  "design": "docs/metadata/qwen36-27b-mtp-row-owned-gdn-design-2026-10-14.json",
+  "implementation": "128-thread CTA, one complete value row per thread in64packedBF16 registers; exact ascending prediction/update/output FMA chains, vector global state loads/stores, original Q/K and normalization trees. No shared state scratch or cross-token state reuse.",
+  "attempts": [
+    {
+      "name": "initial",
+      "log": "resource-build-initial.log",
+      "registers": 255,
+      "shared_bytes": 1544,
+      "stack_bytes": 72,
+      "spill_store_bytes": 68,
+      "spill_load_bytes": 68
+    },
+    {
+      "name": "bounded operand lifetime correction",
+      "log": "resource-build-repair.log",
+      "registers": 255,
+      "shared_bytes": 1544,
+      "stack_bytes": 72,
+      "spill_store_bytes": 68,
+      "spill_load_bytes": 68
+    }
+  ],
+  "attribution_correction": "The first implementation suspected compiler CSE of decoded state/shared operands. Explicit volatile exact reconstruction and loads did not change measured allocation/spill counts. The specific register-allocation cause is not established; no CSE-cause or hardware-impossibility claim is supported.",
+  "decision_reason": "Both constructions exceed the predeclared160-register and zero-stack/spill gate. The one bounded compile-contract correction is exhausted. Remove before any GPU execution; no register-cap, unroll, layout, geometry or performance scan.",
+  "validation_scope": "Host compiler/resource observation only. No candidate GPU correctness, race/Graph, model, API, Prefill, TTFT, Decode or total-time result. These are not implied by scalar-equivalent source expressions.",
+  "retained_profile": "q3x.sm87.admission.mtp-tail-kv-api.v94",
+  "remaining": "The complete1.5x\u20133x objective remains. Existing v94 measured performance and numerical qualification are unchanged. A new design must materially change value/state delivery rather than scan this failed complete-row register mapping.",
+  "installed_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+  "hygiene": {
+    "worktrees": 47,
+    "api_key_files": [],
+    "temporary_files": [],
+    "project_named_tmp_files": [],
+    "gpu_holders": [],
+    "installed_sha256": "6b65d472aa55584d7ab55ee7d618db54bee9c25f236f517879074573244bc93f",
+    "cached_server_unchanged": true
+  },
+  "artifact_manifest": {
+    "path": ".q3x-work/mtp-row-owned-gdn-20261014/artifact-manifest.json",
+    "sha256": "6c96fe34b625fb62b853bd5192b21ce6a4c3719ba23e2ca290ae53b100e6a792",
+    "files": 28,
+    "bytes": 593743
+  },
+  "document_validation": "document-control: PASS\ntracked_markdown: 86\nregistry_entries: 86\nrequired_headers: 41\nheaders_checked: 57\nlocal_links_checked: 1450\nerrors: 0\n"
+}
