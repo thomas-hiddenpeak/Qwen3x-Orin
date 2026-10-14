@@ -1,0 +1,319 @@
+{
+  "manifest_sha256": "b9dfd16e714a03a6ae408c4ec9eade714b194ee1d03d4c09a2bb09342a8e180e",
+  "rows": [
+    {
+      "layer": 3,
+      "role": "query",
+      "shape": [
+        24,
+        256
+      ],
+      "source_sha256": "e0acd723f7e000915abfc6c908af17fb6ef5ce4e770723478ed16ea2b6f004a6",
+      "checked": 3072,
+      "ineligible": 0,
+      "zeros": 0,
+      "below_range_nonzero": 0,
+      "above_range": 0,
+      "eligible_complete": true,
+      "first_bad_indices": []
+    },
+    {
+      "layer": 3,
+      "role": "key",
+      "shape": [
+        40000,
+        4,
+        256
+      ],
+      "source_sha256": "09db14db10671a1dfecf7b68d04e03fb49c34c82485e2935c924bd371b891aa0",
+      "checked": 20480000,
+      "ineligible": 124,
+      "zeros": 124,
+      "below_range_nonzero": 0,
+      "above_range": 0,
+      "eligible_complete": false,
+      "first_bad_indices": [
+        [
+          812,
+          0,
+          2
+        ],
+        [
+          972,
+          1,
+          11
+        ],
+        [
+          2118,
+          2,
+          18
+        ],
+        [
+          2400,
+          0,
+          15
+        ],
+        [
+          2516,
+          3,
+          45
+        ],
+        [
+          2686,
+          2,
+          9
+        ],
+        [
+          3212,
+          3,
+          56
+        ],
+        [
+          4335,
+          2,
+          41
+        ]
+      ]
+    },
+    {
+      "layer": 23,
+      "role": "query",
+      "shape": [
+        24,
+        256
+      ],
+      "source_sha256": "2b88d6dba1c074cad82d5d56b01e1734a59bf75fb44155361072e0fd5b3ffd66",
+      "checked": 3072,
+      "ineligible": 0,
+      "zeros": 0,
+      "below_range_nonzero": 0,
+      "above_range": 0,
+      "eligible_complete": true,
+      "first_bad_indices": []
+    },
+    {
+      "layer": 23,
+      "role": "key",
+      "shape": [
+        40000,
+        4,
+        256
+      ],
+      "source_sha256": "61b1353d132f1a107a70fc96a1988b3ddb8c922609e79fd1f488c722c04311fd",
+      "checked": 20480000,
+      "ineligible": 122,
+      "zeros": 122,
+      "below_range_nonzero": 0,
+      "above_range": 0,
+      "eligible_complete": false,
+      "first_bad_indices": [
+        [
+          66,
+          3,
+          2
+        ],
+        [
+          377,
+          2,
+          12
+        ],
+        [
+          394,
+          0,
+          10
+        ],
+        [
+          565,
+          3,
+          3
+        ],
+        [
+          627,
+          2,
+          36
+        ],
+        [
+          1246,
+          0,
+          11
+        ],
+        [
+          1500,
+          0,
+          47
+        ],
+        [
+          1562,
+          1,
+          42
+        ]
+      ]
+    },
+    {
+      "layer": 43,
+      "role": "query",
+      "shape": [
+        24,
+        256
+      ],
+      "source_sha256": "e339b8e7846b579118036a3eaa7e5dfdb5e9f512b366518f9335a905b8324343",
+      "checked": 3072,
+      "ineligible": 0,
+      "zeros": 0,
+      "below_range_nonzero": 0,
+      "above_range": 0,
+      "eligible_complete": true,
+      "first_bad_indices": []
+    },
+    {
+      "layer": 43,
+      "role": "key",
+      "shape": [
+        40000,
+        4,
+        256
+      ],
+      "source_sha256": "664ebd74fc910d49db08db156b0f2b0da171cdc29dea683d3d754ebba8dafde0",
+      "checked": 20480000,
+      "ineligible": 129,
+      "zeros": 129,
+      "below_range_nonzero": 0,
+      "above_range": 0,
+      "eligible_complete": false,
+      "first_bad_indices": [
+        [
+          0,
+          0,
+          32
+        ],
+        [
+          0,
+          1,
+          32
+        ],
+        [
+          0,
+          2,
+          32
+        ],
+        [
+          0,
+          3,
+          32
+        ],
+        [
+          432,
+          1,
+          34
+        ],
+        [
+          530,
+          0,
+          9
+        ],
+        [
+          1420,
+          2,
+          13
+        ],
+        [
+          1982,
+          0,
+          17
+        ]
+      ]
+    },
+    {
+      "layer": 63,
+      "role": "query",
+      "shape": [
+        24,
+        256
+      ],
+      "source_sha256": "a6be9cb259c96ba0dfffad2683d70d703d0f1314767770c94c02fd1ab2e5d41a",
+      "checked": 3072,
+      "ineligible": 0,
+      "zeros": 0,
+      "below_range_nonzero": 0,
+      "above_range": 0,
+      "eligible_complete": true,
+      "first_bad_indices": []
+    },
+    {
+      "layer": 63,
+      "role": "key",
+      "shape": [
+        40000,
+        4,
+        256
+      ],
+      "source_sha256": "be1de009f295347b19eb8ecf987827875a844519999773c3eff5812ca7e8fa04",
+      "checked": 20480000,
+      "ineligible": 111,
+      "zeros": 111,
+      "below_range_nonzero": 0,
+      "above_range": 0,
+      "eligible_complete": false,
+      "first_bad_indices": [
+        [
+          165,
+          0,
+          13
+        ],
+        [
+          342,
+          0,
+          46
+        ],
+        [
+          942,
+          0,
+          43
+        ],
+        [
+          1114,
+          0,
+          40
+        ],
+        [
+          1281,
+          3,
+          17
+        ],
+        [
+          1732,
+          0,
+          7
+        ],
+        [
+          1831,
+          2,
+          7
+        ],
+        [
+          1840,
+          3,
+          16
+        ]
+      ]
+    }
+  ],
+  "gate_pass": false,
+  "scope": "Historical Legacy Prefill real payload, necessary feasibility only; no current MTP numerical or performance admission",
+  "runtime_changed": false,
+  "work_package_id": "WP-MTP-QK-CACHE-CERTIFICATE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v102",
+  "status": "closed_without_native_implementation",
+  "decision": "All four complete historical KV prefixes fail the frozen nonzero predicate: 124/122/129/111 exact zeros. Close this whole-prefix certificate before GPU or current-payload capture. No granularity or threshold scan.",
+  "incumbent": "v101",
+  "goal_achieved": false,
+  "production_changed": false,
+  "gpu_runs": 0,
+  "performance": "No new measurements. Retained v101 joint API metrics remain in CURRENT_STATUS.md.",
+  "source_files": {
+    "assess.py": "4bba729022954f8899c62f5a132e02a3b9f978a468962caa4e6c91cb41ca9088",
+    "assessment.json": "853754959b2d507b8572d04ca70c3625fb8e3af2e8a6e0aa5c3a65f6fecbec73"
+  },
+  "limitation": "This failure concerns the frozen predicate and whole-prefix certificate only. It is not a bound on exact QK optimization. The historical captures cannot qualify current MTP.",
+  "unselected_mathematical_question": "The prior zero counterexample requires an odd product that underflows to negative zero. A different sufficient proof certifying every even AND odd product as exactly representable (allowing zero) might remove that case. This would require an independent signed-zero/exception proof and native arithmetic validation before any current-payload certificate/runtime design. No such proof, guard change, successor executor or speedup is claimed by this record."
+}

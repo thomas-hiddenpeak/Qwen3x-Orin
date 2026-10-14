@@ -1,0 +1,26 @@
+{
+  "work_package_id": "WP-MTP-QK-CACHE-CERTIFICATE-20261014",
+  "architecture_candidate_id": "AC-MTP-GREEDY-v102",
+  "decision_unit": "bounded_host_feasibility",
+  "source_parent": "1450466",
+  "product_constraint": "Same-request real API MTP Decode 1.5x–3x, d2/d3; exact target state/logits/output and joint Prefill/TTFT/Decode/total",
+  "incumbent": "v101 private register MLP",
+  "downward_budget": {
+    "remaining_short_s": 0.0312007363,
+    "remaining_40k_s": 0.3484463013,
+    "older_instrumented_qk_s": 2.143195136,
+    "scope": "QK family ceiling, not saving prediction; this long-only direction cannot close short gap"
+  },
+  "hypothesis": "Move exact-product admissibility from every QK inner iteration to an immutable KV-prefix certificate, maintained at append/reset boundaries. Queries remain guarded once per CTA. Reuse the proven original first-pair FMA identity only when all even-offset BF16 operands are finite nonzero with magnitudes bits0x2000..0x5f7f. No relaxation of target arithmetic.",
+  "lineage": "v66 guarded pair fusion was numerically exact but whole API negative; separate guard and arithmetic costs were not attributed. This is a proposed certificate ownership/lifetime change, not a guard threshold or kernel parameter scan. No speed claim follows.",
+  "host_screen": "Authenticate the existing four-layer P40000 key/query captures. Evaluate complete original even-offset domain (dimensions0..127) for every KV head, plus complete query heads. Whole-layer prefix certificate requires all elements to pass. Historical Legacy capture is only a necessary feasibility screen, not current MTP admission.",
+  "gate": "Require all four complete historical layer prefixes and queries eligible before selecting current corrected-Prefill capture and native certificate composition. Otherwise reject this whole-prefix certificate, no granularity/threshold scan.",
+  "bounds": {
+    "host_assessments": 1,
+    "gpu_runs": 0,
+    "parameter_scans": 0
+  },
+  "expiry": "This host assessment; favorable result requires separately bounded current-payload/native/API package",
+  "artifact_root": ".q3x-work/mtp-qk-cache-certificate-20261014",
+  "production_changed": false
+}

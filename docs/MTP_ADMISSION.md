@@ -25,6 +25,30 @@ owns what actually executes. The native transaction below has scalar-oracle
 and isolated multi-row modes. The service composition below is a separate
 development API route; the default production service remains non-MTP.
 
+## 2026-10-14 QK cache certificate — closed at host screen
+
+`WP-MTP-QK-CACHE-CERTIFICATE-20261014` owns one
+[host feasibility check](metadata/qwen36-27b-mtp-qk-cache-certificate-design-2026-10-14.json).
+The earlier exact QK pair fusion had negative API value with guards inside
+every position iteration; its separate guard cost was not measured. Assess
+whether an immutable full-prefix KV certificate can move those checks to
+append/reset boundaries. Authenticate all original even-offset key/query
+operands in the four historical 40K layer captures. All four complete prefixes
+and queries must satisfy the unchanged exact-product predicate before a
+separate current-payload/native composition is selected. Failure closes this
+whole-prefix certificate without granularity or threshold scanning. Historical
+Legacy captures cannot admit current MTP execution. No GPU run or speed claim
+belongs to this screen; v101 and the full objective remain unchanged.
+
+The [completed host screen](metadata/qwen36-27b-mtp-qk-cache-certificate-rejection-2026-10-14.json)
+authenticates all eight captures and checks 81,932,288 BF16 operands. Queries
+pass; each complete key prefix fails on exact zeros (124/122/129/111 by layer).
+The frozen whole-prefix predicate therefore closes before native implementation
+or GPU tests. This is no current-MTP numerical result or hardware bound. No
+runtime, binary or performance baseline changes. A proof covering both products
+of each pair, including signed zeros, is a separate unselected mathematical
+question; it does not reopen this predicate or admit a new executor.
+
 ## 2026-10-14 private Attention PV partition — closed neutral
 
 `WP-MTP-PRIVATE-PV-SPLIT-20261014` / `AC-MTP-GREEDY-v101` selects one
